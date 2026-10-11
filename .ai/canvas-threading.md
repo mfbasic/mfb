@@ -298,7 +298,7 @@ now describe:
    swap the record's pointer (`IMAGE_PIXELS`) to it. The old block is not freed and
    not written. Then signal a redraw if the live scene names the image (§4 trigger 5).
 2. **Graphics**, while building a frame: a picture's geometry header captures the
-   block address current at that moment (`__canvas_pictureHeader`). The software
+   block address current at that moment (`__canvas_pictureStamp`). The software
    renderer samples that block per pixel (`canvas::shadowTexel`); both GPU emitters
    copy its texels, one packed word each, into the frame buffer's glyph region. Each
    emitter copies a distinct block ONCE per frame and points every later picture of it
@@ -1063,7 +1063,7 @@ The graphics thread's geometry cache (`helper_geometry.rs`, kept by the inline n
 members of `func_geo_cache.rs`) is keyed by the item's content hash through
 `__CANVAS_GEO_TABLE` (an open-addressing table of `(hash, slot)` over `__CANVAS_GEO_SLOTS`),
 and **a hit is trusted on the hash alone** — nothing is rebuilt to confirm it — except for a `Picture`, whose pixel block
-`setBytes` swaps without the item changing (`__canvas_pictureIsCurrent`). That is only
+`setBytes` swaps without the item changing (`__canvas_pictureCached`). That is only
 sound because the hash is 62 bits (two independent 31-bit lanes, `__canvas_hashStep`) and
 resolves a float to 2^-46 px (`__canvas_hashFloat`); the old single 31-bit lane collided
 at ~0.3 per frame at 10,000 items.
@@ -1291,6 +1291,62 @@ its arm, and an arm that copies a record is thousands of instructions: the conve
 `__canvas_autoItem` (eight arms, each a whole shape record) and the hash arm were
 24,744 bytes of code in every canvas program until they moved behind the gate. The
 arms that remain call a hook.
+
+## 17. A `Picture` is one or two draw entries (plan-172-L)
+
+`helper_picture.rs`. A `canvas::Picture` holds a shape and draws an image inside it, with
+no geometry kind, header slot or shader of its own: a **plain** picture (an image
+stretched over a square-cornered rectangle) is one picture record, and a **shaped** one
+is a picture record with the shape's outline for its clip, followed by the shape itself
+with no fill. The rules that keep that sound:
+
+- **An item that is not exactly ONE entry is negative in `__CANVAS_TOP_OFFSETS`.** That
+  list is one offset per scene index; `canvas::sceneDrawsFlat` lays the frame out from it
+  natively and declines on any negative, and `__canvas_sceneDrawsWalk` must then handle
+  the item. A group node (−1) was the only such item before; a shaped picture (two
+  entries, or none) is −2. Writing the first entry's offset there instead draws half the
+  picture on the GPU and all of it in software — the two-renderer failure, with nothing
+  raised.
+- **The draw walk takes a −2 item's blocks from the frame's ENTRIES, not from the item.**
+  Asking the item again re-reads its image, which the worker may have refilled or closed
+  since the entries were made: the first cut did, and a run that ended mid-frame
+  reported one block for a picture whose two entries the same frame had drawn. A frame
+  draws from one reading of each image (section 7).
+- **Nothing a multi-entry item draws from is cached under the item's own hash.** The
+  native first pass (`canvas::sceneResolve`) resolves an index from its hash alone, to
+  one record, and the walk never sees the item. A shaped picture's records are under the
+  hash stepped (`__canvas_pictureKey`); only a plain picture's is under the hash, and a
+  test reads the source to keep it so
+  (`canvas_picture_only_the_plain_record_is_cached_under_the_item_hash`).
+- **Inside a group the two walks each ask.** `__canvas_appendDraw` (the entries) and
+  `__canvas_memoGroup` (the group's GPU run, shared by its uses) both get a picture's
+  records from `__canvas_pictureQuick` / `__canvas_pictureBlocksOf`, which decide "is
+  this entry there" from the cached record's kind, not from the item — the same answer
+  unless the image changed in between, as it always could for a picture in a group.
+- **A record's coverage is its shape's TIMES its clip's.** Where a picture rectangle's
+  edge lies along its clip's, a half-covered pixel comes out a quarter covered. The
+  image record therefore lets the clip alone draw the edge: its radius slot (6) is 1
+  with its box (slots 2–5) whole, which moves the rectangle's edge a pixel out and the
+  image not at all — all three renderers take a rectangle's distance as box less radius
+  and sample a picture from the box alone. Check all three before leaning on a slot
+  like that again.
+- **Fit the image to the shape's exact box, never a flattened outline's.** A circle's
+  flattened ring is its box to ~4e-5 px (the package's own sine). A destination that far
+  off a whole number moves a texel boundary off a pixel centre, and float32 (the GPU) and
+  float64 (the oracle) then pick different texels along that whole row — 44 pixels, max
+  delta 220, found only by the Metal comparison.
+- **The chunk is gated on constructing a `Picture`, and so is everything it needs from
+  another gated chunk.** `__canvas_itemId` lives in the `pollMouse`-gated hit chunk; a
+  picture chunk that called it built only for programs that poll the mouse. A gated
+  chunk may call the unconditional source and another chunk's hooks (the names its
+  `ABSENT` twin also defines) and nothing else.
+- **An `AutoPaint` for a shape** makes the picture an instance at the picture's place.
+  It is then always two entries, either of which may be the empty record, so the
+  frame's resolve can swap both in place; the instance's entry is the OUTLINE's, which
+  is the shape and so is what the pointer is tested against. The host picture is kept
+  by the picture chunk (`__CANVAS_PICTURE_HOSTS`), not the AutoPaint chunk — a
+  `List OF DrawItem` there cost every `AutoPaint` program 19 KB of code for a picture it
+  may not have.
 
 ## See also
 

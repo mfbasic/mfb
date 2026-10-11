@@ -504,7 +504,7 @@ fn picture_frame(name: &str, body: &str, env: &[(&str, &str)]) -> Vec<u8> {
         "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT os\n\nFUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(0), toByte(255), toByte(0), toByte(255)])\n  \
-         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
          LET mark AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 700.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
          {body}END FUNC\n"
     );

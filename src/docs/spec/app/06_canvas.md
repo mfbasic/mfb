@@ -95,10 +95,21 @@ is named), every `MATCH` over `DrawItem` answers its `AutoPaint` arm with the sh
 (`__canvas_autoItem`). [[src/codegen/builtins/canvas/helper_autopaint.rs:RESOLVE]]
 Its `shape` field is a union, so the record has no default value: an `AutoPaint` is
 written as a full literal, not built up from `MUT a AS canvas::AutoPaint`. It is hashed
-in MFBASIC — its shape's hash, its four flags and its four paints — because the native
-hash does not fold a union field, and it is never carried from the previous scene's
-hashes, because the shape it wraps may be a `Text`, whose hash folds its font's id.
+in MFBASIC — its shape's hash, its four flags and its four paints — and it is never
+carried from the previous scene's hashes, because the shape it wraps may be a `Text`,
+whose hash folds its font's id.
 [[src/codegen/builtins/canvas/func_carried_hashes.rs:lower_carried_hashes]]
+
+A `canvas::Picture` holds an `AutoShape` and draws an image inside it (*A picture is
+drawn inside a shape*, below). It has an `id` of its own and nothing else a shape has:
+no `position`, `paint` or `transform`. Its `shape` field is the one union the native
+hash folds. The picture's other fields are folded first; then the shape's tag is
+folded and the walk branches back to its own variant dispatch with the shape's record
+in place of the item's, which folds that record and finishes — one pass, and no second
+copy of any variant's fold. A shape the walk does not hash (a `Text`, an `AutoPaint`)
+falls out of the dispatch as −1, as it would on its own, and the picture is hashed in
+MFBASIC (`__canvas_pictureHash`).
+[[src/codegen/builtins/canvas/func_item_hash.rs:emit_item_hash]]
 
 ## A published scene points at nothing caller-owned
 
@@ -160,7 +171,7 @@ changing item type.
 ### Placement
 
 Every shape is placed by `position`: the centre for a `Circle`, an `Ellipse` and an
-`Arc`, the left end of the baseline for a `Text`, the top-left corner for a `Picture`,
+`Arc`, the left end of the baseline for a `Text`,
 for a `Rectangle` the point its `bind` names — its top-left corner (`BindTo.TopLeft`,
 the zero value) or its centre (`BindTo.Center`) — and for a `Line`, a `Polygon` and a
 `PolyLine` the point their points are measured from. Their geometry is **local** — it
@@ -259,10 +270,10 @@ The native builder draws paths 1 and 2 only when the four radii are equal and ar
 either all `<= 0` or all `> 1`; every other rectangle is built by the MFBASIC builder.
 [[src/codegen/builtins/canvas/func_geo_build.rs:emit_rect_inputs]]
 
-A `Picture` binds top-left and has no radii: it always takes path 1, which is what
-keeps its sampling rectangle readable from the record's own slots.
+A `Picture`'s record is always path 1, whatever its shape: the image is sampled from
+the rectangle in the record's own slots (*A picture is drawn inside a shape*).
 
-`canvas::Size` — a rectangle's and a picture's `size`, and what `canvas::getSize`
+`canvas::Size` — a rectangle's `size`, and what `canvas::getSize`
 returns — is two `Float`s. A shape's extent may be a fraction of a pixel; the
 surface's and an image's are whole numbers held as Floats.
 
@@ -532,7 +543,7 @@ The cap travels as header slot 34 (0 `Butt`, 1 `Round`, 2 `Square`), written by 
 [[src/codegen/runtime/canvas/mod.rs:emit_square_cap_reach]]
 
 **`join` shapes the corners**: every vertex where two edges of a `Polygon` ring or a
-`PolyLine` meet, and a `Rectangle`'s or `Picture`'s four corners when they are square. A rectangle with
+`PolyLine` meet, and a `Rectangle`'s four corners when they are square — a plain `Picture`'s record is that rectangle's. A rectangle with
 one circular radius has no corners to join; one drawn from a flattened ring (above)
 is joined at every vertex of the ring.
 
@@ -582,7 +593,7 @@ outline starts, taken modulo the pattern's length (and may be negative).
 * **Where `s = 0` is.** Every point of the outline has a perimeter position `s`: a `Line`
   from `startAt`; an `Arc` from `startAngle`; a `PolyLine` from `points[0]`; each
   `Polygon` ring from its own first point (each ring restarts the pattern, as SVG
-  restarts it per subpath); a `Rectangle` or `Picture` from its top-left corner,
+  restarts it per subpath); a `Rectangle` (and so a plain `Picture`) from its top-left corner,
   clockwise (towards +X under Y-down); a rounded `Rectangle` from the left end of its top
   straight side, clockwise; a `Circle` or `Ellipse` from angle 0 (+X in its own frame),
   the way angles increase.
@@ -742,17 +753,19 @@ specified separately: each pixel of the run's transformed bounds samples the gly
 coverage at its inverse-mapped point. The result is the same rule stated for shapes,
 and a rotated label is a rotated label on every backend.
 
-**A `Picture` is a rectangle whose fill colour is its image.** Its coverage, its
-antialiased edge, its stroke, `Paint.clip`, `Paint.blend`, its `transform` and a
-group's translation are exactly those of a square-cornered `Rectangle` with the same
-`position` and `size` —
+**A picture record is a rectangle whose fill colour is its image.** Its coverage, its
+antialiased edge, its stroke, `Paint.clip`, `Paint.blend`, its transform and a
+group's translation are exactly those of a square-cornered `Rectangle` —
 the geometry is built as one and re-kinded. Only the fill colour differs: at each pixel
 the image is sampled at the shape-space point (the inverse-mapped point under a
 transform, the group-relative one inside a group), **nearest**, as texel
-`(floor((px - x) * width / w), floor((py - y) * height / h))` clamped to the image. It
+`(floor((px - x) * width / w), floor((py - y) * height / h))` clamped to the image,
+`(x, y, w, h)` being the rectangle in the record's slots 2 to 5. It
 is nearest for the reason a transformed glyph is: `floor` and `+ - * /` only, so every
 backend picks the same texel; a bilinear filter would change edge bytes between
-renderers unless all three shared identical fixed-point weights.
+renderers unless all three shared identical fixed-point weights. Which rectangle that
+is, and what else a `canvas::Picture` item draws, is *A picture is drawn inside a
+shape*, below.
 
 The texel is then **tinted** by `Paint.fill`, whose alpha is the tint's strength, not
 the picture's opacity. Each colour channel moves from the texel towards the product
@@ -768,6 +781,7 @@ alone: `(texel.alpha * (255 - T) + 127) / 255`, `T` the transparency step below.
 fill's alpha never fades it. `Paint.gradient` is ignored — the image, not a ramp,
 fills a picture. An item whose image has been closed draws nothing (see *Images are
 named, not embedded*).
+[[src/codegen/builtins/canvas/helper_picture.rs:PICTURE]]
 [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
 [[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
@@ -1266,6 +1280,10 @@ area — with one more thing carried down: the path. A group node passes its chi
 | an item with no `id`, in a group drawn by node `save` | `save` |
 | `label`, in a group drawn by a node with no `id` | `label` |
 | nothing on the path has an `id` | `""` |
+| a `Picture` `avatar` on a shape `frame` | `avatar::frame` |
+| a `Picture` `avatar` on a shape with no `id` | `avatar` |
+| a `Picture` with no `id` on a shape `frame` | `frame` |
+| the first of those, in a group drawn by node `card` | `card::avatar::frame` |
 
 The path belongs to the draw ENTRY. A group's stored items are not renamed, and one item
 reached through two nodes is two entries with two paths. Two nodes with the same `id`,
@@ -1278,9 +1296,22 @@ function's leaf does what a hit list must not: it builds the renderer's record
 natively by `canvas::sceneLayout`, which moves one word per entry per list and knows no
 list of strings.
 
-`__canvas_hitGeometry` chooses the record. Every kind but two is the renderer's
-(`__canvas_geometryFor`). A `Text` is `__canvas_textBoxHeader`, above, and a `Picture`
-is its rectangle (`__canvas_rectHeader`), without the image's pixel block.
+`__canvas_hitGeometry` chooses the record. Every kind but one is the renderer's
+(`__canvas_geometryFor`). A `Text` is `__canvas_textBoxHeader`, above.
+
+**A `Picture` is hit as its shape.** `__canvas_hitAppend`'s `Picture` arm goes round
+again with the shape as the item (`__canvas_pictureHitItem`) and the path joined with
+the picture's own `id` — exactly what a group node does for its children — so the
+picture is over wherever its shape is, whatever part of it the image covers, and by
+that shape's own region rule. Two pictures built on one shape value are two entries
+with two paths. A picture that draws nothing — its image is closed, or its shape has
+no inside — answers a group that names nothing, and appends no entry: what is not
+drawn is not there to be hit. `canvas::sceneIdBits` reads both of a picture's `id`s
+natively (the shape's is one more load away), so a scene of pictures with no `id`
+anywhere still answers 0 and builds nothing; only a picture whose shape is an
+`AutoPaint` is left to `__canvas_reachesId`.
+[[src/codegen/builtins/canvas/helper_hit.rs:BODY]]
+[[src/codegen/builtins/canvas/func_item_hash.rs:lower_scene_id_bits]]
 
 ### `canvas::pollMouse`
 
@@ -1509,6 +1540,14 @@ a record cached under one would let the native pass
 therefore always resolved by the MFBASIC walk, as a `Picture` is, and a frame holding
 one copies the scene out of the ring.
 
+An `AutoPaint` that is a `Picture`'s shape is an instance like any other, at the
+picture's place, noted by `__canvas_pictureAppend` (`__canvas_autoNote`). The picture
+is then always TWO entries — the image, then the outline, either of which may be the
+empty record — and the instance's entry is the second: the outline is the shape, so it
+is what the pointer is tested against. When the instance shows a state paint, both
+entries are swapped for that paint's records (`__canvas_pictureAutoBlocks`): its fill
+is the image's tint, its stroke the outline's.
+
 After `canvas::sceneLayout`, when the frame has an instance or the last frame had one
 (`__canvas_autoPending`), `__canvas_autoResolve`:
 
@@ -1629,7 +1668,112 @@ normal build has none of the three.
 An `Image` is an ordinary resource, closing when it leaves scope or with
 `canvas::destroyImage`. An item that draws one names it directly:
 `canvas::Picture.image` is a `RES canvas::Image`, and `canvas::Text.font` is a
-`RES canvas::Font`.
+`RES canvas::Font`. A `Picture` whose shape is a `Text` names that text's font as well
+— it draws nothing, but it holds the font, and the group ownership rules below count
+it.
+
+### A picture is drawn inside a shape
+
+`canvas::Picture` is `id`, `shape AS canvas::AutoShape`, `clip AS canvas::PictureClip`,
+`fit AS canvas::PictureFit` and `image`. The shape says where the picture is and what
+outline it is cut to, and the shape's paint is the picture's: `fill` tints, `transparency`
+fades, `blend` composites, `stroke` outlines the shape on top of the image, and `clip`
+cuts the image further. The shape's interior is never filled.
+
+**A picture is one or two ordinary draw entries, made where the draw list is built.**
+There is no geometry kind, header slot, item-block field or shader for a shaped
+picture: what the three renderers draw is records they already drew.
+[[src/codegen/builtins/canvas/helper_picture.rs:PICTURE]]
+
+- **A plain picture** — `fit` is `Stretch`, the shape is a `Rectangle` with four square
+  corners, and either `clip` is `ClipAndTransform` or the rectangle's transform is not
+  in effect — is ONE picture record: the rectangle's own, re-kinded, carrying its
+  stroke and its `paint.clip` (`__canvas_picturePlain`). It is cached under the item's
+  hash like any item's record.
+- **A shaped picture** is the **image**, a picture record over the fitted destination
+  rectangle with the outline for its clip, and then the **outline**, the shape itself
+  with a transparent fill and no gradient (`__canvas_pictureOutlineItem`) — an
+  ordinary item, stroked, clipped and transformed as the shape alone would be. The
+  outline is there when the stroke draws, and under `Contain`, where the image may not
+  reach the shape's edge. An entry whose record is the empty one is left out.
+
+A shaped picture's two records are cached under the item's hash stepped
+(`__canvas_pictureKey`), never under the hash itself: a record there would let
+`canvas::sceneResolve` resolve the item to ONE record without the walk seeing it. A
+top-level item that became other than one entry is −2 in `__CANVAS_TOP_OFFSETS` (a
+group node is −1), which sends the frame to `__canvas_sceneDrawsWalk`. That walk takes
+the item's blocks from the frame's own draw entries (`__CANVAS_FRAME_ENTRIES`, found
+through the spans `canvas::sceneLayout` was given) and does not ask the item again: an
+image may be refilled or closed between the two walks, and a frame draws from one
+reading of it. A picture inside a group is laid out by `__canvas_memoGroup`
+(`__canvas_pictureBlocks`). Either
+way a picture record is confirmed against the image's current pixel block before it is
+used (`__canvas_pictureCached`) — `canvas::setBytes` swaps the block without changing
+the item, so it is the one cached kind a hash cannot vouch for.
+
+**The outline** is rings and a fill rule: a `Rectangle`'s `__canvas_rrectRing`; a
+`Circle`'s or an `Ellipse`'s flattened so no chord is more than 0.05 px from the curve,
+up to 512 points (`__canvas_ellipseRing`); a `Polygon`'s own contours and rule. A
+`Line`, an `Arc`, a `PolyLine` and a `Text` have none, and a picture on one draws
+nothing. [[src/codegen/builtins/canvas/helper_picture.rs:PICTURE_GEOMETRY]]
+
+**Fit.** With the shape's box `B` and the image's size `I`, `__canvas_pictureFit`
+answers the destination rectangle: `B` itself for `Stretch`; the largest rectangle of
+`I`'s proportions inside `B`, centred, for `Contain`; the smallest one that covers `B`,
+centred, for `Cover`. `B` is the shape's exact box where it has one — a rectangle's, a
+circle's centre ± its radius, an ellipse's — and the box of the outline's points
+otherwise. Not the flattened outline's box for a curve: that is the true one only to
+the accuracy of this package's sine (4.6e-7), and a destination a hair off a whole
+number moves a texel boundary off a pixel centre it should sit exactly on, where a
+renderer working in float32 and one working in float64 pick different texels.
+
+**Clip mode.** Under `ClipAndTransform` the outline and the destination are in the
+shape's local space and the image record carries the shape's placement transform: turn
+the shape and the image turns. Under `ClipOnly` with a transform in effect, the outline
+(and `paint.clip`) are sent through the transform first, `B` is the box of the result,
+and the record carries no transform: the image stays upright, cut to the turned shape.
+With no transform in effect the two are the same picture. Enclosing groups apply to
+both entries through the draw entry's matrix.
+
+**`paint.clip` on a shaped picture is intersected with the outline.** A record has one
+clip, so `__canvas_clipIntersect` computes the boundary of the two regions' overlap —
+each under its own fill rule — as one edge set, read under the even-odd rule. It works
+by horizontal bands: the band boundaries are every vertex `y` of either set and every
+`y` at which two edges cross; inside a band no two edges cross, so each set's interior
+is a list of x-intervals; the two lists are intersected; each surviving interval gives
+its left and right bounding edges, and where two bands meet, the horizontal boundary is
+the symmetric difference of the two bands' intervals. The result is the outline of the
+intersection and nothing else. No edge lies inside the region, which matters because a
+clip's coverage is taken from the distance to its nearest edge: an interior edge would
+draw a seam. An intersection that encloses nothing is the empty record. The outline
+entry carries `paint.clip` alone, as any shape does.
+
+**One antialiased edge.** A record's coverage is its rectangle's times its clip's, and
+where the image's edge lies along the outline — every straight side of a rectangle
+under `Stretch` — a pixel half covered by each would come out a quarter covered. So the
+clip alone draws the edge: the image record's radius slot (6) is set to 1 with its box
+(slots 2 to 5) left whole. A rectangle's distance is its box's less its radius, on all
+three renderers, and the image is sampled from the box alone, so that moves the
+rectangle's own edge a pixel out — where the clip has already reached zero — and the
+image not at all. Under `Contain` the image stops short of the outline on two sides,
+and those sides are part of the edge too: the outline is intersected with the
+destination rectangle. A `Contain` picture whose paint ALSO has a clip would need two
+intersections; it keeps the rectangle's own edge, and is the one case with two.
+
+Against a filled `Circle` of the same radius, a circle-clipped picture of one white
+texel differs on 1,456 of 74,508 covered pixels, worst by 61 of 255 at a pixel the
+circle covers 4.7% and the flattened outline does not reach — the 0.05 px bound, seen
+through the frame's sRGB encoding where it is steepest. Where the image's edge and the
+outline coincide the two are equal.
+
+**What it costs.** The code is in a chunk compiled only into a program that constructs
+a `Picture` (`HelperGate::WhenUsedOrConstructed`; every other program gets `ABSENT`'s
+eight one-line bodies). On macOS AArch64 (`__text`): a canvas program with no picture
+is 16,904 bytes smaller than before a picture had a shape, because the picture record
+builder left the unconditional source; a program with pictures is 226,012 larger, most
+of it the image builder, the outline item, and the intersection. A plain picture costs
+a frame what it did: one cache probe under its hash, with no list made and the shape
+not copied out of the item (`__canvas_picturePlainOffset`).
 
 **Naming a resource in a scene does not keep it alive.** The scene draws through
 the image you still own, and closing it is still yours to do — `canvas::destroyImage`

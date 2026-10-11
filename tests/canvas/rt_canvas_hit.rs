@@ -203,7 +203,7 @@ fn hit_region_a_closed_shape_is_its_interior_and_its_stroke() {
   disc = WITH disc { id := "disc", position := at(700.0, 130.0), radius := 40.0, paint := grey() }
   LET discItem AS canvas::DrawItem = disc
   RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(0), toByte(255), toByte(0), toByte(255)])
-  LET picItem AS canvas::DrawItem = canvas::Picture[id := "pic", position := at(100.0, 300.0), size := canvas::Size[width := 40.0, height := 40.0], image := img, paint := grey(), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET picItem AS canvas::DrawItem = canvas::Picture[id := "pic", shape := canvas::Rectangle[id := "", position := at(100.0, 300.0), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 40.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := grey(), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   canvas::present([rect("solid", 100.0, 100.0, 80.0, 60.0), hollowItem, ghostItem, discItem, picItem])
   report("over")
 "#,
@@ -635,4 +635,86 @@ fn a_polled_event_is_a_whole_record() {
         ],
         "{stdout}"
     );
+}
+
+/// The Rust-side text of a `canvas::Picture` with `Stretch` and `ClipOnly`.
+fn picture(id: &str, shape: &str, image: &str) -> String {
+    format!(
+        "canvas::Picture[id := \"{id}\", shape := {shape}, clip := canvas::PictureClip.ClipOnly, \
+         fit := canvas::PictureFit.Stretch, image := {image}]"
+    )
+}
+
+/// plan-172-L: a `Picture` is hit as its shape, and its own `id` goes in front of the
+/// shape's.
+///
+/// * `a` and `b` are two pictures built on ONE shape value, the circle `frame` of
+///   radius 50 at (200, 200). They are two entries with two paths: `b` is presented
+///   last, so (200, 200) is `b::frame` — and `a::frame` once the scene is presented
+///   again with the two the other way round.
+/// * `avatar` is a named picture on an UNNAMED rounded rectangle, (400, 150) 80 by 80
+///   with 20 px corners: (440, 190) reports the picture's `id` alone. (401, 151),
+///   centre half a pixel inside the rectangle's box, is outside its rounded corner —
+///   the picture is hit as its shape, not as its box.
+/// * An unnamed picture on the circle `ring`, radius 40 at (600, 200), reports the
+///   shape's `id` alone at (600, 200); (630, 230), centre 43.1 px out, is outside it.
+/// * `bar` is a picture on a `Line`, which has no inside: it draws nothing, and
+///   (200, 400), on the line, is over nothing.
+/// * The group `cardg` holds a picture `avatar` on a circle `frame` of radius 30 about
+///   its origin; the node `card` puts it at (700, 400), and (700, 400) reports group,
+///   picture, shape in that order.
+#[test]
+fn id_path_a_picture_goes_in_front_of_its_shape() {
+    let expected = [
+        ((200, 200), "b::frame"),
+        ((440, 190), "avatar"),
+        ((401, 151), ""),
+        ((600, 200), "ring"),
+        ((630, 230), ""),
+        ((200, 400), ""),
+        ((700, 400), "card::avatar::frame"),
+    ];
+    let swapped = [
+        ((200, 200), "a::frame"),
+        ((440, 190), ""),
+        ((401, 151), ""),
+        ((600, 200), ""),
+        ((630, 230), ""),
+        ((200, 400), ""),
+        ((700, 400), ""),
+    ];
+    let body = format!(
+        r#"  RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(0), toByte(255), toByte(0), toByte(255)])
+  RES inCard AS canvas::Image = canvas::createImage(1, 1, [toByte(255), toByte(0), toByte(0), toByte(255)])
+  MUT frame AS canvas::Circle
+  frame = WITH frame {{ id := "frame", position := at(200.0, 200.0), radius := 50.0, paint := grey() }}
+  LET a AS canvas::DrawItem = {a}
+  LET b AS canvas::DrawItem = {b}
+  MUT soft AS canvas::Rectangle
+  soft = WITH soft {{ position := at(400.0, 150.0), size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 20.0, radiusTR := 20.0, radiusBL := 20.0, radiusBR := 20.0, paint := grey() }}
+  LET avatar AS canvas::DrawItem = {avatar}
+  MUT ring AS canvas::Circle
+  ring = WITH ring {{ id := "ring", position := at(600.0, 200.0), radius := 40.0, paint := grey() }}
+  LET ringed AS canvas::DrawItem = {ringed}
+  MUT stroke AS canvas::Line
+  stroke = WITH stroke {{ id := "stroke", startAt := at(100.0, 400.5), endAt := at(300.0, 400.5), paint := canvas::stroke(color::rgb(200, 200, 200), 20.0) }}
+  LET bar AS canvas::DrawItem = {bar}
+  MUT inner AS canvas::Circle
+  inner = WITH inner {{ id := "frame", radius := 30.0, paint := grey() }}
+  canvas::setGroup("cardg", [{carded}])
+  canvas::present([a, b, avatar, ringed, bar, node("card", "cardg", 700.0, 400.0)])
+  report("over")
+  canvas::present([b, a])
+  report("over")
+"#,
+        a = picture("a", "frame", "img"),
+        b = picture("b", "frame", "img"),
+        avatar = picture("avatar", "soft", "img"),
+        ringed = picture("", "ring", "img"),
+        bar = picture("bar", "stroke", "img"),
+        carded = picture("avatar", "inner", "inCard"),
+    );
+    let reports = over("canvas_hit_picture", &body, &points(&expected));
+    assert_over(&reports[0], &expected);
+    assert_over(&reports[1], &swapped);
 }

@@ -249,45 +249,82 @@ Acceptance: the fit and outline cases pass.
   Check: `cargo test --test rt_canvas_picture_fit` → pass (est. 3 min; the plan wrote
   `cargo test --bin mfb canvas_picture_fit`, see Corrections).
   Observed 2026-10-11: "9 passed; 0 failed".
-Commit: —
+Commit: a32506096
 
 ### Phase 2 — The record and the port, plain rectangles only
 
-- [ ] `mod.rs`: the two enums; `Picture` becomes `id` and the four fields; its
-      description rewritten around the bullets in `planning/new_canvas.md`.
-- [ ] `__canvas_appendDraw`: the picture arm, taking the plain-rectangle path for a
+- [x] `mod.rs`: the two enums; `Picture` becomes `id` and the four fields; its
+      description rewritten around the bullets in `planning/new_canvas.md`. Rendered:
+      `mfb man canvas types` shows `canvas::PictureClip`, `canvas::PictureFit` and the
+      five-field record.
+- [x] `__canvas_appendDraw`: the picture arm, taking the plain-rectangle path for a
       plain rectangle and the two-entry path otherwise; `__canvas_pictureHeader` takes a
-      destination rectangle, a paint and optional clip rings.
-- [ ] The image-naming helpers (`__canvas_listNamesImage`, `__canvas_closeRetired`) and
+      destination rectangle, a paint and optional clip rings. As
+      `helper_picture.rs:PICTURE` (Corrections): `__canvas_pictureAppend`,
+      `__canvas_picturePlainOffset` / `__canvas_picturePlain` for the plain record,
+      `__canvas_pictureImageOf` for a shaped picture's image, `__canvas_pictureStamp`
+      for what both share.
+- [x] The image-naming helpers (`__canvas_listNamesImage`, `__canvas_closeRetired`) and
       `canvas::setBytes`'s live-scene check read `Picture.image` as before; confirm with
-      the ownership suite.
-- [ ] `helper_hit.rs`: a picture is hit as its shape.
-- [ ] `__canvas_appendDraw`'s picture arm joins the picture's `id` onto the path before
+      the ownership suite. `cargo test --test rt_canvas_group_ownership` → "11 passed; 0
+      failed". One thing is new: a `Picture` on a `Text` names that text's FONT, so the
+      two font helpers count it (`__canvas_pictureNamesFont`,
+      `__canvas_pictureCloseFont`).
+- [x] `helper_hit.rs`: a picture is hit as its shape. `__canvas_hitAppend`'s `Picture`
+      arm goes round again with `__canvas_pictureHitItem`.
+- [x] `__canvas_appendDraw`'s picture arm joins the picture's `id` onto the path before
       its shape's, for both of a shaped picture's entries. Cases in
       `tests/canvas/rt_canvas_hit.rs`: two pictures built on one shape value report two
       paths; a named picture on an unnamed shape reports the picture's `id`; an unnamed
       picture on a named shape reports the shape's; a picture inside a named group
       reports group, picture, shape in that order.
+      `id_path_a_picture_goes_in_front_of_its_shape`: those four, and three more in the
+      same scene — a point inside a rounded rectangle's box and outside its corner is
+      over nothing, a point inside a circle's box and outside the circle likewise, and a
+      picture on a `Line` is not there to be hit. `cargo test --test rt_canvas_hit` →
+      "13 passed; 0 failed". (The walk is `__canvas_hitAppend`, as 172-I's hand-off
+      note says; `__canvas_appendDraw` carries no id path.)
 - [x] ~~Add `canvas::picture(shape, image)` with a man example.~~ — moot: Open
       Decision 1 of 172-A was answered "no constructor functions"
       (`grep -c 'ANSWER: no constructor functions' planning/completed/plan-172-A-*.md`
       → 1). A `Picture` holds a `UNION` and a `RES`, so it has no default and is built
       with its five-field constructor.
-- [ ] Port the 71 sites to a `Rectangle` shape with `ClipOnly` and `Stretch`. Each
+- [x] Port the 71 sites to a `Rectangle` shape with `ClipOnly` and `Stretch`. Each
       site's `id` stays on the `Picture`; the new `Rectangle`'s `id` is empty, so every
-      site reports the `overID` it reported before.
-- [ ] `FIELD_KIND_TABLE` and its `.tsv`; the IR-embedding goldens.
+      site reports the `overID` it reported before. 70 literals in 23 files, by
+      `/tmp/plan-172-A/port_pictures.py`; the other two of the 72 counted on entry are
+      a comment in `mod.rs` about the old `imageRef` form and a golden `build.log` that
+      echoes a ported source line. Three sites are `ClipAndTransform`, not `ClipOnly`
+      (Corrections).
+- [x] `FIELD_KIND_TABLE` and its `.tsv`; the IR-embedding goldens. The table and the
+      `.tsv` are unchanged and right: `canvas.Picture` keeps its row (it is still a
+      record that cannot be built by default), and the two new types are enums, which
+      have none — `cargo test --test inplace_self_update_census` → "2 passed", `cargo
+      test --bin mfb field_kind_census` → "1 passed". The goldens that embed the
+      companion source were resynced after the whole round: `scripts/artifact-gate.sh
+      target/release/mfb all` reported 8 diffs, all in `syntax/app/app-mouse-surface`
+      and `syntax/resources/loop-body-resource-reference-valid`, and after
+      `sync-goldens.sh` and `regen-native-goldens.sh` reports "2322 golden(s) checked, 0
+      diff(s)". Two `build.log` goldens moved with them, each for a stated reason
+      (Corrections).
 
 Acceptance: every picture test passes with no golden regenerated.
   Check: `cargo test --test rt_canvas_picture --test rt_canvas_group_ownership --test
   rt_canvas_graphics_thread --test rt_canvas_metal` → pass (est. 12 min); `git status
   --porcelain tests/golden/canvas` → empty.
+  Observed 2026-10-11, before any shaped case existed: "11 passed", "11 passed", "17
+  passed; 0 failed; 2 ignored", "50 passed", and the status empty. In the closing round:
+  16, 11, 17 and 52 passed, and the status is one line, `?? tests/golden/canvas/
+  picture_shapes.png` — Phase 3's new reference; no existing one moved.
 Commit: —
 
 ### Phase 3 — Shaped pictures (largest blast radius)
 
-- [ ] The two-entry path for `Circle`, `Ellipse`, `Polygon` and rounded `Rectangle`,
-      both clip modes, all three fits.
+- [x] The two-entry path for `Circle`, `Ellipse`, `Polygon` and rounded `Rectangle`,
+      both clip modes, all three fits. `__canvas_pictureBlocksOf` and
+      `__canvas_pictureImage`; a `Rectangle` with square corners takes it too whenever
+      it is not the plain case (a fit other than `Stretch`, or `ClipOnly` under a
+      transform).
 - [x] ~~The raise for `paint.clip` on a shaped picture: allocate the next free `7705xxxx`
       code, add it to `src/docs/spec/diagnostics/02_error-codes.md`'s Constant Registry
       and `src/codegen/builtins/errorcode/mod.rs`, and raise it from the worker-side
@@ -295,38 +332,71 @@ Commit: —
       Decision 3 of 172-A was answered "intersect the two clips"
       (`grep -c 'ANSWER: intersect the two clips' planning/completed/plan-172-A-*.md`
       → 1), so nothing is raised.
-- [ ] The image entry's clip for a shaped picture that sets `paint.clip` is
+- [x] The image entry's clip for a shaped picture that sets `paint.clip` is
       `__canvas_clipIntersect(outline, paint.clip)`; the outline entry carries
-      `paint.clip` alone; an empty intersection emits no image entry.
-- [ ] Scene `tests/canvas/scenes/picture_shapes_on_black.mfb` and golden
+      `paint.clip` alone; an empty intersection emits no image entry. The empty record
+      is cached under the image's key and the entry left out wherever a record's kind is
+      NONE, so the two walks decide it the same way.
+- [x] Scene `tests/canvas/scenes/picture_shapes_on_black.mfb` and golden
       `tests/golden/canvas/picture_shapes.png`: a picture in a circle, in a rounded
       rectangle, in a star polygon; `Contain` and `Cover` side by side; one shape
       rotated under each clip mode; one translucent picture; one inside a scaled group;
-      one picture in a circle with a star `paint.clip` (the intersection).
-- [ ] Runtime cases in `tests/canvas/rt_canvas_picture.rs`: a pixel just outside the
+      one picture in a circle with a star `paint.clip` (the intersection). And four
+      more: a tinted triangle, a rectangle with four different corners under `Cover`, a
+      picture whose shape is an `AutoPaint`, and a picture on a `Line`.
+- [x] Runtime cases in `tests/canvas/rt_canvas_picture.rs`: a pixel just outside the
       circle is background; the stroke outlines the circle; a `Line` shape draws
       nothing; `setBytes` on the image repaints the shaped picture; an `AutoPaint` shape
       under a scripted hover changes the tint; a circle picture with a half-plane
       `paint.clip` shows image pixels only in the half inside both, is background in
       the half inside the circle alone, and has no seam (no pixel inside the
       intersection, more than 2 pixels from its boundary, differs from the unclipped
-      picture's pixel there).
-- [ ] Measure the clipped-circle edge against a filled circle and record the worst
-      per-channel delta in Corrections.
+      picture's pixel there). Five tests there —
+      `a_shaped_picture_is_its_image_inside_the_shape_and_its_stroke_on_top`,
+      `contain_fits_inside_the_shape_and_cover_is_cut_to_it`,
+      `clip_only_keeps_the_image_upright_and_clip_and_transform_turns_it`,
+      `set_bytes_repaints_a_shaped_picture`,
+      `a_shaped_picture_with_a_clip_shows_only_where_both_cover` (every pixel more than 2 px
+      inside the intersection is compared, and there must be more than 3,000) — and the `AutoPaint`
+      one in `rt_canvas_autopaint.rs`, where the scripted-pointer runner is:
+      `a_picture_on_an_autopaint_shows_the_state_paint_as_its_tint_and_outline`, in
+      the scene and in a group drawn twice. "16 passed" and "18 passed".
+- [x] Measure the clipped-circle edge against a filled circle and record the worst
+      per-channel delta in Corrections. 61 of 255; the entry below says where and why.
 - [x] ~~A `tests/rt-error/canvas/` fixture for the new raise (the directory is new;
       `ls tests/rt-error/canvas` → no such directory today).~~ — moot: there is no
       raise (Open Decision 3 of 172-A, as above).
-- [ ] A Metal parity case; add the scene to `scripts/test-canvas-gpu-rows.sh`; run the
-      Vulkan row on box 2226.
-- [ ] `src/docs/spec/app/06_canvas.md` "Images are named, not embedded": the two-entry
+- [x] A Metal parity case; add the scene to `scripts/test-canvas-gpu-rows.sh`; run the
+      Vulkan row on box 2226. Two Metal cases
+      (`picture_shapes_match_the_software_oracle_on_metal`,
+      `a_hovered_autopaint_picture_matches_the_software_oracle_on_metal`) and two rows
+      (`pictureshapes`, `pictureauto`). On box 2226: "ok: pictureshapes: Vulkan matches
+      the software oracle (ok worst=1 differing=0.9155%, 168562 lit)", "ok: pictureauto:
+      … (ok worst=1 differing=0.9144%, 169198 lit)", `geoVerifyMismatches=0` on all
+      four runs. The same two rows on box 2227 (x86_64, musl, lavapipe): the same two
+      lines. On box 206 (Windows, Intel UHD 630): "worst=1 differing=1.2231%" and
+      "worst=1 differing=1.2191%" — after the scene was changed for bug-1074
+      (Corrections).
+- [x] `src/docs/spec/app/06_canvas.md` "Images are named, not embedded": the two-entry
       expansion, the fit rules, the two clip modes and the clip intersection, each cited.
+      A new subsection there, "A picture is drawn inside a shape", and with it: "The
+      item unions" (the hash that folds a union field), "Rendering conventions" (what a
+      picture RECORD is), "The walk, and the id path" (four rows and the hit rule), and
+      "AutoPaint — One frame" (an instance that is a picture's shape).
+      `cargo test --bin mfb spec` → "46 passed".
 
 Acceptance: the new golden renders identically twice; Metal and Vulkan match it within
 `Tolerance::GPU_DEFAULT`; a shaped picture with a `paint.clip` shows the image exactly
 where both cover, with no seam.
   Check: `cargo test --test rt_canvas_golden picture_shapes --test rt_canvas_picture
   --test rt_canvas_metal picture` → pass, and `scripts/test-canvas-vulkan.sh
-  target/release/mfb --box 2226` → pass (est. 15 min).
+  target/release/mfb --box 2226 --target linux-aarch64` → pass (est. 15 min; the
+  `--target` is needed, the script's default is x86_64).
+  Observed 2026-10-11: "1 passed" (`picture_shapes_match_their_reference_exactly`, which
+  renders twice and compares), "16 passed", "3 passed"; "canvas Vulkan runtime tests
+  passed". The whole-letter round (`/tmp/plan-172-A/round_l.sh`: 39 test targets, the
+  in-binary `canvas`, `spec`, wider and census subsets): every target passed, 0 FAILED
+  lines.
 Commit: —
 
 ## Validation Plan
@@ -337,7 +407,12 @@ Commit: —
   host — a shaped picture's clip edges count against the frame's edge cap, and a frame
   that silently declined would still match.
 - Runtime proof: `examples/fractals-image` with its picture placed in a circle, run
-  headless and dumped.
+  headless and dumped. Done 2026-10-11 on a scratch copy
+  (`/tmp/plan-172-A/fractal_circle.sh`: the `Rectangle` swapped for a `Circle` with a 4
+  px outline, `Cover`): 25 s on the GPU path wrote 1,145 stats lines, every one
+  `gpuFrames` equal to `frames` and `blocks=5` — the picture's two records and three
+  runs of text — and the dumped frame is the fractal inside the circle under its
+  outline.
 - Doc sync: `src/docs/spec/app/06_canvas.md`; `mfb man canvas types` rendered.
 - Final gate: none in this letter; 172-M.
 
@@ -346,6 +421,104 @@ Commit: —
 None beyond 172-A's Open Decision 3.
 
 ## Corrections
+
+- **Phases 2 and 3 are one change (2026-10-11).** The record cannot hold a shape
+  without something drawing a shape that is not a plain rectangle, so the two-entry path
+  was written with the record and the two phases share a commit. Phase 2's acceptance
+  was run first, on the port alone, before any shaped case existed; Phase 3's after.
+- **The picture code is its own gated chunk, and `__canvas_geometryFor` no longer builds
+  a picture.** The plan put a three-argument `__canvas_pictureHeader` in the
+  unconditional source. As built, `helper_picture.rs:PICTURE` is compiled only into a
+  program that constructs a `Picture`, with an `ABSENT` twin of eight one-line hooks for
+  every other (172-K's pattern); the walks hand a picture to it before
+  `__canvas_geometryFor`, whose picture arms are gone. Measured on macOS AArch64
+  (`__text`, `otool -l`, against the compiler built at `88005fb60`): a canvas program
+  with no picture is 16,904 bytes SMALLER (2,734,204 → 2,717,300); the tilemap, all
+  plain pictures, is 226,012 larger (2,823,996 → 3,050,008); an `AutoPaint` program
+  with no picture 10,392 larger. The tilemap's per-frame cost is unchanged within what
+  a loaded machine can show: `tools/canvas-bench` `pics 4000 16 0 0`, alternated with
+  the baseline, `phaseOffsetsMs` 15.6 / 19.9 / 19.1 / 17.1 before and 15.7 / 21.8 /
+  18.5 / 17.6 after — once the plain picture had its own path
+  (`__canvas_picturePlainOffset`); the first cut, which went through the shaped path's
+  probes first, read 21.6 to 28.3.
+- **Three ported sites are `ClipAndTransform`.** The plan says every site becomes
+  `ClipOnly`. A picture with a transform used to turn its image with it, and under
+  `ClipOnly` it would not, so the three sites whose transform is not the zero literal
+  (`rt_canvas_picture.rs`'s rotated strip, `rt_canvas_metal.rs`'s `rotated`,
+  `test-canvas-vulkan.sh`'s `picScaled`) are `ClipAndTransform` — which is the plain
+  path, and what keeps their pixels.
+- **The outline entry is there for more than a stroke.** The plan: "only when the
+  stroke would draw". Also under `Contain`, where the image may stop short of the
+  shape, and always for an `AutoPaint` shape — in both, the outline is what makes the
+  whole shape, not only the image, what the pointer is over, and for an `AutoPaint` it
+  is the entry a state paint's stroke replaces.
+- **A picture on an `AutoPaint` is always two entries, and its host is kept by the
+  picture chunk.** `__canvas_autoNote` takes the instance and a number;
+  `__canvas_pictureAutoBlocks` turns the number back into the picture. The first cut
+  kept a `List OF DrawItem` of hosts in the `AutoPaint` chunk, which cost every
+  `AutoPaint` program 19,324 bytes for a picture it may not have.
+- **The image is fitted to the shape's EXACT box.** §3 says "`B` is the outline's
+  bounding box". For a circle that is the true box only to the accuracy of this
+  package's sine, about 4e-5 px, and a destination that far off a whole number moves a
+  texel boundary off a pixel centre: Metal and the oracle then picked different texels
+  along a whole row (`picture_shapes_match_the_software_oracle_on_metal`, first run:
+  "364 of 576000 pixels differ (max channel delta 220)", 44 of them beyond tolerance).
+  A rectangle's, a circle's and an ellipse's box is now computed, not measured.
+- **One antialiased edge, not two.** Not in the plan. A record's coverage is its
+  rectangle's times its clip's, so where the image's edge lies along the outline a
+  half-covered pixel came out a quarter covered (measured: 137 against a filled
+  circle's 188 at the circle's leftmost pixel). The image record's radius slot is set
+  to 1 with its box whole, which moves the rectangle's own edge a pixel out and the
+  image not at all — all three renderers take a rectangle's distance as box less
+  radius and sample a picture from the box — and under `Contain` the outline is
+  intersected with the image's rectangle. A `Contain` picture whose paint also has a
+  clip keeps the rectangle's edge: that would be a second intersection, and a record
+  has room for one.
+- **The clipped-circle edge against a filled circle (the Phase 3 measurement).**
+  `/tmp/plan-172-A/edge_probe.mfb`: a one-white-texel picture in a circle beside a
+  filled white circle of the same radius, at three sizes and places (radius 50 on whole
+  pixels, 37.25 at a fractional centre, 140 at a half-pixel centre). 1,456 of the
+  74,508 pixels either covers differ; the worst is 61 of 255, at (63, 242), which the
+  circle covers 4.7% and the flattened outline does not reach. That is the 0.05 px
+  chord bound and nothing more: the frame is sRGB-encoded, and 0.047 of linear
+  coverage is 61 code values at the dark end. The histogram falls away fast — 1,143 of
+  the 1,456 differ by 10 or less. Where the image's edge and the outline coincide the
+  two are now equal (188 and 188).
+- **A top-level picture of two entries is −2 in `__CANVAS_TOP_OFFSETS`, and the GPU walk
+  takes its blocks from the frame's entries.** Not in the plan, which says "both are
+  ordinary entries, [so] both GPU backends … handle them with no change". The native
+  layout lays one block per scene index, so an index that is two entries must send the
+  frame to the MFBASIC draw walk; and that walk must not ask the picture again — the
+  first cut did, and the runtime proof's last frame, drawn as the program closed its
+  image, reported one block for a picture whose two entries the same frame had drawn.
+- **The native item hash folds a picture's shape; `canvas::sceneIdBits` reads its
+  `id`.** Not in the plan. A picture on a `Rectangle` — a tilemap — would otherwise
+  have dropped to the MFBASIC hash and to a walk of the scene for every `pollMouse`
+  build. The walk folds the picture's other fields, then branches back to its own
+  dispatch with the shape's record (`emit_item_hash`).
+- **Two `build.log` goldens moved, each for a stated reason.**
+  `canvas-setgroup-consumes-items` echoes a ported source line. `canvas-drawitem-
+  thread-plane-invalid` names the first resource the type walk finds in a `DrawItem`,
+  and a picture's first is now its shape's — a `Text`'s font — where it was its image:
+  "`RES canvas.Font`" for "`RES canvas.Image`". The fixture pins that a scene cannot
+  cross the data plane (plan-116-I, `a274f147b`), which it still does, with the same
+  code; `mfb spec app canvas` says "A `Picture` or a `Text` carries a resource" and
+  "Move the `Image` or `Font`", either.
+- **bug-1074, found here and not this letter's.** The scene's first cut failed on box
+  206's real GPU alone: "worst=161 … first-beyond-tolerance=(470, 262, …)". Two of its
+  shapes put a texel boundary exactly on a pixel centre, where the texel a renderer
+  takes hangs on a float32 division being exact, and Intel's is not. A PLAIN picture
+  does the same there with the compiler built at `88005fb60`
+  (`bugs/repro/bug-1074/texel_edge.mfb`: "worst=220 differing=0.0278%"), so it is filed
+  and the scene's sizes were changed to keep every boundary off a pixel centre. The fix
+  is one expression in each GPU shader and a SPIR-V regeneration.
+- **The `--debug` geometry check does not rebuild a picture.** A picture's records have
+  one builder — the native one declines a picture — so there is nothing to hold one
+  against, and `__canvas_geoReference` answers the record under test. A shaped
+  picture's outline is checked where it is built, as the item it is.
+- **`examples/canvas-demo` was ported, not rewritten.** Its nine `Picture` literals got
+  the mechanical port every site got, so it builds; the showcase rewrite the owner
+  asked for is still to be authorised.
 
 - **Phase 1's cases are an integration test, and its functions are in their own gated
   file (2026-10-11).** As in 172-K Phase 2: a `--bin mfb` test cannot run MFBASIC, so

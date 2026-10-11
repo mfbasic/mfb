@@ -1,0 +1,144 @@
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT io
+IMPORT vector
+
+' plan-172-L: `canvas::Picture` inside a shape, over the default black surface.
+'
+' Every image is made here, texel by texel, so the scene needs no file: red grows with
+' the column, green with the row, and every other cell has blue -- a pattern in which a
+' flip, a wrong fit or a texel taken from the neighbouring cell each show.
+'
+' Every size is chosen so that no texel boundary is the CENTRE of a pixel row or
+' column: where one is, the texel a renderer takes hangs on a float32 division being
+' exact, and one real driver's is not (bug-1074). A shape's box is therefore a whole
+' number of pixels per texel, or an amount that never lands on a half.
+'
+' Top row: a circle with a stroke; a rounded rectangle; a five-point star drawn as a
+' pentagram under the even-odd rule, so its middle is a hole; then one wide image
+' under `Contain` and one tall image under `Cover`, each in the same 140 by 100
+' rectangle with a stroke that shows where the shape is.
+'
+' Middle row: one rounded rectangle turned 30 degrees, first under `ClipOnly` -- the
+' image upright, fitted to the box around the turned shape -- then under
+' `ClipAndTransform`, the image turned with it; a half-transparent picture in an
+' ellipse over a white bar; and a picture in a circle inside a group drawn at twice
+' its size.
+'
+' Bottom row: a circle whose paint has a star for a `clip`, so the image shows only
+' where the circle and the star both cover, while the stroke, which the clip cuts
+' too, is the circle's; a triangle whose fill tints the image half-way to red; a
+' rectangle with four different corners under `Cover`; a picture whose shape is an
+' `AutoPaint`, which shows its hover paint -- an orange tint and a red outline -- when
+' `MFB_CANVAS_POINTER` puts the pointer on it (`0,770,470,0,1`) and the circle's own
+' otherwise; and a picture on a `Line`, which has no inside and draws nothing.
+
+FUNC texels(w AS Integer, h AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT y AS Integer = 0
+  WHILE y < h
+    MUT x AS Integer = 0
+    WHILE x < w
+      out = collections::append(out, toByte(40 + (x * 215) / (w - 1)))
+      out = collections::append(out, toByte(40 + (y * 215) / (h - 1)))
+      IF (x + y) MOD 2 = 0 THEN
+        out = collections::append(out, toByte(220))
+      ELSE
+        out = collections::append(out, toByte(0))
+      END IF
+      out = collections::append(out, toByte(255))
+      x = x + 1
+    END WHILE
+    y = y + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC star(r AS Float) AS List OF vector::Float2
+  RETURN [at(0.0, 0.0 - r), at(0.5877852522924731 * r, 0.8090169943749475 * r), at(0.0 - 0.9510565162951535 * r, 0.0 - 0.3090169943749474 * r), at(0.9510565162951535 * r, 0.0 - 0.3090169943749474 * r), at(0.0 - 0.5877852522924731 * r, 0.8090169943749475 * r)]
+END FUNC
+
+FUNC plain() AS canvas::Paint
+  RETURN canvas::fill(color::rgb(255, 255, 255))
+END FUNC
+
+FUNC edged(width AS Float) AS canvas::Paint
+  RETURN canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(255, 255, 255), width)
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES wide AS canvas::Image = canvas::createImage(8, 4, texels(8, 4))
+  RES tall AS canvas::Image = canvas::createImage(3, 9, texels(3, 9))
+  RES grouped AS canvas::Image = canvas::createImage(4, 4, texels(4, 4))
+  LET turn AS canvas::Transform = canvas::Transform[0.8660254037844387, 0.5, 0.0 - 0.5, 0.8660254037844387, 0.0, 0.0]
+
+  ' -- top row
+  MUT disc AS canvas::Circle
+  disc = WITH disc { position := at(90.0, 90.0), radius := 60.0, paint := edged(4.0) }
+  LET inDisc AS canvas::DrawItem = canvas::Picture[id := "", shape := disc, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := wide]
+
+  MUT soft AS canvas::Rectangle
+  soft = WITH soft { position := at(180.0, 30.0), size := canvas::Size[width := 160.0, height := 120.0], radiusTL := 24.0, radiusTR := 24.0, radiusBL := 24.0, radiusBR := 24.0, paint := plain() }
+  LET inSoft AS canvas::DrawItem = canvas::Picture[id := "", shape := soft, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := wide]
+
+  MUT pentagram AS canvas::Polygon
+  pentagram = WITH pentagram { position := at(450.0, 95.0), contours := [star(70.0)], paint := canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(255, 200, 0), 3.0) }
+  LET inStar AS canvas::DrawItem = canvas::Picture[id := "", shape := pentagram, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := wide]
+
+  MUT box AS canvas::Rectangle
+  box = WITH box { position := at(560.0, 40.0), size := canvas::Size[width := 140.0, height := 100.0], paint := canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(90, 160, 255), 2.0) }
+  LET contained AS canvas::DrawItem = canvas::Picture[id := "", shape := box, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Contain, image := tall]
+  LET covering AS canvas::DrawItem = canvas::Picture[id := "", shape := WITH box { position := at(730.0, 40.0) }, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Cover, image := tall]
+
+  ' -- middle row
+  MUT card AS canvas::Rectangle
+  card = WITH card { position := at(120.0, 290.0), bind := canvas::BindTo.Center, size := canvas::Size[width := 150.0, height := 90.0], radiusTL := 18.0, radiusTR := 18.0, radiusBL := 18.0, radiusBR := 18.0, paint := edged(3.0), transform := turn }
+  LET upright AS canvas::DrawItem = canvas::Picture[id := "", shape := card, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := wide]
+  LET turned AS canvas::DrawItem = canvas::Picture[id := "", shape := WITH card { position := at(330.0, 290.0) }, clip := canvas::PictureClip.ClipAndTransform, fit := canvas::PictureFit.Stretch, image := wide]
+
+  MUT bar AS canvas::Rectangle
+  bar = WITH bar { position := at(450.0, 270.0), size := canvas::Size[width := 180.0, height := 40.0], paint := plain() }
+  LET barItem AS canvas::DrawItem = bar
+  MUT oval AS canvas::Ellipse
+  oval = WITH oval { position := at(540.0, 290.0), radiusX := 80.0, radiusY := 56.0, paint := WITH plain() { transparency := 0.5 } }
+  LET faded AS canvas::DrawItem = canvas::Picture[id := "", shape := oval, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := wide]
+
+  MUT dot AS canvas::Circle
+  dot = WITH dot { radius := 30.0, paint := edged(2.0) }
+  canvas::setGroup("badge", [canvas::Picture[id := "", shape := dot, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := grouped]])
+  MUT twice AS canvas::Group
+  twice = WITH twice { position := at(760.0, 290.0), name := "badge", transform := canvas::Transform[2.0, 0.0, 0.0, 2.0, 0.0, 0.0] }
+  LET badge AS canvas::DrawItem = twice
+
+  ' -- bottom row
+  MUT cut AS canvas::Circle
+  cut = WITH cut { position := at(110.0, 510.0), radius := 88.0, paint := WITH canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(255, 80, 80), 5.0) { clip := [star(110.0)], clipRule := canvas::FillRule.NonZero } }
+  LET inBoth AS canvas::DrawItem = canvas::Picture[id := "", shape := cut, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := wide]
+
+  MUT wedge AS canvas::Polygon
+  wedge = WITH wedge { position := at(330.0, 510.0), contours := [[at(0.0, 0.0 - 80.0), at(88.0, 72.0), at(0.0 - 88.0, 72.0)]], paint := canvas::fill(color::rgba(255, 0, 0, 128)) }
+  LET tinted AS canvas::DrawItem = canvas::Picture[id := "", shape := wedge, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := wide]
+
+  MUT odd AS canvas::Rectangle
+  odd = WITH odd { position := at(470.0, 440.0), size := canvas::Size[width := 170.0, height := 140.0], radiusTL := 0.0, radiusTR := 60.0, radiusBL := 30.0, radiusBR := 10.0, paint := edged(2.0) }
+  LET inOdd AS canvas::DrawItem = canvas::Picture[id := "", shape := odd, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Cover, image := wide]
+
+  MUT knob AS canvas::Circle
+  knob = WITH knob { position := at(770.0, 470.0), radius := 48.0, paint := edged(2.0) }
+  LET lit AS canvas::Paint = canvas::fillStroke(color::rgb(255, 160, 0), color::rgb(255, 0, 0), 6.0)
+  LET live AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::AutoPaint[shape := knob, useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := plain(), exitPaint := plain(), hoverPaint := lit, pressedPaint := plain()], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := wide]
+
+  MUT rule AS canvas::Line
+  rule = WITH rule { startAt := at(680.0, 600.0), endAt := at(860.0, 600.0), paint := canvas::stroke(color::rgb(255, 255, 255), 30.0) }
+  LET onLine AS canvas::DrawItem = canvas::Picture[id := "", shape := rule, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := wide]
+
+  canvas::present([inDisc, inSoft, inStar, contained, covering, upright, turned, barItem, faded, badge, inBoth, tinted, inOdd, live, onLine])
+  io::print("rendered")
+END FUNC

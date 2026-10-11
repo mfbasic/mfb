@@ -1047,26 +1047,26 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
   LET white AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
   LET ground AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 900.0, height := 260.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(96, 96, 96)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET plain AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 10.0, y := 10.0], size := canvas::Size[width := 80.0, height := 80.0], image := img, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET plain AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 10.0, y := 240.0], text := "Pictures 01", font := face, fontSize := 22.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET tinted AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 100.0, y := 10.0], size := canvas::Size[width := 80.0, height := 80.0], image := img, paint := canvas::fill(color::rgb(255, 128, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET translucent AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 200.0, y := 10.0], size := canvas::Size[width := 90.0, height := 30.0], image := thin, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tinted AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 100.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 128, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET translucent AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 200.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 90.0, height := 30.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := thin]
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 10.0]
-  LET rotated AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 80.0, height := 60.0], image := img, paint := white, transform := t]
-  LET clipped AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 420.0, y := 10.0], size := canvas::Size[width := 80.0, height := 80.0], image := img, paint := WITH white { clip := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 40.0, y := 0.0], vector::Float2[x := 40.0, y := 80.0], vector::Float2[x := 0.0, y := 80.0]]] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET blended AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 520.0, y := 10.0], size := canvas::Size[width := 60.0, height := 60.0], image := img, paint := WITH canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET fractional AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 700.5, y := 10.25], size := canvas::Size[width := 50.5, height := 33.3], image := thin, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET inner AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 40.0, height := 40.0], image := grouped, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET rotated AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := t], clip := canvas::PictureClip.ClipAndTransform, fit := canvas::PictureFit.Stretch, image := img]
+  LET clipped AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 420.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH white { clip := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 40.0, y := 0.0], vector::Float2[x := 40.0, y := 80.0], vector::Float2[x := 0.0, y := 80.0]]] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET blended AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 520.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 60.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET fractional AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 700.5, y := 10.25], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.5, height := 33.3], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := thin]
+  LET inner AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 40.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := grouped]
   canvas::setGroup("pics", [inner])
   LET node AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 600.0, y := 120.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "pics"]
   ' plan-163-C: the tint's strength is the fill's alpha, the opacity is transparency.
-  LET untinted AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 10.0, y := 120.0], size := canvas::Size[width := 80.0, height := 80.0], image := img, paint := WITH white { fill := color::rgba(0, 0, 0, 0) }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET halfRed AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 100.0, y := 120.0], size := canvas::Size[width := 80.0, height := 80.0], image := img, paint := canvas::fill(color::rgba(255, 0, 0, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET faded AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 200.0, y := 120.0], size := canvas::Size[width := 80.0, height := 80.0], image := img, paint := WITH white { transparency := 0.6 }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET untinted AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 120.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH white { fill := color::rgba(0, 0, 0, 0) }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET halfRed AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 100.0, y := 120.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(255, 0, 0, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET faded AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 200.0, y := 120.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH white { transparency := 0.6 }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   ' plan-163-D: a blended stroked picture whose fill is transparent (the zero tint) still
   ' fills with its image, so the GPUs publish it as two records like any blended item
   ' that fills and strokes.
-  LET blendedClear AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 300.0, y := 120.0], size := canvas::Size[width := 80.0, height := 80.0], image := img, paint := WITH canvas::fillStroke(color::rgba(0, 0, 0, 0), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET blendedClear AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 300.0, y := 120.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fillStroke(color::rgba(0, 0, 0, 0), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   canvas::present([ground, plain, label, tinted, translucent, rotated, clipped, blended, fractional, node, untinted, halfRed, faded, blendedClear])
 END FUNC
 "#;
@@ -1488,6 +1488,72 @@ fn corners_match_the_software_oracle_on_metal() {
         CORNERS,
         "the rectangle corners over black",
     );
+}
+
+/// plan-172-L: pictures inside shapes (`scenes/picture_shapes_on_black.mfb`). Every
+/// shaped picture is a picture record with a polygonal clip and, where it strokes, the
+/// shape itself -- two entries the GPU already draws -- so this is the check that the
+/// two walks lay the same entries out: a top-level picture that is two entries is
+/// resolved by the draw walk, not the native layout.
+const PICTURE_SHAPES: &str = include_str!("scenes/picture_shapes_on_black.mfb");
+
+#[test]
+fn picture_shapes_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_picture_shapes",
+        PICTURE_SHAPES,
+        "pictures inside shapes over black",
+    );
+}
+
+/// The same scene with the pointer on its `AutoPaint` picture, the circle about
+/// (770, 470): both of the picture's entries are swapped for the hover paint's -- the
+/// image under an orange tint, the outline 6 px of red -- and the GPU draw list must
+/// name those two records, not the ones the walk appended.
+///
+/// (818, 470) is 48.5 px from the centre of a circle of radius 48: on the hover
+/// outline, which covers 45 to 51, and red. At rest the circle's own 2 px outline
+/// there is white.
+#[test]
+fn a_hovered_autopaint_picture_matches_the_software_oracle_on_metal() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_picture_auto", PICTURE_SHAPES);
+    let pixel = |frame: &Frame, x: usize, y: usize| {
+        let at = (y * WIDTH as usize + x) * 4;
+        [frame.pixels[at], frame.pixels[at + 1], frame.pixels[at + 2]]
+    };
+    let envs = [("MFB_CANVAS_POINTER", "0,770,470,0,1")];
+    let (software, software_stats) = render_env(&program, false, "sw", &envs);
+    let (gpu, stats) = render_env(&program, true, "gpu", &envs);
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    assert!(
+        software_stats.contains(" auto=3"),
+        "the software run did not hover the picture: {software_stats}"
+    );
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the hovered scene fell back to the software renderer: {stats}"
+    );
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!("Metal draws the hovered picture differently from the software oracle: {diff}");
+    }
+    let (rest, _) = render(&program, false, "rest");
+    for (name, frame) in [("software", &software), ("Metal", &gpu)] {
+        let outline = pixel(frame, 818, 470);
+        assert!(
+            outline[0] > 200 && outline[1] < 80 && outline[2] < 80,
+            "the hover outline is {outline:?} on {name}"
+        );
+        assert_ne!(
+            pixel(frame, 770, 470),
+            pixel(&rest, 770, 470),
+            "the hover tint did not change the image on {name}"
+        );
+    }
 }
 
 /// plan-163-B: dashed strokes -- polygons whose dashes cross their corners under each cap

@@ -739,6 +739,54 @@ fn corners_match_their_reference_exactly() {
     }
 }
 
+/// plan-172-L: pictures inside shapes — a circle, a rounded rectangle and a star; the
+/// three fits; a turned shape under each clip mode; a translucent picture; one in a
+/// scaled group; a shape's outline intersected with its paint's clip; a tint; and a
+/// picture on an `AutoPaint`, at rest.
+const PICTURE_SHAPES: &str = include_str!("scenes/picture_shapes_on_black.mfb");
+
+/// The shaped-picture reference renders exactly, and renders the same twice.
+///
+/// Twice for the corner scene's reason, and one more: a circle's and an ellipse's
+/// outline is flattened with this package's own sine and cosine, and the intersection
+/// of an outline with a clip sorts and merges coordinates — nothing in either may
+/// depend on what else the process has done.
+#[test]
+fn picture_shapes_match_their_reference_exactly() {
+    let rendered = render("canvas_golden_picture_shapes", PICTURE_SHAPES);
+    let again = render("canvas_golden_picture_shapes_again", PICTURE_SHAPES);
+    assert!(
+        compare_exact(&rendered, &again).is_ok(),
+        "the shaped-picture scene does not render identically on two consecutive runs"
+    );
+    let reference = golden_path("picture_shapes");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the shaped-picture scene no longer renders to its reference image: {diff}\n\
+             Localize by row: row 1 is the outline of each closed kind and the two \
+             proportional fits, row 2 the two clip modes under a turn, transparency and \
+             a scaled group, row 3 the clip intersection, the tint, per-corner radii \
+             and the `AutoPaint` shape."
+        );
+    }
+}
+
 /// The ellipse reference renders exactly.
 ///
 /// Same rule as the other three references: a mismatch is a bug hunt, not a

@@ -34,6 +34,10 @@
 # environment assignment the row's runs are given (`MFB_CANVAS_POINTER`, the `--debug`
 # pointer script). The first hovers a button of the scene itself, the second one use of
 # a group that is drawn twice, which is the case that needs a group run of its own.
+# `pictureshapes` and `pictureauto` are plan-172-L's: pictures inside shapes — each a
+# picture record with a polygonal clip and, where it strokes, the shape itself — at
+# rest, and with the pointer on the one whose shape is an `AutoPaint`, both of whose
+# entries are then swapped for the hover paint's.
 #
 # Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
@@ -148,6 +152,8 @@ cornersblack|rect_corners_on_black|render
 groupaffine|group_affine_on_black|render
 autopaint|autopaint_on_black|render|MFB_CANVAS_POINTER=0,280,120,0,1
 autopaintgroup|autopaint_on_black|render|MFB_CANVAS_POINTER=0,150,320,0,1
+pictureshapes|picture_shapes_on_black|render
+pictureauto|picture_shapes_on_black|render|MFB_CANVAS_POINTER=0,770,470,0,1
 hairline|blended_hairline_stroke|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo

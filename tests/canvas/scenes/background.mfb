@@ -22,7 +22,7 @@ FUNC main() AS Nothing
   RES bg AS canvas::Image = canvas::createImage(1920, 1080, pattern(1920, 1080, 40))
   RES tile AS canvas::Image = canvas::createImage(32, 32, pattern(32, 32, 1))
   LET white AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
-  LET back AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 900.0, height := 640.0], image := bg, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET front AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 64.0, height := 64.0], image := tile, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET back AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 900.0, height := 640.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := bg]
+  LET front AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 64.0, height := 64.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := tile]
   canvas::present([back, front])
 END FUNC

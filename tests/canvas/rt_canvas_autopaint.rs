@@ -757,3 +757,92 @@ fn the_project_option_sets_how_long_a_flash_lasts() {
     assert_eq!(default.autos(), vec!["1", "3"]);
     assert_eq!(default.count(HOVER_RGB), BUTTON);
 }
+
+/// plan-172-L: a `Picture` whose shape is an `AutoPaint`. One in the scene, at
+/// (200, 200), and one in a group drawn twice, at (500, 200) and (700, 200); every
+/// image is one white texel, so a picture shows exactly its tint.
+const AUTO_PICTURES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT io
+IMPORT os
+IMPORT vector
+
+FUNC auto(c AS canvas::Circle) AS canvas::AutoPaint
+  LET off AS canvas::Paint = canvas::fill(color::rgb(0, 0, 0))
+  RETURN canvas::AutoPaint[shape := c, useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := off, exitPaint := off, hoverPaint := canvas::fillStroke(color::rgb(255, 0, 0), color::rgb(0, 0, 255), 6.0), pressedPaint := off]
+END FUNC
+
+FUNC node(x AS Float) AS canvas::DrawItem
+  MUT g AS canvas::Group
+  g = WITH g { position := vector::Float2[x := x, y := 200.0], name := "badge" }
+  LET item AS canvas::DrawItem = g
+  RETURN item
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(255), toByte(255), toByte(255), toByte(255)])
+  RES inGroup AS canvas::Image = canvas::createImage(1, 1, [toByte(255), toByte(255), toByte(255), toByte(255)])
+  MUT disc AS canvas::Circle
+  disc = WITH disc { id := "disc", position := vector::Float2[x := 200.0, y := 200.0], radius := 50.0, paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET top AS canvas::DrawItem = canvas::Picture[id := "p", shape := auto(disc), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  MUT dot AS canvas::Circle
+  dot = WITH dot { radius := 40.0, paint := canvas::fill(color::rgb(255, 255, 255)) }
+  canvas::setGroup("badge", [canvas::Picture[id := "", shape := auto(dot), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := inGroup]])
+  canvas::present([top, node(500.0), node(700.0)])
+  os::sleep(1500)
+END FUNC
+"#;
+
+/// The state paint of an `AutoPaint` that is a picture's shape replaces the picture's
+/// tint and its outline — and only that instance's.
+///
+/// With no pointer the three discs are the white image untinted. With the pointer on
+/// one, that one shows the hover paint: its opaque red fill is the image's tint, so
+/// the white texel is red, and its 6 px blue stroke outlines the circle — (250, 200),
+/// centre half a pixel outside the radius, is on it, and (256, 200), 6.5 px out, is
+/// past it. The other two stay white, including the other use of the same group.
+#[test]
+fn a_picture_on_an_autopaint_shows_the_state_paint_as_its_tint_and_outline() {
+    const WHITE: [u8; 3] = [255, 255, 255];
+    const RED: [u8; 3] = [255, 0, 0];
+    const BLUE: [u8; 3] = [0, 0, 255];
+    let built = build("canvas_autopaint_pictures", AUTO_PICTURES);
+
+    let idle = run(&built, true, &[]);
+    assert_eq!(idle.autos(), vec!["000"]);
+    for x in [200, 500, 700] {
+        assert_eq!(idle.pixel(x, 200), WHITE, "idle, x = {x}");
+    }
+    assert_eq!(idle.count(RED), 0);
+    assert_eq!(idle.count(BLUE), 0);
+
+    let top = run(&built, true, &[("MFB_CANVAS_POINTER", "0,200,200,0,1")]);
+    assert_eq!(top.autos(), vec!["300"]);
+    assert_eq!(top.pixel(200, 200), RED);
+    assert_eq!(top.pixel(250, 200), BLUE);
+    assert_eq!(top.pixel(256, 200), [0, 0, 0]);
+    assert_eq!(top.pixel(500, 200), WHITE);
+    assert_eq!(top.pixel(700, 200), WHITE);
+
+    // The group's two uses are two instances: each alone.
+    let first = run(&built, true, &[("MFB_CANVAS_POINTER", "0,500,200,0,1")]);
+    assert_eq!(first.autos(), vec!["030"]);
+    assert_eq!(first.pixel(200, 200), WHITE);
+    assert_eq!(first.pixel(500, 200), RED);
+    assert_eq!(first.pixel(540, 200), BLUE);
+    assert_eq!(first.pixel(700, 200), WHITE);
+
+    let second = run(&built, true, &[("MFB_CANVAS_POINTER", "0,700,200,0,1")]);
+    assert_eq!(second.autos(), vec!["003"]);
+    assert_eq!(second.pixel(500, 200), WHITE);
+    assert_eq!(second.pixel(700, 200), RED);
+
+    // A picture is over wherever its SHAPE is: (234, 234), centre 48.8 px from the
+    // circle's, is inside it; (237, 237), 53.0 px out, is inside its box and outside it.
+    let edge = run(&built, true, &[("MFB_CANVAS_POINTER", "0,234,234,0,1")]);
+    assert_eq!(edge.autos(), vec!["300"]);
+    let outside = run(&built, true, &[("MFB_CANVAS_POINTER", "0,237,237,0,1")]);
+    assert_eq!(outside.autos(), vec!["000"]);
+}

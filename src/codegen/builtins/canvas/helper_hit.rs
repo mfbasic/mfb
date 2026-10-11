@@ -306,11 +306,11 @@ FUNC __canvas_textBoxHeader(t AS Text) AS List OF Float
   RETURN __canvas_boundsHeader(out, x0, y0, pen, y1)
 END FUNC
 
-' The record a hit test reads for one item. Every kind but two is the record the
-' renderer draws from (`__canvas_geometryFor`). A `Text` is its layout box and a
-' `Picture` its rectangle: what the renderer's records add to those -- every glyph of
-' the run rasterised, the image's pixel block -- no hit test reads, and this thread
-' draws nothing.
+' The record a hit test reads for one item. Every kind but one is the record the
+' renderer draws from (`__canvas_geometryFor`). A `Text` is its layout box: what the
+' renderer's record adds to that -- every glyph of the run rasterised -- no hit test
+' reads, and this thread draws nothing. A `Picture` never arrives: it is hit as its
+' shape (`__canvas_hitAppend`).
 FUNC __canvas_hitGeometry(item AS DrawItem, hash AS Integer) AS Integer
   MATCH item
     CASE Text(t)
@@ -319,26 +319,6 @@ FUNC __canvas_hitGeometry(item AS DrawItem, hash AS Integer) AS Integer
         RETURN found
       END IF
       LET header AS List OF Float = __canvas_textBoxHeader(t)
-      LET built AS List OF List OF Float = __canvas_withClipEdges(header, [], item)
-      LET none AS List OF Float = []
-      RETURN canvas::geoInsert(hash, collections::getOr(built, 0, header), collections::getOr(built, 1, none))
-    CASE Picture(pic)
-      LET found AS Integer = __canvas_hitCached(hash)
-      IF found >= 0 THEN
-        RETURN found
-      END IF
-      MUT header AS List OF Float = __canvas_emptyHeader()
-      IF canvas::imageWidthOf(pic.image) > 0 AND canvas::imageHeightOf(pic.image) > 0 THEN
-        LET bx AS Float = __canvas_buildX(pic.position, pic.transform)
-        LET by AS Float = __canvas_buildY(pic.position, pic.transform)
-        header = __canvas_rectHeader(bx, by, pic.size.width, pic.size.height, 0.0, pic.paint, __canvas_placement(pic.position, pic.transform), bx, by)
-        ' The Correction F18 trap (`__canvas_pictureHeader`): the paint's stops were
-        ' counted into the record's length, and this record carries none.
-        IF toInt(collections::getOr(header, 0, 0.0)) = __CANVAS_KIND_RECT THEN
-          header = collections::set(header, 1, toFloat(__CANVAS_GEO_HEADER))
-          header = collections::set(header, __CANVAS_GEO_GRADIENT_COUNT, 0.0)
-        END IF
-      END IF
       LET built AS List OF List OF Float = __canvas_withClipEdges(header, [], item)
       LET none AS List OF Float = []
       RETURN canvas::geoInsert(hash, collections::getOr(built, 0, header), collections::getOr(built, 1, none))
@@ -373,6 +353,11 @@ FUNC __canvas_hitAppend(item AS DrawItem, gdx AS Float, gdy AS Float, mat AS Int
       FOR EACH child IN canvas::groupItems(canvas::groupResolve(g.name))
         __canvas_hitAppend(child, childX, childY, childMat, depth + 1, childPath)
       NEXT
+    ' plan-172-L: a `Picture` is hit as its shape, and its own `id` goes in front of
+    ' the shape's -- as a group's goes in front of its children's. A picture that draws
+    ' nothing answers a group that names nothing, and appends nothing.
+    CASE Picture(pic)
+      __canvas_hitAppend(__canvas_pictureHitItem(pic), gdx, gdy, mat, depth, __canvas_joinId(path, pic.id))
     CASE ELSE
       LET offset AS Integer = __canvas_hitGeometry(item, __canvas_hashItem(item))
       LET id AS String = __canvas_joinId(path, __canvas_itemId(item))
@@ -401,6 +386,11 @@ FUNC __canvas_reachesId(items AS List OF DrawItem, depth AS Integer) AS Boolean
     MATCH item
       CASE Group(g)
         IF __canvas_reachesId(canvas::groupItems(canvas::groupResolve(g.name)), depth + 1) THEN
+          RETURN TRUE
+        END IF
+      ' plan-172-L: a picture's shape has an `id` of its own.
+      CASE Picture(pic)
+        IF __canvas_pictureShapeId(pic) <> "" THEN
           RETURN TRUE
         END IF
       CASE ELSE

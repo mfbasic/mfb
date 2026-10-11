@@ -412,9 +412,9 @@ pub(crate) fn register(r: &mut Registry) {
         name: "Size",
         export: true,
         description: "A pixel extent — the dimensions of the canvas surface, of an \
-                      image, or of a `canvas::Rectangle` or `canvas::Picture`. The two \
-                      are `Float`s because a shape's extent may be a fraction of a \
-                      pixel; the surface's and an image's are always whole numbers.",
+                      image, or of a `canvas::Rectangle`. The two are `Float`s because \
+                      a shape's extent may be a fraction of a pixel; the surface's and \
+                      an image's are always whole numbers.",
         props: vec![
             RecordProp {
                 name: "width",
@@ -1006,10 +1006,10 @@ pub(crate) fn register(r: &mut Registry) {
                 ty: ParameterType::named("JoinStyle"),
                 description: "How the stroke turns a corner: where two edges of a \
                               `canvas::Polygon` ring or a `canvas::PolyLine` meet, and \
-                              at the four corners of a `canvas::Rectangle` or \
-                              `canvas::Picture`. `Round`, the zero value, rounds the \
-                              outside of the corner. Circles, ellipses, arcs and \
-                              rounded rectangles have no corners and ignore it.",
+                              at the four corners of a `canvas::Rectangle`. \
+                              `Round`, the zero value, rounds the outside of the \
+                              corner. Circles, ellipses, arcs and rounded rectangles \
+                              have no corners and ignore it.",
             },
             RecordProp {
                 name: "miterLimit",
@@ -1341,36 +1341,101 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    // plan-172-L: how a picture's image is placed in its shape.
+    pkg.add_enum(RegistryEnum {
+        name: "PictureClip",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "ClipOnly",
+                description: "The shape only cuts the image out. The image stays \
+                              upright however the shape is turned, fitted to the box \
+                              around the shape as it sits on the canvas. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "ClipAndTransform",
+                description: "The image is fitted to the shape as it was built, and \
+                              the shape's transform carries the image with it: turn \
+                              the shape and the image turns too.",
+                advisory: None,
+            },
+        ],
+    });
+    pkg.add_enum(RegistryEnum {
+        name: "PictureFit",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Stretch",
+                description: "The image is scaled to the box around the shape, each \
+                              way separately, so it fills it and may be squashed. The \
+                              zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Contain",
+                description: "The image keeps its proportions and is as large as fits \
+                              inside the box, centred. The rest of the shape shows \
+                              nothing.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Cover",
+                description: "The image keeps its proportions and is as small as \
+                              covers the whole box, centred. What spills past the \
+                              shape is cut off.",
+                advisory: None,
+            },
+        ],
+    });
+
     pkg.add_record(RegistryRecord {
         name: "Picture",
         export: true,
-        description: "An image drawn into a rectangle, scaled to fit it. Scaling picks \
-                      the nearest image pixel, with no smoothing, so a small image drawn \
-                      large shows crisp blocks. The paint's fill colour tints the image: \
-                      each channel moves towards the image's channel multiplied by the \
-                      fill's, by the fill's alpha — so the zero paint and a white fill \
-                      draw it unchanged, an opaque red fill keeps only its red, and a \
-                      half-transparent red fill goes halfway. How opaque the picture is \
-                      comes from `canvas::Paint.transparency`, never from the fill; a \
-                      fill gradient is ignored. Stroke, clip, blend and transform work \
-                      as they do on a \
-                      `canvas::Rectangle`. Named `canvas::Picture` rather than `Image` \
-                      because `Image` is the resource type this variant *names* — the two \
-                      would collide.",
+        description: "An image drawn inside a shape. The shape says where the picture \
+                      is and what outline it is cut to: a `canvas::Rectangle`, with \
+                      square or rounded corners, a `canvas::Circle`, a \
+                      `canvas::Ellipse` or a `canvas::Polygon`. A shape with no inside \
+                      — a `canvas::Line`, `canvas::Arc`, `canvas::PolyLine` or \
+                      `canvas::Text` — draws nothing. The image is visible only inside \
+                      the shape. Scaling picks the nearest image pixel, with no \
+                      smoothing, so a small image drawn large shows crisp blocks. The \
+                      shape's paint is the picture's: its fill colour tints the image \
+                      — each channel moves towards the image's channel multiplied by \
+                      the fill's, by the fill's alpha, so the zero paint and a white \
+                      fill draw it unchanged, an opaque red fill keeps only its red, \
+                      and a half-transparent red fill goes halfway — and never fills \
+                      the shape itself; `canvas::Paint.transparency` fades the \
+                      picture; its blend mode composites it; its stroke outlines the \
+                      shape on top of the image; and its clip, if it has one, cuts \
+                      the image further, so it shows only where the shape and the \
+                      clip both cover. A fill gradient is ignored. When the shape is a \
+                      `canvas::AutoPaint`, the paint the mouse selects is the one used. \
+                      `canvas::MouseEvent.overID` reports the picture's own `id` in \
+                      front of its shape's. A `Picture` has no default value — it \
+                      holds an image — so every field is written out. Named \
+                      `canvas::Picture` rather than `Image` because `Image` is the \
+                      resource type this variant *names* — the two would collide.",
         props: vec![
             id_prop(),
             RecordProp {
-                name: "position",
-                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
-                description: "The top-left corner of the rectangle the image is \
-                              drawn into, in pixels. The transform turns the picture \
-                              about it.",
+                name: "shape",
+                ty: ParameterType::named("AutoShape"),
+                description: "The shape the image is drawn inside, and whose paint \
+                              tints, fades, blends and outlines it.",
             },
             RecordProp {
-                name: "size",
-                ty: ParameterType::named("Size"),
-                description: "The destination width and height in pixels; the image \
-                              is scaled to them.",
+                name: "clip",
+                ty: ParameterType::named("PictureClip"),
+                description: "Whether the shape's transform turns the image with it \
+                              or only the outline it is cut to.",
+            },
+            RecordProp {
+                name: "fit",
+                ty: ParameterType::named("PictureFit"),
+                description: "How the image is scaled to the shape: stretched to \
+                              fill it, kept whole inside it, or made to cover it.",
             },
             RecordProp {
                 name: "image",
@@ -1380,8 +1445,6 @@ pub(crate) fn register(r: &mut Registry) {
                               a scene still names it draws nothing rather than \
                               failing.",
             },
-            paint_prop(),
-            transform_prop(),
         ],
     });
 
@@ -1452,7 +1515,7 @@ pub(crate) fn register(r: &mut Registry) {
         variants: vec![
             UnionVariant {
                 name: "Picture",
-                description: "An image drawn into a rectangle.",
+                description: "An image drawn inside a shape.",
             },
             // `Group` is a CONTAINER, not a shape. It draws nothing itself and carries
             // no `paint` -- see `every_draw_item_variant_carries_a_paint`, which is
@@ -2016,14 +2079,17 @@ mod tests {
     fn every_draw_item_variant_carries_a_paint() {
         /// Variants that are containers rather than shapes (plan-116-G).
         const CONTAINERS: &[&str] = &["Group"];
-        /// Variants that draw a `shape` they hold, with that shape's paint (plan-172-K).
-        const DECORATORS: &[&str] = &["AutoPaint"];
+        /// Variants that draw a `shape` they hold, with that shape's paint, and the
+        /// union that shape is: `AutoPaint` (plan-172-K) and `Picture` (plan-172-L),
+        /// whose shape may itself be an `AutoPaint`.
+        const DECORATORS: &[(&str, &str)] = &[("AutoPaint", "Shape"), ("Picture", "AutoShape")];
 
         let pkg = registry()
             .resolve_package("canvas")
             .expect("canvas package");
         let all = members("DrawItem");
-        for name in CONTAINERS.iter().chain(DECORATORS) {
+        let decorators: Vec<&str> = DECORATORS.iter().map(|(name, _)| *name).collect();
+        for name in CONTAINERS.iter().chain(decorators.iter()) {
             assert!(
                 all.contains(name),
                 "`{name}` is exempted from the paint requirement but is not a \
@@ -2046,7 +2112,7 @@ mod tests {
                 );
                 continue;
             }
-            if DECORATORS.contains(&variant) {
+            if let Some((_, holds)) = DECORATORS.iter().find(|(name, _)| *name == variant) {
                 assert!(
                     !record.props.iter().any(|p| p.name == "paint"),
                     "`{variant}` is listed as a decorator but declares a `paint` of its \
@@ -2057,11 +2123,13 @@ mod tests {
                     .iter()
                     .find(|p| p.name == "shape")
                     .unwrap_or_else(|| panic!("`{variant}` has no shape field"));
-                assert_eq!(shape.ty.name(), "Shape", "{variant}");
-                for inner in members("Shape") {
+                assert_eq!(shape.ty.name(), *holds, "{variant}");
+                // Every member of what it holds either carries a paint or is itself a
+                // decorator of things that do — never a container, and never `variant`.
+                for inner in members(holds) {
                     assert!(
-                        !CONTAINERS.contains(&inner) && !DECORATORS.contains(&inner),
-                        "`{inner}` is a Shape and is exempt from carrying a paint",
+                        !CONTAINERS.contains(&inner) && inner != variant,
+                        "`{inner}` is a member of {holds} and has no paint to give",
                     );
                 }
                 continue;

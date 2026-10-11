@@ -219,7 +219,7 @@ FUNC sprite(tiles AS Map OF String TO RES canvas::Image, v AS View, c AS ViewCel
   LET dy AS Float = insetY(inMap)
   LET x AS Float = spriteX(v, c) + (dx - dy) * tileWidth() / 2.0 * v.scale
   LET y AS Float = spriteY(v, c) + (dx + dy) * tileWidth() / 4.0 * v.scale
-  RETURN canvas::Picture[id := "", position := vector::Float2[x := x, y := y], size := canvas::Size[width := tileWidth() * v.scale, height := tileHeight() * v.scale], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := tileWidth() * v.scale, height := tileHeight() * v.scale], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
 END FUNC
 
 ' The player: a red pawn with a shadow, standing in the middle of its cell.

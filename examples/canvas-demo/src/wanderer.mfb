@@ -227,15 +227,15 @@ FUNC wandererInstall(lv AS Level, s AS Float) AS Nothing
         ' a call that merely returned it would leave it closing at the end of
         ' this iteration.
         RES img AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, index MOD 20, index / 20, WANDER_TILE, FALSE))
-        LET tile AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := toFloat(col) * size, y := toFloat(row) * size], size := canvas::Size[width := size, height := size], image := img, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+        LET tile AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(col) * size, y := toFloat(row) * size], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := size, height := size], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
         level = collections::append(level, tile)
       END IF
       IF c = "F" THEN
         ' The flag is two cells: the banner and the pole under it.
         RES top AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 5, WANDER_TILE, FALSE))
         RES pole AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 6, WANDER_TILE, FALSE))
-        LET banner AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := toFloat(col) * size, y := toFloat(row + 1) * size], size := canvas::Size[width := size, height := size], image := top, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-        LET staff AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := toFloat(col) * size, y := toFloat(row + 2) * size], size := canvas::Size[width := size, height := size], image := pole, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+        LET banner AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(col) * size, y := toFloat(row + 1) * size], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := size, height := size], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := top]
+        LET staff AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(col) * size, y := toFloat(row + 2) * size], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := size, height := size], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := pole]
         level = collections::append(level, [banner, staff])
       END IF
     NEXT
@@ -252,7 +252,7 @@ FUNC wandererInstall(lv AS Level, s AS Float) AS Nothing
         RES img AS canvas::Image = canvas::createImage(WANDER_HERO, WANDER_HERO, cell(charPx, charsW, frame, 1, WANDER_HERO, dir = 1))
         MUT tint AS color::Color = color::white
         IF red = 1 THEN tint = rgba(255, 70, 70, 220)
-        canvas::setGroup("wander-hero-" & toString(frame) & toString(dir) & toString(red), [canvas::Picture[id := "", position := vector::Float2[x := -hs / 2.0, y := -hs], size := canvas::Size[width := hs, height := hs], image := img, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+        canvas::setGroup("wander-hero-" & toString(frame) & toString(dir) & toString(red), [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := -hs / 2.0, y := -hs], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := hs, height := hs], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]])
       NEXT
     NEXT
   NEXT
@@ -260,16 +260,16 @@ FUNC wandererInstall(lv AS Level, s AS Float) AS Nothing
   ' Coins (face-on and edge-on, for the spin) and the gem, centred on (0, 0).
   LET ts AS Float = toFloat(WANDER_TILE) * s
   RES coinA AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 7, WANDER_TILE, FALSE))
-  canvas::setGroup("wander-coin-0", [canvas::Picture[id := "", position := vector::Float2[x := -ts / 2.0, y := -ts / 2.0], size := canvas::Size[width := ts, height := ts], image := coinA, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::setGroup("wander-coin-0", [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := -ts / 2.0, y := -ts / 2.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := ts, height := ts], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := coinA]])
   RES coinB AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 12, 7, WANDER_TILE, FALSE))
-  canvas::setGroup("wander-coin-1", [canvas::Picture[id := "", position := vector::Float2[x := -ts / 2.0, y := -ts / 2.0], size := canvas::Size[width := ts, height := ts], image := coinB, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::setGroup("wander-coin-1", [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := -ts / 2.0, y := -ts / 2.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := ts, height := ts], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := coinB]])
   RES gem AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 7, 3, WANDER_TILE, FALSE))
-  canvas::setGroup("wander-gem", [canvas::Picture[id := "", position := vector::Float2[x := -ts / 2.0, y := -ts / 2.0], size := canvas::Size[width := ts, height := ts], image := gem, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::setGroup("wander-gem", [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := -ts / 2.0, y := -ts / 2.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := ts, height := ts], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := gem]])
   ' Small copies for the counters in the corner.
   RES coinHud AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 7, WANDER_TILE, FALSE))
-  canvas::setGroup("wander-hud-coin", [canvas::Picture[id := "", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 36.0, height := 36.0], image := coinHud, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::setGroup("wander-hud-coin", [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 36.0, height := 36.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := coinHud]])
   RES gemHud AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 7, 3, WANDER_TILE, FALSE))
-  canvas::setGroup("wander-hud-gem", [canvas::Picture[id := "", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 36.0, height := 36.0], image := gemHud, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::setGroup("wander-hud-gem", [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 36.0, height := 36.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := gemHud]])
 END FUNC
 
 ' ---------------------------------------------------------------------------

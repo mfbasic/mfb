@@ -109,7 +109,7 @@ fn a_picture_draws_its_image_into_its_rectangle() {
         "canvas_picture_basic",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
              canvas::present([tile])\n",
             pixels(&[(0, 255, 0, 255)])
         )),
@@ -136,8 +136,8 @@ fn scaling_samples_the_nearest_texel() {
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(2, 1, {})\n  \
              RES clear AS canvas::Image = canvas::createImage(2, 1, {})\n  \
-             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 64.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
-             LET b AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 200.0, y := 0.0], size := canvas::Size[width := 64.0, height := 32.0], image := clear, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 64.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
+             LET b AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 200.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 64.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := clear]\n  \
              canvas::present([a, b])\n",
             pixels(&[(255, 0, 0, 255), (0, 0, 255, 255)]),
             pixels(&[(0, 255, 0, 255), (255, 255, 255, 0)])
@@ -187,7 +187,7 @@ fn the_fill_tints_the_image() {
         "canvas_picture_tint",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 16.0, height := 16.0], image := img, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 16.0, height := 16.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
              canvas::present([a])\n",
             pixels(&[(255, 255, 255, 255)])
         )),
@@ -198,7 +198,7 @@ fn the_fill_tints_the_image() {
         "canvas_picture_opacity",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 16.0, height := 16.0], image := img, paint := WITH canvas::fill(color::rgb(255, 255, 255)) {{ transparency := 0.5 }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 16.0, height := 16.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) {{ transparency := 0.5 }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
              canvas::present([a])\n",
             pixels(&[(0, 255, 0, 255)])
         )),
@@ -234,7 +234,7 @@ fn the_fill_is_a_tint_and_transparency_is_the_opacity() {
             &scene(&format!(
                 "  RES img AS canvas::Image = canvas::createImage(1, 1, {texel})\n  \
                  LET zero AS canvas::Paint = canvas::Paint[fill := color::rgba(0, 0, 0, 0), stroke := color::rgba(0, 0, 0, 0), strokeWidth := 0.0, blend := canvas::BlendMode.Normal, clip := [], clipRule := canvas::FillRule.EvenOdd, gradient := canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 0.0, y := 0.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly], cap := canvas::CapStyle.Butt, join := canvas::JoinStyle.Round, miterLimit := 0.0, dashes := [], dashOffset := 0.0, transparency := 0.0]\n  \
-                 LET a AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 16.0, height := 16.0], image := img, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+                 LET a AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 16.0, height := 16.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
                  canvas::present([a])\n"
             )),
         )
@@ -309,13 +309,13 @@ fn clip_blend_and_transform_apply_to_a_picture() {
              RES y AS canvas::Image = canvas::createImage(1, 1, {yellow})\n  \
              RES rb AS canvas::Image = canvas::createImage(2, 1, {red_blue})\n  \
              LET clipped AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ clip := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 16.0, y := 0.0], vector::Float2[x := 16.0, y := 640.0], vector::Float2[x := 0.0, y := 640.0]]] }}\n  \
-             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 32.0, height := 32.0], image := g, paint := clipped, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET a AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := clipped, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := g]\n  \
              LET under AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 100.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              LET mul AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) {{ blend := canvas::BlendMode.Multiply }}\n  \
-             LET b AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 0.0], size := canvas::Size[width := 32.0, height := 32.0], image := y, paint := mul, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET b AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 100.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := mul, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := y]\n  \
              LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 100.0]\n  \
              LET rot AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
-             LET c AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 200.0, height := 40.0], image := rb, paint := rot, transform := t]\n  \
+             LET c AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 200.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := rot, transform := t], clip := canvas::PictureClip.ClipAndTransform, fit := canvas::PictureFit.Stretch, image := rb]\n  \
              canvas::present([a, under, b, c])\n"
         )),
     );
@@ -360,7 +360,7 @@ fn a_picture_in_a_group_moves_with_it() {
         "canvas_picture_group",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(2, 1, {})\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 64.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 64.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
              canvas::setGroup(\"g\", [tile])\n  \
              LET node AS canvas::DrawItem = canvas::Group[id := \"\", position := vector::Float2[x := 300.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"g\"]\n  \
              canvas::present([node])\n",
@@ -392,7 +392,7 @@ fn a_destroyed_image_draws_nothing() {
         "canvas_picture_destroyed",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
              LET mark AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 300.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::destroyImage(img)\n  \
              canvas::present([tile, mark])\n",
@@ -424,7 +424,7 @@ fn set_bytes_on_a_presented_image_repaints() {
         "canvas_picture_set_bytes",
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
              canvas::present([tile])\n  \
              canvas::setBytes(img, {})\n",
             pixels(&[(255, 0, 0, 255)]),
@@ -449,7 +449,7 @@ fn set_bytes_on_a_presented_image_repaints() {
 fn set_bytes_repaints_under_damage_tracking() {
     let source = scene(&format!(
         "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
          canvas::present([tile])\n  \
          canvas::setBytes(img, {})\n",
         pixels(&[(255, 0, 0, 255)]),
@@ -490,7 +490,7 @@ fn set_bytes_on_an_undrawn_image_does_not_repaint() {
         &scene(&format!(
             "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
              RES other AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
              canvas::present([tile])\n  \
              canvas::setBytes(other, {})\n",
             pixels(&[(0, 255, 0, 255)]),
@@ -516,7 +516,7 @@ fn set_bytes_on_an_undrawn_image_does_not_repaint() {
 fn set_bytes_twice_between_frames_shows_the_last() {
     let source = scene(&format!(
         "  RES img AS canvas::Image = canvas::createImage(1, 1, {})\n  \
-         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 32.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
          canvas::present([tile])\n  \
          canvas::setBytes(img, {})\n  \
          canvas::setBytes(img, {})\n  \
@@ -544,4 +544,302 @@ fn set_bytes_twice_between_frames_shows_the_last() {
     let pixels = std::fs::read(&frame).expect("dump");
     let _ = std::fs::remove_dir_all(&project);
     assert_eq!(pixel(&pixels, 116, 116), GREEN, "the last setBytes wins");
+}
+
+/// The text of a `canvas::Picture` on the shape bound to `shape`.
+fn shaped(shape: &str, clip: &str, fit: &str, image: &str) -> String {
+    format!(
+        "canvas::Picture[id := \"\", shape := {shape}, clip := canvas::PictureClip.{clip}, \
+         fit := canvas::PictureFit.{fit}, image := {image}]"
+    )
+}
+
+const RED: (u8, u8, u8, u8) = (255, 0, 0, 255);
+const BLUE: (u8, u8, u8, u8) = (0, 0, 255, 255);
+
+/// plan-172-L: the image is visible only inside the shape, and the shape's stroke
+/// outlines it on top.
+///
+/// A 1×1 green image in a circle of radius 50 about (200, 200), no stroke: the centre
+/// is the image; (240, 240), centre 57.3 px out, is inside the circle's box and
+/// outside the circle; (252, 200), 52.5 px out, is just past it.
+///
+/// The same about (400, 200) with a 6 px red stroke, which covers 47 to 53 px from the
+/// centre: (448, 200), centre 48.5 px out, is INSIDE the circle and is the stroke's —
+/// the outline is drawn over the image — and so is (450, 200), half a pixel outside;
+/// (445, 200), 45.5 px out, is still the image, and (455, 200), 55.5 px out, is past
+/// the stroke.
+///
+/// A picture on a `Line` has no inside and draws nothing: (200, 400), on the line, is
+/// background, as is the whole frame's count of the stroke colour it would have had.
+#[test]
+fn a_shaped_picture_is_its_image_inside_the_shape_and_its_stroke_on_top() {
+    let (frame, _) = render(
+        "canvas_picture_shaped",
+        &scene(&format!(
+            "  RES img AS canvas::Image = canvas::createImage(1, 1, {green})\n  \
+             MUT bare AS canvas::Circle\n  \
+             bare = WITH bare {{ position := vector::Float2[x := 200.0, y := 200.0], radius := 50.0, paint := canvas::fill(color::rgb(255, 255, 255)) }}\n  \
+             LET a AS canvas::DrawItem = {a}\n  \
+             MUT ringed AS canvas::Circle\n  \
+             ringed = WITH ringed {{ position := vector::Float2[x := 400.0, y := 200.0], radius := 50.0, paint := canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(255, 0, 0), 6.0) }}\n  \
+             LET b AS canvas::DrawItem = {b}\n  \
+             MUT rule AS canvas::Line\n  \
+             rule = WITH rule {{ startAt := vector::Float2[x := 100.0, y := 400.5], endAt := vector::Float2[x := 300.0, y := 400.5], paint := canvas::stroke(color::rgb(0, 0, 255), 20.0) }}\n  \
+             LET c AS canvas::DrawItem = {c}\n  \
+             canvas::present([a, b, c])\n",
+            green = pixels(&[GREEN]),
+            a = shaped("bare", "ClipOnly", "Stretch", "img"),
+            b = shaped("ringed", "ClipOnly", "Stretch", "img"),
+            c = shaped("rule", "ClipOnly", "Stretch", "img"),
+        )),
+    );
+    assert_eq!(pixel(&frame, 200, 200), GREEN, "the circle's centre");
+    assert_eq!(
+        pixel(&frame, 240, 240),
+        BLACK,
+        "in the box, outside the circle"
+    );
+    assert_eq!(pixel(&frame, 252, 200), BLACK, "just past the circle");
+
+    assert_eq!(pixel(&frame, 400, 200), GREEN);
+    assert_eq!(pixel(&frame, 445, 200), GREEN, "inside the stroke");
+    assert_eq!(pixel(&frame, 448, 200), RED, "the stroke, over the image");
+    assert_eq!(
+        pixel(&frame, 450, 200),
+        RED,
+        "the stroke, outside the circle"
+    );
+    assert_eq!(pixel(&frame, 455, 200), BLACK, "past the stroke");
+
+    assert_eq!(pixel(&frame, 200, 400), BLACK, "a picture on a line");
+    assert_eq!(
+        frame
+            .chunks(4)
+            .filter(|p| p[2] == 255 && p[0] == 0 && p[1] == 0)
+            .count(),
+        0,
+        "the line's own stroke is no part of a picture that draws nothing"
+    );
+}
+
+/// `Contain` and `Cover`, each with a 2×1 image — red on the left, blue on the right —
+/// in a 100 by 100 rectangle.
+///
+/// `Contain` at (500, 100): the image is 100 by 50, centred, so it covers rows 125 to
+/// 175. (510, 150) is its red half and (590, 150) its blue; (550, 110), inside the
+/// shape and above the image, is background.
+///
+/// `Cover` at (650, 300): the image is 200 by 100, centred on the rectangle, so it
+/// would run from x = 600 to 800 and its halves meet at x = 700 — the rectangle's
+/// middle. (660, 350) is red and (740, 350) blue; (640, 350), where the image would
+/// be were it not cut to the shape, is background.
+#[test]
+fn contain_fits_inside_the_shape_and_cover_is_cut_to_it() {
+    let (frame, _) = render(
+        "canvas_picture_fit",
+        &scene(&format!(
+            "  RES img AS canvas::Image = canvas::createImage(2, 1, {halves})\n  \
+             MUT box AS canvas::Rectangle\n  \
+             box = WITH box {{ position := vector::Float2[x := 500.0, y := 100.0], size := canvas::Size[width := 100.0, height := 100.0], paint := canvas::fill(color::rgb(255, 255, 255)) }}\n  \
+             LET inside AS canvas::DrawItem = {contain}\n  \
+             LET over AS canvas::DrawItem = {cover}\n  \
+             canvas::present([inside, over])\n",
+            halves = pixels(&[RED, BLUE]),
+            contain = shaped("box", "ClipOnly", "Contain", "img"),
+            cover = shaped(
+                "WITH box { position := vector::Float2[x := 650.0, y := 300.0] }",
+                "ClipOnly",
+                "Cover",
+                "img"
+            ),
+        )),
+    );
+    assert_eq!(pixel(&frame, 510, 150), RED);
+    assert_eq!(pixel(&frame, 590, 150), BLUE);
+    assert_eq!(
+        pixel(&frame, 550, 110),
+        BLACK,
+        "inside the shape, above the image"
+    );
+    assert_eq!(
+        pixel(&frame, 550, 190),
+        BLACK,
+        "inside the shape, below the image"
+    );
+    assert_eq!(pixel(&frame, 540, 126), RED, "the image's first whole row");
+
+    assert_eq!(pixel(&frame, 660, 350), RED);
+    assert_eq!(pixel(&frame, 740, 350), BLUE);
+    assert_eq!(pixel(&frame, 640, 350), BLACK, "the overflow is cut off");
+    assert_eq!(pixel(&frame, 760, 350), BLACK, "on the other side too");
+    assert_eq!(
+        pixel(&frame, 700, 310),
+        BLUE,
+        "the halves meet at the middle"
+    );
+    assert_eq!(pixel(&frame, 699, 310), RED);
+}
+
+/// `ClipOnly` leaves the image upright under the shape's transform; `ClipAndTransform`
+/// turns it with the shape.
+///
+/// A 2×1 image, red left and blue right, in a 100 by 40 rectangle bound at its centre
+/// and turned a quarter turn, so it stands 40 wide and 100 tall.
+///
+/// Under `ClipOnly` about (200, 300) the image is fitted to the box around the turned
+/// shape — x 180 to 220, y 250 to 350 — and is not turned: red is still on the LEFT.
+/// (190, 300) is red and (210, 300) blue, top to bottom.
+///
+/// Under `ClipAndTransform` about (400, 300) the image turns with the shape: its left
+/// half is now the top. (400, 270) is red and (400, 330) blue, across the whole width.
+#[test]
+fn clip_only_keeps_the_image_upright_and_clip_and_transform_turns_it() {
+    let (frame, _) = render(
+        "canvas_picture_clipmode",
+        &scene(&format!(
+            "  RES img AS canvas::Image = canvas::createImage(2, 1, {halves})\n  \
+             MUT card AS canvas::Rectangle\n  \
+             card = WITH card {{ position := vector::Float2[x := 200.0, y := 300.0], bind := canvas::BindTo.Center, size := canvas::Size[width := 100.0, height := 40.0], paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 1.0, 0.0 - 1.0, 0.0, 0.0, 0.0] }}\n  \
+             LET upright AS canvas::DrawItem = {upright}\n  \
+             LET turned AS canvas::DrawItem = {turned}\n  \
+             canvas::present([upright, turned])\n",
+            halves = pixels(&[RED, BLUE]),
+            upright = shaped("card", "ClipOnly", "Stretch", "img"),
+            turned = shaped(
+                "WITH card { position := vector::Float2[x := 400.0, y := 300.0] }",
+                "ClipAndTransform",
+                "Stretch",
+                "img"
+            ),
+        )),
+    );
+    for y in [260, 300, 340] {
+        assert_eq!(pixel(&frame, 190, y), RED, "upright, left, row {y}");
+        assert_eq!(pixel(&frame, 210, y), BLUE, "upright, right, row {y}");
+    }
+    assert_eq!(pixel(&frame, 170, 300), BLACK, "outside the turned shape");
+    for x in [385, 400, 415] {
+        assert_eq!(pixel(&frame, x, 270), RED, "turned, top, column {x}");
+        assert_eq!(pixel(&frame, x, 330), BLUE, "turned, bottom, column {x}");
+    }
+    assert_eq!(pixel(&frame, 370, 300), BLACK, "outside the turned shape");
+}
+
+/// `canvas::setBytes` on the image of a SHAPED picture repaints it: the picture's
+/// record is rebuilt from the new pixels although the item did not change, exactly as
+/// a plain picture's is.
+#[test]
+fn set_bytes_repaints_a_shaped_picture() {
+    let (frame, stats) = render(
+        "canvas_picture_shaped_set_bytes",
+        &scene(&format!(
+            "  RES img AS canvas::Image = canvas::createImage(1, 1, {red})\n  \
+             MUT disc AS canvas::Circle\n  \
+             disc = WITH disc {{ position := vector::Float2[x := 200.0, y := 200.0], radius := 50.0, paint := canvas::fill(color::rgb(255, 255, 255)) }}\n  \
+             LET a AS canvas::DrawItem = {a}\n  \
+             canvas::present([a])\n  \
+             canvas::setBytes(img, {green})\n",
+            red = pixels(&[RED]),
+            green = pixels(&[GREEN]),
+            a = shaped("disc", "ClipOnly", "Stretch", "img"),
+        )),
+    );
+    assert_eq!(
+        pixel(&frame, 200, 200),
+        GREEN,
+        "the last frame shows the new pixels"
+    );
+    assert_eq!(
+        pixel(&frame, 240, 240),
+        BLACK,
+        "and is still cut to the circle"
+    );
+    let last = stats.last().cloned().unwrap_or_default();
+    assert!(
+        last.contains("frames=2"),
+        "the present and the setBytes each rendered a frame: {stats:?}"
+    );
+}
+
+/// A shaped picture whose paint has a `clip` shows the image where the shape AND the
+/// clip both cover, and nowhere else.
+///
+/// The picture is a 4×4 image in a circle of radius 50 about (200, 200), clipped to the
+/// half-plane right of its centre: the clip is a rectangle from (0, −100) to (100, 100)
+/// in the circle's own coordinates. The same picture without the clip is drawn about
+/// (500, 200), 300 px to the right.
+///
+/// * (230, 200), inside both, is the image — the pixel the unclipped picture has 300
+///   px on.
+/// * (170, 200), inside the circle alone, is background.
+/// * (252, 200), inside the clip alone, is background.
+/// * No seam: the two clips are intersected into one outline, band by band, and a
+///   boundary left between two bands would dip coverage along a horizontal line inside
+///   the region. Every pixel inside the intersection and more than 2 px from its
+///   boundary — more than 2 px right of x = 200, less than 48 px from the centre — is
+///   compared with the unclipped picture's, all of them, and none may differ.
+#[test]
+fn a_shaped_picture_with_a_clip_shows_only_where_both_cover() {
+    let mut texels = Vec::new();
+    for y in 0..4u8 {
+        for x in 0..4u8 {
+            texels.push((
+                40 + x * 60,
+                40 + y * 60,
+                if (x + y) % 2 == 0 { 220 } else { 0 },
+                255,
+            ));
+        }
+    }
+    let (frame, _) = render(
+        "canvas_picture_intersect",
+        &scene(&format!(
+            "  RES img AS canvas::Image = canvas::createImage(4, 4, {texels})\n  \
+             MUT whole AS canvas::Circle\n  \
+             whole = WITH whole {{ position := vector::Float2[x := 500.0, y := 200.0], radius := 50.0, paint := canvas::fill(color::rgb(255, 255, 255)) }}\n  \
+             LET half AS List OF List OF vector::Float2 = [[vector::Float2[x := 0.0, y := 0.0 - 100.0], vector::Float2[x := 100.0, y := 0.0 - 100.0], vector::Float2[x := 100.0, y := 100.0], vector::Float2[x := 0.0, y := 100.0]]]\n  \
+             LET cut AS canvas::Circle = WITH whole {{ position := vector::Float2[x := 200.0, y := 200.0], paint := WITH whole.paint {{ clip := half }} }}\n  \
+             LET a AS canvas::DrawItem = {a}\n  \
+             LET b AS canvas::DrawItem = {b}\n  \
+             canvas::present([a, b])\n",
+            texels = pixels(&texels),
+            a = shaped("cut", "ClipOnly", "Stretch", "img"),
+            b = shaped("whole", "ClipOnly", "Stretch", "img"),
+        )),
+    );
+    assert_eq!(pixel(&frame, 530, 200).3, 255);
+    assert_ne!(
+        pixel(&frame, 530, 200),
+        BLACK,
+        "the unclipped picture is drawn"
+    );
+    assert_eq!(
+        pixel(&frame, 230, 200),
+        pixel(&frame, 530, 200),
+        "inside both"
+    );
+    assert_eq!(pixel(&frame, 170, 200), BLACK, "inside the circle alone");
+    assert_ne!(
+        pixel(&frame, 470, 200),
+        BLACK,
+        "which the unclipped picture does cover"
+    );
+    assert_eq!(pixel(&frame, 252, 200), BLACK, "inside the clip alone");
+
+    let mut compared = 0;
+    for y in 150..250usize {
+        for x in 203..250usize {
+            let (dx, dy) = (x as f64 + 0.5 - 200.0, y as f64 + 0.5 - 200.0);
+            if (dx * dx + dy * dy).sqrt() < 48.0 {
+                compared += 1;
+                assert_eq!(
+                    pixel(&frame, x, y),
+                    pixel(&frame, x + 300, y),
+                    "a seam at ({x}, {y})"
+                );
+            }
+        }
+    }
+    assert!(compared > 3000, "only {compared} pixels compared");
 }

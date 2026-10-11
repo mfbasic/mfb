@@ -666,8 +666,10 @@ FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
       RETURN __canvas_placedClip(a.paint.clip, __canvas_buildX(a.position, a.transform), __canvas_buildY(a.position, a.transform))
     CASE Polygon(p)
       RETURN __canvas_placedClip(p.paint.clip, __canvas_buildX(p.position, p.transform), __canvas_buildY(p.position, p.transform))
+    ' plan-172-L: a picture's clip is its shape's, and is written into its records
+    ' where they are built (`helper_picture.rs`); it never reaches this.
     CASE Picture(pic)
-      RETURN __canvas_placedClip(pic.paint.clip, __canvas_buildX(pic.position, pic.transform), __canvas_buildY(pic.position, pic.transform))
+      RETURN []
     CASE Ellipse(e)
       RETURN __canvas_placedClip(e.paint.clip, __canvas_buildX(e.position, e.transform), __canvas_buildY(e.position, e.transform))
     CASE Text(t)
@@ -789,19 +791,6 @@ FUNC __canvas_rectHeader(x AS Float, y AS Float, w AS Float, h AS Float, cornerR
   RETURN __canvas_boundsHeader(out, x - pad, y - pad, x + w + pad, y + h + pad)
 END FUNC
 
-' bug-484: a picture's header -- a rectangle's, re-kinded, plus what the sampler needs.
-'
-' The image is read through `canvas::imageShadow` and friends, which answer 0 for a
-' destroyed image instead of raising: this runs on the graphics thread, over a scene the
-' program may have built before destroying what it names. Any of the three reading 0 --
-' including a destroy landing between the reads -- is "no such image" and the item draws
-' nothing, exactly as a zero-area rectangle does. The width and height never change and
-' the shadow is never freed, so a header built from a live read stays drawable for the
-' rest of the frame whatever the worker does next (`.ai/canvas-threading.md` section 7).
-'
-' The shadow address being IN the header is what makes a `setBytes` visible: it swaps a
-' fresh block in, so the header differs, the cache confirmation fails, and the damage
-' diff sees a changed item -- although nothing in the scene the program wrote changed.
 ' plan-172-E: a rectangle's corners as ONE circular radius, or -1.0 when they are not
 ' one (`__canvas_uniformRadius`), in which case it is drawn from `__canvas_rectRing`.
 FUNC __canvas_rectRadius(r AS Rectangle) AS Float
@@ -830,39 +819,6 @@ FUNC __canvas_rectRing(r AS Rectangle) AS List OF List OF vector::Float2
     RETURN []
   END IF
   RETURN [__canvas_rrectRing(__canvas_rectLeft(r), __canvas_rectTop(r), r.size.width, r.size.height, r.radiusTL, r.radiusTR, r.radiusBL, r.radiusBR)]
-END FUNC
-
-FUNC __canvas_pictureHeader(pic AS Picture) AS List OF Float
-  LET shadow AS Integer = canvas::imageShadow(pic.image)
-  LET iw AS Integer = canvas::imageWidthOf(pic.image)
-  LET ih AS Integer = canvas::imageHeightOf(pic.image)
-  IF shadow = 0 OR iw <= 0 OR ih <= 0 THEN
-    RETURN __canvas_emptyHeader()
-  END IF
-  LET bx AS Float = __canvas_buildX(pic.position, pic.transform)
-  LET by AS Float = __canvas_buildY(pic.position, pic.transform)
-  LET base AS List OF Float = __canvas_rectHeader(bx, by, pic.size.width, pic.size.height, 0.0, pic.paint, __canvas_placement(pic.position, pic.transform), bx, by)
-  IF toInt(collections::getOr(base, 0, 0.0)) <> __CANVAS_KIND_RECT THEN
-    RETURN base
-  END IF
-  MUT out AS List OF Float = base
-  out = collections::set(out, 0, toFloat(__CANVAS_GEO_PICTURE))
-  ' The Correction F18 trap, the other way round: `__canvas_paintHeader` ran while slot
-  ' 0 still said RECT, a kind with an interior, so it counted a gradient's stops into
-  ' slot 1 -- and `__canvas_geometryFor`'s Picture arm builds none, because the image, not
-  ' a ramp, is what fills a picture. Undone here so the record declares only what it
-  ' holds.
-  out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))
-  out = collections::set(out, __CANVAS_GEO_GRADIENT_COUNT, 0.0)
-  ' plan-163-C: a picture's fill is a TINT, whose alpha is the tint's strength, so it is
-  ' not faded; the picture's own alpha is faded at draw time by T.
-  out = collections::set(out, 11, toFloat(toInt(pic.paint.fill.alpha)))
-  out = collections::set(out, __CANVAS_GEO_PICTURE_TRANSPARENCY, toFloat(__canvas_transparencyStep(pic.paint)))
-  out = collections::set(out, 20, toFloat(iw))
-  out = collections::set(out, 21, toFloat(ih))
-  out = collections::set(out, __CANVAS_GEO_PICTURE_SHADOW_HI, toFloat(shadow / __CANVAS_GEO_PICTURE_SPLIT))
-  out = collections::set(out, __CANVAS_GEO_PICTURE_SHADOW_LO, toFloat(shadow MOD __CANVAS_GEO_PICTURE_SPLIT))
-  RETURN out
 END FUNC
 
 FUNC __canvas_circleHeader(x AS Float, y AS Float, radius AS Float, paint AS Paint, transform AS Transform) AS List OF Float
@@ -1515,38 +1471,18 @@ FUNC __canvas_geoStamp(slot AS Integer) AS Nothing
   END IF
 END FUNC
 
-' Is the geometry at `offset` still this picture's? Its header holds the pixel-block
-' address current when it was built, split across two slots; `setBytes` swaps the block
-' without changing the item, so this is the one cached kind a hash cannot vouch for.
-FUNC __canvas_pictureIsCurrent(offset AS Integer, pic AS Picture) AS Boolean
-  LET shadow AS Integer = canvas::imageShadow(pic.image)
-  LET hi AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_PICTURE_SHADOW_HI, 0.0))
-  LET lo AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_PICTURE_SHADOW_LO, 0.0))
-  RETURN hi * __CANVAS_GEO_PICTURE_SPLIT + lo = shadow
-END FUNC
-
+' plan-172-L: a `Picture` is not built here. Its records are made, cached and -- the
+' one kind a hash cannot vouch for, since `setBytes` swaps an image's pixels without
+' changing the item -- confirmed in `helper_picture.rs`, which the walks hand a picture
+' to before they get here (`__canvas_appendDraw`, `__canvas_memoGroup`).
 FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
   LET slot AS Integer = canvas::geoFind(hash)
   IF slot >= 0 THEN
-    LET offset AS Integer = collections::getOr(__CANVAS_GEO_SLOTS, slot * 4 + 1, 0)
-    MUT current AS Boolean = TRUE
-    MATCH item
-      CASE Picture(pic)
-        IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_PICTURE THEN
-          current = __canvas_pictureIsCurrent(offset, pic)
-        END IF
-      CASE ELSE
-        current = TRUE
-    END MATCH
-    IF current THEN
-      __canvas_geoStamp(slot)
-      RETURN offset
-    END IF
+    __canvas_geoStamp(slot)
+    RETURN collections::getOr(__CANVAS_GEO_SLOTS, slot * 4 + 1, 0)
   END IF
 
-  ' A miss -- or a picture whose image's pixels were swapped. Either way a new slot: the
-  ' old one (if any) keeps its floats until the frame boundary, and the hash now names
-  ' the new one.
+  ' A miss: a new slot.
   '
   ' bug-686: the common kinds -- a rectangle, rounded rectangle, circle, line or polygon
   ' with no transform and no gradient -- are built natively, header and tail in one
@@ -1618,12 +1554,10 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
         tail = __canvas_appendGradientTail(collections::append(collections::append(edges, joins), dashes), p.paint)
       END IF
       header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(p.paint), p.paint)), dashes, p.paint)
+    ' plan-172-L: never reached (see above); the arm keeps MATCH exhaustive, as a
+    ' group's does.
     CASE Picture(pic)
-      header = __canvas_pictureHeader(pic)
-      LET joins AS List OF Float = __canvas_rectJoins(header, pic.paint)
-      LET dashes AS List OF Float = __canvas_rectDashes(header, pic.paint)
-      tail = collections::append(joins, dashes)
-      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(pic.paint), pic.paint)), dashes, pic.paint)
+      header = __canvas_emptyHeader()
     CASE Ellipse(e)
       header = __canvas_ellipseHeader(e)
       LET dashes AS List OF Float = __canvas_ellipseDashes(header, e)
@@ -1918,15 +1852,10 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
         h = __canvas_hashStep(h, 0)
       END IF
       RETURN __canvas_hashPaint(h, p.paint, p.transform)
+    ' plan-172-L: a picture whose shape the native hash does not fold -- a `Text`, an
+    ' `AutoPaint`. Every other picture was answered above.
     CASE Picture(pic)
-      ' The image by its backend id: a destroyed image answers 0, so the item's key
-      ' changes and its geometry is rebuilt as the empty header it now is. A `setBytes`
-      ' does NOT change this key -- the pixel block is re-read on every frame instead
-      ' (`canvas::sceneResolve`, `__canvas_pictureIsCurrent`).
-      MUT h AS Integer = __canvas_hashStart(6)
-      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, pic.position.x), pic.position.y), pic.size.width), pic.size.height)
-      h = __canvas_hashStep(h, canvas::imageHandle(pic.image))
-      RETURN __canvas_hashPaint(h, pic.paint, pic.transform)
+      RETURN __canvas_pictureHash(pic)
     CASE Text(t)
       ' The font id is a resource HANDLE -- an address -- and must be folded in as the
       ' integer it is, never through `__canvas_hashFloat`, whose `value * 65536.0`
@@ -2066,12 +1995,16 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
       LET dashes AS List OF Float = __canvas_arcDashes(header, a)
       tail = __canvas_strokeRampTail(dashes, a.paint)
       header = __canvas_withDashes(header, dashes, a.paint)
+    ' plan-172-L: a picture's records have ONE builder (`helper_picture.rs`) -- the
+    ' native one declines a picture -- so there is no second answer to hold one against,
+    ' and the record under test is its own reference. What a shaped picture's outline is
+    ' built from IS checked, as the item it is, where it is built
+    ' (`__canvas_geoVerify`).
     CASE Picture(pic)
-      header = __canvas_pictureHeader(pic)
-      LET joins AS List OF Float = __canvas_rectJoins(header, pic.paint)
-      LET dashes AS List OF Float = __canvas_rectDashes(header, pic.paint)
-      tail = collections::append(joins, dashes)
-      header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(__canvas_strokeHalf(pic.paint), pic.paint)), dashes, pic.paint)
+      IF offset < 0 THEN
+        RETURN __canvas_emptyHeader()
+      END IF
+      RETURN collections::mid(__CANVAS_GEO_DATA, offset, toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 1, 0.0)))
     CASE Ellipse(e)
       header = __canvas_ellipseHeader(e)
       LET dashes AS List OF Float = __canvas_ellipseDashes(header, e)

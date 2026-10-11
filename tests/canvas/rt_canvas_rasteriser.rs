@@ -5649,7 +5649,7 @@ fn an_image_destroyed_while_a_scene_names_it_renders_a_frame_and_does_not_raise(
              RES img AS canvas::Image = canvas::createImage(1, 1, px) TRAP(e)\n  \
              RETURN\n  \
              END TRAP\n  \
-             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], size := canvas::Size[width := 40.0, height := 40.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 40.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
              canvas::destroyImage(img)\n  \
              canvas::present([tile])\n",
         ),

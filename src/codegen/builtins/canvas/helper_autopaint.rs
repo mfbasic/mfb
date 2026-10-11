@@ -207,6 +207,9 @@ MUT __CANVAS_AUTO_KEY AS List OF Integer = []
 MUT __CANVAS_AUTO_PARENT AS List OF Integer = []
 ' Its scene index when it is a top-level item, otherwise -1.
 MUT __CANVAS_AUTO_TOP AS List OF Integer = []
+' plan-172-L: which `Picture` it is the shape of -- the number `helper_picture.rs` gave
+' that picture this frame -- or -1 when it is an item of its own.
+MUT __CANVAS_AUTO_HOSTS AS List OF Integer = []
 
 ' The table kept across frames, one row per instance the last frame saw: its key, its
 ' phase (+ 4 when it owns the press), the end of the window it is in, the paint it is
@@ -376,11 +379,10 @@ FUNC __canvas_autoGeometry(a AS AutoPaint, hash AS Integer, shown AS Integer) AS
   RETURN __canvas_geometryFor(__canvas_autoItemWith(a, __canvas_autoPaintFor(a, shown)), __canvas_autoGeoHash(hash, shown))
 END FUNC
 
-' `__canvas_appendDraw`'s `AutoPaint` arm: note the instance, then append its shape's
-' entry -- with the shape's OWN paint, which is what the hit test must read.
-FUNC __canvas_autoAppend(offsets AS List OF Integer, a AS AutoPaint, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
-  LET key AS Integer = __canvas_autoKey(path, index)
-  LET side AS Integer = len(offsets)
+' Note an instance at `index` of the list named `path`: `side` is the entry in the
+' walk's list the pointer is tested against, `hash` the hash its records are keyed
+' from, and `host` the `Picture` it is the shape of (plan-172-L) or -1.
+FUNC __canvas_autoNote(a AS AutoPaint, hash AS Integer, side AS Integer, depth AS Integer, path AS Integer, index AS Integer, host AS Integer) AS Nothing
   MUT top AS Integer = 0 - 1
   IF depth = 0 THEN
     top = index
@@ -388,10 +390,35 @@ FUNC __canvas_autoAppend(offsets AS List OF Integer, a AS AutoPaint, hash AS Int
   __CANVAS_AUTO_ITEMS = collections::append(__CANVAS_AUTO_ITEMS, a)
   __CANVAS_AUTO_HASH = collections::append(__CANVAS_AUTO_HASH, hash)
   __CANVAS_AUTO_SIDE = collections::append(__CANVAS_AUTO_SIDE, side)
-  __CANVAS_AUTO_KEY = collections::append(__CANVAS_AUTO_KEY, key)
+  __CANVAS_AUTO_KEY = collections::append(__CANVAS_AUTO_KEY, __canvas_autoKey(path, index))
   __CANVAS_AUTO_PARENT = collections::append(__CANVAS_AUTO_PARENT, path)
   __CANVAS_AUTO_TOP = collections::append(__CANVAS_AUTO_TOP, top)
+  __CANVAS_AUTO_HOSTS = collections::append(__CANVAS_AUTO_HOSTS, host)
+END FUNC
+
+' `__canvas_appendDraw`'s `AutoPaint` arm: note the instance, then append its shape's
+' entry -- with the shape's OWN paint, which is what the hit test must read.
+FUNC __canvas_autoAppend(offsets AS List OF Integer, a AS AutoPaint, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
+  __canvas_autoNote(a, hash, len(offsets), depth, path, index, 0 - 1)
   RETURN __canvas_appendDraw(offsets, __canvas_autoItem(a), __canvas_autoGeoHash(hash, 0), gdx, gdy, mat, depth, path, index)
+END FUNC
+
+' plan-172-L: the shape of an `AutoPaint` under the paint it shows (0: its own), for a
+' `Picture` that has it for a shape -- and the paint the instance at `index` of the list
+' named `path` was last resolved to show.
+FUNC __canvas_autoShapeShown(a AS AutoPaint, shown AS Integer) AS DrawItem
+  IF shown = 0 THEN
+    RETURN __canvas_autoItem(a)
+  END IF
+  RETURN __canvas_autoItemWith(a, __canvas_autoPaintFor(a, shown))
+END FUNC
+
+FUNC __canvas_autoShownAt(path AS Integer, index AS Integer) AS Integer
+  LET row AS Integer = __canvas_autoRow(__canvas_autoKey(path, index))
+  IF row < 0 THEN
+    RETURN 0
+  END IF
+  RETURN collections::getOr(__CANVAS_AUTO_T_SHOWN, row, 0)
 END FUNC
 
 ' The table row of `key`, or -1.
@@ -536,14 +563,29 @@ FUNC __canvas_autoResolve(offsets AS List OF Integer, spans AS List OF Integer) 
 
     ' A state paint: the entry becomes the shape under that paint, and its draw hash
     ' says so. The shape's own paint is the entry the walk already appended.
+    '
+    ' plan-172-L: an instance that is a picture's shape is TWO entries -- the image, then
+    ' the outline the pointer was tested against -- and both become the state paint's:
+    ' its fill is the image's tint, its stroke the outline's. The picture's top-level
+    ' slot stays as the walk left it: not one entry, so the draw walk asks again.
     IF shown <> 0 THEN
-      LET offset AS Integer = __canvas_autoGeometry(a, collections::getOr(__CANVAS_AUTO_HASH, n, 0), shown)
-      out = collections::set(out, entry, offset)
-      LET drawHash AS Integer = __canvas_hashStep(collections::getOr(__CANVAS_DRAW_HASHES, entry, 0), shown + 16)
-      __CANVAS_DRAW_HASHES = collections::set(__CANVAS_DRAW_HASHES, entry, drawHash)
-      LET top AS Integer = collections::getOr(__CANVAS_AUTO_TOP, n, 0 - 1)
-      IF top >= 0 THEN
-        __CANVAS_TOP_OFFSETS = collections::set(__CANVAS_TOP_OFFSETS, top, offset)
+      LET hosted AS List OF Integer = __canvas_pictureAutoBlocks(collections::getOr(__CANVAS_AUTO_HOSTS, n, 0 - 1), a, collections::getOr(__CANVAS_AUTO_HASH, n, 0), shown)
+      IF len(hosted) >= 4 THEN
+        out = collections::set(out, entry - 1, collections::getOr(hosted, 0, 0))
+        out = collections::set(out, entry, collections::getOr(hosted, 2, 0))
+        LET imageHash AS Integer = __canvas_hashStep(collections::getOr(__CANVAS_DRAW_HASHES, entry - 1, 0), shown + 16)
+        __CANVAS_DRAW_HASHES = collections::set(__CANVAS_DRAW_HASHES, entry - 1, imageHash)
+        LET outlineHash AS Integer = __canvas_hashStep(collections::getOr(__CANVAS_DRAW_HASHES, entry, 0), shown + 16)
+        __CANVAS_DRAW_HASHES = collections::set(__CANVAS_DRAW_HASHES, entry, outlineHash)
+      ELSE
+        LET offset AS Integer = __canvas_autoGeometry(a, collections::getOr(__CANVAS_AUTO_HASH, n, 0), shown)
+        out = collections::set(out, entry, offset)
+        LET drawHash AS Integer = __canvas_hashStep(collections::getOr(__CANVAS_DRAW_HASHES, entry, 0), shown + 16)
+        __CANVAS_DRAW_HASHES = collections::set(__CANVAS_DRAW_HASHES, entry, drawHash)
+        LET top AS Integer = collections::getOr(__CANVAS_AUTO_TOP, n, 0 - 1)
+        IF top >= 0 THEN
+          __CANVAS_TOP_OFFSETS = collections::set(__CANVAS_TOP_OFFSETS, top, offset)
+        END IF
       END IF
     END IF
     n = n + 1
@@ -563,6 +605,7 @@ FUNC __canvas_autoResolve(offsets AS List OF Integer, spans AS List OF Integer) 
   __CANVAS_AUTO_KEY = []
   __CANVAS_AUTO_PARENT = []
   __CANVAS_AUTO_TOP = []
+  __CANVAS_AUTO_HOSTS = []
 
   ' 6. From now on a pointer change is a redraw. The platforms' handlers read that word
   ' AFTER they publish, so a change that landed between this frame's snapshot and the
@@ -816,12 +859,23 @@ END FUNC
 
 FUNC __canvas_autoText() AS String
   RETURN ""
+END FUNC
+
+FUNC __canvas_autoNote(a AS AutoPaint, hash AS Integer, side AS Integer, depth AS Integer, path AS Integer, index AS Integer, host AS Integer) AS Nothing
+END FUNC
+
+FUNC __canvas_autoShapeShown(a AS AutoPaint, shown AS Integer) AS DrawItem
+  RETURN __canvas_noItem()
+END FUNC
+
+FUNC __canvas_autoShownAt(path AS Integer, index AS Integer) AS Integer
+  RETURN 0
 END FUNC"#;
 
 /// The names the unconditional source calls: each is defined once in [`RESOLVE`] and
 /// once in [`ABSENT`], and exactly one of the two chunks is in any canvas program.
 #[cfg(test)]
-const HOOKS: [&str; 12] = [
+const HOOKS: [&str; 15] = [
     "__canvas_autoItem",
     "__canvas_autoHash",
     "__canvas_autoPath",
@@ -834,6 +888,9 @@ const HOOKS: [&str; 12] = [
     "__canvas_autoTimeout",
     "__canvas_autoTextBox",
     "__canvas_autoText",
+    "__canvas_autoNote",
+    "__canvas_autoShapeShown",
+    "__canvas_autoShownAt",
 ];
 
 static BODY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
