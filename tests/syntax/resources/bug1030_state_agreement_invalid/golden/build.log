@@ -1,0 +1,56 @@
+$ mfb build -ast -ir tests/syntax/resources/bug1030_state_agreement_invalid
+  57 |   LET e = j(bare)                                           ' BAD: carries no STATE
+  58 |   LET f = j(other)                                          ' BAD: carries another STATE
+  59 |   LET h = apply(j, cur)                                     ' BAD: `apply` may pass any state or none
+     | ^
+tests/syntax/resources/bug1030_state_agreement_invalid/src/main.mfb:59 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `apply` has type FUNC(fs.File STATE Cur) AS Integer, expected FUNC(fs.File) AS Integer.
+  59 |   LET h = apply(j, cur)                                     ' BAD: `apply` may pass any state or none
+  60 |   LET k AS FUNC(fs::File) AS Integer = j                    ' BAD: the same, at a binding
+  61 |   LET m = LAMBDA(x AS fs::File) -> x.state.n                ' BAD: a bare parameter cannot read a state
+     | ^
+tests/syntax/resources/bug1030_state_agreement_invalid/src/main.mfb:61 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `m` does not have a known type.
+  42 | FUNC give() AS FUNC(fs::File) AS Integer
+  43 |   LET j = LAMBDA(x AS fs::File STATE Cur) -> x.state.n
+  44 |   RETURN j                                                  ' BAD: not a FUNC(fs::File)
+     | ^
+tests/syntax/resources/bug1030_state_agreement_invalid/src/main.mfb:44 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type FUNC(fs.File STATE Cur) AS Integer, expected FUNC(fs.File) AS Integer.
+  48 |   LET a = wantsCur(topOk)                                   ' OK
+  49 |   LET b = opaque(topOk)                                     ' OK: a bare parameter is opaque
+  50 |   LET c = wantsOther(topOk)                                 ' BAD: a parameter cannot re-type a state
+     | ^
+tests/syntax/resources/bug1030_state_agreement_invalid/src/main.mfb:50 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               Argument 1 for `wantsOther` is declared `STATE Other` but carries STATE `Cur`; a parameter observes a resource's state, it cannot re-type it.
+  55 |   LET j = LAMBDA(x AS fs::File STATE Cur) -> x.state.n
+  56 |   LET d = j(cur)                                            ' OK
+  57 |   LET e = j(bare)                                           ' BAD: carries no STATE
+     | ^
+tests/syntax/resources/bug1030_state_agreement_invalid/src/main.mfb:57 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               Argument 1 for `j` is declared `STATE Cur` but carries no STATE; a parameter cannot attach one — declare `STATE Cur` on the owning binding.
+  56 |   LET d = j(cur)                                            ' OK
+  57 |   LET e = j(bare)                                           ' BAD: carries no STATE
+  58 |   LET f = j(other)                                          ' BAD: carries another STATE
+     | ^
+tests/syntax/resources/bug1030_state_agreement_invalid/src/main.mfb:58 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               Argument 1 for `j` is declared `STATE Cur` but carries STATE `Other`; a parameter observes a resource's state, it cannot re-type it.
+  58 |   LET f = j(other)                                          ' BAD: carries another STATE
+  59 |   LET h = apply(j, cur)                                     ' BAD: `apply` may pass any state or none
+  60 |   LET k AS FUNC(fs::File) AS Integer = j                    ' BAD: the same, at a binding
+     | ^
+tests/syntax/resources/bug1030_state_agreement_invalid/src/main.mfb:60 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `k` has initializer type FUNC(fs.File STATE Cur) AS Integer, expected FUNC(fs.File) AS Integer.
+  59 |   LET h = apply(j, cur)                                     ' BAD: `apply` may pass any state or none
+  60 |   LET k AS FUNC(fs::File) AS Integer = j                    ' BAD: the same, at a binding
+  61 |   LET m = LAMBDA(x AS fs::File) -> x.state.n                ' BAD: a bare parameter cannot read a state
+     | ^
+tests/syntax/resources/bug1030_state_agreement_invalid/src/main.mfb:61 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               `fs.File` here has no STATE to read; declare the resource with `STATE T`. Bare means "no state" on an owner, and "opaque" on a resource parameter — a bare parameter cannot read the state its caller attached.
+  17 | 
+  18 | RES topOk AS fs::File STATE Cur = openTagged()              ' OK: adopts the Cur
+  19 | RES topBad AS fs::File STATE Other = openTagged()           ' BAD: the initializer carries a Cur
+     | ^
+tests/syntax/resources/bug1030_state_agreement_invalid/src/main.mfb:19 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               binding `topBad` declares `STATE Other` but its initializer carries STATE `Cur`; a resource's STATE type is fixed where it is created.
+[exit 1]

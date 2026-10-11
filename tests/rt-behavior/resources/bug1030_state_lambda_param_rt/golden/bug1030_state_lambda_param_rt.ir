@@ -1,0 +1,259 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug1030_state_lambda_param_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "topLevel", "line": 31, "visibility": "public", "mutable": false, "type": "FUNC(fs.File STATE Cur) AS Integer", "value": { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(fs.File STATE Cur) AS Integer" } }
+  ],
+  "types": [
+  {
+    "kind": "type",
+    "line": 22,
+    "visibility": "public",
+    "name": "Cur",
+    "fields": [
+    { "visibility": null, "line": 23, "name": "n", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 26,
+    "visibility": "public",
+    "name": "Stream",
+    "includes": [],
+    "variants": [
+    {
+      "name": "fs.File",
+      "line": 27,
+      "fields": [
+      ]
+    },
+    {
+      "name": "tcp.Socket",
+      "line": 28,
+      "fields": [
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "bump",
+    "line": 33,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 33, "type": "fs.File STATE Cur", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "stateAssign", "line": 34, "resource": "x", "value": { "kind": "with", "type": "Cur", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "member": "n" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } }] } },
+    { "op": "return", "line": 35, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "member": "n" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 38,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 39, "mutable": false, "name": "f", "type": "fs.File STATE Cur", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "stateAssign", "line": 40, "resource": "f", "value": { "kind": "with", "type": "Cur", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "const", "type": "Integer", "value": "4" } }] } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "read", "type": "FUNC(fs.File STATE Cur) AS Integer", "value": { "kind": "functionRef", "name": "$lambda1", "type": "FUNC(fs.File STATE Cur) AS Integer" } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "read " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "read", "args": [{ "kind": "local", "name": "f" }] }] } }] } },
+    { "op": "bind", "line": 45, "mutable": false, "name": "update", "type": "FUNC(fs.File STATE Cur) AS Integer", "value": { "kind": "functionRef", "name": "$lambda2", "type": "FUNC(fs.File STATE Cur) AS Integer" } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "update " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "update", "args": [{ "kind": "local", "name": "f" }] }] } }, "right": { "kind": "const", "type": "String", "value": " owner " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }] } }] } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "100" } },
+    { "op": "bind", "line": 49, "mutable": false, "name": "capture", "type": "FUNC(fs.File STATE Cur) AS Integer", "value": { "kind": "closure", "name": "$lambda3", "type": "FUNC(fs.File STATE Cur) AS Integer", "captures": [{ "kind": "local", "name": "k" }] } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "capture " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "capture", "args": [{ "kind": "local", "name": "f" }] }] } }, "right": { "kind": "const", "type": "String", "value": " owner " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }] } }] } },
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "global " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "topLevel", "args": [{ "kind": "local", "name": "f" }] }] } }, "right": { "kind": "const", "type": "String", "value": " owner " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "n" }] } }] } },
+    { "op": "bind", "line": 54, "mutable": false, "name": "s", "type": "Stream STATE Cur", "value": { "kind": "unionWrap", "union": "Stream", "member": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } } },
+    { "op": "stateAssign", "line": 55, "resource": "s", "value": { "kind": "with", "type": "Cur", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "s" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "const", "type": "Integer", "value": "5" } }] } },
+    { "op": "bind", "line": 56, "mutable": false, "name": "mixed", "type": "FUNC(Stream STATE Cur, Integer) AS Integer", "value": { "kind": "functionRef", "name": "$lambda4", "type": "FUNC(Stream STATE Cur, Integer) AS Integer" } },
+    { "op": "eval", "line": 57, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "union " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "mixed", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Integer", "value": "7" }] }] } }] } },
+    { "op": "bind", "line": 59, "mutable": false, "name": "both", "type": "List OF FUNC(fs.File STATE Cur) AS Integer", "value": { "kind": "list", "type": "List OF FUNC(fs.File STATE Cur) AS Integer", "values": [{ "kind": "local", "name": "read" }, { "kind": "functionRef", "name": "$lambda5", "type": "FUNC(fs.File STATE Cur) AS Integer" }] } },
+    { "op": "bind", "line": 60, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 61,
+      "name": "fn",
+      "type": "FUNC(fs.File STATE Cur) AS Integer",
+      "iterable": { "kind": "local", "name": "both" },
+      "body": [
+      { "op": "assign", "line": 62, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "type": "Integer", "target": "fn", "args": [{ "kind": "local", "name": "f" }] } } }
+      ]
+    },
+    { "op": "eval", "line": 64, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "list " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "$for_step2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "for",
+      "line": 66,
+      "name": "$for_iter0",
+      "type": "Integer",
+      "start": { "kind": "const", "type": "Integer", "value": "1" },
+      "end": { "kind": "local", "name": "$for_end1" },
+      "step": { "kind": "local", "name": "$for_step2" },
+      "body": [
+      { "op": "bind", "line": 66, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
+      { "op": "bind", "line": 67, "mutable": false, "name": "t", "type": "fs.File STATE Cur", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
+      { "op": "stateAssign", "line": 68, "resource": "t", "value": { "kind": "with", "type": "Cur", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "t" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "local", "name": "i" } }] } },
+      { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "loop " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "capture", "args": [{ "kind": "local", "name": "t" }] }] } }, "right": { "kind": "const", "type": "String", "value": " owner " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "t" }, "member": "state" }, "member": "n" }] } }] } }
+      ]
+    },
+    { "op": "return", "line": 71, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "line": 31,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 31, "type": "fs.File STATE Cur", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 31, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "bump", "args": [{ "kind": "local", "name": "x" }] }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "member": "n" } } }
+    ]
+  },
+  {
+    "name": "$lambda1",
+    "line": 42,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 42, "type": "fs.File STATE Cur", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 42, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "member": "n" } }
+    ]
+  },
+  {
+    "name": "$lambda2",
+    "line": 45,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 45, "type": "fs.File STATE Cur", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 45, "value": { "kind": "call", "type": "Integer", "target": "bump", "args": [{ "kind": "local", "name": "x" }] } }
+    ]
+  },
+  {
+    "name": "$lambda3",
+    "line": 49,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 49, "type": "fs.File STATE Cur", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 49, "mutable": false, "name": "k", "type": "Integer", "value": { "kind": "capture", "index": 0, "type": "Integer" } },
+    { "op": "return", "line": 49, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "bump", "args": [{ "kind": "local", "name": "x" }] }, "right": { "kind": "local", "name": "k" } } }
+    ]
+  },
+  {
+    "name": "$lambda4",
+    "line": 56,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 56, "type": "Stream STATE Cur", "default": null },
+    { "name": "y", "line": 56, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 56, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "member": "n" }, "right": { "kind": "local", "name": "y" } } }
+    ]
+  },
+  {
+    "name": "$lambda5",
+    "line": 59,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 59, "type": "fs.File STATE Cur", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 59, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "local", "name": "x" }, "member": "state" }, "member": "n" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+    ]
+  }
+  ]
+}

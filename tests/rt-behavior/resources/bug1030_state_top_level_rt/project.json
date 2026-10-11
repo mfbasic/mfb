@@ -1,0 +1,10 @@
+{
+  "name": "bug1030_state_top_level_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-1030: a top-level RES binding's STATE clause is part of its type: the state is default-initialized by the module initializer, read through the binding, updated through a STATE parameter, adopted from a stateful return, and held per thread instance.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}
