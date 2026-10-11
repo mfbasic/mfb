@@ -36,6 +36,7 @@ bug-1035, a later phase's work.
 | [ ]  | 1027   | MED      | a concrete `fs::File` binding appended to a module-level `List OF RES Handle` fails to build |
 | [ ]  | 1028   | MED      | a `List`/`Map` of resource unions that is iterated or read through `collections::get` keeps its block and records |
 | [ ]  | 1030   | MED      | the `STATE` clause of a top-level `RES` binding and of a `LAMBDA` parameter is dropped, so `.state` on it does not type |
+| [ ]  | 1037   | MED      | a resource-union binding with an inline `TRAP` keeps 128 bytes every time it is evaluated |
 | [ ]  | 1029   | LOW      | a call through a function value that returns a resource union leaks the 16-byte union box |
 | [ ]  | 1031   | LOW      | `RES` on a non-resource type is not refused at the top level, on a return type, or on a record field that also carries `STATE` |
 
@@ -84,6 +85,7 @@ bug-1035, a later phase's work.
 | [ ]  | 1009   | MED      | fixed-width `collections::toSet` reserves by input length even when nearly every element is a duplicate |
 | [ ]  | 1010   | MED      | native `collections::merge` reserves for every input entry even when all keys overlap |
 | [ ]  | 1011   | MED      | reserved collection results retain source-sized capacity when outputs are smaller |
+| [ ]  | 1036   | MED      | a list reassigned inside a `FOR EACH` over it leaks every replaced block (owner decided: no intentional leaks; free them when the loop ends) |
 | [ ]  | 1002   | LOW      | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` is reported twice for one collection declaration that holds a thread worker |
 | [ ]  | 1006   | LOW      | `collections::window` overflows while advancing past its last window for a large valid stride |
 
@@ -171,6 +173,8 @@ bug-1035, a later phase's work.
 | [ ]  | 913    | MED      | two template FUNCs sharing a name (or a template and a plain FUNC) — the earlier declaration is silently discarded, calls bind to the wrong body |
 | [ ]  | 914    | MED      | the same import alias bound to different packages in two files breaks imported-overload resolution (`TYPE_UNKNOWN_VALUE`), depending on file sort order |
 | [ ]  | 1022   | MED      | a template call (`collections::merge`, any user `FUNC f OF T`) rejects a union variant where its `T` is the union, though the builtin collection members now accept it |
+| [ ]  | 1038   | MED      | an imported return-type overload set cannot be selected by the expected type (`TYPE_OVERLOAD_AMBIGUOUS`) |
+| [ ]  | 1039   | MED      | a template call whose argument is a direct imported-package call infers `T` as `Unknown` |
 | [ ]  | 836    | LOW      | a call that matches no user overload reports `SYMBOL_UNKNOWN_IDENTIFIER: Callable `f` is not a top-level function` |
 | [ ]  | 870    | LOW      | a return-type overload (`encoding::utf8Encode`) loses its expected type under an inline TRAP |
 | [ ]  | 1032   | LOW      | a generic `FUNC gen OF T(x AS T STATE Cur)` called with a `fs::File STATE Cur` argument is rejected; the instantiation carries the clause twice (NEEDS AN OWNER DECISION: is `T STATE S` on a generic parameter legal at all?) |
@@ -184,6 +188,7 @@ bug-1035, a later phase's work.
 | [ ]  | 920    | MED      | Source selection with a directory-symlink alias depends on `read_dir` order (files silently dropped or renamed) |
 | [ ]  | 881    | LOW      | a PUBLIC and a PRIVATE declaration of one name in the same file report `SYMBOL_DUPLICATE_TOP_LEVEL` with the internal mangled name (after 912) |
 | [ ]  | 924    | LOW      | Overloaded (or `PRIVATE`) `main` is reported as "must declare an entry point named `main`"; the "exactly one" diagnostic is unreachable |
+| [ ]  | 1040   | LOW      | a `PRIVATE FUNC` named like a built-in (`len`) hides the built-in in its file, and the error prints the mangled name |
 
 ## Globals and initializers
 
@@ -217,6 +222,7 @@ bug-1035, a later phase's work.
 | [ ]  | 882    | LOW      | `LET x = []` binds `List OF Unknown` silently, and the first `collections::append(x, v)` then fails the build with an internal error |
 | [ ]  | 936    | LOW      | wrong-arity `collections::merge`/`partition` diagnostics print the internal monomorph name `#collections_merge$String$Integer` |
 | [ ]  | 937    | LOW      | one unknown record field produces cascading `TYPE_CALL_ARGUMENT_MISMATCH` (overloaded builtin) and a duplicated `TYPE_UNKNOWN_VALUE` |
+| [ ]  | 1041   | LOW      | a no-match call on a file's `PRIVATE`+`PUBLIC` overload set prints `#<hash>$r`, and `PRIVATE_SHADOWS_PUBLIC` fires on that legal overload (item 2 NEEDS AN OWNER DECISION; with 836 and 881) |
 
 ## Codegen internals
 
