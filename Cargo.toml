@@ -656,6 +656,10 @@ name = "rt_reduce_collection_accumulator_frees"
 path = "tests/runtime/rt_reduce_collection_accumulator_frees.rs"
 
 [[test]]
+name = "rt_param_borrow_handover_frees"
+path = "tests/runtime/rt_param_borrow_handover_frees.rs"
+
+[[test]]
 name = "rt_inplace_field_nested"
 path = "tests/runtime/rt_inplace_field_nested.rs"
 
