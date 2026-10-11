@@ -3291,6 +3291,40 @@ impl CodeBuilder<'_> {
                             // `owns_freeable_value` branch below and is freed.
                             if let Some(NirValue::Local(src)) = value {
                                 self.live_resource_aliases.insert(name.clone(), src.clone());
+                                // bug-1050: a STATE this binding attaches rides the
+                                // record its source owns, so the source's cleanup
+                                // frees it after its close. The inline-`TRAP`
+                                // desugar is the usual road here: `RES v AS fs::File
+                                // STATE Cur = open() TRAP` binds `v` from a delivery
+                                // temporary typed by the producer, with no STATE,
+                                // and the temporary's cleanup is the one that runs.
+                                // It knew of no state, so the block was kept on
+                                // every evaluation. A root with no live cleanup (a
+                                // parameter) keeps the STATE for the caller's owner.
+                                if let Some(state) = type_.state() {
+                                    let root = self.resource_alias_root(src);
+                                    let owner_state =
+                                        self.active_cleanups.iter_mut().rev().find_map(|cleanup| {
+                                            match cleanup {
+                                                ActiveCleanup::Resource(owner)
+                                                    if owner.name == root =>
+                                                {
+                                                    Some(&mut owner.state_type)
+                                                }
+                                                ActiveCleanup::ResourceUnion(owner)
+                                                    if owner.name == root =>
+                                                {
+                                                    Some(&mut owner.state_type)
+                                                }
+                                                _ => None,
+                                            }
+                                        });
+                                    if let Some(owner_state) = owner_state {
+                                        if owner_state.is_none() {
+                                            *owner_state = Some(state);
+                                        }
+                                    }
+                                }
                             }
                         } else if let Some(symbol) = self.resource_cleanup_symbol(type_) {
                             // bug-755: the binding claims the record only when it is

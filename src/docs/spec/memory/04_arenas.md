@@ -412,6 +412,14 @@ A **resource** is scope-dropped, but on its own terms: drop and close do differe
 jobs. *Close* releases the OS handle and sets the closed flag; *drop* reclaims the
 memory — the drop path `arena_free`s the resource's output buffer,
 read buffer, and `STATE` payload, nulling each pointer word as it goes.
+The `STATE` payload is freed by whichever cleanup owns the record, whoever attached
+it: a binding that names another binding's record and declares the `STATE` (`RES b
+AS fs::File STATE Cur = a`) records the state type on that owner's cleanup. The
+inline-`TRAP` form depends on it — `RES v AS fs::File STATE Cur = open() TRAP …`
+binds `v` from a delivery temporary typed by the producer, with no `STATE`, and the
+temporary's cleanup is the one that runs. A resource union's binding does the same.
+[[src/codegen/engine/control/builder_control.rs:live_resource_aliases]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_alias_root]]
 The assigned scope's eligible cleanup also frees the resource record for `fs.File`,
 `tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`, `tls.Listener`,
 `audio.AudioInput`, `audio.AudioOutput`, and the parent `Thread` view. It frees
