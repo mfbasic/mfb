@@ -68,9 +68,9 @@ in one walk; **unproved** → the drain closes each record its scope owns, write
 `RESOURCE_OWNER_TAKEN` into its owner word and moves the node to a reclaim list
 (`reclaim_slot`), and `emit_owned_list_reclaims` frees the taken records after the
 LAST cleanup of the exit; **close-only** → only where a reference can leave without a
-raise (`record_ownership::runtime_reclaim`: a `LAMBDA` anywhere in the program that
-assigns a by-ref captured container, or an outward assignment the store-time raise
-does not cover). Things that bite:
+raise (`record_ownership::runtime_reclaim`, both asked of the one function: it
+creates a `LAMBDA` that assigns a by-ref captured container, or it has an outward
+assignment the store-time raise does not cover). Things that bite:
 
 - **A new exit path must emit the reclaim after its drops.** `emit_cleanups` does;
   `emit_cleanup_branch_to_depth` and the scope end in `lower_ops_inner` do it by hand;

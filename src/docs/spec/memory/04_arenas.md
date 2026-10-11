@@ -575,16 +575,19 @@ the list keeps its nodes; the handler's own exit runs the drain and the reclaim.
 [[src/codegen/engine/control/builder_exits.rs:trap_route_cleanups]]
 
 Two stores carry a reference to a longer-lived binding **without** raising the
-owner word. A function that can be on either side of one keeps the close-only
+owner word. A function that contains one keeps the close-only
 drain for every container it cannot prove: the records are closed and stay
 allocated, so a later read through the longer-lived binding is `ErrResourceClosed`
 and not a read of freed memory.
 
 * A `LAMBDA` that assigns, through a by-reference capture, a binding that reaches
   a resource (`collections::forEach(xs, LAMBDA(h) -> keep = collections::append(keep,
-  h))`). Any call that reaches such a lambda, any number of frames away, can hand
-  it a record, so this is asked of the whole program: when no function contains
-  such an assignment, no such store exists.
+  h))`), itself or through a lambda nested in it. Only the function that creates
+  the lambda can hand it a record: a by-reference capture is licensed for one
+  position, a lambda written directly as a builtin's non-escaping callback
+  argument (every other `MUT` capture is `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`), and
+  the builtin calls it only during that call, with what the call's other
+  arguments and the lambda's own captures reach.
 * An assignment to a binding that reaches a resource whose value names, in a
   position the store-time raise below does not cover and that is not an adopted
   call result, a binding of an inner scope that reaches one too (`keep =
@@ -592,7 +595,8 @@ and not a read of freed memory.
   the function that contains the assignment.
 
 [[src/codegen/resource/cleanup/record_ownership.rs:runtime_reclaim]]
-[[src/codegen/resource/cleanup/record_ownership.rs:module_stores_through_a_captured_reference]]
+[[src/codegen/resource/cleanup/record_ownership.rs:stores_through_a_captured_reference]]
+[[src/codegen/builtins/mod.rs:is_nonescaping_callback_arg]]
 
 *The block.* A `List OF RES T` or `Map OF K TO RES T` block is held by whatever
 holds its pointer and by nothing else: an element read out of it is a record

@@ -789,7 +789,6 @@ pub(crate) fn record_ownership(
         functions,
         record_type,
         res_collection_type,
-        &stores,
         &store_floats,
     );
     let (reassign_free_collections, inner_owning_collections) = block_collections(
@@ -836,52 +835,71 @@ pub(crate) fn record_ownership(
 /// `emit_owned_list_reclaims` frees it after the last of them.
 ///
 /// Two stores carry a reference outward WITHOUT raising it, and a function that
-/// can be on either side of one keeps its close-only drains (the records are
-/// closed; reading one afterwards is `ErrResourceClosed`, not a read of freed
-/// memory):
+/// contains either keeps its close-only drains (the records are closed; reading
+/// one afterwards is `ErrResourceClosed`, not a read of freed memory):
 ///
 /// * **A store through a captured reference.** A `LAMBDA` that assigns a `MUT`
 ///   container of its enclosing function (`collections::forEach(xs, LAMBDA(h) ->
 ///   keep = collections::append(keep, h))`) writes a longer-lived list from code
-///   the storing function's own pre-pass never sees as a store, and any call that
-///   reaches that lambda — through a function value, any number of frames away —
-///   can hand it a record. This is asked of the whole program
-///   ([`module_stores_through_a_captured_reference`]): no such lambda anywhere,
-///   no such store.
+///   this function's own pre-pass never sees as a store
+///   ([`stores_through_a_captured_reference`]). Only this function can be on the
+///   giving side of it: a by-reference capture is licensed for one position, a
+///   lambda written directly as a non-escaping callback argument of a builtin
+///   (`builtins::is_nonescaping_callback_arg`; every other `MUT` capture is
+///   `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`), and that builtin calls it only during
+///   the call, with what the call's other arguments and the lambda's own
+///   captures reach — all of them this function's.
 /// * **An assignment this pre-pass does not raise** (`keep =
-///   collections::filter(xs, …)` with `xs` bound in a nested block): asked of
-///   this function (`StoreFloats::unraised_outward_store`).
+///   collections::filter(xs, …)` with `xs` bound in a nested block)
+///   (`StoreFloats::unraised_outward_store`).
 fn runtime_reclaim(
     function: &NirFunction,
     functions: &HashMap<String, &NirFunction>,
     record_type: &dyn Fn(&ParameterType) -> bool,
     res_collection_type: &dyn Fn(&ParameterType) -> bool,
-    stores: &Stores,
     store_floats: &StoreFloats,
 ) -> bool {
-    if store_floats.unraised_outward_store {
-        return false;
-    }
-    // Asked only of a function that can have such a container at all: the last
-    // answer costs a walk of the program.
-    let binds_a_container = stores.types.values().any(res_collection_type)
-        || function
-            .params
-            .iter()
-            .any(|param| res_collection_type(&param.type_));
     let reaches = |type_: &ParameterType| res_collection_type(type_) || record_type(type_);
-    binds_a_container && !module_stores_through_a_captured_reference(functions, &reaches)
+    !store_floats.unraised_outward_store
+        && !stores_through_a_captured_reference(function, functions, &reaches, 0)
 }
 
-/// bug-1053: whether any function of the program assigns, through a by-reference
-/// capture, a binding that reaches a resource. `reaches` answers for a type.
+/// bug-1053: whether `function` creates a closure that assigns, through a
+/// by-reference capture, a binding that reaches a resource (`reaches` answers for
+/// a type), itself or through a closure nested in it.
 ///
-/// A by-reference capture is bound at the top of the lambda's body as `Bind name
-/// = Capture { by_ref: true }`; a write through it is an `Assign` to that name.
-fn module_stores_through_a_captured_reference(
+/// The capture is a `LocalRef` in the `Closure`'s capture list; in the lambda's
+/// body it is bound at the top as `Bind name = Capture { by_ref: true }`, and a
+/// write through it is an `Assign` to that name. A lambda whose body is not in the
+/// program, or nested past any sensible depth, answers "stores".
+fn stores_through_a_captured_reference(
+    function: &NirFunction,
     functions: &HashMap<String, &NirFunction>,
     reaches: &dyn Fn(&ParameterType) -> bool,
+    depth: usize,
 ) -> bool {
+    struct Closures<'r> {
+        reaches: &'r dyn Fn(&ParameterType) -> bool,
+        /// The lambdas created here with a by-reference capture that reaches a
+        /// resource.
+        capturing: Vec<String>,
+        /// Every lambda created here: a nested one may capture by reference a
+        /// binding its parent holds by reference.
+        created: Vec<String>,
+    }
+    impl NirVisitor for Closures<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::Closure { name, captures, .. } = value {
+                self.created.push(name.clone());
+                if captures.iter().any(|capture| {
+                    matches!(capture, NirValue::LocalRef { type_, .. } if (self.reaches)(type_))
+                }) {
+                    self.capturing.push(name.clone());
+                }
+            }
+            walk_value(self, value);
+        }
+    }
     struct Writes<'n> {
         captured: &'n HashSet<&'n str>,
         found: bool,
@@ -898,8 +916,23 @@ fn module_stores_through_a_captured_reference(
             }
         }
     }
-    functions.values().any(|function| {
-        let captured: HashSet<&str> = function
+    let mut closures = Closures {
+        reaches,
+        capturing: Vec::new(),
+        created: Vec::new(),
+    };
+    closures.visit_ops(&function.body);
+    if closures.capturing.is_empty() {
+        return false;
+    }
+    if depth > 16 {
+        return true;
+    }
+    closures.capturing.iter().any(|name| {
+        let Some(lambda) = functions.get(name).copied() else {
+            return true;
+        };
+        let captured: HashSet<&str> = lambda
             .body
             .iter()
             .filter_map(|op| match op {
@@ -912,15 +945,12 @@ fn module_stores_through_a_captured_reference(
                 _ => None,
             })
             .collect();
-        if captured.is_empty() {
-            return false;
-        }
         let mut writes = Writes {
             captured: &captured,
             found: false,
         };
-        writes.visit_ops(&function.body);
-        writes.found
+        writes.visit_ops(&lambda.body);
+        writes.found || stores_through_a_captured_reference(lambda, functions, reaches, depth + 1)
     })
 }
 
@@ -3299,63 +3329,102 @@ mod owned_list_ownership_tests {
         }
     }
 
+    /// A function whose body hands `lambda` to `collections::forEach`, capturing
+    /// `keep` (of `type_`) by reference.
+    fn for_each_into(lambda: &str, type_: &str) -> NirFunction {
+        function(
+            &[],
+            vec![eval(call(
+                "collections.forEach",
+                vec![
+                    local("xs"),
+                    NirValue::Closure {
+                        name: lambda.to_string(),
+                        type_: ParameterType::parse("FUNC(fs.File) AS Nothing"),
+                        captures: vec![NirValue::LocalRef {
+                            name: "keep".to_string(),
+                            type_: ParameterType::parse(type_),
+                        }],
+                    },
+                ],
+            ))],
+        )
+    }
+
     /// bug-1053: the one store that carries a reference to a longer-lived binding
     /// from code the storing function never sees as a store is an assignment
-    /// through a by-reference capture of a binding that reaches a resource.
+    /// through a by-reference capture of a binding that reaches a resource. It is
+    /// found in the function that creates the lambda, and nowhere else.
     #[test]
     fn a_lambda_that_assigns_a_captured_container_is_found() {
-        let reaches = |type_: &ParameterType| *type_ == ParameterType::parse("List OF RES fs.File");
+        let list = "List OF RES fs.File";
+        let reaches = |type_: &ParameterType| *type_ == ParameterType::parse(list);
         let append = || NirOp::Assign {
             name: "keep".to_string(),
             value: call("collections.append", vec![local("keep"), local("h")]),
         };
-        let writes = function(
-            &["h"],
-            vec![bind("keep", "List OF RES fs.File", capture(true)), append()],
-        );
-        // A capture by value is the lambda's own copy of the pointer.
-        let copies = function(
-            &["h"],
-            vec![
-                bind("keep", "List OF RES fs.File", capture(false)),
-                append(),
-            ],
-        );
+        let writes = function(&["h"], vec![bind("keep", list, capture(true)), append()]);
         // A by-reference capture that is only read stores nothing.
         let reads = function(
             &["h"],
             vec![
-                bind("keep", "List OF RES fs.File", capture(true)),
+                bind("keep", list, capture(true)),
                 eval(call("len", vec![local("keep")])),
             ],
         );
-        // And a captured binding that reaches no resource is no concern here.
+        // A lambda that hands its captured reference on to one that writes it.
+        let forwards = function(
+            &["h"],
+            vec![
+                bind("keep", list, capture(true)),
+                eval(call(
+                    "collections.forEach",
+                    vec![
+                        local("ys"),
+                        NirValue::Closure {
+                            name: "writes".to_string(),
+                            type_: ParameterType::parse("FUNC(fs.File) AS Nothing"),
+                            captures: vec![NirValue::LocalRef {
+                                name: "keep".to_string(),
+                                type_: ParameterType::parse(list),
+                            }],
+                        },
+                    ],
+                )),
+            ],
+        );
+        // A captured binding that reaches no resource is no concern here.
         let counts = function(
             &["h"],
             vec![
-                NirOp::Bind {
-                    mutable: true,
+                bind("keep", "List OF Integer", capture(true)),
+                NirOp::Assign {
                     name: "keep".to_string(),
-                    type_: ParameterType::parse("List OF Integer"),
-                    value: Some(capture(true)),
+                    value: call("collections.append", vec![local("keep"), local("h")]),
                 },
-                append(),
             ],
         );
-        let harmless: HashMap<String, &NirFunction> = HashMap::from([
-            ("copies".to_string(), &copies),
+        let functions: HashMap<String, &NirFunction> = HashMap::from([
+            ("writes".to_string(), &writes),
             ("reads".to_string(), &reads),
+            ("forwards".to_string(), &forwards),
             ("counts".to_string(), &counts),
         ]);
-        assert!(!module_stores_through_a_captured_reference(
-            &harmless, &reaches
-        ));
-        let mut with_writer = harmless.clone();
-        with_writer.insert("writes".to_string(), &writes);
-        assert!(module_stores_through_a_captured_reference(
-            &with_writer,
-            &reaches
-        ));
+        let stores = |function: &NirFunction| {
+            stores_through_a_captured_reference(function, &functions, &reaches, 0)
+        };
+        assert!(stores(&for_each_into("writes", list)));
+        assert!(stores(&for_each_into("forwards", list)));
+        assert!(!stores(&for_each_into("reads", list)));
+        assert!(!stores(&for_each_into("counts", "List OF Integer")));
+        // A lambda whose body is not in the program answers "stores".
+        assert!(stores(&for_each_into("missing", list)));
+        // A function that creates no such lambda is not on the giving side of
+        // one, whatever the rest of the program does.
+        assert!(!stores(&function(
+            &[],
+            vec![eval(call("len", vec![local("xs")]))]
+        )));
     }
 
     /// bug-1053: an assignment that carries an inner scope's binding outward in a

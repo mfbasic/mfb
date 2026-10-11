@@ -779,12 +779,8 @@ impl CodeBuilder<'_> {
             OwnedListPass::CloseInPlace => {
                 let cursor = self.allocate_stack_object("owned_list_walk_cursor", 8);
                 let head = self.temporary_vreg();
-                self.emit(abi::load_u64(
-                    &head,
-                    abi::stack_pointer(),
-                    cleanup.head_slot,
-                ));
-                self.emit(abi::store_u64(&head, abi::stack_pointer(), cursor));
+                self.emit(abi::load_u64(head, abi::stack_pointer(), cleanup.head_slot));
+                self.emit(abi::store_u64(head, abi::stack_pointer(), cursor));
                 cursor
             }
         };
@@ -908,7 +904,7 @@ impl CodeBuilder<'_> {
                 let record = self.allocate_register();
                 self.emit(abi::load_u64(&record, &union_ptr, 8));
                 if matches!(pass, OwnedListPass::Take(_)) {
-                    self.emit(abi::store_u64(&record, abi::stack_pointer(), payload_slot));
+                    self.emit(abi::store_u64(record, abi::stack_pointer(), payload_slot));
                 }
                 self.emit(abi::compare_immediate(&record, "0"));
                 self.emit(abi::branch_eq(&node_done));
@@ -989,20 +985,20 @@ impl CodeBuilder<'_> {
         reclaim_slot: usize,
     ) {
         let record = self.allocate_register();
-        self.emit(abi::load_u64(&record, abi::stack_pointer(), payload_slot));
+        self.emit(abi::load_u64(record, abi::stack_pointer(), payload_slot));
         let taken = self.allocate_register();
         // Built as `0 - 2`: an immediate cannot be negative.
         const _: () =
             assert!(crate::codegen::resource::owner::RESOURCE_OWNER_TAKEN == 0u64.wrapping_sub(2));
-        self.emit(abi::move_immediate(&taken, "Integer", "0"));
-        self.emit(abi::subtract_immediate(&taken, &taken, 2));
-        self.emit(abi::store_u64(&taken, &record, RESOURCE_OFFSET_OWNER));
+        self.emit(abi::move_immediate(taken, "Integer", "0"));
+        self.emit(abi::subtract_immediate(taken, taken, 2));
+        self.emit(abi::store_u64(taken, record, RESOURCE_OFFSET_OWNER));
         let node = self.allocate_register();
-        self.emit(abi::load_u64(&node, abi::stack_pointer(), node_slot));
+        self.emit(abi::load_u64(node, abi::stack_pointer(), node_slot));
         let previous = self.allocate_register();
-        self.emit(abi::load_u64(&previous, abi::stack_pointer(), reclaim_slot));
-        self.emit(abi::store_u64(&previous, &node, next_offset));
-        self.emit(abi::store_u64(&node, abi::stack_pointer(), reclaim_slot));
+        self.emit(abi::load_u64(previous, abi::stack_pointer(), reclaim_slot));
+        self.emit(abi::store_u64(previous, node, next_offset));
+        self.emit(abi::store_u64(node, abi::stack_pointer(), reclaim_slot));
     }
 
     /// Free an owned, non-escaping flat value at scope-drop (plan-01 Phase 5 /

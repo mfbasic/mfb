@@ -252,17 +252,28 @@ function-level list routed to the function's own `TRAP` handler is closed in pla
 drained at the handler's exit, because the handler still reads the container. A proved
 container keeps its direct free, so its code is unchanged.
 
-**Two stores carry a reference outward without raising it**, and a function that can be on
-either side of one keeps the close-only drain (`record_ownership::runtime_reclaim`):
+**Two stores carry a reference outward without raising it**, and a function that contains
+one keeps the close-only drain (`record_ownership::runtime_reclaim`):
 
 * a `LAMBDA` that assigns, through a by-reference capture, a binding that reaches a
-  resource. Asked of the whole program (`module_stores_through_a_captured_reference`);
+  resource (`stores_through_a_captured_reference`). Only the function that creates the
+  lambda can hand it a record: a by-reference capture is licensed only for a lambda written
+  directly as `collections::forEach`'s action (`builtins::is_nonescaping_callback_arg`;
+  `LET g = LAMBDA …`, a lambda passed to a user function and one stored in a record are all
+  `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`, measured with `esc1`/`esc2`/`esc3.mfb`), and the builtin
+  calls it only during that call;
 * an assignment whose value names an inner scope's binding in a position the store-time
   raise does not cover (`keep = collections::filter(xs, ...)`). Asked of the function
   (`StoreFloats::unraised_outward_store`).
 
 Both are open defects of their own (see "Not fixed here"), and both read `ErrResourceClosed`
-or worse today; with the guard their behaviour is what it was.
+or worse today; with the guard their behaviour is what it was. **What that leaves leaking:**
+a container the proof refuses, in a function that itself contains one of the two stores.
+`r3out.mfb` (`r3` with `keep = collections::filter(xs, …)` from a nested block in the same
+function) is 92/82/1120 on base and fixed. `r3cap.mfb` (`r3` with such a `forEach` lambda in
+ANOTHER function) is 112/92/1600 on base and 112/102/480 fixed: `once`'s record is freed, and
+the 48 bytes a call are the captured list's block in the function that owns it. Fixing the
+two missing raises removes the guard and these with it.
 
 **Blocks: a static rule of their own** (`record_ownership::block_owning_collections`). A
 `List OF RES T` / `Map OF K TO RES T` block is held by whatever holds its pointer and nothing
@@ -417,7 +428,7 @@ sequence. No fixture with a golden has one.
 * `record_ownership.rs`: `RecordOwnership` gains `block_owning_collections` and `runtime_reclaim`;
   `owning_collections` (private) returns a third value; `CollectionUses` gains `block_kept`,
   `CalleeParamUses` gains `known_block`; `StoreFloats` gains `unraised_outward_store` (private). New
-  `block_owning_collections`, `runtime_reclaim`, `module_stores_through_a_captured_reference`,
+  `block_owning_collections`, `runtime_reclaim`, `stores_through_a_captured_reference`,
   `CollectionUses::callee_block_keeps`. `record_ownership()`'s signature is unchanged.
 * `src/codegen/resource/owner.rs`: new constant `RESOURCE_OWNER_TAKEN`.
 * `builder_control.rs`, the unfloated `RES` collection branch of `NirOp::Bind`: keys on
