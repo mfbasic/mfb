@@ -219,7 +219,7 @@ Acceptance: every group test passes with no PNG regenerated.
   tests/golden/canvas` → empty.
   Observed (2026-10-10, with phase 1 alone applied): `rt_canvas_golden` 23 passed,
   `rt_canvas_group_ownership` 11 passed, `rt_canvas_damage` 6 passed; no PNG changed.
-Commit: —
+Commit: c9668565f
 
 ### Phase 2 — The widened entry, still translate-only
 
@@ -241,7 +241,7 @@ the entry is wider and nothing reads the new words yet.
   Observed (2026-10-10, with phases 1 and 2 applied): `rt_canvas_golden` 23 passed,
   `rt_canvas_metal` 48 passed, `rt_canvas_graphics_thread` 13 passed (2 ignored, as
   before); no PNG changed.
-Commit: —
+Commit: c9668565f
 
 ### Phase 3 — The affine, on software (largest blast radius)
 
@@ -278,7 +278,7 @@ still matches unregenerated; and a damaged frame equals a full redraw.
   Check: `cargo test --test rt_canvas_golden group --test rt_canvas_rasteriser group
   --test rt_canvas_damage` → pass (est. 10 min).
   Observed (2026-10-10): `group_affine_matches_its_reference_exactly` passes, and renders the same on two consecutive runs inside one test; `groups_match_their_reference_exactly` passes against the unregenerated `groups.png`; `rt_canvas_rasteriser group` → 21 passed (five new `group_affine_*`); `rt_canvas_damage` → 7 passed, the new `turning_a_group_repaints_and_matches_a_full_redraw` among them (the damaged frame equals the full redraw); `a_group_with_a_matrix_falls_back_to_the_software_renderer` passes (`gpuFrames=0`). Whole round on the final tree: all 25 canvas-embedding targets green (`rt_canvas_golden` 24, `rt_canvas_rasteriser` 106, `rt_canvas_metal` 49, `rt_canvas_font` 33), `cargo test --bin mfb canvas` 115 passed, `spec` 46 passed. `git status --porcelain tests/golden/canvas` → `?? group_affine.png` only. `scripts/artifact-gate.sh target/release/mfb all` → `2322 golden(s) checked, 0 diff(s)`.
-Commit: —
+Commit: c9668565f
 
 ## Validation Plan
 
