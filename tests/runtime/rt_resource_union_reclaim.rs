@@ -366,3 +366,138 @@ fn a_case_binding_that_leaves_keeps_its_list_from_freeing_the_record() {
         Expect::HeldElsewhere,
     );
 }
+
+/// The declarations the inline-`TRAP` cases share: a function that hands back a
+/// resource union, and one that fails when asked to.
+const MAKERS: &str = "FUNC mkH AS RES Handle\n\
+     \x20 RETURN openOne()\n\
+     END FUNC\n\
+     FUNC mkBad(n AS Integer) AS RES Handle\n\
+     \x20 IF n > 0 THEN\n\
+     \x20   FAIL error(77, \"bad\")\n\
+     \x20 END IF\n\
+     \x20 RETURN openOne()\n\
+     END FUNC\n";
+
+fn check_trap(case: &str, body: &str, per_iteration: u64) {
+    check(
+        case,
+        &format!("{MAKERS}{body}"),
+        per_iteration,
+        Expect::Balanced,
+    );
+}
+
+/// bug-1037: `RES v AS Handle = mkH() TRAP …` keeps nothing. The desugar binds a
+/// temporary to a closed default (a 16 B box and its 112 B record) and then
+/// assigns the call's result over it; the default was never released.
+#[test]
+fn a_trapped_resource_union_binding_releases_its_default() {
+    check_trap(
+        "trap_return",
+        "FUNC once() AS Integer\n\
+         \x20 RES v AS Handle = mkH() TRAP(e)\n\
+         \x20   RETURN 5\n\
+         \x20 END TRAP\n\
+         \x20 RETURN which(\"v\", v)\n\
+         END FUNC\n",
+        1,
+    );
+    // The handler is taken, and leaves by `FAIL` through the caller's own `TRAP`.
+    check_trap(
+        "trap_fail",
+        "FUNC inner(n AS Integer) AS Integer\n\
+         \x20 RES v AS Handle = mkBad(n) TRAP(e)\n\
+         \x20   FAIL error(78, \"again\")\n\
+         \x20 END TRAP\n\
+         \x20 RETURN which(\"v\", v)\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT r AS Integer = 0\n\
+         \x20 r = inner(1) TRAP(e)\n\
+         \x20   RECOVER 0\n\
+         \x20 END TRAP\n\
+         \x20 RETURN r + inner(0)\n\
+         END FUNC\n",
+        1,
+    );
+}
+
+/// bug-1037: the handler's `RECOVER` is a second store into the temporary. An
+/// alias (`RECOVER a`) lends it `a`'s record and a copy of `a`'s box; a call
+/// hands it a record of its own. Either way the default goes first, and `a` is
+/// still open afterwards.
+#[test]
+fn a_trapped_resource_union_binding_recovered_releases_its_default() {
+    check_trap(
+        "recover_alias_unused",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES v AS Handle = mkH() TRAP(e)\n\
+         \x20   RECOVER a\n\
+         \x20 END TRAP\n\
+         \x20 RETURN which(\"v\", v) + which(\"a\", a) - 1\n\
+         END FUNC\n",
+        1,
+    );
+    check_trap(
+        "recover_alias_taken",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES v AS Handle = mkBad(1) TRAP(e)\n\
+         \x20   RECOVER a\n\
+         \x20 END TRAP\n\
+         \x20 RETURN which(\"v\", v) + which(\"a\", a) - 1\n\
+         END FUNC\n",
+        1,
+    );
+    check_trap(
+        "recover_call_taken",
+        "FUNC once() AS Integer\n\
+         \x20 RES v AS Handle = mkBad(1) TRAP(e)\n\
+         \x20   RECOVER openOne()\n\
+         \x20 END TRAP\n\
+         \x20 RETURN which(\"v\", v)\n\
+         END FUNC\n",
+        1,
+    );
+}
+
+/// bug-1037 in a loop body: the temporary is bound again on every pass, the
+/// handler leaves by `CONTINUE FOR` on one of them, and in the second case the
+/// binding floats into a list that outlives the loop (§15.6).
+#[test]
+fn a_trapped_resource_union_binding_in_a_loop_releases_its_default() {
+    check_trap(
+        "loop_continue",
+        "FUNC once() AS Integer\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 3\n\
+         \x20   RES v AS Handle = mkBad(j - 2) TRAP(e)\n\
+         \x20     CONTINUE FOR\n\
+         \x20   END TRAP\n\
+         \x20   t = t + which(\"v\", v)\n\
+         \x20 NEXT\n\
+         \x20 RETURN t - 1\n\
+         END FUNC\n",
+        1,
+    );
+    check_trap(
+        "loop_floated",
+        "FUNC once() AS Integer\n\
+         \x20 MUT hs AS List OF RES Handle = []\n\
+         \x20 FOR j = 1 TO 3\n\
+         \x20   RES s AS Handle = mkBad(j - 2) TRAP(e)\n\
+         \x20     CONTINUE FOR\n\
+         \x20   END TRAP\n\
+         \x20   hs = collections::append(hs, s)\n\
+         \x20 NEXT\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR EACH h IN hs\n\
+         \x20   t = t + which(\"e\", h)\n\
+         \x20 NEXT\n\
+         \x20 RETURN t - 1\n\
+         END FUNC\n",
+        1,
+    );
+}
