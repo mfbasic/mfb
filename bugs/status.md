@@ -86,11 +86,11 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [x] 1001, 1000, 992, 984: leaks (union-drop I/O buffers; owned-list drain; `graphemesCount`/`graphemeAt`/`fromScalars`/`normalizeNfc`; macOS TLS listener)
 [x] 1016 (canvas name collision), 1020 (`reduce` returned the seed block): found and fixed during the batch
 
-**P2c: STATE rules and the resource-union box** (batch 19, branch `bug-staging-19`; STARTED 2026-10-10 on the owner's work order. LIST FROZEN: 1013, 998, 1012, 1019. Nothing is added; bugs found meanwhile are filed into a later phase)
-[ ] 1013 (HIGH): a STATE must be a record (`TYPE_STATE_INVALID` everywhere a STATE clause can appear). Census done: nothing that works today uses a non-record STATE. bs18-agent-l's partial work is parked, uncommitted, in `.claude/worktrees/bs18-agent-l`.
-[ ] 998: STATE only on a resource (new rule `TYPE_STATE_REQUIRES_RESOURCE`); same agent as 1013
-[ ] 1012 (HIGH): a resource-union box has no owner outside a binding (use-after-free exit 139; double free of a returned `List OF RES Union`)
-[ ] 1019: a collection temporary passed through a generic function leaks 144 B
+**P2c: STATE rules and the resource-union box** (batch 19; in main at bdaf8f350, 2026-10-10; full gate green first time)
+[x] 1013: a STATE type must be a record `TYPE` (`TYPE_STATE_INVALID` at every position a clause can appear)
+[x] 998: STATE on a non-resource is `TYPE_STATE_REQUIRES_RESOURCE` (2-203-0145), once, at the declaration
+[x] 1012: a resource-union box has one owner; a `RES U` record field and an owned-list node hold a copy of its two words; statement-scope boxes are freed at statement end
+[x] 1019: an argument is never handed over for a parameter the callee returns as a borrow
 
 **P2d: resource aggregates, templates, package format** (after P2c; 4 bugs)
 [ ] 999: an inline aggregate of resources is never closed. A first fix was reverted out of batch 18 (it closed resources a bound record still named). NEEDS AN OWNER DECISION before it starts: adopt at every bind/assign/store/RETURN, or require the call to be bound first.
