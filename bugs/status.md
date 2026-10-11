@@ -23,7 +23,8 @@ canvas work. Nothing is added to it; a bug found while it runs gets a row in its
 table and waits.
 
 1026, 912, 911, 860, 979 (912 before 911). The two HIGH canvas bugs, 688 and 765, are not
-in this phase.
+in this phase. 860 left the phase with its fourth-power term fixed: the rest of it is an
+owner decision that changes emitted code, so it is a later phase's work.
 
 ## Resources and STATE
 
@@ -197,7 +198,7 @@ in this phase.
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 860    | HIGH     | compile memory grows ~cubically with inline TRAP handlers in one function — 458 handlers use 77 GB RSS and the compiler is SIGKILLed |
+| [ ]  | 860    | HIGH     | compile memory with many inline TRAP handlers in one function: the fourth-power term is fixed (150 handlers: 18 GB → 1.14 GB), the goal of under 1 GB is not met (owner decided: share cleanup tails, which moves goldens, and cut the allocator's bytes per instruction) |
 | [ ]  | 835    | MED      | `typeName(x)` under an inline `TRAP` fails the build with an internal error (`native code plan does not emit runtime helper '_mfb_rt_general_typeName'`) |
 | [ ]  | 838    | LOW      | `ErrStackOverflow` carries `source.line = 0`, `source.char = 0` — no usable origin location |
 

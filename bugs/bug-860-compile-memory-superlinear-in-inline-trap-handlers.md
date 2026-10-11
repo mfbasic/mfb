@@ -1,11 +1,11 @@
 # bug-860: compile memory grows ~cubically with inline TRAP handlers in one function — 458 handlers use 77 GB RSS and the compiler is SIGKILLed
 
-Last updated: 2026-10-05
+Last updated: 2026-10-10
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Other (compiler scalability / robustness)
 
-Status: Open — the superlinear term is fixed (bs20-agent-a, 2026-10-10); one Goal line is not met and needs an owner decision. See "Resolution so far" at the end.
+Status: Open — the superlinear term is fixed (batch 20, 2026-10-10). Owner decided 2026-10-10: do both remaining items, shared cleanup tails and the allocator memory diet. See "Remaining work" at the end.
 Regression Test: `tests/codegen/codegen_stack_slot_promotion.rs::many_inline_trap_handlers_build_in_bounded_memory` (the 100-handler program must build under a 1.5 GB peak resident set, read from `wait4`), and `optimizer::opt2::promote::tests::the_per_slot_search_agrees_with_the_dense_dataflow` / `the_search_visits_only_the_blocks_a_slot_is_live_into` (`cargo test --bin mfb -- optimizer::opt2::promote::`)
 
 A function that contains many `LET x = <fallible call> TRAP(e) … END TRAP` statements whose
@@ -172,3 +172,23 @@ emitted code":
    kept. Peak-RSS probes put the n=150 high-water marks at 679 MB entering the
    integer allocation, 766 MB after the effects, 957 MB after liveness and
    1,130 MB after coloring.
+
+### Remaining work (owner decision, 2026-10-10: do both)
+
+Asked which of the two the bug should take, or whether 1.14 GB is acceptable, the owner
+chose both. They are a later phase's work, not batch 20's; the Goal line "no change in
+emitted code" no longer applies to item 1.
+
+1. **Share cleanup tails.** Emit each exit path's cleanup once and branch to it, so the
+   instruction count of a function is linear in its fallible statements. Emitted code
+   changes for every function with more than one exit path, so the goldens of every
+   fixture with a cleanup move and each needs its proof. Measure on this doc's generator:
+   `main` at n=100 is 731,845 instructions today (`mfb build -vv`).
+2. **Allocator memory diet.** Cut the compiler's bytes per instruction (about 700 today)
+   in the instruction stream, `regalloc::analysis::Effect` and the side tables of
+   `linear_scan::run`. No change in emitted code. Coloring time is also mildly
+   superlinear and belongs here: 2.66 s at 1.63M instructions, 33.0 s at 14.2M
+   (`mfb build -vv`, "coloring"; the agent's measurement, not re-run).
+
+Done when n=150 builds under 1 GB at the default opt level and the regression test's
+bound is tightened to match.
