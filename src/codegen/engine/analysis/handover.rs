@@ -293,11 +293,17 @@ pub(crate) fn collect_handover_args(
     // the caller keeps every argument's block; the variant's mask for an owned
     // variant, where a parameter is an ordinary owned local and may be handed on.
     owned_params: &ParamSet,
+    // bug-1019: the functions reachable as a `FUNC` value — the set
+    // `function_returns_param_borrow` is decided over, so H7 answers exactly as the
+    // callee's own lowering and every caller's classification of its result do.
+    callback_referenced: &HashSet<String>,
 ) -> HandOverArgs {
     let live = live_out_of(function, model);
     let types = local_types(function);
     // H6 asks the same question of a callee once per call target, not once per call.
     let mut consumable: HashMap<String, ParamSet> = HashMap::new();
+    // H7 likewise.
+    let mut borrowed: HashMap<String, ParamSet> = HashMap::new();
 
     let mut sites: HashMap<(usize, usize), Site> = HashMap::new();
     let mut param_binds: HashSet<usize> = HashSet::new();
@@ -396,6 +402,34 @@ pub(crate) fn collect_handover_args(
                         continue;
                     };
                     if !wanted.contains(&param.name) {
+                        continue;
+                    }
+                    // H7 (bug-1019): a parameter the callee returns as a BORROW stays
+                    // the caller's. A pure passthrough (`RETURN x`, plan-86 K1) hands
+                    // back the argument's own pointer and every caller reads that
+                    // result as a borrow of the argument: it copies it at an owning
+                    // store and frees nothing, because the argument's owner frees the
+                    // block. Handing the argument over removes that owner — the owned
+                    // variant moves the block straight back out as its result — so
+                    // the block was freed by no one. `LET d = idOf(squares(20.0))`
+                    // leaked the whole list on every call.
+                    //
+                    // H6 calls `RETURN x` a consuming use, and for a function that
+                    // also builds its result (`RETURN x` on one path, `RETURN
+                    // append(x, n)` on another) it is: that function's result is a
+                    // fresh block on every path, the caller owns it, and the move
+                    // saves a copy. It is the function whose EVERY return is a bare
+                    // parameter that promises a borrow instead, and that promise is
+                    // the one this refuses to break. A parameter such a function
+                    // does not return is unaffected.
+                    let lent = borrowed.entry(target.clone()).or_insert_with(|| {
+                        crate::codegen::engine::function::function_lowering::param_borrow_returns(
+                            callee,
+                            callback_referenced,
+                        )
+                        .unwrap_or_default()
+                    });
+                    if lent.contains(&param.name) {
                         continue;
                     }
                     // plan-147-E: a FRESH TEMPORARY argument is handed over with no
@@ -758,6 +792,7 @@ fn ops_of(function: &NirFunction) -> Vec<&NirOp> {
 mod tests {
     use super::*;
     use crate::codegen::engine::builder::TypeModel;
+    use crate::codegen::memory::data::data_objects::collect_function_ref_names;
     use crate::target::shared::nir::NirModule;
     use crate::testutil::{nir_for_src, CodeTarget};
 
@@ -831,7 +866,8 @@ END FUNC
         let model = TypeModel::from_module(&module).expect("the probe's type model builds");
         let map = callees(&module);
         let owned: ParamSet = owned.iter().map(|n| (*n).to_string()).collect();
-        collect_handover_args(function(&module, name), &model, &map, &owned).len()
+        let callbacks = collect_function_ref_names(&module);
+        collect_handover_args(function(&module, name), &model, &map, &owned, &callbacks).len()
     }
 
     /// How many argument positions of `name`'s body are built by an IN-PLACE
@@ -841,7 +877,8 @@ END FUNC
         let model = TypeModel::from_module(&module).expect("the probe's type model builds");
         let map = callees(&module);
         let owned: ParamSet = owned.iter().map(|n| (*n).to_string()).collect();
-        collect_handover_args(function(&module, name), &model, &map, &owned)
+        let callbacks = collect_function_ref_names(&module);
+        collect_handover_args(function(&module, name), &model, &map, &owned, &callbacks)
             .sites
             .values()
             .map(|site| site.arg_update_mask.count_ones() as usize)
@@ -1295,5 +1332,97 @@ END FUNC",
         assert_eq!(consumable_of(&source, "readLater"), Vec::<String>::new());
         // A handler reads `p` after the `RETURN WITH` may have failed (row S3).
         assert_eq!(consumable_of(&source, "trapReads"), Vec::<String>::new());
+    }
+
+    /// bug-1019 (H7): a parameter the callee returns as a BORROW is never handed
+    /// over. `same`'s result is its argument's own pointer and every caller reads
+    /// it as a borrow of that argument, so the caller must go on owning the block;
+    /// handed over, it came straight back out of `same$own1` owned by no one.
+    #[test]
+    fn a_parameter_returned_as_a_borrow_is_never_handed_over() {
+        const BORROWERS: &str = "
+FUNC same(xs AS List OF Integer) AS List OF Integer
+  RETURN xs
+END FUNC
+
+FUNC pick(a AS List OF Integer, b AS List OF Integer, first AS Boolean) AS List OF Integer
+  IF first THEN
+    RETURN a
+  END IF
+  RETURN b
+END FUNC
+
+FUNC keepFirst(a AS List OF Integer, spare AS List OF Integer) AS List OF Integer
+  MUT mine AS List OF Integer = spare
+  mine = collections::append(mine, 1)
+  io::print(toString(len(mine)))
+  RETURN a
+END FUNC
+
+FUNC growOrSame(xs AS List OF Integer, n AS Integer) AS List OF Integer
+  IF n = 0 THEN
+    RETURN xs
+  END IF
+  RETURN collections::append(xs, n)
+END FUNC
+
+FUNC sameRow(row AS List OF Integer) AS List OF Integer
+  RETURN row
+END FUNC
+";
+        // `(what, the body of main, how many arguments may be handed over)`.
+        let rows: Vec<(&str, &str, usize)> = vec![
+            (
+                "a fresh temporary through a passthrough",
+                "LET y AS List OF Integer = same([1, 2])
+  io::print(toString(len(y)))",
+                0,
+            ),
+            (
+                "a local at its last use through a passthrough",
+                "MUT x AS List OF Integer = [1, 2]
+  LET y AS List OF Integer = same(x)
+  io::print(toString(len(y)))",
+                0,
+            ),
+            (
+                "the temporary built in place from a dead local",
+                "MUT x AS List OF Integer = [1, 2]
+  LET y AS List OF Integer = same(collections::append(x, 9))
+  io::print(toString(len(y)))",
+                0,
+            ),
+            (
+                "either of two returned parameters",
+                "LET y AS List OF Integer = pick([1], [2], TRUE)
+  io::print(toString(len(y)))",
+                0,
+            ),
+            (
+                "a parameter the passthrough consumes instead of returning",
+                "LET y AS List OF Integer = keepFirst([1], [2])
+  io::print(toString(len(y)))",
+                1,
+            ),
+            (
+                "a function that also builds its result returns a fresh block",
+                "LET y AS List OF Integer = growOrSame([1], 1)
+  io::print(toString(len(y)))",
+                1,
+            ),
+            (
+                "a passthrough reachable as a FUNC value returns a fresh block",
+                "LET rows AS List OF List OF Integer = collections::transform([[1]], sameRow)
+  LET y AS List OF Integer = sameRow([1, 2])
+  io::print(toString(len(rows) + len(y)))",
+                1,
+            ),
+        ];
+        for (what, body, want) in rows {
+            let source = probe(&format!(
+                "{BORROWERS}\nFUNC main() AS Integer\n  {body}\n  RETURN 0\nEND FUNC"
+            ));
+            assert_eq!(approved(&source, "main"), want, "{what}");
+        }
     }
 }

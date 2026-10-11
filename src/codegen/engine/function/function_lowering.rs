@@ -121,16 +121,31 @@ pub(crate) fn function_returns_param_borrow(
     f: &NirFunction,
     callback_referenced: &HashSet<String>,
 ) -> bool {
+    param_borrow_returns(f, callback_referenced).is_some()
+}
+
+/// The parameters a [`function_returns_param_borrow`] function returns — `Some`
+/// exactly when that predicate holds, and then never empty.
+///
+/// bug-1019: these are the parameters whose block the CALLER must keep owning.
+/// The result of such a call is a borrow of one of them, so the hand-over
+/// analysis (`analysis::handover`) never gives one away: a block handed to the
+/// callee's owned variant comes straight back as the result, which the caller
+/// still reads as a borrow of an argument it no longer owns, and nothing frees it.
+pub(crate) fn param_borrow_returns(
+    f: &NirFunction,
+    callback_referenced: &HashSet<String>,
+) -> Option<HashSet<String>> {
     use nir::visit::{walk_op, NirVisitor};
     // A function used as a `FunctionRef` (callback) is invoked through an ABI that
     // OWNS and frees its return value, so it must keep returning a fresh copy — never
     // a parameter borrow (see `collect_function_ref_names`).
     if callback_referenced.contains(&f.name) {
-        return false;
+        return None;
     }
     let params: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
     if params.is_empty() {
-        return false;
+        return None;
     }
     struct Returns<'a> {
         params: &'a HashSet<String>,
@@ -160,7 +175,7 @@ pub(crate) fn function_returns_param_borrow(
     };
     r.visit_ops(&f.body);
     if !r.any || !r.all_param {
-        return false;
+        return None;
     }
     // A returned parameter that is reassigned or address-taken is no longer
     // guaranteed to be the caller's untouched argument block, so the "borrow" could
@@ -168,9 +183,13 @@ pub(crate) fn function_returns_param_borrow(
     let reassigned = collect_reassigned_locals(&f.body);
     let mut address_taken = HashSet::new();
     collect_address_taken_locals(&f.body, &mut address_taken);
-    !r.returned
+    if r.returned
         .iter()
         .any(|p| reassigned.contains(p) || address_taken.contains(p))
+    {
+        return None;
+    }
+    Some(r.returned)
 }
 
 /// bug-536 shape B-2: whether a caller may free the bare `String` this function
@@ -1316,6 +1335,7 @@ pub(crate) fn lower_function(
             &builder.type_model,
             functions,
             &owned_param_names,
+            callback_referenced_functions,
         ),
     );
     // Small-vector locals that can live in registers for their whole lifetime with
