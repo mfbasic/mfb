@@ -558,7 +558,11 @@ fn collect_diagnostics_with(
             // bug-1030: the clause now rides in the binding's type and `g.state`
             // reads the payload as that type, so it must agree with a state the
             // initializer already carries, exactly as a local binding's must.
-            if binding_type.state().is_some() {
+            // bug-1055: a BARE binding is held to the same table. It asserts "no
+            // state", so an initializer that carries one is refused here as it
+            // is in a function (`check_statement_ops`, the `is_resource` gate):
+            // a later `STATE T` attach relies on that promise.
+            if env.is_resource_or_resource_union(&resource_base_type(binding_type)) {
                 env.check_binding_state_agreement(
                     &binding.name,
                     binding_type,

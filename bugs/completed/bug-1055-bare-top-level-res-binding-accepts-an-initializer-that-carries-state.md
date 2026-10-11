@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (diagnostics)
 
-Status: Open
-Regression Test: (proposed) a syntax test with the program below expecting `TYPE_STATE_MISMATCH` on `g`
+Status: Fixed (bs22-agent-b)
+Regression Test: `tests/syntax/resources/bug1055_top_level_bare_state_invalid`
 
 `RES g AS fs::File = openTagged()` at the top level, where `openTagged` returns
 `RES fs::File STATE Cur`, builds and runs. The same binding inside a function is refused.
@@ -102,3 +102,52 @@ covers `RES topBad AS fs::File STATE Other = openTagged()` (refused) but has no 
 case.
 
 Found during batch 21.
+
+## Resolution (bs22-agent-b, 2026-10-11)
+
+`bb_s4` is still accepted with bug-1030's fix in (measured at this batch's base,
+`P=/tmp/bs22-agent-b/p /tmp/bs22/bin/probe.sh /tmp/main-dbg-target/release/mfb bb_s4`: exit 0).
+
+**Cause.** The top-level bindings are verified in `verify_project` (`src/ir/verify/mod.rs`),
+apart from the statements of a function (`check_statement_ops`, `src/ir/verify/ops.rs`). The
+local path runs `check_binding_state_agreement` for every explicitly typed resource binding.
+The top-level path gained the call with bug-1030, but under `if binding_type.state().is_some()`,
+so only a binding that declares a clause was checked, and the bare row of the table
+(initializer carries `T`, binding bare: refused) was never asked.
+
+**Fix.** The gate is now "the binding's type is a resource or a resource union"
+(`is_resource_or_resource_union`), the gate the local path uses. Nothing else changed; the
+diagnostic is the local one, with the top-level binding's file and line.
+
+### Measurements (fixed compiler `target/release/mfb`, macOS aarch64)
+
+| program | base | fixed |
+| --- | --- | --- |
+| `bb_s4` | builds, exit 0 | `BUILD FAIL`, `main.mfb:33 error[2-203-0129 TYPE_STATE_MISMATCH]` "binding `g` is bare but its initializer carries STATE `Cur`; ..." |
+| `bb_s4l` (local control) | refused, `main.mfb:14`, the same message | unchanged |
+
+Siblings, all lines of the fixture: a bare top-level binding of a resource UNION whose
+initializer carries a STATE (`RES gu AS Handle = openHandle()`) was accepted and is refused;
+`RES ok AS fs::File STATE Cur = openTagged()` (adopts), `RES plain AS fs::File = openBare()`
+(nothing to restate), `RES attach AS fs::File STATE Cur = openBare()` (the attach point) and
+the inferred `RES inferred = openTagged()` stay accepted. A top-level binding that is not a
+resource never reaches the check.
+
+### Checks
+
+* `scripts/test-accept.sh target/release/mfb <out> '*bug1055*' '*bug1030*' '*bug1013*'`: 10 tests, passed
+  (the RED commit's golden, written by hand before the fix, matches byte for byte).
+* `scripts/test-accept.sh target/release/mfb <out> '*resource*' '*state*' '*global*' '*module*' '*top*' '*bug806*' '*bug1027*'`:
+  198 tests, 3 mismatches, all three the `.ir` goldens bug-1054 lists (none from this change).
+* `cargo test --release --bin mfb -- ir::verify::`: 489 passed.
+* `scripts/spec-census.sh --render` / `--citations`: 0 misses.
+
+### Golden impact
+
+None. The change adds a diagnostic to a program that was accepted; no fixture in the globs
+above has a bare top-level `RES` whose initializer carries a STATE.
+
+### Spec
+
+`mfb spec language resource-management` §15.5: the top-level binding is held to the binding
+agreement table, bare or not.
