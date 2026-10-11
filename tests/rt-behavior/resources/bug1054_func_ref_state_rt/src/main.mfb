@@ -1,0 +1,59 @@
+' bug-1054: `LET j = p`, where `p` is a declared FUNC whose parameter is
+' `fs::File STATE Cur`, gives `j` the callable type `FUNC(fs::File STATE Cur)
+' AS Integer`, the same as `p`. A call through `j` with a file that carries
+' `STATE Cur` runs the body against the caller's state.
+IMPORT io
+IMPORT fs
+
+TYPE Cur
+  n AS Integer
+END TYPE
+
+FUNC p(x AS fs::File STATE Cur) AS Integer
+  x.state.n = x.state.n + 1
+  RETURN x.state.n
+END FUNC
+
+FUNC twice(x AS fs::File STATE Cur, by AS Integer) AS Integer
+  x.state.n = x.state.n + by + by
+  RETURN x.state.n
+END FUNC
+
+FUNC openTagged() AS RES fs::File STATE Cur
+  RES f AS fs::File STATE Cur = fs::createTempFile()
+  f.state.n = 40
+  RETURN f
+END FUNC
+
+FUNC main AS Integer
+  ' The reproduction as filed: 1, 2, 2.
+  LET j = p
+  RES f AS fs::File STATE Cur = fs::createTempFile()
+  io::print(toString(j(f)))
+  io::print(toString(p(f)))
+  io::print(toString(f.state.n))
+
+  ' A second parameter beside the stateful one.
+  LET t = twice
+  io::print("twice " & toString(t(f, 5)) & " owner " & toString(f.state.n))
+
+  ' A reference whose RETURN carries the STATE, called through a reference
+  ' whose parameter carries it.
+  LET mk = openTagged
+  RES g AS fs::File STATE Cur = mk()
+  io::print("made " & toString(j(g)) & " owner " & toString(g.state.n))
+
+  ' An inferred list of references, and a reference bound from a reference.
+  LET fns = [p, j]
+  FOR EACH fn IN fns
+    io::print("list " & toString(fn(g)))
+  NEXT
+  LET again = j
+  io::print("again " & toString(again(g)) & " owner " & toString(g.state.n))
+
+  ' In a loop: one evaluation of the reference, many calls.
+  FOR i = 1 TO 3
+    io::print("loop " & toString(j(f)))
+  NEXT
+  RETURN 0
+END FUNC

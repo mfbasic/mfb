@@ -1,0 +1,2 @@
+$ mfb build -ast -ir tests/syntax/resources/bug1054_func_ref_state_invalid
+[exit 1]
