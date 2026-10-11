@@ -33,6 +33,9 @@ pub(crate) enum RawSuccessBlock {
     /// and closes — `tcp`/`udp`/`tls::poll` over a list, `collections::get`/`getOr`.
     /// Carry the pointer into the `Result`: a copy would run the thread hand-over
     /// lowering, which tombstones the live element `moved|closed`. Free nothing.
+    /// bug-1026: a resource-UNION element is carried as a copy of its 16-byte
+    /// `{tag, record-ptr}` box (the record is still not copied): the element's own
+    /// box is a span of its collection's block.
     BorrowedResource,
 }
 
@@ -374,7 +377,18 @@ impl CodeBuilder<'_> {
             RawSuccessBlock::BorrowedResource => true,
             RawSuccessBlock::OwnedElsewhere => false,
         };
-        let copied_success = if carry_resource_pointer {
+        let copied_success = if raw_success == RawSuccessBlock::BorrowedResource
+            && self.resource_union_cleanup(success_type).is_some()
+        {
+            // bug-1026: a borrowed resource-UNION element is an address inside its
+            // collection's block (the collection holds the `{tag, record-ptr}` box
+            // inline), or the box of `getOr`'s default, which this statement frees
+            // at its end. The `TRAP` temp that receives it outlives both, so the
+            // `Result` carries a copy of the two words: no record is copied and
+            // nothing is tombstoned. The temp frees the copy and closes nothing
+            // (`emit_resource_union_cleanup_call`, a lent store).
+            self.materialize_inline_value_in_arena(success_type, &scratch9)?
+        } else if carry_resource_pointer {
             let carried = self.allocate_register();
             self.emit(abi::move_register(&carried, &scratch9));
             carried
