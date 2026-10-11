@@ -93,7 +93,8 @@ pub fn parse_project(
     }
 
     // Append the compiler-owned prelude last so the user's first source file
-    // stays `files[0]` — the monomorphizer emits generated instantiations into
+    // stays `files[0]` — the monomorphizer emits the instantiations of
+    // toolchain-declared templates (the prelude's, a built-in package's) into
     // the first file. The prelude is still globally in scope and is filtered out
     // of `-ast` output by `AstProject::to_json`.
     files.push(builtin_prelude_file());

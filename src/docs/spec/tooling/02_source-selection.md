@@ -181,7 +181,8 @@ reads each canonical path and parses it; `selected_source_paths` returns the
 canonical paths alone for raw-text tooling. [[src/ast/manifest.rs:selected_source_paths]]
 The compiler then appends its own built-in prelude and any imported built-in
 package source *after* the user files, so the user's first selected file remains
-`files[0]` (the monomorphizer's emission target). [[src/ast/manifest.rs:parse_project]]
+`files[0]` (the monomorphizer's emission target for the instantiations of
+toolchain-declared templates). [[src/ast/manifest.rs:parse_project]]
 
 ## Diagnostics
 

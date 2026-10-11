@@ -54,9 +54,11 @@ pub(crate) struct HirFile {
     /// The packages this file's own source `IMPORT`ed, in source order.
     ///
     /// Held separately from [`imports`](Self::imports) because monomorphization
-    /// widens that list: `monomorph::lower` emits every generated instantiation
-    /// into the FIRST file and unions every other file's imports into it, so
-    /// those bodies' package-qualified calls still resolve. After that pass
+    /// widens that list: `monomorph::lower` emits a generated instantiation into
+    /// the file that declares its template (the FIRST file for a template the
+    /// toolchain declares) and unions every other file's imports into each file
+    /// that hosts one, so those bodies' package-qualified names still resolve;
+    /// the hosting file's own bindings win. After that pass
     /// `main.mfb`'s `imports` reads `{tcp, udp, net, strings, collections}` for a
     /// program that wrote only `IMPORT tcp` and `IMPORT udp` — `net`, `strings`
     /// and `collections` arrive from the injected `udp` companion source.
@@ -320,8 +322,9 @@ pub(crate) struct HirFunction {
     pub(crate) line: usize,
     /// Set by the monomorphizer on an instantiation of a template declared in an
     /// internal (built-in package) file. The instantiation is emitted into the
-    /// user's first file, but it is still the package's code: the resolver exempts
-    /// it from the rules an internal file is exempt from.
+    /// user's first file (a user template's goes into its declaring file), but it
+    /// is still the package's code: the resolver exempts it from the rules an
+    /// internal file is exempt from.
     pub(crate) internal_origin: bool,
     /// bug-642: for an `internal_origin` instantiation, every user call that
     /// reaches it, in the order monomorphization met them (one instantiation

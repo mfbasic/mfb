@@ -1,0 +1,9 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::print("fromA = " & toString(fromA()))
+  io::print("direct = " & toString(direct()))
+  io::print("viaTemplate = " & toString(viaTemplate(TRUE)))
+  io::print("typeArgsFromA = " & toString(typeArgsFromA()))
+  RETURN 0
+END FUNC

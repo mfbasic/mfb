@@ -100,6 +100,11 @@ struct Monomorphizer<'a> {
     /// be attributed to the file the offending function actually lives in rather
     /// than always the first project file (bug-107).
     function_files: HashMap<String, String>,
+    /// The declaring file of each user/toolchain TYPE template, keyed by the
+    /// template's name: where its instantiations are emitted (bug-911). A
+    /// function instantiation's file is recorded in `function_files` under its
+    /// concrete name.
+    type_template_files: HashMap<String, String>,
     /// The paths of the internal (built-in package) files, so an instantiation of
     /// a template declared in one is marked `HirFunction::internal_origin`.
     internal_files: HashSet<String>,

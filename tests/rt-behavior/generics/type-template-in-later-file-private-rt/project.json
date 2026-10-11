@@ -1,0 +1,10 @@
+{
+  "name": "type_template_in_later_file_private_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-911 (TYPE templates): an instantiation of a user TYPE template is emitted into the file that declares the template. A PRIVATE type template, and a template with a PRIVATE field, declared in a later source file stay constructible and readable from their own file.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

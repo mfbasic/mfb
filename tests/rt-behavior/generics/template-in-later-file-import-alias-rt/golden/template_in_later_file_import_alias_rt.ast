@@ -1,0 +1,154 @@
+{
+  "project": "template_in_later_file_import_alias_rt",
+  "files": [
+  {
+    "path": "src/a.mfb",
+    "imports": [
+    { "module": "tmpl_scope_a", "alias": "lib", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "#0fd20d0660c720e8$Rec",
+      "line": 5,
+      "fields": [
+      { "visibility": null, "name": "n", "type": "Integer", "line": 6 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fromA",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "lib.idI", "arguments": [{ "kind": "number", "value": "1" }] }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "typeArgsFromA",
+      "line": 15,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": "#0fd20d0660c720e8$Rec", "value": { "kind": "call", "callee": "ident", "arguments": [{ "kind": "constructor", "type": "#0fd20d0660c720e8$Rec", "arguments": [{ "kind": "number", "value": "5" }] }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "made", "type": "tmpl_scope_a.Thing", "value": { "kind": "call", "callee": "lib.make", "arguments": [] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "tmpl_scope_a.Thing", "value": { "kind": "call", "callee": "ident", "arguments": [{ "kind": "identifier", "value": "made" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Box OF #0fd20d0660c720e8$Rec", "value": { "kind": "call", "callee": "boxOf", "arguments": [{ "kind": "constructor", "type": "#0fd20d0660c720e8$Rec", "arguments": [{ "kind": "number", "value": "7" }] }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "n" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "n" } }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "held" }, "member": "n" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "shown" } }, "line": 20 }
+      ]
+    }
+    ]
+  },
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fromA = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fromA", "arguments": [] }] } }] }, "line": 4 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "direct = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "direct", "arguments": [] }] } }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "viaTemplate = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "viaTemplate", "arguments": [{ "kind": "boolean", "value": true }] }] } }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "typeArgsFromA = " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "typeArgsFromA", "arguments": [] }] } }] }, "line": 7 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 8 }
+      ]
+    }
+    ]
+  },
+  {
+    "path": "src/z.mfb",
+    "imports": [
+    { "module": "tmpl_scope_f", "alias": "lib", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Box",
+      "templateParams": ["T"],
+      "line": 4,
+      "fields": [
+      { "visibility": null, "name": "held", "type": "T", "line": 5 },
+      { "visibility": null, "name": "shown", "type": "Integer", "line": 6 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "ident",
+      "templateParams": ["T"],
+      "line": 9,
+      "params": [
+      { "name": "x", "type": "T", "default": null, "line": 9 }
+      ],
+      "returnType": "T",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "x" }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "boxOf",
+      "templateParams": ["T"],
+      "line": 13,
+      "params": [
+      { "name": "x", "type": "T", "default": null, "line": 13 }
+      ],
+      "returnType": "Box OF T",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Box", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "9" }] }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "viaTemplate",
+      "templateParams": ["T"],
+      "line": 18,
+      "params": [
+      { "name": "x", "type": "T", "default": null, "line": 18 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "lib.idI", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 19 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "direct",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "lib.idI", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -74,12 +74,14 @@ impl<'a> Monomorphizer<'a> {
         let mut function_overloads: HashMap<String, Vec<HirFunction>> = HashMap::new();
         let mut overload_names = HashMap::new();
         let mut function_files: HashMap<String, String> = HashMap::new();
+        let mut type_template_files: HashMap<String, String> = HashMap::new();
 
         for file in &source.files {
             for item in &file.items {
                 match item {
                     HirItem::Binding(_) => {}
                     HirItem::Type(type_decl) if !type_decl.template_params.is_empty() => {
+                        type_template_files.insert(type_decl.name.clone(), file.path.clone());
                         type_templates
                             .insert(ParameterType::declared(&type_decl.name), type_decl.clone());
                     }
@@ -234,6 +236,7 @@ impl<'a> Monomorphizer<'a> {
                 .map(|import| import.binding_name().to_string())
                 .collect(),
             function_files,
+            type_template_files,
             internal_files: source
                 .files
                 .iter()
@@ -626,50 +629,116 @@ impl<'a> Monomorphizer<'a> {
             })
             .collect::<Vec<_>>();
 
-        if let Some(first_file) = files.first_mut() {
-            // Generated instantiations (monomorphized generic functions/types) are
-            // emitted into the FIRST file, but their rewritten call/use sites can
-            // live in ANY file. With `Public` as the default visibility, a template
-            // with no modifier (e.g. the `collections::` internals) instantiates to
-            // a `Public` concrete function, which resolves project-wide — so no
-            // widening is needed here.
-            //
-            // Those generated bodies can still carry package-qualified calls to any
-            // package used anywhere in the project (a monomorphized `collections::`
-            // generic keeps calling `collections::` helpers). Since they now live in
-            // the first file, union every source file's imports into it so the
-            // post-monomorph resolve can resolve those qualified names; the first
-            // file's own bindings win on any alias clash.
-            let mut seen: HashSet<String> = first_file
+        // bug-911: a generated instantiation is emitted into the file that
+        // DECLARES its template, so every later stage keyed on a function's file
+        // — the post-monomorph resolve's import bindings, the PRIVATE-visibility
+        // checks, diagnostics, and `IrFunction::file` (the runtime `ErrorLoc`) —
+        // sees the scope the template body was written in, whatever that file's
+        // place in the source order. A template the toolchain declares (a
+        // built-in package's injected source, the prelude) has no user file: its
+        // instantiations go into the first file, as they always have, and carry
+        // their own call-site attribution (`HirFunction::instantiated_at`).
+        let user_files: HashMap<&str, usize> = self
+            .source
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(_, file)| !file.internal && !file.path.starts_with('<'))
+            .map(|(index, file)| (file.path.as_str(), index))
+            .collect();
+        let host =
+            |path: Option<&String>| path.and_then(|path| user_files.get(path.as_str()).copied());
+
+        // Keyed as `concrete_types` keys them — for an instantiation, the mangled
+        // nominal `type_instantiations` is keyed by too.
+        let mut generated_types = self
+            .concrete_types
+            .iter()
+            .filter(|(_, type_decl)| !emitted_types.contains(&type_decl.name))
+            .map(|(key, type_decl)| (key.clone(), type_decl.clone()))
+            .collect::<Vec<_>>();
+        generated_types.sort_by(|(_, left), (_, right)| left.name.cmp(&right.name));
+        let mut generated_functions = self
+            .concrete_functions
+            .values()
+            .filter(|function| !emitted_functions.contains(&function.name))
+            .cloned()
+            .collect::<Vec<_>>();
+        generated_functions.sort_by(|left, right| left.name.cmp(&right.name));
+
+        // The first file always hosts (and is always widened, below): it is where
+        // the toolchain's instantiations land.
+        let mut hosts: Vec<usize> = Vec::new();
+        if !files.is_empty() {
+            hosts.push(0);
+        }
+        // Per file, the generated types precede the generated functions, each
+        // sorted by name — the order the first file has always had.
+        let mut placed: Vec<(usize, HirItem)> = Vec::new();
+        for (key, type_decl) in generated_types {
+            let template = self
+                .type_instantiations
+                .get(&key)
+                .map(|(template, _)| template);
+            let index = host(template.and_then(|template| self.type_template_files.get(template)));
+            placed.push((index.unwrap_or(0), HirItem::Type(type_decl)));
+        }
+        for function in generated_functions {
+            let index = host(self.function_files.get(&function.name));
+            placed.push((index.unwrap_or(0), HirItem::Function(function)));
+        }
+        for (index, item) in placed {
+            let Some(file) = files.get_mut(index) else {
+                continue;
+            };
+            if !hosts.contains(&index) {
+                hosts.push(index);
+            }
+            file.items.push(item);
+        }
+
+        // A hosted body can name packages its file never imported: a type argument
+        // is spelled by the CALLING file (`<package>.<Type>`, already canonical),
+        // and a built-in package's body keeps calling its own package's helpers.
+        // So a hosting file's resolution scope is widened with every other file's
+        // imports. The file's OWN bindings always win — an alias the declaring
+        // file binds is the one its template bodies mean — and a foreign import
+        // whose alias is already taken there is still made known, under a binding
+        // no source can spell, when nothing else imports its package: a
+        // package-qualified type resolves through any binding of its package.
+        for index in hosts {
+            let file = &mut files[index];
+            let mut bindings: HashSet<String> = file
                 .imports
                 .iter()
                 .map(|import| import.binding_name().to_string())
                 .collect();
+            let mut shadowed = Vec::new();
             for import in self.source.files.iter().flat_map(|file| &file.imports) {
-                if seen.insert(import.binding_name().to_string()) {
-                    first_file.imports.push(import.clone());
+                if bindings.insert(import.binding_name().to_string()) {
+                    file.imports.push(import.clone());
+                } else {
+                    shadowed.push(import);
                 }
             }
-
-            let mut generated_types = self
-                .concrete_types
-                .into_values()
-                .filter(|type_decl| !emitted_types.contains(&type_decl.name))
-                .collect::<Vec<_>>();
-            generated_types.sort_by(|left, right| left.name.cmp(&right.name));
-            first_file
-                .items
-                .extend(generated_types.into_iter().map(HirItem::Type));
-
-            let mut generated_functions = self
-                .concrete_functions
-                .into_values()
-                .filter(|function| !emitted_functions.contains(&function.name))
-                .collect::<Vec<_>>();
-            generated_functions.sort_by(|left, right| left.name.cmp(&right.name));
-            first_file
-                .items
-                .extend(generated_functions.into_iter().map(HirItem::Function));
+            let mut packages: HashSet<String> = file
+                .imports
+                .iter()
+                .map(|import| import.package_name().to_string())
+                .collect();
+            for import in shadowed {
+                if packages.insert(import.package_name().to_string()) {
+                    file.imports.push(crate::ast::Import {
+                        module: import.module.clone(),
+                        alias: Some(format!(
+                            "{}{}",
+                            crate::internal_name::INTERNAL_SIGIL,
+                            import.package_name()
+                        )),
+                        line: import.line,
+                    });
+                }
+            }
         }
 
         HirProject {
@@ -1032,6 +1101,11 @@ impl<'a> Monomorphizer<'a> {
                 lowered.instantiated_at.extend(site);
             }
             self.template_instantiation_depth -= 1;
+            // bug-911: the instantiation belongs to the file that declares its
+            // template; `into_project` emits it there.
+            if let Some(path) = self.function_files.get(name.as_str()).cloned() {
+                self.function_files.insert(concrete_name.clone(), path);
+            }
             self.concrete_functions
                 .insert(concrete_name.clone(), lowered);
         } else if self.current_instantiation_site.is_none() {
@@ -4323,5 +4397,130 @@ END FUNC
         assert_eq!(returned_callee(function("r")), scoped);
         assert_eq!(returned_callee(function(&scoped)), "r");
         assert_eq!(returned_callee(function("main")), "r");
+    }
+
+    /// The path of the file `name` (a function or a type) is emitted into.
+    fn file_of(project: &crate::hir::HirProject, name: &str) -> String {
+        project
+            .files
+            .iter()
+            .find(|file| {
+                file.items.iter().any(|item| match item {
+                    crate::hir::HirItem::Function(function) => function.name == name,
+                    crate::hir::HirItem::Type(type_decl) => type_decl.name == name,
+                    _ => false,
+                })
+            })
+            .unwrap_or_else(|| panic!("`{name}` is emitted into no file"))
+            .path
+            .clone()
+    }
+
+    const TEMPLATES: &str = "\
+TYPE Box OF T
+  v AS T
+END TYPE
+FUNC wrap OF T(x AS T) AS Box OF T
+  RETURN Box[x]
+END FUNC
+";
+    const CALLER: &str = "\
+FUNC main() AS Nothing
+  LET b AS Box OF Integer = wrap(1)
+END FUNC
+";
+
+    #[test]
+    fn a_user_instantiation_is_emitted_into_its_templates_file_in_either_order() {
+        // bug-911: every instantiation used to land in `files[0]`, so a template
+        // body was checked and lowered in the scope of whichever file sorted
+        // first. The declaring file hosts it, whatever its place in the order.
+        for (template_file, caller_file) in [("src/z.mfb", "src/a.mfb"), ("src/a.mfb", "src/z.mfb")]
+        {
+            let mut files = [(template_file, TEMPLATES), (caller_file, CALLER)];
+            files.sort();
+            let project = monomorphize_files(&files).expect("monomorphizes");
+            assert_eq!(file_of(&project, "wrap$Integer"), template_file);
+            assert_eq!(file_of(&project, "Box$Integer"), template_file);
+            assert_eq!(file_of(&project, "main"), caller_file);
+        }
+    }
+
+    #[test]
+    fn a_toolchain_templates_instantiation_stays_in_the_first_file() {
+        // The other half of bug-911's boundary: a template declared in a file the
+        // toolchain injected (a built-in package's source) has no user file. Its
+        // instantiation stays in the first file and is marked `internal_origin`,
+        // which is what carries its call-site attribution.
+        let mut ast = project(&[("src/a.mfb", CALLER), ("src/z.mfb", TEMPLATES)]);
+        ast.files[1].internal = true;
+        let project = crate::testutil::silence_panics(|| {
+            super::super::monomorphize_project(&std::env::temp_dir(), &crate::hir::elaborate(&ast))
+        })
+        .expect("monomorphizes");
+        assert_eq!(file_of(&project, "wrap$Integer"), "src/a.mfb");
+        assert_eq!(file_of(&project, "Box$Integer"), "src/a.mfb");
+        let wrap = functions(&project)
+            .into_iter()
+            .find(|function| function.name == "wrap$Integer")
+            .expect("the instantiation exists");
+        assert!(wrap.internal_origin);
+    }
+
+    #[test]
+    fn a_hosting_files_own_import_binding_wins_and_a_shadowed_package_stays_known() {
+        // bug-911: both files bind the alias `lib`, to different packages. The
+        // file hosting an instantiation keeps its own binding for `lib` — the one
+        // its template body means — and still learns the other file's package (a
+        // type argument can name it), under a binding no source can spell.
+        let files = [
+            (
+                "src/a.mfb",
+                "\
+IMPORT pa AS lib
+FUNC main() AS Nothing
+  LET b AS Box OF Integer = wrap(1)
+END FUNC
+",
+            ),
+            (
+                "src/z.mfb",
+                "\
+IMPORT pf AS lib
+TYPE Box OF T
+  v AS T
+END TYPE
+FUNC wrap OF T(x AS T) AS Box OF T
+  RETURN Box[x]
+END FUNC
+",
+            ),
+        ];
+        let project = monomorphize_files(&files).expect("monomorphizes");
+        let bindings = |path: &str| {
+            project
+                .files
+                .iter()
+                .find(|file| file.path == path)
+                .expect("the file exists")
+                .imports
+                .iter()
+                .map(|import| {
+                    (
+                        import.binding_name().to_string(),
+                        import.package_name().to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let pair = |binding: &str, package: &str| (binding.to_string(), package.to_string());
+        assert_eq!(
+            bindings("src/z.mfb"),
+            vec![pair("lib", "pf"), pair("#pa", "pa")]
+        );
+        assert_eq!(
+            bindings("src/a.mfb"),
+            vec![pair("lib", "pa"), pair("#pf", "pf")]
+        );
     }
 }

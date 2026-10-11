@@ -1,0 +1,3 @@
+FUNC helperA() AS Integer
+  RETURN 1
+END FUNC

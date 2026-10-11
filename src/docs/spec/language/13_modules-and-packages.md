@@ -125,7 +125,7 @@ Rules:
 - Nested package qualifiers are illegal: `a::b::c` is a compile error.
 - Record fields use `value.field`. Methods and object-style access do not exist.
 - Imports are not transitive for package namespaces. A package cannot export an imported package namespace; foreign types may pass through exported signatures as described below.
-- `IMPORT packageName AS aliasName` binds the package to `aliasName` in the importing file. The original package name is not also introduced by that import; use a second import only if both names are needed.
+- `IMPORT packageName AS aliasName` binds the package to `aliasName` in the importing file. The original package name is not also introduced by that import; use a second import only if both names are needed. The binding is the file's alone: two files may bind one alias to different packages, and a template body uses the bindings of the file that declares the template, not of the file that instantiates it (`./mfb spec language templates`).
 - An import alias must not conflict with another imported package name or alias, a top-level declaration visible in the file, or a built-in package name. The complete built-in package set is listed in `./mfb spec language builtin-functions`. [[src/codegen/builtins/mod.rs:is_builtin_import]]
 - `[visibility] FUNC alias AS qualified::name` declares a **function alias**. This form exists only as a transparent re-export of a native `LINK` function: the resolver requires the alias target to resolve to a `LINK` (native) function signature and reports `SYMBOL_UNKNOWN_IDENTIFIER` otherwise. [[src/resolver/mod.rs:link_target_signature]] It is not a general mechanism for aliasing arbitrary MFBASIC functions to package-qualified names.
 

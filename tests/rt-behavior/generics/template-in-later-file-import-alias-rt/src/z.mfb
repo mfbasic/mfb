@@ -1,0 +1,24 @@
+' Sorts AFTER a.mfb and declares every template of the project.
+IMPORT tmpl_scope_f AS lib
+
+TYPE Box OF T
+  held AS T
+  shown AS Integer
+END TYPE
+
+FUNC ident OF T(x AS T) AS T
+  RETURN x
+END FUNC
+
+FUNC boxOf OF T(x AS T) AS Box OF T
+  RETURN Box[x, 9]
+END FUNC
+
+' `lib` is this file's binding: tmpl_scope_f, whose idI adds 1000.
+FUNC viaTemplate OF T(x AS T) AS Integer
+  RETURN lib::idI(7)
+END FUNC
+
+FUNC direct() AS Integer
+  RETURN lib::idI(7)
+END FUNC

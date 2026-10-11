@@ -1,0 +1,10 @@
+{
+  "name": "template_in_later_file_diagnostic_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-911: a rule that fails inside the body of a user template declared in a later source file is reported against that file (`src/z.mfb`), with that file's source excerpt -- not against the project's first file at the template's line number.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

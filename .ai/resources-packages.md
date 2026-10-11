@@ -188,7 +188,7 @@ Storing one makes the other miss silently. `code::resolve_closer_symbol` tries t
 
 ### `HirFile::imports` is the resolution scope, not what the author imported
 
-Monomorph emits every instantiation into the first file and unions every file's imports into it, so post-monomorph `imports` lists packages the author never wrote (including ones a companion source imports). A rule asking "did this file import P?" must read `HirFile::own_imports`, snapshotted in `hir::elaborate_file`. Don't narrow the union; lowering needs it.
+Monomorph emits an instantiation into the file that declares its template (the first file for a toolchain-declared template — a builtin package's, the prelude's) and unions every file's imports into each file that hosts one — the host's own bindings win, and a foreign import whose alias is taken is added under an unspellable `#<package>` binding (bug-911) — so post-monomorph `imports` lists packages the author never wrote (including ones a companion source imports). A rule asking "did this file import P?" must read `HirFile::own_imports`, snapshotted in `hir::elaborate_file`. Don't narrow the union; lowering needs it.
 
 ### A package that calls a builtin must be tested by linking an executable
 

@@ -1,0 +1,10 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::print(toString(helperA()))
+  io::print(toString(cellSum()))
+  io::print(toString(boxSum()))
+  LET b AS Box OF String = boxOfText()
+  io::print(toString(b.shown + shownOf(b)))
+  RETURN 0
+END FUNC

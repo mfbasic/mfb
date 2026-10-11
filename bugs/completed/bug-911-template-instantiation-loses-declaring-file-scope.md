@@ -1,12 +1,12 @@
 # bug-911: a user template declared outside the first source file is instantiated in the first file's scope — wrong import alias (silent miscompile), PRIVATE helpers unreachable, wrong file in diagnostics and `ErrorLoc`
 
-Last updated: 2026-10-05
+Last updated: 2026-10-10
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/generics/template-in-later-file-scope-rt (new) — name suggested
+Status: Fixed
+Regression Test: one fixture per consequence — A `tests/rt-behavior/generics/template-in-later-file-import-alias-rt`; B `tests/rt-behavior/generics/template-in-later-file-private-scope-rt`; C `tests/syntax/monomorph/template-in-later-file-diagnostic-invalid`; D `tests/rt-behavior/generics/template-in-later-file-error-source-rt`; TYPE templates `tests/rt-behavior/generics/type-template-in-later-file-private-rt`; unit tests `monomorph::lower::tests::a_user_instantiation_is_emitted_into_its_templates_file_in_either_order`, `…::a_toolchain_templates_instantiation_stays_in_the_first_file`, `…::a_hosting_files_own_import_binding_wins_and_a_shadowed_package_stays_known`
 
 The monomorphizer emits every concrete instantiation of a user template into the
 project's **first** source file (`files[0]`, by sorted path) and unions every file's
@@ -153,3 +153,39 @@ but visibility is still enforced per file, so the moved body loses access.
   own code: `a.mfb` calling `strings::contains` with only `z.mfb` importing
   `strings` is still rejected by the first (pre-monomorph) resolve
   (`SYMBOL_UNKNOWN_IMPORT`, verified).
+
+## Fix (2026-10-10)
+
+Root cause as found: confirmed as written. `Monomorphizer::into_project` appended every
+generated type and function to `files[0]` and widened only that file's imports, first
+file's bindings winning.
+
+- `src/monomorph/lower.rs:Monomorphizer::into_project` now emits each generated
+  instantiation into the file that declares its template: a function through
+  `function_files` (which `instantiate_function` now also keys by the concrete name), a
+  type through `type_instantiations` → `type_template_files`. Per file the order is the
+  one the first file always had: generated types, then generated functions, each sorted
+  by concrete name. A template declared by the toolchain (an `internal` built-in package
+  file, the `<builtin prelude>`) has no user file and keeps going into `files[0]`, with
+  `internal_origin` / `instantiated_at` untouched.
+- Imports: every file that hosts an instantiation (and always `files[0]`, as before) is
+  widened with the other files' imports, its own bindings first. That alone would have
+  REGRESSED a working shape — a caller in the first file passing a type of a package it
+  imports as `lib` to a template whose file binds `lib` elsewhere, where the canonical
+  `<package>.<Type>` then names a package the hosting file does not import
+  (`SYMBOL_UNKNOWN_IMPORT`). So a foreign import whose alias is taken is added under the
+  unspellable binding `#<package>` unless the file already imports that package.
+  `tests/rt-behavior/generics/template-in-later-file-import-alias-rt` pins it
+  (`typeArgsFromA`). The same rule makes the mirror shape, which failed before this fix
+  when the template was in the first file, build.
+- Mangled symbols and export tables: unchanged — nothing that names a symbol was touched,
+  and `scripts/artifact-gate.sh target/release/mfb all` reported `0 diff(s)`.
+
+Existing goldens expected to change: none. No project under `tests/`, `examples/`,
+`benchmark/`, `packages/`, `spikes/` or `tools/` declares a template outside its first
+source file (measured with a `find`/`grep` sweep for `FUNC|TYPE|UNION <name> OF` in every
+non-first `.mfb` of each `project.json`; the only hits are the five fixtures added here),
+so for every existing fixture each instantiation is still emitted where it was. Measured:
+artifact gate `2334 golden(s) checked, 0 diff(s)`; `scripts/test-accept.sh` over the
+generics, collections, packages, scope, functions and monomorph groups plus
+`tests/acceptance`, 256 fixtures, passed.

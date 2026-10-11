@@ -1,0 +1,21 @@
+$ mfb build -ast -ir tests/rt-behavior/generics/template-in-later-file-import-alias-rt
+Wrote package to tests/rt-behavior/generics/template-in-later-file-import-alias-rt/build/packages/tmpl_scope_a.mfp
+Wrote package to tests/rt-behavior/generics/template-in-later-file-import-alias-rt/build/packages/tmpl_scope_f.mfp
+uses tmpl_scope_a - [Unsigned]
+uses tmpl_scope_f - [Unsigned]
+Wrote AST to tests/rt-behavior/generics/template-in-later-file-import-alias-rt/template_in_later_file_import_alias_rt.ast
+Wrote IR to tests/rt-behavior/generics/template-in-later-file-import-alias-rt/template_in_later_file_import_alias_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/generics/template-in-later-file-import-alias-rt
+Wrote package to tests/rt-behavior/generics/template-in-later-file-import-alias-rt/build/packages/tmpl_scope_a.mfp
+Wrote package to tests/rt-behavior/generics/template-in-later-file-import-alias-rt/build/packages/tmpl_scope_f.mfp
+uses tmpl_scope_a - [Unsigned]
+uses tmpl_scope_f - [Unsigned]
+Wrote executable to tests/rt-behavior/generics/template-in-later-file-import-alias-rt/build/template_in_later_file_import_alias_rt.out
+[exit 0]
+$ tests/rt-behavior/generics/template-in-later-file-import-alias-rt/build/template_in_later_file_import_alias_rt.out
+fromA = 1
+direct = 1007
+viaTemplate = 1007
+typeArgsFromA = 32
+[exit 0]

@@ -1,0 +1,3 @@
+EXPORT FUNC idI(x AS Integer) AS Integer
+  RETURN x + 1000
+END FUNC

@@ -1,0 +1,124 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "template_in_later_file_error_source_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "helperA",
+    "line": 1,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 2, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 3,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 4, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "boom$Integer", "args": [{ "kind": "call", "type": "Integer", "target": "helperA", "args": [] }] } },
+    { "op": "return", "line": 5, "value": { "kind": "local", "name": "r" } },
+    {
+      "op": "trap",
+      "line": 6,
+      "name": "e",
+      "body": [
+      { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "ErrorLoc", "target": { "kind": "local", "name": "e" }, "member": "source" }, "member": "filename" }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "ErrorLoc", "target": { "kind": "local", "name": "e" }, "member": "source" }, "member": "line" }] } }] } },
+      { "op": "return", "line": 8, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "boom$Integer",
+    "line": 1,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 1, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 2, "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "return", "line": 3, "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "const", "type": "Integer", "value": "10" }, "right": { "kind": "local", "name": "d" } } }
+    ]
+  }
+  ]
+}

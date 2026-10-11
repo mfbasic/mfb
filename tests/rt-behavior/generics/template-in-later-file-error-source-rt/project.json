@@ -1,0 +1,10 @@
+{
+  "name": "template_in_later_file_error_source_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-911 (D): a runtime failure inside the body of a user template declared in a later source file reports that file in `Error.source.filename`, not the project's first file.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

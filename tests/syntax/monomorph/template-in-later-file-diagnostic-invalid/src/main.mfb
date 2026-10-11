@@ -1,0 +1,6 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::print(toString(less(TRUE, FALSE)))
+  RETURN helperA()
+END FUNC

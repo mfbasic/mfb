@@ -76,8 +76,10 @@ The full glob-matching algorithm is
 The parser appends one synthetic file, the built-in prelude, after
 all selected user sources. Its path is the sentinel
 `"<builtin prelude>"`, and it is appended last so the user's first source file
-remains `files[0]` — the monomorphizer emits generated instantiations into that
-first file.[[src/ast/manifest.rs:builtin_prelude_file]]
+remains `files[0]` — the monomorphizer emits the instantiations of
+toolchain-declared templates (the prelude's and the built-in packages') into that
+first file; a user template's instantiations go into the file that declares it
+(`./mfb spec architecture monomorphization`).[[src/ast/manifest.rs:builtin_prelude_file]]
 
 The prelude declares the always-in-scope generic record templates
 `Pair OF A, B` (fields `first AS A`, `second AS B`) and `Partition OF T` (fields
