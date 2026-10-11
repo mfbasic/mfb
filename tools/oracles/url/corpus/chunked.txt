@@ -1,0 +1,56 @@
+# Chunked transfer-coding corpus, played both ways by node/chunked.mjs:
+#   chunk-client  as a response body (status line + `head` + Connection: close) from a
+#                 raw-socket Node server, read by http::read and by Node's http client
+#   chunk-server  as a request body (POST /echo + `head`), written by a raw-socket Node
+#                 client to http::server and to Node's http.createServer
+# One JSON object per line: name, body (a JS string; each code unit is one byte, latin1),
+# and optional head (header lines; default ["Transfer-Encoding: chunked"]).
+{"name": "basic", "body": "4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n"}
+{"name": "crlf-after-data-is-XX", "body": "4\r\nWikiXX5\r\npedia\r\n0\r\n\r\n"}
+{"name": "lf-after-data", "body": "4\r\nWiki\n5\r\npedia\r\n0\r\n\r\n"}
+{"name": "no-crlf-after-data", "body": "4\r\nWiki5\r\npedia\r\n0\r\n\r\n"}
+{"name": "bare-lf-everywhere", "body": "4\nWiki\n5\npedia\n0\n\n"}
+{"name": "bare-lf-size-line", "body": "4\nWiki\r\n0\r\n\r\n"}
+{"name": "cr-only-size-line", "body": "4\rWiki\r\n0\r\n\r\n"}
+{"name": "extension", "body": "4;foo=bar\r\nWiki\r\n0\r\n\r\n"}
+{"name": "extension-quoted", "body": "4;a=\"x;y\"\r\nWiki\r\n0\r\n\r\n"}
+{"name": "extension-bare", "body": "4;\r\nWiki\r\n0\r\n\r\n"}
+{"name": "extension-space-before-semi", "body": "4 ;x\r\nWiki\r\n0\r\n\r\n"}
+{"name": "uppercase-hex", "body": "A\r\n0123456789\r\n0\r\n\r\n"}
+{"name": "lowercase-hex", "body": "a\r\n0123456789\r\n0\r\n\r\n"}
+{"name": "leading-zeros", "body": "0004\r\nWiki\r\n0\r\n\r\n"}
+{"name": "sixteen-digit-size", "body": "0000000000000004\r\nWiki\r\n0\r\n\r\n"}
+{"name": "0x-prefix", "body": "0x4\r\nWiki\r\n0\r\n\r\n"}
+{"name": "plus-sign", "body": "+4\r\nWiki\r\n0\r\n\r\n"}
+{"name": "minus-sign", "body": "-4\r\nWiki\r\n0\r\n\r\n"}
+{"name": "underscore-in-size", "body": "1_0\r\n0123456789abcdef\r\n0\r\n\r\n"}
+{"name": "space-before-size", "body": " 4\r\nWiki\r\n0\r\n\r\n"}
+{"name": "space-after-size", "body": "4 \r\nWiki\r\n0\r\n\r\n"}
+{"name": "tab-after-size", "body": "4\t\r\nWiki\r\n0\r\n\r\n"}
+{"name": "empty-size-line", "body": "\r\nWiki\r\n0\r\n\r\n"}
+{"name": "non-hex-size", "body": "g\r\nWiki\r\n0\r\n\r\n"}
+{"name": "huge-size", "body": "ffffffffffffffffffff\r\nWiki\r\n0\r\n\r\n"}
+{"name": "size-2^63", "body": "8000000000000000\r\nWiki\r\n0\r\n\r\n"}
+{"name": "size-longer-than-data", "body": "a\r\nWiki\r\n0\r\n\r\n"}
+{"name": "size-shorter-than-data", "body": "2\r\nWiki\r\n0\r\n\r\n"}
+{"name": "no-last-chunk-eof", "body": "4\r\nWiki\r\n"}
+{"name": "last-chunk-no-final-crlf", "body": "4\r\nWiki\r\n0\r\n"}
+{"name": "last-chunk-only-size", "body": "4\r\nWiki\r\n0"}
+{"name": "only-last-chunk", "body": "0\r\n\r\n"}
+{"name": "last-chunk-000", "body": "4\r\nWiki\r\n000\r\n\r\n"}
+{"name": "last-chunk-extension", "body": "4\r\nWiki\r\n0;x=y\r\n\r\n"}
+{"name": "trailer", "body": "4\r\nWiki\r\n0\r\nX-Trailer: 1\r\n\r\n"}
+{"name": "trailer-malformed", "body": "4\r\nWiki\r\n0\r\nnot a header\r\n\r\n"}
+{"name": "data-holds-crlf", "body": "6\r\nab\r\ncd\r\n0\r\n\r\n"}
+{"name": "binary-data", "body": "4\r\n\u0000ÿ\u0080\r\r\n0\r\n\r\n"}
+{"name": "blank-line-between-chunks", "body": "4\r\nWiki\r\n\r\n5\r\npedia\r\n0\r\n\r\n"}
+{"name": "garbage-after-terminator", "body": "4\r\nWiki\r\n0\r\n\r\nGARBAGE"}
+{"name": "zero-straight-after-data", "body": "4\r\nWiki0\r\n\r\n"}
+{"name": "te-uppercase", "head": ["Transfer-Encoding: CHUNKED"], "body": "4\r\nWiki\r\n0\r\n\r\n"}
+{"name": "te-gzip-chunked", "head": ["Transfer-Encoding: gzip, chunked"], "body": "4\r\nWiki\r\n0\r\n\r\n"}
+{"name": "te-chunked-not-final", "head": ["Transfer-Encoding: chunked, identity"], "body": "4\r\nWiki\r\n0\r\n\r\n"}
+{"name": "te-chunkedx", "head": ["Transfer-Encoding: chunkedx"], "body": "4\r\nWiki\r\n0\r\n\r\n"}
+{"name": "te-xchunked", "head": ["Transfer-Encoding: xchunked"], "body": "4\r\nWiki\r\n0\r\n\r\n"}
+{"name": "te-two-headers", "head": ["Transfer-Encoding: gzip", "Transfer-Encoding: chunked"], "body": "4\r\nWiki\r\n0\r\n\r\n"}
+{"name": "te-and-content-length", "head": ["Transfer-Encoding: chunked", "Content-Length: 4"], "body": "4\r\nWiki\r\n0\r\n\r\n"}
+{"name": "content-length-only", "head": ["Content-Length: 4"], "body": "Wiki"}
