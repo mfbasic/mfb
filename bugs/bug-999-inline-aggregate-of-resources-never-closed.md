@@ -64,3 +64,41 @@ mfb build -q agg && (ulimit -n 64; ./agg/build/agg.out)
 ## Related
 
 - bug-842 (resource temporaries; this is the aggregate case it scoped out).
+
+## Attempt in bug-staging-18 (bs18-agent-k, 2026-10-10): reverted, still open
+
+A fix was committed (`ee8fa14cb`) and reverted (`8982edd27`) in the same batch. What
+it found:
+
+- **Who produced it is settled.** A call that runs a function BODY leaves through
+  `RETURN`, which releases exactly the records its own scopes owned (spec §15), so an
+  unowned record in its result is one it handed over. A natively lowered builtin
+  (`canvas::groupItems`) makes no such statement, and neither does a body whose every
+  `RETURN` hands back a parameter or a module-level binding.
+- **Who keeps it is NOT settled, and that is what broke.** The fix closed, at the end
+  of the statement, everything an aggregate from a function body reached unowned.
+  That is wrong whenever a value that outlives the statement keeps the aggregate
+  without owning what it reaches: `LET back = Layer[items := mkItems()]`,
+  `LET items = mkLayer().items`, `FOR EACH h IN mkList()`. Only a call-rooted bind
+  adopts, and only a single resource in an element position is hoisted to a name.
+  `tests/canvas/rt_canvas_geo_native.rs`
+  (`the_native_frame_pass_matches_the_mfbasic_walk_on_a_mixed_moving_scene`) died of
+  it with SIGSEGV on `LET back AS canvas::DrawLayer = canvas::DrawLayer[items :=
+  shapes(20)]`: a constructor frees its argument's block once it has copied it, so
+  the statement-end walk read a freed list (`mfb dbg`: a bad memory access in
+  `main+0x5dd4`, on the `ldr x9, [x8]` that loads an element's tag). Passing with
+  the base compiler, failing with the fix, three runs each.
+- **One class is safe and was measured flat**, but was not verified after being
+  separated from the rest, so it is not in the tree: a call to a function taking only
+  plain scalars, written straight into an argument of a call that keeps nothing of it,
+  takes no keeping callback and can only answer with a plain scalar (`len(mkList())`).
+  Nothing can keep such a result, so the statement can adopt what it reaches as a
+  binding would (claim at once, drain with the owning frees at the end). With that in
+  place the report's program measured `163 / 163 / 0` (alloc / free / live, N=20)
+  against the bound control's `163 / 163 / 0` and the base's `143 / 103 / 7040`, and
+  printed `n=2000` under `ulimit -n 64`. A result reaching a resource-union box must
+  stay out of it (bug-1012).
+- **The other positions need a language decision**: either every bind, assignment,
+  global store or `RETURN` whose value contains such a call adopts what it handed
+  over (then the statement may close the rest), or such a call must be bound first.
+

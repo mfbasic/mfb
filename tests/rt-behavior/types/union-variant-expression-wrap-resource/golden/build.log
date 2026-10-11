@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/types/union-variant-expression-wrap-resource
+Wrote AST to tests/rt-behavior/types/union-variant-expression-wrap-resource/union_variant_expression_wrap_resource.ast
+Wrote IR to tests/rt-behavior/types/union-variant-expression-wrap-resource/union_variant_expression_wrap_resource.ir
+[exit 0]
+$ mfb build tests/rt-behavior/types/union-variant-expression-wrap-resource
+Wrote executable to tests/rt-behavior/types/union-variant-expression-wrap-resource/build/union_variant_expression_wrap_resource.out
+[exit 0]
+$ tests/rt-behavior/types/union-variant-expression-wrap-resource/build/union_variant_expression_wrap_resource.out
+arg: file
+elem: file
+let: file
+ret: file
+var: file
+after
+[exit 0]

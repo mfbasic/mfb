@@ -184,6 +184,30 @@ re-check every claim. You are in charge: nothing reaches main that you have not 
 
 WORK ORDER: phase <N> of the bug order (list the bug numbers here, or point at the doc).
 
+## Scope freeze (the rule that outranks every other step)
+The bug list of a phase is FIXED the moment its first agent starts. Write the list down
+(bugs/status.md) before assigning anything. After that, NOTHING is added to the running
+phase, for any reason:
+- not a bug found during the phase, however severe or however small;
+- not a bug another session files, and not one the owner mentions mid-phase;
+- not a bug pulled forward from a later phase because it "pairs with" one in this phase;
+- not extra scope on a bug in the list. If an owner decision makes a bug bigger than its
+  doc, the bigger part becomes a new bug for a later phase.
+All of those are filed (step D) and wait. Do not ask the owner whether to add something
+to the running phase; the answer is no. Only the owner can change this, and only by
+saying so unprompted.
+
+The only work that may be added is a fix for something THIS phase's own changes broke
+(a review finding, an integration clash, a gate failure). That is finishing the list, not
+growing it.
+
+Things leave the list freely. A bug that stops on an owner decision, cannot be made
+green, or is still not done when the rest is ready is moved OUT to a later phase; it
+never holds the merge. Never start an agent on later-phase work while this phase has
+anything unmerged: it competes for the one build lock and delays the merge.
+
+The goal of a phase is its fixes on main. Land the list, then start the next one.
+
 ## Setup (once per run)
 1. Old staging: list every `bug-staging*` branch and worktree with its merged/unmerged
    status (`git branch --merged main`, `git log --oneline main..<branch>`). Remove only
@@ -202,8 +226,9 @@ WORK ORDER: phase <N> of the bug order (list the bug numbers here, or point at t
    main's SHA and which tests already fail there. Don't chase those during the phase.
 
 ## Phase loop
-A. Assign bugs: at most 2 agents at a time, at most 5 bugs each, worked one bug at a
-   time. A phase can take several rounds. Choose the model per .ai/sub-agents.md (Opus
+A. Assign bugs: at most 2 agents at a time (never a third, not even for a "quick"
+   follow-up; queue it), at most 5 bugs each, worked one bug at a time. A phase can take
+   several rounds, but every round draws only from the phase's fixed list. Choose the model per .ai/sub-agents.md (Opus
    for concurrency, ABI and memory-safety bugs). Each agent gets its own worktree
    branched from staging, its own CARGO_TARGET_DIR, and the same target/release/mfb
    symlink as step 2.
@@ -216,7 +241,12 @@ B. For each bug, the agent:
    - also runs any tests/guards/* covering the files it touched (no_type_strings, the
      declared-errors guards, drop-count/helper-scratch tests);
    - does NOT run the full suite and does NOT regenerate goldens. It records in the
-     bug doc which goldens it expects to change, and why;
+     bug doc which goldens it expects to change, and why. "Full suite" includes the
+     unfiltered unit binary: an agent NEVER runs `cargo test` or `cargo test --bin mfb`
+     without a filter (~40 min each, under the one build lock, and the gate in F runs
+     them anyway). Unit tests are run filtered to the modules touched
+     (`cargo test --bin mfb -- <module>::`). The coordinator must not tell an agent
+     otherwise, in a brief or a follow-up, whatever a gate failure seemed to teach;
    - STOPS that bug and reports if the fix would change an observable contract beyond
      what the bug doc already settles. The coordinator asks the owner, and an answer is
      not a go-ahead (AGENTS.md "Questions");
@@ -241,8 +271,11 @@ C. Review every bug yourself: read the diff, re-run the repro and the RED→GREE
    Merge accepted bugs into staging, and add a separate integration commit when parallel
    fixes clash (a retired field, a new parameter). Add debugger feedback to
    debugger-report.md (untracked, main checkout).
-D. New bugs found during the phase: reproduce them yourself before writing a bug doc.
-   File each one for the next staging batch (N+1), never the running one.
+D. New bugs found during the phase: reproduce them yourself before writing a bug doc,
+   file each one, and place it in a LATER phase in bugs/status.md. Filing is all that
+   happens to it now: no agent starts on it, and it is never added to the running phase
+   (see "Scope freeze"). Check `ls bugs` in every worktree before taking a bug number;
+   other sessions file bugs too.
 E. Goldens. Once every bug in the phase is merged into staging:
    1. run `scripts/artifact-gate.sh <mfb> all`. Its diff list is the set to prove;
    2. prove each diff with the 4-question proof (AGENTS.md): a function-level diff of
@@ -269,7 +302,9 @@ F. Full gate. Freeze staging, then:
    (rt_big_int_cost, rt_compress_bounds) false-fail under load, so the next phase's
    agents wait for the gate to finish. To restart, stop the gate and pkill its
    cargo/test-accept processes first.
-G. Failures: fix them, then go back to E. A failure counts as a flake only if it also
+G. Failures: fix them, then go back to E. When the gate catches something an agent's
+   targeted checks missed, add that ONE named test or guard to the targeted list in the
+   agent brief. Never respond by making agents run the full suite. A failure counts as a flake only if it also
    fails on main over N runs (300 for anything under ~1 s; otherwise as many as fit in
    ~10 min); then file a bug for it. If a bug's fix can't be made green, revert it out
    of the phase rather than hold the merge.
@@ -282,6 +317,10 @@ H. Merge: if main gained commits since the gate, run `git merge --no-edit main` 
 I. Move on to the next phase.
 
 ## Discipline
+- A started phase never grows (see "Scope freeze"). When in doubt, file it and move on.
+- The full suite runs in exactly one place: the coordinator's gate (step F). Agents run
+  targeted checks only. Any brief the coordinator writes for agents must repeat step B's
+  rules without loosening them.
 - One cargo build at a time machine-wide; check `uptime` first.
 - Perf bugs run alone, measured at load < 4 against a main build from git archive
   into /tmp.

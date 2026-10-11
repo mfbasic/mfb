@@ -65,6 +65,9 @@ pub(super) fn emit_cancel_drain(
 /// `alloc_fail`) lands in the caller's tail. The caller also calls it TWICE, for
 /// the certificate and for the key, through the SAME `cstr_off` slot: one scratch
 /// per call, or the first block would be overwritten and lost.
+///
+/// bug-984: `buf_scratch` is the file's contents, declared by the caller for the
+/// same reason and released at the same `done`.
 #[allow(clippy::too_many_arguments)]
 fn emit_read_whole_file(
     ctx: &mut EmitCtx,
@@ -79,6 +82,7 @@ fn emit_read_whole_file(
     read_fail_fd: &str,
     alloc_fail: &str,
     path_scratch: &HelperScratch,
+    buf_scratch: &HelperScratch,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
     let v9 = vregs.next();
@@ -131,12 +135,21 @@ fn emit_read_whole_file(
     ]);
     platform.emit_seek_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     // buf = arena_alloc(len, 1)
+    //
+    // bug-984: the buffer is scratch. `CFDataCreate` copies the bytes it is handed,
+    // so nothing reads this block once the item is imported, and nothing freed it:
+    // every `tls::listen` left both PEM files' bytes — the private key among them —
+    // live in the arena. `buf_scratch` records the block and the byte count it was
+    // allocated with, for the caller's single release at its `done`, which every
+    // exit reaches (a short read and a failed import included).
     ctx.instructions.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), len_off),
+        abi::load_u64(buf_scratch.size, abi::stack_pointer(), len_off),
+        abi::move_register(abi::return_register(), buf_scratch.size),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, ctx.instructions, ctx.relocations, alloc_fail);
     ctx.instructions.extend([
+        abi::move_register(buf_scratch.pointer, abi::mfb_return(1)),
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), buf_off),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), readoff_off),
         abi::label(&read_loop),
@@ -525,12 +538,23 @@ pub(crate) fn lower_tls_listen_macos(
     // pointer and reads back `"0.0.0.0"` either way.
     //
     // So the host block's owner is the `Listener`, exactly as the record store
-    // below says ("Borrowed, never freed"). It is declared only so `emit_cstring`
-    // has somewhere to record it, and it is deliberately absent from the release
-    // list.
+    // below says.
+    //
+    // bug-984: owned is not the same as never freed. The block was absent from the
+    // release list and nothing else freed it either, so each listener leaked it.
+    // It is released at `done` on every exit that built NO listener — the success
+    // path nulls the scratch pointer as it stores the block in the record — and
+    // the listener's close frees the one the record holds
+    // (`lower_tls_close_listener_macos`). The bind-all path used to park the
+    // static `_mfb_tls_anyhost` there; it parks an arena copy now, so the record's
+    // word is always a block its close can free.
+    //
+    // The two PEM buffers are scratch as well (`emit_read_whole_file`).
     let cert_scratch = HelperScratch::declare(&mut vregs, &mut ins);
     let key_scratch = HelperScratch::declare(&mut vregs, &mut ins);
-    let host_scratch_the_listener_owns = HelperScratch::declare(&mut vregs, &mut ins);
+    let host_scratch_until_the_listener_owns_it = HelperScratch::declare(&mut vregs, &mut ins);
+    let cert_buf_scratch = HelperScratch::declare(&mut vregs, &mut ins);
+    let key_buf_scratch = HelperScratch::declare(&mut vregs, &mut ins);
     // x0 = host; x1 = port; x2 = certPath; x3 = keyPath; x4 = backlog (unused).
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
@@ -576,6 +600,7 @@ pub(crate) fn lower_tls_listen_macos(
         &read_fail_fd,
         &alloc_fail,
         &cert_scratch,
+        &cert_buf_scratch,
         &mut vregs,
     )?;
     emit_read_whole_file(
@@ -597,6 +622,7 @@ pub(crate) fn lower_tls_listen_macos(
         &read_fail_fd,
         &alloc_fail,
         &key_scratch,
+        &key_buf_scratch,
         &mut vregs,
     )?;
     // dlopen Network.framework, Security.framework, CoreFoundation.
@@ -921,7 +947,7 @@ pub(crate) fn lower_tls_listen_macos(
         HOST,
         HOSTCSTR,
         &alloc_fail,
-        &host_scratch_the_listener_owns,
+        &host_scratch_until_the_listener_owns_it,
         &mut ins,
         &mut rel,
         &mut vregs,
@@ -1020,10 +1046,37 @@ pub(crate) fn lower_tls_listen_macos(
     ]);
     ins.push(abi::branch(&host_ready));
     ins.push(abi::label(&null_host));
+    // bug-984: an arena copy of the static `"0.0.0.0"`, so the block the record
+    // parks at `REC_LHOST` is one its close can free whichever path bound it. The
+    // string and its NUL are exactly one word.
+    const _: () = assert!(ANYHOST.len() + 1 == 8);
+    ins.extend([
+        abi::move_immediate(host_scratch_until_the_listener_owns_it.size, "Integer", "8"),
+        abi::move_register(
+            abi::return_register(),
+            host_scratch_until_the_listener_owns_it.size,
+        ),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+    ]);
+    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    ins.push(abi::move_register(
+        host_scratch_until_the_listener_owns_it.pointer,
+        abi::mfb_return(1),
+    ));
     emit_data_address(symbol, v9, ANYHOST_SYMBOL, &mut ins, &mut rel);
     ins.extend([
-        abi::store_u64(v9, abi::stack_pointer(), HOSTCSTR),
-        abi::store_u64(v9, abi::stack_pointer(), BINDHOSTCSTR),
+        abi::load_u64(v10, v9, 0),
+        abi::store_u64(v10, host_scratch_until_the_listener_owns_it.pointer, 0),
+        abi::store_u64(
+            host_scratch_until_the_listener_owns_it.pointer,
+            abi::stack_pointer(),
+            HOSTCSTR,
+        ),
+        abi::store_u64(
+            host_scratch_until_the_listener_owns_it.pointer,
+            abi::stack_pointer(),
+            BINDHOSTCSTR,
+        ),
         abi::label(&host_ready),
     ]);
     // itoa(port) -> NUL-terminated decimal at PORTBUF, pointer in PORTCSTR.
@@ -1441,10 +1494,16 @@ pub(crate) fn lower_tls_listen_macos(
         // bug-465: keep the host C string so `tls::localAddress(listener)` has
         // something to report. `nw_listener_get_port` answers the port and
         // nothing in Network.framework answers the address, so this is the only
-        // record of what was bound. Borrowed, never freed: it is an arena copy or
-        // the static `_mfb_tls_anyhost`, both process-lifetime.
+        // record of what was bound. bug-984: the record OWNS this arena block from
+        // here on and the listener's close frees it, so the scratch pointer is
+        // nulled and the release at `done` leaves it alone.
         abi::load_u64(&v9, abi::stack_pointer(), HOSTCSTR),
         abi::store_u64(&v9, abi::mfb_return(1), REC_LHOST),
+        abi::move_immediate(
+            host_scratch_until_the_listener_owns_it.pointer,
+            "Integer",
+            "0",
+        ),
         abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1541,17 +1600,21 @@ pub(crate) fn lower_tls_listen_macos(
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
+    // bug-984: the host block is in the list, and is null on the one exit where
+    // the record took it (see its declaration).
     emit_helper_scratch_release(
         symbol,
-        &[cert_scratch, key_scratch],
+        &[
+            cert_scratch,
+            key_scratch,
+            cert_buf_scratch,
+            key_buf_scratch,
+            host_scratch_until_the_listener_owns_it,
+        ],
         &mut vregs,
         &mut ins,
         &mut rel,
     );
-    // `host_scratch_the_listener_owns` is deliberately not in that list; see its
-    // declaration. Consumed here so the `#[must_use]` on `HelperScratch` still
-    // means "every declared scratch was decided about", not "every one was freed".
-    drop(host_scratch_the_listener_owns);
     ins.push(abi::return_());
     {
         Ok((ins, rel, FRAME_SIZE))
@@ -2320,9 +2383,43 @@ pub(crate) fn lower_tls_close_listener_macos(
         instructions: &mut ins,
         relocations: &mut rel,
     })?;
+    // bug-984: the bound-host C string `tls::listen` parked at `REC_LHOST` is the
+    // listener's own arena block, and this close is where its last reader goes:
+    // `tls::localAddress(listener)` refuses a closed record before it loads the
+    // word. Freed by `strlen + 1`, the count both of its allocators used — the
+    // marshalled host is `byteLength + 1` and the thread-transfer copy measures
+    // the same way. (A host with an embedded NUL measures short, which returns
+    // the block to a smaller bin: wasted bytes, never a wrong free.) The word is
+    // nulled, and a second close takes `already` above without reaching here.
+    let host_scan = format!("{symbol}_lhost_scan");
+    let host_measured = format!("{symbol}_lhost_measured");
+    let host_absent = format!("{symbol}_lhost_absent");
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), REC),
         abi::store_u64(abi::ZERO, &v9, REC_CTX),
+        abi::load_u64(v10, v9, REC_LHOST),
+        abi::compare_immediate(v10, "0"),
+        abi::branch_eq(&host_absent),
+        abi::move_register(v11, v10),
+        abi::move_immediate(v12, "Integer", "1"),
+        abi::label(&host_scan),
+        abi::load_u8(v13, v11, 0),
+        abi::compare_immediate(v13, "0"),
+        abi::branch_eq(&host_measured),
+        abi::add_immediate(v11, v11, 1),
+        abi::add_immediate(v12, v12, 1),
+        abi::branch(&host_scan),
+        abi::label(&host_measured),
+        abi::move_register(abi::c_arg(0), v10),
+        abi::move_register(abi::c_arg(1), v12),
+    ]);
+    emit_arena_free(symbol, &mut ins, &mut rel);
+    ins.extend([
+        abi::load_u64(v9, abi::stack_pointer(), REC),
+        abi::store_u64(abi::ZERO, v9, REC_LHOST),
+        abi::label(&host_absent),
+    ]);
+    ins.extend([
         abi::label(&skip_lctx_free),
         // Mark closed.
         abi::load_u64(&v9, abi::stack_pointer(), REC),

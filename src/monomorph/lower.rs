@@ -38,6 +38,31 @@ impl crate::codegen::builtins::TypeKinds for Monomorphizer<'_> {
             }
         }
     }
+
+    /// bug-988: a declared union's variants, through its `INCLUDES`, else the
+    /// built-in packages' unions.
+    fn union_accepts(&self, union: &ParameterType, actual: &ParameterType) -> bool {
+        let actual = actual.without_state();
+        let mut pending = vec![union.without_state()];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(current) = pending.pop() {
+            if !seen.insert(current.clone()) {
+                continue;
+            }
+            let Some(decl) = self
+                .concrete_types
+                .get(&current)
+                .filter(|decl| matches!(decl.kind, TypeDeclKind::Union))
+            else {
+                continue;
+            };
+            if decl.variants.iter().any(|variant| variant.type_ == actual) {
+                return true;
+            }
+            pending.extend(decl.includes.iter().cloned());
+        }
+        crate::codegen::registry::registry_union_accepts(union, &actual)
+    }
 }
 
 impl<'a> Monomorphizer<'a> {
@@ -2553,7 +2578,20 @@ impl<'a> Monomorphizer<'a> {
             .collect::<Vec<_>>();
         // plan-106-A: the TYPED registry entry (plan-104-C), so neither the
         // argument types nor the resolved return crosses a string.
-        crate::codegen::builtins::resolve_call_return_type_typed(callee, &arg_types, false)
+        crate::codegen::builtins::resolve_call_return_type_typed(callee, &arg_types, false).or_else(
+            || {
+                // bug-988 / bug-989: a call that only resolves by union-variant
+                // subsumption types as lowering types it, so a template argument
+                // can still be inferred from it. A general built-in keeps the
+                // kind-less answer.
+                if crate::codegen::builtins::general::is_general_call(callee) {
+                    return None;
+                }
+                crate::codegen::builtins::resolve_call_return_type_with_kinds(
+                    callee, &arg_types, false, self,
+                )
+            },
+        )
     }
 
     /// Monomorph's type oracle: the (pre-instantiation) type of an expression,

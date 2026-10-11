@@ -436,10 +436,14 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&owner, &record, RESOURCE_OFFSET_OWNER));
             self.emit(abi::compare_immediate(&owner, "0"));
             self.emit(abi::branch_ne(&done));
+            // bug-1001: the buffers are reclaimed as the concrete arm below
+            // reclaims them; the record stays as the tombstone.
+            let io_buffer_tags = self.resource_union_io_buffer_tags(type_);
             self.emit_union_tag_dispatch_drop(
                 &value,
                 &variants,
                 type_.state().as_ref(),
+                &io_buffer_tags,
                 &[],
                 &done,
             )?;

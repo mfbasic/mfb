@@ -346,6 +346,7 @@ pub(crate) fn record_ownership(
     functions: &HashMap<String, &NirFunction>,
     record_type: &dyn Fn(&ParameterType) -> bool,
     res_collection_type: &dyn Fn(&ParameterType) -> bool,
+    union_collection_type: &dyn Fn(&ParameterType) -> bool,
 ) -> RecordOwnership {
     let stores = collect(function, functions);
     let params: HashSet<String> = function.params.iter().map(|p| p.name.clone()).collect();
@@ -395,6 +396,7 @@ pub(crate) fn record_ownership(
         functions,
         record_type,
         res_collection_type,
+        union_collection_type,
         &stores,
         &params,
     );
@@ -478,15 +480,28 @@ const INNER_OWNING_BUILTIN_BODIES: &[&str] = &["#collections_chunks$", "#collect
 ///   ARGUMENT position. An argument creates no second owner (no callee frees a
 ///   `List OF RES` block: `is_freeable_flat_value` is false for one, so no
 ///   `OwnedValue` cleanup can exist for it anywhere), while a bind, a `RETURN`, a
-///   record field, a union wrap, a closure capture or a `FOR EACH` iterable does.
-/// * **No element is read back out.** No `collections::get`/`getOr` — nor a borrowed
-///   `tcp`/`udp`/`tls::poll` — names `c`. Those "yield a POINTER to the one resource"
-///   (§15.6), so a freed record could still be live in the caller's hands.
+///   record field, a union wrap or a closure capture does. A `FOR EACH` over `c`
+///   does only when its loop variable leaves the loop (bug-1000).
+/// * **No element read back out is kept.** A `collections::get`/`getOr` — or a
+///   borrowed `tcp`/`udp`/`tls::poll` — "yields a POINTER to the one resource"
+///   (§15.6), so a freed record could still be live in the reader's hands. One
+///   written straight into an argument of a call that does not keep it is a use
+///   that ends with the call (bug-1000); bound, returned, stored or passed to a
+///   callee that keeps it, it disqualifies `c`.
 /// * **Every floated element is a fresh record that does not escape.** Fresh by this
 ///   module's existing rules (a producer call, a closed `TRAP` default, a wrap of one
 ///   of those); a wrap of a LOCAL is an alias whose record another binding still frees,
 ///   and is refused. And the element local itself never appears outside an argument
 ///   position, so no `RETURN c` / `LET keep = c` hands the record on.
+///
+/// bug-1000: "outside an argument position" is not the whole of it. An argument
+/// is a use only when the callee is read and found not to keep it, or is a natively
+/// lowered builtin: a call through a function value, or one handed a callback that
+/// keeps what it is passed, reaches code that may store the reference anywhere
+/// ([`CollectionUses::call_reaches_unread_code`]). Such an argument is kept, for the
+/// collection and for an element alike. (A named callee that keeps its parameter
+/// keeps a collection's block, but is no hazard for an element: see
+/// `kept_by_unread_code`.)
 ///
 /// The float exclusion in [`Resolver::local_fresh`] is lifted for exactly the elements
 /// of the collection being asked about: "this local floated into a collection" is the
@@ -496,6 +511,7 @@ fn owning_collections(
     functions: &HashMap<String, &NirFunction>,
     record_type: &dyn Fn(&ParameterType) -> bool,
     res_collection_type: &dyn Fn(&ParameterType) -> bool,
+    union_collection_type: &dyn Fn(&ParameterType) -> bool,
     stores: &Stores,
     params: &HashSet<String>,
 ) -> HashSet<String> {
@@ -510,6 +526,15 @@ fn owning_collections(
     }
     let mut callees = CalleeParamUses::default();
     let uses = CollectionUses::of(function, functions, &mut callees);
+    // bug-1000's wider rule, except for a collection of resource-union boxes
+    // (`block_held_elsewhere_strict`).
+    let held_elsewhere = |name: &str, type_: &ParameterType| {
+        if union_collection_type(type_) {
+            uses.block_held_elsewhere_strict(name)
+        } else {
+            uses.block_held_elsewhere(name)
+        }
+    };
     let all_floated: HashSet<String> = floats.values().flatten().cloned().collect();
     let mut owning = HashSet::new();
     // bug-651: a `RES`-marked collection that no element ever floats into still owns its
@@ -527,7 +552,7 @@ fn owning_collections(
         if !res_collection_type(type_) || floats.contains_key(name) {
             continue;
         }
-        if uses.block_held_elsewhere(name) {
+        if held_elsewhere(name, type_) {
             continue;
         }
         if !uses.block_is_fresh(name) {
@@ -539,7 +564,13 @@ fn owning_collections(
         return owning;
     }
     for (collection, elements) in &floats {
-        if uses.block_held_elsewhere(collection) {
+        // A float target with no bind in this body (a parameter) takes the strict
+        // rule: its type is not known here.
+        let held = match stores.types.get(collection) {
+            Some(type_) => held_elsewhere(collection, type_),
+            None => uses.block_held_elsewhere_strict(collection),
+        };
+        if held {
             continue;
         }
         if !uses.block_is_fresh(collection) {
@@ -560,6 +591,8 @@ fn owning_collections(
         };
         let elements_owned = elements.iter().all(|element| {
             !uses.escaping.contains(element)
+                // bug-1000: nor handed to code the walk cannot read.
+                && !uses.kept_by_unread_code.contains(element)
                 && !stores
                     .stores
                     .get(element)
@@ -604,6 +637,35 @@ struct CollectionUses<'m, 'f> {
     returns: Vec<NirValue>,
     /// Set while the walk is inside a `RETURN`'s value.
     in_return: bool,
+    /// bug-1000: the locals in `escaping` named somewhere other than as a
+    /// `FOR EACH` iterable. Iterating a collection leaves no holder behind unless
+    /// the loop variable itself goes somewhere (see [`Self::owner_held_elsewhere`]).
+    escaping_beyond_iteration: HashSet<String>,
+    /// bug-1000: every `FOR EACH <variable> IN <local>`, as `(local, variable)`.
+    iterations: Vec<(String, String)>,
+    /// Set while the walk is on a `FOR EACH`'s iterable.
+    in_iterable: bool,
+    /// bug-1000: set, for the walk of one call argument, when that argument is a
+    /// borrowed-element read whose result the receiving call does not keep.
+    transient_borrow: bool,
+    /// bug-1000: collections a borrowed-element read names only transiently (see
+    /// `transient_borrow`). Kept apart from `element_readers` for the collections
+    /// that still take the strict rule ([`Self::block_held_elsewhere_strict`]).
+    transient_readers: HashSet<String>,
+    /// bug-1000: the locals handed to code this walk cannot read
+    /// ([`Self::call_reaches_unread_code`]): a callback that keeps what it is
+    /// passed, or a call through a function value. Asked of a floated ELEMENT,
+    /// which `kept` cannot be: an element is in `kept` by construction (the
+    /// `append` that floats it), and a named callee that keeps its parameter is
+    /// no hazard for one — what it keeps dies with its frame, comes back as a
+    /// result the caller's binding adopts by the owner test, or is raised to the
+    /// module instance. Unread code can hold a reference to an outer scope's
+    /// list (a `LAMBDA`'s by-reference capture), which none of those cover.
+    kept_by_unread_code: HashSet<String>,
+    /// bug-1000: the locals and parameters of this function that hold a function
+    /// value — a call through one, or a call handed one, runs code this walk
+    /// cannot read.
+    function_values: HashSet<String>,
 }
 
 /// Per callee, per parameter position: whether the callee keeps that argument's block
@@ -616,6 +678,8 @@ struct CalleeParamUses {
     /// bug-753: per function, whether every `RETURN` hands back a block it built.
     fresh_returns: HashMap<String, bool>,
     fresh_visiting: HashSet<String>,
+    /// bug-1000: per call target, whether it is a builtin.
+    builtins: HashMap<String, bool>,
 }
 
 impl<'m, 'f> CollectionUses<'m, 'f> {
@@ -635,6 +699,18 @@ impl<'m, 'f> CollectionUses<'m, 'f> {
             chunk_stores: HashMap::new(),
             returns: Vec::new(),
             in_return: false,
+            escaping_beyond_iteration: HashSet::new(),
+            iterations: Vec::new(),
+            in_iterable: false,
+            transient_borrow: false,
+            transient_readers: HashSet::new(),
+            kept_by_unread_code: HashSet::new(),
+            function_values: function
+                .params
+                .iter()
+                .filter(|param| matches!(param.type_, ParameterType::Func(..)))
+                .map(|param| param.name.clone())
+                .collect(),
         };
         collector.visit_ops(&function.body);
         collector
@@ -655,19 +731,129 @@ impl<'m, 'f> CollectionUses<'m, 'f> {
         let keeps: Vec<bool> = callee
             .params
             .iter()
-            .map(|p| inner.escaping.contains(&p.name) || inner.kept.contains(&p.name))
+            // bug-1000: a parameter the callee only iterates is not kept, by the
+            // same rule as a local (`block_held_elsewhere`).
+            .map(|p| {
+                inner.escaping_beyond_iteration.contains(&p.name)
+                    || inner.kept.contains(&p.name)
+                    || inner.iterated_reference_leaves(&p.name, 64)
+            })
             .collect();
         self.callees.visiting.remove(target);
         self.callees.known.insert(target.to_string(), keeps.clone());
         Some(keeps)
     }
 
+    /// bug-1000: whether a call to `target` with `args` can hand its arguments to
+    /// code that keeps them where this walk cannot see.
+    ///
+    /// The argument-position rule ("an argument is a use, not a second owner") is
+    /// about a callee whose body is read (`callee_keeps`) or a natively lowered
+    /// builtin, which reads through the pointer and returns. Two calls are neither:
+    ///
+    /// * **A call through a function value** (`cb(h)`): the target is a local, so
+    ///   the code it runs is unknown here.
+    /// * **A call handed a callback** (`collections::forEach(xs, LAMBDA(h) -> keep
+    ///   = collections::append(keep, h))`): the builtin passes each element to the
+    ///   callback, which may store it in a longer-lived collection. Before this,
+    ///   `xs` still counted as the one owner, its drain freed the record, and the
+    ///   outer list read freed memory. A callback named here (a `LAMBDA` or a
+    ///   function reference) is read: it is harmless when none of the parameters
+    ///   that can carry a reference is kept by its body. A callback held in a
+    ///   local cannot be read and counts as keeping.
+    fn call_reaches_unread_code(&mut self, target: &str, args: &[NirValue]) -> bool {
+        let through_function_value = self.function_values.contains(target)
+            || (!self.functions.contains_key(target) && !self.is_builtin(target));
+        if through_function_value {
+            return true;
+        }
+        args.iter().any(|arg| match arg {
+            NirValue::Closure { name, .. } | NirValue::FunctionRef { name, .. } => {
+                self.callback_keeps_a_reference(name)
+            }
+            NirValue::Local(name) => self.function_values.contains(name),
+            _ => false,
+        })
+    }
+
+    /// `builtins::is_builtin_call`, remembered per target: the walk asks it of every
+    /// call that names no function in the program.
+    fn is_builtin(&mut self, target: &str) -> bool {
+        if let Some(known) = self.callees.builtins.get(target) {
+            return *known;
+        }
+        let builtin = crate::codegen::builtins::is_builtin_call(target);
+        self.callees.builtins.insert(target.to_string(), builtin);
+        builtin
+    }
+
+    /// Whether the function `name`, used as a callback, keeps any parameter that
+    /// can carry a reference. A parameter of a plain scalar type cannot (a
+    /// `reduce` accumulator returned by its reducer is not a holder of anything).
+    fn callback_keeps_a_reference(&mut self, name: &str) -> bool {
+        let Some(callback) = self.functions.get(name).copied() else {
+            return true;
+        };
+        let Some(keeps) = self.callee_keeps(name) else {
+            return true;
+        };
+        callback
+            .params
+            .iter()
+            .zip(keeps)
+            .any(|(param, kept)| kept && !is_plain_scalar(&param.type_))
+    }
+
     /// Whether a holder other than `name` itself can still reach its block or read a
     /// resource pointer out of it after `name`'s scope exits.
+    ///
+    /// bug-1000: two readings leave no holder behind and do not count:
+    ///
+    /// * **A `FOR EACH` over `name`.** The loop variable refers to one element (or
+    ///   one inner block) for one iteration, inside `name`'s scope. It is a second
+    ///   holder only if it goes somewhere itself: bound, returned, captured, stored
+    ///   into a collection, kept by a callee, read through `get`, or iterated by a
+    ///   loop whose own variable does one of those.
+    /// * **A borrowed-element read passed straight to a call that does not keep
+    ///   it** (`fs::writeAll(collections::get(xs, 0), "x")`). That is recorded at
+    ///   the walk: such a read never reaches `element_readers`.
+    ///
+    /// Both are the argument-position rule the floated element locals already live
+    /// by. Anything else still answers "held".
     fn block_held_elsewhere(&self, name: &str) -> bool {
+        self.escaping_beyond_iteration.contains(name)
+            || self.kept.contains(name)
+            || self.element_readers.contains(name)
+            || self.iterated_reference_leaves(name, 64)
+    }
+
+    /// [`Self::block_held_elsewhere`] without bug-1000's two readings: named
+    /// anywhere outside an argument position, a `FOR EACH` included, or read
+    /// through a borrowed-element call at all. For a collection whose elements are
+    /// resource-union boxes, whose drain cannot yet be widened: a box a callee's
+    /// binding wrapped is freed by that binding as the callee returns (bug-1012),
+    /// so an adopted list's drain that frees boxes frees them twice. The rule
+    /// before bug-1000 already had that defect for a list that is only measured;
+    /// this keeps it from reaching the lists that are read or iterated as well.
+    fn block_held_elsewhere_strict(&self, name: &str) -> bool {
         self.escaping.contains(name)
             || self.kept.contains(name)
             || self.element_readers.contains(name)
+            || self.transient_readers.contains(name)
+    }
+
+    /// Whether the loop variable of some `FOR EACH` over `name` leaves its loop.
+    fn iterated_reference_leaves(&self, name: &str, fuel: usize) -> bool {
+        self.iterations
+            .iter()
+            .filter(|(source, _)| source == name)
+            .any(|(_, variable)| {
+                fuel == 0
+                    || self.escaping_beyond_iteration.contains(variable)
+                    || self.kept.contains(variable)
+                    || self.element_readers.contains(variable)
+                    || self.iterated_reference_leaves(variable, fuel - 1)
+            })
     }
 
     fn block_is_fresh(&self, name: &str) -> bool {
@@ -745,8 +931,30 @@ impl NirVisitor for CollectionUses<'_, '_> {
                 self.in_return = previous;
                 return;
             }
-            NirOp::Bind { name, value, .. } => self.note_store(name, value.as_ref()),
+            NirOp::Bind {
+                name, type_, value, ..
+            } => {
+                if matches!(type_, ParameterType::Func(..)) {
+                    self.function_values.insert(name.clone());
+                }
+                self.note_store(name, value.as_ref());
+            }
             NirOp::Assign { name, value } => self.note_store(name, Some(value)),
+            // bug-1000: the iterable still lands in `escaping` (every other verdict
+            // keeps reading it), but not in `escaping_beyond_iteration`.
+            NirOp::ForEach {
+                name,
+                iterable: iterable @ NirValue::Local(source),
+                body,
+                ..
+            } => {
+                self.iterations.push((source.clone(), name.clone()));
+                self.in_iterable = true;
+                self.visit_value(iterable);
+                self.in_iterable = false;
+                self.visit_ops(body);
+                return;
+            }
             // `s.state.f = v` desugars to a whole-state `WITH` whose target is, BY
             // CONSTRUCTION, `MemberAccess{Local(<resource>), "state"}` — the op names the
             // resource itself. That target is a write THROUGH the handle to the block at
@@ -788,14 +996,26 @@ impl NirVisitor for CollectionUses<'_, '_> {
                 if !self.in_return {
                     self.escaping_outside_return.insert(name.clone());
                 }
+                if !self.in_iterable {
+                    self.escaping_beyond_iteration.insert(name.clone());
+                }
             }
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }
             | NirValue::RuntimeCall { target, args, .. } => {
-                if CodeBuilder::value_aliases_live_resource(value) {
+                // Whether THIS call's result is only used by a call that does not
+                // keep it; consumed here so nothing nested inherits it by accident.
+                let transient = std::mem::take(&mut self.transient_borrow);
+                let borrowed = CodeBuilder::target_returns_borrowed_resource(target);
+                if borrowed {
+                    let readers = if transient {
+                        &mut self.transient_readers
+                    } else {
+                        &mut self.element_readers
+                    };
                     for arg in args {
                         if let NirValue::Local(name) = arg {
-                            self.element_readers.insert(name.clone());
+                            readers.insert(name.clone());
                         }
                     }
                 }
@@ -813,20 +1033,45 @@ impl NirVisitor for CollectionUses<'_, '_> {
                 // append would.
                 let stores_elements = target.starts_with("collections.");
                 let callee = self.callee_keeps(target);
+                // bug-1000: a consuming parameter takes over what its argument
+                // reaches (`deactivate_consumed_cleanups`), which is keeping it.
+                let consumes = crate::codegen::resource::builtin_consuming_parameter_index(target);
+                // bug-1000: and so does code this walk cannot read.
+                let unread = self.call_reaches_unread_code(target, args);
                 for (index, arg) in args.iter().enumerate() {
+                    let keeps = unread
+                        || (stores_elements && index > 0)
+                        || callee
+                            .as_ref()
+                            .is_some_and(|keeps| keeps.get(index).copied().unwrap_or(true));
                     let NirValue::Local(name) = arg else {
-                        // Nested values inside an argument still walk normally.
+                        // bug-1000: a borrowed-element read written straight into an
+                        // argument position is a use of the element exactly as naming
+                        // a floated element local there is — provided this call does
+                        // not keep the argument. When this call is itself a borrowed
+                        // read (`get(get(nested, 0), 1)`), its receiver is as
+                        // transient as its own result. Every other nested value walks
+                        // normally.
+                        let borrowed_read = matches!(
+                            arg,
+                            NirValue::Call { target, .. }
+                                | NirValue::CallResult { target, .. }
+                                | NirValue::RuntimeCall { target, .. }
+                                if CodeBuilder::target_returns_borrowed_resource(target)
+                        );
+                        self.transient_borrow = borrowed_read
+                            && !keeps
+                            && consumes != Some(index)
+                            && (!borrowed || (transient && index == 0));
                         self.visit_value(arg);
+                        self.transient_borrow = false;
                         continue;
                     };
-                    if stores_elements && index > 0 {
+                    if keeps {
                         self.kept.insert(name.clone());
                     }
-                    if callee
-                        .as_ref()
-                        .is_some_and(|keeps| keeps.get(index).copied().unwrap_or(true))
-                    {
-                        self.kept.insert(name.clone());
+                    if unread {
+                        self.kept_by_unread_code.insert(name.clone());
                     }
                 }
                 return;
@@ -835,6 +1080,22 @@ impl NirVisitor for CollectionUses<'_, '_> {
         }
         walk_value(self, value);
     }
+}
+
+/// A type whose values hold no reference to anything: no collection, record,
+/// union, resource or function value.
+fn is_plain_scalar(type_: &ParameterType) -> bool {
+    matches!(
+        type_,
+        ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Integer
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::String
+    )
 }
 
 /// The `collections::` members that mutate a collection and are stored back into it.
@@ -1220,5 +1481,270 @@ mod owned_list_ownership_tests {
             },
         });
         assert!(uses.escaping.contains("other"));
+    }
+    fn for_each(variable: &str, iterable: &str, body: Vec<NirOp>) -> NirOp {
+        NirOp::ForEach {
+            name: variable.to_string(),
+            type_: ParameterType::parse("fs.File"),
+            iterable: local(iterable),
+            body,
+        }
+    }
+
+    fn eval(value: NirValue) -> NirOp {
+        NirOp::Eval { value }
+    }
+
+    fn uses_of<'f>(
+        body: Vec<NirOp>,
+        functions: &'f HashMap<String, &'f NirFunction>,
+        callees: &mut CalleeParamUses,
+        check: impl FnOnce(&CollectionUses),
+    ) {
+        let caller = function(&[], body);
+        let uses = CollectionUses::of(&caller, functions, callees);
+        check(&uses);
+    }
+
+    /// bug-1000: iterating a list leaves no holder behind when the loop variable is
+    /// only used as an argument, so the list still owns what it holds.
+    #[test]
+    fn a_for_each_whose_variable_stays_in_the_loop_does_not_hold_the_list() {
+        let no_functions = HashMap::new();
+        uses_of(
+            vec![for_each(
+                "h",
+                "files",
+                vec![eval(call("fs.readLine", vec![local("h")]))],
+            )],
+            &no_functions,
+            &mut CalleeParamUses::default(),
+            |uses| {
+                assert!(!uses.block_held_elsewhere("files"));
+                assert!(
+                    uses.escaping.contains("files"),
+                    "the reassign-free verdict still sees the iteration"
+                );
+            },
+        );
+    }
+
+    /// The guard on that: a loop variable that is bound, stored into another
+    /// collection, read through `get`, or iterated by a loop whose own variable
+    /// leaves, is a second holder.
+    #[test]
+    fn a_for_each_whose_variable_leaves_holds_the_list() {
+        let no_functions = HashMap::new();
+        let leaving_bodies = [
+            vec![NirOp::Bind {
+                mutable: false,
+                name: "keep".to_string(),
+                type_: ParameterType::parse("fs.File"),
+                value: Some(local("h")),
+            }],
+            vec![NirOp::Assign {
+                name: "out".to_string(),
+                value: call("collections.append", vec![local("out"), local("h")]),
+            }],
+            vec![NirOp::Bind {
+                mutable: false,
+                name: "pick".to_string(),
+                type_: ParameterType::parse("fs.File"),
+                value: Some(call("collections.get", vec![local("h"), local("i")])),
+            }],
+            vec![for_each(
+                "inner",
+                "h",
+                vec![NirOp::Return {
+                    value: Some(local("inner")),
+                }],
+            )],
+        ];
+        for body in leaving_bodies {
+            uses_of(
+                vec![for_each("h", "files", body)],
+                &no_functions,
+                &mut CalleeParamUses::default(),
+                |uses| assert!(uses.block_held_elsewhere("files")),
+            );
+        }
+        // A nested loop whose variable stays put holds nothing.
+        uses_of(
+            vec![for_each(
+                "row",
+                "rows",
+                vec![for_each(
+                    "h",
+                    "row",
+                    vec![eval(call("fs.readLine", vec![local("h")]))],
+                )],
+            )],
+            &no_functions,
+            &mut CalleeParamUses::default(),
+            |uses| assert!(!uses.block_held_elsewhere("rows")),
+        );
+    }
+
+    /// bug-1000: a borrowed-element read written straight into an argument of a call
+    /// that does not keep it ends with the call.
+    #[test]
+    fn a_borrowed_read_used_as_an_argument_is_not_an_element_reader() {
+        let no_functions = HashMap::new();
+        let get = || call("collections.get", vec![local("files"), local("i")]);
+        uses_of(
+            vec![eval(call("fs.writeAll", vec![get(), local("text")]))],
+            &no_functions,
+            &mut CalleeParamUses::default(),
+            |uses| {
+                assert!(!uses.element_readers.contains("files"));
+                assert!(!uses.block_held_elsewhere("files"));
+            },
+        );
+        // Through a second borrowed read, its receiver is as transient as it is.
+        uses_of(
+            vec![eval(call(
+                "fs.writeAll",
+                vec![
+                    call(
+                        "collections.get",
+                        vec![
+                            call("collections.get", vec![local("rows"), local("i")]),
+                            local("j"),
+                        ],
+                    ),
+                    local("text"),
+                ],
+            ))],
+            &no_functions,
+            &mut CalleeParamUses::default(),
+            |uses| assert!(!uses.element_readers.contains("rows")),
+        );
+    }
+
+    /// The guard on that: stored as an element, returned, nested in a literal,
+    /// passed through a function value, or bound through a second read, the pointer
+    /// outlives the call and the list is an element reader again.
+    #[test]
+    fn a_borrowed_read_that_is_kept_is_an_element_reader() {
+        let no_functions = HashMap::new();
+        let get = || call("collections.get", vec![local("files"), local("i")]);
+        let keeping = [
+            NirOp::Assign {
+                name: "out".to_string(),
+                value: call("collections.append", vec![local("out"), get()]),
+            },
+            NirOp::Return { value: Some(get()) },
+            eval(call(
+                "use",
+                vec![NirValue::ListLiteral {
+                    type_: ParameterType::parse("List OF RES fs.File"),
+                    values: vec![get()],
+                }],
+            )),
+            // `put` is no function in the program and no builtin: a function value.
+            eval(call("put", vec![get()])),
+            NirOp::Bind {
+                mutable: false,
+                name: "pick".to_string(),
+                type_: ParameterType::parse("fs.File"),
+                value: Some(call(
+                    "collections.get",
+                    vec![
+                        call("collections.get", vec![local("files"), local("i")]),
+                        local("j"),
+                    ],
+                )),
+            },
+        ];
+        for op in keeping {
+            uses_of(
+                vec![op],
+                &no_functions,
+                &mut CalleeParamUses::default(),
+                |uses| assert!(uses.element_readers.contains("files")),
+            );
+        }
+    }
+
+    /// bug-1000: a callee whose body is read keeps a borrowed read exactly when it
+    /// keeps the parameter the read lands in.
+    #[test]
+    fn a_borrowed_read_follows_the_callee_that_receives_it() {
+        let reader = function(&["h"], vec![eval(call("fs.readLine", vec![local("h")]))]);
+        let keeper = function(
+            &["h"],
+            vec![NirOp::Return {
+                value: Some(local("h")),
+            }],
+        );
+        let functions: HashMap<String, &NirFunction> = HashMap::from([
+            ("reader".to_string(), &reader),
+            ("keeper".to_string(), &keeper),
+        ]);
+        let get = |list: &str| call("collections.get", vec![local(list), local("i")]);
+        uses_of(
+            vec![
+                eval(call("reader", vec![get("read")])),
+                eval(call("keeper", vec![get("kept")])),
+            ],
+            &functions,
+            &mut CalleeParamUses::default(),
+            |uses| {
+                assert!(!uses.element_readers.contains("read"));
+                assert!(uses.element_readers.contains("kept"));
+            },
+        );
+    }
+
+    /// bug-1000: a call handed a callback reaches the callback's body. One that
+    /// stores its parameter keeps every argument of the call; one that only reads
+    /// through it keeps nothing; a callback held in a local cannot be read.
+    #[test]
+    fn a_callback_that_keeps_its_parameter_keeps_the_arguments() {
+        let stash = function(
+            &["h"],
+            vec![NirOp::Assign {
+                name: "keep".to_string(),
+                value: call("collections.append", vec![local("keep"), local("h")]),
+            }],
+        );
+        let read = function(&["h"], vec![eval(call("fs.readLine", vec![local("h")]))]);
+        let functions: HashMap<String, &NirFunction> =
+            HashMap::from([("stash".to_string(), &stash), ("read".to_string(), &read)]);
+        let closure = |name: &str| NirValue::Closure {
+            name: name.to_string(),
+            type_: ParameterType::parse("FUNC(fs.File) AS Nothing"),
+            captures: Vec::new(),
+        };
+        uses_of(
+            vec![
+                eval(call(
+                    "collections.forEach",
+                    vec![local("stashed"), closure("stash")],
+                )),
+                eval(call(
+                    "collections.forEach",
+                    vec![local("read"), closure("read")],
+                )),
+                NirOp::Bind {
+                    mutable: false,
+                    name: "cb".to_string(),
+                    type_: ParameterType::parse("FUNC(fs.File) AS Nothing"),
+                    value: Some(closure("read")),
+                },
+                eval(call(
+                    "collections.forEach",
+                    vec![local("unknown"), local("cb")],
+                )),
+            ],
+            &functions,
+            &mut CalleeParamUses::default(),
+            |uses| {
+                assert!(uses.block_held_elsewhere("stashed"));
+                assert!(uses.kept_by_unread_code.contains("stashed"));
+                assert!(!uses.block_held_elsewhere("read"));
+                assert!(uses.block_held_elsewhere("unknown"));
+            },
+        );
     }
 }

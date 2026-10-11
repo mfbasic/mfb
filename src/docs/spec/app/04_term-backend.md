@@ -328,6 +328,27 @@ reporting cell coordinates for a surface that has no cells; `canvas::pollMouse` 
 decoder are plan-94-C (macOS), D (GTK) and E (Windows).
 [[src/codegen/builtins/term/gen_shared.rs:lower_term_helper]]
 
+Each handler is entered by the toolkit through the platform C ABI — an
+Objective-C IMP called from `-[NSWindow sendEvent:]`, a GTK signal callback
+called from GLib's closure marshaller, the Win32 window procedure — so it hands
+every callee-saved register back exactly as it found it, on every exit: an event
+dropped at the mode gate, a point off the surface, a wheel event with no vertical
+delta, and a delivered report alike. The macOS IMPs park `x19` (the one they
+write) and the GTK handlers park `x19`–`x22` (`rbp` on x86-64, which the x86 wrap
+bracket does not cover) in their frames and reload them at the single exit label.
+The callers keep their own state there across the call: GLib holds a pointer in
+`x19`, and AppKit releases what it kept in `x19` after the dispatch, so a changed
+register crashes the app on the first such event (bug-982, bug-993).
+`tests/runtime/rt_foreign_entry_callee_saved.rs` checks this for every
+OS-entered function in each target's `-ncode` dump.
+[[src/target/macos_aarch64/app/mouse_view.rs:emit_mouse_imp]]
+[[src/target/linux_gtk/mouse.rs:emit_mouse_handler]]
+
+The GTK cell surface converts the window point by dividing by the cell metrics,
+which the term area stores as integer pixels; the handler converts them to
+doubles before dividing.
+[[src/target/linux_gtk/mouse.rs:emit_translate_and_convert]]
+
 ### Testing without a mouse
 
 `MFB_MOUSE_INJECT` carries raw SGR bytes that `enableMouse(TRUE)` feeds through

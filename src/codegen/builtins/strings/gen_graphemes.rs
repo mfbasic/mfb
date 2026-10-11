@@ -7,6 +7,118 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
+/// The registers [`emit_grapheme_count_pass`] works in. `byte_len` and `count` are
+/// its results; the rest is scratch its caller may reuse afterwards.
+pub(crate) struct GraphemeCountRegs {
+    /// The string block pointer (scratch).
+    pub(crate) value: VirtualRegister,
+    /// Out: the string's byte length.
+    pub(crate) byte_len: VirtualRegister,
+    /// The first payload byte (scratch).
+    pub(crate) bytes: VirtualRegister,
+    /// Out: the number of extended grapheme clusters.
+    pub(crate) count: VirtualRegister,
+    pub(crate) scalar: VirtualRegister,
+    pub(crate) width: VirtualRegister,
+    pub(crate) props: VirtualRegister,
+    pub(crate) prev_bc: VirtualRegister,
+    pub(crate) prev_icb: VirtualRegister,
+    pub(crate) cursor: VirtualRegister,
+    pub(crate) scan: VirtualRegister,
+    pub(crate) bc: VirtualRegister,
+    pub(crate) icb: VirtualRegister,
+}
+
+/// The labels [`emit_grapheme_count_pass`] branches through. Minted by the caller,
+/// because `strings::graphemes` mints every label of its lowering before it emits
+/// anything, and the order labels are minted in is part of the emitted code.
+pub(crate) struct GraphemeCountLabels {
+    empty: String,
+    walk: String,
+    brk: String,
+    no_brk: String,
+    after: String,
+    done: String,
+}
+
+impl GraphemeCountLabels {
+    pub(crate) fn mint(builder: &mut CodeBuilder) -> Self {
+        Self {
+            empty: builder.label("strings_graphemes_count_empty"),
+            walk: builder.label("strings_graphemes_count_loop"),
+            brk: builder.label("strings_graphemes_count_break"),
+            no_brk: builder.label("strings_graphemes_count_no_break"),
+            after: builder.label("strings_graphemes_count_after_break"),
+            done: builder.label("strings_graphemes_count_done"),
+        }
+    }
+}
+
+/// The count pass of the grapheme segmentation: walk the string in `value_slot`
+/// scalar by scalar through the UAX #29 break machine and leave the cluster count
+/// in `regs.count` (and the byte length in `regs.byte_len`).
+///
+/// It reads the string and nothing else: no allocation, no call, no frame slot of
+/// its own. `strings::graphemes` runs it to size its result;
+/// `strings::graphemesCount` runs it and is done (bug-992: it used to build the
+/// whole `List OF String` to read its count word, and nothing freed that list).
+pub(crate) fn emit_grapheme_count_pass(
+    builder: &mut CodeBuilder,
+    value_slot: usize,
+    regs: &GraphemeCountRegs,
+    labels: &GraphemeCountLabels,
+) {
+    let GraphemeCountLabels {
+        empty: count_empty,
+        walk: count_loop,
+        brk: count_break,
+        no_brk: count_no_break,
+        after: count_after_break,
+        done: count_done,
+    } = labels;
+
+    builder.emit(abi::load_u64(&regs.value, abi::stack_pointer(), value_slot));
+    builder.emit(abi::load_u64(&regs.byte_len, &regs.value, 0));
+    builder.emit(abi::compare_immediate(&regs.byte_len, "0"));
+    builder.emit(abi::branch_eq(count_empty));
+    builder.emit(abi::add_immediate(&regs.bytes, &regs.value, 8));
+    builder.emit(abi::move_immediate(&regs.count, "Integer", "1"));
+    builder.emit_utf8_decode_next(&regs.bytes, &regs.scalar, &regs.width);
+    builder.emit_unicode_property_lookup(&regs.scalar, &regs.props);
+    builder.emit_unicode_property_boundclass(&regs.props, &regs.prev_bc);
+    builder.emit_unicode_property_indic_conjunct_break(&regs.props, &regs.prev_icb);
+    builder.emit_seed_indic_conjunct_state(&regs.prev_icb);
+    builder.emit(abi::move_register(&regs.cursor, &regs.width));
+    builder.emit(abi::label(count_loop));
+    builder.emit(abi::compare_registers(&regs.cursor, &regs.byte_len));
+    builder.emit(abi::branch_ge(count_done));
+    builder.emit(abi::add_registers(&regs.scan, &regs.bytes, &regs.cursor));
+    builder.emit_utf8_decode_next(&regs.scan, &regs.scalar, &regs.width);
+    builder.emit_unicode_property_lookup(&regs.scalar, &regs.props);
+    builder.emit_unicode_property_boundclass(&regs.props, &regs.bc);
+    builder.emit_unicode_property_indic_conjunct_break(&regs.props, &regs.icb);
+    builder.emit_grapheme_break_branch(
+        &regs.prev_bc,
+        &regs.prev_icb,
+        &regs.bc,
+        &regs.icb,
+        count_break,
+        count_no_break,
+    );
+    builder.emit(abi::label(count_break));
+    builder.emit(abi::add_immediate(&regs.count, &regs.count, 1));
+    builder.emit(abi::branch(count_after_break));
+    builder.emit(abi::label(count_no_break));
+    builder.emit(abi::branch(count_after_break));
+    builder.emit(abi::label(count_after_break));
+    builder.emit_grapheme_state_update(&regs.prev_bc, &regs.prev_icb, &regs.bc, &regs.icb);
+    builder.emit(abi::add_registers(&regs.cursor, &regs.cursor, &regs.width));
+    builder.emit(abi::branch(count_loop));
+    builder.emit(abi::label(count_empty));
+    builder.emit(abi::move_immediate(&regs.count, "Integer", "0"));
+    builder.emit(abi::label(count_done));
+}
+
 pub(crate) fn lower_strings_graphemes(
     builder: &mut CodeBuilder,
     value: &ValueResult,
@@ -40,12 +152,7 @@ pub(crate) fn lower_strings_graphemes(
             "native strings.graphemes cannot resolve List OF String layout".to_string()
         })?;
 
-    let count_empty = builder.label("strings_graphemes_count_empty");
-    let count_loop = builder.label("strings_graphemes_count_loop");
-    let count_break = builder.label("strings_graphemes_count_break");
-    let count_no_break = builder.label("strings_graphemes_count_no_break");
-    let count_after_break = builder.label("strings_graphemes_count_after_break");
-    let count_done = builder.label("strings_graphemes_count_done");
+    let count_labels = GraphemeCountLabels::mint(builder);
     let alloc_ok = builder.label("strings_graphemes_alloc_ok");
     let write_empty = builder.label("strings_graphemes_write_empty");
     let write_loop = builder.label("strings_graphemes_write_loop");
@@ -54,46 +161,28 @@ pub(crate) fn lower_strings_graphemes(
     let write_after_break = builder.label("strings_graphemes_write_after_break");
     let write_final = builder.label("strings_graphemes_write_final");
 
-    builder.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
-    builder.emit(abi::load_u64(&scratch9, &scratch16, 0));
-    builder.emit(abi::compare_immediate(&scratch9, "0"));
-    builder.emit(abi::branch_eq(&count_empty));
-    builder.emit(abi::add_immediate(&scratch14, &scratch16, 8));
-    builder.emit(abi::move_immediate(&scratch22, "Integer", "1"));
-    builder.emit_utf8_decode_next(&scratch14, &scratch10, &scratch11);
-    builder.emit_unicode_property_lookup(&scratch10, &scratch12);
-    builder.emit_unicode_property_boundclass(&scratch12, &scratch24);
-    builder.emit_unicode_property_indic_conjunct_break(&scratch12, &scratch25);
-    builder.emit_seed_indic_conjunct_state(&scratch25);
-    builder.emit(abi::move_register(&scratch23, &scratch11));
-    builder.emit(abi::label(&count_loop));
-    builder.emit(abi::compare_registers(&scratch23, &scratch9));
-    builder.emit(abi::branch_ge(&count_done));
-    builder.emit(abi::add_registers(&scratch15, &scratch14, &scratch23));
-    builder.emit_utf8_decode_next(&scratch15, &scratch10, &scratch11);
-    builder.emit_unicode_property_lookup(&scratch10, &scratch12);
-    builder.emit_unicode_property_boundclass(&scratch12, &scratch26);
-    builder.emit_unicode_property_indic_conjunct_break(&scratch12, &scratch27);
-    builder.emit_grapheme_break_branch(
-        &scratch24,
-        &scratch25,
-        &scratch26,
-        &scratch27,
-        &count_break,
-        &count_no_break,
+    // The count pass sizes the result; the same registers serve the write pass
+    // below.
+    emit_grapheme_count_pass(
+        builder,
+        value_slot,
+        &GraphemeCountRegs {
+            value: scratch16,
+            byte_len: scratch9,
+            bytes: scratch14,
+            count: scratch22,
+            scalar: scratch10,
+            width: scratch11,
+            props: scratch12,
+            prev_bc: scratch24,
+            prev_icb: scratch25,
+            cursor: scratch23,
+            scan: scratch15,
+            bc: scratch26,
+            icb: scratch27,
+        },
+        &count_labels,
     );
-    builder.emit(abi::label(&count_break));
-    builder.emit(abi::add_immediate(&scratch22, &scratch22, 1));
-    builder.emit(abi::branch(&count_after_break));
-    builder.emit(abi::label(&count_no_break));
-    builder.emit(abi::branch(&count_after_break));
-    builder.emit(abi::label(&count_after_break));
-    builder.emit_grapheme_state_update(&scratch24, &scratch25, &scratch26, &scratch27);
-    builder.emit(abi::add_registers(&scratch23, &scratch23, &scratch11));
-    builder.emit(abi::branch(&count_loop));
-    builder.emit(abi::label(&count_empty));
-    builder.emit(abi::move_immediate(&scratch22, "Integer", "0"));
-    builder.emit(abi::label(&count_done));
     builder.emit(abi::store_u64(&scratch22, abi::stack_pointer(), count_slot));
 
     // Checked size arithmetic (audit-unicode #8): the grapheme count is
@@ -280,12 +369,14 @@ pub(crate) fn lower_strings_graphemes(
 /// `index`-th grapheme cluster inside `value`'s own bytes, raising
 /// `ErrIndexOutOfRange` for a negative index or one past the last cluster.
 ///
-/// The copying lowering gets the span out of the `List OF String` that
-/// [`lower_strings_graphemes`] builds, which allocates; an in-place arm must
-/// allocate nothing, so this walks the clusters directly with the same break
-/// emitters the segmentation uses (`emit_grapheme_break_branch`,
-/// `emit_grapheme_state_update`) and stops at the wanted one. The walk's state
-/// lives in frame slots: the property emitters clobber registers.
+/// Both lowerings of the member use it: the in-place arm (`s =
+/// strings::graphemeAt(s, i)`), which must allocate nothing, and the copying one,
+/// which then materializes the span as its result `String` (bug-992: it used to
+/// read the span out of the whole `List OF String` [`lower_strings_graphemes`]
+/// builds, and nothing freed that list). The walk uses the same break emitters
+/// the segmentation uses (`emit_grapheme_break_branch`,
+/// `emit_grapheme_state_update`) and stops at the wanted cluster. Its state lives
+/// in frame slots: the property emitters clobber registers.
 pub(crate) fn grapheme_at_window(
     builder: &mut CodeBuilder,
     value: &ValueResult,

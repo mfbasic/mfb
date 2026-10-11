@@ -61,10 +61,12 @@ fn abi(target: &str) -> (BTreeSet<String>, &'static str) {
             .iter()
             .map(|s| s.to_string())
             .collect(),
-        // Win64 adds `rdi` and `rsi` to the SysV set.
+        // Win64 adds `rdi` and `rsi` to the SysV set, and makes `xmm6`–`xmm15`
+        // callee-saved (bug-994).
         "windows-x86_64" => ["rbx", "rbp", "rdi", "rsi", "r12", "r13", "r14", "r15"]
             .iter()
             .map(|s| s.to_string())
+            .chain((6..=15).map(|i| format!("xmm{i}")))
             .collect(),
         other => panic!("no ABI table for {other}"),
     };

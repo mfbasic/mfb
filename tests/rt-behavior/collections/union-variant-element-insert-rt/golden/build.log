@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/union-variant-element-insert-rt
+Wrote AST to tests/rt-behavior/collections/union-variant-element-insert-rt/union_variant_element_insert_rt.ast
+Wrote IR to tests/rt-behavior/collections/union-variant-element-insert-rt/union_variant_element_insert_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/union-variant-element-insert-rt
+Wrote executable to tests/rt-behavior/collections/union-variant-element-insert-rt/build/union_variant_element_insert_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/union-variant-element-insert-rt/build/union_variant_element_insert_rt.out
+append: [circle 1.00] [square 2.00]
+append call: [circle 1.00] [square 2.00] [square 3.00]
+append literal: [circle 1.00] [square 4.00]
+append mixed literal: [circle 1.00] [square 4.00] [circle 5.00]
+prepend: [square 6.00] [circle 1.00]
+insert: [circle 1.00] [square 7.00] [circle 2.00]
+set: [square 8.00] [circle 2.00]
+repeat: [square 9.00] [square 9.00]
+getOr hit: circle 1.00
+getOr miss: square 10.00
+map set: circle 1.00, square 11.00
+map getOr hit: square 11.00
+map getOr miss: square 12.00
+in place: [square 13.00] [square 14.00] [square 15.00] [square 16.00]
+unannotated: [circle 1.00] [square 17.00]
+unannotated literal: [circle 1.00] [square 18.00]
+template: square 19.00
+[exit 0]

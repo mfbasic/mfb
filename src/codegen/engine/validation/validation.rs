@@ -273,6 +273,14 @@ impl crate::codegen::builtins::TypeKinds for TypeModel {
     fn is_enum(&self, t: &ParameterType) -> bool {
         self.is_enum_type(t)
     }
+
+    /// bug-988: the model's variant -> unions table, else the built-in unions.
+    fn union_accepts(&self, union: &ParameterType, actual: &ParameterType) -> bool {
+        self.union_variant_unions
+            .get(&actual.without_state())
+            .is_some_and(|unions| unions.contains(&union.without_state()))
+            || crate::codegen::registry::registry_union_accepts(union, actual)
+    }
 }
 
 impl TypeModel {

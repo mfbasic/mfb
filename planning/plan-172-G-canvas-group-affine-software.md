@@ -42,8 +42,8 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 | plan-172-F complete and archived | `ls planning/plan-172-F-*` → no matches | NOT MET |
 | No shape record carries a bare coordinate scalar | `grep -c 'name: "x1"' src/codegen/builtins/canvas/mod.rs` → 0 | NOT MET |
 | The group suites are green | `cargo test --test rt_canvas_group_ownership --test rt_canvas_damage` → pass | UNVERIFIED — run first |
-| The Metal text tests pass on a quiet machine, or `bugs/bug-1016-*` is root-caused (added at 172-F's close: they were red there, on a machine at load average 10–21, with source that had passed an hour earlier) | `cargo test --test rt_canvas_font gpu` → 2 passed | NOT MET |
-| The field-kind grid's `STATE`-site expectations are current (`bugs/bug-1015-*`, fallout of plan-172-N found at 172-F's close) | `cargo test --test rt_inplace_self_update every_field_kind_meets_its_expectation -- --ignored` → pass | NOT MET |
+| The Metal text tests pass on a quiet machine, or `bugs/bug-1024-*` is root-caused (added at 172-F's close: they were red there, on a machine at load average 10–21, with source that had passed an hour earlier) | `cargo test --test rt_canvas_font gpu` → 2 passed | NOT MET |
+| The field-kind grid's `STATE`-site expectations are current (`bugs/bug-1023-*`, fallout of plan-172-N found at 172-F's close) | `cargo test --test rt_inplace_self_update every_field_kind_meets_its_expectation -- --ignored` → pass | NOT MET |
 
 If plan-172-F is not complete, this letter cannot start, full stop.
 

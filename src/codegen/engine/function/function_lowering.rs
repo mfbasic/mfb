@@ -1376,11 +1376,20 @@ pub(crate) fn lower_function(
                 || (crate::codegen::engine::types::typed_is_collection_type(type_)
                     && builder.is_resource_owning_container(type_))
         };
+        // bug-1000: a value that reaches a resource-union box keeps the stricter
+        // ownership rule until a box has an owner outside a binding (bug-1012).
+        let union_collection_type = |type_: &ParameterType| {
+            builder
+                .resource_leaf_types(type_)
+                .iter()
+                .any(|leaf| builder.resource_union_cleanup(leaf).is_some())
+        };
         crate::codegen::resource::cleanup::record_ownership::record_ownership(
             function,
             functions,
             &record_type,
             &res_collection_type,
+            &union_collection_type,
         )
     };
     builder.record_owning_locals = ownership.owning_locals;

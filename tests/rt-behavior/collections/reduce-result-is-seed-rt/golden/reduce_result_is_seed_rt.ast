@@ -1,0 +1,109 @@
+{
+  "project": "reduce_result_is_seed_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Point",
+      "line": 10,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Integer", "line": 11 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "keep",
+      "line": 15,
+      "params": [
+      { "name": "acc", "type": "Point", "default": null, "line": 15 },
+      { "name": "p", "type": "Point", "default": null, "line": 15 }
+      ],
+      "returnType": "Point",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "acc" }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 19,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 19 },
+      { "name": "p", "type": "Point", "default": null, "line": 19 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ": " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "x" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "y" }] } }] }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "churn",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 25 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "8" },
+        "step": null,
+        "line": 26,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "junk", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "i" }, { "kind": "identifier", "value": "i" }, { "kind": "identifier", "value": "i" }, { "kind": "identifier", "value": "i" }] }, "line": 27 },
+        { "kind": "binding", "mutable": false, "name": "p", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "900" }, "right": { "kind": "identifier", "value": "i" } }, { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "900" }, "right": { "kind": "identifier", "value": "i" } }] }, "line": 28 },
+        { "kind": "assignment", "name": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "junk" }] } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "x" } }, "line": 29 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 31 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 34,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "none", "type": "List OF Point", "value": { "kind": "list", "values": [] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "some", "type": "List OF Point", "value": { "kind": "list", "values": [{ "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }] }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }] }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "fromEmpty", "type": "Point", "value": { "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "none" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "identifier", "value": "keep" }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "kept", "type": "Point", "value": { "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "some" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, { "kind": "identifier", "value": "keep" }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "rightEmpty", "type": "Point", "value": { "kind": "call", "callee": "collections.reduceRight", "arguments": [{ "kind": "identifier", "value": "none" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "11" }, { "kind": "number", "value": "12" }] }, { "kind": "identifier", "value": "keep" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "rightKept", "type": "Point", "value": { "kind": "call", "callee": "collections.reduceRight", "arguments": [{ "kind": "identifier", "value": "some" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "13" }, { "kind": "number", "value": "14" }] }, { "kind": "identifier", "value": "keep" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "seed", "type": "Point", "value": { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "21" }, { "kind": "number", "value": "22" }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "fromLocal", "type": "Point", "value": { "kind": "call", "callee": "collections.reduce", "arguments": [{ "kind": "identifier", "value": "none" }, { "kind": "identifier", "value": "seed" }, { "kind": "identifier", "value": "keep" }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "callee": "churn", "arguments": [] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "empty" }, { "kind": "identifier", "value": "fromEmpty" }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "kept" }, { "kind": "identifier", "value": "kept" }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "right empty" }, { "kind": "identifier", "value": "rightEmpty" }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "right kept" }, { "kind": "identifier", "value": "rightKept" }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "local seed" }, { "kind": "identifier", "value": "seed" }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "from local" }, { "kind": "identifier", "value": "fromLocal" }] }, "line": 51 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 52 }
+      ]
+    }
+    ]
+  }
+  ]
+}

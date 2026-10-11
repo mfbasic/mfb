@@ -1,0 +1,134 @@
+$ mfb build -ast -ir tests/syntax/collections/func_collection_union_into_variant_bucket_invalid
+  26 |   LET shapes AS List OF Shape = [aShape]
+  27 | 
+  28 |   LET r1 = collections::append(squares, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:28 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.append` has argument type(s) (List OF Square, Shape), expected List OF T, T or List OF T, List OF T.
+  26 |   LET shapes AS List OF Shape = [aShape]
+  27 | 
+  28 |   LET r1 = collections::append(squares, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:28 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `r1` does not have a known type.
+  27 | 
+  28 |   LET r1 = collections::append(squares, aShape)
+  29 |   LET r2 = collections::prepend(squares, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:29 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.prepend` has argument type(s) (List OF Square, Shape), expected List OF T, T.
+  27 | 
+  28 |   LET r1 = collections::append(squares, aShape)
+  29 |   LET r2 = collections::prepend(squares, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:29 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `r2` does not have a known type.
+  28 |   LET r1 = collections::append(squares, aShape)
+  29 |   LET r2 = collections::prepend(squares, aShape)
+  30 |   LET r3 = collections::insert(squares, 0, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:30 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.insert` has argument type(s) (List OF Square, Integer, Shape), expected List OF T, Integer, T.
+  28 |   LET r1 = collections::append(squares, aShape)
+  29 |   LET r2 = collections::prepend(squares, aShape)
+  30 |   LET r3 = collections::insert(squares, 0, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:30 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `r3` does not have a known type.
+  29 |   LET r2 = collections::prepend(squares, aShape)
+  30 |   LET r3 = collections::insert(squares, 0, aShape)
+  31 |   LET r4 = collections::set(squares, 0, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:31 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.set` has argument type(s) (List OF Square, Integer, Shape), expected List OF T, Integer, T or Map OF K TO V, K, V.
+  29 |   LET r2 = collections::prepend(squares, aShape)
+  30 |   LET r3 = collections::insert(squares, 0, aShape)
+  31 |   LET r4 = collections::set(squares, 0, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:31 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `r4` does not have a known type.
+  30 |   LET r3 = collections::insert(squares, 0, aShape)
+  31 |   LET r4 = collections::set(squares, 0, aShape)
+  32 |   LET r5 = collections::set(squareMap, "a", aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:32 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.set` has argument type(s) (Map OF String TO Square, String, Shape), expected List OF T, Integer, T or Map OF K TO V, K, V.
+  30 |   LET r3 = collections::insert(squares, 0, aShape)
+  31 |   LET r4 = collections::set(squares, 0, aShape)
+  32 |   LET r5 = collections::set(squareMap, "a", aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:32 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `r5` does not have a known type.
+  31 |   LET r4 = collections::set(squares, 0, aShape)
+  32 |   LET r5 = collections::set(squareMap, "a", aShape)
+  33 |   LET r6 = collections::getOr(squares, 5, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:33 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.getOr` has argument type(s) (List OF Square, Integer, Shape), expected List OF T, Integer, T or Map OF K TO V, K, V.
+  31 |   LET r4 = collections::set(squares, 0, aShape)
+  32 |   LET r5 = collections::set(squareMap, "a", aShape)
+  33 |   LET r6 = collections::getOr(squares, 5, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:33 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `r6` does not have a known type.
+  32 |   LET r5 = collections::set(squareMap, "a", aShape)
+  33 |   LET r6 = collections::getOr(squares, 5, aShape)
+  34 |   LET r7 = collections::getOr(squareMap, "z", aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:34 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.getOr` has argument type(s) (Map OF String TO Square, String, Shape), expected List OF T, Integer, T or Map OF K TO V, K, V.
+  32 |   LET r5 = collections::set(squareMap, "a", aShape)
+  33 |   LET r6 = collections::getOr(squares, 5, aShape)
+  34 |   LET r7 = collections::getOr(squareMap, "z", aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:34 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `r7` does not have a known type.
+  33 |   LET r6 = collections::getOr(squares, 5, aShape)
+  34 |   LET r7 = collections::getOr(squareMap, "z", aShape)
+  35 |   LET r8 = collections::repeat(squares, aShape, 2)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:35 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.repeat` has argument type(s) (List OF Square, Shape, Integer), expected List OF T, T, Integer[, Integer].
+  33 |   LET r6 = collections::getOr(squares, 5, aShape)
+  34 |   LET r7 = collections::getOr(squareMap, "z", aShape)
+  35 |   LET r8 = collections::repeat(squares, aShape, 2)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:35 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `r8` does not have a known type.
+  34 |   LET r7 = collections::getOr(squareMap, "z", aShape)
+  35 |   LET r8 = collections::repeat(squares, aShape, 2)
+  36 |   LET r9 = collections::contains(squares, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:36 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.contains` has argument type(s) (List OF Square, Shape), expected List OF T, T.
+  34 |   LET r7 = collections::getOr(squareMap, "z", aShape)
+  35 |   LET r8 = collections::repeat(squares, aShape, 2)
+  36 |   LET r9 = collections::contains(squares, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:36 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `r9` does not have a known type.
+  35 |   LET r8 = collections::repeat(squares, aShape, 2)
+  36 |   LET r9 = collections::contains(squares, aShape)
+  37 |   LET r10 = collections::find(squares, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:37 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.find` has argument type(s) (List OF Square, Shape), expected List OF T, T[, Integer].
+  35 |   LET r8 = collections::repeat(squares, aShape, 2)
+  36 |   LET r9 = collections::contains(squares, aShape)
+  37 |   LET r10 = collections::find(squares, aShape)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:37 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `r10` does not have a known type.
+  38 | 
+  39 |   ' The two-list form: the FIRST list is the bucket.
+  40 |   LET r11 = collections::append(squares, shapes)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:40 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.append` has argument type(s) (List OF Square, List OF Shape), expected List OF T, T or List OF T, List OF T.
+  38 | 
+  39 |   ' The two-list form: the FIRST list is the bucket.
+  40 |   LET r11 = collections::append(squares, shapes)
+     | ^
+tests/syntax/collections/func_collection_union_into_variant_bucket_invalid/src/main.mfb:40 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `r11` does not have a known type.
+[exit 1]

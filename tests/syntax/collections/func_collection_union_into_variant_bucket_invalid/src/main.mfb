@@ -1,0 +1,42 @@
+IMPORT collections
+
+' bug-988: the collection argument is the bucket and fixes `T`. A member type
+' fits a UNION bucket; a UNION does not fit a member bucket. So a union value
+' added to, stored in or searched for in a collection of one of its VARIANTS
+' is a call-argument mismatch, whatever the value holds, and the call's type
+' never becomes the union's collection. Narrow with MATCH first.
+
+TYPE Square
+  side AS Float
+END TYPE
+
+TYPE Triangle
+  base AS Float
+END TYPE
+
+UNION Shape
+  Square
+  Triangle
+END UNION
+
+FUNC main AS Integer
+  LET squares AS List OF Square = [Square[side := 1.0]]
+  LET squareMap AS Map OF String TO Square = Map OF String TO Square { "a" := Square[side := 1.0] }
+  LET aShape AS Shape = Square[side := 2.0]
+  LET shapes AS List OF Shape = [aShape]
+
+  LET r1 = collections::append(squares, aShape)
+  LET r2 = collections::prepend(squares, aShape)
+  LET r3 = collections::insert(squares, 0, aShape)
+  LET r4 = collections::set(squares, 0, aShape)
+  LET r5 = collections::set(squareMap, "a", aShape)
+  LET r6 = collections::getOr(squares, 5, aShape)
+  LET r7 = collections::getOr(squareMap, "z", aShape)
+  LET r8 = collections::repeat(squares, aShape, 2)
+  LET r9 = collections::contains(squares, aShape)
+  LET r10 = collections::find(squares, aShape)
+
+  ' The two-list form: the FIRST list is the bucket.
+  LET r11 = collections::append(squares, shapes)
+  RETURN 0
+END FUNC

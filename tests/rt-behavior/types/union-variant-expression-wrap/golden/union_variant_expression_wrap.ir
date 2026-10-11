@@ -1,0 +1,662 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "union_variant_expression_wrap",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "g", "line": 55, "visibility": "public", "mutable": false, "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mk", "args": [] } } },
+  { "name": "gm", "line": 56, "visibility": "public", "mutable": true, "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } }
+  ],
+  "types": [
+  {
+    "kind": "type",
+    "line": 8,
+    "visibility": "public",
+    "name": "Circle",
+    "fields": [
+    { "visibility": null, "line": 9, "name": "r", "type": "Float" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "public",
+    "name": "Square",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "side", "type": "Float" }
+    ]
+  },
+  {
+    "kind": "union",
+    "line": 16,
+    "visibility": "public",
+    "name": "Shape",
+    "includes": [],
+    "variants": [
+    {
+      "name": "Circle",
+      "line": 17,
+      "fields": [
+      { "visibility": null, "line": 9, "name": "r", "type": "Float" }
+      ]
+    },
+    {
+      "name": "Square",
+      "line": 18,
+      "fields": [
+      { "visibility": null, "line": 13, "name": "side", "type": "Float" }
+      ]
+    }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 21,
+    "visibility": "public",
+    "name": "Hold",
+    "fields": [
+    { "visibility": null, "line": 22, "name": "sq", "type": "Square" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 25,
+    "visibility": "public",
+    "name": "Box",
+    "fields": [
+    { "visibility": null, "line": 26, "name": "s", "type": "Shape" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "show",
+    "line": 29,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "label", "line": 29, "type": "String", "default": null },
+    { "name": "s", "line": 29, "type": "Shape", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 30, "mutable": false, "name": "$match0", "type": "Shape", "value": { "kind": "local", "name": "s" } },
+    {
+      "op": "match",
+      "line": 30,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 31,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 31, "mutable": false, "name": "c", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": ": circle " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "c" }, "member": "r" }] } }] } }
+        ]
+      },
+      {
+        "line": 33,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Square" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 33, "mutable": false, "name": "q", "type": "Square", "value": { "kind": "unionExtract", "type": "Square", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": ": square " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Float", "target": { "kind": "local", "name": "q" }, "member": "side" }] } }] } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "showAll",
+    "line": 38,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "label", "line": 38, "type": "String", "default": null },
+    { "name": "xs", "line": 38, "type": "List OF Shape", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "forEach",
+      "line": 39,
+      "name": "s",
+      "type": "Shape",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "local", "name": "label" }, { "kind": "local", "name": "s" }] } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "mk",
+    "line": 44,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Square",
+    "body": [
+    { "op": "return", "line": 45, "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } }
+    ]
+  },
+  {
+    "name": "mkf",
+    "line": 48,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 48, "type": "Integer", "default": null }
+    ],
+    "returns": "Square",
+    "body": [
+    {
+      "op": "if",
+      "line": 49,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "fail", "line": 50, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "String", "value": "neg" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "50" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 52, "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } }
+    ]
+  },
+  {
+    "name": "ret_call",
+    "line": 58,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Shape",
+    "body": [
+    { "op": "return", "line": 59, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mk", "args": [] } } }
+    ]
+  },
+  {
+    "name": "cells_call",
+    "line": 62,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "call arg" }, { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mk", "args": [] } }] } },
+    { "op": "bind", "line": 64, "mutable": false, "name": "l", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mk", "args": [] } }] } },
+    { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "call elem" }, { "kind": "local", "name": "l" }] } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "b", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mk", "args": [] } }] } },
+    { "op": "eval", "line": 67, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "call ctor" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b" }, "member": "s" }] } },
+    { "op": "bind", "line": 68, "mutable": false, "name": "b1", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mk", "args": [] } }] } },
+    { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "call ctor-named" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b1" }, "member": "s" }] } },
+    { "op": "bind", "line": 70, "mutable": false, "name": "mp", "type": "Map OF String TO Shape", "value": { "kind": "map", "type": "Map OF String TO Shape", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mk", "args": [] } } }] } },
+    { "op": "eval", "line": 71, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "call map" }, { "kind": "call", "type": "List OF Shape", "target": "collections.values", "args": [{ "kind": "local", "name": "mp" }] }] } },
+    { "op": "bind", "line": 72, "mutable": false, "name": "b2", "type": "Box", "value": { "kind": "with", "type": "Box", "target": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }] }, "updates": [{ "field": "s", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mk", "args": [] } } }] } },
+    { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "call with" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b2" }, "member": "s" }] } },
+    { "op": "bind", "line": 74, "mutable": true, "name": "m", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assign", "line": 75, "name": "m", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mk", "args": [] } } },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "call mut" }, { "kind": "local", "name": "m" }] } },
+    { "op": "bind", "line": 77, "mutable": false, "name": "one", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mk", "args": [] } } },
+    { "op": "eval", "line": 78, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "call let" }, { "kind": "local", "name": "one" }] } },
+    { "op": "assignGlobal", "line": 79, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assignGlobal", "line": 80, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mk", "args": [] } } },
+    { "op": "eval", "line": 81, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "call global-mut" }, { "kind": "global", "name": "gm" }] } },
+    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "call ret" }, { "kind": "call", "type": "Shape", "target": "ret_call", "args": [] }] } }
+    ]
+  },
+  {
+    "name": "ret_field",
+    "line": 85,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Shape",
+    "body": [
+    { "op": "bind", "line": 86, "mutable": false, "name": "h", "type": "Hold", "value": { "kind": "constructor", "type": "Hold", "args": [{ "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] }] } },
+    { "op": "return", "line": 87, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "memberAccess", "type": "Square", "target": { "kind": "local", "name": "h" }, "member": "sq" } } }
+    ]
+  },
+  {
+    "name": "cells_field",
+    "line": 90,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 91, "mutable": false, "name": "h", "type": "Hold", "value": { "kind": "constructor", "type": "Hold", "args": [{ "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] }] } },
+    { "op": "eval", "line": 92, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "field arg" }, { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "memberAccess", "type": "Square", "target": { "kind": "local", "name": "h" }, "member": "sq" } }] } },
+    { "op": "bind", "line": 93, "mutable": false, "name": "l", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "memberAccess", "type": "Square", "target": { "kind": "local", "name": "h" }, "member": "sq" } }] } },
+    { "op": "eval", "line": 94, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "field elem" }, { "kind": "local", "name": "l" }] } },
+    { "op": "bind", "line": 95, "mutable": false, "name": "b", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "memberAccess", "type": "Square", "target": { "kind": "local", "name": "h" }, "member": "sq" } }] } },
+    { "op": "eval", "line": 96, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "field ctor" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b" }, "member": "s" }] } },
+    { "op": "bind", "line": 97, "mutable": false, "name": "b1", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "memberAccess", "type": "Square", "target": { "kind": "local", "name": "h" }, "member": "sq" } }] } },
+    { "op": "eval", "line": 98, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "field ctor-named" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b1" }, "member": "s" }] } },
+    { "op": "bind", "line": 99, "mutable": false, "name": "mp", "type": "Map OF String TO Shape", "value": { "kind": "map", "type": "Map OF String TO Shape", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "memberAccess", "type": "Square", "target": { "kind": "local", "name": "h" }, "member": "sq" } } }] } },
+    { "op": "eval", "line": 100, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "field map" }, { "kind": "call", "type": "List OF Shape", "target": "collections.values", "args": [{ "kind": "local", "name": "mp" }] }] } },
+    { "op": "bind", "line": 101, "mutable": false, "name": "b2", "type": "Box", "value": { "kind": "with", "type": "Box", "target": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }] }, "updates": [{ "field": "s", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "memberAccess", "type": "Square", "target": { "kind": "local", "name": "h" }, "member": "sq" } } }] } },
+    { "op": "eval", "line": 102, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "field with" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b2" }, "member": "s" }] } },
+    { "op": "bind", "line": 103, "mutable": true, "name": "m", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assign", "line": 104, "name": "m", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "memberAccess", "type": "Square", "target": { "kind": "local", "name": "h" }, "member": "sq" } } },
+    { "op": "eval", "line": 105, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "field mut" }, { "kind": "local", "name": "m" }] } },
+    { "op": "bind", "line": 106, "mutable": false, "name": "one", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "memberAccess", "type": "Square", "target": { "kind": "local", "name": "h" }, "member": "sq" } } },
+    { "op": "eval", "line": 107, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "field let" }, { "kind": "local", "name": "one" }] } },
+    { "op": "assignGlobal", "line": 108, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assignGlobal", "line": 109, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "memberAccess", "type": "Square", "target": { "kind": "local", "name": "h" }, "member": "sq" } } },
+    { "op": "eval", "line": 110, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "field global-mut" }, { "kind": "global", "name": "gm" }] } },
+    { "op": "eval", "line": 111, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "field ret" }, { "kind": "call", "type": "Shape", "target": "ret_field", "args": [] }] } }
+    ]
+  },
+  {
+    "name": "ret_get",
+    "line": 114,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Shape",
+    "body": [
+    { "op": "bind", "line": 115, "mutable": false, "name": "sqs", "type": "List OF Square", "value": { "kind": "list", "type": "List OF Square", "values": [{ "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] }] } },
+    { "op": "return", "line": 116, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "sqs" }, { "kind": "const", "type": "Integer", "value": "0" }] } } }
+    ]
+  },
+  {
+    "name": "cells_get",
+    "line": 119,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 120, "mutable": false, "name": "sqs", "type": "List OF Square", "value": { "kind": "list", "type": "List OF Square", "values": [{ "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] }] } },
+    { "op": "eval", "line": 121, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "get arg" }, { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "sqs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }] } },
+    { "op": "bind", "line": 122, "mutable": false, "name": "l", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "sqs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }] } },
+    { "op": "eval", "line": 123, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "get elem" }, { "kind": "local", "name": "l" }] } },
+    { "op": "bind", "line": 124, "mutable": false, "name": "b", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "sqs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }] } },
+    { "op": "eval", "line": 125, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "get ctor" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b" }, "member": "s" }] } },
+    { "op": "bind", "line": 126, "mutable": false, "name": "b1", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "sqs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }] } },
+    { "op": "eval", "line": 127, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "get ctor-named" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b1" }, "member": "s" }] } },
+    { "op": "bind", "line": 128, "mutable": false, "name": "mp", "type": "Map OF String TO Shape", "value": { "kind": "map", "type": "Map OF String TO Shape", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "sqs" }, { "kind": "const", "type": "Integer", "value": "0" }] } } }] } },
+    { "op": "eval", "line": 129, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "get map" }, { "kind": "call", "type": "List OF Shape", "target": "collections.values", "args": [{ "kind": "local", "name": "mp" }] }] } },
+    { "op": "bind", "line": 130, "mutable": false, "name": "b2", "type": "Box", "value": { "kind": "with", "type": "Box", "target": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }] }, "updates": [{ "field": "s", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "sqs" }, { "kind": "const", "type": "Integer", "value": "0" }] } } }] } },
+    { "op": "eval", "line": 131, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "get with" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b2" }, "member": "s" }] } },
+    { "op": "bind", "line": 132, "mutable": true, "name": "m", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assign", "line": 133, "name": "m", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "sqs" }, { "kind": "const", "type": "Integer", "value": "0" }] } } },
+    { "op": "eval", "line": 134, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "get mut" }, { "kind": "local", "name": "m" }] } },
+    { "op": "bind", "line": 135, "mutable": false, "name": "one", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "sqs" }, { "kind": "const", "type": "Integer", "value": "0" }] } } },
+    { "op": "eval", "line": 136, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "get let" }, { "kind": "local", "name": "one" }] } },
+    { "op": "assignGlobal", "line": 137, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assignGlobal", "line": 138, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "collections.get", "args": [{ "kind": "local", "name": "sqs" }, { "kind": "const", "type": "Integer", "value": "0" }] } } },
+    { "op": "eval", "line": 139, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "get global-mut" }, { "kind": "global", "name": "gm" }] } },
+    { "op": "eval", "line": 140, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "get ret" }, { "kind": "call", "type": "Shape", "target": "ret_get", "args": [] }] } }
+    ]
+  },
+  {
+    "name": "ret_with",
+    "line": 143,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Shape",
+    "body": [
+    { "op": "bind", "line": 144, "mutable": false, "name": "w0", "type": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "9.0" }] } },
+    { "op": "return", "line": 145, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "with", "type": "Square", "target": { "kind": "local", "name": "w0" }, "updates": [{ "field": "side", "value": { "kind": "const", "type": "Float", "value": "2.0" } }] } } }
+    ]
+  },
+  {
+    "name": "cells_with",
+    "line": 148,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 149, "mutable": false, "name": "w0", "type": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "9.0" }] } },
+    { "op": "eval", "line": 150, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "with arg" }, { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "with", "type": "Square", "target": { "kind": "local", "name": "w0" }, "updates": [{ "field": "side", "value": { "kind": "const", "type": "Float", "value": "2.0" } }] } }] } },
+    { "op": "bind", "line": 151, "mutable": false, "name": "l", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "with", "type": "Square", "target": { "kind": "local", "name": "w0" }, "updates": [{ "field": "side", "value": { "kind": "const", "type": "Float", "value": "2.0" } }] } }] } },
+    { "op": "eval", "line": 152, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "with elem" }, { "kind": "local", "name": "l" }] } },
+    { "op": "bind", "line": 153, "mutable": false, "name": "b", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "with", "type": "Square", "target": { "kind": "local", "name": "w0" }, "updates": [{ "field": "side", "value": { "kind": "const", "type": "Float", "value": "2.0" } }] } }] } },
+    { "op": "eval", "line": 154, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "with ctor" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b" }, "member": "s" }] } },
+    { "op": "bind", "line": 155, "mutable": false, "name": "b1", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "with", "type": "Square", "target": { "kind": "local", "name": "w0" }, "updates": [{ "field": "side", "value": { "kind": "const", "type": "Float", "value": "2.0" } }] } }] } },
+    { "op": "eval", "line": 156, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "with ctor-named" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b1" }, "member": "s" }] } },
+    { "op": "bind", "line": 157, "mutable": false, "name": "mp", "type": "Map OF String TO Shape", "value": { "kind": "map", "type": "Map OF String TO Shape", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "with", "type": "Square", "target": { "kind": "local", "name": "w0" }, "updates": [{ "field": "side", "value": { "kind": "const", "type": "Float", "value": "2.0" } }] } } }] } },
+    { "op": "eval", "line": 158, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "with map" }, { "kind": "call", "type": "List OF Shape", "target": "collections.values", "args": [{ "kind": "local", "name": "mp" }] }] } },
+    { "op": "bind", "line": 159, "mutable": false, "name": "b2", "type": "Box", "value": { "kind": "with", "type": "Box", "target": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }] }, "updates": [{ "field": "s", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "with", "type": "Square", "target": { "kind": "local", "name": "w0" }, "updates": [{ "field": "side", "value": { "kind": "const", "type": "Float", "value": "2.0" } }] } } }] } },
+    { "op": "eval", "line": 160, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "with with" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b2" }, "member": "s" }] } },
+    { "op": "bind", "line": 161, "mutable": true, "name": "m", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assign", "line": 162, "name": "m", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "with", "type": "Square", "target": { "kind": "local", "name": "w0" }, "updates": [{ "field": "side", "value": { "kind": "const", "type": "Float", "value": "2.0" } }] } } },
+    { "op": "eval", "line": 163, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "with mut" }, { "kind": "local", "name": "m" }] } },
+    { "op": "bind", "line": 164, "mutable": false, "name": "one", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "with", "type": "Square", "target": { "kind": "local", "name": "w0" }, "updates": [{ "field": "side", "value": { "kind": "const", "type": "Float", "value": "2.0" } }] } } },
+    { "op": "eval", "line": 165, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "with let" }, { "kind": "local", "name": "one" }] } },
+    { "op": "assignGlobal", "line": 166, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assignGlobal", "line": 167, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "with", "type": "Square", "target": { "kind": "local", "name": "w0" }, "updates": [{ "field": "side", "value": { "kind": "const", "type": "Float", "value": "2.0" } }] } } },
+    { "op": "eval", "line": 168, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "with global-mut" }, { "kind": "global", "name": "gm" }] } },
+    { "op": "eval", "line": 169, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "with ret" }, { "kind": "call", "type": "Shape", "target": "ret_with", "args": [] }] } }
+    ]
+  },
+  {
+    "name": "ret_fallible",
+    "line": 172,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Shape",
+    "body": [
+    { "op": "return", "line": 173, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mkf", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } } }
+    ]
+  },
+  {
+    "name": "cells_fallible",
+    "line": 176,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 177, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "fallible arg" }, { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mkf", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } }] } },
+    { "op": "bind", "line": 178, "mutable": false, "name": "l", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mkf", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } }] } },
+    { "op": "eval", "line": 179, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "fallible elem" }, { "kind": "local", "name": "l" }] } },
+    { "op": "bind", "line": 180, "mutable": false, "name": "b", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mkf", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } }] } },
+    { "op": "eval", "line": 181, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "fallible ctor" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b" }, "member": "s" }] } },
+    { "op": "bind", "line": 182, "mutable": false, "name": "b1", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mkf", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } }] } },
+    { "op": "eval", "line": 183, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "fallible ctor-named" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b1" }, "member": "s" }] } },
+    { "op": "bind", "line": 184, "mutable": false, "name": "mp", "type": "Map OF String TO Shape", "value": { "kind": "map", "type": "Map OF String TO Shape", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mkf", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } } }] } },
+    { "op": "eval", "line": 185, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "fallible map" }, { "kind": "call", "type": "List OF Shape", "target": "collections.values", "args": [{ "kind": "local", "name": "mp" }] }] } },
+    { "op": "bind", "line": 186, "mutable": false, "name": "b2", "type": "Box", "value": { "kind": "with", "type": "Box", "target": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }] }, "updates": [{ "field": "s", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mkf", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } } }] } },
+    { "op": "eval", "line": 187, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "fallible with" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b2" }, "member": "s" }] } },
+    { "op": "bind", "line": 188, "mutable": true, "name": "m", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assign", "line": 189, "name": "m", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mkf", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } } },
+    { "op": "eval", "line": 190, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "fallible mut" }, { "kind": "local", "name": "m" }] } },
+    { "op": "bind", "line": 191, "mutable": false, "name": "one", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mkf", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } } },
+    { "op": "eval", "line": 192, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "fallible let" }, { "kind": "local", "name": "one" }] } },
+    { "op": "assignGlobal", "line": 193, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assignGlobal", "line": 194, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "call", "type": "Square", "target": "mkf", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } } },
+    { "op": "eval", "line": 195, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "fallible global-mut" }, { "kind": "global", "name": "gm" }] } },
+    { "op": "eval", "line": 196, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "fallible ret" }, { "kind": "call", "type": "Shape", "target": "ret_fallible", "args": [] }] } }
+    ]
+  },
+  {
+    "name": "ret_var",
+    "line": 199,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Shape",
+    "body": [
+    { "op": "bind", "line": 200, "mutable": false, "name": "v", "type": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } },
+    { "op": "return", "line": 201, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "v" } } }
+    ]
+  },
+  {
+    "name": "cells_var",
+    "line": 204,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 205, "mutable": false, "name": "v", "type": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } },
+    { "op": "eval", "line": 206, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "var arg" }, { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "v" } }] } },
+    { "op": "bind", "line": 207, "mutable": false, "name": "l", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "v" } }] } },
+    { "op": "eval", "line": 208, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "var elem" }, { "kind": "local", "name": "l" }] } },
+    { "op": "bind", "line": 209, "mutable": false, "name": "b", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "v" } }] } },
+    { "op": "eval", "line": 210, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "var ctor" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b" }, "member": "s" }] } },
+    { "op": "bind", "line": 211, "mutable": false, "name": "b1", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "v" } }] } },
+    { "op": "eval", "line": 212, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "var ctor-named" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b1" }, "member": "s" }] } },
+    { "op": "bind", "line": 213, "mutable": false, "name": "mp", "type": "Map OF String TO Shape", "value": { "kind": "map", "type": "Map OF String TO Shape", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "v" } } }] } },
+    { "op": "eval", "line": 214, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "var map" }, { "kind": "call", "type": "List OF Shape", "target": "collections.values", "args": [{ "kind": "local", "name": "mp" }] }] } },
+    { "op": "bind", "line": 215, "mutable": false, "name": "b2", "type": "Box", "value": { "kind": "with", "type": "Box", "target": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }] }, "updates": [{ "field": "s", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "v" } } }] } },
+    { "op": "eval", "line": 216, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "var with" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b2" }, "member": "s" }] } },
+    { "op": "bind", "line": 217, "mutable": true, "name": "m", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assign", "line": 218, "name": "m", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "v" } } },
+    { "op": "eval", "line": 219, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "var mut" }, { "kind": "local", "name": "m" }] } },
+    { "op": "bind", "line": 220, "mutable": false, "name": "one", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "v" } } },
+    { "op": "eval", "line": 221, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "var let" }, { "kind": "local", "name": "one" }] } },
+    { "op": "assignGlobal", "line": 222, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assignGlobal", "line": 223, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "v" } } },
+    { "op": "eval", "line": 224, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "var global-mut" }, { "kind": "global", "name": "gm" }] } },
+    { "op": "eval", "line": 225, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "var ret" }, { "kind": "call", "type": "Shape", "target": "ret_var", "args": [] }] } }
+    ]
+  },
+  {
+    "name": "ret_ctor",
+    "line": 228,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Shape",
+    "body": [
+    { "op": "return", "line": 229, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } } }
+    ]
+  },
+  {
+    "name": "cells_ctor",
+    "line": 232,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 233, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "ctor arg" }, { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } }] } },
+    { "op": "bind", "line": 234, "mutable": false, "name": "l", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } }] } },
+    { "op": "eval", "line": 235, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "ctor elem" }, { "kind": "local", "name": "l" }] } },
+    { "op": "bind", "line": 236, "mutable": false, "name": "b", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } }] } },
+    { "op": "eval", "line": 237, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "ctor ctor" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b" }, "member": "s" }] } },
+    { "op": "bind", "line": 238, "mutable": false, "name": "b1", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } }] } },
+    { "op": "eval", "line": 239, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "ctor ctor-named" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b1" }, "member": "s" }] } },
+    { "op": "bind", "line": 240, "mutable": false, "name": "mp", "type": "Map OF String TO Shape", "value": { "kind": "map", "type": "Map OF String TO Shape", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } } }] } },
+    { "op": "eval", "line": 241, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "ctor map" }, { "kind": "call", "type": "List OF Shape", "target": "collections.values", "args": [{ "kind": "local", "name": "mp" }] }] } },
+    { "op": "bind", "line": 242, "mutable": false, "name": "b2", "type": "Box", "value": { "kind": "with", "type": "Box", "target": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }] }, "updates": [{ "field": "s", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } } }] } },
+    { "op": "eval", "line": 243, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "ctor with" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b2" }, "member": "s" }] } },
+    { "op": "bind", "line": 244, "mutable": true, "name": "m", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assign", "line": 245, "name": "m", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } } },
+    { "op": "eval", "line": 246, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "ctor mut" }, { "kind": "local", "name": "m" }] } },
+    { "op": "bind", "line": 247, "mutable": false, "name": "one", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } } },
+    { "op": "eval", "line": 248, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "ctor let" }, { "kind": "local", "name": "one" }] } },
+    { "op": "assignGlobal", "line": 249, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+    { "op": "assignGlobal", "line": 250, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } } },
+    { "op": "eval", "line": 251, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "ctor global-mut" }, { "kind": "global", "name": "gm" }] } },
+    { "op": "eval", "line": 252, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "ctor ret" }, { "kind": "call", "type": "Shape", "target": "ret_ctor", "args": [] }] } }
+    ]
+  },
+  {
+    "name": "ret_matchvar",
+    "line": 255,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Shape",
+    "body": [
+    { "op": "bind", "line": 256, "mutable": false, "name": "z", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } } },
+    { "op": "bind", "line": 257, "mutable": false, "name": "$match1", "type": "Shape", "value": { "kind": "local", "name": "z" } },
+    {
+      "op": "match",
+      "line": 257,
+      "value": { "kind": "local", "name": "$match1" },
+      "cases": [
+      {
+        "line": 258,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Square" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 258, "mutable": false, "name": "q", "type": "Square", "value": { "kind": "unionExtract", "type": "Square", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "line": 259, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "q" } } }
+        ]
+      },
+      {
+        "line": 260,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 260, "mutable": false, "name": "c", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "return", "line": 261, "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "local", "name": "c" } } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "cells_matchvar",
+    "line": 265,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 266, "mutable": false, "name": "z", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "constructor", "type": "Square", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } } },
+    { "op": "bind", "line": 267, "mutable": false, "name": "$match2", "type": "Shape", "value": { "kind": "local", "name": "z" } },
+    {
+      "op": "match",
+      "line": 267,
+      "value": { "kind": "local", "name": "$match2" },
+      "cases": [
+      {
+        "line": 268,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Square" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 268, "mutable": false, "name": "q", "type": "Square", "value": { "kind": "unionExtract", "type": "Square", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "eval", "line": 269, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "matchvar arg" }, { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "q" } }] } },
+        { "op": "bind", "line": 270, "mutable": false, "name": "l", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "q" } }] } },
+        { "op": "eval", "line": 271, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "matchvar elem" }, { "kind": "local", "name": "l" }] } },
+        { "op": "bind", "line": 272, "mutable": false, "name": "b", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "q" } }] } },
+        { "op": "eval", "line": 273, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "matchvar ctor" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b" }, "member": "s" }] } },
+        { "op": "bind", "line": 274, "mutable": false, "name": "b1", "type": "Box", "value": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "q" } }] } },
+        { "op": "eval", "line": 275, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "matchvar ctor-named" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b1" }, "member": "s" }] } },
+        { "op": "bind", "line": 276, "mutable": false, "name": "mp", "type": "Map OF String TO Shape", "value": { "kind": "map", "type": "Map OF String TO Shape", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "q" } } }] } },
+        { "op": "eval", "line": 277, "value": { "kind": "call", "type": "Nothing", "target": "showAll", "args": [{ "kind": "const", "type": "String", "value": "matchvar map" }, { "kind": "call", "type": "List OF Shape", "target": "collections.values", "args": [{ "kind": "local", "name": "mp" }] }] } },
+        { "op": "bind", "line": 278, "mutable": false, "name": "b2", "type": "Box", "value": { "kind": "with", "type": "Box", "target": { "kind": "constructor", "type": "Box", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }] }, "updates": [{ "field": "s", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "q" } } }] } },
+        { "op": "eval", "line": 279, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "matchvar with" }, { "kind": "memberAccess", "type": "Shape", "target": { "kind": "local", "name": "b2" }, "member": "s" }] } },
+        { "op": "bind", "line": 280, "mutable": true, "name": "m", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+        { "op": "assign", "line": 281, "name": "m", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "q" } } },
+        { "op": "eval", "line": 282, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "matchvar mut" }, { "kind": "local", "name": "m" }] } },
+        { "op": "bind", "line": 283, "mutable": false, "name": "one", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "q" } } },
+        { "op": "eval", "line": 284, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "matchvar let" }, { "kind": "local", "name": "one" }] } },
+        { "op": "assignGlobal", "line": 285, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } } },
+        { "op": "assignGlobal", "line": 286, "name": "gm", "value": { "kind": "unionWrap", "union": "Shape", "member": "Square", "value": { "kind": "local", "name": "q" } } },
+        { "op": "eval", "line": 287, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "matchvar global-mut" }, { "kind": "global", "name": "gm" }] } }
+        ]
+      },
+      {
+        "line": 288,
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "line": 288, "mutable": false, "name": "c", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "eval", "line": 289, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "unreachable" }] } }
+        ]
+      }
+      ]
+    },
+    { "op": "eval", "line": 291, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "matchvar ret" }, { "kind": "call", "type": "Shape", "target": "ret_matchvar", "args": [] }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 294,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 295, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "const", "type": "String", "value": "call global" }, { "kind": "global", "name": "g" }] } },
+    { "op": "eval", "line": 296, "value": { "kind": "call", "type": "Nothing", "target": "cells_call", "args": [] } },
+    { "op": "eval", "line": 297, "value": { "kind": "call", "type": "Nothing", "target": "cells_field", "args": [] } },
+    { "op": "eval", "line": 298, "value": { "kind": "call", "type": "Nothing", "target": "cells_get", "args": [] } },
+    { "op": "eval", "line": 299, "value": { "kind": "call", "type": "Nothing", "target": "cells_with", "args": [] } },
+    { "op": "eval", "line": 300, "value": { "kind": "call", "type": "Nothing", "target": "cells_fallible", "args": [] } },
+    { "op": "eval", "line": 301, "value": { "kind": "call", "type": "Nothing", "target": "cells_var", "args": [] } },
+    { "op": "eval", "line": 302, "value": { "kind": "call", "type": "Nothing", "target": "cells_ctor", "args": [] } },
+    { "op": "eval", "line": 303, "value": { "kind": "call", "type": "Nothing", "target": "cells_matchvar", "args": [] } },
+    { "op": "eval", "line": 304, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "after" }] } },
+    { "op": "return", "line": 305, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

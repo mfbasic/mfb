@@ -96,7 +96,15 @@ const OFF_CODE: usize = 32;
 const OFF_TERMINATOR: usize = 40;
 const OFF_LEN: usize = 48;
 const OFF_SAVED: usize = 56;
-const OFF_REPORT: usize = 64;
+/// The caller's `LOCAL[0..4]`, which the body writes (bug-982). GTK enters this
+/// through its closure marshaller, a C caller that keeps its own state in the
+/// callee-saved registers across the call: `LOCAL[0..4]` are AArch64 `x19`–`x22`
+/// (the SGR formatter's `SCRATCH[10..12]` realize to `x20`–`x22`, the same
+/// three), and `LOCAL[0]` is x86-64 `rbp`, which the x86 wrap bracket does not
+/// save. Restored at `mouse_done`, the single exit every path funnels through.
+const OFF_CALLEE_SAVED: usize = 64;
+const CALLEE_SAVED_COUNT: usize = 4;
+const OFF_REPORT: usize = OFF_CALLEE_SAVED + 8 * CALLEE_SAVED_COUNT;
 const OFF_SCRATCH: usize = OFF_REPORT + SGR_REPORT_BYTES;
 const FRAME: usize = {
     let raw = OFF_SCRATCH + SGR_SCRATCH_BYTES;
@@ -134,6 +142,13 @@ pub(super) fn emit_mouse_handler(
         abi::stack_pointer(),
         OFF_LR,
     ));
+    for (index, register) in abi::LOCAL[..CALLEE_SAVED_COUNT].iter().enumerate() {
+        asm.push(abi::store_u64(
+            *register,
+            abi::stack_pointer(),
+            OFF_CALLEE_SAVED + 8 * index,
+        ));
+    }
     asm.push(abi::store_u64(
         abi::c_arg(0),
         abi::stack_pointer(),
@@ -244,6 +259,13 @@ pub(super) fn emit_mouse_handler(
     // propagate, which keeps a scrollable transcript scrollable while a program
     // is also reading wheel events.
     asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
+    for (index, register) in abi::LOCAL[..CALLEE_SAVED_COUNT].iter().enumerate() {
+        asm.push(abi::load_u64(
+            *register,
+            abi::stack_pointer(),
+            OFF_CALLEE_SAVED + 8 * index,
+        ));
+    }
     asm.push(abi::load_u64(
         abi::link_register(),
         abi::stack_pointer(),
@@ -318,13 +340,18 @@ fn emit_translate_and_convert(asm: &mut Asm, done: &str, uses_canvas: bool) -> R
     // one.
     asm.push(abi::compare_immediate(abi::LOCAL[0], "1"));
     asm.push(abi::branch_ne(convert_pixels));
+    // The cell metrics are integer pixels (`emit_term_init_helper` stores Pango's
+    // `logical.width`/`height`), so they are CONVERTED to doubles. A bit-pattern
+    // move (`fmov`) once read `9` as the denormal 4.4e-323, every quotient became
+    // infinite, and the range check dropped every click and motion on the cell
+    // surface (found proving bug-982).
     asm.load_state(abi::SCRATCH[0], ST_TERM_CELL_W);
-    asm.push(abi::float_move_d_from_x(
+    asm.push(abi::signed_convert_to_float_d(
         abi::FP_SCRATCH[2],
         abi::SCRATCH[0],
     ));
     asm.load_state(abi::SCRATCH[0], ST_TERM_CELL_H);
-    asm.push(abi::float_move_d_from_x(
+    asm.push(abi::signed_convert_to_float_d(
         abi::FP_SCRATCH[3],
         abi::SCRATCH[0],
     ));
@@ -670,4 +697,102 @@ fn add_controller(asm: &mut Asm, controller: Reg) {
     asm.load_state(abi::c_arg(0), ST_WINDOW);
     asm.push(abi::move_register(abi::c_arg(1), controller));
     asm.call_external("gtk_widget_add_controller");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arch::ops::CodeOp;
+
+    const KINDS: [GtkMouseKind; 4] = [
+        GtkMouseKind::Press,
+        GtkMouseKind::Release,
+        GtkMouseKind::Motion,
+        GtkMouseKind::Scroll,
+    ];
+
+    fn stores_to(func: &CodeFunction, register: Reg, offset: usize) -> bool {
+        func.instructions.iter().any(|i| {
+            i.op == CodeOp::StrU64
+                && i.get("src").as_deref() == Some(&register.to_string()[..])
+                && i.get("base").as_deref() == Some(&abi::stack_pointer().to_string()[..])
+                && i.get("offset").as_deref() == Some(&offset.to_string()[..])
+        })
+    }
+
+    /// bug-982: GTK's closure marshaller calls these through the C ABI and keeps a
+    /// pointer in `x19` across the call. Every `LOCAL` the body writes is saved in
+    /// the prologue and reloaded on the one exit, `mouse_done`, right before `ret`.
+    #[test]
+    fn every_handler_saves_and_restores_the_locals_it_writes() {
+        for kind in KINDS {
+            for uses_canvas in [false, true] {
+                let func = emit_mouse_handler(kind, uses_canvas).expect("emit handler");
+                let ins = &func.instructions;
+                let done = ins
+                    .iter()
+                    .position(|i| {
+                        i.op == CodeOp::Label && i.get("name").as_deref() == Some("mouse_done")
+                    })
+                    .expect("mouse_done label");
+                let ret = ins.iter().rposition(|i| i.op == CodeOp::Ret).expect("ret");
+                assert_eq!(
+                    ins.iter().filter(|i| i.op == CodeOp::Ret).count(),
+                    1,
+                    "one exit"
+                );
+                for (index, register) in abi::LOCAL[..CALLEE_SAVED_COUNT].iter().enumerate() {
+                    let offset = OFF_CALLEE_SAVED + 8 * index;
+                    assert!(stores_to(&func, *register, offset), "{register} not saved");
+                    let restored = ins[done..ret].iter().any(|i| {
+                        i.op == CodeOp::LdrU64
+                            && i.get("dst").as_deref() == Some(&register.to_string()[..])
+                            && i.get("offset").as_deref() == Some(&offset.to_string()[..])
+                    });
+                    assert!(restored, "{register} not restored before ret");
+                }
+                // No body write to a callee-saved LOCAL outside the saved range.
+                for register in &abi::LOCAL[CALLEE_SAVED_COUNT..] {
+                    assert!(
+                        !ins.iter()
+                            .any(|i| i.get("dst").as_deref() == Some(&register.to_string()[..])),
+                        "{register} is written but not saved"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The cell metrics are integer pixels, so the cells conversion must CONVERT
+    /// them to doubles (`scvtf`), never reinterpret their bits (`fmov`): a bit move
+    /// reads a 9px cell as a denormal and every click lands off the grid.
+    #[test]
+    fn cell_metrics_are_converted_not_reinterpreted() {
+        for kind in [
+            GtkMouseKind::Press,
+            GtkMouseKind::Release,
+            GtkMouseKind::Motion,
+        ] {
+            let func = emit_mouse_handler(kind, false).expect("emit handler");
+            let ins = &func.instructions;
+            assert!(
+                !ins.iter().any(|i| i.op == CodeOp::FMovDFromX),
+                "a cell metric is moved bit-for-bit into an FP register"
+            );
+            for offset in [ST_TERM_CELL_W, ST_TERM_CELL_H] {
+                let load = ins
+                    .iter()
+                    .position(|i| {
+                        i.op == CodeOp::LdrU64
+                            && i.get("offset").as_deref() == Some(&offset.to_string()[..])
+                    })
+                    .expect("cell metric load");
+                assert_eq!(
+                    ins[load + 1].op,
+                    CodeOp::SCvtfDFromX,
+                    "cell metric at {offset}"
+                );
+            }
+        }
+    }
 }

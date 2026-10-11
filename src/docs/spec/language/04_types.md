@@ -259,6 +259,32 @@ field off the union itself — `s.radius` above — is `TYPE_FIELD_ACCESS_REQUIR
 the value may be any member, and members need not share a field, so there is nothing
 the access could denote.
 
+**A member is accepted where its union is expected, and never the reverse.** A
+value of a member type is a value of the union: `LET s AS Shape = Circle[radius :=
+2.0]`, a `Circle` passed to a `Shape` parameter, returned from a `Shape` function,
+stored in a `Shape` field or assigned to a `Shape` binding. The value may be any
+expression of the member type — a constructor, a variable, a call result, a field
+read — and it is tagged as the union at that position.
+
+The same holds for a collection of members where the collection of the union is
+expected: a `List OF Circle` is accepted as a `List OF Shape`, and a `Map OF K TO
+Circle` as a `Map OF K TO Shape`, at every position a single member is accepted,
+and at every nesting level (`List OF List OF Circle` as `List OF List OF Shape`).
+The value the position receives is a converted copy in which each element is
+tagged as the union; the original collection is unchanged, and still a `List OF
+Circle`. A collection that already has the union type is used as it is, with no
+copy. There is no `Set` form: a union is not comparable (§4.11), so no `Set OF
+<union>` type exists.
+
+The direction is one way. A `Shape` is not a `Circle`, and a `List OF Shape` is
+not a `List OF Circle`: each is a type mismatch at its position
+(`TYPE_BINDING_MISMATCH`, `TYPE_ASSIGNMENT_MISMATCH`, `TYPE_CALL_ARGUMENT_MISMATCH`,
+`TYPE_RETURN_MISMATCH`, `TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH`). A union value
+becomes a member only through `MATCH`. A sibling member is not accepted either: a
+`Circle` is not a `Rect`. Callable types do not convert: a `FUNC() AS Circle` is
+not a `FUNC() AS Shape`.
+[[src/ir/lower.rs:union_conversion]] [[src/ir/shape.rs:compatible]]
+
 A union may include the members of another concrete union:
 
 ```basic

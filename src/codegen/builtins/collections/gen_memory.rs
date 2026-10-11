@@ -678,6 +678,34 @@ impl CodeBuilder<'_> {
             self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
         }
         self.emit(abi::label(&done));
+        // The result of the call is a fresh block of the caller's: it frees it as
+        // a statement temporary, or a binding takes it. While `acc_owned` is 0 the
+        // accumulator is still the caller's SEED (the list was empty, or the
+        // reducer handed the accumulator back every time), and the seed has its
+        // own owner — the argument temporary, or the local it was read from.
+        // Returning it as the result gave one block two owners: `LET r =
+        // collections::reduce(empty, Point[1, 2], f)` bound a block the statement
+        // then freed, and read freed memory. So a result that is still the seed
+        // is copied here, once.
+        if let (true, Some(acc_owned_slot)) = (
+            acc_is_block && self.is_freeable_flat_value(&initial.type_),
+            acc_owned_slot,
+        ) {
+            let owned = self.temporary_vreg();
+            let result_is_fresh = self.label("reduce_result_fresh");
+            self.emit(abi::load_u64(owned, abi::stack_pointer(), acc_owned_slot));
+            self.emit(abi::compare_immediate(owned, "0"));
+            self.emit(abi::branch_ne(&result_is_fresh));
+            let seed = self.temporary_vreg();
+            self.emit(abi::load_u64(seed, abi::stack_pointer(), accumulator_slot));
+            let copied = self.copy_flat_block(&initial.type_, seed)?;
+            self.emit(abi::store_u64(
+                copied,
+                abi::stack_pointer(),
+                accumulator_slot,
+            ));
+            self.emit(abi::label(&result_is_fresh));
+        }
         let result = self.allocate_register();
         self.emit(abi::load_u64(
             &result,

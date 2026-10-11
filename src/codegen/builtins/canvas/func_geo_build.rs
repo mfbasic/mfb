@@ -99,14 +99,18 @@ const EDGE_FLOATS: usize = 5;
 
 /// A canvas nominal as the type model keys it. The program's model registers the
 /// builtin records package-qualified (`canvas.Paint`, `color.Color`); a helper compiled
-/// inside the package may still spell one bare, so both are tried.
+/// inside the package may still spell one bare, so both are tried — the
+/// package-qualified spelling FIRST. A bare spelling in the program's model is a USER
+/// type (`.ai/codegen-invariants.md`, "Inside the compiler a BARE type spelling is
+/// always a USER type"): a program's own `TYPE Circle` must not stand in for
+/// `canvas.Circle`, whose layout the helper reads.
 pub(super) fn record_type(
     builder: &CodeBuilder,
     ty: &ParameterType,
 ) -> Result<ParameterType, String> {
     let name = ty.name().into_owned();
     let bare = name.strip_prefix("canvas.").unwrap_or(&name).to_string();
-    for spelling in [name.clone(), format!("canvas.{bare}"), bare] {
+    for spelling in [format!("canvas.{bare}"), name.clone(), bare] {
         let candidate = ParameterType::named(&spelling);
         if builder.type_model.record_fields.contains_key(&candidate) {
             return Ok(candidate);
@@ -184,9 +188,11 @@ pub(super) fn emit_field_block(
     record_type(builder, &ty)
 }
 
-/// The union tag of `DrawItem` variant `name`, and its record type.
+/// The union tag of `DrawItem` variant `name`, and its record type. Qualified first, as
+/// in [`record_type`]: a bare `Circle` in the model is a user union's variant, with that
+/// union's tag.
 pub(super) fn variant(builder: &CodeBuilder, name: &str) -> Result<(usize, ParameterType), String> {
-    for spelling in [name.to_string(), format!("canvas.{name}")] {
+    for spelling in [format!("canvas.{name}"), name.to_string()] {
         if let Some(tag) = builder
             .type_model
             .union_variant_tags
@@ -209,7 +215,8 @@ pub(super) fn enum_ordinal(
 ) -> Result<usize, String> {
     let name = ty.name().into_owned();
     let bare = name.strip_prefix("canvas.").unwrap_or(&name).to_string();
-    for spelling in [name.clone(), format!("canvas.{bare}"), bare] {
+    // Qualified first, as in [`record_type`].
+    for spelling in [format!("canvas.{bare}"), name.clone(), bare] {
         if let Some(ordinal) = builder
             .type_model
             .enum_members

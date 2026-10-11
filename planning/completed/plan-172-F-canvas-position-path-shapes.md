@@ -151,7 +151,7 @@ Acceptance: every canvas pixel test passes with no PNG regenerated.
   `cargo test --bin mfb canvas` (113 passed) and `spec` (46 passed); `rt_canvas_font` is
   31 passed, 2 failed — two Metal text frames with unwritten tiles, which passed in
   this letter's first round (33 passed) and are not this letter's (Corrections;
-  `bugs/bug-1016-*`). `git status --porcelain tests/golden/canvas` → empty.
+  `bugs/bug-1024-*`). `git status --porcelain tests/golden/canvas` → empty.
   `scripts/artifact-gate.sh target/release/mfb all` → `2308 golden(s) checked, 0 diff(s)`.
 Commit: 04cc405cf
 
@@ -297,7 +297,7 @@ None.
   earlier file put back and the compiler rebuilt the test still fails, the scene is a
   single `canvas::Text`, which that builder does not build, and Metal shape scenes pass
   at the same moment (`rt_canvas_golden the_gpu_draws` → 6 passed). The machine's load
-  average was 10 to 21 throughout. Filed as `bugs/bug-1016-*` with the reproduction;
+  average was 10 to 21 throughout. Filed as `bugs/bug-1024-*` with the reproduction;
   **172-G's prerequisites require it re-run on a quiet machine before that letter
   starts.**
 - **A test program lost its build to the port and was fixed**:
@@ -314,7 +314,7 @@ None.
   and `Picture`'s read `before.x`, which 172-E removed, and `Line`'s read `before.x1`.
   The grid for those rows: all 28 `S`-site pairs and `Picture`'s 15 pass; the 32
   `T`-site pairs fail, on an expectation plan-172-N made stale — filed as
-  `bugs/bug-1015-*`, not fixed here.
+  `bugs/bug-1023-*`, not fixed here.
 - **From 172-A, Open Decision 1:** no constructor functions; the task is struck as moot
   and replaced by the `MUT` + `WITH` example task.
 

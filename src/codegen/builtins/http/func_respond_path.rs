@@ -24,7 +24,9 @@ The steps then run **in this order**, and the order is observable:
    filesystem, so it cannot act as an existence oracle. A path like
    `../secret.txt` or `../../../../etc/hosts` is `403` whether or not the
    named file exists; a request cannot distinguish "escaped and found" from
-   "escaped and not found" by timing or status code.
+   "escaped and not found" by timing or status code. A path that is still
+   absolute after its one leading `/` is stripped (a request for `//etc/hosts`)
+   is rejected by the same check, also with `403`.
 2. If `fs::fileExists` reports the joined candidate is not an existing regular
    file, a `404` is returned. Directories are not regular files, so a request for
    a directory yields `404`; there is no directory listing and no implicit

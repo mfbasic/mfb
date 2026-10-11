@@ -226,6 +226,27 @@ impl CodeBuilder<'_> {
         resource_slot: usize,
         leaf: &ParameterType,
     ) -> Result<(), String> {
+        self.emit_owned_list_push_as(collection, resource_slot, leaf, false)
+    }
+
+    /// [`Self::emit_owned_list_push`], told whether the push ADOPTS a record out of
+    /// a value a call handed over (`adopting`) or floats a binding's own.
+    ///
+    /// bug-1000: an adopted value can reach a record that already has an owner at
+    /// the container's scope or further out — a handle the caller passed in and got
+    /// back (`LET xs = wrap(a)`), or one this container already lists
+    /// (`xs = addTo(xs)`). Its owner closes and frees it. Listing it again made the
+    /// drain a second closer of a record at its own depth, and, once the drain frees
+    /// what it closes, the first to free a record the other still reads. So an
+    /// adopting push lists a record only when it takes it: unowned (the callee
+    /// released it), or owned by a scope inside the container's (which floats up).
+    fn emit_owned_list_push_as(
+        &mut self,
+        collection: &str,
+        resource_slot: usize,
+        leaf: &ParameterType,
+        adopting: bool,
+    ) -> Result<(), String> {
         let leaf = typed_strip_res_marker(leaf).clone();
         // bug-843: a container holding function values lists what each closure
         // carries on its dynamic owned-list. A closure leaf (an adopted call result's
@@ -300,6 +321,21 @@ impl CodeBuilder<'_> {
                 }
                 _ => None,
             });
+        self.emit_owned_list_push_node(head_slot, list, resource_slot, adopting)
+    }
+
+    /// The push itself: float (or, `adopting`, take) the record for the list's
+    /// scope and link a fresh 16-byte `{value, next}` node at `head_slot`. `list` is
+    /// the list's `(scope depth, holds resource-union boxes)`.
+    pub(crate) fn emit_owned_list_push_node(
+        &mut self,
+        head_slot: usize,
+        list: Option<(usize, bool)>,
+        resource_slot: usize,
+        adopting: bool,
+    ) -> Result<(), String> {
+        // Only an adopting push can skip, so only it gets the label to skip to.
+        let listed = adopting.then(|| self.label("owned_list_adopt_listed"));
         if let Some((depth, union)) = list {
             let value = self.allocate_register();
             self.emit(abi::load_u64(&value, abi::stack_pointer(), resource_slot));
@@ -315,6 +351,20 @@ impl CodeBuilder<'_> {
             } else {
                 value
             };
+            if let Some(listed) = &listed {
+                let take = self.label("owned_list_adopt_take");
+                self.emit(abi::compare_immediate(record, "0"));
+                self.emit(abi::branch_eq(&take));
+                let owner = self.allocate_register();
+                self.emit(abi::load_u64(owner, record, RESOURCE_OFFSET_OWNER));
+                let token = self.emit_scope_token(depth)?;
+                // Unsigned, as `emit_resource_float`: an unowned record (`0`) and
+                // one owned deeper are below the token and are taken.
+                self.emit(abi::compare_registers(owner, token));
+                self.emit(abi::branch_lo(&take));
+                self.emit(abi::branch(listed));
+                self.emit(abi::label(&take));
+            }
             self.emit_resource_float(&abi::Reg::from(record), depth)?;
         }
         // Allocate a 16-byte node (record ptr at 0, next at 8).
@@ -341,6 +391,9 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             head_slot,
         ));
+        if let Some(listed) = &listed {
+            self.emit(abi::label(listed));
+        }
         Ok(())
     }
 
@@ -415,7 +468,7 @@ impl CodeBuilder<'_> {
             collection_slot,
             collection_type,
             &mut |builder, leaf_slot, leaf| {
-                builder.emit_owned_list_push(&collection, leaf_slot, leaf)
+                builder.emit_owned_list_push_as(&collection, leaf_slot, leaf, true)
             },
         )
     }
@@ -535,10 +588,12 @@ impl CodeBuilder<'_> {
             OwnedListDrop::Union {
                 variants,
                 state_type,
+                io_buffer_tags,
                 record_free_tags,
             } => {
                 let variants = variants.clone();
                 let state_type = state_type.clone();
+                let io_buffer_tags = io_buffer_tags.clone();
                 let record_free_tags = record_free_tags.clone();
                 let union_ptr = self.allocate_register();
                 self.emit(abi::load_u64(&union_ptr, &scratch9, 0));
@@ -575,6 +630,12 @@ impl CodeBuilder<'_> {
                     &union_ptr,
                     &variants,
                     state_type.as_ref(),
+                    // bug-1001: the buffers go with the same proof as the record.
+                    if cleanup.owns_elements {
+                        &io_buffer_tags
+                    } else {
+                        &[]
+                    },
                     if cleanup.owns_elements {
                         &record_free_tags
                     } else {

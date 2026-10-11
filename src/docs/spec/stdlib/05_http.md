@@ -419,7 +419,11 @@ resp = WITH resp { body := http::bytes("I'm a teapot") }
 `respondPath` is path-traversal-safe: it canonicalizes the requested path and
 confines it to `root` (via `fs::isWithin`) *before* opening — any escape (`..`,
 absolute, symlink-out) yields `403`, a missing file yields `404`, never a read
-outside `root`. `Content-Length`, the reason phrase, and `Connection: close`
+outside `root`. An absolute remainder after the one leading `/` is stripped (a
+`//`-prefixed capture) is an escape too, and like a `..` escape it is answered
+`403` before any filesystem probe, whether or not the target exists.
+[[src/codegen/builtins/http/helper_path_escapes_root.rs:__http_pathEscapesRoot]]
+`Content-Length`, the reason phrase, and `Connection: close`
 are always server-supplied on emit; a handler-set `Content-Length` is ignored.
 
 [[src/codegen/builtins/http/func_handle_request.rs:__http_handleRequest]] [[src/codegen/builtins/http/helper_match_path.rs:__http_matchPath]]

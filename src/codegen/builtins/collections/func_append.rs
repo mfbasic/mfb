@@ -17,6 +17,15 @@ The second argument may be either a single element of the list's element type
 another `List OF T` to add that list's elements. Any other type is a compile-time
 error.
 
+When `T` is a `UNION`, the element may be a value of any of its member types:
+with `shapes AS List OF Shape`, `collections::append(shapes, Square[2.0])` adds a
+`Shape` that `MATCH` sees as a `Square`. A list of members is accepted the same
+way, as a literal (`[Square[2.0], Circle[1.0]]`) or as a `List OF Square`
+variable: each of its elements is added as a `Shape`. The other direction is a
+compile-time error: the list being appended to decides the element type, so a
+`Shape`, or a `List OF Shape`, cannot be appended to a `List OF Square`. Use
+`MATCH` to pick out the `Square` values first.
+
 Both forms behave the same way: existing elements keep their relative order, and
 the appended content is placed after all of them, in its own order.
 

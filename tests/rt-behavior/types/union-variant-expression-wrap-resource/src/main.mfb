@@ -1,0 +1,46 @@
+IMPORT io
+IMPORT fs
+IMPORT tcp
+
+' bug-990: a resource-variant call result is union-wrapped at a resource-union
+' argument, list-literal element, binding and return, so MATCH routes it to
+' its own arm and the handle is closed exactly once.
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+FUNC which(label AS String, h AS Handle) AS Nothing
+  MATCH h
+    CASE fs::File(f)
+      io::print(label & ": file")
+    CASE tcp::Socket(s)
+      io::print(label & ": socket")
+  END MATCH
+END FUNC
+
+FUNC openOne AS RES fs::File
+  RES f AS fs::File = fs::createTempFile()
+  RETURN f
+END FUNC
+
+FUNC handleOf AS RES Handle
+  RETURN openOne()
+END FUNC
+
+FUNC main AS Integer
+  which("arg", openOne())
+  LET hs AS List OF RES Handle = [openOne()]
+  FOR EACH h IN hs
+    which("elem", h)
+  NEXT
+  RES one AS Handle = openOne()
+  which("let", one)
+  RES r AS Handle = handleOf()
+  which("ret", r)
+  RES a AS fs::File = fs::createTempFile()
+  which("var", a)
+  io::print("after")
+  RETURN 0
+END FUNC

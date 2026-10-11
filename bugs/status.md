@@ -41,6 +41,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 
 **P6: Language changes (owner-confirmed)**
 [ ] 977 → 878, then 978 + 839, then 945 (large; `Result`/`Ok` reserved in user code)
+[ ] 1021: a by-field record constructor may omit fields (`Ck[name := "a"]`); omitted fields take their defaults (owner decision 2026-10-10)
 
 **P7: Standard library correctness**
 [ ] Collections: 1006 (`collections::window` overflows its next-window bound for a valid large stride), 1007 (fixed-width `chunks` fast path overallocates short chunks), 1009 (fixed-width `toSet` reserves by input length), 1010 (native `merge` reserves for overlapping input keys), 1011 (reserved collection results retain source-sized capacity when outputs are smaller)
@@ -75,27 +76,39 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 
 ## New bugs filed since the plan
 
-**P2b: Memory safety, ABI and silent wrong values** (batch 18, `bug-staging-18`; in progress)
-Round 1: agent I on 982+993 and 983 (done in its branch, not yet reviewed), 994 in progress; agent J on 989 and 988's reduce part. Round 2: leaks (992, 984, 999, 1000, 1001) and 856.
-[ ] 982 + 993: mouse callbacks overwrite callee-saved `x19` (GTK aarch64 / macOS app); same mistake, fix together
-[ ] 994: Win64 functions overwrite `xmm6`/`xmm7` without saving them (silent wrong Float); prove on 206
-[~] 990: fixed, reviewed, merged into staging (a variant from a call/field/get/WITH is now wrapped everywhere)
-[~] 988: `append`/`insert`/`set`/… accept a variant (merged into staging); `reduce` with a variant initial value: owner decided it works → agent J
-[ ] 989: owner decided CONVERT (a `List OF Square` given as `List OF Shape` is copied and each element tagged; same for Set/Map values/nested) → agent J
-[~] 1013: a user `TYPE Circle`/`Rectangle` broke the canvas helpers; found and fixed by agent J, merged into staging
-[ ] 983: string freed wrongly after an absolute `fs::pathJoin` (`http::respondPath("//etc/hosts")` crashes)
-[ ] 992, 984, 1000, 1001: leaks (`graphemesCount` list; macOS TLS listener 2.8 KB; owned-list drain I/O buffer; union drop leaks read and write buffers, up to 16 KiB per drop)
-[ ] 999: an inline aggregate of resources is never closed (`len(mkList())`)
-[ ] 1012: a resource-union box has no owner outside a binding (record-field use-after-free, 16 B leak); found by agent J, not yet reproduced by the coordinator
+**P2b: Memory safety, ABI and silent wrong values** (batch 18; in main at 34ae6f130, 2026-10-10; full gate green first time)
+[x] 982 + 993: OS-entered callbacks keep callee-saved registers (mouse handlers, graphics-thread entry, thread trampoline, OpenSSL verify callback)
+[x] 994: Win64 frames save the callee-saved xmm registers they write
+[x] 983: `fs::pathJoin` heap overrun after an absolute component
+[x] 990: a variant from a call/field/get/WITH is wrapped at every union position
+[x] 988: collection members and `reduce` accept a variant; the collection fixes `T` (`append(squares, aShape)` is a compile error)
+[x] 989: a `List OF Square` given as `List OF Shape` is converted (Map values, nested lists); one direction only
+[x] 1001, 1000, 992, 984: leaks (union-drop I/O buffers; owned-list drain; `graphemesCount`/`graphemeAt`/`fromScalars`/`normalizeNfc`; macOS TLS listener)
+[x] 1016 (canvas name collision), 1020 (`reduce` returned the seed block): found and fixed during the batch
+
+**P2c: STATE rules and the resource-union box** (batch 19, branch `bug-staging-19`; STARTED 2026-10-10 on the owner's work order. LIST FROZEN: 1013, 998, 1012, 1019. Nothing is added; bugs found meanwhile are filed into a later phase)
+[ ] 1013 (HIGH): a STATE must be a record (`TYPE_STATE_INVALID` everywhere a STATE clause can appear). Census done: nothing that works today uses a non-record STATE. bs18-agent-l's partial work is parked, uncommitted, in `.claude/worktrees/bs18-agent-l`.
+[ ] 998: STATE only on a resource (new rule `TYPE_STATE_REQUIRES_RESOURCE`); same agent as 1013
+[ ] 1012 (HIGH): a resource-union box has no owner outside a binding (use-after-free exit 139; double free of a returned `List OF RES Union`)
+[ ] 1019: a collection temporary passed through a generic function leaks 144 B
+
+**P2d: resource aggregates, templates, package format** (after P2c; 4 bugs)
+[ ] 999: an inline aggregate of resources is never closed. A first fix was reverted out of batch 18 (it closed resources a bound record still named). NEEDS AN OWNER DECISION before it starts: adopt at every bind/assign/store/RETURN, or require the call to be bound first.
+[ ] 1018: a `List OF RES fs::File` given as `List OF RES Handle` is not converted (needs 999 here and 1012 from P2c)
+[ ] 1022: template calls (`collections::merge`, user `FUNC f OF T`) reject a variant for their union; make them follow the builtin rules
 [ ] 856: remove the `.mfp` cleanup table + `FUNCTION_TABLE` cleanup fields (format bump); derive the secondary-close audit
 
 Into existing phases:
 [ ] P3: 986 (HEAD waits for EOF; owner decided: `method` field on `http::PendingState`)
+[ ] P3: 1017 (was 1014) (Windows `respondPath`: `..\` traversal still 403-vs-404 by existence; reproduced on 206)
 [ ] Flakes: 1003 (http::pump example hangs on a stalled remote), 1004 (cli_dbg threaded-arena test timing)
 [ ] P5: 1002 (TYPE_COLLECTION_OWNERSHIP_VIOLATION reported twice)
-[ ] P5: 998 (STATE on a non-resource parameter; owner decided: new rule `TYPE_STATE_REQUIRES_RESOURCE`)
-[ ] P8: 985 (setMode window has no mouse controllers; after 982), 991, 995, 996, 997
+[ ] (moved to P2b, agent L, with 1013) 998 (STATE on a non-resource parameter; owner decided: new rule `TYPE_STATE_REQUIRES_RESOURCE`)
+[ ] P8: 1015 (GTK `pollMouse` sees nothing without a stdin read; owner decided: events come from the window like macOS/Windows) → then 985 (setMode window has no mouse controllers)
+[ ] P8: 991, 995, 996, 997
 [ ] Standalone: 987 (Windows test scripts → box 206)
 
-Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject), 988 reduce (works).
+Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject; one direction only), 988 reduce (works), 1015 (GTK mouse events come from the window), 1013 (a STATE must always be a record), 988 (the collection fixes `T`; a union never fits a member bucket, no run-time narrowing), 1021 (partial by-field record constructor uses defaults).
 Not run (boxes down): 962 on x86_64 GTK / musl GTK; 902 on x86_64 glibc.
+
+Numbering note: other sessions file bugs too (the plan-172 session used 1013 and 1014 the same day the coordinator did). The coordinator renumbers its own unmerged docs on a collision; check `ls bugs` in every worktree before taking a number.

@@ -1,0 +1,129 @@
+IMPORT collections
+IMPORT io
+
+' bug-989: a collection of union VARIANTS given where the same collection of
+' the UNION is expected is converted: a copy in which every element is tagged
+' as the union. MATCH must take each element's own arm and read its payload,
+' at every position a single variant is wrapped, for lists, map values and
+' nested forms. The source collection is unchanged.
+
+TYPE Circle
+  r AS Float
+END TYPE
+
+TYPE Square
+  side AS Float
+END TYPE
+
+UNION Shape
+  Circle
+  Square
+END UNION
+
+TYPE Holder
+  items AS List OF Shape
+END TYPE
+
+FUNC describe(s AS Shape) AS String
+  MATCH s
+    CASE Circle(c)
+      RETURN "circle " & toString(c.r)
+    CASE Square(q)
+      RETURN "square " & toString(q.side)
+  END MATCH
+END FUNC
+
+FUNC showAll(label AS String, xs AS List OF Shape) AS Nothing
+  MUT line AS String = label & ":"
+  FOR EACH s IN xs
+    line = line & " [" & describe(s) & "]"
+  NEXT
+  io::print(line)
+END FUNC
+
+FUNC showMap(label AS String, m AS Map OF String TO Shape) AS Nothing
+  MUT line AS String = label & ":"
+  FOR EACH k IN collections::keys(m)
+    line = line & " " & k & "=[" & describe(collections::get(m, k)) & "]"
+  NEXT
+  io::print(line)
+END FUNC
+
+FUNC showNested(label AS String, rows AS List OF List OF Shape) AS Nothing
+  MUT n AS Integer = 0
+  FOR EACH row IN rows
+    showAll(label & " row " & toString(n), row)
+    n = n + 1
+  NEXT
+END FUNC
+
+FUNC squares(first AS Float) AS List OF Square
+  RETURN [Square[first], Square[first + 1.0]]
+END FUNC
+
+FUNC returned AS List OF Shape
+  LET sq AS List OF Square = squares(40.0)
+  RETURN sq
+END FUNC
+
+FUNC returnedCall AS List OF Shape
+  RETURN squares(42.0)
+END FUNC
+
+LET globalSquares AS List OF Square = [Square[70.0]]
+LET globalShapes AS List OF Shape = globalSquares
+MUT globalMut AS List OF Shape = [Circle[1.0]]
+
+FUNC main AS Integer
+  LET sq AS List OF Square = [Square[2.0], Square[3.0]]
+
+  LET bound AS List OF Shape = sq
+  showAll("let", bound)
+
+  MUT assigned AS List OF Shape = [Circle[1.0]]
+  assigned = sq
+  showAll("assign", assigned)
+
+  showAll("argument", sq)
+  showAll("argument call", squares(10.0))
+  showAll("return", returned())
+  showAll("return call", returnedCall())
+
+  LET h AS Holder = Holder[sq]
+  showAll("constructor", h.items)
+  LET h1 AS Holder = Holder[items := squares(20.0)]
+  showAll("constructor named", h1.items)
+  LET h2 AS Holder = WITH h { items := squares(30.0) }
+  showAll("with", h2.items)
+
+  showAll("global initializer", globalShapes)
+  globalMut = sq
+  showAll("global assign", globalMut)
+
+  LET rows AS List OF List OF Shape = [sq, squares(50.0)]
+  showNested("element", rows)
+
+  LET sq2 AS List OF List OF Square = [squares(60.0), [Square[62.0]]]
+  LET nested AS List OF List OF Shape = sq2
+  showNested("nested", nested)
+
+  LET ms AS Map OF String TO Square = Map OF String TO Square { "a" := Square[80.0], "b" := Square[81.0] }
+  LET mapped AS Map OF String TO Shape = ms
+  showMap("map", mapped)
+  showMap("map argument", ms)
+
+  LET ml AS Map OF String TO List OF Square = Map OF String TO List OF Square { "k" := squares(90.0) }
+  LET mapOfLists AS Map OF String TO List OF Shape = ml
+  showAll("map of lists", collections::get(mapOfLists, "k"))
+
+  MUT shapes AS List OF Shape = [Circle[1.0]]
+  shapes = collections::append(shapes, sq)
+  showAll("append list", shapes)
+
+  LET first AS Shape = collections::get(bound, 0)
+  io::print("get: " & describe(first))
+
+  ' The source collections are unchanged and still usable as what they are.
+  io::print("source: " & toString(len(sq)) & " " & toString(collections::get(sq, 1).side) & " " & toString(collections::get(ms, "b").side))
+  RETURN 0
+END FUNC

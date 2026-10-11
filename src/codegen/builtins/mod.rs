@@ -541,6 +541,19 @@ pub(crate) trait TypeKinds {
     /// kind, never from "is a declared type": a record that answered `true` would
     /// silently lose a user override at monomorph's gap-fill check.
     fn is_enum(&self, t: &crate::types::ParameterType) -> bool;
+
+    /// Whether the union `union` has `actual` among its variants, so a value of type
+    /// `actual` is accepted where `union` is expected (and lowering wraps it). A
+    /// generic call's top-level type variable bound to a union asks this (bug-988).
+    /// The default knows only the built-in packages' unions; an oracle over declared
+    /// types answers for a user union too.
+    fn union_accepts(
+        &self,
+        union: &crate::types::ParameterType,
+        actual: &crate::types::ParameterType,
+    ) -> bool {
+        crate::codegen::registry::registry_union_accepts(union, actual)
+    }
 }
 
 /// The oracle that knows no declared kinds: every `is_enum` is `false`.
@@ -599,7 +612,9 @@ pub(crate) fn resolve_call_return_type_with_kinds(
         return crate::codegen::builtins::regex::resolve_return_type(callee, arg_types, strict);
     }
     if crate::codegen::registry::registry().is_member(callee) {
-        return crate::codegen::registry::resolve_call_typed(callee, arg_types, strict);
+        return crate::codegen::registry::resolve_call_typed_with_kinds(
+            callee, arg_types, strict, kinds,
+        );
     }
     None
 }
@@ -805,8 +820,15 @@ pub(crate) fn resolved_argument_type(
     index: usize,
     arg_types: &[crate::types::ParameterType],
     expected_return: Option<&crate::types::ParameterType>,
+    kinds: &dyn TypeKinds,
 ) -> Option<crate::types::ParameterType> {
-    crate::codegen::registry::resolved_parameter_type(callee, index, arg_types, expected_return)
+    crate::codegen::registry::resolved_parameter_type(
+        callee,
+        index,
+        arg_types,
+        expected_return,
+        kinds,
+    )
 }
 
 /// Whether parameter `index` of the built-in `callee` is a compiler-known

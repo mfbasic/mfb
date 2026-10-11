@@ -1918,6 +1918,144 @@ mod lower_tests {
         )));
     }
 
+    /// bug-990: a one-line rendering of a lowered argument's wrap structure,
+    /// for assertion messages (`IrValue` has no `Debug`).
+    fn describe(value: &IrValue) -> String {
+        match value {
+            IrValue::UnionWrap {
+                union_type,
+                member_type,
+                value,
+            } => format!(
+                "unionWrap({} <- {}, {})",
+                union_type.name(),
+                member_type.name(),
+                describe(value)
+            ),
+            IrValue::Call { target, .. } => format!("call {target}"),
+            IrValue::MemberAccess { member, .. } => format!("member .{member}"),
+            IrValue::WithUpdate { .. } => "with".to_string(),
+            IrValue::Local(name) => format!("local {name}"),
+            IrValue::Constructor { type_, .. } => format!("constructor {}", type_.name()),
+            _ => "other".to_string(),
+        }
+    }
+
+    fn describe_all(values: &[IrValue]) -> String {
+        values.iter().map(describe).collect::<Vec<_>>().join("; ")
+    }
+
+    /// bug-990: the argument `show` receives in each `Eval` statement of `run`,
+    /// in source order.
+    fn show_arguments(ir: &IrProject) -> Vec<IrValue> {
+        function(ir, "run")
+            .body
+            .iter()
+            .filter_map(|op| match op {
+                IrOp::Eval {
+                    value: IrValue::Call { target, args, .. },
+                    ..
+                } if target == "show" => args.first().cloned(),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn variant_of_every_expression_kind_wraps_at_a_union_argument() {
+        // bug-990: a call result, a field read, a `collections::get` result and a
+        // `WITH` result typed as the variant `Square` are each wrapped into the
+        // `Shape` the parameter expects, around the unchanged inner value.
+        let ir = lower_src(
+            "IMPORT collections\n\
+             TYPE Circle\n  r AS Float\nEND TYPE\n\
+             TYPE Square\n  side AS Float\nEND TYPE\n\
+             UNION Shape\n  Circle\n  Square\nEND UNION\n\
+             TYPE Hold\n  sq AS Square\nEND TYPE\n\
+             FUNC show(s AS Shape) AS Nothing\nEND FUNC\n\
+             FUNC mk AS Square\n  RETURN Square[2.0]\nEND FUNC\n\
+             FUNC run() AS Integer\n\
+               LET h AS Hold = Hold[Square[2.0]]\n\
+               LET sqs AS List OF Square = [Square[2.0]]\n\
+               LET w AS Square = Square[1.0]\n\
+               show(mk())\n\
+               show(h.sq)\n\
+               show(collections::get(sqs, 0))\n\
+               show(WITH w { side := 2.0 })\n\
+               show(w)\n\
+               RETURN 0\n\
+             END FUNC\n\
+             FUNC main AS Nothing\nEND FUNC\n",
+        );
+        let args = show_arguments(&ir);
+        assert_eq!(args.len(), 5, "{}", describe_all(&args));
+        let inner_kinds: [fn(&IrValue) -> bool; 5] = [
+            |value: &IrValue| matches!(value, IrValue::Call { target, .. } if target == "mk"),
+            |value: &IrValue| matches!(value, IrValue::MemberAccess { .. }),
+            |value: &IrValue| matches!(value, IrValue::Call { .. }),
+            |value: &IrValue| matches!(value, IrValue::WithUpdate { .. }),
+            |value: &IrValue| matches!(value, IrValue::Local(name) if name == "w"),
+        ];
+        for (arg, inner_is_expected_kind) in args.iter().zip(inner_kinds) {
+            let IrValue::UnionWrap {
+                union_type,
+                member_type,
+                value,
+            } = arg
+            else {
+                panic!("argument is not union-wrapped: {}", describe(arg));
+            };
+            assert!(union_type.is_named("Shape"), "{}", describe(arg));
+            assert!(member_type.is_named("Square"), "{}", describe(arg));
+            // Exactly one wrap: the wrapped value is the producer itself.
+            assert!(inner_is_expected_kind(value), "{}", describe(arg));
+        }
+    }
+
+    #[test]
+    fn union_valued_argument_is_not_wrapped_again() {
+        // bug-990 non-goal: a value that is already the union gets no wrap, and
+        // a constructor is wrapped exactly once.
+        let ir = lower_src(
+            "TYPE Circle\n  r AS Float\nEND TYPE\n\
+             TYPE Square\n  side AS Float\nEND TYPE\n\
+             UNION Shape\n  Circle\n  Square\nEND UNION\n\
+             FUNC show(s AS Shape) AS Nothing\nEND FUNC\n\
+             FUNC mkShape AS Shape\n  RETURN Square[2.0]\nEND FUNC\n\
+             FUNC run() AS Integer\n\
+               LET z AS Shape = Circle[1.0]\n\
+               show(z)\n\
+               show(mkShape())\n\
+               show(Square[2.0])\n\
+               RETURN 0\n\
+             END FUNC\n\
+             FUNC main AS Nothing\nEND FUNC\n",
+        );
+        let args = show_arguments(&ir);
+        assert_eq!(args.len(), 3, "{}", describe_all(&args));
+        assert!(
+            matches!(&args[0], IrValue::Local(name) if name == "z"),
+            "{}",
+            describe(&args[0])
+        );
+        assert!(
+            matches!(&args[1], IrValue::Call { target, .. } if target == "mkShape"),
+            "{}",
+            describe(&args[1])
+        );
+        let IrValue::UnionWrap { value, .. } = &args[2] else {
+            panic!(
+                "constructor argument is not union-wrapped: {}",
+                describe(&args[2])
+            );
+        };
+        assert!(
+            matches!(**value, IrValue::Constructor { .. }),
+            "{}",
+            describe(&args[2])
+        );
+    }
+
     // ---- native LINK / RESOURCE / aliases --------------------------------
 
     #[test]

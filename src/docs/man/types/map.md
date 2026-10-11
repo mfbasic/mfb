@@ -49,6 +49,11 @@ values.
 A map holds its keys and values directly, as part of the map value. Looking up a
 key takes constant time on average.
 
+A map whose values are a union's member type can be used wherever the map of the
+union is expected (`Map OF String TO Square` as `Map OF String TO Shape`): the
+position receives a copy whose values are union values, and the original map is
+unchanged. It does not work the other way, and keys never convert.
+
 ## Copying
 
 Maps are copyable only when both the key and value types are copyable.  A copied map is independent of the original: changing one binding never

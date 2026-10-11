@@ -263,6 +263,16 @@ changes which instructions execute or in what order, only where values live.
 When coloring uses an allocatable callee-saved register, it is recorded so
 the frame finalizer saves and restores it. [[src/codegen/engine/regalloc/builder_registers.rs:mark_register_used]]
 
+The save set also covers a callee-saved FP register the body writes by FIXED
+name rather than through the allocator. The math and SIMD kernels and the
+`Fixed`/`Money`→`Float` conversion stage values in the `FP_SCRATCH`/`VEC_SCRATCH`
+tokens, whose indices 6 and 7 realize to `xmm6`/`xmm7` on x86-64. Win64 makes
+`xmm6`–`xmm15` callee-saved and the allocator keeps a caller's `Float` in
+`xmm6`–`xmm14` across a call, so a Win64 frame saves each of them its stream
+writes (16-byte slots). On SysV, AArch64 and RISC-V those realizations are
+caller-saved and nothing is added. `xmm15`, the encoder's SSE scratch, is never
+an allocator home and is not saved. [[src/codegen/engine/regalloc/linear_scan.rs:fixed_callee_saved_writes]]
+
 ## Reserved Registers
 
 Three registers carry pinned roles in the convention:

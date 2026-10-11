@@ -104,10 +104,10 @@ const SGR_WHEEL_DOWN: u64 = 65;
 
 /// Frame layout for a generated IMP.
 ///
-/// `lr` and the callee-saved registers the ObjC calls clobber are parked at the
+/// `lr`, the IMP's own arguments and the caller's `LOCAL[0]` are parked at the
 /// bottom; the report buffer and the decimal scratch sit above them. A mouse IMP
-/// runs on the UI thread with no arena base, so every value it needs lives here
-/// or in a callee-saved register.
+/// runs on the UI thread with no arena base, so every value it needs lives here,
+/// because each ObjC call clobbers the caller-saved bank.
 const OFF_LR: usize = 0;
 const OFF_SELF: usize = 8;
 const OFF_EVENT: usize = 16;
@@ -117,7 +117,14 @@ const OFF_CODE: usize = 40;
 const OFF_X: usize = 48;
 const OFF_Y: usize = 56;
 const OFF_TERMINATOR: usize = 64;
-const OFF_REPORT: usize = 72;
+/// The caller's `LOCAL[0]` (`x19`), which the body writes: the coordinate
+/// conversion, the modifier flags and the pipe write all park a value there
+/// across an ObjC call (bug-993). An IMP is an AAPCS64 callee, and
+/// `-[NSWindow sendEvent:]` keeps an object it later releases in `x19` across
+/// the dispatch. Restored at `{sym}_done`, the single exit every path, early or
+/// full, funnels through.
+const OFF_SAVED_LOCAL0: usize = 72;
+const OFF_REPORT: usize = 80;
 const OFF_SCRATCH: usize = OFF_REPORT + SGR_REPORT_BYTES;
 const FRAME: usize = {
     let raw = OFF_SCRATCH + SGR_SCRATCH_BYTES;
@@ -147,6 +154,11 @@ pub(super) fn emit_mouse_imp(imp: &MouseImp) -> CodeFunction {
         abi::c_arg(2),
         abi::stack_pointer(),
         OFF_EVENT,
+    ));
+    asm.push(abi::store_u64(
+        abi::LOCAL[0],
+        abi::stack_pointer(),
+        OFF_SAVED_LOCAL0,
     ));
 
     // --- 1. Gate on the mouse-mode word -------------------------------------
@@ -277,6 +289,11 @@ pub(super) fn emit_mouse_imp(imp: &MouseImp) -> CodeFunction {
     emit_pipe_write(&mut asm, OFF_REPORT, OFF_X);
 
     asm.push(abi::label(&done));
+    asm.push(abi::load_u64(
+        abi::LOCAL[0],
+        abi::stack_pointer(),
+        OFF_SAVED_LOCAL0,
+    ));
     asm.push(abi::load_u64(
         abi::link_register(),
         abi::stack_pointer(),
@@ -823,4 +840,70 @@ pub(super) fn emit_install_tracking_area(asm: &mut Asm, view_reg: impl Into<Reg>
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
     asm.push(abi::add_stack(16));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arch::ops::CodeOp;
+
+    /// bug-993: AppKit calls every IMP through the AAPCS64, and
+    /// `-[NSWindow sendEvent:]` releases what it kept in `x19` after the dispatch.
+    /// Each IMP saves `LOCAL[0]` in its prologue and reloads it in the `{sym}_done`
+    /// epilogue, which every exit (the mode gate, an off-surface point, a zero
+    /// wheel delta, and the full report path) reaches before the single `ret`.
+    #[test]
+    fn every_imp_saves_and_restores_local0() {
+        let local0 = abi::LOCAL[0].to_string();
+        let offset = OFF_SAVED_LOCAL0.to_string();
+        for surface in [MouseSurface::Cells, MouseSurface::Pixels] {
+            for imp in mouse_imps(surface) {
+                let func = emit_mouse_imp(&imp);
+                let ins = &func.instructions;
+                let done = format!("{}_done", imp.symbol);
+                let done_at = ins
+                    .iter()
+                    .position(|i| {
+                        i.op == CodeOp::Label && i.get("name").as_deref() == Some(&done[..])
+                    })
+                    .expect("done label");
+                let first_write = ins
+                    .iter()
+                    .position(|i| i.get("dst").as_deref() == Some(&local0[..]))
+                    .expect("the body writes LOCAL[0]");
+                let saved_at = ins
+                    .iter()
+                    .position(|i| {
+                        i.op == CodeOp::StrU64
+                            && i.get("src").as_deref() == Some(&local0[..])
+                            && i.get("offset").as_deref() == Some(&offset[..])
+                    })
+                    .expect("LOCAL[0] saved");
+                assert!(
+                    saved_at < first_write,
+                    "{}: saved after its first write",
+                    imp.symbol
+                );
+                assert_eq!(ins.iter().filter(|i| i.op == CodeOp::Ret).count(), 1);
+                let ret = ins.iter().position(|i| i.op == CodeOp::Ret).expect("ret");
+                assert!(
+                    ins[done_at..ret].iter().any(|i| i.op == CodeOp::LdrU64
+                        && i.get("dst").as_deref() == Some(&local0[..])
+                        && i.get("offset").as_deref() == Some(&offset[..])),
+                    "{}: LOCAL[0] not restored on the way out",
+                    imp.symbol
+                );
+                // Nothing else callee-saved is written.
+                for register in &abi::LOCAL[1..] {
+                    let name = register.to_string();
+                    assert!(
+                        !ins.iter()
+                            .any(|i| i.get("dst").as_deref() == Some(&name[..])),
+                        "{}: writes {name} without saving it",
+                        imp.symbol
+                    );
+                }
+            }
+        }
+    }
 }

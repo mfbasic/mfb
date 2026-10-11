@@ -79,6 +79,12 @@ pub(crate) fn run(
         .map(|instruction| analysis::effect(instruction, class_model))
         .collect();
     let live = analysis::analyze(&instructions, class_model, &effects);
+    // bug-994: read off the INPUT stream, before the rewrite renames anything.
+    let fixed_callee_saved = if class_model.is_fp {
+        fixed_callee_saved_writes(model, class, class_model, &instructions)
+    } else {
+        Vec::new()
+    };
 
     // Per-physical sorted index lists where the physical is busy, for O(log)
     // "is physical p busy anywhere in [s, e]" interference checks. 32 covers
@@ -1041,6 +1047,23 @@ pub(crate) fn run(
             extra_callee_saved.push(phys.clone());
         }
     }
+    // bug-994: a fixed FP register the stream itself writes — an
+    // `FP_SCRATCH`/`VEC_SCRATCH` token (unrealized in a hand-built helper) or its
+    // realization (in a selected builder body) — is neither a colored home nor a
+    // reload scratch, so neither set above sees it. On Win64 the scratch tokens
+    // 6 and 7 realize to the callee-saved `xmm6`/`xmm7`, and a callee that inlined
+    // a math kernel handed its caller's `Float` back replaced. The token's
+    // physical index is the one `fp_physical_index` already uses for its
+    // occupancy; the target's own name for that index decides whether it is
+    // callee-saved, so on AArch64 (`d6`), RISC-V (`ft6`) and SysV (`xmm6`, all
+    // caller-saved) nothing is added and their frames are unchanged. FP only: the
+    // integer precolors include `rbp` as Win64/SysV internal argument 8, a
+    // separate convention (bug-698/bug-774).
+    for phys in &fixed_callee_saved {
+        if !extra_callee_saved.iter().any(|s| s == phys) {
+            extra_callee_saved.push(phys.to_string());
+        }
+    }
     extra_callee_saved.sort();
 
     // Invariant (bug-54): every callee-saved register generated code *keeps*
@@ -1060,11 +1083,13 @@ pub(crate) fn run(
             .map(|(name, _index)| *name)
             .filter(|name| model.is_callee_saved(name))
             .chain(scratch_callee_saved.iter().map(String::as_str))
+            .chain(fixed_callee_saved.iter().copied())
         {
             assert!(
                 extra_callee_saved.iter().any(|s| s == phys),
                 "bug-54: callee-saved register {phys} written by generated code \
-                 (colored home or reload scratch) is missing from the frame save set",
+                 (colored home, reload scratch or fixed register) is missing from \
+                 the frame save set",
             );
         }
     }
@@ -1075,6 +1100,50 @@ pub(crate) fn run(
         extra_callee_saved,
         error: alloc_error,
     }
+}
+
+/// bug-994: the callee-saved registers of `class` that the INPUT stream writes by
+/// fixed name, named as the target names them.
+///
+/// Two spellings reach here. A selected builder body names the target's own
+/// register (`xmm7`), and the target's model says directly whether that is
+/// callee-saved. A hand-built helper body is allocated before selection and
+/// still carries the `%fscratchN`/`%vscratchN` token; its physical index is the
+/// one `physical_index` gives it for occupancy, and the target's allocatable
+/// register at that index is its realization on x86-64 (`xmm7`) and AArch64
+/// (`d7`). Only tokens are mapped by index: a RISC-V stream also carries
+/// AArch64-numbered `vN` lane names that its scalarizer rewrites later, and an
+/// index is not a register there.
+fn fixed_callee_saved_writes(
+    model: &dyn RegisterModel,
+    class: RegClass,
+    class_model: &ClassModel,
+    instructions: &[CodeInstruction],
+) -> Vec<&'static str> {
+    let names = model.allocatable(class);
+    let mut written: Vec<&'static str> = Vec::new();
+    for instruction in instructions {
+        for (field, value) in &instruction.fields {
+            if !analysis::is_def_field(field) {
+                continue;
+            }
+            let rendered = value.rendered();
+            let name = if rendered.starts_with("%fscratch") || rendered.starts_with("%vscratch") {
+                let index = (class_model.physical_index)(&rendered);
+                names
+                    .iter()
+                    .find(|name| index.is_some() && (class_model.physical_index)(name) == index)
+            } else {
+                names.iter().find(|name| **name == &*rendered)
+            };
+            if let Some(&name) = name {
+                if model.is_callee_saved(name) && !written.contains(&name) {
+                    written.push(name);
+                }
+            }
+        }
+    }
+    written
 }
 
 /// The `active` holder id of a one-instruction spill-scratch interval. Never a
