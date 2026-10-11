@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (resource leak)
 
-Status: Open (narrowed, bs21-agent-b: the reported program and the one settled class are fixed; the positions under "Remaining" are not)
+Status: Open (the `len(mkList())` class is fixed, `tests/runtime/rt_resource_aggregate_temporary.rs`; the positions under "Remaining positions" are not)
 Regression Test: `tests/runtime/rt_resource_aggregate_temporary.rs` (9 tests; `the_reported_loop_runs_out_of_no_descriptors` is the report's program)
 
 bug-842 made a resource produced inline in an expression (a call argument, a member read, a
@@ -219,7 +219,8 @@ Programs are `/tmp/bs21-agent-b/m999/<name>.mfb`; the prelude is `pre.txt` there
    ARE closed (exit 0 at N=300), the memory is not (158/117/7248 at N=10, both compilers). The desugar hoists the
    argument into a binding of `resultValue($trap_res)`, which is a bind position.
 
-Positions 1 to 4 are the ones this document says need a language decision. 5 waits on which boxes such a result
+Positions 1 to 4 are the ones this document said needed a language decision; the owner has since settled them
+(see "Owner ruling" below). 5 waits on which boxes such a result
 owns; 6 and 7 are narrower rules of the same class that were not widened here.
 
 ## Checks run (bs21-agent-b)
@@ -240,3 +241,23 @@ owns; 6 and 7 are narrower rules of the same class that were not widened here.
 ## Golden impact (bs21-agent-b)
 
 None: `artifact-gate all` reports 0 diffs. No fixture in the tree writes a statement of the class.
+
+## Owner ruling (2026-10-11): no language decision is open
+
+The owner's rule, stated on 2026-10-11: a resource put in a list takes the list's scope when that
+scope is higher than its own. An aggregate of resources that a call returns unbound therefore has
+the scope of whatever takes it, and its resources go with it:
+
+- a record or binding takes it (`Layer[items := mkList()]`, `LET items = mkLayer().items`): the
+  resources belong to that record or binding and are released with it;
+- a loop takes it (`FOR EACH h IN mkList()`): they are released when the loop ends;
+- nothing takes it (`len(mkList())`): they are released at the end of the statement.
+
+So the "either / or" in the bs18 section above is answered: the taker adopts, and the statement
+closes only what nothing took. The bs18 attempt crashed because it did the second half without
+the first.
+
+**What remains open in this document** is the seven positions listed under "Remaining
+positions": each still leaves its resources unreleased with the batch 21 compiler. Position 5
+(a result reaching a resource-union box) also needs the box's owner worked out; positions 6 and 7
+are inside the class batch 21 fixed as worded, and were not reached.

@@ -81,8 +81,11 @@ In every other position an aggregate-returning call is written in without being
 bound — a constructor argument (`Layer[items := mkItems()]`), the target of a
 member read (`mkLayer().items`), a `FOR EACH` iterable, an argument of a call
 that answers with anything but a plain scalar (`collections::get(mkList(), 0)`) —
-the resources the aggregate holds are closed by nothing. Bind the call first:
-`LET xs = mkList()` adopts them into the binding's scope. An inline `TRAP` over a call that hands out
+the rule is that the aggregate takes the scope of whatever takes it (the record, the
+binding, the loop) and its resources are released with that owner. The compiler does
+not implement this yet: in these positions the resources the aggregate holds are
+closed by nothing, which is a known defect and not a contract. Until it is fixed,
+binding the call first (`LET xs = mkList()`) adopts them into the binding's scope. An inline `TRAP` over a call that hands out
 resources (`LET xs = mkList() TRAP … END TRAP`) adopts them into the binding's scope
 exactly as the plain call does. [[src/codegen/engine/value/builder_values.rs:register_resource_temp]] [[src/codegen/resource/owner.rs:emit_resource_temp_close]] [[src/codegen/resource/owner.rs:emit_claim_returned_value]] [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:trap_call_result_locals]]
 
