@@ -16,6 +16,18 @@ Check that every open bug has exactly one row:
 python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.glob('bugs/bug-*.md')];b=re.findall(r'^\|\s*\[.\]\s*\|\s*(\d+)\s',open('bugs/status.md').read(),re.M);print(len(a),sorted(set(a)^set(b))+[n for n in set(b) if b.count(n)>1])"
 ```
 
+## Running phase: batch 21 (`bug-staging-21`)
+
+The list is fixed: the seven open documents in "Resources and STATE" whose `Severity:` line
+is MEDIUM. Nothing is added to it; a bug found while it runs gets a row in its area table
+and waits.
+
+999, 1018, 1025, 1027, 1028, 1030, 1037 (999 before 1018). 999 is worked only as far as its
+document settles without a language decision: a call to a function taking only plain scalars,
+written straight into an argument of a call that keeps nothing of it (`len(mkList())`, the
+document's reproduction). The positions that need the owner's decision (a bind, assignment,
+global store, `RETURN` or `FOR EACH` whose value contains such a call) are not in this phase.
+
 ## Resources and STATE
 
 | Done | Number | Priority | Description |
