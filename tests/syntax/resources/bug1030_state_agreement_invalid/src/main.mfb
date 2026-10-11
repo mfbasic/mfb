@@ -1,0 +1,63 @@
+' bug-1030: the STATE clause of a top-level `RES` binding and of a `LAMBDA`
+' parameter is part of the type. This is the other half of that: the clause
+' binds, so every disagreement a local binding's or a declared FUNC's parameter's
+' clause refuses is refused here too. A resource's state carries no runtime
+' tag, so each of these would otherwise read one record's bytes as another's.
+'
+' Every line marked BAD is refused; the lines marked OK are the contrast.
+IMPORT fs
+
+TYPE Cur
+  n AS Integer
+END TYPE
+
+TYPE Other
+  k AS Integer
+END TYPE
+
+RES topOk AS fs::File STATE Cur = openTagged()              ' OK: adopts the Cur
+RES topBad AS fs::File STATE Other = openTagged()           ' BAD: the initializer carries a Cur
+
+FUNC openTagged() AS RES fs::File STATE Cur
+  RES f AS fs::File STATE Cur = fs::createTempFile()
+  RETURN f
+END FUNC
+
+FUNC wantsOther(x AS fs::File STATE Other) AS Integer
+  RETURN x.state.k
+END FUNC
+
+FUNC wantsCur(x AS fs::File STATE Cur) AS Integer
+  RETURN x.state.n
+END FUNC
+
+FUNC opaque(x AS fs::File) AS Integer
+  RETURN 1
+END FUNC
+
+FUNC apply(fn AS FUNC(fs::File) AS Integer, f AS fs::File) AS Integer
+  RETURN fn(f)
+END FUNC
+
+FUNC give() AS FUNC(fs::File) AS Integer
+  LET j = LAMBDA(x AS fs::File STATE Cur) -> x.state.n
+  RETURN j                                                  ' BAD: not a FUNC(fs::File)
+END FUNC
+
+FUNC main AS Integer
+  LET a = wantsCur(topOk)                                   ' OK
+  LET b = opaque(topOk)                                     ' OK: a bare parameter is opaque
+  LET c = wantsOther(topOk)                                 ' BAD: a parameter cannot re-type a state
+
+  RES cur AS fs::File STATE Cur = fs::createTempFile()
+  RES bare AS fs::File = fs::createTempFile()
+  RES other AS fs::File STATE Other = fs::createTempFile()
+  LET j = LAMBDA(x AS fs::File STATE Cur) -> x.state.n
+  LET d = j(cur)                                            ' OK
+  LET e = j(bare)                                           ' BAD: carries no STATE
+  LET f = j(other)                                          ' BAD: carries another STATE
+  LET h = apply(j, cur)                                     ' BAD: `apply` may pass any state or none
+  LET k AS FUNC(fs::File) AS Integer = j                    ' BAD: the same, at a binding
+  LET m = LAMBDA(x AS fs::File) -> x.state.n                ' BAD: a bare parameter cannot read a state
+  RETURN 0
+END FUNC

@@ -404,7 +404,12 @@ worker — has its own list. `kind` indexes the resource leaf types the program'
 globals can reach, in global order; `tag` is a resource union's active variant,
 read from the union box when the record is listed, because the box belongs to the
 binding or statement that made it, or to the value that holds it inline (see
-"Union" above), and not to the instance. The teardown
+"Union" above), and not to the instance. A concrete resource stored into a slot
+typed by a union it is a member of (`handles = collections::append(handles, f)`,
+`f` a `fs::File` and `handles` a `List OF RES Handle`) is listed before the store
+wraps it, so it has no box: it is listed under the union's `kind` with its own
+variant tag, which is the same in every union that names it.
+[[src/codegen/resource/module_owner.rs:module_leaf_kind]] The teardown
 `_mfb_module_resource_drain` pops each node and closes its record when the owner
 word is still the module token (a re-close of a closed or moved handle is the
 defined no-op); it reclaims no record or buffer, which go with the instance's

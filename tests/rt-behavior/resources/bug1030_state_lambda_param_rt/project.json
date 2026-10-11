@@ -1,0 +1,10 @@
+{
+  "name": "bug1030_state_lambda_param_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-1030: a LAMBDA parameter's STATE clause is part of its type and of the lambda's callable type: the body reads and (through a STATE parameter) updates the caller's state, with and without captures, at the top level and in a list.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

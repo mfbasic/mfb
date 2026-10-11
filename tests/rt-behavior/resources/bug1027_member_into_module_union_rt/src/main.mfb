@@ -1,0 +1,108 @@
+' bug-1027: `RES a AS fs::File = ...` followed by `gHs = collections::append(gHs,
+' a)`, with `gHs` a module-level `List OF RES Handle`, failed the build with
+'
+'   a resource of type 'fs.File' is stored into a module-level binding, but no
+'   module-level binding's type reaches that resource (bug-806)
+'
+' A `fs::File` is a member of `Handle`, so the store is legal, and binding the
+' same file `AS Handle` always built. A resource stored into a module-level
+' binding is handed to the module instance, which lists it under the resource
+' type its bindings can reach; the member was looked up under its own name and
+' only the union was there.
+'
+' Each store below puts a concrete file into a module-level slot typed by a
+' union: a list element, a map value, a record field, and a second union that
+' lists the same member at another position. Every stored file is then read
+' back through its union and written to, which fails if the function that
+' opened it closed it on the way out.
+IMPORT collections
+IMPORT fs
+IMPORT io
+IMPORT tcp
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+UNION Reversed
+  tcp::Socket
+  fs::File
+END UNION
+
+TYPE Box
+  h AS RES Handle
+END TYPE
+
+MUT handles AS List OF RES Handle = []
+MUT byKey AS Map OF Integer TO RES Handle = Map OF Integer TO RES Handle {}
+MUT boxes AS List OF Box = []
+MUT reversed AS List OF RES Reversed = []
+
+FUNC touch(h AS Handle) AS Integer
+  MATCH h
+    CASE fs::File(f)
+      fs::writeAll(f, "still open")
+      RETURN 1
+    CASE tcp::Socket(s)
+      RETURN 100
+  END MATCH
+  RETURN 1000
+END FUNC
+
+FUNC touchReversed(h AS Reversed) AS Integer
+  MATCH h
+    CASE fs::File(f)
+      fs::writeAll(f, "still open")
+      RETURN 1
+    CASE tcp::Socket(s)
+      RETURN 100
+  END MATCH
+  RETURN 1000
+END FUNC
+
+FUNC store(i AS Integer) AS Nothing
+  RES a AS fs::File = fs::createTempFile()
+  handles = collections::append(handles, a)
+  RES b AS fs::File = fs::createTempFile()
+  byKey = collections::set(byKey, i, b)
+  RES c AS fs::File = fs::createTempFile()
+  boxes = collections::append(boxes, Box[c])
+  IF i MOD 2 = 0 THEN
+    RETURN
+  END IF
+  RES d AS fs::File = fs::createTempFile()
+  reversed = collections::append(reversed, d)
+END FUNC
+
+FUNC main() AS Integer
+  FOR i = 1 TO 4
+    store(i)
+  NEXT
+  io::print("stored " & toString(len(handles)) & " " & toString(len(byKey)) & " " & toString(len(boxes)) & " " & toString(len(reversed)))
+
+  MUT total AS Integer = 0
+  FOR i = 0 TO len(handles) - 1
+    total = total + touch(collections::get(handles, i))
+  NEXT
+  io::print("list " & toString(total))
+
+  total = 0
+  FOR i = 1 TO 4
+    total = total + touch(collections::get(byKey, i))
+  NEXT
+  io::print("map " & toString(total))
+
+  total = 0
+  FOR EACH box IN boxes
+    total = total + touch(box.h)
+  NEXT
+  io::print("field " & toString(total))
+
+  total = 0
+  FOR i = 0 TO len(reversed) - 1
+    total = total + touchReversed(collections::get(reversed, i))
+  NEXT
+  io::print("reversed " & toString(total))
+  RETURN 0
+END FUNC

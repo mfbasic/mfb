@@ -436,6 +436,24 @@ close/reclamation distinction.
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_moved_resource_record_free]]
 [[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
 
+An **aggregate temporary its statement owns outright** (`./mfb spec language
+resource-management`, `len(mkList())`) is the bound form shrunk to one statement.
+When the call returns, the result is spilled to a `resource_temp` slot and every
+resource it reaches is pushed, adopting, onto a list of its leaf kind headed by a
+`resource_temp_owned` slot: an unowned record takes the current scope's token and
+gets a `{record, next}` node, a record that already has an owner is skipped. The
+slots are zero-initialized with the frame, so a path that never ran the producer
+drops nothing. At the end of the statement — and on each of its other exits, an
+error exit and a `RETURN` included — the lists are drained with the owning frees
+described next (close, then the buffers, `STATE` and record), and the result's own
+block is freed when the callee built it and no pending-temporary free already
+covers it (a `List OF RES T` is not freeable-flat and has none; a record or a list
+of records is, and has one). A record the receiving call raised to a longer-lived
+owner no longer holds this scope's token and is skipped by the drain.
+[[src/codegen/engine/value/builder_values.rs:adopt_exclusive_temp]]
+[[src/codegen/engine/value/builder_values.rs:emit_exclusive_temp_drop]]
+[[src/codegen/engine/builder/mod.rs:ExclusiveTemps]]
+
 A resource that **floats** into an owner collection (`./mfb spec language
 resource-management` §15.6) has no binding of its own left to drop, so its memory is
 reclaimed by that collection's owned-list drain instead. The drain always frees the

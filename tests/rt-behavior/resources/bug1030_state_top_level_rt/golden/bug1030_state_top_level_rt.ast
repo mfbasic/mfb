@@ -1,0 +1,156 @@
+{
+  "project": "bug1030_state_top_level_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 16 },
+    { "module": "io", "line": 17 },
+    { "module": "tcp", "line": 18 },
+    { "module": "thread", "line": 19 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Cur",
+      "line": 21,
+      "fields": [
+      { "visibility": null, "name": "n", "type": "Integer", "line": 22 },
+      { "visibility": null, "name": "label", "type": "String", "line": 23 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Stream",
+      "line": 26,
+      "includes": [],
+      "variants": [
+      { "name": "fs.File", "line": 27 },
+      { "name": "tcp.Socket", "line": 28 }
+      ]
+    },
+    { "kind": "binding", "visibility": "public", "mutable": false, "resource": true, "state": "Cur", "name": "plain", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 31 },
+    { "kind": "binding", "visibility": "public", "mutable": false, "resource": true, "state": "Cur", "name": "tagged", "type": "fs.File", "value": { "kind": "call", "callee": "openTagged", "arguments": [] }, "line": 32 },
+    { "kind": "binding", "visibility": "public", "mutable": false, "resource": true, "state": "Cur", "name": "stream", "type": "Stream", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 33 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "openTagged",
+      "line": 35,
+      "params": [
+      ],
+      "returnType": "fs.File", "returnResource": true, "returnState": "Cur",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cur", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 36 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "number", "value": "42" } }] }, "line": 37 },
+      { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "label", "value": { "kind": "string", "value": "tagged" } }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 39 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "bump",
+      "line": 42,
+      "params": [
+      { "name": "x", "type": "fs.File", "state": "Cur", "default": null, "line": 42 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "stateAssignment", "resource": "x", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "x" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "x" }, "member": "state" }, "member": "n" }, "right": { "kind": "number", "value": "10" } } }] }, "line": 43 },
+      { "kind": "stateAssignment", "resource": "x", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "x" }, "member": "state" }, "updates": [{ "field": "label", "value": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "x" }, "member": "state" }, "member": "label" }, "right": { "kind": "string", "value": "+" } } }] }, "line": 44 },
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "x" }, "member": "state" }, "member": "n" }, "line": 45 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "replace",
+      "line": 48,
+      "params": [
+      { "name": "x", "type": "fs.File", "state": "Cur", "default": null, "line": 48 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "stateAssignment", "resource": "x", "value": { "kind": "constructor", "type": "Cur", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "string", "value": "seven" }] }, "line": 49 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "bumpStream",
+      "line": 52,
+      "params": [
+      { "name": "x", "type": "Stream", "state": "Cur", "default": null, "line": 52 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "stateAssignment", "resource": "x", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "x" }, "member": "state" }, "updates": [{ "field": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "x" }, "member": "state" }, "member": "n" }, "right": { "kind": "number", "value": "3" } } }] }, "line": 53 },
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "x" }, "member": "state" }, "member": "n" }, "line": 54 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "opaque",
+      "line": 57,
+      "params": [
+      { "name": "x", "type": "fs.File", "default": null, "line": 57 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 58 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": true,
+      "name": "worker",
+      "line": 61,
+      "params": [
+      { "name": "w", "type": "ThreadWorker OF Integer TO Integer", "default": null, "line": 61 },
+      { "name": "n", "type": "Integer", "default": null, "line": 61 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "bump", "arguments": [{ "kind": "identifier", "value": "plain" }] }, "right": { "kind": "identifier", "value": "n" } }, "line": 63 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 66,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "plain " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "plain" }, "member": "state" }, "member": "n" }] } }, "right": { "kind": "string", "value": " [" } }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "plain" }, "member": "state" }, "member": "label" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bump " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "bump", "arguments": [{ "kind": "identifier", "value": "plain" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "bump", "arguments": [{ "kind": "identifier", "value": "plain" }] }] } }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "plain " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "plain" }, "member": "state" }, "member": "n" }] } }, "right": { "kind": "string", "value": " [" } }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "plain" }, "member": "state" }, "member": "label" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "replace", "arguments": [{ "kind": "identifier", "value": "plain" }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "replaced " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "plain" }, "member": "state" }, "member": "n" }] } }, "right": { "kind": "string", "value": " [" } }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "plain" }, "member": "state" }, "member": "label" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "opaque " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "opaque", "arguments": [{ "kind": "identifier", "value": "plain" }] }] } }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tagged " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "tagged" }, "member": "state" }, "member": "n" }] } }, "right": { "kind": "string", "value": " [" } }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "tagged" }, "member": "state" }, "member": "label" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tagged bump " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "bump", "arguments": [{ "kind": "identifier", "value": "tagged" }] }] } }, "right": { "kind": "string", "value": " [" } }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "tagged" }, "member": "state" }, "member": "label" } }, "right": { "kind": "string", "value": "]" } }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "stream " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "stream" }, "member": "state" }, "member": "n" }] } }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "stream bump " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "bumpStream", "arguments": [{ "kind": "identifier", "value": "stream" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "stream" }, "member": "state" }, "member": "n" }] } }] }, "line": 78 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": null, "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "worker" }, { "kind": "number", "value": "1" }] }, "line": 80 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "worker " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }] } }] }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "plain after worker " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "plain" }, "member": "state" }, "member": "n" }] } }] }, "line": 82 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 83 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "bug1030_state_top_level_only_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-1030: the bug's own reproduction. A top-level RES binding with a STATE clause is the program's only use of fs: its state reads through the binding, and the package called only from a top-level initializer is linked.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

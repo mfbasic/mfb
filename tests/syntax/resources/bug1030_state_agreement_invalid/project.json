@@ -1,0 +1,10 @@
+{
+  "name": "bug1030_state_agreement_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-1030: the STATE clause of a top-level RES binding and of a LAMBDA parameter binds like every other: a disagreeing initializer, argument or callable type is refused.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

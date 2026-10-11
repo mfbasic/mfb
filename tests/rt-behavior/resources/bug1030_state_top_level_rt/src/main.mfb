@@ -1,0 +1,84 @@
+' bug-1030: `RES g AS fs::File STATE Cur = ...` at the top level lost its STATE
+' clause, so `g.state` was refused with TYPE_STATE_INVALID ("has no STATE to
+' read") and `bump(g)` with TYPE_STATE_MISMATCH ("carries no STATE").
+'
+' The clause is part of the binding's type, as it is for a local binding:
+'
+'   plain    the module initializer default-initializes the state; it is read
+'            through the binding and updated through a `STATE Cur` parameter,
+'            one field and whole
+'   tagged   a stateful return's state is adopted, not re-initialized
+'   stream   a resource union carries a state the same way
+'   worker   each thread instance has its own `plain`, with its own state
+'
+' `bug1030_state_top_level_only_rt` is the bug's own reproduction, whose only
+' `fs` call is the top-level initializer.
+IMPORT fs
+IMPORT io
+IMPORT tcp
+IMPORT thread
+
+TYPE Cur
+  n AS Integer
+  label AS String
+END TYPE
+
+UNION Stream
+  fs::File
+  tcp::Socket
+END UNION
+
+RES plain AS fs::File STATE Cur = fs::createTempFile()
+RES tagged AS fs::File STATE Cur = openTagged()
+RES stream AS Stream STATE Cur = fs::createTempFile()
+
+FUNC openTagged() AS RES fs::File STATE Cur
+  RES f AS fs::File STATE Cur = fs::createTempFile()
+  f.state.n = 42
+  f.state.label = "tagged"
+  RETURN f
+END FUNC
+
+FUNC bump(x AS fs::File STATE Cur) AS Integer
+  x.state.n = x.state.n + 10
+  x.state.label = x.state.label & "+"
+  RETURN x.state.n
+END FUNC
+
+FUNC replace(x AS fs::File STATE Cur) AS Nothing
+  x.state = Cur[7, "seven"]
+END FUNC
+
+FUNC bumpStream(x AS Stream STATE Cur) AS Integer
+  x.state.n = x.state.n + 3
+  RETURN x.state.n
+END FUNC
+
+FUNC opaque(x AS fs::File) AS Integer
+  RETURN 1
+END FUNC
+
+ISOLATED FUNC worker(w AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
+  ' This instance's `plain` starts from its own default state.
+  RETURN bump(plain) + n
+END FUNC
+
+FUNC main() AS Integer
+  io::print("plain " & toString(plain.state.n) & " [" & plain.state.label & "]")
+  io::print("bump " & toString(bump(plain)) & " " & toString(bump(plain)))
+  io::print("plain " & toString(plain.state.n) & " [" & plain.state.label & "]")
+  replace(plain)
+  io::print("replaced " & toString(plain.state.n) & " [" & plain.state.label & "]")
+  io::print("opaque " & toString(opaque(plain)))
+
+  io::print("tagged " & toString(tagged.state.n) & " [" & tagged.state.label & "]")
+  io::print("tagged bump " & toString(bump(tagged)) & " [" & tagged.state.label & "]")
+
+  io::print("stream " & toString(stream.state.n))
+  io::print("stream bump " & toString(bumpStream(stream)) & " " & toString(stream.state.n))
+
+  RES t = thread::start(worker, 1)
+  io::print("worker " & toString(thread::waitFor(t)))
+  io::print("plain after worker " & toString(plain.state.n))
+  RETURN 0
+END FUNC

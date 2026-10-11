@@ -555,6 +555,17 @@ fn collect_diagnostics_with(
             // bug-1013: a top-level binding's `STATE` clause was the one a
             // function-local binding's check never reached.
             env.check_state_clauses(binding_type, &format!("binding `{}`", binding.name));
+            // bug-1030: the clause now rides in the binding's type and `g.state`
+            // reads the payload as that type, so it must agree with a state the
+            // initializer already carries, exactly as a local binding's must.
+            if binding_type.state().is_some() {
+                env.check_binding_state_agreement(
+                    &binding.name,
+                    binding_type,
+                    &binding.value,
+                    &HashMap::new(),
+                );
+            }
         }
         if binding.value.is_none() {
             if !binding.explicit_type {

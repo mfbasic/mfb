@@ -1,0 +1,233 @@
+{
+  "project": "bug1027_member_into_module_union_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 18 },
+    { "module": "fs", "line": 19 },
+    { "module": "io", "line": 20 },
+    { "module": "tcp", "line": 21 }
+    ],
+    "items": [
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Handle",
+      "line": 23,
+      "includes": [],
+      "variants": [
+      { "name": "fs.File", "line": 24 },
+      { "name": "tcp.Socket", "line": 25 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Reversed",
+      "line": 28,
+      "includes": [],
+      "variants": [
+      { "name": "tcp.Socket", "line": 29 },
+      { "name": "fs.File", "line": 30 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Box",
+      "line": 33,
+      "fields": [
+      { "visibility": null, "name": "h", "type": "RES Handle", "line": 34 }
+      ]
+    },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "handles", "type": "List OF RES Handle", "value": { "kind": "list", "values": [] }, "line": 37 },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "byKey", "type": "Map OF Integer TO RES Handle", "value": { "kind": "map", "keyType": "Integer", "valueType": "RES Handle", "entries": [] }, "line": 38 },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "boxes", "type": "List OF Box", "value": { "kind": "list", "values": [] }, "line": 39 },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "reversed", "type": "List OF RES Reversed", "value": { "kind": "list", "values": [] }, "line": 40 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "touch",
+      "line": 42,
+      "params": [
+      { "name": "h", "type": "Handle", "default": null, "line": 42 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "h" },
+        "line": 43,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "fs.File", "binding": "f" },
+          "guard": null,
+          "line": 44,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "still open" }] }, "line": 45 },
+          { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 46 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "tcp.Socket", "binding": "s" },
+          "guard": null,
+          "line": 47,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "100" }, "line": 48 }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "1000" }, "line": 50 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "touchReversed",
+      "line": 53,
+      "params": [
+      { "name": "h", "type": "Reversed", "default": null, "line": 53 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "h" },
+        "line": 54,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "fs.File", "binding": "f" },
+          "guard": null,
+          "line": 55,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "still open" }] }, "line": 56 },
+          { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 57 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "tcp.Socket", "binding": "s" },
+          "guard": null,
+          "line": 58,
+          "body": [
+          { "kind": "return", "value": { "kind": "number", "value": "100" }, "line": 59 }
+          ]
+        }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "1000" }, "line": 61 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "store",
+      "line": 64,
+      "params": [
+      { "name": "i", "type": "Integer", "default": null, "line": 64 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 65 },
+      { "kind": "assignment", "name": "handles", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "identifier", "value": "a" }] }, "line": 66 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 67 },
+      { "kind": "assignment", "name": "byKey", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "byKey" }, { "kind": "identifier", "value": "i" }, { "kind": "identifier", "value": "b" }] }, "line": 68 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "c", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 69 },
+      { "kind": "assignment", "name": "boxes", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "boxes" }, { "kind": "constructor", "type": "Box", "arguments": [{ "kind": "identifier", "value": "c" }] }] }, "line": 70 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "2" } }, "right": { "kind": "number", "value": "0" } },
+        "line": 71,
+        "then": [
+        { "kind": "return", "value": null, "line": 72 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "d", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 74 },
+      { "kind": "assignment", "name": "reversed", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "reversed" }, { "kind": "identifier", "value": "d" }] }, "line": 75 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 78,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "4" },
+        "step": null,
+        "line": 79,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "store", "arguments": [{ "kind": "identifier", "value": "i" }] }, "line": 80 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "stored " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "handles" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "byKey" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "boxes" }] }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "reversed" }] }] } }] }, "line": 82 },
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 84 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "handles" }] }, "right": { "kind": "number", "value": "1" } },
+        "step": null,
+        "line": 85,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "touch", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "identifier", "value": "i" }] }] } }, "line": 86 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "list " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] } }] }, "line": 88 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "number", "value": "0" }, "line": 90 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "1" },
+        "end": { "kind": "number", "value": "4" },
+        "step": null,
+        "line": 91,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "touch", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "byKey" }, { "kind": "identifier", "value": "i" }] }] } }, "line": 92 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "map " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] } }] }, "line": 94 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "number", "value": "0" }, "line": 96 },
+      {
+        "kind": "forEach",
+        "name": "box",
+        "iterable": { "kind": "identifier", "value": "boxes" },
+        "line": 97,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "touch", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "box" }, "member": "h" }] } }, "line": 98 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "field " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] } }] }, "line": 100 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "number", "value": "0" }, "line": 102 },
+      {
+        "kind": "for",
+        "name": "i",
+        "start": { "kind": "number", "value": "0" },
+        "end": { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "reversed" }] }, "right": { "kind": "number", "value": "1" } },
+        "step": null,
+        "line": 103,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "touchReversed", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "reversed" }, { "kind": "identifier", "value": "i" }] }] } }, "line": 104 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "reversed " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] } }] }, "line": 106 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 107 }
+      ]
+    }
+    ]
+  }
+  ]
+}

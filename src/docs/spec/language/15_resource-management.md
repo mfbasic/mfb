@@ -58,7 +58,31 @@ is itself passed on (`useList([mk()])`): at the end of its statement, every
 resource the value reaches that is still unowned and not already closed is closed,
 on every exit from the statement. One a binding, an adopting container, a global or
 a `RETURN` took by then has an owner and is left to it, so `RES k = ident(mk())`
-and `RETURN ident(mk())` keep theirs. An inline `TRAP` over a call that hands out
+and `RETURN ident(mk())` keep theirs.
+
+A call that returns an **aggregate** holding resources (a `List OF RES T`, a `Map`
+of them, a list of records with a `RES` field) is not such a producer in general:
+the aggregate may be a view of resources another owner holds, or may be kept by a
+value that outlives the statement. One position is settled, because nothing can
+keep the result there: a call to a function with a body, all of whose parameters
+are plain scalars, written directly as an argument of a call that does not keep
+that argument, does not consume it, is handed no callback that keeps it, and can
+only answer with a plain scalar — `len(mkList())`, `count(mkList())` for a `count`
+that only reads. The statement **adopts** what such a result reaches exactly as
+the binding `LET t = mkList()` would — every resource it reaches that is unowned
+is claimed at once — and at the end of the statement, on every exit from it,
+closes and reclaims each one it still owns. A resource the receiving call handed to
+a longer-lived owner (a module-level list) has that owner by then and is left
+open. A function whose every `RETURN` hands back a parameter or a module-level
+binding transfers nothing and is left alone, as is a result that reaches a resource
+union or a function value. [[src/codegen/engine/value/builder_values.rs:is_exclusive_aggregate_temp]] [[src/codegen/engine/value/builder_values.rs:adopt_exclusive_temp]] [[src/codegen/resource/cleanup/record_ownership.rs:call_takes_only_plain_scalars]] [[src/codegen/resource/cleanup/record_ownership.rs:call_returns_plain_scalar]]
+
+In every other position an aggregate-returning call is written in without being
+bound — a constructor argument (`Layer[items := mkItems()]`), the target of a
+member read (`mkLayer().items`), a `FOR EACH` iterable, an argument of a call
+that answers with anything but a plain scalar (`collections::get(mkList(), 0)`) —
+the resources the aggregate holds are closed by nothing. Bind the call first:
+`LET xs = mkList()` adopts them into the binding's scope. An inline `TRAP` over a call that hands out
 resources (`LET xs = mkList() TRAP … END TRAP`) adopts them into the binding's scope
 exactly as the plain call does. [[src/codegen/engine/value/builder_values.rs:register_resource_temp]] [[src/codegen/resource/owner.rs:emit_resource_temp_close]] [[src/codegen/resource/owner.rs:emit_claim_returned_value]] [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:trap_call_result_locals]]
 
@@ -174,7 +198,7 @@ A direct `RES` field prevents a record from being defaultable, so such a record 
 
 **`STATE` is attached to a resource, and to nothing else.** A `STATE` clause written on a type that is not a resource — `x AS Integer STATE Cur`, `RES n AS Integer STATE Cur`, a `List OF RES String STATE Cur` element — is rejected with `TYPE_STATE_REQUIRES_RESOURCE`, at the declaration. [[src/ir/verify/resources.rs:check_state_clauses]] [[src/ir/shape.rs:check_stray_state]] Only a type **positively known** to be data is refused: a name no declaration table can place may be another package's resource. [[src/ir/verify/resources.rs:state_host_is_data]]
 
-The two rules are checked at **every position a clause can be written**: a `RES` binding (local or top-level), a parameter (a lambda's included), a return, a record field, a collection element or map value, a thread's resource plane, a thread view's own `STATE` (§16), and a native `LINK` declaration's parameter and return (§17). [[src/ir/shape.rs:check_erased_state_type]] One clause reports **at most one** of the two, decided in this order:
+The two rules are checked at **every position a clause can be written**: a `RES` binding (local or top-level), a parameter (a lambda's included), a return, a record field, a collection element or map value, a thread's resource plane, a thread view's own `STATE` (§16), and a native `LINK` declaration's parameter and return (§17). A top-level binding's clause and a lambda parameter's ride in the lowered type like every other, so they are judged by the same walk. [[src/ir/lower.rs:top_level_binding_type]] [[src/ir/lower.rs:lambda_param_type]] One clause reports **at most one** of the two, decided in this order:
 
 1. `TYPE_STATE_REQUIRES_RESOURCE` — the clause's host is not a resource. The clause has nothing to attach to, so its type is **not examined**: `x AS Integer STATE Mode`, with `Mode` an `ENUM`, reports this rule only.
 2. `TYPE_STATE_INVALID` — the host is a resource and `T` is not a copyable, defaultable record `TYPE`.
@@ -217,6 +241,8 @@ Because a bare parameter is opaque rather than stateless, an opaque `STATE` may 
 The parameter row is what lets a close op accept a resource whatever state its owner attached — `FUNC close(db AS Db)` names no `STATE` and works for every `Db`, precisely because that alias never escapes to re-read `.state` under a new type.
 
 **Attachment happens exactly once, at the owning binding.** A parameter only observes: a `p AS fs::File STATE Cursor` parameter given an argument that carries no `Cursor`, or that carries some other state type, is rejected (`TYPE_STATE_MISMATCH`) [[src/rules/table.rs:TYPE_STATE_MISMATCH]] rather than attaching or re-typing one. The payload carries no runtime type tag, so its type is fixed by the binding that created it and every later declaration must agree.
+
+A **lambda's** parameter is a parameter like any other, and its clause rides in the lambda's callable type, which is the only description a call through a function value has: `LET j = LAMBDA(x AS fs::File STATE Cursor) -> x.state.pos` is a `FUNC(fs::File STATE Cursor) AS Integer`, and `j(f)` is checked for agreement exactly as a call of a declared `FUNC` is. [[src/ir/lower.rs:lambda_param_type]] [[src/ir/verify/calls.rs:check_call_argument_types]] A **top-level** `RES g AS fs::File STATE Cursor = …` is an owning binding: the module initializer default-initializes its state, `g.state` reads it from any function, and a `STATE Cursor` parameter given `g` observes and updates it. [[src/ir/lower.rs:top_level_binding_type]]
 
 Consequently a binding that wants only the handle must still restate the `STATE` its initializer carries; there is no owner-side opt-out. That restatement is the price of the bare return's "no state" promise, which a later `STATE T` binding relies on when it attaches.
 

@@ -3429,6 +3429,18 @@ impl CodeBuilder<'_> {
                         if walk_after {
                             self.emit_module_float_global(name)?;
                         }
+                        // bug-1030: a module-level `RES g AS T STATE S` owns its
+                        // state as a local owner does, so the store
+                        // default-initializes the payload the same way (a
+                        // resource that arrives carrying one keeps it).
+                        let declared = self.global_value(name)?.type_.clone();
+                        if let Some(state_type) = declared.state() {
+                            let address = self.load_global_address(name)?;
+                            let stored = self.allocate_register();
+                            self.emit(abi::load_u64(stored, address, 0));
+                            let slot = self.spill_to_slot("module_state_init", stored);
+                            self.emit_resource_state_init(slot, &state_type, &declared)?;
+                        }
                     }
                     NirOp::Assign { name, value } => {
                         // bug-689: an element-bound binding's update, its write-back

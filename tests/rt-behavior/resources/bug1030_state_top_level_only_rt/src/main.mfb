@@ -1,0 +1,21 @@
+' bug-1030, the reproduction as filed. Two things were wrong with it:
+'
+'   * `g.state.n` was refused with TYPE_STATE_INVALID ("has no STATE to read"):
+'     the top-level binding's STATE clause was dropped;
+'   * with the clause carried, the build then failed with "NIR runtime call
+'     requires undeclared helper 'fs'": the only call into `fs` is the
+'     top-level initializer, and a package called only from one was not linked.
+'     `RES g AS fs::File = fs::createTempFile()` with no STATE failed the same
+'     way, so `h` is here too.
+IMPORT io
+IMPORT fs
+TYPE Cur
+  n AS Integer
+END TYPE
+
+RES g AS fs::File STATE Cur = fs::createTempFile()
+RES h AS fs::File = fs::createTempFile()
+FUNC main AS Integer
+  io::print(toString(g.state.n))
+  RETURN 0
+END FUNC
