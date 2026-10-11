@@ -86,14 +86,17 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [x] 1001, 1000, 992, 984: leaks (union-drop I/O buffers; owned-list drain; `graphemesCount`/`graphemeAt`/`fromScalars`/`normalizeNfc`; macOS TLS listener)
 [x] 1016 (canvas name collision), 1020 (`reduce` returned the seed block): found and fixed during the batch
 
-**P2c: next batch (NOT started; waiting for the owner's go. bs18-agent-l's partial 1013/998 work is parked, uncommitted, in `.claude/worktrees/bs18-agent-l`)**
-[ ] 1013 (HIGH) + 998: the two STATE rules (a STATE must be a record → `TYPE_STATE_INVALID`; STATE only on a resource → `TYPE_STATE_REQUIRES_RESOURCE`). Census done: nothing that works today uses a non-record STATE.
+**P2c: STATE rules and the resource-union box** (NOT started; waiting for the owner's go; 4 bugs, list fixed when it starts)
+[ ] 1013 (HIGH): a STATE must be a record (`TYPE_STATE_INVALID` everywhere a STATE clause can appear). Census done: nothing that works today uses a non-record STATE. bs18-agent-l's partial work is parked, uncommitted, in `.claude/worktrees/bs18-agent-l`.
+[ ] 998: STATE only on a resource (new rule `TYPE_STATE_REQUIRES_RESOURCE`); same agent as 1013
 [ ] 1012 (HIGH): a resource-union box has no owner outside a binding (use-after-free exit 139; double free of a returned `List OF RES Union`)
-[ ] 999: an inline aggregate of resources is never closed. A first fix was reverted out of batch 18 (it closed resources a bound record still named; SIGSEGV in `rt_canvas_geo_native`). Needs an ownership decision: adopt at every bind/assign/store/RETURN, or require the call to be bound first.
-[ ] 1018: a `List OF RES fs::File` given as `List OF RES Handle` is not converted (blocked on 999 and 1012)
 [ ] 1019: a collection temporary passed through a generic function leaks 144 B
+
+**P2d: resource aggregates, templates, package format** (after P2c; 4 bugs)
+[ ] 999: an inline aggregate of resources is never closed. A first fix was reverted out of batch 18 (it closed resources a bound record still named). NEEDS AN OWNER DECISION before it starts: adopt at every bind/assign/store/RETURN, or require the call to be bound first.
+[ ] 1018: a `List OF RES fs::File` given as `List OF RES Handle` is not converted (needs 999 here and 1012 from P2c)
+[ ] 1022: template calls (`collections::merge`, user `FUNC f OF T`) reject a variant for their union; make them follow the builtin rules
 [ ] 856: remove the `.mfp` cleanup table + `FUNCTION_TABLE` cleanup fields (format bump); derive the secondary-close audit
-[ ] Template unifier: `collections::merge(shapeMap, squareMap)` and user templates (`pick(aSquare, shapes)`) still reject a variant for its union in every order; consistent-with-`append` rule not yet applied (reported by agent J; not filed yet)
 
 Into existing phases:
 [ ] P3: 986 (HEAD waits for EOF; owner decided: `method` field on `http::PendingState`)
