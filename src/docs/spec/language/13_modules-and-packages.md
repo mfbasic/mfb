@@ -12,7 +12,17 @@ Visibility (default is `PUBLIC`): [[src/ast/types.rs:Visibility]]
   name without colliding (the compiler renames each to a file-unique internal name
   before resolution). Where a file's own `PRIVATE` declaration shares a name with a
   project `PUBLIC` declaration, the `PRIVATE` one wins *within that file* and the
-  compiler emits a `PRIVATE_SHADOWS_PUBLIC` warning.
+  compiler emits a `PRIVATE_SHADOWS_PUBLIC` warning. A `PRIVATE FUNC` beside a
+  `PUBLIC`/`EXPORT FUNC` of the same name **in the same file** is an overload of it,
+  not a replacement: only the `PRIVATE` declaration is file-local, the
+  `PUBLIC`/`EXPORT` one stays visible to the other files (and, for an `EXPORT`, in
+  the package's export table) under its own name, and a call inside the file
+  selects among all of the file's own declarations of the name by the ordinary
+  overload rule (`./mfb spec language functions`). The same signature twice in one
+  file is `SYMBOL_DUPLICATE_TOP_LEVEL` whatever the two visibilities are. Another
+  file's `PUBLIC` declarations of the name stay hidden inside a file that declares
+  it `PRIVATE`. [[src/ast/scope_privates.rs:scope_privates]]
+  [[src/resolver/mod.rs:insert_function]]
 - `PUBLIC` (default) — visible to all files in the same package, hidden from importers.
 - `EXPORT` — visible to importers. `EXPORT` is the flag that writes a symbol into
   the compiled `.mfp` public API, so it is **valid only in a `kind: "package"`

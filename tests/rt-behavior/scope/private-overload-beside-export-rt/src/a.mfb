@@ -1,0 +1,23 @@
+' PUBLIC `r(Integer)` and PRIVATE `r(String)` are one overload set inside this
+' file; only the PRIVATE one is file-local.
+FUNC r(x AS Integer) AS String
+  RETURN "int" & r("s")
+END FUNC
+
+PRIVATE FUNC r(x AS String) AS String
+  RETURN "str"
+END FUNC
+
+' Same-named PRIVATE helpers in two files never collide (b.mfb has its own).
+PRIVATE FUNC helper() AS String
+  RETURN "helper-a"
+END FUNC
+
+' A PRIVATE that hides b.mfb's PUBLIC `tag` inside this file only.
+PRIVATE FUNC tag() AS String
+  RETURN "tag-private-a"
+END FUNC
+
+FUNC fromA() AS String
+  RETURN helper() & " " & tag() & " " & r(2) & " " & r("x")
+END FUNC

@@ -168,7 +168,6 @@ in this phase.
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 911    | HIGH     | a user template declared outside the first source file is instantiated in the first file's scope |
-| [ ]  | 912    | HIGH     | a `PRIVATE` overload renames every same-named declaration in its file (do first in this area) |
 | [ ]  | 833    | MED      | a parameter of user-template type (`Stack OF T`, `Pair OF A, B`) cannot be followed by another parameter |
 | [ ]  | 913    | MED      | two template FUNCs sharing a name (or a template and a plain FUNC) — the earlier declaration is silently discarded, calls bind to the wrong body |
 | [ ]  | 914    | MED      | the same import alias bound to different packages in two files breaks imported-overload resolution (`TYPE_UNKNOWN_VALUE`), depending on file sort order |

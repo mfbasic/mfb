@@ -1,0 +1,9 @@
+{
+  "name": "privovl_pkg",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "bug-912: the dependency consumed by `../../` -- an EXPORT function beside a PRIVATE overload of the same name, and a return-type EXPORT overload set beside a PRIVATE member.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "targets": ["native"]
+}

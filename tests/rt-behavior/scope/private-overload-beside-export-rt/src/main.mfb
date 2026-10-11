@@ -1,0 +1,12 @@
+IMPORT io
+IMPORT privovl_pkg
+
+FUNC main AS Integer
+  io::print(r(1))
+  io::print(fromA())
+  io::print(fromB())
+  io::print(tag())
+  io::print(privovl_pkg::r(1))
+  io::print(privovl_pkg::pickAll())
+  RETURN 0
+END FUNC

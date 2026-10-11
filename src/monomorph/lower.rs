@@ -112,8 +112,50 @@ impl<'a> Monomorphizer<'a> {
             }
         }
 
-        for functions in function_overloads.values() {
-            for function in functions {
+        // bug-912: a file's PRIVATE `FUNC f` is file-scoped to `#<hash>$f`
+        // (`ast::scope_privates`), and so is every reference to `f` inside that
+        // file, while the file's own PUBLIC/EXPORT `FUNC f` keeps its name. Inside
+        // the file they are one overload set, so the file-scoped name's set gains
+        // the same-file siblings. The set a bare `f` names from any OTHER file is
+        // untouched: it never holds a PRIVATE member.
+        let mut template_views: HashMap<String, String> = HashMap::new();
+        for file in source.files.iter().filter(|file| !file.internal) {
+            let scoped: HashMap<&str, &str> = file
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    HirItem::Function(function) => {
+                        crate::internal_name::private_name_parts(&function.name)
+                            .map(|(_, plain)| (plain, function.name.as_str()))
+                    }
+                    _ => None,
+                })
+                .collect();
+            if scoped.is_empty() {
+                continue;
+            }
+            for item in &file.items {
+                let HirItem::Function(function) = item else {
+                    continue;
+                };
+                let Some(scoped_name) = scoped.get(function.name.as_str()) else {
+                    continue;
+                };
+                if function.template_params.is_empty() {
+                    function_overloads
+                        .entry(scoped_name.to_string())
+                        .or_default()
+                        .push(function.clone());
+                } else if !function_templates.contains_key(*scoped_name) {
+                    template_views.insert(scoped_name.to_string(), function.name.clone());
+                }
+            }
+        }
+
+        for (set_name, functions) in &function_overloads {
+            // A same-file sibling added above is named, and has its symbol
+            // decided, by its own set.
+            for function in functions.iter().filter(|member| member.name == *set_name) {
                 // A user `FUNC` whose name is an overridable general built-in is
                 // always force-mangled so its codegen symbol never equals the
                 // built-in dispatch name (plan-01-overload.md §C Phase 5.1).
@@ -174,6 +216,7 @@ impl<'a> Monomorphizer<'a> {
             imported_enums: collect_imported_enums(project_dir, source),
             concrete_functions,
             function_overloads,
+            template_views,
             overload_names,
             imported_overloads,
             package_qualifiers,
@@ -778,7 +821,10 @@ impl<'a> Monomorphizer<'a> {
         {
             return None;
         }
-        let params = &self.function_templates.get(callee)?.params;
+        let params = &self
+            .function_templates
+            .get(self.template_name(callee))?
+            .params;
         let mut ordered: Vec<Option<ParameterType>> = vec![None; params.len()];
         let mut next_positional = 0usize;
         for (index, argument) in arguments.iter().enumerate() {
@@ -844,6 +890,7 @@ impl<'a> Monomorphizer<'a> {
         arg_types: &[ParameterType],
         line: usize,
     ) -> Option<String> {
+        let name = &self.template_name(name).to_string();
         let template = self.function_templates.get(name)?.clone();
         // Internal generic implementations (e.g. `collections::sort`) carry the
         // untypeable sigil. bug-642: name the member the user called
@@ -1036,7 +1083,7 @@ impl<'a> Monomorphizer<'a> {
         }
         let candidates = self.function_overloads.get(name)?;
         if candidates.len() <= 1 {
-            return None;
+            return self.sole_file_sibling(name);
         }
         let param_matches = candidates
             .iter()
@@ -1073,11 +1120,41 @@ impl<'a> Monomorphizer<'a> {
                 }
             }
         };
+        // Keyed by the member's own name: a file-scoped set also holds the
+        // file's PUBLIC/EXPORT siblings, which are declared under the bare name.
         self.overload_names
             .get(&overload_key(
-                name,
+                &chosen.name,
                 &chosen.params,
                 opt_type_name(&chosen.returns).as_deref(),
+            ))
+            .cloned()
+    }
+
+    /// The template `name` denotes: itself, or — for a file-scoped PRIVATE name
+    /// with no template of its own — the same file's PUBLIC/EXPORT template of
+    /// that name (bug-912), which is instantiated under its own name.
+    fn template_name<'n>(&'n self, name: &'n str) -> &'n str {
+        self.template_views.get(name).map_or(name, String::as_str)
+    }
+
+    /// The concrete symbol of the one function a file-scoped PRIVATE name
+    /// denotes when that function is the same file's PUBLIC/EXPORT declaration
+    /// (bug-912) — the name's PRIVATE declaration being a template, which is
+    /// tried first. `None` for any other name: a set of one that is declared
+    /// under the name itself needs no rewrite.
+    fn sole_file_sibling(&self, name: &str) -> Option<String> {
+        let [only] = self.function_overloads.get(name)?.as_slice() else {
+            return None;
+        };
+        if only.name == name {
+            return None;
+        }
+        self.overload_names
+            .get(&overload_key(
+                &only.name,
+                &only.params,
+                opt_type_name(&only.returns).as_deref(),
             ))
             .cloned()
     }
@@ -1123,7 +1200,7 @@ impl<'a> Monomorphizer<'a> {
                     return self.resolve_builtin_override_reference(name, expected, substitutions);
                 }
                 if candidates.len() <= 1 {
-                    return None;
+                    return self.sole_file_sibling(name);
                 }
                 let members = candidates
                     .iter()
@@ -4183,5 +4260,68 @@ END FUNC
         let project = monomorphize(src).expect("monomorphizes");
         let names = function_names(&project);
         assert!(names.iter().any(|n| n == "wrap$Integer"), "{names:?}");
+    }
+
+    /// The callee of the call a function's first statement returns.
+    fn returned_callee(function: &crate::hir::HirFunction) -> String {
+        match &function.body[0] {
+            crate::hir::HirStatement::Return {
+                value: Some(crate::hir::HirExpression::Call { callee, .. }),
+                ..
+            } => callee.clone(),
+            other => panic!("expected `RETURN <call>`, found {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_private_overload_is_one_set_with_its_files_public_sibling() {
+        // bug-912: `a.mfb` declares a PUBLIC `r(Integer)` and a PRIVATE
+        // `r(String)`. Only the PRIVATE one is file-scoped; the PUBLIC one keeps
+        // the symbol `r` that `main.mfb` calls. Inside `a.mfb` both are reachable
+        // through the file-scoped name, selected by argument type.
+        let files = [
+            (
+                "src/a.mfb",
+                "\
+FUNC r(x AS Integer) AS String
+  RETURN r(\"s\")
+END FUNC
+PRIVATE FUNC r(x AS String) AS String
+  RETURN r(1)
+END FUNC
+",
+            ),
+            (
+                "src/main.mfb",
+                "\
+FUNC main() AS String
+  RETURN r(1)
+END FUNC
+",
+            ),
+        ];
+        let mut ast = project(&files);
+        crate::ast::scope_privates::scope_privates(&mut ast);
+        let project = crate::testutil::silence_panics(|| {
+            super::super::monomorphize_project(&std::env::temp_dir(), &crate::hir::elaborate(&ast))
+        })
+        .expect("monomorphizes");
+        let scoped = format!(
+            "{}$String",
+            crate::internal_name::mangle_private(
+                &crate::internal_name::file_scope_hash("src/a.mfb"),
+                "r"
+            )
+        );
+        let functions = functions(&project);
+        let function = |name: &str| {
+            *functions
+                .iter()
+                .find(|function| function.name == name)
+                .unwrap_or_else(|| panic!("no function `{name}` in {:?}", function_names(&project)))
+        };
+        assert_eq!(returned_callee(function("r")), scoped);
+        assert_eq!(returned_callee(function(&scoped)), "r");
+        assert_eq!(returned_callee(function("main")), "r");
     }
 }

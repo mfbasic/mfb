@@ -72,6 +72,25 @@ so its symbol cannot equal an export's. Intra-package calls are unaffected: they
 resolve through `overload_names`, which maps each declaration to the symbol it was
 given. [[src/monomorph/lower.rs:Monomorphizer::new]]
 
+**A `PRIVATE` member's set is its file's.** File-private scoping renames a `PRIVATE
+FUNC f` to `#<hash>$f`, and every reference to `f` inside that file with it, but
+leaves the file's own `PUBLIC`/`EXPORT FUNC f` declarations named `f`.
+[[src/ast/scope_privates.rs:scope_privates]] The overload set of the file-scoped
+name is therefore built as the `PRIVATE` declarations plus those same-file
+siblings, each keeping the name it was declared under: a call inside the file
+selects among all of them and is rewritten to the chosen member's own symbol,
+while the set a bare `f` names from any other file never holds a `PRIVATE`
+member. A `PRIVATE` member counts that whole file-scoped set, so it is mangled
+(`#<hash>$f$String`) whenever a same-file sibling exists; the `PUBLIC`/`EXPORT`
+siblings are counted and named by the bare name's set alone, so a `PRIVATE`
+helper never renames them — `EXPORT r(Integer)` beside `PRIVATE r(String)` is
+exported as `r`. When the file's `PRIVATE f` is a template and its `PUBLIC f` is
+not (or the reverse), the file-scoped name reaches the `PUBLIC` declaration too,
+instantiated or called under its own name.
+[[src/monomorph/lower.rs:Monomorphizer::new]]
+[[src/monomorph/lower.rs:resolve_overload]]
+[[src/monomorph/lower.rs:template_name]]
+
 Imported-overload resolution recovers base names by **splitting on `$`** — it
 groups a package's exported `Func`/`Sub` symbols by the substring before the
 first `$`. [[src/monomorph/helpers.rs:collect_imported_overloads]]
