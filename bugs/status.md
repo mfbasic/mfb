@@ -16,14 +16,6 @@ Check that every open bug has exactly one row:
 python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.glob('bugs/bug-*.md')];b=re.findall(r'^\|\s*\[.\]\s*\|\s*(\d+)\s',open('bugs/status.md').read(),re.M);print(len(a),sorted(set(a)^set(b))+[n for n in set(b) if b.count(n)>1])"
 ```
 
-## Running phase: batch 20 (`bug-staging-20`)
-
-The list is fixed: the seven open documents whose `Severity:` line is HIGH. Nothing is
-added to it; a bug found while it runs gets a row in its area table and waits.
-
-1026, 912, 911, 860, 979, 688, 765 (912 before 911; 765 after 688; 688 and 765 are
-performance work and run alone).
-
 ## Resources and STATE
 
 | Done | Number | Priority | Description |
