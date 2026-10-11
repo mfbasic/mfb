@@ -271,20 +271,35 @@ Acceptance: an `AutoPaint` renders as its shape, with every existing golden unch
   (`syntax/app/app-mouse-surface`, `syntax/resources/loop-body-resource-reference-valid`).
   One was inspected: the `.ir` moved by its `"line"` numbers and gained 17 mentions of
   `AutoPaint`. Resynced, and the gate reads "2322 golden(s) checked, 0 diff(s)".
-Commit: —
+Commit: 05ad40a54
 
 ### Phase 2 — The state machine, as a pure function
 
-- [ ] New `helper_autopaint.rs`: `__canvas_autoStep(state, deadline, pressOwner, inside,
+- [x] New `helper_autopaint.rs`: `__canvas_autoStep(state, deadline, pressOwner, inside,
       buttons, wasButtons, flags, now)` returning the next state and deadline. No
-      globals, no drawing.
-- [ ] Unit cases beside it, one per rule in §1: priority order; each unused state's
+      globals, no drawing. The signature is the one written here. It answers one
+      Integer — the phase, whether the instance owns the press, the paint shown, and
+      whether a window started — and `__canvas_autoDeadline(packed, deadline, now,
+      window)` gives the window's end, because a deadline is a clock reading and does
+      not pack (Corrections). The chunk is gated on the program constructing an
+      `AutoPaint`: `grep -c canvas_autoStep` is 1 in the `.ir` of a program that builds
+      one and 0 in `tests/syntax/app/app-mouse-surface/golden/app_mouse_surface.ir`.
+- [x] Unit cases beside it, one per rule in §1: priority order; each unused state's
       fall-through; enter expiring to hover at 50 ms; exit expiring to default;
       re-entry during exit; leaving during enter; a press begun inside, dragged out and
-      back; a press begun outside and dragged in.
+      back; a press begun outside and dragged in. Thirteen tests in
+      `tests/canvas/rt_canvas_auto_step.rs` (Corrections: not in `--bin mfb`): those
+      eleven rules — the fall-through is four tests, one per state — plus "any button
+      presses" and "a flag turned off ends its window". Each expected string was
+      worked out by hand from the rule before the first run, and all thirteen passed on
+      it.
 
 Acceptance: every rule in "AutoPaint states" has a passing case named for it.
-  Check: `cargo test --bin mfb canvas_auto_step` → pass (est. 4 min).
+  Check: `cargo test --test rt_canvas_auto_step` → pass (est. 4 min; the plan wrote
+  `cargo test --bin mfb canvas_auto_step`, see Corrections).
+  Observed 2026-10-11: "13 passed; 0 failed". `cargo test --bin mfb
+  a_constructed_record_opens` → "1 passed"; `scripts/artifact-gate.sh
+  target/release/mfb all` → "2322 golden(s) checked, 0 diff(s)".
 Commit: —
 
 ### Phase 3 — Resolution on the graphics thread, and the two triggers
@@ -380,6 +395,37 @@ Commit: —
    the owner's words.
 
 ## Corrections
+
+- **Phase 2's cases are an integration test, not `--bin mfb` unit tests (2026-10-11).**
+  `__canvas_autoStep` is MFBASIC, and a `--bin mfb` test cannot run MFBASIC: every
+  test beside a canvas helper reads its text. So the cases are
+  `tests/canvas/rt_canvas_auto_step.rs`, which reads `AUTO_STEP` out of
+  `helper_autopaint.rs`, compiles that text behind a twenty-line driver and runs it.
+  The check is `cargo test --test rt_canvas_auto_step`. What it proves is stronger than
+  the plan asked: the rules are executed, not matched against a pattern.
+- **`__canvas_autoStep` returns one packed Integer, and the deadline comes from a
+  second function (2026-10-11).** "Returning the next state and deadline" needs two
+  values; a list would be an allocation per instance per frame, and a deadline is a
+  monotonic-clock reading in nanoseconds that does not fit beside anything else in 63
+  bits. So the step says whether a window STARTED, and `__canvas_autoDeadline` turns
+  that into `now + window` or keeps the deadline it was handed. The window is a
+  parameter of that function, not a constant inside it, so a `--debug` build can
+  stretch it for a test that has to photograph a flash (Phase 3).
+- **Press ownership is per instance, not one key in the table (2026-10-11).** §3 says
+  the table holds "the key that owns the current press". Each instance keeps one bit
+  instead — it owned the press if the first button went down while it was the topmost
+  item under the pointer — which is the same fact, needs no key comparison, and keeps
+  `__canvas_autoStep` a function of one instance's own state.
+- **Two new `HelperGate`s (2026-10-11).** `WhenUsed` gates on a CALL, and an
+  `AutoPaint` is a value, not a call. `WhenUsedOrConstructed(calls, records)` opens a
+  chunk when the program constructs one of the records (or calls one of the names);
+  `WhenNotConstructed(records)` is its complement, for the bodies the unconditional
+  source calls when the chunk is absent (first used in Phase 3). `ProjectView` collects
+  constructed record names beside callees, from the AST and from HIR. A program can
+  hold a record only by constructing it, so the gate cannot under-match within one
+  compilation. Whether a PRECOMPILED `.mfp` that constructs an `AutoPaint` opens the
+  gate of the program that imports it is a guess (not tested) — as it is for every
+  `WhenUsed` gate that exists today.
 
 - **The four paint fields are `enterPaint`, `exitPaint`, `hoverPaint`, `pressedPaint`
   (2026-10-11) — NEEDS THE OWNER'S CONFIRMATION.** `planning/new_canvas.md` names them

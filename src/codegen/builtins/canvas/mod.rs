@@ -84,6 +84,7 @@ mod gen_system_fonts_linux;
 mod gen_system_fonts_macos;
 mod gen_system_fonts_shared;
 mod gen_system_fonts_windows;
+mod helper_autopaint;
 mod helper_clamp_byte;
 mod helper_color;
 mod helper_damage;
@@ -1829,6 +1830,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_items::register(&mut pkg);
     helper_surface::register(&mut pkg);
     helper_hit::register(&mut pkg);
+    helper_autopaint::register(&mut pkg);
     helper_render::register(&mut pkg);
 
     r.add_package(pkg);

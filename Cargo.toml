@@ -349,6 +349,10 @@ name = "rt_canvas_autopaint"
 path = "tests/canvas/rt_canvas_autopaint.rs"
 
 [[test]]
+name = "rt_canvas_auto_step"
+path = "tests/canvas/rt_canvas_auto_step.rs"
+
+[[test]]
 name = "rt_canvas_picture"
 path = "tests/canvas/rt_canvas_picture.rs"
 
