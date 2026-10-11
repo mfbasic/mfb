@@ -418,7 +418,11 @@ impl CodeBuilder<'_> {
         // moves to the caller as-is. Reporting it standalone keeps the exit from
         // re-materializing a copy and orphaning the original 16 B box.
         if self.returned_resource_union_owns_box(value) {
-            return Ok((self.lower_value(value)?, true));
+            let lowered = self.lower_value(value)?;
+            // bug-1012: a box this statement made (a wrap, a call's result) is a
+            // pending temporary; the caller owns it from here.
+            self.claim_union_box_temp(&lowered);
+            return Ok((lowered, true));
         }
         if self.value_needs_owning_copy(value) {
             let lowered = self.lower_value(value)?;

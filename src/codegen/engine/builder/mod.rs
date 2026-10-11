@@ -1255,6 +1255,12 @@ pub(crate) struct PendingTemp {
     /// already closed) instead of freeing a block (`emit_resource_temp_close`); its
     /// identity token is a register no owner names, so no claim can take it.
     pub(crate) resource: bool,
+    /// bug-1012: a resource-union `{tag, record-ptr}` box this statement made — a
+    /// union wrap, or the box a called function handed back — that no binding,
+    /// `RETURN` or module-level store took. Its drop frees the 16-byte box and
+    /// nothing else: the record it names has its own owner, or is a resource
+    /// temporary (`resource`) with an entry of its own.
+    pub(crate) union_box: bool,
 }
 
 /// bug-781: one capturing `LAMBDA`'s environment, as its routine copies and drops
@@ -1285,10 +1291,11 @@ pub(crate) enum ClosureEnvWord {
     /// address, a resource or thread handle.
     Plain,
     /// bug-843: a captured resource union. A union value is a 16-byte
-    /// `{tag@0, record@8}` box owned by the binding that wrapped it and freed at that
-    /// binding's scope exit whoever owns the record, so the environment holds its
-    /// own copy of the box: copied with the environment, freed with it, and never
-    /// closed through (the record belongs to its own, possibly raised, scope).
+    /// `{tag@0, record@8}` box owned by the binding or statement that made it and
+    /// freed at that owner's end whoever owns the record (bug-1012), so the
+    /// environment holds its own copy of the box: copied with the environment,
+    /// freed with it, and never closed through (the record belongs to its own,
+    /// possibly raised, scope).
     ResourceUnionBox,
 }
 

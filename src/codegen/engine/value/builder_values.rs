@@ -222,6 +222,9 @@ impl CodeBuilder<'_> {
             if !placed_in_record_temp {
                 self.register_pending_temp(value, result, fresh_string);
             }
+            // bug-1012: a resource-union box this node made belongs to its
+            // statement until a binding, a `RETURN` or a module-level store takes it.
+            self.register_union_box_temp(value, result);
             // bug-842: a producer call's resources that this node's consumer does not
             // take are closed at the end of the statement. The root of a binding, an
             // assignment, a module-level store, an `Eval` or a `RETURN` is taken by
@@ -290,7 +293,104 @@ impl CodeBuilder<'_> {
             location: result.location.clone(),
             shallow: false,
             resource: false,
+            union_box: false,
         });
+    }
+
+    /// bug-1012: whether lowering `value` yields a resource-union `{tag, record-ptr}`
+    /// box that is a fresh 16-byte arena block nothing else holds.
+    ///
+    /// Two producers make one. A union wrap of a resource variant allocates it. A
+    /// call to a function in this program whose declared return is a resource
+    /// union hands one back: its `RETURN` either moves out a box that function
+    /// alone owned (`returned_resource_union_owns_box`) or copies the value into a
+    /// new block (`store_pending_success_result`, for a parameter, a field, an
+    /// element), so the caller is the box's only holder either way.
+    ///
+    /// Everything else is a view of a box someone else keeps — a local, a field
+    /// (the record holds the box inline), a `collections::get` element (so does the
+    /// list), a capture — or a call this cannot read (a builtin, a call through a
+    /// function value), which answers `false` and keeps today's behaviour.
+    pub(crate) fn value_yields_fresh_union_box(
+        &self,
+        value: &NirValue,
+        type_: &ParameterType,
+    ) -> bool {
+        if !self.is_resource_union_type(type_) {
+            return false;
+        }
+        match value {
+            NirValue::UnionWrap { member_type, .. } => self.is_resource_nominal(member_type),
+            NirValue::Call { target, .. } => {
+                !self.locals.contains_key(target)
+                    && self
+                        .functions
+                        .get(target.as_str())
+                        .is_some_and(|f| self.resource_union_cleanup(&f.returns).is_some())
+            }
+            _ => false,
+        }
+    }
+
+    /// bug-1012: register the resource-union box `value` just made as a
+    /// statement-scope temporary.
+    ///
+    /// A box used to have an owner only when a binding took it. One made for a
+    /// call argument, a collection element or a record field was never freed —
+    /// 16 B per evaluation. Every holder that outlives the statement copies the
+    /// box's two words (a collection element and a record field hold them inline,
+    /// an owned-list node and a closure environment keep their own copy), so
+    /// nothing reads the box after its statement and the statement frees it.
+    ///
+    /// An owning consumer takes it first, exactly as it takes a fresh flat block:
+    /// a binding, an assignment or a module-level store through
+    /// [`Self::lower_value_owned`]'s claim, a `RETURN` through
+    /// [`Self::claim_union_box_temp`]. The slot joins the prologue zero-init, and
+    /// the free null-guards and nulls it, so a producer a path skipped (a
+    /// short-circuited operand, an earlier loop iteration) frees nothing.
+    fn register_union_box_temp(&mut self, value: &NirValue, result: &ValueResult) {
+        if self.borrow_get_result || !self.value_yields_fresh_union_box(value, &result.type_) {
+            return;
+        }
+        let slot = self.allocate_stack_object("union_box_temp", 8);
+        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
+        self.owned_value_slots.push(slot);
+        self.pending_temp_frees.push(PendingTemp {
+            type_: result.type_.clone(),
+            slot,
+            location: result.location.clone(),
+            shallow: false,
+            resource: false,
+            union_box: true,
+        });
+    }
+
+    /// bug-1012: a consumer that keeps `result`'s box by pointer past the statement
+    /// takes it over. Unlike [`Self::claim_pending_temp`] this looks past the
+    /// entries registered after the box's own (the resource temporary of the call
+    /// that produced it), because a box temp's identity token is unique to it.
+    pub(crate) fn claim_union_box_temp(&mut self, result: &ValueResult) {
+        if let Some(index) = self
+            .pending_temp_frees
+            .iter()
+            .rposition(|temp| temp.union_box && temp.location == result.location)
+        {
+            self.pending_temp_frees.remove(index);
+        }
+    }
+
+    /// bug-1012: free the 16-byte box in `slot` when it holds one, and null it.
+    pub(crate) fn emit_union_box_free(&mut self, slot: usize) {
+        let done = self.label("union_box_free_done");
+        let block = self.temporary_vreg();
+        self.emit(abi::load_u64(block, abi::stack_pointer(), slot));
+        self.emit(abi::compare_immediate(block, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit(abi::move_register(abi::c_arg(0), block));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
+        self.emit_arena_free_call();
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
+        self.emit(abi::label(&done));
     }
 
     /// bug-842: register a producer call's resource result as a resource temporary.
@@ -331,6 +431,7 @@ impl CodeBuilder<'_> {
             location: Operand::from(token),
             shallow: false,
             resource: true,
+            union_box: false,
         });
     }
 
@@ -425,6 +526,7 @@ impl CodeBuilder<'_> {
             location,
             shallow: false,
             resource: false,
+            union_box: false,
         });
     }
 
@@ -523,6 +625,7 @@ impl CodeBuilder<'_> {
             location: Operand::from(pointer),
             shallow,
             resource: false,
+            union_box: false,
         });
     }
 
@@ -614,7 +717,9 @@ impl CodeBuilder<'_> {
         let above = self.pending_temp_frees.split_off(watermark);
         let mut kept = Vec::new();
         for temp in above.into_iter().rev() {
-            if temp.resource {
+            // bug-1012: a box temporary stays too — the resource temporary of the
+            // call that returned it reads the record through it at statement end.
+            if temp.resource || temp.union_box {
                 kept.push(temp);
             } else {
                 self.emit_pending_temp_free(&temp)?;
@@ -672,6 +777,10 @@ impl CodeBuilder<'_> {
                 self.emit_resource_temp_close(temp.slot, &temp.type_)?;
             }
             self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), temp.slot));
+            return Ok(());
+        }
+        if temp.union_box {
+            self.emit_union_box_free(temp.slot);
             return Ok(());
         }
         if temp.shallow {
@@ -1650,6 +1759,7 @@ impl CodeBuilder<'_> {
             location: result.location.clone(),
             shallow: true,
             resource: false,
+            union_box: false,
         });
     }
 

@@ -21,10 +21,12 @@
 //!
 //! **The instance's list.** One writable global slot, [`MODULE_RESOURCES_GLOBAL`],
 //! heads a list of `{record@0, next@8, kind@16, tag@24}` arena nodes. A node holds
-//! the resource RECORD, never a resource-union box: a box belongs to the binding
-//! that wrapped it and is freed at that binding's scope exit whoever owns the
-//! record, so a union leaf is listed as its active variant's record plus that
-//! variant's tag, read from the box when it is listed. It lives in the
+//! the resource RECORD, never a resource-union box: a box belongs to whoever made
+//! it — a binding, which frees it at its scope exit, or the statement that built
+//! it, which frees it at its end (bug-1012) — or is a span of the record or
+//! collection that holds the value inline, whoever owns the record. So a union
+//! leaf is listed as its active variant's record plus that variant's tag, read
+//! from the box when it is listed. It lives in the
 //! globals region, which is per arena — so each instance has its own list, and it
 //! is zero (empty) at instance start like every global slot. A node's `kind`
 //! indexes [`CodeBuilder::module_resource_leaves`], the resource leaf types every

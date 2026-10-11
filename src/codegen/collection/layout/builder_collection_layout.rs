@@ -895,6 +895,15 @@ impl CodeBuilder<'_> {
             self.emit(abi::add_immediate(&scratch9, &scratch9, 9));
             self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), out_slot));
             Ok(())
+        } else if field_is_inlined_union_box(&self.type_model, field_type) {
+            // bug-1012: a resource union's box is two words whatever it names.
+            self.emit(abi::move_immediate(
+                scratch8,
+                "Integer",
+                &RESOURCE_UNION_BOX_SIZE.to_string(),
+            ));
+            self.emit(abi::store_u64(scratch8, abi::stack_pointer(), out_slot));
+            Ok(())
         } else if self.type_model.record_fields.contains_key(field_type) {
             self.emit_record_block_size_to_slot(field_type, ptr_slot, out_slot)
         } else if self.union_is_data(field_type) || matches!(field_type, ParameterType::ResultOf(_))
@@ -2974,8 +2983,10 @@ pub(crate) fn byte_list_block_kind() -> usize {
 /// layout, and it is the same rule `is_pointer_collection_payload_type` (`:49`)
 /// already applies to a collection slot: "a resource handle is a single 8-byte
 /// pointer to its record; a slot stores a copy of that pointer exactly like any
-/// other pointer payload (§15.6)". A resource *union* IS a pointer composite and
-/// is caught by the `union_names` arm.
+/// other pointer payload (§15.6)". A bare resource *union* IS a pointer composite
+/// and is caught by the `union_names` arm; a `RES`-marked one — the only form a
+/// record field takes — holds its box inline ([`field_is_inlined_union_box`],
+/// bug-1012), so it is neither a pointer field nor a value slot.
 ///
 /// EXHAUSTIVE BY CONSTRUCTION — do not add a `_` arm. Its default answer is
 /// "a plain 8-byte value slot", so a variant nobody classified gets laid out as
@@ -2989,7 +3000,9 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &ParameterT
         // A resource handle — bare, `RES`-marked, or a thread handle — is a
         // plain 8-byte slot holding the pointer, NOT a pointer composite
         // (plan-114-B). `is_pointer_collection_payload_type` applies the same
-        // rule to a collection slot.
+        // rule to a collection slot. A `RES`-marked resource UNION is not a
+        // pointer field either: the record holds its box inline (bug-1012,
+        // `record_field_is_inlined`).
         ParameterType::Res(_) | ParameterType::ThreadHandle { .. } => false,
         // bug-781: a function value's slot points to the closure object the record
         // owns — its own allocation, copied with the record and dropped with it.
@@ -3171,6 +3184,9 @@ fn flatness_walk(
         // DIVERGENCE 1 — a `RES`-marked element/map value. The slot holds one
         // 8-byte pointer to the resource record, so a `memcpy` copying it is a
         // correct alias (§15.6) but relocating it into another arena is not.
+        // A `RES`-marked resource union in a record field holds its
+        // `{tag, record-ptr}` box inline instead (bug-1012); the same two answers
+        // hold, since the box is two plain words, one of them that pointer.
         //
         // Before plan-114-B there was no `Res` arm at all: it fell through to
         // `!record_field_is_pointer(..)`, which has no `Res` arm either, so the
@@ -3328,14 +3344,23 @@ fn flatness_of_model_type(
 /// not-yet-flat composites stay pointers. The answer depends on the field's type
 /// alone: every record, builtin or declared, has the same layout (plan-132).
 ///
-/// **A resource field is NOT inlined** (plan-114-B): it is not a composite, so
-/// `is_composite` is false and the `type_is_memcpy_copyable` term is never
-/// reached. It stays a value slot holding the handle pointer, which is what
-/// makes `emit_record_block_size_to_slot` (`:794`) contribute exactly its 8
-/// bytes from the fixed `8 * fields.len()` term and `continue` past it without
-/// walking a sub-block that does not exist.
+/// **A concrete resource field is NOT inlined** (plan-114-B): it is not a
+/// composite, so `is_composite` is false and the `type_is_memcpy_copyable` term
+/// is never reached. It stays a value slot holding the handle pointer, which is
+/// what makes `emit_record_block_size_to_slot` contribute exactly its 8 bytes
+/// from the fixed `8 * fields.len()` term and `continue` past it without walking
+/// a sub-block that does not exist.
+///
+/// **A `RES <resource union>` field IS inlined** (bug-1012): the 16-byte
+/// `{tag, record-ptr}` box sits in the data region
+/// ([`field_is_inlined_union_box`]).
 pub(crate) fn record_field_is_inlined(model: &TypeModel, field_type: &ParameterType) -> bool {
     if *field_type == ParameterType::String {
+        return true;
+    }
+    // bug-1012: a `RES <resource union>` field holds the union's `{tag,
+    // record-ptr}` box INLINE, as a collection element does.
+    if field_is_inlined_union_box(model, field_type) {
         return true;
     }
     let is_composite = model.record_fields.contains_key(field_type)
@@ -3343,6 +3368,34 @@ pub(crate) fn record_field_is_inlined(model: &TypeModel, field_type: &ParameterT
         || typed_is_collection_type(field_type)
         || matches!(field_type, ParameterType::ResultOf(_));
     is_composite && type_is_memcpy_copyable(model, field_type)
+}
+
+/// Bytes in a resource union's `{tag@0, record-ptr@8}` box.
+pub(crate) const RESOURCE_UNION_BOX_SIZE: usize = 16;
+
+/// bug-1012: true when a record field of type `field_type` is a `RES`-marked
+/// resource union, whose 16-byte `{tag@0, record-ptr@8}` box the record holds
+/// inline: the slot stores the block-relative offset of the box in the record's
+/// data region, and a read of the field yields that address.
+///
+/// The field used to hold the box's ADDRESS. A box is 16 bytes somebody else
+/// allocated and frees — the binding that wrapped it, or the statement that built
+/// it — so the record read freed memory once that owner was gone (`RETURN
+/// keep(u)`, where `keep` builds a record around its parameter), and a box built
+/// for the field alone was never freed. Holding the two words makes the record
+/// the holder of its own copy: a `memcpy` of the record copies it, the record's
+/// one block free releases it, and nothing has to know who made the box the value
+/// came from. It is the layout a `List OF RES <Union>` element already has.
+///
+/// The `RES` marker is what a record field's declared type carries
+/// (`model.record_fields` does not strip it); a bare resource union is not a
+/// record field (`TYPE_RESOURCE_REQUIRES_RES`).
+pub(crate) fn field_is_inlined_union_box(model: &TypeModel, field_type: &ParameterType) -> bool {
+    let ParameterType::Res(inner) = field_type else {
+        return false;
+    };
+    let base = base_resource_type(inner);
+    model.union_names.contains(&base) && !union_is_data(model, &base)
 }
 
 /// True when `type_` is a **data** union (all variants are data records, no

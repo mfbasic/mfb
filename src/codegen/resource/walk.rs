@@ -10,7 +10,10 @@
 //! consumer only says what to do with one resource.
 //!
 //! A **leaf** is a concrete resource (its value IS the resource record) or a
-//! resource union (its value is the `{tag@0, record@8}` box). Everything else the
+//! resource union (its value is the address of a `{tag@0, record@8}` box — a
+//! binding's or a statement's block, or the two words a record field or a
+//! collection element holds inline; a visitor reads them and never keeps the
+//! address, bug-1012). Everything else the
 //! walk descends: `List`/`Map` elements through the ordinary collection loop (a
 //! map skips its tombstones, bug-760 B1), record fields through the same
 //! `8 * index` slot read `lower_field_access` makes (an inlined field adds the
@@ -406,7 +409,10 @@ impl CodeBuilder<'_> {
                 // An inlined record field holds a block-relative offset; the value
                 // is the record base plus it (plan-02 §4.2).
                 // Asked of the declared field type, `RES` marker included, exactly
-                // as `lower_field_access` asks it: a `RES` field holds a pointer.
+                // as `lower_field_access` asks it: a concrete `RES` field holds the
+                // record pointer in its slot, and a `RES <resource union>` field
+                // holds the union's box inline (bug-1012), so its value is the
+                // address of that box.
                 if is_record && self.record_field_is_inlined(&part) {
                     self.emit(abi::add_registers(&value, &base, &value));
                 }
