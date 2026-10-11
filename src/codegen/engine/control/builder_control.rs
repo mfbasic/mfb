@@ -3002,9 +3002,8 @@ impl CodeBuilder<'_> {
                                 ) => {
                                     Self::target_returns_borrowed_resource(target)
                                         && !(name.starts_with("$match")
-                                            && crate::codegen::registry::native_bare_target(
-                                                target,
-                                            ) == Some("get"))
+                                            && crate::codegen::registry::native_bare_target(target)
+                                                == Some("get"))
                                 }
                                 _ => false,
                             };

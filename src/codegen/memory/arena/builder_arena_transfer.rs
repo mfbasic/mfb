@@ -387,7 +387,7 @@ impl CodeBuilder<'_> {
             // `Result` carries a copy of the two words: no record is copied and
             // nothing is tombstoned. The temp frees the copy and closes nothing
             // (`emit_resource_union_cleanup_call`, a lent store).
-            self.materialize_inline_value_in_arena(success_type, &scratch9)?
+            self.materialize_inline_value_in_arena(success_type, scratch9)?
         } else if carry_resource_pointer {
             let carried = self.allocate_register();
             self.emit(abi::move_register(&carried, &scratch9));
