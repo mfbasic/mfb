@@ -351,10 +351,17 @@ fn build(name: &str, source: &str) -> Program {
 
 /// Render one frame, returning it with the stats line the run reported.
 fn render(program: &Program, metal: bool, tag: &str) -> (Frame, String) {
+    render_env(program, metal, tag, &[])
+}
+
+/// [`render`] with more of the environment set, run from the project's directory so a
+/// scene that opens a file beside itself finds it.
+fn render_env(program: &Program, metal: bool, tag: &str, envs: &[(&str, &str)]) -> (Frame, String) {
     let frame_path = program.project.join(format!("frame-{tag}.rgba"));
     let stats_path = program.project.join(format!("stats-{tag}.txt"));
     let mut command = Command::new(&program.binary);
     command
+        .current_dir(&program.project)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
@@ -363,6 +370,7 @@ fn render(program: &Program, metal: bool, tag: &str) -> (Frame, String) {
     if metal {
         command.env("MFB_CANVAS_GPU", "1");
     }
+    command.envs(envs.iter().copied());
     let run = command
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", program.binary.display()));
@@ -1706,4 +1714,79 @@ fn a_blended_item_stroked_under_the_fixed_point_step_matches_the_software_oracle
         BLENDED_HAIRLINE_STROKE,
         "a blended rectangle with a 1e-5 px stroke, then two opaque items",
     );
+}
+
+/// plan-172-K: `canvas::AutoPaint` on the GPU. The scene's own comment says what each
+/// pointer position puts under test.
+const AUTOPAINT: &str = include_str!("scenes/autopaint_on_black.mfb");
+
+/// A hovered `AutoPaint` draws on Metal as the software oracle draws it — for a button
+/// in the scene itself, and for one use of a group that is drawn twice.
+///
+/// The state is the graphics thread's, resolved after the walk, and the two renderers
+/// read it by different routes: software from the frame's draw entries, Metal from the
+/// GPU draw list, which is laid out from `__CANVAS_TOP_OFFSETS` and, for a group, from
+/// a run shared by every node that draws the group. So a hover that reached one route
+/// and not the other is a wrong frame on one backend only, and this is where it shows.
+///
+/// Each case also checks the Metal frame itself — the hovered button is the hover
+/// paint's orange and the other use of the group is still blue — because two frames
+/// that agree on NO hover agree within tolerance too.
+#[test]
+fn a_hovered_autopaint_matches_the_software_oracle_on_metal() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_autopaint", AUTOPAINT);
+    std::fs::write(
+        program.project.join("fixture.ttf"),
+        common::fixture_truetype(),
+    )
+    .expect("write the font fixture");
+    let pixel = |frame: &Frame, x: usize, y: usize| {
+        let at = (y * WIDTH as usize + x) * 4;
+        [frame.pixels[at], frame.pixels[at + 1], frame.pixels[at + 2]]
+    };
+    let lit = |rgb: [u8; 3]| rgb[0] > 200 && rgb[2] < 120;
+    let unlit = |rgb: [u8; 3]| rgb[0] < 100 && rgb[2] > 150;
+    for (what, pointer, hovered, other) in [
+        // (280, 120) is on the scene's own button; (150, 320) is the group's first use.
+        (
+            "the scene's own button",
+            "0,280,120,0,1",
+            (280, 120),
+            (150, 320),
+        ),
+        // (150, 320) is the group's first use; (550, 320) its second.
+        (
+            "one use of a group",
+            "0,150,320,0,1",
+            (150, 320),
+            (550, 320),
+        ),
+    ] {
+        let envs = [("MFB_CANVAS_POINTER", pointer)];
+        let (software, software_stats) = render_env(&program, false, "sw", &envs);
+        let (gpu, stats) = render_env(&program, true, "gpu", &envs);
+        if !metal_built(&stats) {
+            return; // no Metal device on this host (§metal_built)
+        }
+        assert!(
+            software_stats.contains(" auto=300") || software_stats.contains(" auto=030"),
+            "{what}: the software run did not hover exactly one button: {software_stats}"
+        );
+        assert!(
+            !stats.contains("gpuFrames=0"),
+            "{what}: the hovered scene fell back to the software renderer: {stats}"
+        );
+        if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+            panic!("Metal draws {what}, hovered, differently from the software oracle: {diff}");
+        }
+        for (name, frame) in [("software", &software), ("Metal", &gpu)] {
+            let on = pixel(frame, hovered.0, hovered.1);
+            let off = pixel(frame, other.0, other.1);
+            assert!(lit(on), "{what}: the hovered button is {on:?} on {name}");
+            assert!(unlit(off), "{what}: the other button is {off:?} on {name}");
+        }
+    }
 }

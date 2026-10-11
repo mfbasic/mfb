@@ -29,6 +29,11 @@
 # step, which the draw list and the emitters used to split differently. `groupaffine` is
 # plan-172-H's: groups turned, scaled unevenly and nested, carrying a gradient, a
 # rectangle clip, a stroke and a run of text (the fixture font is shipped with it).
+# `autopaint` and `autopaintgroup` are plan-172-K's: one scene of `canvas::AutoPaint`
+# buttons rendered HOVERED, the pointer put on a button by the row's fourth field — an
+# environment assignment the row's runs are given (`MFB_CANVAS_POINTER`, the `--debug`
+# pointer script). The first hovers a button of the scene itself, the second one use of
+# a group that is drawn twice, which is the case that needs a group run of its own.
 #
 # Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
@@ -101,10 +106,11 @@ host="test@127.0.0.1"
 # Port 22 is box 206 on the LAN; every other port is a box forwarded to localhost.
 [ "$PORT" = 22 ] && host="test@192.168.1.206"
 
-# name | scene file | kind
+# name | scene file | kind [| NAME=value]
 #   render   sw + gpu, compared; the gpu frame must be a GPU frame
 #   geo      one GPU run with MFB_CANVAS_SYNC; geometry verification only
 #   race     one GPU run WITHOUT MFB_CANVAS_SYNC; geometry verification only
+# The optional fourth field is one environment assignment every run of the row gets.
 ROWS="
 quads|five_thousand_quads|render
 edges|forty_thousand_opaque_edges|render
@@ -140,6 +146,8 @@ clipstepblack|clips_at_a_step_on_black|render
 xformblack|transformed_shapes_on_black|render
 cornersblack|rect_corners_on_black|render
 groupaffine|group_affine_on_black|render
+autopaint|autopaint_on_black|render|MFB_CANVAS_POINTER=0,280,120,0,1
+autopaintgroup|autopaint_on_black|render|MFB_CANVAS_POINTER=0,150,320,0,1
 hairline|blended_hairline_stroke|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
@@ -189,6 +197,7 @@ run_remote() {
       echo "set MFB_CANVAS_GEO_VERIFY=1"
       [ "$sync" = 1 ] && echo "set MFB_CANVAS_SYNC=1"
       [ "$gpu" = 1 ] && echo "set MFB_CANVAS_GPU=1"
+      [ -z "$ROW_ENV" ] || echo "set $ROW_ENV"
       echo "set MFB_CANVAS_STATS=$dir\\$tag.txt"
       echo "set MFB_CANVAS_DUMP=$dir\\$tag.rgba"
       echo "cd /d $dir"
@@ -204,6 +213,7 @@ run_remote() {
     local dir="/tmp/mfb-rows-$$/$row" env="MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_GEO_VERIFY=1"
     [ "$sync" = 1 ] && env="$env MFB_CANVAS_SYNC=1"
     [ "$gpu" = 1 ] && env="$env MFB_CANVAS_GPU=1"
+    [ -z "$ROW_ENV" ] || env="$env $ROW_ENV"
     remote_ssh "$PORT" "$host" "
       cd $dir
       $icd_env $env MFB_CANVAS_STATS=$dir/$tag.txt MFB_CANVAS_DUMP=$dir/$tag.rgba \
@@ -262,7 +272,8 @@ if [ "$TARGET" != windows-x86_64 ]; then
   remote_ssh "$PORT" "$host" "rm -rf /tmp/mfb-rows-$$"
 fi
 # fd 3, not stdin: every ssh in the loop reads stdin and would swallow the rest of the list.
-while IFS='|' read -r row scene kind <&3; do
+ROW_ENV=""
+while IFS='|' read -r row scene kind ROW_ENV <&3; do
   [ -n "$row" ] || continue
   if [ -n "$ONLY" ] && ! echo ",$ONLY," | grep -q ",$row,"; then
     continue

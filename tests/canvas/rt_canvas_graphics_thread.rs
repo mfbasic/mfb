@@ -620,3 +620,197 @@ fn set_bytes_then_destroy_then_a_frame_draws_nothing() {
         "the frame around it rendered"
     );
 }
+
+// ---------------------------------------------------------------------------------
+// plan-172-K: `canvas::AutoPaint` — a frame the worker did not ask for, and a wait that
+// can run out. Rows R26–R29 of `.ai/canvas-threading.md` section 8.
+// ---------------------------------------------------------------------------------
+
+/// One `AutoPaint` button at x 100..300, y 100..180 (moved to `x` by `button(x)`), its
+/// four `use…` flags read from `FLAGS` (1 enter, 2 exit, 4 hover, 8 pressed). Each test
+/// below appends its own `main`.
+const AUTO_BUTTON: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT datetime
+IMPORT io
+IMPORT os
+IMPORT vector
+
+FUNC flag(bit AS Integer) AS Boolean
+  RETURN (toInt(os::getEnvOr("FLAGS", "15")) / bit) MOD 2 = 1
+END FUNC
+
+FUNC button(x AS Float) AS canvas::DrawItem
+  MUT r AS canvas::Rectangle
+  r = WITH r { id := "btn", position := vector::Float2[x := x, y := 100.0], size := canvas::Size[width := 200.0, height := 80.0], paint := canvas::fill(color::rgb(40, 90, 200)) }
+  LET a AS canvas::AutoPaint = canvas::AutoPaint[shape := r, useEnter := flag(1), useExit := flag(2), useHover := flag(4), usePressed := flag(8), enterPaint := canvas::fill(color::rgb(0, 255, 0)), exitPaint := canvas::fill(color::rgb(255, 255, 0)), hoverPaint := canvas::fill(color::rgb(255, 0, 0)), pressedPaint := canvas::fill(color::rgb(255, 0, 255))]
+  LET item AS canvas::DrawItem = a
+  RETURN item
+END FUNC
+
+"#;
+
+/// The `auto=` field of each stats line, a run of equal values written once.
+fn auto_states(lines: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in lines {
+        let value = stat_field(line, "auto=");
+        if out.last() != Some(&value) {
+            out.push(value);
+        }
+    }
+    out
+}
+
+/// R26: the pointer changes while a frame is in flight. The frame completes with the
+/// state it resolved, and the next frame has the new one.
+///
+/// A frame reads the pointer ONCE, at its resolve, and everything it draws follows from
+/// that one reading. Here the frame is held for a second after its resolve
+/// (`MFB_CANVAS_FRAME_HOLD_MS`) and the pointer's next position falls due 300 ms into
+/// the hold. The held frame's line still says hover, at the position it read; the
+/// frame after it says the shape's own paint, at the new one — and that second frame
+/// was asked for by nobody but the pointer.
+#[test]
+fn auto_a_pointer_change_during_a_frame_belongs_to_the_next_frame() {
+    let source =
+        format!("{AUTO_BUTTON}FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  canvas::present([button(100.0)])\n  os::sleep(3000)\nEND FUNC\n");
+    let (_, lines) = run_env(
+        "canvas_auto_r26",
+        &source,
+        true,
+        &[
+            ("FLAGS", "4"),
+            ("MFB_CANVAS_POINTER", "0,150,120,0,1;300,500,500,0,1"),
+            ("MFB_CANVAS_FRAME_HOLD_MS", "1000"),
+        ],
+    );
+    assert_eq!(auto_states(&lines), vec!["3", "0"], "{}", lines.join("\n"));
+    assert_eq!(stat_field(&lines[0], "pointer="), "150,120,0,1");
+    assert_eq!(stat_field(&lines[0], "frames="), "1");
+    let last = lines.last().expect("a stats line");
+    assert_eq!(stat_field(last, "pointer="), "500,500,0,1");
+    assert_eq!(stat_field(last, "frames="), "2");
+}
+
+/// R27: a `present` lands during an enter window. The window is not restarted.
+///
+/// The window is stretched to six seconds. The pointer arrives on the frame AFTER the
+/// first — the first frame of a headless run can take seconds when the machine is busy
+/// (the first cut of this test timed the window from it and found it over before the
+/// first `present` had returned), and that frame is where the program's clock and the
+/// window's would otherwise part. From there the program waits three seconds, presents
+/// the button again ten pixels over with the pointer still on it, and waits four and a
+/// half more. An instance's state belongs to its place in the scene, and the deadline
+/// is part of that state, so the window still ends six seconds after the pointer
+/// arrived: hover shows a second and a half before the program ends. Restarted at the
+/// second present, it would end a second and a half AFTER, and the last line would
+/// still say enter.
+#[test]
+fn auto_a_present_during_an_enter_window_does_not_restart_it() {
+    let source = format!(
+        "{AUTO_BUTTON}FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  canvas::present([button(100.0)])\n  os::sleep(3000)\n  canvas::present([button(110.0)])\n  os::sleep(4500)\nEND FUNC\n"
+    );
+    let (_, lines) = run_env(
+        "canvas_auto_r27",
+        &source,
+        true,
+        &[
+            ("MFB_CANVAS_POINTER", "1,150,120,0,1"),
+            ("MFB_CANVAS_AUTO_WINDOW_MS", "6000"),
+        ],
+    );
+    assert_eq!(
+        auto_states(&lines),
+        vec!["0", "1", "3"],
+        "{}",
+        lines.join("\n")
+    );
+    // Four frames drawn: the first present, the pointer's arrival, the second present
+    // — still inside the window — and the window's end.
+    let re_present = lines
+        .iter()
+        .find(|line| stat_field(line, "frames=") == "3")
+        .unwrap_or_else(|| panic!("no third frame:\n{}", lines.join("\n")));
+    assert_eq!(stat_field(re_present, "auto="), "1", "{}", lines.join("\n"));
+    assert_eq!(
+        stat_field(lines.last().expect("a stats line"), "frames="),
+        "4",
+        "{}",
+        lines.join("\n")
+    );
+}
+
+/// R28: the graphics thread stops while a deadline is pending. Shutdown completes.
+///
+/// The render loop is in a TIMED wait — two minutes of enter window — when the program
+/// returns. The stop signals the same condition variable the timed wait is on, and the
+/// wait checks `STOPPING` before it looks at its deadline, so the loop leaves at once
+/// rather than when the window would have ended.
+#[test]
+fn auto_shutdown_completes_while_a_window_is_pending() {
+    let source = format!(
+        "{AUTO_BUTTON}FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  canvas::present([button(100.0)])\nEND FUNC\n"
+    );
+    let started = std::time::Instant::now();
+    let (_, lines) = run_env(
+        "canvas_auto_r28",
+        &source,
+        true,
+        &[
+            ("MFB_CANVAS_POINTER", "0,150,120,0,1"),
+            ("MFB_CANVAS_AUTO_WINDOW_MS", "120000"),
+        ],
+    );
+    let took = started.elapsed().as_secs();
+    assert_eq!(auto_states(&lines), vec!["1"], "{}", lines.join("\n"));
+    assert!(
+        took < 60,
+        "the program took {took} s to exit with a 120 s window pending — shutdown waited \
+         for the deadline"
+    );
+}
+
+/// R29: `waitFrame` is in progress when a deadline expires. It returns as it would
+/// have.
+///
+/// The display floor is half a second (`MFB_CANVAS_DISPLAY_HZ=2`) and the enter window
+/// 700 ms. The pointer arrives on the frame after the first — see R27 for why nothing is
+/// timed from the first — which is as the first `present` returns, so the window ends,
+/// and the render loop draws the hover frame on its own, while the worker is inside one
+/// of the five `waitFrame` calls that follow. Those calls wait on their own condition
+/// variable and for their own deadline; the frame neither wakes them early nor owes
+/// them anything. Four calls after a first are at least three whole intervals.
+#[test]
+fn auto_wait_frame_is_not_cut_short_by_a_window_ending() {
+    let source = format!(
+        "{AUTO_BUTTON}FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  canvas::present([button(100.0)])\n  canvas::waitFrame()\n  LET t0 AS Integer = datetime::monotonicNanos()\n  MUT i AS Integer = 0\n  WHILE i < 4\n    canvas::waitFrame()\n    i = i + 1\n  END WHILE\n  io::print(\"loopMs=\" & toString((datetime::monotonicNanos() - t0) / 1000000))\nEND FUNC\n"
+    );
+    let (out, lines) = run_env(
+        "canvas_auto_r29",
+        &source,
+        true,
+        &[
+            ("MFB_CANVAS_POINTER", "1,150,120,0,1"),
+            ("MFB_CANVAS_AUTO_WINDOW_MS", "700"),
+            ("MFB_CANVAS_DISPLAY_HZ", "2"),
+        ],
+    );
+    let ms: i64 = out
+        .lines()
+        .find_map(|l| l.strip_prefix("loopMs="))
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or_else(|| panic!("no loopMs= line in:\n{out}"));
+    assert!(
+        ms >= 1450,
+        "four waitFrame calls at a 500 ms floor took {ms} ms — the window's end cut one \
+         short:\n{out}"
+    );
+    assert_eq!(
+        auto_states(&lines),
+        vec!["0", "1", "3"],
+        "the window did not end inside the loop:\n{}",
+        lines.join("\n")
+    );
+}

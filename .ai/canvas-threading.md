@@ -173,7 +173,10 @@ between frames produce one frame. A test that needs one frame per present must s
 
 ## 4. Redraw triggers
 
-Exactly five, and **time is not among them** — a static scene costs zero frames.
+Exactly seven, and a static scene costs zero frames. **Time is among them in one
+bounded case and no other**: trigger 7, which exists only while a `canvas::AutoPaint` is
+inside its 50 ms enter or exit window and ends with it. Nothing else ever wakes the
+render loop on a clock.
 
 | # | Trigger | Signalled by | Notes |
 |---|---|---|---|
@@ -182,6 +185,18 @@ Exactly five, and **time is not among them** — a static scene costs zero frame
 | 3 | OS damage/expose | main | no worker involvement |
 | 4 | swapchain out of date | graphics | plan-98-E/F only |
 | 5 | `setBytes` on an image **in the live scene** | worker | §6 |
+| 6 | the pointer changed **and the live scene holds an `AutoPaint`** | main | §16; a WAKE, not a redraw that is owed |
+| 7 | an `AutoPaint` enter or exit window ended | graphics (its own timed wait) | §16; likewise |
+
+**Triggers 6 and 7 owe nothing, and that is a different kind of wake.** 1–5 set `PENDING`
+and the frame is drawn whatever it finds. 6 and 7 make `canvas::waitForRedraw` answer 2
+instead of 1, and the frame is drawn only if some `AutoPaint` now shows a different
+paint — asked before the scene is walked (`__canvas_autoLight`). They are not folded
+into `PENDING` because **damage is OFF unless `MFB_CANVAS_DAMAGE` is set**: an ordinary
+frame is a full redraw and is never skipped for having nothing to do, so a pointer wake
+that went down the ordinary path would draw the whole surface for every mouse move. The
+plan that added them assumed an unchanged frame was skipped by the damage diff; it is
+not, by default.
 
 Trigger 5 is conditional on purpose: mutating an image no scene draws changes nothing
 visible, and repainting for it would turn an off-screen buffer update into a frame.
@@ -253,7 +268,16 @@ What to remember when touching a handler:
   to go.
 * **Take the buttons from the event, not only from "what is held now".** A quick click
   is released before its press is dispatched.
-* **It signals no redraw.** §4's triggers stand until a scene can react to the pointer.
+* **It wakes the render loop only while an `AutoPaint` is live** (§4 trigger 6, §16):
+  after the publish, read `GRAPHICS_OFFSET_AUTOPAINT_LIVE` and, if set, call
+  `canvas::signalRedraw` with **1** in the first argument register
+  (`emit_skip_unless_autopaint_live`). The publish itself still makes no call — it sits
+  in frameless leaf functions on Windows — so the signal is emitted at the handler, after
+  it. **1 is "the pointer changed"; anything else is a redraw that is owed.** A resize
+  passes 0. Pass 0 from a pointer handler and every mouse move draws a full frame; pass
+  1 from a resize and the new size is drawn only if an `AutoPaint` happens to change.
+  `runtime::canvas::signal_redraw_arguments` reads the argument off the emitted
+  instructions, and each platform's handler has a test that uses it.
 * **On GTK, do not read WHICH button is held from the event state.** Bits 9 and 10 are
   right-then-middle on Wayland and middle-then-right on X11. Keep the mask from the
   button number a press or release carries; ask the state only "is any button held".
@@ -386,6 +410,18 @@ row names the rule from above that protects it.
 | R23 | `waitFrame` before the first present | returns after the display floor; the program exits normally | §15: `waitFrame` calls `ensureGraphics` itself, so the mutex and both condition variables exist; nothing is owed |
 | R24 | `waitFrame` after a present, with the previous frame held mid-render | returns only once the render loop has *taken* the redraw — one frame in flight | §15: `waitForRedraw` broadcasts `FRAME_COND` as it clears `PENDING` |
 | R25 | a resize lands while the worker is in `waitFrame` | the loop finishes; the next frame is at the new size | §15: `waitFrame` waits on `FRAME_COND` only, so the resize's `COND` signal can only wake the render loop |
+| R26 | the pointer changes while a frame is in flight | the frame completes with the state it resolved; the next frame has the new one | §16: a frame reads the pointer once, at its resolve; the change sets `AUTO_WAKE` under the mutex, so the next wait returns at once |
+| R27 | a `present` lands during an enter window | the window is not restarted: it ends when it would have | §16: an instance is its place in the scene, and its deadline is part of its state |
+| R28 | the graphics thread stops while a deadline is pending | shutdown completes at once | §16: the stop signals the condition variable the timed wait is on, and the wait checks `STOPPING` before its deadline |
+| R29 | `waitFrame` is in progress when a deadline expires | `waitFrame` returns when it would have | §15/§16: an auto-only wake takes `AUTO_WAKE` and nothing else — not `PENDING`, not `WANTED`, no `FRAME_COND` broadcast |
+
+**R26–R29 are plan-172-K's**, pinned by the four `auto_…` tests at the end of
+`tests/canvas/rt_canvas_graphics_thread.rs`. R26 is the row a headless test can only
+half reach: the `--debug` pointer script is applied by the graphics thread at the START
+of a frame, so "changes while a frame is in flight" is an entry that falls due during a
+held frame, and what the test pins is that the held frame keeps the snapshot it took.
+The cross-thread half — a main-thread publish landing mid-frame — is the sequence word
+of §5.1 plus `AUTO_WAKE` being set under the mutex, and was watched in a real window.
 
 **R17–R21 are plan-116-J's**, and they share one rule: **a group closes a resource only if
 nothing live names it** — where "live" is the scene about to be published *plus every
@@ -424,9 +460,11 @@ stopped) before the worker's entry unwinds.
 * **No lock on the building slot.** The language is single-worker (spec: one runtime
   worker pthread, no user thread primitive), so a second concurrent `present` is not
   a thing that can happen. A lock there would guard an impossible caller.
-* **No time-based repaint.** §4. `canvas::waitFrame` (plan-155-C) waits on time and
-  never repaints: it signals nothing, so a static scene under a `present` +
-  `waitFrame` loop still costs one frame.
+* **No time-based repaint but one.** §4 trigger 7: the render loop's wait is timed only
+  while an `AutoPaint` is inside an enter or exit window, to that window's end.
+  `canvas::waitFrame` (plan-155-C) waits on time and never repaints: it signals
+  nothing, so a static scene under a `present` + `waitFrame` loop still costs one
+  frame.
 * **No cross-thread arena free.** §3.
 
 ## 10. The renderer branch, and what the Metal backend inherits
@@ -642,8 +680,15 @@ re-binding — one buffer per item would give every item the *last* one's data.
 
 ## 11. Test affordances
 
-Five environment variables (two of them a pair), all off by default and none on the
+Six environment variables (two of them a pair), all off by default and none on the
 production path:
+
+* `MFB_CANVAS_AUTO_WINDOW_MS` — **a `--debug` build only**: the length of an
+  `AutoPaint`'s enter and exit windows, in place of 50 ms (1 to 3,600,000). A 50 ms
+  flash is over before a `--debug` software frame can be compared, so a test that has
+  to photograph one stretches it; a test that proves the window ENDS uses the real one
+  and reads the sequence off the stats lines' `auto=` field — the paint each instance
+  of the frame shows, one digit each: 0 own, 1 enter, 2 exit, 3 hover, 4 pressed.
 
 * `MFB_CANVAS_POINTER_X` / `MFB_CANVAS_POINTER_Y` — GTK and Windows, headless: after the
   first completed frame, call the platform's own pointer callback once with that
@@ -664,6 +709,17 @@ production path:
   early). It proves the words, the writer and the reader — NOT that a platform's real
   handler calls the writer; that is a real window's to prove
   (`scripts/test-macapp.sh` case 6c, `tools/pointer-probe`).
+
+  **Never time anything from the FIRST frame.** With a dozen headless programs starting
+  at once its render phase has been seen to take 7 s (`phaseRenderMs=7008` for one
+  rectangle, in `rt_canvas_graphics_thread`), and 6 s beside one `cargo build`; alone it
+  is tens of milliseconds. An `AutoPaint` window that starts on that frame is over
+  before the first `present` returns. Put the pointer's arrival at script time **1**,
+  not 0: it then lands on the frame after the first, which is when a synchronous
+  `present` returns, and the program's clock and the window's start together
+  (plan-172-K's R27 and R29, whose first cuts both timed from frame one and failed).
+  And with an `AutoPaint` live the render loop wakes for each script entry by itself
+  (`__canvas_pointerNextDue`), so a script needs no `present` to be applied.
 
 * `MFB_CANVAS_RESIZE_W` / `MFB_CANVAS_RESIZE_H` — in a headless run, wait for the
   first completed frame and then resize the surface to these dimensions, by calling
@@ -1117,6 +1173,123 @@ static scene would report its last rate forever. A rate over the trailing second
 ring entries newer than `now - 1 s`; when all 64 are, the ring spans under a second and
 the rate is taken from its span (`__canvas_rate`), so a fast loop is measured, not
 capped at 64.
+
+## 16. `AutoPaint`: state on the graphics thread (plan-172-K)
+
+A `canvas::AutoPaint` is a shape and four alternative paints; which is drawn follows
+the pointer. **The graphics thread decides, alone.** The worker never resolves a state
+and `present` never waits on one — hover goes on working while the program is blocked
+in `io::input` — so everything below is graphics-thread globals (§2) in
+`helper_autopaint.rs`, and the only words shared with another thread are
+`AUTOPAINT_LIVE` and `AUTO_WAKE` in the graphics state.
+
+### An instance is a PLACE, and the table is keyed by it
+
+State is kept per instance across frames (a phase, a deadline, whether it owns the
+press), and an instance is identified by where the walk found it: the index of its
+top-level item, and inside a group the chain of (node index, resolved slot) down to its
+own index (`__canvas_autoPath`). Three keys that look more natural are each wrong:
+
+* **The item's hash** changes whenever the shape moves or is restyled, so anything
+  animated would restart its state every frame and never leave `enter`.
+* **The item's `id`** need not be unique — it is what `overID` reports — and a named
+  item inside a group drawn twice has ONE `id` and must have TWO states. The owner's
+  ruling: "ID is more for mouse overId, not for AutoPaint logic."
+* **The draw-entry index** moves whenever an earlier group changes how many items it
+  expands to.
+
+What the structural key costs is stated in the spec: insert or remove an item ahead of
+an instance in its list and it gets a new key and starts again from its own paint.
+
+### The walk notes, the resolve swaps
+
+`__canvas_appendDraw`'s `AutoPaint` arm appends the shape's entry built from the shape's
+OWN paint and notes the instance. After `canvas::sceneLayout`, `__canvas_autoResolve`
+hit-tests the pointer against those entries, steps every instance, and only then swaps
+the entry of an instance showing a state paint for that paint's record (a new geometry
+record under a stepped hash, and a stepped draw hash). **Hit test first, swap second**
+is the rule that a state paint never changes where a shape is hit; a test in
+`helper_autopaint.rs` holds the order.
+
+Three things that are easy to get wrong here:
+
+* **An `AutoPaint`'s geometry is never cached under the item's own hash.** The native
+  first pass (`canvas::sceneResolve`) resolves any item whose published hash is in the
+  cache without the MFBASIC walk seeing it — and an instance the walk does not see has
+  no state. So the shape's record is cached under the hash stepped by 16
+  (`__canvas_autoGeoHash`), the item's own hash is always a miss, and an `AutoPaint` is
+  always walked, as a `Picture` is.
+* **The GPU draw list is a second walk and must be told.** It lays out from
+  `__CANVAS_TOP_OFFSETS` (so the resolve writes the swapped offset there too), and a
+  group's run is memoised ONCE per frame and shared by every node that draws the group
+  — so a node under which an `AutoPaint` shows a state paint needs a run of its own.
+  The memo is keyed by slot AND `__canvas_autoVariant`. A hover that reaches software
+  and not the GPU is a wrong frame on one backend only;
+  `a_hovered_autopaint_matches_the_software_oracle_on_metal` is where that shows.
+* **A text's draw bounds are not its hit box.** The hit test's first step rejects on a
+  record's bounds, which are what it DRAWS; a stroked run's are its outlines', tighter
+  than the layout box a `Text` is hit on. A text box skips the reject. The worker never
+  saw this, because its text record's bounds ARE the box.
+
+### A wake that owes nothing walks nothing
+
+Triggers 6 and 7 are by far the commonest thing an `AutoPaint` scene sees — every
+pointer event — and nearly all of them change no paint. `__canvas_renderFrame` asks
+`__canvas_autoLight` before it walks: the last walked frame's entries
+(`__CANVAS_AUTO_BASE`), group transforms and geometry are untouched since nothing was
+owed, each table row holds its instance's entry and flags, so one hit test and a step
+of each row say whether any paint changed. If none did the frame ends there. Walking
+first cost 8 ms a pointer event at 10,000 items (the scene is copied out of the ring
+whenever anything in it must be walked); the light step is under a millisecond at any
+size measured.
+
+When it answers TRUE the full resolve steps the same rows again a moment later. **That
+second step must be idempotent**, and it is because the first one's results were stored:
+a window it started is running, so it is not restarted; a press it took is recorded in
+`__CANVAS_AUTO_WAS_BUTTONS`, so it is not a new press.
+
+### The live word can be read one frame stale
+
+`AUTOPAINT_LIVE` is a plain word and a hint. Stale as 1 costs a wake that changes
+nothing. Stale as 0 is the one that could lose something: a pointer change landing
+between a frame's pointer snapshot and that frame's first store of the word finds 0 and
+signals nobody. So the resolve that first sets the word reads the pointer again
+afterwards, and if it moved, has the loop wait 1 ns (`__CANVAS_AUTO_AGAIN`).
+
+### The pointer is sampled
+
+A frame reads the pointer once. A press and release inside one frame are not seen; a
+button that goes down off a shape and reaches it before the next frame is a press that
+began on it. Every publish wakes the loop while an `AutoPaint` is live, so the window is
+one frame — but it is a property, and a test that scripts two changes into one frame
+will see one.
+
+### Under `MFB_CANVAS_SYNC`, a frame nobody asked for can release a `present`
+
+`syncFrame` waits for the frame counter to reach `WANTED`, and `frameDone` counts every
+frame the loop finishes — a skipped one and an auto-only one included. So a `present`
+that signals while an auto-only frame is in flight is released by THAT frame, one
+frame before its own scene is drawn. The scene is still drawn (its `PENDING` is set,
+and shutdown drains it), so a test that reads the last frame is unaffected; a test that
+assumes "the n-th stats line is the n-th present" is not, in a scene with an
+`AutoPaint` and a pointer. Read `auto=` and `frames=` off the lines instead of counting
+them. A resize in flight has always done the same.
+
+### The code is gated on the program constructing one
+
+`helper_autopaint.rs` is two chunks that define the same twelve names:
+`HelperGate::WhenUsedOrConstructed(&[], &["AutoPaint"])` for the real ones and
+`WhenNotConstructed` for `ABSENT`, the bodies that are right when no `AutoPaint` can
+exist. The unconditional source calls the names. Adding a hook means adding it to BOTH,
+with the same signature — `canvas_auto_hooks_are_declared_alike_in_both_chunks` fails
+otherwise, and without it the build breaks for one kind of program only.
+
+**Measure what an always-compiled arm costs before leaving it there.** The item unions
+have the `AutoPaint` variant in every canvas program, so every `MATCH` over them needs
+its arm, and an arm that copies a record is thousands of instructions: the converter
+`__canvas_autoItem` (eight arms, each a whole shape record) and the hash arm were
+24,744 bytes of code in every canvas program until they moved behind the gate. The
+arms that remain call a hook.
 
 ## See also
 

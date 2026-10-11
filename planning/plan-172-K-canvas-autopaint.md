@@ -362,34 +362,94 @@ graphics-thread suites still pass.
   inspected: it has `canvas_autoPath` and `canvas_autoResolve` (the `ABSENT` chunk)
   and no `canvas_autoStep`, `canvas_hitEntry` or `canvas_autoItemWith`. Resynced:
   "2322 golden(s) checked, 0 diff(s)".
-Commit: —
+Commit: 5c12b681e
 
 ### Phase 4 — GPU parity, the race rows and the documents
 
-- [ ] A Metal parity case for a hovered scene in `tests/canvas/rt_canvas_metal.rs`, and
+- [x] A Metal parity case for a hovered scene in `tests/canvas/rt_canvas_metal.rs`, and
       the scene added to `scripts/test-canvas-gpu-rows.sh`; run the Vulkan row on box
-      2226.
-- [ ] Race rows, each a test in `tests/canvas/rt_canvas_graphics_thread.rs` using
+      2226. `a_hovered_autopaint_matches_the_software_oracle_on_metal`, two cases over
+      one scene (`tests/canvas/scenes/autopaint_on_black.mfb`): the pointer on a button
+      of the scene itself, and on one use of a group that is drawn twice — the two
+      routes by which the state reaches the GPU draw list. Each also checks the Metal
+      frame's own pixels, since two frames that agree on NO hover agree within tolerance
+      too. The rows are `autopaint` and `autopaintgroup`, and the script's rows gained
+      an optional fourth field for the pointer script. Run on three boxes, not one:
+      `scripts/test-canvas-gpu-rows.sh target/release/mfb --target linux-aarch64 --box
+      2226 --rows autopaint,autopaintgroup` → "bug-688 rows passed on linux-aarch64"
+      (8 ok; "differing=0.0182%" and "0.0189%"); `--target windows-x86_64 --box 22` →
+      passed ("0.0061%" both); `--target linux-x86_64 --box 2227 --libc musl --icd
+      auto` → passed. The group row's stats show the run of its own: `draws=…|4:1:…|5:1:…`
+      where the unhovered scene has `4:1` twice.
+- [x] Race rows, each a test in `tests/canvas/rt_canvas_graphics_thread.rs` using
       `MFB_CANVAS_FRAME_HOLD_MS`: the pointer changes while a frame is in flight (the
       frame completes with the state it resolved; the next has the new one); a `present`
       lands during an enter window (the window is not restarted); the graphics thread
       stops while a deadline is pending (shutdown completes); `waitFrame` is in progress
-      when a deadline expires (it returns as it would have).
-- [ ] `.ai/canvas-threading.md`: §4's table grows to seven triggers and its "time is not
+      when a deadline expires (it returns as it would have). Four tests, `auto_…`,
+      R26–R29. Only R26 uses the frame hold; the other three need a stretched window
+      (`MFB_CANVAS_AUTO_WINDOW_MS`) or the display floor instead. R27 and R29 failed as
+      first written, and it was the tests (Corrections).
+- [x] `.ai/canvas-threading.md`: §4's table grows to seven triggers and its "time is not
       among them" sentence is rewritten to name the one bounded exception; §8 gains the
       four rows; §9's "No time-based repaint" entry is corrected; a new section
-      describes the instance table and why it is keyed as it is.
-- [ ] `src/docs/spec/app/06_canvas.md`: an "AutoPaint" section with the state rules, the
-      two triggers and the hit-region rule, cited to `helper_autopaint.rs`.
-- [ ] Man examples for `AutoPaint`, gated by
-      `tests/cli/cli_canvas_man_examples_compile.rs`.
+      describes the instance table and why it is keyed as it is. All four, the new
+      section being §16; also §5.1's "it signals no redraw" bullet, §11's sixth
+      variable, and the first-frame timing trap.
+- [x] `src/docs/spec/app/06_canvas.md`: an "AutoPaint" section with the state rules, the
+      two triggers and the hit-region rule, cited to `helper_autopaint.rs`. It landed
+      with Phase 3's commit, because that is the commit that changed the contract; the
+      hit-testing and pointer sections were corrected in the same commit.
+      `cargo test --bin mfb spec` is in the round below.
+- [x] Man examples for `AutoPaint`, gated by
+      `tests/cli/cli_canvas_man_examples_compile.rs`. One example, on `canvas::present`
+      — a record has no man page of its own to carry one — and a test of its own,
+      `the_autopaint_example_compiles`, because that file's existing test compiles only
+      each page's FIRST example. Rendered and read: `mfb man canvas present`.
 
 Acceptance: the four race rows pass deterministically, and Metal and Vulkan match the
 software frame of a hovered scene within `Tolerance::GPU_DEFAULT`.
   Check: `cargo test --test rt_canvas_graphics_thread auto --test rt_canvas_metal auto`
   → pass, and `scripts/test-canvas-vulkan.sh target/release/mfb --box 2226` → pass
   (est. 15 min).
+  Observed 2026-10-11, the whole letter in one round (`/tmp/plan-172-K/round_k.sh`:
+  the 25 canvas targets, the four targets letters I–K added, the scripts index, and
+  `cargo test --bin mfb` for `canvas`, `spec` and `canvas target:: platform plan
+  builder registry spec`):
+  - all 25 canvas targets passed with 0 failed, among them `rt_canvas_graphics_thread`
+    "17 passed; 2 ignored", `rt_canvas_metal` "50 passed", `rt_canvas_rasteriser` "106
+    passed; 2 ignored", `rt_canvas_golden` "25 passed", `rt_canvas_frame_stats` "13
+    passed", `cli_canvas_man_examples_compile` "2 passed";
+  - `rt_canvas_autopaint` "16 passed", `rt_canvas_auto_step` "13 passed",
+    `rt_canvas_hit` "12 passed", `rt_canvas_pointer` "2 passed",
+    `scripts_index_is_complete` "2 passed";
+  - `cargo test --bin mfb canvas` "122 passed", `spec` "46 passed", the wider subset
+    "606 passed"; 0 failed in each.
+  `scripts/test-canvas-vulkan.sh target/release/mfb --box 2226 --target linux-aarch64`
+  → 19 `ok` lines, "canvas Vulkan runtime tests passed".
+  `scripts/test-canvas-pointer.sh target/release/mfb --target linux-aarch64`,
+  `--target windows-x86_64` and `--target linux-x86_64 --box 2227 --libc musl` → each
+  "canvas pointer rows passed".
+  `scripts/artifact-gate.sh target/release/mfb all` → "2322 golden(s) checked, 0
+  diff(s)".
+  "Deterministically": the four race rows were run in the round with every other test
+  of their binary in parallel, which is the condition that broke two of them as first
+  written.
 Commit: —
+
+**Real windows (the Validation Plan's runtime proof), 2026-10-11.** A program that
+presents once and then only sleeps, the real pointer moved by `tools/pointer-probe`,
+the stats lines of a `--debug` build read back. On each platform the pointer's arrival
+drew an enter frame, a hover frame followed about 50 ms later with the pointer still,
+a press drew pressed and its release hover, and a move inside the shape drew nothing:
+- macOS (Metal): `auto=10` at frame 2, `30` at frame 3, a skipped wake for a move
+  within the button, `40` on the press, `30` on the release, `21` then `03` moving to
+  the second button.
+- GNOME on Wayland, box 2226 (linux-aarch64, Vulkan): `auto=1`, `3` across six pointer
+  positions, `4` on a press, `3` on its release.
+- Windows, box 206 (`MFB_CANVAS_GPU=0`, bug-1045): `auto=1` at frame 2, `3` at frame
+  3, three skipped wakes, `4`/`3` for each of the three buttons, then `2` and `0` after
+  `WM_MOUSELEAVE`.
 
 ## Validation Plan
 
@@ -427,6 +487,40 @@ Commit: —
    the owner's words.
 
 ## Corrections
+
+- **The runtime proof is not `examples/canvas-demo`, and the worker sleeps rather than
+  reads a key (2026-10-11).** The Validation Plan asks for the demo's menu buttons
+  wrapped in `AutoPaint`. The demo's rewrite was never given a go-ahead, so the proof
+  uses two programs written for it (`/tmp`, two buttons; and one `AutoPaint` covering
+  the surface, for the two window systems where the driver does not know where the
+  window is). The worker is blocked in `os::sleep`, which is the same fact as blocked
+  in a key read: it presents once and never runs again. Done on all three platforms,
+  where the plan asked for macOS.
+- **R26 can only be half reached headless (2026-10-11).** The `--debug` pointer script is
+  applied by the graphics thread at the START of a frame, so "the pointer changes while
+  a frame is in flight" is an entry that falls due during a held frame, and what the
+  test pins is that the held frame keeps the snapshot it took. The cross-thread half —
+  a main-thread publish landing mid-frame — is plan-172-J's sequence word plus
+  `AUTO_WAKE` being set under the mutex, and is what the real windows above exercise.
+- **R27 and R29 timed the window from the FIRST frame and failed (2026-10-11).** With
+  every test of the binary running at once, a headless program's first frame took 7 s
+  to render (`phaseRenderMs=7008` for one rectangle), so a six-second window that
+  started on it was over before the first `present` returned. Both now put the
+  pointer's arrival at script time 1, which is the frame after the first.
+  `.ai/canvas-threading.md` section 11 has the trap.
+- **The `--debug` geometry check called every `AutoPaint` scene corrupt — found by the
+  Vulkan rows (2026-10-11).** `MFB_CANVAS_GEO_VERIFY=1` rebuilds each resolved item's
+  record with `__canvas_geoReference` and compares. Phase 1 gave that function's
+  `AutoPaint` arm the empty header, copying `__canvas_geometryFor`'s — but
+  `__canvas_geometryFor` is handed the SHAPE and the check is handed the item; and
+  Phase 3's text box was not in the reference either. The first run of the rows read
+  `geoVerifyMismatches=3`. The arm now answers the shape's reference and the text arm
+  applies the box; `the_debug_geometry_check_agrees_with_an_autopaint_scene` is the
+  local test.
+- **`scripts/coverage-check.sh` was not run (2026-10-11).** It reads the profile
+  `scripts/coverage.sh` leaves, which is the whole suite under `llvm-cov`; this letter's
+  Validation Plan defers the final gate to 172-M, and that is where it belongs.
+  `helper_autopaint.rs`'s Rust is a registration function, a `LazyLock` and two tests.
 
 - **Damage is off by default, so "not rendered, as an empty damage union" needed a
   mechanism of its own (2026-10-11).** §3 says a pointer-only frame that changes nothing
