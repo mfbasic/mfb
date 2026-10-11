@@ -330,7 +330,40 @@ impl CodeBuilder<'_> {
                 _ => None,
             });
         let union_leaf = self.resource_union_cleanup(&kind).is_some();
-        self.emit_owned_list_push_node(head_slot, list, union_leaf, resource_slot, adopting)
+        // bug-1046: a concrete resource floating into a container of its resource
+        // UNION (`RES f AS fs::File`, then `hs = append(hs, f)` on a `List OF RES
+        // Handle`). The float is decided at the binding, before the store wraps
+        // the value, so the slot holds the member's RECORD, not a `{tag, record}`
+        // box. The list's nodes are union nodes: the record is the value and the
+        // tag is the member's, both known here (as `module_leaf_kind` does for a
+        // module-level container, bug-1027). Reading the record as a box took its
+        // handle word for the record pointer.
+        let member_tag = if union_leaf && self.resource_union_cleanup(&leaf).is_none() {
+            let member = leaf.without_state();
+            let is_member = self
+                .type_model
+                .variants_for_union(&kind.without_state())
+                .any(|variant| *variant == member);
+            match (is_member, self.type_model.union_variant_tags.get(&member)) {
+                (true, Some(tag)) => Some(*tag),
+                _ => {
+                    return Err(format!(
+                        "resource of type '{leaf}' floats to '{collection}', whose owned-list \
+                         holds '{kind}', which '{leaf}' is not a member of"
+                    ));
+                }
+            }
+        } else {
+            None
+        };
+        self.emit_owned_list_push_node(
+            head_slot,
+            list,
+            union_leaf,
+            resource_slot,
+            adopting,
+            member_tag,
+        )
     }
 
     /// The push itself: float (or, `adopting`, take) the record for the list's
@@ -347,6 +380,10 @@ impl CodeBuilder<'_> {
     /// block had the drain free 16 bytes out of the middle of that block. The first
     /// two words of the node are laid out as a box, so the drain hands the node's
     /// own address to the tag-dispatched close.
+    ///
+    /// `member_tag` is `Some` when a union leaf's `resource_slot` holds a MEMBER's
+    /// concrete record instead of a box (bug-1046): the node takes that record and
+    /// this tag, so it is the node a box of the member would have produced.
     pub(crate) fn emit_owned_list_push_node(
         &mut self,
         head_slot: usize,
@@ -354,13 +391,14 @@ impl CodeBuilder<'_> {
         union_leaf: bool,
         resource_slot: usize,
         adopting: bool,
+        member_tag: Option<usize>,
     ) -> Result<(), String> {
         // Only an adopting push can skip, so only it gets the label to skip to.
         let listed = adopting.then(|| self.label("owned_list_adopt_listed"));
         if let Some((depth, union)) = list {
             let value = self.allocate_register();
             self.emit(abi::load_u64(&value, abi::stack_pointer(), resource_slot));
-            let record = if union {
+            let record = if union && member_tag.is_none() {
                 let skip = self.label("owned_list_float_union_null");
                 let record = self.allocate_register();
                 self.emit(abi::move_immediate(&record, "Integer", "0"));
@@ -413,8 +451,17 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(source, abi::stack_pointer(), resource_slot));
             self.emit(abi::compare_immediate(source, "0"));
             self.emit(abi::branch_eq(&copied));
-            self.emit(abi::load_u64(tag, source, 0));
-            self.emit(abi::load_u64(record, source, 8));
+            match member_tag {
+                // The slot holds the member's record: the node is its box.
+                Some(member_tag) => {
+                    self.emit(abi::move_immediate(tag, "Integer", &member_tag.to_string()));
+                    self.emit(abi::move_register(record, source));
+                }
+                None => {
+                    self.emit(abi::load_u64(tag, source, 0));
+                    self.emit(abi::load_u64(record, source, 8));
+                }
+            }
             self.emit(abi::label(&copied));
             self.emit(abi::store_u64(tag, node, 0));
             self.emit(abi::store_u64(record, node, 8));

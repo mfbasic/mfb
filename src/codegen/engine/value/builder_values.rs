@@ -649,6 +649,7 @@ impl CodeBuilder<'_> {
                 false,
                 leaf_slot,
                 true,
+                None,
             )
         })?;
         // The block: the callee built it, and nothing else frees it. A value that

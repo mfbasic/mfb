@@ -459,7 +459,15 @@ resource-management` §15.6) has no binding of its own left to drop, so its memo
 reclaimed by that collection's owned-list drain instead. The drain always frees the
 node it allocated for the element, which nothing but the drain can name: a 16-byte
 `{record, next}` node, or for a resource-union element a 24-byte
-`{tag, record, next}` node holding a copy of the element's box. The drain frees no
+`{tag, record, next}` node holding a copy of the element's box. A concrete resource
+that floats into a container of a union it is a member of (`RES s AS fs::File`, then
+`hs = collections::append(hs, s)` on a `List OF RES Handle`) is listed at its
+binding, before the store wraps it, so it has no box yet: its node takes the record
+itself and the member's own variant tag, the node a box of the member would have
+given. [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_push_as]]
+A local wrapped for a union-typed argument names that local in the argument
+position, as the bare local would, so the wrap is no second holder in the proof
+below. [[src/codegen/resource/cleanup/record_ownership.rs:CollectionUses]] The drain frees no
 union box: a box is its binding's or its statement's, or a span of the collection
 block that holds the element inline (`./mfb spec memory heap-values`, "Union").
 Everything the node POINTS at — the element's `STATE` block, its per-`File`

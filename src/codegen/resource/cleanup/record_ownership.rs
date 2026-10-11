@@ -1316,6 +1316,21 @@ impl NirVisitor for CollectionUses<'_, '_, '_> {
                         || callee
                             .as_ref()
                             .is_some_and(|keeps| keeps.get(index).copied().unwrap_or(true));
+                    // bug-1046: a local wrapped for a union-typed position
+                    // (`append(hs, s)` with `s` a `fs::File` and `hs` a `List OF RES
+                    // Handle`) names the local in that argument position exactly as
+                    // the bare local would: the wrap builds a statement's box around
+                    // the same record and is no holder of its own. Walked as an
+                    // ordinary value it made every floated member "escape", so the
+                    // list that owns it closed its records and freed none of them.
+                    let arg = match arg {
+                        NirValue::UnionWrap { value, .. }
+                            if matches!(value.as_ref(), NirValue::Local(_)) =>
+                        {
+                            value.as_ref()
+                        }
+                        other => other,
+                    };
                     let NirValue::Local(name) = arg else {
                         // bug-1025: a field read written straight into an argument
                         // position is a use of the record it reads through, exactly
