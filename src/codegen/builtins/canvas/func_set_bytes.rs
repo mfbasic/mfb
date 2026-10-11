@@ -166,7 +166,7 @@ r#"FUNC __canvas_setBytes(image AS Image, pixels AS List OF Byte) AS Nothing
   NEXT
   IF live THEN
     __canvas_ensureGraphics()
-    canvas::signalRedraw()
+    canvas::signalRedraw(FALSE)
     canvas::syncFrame()
   END IF
 END FUNC"#;

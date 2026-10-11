@@ -77,17 +77,23 @@ pub(crate) fn lower_start_graphics(
     Ok(ok_return(builder, symbol))
 }
 
-/// `canvas::signalRedraw()` — tell the render thread a frame is owed.
+/// `canvas::signalRedraw(pointerOnly)` — tell the render thread a frame is owed, or
+/// (plan-172-K, `pointerOnly`) that the pointer changed.
+///
+/// The platforms' handlers call this by its symbol with the argument in the first
+/// argument register: 0 from a resize, 1 from a pointer event.
 pub(crate) fn lower_signal_redraw(
     builder: &mut CodeBuilder,
-    _args: &[ValueResult],
+    args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
+    let pointer_only = argument_vreg(builder, args, 0, "pointerOnly")?;
     let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_signal_redraw(
         &symbol,
         &scratch,
+        &pointer_only,
         ctx.platform_imports,
         ctx.platform,
         &mut builder.instructions,
@@ -96,25 +102,25 @@ pub(crate) fn lower_signal_redraw(
     Ok(ok_return(builder, symbol))
 }
 
-/// `canvas::waitForRedraw() AS Boolean` — block until a frame is owed.
+/// `canvas::waitForRedraw(timeoutNanos) AS Integer` — block until a frame is owed,
+/// the pointer changed, or (when `timeoutNanos` is above zero) that long has passed.
 ///
-/// Returns FALSE when shutdown has asked the loop to stop, which is what lets the
-/// render loop be an ordinary `WHILE` rather than needing a separate kill path.
+/// Returns 0 when shutdown has asked the loop to stop, which is what lets the render
+/// loop be an ordinary `WHILE` rather than needing a separate kill path; 1 for a redraw
+/// that is owed; 2 (plan-172-K) for a wake that owes nothing — `runtime::canvas`'s
+/// `WAKE_*`.
 pub(crate) fn lower_wait_for_redraw(
     builder: &mut CodeBuilder,
-    _args: &[ValueResult],
+    args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
-    emit_wait_for_redraw(
-        &symbol,
-        &scratch,
-        ctx.platform_imports,
-        ctx.platform,
-        &mut builder.instructions,
-        &mut builder.relocations,
-    )?;
+    let timeout = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects a timeout in nanoseconds"))?
+        .location
+        .clone();
+    emit_wait_for_redraw(builder, &timeout, ctx.platform_imports, ctx.platform)?;
     builder.emit(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
@@ -607,10 +613,26 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "startGraphics",
         Body::abi_function(lower_start_graphics),
     ));
-    pkg.add_function(internal(
-        "signalRedraw",
-        Body::abi_function(lower_signal_redraw),
-    ));
+    pkg.add_function(RegistryFunction {
+        name: "signalRedraw",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "pointerOnly",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::Boolean,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            body: Body::abi_function(lower_signal_redraw),
+        }],
+    });
     pkg.add_function(RegistryFunction {
         name: "setSyncMode",
         intro: "",
@@ -829,8 +851,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: None,
         internal_only: true,
         implementations: vec![Implementation {
-            params: vec![],
-            return_type: ParameterType::Boolean,
+            params: vec![Parameter {
+                name: "timeoutNanos",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::Integer,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Integer,
             errors: vec![],
             body: Body::abi_function(lower_wait_for_redraw),
         }],

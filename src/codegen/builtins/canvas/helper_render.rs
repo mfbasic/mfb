@@ -259,7 +259,13 @@ LET __CANVAS_GROUP_MAX_DEPTH AS Integer = 64
 ' a separate pass over the published scene: it is the same walk either way, and doing it
 ' here means the offsets list a renderer receives is already flat, so no consumer of it
 ' has to know groups exist.
-FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer) AS List OF Integer
+'
+' plan-172-K: `path` and `index` say WHERE the item is -- `index` is its place in the
+' list that holds it, and `path` names that list: 0 for the scene itself, otherwise
+' `__canvas_autoPath` of the group node that was expanded. Nothing here reads them; they
+' are handed on, and an `AutoPaint` is told them (`__canvas_autoAppend`), because its
+' state belongs to that place and not to its contents or its `id`.
+FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
   MUT out AS List OF Integer = offsets
   MATCH item
     CASE Group(g)
@@ -287,15 +293,20 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
       END IF
       LET childX AS Float = __CANVAS_COMPOSED_X
       LET childY AS Float = __CANVAS_COMPOSED_Y
-      FOR EACH child IN canvas::groupItems(canvas::groupResolve(g.name))
-        out = __canvas_appendDraw(out, child, __canvas_hashItem(child), childX, childY, childMat, depth + 1)
+      LET slot AS Integer = canvas::groupResolve(g.name)
+      LET childPath AS Integer = __canvas_autoPath(path, index, slot)
+      MUT k AS Integer = 0
+      FOR EACH child IN canvas::groupItems(slot)
+        out = __canvas_appendDraw(out, child, __canvas_hashItem(child), childX, childY, childMat, depth + 1, childPath, k)
+        k = k + 1
       NEXT
       RETURN out
-    ' plan-172-K: an `AutoPaint` draws its shape. The entry is the SHAPE's -- its
-    ' geometry, built from the shape's own paint -- under the AutoPaint's hash, so the
-    ' cache and the damage diff tell it from the bare shape.
+    ' plan-172-K: an `AutoPaint` draws its shape, and is noted as an instance at this
+    ' place for the frame's resolve (`helper_autopaint.rs`). The entry appended here is
+    ' the shape with its OWN paint -- what the hit test reads; the resolve swaps in a
+    ' state's afterwards.
     CASE AutoPaint(a)
-      RETURN __canvas_appendDraw(out, __canvas_autoItem(a), hash, gdx, gdy, mat, depth)
+      RETURN __canvas_autoAppend(out, a, hash, gdx, gdy, mat, depth, path, index)
     CASE ELSE
       LET offset AS Integer = __canvas_geometryFor(item, hash)
       out = collections::append(out, offset)
@@ -446,6 +457,11 @@ MUT __CANVAS_SNAP_REHASHED AS Integer = 0
 MUT __CANVAS_DRAW_MEMO_SLOT AS List OF Integer = []
 MUT __CANVAS_DRAW_MEMO_BASE AS List OF Integer = []
 MUT __CANVAS_DRAW_MEMO_COUNT AS List OF Integer = []
+' plan-172-K: which VARIANT of the group's run a row holds. 0 is the run every use
+' shares. A use in which some `AutoPaint` of the group is showing a state paint cannot
+' share it -- its blocks differ -- so it gets a row of its own, named by
+' `__canvas_autoVariant` of that use.
+MUT __CANVAS_DRAW_MEMO_VARIANT AS List OF Integer = []
 
 ' The instance index each block-list entry starts at.
 '
@@ -492,10 +508,10 @@ FUNC __canvas_blockInstances(offset AS Integer) AS Integer
   RETURN 1
 END FUNC
 
-FUNC __canvas_memoLookup(slot AS Integer) AS Integer
+FUNC __canvas_memoLookup(slot AS Integer, variant AS Integer) AS Integer
   MUT i AS Integer = 0
   WHILE i < len(__CANVAS_DRAW_MEMO_SLOT)
-    IF collections::getOr(__CANVAS_DRAW_MEMO_SLOT, i, -1) = slot THEN
+    IF collections::getOr(__CANVAS_DRAW_MEMO_SLOT, i, -1) = slot AND collections::getOr(__CANVAS_DRAW_MEMO_VARIANT, i, 0) = variant THEN
       RETURN i
     END IF
     i = i + 1
@@ -634,9 +650,11 @@ FUNC __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Flo
   __canvas_pushOneDraw(runStart, base + count - runStart, dx, dy, mat)
 END FUNC
 
-' Lay out one group's own (non-group) items once, returning its memo index.
-FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Integer) AS Integer
-  LET found AS Integer = __canvas_memoLookup(slot)
+' Lay out one group's own (non-group) items once, returning its memo index. `path` is
+' this USE of the group (`__canvas_autoPath`), which only an `AutoPaint` child reads.
+FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Integer, path AS Integer) AS Integer
+  LET variant AS Integer = __canvas_autoVariant(path)
+  LET found AS Integer = __canvas_memoLookup(slot, variant)
   IF found >= 0 THEN
     RETURN found
   END IF
@@ -647,19 +665,22 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
   __CANVAS_DRAW_MEMO_SLOT = collections::append(__CANVAS_DRAW_MEMO_SLOT, slot)
   __CANVAS_DRAW_MEMO_BASE = collections::append(__CANVAS_DRAW_MEMO_BASE, base)
   __CANVAS_DRAW_MEMO_COUNT = collections::append(__CANVAS_DRAW_MEMO_COUNT, 0)
+  __CANVAS_DRAW_MEMO_VARIANT = collections::append(__CANVAS_DRAW_MEMO_VARIANT, variant)
   LET row AS Integer = len(__CANVAS_DRAW_MEMO_SLOT) - 1
 
   MUT count AS Integer = 0
+  MUT k AS Integer = 0
   FOR EACH child IN canvas::groupItems(slot)
     MATCH child
       CASE Group(g)
         ' A nested group is NOT part of this group's own run -- it gets its own memoised
         ' run and its own draw entry, at the composed offset.
         LET nested AS Integer = 0
-      ' plan-172-K: an `AutoPaint` child is its shape's block, under its own hash --
-      ' what `__canvas_appendDraw` records for it, so the two walks name one record.
+      ' plan-172-K: an `AutoPaint` child is one block -- its shape under the paint this
+      ' use of the group is showing, the record the frame's resolve put in the draw
+      ' entries, so the two walks name one record.
       CASE AutoPaint(a)
-        LET autoOffset AS Integer = __canvas_geometryFor(__canvas_autoItem(a), __canvas_hashItem(child))
+        LET autoOffset AS Integer = __canvas_autoBlock(a, __canvas_hashItem(child), path, k)
         __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, autoOffset)
         __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
         __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(autoOffset)
@@ -671,6 +692,7 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
         __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(childOffset)
         count = count + 1
     END MATCH
+    k = k + 1
   NEXT
   __CANVAS_DRAW_MEMO_COUNT = collections::set(__CANVAS_DRAW_MEMO_COUNT, row, count)
   RETURN row
@@ -678,25 +700,31 @@ END FUNC
 
 ' Emit the draw entries for one group reference at an accumulated offset: its own run,
 ' then its nested groups recursively.
-FUNC __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer) AS Nothing
+FUNC __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer) AS Nothing
   IF depth >= __CANVAS_GROUP_MAX_DEPTH THEN
     RETURN
   END IF
-  LET row AS Integer = __canvas_memoGroup(slot, hashes, depth)
+  LET row AS Integer = __canvas_memoGroup(slot, hashes, depth, path)
   __canvas_pushDraw(collections::getOr(__CANVAS_DRAW_MEMO_BASE, row, 0), collections::getOr(__CANVAS_DRAW_MEMO_COUNT, row, 0), gdx, gdy, mat)
+  MUT k AS Integer = 0
   FOR EACH child IN canvas::groupItems(slot)
     MATCH child
       CASE Group(g)
         ' plan-172-G: the same composition the software walk makes.
         LET childMat AS Integer = __canvas_composeGroup(gdx, gdy, mat, g.position, g.transform)
         IF childMat >= 0 THEN
-          __canvas_drawGroup(canvas::groupResolve(g.name), hashes, __CANVAS_COMPOSED_X, __CANVAS_COMPOSED_Y, childMat, depth + 1)
+          LET childX AS Float = __CANVAS_COMPOSED_X
+          LET childY AS Float = __CANVAS_COMPOSED_Y
+          LET nested AS Integer = canvas::groupResolve(g.name)
+          ' plan-172-K: the path `__canvas_appendDraw` gave the same node.
+          __canvas_drawGroup(nested, hashes, childX, childY, childMat, depth + 1, __canvas_autoPath(path, k, nested))
         END IF
       CASE ELSE
         ' A non-group child contributes no draw entry of its own: its block is already
         ' inside the run this group's memo laid out.
         LET skipped AS Integer = 0
     END MATCH
+    k = k + 1
   NEXT
 END FUNC
 
@@ -719,6 +747,7 @@ FUNC __canvas_sceneDrawsWalk() AS List OF Integer
   __CANVAS_DRAW_MEMO_SLOT = []
   __CANVAS_DRAW_MEMO_BASE = []
   __CANVAS_DRAW_MEMO_COUNT = []
+  __CANVAS_DRAW_MEMO_VARIANT = []
   LET hashes AS List OF Integer = []
   MUT runBase AS Integer = 0
   MUT runCount AS Integer = 0
@@ -743,7 +772,10 @@ FUNC __canvas_sceneDrawsWalk() AS List OF Integer
           runCount = 0
           LET topMat AS Integer = __canvas_composeGroup(0.0, 0.0, 0, g.position, g.transform)
           IF topMat >= 0 THEN
-            __canvas_drawGroup(canvas::groupResolve(g.name), hashes, __CANVAS_COMPOSED_X, __CANVAS_COMPOSED_Y, topMat, 0)
+            LET topX AS Float = __CANVAS_COMPOSED_X
+            LET topY AS Float = __CANVAS_COMPOSED_Y
+            LET topSlot AS Integer = canvas::groupResolve(g.name)
+            __canvas_drawGroup(topSlot, hashes, topX, topY, topMat, 0, __canvas_autoPath(0, index, topSlot))
           END IF
           runBase = len(__CANVAS_DRAW_BLOCKS)
         CASE ELSE
@@ -846,7 +878,7 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
       IF collections::getOr(__CANVAS_TOP_OFFSETS, i, 0) < 0 THEN
         LET item AS DrawItem = collections::getOr(__CANVAS_FRAME_ITEMS, i, none)
         LET before AS Integer = len(side)
-        side = __canvas_appendDraw(side, item, collections::getOr(__CANVAS_FRAME_HASHES, i, 0), 0.0, 0.0, 0, 0)
+        side = __canvas_appendDraw(side, item, collections::getOr(__CANVAS_FRAME_HASHES, i, 0), 0.0, 0.0, 0, 0, 0, i)
         spans = collections::append(spans, i)
         spans = collections::append(spans, before)
         spans = collections::append(spans, len(side) - before)
@@ -864,6 +896,14 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
   ' the span for each other -- replacing the `__CANVAS_DRAW_*` globals.
   LET offsets AS List OF Integer = canvas::sceneLayout(spans, side)
   __canvas_geoVerifyFrame(pending)
+  ' plan-172-K: every `AutoPaint` the walk noted is given its state for this frame, and
+  ' an entry showing a state paint is swapped for that paint's record -- in the list
+  ' returned here, in `__CANVAS_DRAW_HASHES` and in `__CANVAS_TOP_OFFSETS`, before
+  ' anything reads them. Asked first, so a frame with no `AutoPaint` in it -- every
+  ' frame of a program that constructs none -- does not hand the list anywhere.
+  IF __canvas_autoPending() THEN
+    RETURN __canvas_autoResolve(offsets, spans)
+  END IF
   RETURN offsets
 END FUNC
 
@@ -1341,8 +1381,16 @@ END FUNC"#;
 // (plan-130-E). The shared text is split at that line so it exists once.
 macro_rules! render_loop_head {
     () => {
-        r#"FUNC __canvas_renderLoop() AS Nothing
-  WHILE canvas::waitForRedraw()
+        r#"' plan-172-K: why the render loop woke -- 1, a redraw is owed; 2, nothing is owed but
+' the pointer changed or an `AutoPaint` window ended (`canvas::waitForRedraw`).
+MUT __CANVAS_WAKE AS Integer = 1
+
+FUNC __canvas_renderLoop() AS Nothing
+  ' plan-172-K: the wait is timed while an `AutoPaint` is inside an enter or exit window
+  ' -- the one time-based redraw there is -- and untimed (0) otherwise. It answers 0
+  ' when the loop is to stop.
+  __CANVAS_WAKE = canvas::waitForRedraw(__canvas_autoTimeout())
+  WHILE __CANVAS_WAKE <> 0
     ' plan-155-B: time the frame and report whether -- and by which renderer -- it
     ' was drawn, for `canvas::getFrameStats`. `__canvas_renderFrame` sets the two
     ' globals on every path out of it.
@@ -1350,6 +1398,7 @@ macro_rules! render_loop_head {
     __canvas_renderFrame()
     LET finished AS Integer = canvas::frameNanos()
     canvas::frameDone(__CANVAS_LAST_DREW, __CANVAS_LAST_RENDERER, finished - started, finished)
+    __CANVAS_WAKE = canvas::waitForRedraw(__canvas_autoTimeout())
   END WHILE
 END FUNC
 
@@ -1360,6 +1409,19 @@ FUNC __canvas_renderFrame() AS Nothing
   ' plan-172-J: a `--debug` build's scripted pointer, applied before anything in the
   ' frame could read the pointer. Empty in a normal build.
   __canvas_pointerScript()
+  ' plan-172-K: a frame nobody is owed -- the pointer changed, or an `AutoPaint` window
+  ' ended -- is drawn only if some `AutoPaint` now shows a different paint, and that is
+  ' asked before anything is walked (`__canvas_autoLight`). A pointer crossing empty
+  ' canvas, or moving within a shape, draws nothing and walks nothing, whatever
+  ' `MFB_CANVAS_DAMAGE` says. When the answer is yes the frame is an ordinary one from
+  ' here on.
+  IF __CANVAS_WAKE = 2 THEN
+    IF NOT __canvas_autoLight() THEN
+      __CANVAS_DAMAGE = []
+      __canvas_frameSkipped()
+      RETURN
+    END IF
+  END IF
   ' plan-172-E: `canvas::Size` holds Floats, for a shape's extent. The surface is whole
   ' pixels and every consumer below wants them as Integers, so they are read directly.
   LET surfaceW AS Integer = canvas::surfaceWidth()
@@ -1489,8 +1551,9 @@ END FUNC"#
 /// the thing being measured. A real window asks for the GPU (`__canvas_wantGpu`).
 ///
 /// It never returns. The wait is a real condition wait, so a static scene costs
-/// nothing — no timer, no poll, no spin (`.ai/canvas-threading.md` §4: time is
-/// deliberately not a redraw trigger).
+/// nothing — no timer, no poll, no spin. Time is a redraw trigger in exactly one case
+/// (`.ai/canvas-threading.md` §4): a `canvas::AutoPaint` inside its 50 ms enter or exit
+/// window, whose end `__canvas_autoTimeout` hands the wait.
 ///
 /// It renders the *installed* scene rather than being handed one, which is what lets
 /// a repaint no `present` caused — a resize, an expose — draw the right picture.
@@ -1527,6 +1590,22 @@ END FUNC"#;
 /// plan-172-J: the scripted pointer. A normal build has no script and no reader.
 #[rustfmt::skip]
 const POINTER_SCRIPT: &str = r#"FUNC __canvas_pointerScript() AS Nothing
+END FUNC
+
+' plan-172-K: a frame that was woken and not drawn.
+FUNC __canvas_frameSkipped() AS Nothing
+  __CANVAS_SKIPPED = __CANVAS_SKIPPED + 1
+END FUNC
+
+' plan-172-K: when the script's next entry falls due, on `canvas::frameNanos`' clock, or
+' 0 for none. There is no script in a normal build.
+FUNC __canvas_pointerNextDue() AS Integer
+  RETURN 0
+END FUNC
+
+' plan-172-K: how long an `AutoPaint`'s enter and exit paints are held, in nanoseconds.
+FUNC __canvas_autoWindow() AS Integer
+  RETURN 50000000
 END FUNC"#;
 
 /// The `--debug` build's scripted pointer: `MFB_CANVAS_POINTER` holds
@@ -1596,6 +1675,46 @@ FUNC __canvas_pointerScript() AS Nothing
     canvas::publishPointer(x, y, buttons, inside)
     __CANVAS_POINTER_NEXT = __CANVAS_POINTER_NEXT + 1
   END WHILE
+END FUNC
+
+' plan-172-K: a frame that was woken and not drawn -- counted, and in this build it
+' writes its stats line like any other frame the graphics thread considered.
+FUNC __canvas_frameSkipped() AS Nothing
+  __CANVAS_SKIPPED = __CANVAS_SKIPPED + 1
+  __canvas_writeStats()
+END FUNC
+
+' plan-172-K: when the script's next entry falls due, on `canvas::frameNanos`' clock, or
+' 0 when it has none left. A script entry is not a pointer EVENT -- nothing signals for
+' it -- so a scene with an `AutoPaint` waits no longer than this (`__canvas_autoTimeout`)
+' and the entry is applied at the start of the frame that wakes.
+FUNC __canvas_pointerNextDue() AS Integer
+  IF NOT __CANVAS_POINTER_READ THEN
+    RETURN 0
+  END IF
+  IF __CANVAS_POINTER_NEXT * 5 + 4 >= len(__CANVAS_POINTER_SCRIPT) THEN
+    RETURN 0
+  END IF
+  RETURN __CANVAS_POINTER_T0 + collections::getOr(__CANVAS_POINTER_SCRIPT, __CANVAS_POINTER_NEXT * 5, 0) * 1000000
+END FUNC
+
+' plan-172-K: how long an `AutoPaint`'s enter and exit paints are held, in nanoseconds
+' -- 50 ms, unless `MFB_CANVAS_AUTO_WINDOW_MS` says otherwise. The override is a test
+' affordance, off by default: a flash that lasts 50 ms cannot be photographed by a test
+' whose software frame takes longer than that to draw.
+MUT __CANVAS_AUTO_WINDOW_NS AS Integer = 0
+
+FUNC __canvas_autoWindow() AS Integer
+  IF __CANVAS_AUTO_WINDOW_NS = 0 THEN
+    MUT ms AS Integer = toInt(os::getEnvOr("MFB_CANVAS_AUTO_WINDOW_MS", "50")) TRAP(e)
+      RECOVER 50
+    END TRAP
+    IF ms < 1 OR ms > 3600000 THEN
+      ms = 50
+    END IF
+    __CANVAS_AUTO_WINDOW_NS = ms * 1000000
+  END IF
+  RETURN __CANVAS_AUTO_WINDOW_NS
 END FUNC
 
 ' The pointer as the graphics thread sees it, for the stats line: `x,y,buttons,inside`.

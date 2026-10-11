@@ -1805,6 +1805,8 @@ pub(super) fn emit_canvas_resize_helper() -> Result<CodeFunction, String> {
         &mut asm.ins,
         &mut asm.rel,
     );
+    // 0: a redraw that is owed, not a pointer change (plan-172-K).
+    asm.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     asm.call_internal(CANVAS_SIGNAL_REDRAW_SYMBOL);
 
     asm.push(abi::label(&done));

@@ -300,18 +300,33 @@ Acceptance: every rule in "AutoPaint states" has a passing case named for it.
   Observed 2026-10-11: "13 passed; 0 failed". `cargo test --bin mfb
   a_constructed_record_opens` → "1 passed"; `scripts/artifact-gate.sh
   target/release/mfb all` → "2322 golden(s) checked, 0 diff(s)".
-Commit: —
+Commit: 5d76cd7b5
 
 ### Phase 3 — Resolution on the graphics thread, and the two triggers
 
-- [ ] `helper_autopaint.rs`: the instance list, the table, and the six-step resolve
-      called from `__canvas_renderFrame` after the walk.
-- [ ] `src/codegen/runtime/canvas/mod.rs`: the `AUTOPAINT_LIVE` and `REDRAW_DEADLINE`
+- [x] `helper_autopaint.rs`: the instance list, the table, and the six-step resolve
+      called from `__canvas_renderFrame` after the walk. `__canvas_autoResolve`, called
+      at the end of `__canvas_sceneOffsets` — the function `__canvas_renderFrame` calls
+      for the walk — because the spans that turn an instance's place in the walk into
+      its place in the frame are that function's locals. The table is rebuilt from the
+      frame's instances, which is step 5. Step 6 publishes one word, not two
+      (Corrections).
+- [x] `src/codegen/runtime/canvas/mod.rs`: the `AUTOPAINT_LIVE` and `REDRAW_DEADLINE`
       words; `emit_wait_for_redraw` takes the timed branch and returns a timeout as a
       redraw; `emit_publish_pointer` signals when `AUTOPAINT_LIVE` is set.
-- [ ] `helper_render.rs`: the debug `MFB_CANVAS_POINTER` script's next entry time joins
+      `AUTOPAINT_LIVE` and `AUTO_WAKE`; no `REDRAW_DEADLINE`. `canvas::waitForRedraw`
+      takes the timeout as an argument and answers 0, 1 or 2; `canvas::signalRedraw`
+      takes one too, and the three platforms' pointer handlers call it with 1 behind
+      `emit_skip_unless_autopaint_live`. All four differences are in Corrections.
+      `cargo test --bin mfb -- canvas target:: platform plan builder registry spec` →
+      "606 passed; 0 failed" (run before the last three source edits of this phase; the
+      whole-letter round at the end of Phase 4 is the one that counts).
+- [x] `helper_render.rs`: the debug `MFB_CANVAS_POINTER` script's next entry time joins
       the deadline, so a scripted test wakes without a present.
-- [ ] Runtime cases in `tests/canvas/rt_canvas_autopaint.rs`, each one `present` and a
+      `__canvas_pointerNextDue`, read by `__canvas_autoTimeout`; only while an
+      `AutoPaint` is live, so a scripted pointer over a scene with none still wakes
+      nothing.
+- [x] Runtime cases in `tests/canvas/rt_canvas_autopaint.rs`, each one `present` and a
       pointer script, read through `MFB_CANVAS_DUMP`:
       hover paint shows after entry; the enter paint shows first and gives way with the
       pointer still; exit shows then default; pressed wins over hover; only the upper of
@@ -320,16 +335,33 @@ Commit: —
       under the same `id`, and under none, each holding a NAMED `AutoPaint`; a hover
       paint with a wider
       stroke does not widen the hit region; state survives a re-`present` of a moved
-      shape.
-- [ ] A frame-count case: a scene with no `AutoPaint` and a moving scripted pointer
+      shape. Nine tests, one per case, and a tenth the plan did not list:
+      `a_text_over_an_autopaint_blocks_it_across_its_layout_box`, for filled and
+      stroked text — which found a bug on its first run (Corrections). A state still
+      showing at exit is read as pixels; one that came and went is read off the stats
+      lines' `auto=` field, and the two flashes are also photographed with the window
+      stretched (`MFB_CANVAS_AUTO_WINDOW_MS`).
+- [x] A frame-count case: a scene with no `AutoPaint` and a moving scripted pointer
       renders exactly one frame; with one `AutoPaint` and the pointer never over it, the
-      pointer-only wakes render none after the first.
-- [ ] Run `rt_canvas_frame_stats` and `rt_canvas_graphics_thread` unchanged.
+      pointer-only wakes render none after the first. Two tests. The first asserts ONE
+      stats line — the render loop was never woken at all; the second `frames=1` with
+      `skipped` at least 2.
+- [x] Run `rt_canvas_frame_stats` and `rt_canvas_graphics_thread` unchanged. Neither
+      file was edited in this phase: "13 passed; 0 failed" and "13 passed; 0 failed; 2
+      ignored" (the two ignored are `#[ignore]`d at HEAD).
 
 Acceptance: all nine state cases and the frame-count case pass, and the `waitFrame` and
 graphics-thread suites still pass.
   Check: `cargo test --test rt_canvas_autopaint --test rt_canvas_frame_stats --test
   rt_canvas_graphics_thread` → pass (est. 10 min).
+  Observed 2026-10-11: `rt_canvas_autopaint` "16 passed; 0 failed", `rt_canvas_frame_stats` "13 passed; 0
+  failed", `rt_canvas_graphics_thread` "17 passed; 0 failed; 2 ignored" (thirteen as it
+  stood, plus Phase 4's four rows; the two ignored are `#[ignore]`d at HEAD).
+  `scripts/artifact-gate.sh target/release/mfb all` reported 8 diffs, in the same two
+  fixtures as Phase 1 — the ones that dump the canvas companion. One `.ir` was
+  inspected: it has `canvas_autoPath` and `canvas_autoResolve` (the `ABSENT` chunk)
+  and no `canvas_autoStep`, `canvas_hitEntry` or `canvas_autoItemWith`. Resynced:
+  "2322 golden(s) checked, 0 diff(s)".
 Commit: —
 
 ### Phase 4 — GPU parity, the race rows and the documents
@@ -395,6 +427,92 @@ Commit: —
    the owner's words.
 
 ## Corrections
+
+- **Damage is off by default, so "not rendered, as an empty damage union" needed a
+  mechanism of its own (2026-10-11).** §3 says a pointer-only frame that changes nothing
+  "ends after step 6 — the same outcome as an empty damage union". `__canvas_damageFor`
+  answers the whole surface unless `MFB_CANVAS_DAMAGE` is set (`__canvas_damageEnabled`),
+  so an unchanged frame is a full redraw in every ordinary run, and the first cut drew
+  one for every pointer event: the probe's stats lines read `damage=0,0,900,640` on
+  every wake. What was built instead:
+  - `canvas::waitForRedraw` answers 1 when a redraw is OWED and 2 when it woke for the
+    pointer or a deadline;
+  - a pointer change is its own flag, `GRAPHICS_OFFSET_AUTO_WAKE`, set by
+    `canvas::signalRedraw(1)` — not `PENDING`, which would make it indistinguishable
+    from a `present`;
+  - a frame woken with 2 asks `__canvas_autoLight` and ends there unless a paint
+    changed.
+  Phase 3's second box says `emit_publish_pointer` "signals when `AUTOPAINT_LIVE` is
+  set"; it is each platform handler that does, with the argument 1, and the five resize
+  callers of `canvas::signalRedraw` now pass 0.
+- **There is no `REDRAW_DEADLINE` word (2026-10-11).** Only the graphics thread writes
+  the deadline and only the graphics thread waits on it, so it is a graphics-thread
+  global and reaches the wait as `canvas::waitForRedraw`'s argument: the time LEFT, from
+  `__canvas_autoTimeout`. That also puts the clock conversion §3 worried about in one
+  line — the wait adds the time left to `CLOCK_REALTIME` once — instead of in two
+  clocks' worth of native code.
+- **A wake that owes nothing walks nothing (2026-10-11).** Not in the plan, and found by
+  measuring: with the resolve reached only through the scene walk, one pointer event
+  over a scene of 10,000 rectangles and one `AutoPaint` cost 8 ms (`/tmp` probe,
+  `phaseOffsetsMs` across one wake), because a frame with anything to walk copies the
+  scene out of the ring. `__canvas_autoLight` steps the table against the last walked
+  frame's entries instead: 2,000 scripted pointer changes 1 ms apart were 1,842
+  separate wakes at 10,000 items and 1,830 at 1,000, so a wake is under a millisecond
+  at either size, its stats line included.
+- **172-I's first open question is answered: gate it, and move more behind the gate
+  (2026-10-11).** The region test is its own chunk, compiled into a program that calls
+  `pollMouse` OR constructs an `AutoPaint`; the resolve is a chunk compiled only into a
+  program that constructs one; and a twin chunk, `ABSENT`, gives every other canvas
+  program the same twelve names with the bodies that are right when no `AutoPaint` can
+  exist. Measured, `__text` of a canvas program with no `AutoPaint`, macOS AArch64
+  (`otool -l`): 2,720,364 bytes before this letter; 2,758,560 with the shape converter
+  and the hash arm in the unconditional source (+38,196); 2,733,992 as committed
+  (+13,628 — one 16,512-byte page of file). The remaining 13,628 is the `AutoPaint`
+  arms the unions oblige every `MATCH` to have, the walks' two extra parameters, the
+  timed wait and `ABSENT`.
+- **172-I's third open question is answered: the box is written into the renderer's
+  text record, but only in a program with an `AutoPaint` (2026-10-11).**
+  `__canvas_autoTextBox`, called at the end of `__canvas_geometryFor`'s `Text` arm,
+  whose `ABSENT` body hands the header back. A stroked run is a `POLYGON`, so it also
+  carries a mark (`__CANVAS_GEO_TEXT_BOX_MARK`).
+- **The hit test rejected a stroked text on its DRAW bounds — a bug the new text case
+  found on its first run (2026-10-11).** `__canvas_hitCurrent`'s first step rejects on a
+  record's bounds. The worker's text record's bounds are the layout box; the renderer's
+  stroked-run polygon's are its outlines', which are tighter, so a point in the box
+  above the glyphs was rejected before the box was asked and the button under the
+  label lit. A record hit as a text box now skips the reject. Fixed in this phase.
+- **An `AutoPaint` is always walked, never resolved from the cache (2026-10-11).** Not
+  in §3. The native first pass resolves any item whose published hash is cached without
+  the MFBASIC walk seeing it, and an instance the walk does not see has no state. So
+  the shape's record is cached under the item's hash stepped by 16, never under the
+  hash itself. The cost — a frame holding one copies the scene out of the ring — is the
+  cost a `Picture` or a `Group` already has, and the walk-free wake above is why it is
+  paid per FRAME and not per pointer event.
+- **The GPU draw list needed telling twice (2026-10-11).** Not in §3, which says only
+  "replace its entry's geometry offset and draw hash". The GPU list is laid out from
+  `__CANVAS_TOP_OFFSETS`, so the resolve writes the swapped offset there as well; and a
+  group's run is laid out once and shared by every node that draws the group, so a
+  node under which an `AutoPaint` shows a state paint gets a run of its own
+  (`__canvas_autoVariant`, a second key on the memo). Phase 4's Metal case is what
+  proves both.
+- **Two new `--debug` affordances (2026-10-11).** `MFB_CANVAS_AUTO_WINDOW_MS` stretches
+  the window, and the stats line gains `auto=`. Both are in the normal-build census
+  test (`the_normal_source_has_no_reporting_hook`'s list) and in
+  `.ai/canvas-threading.md` section 11.
+- **The first cut of the state tests was flaky, and it was the tests' own load
+  (2026-10-11).** Fourteen `--debug` programs rendering at once made a first frame take
+  over a second, so a script entry at 1000 ms was due before the frame at 50 ms had
+  happened and a hover went missing between them. The runs now take turns (one mutex in
+  `run`) and entries are two seconds apart.
+- **Phase 3's first three census tests to move were moved, not weakened (2026-10-11).**
+  `the_pointer_words_end_the_graphics_state` (172-J, mine): the pointer's five words are
+  no longer the block's last, because two follow; it still pins that they are
+  contiguous and in order, and now pins the two new words after them.
+  `wm_size_signals_a_redraw` and `wm_size_and_the_scripted_hook_share_the_term_resize_handler`
+  (bug-698, bug-540) counted calls to `canvas::signalRedraw` in the window procedure,
+  and the pointer block now makes two more; both count calls BY ARGUMENT instead
+  (`signal_redraw_arguments`), so they still say "exactly two redraws" and additionally
+  that the other two say "the pointer changed".
 
 - **Phase 2's cases are an integration test, not `--bin mfb` unit tests (2026-10-11).**
   `__canvas_autoStep` is MFBASIC, and a `--bin mfb` test cannot run MFBASIC: every

@@ -10,7 +10,11 @@
 //! `--debug` pointer script (`helper_render.rs:__canvas_pointerScript`), which stands
 //! in for a mouse on a headless run; a normal build's source never names it.
 //!
-//! Neither carries the `Mode.Canvas` gate: they run on the graphics thread, whose
+//! `canvas::autoPublish` (plan-172-K) is the word that turns a pointer change into a
+//! redraw: the graphics thread sets it while the scene it drew holds an `AutoPaint`,
+//! and each platform's pointer handler reads it after publishing.
+//!
+//! None carries the `Mode.Canvas` gate: they run on the graphics thread, whose
 //! presentation-mode word is its own zero (`.ai/canvas-threading.md` section 2), so a
 //! gate there would raise on every frame.
 
@@ -22,8 +26,8 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::codegen::runtime::canvas::{
-    emit_publish_pointer, state_base, PointerRegs, GRAPHICS_OFFSET_POINTER_SEQ,
-    GRAPHICS_POINTER_WORDS,
+    emit_publish_pointer, state_base, PointerRegs, GRAPHICS_OFFSET_AUTOPAINT_LIVE,
+    GRAPHICS_OFFSET_POINTER_SEQ, GRAPHICS_POINTER_WORDS,
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -163,7 +167,56 @@ pub(crate) fn lower_publish_pointer(
     Ok(ok_return(builder, "canvas.publishPointer"))
 }
 
+/// `canvas::autoPublish(live)` — say whether the scene just drawn holds an
+/// `AutoPaint` (`GRAPHICS_OFFSET_AUTOPAINT_LIVE`). One plain store: the word is a hint,
+/// and what makes a stale read of it harmless is in that constant's own comment.
+pub(crate) fn lower_auto_publish(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let live = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects whether an AutoPaint is live"))?;
+    let value = builder.temporary_vreg();
+    builder.emit(abi::move_register(&value, &live.location));
+    let base = builder.temporary_vreg();
+    state_base(
+        &symbol,
+        &base,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::store_u64(
+        &value,
+        &base,
+        GRAPHICS_OFFSET_AUTOPAINT_LIVE,
+    ));
+    Ok(ok_return(builder, "canvas.autoPublish"))
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "autoPublish",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "live",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::Boolean,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            body: Body::abi_function(lower_auto_publish),
+        }],
+    });
     pkg.add_function(RegistryFunction {
         name: "pointerSnapshot",
         intro: "",

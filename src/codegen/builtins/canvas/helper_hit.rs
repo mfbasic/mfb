@@ -6,81 +6,62 @@
 //! geometry records, so "is this point on the shape" is answered by the code that decides
 //! which pixels the shape covers. It adds no distance function of its own.
 //!
-//! The whole file is one chunk gated on `pollMouse` being called
-//! ([`HelperGate::WhenUsed`]): a canvas program that never polls the mouse compiles none
-//! of it, and so never emits the native raw poll or reserves mouse state.
+//! Two chunks, both gated, so a canvas program that uses neither compiles none of it:
+//!
+//! * [`REGION`] — "is this point on this draw entry". Compiled into a program that calls
+//!   `pollMouse` **or constructs a `canvas::AutoPaint`** (plan-172-K), because it is the
+//!   one test both read: the worker for `overID`, the graphics thread for which
+//!   `AutoPaint` the pointer is on. One function, so the two cannot disagree.
+//! * [`BODY`] — the worker's draw list, the id paths and `canvas::pollMouse` itself.
+//!   Compiled only into a program that calls `pollMouse`, and so the only thing that
+//!   emits the native raw poll or reserves mouse state.
 //!
 //! **Threads.** Everything here runs on the thread that calls it, against that thread's
 //! own geometry cache and draw-entry lists (`.ai/canvas-threading.md` section 2: module
 //! globals are per-thread). `canvas::pollMouse` runs on the worker, so the draw list
 //! `__canvas_hitBuild` makes is the worker's, built from the scene it last presented —
-//! nothing is read from the graphics thread and nothing waits on a frame.
+//! nothing is read from the graphics thread and nothing waits on a frame. The graphics
+//! thread hands [`REGION`] its own frame's entries (`helper_autopaint.rs`).
+//!
+//! **A `Text` is its layout box on both threads, and the box is found differently.**
+//! The worker draws nothing, so its `Text` record is `__canvas_textBoxHeader`'s: the
+//! box and no glyph. The graphics thread's is the renderer's — a glyph run, or the
+//! polygon a stroked run is drawn as — so in a program with an `AutoPaint` the builder
+//! writes the box into that record too (`__canvas_autoTextBox`), in the same four
+//! slots.
 
 use crate::codegen::registry::{HelperGate, RegistryHelper, RegistryPackage};
 
+/// The region test: is a surface point on a draw entry.
 #[rustfmt::skip]
-const BODY: &str =
+const REGION: &str =
 r#"IMPORT canvas
 IMPORT collections
 IMPORT math
 IMPORT vector
-
-' The draw list the calling thread hit-tests: one geometry offset per entry, in draw
-' order, parallel to `__CANVAS_DRAW_DX` / `_DY` / `_MAT` (the entry's group translation
-' and matrix number, as `__canvas_composeGroup` leaves them) and to `__CANVAS_HIT_IDS`
-' (its id path).
-MUT __CANVAS_HIT_OFFSETS AS List OF Integer = []
-MUT __CANVAS_HIT_IDS AS List OF String = []
-' The scene revision (`__CANVAS_SCENE_REV`) the list was built for; 0 is "never".
-MUT __CANVAS_HIT_REV AS Integer = 0
-' Whether any entry of the list has a non-empty id path. FALSE answers every point with
-' "" without a walk.
-MUT __CANVAS_HIT_NAMED AS Boolean = FALSE
 
 ' A text record's LAYOUT BOX -- x0, y0, x1, y1 in the item's own space: the pen's travel
 ' by the font's ascent and descent. It takes the gradient's four point slots, which a
 ' `Text` record never uses (`__canvas_paintHeader` gives that kind no gradient, and
 ' every reader of those slots asks the stop count first).
 LET __CANVAS_GEO_TEXT_BOX AS Integer = 43
+' plan-172-K: a STROKED `Text` is drawn as a polygon of its glyph outlines, and a
+' polygon may use those slots for a gradient. So the polygon says it carries a box:
+' this value in the gradient-kind slot, which a gradient writes 0 or 1 into -- and only
+' on a record with fewer than two stops, where nothing reads that slot or the points.
+' A stroked run never has more: `__canvas_textHeader` clears the count, because a
+' gradient on a stroked `Text` is ignored.
+LET __CANVAS_GEO_TEXT_BOX_MARK AS Integer = 2
 
-' Two parts of an id path, joined by the language's namespace separator. An empty part
-' is left out, so a scene with no named group records exactly each item's own `id`.
-FUNC __canvas_joinId(path AS String, id AS String) AS String
-  IF id = "" THEN
-    RETURN path
+' Is the record at `offset` hit as a text layout box?
+FUNC __canvas_hitIsTextBox(offset AS Integer, kind AS Integer) AS Boolean
+  IF kind = __CANVAS_GEO_TEXT THEN
+    RETURN TRUE
   END IF
-  IF path = "" THEN
-    RETURN id
+  IF kind <> __CANVAS_GEO_POLYGON THEN
+    RETURN FALSE
   END IF
-  RETURN path & "::" & id
-END FUNC
-
-FUNC __canvas_itemId(item AS DrawItem) AS String
-  MATCH item
-    CASE Rectangle(r)
-      RETURN r.id
-    CASE Circle(c)
-      RETURN c.id
-    CASE Line(l)
-      RETURN l.id
-    CASE Arc(a)
-      RETURN a.id
-    CASE Polygon(p)
-      RETURN p.id
-    CASE Text(t)
-      RETURN t.id
-    CASE Ellipse(e)
-      RETURN e.id
-    CASE Group(g)
-      RETURN g.id
-    CASE Picture(pic)
-      RETURN pic.id
-    CASE PolyLine(pl)
-      RETURN pl.id
-    ' An `AutoPaint` has no `id` of its own: it reports its shape's.
-    CASE AutoPaint(a)
-      RETURN __canvas_itemId(__canvas_autoItem(a))
-  END MATCH
+  RETURN toInt(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_KIND)) = __CANVAS_GEO_TEXT_BOX_MARK AND toInt(__canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_COUNT)) < 2
 END FUNC
 
 ' The shape-space distance of a record at its own point (`qx`, `qy`): the value the
@@ -112,12 +93,19 @@ END FUNC
 
 ' The test for the entry whose group matrix is current (`__canvas_enterGroupMatrix`).
 FUNC __canvas_hitCurrent(offset AS Integer, kind AS Integer, gdx AS Float, gdy AS Float, x AS Float, y AS Float) AS Boolean
-  ' 1. The entry's surface box, widened by the slack an open kind is given.
-  IF x < __canvas_drawBound(offset, 0, gdx, gdy) - 3.0 OR x > __canvas_drawBound(offset, 2, gdx, gdy) + 3.0 THEN
-    RETURN FALSE
-  END IF
-  IF y < __canvas_drawBound(offset, 1, gdx, gdy) - 3.0 OR y > __canvas_drawBound(offset, 3, gdx, gdy) + 3.0 THEN
-    RETURN FALSE
+  ' 1. The entry's surface box, widened by the slack an open kind is given. Not for a
+  ' text box: a record's bounds are what it DRAWS, and on the graphics thread a stroked
+  ' run's are its outlines' -- tighter than the layout box it is hit on, whose top is
+  ' the font's ascent whatever the glyphs reach (plan-172-K). The box test below is the
+  ' whole answer for those and costs four comparisons.
+  LET isBox AS Boolean = __canvas_hitIsTextBox(offset, kind)
+  IF NOT isBox THEN
+    IF x < __canvas_drawBound(offset, 0, gdx, gdy) - 3.0 OR x > __canvas_drawBound(offset, 2, gdx, gdy) + 3.0 THEN
+      RETURN FALSE
+    END IF
+    IF y < __canvas_drawBound(offset, 1, gdx, gdy) - 3.0 OR y > __canvas_drawBound(offset, 3, gdx, gdy) + 3.0 THEN
+      RETURN FALSE
+    END IF
   END IF
   ' 2. The item's own point: the group's translation off, then the groups' inverse
   ' linear part and the item's own inverse -- the rasteriser's `px`/`py` and `qx`/`qy`.
@@ -141,9 +129,8 @@ FUNC __canvas_hitCurrent(offset AS Integer, kind AS Integer, gdx AS Float, gdy A
       RETURN FALSE
     END IF
   END IF
-  ' 4. The shape. A `Text` is its layout box, whatever its glyphs cover: the only TEXT
-  ' records this chunk's draw list holds are `__canvas_textBoxHeader`'s.
-  IF kind = __CANVAS_GEO_TEXT THEN
+  ' 4. The shape. A `Text` is its layout box, whatever its glyphs cover.
+  IF isBox THEN
     RETURN qx >= __canvas_geoAt(offset, __CANVAS_GEO_TEXT_BOX) AND qx <= __canvas_geoAt(offset, __CANVAS_GEO_TEXT_BOX + 2) AND qy >= __canvas_geoAt(offset, __CANVAS_GEO_TEXT_BOX + 1) AND qy <= __canvas_geoAt(offset, __CANVAS_GEO_TEXT_BOX + 3)
   END IF
   LET d AS Float = __canvas_hitDistance(offset, kind, qx, qy)
@@ -190,6 +177,65 @@ FUNC __canvas_hitEntry(offset AS Integer, mat AS Integer, gdx AS Float, gdy AS F
   LET hit AS Boolean = __canvas_hitCurrent(offset, kind, gdx, gdy, x, y)
   __canvas_enterGroupMatrix(0)
   RETURN hit
+END FUNC"#;
+
+#[rustfmt::skip]
+const BODY: &str =
+r#"IMPORT canvas
+IMPORT collections
+IMPORT math
+IMPORT vector
+
+' The draw list the calling thread hit-tests: one geometry offset per entry, in draw
+' order, parallel to `__CANVAS_DRAW_DX` / `_DY` / `_MAT` (the entry's group translation
+' and matrix number, as `__canvas_composeGroup` leaves them) and to `__CANVAS_HIT_IDS`
+' (its id path).
+MUT __CANVAS_HIT_OFFSETS AS List OF Integer = []
+MUT __CANVAS_HIT_IDS AS List OF String = []
+' The scene revision (`__CANVAS_SCENE_REV`) the list was built for; 0 is "never".
+MUT __CANVAS_HIT_REV AS Integer = 0
+' Whether any entry of the list has a non-empty id path. FALSE answers every point with
+' "" without a walk.
+MUT __CANVAS_HIT_NAMED AS Boolean = FALSE
+
+' Two parts of an id path, joined by the language's namespace separator. An empty part
+' is left out, so a scene with no named group records exactly each item's own `id`.
+FUNC __canvas_joinId(path AS String, id AS String) AS String
+  IF id = "" THEN
+    RETURN path
+  END IF
+  IF path = "" THEN
+    RETURN id
+  END IF
+  RETURN path & "::" & id
+END FUNC
+
+FUNC __canvas_itemId(item AS DrawItem) AS String
+  MATCH item
+    CASE Rectangle(r)
+      RETURN r.id
+    CASE Circle(c)
+      RETURN c.id
+    CASE Line(l)
+      RETURN l.id
+    CASE Arc(a)
+      RETURN a.id
+    CASE Polygon(p)
+      RETURN p.id
+    CASE Text(t)
+      RETURN t.id
+    CASE Ellipse(e)
+      RETURN e.id
+    CASE Group(g)
+      RETURN g.id
+    CASE Picture(pic)
+      RETURN pic.id
+    CASE PolyLine(pl)
+      RETURN pl.id
+    ' An `AutoPaint` has no `id` of its own: it reports its shape's.
+    CASE AutoPaint(a)
+      RETURN __canvas_itemId(__canvas_autoItem(a))
+  END MATCH
 END FUNC
 
 ' The topmost entry of the calling thread's draw list under a surface point, or -1.
@@ -445,6 +491,16 @@ END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper {
+        name: "canvas_hit_region",
+        gate: HelperGate::WhenUsedOrConstructed(
+            &["pollMouse"],
+            super::helper_autopaint::CONSTRUCTED,
+        ),
+        body: Some(REGION),
+        import_name: None,
+        natively_called: false,
+    });
+    pkg.add_helper(RegistryHelper {
         name: "canvas_hit",
         gate: HelperGate::WhenUsed(&["pollMouse"]),
         body: Some(BODY),
@@ -455,16 +511,16 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 
 #[cfg(test)]
 mod tests {
-    use super::BODY;
+    use super::{BODY, REGION};
 
     /// The slack an open kind is given is stated twice in the chunk — the bounds
     /// reject and the stroke test — and a bounds reject narrower than the test would
     /// make the last pixels of the slack unreachable without failing anything.
     #[test]
     fn canvas_hit_the_bounds_reject_is_as_wide_as_the_open_kind_slack() {
-        assert_eq!(BODY.matches("- 3.0 OR").count(), 2);
-        assert_eq!(BODY.matches("+ 3.0 THEN").count(), 2);
-        assert_eq!(BODY.matches("d <= 3.0 * scale").count(), 1);
+        assert_eq!(REGION.matches("- 3.0 OR").count(), 2);
+        assert_eq!(REGION.matches("+ 3.0 THEN").count(), 2);
+        assert_eq!(REGION.matches("d <= 3.0 * scale").count(), 1);
     }
 
     /// The path separator is the language's namespace separator, spelled once.

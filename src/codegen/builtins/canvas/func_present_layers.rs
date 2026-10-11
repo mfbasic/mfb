@@ -84,7 +84,7 @@ r#"FUNC __canvas_presentLayers(layers AS List OF DrawLayer) AS Nothing
     NEXT
     __CANVAS_SCENE_IDS = named + grouped
     canvas::publishHashes(__canvas_hashLayers(layers))
-    canvas::signalRedraw()
+    canvas::signalRedraw(FALSE)
     canvas::syncFrame()
   END IF
 END FUNC"#;

@@ -9034,17 +9034,36 @@ mod tests {
         );
     }
 
-    /// plan-172-J: the pointer's five words are the block's last 40 bytes, the sequence
-    /// word first and the four published words after it in the order
+    /// plan-172-J: the pointer's five words are 40 contiguous bytes, the sequence word
+    /// first and the four published words after it in the order
     /// `canvas::pointerSnapshot` returns them. Three platform handlers and one reader
-    /// address them by constant; the block is sized from the last.
+    /// address them by constant.
+    ///
+    /// plan-172-K put two words after them — `AUTOPAINT_LIVE`, then `AUTO_WAKE` — so
+    /// the pointer's are no longer the block's last; the block is sized from the new
+    /// last word, and that is what the first two assertions now say. Written as "the
+    /// pointer words end the block" (plan-172-J), which was true of the block then and
+    /// was never what the handlers depend on: they depend on the five being contiguous
+    /// and in order, which the loop still checks.
     #[test]
     fn the_pointer_words_end_the_graphics_state() {
         use crate::codegen::runtime::canvas::{
+            GRAPHICS_OFFSET_AUTOPAINT_LIVE, GRAPHICS_OFFSET_AUTO_WAKE,
             GRAPHICS_OFFSET_POINTER_INSIDE, GRAPHICS_OFFSET_POINTER_SEQ, GRAPHICS_POINTER_WORDS,
         };
-        assert_eq!(GRAPHICS_STATE_SIZE, GRAPHICS_OFFSET_POINTER_SEQ + 40);
-        assert_eq!(GRAPHICS_OFFSET_POINTER_INSIDE + 8, GRAPHICS_STATE_SIZE);
+        assert_eq!(
+            GRAPHICS_OFFSET_AUTOPAINT_LIVE,
+            GRAPHICS_OFFSET_POINTER_SEQ + 40
+        );
+        assert_eq!(
+            GRAPHICS_OFFSET_POINTER_INSIDE + 8,
+            GRAPHICS_OFFSET_AUTOPAINT_LIVE
+        );
+        assert_eq!(
+            GRAPHICS_OFFSET_AUTO_WAKE,
+            GRAPHICS_OFFSET_AUTOPAINT_LIVE + 8
+        );
+        assert_eq!(GRAPHICS_STATE_SIZE, GRAPHICS_OFFSET_AUTO_WAKE + 8);
         for (index, offset) in GRAPHICS_POINTER_WORDS.into_iter().enumerate() {
             assert_eq!(offset, GRAPHICS_OFFSET_POINTER_SEQ + 8 * (index + 1));
         }

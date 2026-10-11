@@ -26,7 +26,8 @@ bytes of executable on macOS aarch64.
 `canvas` is a **retained scene**: a program builds a `List OF DrawItem` and
 installs it with `canvas::present`, and the runtime redraws that scene when a
 present changes it, on resize, and on OS damage — until the next `present`
-replaces it. Time is not a trigger and no backend waits for the display: a frame
+replaces it. Time is a trigger in one bounded case — a `canvas::AutoPaint` inside its
+enter or exit window (below, "AutoPaint") — and no backend waits for the display: a frame
 is drawn when one is owed, never on a display-refresh tick.
 [[src/codegen/builtins/canvas/mod.rs:CANVAS]]
 
@@ -90,8 +91,8 @@ variants it leaves to the MFBASIC path; a variant in neither fails the build.
 A `canvas::AutoPaint` holds a `Shape` and draws it. It has no `id`, no `position`, no
 `paint` and no `transform` of its own — the shape's are its — so wherever a shape is
 what is asked about (what is drawn, where it is hit, which `id` is reported, which font
-is named), every `MATCH` over `DrawItem` answers its `AutoPaint` arm with the shape.
-[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_autoItem]]
+is named), every `MATCH` over `DrawItem` answers its `AutoPaint` arm with the shape
+(`__canvas_autoItem`). [[src/codegen/builtins/canvas/helper_autopaint.rs:RESOLVE]]
 Its `shape` field is a union, so the record has no default value: an `AutoPaint` is
 written as a full literal, not built up from `MUT a AS canvas::AutoPaint`. It is hashed
 in MFBASIC — its shape's hash, its four flags and its four paints — because the native
@@ -1166,9 +1167,14 @@ same name replaces what that name draws. The items are copied, so the list passe
 
 One question — which drawn item is topmost under a surface point — answered by the
 rasteriser's own distance functions, read from the same geometry records. Its first
-user is `canvas::MouseEvent.overID`. The whole of it is one MFBASIC chunk,
-[[src/codegen/builtins/canvas/helper_hit.rs:BODY]], injected only into a program that
-calls `canvas::pollMouse` (`HelperGate::WhenUsed`).
+user is `canvas::MouseEvent.overID`; its second is `canvas::AutoPaint`. It is two
+MFBASIC chunks. The region test — is a point on a draw entry —
+[[src/codegen/builtins/canvas/helper_hit.rs:REGION]], is injected into a program that
+calls `canvas::pollMouse` or constructs an `AutoPaint`
+(`HelperGate::WhenUsedOrConstructed`), and is the one function both users call. The
+worker's draw list, the id paths and `pollMouse` itself,
+[[src/codegen/builtins/canvas/helper_hit.rs:BODY]], are injected only into a program
+that calls `canvas::pollMouse` (`HelperGate::WhenUsed`).
 
 ### The region of an item
 
@@ -1178,7 +1184,9 @@ the record at `offset`, drawn under group matrix `mat` at group translation
 `__canvas_hitCurrent` then does, in order:
 
 1. **Bounds.** Reject outside the entry's surface box (`__canvas_drawBound`) widened by
-   3 px.
+   3 px — except for a record that is hit as a text box (`__canvas_hitIsTextBox`), which
+   skips this step: a record's bounds are what it draws, and a stroked run's are its
+   outlines', tighter than the layout box.
 2. **The item's own point.** `(x − gdx, y − gdy)`, then `__canvas_invX` / `__canvas_invY`
    when `__canvas_hasTransform` — the groups' inverse linear part and the item's own
    inverse, which is exactly the rasteriser's `qx`, `qy`.
@@ -1192,7 +1200,7 @@ the record at `offset`, drawn under group matrix `mat` at group translation
 |---|---|
 | `RECT`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PICTURE` | `d ≤ max(strokeHalf, 0)`, or the record has join records and `__canvas_joinedStroke ≤ 0` |
 | `SEGMENT`, `ARC`, `POLYLINE` | `d ≤ 0`, or `d ≤ 3·scale − halfWidth` |
-| `TEXT` | the item's own point is inside its layout box |
+| `TEXT`, and a `POLYGON` carrying the text-box mark | the item's own point is inside its layout box |
 | `NONE` | never |
 
 `d` is `__canvas_hitDistance`: `__canvas_geoDistance` with the header's per-item
@@ -1215,14 +1223,26 @@ record (`__canvas_segmentHeader`, `__canvas_arcHeader`, `__canvas_polylineHeader
 is not hit.
 
 **A `Text` is its layout box**: from the baseline origin to where the pen stops, the
-font's ascent above the baseline and its descent below. The hit list's record for a
-`Text` is not the renderer's. `__canvas_textBoxHeader` builds a `TEXT` record that
-holds the paint (for the transform and the clip), the box in `__CANVAS_GEO_TEXT_BOX` —
-the gradient's four point slots, which no `TEXT` record uses — and no glyph: the run is
-shaped for its advances and never rasterised. A stroked run, which the renderer lowers
-to a `POLYGON` of its outlines, is the same box. The renderer's own text records carry
-no box, so `__canvas_hitEntry` answers a `Text` only over a list `__canvas_hitAppend`
-built.
+font's ascent above the baseline and its descent below. The box is four floats in
+`__CANVAS_GEO_TEXT_BOX` — the gradient's four point slots, which no `TEXT` record uses —
+and the two threads come by it differently:
+
+* **The worker's record for a `Text` is not the renderer's.** `__canvas_textBoxHeader`
+  builds a `TEXT` record that holds the paint (for the transform and the clip), the box,
+  and no glyph: the run is shaped for its advances and never rasterised. A stroked run
+  is the same record.
+* **The graphics thread's is the renderer's, with the box written into it** — only in a
+  program that constructs an `AutoPaint`, by `__canvas_autoTextBox` at the end of
+  `__canvas_geometryFor`'s `Text` arm. A filled run is a `TEXT` glyph-run record. A
+  stroked run is a `POLYGON` of its outlines, a kind whose gradient slots may be in
+  use, so that record also carries `__CANVAS_GEO_TEXT_BOX_MARK` (2) in the
+  gradient-kind slot, which a gradient writes 0 or 1 into; the mark is honoured only
+  with fewer than two stops, where nothing else reads the slot or the points, and a
+  stroked run never has more (`__canvas_textHeader` clears the count).
+  [[src/codegen/builtins/canvas/helper_autopaint.rs:RESOLVE]]
+
+In a program with no `AutoPaint` the renderer's text records carry no box and nothing on
+the graphics thread asks for one.
 
 ### The walk, and the id path
 
@@ -1291,8 +1311,11 @@ changed the scene or a group it names: `__CANVAS_SCENE_REV`, a count of such pre
 and `__CANVAS_SCENE_IDS`, `canvas::sceneIdBits` of the scene
 ([[src/codegen/builtins/canvas/func_item_hash.rs:lower_scene_id_bits]]) — bit 0 when an
 item of the scene's own lists has a non-empty `id`, a group node's included; bit 1 when
-one of them is a group node. The native pass reads each item's first field, which is
-`id AS String` on all ten variants and is checked against the type model at build time.
+one of them is a group node or an `AutoPaint`. The native pass reads each item's first
+field, which is `id AS String` on every variant but `AutoPaint` and is checked against
+the type model at build time; an `AutoPaint` has no `id` of its own and reports its
+shape's, which is behind a union field this pass does not open, so it is counted as
+"may be named" with the group nodes.
 It does not look inside a group, so a value of 2 — group nodes, none of them named —
 makes `__canvas_hitBuild` ask `__canvas_reachesId` before it builds any geometry. A
 list in which no entry has a path (`__CANVAS_HIT_NAMED` FALSE) is never walked.
@@ -1310,9 +1333,11 @@ mouse state and compiles none of this.
 The graphics thread can read where the pointer is without the worker's help: each
 platform's MAIN thread publishes it into the graphics-state block, whether or not the
 program called `canvas::enableMouse`. Nothing here reaches a program — `canvas::pollMouse`
-and the SGR pipe behind it are a separate path, and a pointer change signals no redraw.
+and the SGR pipe behind it are a separate path. A pointer change wakes the render loop
+only while the scene it last drew holds an `AutoPaint` (below, "AutoPaint"); otherwise
+it signals nothing.
 
-**Five words**, the block's last 40 bytes
+**Five words**, 40 contiguous bytes
 ([[src/codegen/runtime/canvas/mod.rs:GRAPHICS_OFFSET_POINTER_SEQ]]):
 
 | Word | Holds |
@@ -1391,6 +1416,208 @@ entry whose time has come, counted from the first frame, through
 `canvas::publishPointer` — the same writer. A normal build's source has neither the
 reader nor a call to the writer. The stats line reports the snapshot as
 `pointer=x,y,buttons,inside`.
+
+## AutoPaint
+
+A `canvas::AutoPaint` is a `Shape` and up to four alternative paints. Which one is
+drawn is decided on the GRAPHICS thread, each frame, from the pointer words above — the
+worker never resolves it and `present` never waits on it, so a shape goes on reacting
+while the program is blocked in a key read. Everything below but the type and its
+`MATCH` arms is one MFBASIC chunk, [[src/codegen/builtins/canvas/helper_autopaint.rs:RESOLVE]]
+with [[src/codegen/builtins/canvas/helper_autopaint.rs:AUTO_STEP]], injected only into a
+program that constructs an `AutoPaint`. Every other canvas program gets
+[[src/codegen/builtins/canvas/helper_autopaint.rs:ABSENT]] in its place: the same twelve
+function names, with the bodies that are right when no `AutoPaint` can exist
+(`HelperGate::WhenNotConstructed`). A record value exists only where a constructor
+expression made it, so a program that constructs none holds none, and the gate is
+decided from the program's constructor expressions.
+
+### The state of an instance
+
+An instance is kept in one of four phases between frames, with one more bit:
+
+| Phase | Meaning |
+|---|---|
+| 0 `OUT` | it is not the topmost item under the pointer |
+| 1 `IN` | it is, and any enter window is over |
+| 2 `ENTER` | it became so less than a window ago |
+| 3 `EXIT` | it stopped being so less than a window ago |
+
+The bit is whether the instance **owns the press**: set when the first button goes down
+(buttons were 0 at the previous resolve and are not now) while it is the topmost item
+under the pointer, cleared when every button is up. Any button is a press.
+
+`__canvas_autoStep` advances one instance by one frame. In order:
+
+1. A window that has run out ends: `ENTER` → `IN`, `EXIT` → `OUT`, when the clock has
+   reached the instance's deadline. So does a window whose flag is now off, which a
+   re-`present` of the item with different flags can leave behind.
+2. Under the pointer, `OUT` or `EXIT` becomes `ENTER` and a new window starts — or `IN`
+   at once, with no window, when `useEnter` is off. Not under it, `IN` or `ENTER`
+   becomes `EXIT` and a new window starts — or `OUT` at once when `useExit` is off.
+   Leaving during an enter window and returning during an exit window each START a
+   window: the one in progress is abandoned, not resumed.
+3. The paint shown is the first that applies of: `pressedPaint` (under the pointer,
+   owns the press, `usePressed`), `enterPaint` (`ENTER`), `hoverPaint` (`IN`,
+   `useHover`), `exitPaint` (`EXIT`), the shape's own.
+
+A phase is never one its flag forbids, which is the whole of "an unused state falls
+through": an unused flash starts no window and so asks for no frame when it would have
+ended.
+
+The window is 50 ms ([[src/codegen/builtins/canvas/helper_render.rs:POINTER_SCRIPT]]'s
+`__canvas_autoWindow`), on `canvas::frameNanos`' monotonic clock. It is a constant, not
+a field. Nothing is interpolated: each paint is drawn whole.
+
+**The pointer is sampled, not replayed.** A frame reads the pointer words once. Two
+changes between two frames are one change to it, so a press and release that both land
+inside one frame are not seen, and a button that goes down off a shape and reaches it
+before the next frame is a press that began on it. Every publish wakes the render loop
+while an `AutoPaint` is live, so the window for this is one frame.
+
+### An instance is a place in the scene
+
+State is kept per instance, and an instance is identified by where the walk found it,
+never by an `id` or by its contents. The key is a hash of the path: the index of the
+top-level item in the frame's scene (its flat items, then each layer's), and for an
+item inside a group, the chain of (index of the group node, slot the node resolved to)
+down to the index of the item in its group (`__canvas_autoPath`, `__canvas_autoKey`).
+
+| Change | Effect on the state |
+|---|---|
+| the item is re-presented in the same place — moved, restyled, its flags changed, or unchanged | kept, deadline included |
+| one group is drawn by two nodes | two instances, whatever the nodes' `id`s are |
+| an item is inserted or removed ahead of it in the scene, or in its group | a new key: it starts from `OUT` |
+| the instance is not in a frame | its row is dropped; returning, it starts from `OUT` |
+
+The table is five parallel lists — key, phase and ownership, deadline, paint shown,
+parent path — rebuilt each frame from the instances that frame saw.
+
+### One frame
+
+`__canvas_appendDraw`'s `AutoPaint` arm calls `__canvas_autoAppend`, which notes the
+instance and appends its shape's draw entry built from the shape's OWN paint. That
+entry's geometry is cached under the item's hash stepped by 16 (`__canvas_autoGeoHash`),
+never under the item's hash itself: the scene's published hashes name `AutoPaint`s, and
+a record cached under one would let the native pass
+(`canvas::sceneResolve`) resolve the item without the walk seeing it. An `AutoPaint` is
+therefore always resolved by the MFBASIC walk, as a `Picture` is, and a frame holding
+one copies the scene out of the ring.
+
+After `canvas::sceneLayout`, when the frame has an instance or the last frame had one
+(`__canvas_autoPending`), `__canvas_autoResolve`:
+
+1. reads `canvas::pointerSnapshot` and `canvas::frameNanos`, once;
+2. if the pointer is inside the surface, finds the topmost draw entry under the centre
+   of its pixel (`__canvas_autoHitAt`: `__canvas_hitEntry` over the frame's entries as
+   the walk left them, kept in `__CANVAS_AUTO_BASE`, last first). Every entry is
+   tested, so an item that is not an `AutoPaint` and has no `id` takes the pointer from
+   what it covers;
+3. steps each instance, with "under the pointer" meaning its entry is that entry;
+4. for an instance showing a state paint, builds the shape with that paint
+   (`__canvas_autoItemWith`) under the item's hash stepped by 16 + the paint's number,
+   and puts that record's offset in the frame's entries and in `__CANVAS_TOP_OFFSETS`,
+   and steps the entry's draw hash the same way;
+5. publishes that an `AutoPaint` is live (`canvas::autoPublish`).
+
+**The hit test reads the entries before step 4 swaps any**, so a region is always the
+shape's own paint's — its stroke width and its clip. A state paint with a wider stroke
+does not widen it, and one with a different clip does not move it.
+
+**A state paint is a different record under a different draw hash.** That is all that
+connects the state to the renderers: the software walk and the damage diff read the
+swapped entry, and so does the GPU draw list, which is laid out from
+`__CANVAS_TOP_OFFSETS`. A group's run is laid out once per frame and shared by every
+node that draws the group (`__canvas_memoGroup`), so a node under which some `AutoPaint`
+shows a state paint gets a run of its own: the memo row is keyed by the group's slot AND
+`__canvas_autoVariant` of that use, which is 0 — the shared run — when nothing in it
+shows one.
+
+### The two redraw triggers
+
+A redraw is otherwise owed only by a `present`, a `setBytes` on a drawn image, or a
+resize. An `AutoPaint` adds two ways for the render loop to wake, and neither OWES a
+frame:
+
+* **The pointer changed.** Each platform's pointer handler, after it publishes, reads
+  `GRAPHICS_OFFSET_AUTOPAINT_LIVE` and, when it is set, calls `canvas::signalRedraw`
+  with 1 ([[src/codegen/runtime/canvas/mod.rs:emit_skip_unless_autopaint_live]]). The
+  word is set by step 5 and cleared by the first resolve that finds no instance. With
+  it clear, a pointer change signals nothing: a scene with no `AutoPaint` renders no
+  frame for any pointer activity.
+* **A window ended.** `canvas::waitForRedraw` takes a timeout, and the render loop
+  passes `__canvas_autoTimeout`: the time left to the earliest deadline in the table,
+  or 0 — wait until signalled — when no instance is in a window.
+
+`canvas::signalRedraw(pointerOnly)` with exactly 1 sets `GRAPHICS_OFFSET_AUTO_WAKE`
+under the graphics mutex and signals; with anything else it sets `PENDING` and `WANTED`
+as it always did ([[src/codegen/runtime/canvas/mod.rs:emit_signal_redraw]]). The resize
+handlers pass 0. `canvas::waitForRedraw(timeoutNanos)` answers
+([[src/codegen/runtime/canvas/mod.rs:emit_wait_for_redraw]]):
+
+| Answer | When | Takes |
+|---|---|---|
+| 0 | the loop is stopping, and nothing is pending | nothing |
+| 1 | `PENDING` is set | `PENDING` and `AUTO_WAKE`; broadcasts `FRAME_COND` |
+| 2 | `AUTO_WAKE` is set, or the timeout ran out | `AUTO_WAKE` |
+
+They are checked in that order, so a redraw outranks a stop and a stop outranks a
+pointer wake or a deadline: shutdown never waits for a window to end. The timeout is
+turned into one absolute `CLOCK_REALTIME` deadline before the lock is taken — the clock
+`pthread_cond_timedwait` takes — and is compared again after every wake, so a spurious
+wake neither returns early nor restarts it. A wall-clock step during one wait moves
+that one wait, as it does `canvas::waitFrame`'s.
+
+**A frame woken with answer 2 is drawn only if some instance now shows a different
+paint, and that is decided without walking the scene.** `__canvas_renderFrame` asks
+`__canvas_autoLight` first. Nothing is owed, so nothing but the pointer and the clock
+has changed since the last walked frame: its entries (`__CANVAS_AUTO_BASE`), their
+group transforms and the geometry they name are as that frame left them, and each table
+row holds its instance's entry and flags. `__canvas_autoLight` reads the pointer, makes
+the one hit test, steps every row as `__canvas_autoResolve` would, and answers whether
+any row's paint changed. On FALSE the frame ends there — counted in `skipped=`, nothing
+walked, nothing presented, whatever `MFB_CANVAS_DAMAGE` says. On TRUE the frame is an
+ordinary one from that point, and its resolve steps the same rows again moments later
+to no effect: a window the first step started is still running and a press it took is
+still held.
+
+Measured on macOS AArch64 with a `--debug` build, 2,000 scripted pointer changes 1 ms
+apart over a scene of 10,000 rectangles and one `AutoPaint` were 1,842 separate wakes,
+and over 1,000 rectangles 1,830: a wake is under a millisecond at either size, its
+stats line included. Before this function existed a wake walked the scene, which
+copies it out of the ring, and cost 8 ms at 10,000 items.
+
+A pointer change can land between a frame's snapshot (step 1) and the first store of
+the live word (step 5), where the handler reads 0 and signals nothing. The resolve that
+first sets the word reads the pointer again afterwards and, if it differs, has the loop
+wait 1 ns — one more resolve, with nobody asking.
+
+### What it costs a program without one
+
+`ABSENT`'s bodies are a constant or the argument handed back. Per frame that is two
+calls (`__canvas_autoTimeout`, `__canvas_autoPending`), per group node one in each of
+the two walks (`__canvas_autoPath`), per group node in the GPU walk one more
+(`__canvas_autoVariant`), per `Text` record built one (`__canvas_autoTextBox`). The two
+graphics-state words are zero and nothing reads `AUTO_WAKE`'s being set, because nothing
+sets it.
+
+In code, a canvas program with no `AutoPaint` is 13,628 bytes larger than it was before
+the type existed (`__text`, macOS AArch64; one more 16,512-byte page of file): the
+`AutoPaint` arms the item unions oblige every `MATCH` to have, the walks' two extra
+parameters, the timed wait, and `ABSENT`. The shape converter (`__canvas_autoItem`) and
+the item hash (`__canvas_autoHash`) are in the gated pair rather than the unconditional
+source because they alone were another 24,744.
+
+### The `--debug` affordances
+
+`MFB_CANVAS_POINTER`'s script (above) is applied at the start of a frame by the graphics
+thread, so no handler signals for it. With an `AutoPaint` live, `__canvas_autoTimeout`
+also waits no longer than the script's next entry (`__canvas_pointerNextDue`), and the
+entry is applied by the frame that wakes. `MFB_CANVAS_AUTO_WINDOW_MS` replaces the
+50 ms window (1 to 3,600,000; anything else is 50). The stats line gains
+`auto=`: the paint each instance of the frame shows, one digit each in walk order — 0 the
+shape's own, 1 enter, 2 exit, 3 hover, 4 pressed — or `-` when the frame had none. A
+normal build has none of the three.
 
 ## Images are named, not embedded
 

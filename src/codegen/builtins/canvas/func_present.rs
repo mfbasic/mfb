@@ -99,7 +99,32 @@ END FUNC
 
 Give an ellipse equal radii and it is a circle — exactly, not nearly — so an animation
 that squashes a circle can hold one item type throughout rather than switching at the
-moment the radii happen to match."#;
+moment the radii happen to match.
+
+A button that lights up under the mouse. It is presented once, and from then on the
+window shows its `hoverPaint` while the mouse rests on it and its `pressedPaint` while
+a mouse button is held on it — with no further code, and even while the program is busy
+or waiting. A `canvas::AutoPaint` has no default value, so every field is written out;
+the two flashes are switched off here, and their paints are never shown:
+
+```
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT box AS canvas::Rectangle
+  box = WITH box { id := "ok", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 200.0, height := 80.0], paint := canvas::fill(color::rgb(40, 90, 200)) }
+  LET unused AS canvas::Paint = canvas::fill(color::rgb(0, 0, 0))
+  LET button AS canvas::AutoPaint = canvas::AutoPaint[shape := box, useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := TRUE, enterPaint := unused, exitPaint := unused, hoverPaint := canvas::fill(color::rgb(70, 130, 255)), pressedPaint := canvas::fill(color::rgb(20, 50, 140))]
+  LET item AS canvas::DrawItem = button
+
+  canvas::present([item])
+END FUNC
+```
+"#;
 
 /// Publish, then render only if the publish actually changed anything.
 ///
@@ -179,7 +204,7 @@ FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
     __CANVAS_SCENE_REV = __CANVAS_SCENE_REV + 1
     __CANVAS_SCENE_IDS = canvas::sceneIdBits(items)
     canvas::publishHashes(__canvas_hashScene(items, carried))
-    canvas::signalRedraw()
+    canvas::signalRedraw(FALSE)
     canvas::syncFrame()
   END IF
 END FUNC"#;

@@ -33,8 +33,8 @@
 
 use super::*;
 use crate::codegen::runtime::canvas::{
-    emit_publish_pointer, PointerRegs, GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_WIDTH,
-    GRAPHICS_STATE_SYMBOL,
+    emit_publish_pointer, emit_skip_unless_autopaint_live, PointerRegs, GRAPHICS_OFFSET_HEIGHT,
+    GRAPHICS_OFFSET_WIDTH, GRAPHICS_STATE_SYMBOL,
 };
 
 /// `GtkEventControllerMotion::motion` and `::enter` — both `(self, x, y, user)`.
@@ -334,6 +334,15 @@ pub(super) fn emit_pointer_handler(
         &mut asm.ins,
         &mut asm.rel,
     );
+    // plan-172-K, trigger 6: the pointer changed, and while the scene holds an
+    // `AutoPaint` — and only then — the render loop is woken to look. The argument is
+    // 1, "the pointer changed": not a redraw that is owed. Nothing is live across the
+    // call: the handler returns next.
+    let quiet = "pointer_no_autopaint";
+    emit_skip_unless_autopaint_live(symbol, abi::SCRATCH[4], quiet, &mut asm.ins, &mut asm.rel);
+    asm.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "1"));
+    asm.call_internal(super::CANVAS_SIGNAL_REDRAW_SYMBOL);
+    asm.push(abi::label(quiet));
 
     asm.push(abi::load_u64(
         abi::link_register(),
@@ -448,6 +457,25 @@ mod tests {
                 assert!(!names(MOUSE_MODE_SYMBOL), "{}", kind.symbol());
                 assert!(!names("write"), "{}", kind.symbol());
                 assert!(names(GRAPHICS_STATE_SYMBOL), "{}", kind.symbol());
+            }
+        }
+    }
+
+    /// plan-172-K, trigger 6: every callback signals once after its publish, with 1 —
+    /// "the pointer changed" — and never with 0, which is a redraw that is owed and
+    /// would draw a frame for every pointer move.
+    #[test]
+    fn a_pointer_callback_signals_a_pointer_change() {
+        use crate::codegen::runtime::canvas::signal_redraw_arguments;
+        for ordered in [true, false] {
+            for kind in GtkPointerKind::ALL {
+                let func = emit_pointer_handler(kind, ordered).expect("emit");
+                assert_eq!(
+                    signal_redraw_arguments(&func.instructions),
+                    vec!["1"],
+                    "{}",
+                    kind.symbol()
+                );
             }
         }
     }

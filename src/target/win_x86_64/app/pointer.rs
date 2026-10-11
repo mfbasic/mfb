@@ -38,8 +38,8 @@
 
 use super::*;
 use crate::codegen::runtime::canvas::{
-    emit_publish_pointer, state_base, PointerRegs, GRAPHICS_OFFSET_HEIGHT,
-    GRAPHICS_OFFSET_POINTER_BUTTONS, GRAPHICS_OFFSET_WIDTH,
+    emit_publish_pointer, emit_skip_unless_autopaint_live, state_base, PointerRegs,
+    GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_POINTER_BUTTONS, GRAPHICS_OFFSET_WIDTH,
 };
 
 pub(super) const POINTER_MOVE_SYMBOL: &str = "_mfb_winapp_pointer_move";
@@ -202,6 +202,17 @@ pub(super) fn emit_pointer_arms(
     rel: &mut Vec<CodeRelocation>,
 ) {
     let leave = format!("{from}_pointer_leave");
+    // plan-172-K, trigger 6: after a publish, and while the scene holds an `AutoPaint`
+    // — only then — the render loop is woken to look. The argument is 1, "the pointer
+    // changed": not a redraw that is owed. Here and not in the two functions that
+    // publish: they are leaves with no frame, and the signal is a call.
+    let signal = |tag: &str, ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>| {
+        let quiet = format!("{from}_pointer_{tag}_no_autopaint");
+        emit_skip_unless_autopaint_live(from, abi::SCRATCH[0], &quiet, ins, rel);
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "1"));
+        call_internal(from, super::CANVAS_SIGNAL_REDRAW_SYMBOL, ins, rel);
+        ins.push(abi::label(&quiet));
+    };
     let live = |ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>| {
         load_addr(abi::SCRATCH[0], CANVAS_HWND_SYM, from, ins, rel);
         ins.push(abi::load_u64(abi::SCRATCH[0], abi::SCRATCH[0], 0));
@@ -255,6 +266,7 @@ pub(super) fn emit_pointer_arms(
         wparam_slot,
     ));
     call_internal(from, POINTER_MOVE_SYMBOL, ins, rel);
+    signal("move", ins, rel);
 
     // Arm one WM_MOUSELEAVE, unless one is armed already.
     load_addr(abi::SCRATCH[0], POINTER_TRACKING_SYM, from, ins, rel);
@@ -307,6 +319,7 @@ pub(super) fn emit_pointer_arms(
     ins.push(abi::store_u64(abi::SCRATCH[1], abi::SCRATCH[0], 0));
     live(ins, rel);
     call_internal(from, POINTER_LEAVE_SYMBOL, ins, rel);
+    signal("leave", ins, rel);
     ins.push(abi::branch(next));
 }
 
@@ -337,6 +350,31 @@ mod tests {
         }
         assert!(!all.iter().any(|to| to == MOUSE_MODE_SYMBOL));
         assert!(all.iter().any(|to| to == "TrackMouseEvent"));
+    }
+
+    /// plan-172-K, trigger 6: the block signals after each of its two publishes, with
+    /// 1 — "the pointer changed" — and only past the check that the scene holds an
+    /// `AutoPaint`. A 0 here would turn every pointer move into a frame that is drawn.
+    #[test]
+    fn the_pointer_block_signals_a_pointer_change_after_each_publish() {
+        use crate::codegen::runtime::canvas::{
+            signal_redraw_arguments, GRAPHICS_OFFSET_AUTOPAINT_LIVE,
+        };
+        let mut ins = Vec::new();
+        let mut rel = Vec::new();
+        emit_pointer_arms(
+            "f", 0x108, 0x68, 0x70, 0x78, 0x60, "next", &mut ins, &mut rel,
+        );
+        assert_eq!(signal_redraw_arguments(&ins), vec!["1", "1"]);
+        let live = GRAPHICS_OFFSET_AUTOPAINT_LIVE.to_string();
+        let reads = ins
+            .iter()
+            .filter(|i| i.get("offset").as_deref() == Some(live.as_str()))
+            .count();
+        assert_eq!(
+            reads, 2,
+            "each signal is behind its own read of the live word"
+        );
     }
 
     /// x86-64 has no store-release lowering: the publish must be plain stores.

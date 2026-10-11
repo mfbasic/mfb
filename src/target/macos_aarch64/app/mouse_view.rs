@@ -34,8 +34,8 @@ use crate::codegen::io::mouse::sgr::{
     emit_format_report, SgrReport, SgrScratch, SGR_REPORT_BYTES, SGR_SCRATCH_BYTES,
 };
 use crate::codegen::runtime::canvas::{
-    emit_publish_pointer, PointerRegs, GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_WIDTH,
-    GRAPHICS_STATE_SYMBOL,
+    emit_publish_pointer, emit_skip_unless_autopaint_live, PointerRegs, GRAPHICS_OFFSET_HEIGHT,
+    GRAPHICS_OFFSET_WIDTH, GRAPHICS_STATE_SYMBOL,
 };
 
 /// Which view an IMP belongs to, and therefore which mouse-mode value activates
@@ -475,6 +475,15 @@ fn emit_publish(asm: &mut Asm, imp: &MouseImp, done: &str) {
         &mut asm.ins,
         &mut asm.rel,
     );
+    // plan-172-K, trigger 6: the pointer changed, and while the scene holds an
+    // `AutoPaint` — and only then — the render loop is woken to look. The argument is
+    // 1, "the pointer changed": not a redraw that is owed. Everything this IMP still
+    // needs is parked on the stack, so the call costs it nothing.
+    let quiet = format!("{sym}_no_autopaint");
+    emit_skip_unless_autopaint_live(sym, abi::SCRATCH[4], &quiet, &mut asm.ins, &mut asm.rel);
+    asm.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "1"));
+    asm.call_internal(super::CANVAS_SIGNAL_REDRAW_SYMBOL);
+    asm.push(abi::label(&quiet));
     // Off the surface there is nothing to report against.
     asm.push(abi::load_u64(
         abi::SCRATCH[3],
@@ -1177,6 +1186,33 @@ mod tests {
             assert!(
                 names(GRAPHICS_STATE_SYMBOL),
                 "{}: does not publish to the graphics state",
+                imp.symbol
+            );
+        }
+    }
+
+    /// plan-172-K, trigger 6: every pixel IMP signals once after its publish, with 1 —
+    /// "the pointer changed" — whether or not it goes on to report; a cell IMP
+    /// publishes nothing and signals nothing.
+    #[test]
+    fn a_pixel_imp_signals_a_pointer_change_and_a_cell_imp_does_not() {
+        use crate::codegen::runtime::canvas::signal_redraw_arguments;
+        for reports in [false, true] {
+            for imp in mouse_imps(MouseSurface::Pixels) {
+                let func = emit_mouse_imp(&imp, reports);
+                assert_eq!(
+                    signal_redraw_arguments(&func.instructions),
+                    vec!["1"],
+                    "{}",
+                    imp.symbol
+                );
+            }
+        }
+        for imp in mouse_imps(MouseSurface::Cells) {
+            let func = emit_mouse_imp(&imp, true);
+            assert!(
+                signal_redraw_arguments(&func.instructions).is_empty(),
+                "{}",
                 imp.symbol
             );
         }

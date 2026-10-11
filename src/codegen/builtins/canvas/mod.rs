@@ -2189,6 +2189,8 @@ mod tests {
             // pointer's writer.
             "\"MFB_CANVAS_POINTER\"",
             "canvas::publishPointer",
+            // plan-172-K: the stretched AutoPaint window.
+            "\"MFB_CANVAS_AUTO_WINDOW_MS\"",
         ] {
             assert!(
                 !normal.contains(hook),

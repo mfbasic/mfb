@@ -68,6 +68,7 @@ impl NativeBackend for Backend {
                 "canvas.frameCounters",
                 "canvas.pointerSnapshot",
                 "canvas.publishPointer",
+                "canvas.autoPublish",
                 "canvas.awaitPickup",
                 "canvas.requireCanvasMode",
                 "canvas.setGpuMode",

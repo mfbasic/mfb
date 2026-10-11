@@ -83,6 +83,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "canvas.frameCounters",
     "canvas.pointerSnapshot",
     "canvas.publishPointer",
+    "canvas.autoPublish",
     "canvas.awaitPickup",
     "canvas.requireCanvasMode",
     "canvas.setGpuMode",

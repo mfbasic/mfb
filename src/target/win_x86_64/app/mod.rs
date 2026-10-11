@@ -1002,6 +1002,8 @@ fn emit_main(
             &mut ins,
             &mut rel,
         );
+        // 0: a redraw that is owed, not a pointer change (plan-172-K).
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
         call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
 
         // ---- plan-172-J: one scripted pointer position, when the env says so ----
@@ -1732,6 +1734,8 @@ fn emit_wndproc(
         // scene kept its old-size frame until something else presented. A no-op before
         // the graphics thread exists. Safe to call from here: the frame preserves the
         // nonvolatile bank, and `wnd_default` reloads the four arguments.
+        // 0: a redraw that is owed, not a pointer change (plan-172-K).
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
         call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
         ins.push(abi::branch("wnd_default"));
 
@@ -2038,6 +2042,8 @@ fn emit_wndproc(
             &mut ins,
             &mut rel,
         );
+        // 0: a redraw that is owed, not a pointer change (plan-172-K).
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
         call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
         ins.push(abi::label("wnd_canvas_entry_sized"));
     }
@@ -6844,10 +6850,16 @@ mod canvas_reconcile_tests {
             assert!(fns.iter().any(|f| f.symbol == TERM_RESIZE_SYMBOL));
             // The canvas half of WM_SIZE still runs after the term half. (The second
             // call is the canvas reconcile's publish of the client size, bug-688 V6.)
-            assert_eq!(
-                externals(find(WNDPROC_SYMBOL), CANVAS_SIGNAL_REDRAW_SYMBOL),
-                2 * usize::from(uses_canvas)
-            );
+            // plan-172-K: counted by ARGUMENT, because the pointer block now calls the
+            // same symbol twice to say the pointer changed — 0 is a redraw, and those
+            // are still exactly the two this test is about.
+            let redraws = crate::codegen::runtime::canvas::signal_redraw_arguments(
+                &find(WNDPROC_SYMBOL).instructions,
+            )
+            .into_iter()
+            .filter(|argument| argument == "0")
+            .count();
+            assert_eq!(redraws, 2 * usize::from(uses_canvas));
         }
         let plain = emit_app_program_entry(&spec(PresentationMode::Console), &HashMap::new())
             .expect("app entry");
@@ -7071,14 +7083,29 @@ mod canvas_reconcile_tests {
     /// resize signal) signal after publishing; Windows' WM_SIZE published the size and
     /// stopped, so a static scene was never re-rendered at the new size — WM_PAINT kept
     /// blitting the old-size frame.
+    ///
+    /// plan-172-K: the calls are told apart by their argument. `canvas::signalRedraw`
+    /// now takes one — 0, a redraw is owed; 1, the pointer changed — and the pointer
+    /// block calls it too. This test is about the two that owe a redraw, so it counts
+    /// those, and the two pointer calls are pinned beside them: a resize that passed 1
+    /// would wake the render loop for a frame it is then free not to draw.
     #[test]
     fn wm_size_signals_a_redraw() {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
+        let arguments =
+            crate::codegen::runtime::canvas::signal_redraw_arguments(&wndproc.instructions);
         assert_eq!(
-            externals(&wndproc, CANVAS_SIGNAL_REDRAW_SYMBOL),
+            arguments.iter().filter(|a| *a == "0").count(),
             2,
             "the WM_SIZE arm and the canvas reconcile (bug-688 V6) must each call \
              canvas::signalRedraw after publishing the size"
         );
+        assert_eq!(
+            arguments.iter().filter(|a| *a == "1").count(),
+            2,
+            "a pointer move and a pointer leave each say the pointer changed"
+        );
+        assert_eq!(arguments.len(), 4);
+        assert_eq!(externals(&wndproc, CANVAS_SIGNAL_REDRAW_SYMBOL), 4);
     }
 }

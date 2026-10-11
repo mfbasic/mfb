@@ -1197,7 +1197,9 @@ pub(super) fn emit_canvas_set_frame_size_helper() -> CodeFunction {
     // body: this is physical-register bootstrap code and that emitter expects a vreg
     // allocator. The symbol is the registry's derived name; a rename breaks the link
     // step loudly ("internal relocation target ... is not defined") rather than
-    // silently dropping the repaint.
+    // silently dropping the repaint. Its argument is 0: a redraw that is owed, not a
+    // pointer change (plan-172-K).
+    asm.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
     asm.call_internal(CANVAS_SIGNAL_REDRAW_SYMBOL);
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
