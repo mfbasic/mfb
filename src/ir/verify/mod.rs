@@ -194,6 +194,15 @@ fn collect_diagnostics_with(
         let imported_type = ParameterType::declared(&imported.name);
         match imported.kind {
             crate::ir::ImportedTypeKind::Record => {
+                // bug-1013: the KIND is seeded too. `STATE pkg::Cursor` is legal
+                // only because `Cursor` is a record, and an importer's own type
+                // table cannot say so. Not seeded where the importer declares a
+                // non-record of that name, by the precedence stated above.
+                if !env.enums.contains_key(&imported_type)
+                    && !env.unions.contains_key(&imported_type)
+                {
+                    env.record_decls.insert(imported_type.clone());
+                }
                 env.field_types
                     .entry(imported_type)
                     .or_insert_with(|| imported_field_pairs(&imported.fields).collect());
@@ -390,19 +399,12 @@ fn collect_diagnostics_with(
             env.check_thread_sendability(&param.type_.without_state());
             if let Some(state) = param.type_.state() {
                 env.check_thread_sendability(&state);
-                // bug-674: a parameter's `STATE T` is held to the rule a binding's,
-                // a field's and a return's already are — `T` must be a copyable,
-                // defaultable data type. It was the one position left unchecked.
-                if !env.is_defaultable(&state, &mut std::collections::HashSet::new()) {
-                    env.emit(
-                        "TYPE_STATE_INVALID",
-                        format!(
-                            "Parameter `{}` STATE type `{state}` must be a copyable, defaultable data type.",
-                            param.name
-                        ),
-                    );
-                }
             }
+            // bug-674: a parameter's `STATE T` is held to the rules a binding's,
+            // a field's and a return's are. bug-1013: through the one
+            // walk every position shares, so a clause nested in the parameter's
+            // type (a collection element, a thread plane) is held to them too.
+            env.check_state_clauses(&param.type_, &format!("Parameter `{}`", param.name));
             // Every parameter must declare an `AS` type (lambda parameters
             // included — the former source checker checks both forms with this rule).
             if param.type_ == ParameterType::Unknown {
@@ -550,6 +552,9 @@ fn collect_diagnostics_with(
             if let Some(state) = binding_type.state() {
                 env.check_thread_sendability(&state);
             }
+            // bug-1013: a top-level binding's `STATE` clause was the one a
+            // function-local binding's check never reached.
+            env.check_state_clauses(binding_type, &format!("binding `{}`", binding.name));
         }
         if binding.value.is_none() {
             if !binding.explicit_type {
@@ -673,6 +678,16 @@ pub fn collect_source_diagnostics(
 /// single `crate::ir` source (bug-342 A3) so it cannot drift from the decoder.
 const MAX_DEPTH: usize = crate::ir::MAX_IR_NESTING_DEPTH;
 
+/// Why a `STATE` clause's type is refused (`TYPE_STATE_INVALID`, bug-1013).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StateTypeFault {
+    /// Not a record `TYPE` at all: a scalar, a `String`, a collection, an
+    /// `ENUM`, a `UNION`, a resource, a `FUNC`, a thread handle.
+    NotRecord,
+    /// A record `TYPE`, but one with no default value or no copy.
+    NotDefaultable,
+}
+
 struct RecordInfo {
     fields: Vec<String>,
     includes: Vec<String>,
@@ -742,6 +757,11 @@ struct TypeEnv {
     /// positional constructor checking (mirrors the former source checker's `TypeInfo.fields`,
     /// which is declaration-ordered and not include-expanded).
     record_field_lists: HashMap<ParameterType, Vec<(String, ParameterType)>>,
+    /// Every record `TYPE` the project declares or imports, by its type — the
+    /// one kind a `STATE` clause may name (bug-1013). Separate from `records`
+    /// and `record_field_lists`, which also hold a `RESOURCE`'s inline fields
+    /// and are not seeded for an imported record.
+    record_decls: HashSet<ParameterType>,
     /// Enum type name → its complete member-name set, for MATCH exhaustiveness.
     enums: HashMap<ParameterType, HashSet<String>>,
     /// Accumulated diagnostics (plan-20-E..I); the checker pushes here instead
@@ -876,6 +896,7 @@ impl TypeEnv {
         let mut record_field_lists: HashMap<ParameterType, Vec<(String, ParameterType)>> =
             HashMap::new();
         let mut private_fields: HashMap<ParameterType, HashSet<String>> = HashMap::new();
+        let mut record_decls: HashSet<ParameterType> = HashSet::new();
         let type_decl_info: HashMap<ParameterType, (String, String)> = project
             .types
             .iter()
@@ -895,8 +916,10 @@ impl TypeEnv {
                     );
                 }
                 "type" | "record" => {
+                    let record_type = ParameterType::declared(&ty.name);
+                    record_decls.insert(record_type.clone());
                     records.insert(
-                        ParameterType::declared(&ty.name),
+                        record_type,
                         RecordInfo {
                             fields: ty.fields.iter().map(|f| f.name.clone()).collect(),
                             includes: ty.includes.clone(),
@@ -1030,6 +1053,7 @@ impl TypeEnv {
             closure_counts,
             field_types,
             record_field_lists,
+            record_decls,
             enums,
             diags: RefCell::new(Vec::new()),
             current_line: Cell::new(0),

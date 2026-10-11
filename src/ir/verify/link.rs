@@ -820,13 +820,26 @@ impl TypeEnv {
             self.locate(&spans.file, spans.line);
             if function.return_resource {
                 if let Some(state) = &function.return_state_type {
+                    // bug-1013: a native declaration's clause is held to the
+                    // rule every other position's is.
+                    self.check_state_clauses(
+                        &ParameterType::stateful(
+                            resource_base_type(&function.return_type),
+                            state.clone(),
+                        ),
+                        &format!("native FUNC `{}` return", function.name),
+                    );
                     check(&resource_base_type(&function.return_type), state, self);
                 }
             }
-            for (index, (_, ptype)) in function.params.iter().enumerate() {
+            for (index, (param_name, ptype)) in function.params.iter().enumerate() {
                 if let Some(state) = ptype.state() {
                     self.current_line
                         .set(spans.params.get(index).copied().unwrap_or(0));
+                    self.check_state_clauses(
+                        ptype,
+                        &format!("native FUNC `{}` parameter `{param_name}`", function.name),
+                    );
                     check(&resource_base_type(ptype), &state, self);
                 }
             }

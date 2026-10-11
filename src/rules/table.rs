@@ -1104,7 +1104,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0085",
         name: "TYPE_STATE_INVALID",
         severity: Severity::Error,
-        message: "STATE must be a copyable, defaultable data type",
+        message: "a STATE type must be a record TYPE that is copyable and defaultable",
     },
     // RETIRED by plan-59-E, not emitted. Ownership moved from the binding to the
     // outermost scope that touches the resource: any holder of the pointer may

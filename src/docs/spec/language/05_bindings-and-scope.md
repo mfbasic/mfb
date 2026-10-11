@@ -31,7 +31,7 @@ it does not choose it:
   (`List OF RES fs::File`), and a record field (`handle AS RES fs::File`). In
   every one of them the marker is required: a **bare** resource in a collection
   slot or a record field is an error (`TYPE_RESOURCE_REQUIRES_RES`).
-- A `RES` binding may carry a copyable, defaultable data `STATE` (§15):
+- A `RES` binding may carry a `STATE`, a copyable, defaultable record `TYPE` (§15):
   `RES f AS fs::File STATE FileState = …`.
 
 Rules:

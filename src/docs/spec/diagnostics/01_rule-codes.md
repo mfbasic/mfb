@@ -477,7 +477,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0082` | `TYPE_RESOURCE_REQUIRES_RES` | error | resource must be bound with RES |
 | `2-203-0083` | `TYPE_RES_REQUIRES_RESOURCE` | error | RES binds only resource types |
 | `2-203-0084` | `TYPE_RESOURCE_FIELD_FORBIDDEN` | error | reserved; not emitted; resource record fields use `2-203-0082`/`2-203-0083` |
-| `2-203-0085` | `TYPE_STATE_INVALID` | error | STATE must be a copyable, defaultable data type |
+| `2-203-0085` | `TYPE_STATE_INVALID` | error | a STATE type must be a record TYPE that is copyable and defaultable |
 | `2-203-0086` | `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` | error | reserved; not emitted; code is not reused |
 | `2-203-0087` | `TYPE_MIXED_RESOURCE_UNION` | error | a union must be all-data or all-resource, never mixed |
 | `2-203-0088` | `TYPE_UNION_STATE_FORBIDDEN` | error | reserved; not emitted; code is not reused |

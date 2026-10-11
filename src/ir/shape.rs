@@ -1271,6 +1271,13 @@ impl<'a> Walker<'a> {
         for item in &file.items {
             match item {
                 HirItem::Binding(binding) => {
+                    if let Some(state) = &binding.state_type {
+                        self.check_erased_state_type(
+                            &format!("binding `{}`", binding.name),
+                            state,
+                            binding.line,
+                        );
+                    }
                     if let Some(value) = &binding.value {
                         let locals = HashMap::new();
                         self.current_line = binding.line;
@@ -1298,6 +1305,50 @@ impl<'a> Walker<'a> {
                 | HirItem::Doc(_)
                 | HirItem::Testing(_) => {}
             }
+        }
+    }
+
+    /// TYPE_STATE_INVALID (bug-1013), for the two `STATE` clauses lowering does
+    /// not carry into the IR: a TOP-LEVEL `RES` binding's and a LAMBDA
+    /// parameter's. A `STATE` type is a record `TYPE`.
+    ///
+    /// Erased fact: the clause. `lower_binding` lowers a top-level binding by its
+    /// declared type alone and never reads `HirTopLevelBinding::state_type`, and
+    /// a lambda's parameter is lowered by its `type_` alone, so the IR
+    /// `ir::verify` checks carries no clause to judge — which is how
+    /// `RES g AS fs::File STATE Integer` at the top level was accepted while the
+    /// identical local binding was refused.
+    ///
+    /// The kind is decided from what is positively known, as `ir::verify`'s
+    /// `state_type_fault` decides it: the walker's declared and imported types,
+    /// the resource registry and the built-in package registry. Whether a RECORD
+    /// has a default is not asked here — that is a property of its fields, which
+    /// only the verifier's tables hold.
+    fn check_erased_state_type(&mut self, subject: &str, state: &ParameterType, line: usize) {
+        let not_a_record = match state {
+            ParameterType::Unknown | ParameterType::Var(_) | ParameterType::Arg(_) => false,
+            ParameterType::Named(_) | ParameterType::UserOf(..) => {
+                use crate::codegen::registry::{registry, ResolvedType};
+                state.is_named("AttributedString")
+                    || self.is_resource_type(state)
+                    || match self.types.get(state) {
+                        Some(shape) => !shape.is_record,
+                        None => !matches!(
+                            registry().resolve_type(&state.name()),
+                            Some(ResolvedType::Record(_)) | None
+                        ),
+                    }
+            }
+            _ => true,
+        };
+        if not_a_record {
+            self.emit(
+                "TYPE_STATE_INVALID",
+                format!(
+                    "{subject} STATE type `{state}` is not a record; declare a record TYPE that holds the value and name it instead."
+                ),
+                line,
+            );
         }
     }
 
@@ -2092,6 +2143,16 @@ impl<'a> Walker<'a> {
                 // (`expression_type`'s Lambda arm).
                 let mut nested = locals.clone();
                 for param in params {
+                    // TYPE_STATE_INVALID (bug-1013): a lambda parameter's
+                    // `STATE` clause is not lowered, see
+                    // `check_erased_state_type`.
+                    if let Some(state) = &param.state_type {
+                        self.check_erased_state_type(
+                            &format!("Parameter `{}`", param.name),
+                            state,
+                            self.current_line,
+                        );
+                    }
                     nested.insert(param.name.clone(), param.type_.clone());
                 }
                 // TYPE_UNKNOWN_VALUE, the assignment-bodied lambda's target form.

@@ -6879,13 +6879,18 @@ fn accepts_mut_record_with_list_of_union_field() {
 }
 
 #[test]
-fn accepts_state_list_of_nondefaultable() {
-    // bug-434 (intended STATE ripple): `fs.File STATE List OF <union>` is a valid
-    // initial state — the empty list. Rides the same is_defaultable predicate
-    // as the MUT axis, so it falls out for free. Mirror of
-    // `rejects_state_type_not_defaultable` (a bare union STATE, still rejected):
-    // only the STATE-defaultability axis is asserted here, since binding-shape
-    // rules (LET-requires-value) are orthogonal to this ripple.
+fn rejects_state_collection_not_a_record() {
+    // bug-1013 (owner ruling, 2026-10-10): a STATE type is a record TYPE, so a
+    // collection is refused as one — `fs.File STATE List OF <union>` included.
+    //
+    // This was `accepts_state_list_of_nondefaultable` (bug-434), which pinned
+    // the opposite as an "intended STATE ripple" of collections becoming always
+    // defaultable. bug-434's own subject is untouched and stays covered on the
+    // MUT axis by `accepts_mut_list_of_union_defaultable_empty`,
+    // `accepts_mut_map_value_union_defaultable_empty` and
+    // `accepts_mut_record_with_list_of_union_field` above: a collection IS still
+    // defaultable. What changed is that being defaultable is no longer enough
+    // to be a STATE type.
     let mut f = func_returns(
         "run",
         "Nothing",
@@ -6894,10 +6899,9 @@ fn accepts_state_list_of_nondefaultable() {
     );
     f.resource_owners
         .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
-    let got = rules(&project(vec![f], vec![union("Choice", &["Label"])]));
-    assert!(
-        !got.iter().any(|r| r == "TYPE_STATE_INVALID"),
-        "STATE List OF <union> must be a valid (empty-list) initial state: {got:?}"
+    expect_rule(
+        &project(vec![f], vec![union("Choice", &["Label"])]),
+        "TYPE_STATE_INVALID",
     );
 }
 
@@ -9706,6 +9710,7 @@ fn rejects_state_type_that_is_not_a_record() {
         "Shape",
         "fs.File",
         "FUNC(Integer) AS Integer",
+        "AttributedString",
     ] {
         let got = state_binding_rules(
             &format!("fs.File STATE {state}"),
@@ -9743,9 +9748,14 @@ fn accepts_state_type_that_is_a_record() {
             union("Shape", &["Dot"]),
         ]
     };
-    for state in ["Cursor", "Dot"] {
+    // `Error` is the built-in record.
+    for state in ["Cursor", "Dot", "Error"] {
         let got = state_binding_rules(&format!("fs.File STATE {state}"), types());
-        assert_eq!(count_rule(&got, "TYPE_STATE_INVALID"), 0, "{state}: {got:?}");
+        assert_eq!(
+            count_rule(&got, "TYPE_STATE_INVALID"),
+            0,
+            "{state}: {got:?}"
+        );
     }
 }
 
@@ -9880,7 +9890,11 @@ fn imported_types_are_judged_by_their_kind() {
     assert_eq!(count_rule(&got, "TYPE_STATE_INVALID"), 0, "{got:?}");
     for state in ["pkg.Mode", "pkg.Shape"] {
         let got = source_rules(&format!("fs.File STATE {state}"));
-        assert_eq!(count_rule(&got, "TYPE_STATE_INVALID"), 1, "{state}: {got:?}");
+        assert_eq!(
+            count_rule(&got, "TYPE_STATE_INVALID"),
+            1,
+            "{state}: {got:?}"
+        );
     }
     // A name no table has heard of may be an external package's record: the
     // rule does not guess.
