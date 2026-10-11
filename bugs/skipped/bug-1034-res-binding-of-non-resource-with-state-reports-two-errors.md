@@ -5,15 +5,16 @@ Effort: small (<1h)
 Severity: LOW
 Class: Other (diagnostic)
 
-Status: Open
+Status: Not a bug (owner decision, 2026-10-10: both errors are valid; `Integer` is not a resource, so `RES` and `STATE` are each wrong on their own). Nothing to change.
 Regression Test: (proposed) tests/syntax/resources/res-non-resource-with-state-one-error-invalid
 
 A local `RES` binding whose type is not a resource and which carries a `STATE` clause is reported
 twice on the same line: `TYPE_RES_REQUIRES_RESOURCE` (the `RES` keyword needs a resource type) and,
 since bug-998, `TYPE_STATE_REQUIRES_RESOURCE` (the `STATE` clause needs a resource type).
 
-**Owner decision (2026-10-10): `TYPE_STATE_REQUIRES_RESOURCE` is the correct error for this line.**
-Report it alone.
+**Owner decision (2026-10-10), final: keep both errors.** The owner first chose
+`TYPE_STATE_REQUIRES_RESOURCE` alone, then, on seeing what `TYPE_RES_REQUIRES_RESOURCE` says, ruled
+that both are valid. The text below is the report as filed.
 
 **Correct behavior:** one error, `TYPE_STATE_REQUIRES_RESOURCE`, at the binding. Without a `STATE`
 clause, `RES n AS Integer = 1` keeps reporting `TYPE_RES_REQUIRES_RESOURCE` as today.
