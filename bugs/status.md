@@ -16,6 +16,16 @@ Check that every open bug has exactly one row:
 python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.glob('bugs/bug-*.md')];b=re.findall(r'^\|\s*\[.\]\s*\|\s*(\d+)\s',open('bugs/status.md').read(),re.M);print(len(a),sorted(set(a)^set(b))+[n for n in set(b) if b.count(n)>1])"
 ```
 
+## Running phase: batch 22 (`bug-staging-22`)
+
+The list is fixed: the seventeen open documents in "Resources and STATE" whose priority is
+HIGH or MED. Nothing is added to it; a bug found while it runs gets a row in its area table
+and waits. Each bug is fixed to the full extent of its document (999: all seven of its
+"Remaining" positions), never narrowed.
+
+HIGH: 1045, 1046, 1054. MED: 999, 1018, 1043, 1044, 1047, 1048, 1049, 1050, 1051, 1052, 1053,
+1055, 1056, 1057. Order: 999 before 1018, 1018 before 1057.
+
 ## Resources and STATE
 
 | Done | Number | Priority | Description |
