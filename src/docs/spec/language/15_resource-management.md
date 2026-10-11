@@ -58,7 +58,31 @@ is itself passed on (`useList([mk()])`): at the end of its statement, every
 resource the value reaches that is still unowned and not already closed is closed,
 on every exit from the statement. One a binding, an adopting container, a global or
 a `RETURN` took by then has an owner and is left to it, so `RES k = ident(mk())`
-and `RETURN ident(mk())` keep theirs. An inline `TRAP` over a call that hands out
+and `RETURN ident(mk())` keep theirs.
+
+A call that returns an **aggregate** holding resources (a `List OF RES T`, a `Map`
+of them, a list of records with a `RES` field) is not such a producer in general:
+the aggregate may be a view of resources another owner holds, or may be kept by a
+value that outlives the statement. One position is settled, because nothing can
+keep the result there: a call to a function with a body, all of whose parameters
+are plain scalars, written directly as an argument of a call that does not keep
+that argument, does not consume it, is handed no callback that keeps it, and can
+only answer with a plain scalar — `len(mkList())`, `count(mkList())` for a `count`
+that only reads. The statement **adopts** what such a result reaches exactly as
+the binding `LET t = mkList()` would — every resource it reaches that is unowned
+is claimed at once — and at the end of the statement, on every exit from it,
+closes and reclaims each one it still owns. A resource the receiving call handed to
+a longer-lived owner (a module-level list) has that owner by then and is left
+open. A function whose every `RETURN` hands back a parameter or a module-level
+binding transfers nothing and is left alone, as is a result that reaches a resource
+union or a function value. [[src/codegen/engine/value/builder_values.rs:is_exclusive_aggregate_temp]] [[src/codegen/engine/value/builder_values.rs:adopt_exclusive_temp]] [[src/codegen/resource/cleanup/record_ownership.rs:call_takes_only_plain_scalars]] [[src/codegen/resource/cleanup/record_ownership.rs:call_returns_plain_scalar]]
+
+In every other position an aggregate-returning call is written in without being
+bound — a constructor argument (`Layer[items := mkItems()]`), the target of a
+member read (`mkLayer().items`), a `FOR EACH` iterable, an argument of a call
+that answers with anything but a plain scalar (`collections::get(mkList(), 0)`) —
+the resources the aggregate holds are closed by nothing. Bind the call first:
+`LET xs = mkList()` adopts them into the binding's scope. An inline `TRAP` over a call that hands out
 resources (`LET xs = mkList() TRAP … END TRAP`) adopts them into the binding's scope
 exactly as the plain call does. [[src/codegen/engine/value/builder_values.rs:register_resource_temp]] [[src/codegen/resource/owner.rs:emit_resource_temp_close]] [[src/codegen/resource/owner.rs:emit_claim_returned_value]] [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:trap_call_result_locals]]
 

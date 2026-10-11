@@ -271,6 +271,43 @@ fn every_statement_kind_drops_its_own_temporaries() {
     );
 }
 
+/// The receiving call fails after the producer ran. The error exit drops the
+/// temporary too, whether the failure is trapped in the same function or
+/// propagates out of it.
+#[test]
+fn a_failing_receiving_call_drops_the_temporary_on_the_error_exit() {
+    assert_statement_owns_it(
+        "bug999_error_exit",
+        "FUNC refuse(xs AS List OF RES fs::File) AS Integer
+  IF len(xs) > 0 THEN
+             FAIL error(77, \"refused\")
+  END IF
+  RETURN 0
+END FUNC
+
+         FUNC trapped(i AS Integer) AS Integer
+  RETURN refuse(mkList()) + 1
+  TRAP(err)
+             RETURN 5
+  END TRAP
+END FUNC
+
+         FUNC propagates(i AS Integer) AS Integer
+  RETURN refuse(mkList()) + len(mkList())
+END FUNC
+
+         FUNC catches(i AS Integer) AS Integer
+  RETURN propagates(i)
+  TRAP(err)
+             RETURN 7
+  END TRAP
+END FUNC
+",
+        "    n = n + trapped(i) + catches(i)",
+        12,
+    );
+}
+
 /// A statement that skips the producer on some iterations (`CONTINUE`, a
 /// short-circuited operand) drops nothing for the ones it skipped.
 #[test]

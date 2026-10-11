@@ -1127,6 +1127,7 @@ pub(crate) fn lower_function(
         resource_temp_exempt: None,
         trap_call_results: HashSet::new(),
         resource_temps_closed_on_path: false,
+        exclusive_temps: ExclusiveTemps::default(),
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
@@ -1419,6 +1420,7 @@ pub(crate) fn lower_function(
     builder.owned_list_owning_collections = ownership.owning_collections;
     builder.reassign_free_collections = ownership.reassign_free_collections;
     builder.inner_owning_collections = ownership.inner_owning_collections;
+    builder.exclusive_temps.calls = ownership.exclusive_temps;
     // bug-805: a container local later ASSIGNED a call result adopts what the call
     // hands out, so it needs its owned-lists from its bind, like a float target.
     let call_assigned = builder.call_assigned_owner_containers(&function.body);
@@ -1803,6 +1805,7 @@ pub(crate) fn lower_abi_function_helper(
         resource_temp_exempt: None,
         trap_call_results: HashSet::new(),
         resource_temps_closed_on_path: false,
+        exclusive_temps: ExclusiveTemps::default(),
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
@@ -2059,6 +2062,7 @@ pub(crate) fn helper_code_builder<'a>(
         resource_temp_exempt: None,
         trap_call_results: HashSet::new(),
         resource_temps_closed_on_path: false,
+        exclusive_temps: ExclusiveTemps::default(),
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
