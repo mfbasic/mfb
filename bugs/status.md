@@ -108,18 +108,3 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [ ] 1031: `RES` on a non-resource is not refused at the top level, on a return, or on a record field that also carries `STATE`
 [ ] 1032: a generic `T STATE Cur` called with a `fs::File STATE Cur` is rejected, the clause is carried twice. NEEDS AN OWNER DECISION before it starts: is `T STATE S` on a generic parameter legal at all?
 [ ] 1033: man example `variable::guide#2` does not build (an intentional error example the runner does not recognise)
-
-Into existing phases:
-[ ] P3: 986 (HEAD waits for EOF; owner decided: `method` field on `http::PendingState`)
-[ ] P3: 1017 (was 1014) (Windows `respondPath`: `..\` traversal still 403-vs-404 by existence; reproduced on 206)
-[ ] Flakes: 1003 (http::pump example hangs on a stalled remote), 1004 (cli_dbg threaded-arena test timing)
-[ ] P5: 1002 (TYPE_COLLECTION_OWNERSHIP_VIOLATION reported twice)
-[ ] (moved to P2b, agent L, with 1013) 998 (STATE on a non-resource parameter; owner decided: new rule `TYPE_STATE_REQUIRES_RESOURCE`)
-[ ] P8: 1015 (GTK `pollMouse` sees nothing without a stdin read; owner decided: events come from the window like macOS/Windows) → then 985 (setMode window has no mouse controllers)
-[ ] P8: 991, 995, 996, 997
-[ ] Standalone: 987 (Windows test scripts → box 206)
-
-Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject; one direction only), 988 reduce (works), 1015 (GTK mouse events come from the window), 1013 (a STATE must always be a record), 988 (the collection fixes `T`; a union never fits a member bucket, no run-time narrowing), 1021 (partial by-field record constructor uses defaults), 1034 (`RES n AS Integer STATE Cur` keeps both errors, `TYPE_RES_REQUIRES_RESOURCE` and `TYPE_STATE_REQUIRES_RESOURCE`; not a bug, doc in `bugs/skipped/`).
-Not run (boxes down): 962 on x86_64 GTK / musl GTK; 902 on x86_64 glibc.
-
-Numbering note: other sessions file bugs too (the plan-172 session used 1013 and 1014 the same day the coordinator did). The coordinator renumbers its own unmerged docs on a collision; check `ls bugs` in every worktree before taking a number.
