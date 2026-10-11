@@ -156,6 +156,10 @@ END TYPE
 ### Groups and identity
 
 * group interaction. A group saves the DrawItem list. Each use of the group gets its own identity. This means if a group is used twice, AutoPaint applies separately to each DrawItem instance.
+  * That identity is the instance's place in the scene — which nodes and which items led
+    to it — and never an `id` (owner, 2026-10-10: "ID is more for mouse overId, not for
+    AutoPaint logic"). Two uses of one group are independent whether their `id`s differ,
+    match or are empty.
 * `overID` is a **path of ids**, outermost first (owner's decision, 2026-10-10, replacing
   "the item's `id` string and nothing more"). A `Group` node has an `id`, and so does a
   `Picture`; each contributes its own in front of what it holds, and the shape's `id` comes

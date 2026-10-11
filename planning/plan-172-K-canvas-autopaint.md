@@ -121,13 +121,17 @@ per instance: the entry for the wrapped shape with its own paint — which is wh
 hit test reads — and a record in a per-frame list of `AutoPaint` instances (entry index,
 instance key, the four flags and paints).
 
-**Instance key.** The entry's id path (172-I: the `id`s of the groups that hold it,
-outermost first, then its own) when it is non-empty; otherwise a hash of its structural
-path — the chain of group slots and item indices that reached it. Two uses of one group
-under two group `id`s therefore get two keys by name, and two uses with no `id`
-anywhere get two keys by structure. Two instances whose id paths are EQUAL — one group
-drawn twice under the same `id`, or with none, holding a named `AutoPaint` — is Open
-Decision 2.
+**Instance key.** A hash of the instance's structural path — the chain of group slots
+and item indices that reached it, from the scene down. No `id` is consulted (Open
+Decision 2): an `id` is what `overID` reports to the program, and it does not have to be
+unique, so it cannot be what tells two instances apart. Every use of a group is its own
+chain, so every use has its own state whatever it is called.
+
+What a structural key costs: an instance's state follows its place in the scene, so
+inserting or removing an item ahead of it in the same list gives it a new key, and it
+starts again from default. That is one `enter` transition on a frame where the scene was
+restructured under the pointer. Moving, restyling or re-presenting an item in place
+keeps its key.
 
 **Resolving a frame.** After the walk, once, on the graphics thread:
 
@@ -254,7 +258,8 @@ Commit: —
       pointer still; exit shows then default; pressed wins over hover; only the upper of
       two overlapping `AutoPaint`s changes; an id-less shape on top blocks the one
       beneath; two uses of one group change independently — under two group `id`s,
-      and (per Open Decision 2) under none; a hover paint with a wider
+      under the same `id`, and under none, each holding a NAMED `AutoPaint`; a hover
+      paint with a wider
       stroke does not widen the hit region; state survives a re-`present` of a moved
       shape.
 - [ ] A frame-count case: a scene with no `AutoPaint` and a moving scripted pointer
@@ -324,15 +329,24 @@ Commit: —
    stay independent and only lose their state across a reordering. The alternative is
    to let them share, and document that independent uses need distinct group `id`s.
 
+   **ANSWER: independent** (owner, 2026-10-10) — "ID is more for mouse overId, not for
+   AutoPaint logic." Taken at its word, that removes the `id` from the key altogether
+   rather than adding a fallback for when it repeats: the key is the structural path,
+   always (§3 "Instance key"). That last step is this plan's reading of the answer, not
+   the owner's words.
+
 ## Corrections
 
 - **`AutoPaint` has no `id` (owner's decision, 2026-10-10).** "Auto paint is a decorated
   version of a shape, it's not 'using' a shape like Picture or containing a shape like
   groups." It adds nothing to the id path: an `AutoPaint` reports its shape's `id`, as
   the bare shape would, and the record stays as `planning/new_canvas.md` lists it.
-- **From 172-I's id path (owner's decision, 2026-10-10):** the instance key is the id
-  path, not the item's own `id`, and Open Decision 2 is added for two instances whose
-  paths are equal. The original wording — "the item's `id` when it is non-empty … two
+- **The instance key is structural (owner's answer to Open Decision 2, 2026-10-10).**
+  `id` plays no part in `AutoPaint`'s state. §3's "Instance key" is rewritten, with what
+  a structural key costs, and the "two uses of one group" test case covers named
+  instances under equal and empty group `id`s.
+- **From 172-I's id path (owner's decision, 2026-10-10):** Open Decision 2 was added for
+  two instances whose id paths are equal. The original wording — "the item's `id` when it is non-empty … two
   uses of one group therefore get two keys" — did not hold for a named item, whose `id`
   is the same in every use.
 
