@@ -113,3 +113,80 @@ fn promotion_changes_no_result() {
     assert_eq!(unoptimized, "61\ncode=77050010 line=5 char=10\n");
     assert_eq!(run(&project, 1), unoptimized);
 }
+
+/// One `main` with `handlers` inline-`TRAP` binds whose handler reads the error
+/// (bug-860's generator).
+fn many_handlers_source(handlers: usize) -> String {
+    let mut source = String::from("IMPORT io\nIMPORT encoding\n\nFUNC main() AS Nothing\n");
+    for index in 0..handlers {
+        source.push_str(&format!(
+            "  LET r{index} AS String = encoding::percentDecode(\"a%20b\") TRAP(e)\n\
+             \x20   io::print(toString(e.code))\n\
+             \x20   RECOVER \"\"\n\
+             \x20 END TRAP\n"
+        ));
+    }
+    source.push_str("END FUNC\n");
+    source
+}
+
+/// Run `mfb build -q` on `project` and return the compiler's own peak resident
+/// set in bytes: `wait4` fills `ru_maxrss` for the one child it reaps (bytes on
+/// macOS, kibibytes on Linux).
+#[cfg(unix)]
+// The child IS reaped, by the `wait4` below: `Child::wait` cannot return the
+// reaped child's `rusage`, and clippy does not see a `libc` wait.
+#[allow(clippy::zombie_processes)]
+fn build_peak_rss(project: &Path) -> u64 {
+    use std::os::unix::process::ExitStatusExt;
+    let child = Command::new(mfb_exe())
+        .arg("build")
+        .arg("-q")
+        .arg(project)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn mfb build");
+    let pid = child.id() as libc::pid_t;
+    let mut status: libc::c_int = 0;
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    let reaped = unsafe { libc::wait4(pid, &mut status, 0, &mut usage) };
+    assert_eq!(
+        reaped,
+        pid,
+        "wait4 failed: {}",
+        std::io::Error::last_os_error()
+    );
+    let status = std::process::ExitStatus::from_raw(status);
+    assert!(status.success(), "the build failed: {status}");
+    let raw = usage.ru_maxrss as u64;
+    if cfg!(target_os = "macos") {
+        raw
+    } else {
+        raw * 1024
+    }
+}
+
+/// bug-860: compile memory does not grow with `blocks × promotable slots`.
+///
+/// Promotion's read-before-written check kept three bit matrices of that shape,
+/// and a function whose every exit path repeats its cleanup has both counts
+/// growing with the square of its statement count. This program, 100 handlers,
+/// took 4.04 GB to build before the fix (17.98 GB at 150 handlers, and the
+/// compiler was killed at 458); it takes about 0.53 GB after, which is what the
+/// 732,000 instructions of `main` cost everywhere else in the compiler. The
+/// bound sits between the two, a factor of 2.7 from each, and is a peak
+/// resident-set size, so machine load cannot move it.
+#[cfg(unix)]
+#[test]
+fn many_inline_trap_handlers_build_in_bounded_memory() {
+    const BOUND: u64 = 1_500 * 1024 * 1024;
+    let project = temp_project("promotion_memory_bound", &many_handlers_source(100));
+    let peak = build_peak_rss(&project);
+    assert!(
+        peak < BOUND,
+        "building 100 inline-TRAP handlers in one function peaked at {} MB, bound {} MB",
+        peak / (1024 * 1024),
+        BOUND / (1024 * 1024)
+    );
+}
