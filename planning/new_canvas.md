@@ -111,7 +111,7 @@ END TYPE
 
 > As built (plan-172-K, 2026-10-11): the four paint fields are `enterPaint`, `exitPaint`,
 > `hoverPaint` and `pressedPaint`. `EXIT` is a keyword, so a field cannot be named `exit`,
-> and all four took the suffix rather than one. Awaiting the owner's word on the names.
+> and all four took the suffix rather than one. Confirmed by the owner, 2026-10-11.
 >
 > The enter and exit flashes last 100 ms, not 50, and the length is the project's
 > `options.canvasAutoPaintMS` (owner, 2026-10-11, after trying both in a real window).

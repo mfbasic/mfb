@@ -353,6 +353,10 @@ name = "rt_canvas_auto_step"
 path = "tests/canvas/rt_canvas_auto_step.rs"
 
 [[test]]
+name = "rt_canvas_picture_fit"
+path = "tests/canvas/rt_canvas_picture_fit.rs"
+
+[[test]]
 name = "rt_canvas_picture"
 path = "tests/canvas/rt_canvas_picture.rs"
 

@@ -99,6 +99,7 @@ mod helper_hit;
 mod helper_items;
 mod helper_joins;
 mod helper_paint_defaults;
+mod helper_picture;
 mod helper_png;
 mod helper_render;
 mod helper_shapes;
@@ -1831,6 +1832,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_surface::register(&mut pkg);
     helper_hit::register(&mut pkg);
     helper_autopaint::register(&mut pkg);
+    helper_picture::register(&mut pkg);
     helper_render::register(&mut pkg);
 
     r.add_package(pkg);

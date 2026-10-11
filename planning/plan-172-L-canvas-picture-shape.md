@@ -1,6 +1,6 @@
 # plan-172-L: `Picture` clipped to a shape
 
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 Effort: large (3h–1d)
 Depends on: plan-172-K
 
@@ -31,10 +31,10 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-172-K complete and archived | `ls planning/plan-172-K-*` → no matches | NOT MET |
-| `canvas::AutoShape` exists | `grep -c 'name: "AutoShape"' src/codegen/builtins/canvas/mod.rs` → 1 | NOT MET |
-| Open Decision 3 of 172-A is answered | `grep -c '\*\*ANSWER:' planning/completed/plan-172-A-*.md` → 5 | NOT MET |
-| The picture suites are green | `cargo test --test rt_canvas_picture --test rt_canvas_group_ownership` → pass | UNVERIFIED — run first |
+| plan-172-K complete and archived | `ls planning/plan-172-K-*` → no matches | MET (2026-10-11: "no matches found") |
+| `canvas::AutoShape` exists | `grep -c 'name: "AutoShape"' src/codegen/builtins/canvas/mod.rs` → 1 | MET (2026-10-11: 1) |
+| Open Decision 3 of 172-A is answered | `grep -c '\*\*ANSWER:' planning/completed/plan-172-A-*.md` → 5 | MET (2026-10-11: 5) |
+| The picture suites are green | `cargo test --test rt_canvas_picture --test rt_canvas_group_ownership` → pass | MET (2026-10-11, in 172-K's closing round: "11 passed; 0 failed" each) |
 
 If plan-172-K is not complete, this letter cannot start, full stop.
 
@@ -208,24 +208,47 @@ has one clip slot, so the two ring sets are intersected into one edge set at exp
 
 ### Phase 1 — Fit and outline, as pure functions
 
-- [ ] Re-measure the two "on entry" rows and record them.
-- [ ] `helper_shapes.rs`: `__canvas_pictureFit(bounds, imageSize, fit)` returning the
-      destination rectangle; `__canvas_shapeOutline(shape)`.
-- [ ] Unit cases: `Stretch`, `Contain` and `Cover` for a wide image in a tall box and a
+- [x] Re-measure the two "on entry" rows and record them. `canvas::Picture[` sites: 72
+      in 25 files (the §2 command; 71 in 24 when the plan was written — 172-K's scene
+      and tests did not add one, `func_set_bytes.rs`'s man example was miscounted).
+      Reads of a picture's placement and paint in the companion source: 41
+      (`grep -rhoE '\bpic\.(position|size|transform|paint)\b'
+      src/codegen/builtins/canvas | wc -l`; the 8 was `pic.x|y|w|h`, before 172-E).
+      Highest `7705xxxx`: still 77050027, and this letter no longer takes one.
+- [x] `helper_shapes.rs`: `__canvas_pictureFit(bounds, imageSize, fit)` returning the
+      destination rectangle; `__canvas_shapeOutline(shape)`. In a new file,
+      `helper_picture.rs`, as the chunk `PICTURE_GEOMETRY`, gated on the program
+      constructing a `Picture` — `helper_shapes.rs` is compiled into every canvas
+      program and this is not for every one (Corrections). `__canvas_pictureFit`
+      takes the box, the image size and the fit as numbers; the outline's curved case
+      is `__canvas_ellipseRing`, and the per-shape choice between it,
+      `__canvas_rrectRing` and a polygon's own contours is Phase 2's, where the record
+      is.
+- [x] Unit cases: `Stretch`, `Contain` and `Cover` for a wide image in a tall box and a
       tall image in a wide box, each centred; the outline of a circle has every vertex
-      within 0.05 pixels of the radius; an open shape returns no rings.
-- [ ] `helper_shapes.rs`: `__canvas_clipIntersect(ringsA, ruleA, ringsB, ruleB)` per §3.
-- [ ] Unit cases for it, each checked by area (the shoelace sum over the edge soup,
+      within 0.05 pixels of the radius; an open shape returns no rings. Four tests. The
+      circle's vertices are on it to `1e-4` px and its chords within 0.05; "an open
+      shape returns no rings" is Phase 3's `Line` case, since the shapes are not in this
+      chunk, and here a zero radius returns none.
+- [x] `helper_shapes.rs`: `__canvas_clipIntersect(ringsA, ruleA, ringsB, ruleB)` per §3.
+      In `PICTURE_GEOMETRY`, by bands as §3 says, with two things §3 does not say: a
+      source edge that bounds the region through consecutive bands is emitted as ONE
+      edge, and the edges are oriented, so their shoelace sum is the area.
+- [x] Unit cases for it, each checked by area (the shoelace sum over the edge soup,
       which even-odd boundaries make well defined) and by point membership at fixed
       probes: two overlapping squares give the overlap square; disjoint squares give no
       edges; a square inside a circle outline gives the square; a five-point star under
       even-odd against a square differs from the same star under non-zero by exactly
       the star's inner pentagon; a ring with a hole against a bar crossing the hole
       gives two pieces; and no returned edge has both neighbours inside (the no-seam
-      property), sampled 0.25 pixels either side of each edge's midpoint.
+      property), sampled 0.25 pixels either side of each edge's midpoint. Five tests,
+      and the seam count is asserted zero in every one of them. The run-joining is its
+      own case: a 32-point circle cut by a half-plane comes back as 17 edges.
 
 Acceptance: the fit and outline cases pass.
-  Check: `cargo test --bin mfb canvas_picture_fit` → pass (est. 3 min).
+  Check: `cargo test --test rt_canvas_picture_fit` → pass (est. 3 min; the plan wrote
+  `cargo test --bin mfb canvas_picture_fit`, see Corrections).
+  Observed 2026-10-11: "9 passed; 0 failed".
 Commit: —
 
 ### Phase 2 — The record and the port, plain rectangles only
@@ -323,6 +346,25 @@ Commit: —
 None beyond 172-A's Open Decision 3.
 
 ## Corrections
+
+- **Phase 1's cases are an integration test, and its functions are in their own gated
+  file (2026-10-11).** As in 172-K Phase 2: a `--bin mfb` test cannot run MFBASIC, so
+  `tests/canvas/rt_canvas_picture_fit.rs` reads `PICTURE_GEOMETRY` out of
+  `helper_picture.rs` (and the float and trigonometry chunks of `helper_shapes.rs` it
+  calls), compiles it behind a driver and runs it. The functions are not in
+  `helper_shapes.rs` because that file is compiled into every canvas program, and
+  172-K measured what unconditional code costs; the chunk is gated on the program
+  constructing a `Picture` (`HelperGate::WhenUsedOrConstructed`).
+- **`toString` of a `Float` keeps six significant digits (2026-10-11).** The first cut
+  of the driver printed areas with it and could not tell the star's pentagon (34.6893)
+  from 34.69. Areas and distances are printed as whole millionths.
+- **The outline is as exact as the canvas's own sine and cosine (2026-10-11).**
+  `__canvas_ellipseRing` uses `__canvas_sin` / `__canvas_cos`, which are deterministic
+  across platforms and good to `4.6e-7`, not `math::sin`. A vertex is on the circle to
+  `1e-4` px at radius 100, which is 500 times inside the 0.05 bound the chord has.
+- **The owner confirmed `canvas::AutoPaint`'s field names (2026-10-11):** "Field names
+  are fine." The bullet under "From 172-K as built" that says "pending the owner's
+  word" is settled.
 
 - **From 172-K as built (2026-10-11): what a `Picture` that holds an `AutoShape` has to
   fit into.** Read `.ai/canvas-threading.md` section 16 and `mfb spec app canvas`,
