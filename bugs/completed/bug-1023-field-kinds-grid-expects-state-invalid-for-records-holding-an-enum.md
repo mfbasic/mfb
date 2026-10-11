@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Other
 
-Status: Open
+Status: Fixed (2026-10-10)
 Regression Test: `cargo test --test rt_inplace_self_update every_field_kind_meets_its_expectation -- --ignored` (exists; red)
 
 `tests/runtime/inplace_self_update/field_kinds.tsv` gives 19 record kinds the
@@ -63,14 +63,23 @@ the commit before plan-172-N.
 
 ## Fix Plan
 
-- [ ] Run the grid for all 19 rows and list which `T` sites now compile.
-- [ ] `field_kinds_gen.py`: derive `state_ok` from whether the kind is defaultable
-      under the current rule (every field defaultable; an enum is), not from `LITERALS`.
-- [ ] Set those rows' `T1`–`T8` by hand to what `expects` gives (`T7` is
-      `na:TYPE_FOR_EACH_REQUIRES_COLLECTION`); do not regenerate the file (bug-1014).
-- [ ] The grid passes for all 19 rows; if a `T` site then fails its allocation bound,
-      that is a finding about the in-place arm for a `STATE` record, to be reported, not
-      re-baselined.
+- [x] Run the grid for all 19 rows and list which `T` sites now compile. Observed:
+      `136 of 208 case/site pair(s) failed` — 17 kinds, eight `T` sites each. The two
+      that still do not compile are `json::Json` and `http::Route` (a function-valued
+      field), as they should not.
+- [x] `field_kinds_gen.py`: `state_ok = defaultable(kind)`, a function that restates
+      `src/ir/verify/resources.rs:is_defaultable` over the `mfb man` field lists.
+- [x] Those 17 rows' `T1`–`T8` set to what `expects` gives; only those sites were
+      written, by a script that left every `S` site as committed (bug-1014). The
+      generator's new rule names exactly the 17 kinds the grid measured.
+- [x] The grid passes for them:
+      `MFB_SELF_UPDATE_SITES=T1,…,T8 MFB_SELF_UPDATE_FILTER=<the 19 kinds> cargo test
+      --test rt_inplace_self_update every_field_kind_meets_its_expectation -- --ignored`
+      → `1 passed` (208 pairs, 692 s). No `T` site failed its allocation bound.
+
+The whole grid, unfiltered, is then `4 of 1155 case/site pair(s) failed`: `http::Route`
+at `S4`, `S5`, `S9` and `S10`, which is bug-1014's drift and fails the same way at
+`main` (`932ea9956`).
 
 ## Notes
 

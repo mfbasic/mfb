@@ -37,6 +37,10 @@ cargo test --no-fail-fast --test rt_canvas_font gpu
   (`rt_canvas_font: 33 passed` at plan-172-E's close and again in plan-172-F's first
   verification round).
 
+- Later the same day (17:25, `uptime` load averages `7.38 10.38 10.08`, after merging
+  `main`): the same command passed twice in a row, `2 passed` each. So it is
+  intermittent, and it stopped without a source change addressing it.
+
 ## What is and is not known
 
 - **It is not plan-172-F's builder change.** The scene is one `canvas::Text`; the

@@ -34,6 +34,24 @@ diff tests/runtime/inplace_self_update/field_kinds.tsv /tmp/fk.tsv | grep -c '^<
   `S4=arm S5=arm` and generated as `S4=rebuild:size-varies S5=rebuild:size-varies`.
 - Expected: `0`.
 
+## One row of the drift is measurably wrong
+
+`http::Route` is committed as `arm` at `S4`, `S5`, `S9` and `S10` and generated as
+`rebuild:size-varies`. The grid fails those four sites — "marked `arm`, but 2000 more
+runs allocated 2000 more blocks (want < 250) — the statement rebuilds the owner":
+
+```
+MFB_SELF_UPDATE_FILTER='http::Route' cargo test --test rt_inplace_self_update \
+  every_field_kind_meets_its_expectation -- --ignored
+```
+
+- Observed at `main` (`932ea9956`, detached worktree, 2026-10-10) and on
+  `worktree-P-172`: `4 of 15 case/site pair(s) failed`, the same four.
+- It is the only row of the whole grid that fails (`4 of 1155` on `worktree-P-172`
+  once bug-1023 is fixed), so the other hand-flipped `arm` rows are true.
+- Not known: whether the table is wrong for a record holding a function value, or the
+  in-place arm regressed for it.
+
 ## Root Cause
 
 Unknown. Two hypotheses, to be told apart by `git log -p` on both files:

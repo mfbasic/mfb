@@ -121,6 +121,20 @@ def cls(t, seen=()):
     sys.exit(f"unclassified field type {t}")
 
 
+def defaultable(t, seen=()):
+    """Whether `MUT x AS t` has a default, by the compiler's rule
+    (`src/ir/verify/resources.rs:is_defaultable`): a scalar, an enum (its first
+    variant), a `String`, a collection, or a record all of whose fields are. A
+    function value, a data union, a resource handle and `json::Json` have none."""
+    if t in PRINTABLE or t in enums or t in ("Nothing", "String"):
+        return True
+    if t.split()[0] in ("List", "Map", "Set"):
+        return True
+    if t in records and t not in seen:
+        return all(defaultable(ft, seen + (t,)) for _, ft in records[t])
+    return False
+
+
 def check_expr(t, path="before"):
     """A String rendering of one field reachable from `path` (of type `t`): a
     printable scalar or `String` first, then a collection's length, then a nested
@@ -235,8 +249,9 @@ for kind in order + ["KFix", "KVar"]:
         statement = "x = kindSame(x)"
     check = check_expr(kind) or '"-"'
     bound = "arm+value" if klass in ("InlinedFixed", "Pointer") else "arm"
-    # A type with no default (it needed a literal) cannot be a `STATE` payload
-    # field; the user records are defaultable and use a literal only for a value.
-    state_ok = kind not in LITERALS or kind in ("KFix", "KVar")
+    # A type with no default cannot be a `STATE` payload field. `LITERALS` is not
+    # that test: an enum has had a default (its first variant) since plan-172-N, so
+    # most kinds that take a literal for a VALUE are defaultable all the same.
+    state_ok = defaultable(kind)
     emit(kind, build, setup, statement, check, bound, klass, state_ok, kind not in UNBUILDABLE)
 print("\n".join(lines))
