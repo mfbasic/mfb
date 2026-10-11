@@ -41,6 +41,10 @@ cargo test --no-fail-fast --test rt_canvas_font gpu
   `main`): the same command passed twice in a row, `2 passed` each. So it is
   intermittent, and it stopped without a source change addressing it.
 
+- 21:10–21:40 the same day, load averages `34.52 50.31 43.28`: `rt_canvas_font` → 33
+  passed in plan-172-H's round. Heavier load than when it failed, and it passed — so
+  load alone is not the trigger.
+
 ## What is and is not known
 
 - **It is not plan-172-F's builder change.** The scene is one `canvas::Text`; the
