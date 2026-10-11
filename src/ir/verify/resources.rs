@@ -1513,10 +1513,39 @@ impl TypeEnv {
         None
     }
 
-    /// Apply the `STATE` type rule (`TYPE_STATE_INVALID`, bug-1013) to every
-    /// clause `type_` spells, at any depth: its own top-level one, a collection
-    /// element's, a record field's `RES` slot, a thread's resource plane, a
-    /// thread view's.
+    /// Whether `host` — the type a `STATE` clause is written on — is positively
+    /// NOT a resource (bug-998). Only a known data type answers `true`: a name
+    /// no table has heard of may be an external package's resource, the stance
+    /// [`provably_data_type`](Self::provably_data_type) takes for the `RES`
+    /// marker. This adds the two kinds that predicate cannot see on the source
+    /// path: an imported record and a built-in package's record or enum.
+    pub(super) fn state_host_is_data(&self, host: &ParameterType) -> bool {
+        let host = strip_res(host);
+        if self.is_resource_or_resource_union(host) {
+            return false;
+        }
+        if self.provably_data_type(host) || self.record_decls.contains(host) {
+            return true;
+        }
+        use crate::codegen::registry::{registry, ResolvedType};
+        matches!(host, ParameterType::Named(_))
+            && matches!(
+                registry().resolve_type(&host.name()),
+                Some(ResolvedType::Record(_) | ResolvedType::Enum(_))
+            )
+    }
+
+    /// Apply the two `STATE` clause rules to every clause `type_` spells, at any
+    /// depth: its own top-level one, a collection element's, a record field's
+    /// `RES` slot, a thread's resource plane, a thread view's.
+    ///
+    /// One clause reports at most one of the two, in this order:
+    ///
+    /// 1. `TYPE_STATE_REQUIRES_RESOURCE` (bug-998) — the clause is written on a
+    ///    type that is not a resource. The clause has nothing to attach to, so
+    ///    its own type is not examined.
+    /// 2. `TYPE_STATE_INVALID` (bug-1013) — the host is a resource and the
+    ///    `STATE` type is not a copyable, defaultable record `TYPE`.
     ///
     /// Every position that declares a type routes through here, so the rule
     /// cannot hold at a binding and lapse at an element — which is how a
@@ -1525,20 +1554,29 @@ impl TypeEnv {
     pub(super) fn check_state_clauses(&self, type_: &ParameterType, subject: &str) {
         match type_ {
             ParameterType::Stateful { base, state } => {
-                match self.state_type_fault(state) {
-                    Some(StateTypeFault::NotRecord) => self.emit(
-                        "TYPE_STATE_INVALID",
+                if self.state_host_is_data(base) {
+                    self.emit(
+                        "TYPE_STATE_REQUIRES_RESOURCE",
                         format!(
-                            "{subject} STATE type `{state}` is not a record; declare a record TYPE that holds the value and name it instead."
+                            "{subject} attaches `STATE {state}` to `{base}`, which is not a resource; remove the STATE clause."
                         ),
-                    ),
-                    Some(StateTypeFault::NotDefaultable) => self.emit(
-                        "TYPE_STATE_INVALID",
-                        format!(
-                            "{subject} STATE type `{state}` must be a copyable, defaultable record TYPE."
+                    );
+                } else {
+                    match self.state_type_fault(state) {
+                        Some(StateTypeFault::NotRecord) => self.emit(
+                            "TYPE_STATE_INVALID",
+                            format!(
+                                "{subject} STATE type `{state}` is not a record; declare a record TYPE that holds the value and name it instead."
+                            ),
                         ),
-                    ),
-                    None => {}
+                        Some(StateTypeFault::NotDefaultable) => self.emit(
+                            "TYPE_STATE_INVALID",
+                            format!(
+                                "{subject} STATE type `{state}` must be a copyable, defaultable record TYPE."
+                            ),
+                        ),
+                        None => {}
+                    }
                 }
                 self.check_state_clauses(base, subject);
             }

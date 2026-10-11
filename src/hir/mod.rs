@@ -312,6 +312,9 @@ pub(crate) struct HirFunction {
     pub(crate) return_resource: bool,
     /// The `STATE T` type attached to a `RES` return type, if any (bare, parsed).
     pub(crate) return_state_type: Option<ParameterType>,
+    /// A return's `STATE T` clause on a type that is not a resource (bug-998),
+    /// moved here exactly as [`HirParam::stray_state`] is.
+    pub(crate) return_stray_state: Option<ParameterType>,
     pub(crate) body: Vec<HirStatement>,
     pub(crate) trap: Option<HirTrap>,
     pub(crate) line: usize,
@@ -372,6 +375,12 @@ pub(crate) struct HirParam {
     pub(crate) resource: bool,
     /// The `STATE T` type attached to the parameter, if any (bare, parsed).
     pub(crate) state_type: Option<ParameterType>,
+    /// A `STATE T` clause the source wrote on a parameter whose type is not a
+    /// resource (bug-998). [`resource_params`] moves the clause here on the
+    /// build path, so the parameter types as the plain value it is and
+    /// `ir::shape` reports the clause once (`TYPE_STATE_REQUIRES_RESOURCE`)
+    /// instead of every use of the parameter failing to type.
+    pub(crate) stray_state: Option<ParameterType>,
     pub(crate) default: Option<HirExpression>,
     pub(crate) line: usize,
 }
@@ -842,6 +851,7 @@ fn elaborate_function(function: &crate::ast::Function) -> HirFunction {
         returns: parse_optional_type(&function.return_type, type_params),
         return_resource: function.return_resource,
         return_state_type: parse_optional_state(&function.return_state_type, type_params),
+        return_stray_state: None,
         body: function
             .body
             .iter()
@@ -876,6 +886,7 @@ fn elaborate_param(param: &crate::ast::Param, type_params: &[String]) -> HirPara
         // Derived from the type once the project is elaborated (bug-976).
         resource: false,
         state_type: parse_optional_state(&param.state_type, type_params),
+        stray_state: None,
         default: param
             .default
             .as_ref()

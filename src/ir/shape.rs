@@ -1272,11 +1272,16 @@ impl<'a> Walker<'a> {
             match item {
                 HirItem::Binding(binding) => {
                     if let Some(state) = &binding.state_type {
-                        self.check_erased_state_type(
-                            &format!("binding `{}`", binding.name),
-                            state,
-                            binding.line,
-                        );
+                        let subject = format!("binding `{}`", binding.name);
+                        // One clause reports one rule: the host first
+                        // (bug-998), then the STATE type (bug-1013).
+                        if !matches!(binding.type_, ParameterType::Unknown)
+                            && !self.is_resource_type(&binding.type_)
+                        {
+                            self.check_stray_state(&subject, &binding.type_, state, binding.line);
+                        } else {
+                            self.check_erased_state_type(&subject, state, binding.line);
+                        }
                     }
                     if let Some(value) = &binding.value {
                         let locals = HashMap::new();
@@ -1305,6 +1310,50 @@ impl<'a> Walker<'a> {
                 | HirItem::Doc(_)
                 | HirItem::Testing(_) => {}
             }
+        }
+    }
+
+    /// TYPE_STATE_REQUIRES_RESOURCE (bug-998): a `STATE` clause written on a
+    /// parameter, a return or a top-level binding whose type is not a resource.
+    ///
+    /// Erased fact: the clause itself. `hir::resource_params` takes it off a
+    /// parameter or a return before lowering (`HirParam::stray_state`,
+    /// `HirFunction::return_stray_state`), because a clause left on a data type
+    /// rides into the type (`Integer STATE Cur`) and makes every use of the
+    /// parameter untypable — the author used to see `TYPE_UNKNOWN_VALUE` at each
+    /// use and `TYPE_STATE_MISMATCH` at each call, and nothing at the clause.
+    /// A top-level binding's clause is never lowered at all. So the IR
+    /// `ir::verify` reads does not carry it, and this is the one place that can
+    /// still name it. (`ir::verify` keeps the same rule for the positions
+    /// lowering does not erase — a local binding, a field, an element, a thread
+    /// plane, a native declaration — and for decoded package IR.)
+    ///
+    /// The clause's own type is not examined (`TYPE_STATE_INVALID`): with no
+    /// resource to attach to, there is no payload to be the wrong kind of.
+    fn check_stray_state(
+        &mut self,
+        subject: &str,
+        host: &ParameterType,
+        state: &ParameterType,
+        line: usize,
+    ) {
+        self.emit(
+            "TYPE_STATE_REQUIRES_RESOURCE",
+            format!(
+                "{subject} attaches `STATE {state}` to `{host}`, which is not a resource; remove the STATE clause."
+            ),
+            line,
+        );
+    }
+
+    fn check_stray_param_state(&mut self, param: &crate::hir::HirParam, line: usize) {
+        if let Some(state) = &param.stray_state {
+            self.check_stray_state(
+                &format!("Parameter `{}`", param.name),
+                &param.type_,
+                state,
+                line,
+            );
         }
     }
 
@@ -1356,7 +1405,18 @@ impl<'a> Walker<'a> {
         // Parameter locals as `lower_function` seeds them: a resource parameter's
         // `STATE T` rides in its type.
         let mut locals = HashMap::new();
+        // TYPE_STATE_REQUIRES_RESOURCE, the return and parameter forms (see
+        // `check_stray_state`).
+        if let Some(state) = &function.return_stray_state {
+            self.check_stray_state(
+                &format!("FUNC `{}` return", function.name),
+                &function.returns,
+                state,
+                function.line,
+            );
+        }
         for param in &function.params {
+            self.check_stray_param_state(param, param.line);
             let type_ = match &param.state_type {
                 Some(state) => param.type_.with_state(state),
                 None => param.type_.clone(),
@@ -2143,6 +2203,7 @@ impl<'a> Walker<'a> {
                 // (`expression_type`'s Lambda arm).
                 let mut nested = locals.clone();
                 for param in params {
+                    self.check_stray_param_state(param, self.current_line);
                     // TYPE_STATE_INVALID (bug-1013): a lambda parameter's
                     // `STATE` clause is not lowered, see
                     // `check_erased_state_type`.
