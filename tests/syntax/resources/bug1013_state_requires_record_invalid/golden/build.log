@@ -1,16 +1,4 @@
 $ mfb build -ast -ir tests/syntax/resources/bug1013_state_requires_record_invalid
-  50 | 
-  51 | RES topOk AS fs::File STATE Cursor = fs::createTempFile()    ' OK
-  52 | RES topBad AS fs::File STATE Float = fs::createTempFile()    ' BAD: a top-level binding
-     | ^
-tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:52 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
-               binding `topBad` STATE type `Float` is not a record; declare a record TYPE that holds the value and name it instead.
-  98 |   RES l AS fs::File STATE AttributedString = fs::createTempFile()        ' BAD: a built-in value type, not a record
-  99 |   RES m AS fs::File STATE Error = fs::createTempFile()                   ' OK: the built-in record
- 100 |   LET lam = LAMBDA(x AS fs::File STATE Integer) -> 1                     ' BAD: a lambda parameter
-     | ^
-tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:100 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
-               Parameter `x` STATE type `Integer` is not a record; declare a record TYPE that holds the value and name it instead.
   55 | END FUNC
   56 | 
   57 | FUNC takesInteger(f AS fs::File STATE Integer) AS Nothing    ' BAD: a parameter
@@ -125,6 +113,18 @@ tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:97 err
      | ^
 tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:98 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
                binding `l` STATE type `AttributedString` is not a record; declare a record TYPE that holds the value and name it instead.
+  98 |   RES l AS fs::File STATE AttributedString = fs::createTempFile()        ' BAD: a built-in value type, not a record
+  99 |   RES m AS fs::File STATE Error = fs::createTempFile()                   ' OK: the built-in record
+ 100 |   LET lam = LAMBDA(x AS fs::File STATE Integer) -> 1                     ' BAD: a lambda parameter
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:100 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Parameter `x` STATE type `Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+  50 | 
+  51 | RES topOk AS fs::File STATE Cursor = fs::createTempFile()    ' OK
+  52 | RES topBad AS fs::File STATE Float = fs::createTempFile()    ' BAD: a top-level binding
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:52 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `topBad` STATE type `Float` is not a record; declare a record TYPE that holds the value and name it instead.
   44 | TYPE Holder
   45 |   ok AS RES fs::File STATE Cursor               ' OK
   46 |   scalar AS RES fs::File STATE Integer          ' BAD: a record field

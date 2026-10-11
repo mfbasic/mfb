@@ -1,10 +1,4 @@
 $ mfb build -ast -ir tests/syntax/resources/bug998_state_requires_resource_invalid
-  32 | END TYPE
-  33 | 
-  34 | RES top AS Integer STATE Cur = 1                ' BAD: a top-level binding
-     | ^
-tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:34 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
-               binding `top` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
   38 | END FUNC
   39 | 
   40 | FUNC plain(x AS Integer STATE Cur) AS Integer   ' BAD: a parameter
@@ -71,6 +65,12 @@ tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:70 er
      | ^
 tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:71 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
                binding `slots` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
+  32 | END TYPE
+  33 | 
+  34 | RES top AS Integer STATE Cur = 1                ' BAD: a top-level binding
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:34 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               binding `top` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
   28 | TYPE Holder
   29 |   ok AS RES fs::File STATE Cur                  ' OK
   30 |   field AS RES Integer STATE Cur                ' BAD: a record field
