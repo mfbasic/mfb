@@ -293,6 +293,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
+| [ ]  | 1059   | MED      | two GPU text tests in `rt_canvas_font` fail with main's compiler on the development Mac (6 of 6 runs on 2026-10-11; they passed in the batch 20 gate hours earlier; cause not traced) |
 | [ ]  | 987    | LOW      | the Windows test scripts still default to the retired box 2230 (owner decided: repoint to box 206) |
 | [ ]  | 1033   | LOW      | the man example `variable::guide#2` does not build |
 
