@@ -623,6 +623,8 @@ impl CodeBuilder<'_> {
                 head_slot,
                 drop,
                 owns_elements: true,
+                reclaim_slot: None,
+                trap_shared: false,
                 scope_depth: depth,
                 leaf,
             });

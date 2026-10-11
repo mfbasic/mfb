@@ -274,6 +274,19 @@ pub(crate) struct CodeBuilder<'a> {
     /// close-only drain and leaks those blocks
     /// (`resource::cleanup::record_ownership::owning_collections`).
     pub(crate) owned_list_owning_collections: HashSet<String>,
+    /// bug-1053: the `RES` collections whose own block this binding frees at its
+    /// scope's end: the proved owners above, and the collections that are their
+    /// block's one holder though their elements have other readers
+    /// (`record_ownership::RecordOwnership::block_owning_collections`).
+    pub(crate) owned_list_block_collections: HashSet<String>,
+    /// bug-1053: whether an owned-list this function cannot prove the one holder
+    /// of its records frees them at run time, by the owner word, instead of only
+    /// closing them (`record_ownership::RecordOwnership::runtime_reclaim`).
+    pub(crate) owned_list_runtime_reclaim: bool,
+    /// bug-1053: every owned-list of this function whose drain takes records for a
+    /// later reclaim, for the error-return exit that frees them (the last
+    /// error-return pad, `CodeBuilder::append_error_return_pads`).
+    pub(crate) reclaiming_owned_lists: Vec<OwnedListCleanup>,
     /// bug-1045: the stores that raise an inner scope's value into a container
     /// declared further out, and the containers whose drain may only close what
     /// such a store handed them (`record_ownership::StoreFloats`).
@@ -782,6 +795,9 @@ impl<'a> CodeBuilder<'a> {
             record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
             owned_list_owning_collections: HashSet::new(),
+            owned_list_block_collections: HashSet::new(),
+            owned_list_runtime_reclaim: false,
+            reclaiming_owned_lists: Vec::new(),
             store_floats: Default::default(),
             reassign_free_collections: HashSet::new(),
             inner_owning_collections: HashSet::new(),
@@ -1131,6 +1147,17 @@ pub(crate) struct OwnedListCleanup {
     /// bug-805: the resource leaf type (`RES` stripped, `STATE` kept) this list
     /// holds; `drop` is that leaf's descriptor.
     pub(crate) leaf: ParameterType,
+    /// bug-1053: for a list whose container is not proved the one holder of what
+    /// it lists (`owns_elements` false), the stack slot heading the nodes whose
+    /// records its drain has closed and taken, and that are freed once every
+    /// cleanup of the exit has run (`CodeBuilder::emit_owned_list_reclaims`).
+    /// `None` keeps the close-only drain.
+    pub(crate) reclaim_slot: Option<usize>,
+    /// bug-1053: set on the copy of a function-level list that an error routed to
+    /// the function's `TRAP` handler runs. The handler still reads the container,
+    /// so that walk closes what the list owns and frees nothing; the handler's own
+    /// exit runs the real drain.
+    pub(crate) trap_shared: bool,
 }
 
 /// bug-778: the frame representation of an inline-`TRAP` desugar temporary

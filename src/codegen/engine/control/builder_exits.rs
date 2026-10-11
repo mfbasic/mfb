@@ -43,6 +43,12 @@ impl CodeBuilder<'_> {
     /// is idempotent (the handler's later drop is a harmless no-op) and
     /// propagating an error past them closes them as before. A thread view is one
     /// of them (plan-156-C): a handler that names it reads a closed view.
+    ///
+    /// bug-1053: a function-level owned-list whose drain takes records for a later
+    /// free is trap-shared in the same sense as an owned value: the handler can
+    /// still read its container, so this route closes what the list owns and keeps
+    /// the list (`OwnedListCleanup::trap_shared`), and the handler's own exit
+    /// drains it and frees the records.
     pub(crate) fn trap_route_cleanups(&self) -> Vec<ActiveCleanup> {
         let floor = self.trap_cleanup_floor();
         self.active_cleanups
@@ -51,12 +57,30 @@ impl CodeBuilder<'_> {
             .filter(|(index, cleanup)| {
                 !(*index < floor && matches!(cleanup, ActiveCleanup::OwnedValue(_)))
             })
-            .map(|(_, cleanup)| cleanup.clone())
+            .map(|(index, cleanup)| match cleanup {
+                ActiveCleanup::OwnedList(list) if index < floor && list.reclaim_slot.is_some() => {
+                    ActiveCleanup::OwnedList(OwnedListCleanup {
+                        trap_shared: true,
+                        ..list.clone()
+                    })
+                }
+                other => other.clone(),
+            })
             .collect()
     }
 
-    /// Emit the scope-drop frees for `cleanups` (innermost/last first).
+    /// Emit the scope-drop frees for `cleanups` (innermost/last first), then free
+    /// the records their owned-list drains took (bug-1053).
     pub(crate) fn emit_cleanups(&mut self, cleanups: &[ActiveCleanup]) -> Result<(), String> {
+        self.emit_cleanup_drops(cleanups)?;
+        self.emit_owned_list_reclaims(cleanups)
+    }
+
+    /// The drops of [`Self::emit_cleanups`] alone. An error-return pad drops one
+    /// cleanup and continues into the pad of the shorter prefix, so the reclaim
+    /// that must follow every drop of the exit is the last pad's
+    /// ([`Self::append_error_return_pads`]).
+    fn emit_cleanup_drops(&mut self, cleanups: &[ActiveCleanup]) -> Result<(), String> {
         for cleanup in cleanups.iter().rev() {
             match cleanup {
                 ActiveCleanup::Resource(cleanup) => {
@@ -96,6 +120,7 @@ impl CodeBuilder<'_> {
                 ActiveCleanup::OwnedValue(cleanup) => self.emit_owned_value_drop(cleanup)?,
             }
         }
+        self.emit_owned_list_reclaims(&cleanups)?;
         self.emit(abi::branch(target));
         Ok(())
     }
@@ -249,7 +274,7 @@ impl CodeBuilder<'_> {
         let body = std::mem::take(&mut self.instructions);
         self.emit(abi::label(&label));
         let emitted = if successor.is_some() {
-            self.emit_cleanups(&cleanups[cleanups.len() - 1..])
+            self.emit_cleanup_drops(&cleanups[cleanups.len() - 1..])
         } else {
             self.load_pending_result_registers();
             self.emit(abi::return_());
@@ -271,8 +296,26 @@ impl CodeBuilder<'_> {
     /// into a pad (from the body) and between pads is forward. A pad falls through
     /// into its successor when that is the next pad placed, and branches otherwise.
     /// The body never falls into the first pad: it ends in its own return.
-    pub(crate) fn append_error_return_pads(&mut self) {
+    ///
+    /// bug-1053: the last pad (the empty prefix's, which returns) first frees the
+    /// records the pads before it took. It is shared by every chain, so it walks
+    /// the reclaim list of every such owned-list of the function; a list the
+    /// error's path never reached, or already reclaimed, has an empty one.
+    pub(crate) fn append_error_return_pads(&mut self) -> Result<(), String> {
         let mut pads = std::mem::take(&mut self.error_return_pad_code);
+        let reclaiming = self.reclaiming_owned_lists.clone();
+        if !reclaiming.is_empty() {
+            if let Some(last) = pads.iter_mut().find(|pad| pad.successor.is_none()) {
+                let body = std::mem::take(&mut self.instructions);
+                let emitted = reclaiming
+                    .iter()
+                    .try_for_each(|list| self.emit_owned_list_reclaim(list));
+                let reclaim = std::mem::replace(&mut self.instructions, body);
+                emitted?;
+                // After the pad's own label, before it reloads the parked result.
+                last.code.splice(1..1, reclaim);
+            }
+        }
         // Stable: pads of equal depth keep their creation order (determinism).
         pads.sort_by(|a, b| b.depth.cmp(&a.depth));
         let next_labels: Vec<Option<String>> = pads
@@ -289,6 +332,7 @@ impl CodeBuilder<'_> {
                 }
             }
         }
+        Ok(())
     }
 
     fn error_return_pad_key(&self, cleanups: &[ActiveCleanup]) -> Vec<ErrorReturnPadEntry> {

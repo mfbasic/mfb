@@ -3225,7 +3225,7 @@ impl CodeBuilder<'_> {
                                 )?;
                             }
                         } else if Self::is_res_collection_block(&type_)
-                            && self.owned_list_owning_collections.contains(name)
+                            && self.owned_list_block_collections.contains(name)
                         {
                             // bug-651: a `RES`-marked collection neither floated into nor
                             // bound from a call — `MUT xs AS List OF RES X = []` — reaches
@@ -4479,6 +4479,9 @@ impl CodeBuilder<'_> {
             self.reset_temporary_registers();
         }
         let scope_returns = self.current_block_returns();
+        // bug-1053: the lists of this scope whose drain takes records, in the order
+        // their drains ran; the records are freed after the scope's last cleanup.
+        let mut reclaiming = Vec::new();
         while self.active_cleanups.len() > cleanup_scope_start {
             let cleanup = self
                 .active_cleanups
@@ -4492,10 +4495,18 @@ impl CodeBuilder<'_> {
                     ActiveCleanup::ResourceUnion(cleanup) => {
                         self.emit_resource_union_cleanup_call(&cleanup)?
                     }
-                    ActiveCleanup::OwnedList(cleanup) => self.emit_owned_list_drain(&cleanup)?,
+                    ActiveCleanup::OwnedList(cleanup) => {
+                        self.emit_owned_list_drain(&cleanup)?;
+                        if cleanup.reclaim_slot.is_some() {
+                            reclaiming.push(cleanup);
+                        }
+                    }
                     ActiveCleanup::OwnedValue(cleanup) => self.emit_owned_value_drop(&cleanup)?,
                 }
             }
+        }
+        for cleanup in &reclaiming {
+            self.emit_owned_list_reclaim(cleanup)?;
         }
         Ok(())
     }
