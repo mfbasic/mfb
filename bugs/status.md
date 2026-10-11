@@ -32,13 +32,21 @@ global store, `RETURN` or `FOR EACH` whose value contains such a call) are not i
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
+| [ ]  | 1045   | HIGH     | a loop-scoped record's resource moved into a list declared outside the loop is closed when the loop body ends, so reading it afterwards fails with `Resource handle is already closed.` |
+| [ ]  | 1046   | HIGH     | a loop-scoped concrete `RES fs::File` appended to a `List OF RES Handle` builds and then crashes with SIGSEGV (near 1018, 1027) |
 | [ ]  | 999    | MED      | a `List OF RES` (or record of resources) returned by a call nested in an expression is never closed — `len(mkList())` leaks every resource it holds (NEEDS AN OWNER DECISION before it starts: adopt at every bind/assign/store/RETURN, or require the call to be bound first) |
 | [ ]  | 1018   | MED      | a `List OF RES fs::File` given where a `List OF RES Handle` (a resource union) is expected is accepted unconverted, so `MATCH` takes no arm (after 999) |
-| [ ]  | 1025   | MED      | a closed resource record, and its read buffer, are kept when a callee returns a record holding a resource that its caller's callee produced |
 | [ ]  | 1027   | MED      | a concrete `fs::File` binding appended to a module-level `List OF RES Handle` fails to build |
-| [ ]  | 1028   | MED      | a `List`/`Map` of resource unions that is iterated or read through `collections::get` keeps its block and records |
 | [ ]  | 1030   | MED      | the `STATE` clause of a top-level `RES` binding and of a `LAMBDA` parameter is dropped, so `.state` on it does not type |
-| [ ]  | 1037   | MED      | a resource-union binding with an inline `TRAP` keeps 128 bytes every time it is evaluated |
+| [ ]  | 1043   | MED      | a single resource returned by a call and used unbound (`len(fs::readAll(openOne()))`) is closed but keeps its 112-byte record on every call |
+| [ ]  | 1044   | MED      | a record built from a call that returns a `List OF RES` (`Box[items := mkList()]`) closes its descriptors but keeps 384 bytes per call |
+| [ ]  | 1047   | MED      | `collections::get` on a `List OF RES fs::File` under an inline `TRAP` written into an argument keeps 96 bytes per call |
+| [ ]  | 1048   | MED      | `FOR EACH` over a `Map OF String TO RES fs::File` read through `e.value` keeps 192 bytes per call |
+| [ ]  | 1049   | MED      | a `List OF RES` held in a record field, iterated or read with `get(b.hs, 0)`, keeps 112 bytes per call |
+| [ ]  | 1050   | MED      | `RES v AS fs::File STATE Cur = openOne() TRAP …` keeps the 32-byte `STATE` block on every evaluation |
+| [ ]  | 1051   | MED      | a trapped call that returns its own argument (`RES v AS fs::File = sameF(a) TRAP`) keeps the 112-byte default record |
+| [ ]  | 1052   | MED      | a callee that returns an unfolded copy of a record holding a resource keeps 112 bytes per call (only at `-O0` once 1025 is fixed) |
+| [ ]  | 1053   | MED      | a record holding a resource that has a second holder (own `RES f = k.h`, returned copy, `LAMBDA` capture, `MATCH` binding stored in a list, copy appended to a list) is closed but its record is kept |
 | [ ]  | 1029   | LOW      | a call through a function value that returns a resource union leaks the 16-byte union box |
 | [ ]  | 1031   | LOW      | `RES` on a non-resource type is not refused at the top level, on a return type, or on a record field that also carries `STATE` |
 
