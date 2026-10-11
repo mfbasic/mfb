@@ -227,7 +227,7 @@ Acceptance: every per-kind case passes, including the bounding-box-but-not-shape
   → `cargo test --release --test rt_canvas_hit hit_region` → `4 passed; 0 failed`
   (87.5 s, most of it the build); `cargo test --bin mfb canvas_hit` → `2 passed; 0 failed` (the
   two text tests that file does hold).
-Commit: —
+Commit: d39a45744
 
 ### Phase 2 — The draw-list walk
 
@@ -292,7 +292,7 @@ passes with no PNG regenerated.
   (`/tmp/plan-172-A/canvas_round.sh`: all 25 canvas-embedding test targets green, with
   `--bin mfb canvas` 117 passed and `--bin mfb spec` 46 passed); `git status --porcelain
   tests/golden/canvas | wc -l` → 0.
-Commit: —
+Commit: d39a45744
 
 ### Phase 3 — `overID`
 
@@ -375,7 +375,7 @@ Commit: —
 Acceptance: the four injected-event cases pass.
   Check: `cargo test --test rt_canvas_hit over_id` → pass (est. 4 min).
   → `cargo test --release --test rt_canvas_hit` → `12 passed; 0 failed` (115 s).
-Commit: —
+Commit: d39a45744
 
 ### Phase 4 — Cost, measured
 
@@ -401,7 +401,7 @@ the figure taken at this letter's starting commit.
   minimum at both sizes; the starting commit's, by the same program, is 33 and 33. The
   clock's tick over 59 polls is 17 ns, so the minimums are equal and the medians are
   one tick apart. See Corrections for what it took to get there.
-Commit: —
+Commit: d39a45744
 
 ## Validation Plan
 
