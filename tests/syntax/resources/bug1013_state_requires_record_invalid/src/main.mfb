@@ -95,5 +95,8 @@ FUNC main AS Integer
   RES j AS fs::File STATE Shape = fs::createTempFile()                   ' BAD: a UNION
   RES k AS fs::File STATE fs::File = fs::createTempFile()                ' BAD: a resource
   MUT files AS List OF RES fs::File STATE Integer = []                   ' BAD: a collection element
+  RES l AS fs::File STATE AttributedString = fs::createTempFile()        ' BAD: a built-in value type, not a record
+  RES m AS fs::File STATE Error = fs::createTempFile()                   ' OK: the built-in record
+  LET lam = LAMBDA(x AS fs::File STATE Integer) -> 1                     ' BAD: a lambda parameter
   RETURN 0
 END FUNC
