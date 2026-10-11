@@ -600,7 +600,7 @@ impl NativePlanPlatform for Platform {
             // `canvas.enableMouse` needs neither here — the ring allocation makes
             // no call, and the `MFB_MOUSE_INJECT` affordance (which would stamp an
             // event) is POSIX-only.
-            "canvas.pollMouse" => vec![
+            "canvas.pollMouseRaw" => vec![
                 import("QueryPerformanceCounter", KERNEL32, required_by),
                 import("QueryPerformanceFrequency", KERNEL32, required_by),
             ],

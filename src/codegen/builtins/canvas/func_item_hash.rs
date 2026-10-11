@@ -446,6 +446,93 @@ pub(crate) fn lower_scene_hashes(
     Ok(finish_integer(builder, &reg, "canvas.sceneHashes"))
 }
 
+/// `canvas::sceneIdBits(items)`: what `canvas::pollMouse` needs to know about a scene
+/// before it builds anything for it (plan-172-I) — bit 0 when some item of the list has a
+/// non-empty `id`, a `Group` node's included; bit 1 when the list holds a `Group` node,
+/// whose own items this pass does not see.
+///
+/// One pass, two loads an item, no allocation. It leans on the one thing every
+/// `DrawItem` variant has in common: `id` is its record's FIRST field, a `String`. That
+/// is checked here against the type model for all ten variants, so a variant that ever
+/// broke it fails the build instead of answering from the wrong slot.
+pub(crate) fn lower_scene_id_bits(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let incoming = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the scene list argument"))?
+        .location
+        .clone();
+    for name in HASHED.iter().chain(NOT_HASHED.iter()) {
+        let (_, record) = variant(builder, name)?;
+        match record_fields(builder, &record)?.first() {
+            Some((field, ParameterType::String)) if field == "id" => {}
+            _ => {
+                return Err(format!(
+                    "canvas::sceneIdBits: '{record}' does not start with `id AS String`"
+                ))
+            }
+        }
+    }
+    let (group_tag, _) = variant(builder, "Group")?;
+    let inlined = builder.record_field_is_inlined(&ParameterType::String);
+
+    let items = builder.temporary_vreg();
+    let n = builder.temporary_vreg();
+    builder.emit(abi::move_register(&items, &incoming));
+    builder.emit(abi::load_u64(&n, &items, COLLECTION_OFFSET_COUNT));
+    let view = emit_list_view(
+        builder,
+        &items,
+        &ParameterType::list_of(ParameterType::named("DrawItem")),
+    )?;
+
+    let bits = builder.temporary_vreg();
+    let one = builder.temporary_vreg();
+    let two = builder.temporary_vreg();
+    let i = builder.temporary_vreg();
+    let item = builder.temporary_vreg();
+    let word = builder.temporary_vreg();
+    let text = builder.temporary_vreg();
+    let head = builder.label("canvas_id_bits_head");
+    let leaf = builder.label("canvas_id_bits_leaf");
+    let next = builder.label("canvas_id_bits_next");
+    let done = builder.label("canvas_id_bits_done");
+    builder.emit(abi::move_immediate(&bits, "Integer", "0"));
+    builder.emit(abi::move_immediate(&one, "Integer", "1"));
+    builder.emit(abi::move_immediate(&two, "Integer", "2"));
+    builder.emit(abi::move_immediate(&i, "Integer", "0"));
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(&i, &n));
+    builder.emit(abi::branch_ge(&done));
+    emit_list_element(builder, &item, &view, &i);
+    // A data union's tag is its first word; the variant's record follows at +16.
+    builder.emit(abi::load_u64(&word, &item, 0));
+    builder.emit(abi::compare_immediate(&word, &group_tag.to_string()));
+    builder.emit(abi::branch_ne(&leaf));
+    builder.emit(abi::or_registers(&bits, &bits, &two));
+    builder.emit(abi::label(&leaf));
+    // A `String` is its byte length at +0; a record holds it inlined (the slot is a
+    // record-relative offset) or by pointer (`fold_field`).
+    builder.emit(abi::add_immediate(&item, &item, 16));
+    builder.emit(abi::load_u64(&text, &item, 0));
+    if inlined {
+        builder.emit(abi::add_registers(&text, &item, &text));
+    }
+    builder.emit(abi::load_u64(&word, &text, 0));
+    builder.emit(abi::compare_immediate(&word, "0"));
+    builder.emit(abi::branch_eq(&next));
+    builder.emit(abi::or_registers(&bits, &bits, &one));
+    builder.emit(abi::label(&next));
+    builder.emit(abi::add_immediate(&i, &i, 1));
+    builder.emit(abi::branch(&head));
+    builder.emit(abi::label(&done));
+    Ok(finish_integer(builder, &bits, "canvas.sceneIdBits"))
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     let item_param = || Parameter {
         name: "item",
@@ -495,6 +582,26 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::list_of(ParameterType::Integer),
             errors: vec!["ErrOutOfMemory"],
             body: Body::abi_function(lower_scene_hashes),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "sceneIdBits",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "items",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::list_of(ParameterType::named("DrawItem")),
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::abi_function(lower_scene_id_bits),
         }],
     });
 }

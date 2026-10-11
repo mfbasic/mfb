@@ -629,7 +629,7 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 })
                 .collect(),
-            "canvas.pollMouse" => ["_clock_gettime", "_poll"]
+            "canvas.pollMouseRaw" => ["_clock_gettime", "_poll"]
                 .iter()
                 .map(|symbol| PlatformImport {
                     library: "libSystem".to_string(),

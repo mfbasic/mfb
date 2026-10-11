@@ -399,8 +399,8 @@ FUNC springDraw(s AS SpringState, w AS Float, h AS Float) AS List OF canvas::Dra
   out = collections::append(out, starField(w, h * 0.45, 90, t, 0.8, 23))
   out = collections::append(out, glow(w * 0.78 - s.px * 4.0, h * 0.16, h * 0.25, rgba(170, 230, 255, 40)))
   out = collections::append(out, circle(w * 0.78 - s.px * 4.0, h * 0.16, h * 0.035, fillP(hex("#eef6ff"))))
-  out = collections::append(out, item(canvas::Group[position := vector::Float2[x := -s.px * SPRING_FAR - 20.0, y := -s.py * SPRING_FAR * 0.4], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "spring-far"]))
-  out = collections::append(out, item(canvas::Group[position := vector::Float2[x := -s.px * SPRING_MID - 30.0, y := -s.py * SPRING_MID * 0.4], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "spring-mid"]))
+  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := -s.px * SPRING_FAR - 20.0, y := -s.py * SPRING_FAR * 0.4], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "spring-far"]))
+  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := -s.px * SPRING_MID - 30.0, y := -s.py * SPRING_MID * 0.4], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "spring-mid"]))
 
   ' The willow behind the fountain: a dark crown, and fronds hanging from it.
   ' Each frond is a PolyLine stroked with a dash pattern and round caps, so it
@@ -502,6 +502,6 @@ FUNC springDraw(s AS SpringState, w AS Float, h AS Float) AS List OF canvas::Dra
 
   ' Fireflies, and the near ferns in front of everything.
   out = collections::append(out, motes(0.0, h * 0.35, w, h * 0.6, 28, t, hex("#b6ff8a"), 1.8, 61))
-  out = collections::append(out, item(canvas::Group[position := vector::Float2[x := -s.px * SPRING_NEAR, y := -s.py * SPRING_NEAR * 0.4], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "spring-near"]))
+  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := -s.px * SPRING_NEAR, y := -s.py * SPRING_NEAR * 0.4], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "spring-near"]))
   RETURN collections::append(out, vignette(w, h, 170))
 END FUNC

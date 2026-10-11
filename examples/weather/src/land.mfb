@@ -751,7 +751,7 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
 
   canvas::setGroup(LAND_GROUP, items)
   drawnView = v
-  drawnMap = [canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := LAND_GROUP]]
+  drawnMap = [canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := LAND_GROUP]]
   RETURN drawnMap
 END FUNC
 

@@ -56,17 +56,17 @@ FUNC main() AS Nothing
   canvas::setGroup("ring", [canvas::Circle[id := "", position := at(0.0, 0.0), radius := 30.0, paint := canvas::stroke(color::rgb(120, 255, 160), 8.0), transform := none()]])
 
   ' The panel turned 15 degrees, as a group of its own: the inner half of both nests.
-  canvas::setGroup("tilted", [canvas::Group[position := at(0.0, 0.0), transform := turn(0.9659258262890683, 0.25881904510252074), name := "panel"]])
+  canvas::setGroup("tilted", [canvas::Group[id := "", position := at(0.0, 0.0), transform := turn(0.9659258262890683, 0.25881904510252074), name := "panel"]])
 
   ' One translucent leaf, named by two nodes of the scene.
   canvas::setGroup("leaf", [canvas::Rectangle[id := "", position := at(0.0 - 50.0, 0.0 - 30.0), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fillStroke(color::rgba(255, 200, 40, 128), color::rgb(255, 255, 255), 3.0), transform := none()]])
 
-  LET turned AS canvas::DrawItem = canvas::Group[position := at(90.0, 30.0), transform := turn(0.9396926207859084, 0.3420201433256687), name := "panel"]
-  LET squashed AS canvas::DrawItem = canvas::Group[position := at(450.0, 110.0), transform := canvas::Transform[a := 3.0, b := 0.0, c := 0.0, d := 0.5, tx := 0.0, ty := 0.0], name := "ring"]
-  LET moved AS canvas::DrawItem = canvas::Group[position := at(660.0, 30.0), transform := none(), name := "tilted"]
-  LET twice AS canvas::DrawItem = canvas::Group[position := at(170.0, 330.0), transform := turn(0.8660254037844387, 0.5), name := "tilted"]
-  LET small AS canvas::DrawItem = canvas::Group[position := at(400.0, 380.0), transform := canvas::Transform[a := 0.6, b := 0.0, c := 0.0, d := 0.6, tx := 0.0, ty := 0.0], name := "panel"]
-  LET diamondA AS canvas::DrawItem = canvas::Group[position := at(700.0, 470.0), transform := turn(0.7071067811865476, 0.7071067811865476), name := "leaf"]
-  LET diamondB AS canvas::DrawItem = canvas::Group[position := at(740.0, 490.0), transform := canvas::Transform[a := 1.0, b := 0.0, c := 0.6, d := 1.0, tx := 0.0, ty := 0.0], name := "leaf"]
+  LET turned AS canvas::DrawItem = canvas::Group[id := "", position := at(90.0, 30.0), transform := turn(0.9396926207859084, 0.3420201433256687), name := "panel"]
+  LET squashed AS canvas::DrawItem = canvas::Group[id := "", position := at(450.0, 110.0), transform := canvas::Transform[a := 3.0, b := 0.0, c := 0.0, d := 0.5, tx := 0.0, ty := 0.0], name := "ring"]
+  LET moved AS canvas::DrawItem = canvas::Group[id := "", position := at(660.0, 30.0), transform := none(), name := "tilted"]
+  LET twice AS canvas::DrawItem = canvas::Group[id := "", position := at(170.0, 330.0), transform := turn(0.8660254037844387, 0.5), name := "tilted"]
+  LET small AS canvas::DrawItem = canvas::Group[id := "", position := at(400.0, 380.0), transform := canvas::Transform[a := 0.6, b := 0.0, c := 0.0, d := 0.6, tx := 0.0, ty := 0.0], name := "panel"]
+  LET diamondA AS canvas::DrawItem = canvas::Group[id := "", position := at(700.0, 470.0), transform := turn(0.7071067811865476, 0.7071067811865476), name := "leaf"]
+  LET diamondB AS canvas::DrawItem = canvas::Group[id := "", position := at(740.0, 490.0), transform := canvas::Transform[a := 1.0, b := 0.0, c := 0.6, d := 1.0, tx := 0.0, ty := 0.0], name := "leaf"]
   canvas::present([turned, squashed, moved, twice, small, diamondA, diamondB])
 END FUNC

@@ -366,7 +366,7 @@ fn group_animated(vary: usize) -> String {
          scene = collections::append(scene, st)\n      \
          k = k + 1\n    \
          END WHILE\n    \
-         LET g AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := toFloat(frame * {vary}), y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n    \
+         LET g AS canvas::DrawItem = canvas::Group[id := \"\", position := vector::Float2[x := toFloat(frame * {vary}), y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n    \
          scene = collections::append(scene, g)\n    \
          canvas::present(scene)\n    \
          os::sleep({FRAME_MS})\n    \

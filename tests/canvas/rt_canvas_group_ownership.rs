@@ -41,7 +41,7 @@ END FUNC
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   install()
-  canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "held"]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "held"]])
   RETURN 0
 END FUNC
 "#;
@@ -60,7 +60,7 @@ FUNC main AS Integer
   END TRAP
   LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("held", [tag])
-  canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "held"]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "held"]])
   RETURN 0
 END FUNC
 "#;
@@ -165,7 +165,7 @@ FUNC main AS Integer
   FOR i = 1 TO 6
     LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::setGroup("panel", [tag])
-    canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := toFloat(i)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+    canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := toFloat(i)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
   NEXT
   RETURN 0
 END FUNC
@@ -202,11 +202,11 @@ FUNC main AS Integer
   END TRAP
   io::print("OPEN-AFTER-INSTALL")
 
-  canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
   canvas::setGroup("panel", [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 20.0, height := 20.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 200, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
-  canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 30.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
-  canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 40.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
-  canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 50.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 30.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 40.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 50.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
 
   LET after AS canvas::Size = canvas::getSize(img) TRAP(e)
     io::print("CLOSED-BY-THE-GROUP")
@@ -246,11 +246,11 @@ FUNC main AS Integer
   LET scenePic AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 100.0, y := 0.0], size := canvas::Size[width := 8.0, height := 8.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   install(img)
 
-  canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic])
   canvas::setGroup("panel", [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 20.0, height := 20.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 200, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
-  canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic, canvas::Rectangle[id := "", position := vector::Float2[x := 30.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
-  canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic, canvas::Rectangle[id := "", position := vector::Float2[x := 40.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
-  canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic, canvas::Rectangle[id := "", position := vector::Float2[x := 50.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic, canvas::Rectangle[id := "", position := vector::Float2[x := 30.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic, canvas::Rectangle[id := "", position := vector::Float2[x := 40.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic, canvas::Rectangle[id := "", position := vector::Float2[x := 50.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
 
   LET after AS canvas::Size = canvas::getSize(img) TRAP(e)
     io::print("CLOSED-OUT-FROM-UNDER-THE-SCENE")
@@ -406,7 +406,7 @@ FUNC main AS Integer
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
   install(img)
 
-  LET node AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 200.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET node AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 200.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
   LET mark AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 700.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([mark, node])
 
@@ -470,7 +470,7 @@ FUNC main AS Integer
   END TRAP
   install(face)
 
-  LET node AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET node AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
   LET mark AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 700.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([mark, node])
 

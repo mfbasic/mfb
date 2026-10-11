@@ -986,6 +986,34 @@ only ever says "different" too often — two identically BUILT items are not byt
 `Picture` are never carried: their hash folds in a resource id that answers 0 once
 closed, with the item's bytes unchanged.
 
+### The worker has a geometry cache too, once a program polls the mouse (plan-172-I)
+
+`canvas::pollMouse` answers `MouseEvent.overID` **on the worker**, from the worker's own
+copy of the scene (`canvas::installedItems()` / `installedLayers()`), into the worker's
+own thread-local geometry cache — the same `__CANVAS_GEO_*` globals, a different thread's
+instance of them (§2). `helper_hit.rs:__canvas_hitBuild` is that cache's only writer and
+calls `canvas::geoBeginFrame` at its own "no offset is live" point. Nothing crosses
+threads and nothing waits on a frame.
+
+Three things follow, and each was a design choice rather than an accident:
+
+* **The worker's records are not the renderer's.** A `Text` is built as its layout box
+  with no glyph (`__canvas_textBoxHeader`) and a `Picture` as its rectangle, because the
+  renderer's versions rasterise every glyph and read the image's pixel block — work for
+  a thread that draws nothing. So a `TEXT` record on the worker has zero glyphs and a
+  box in the gradient point slots; **do not hand a worker offset to anything that
+  draws.**
+* **It is its own walk** (`__canvas_hitAppend`), not a parameter on
+  `__canvas_appendDraw`: the graphics thread's entries are re-laid natively by
+  `canvas::sceneLayout`, which knows no list of strings, so an id path cannot ride
+  there. Both walks call `__canvas_composeGroup`, which is what keeps them agreeing
+  about a nested group.
+* **All of it is gated on `pollMouse` being called** (`HelperGate::WhenUsed`). The
+  native half is `canvas::pollMouseRaw`, and mouse state is reserved by that symbol's
+  suffix (`module_uses_mouse`) — so an always-compiled wrapper would have made every
+  canvas program reserve a mouse ring. `tests/codegen/codegen_mouse_arena_region.rs`
+  holds the line.
+
 ## 15. Frame statistics (plan-155-B)
 
 `canvas::getFrameStats` compares two things two different threads do — the worker's

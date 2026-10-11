@@ -436,7 +436,7 @@ fn stat_field(line: &str, name: &str) -> String {
 fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
     let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [a])\n  \
-         LET node AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n  \
+         LET node AS canvas::DrawItem = canvas::Group[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n  \
          canvas::present([node])\n  \
          LET b AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 700.0, y := 500.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [b])\n  \
@@ -478,7 +478,7 @@ fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
 fn two_identical_presents_of_an_unchanged_group_draw_one_frame() {
     let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [a])\n  \
-         LET node AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n  \
+         LET node AS canvas::DrawItem = canvas::Group[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n  \
          canvas::present([node])\n  \
          canvas::present([node])\n  \
          canvas::present([node])\n  io::print(\"done\")\n";

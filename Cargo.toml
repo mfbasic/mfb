@@ -329,6 +329,10 @@ name = "rt_canvas_group_ownership"
 path = "tests/canvas/rt_canvas_group_ownership.rs"
 
 [[test]]
+name = "rt_canvas_hit"
+path = "tests/canvas/rt_canvas_hit.rs"
+
+[[test]]
 name = "rt_canvas_image_decode"
 path = "tests/canvas/rt_canvas_image_decode.rs"
 

@@ -324,6 +324,15 @@ None beyond 172-A's Open Decision 3.
 
 ## Corrections
 
+- **From 172-I as built (2026-10-11): the id path is not carried by
+  `__canvas_appendDraw`.** Phase tasks that say "`__canvas_appendDraw`'s picture arm
+  joins the picture's `id` onto the path" mean `helper_hit.rs:__canvas_hitAppend`, the
+  worker's own walk; `__canvas_appendDraw` has no path. And a `Picture` on the worker is
+  not the renderer's record: `__canvas_hitGeometry` builds it as its rectangle
+  (`__canvas_rectHeader`), with no pixel block. "A picture is hit as its shape" changes
+  that arm. `canvas::sceneIdBits` reads `id` as each variant's FIRST field and fails the
+  build otherwise, which `Picture`'s new field order (`id` first) keeps true.
+
 - **From 172-A, Open Decision 3: intersect, not raise.** §1's non-goal, §3, the
   rejected alternatives, Compatibility, Phase 1 (the intersection and its unit cases),
   Phase 3 (the raise, its error code and its `rt-error` fixture struck as moot; the

@@ -14,7 +14,7 @@ themselves:
 
 ```
 canvas::setGroup("panel", panelItems)
-canvas::present([canvas::Group[position := vector::Float2[x := 10.0, y := 20.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
+canvas::present([canvas::Group[id := "", position := vector::Float2[x := 10.0, y := 20.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
 ```
 
 `canvas::present` copies the whole scene every time it is called. A large static
@@ -54,6 +54,11 @@ is itself moving is two nodes, each with one job.
 A `transform` left at all zeros — which is what `MUT node AS canvas::Group` gives you —
 turns nothing, and the node only places the group at `position`.
 
+A node's `id` names that one use of the group. It draws nothing; it is what
+`canvas::MouseEvent.overID` puts in front of an item's own `id` when the mouse is over
+something this node drew, so two nodes drawing the same group can be told apart. Leave
+it `""` and the items report their own `id`s alone.
+
 The items are copied, so the list you pass is yours to change afterwards — the
 installed group does not follow it. The group stays installed until you replace it or
 call `canvas::removeGroup`.
@@ -86,8 +91,8 @@ FUNC main() AS Nothing
   LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 24.0, y := 24.0], radius := 8.0, paint := canvas::fill(color::rgb(255, 200, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [body, dot])
 
-  LET left AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 40.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
-  LET right AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 260.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET left AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 40.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET right AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 260.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
   canvas::present([left, right])
 END FUNC
 ```
@@ -131,7 +136,7 @@ IMPORT os
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET node AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 100.0, y := 100.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "light"]
+  LET node AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 100.0, y := 100.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "light"]
 
   LET off AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 0.0, y := 0.0], radius := 30.0, paint := canvas::fill(color::rgb(60, 60, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("light", [off])
@@ -141,6 +146,39 @@ FUNC main() AS Nothing
   LET on AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 0.0, y := 0.0], radius := 30.0, paint := canvas::fill(color::rgb(255, 220, 80)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("light", [on])
   canvas::present([node])
+END FUNC
+```
+
+One group drawn twice, each draw with its own `id`, so a click says which of the two
+it landed on. The key cap is named once, inside the group; the `id` on each
+`canvas::Group` goes in front of it, and `canvas::MouseEvent.overID` reports
+`"yes::cap"` over the left key and `"no::cap"` over the right:
+
+```
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT cap AS canvas::Rectangle
+  cap = WITH cap { id := "cap", size := canvas::Size[width := 90.0, height := 40.0], radiusTL := 8.0, radiusTR := 8.0, radiusBL := 8.0, radiusBR := 8.0, paint := canvas::fill(color::rgb(70, 110, 190)) }
+  canvas::setGroup("key", [cap])
+
+  MUT yes AS canvas::Group
+  yes = WITH yes { id := "yes", name := "key", position := vector::Float2[x := 60.0, y := 80.0] }
+  MUT no AS canvas::Group
+  no = WITH no { id := "no", name := "key", position := vector::Float2[x := 180.0, y := 80.0] }
+  canvas::present([yes, no])
+
+  canvas::enableMouse(TRUE)
+  LET event AS canvas::MouseEvent = canvas::pollMouse()
+  canvas::enableMouse(FALSE)
+  IF event.kind = canvas::MouseKind.Down THEN
+    io::print("pressed [" & event.overID & "]")
+  END IF
 END FUNC
 ```"#;
 

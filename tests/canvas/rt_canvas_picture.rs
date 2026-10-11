@@ -362,7 +362,7 @@ fn a_picture_in_a_group_moves_with_it() {
             "  RES img AS canvas::Image = canvas::createImage(2, 1, {})\n  \
              LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 64.0, height := 32.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::setGroup(\"g\", [tile])\n  \
-             LET node AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 300.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"g\"]\n  \
+             LET node AS canvas::DrawItem = canvas::Group[id := \"\", position := vector::Float2[x := 300.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"g\"]\n  \
              canvas::present([node])\n",
             pixels(&[(255, 0, 0, 255), (0, 0, 255, 255)])
         )),

@@ -439,7 +439,7 @@ impl LinuxPlan<'_> {
                 self.libc_import("getenv", required_by),
                 self.libc_import("poll", required_by),
             ],
-            "canvas.pollMouse" => vec![
+            "canvas.pollMouseRaw" => vec![
                 self.libc_import("clock_gettime", required_by),
                 self.libc_import("poll", required_by),
             ],

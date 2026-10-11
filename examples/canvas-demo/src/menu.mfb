@@ -158,7 +158,7 @@ FUNC installMenuBackdrop(w AS Float, h AS Float) AS Nothing
 END FUNC
 
 FUNC menuBackdrop(w AS Float, h AS Float, t AS Float) AS List OF canvas::DrawItem
-  MUT out AS List OF canvas::DrawItem = [item(canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "menu-sky"])]
+  MUT out AS List OF canvas::DrawItem = [item(canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "menu-sky"])]
   out = collections::append(out, starField(w, h * 0.7, 160, t, 1.0, 3))
   ' Three curtains of aurora, each drawn twice: wide and faint, then narrow.
   FOR i = 0 TO 2
@@ -169,9 +169,9 @@ FUNC menuBackdrop(w AS Float, h AS Float, t AS Float) AS List OF canvas::DrawIte
     out = collections::append(out, aurora(w, y, h * 0.05, t, fi * 2.1, fade(a, 0.12), fade(b, 0.12), h * 0.12))
     out = collections::append(out, aurora(w, y, h * 0.05, t, fi * 2.1, fade(a, 0.20), fade(b, 0.20), h * 0.035))
   NEXT
-  out = collections::append(out, item(canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "menu-forest"]))
+  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "menu-forest"]))
   out = collections::append(out, motes(0.0, h * 0.55, w, h * 0.45, 30, t, hex("#c8ff8a"), 1.8, 5))
-  RETURN collections::append(out, item(canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "menu-vignette"]))
+  RETURN collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "menu-vignette"]))
 END FUNC
 
 ' ---------------------------------------------------------------------------

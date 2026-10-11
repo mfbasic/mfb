@@ -68,6 +68,21 @@ r#"FUNC __canvas_presentLayers(layers AS List OF DrawLayer) AS Nothing
   __canvas_ensureGraphics()
   canvas::notePresent(canvas::frameNanos())
   IF installed THEN
+    ' plan-172-I: the revision and the id bits `canvas::pollMouse` reads, as `present`
+    ' records them -- the bits of every layer's items together.
+    __CANVAS_SCENE_REV = __CANVAS_SCENE_REV + 1
+    MUT named AS Integer = 0
+    MUT grouped AS Integer = 0
+    FOR EACH layer IN layers
+      LET bits AS Integer = canvas::sceneIdBits(layer.items)
+      IF bits = 1 OR bits = 3 THEN
+        named = 1
+      END IF
+      IF bits >= 2 THEN
+        grouped = 2
+      END IF
+    NEXT
+    __CANVAS_SCENE_IDS = named + grouped
     canvas::publishHashes(__canvas_hashLayers(layers))
     canvas::signalRedraw()
     canvas::syncFrame()

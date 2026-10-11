@@ -2719,7 +2719,7 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
     ("audio.AudioNote", FieldKindRow::Arm('F')),
     ("big.Int", SIZE_VARIES),
     ("big.DivResult", SIZE_VARIES),
-    ("canvas.MouseEvent", FieldKindRow::Arm('F')),
+    ("canvas.MouseEvent", SIZE_VARIES),
     ("canvas.Size", FieldKindRow::Arm('F')),
     ("canvas.TextMetrics", FieldKindRow::Arm('F')),
     ("canvas.FrameStats", FieldKindRow::Arm('F')),

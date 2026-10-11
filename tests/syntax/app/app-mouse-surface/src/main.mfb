@@ -28,6 +28,11 @@ FUNC pixels() AS Nothing
   IF e.button = canvas::MouseButton.Left THEN
     io::print("left")
   END IF
+  ' plan-172-I: the id path of the item under the pointer -- which is what puts the
+  ' hit test (`helper_hit.rs`) in this fixture's code plan.
+  IF e.overID <> "" THEN
+    io::print("over " & e.overID)
+  END IF
   canvas::enableMouse(FALSE)
   RETURN NOTHING
   TRAP(err)

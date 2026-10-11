@@ -475,7 +475,7 @@ FUNC wandererDraw(s AS WandererState, f AS Fonts, w AS Float, h AS Float) AS Lis
   ' The level itself: one Group, moved by the camera. Whole-pixel offsets keep
   ' the pixel art from shimmering.
   LET dx AS Float = toFloat(math::round(-cam * sc))
-  out = collections::append(out, item(canvas::Group[position := vector::Float2[x := dx, y := oy], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-level"]))
+  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := dx, y := oy], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-level"]))
   ' Lantern posts, drawn in vectors over the tiles.
   FOR i = 0 TO len(lv.lanterns) - 1
     LET col AS Integer = collections::get(lv.lanterns, i)
@@ -494,9 +494,9 @@ FUNC wandererDraw(s AS WandererState, f AS Fonts, w AS Float, h AS Float) AS Lis
     LET py AS Float = oy + (toFloat(p.row) + 0.5) * ts * sc + math::sin(t * 3.0 + toFloat(p.col)) * sc * 1.5
     IF p.taken < 0.0 AND px > -40.0 AND px < w + 40.0 THEN
       IF p.gem THEN
-        out = collections::append(out, item(canvas::Group[position := vector::Float2[x := px, y := py], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-gem"]))
+        out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := px, y := py], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-gem"]))
       ELSE
-        out = collections::append(out, item(canvas::Group[position := vector::Float2[x := px, y := py], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-coin-" & toString(math::floor(t * 5.0 + toFloat(p.col)) MOD 2)]))
+        out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := px, y := py], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-coin-" & toString(math::floor(t * 5.0 + toFloat(p.col)) MOD 2)]))
       END IF
     ELSEIF p.taken >= 0.0 AND p.taken < 0.6 THEN
       ' Taken: a ring of light rising and fading.
@@ -515,7 +515,7 @@ FUNC wandererDraw(s AS WandererState, f AS Fonts, w AS Float, h AS Float) AS Lis
   LET hx AS Float = toFloat(math::round(dx + s.x * sc))
   LET hy AS Float = toFloat(math::round(oy + s.y * sc))
   out = collections::append(out, ellipse(hx, hy, ts * sc * 0.35, sc * 1.5, 0.0, fillP(rgba(0, 0, 0, 60))))
-  out = collections::append(out, item(canvas::Group[position := vector::Float2[x := hx, y := hy + sc * 2.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-hero-" & toString(heroFrame) & toString(dir) & toString(red)]))
+  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := hx, y := hy + sc * 2.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-hero-" & toString(heroFrame) & toString(dir) & toString(red)]))
 
   ' Night: a Multiply wash over everything so far, then the lights added on
   ' top of it - the lanterns, the gems and the fireflies.
@@ -549,9 +549,9 @@ FUNC wandererDraw(s AS WandererState, f AS Fonts, w AS Float, h AS Float) AS Lis
   ' The counters.
   LET hudX AS Float = w - 220.0
   out = collections::append(out, rrect(hudX, 16.0, 200.0, 50.0, 25.0, WITH fillP(rgba(10, 14, 24, 150)) { stroke := alpha(gold(), 0.4), strokeWidth := 1.0 }))
-  out = collections::append(out, item(canvas::Group[position := vector::Float2[x := hudX + 14.0, y := 23.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-hud-coin"]))
+  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := hudX + 14.0, y := 23.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-hud-coin"]))
   out = collections::append(out, label(f.bold, 20.0, toString(s.coins), hudX + 56.0, 49.0, parchment()))
-  out = collections::append(out, item(canvas::Group[position := vector::Float2[x := hudX + 104.0, y := 23.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-hud-gem"]))
+  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := hudX + 104.0, y := 23.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-hud-gem"]))
   out = collections::append(out, label(f.bold, 20.0, toString(s.gems), hudX + 146.0, 49.0, parchment()))
   IF s.won >= 0.0 THEN
     LET a AS Float = clamp01(s.won / 0.6)

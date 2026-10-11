@@ -84,7 +84,7 @@ const SURFACE_SOURCE: &str = "IMPORT app\n\
     \x20 END IF\n\
     \x20 LET i AS canvas::DrawItem = canvas::Ellipse[id := \"\", position := vector::Float2[x := 5.0, y := 5.0], radiusX := 4.0, radiusY := 2.0, paint := canvas::fill(yellow), transform := canvas::Transform[a := math::cos(0.3), b := math::sin(0.3), c := 0.0 - math::sin(0.3), d := math::cos(0.3), tx := 0.0, ty := 0.0]]\n\
     \x20 canvas::setGroup(\"panel\", [a, c])\n\
-    \x20 LET grp AS canvas::Group = canvas::Group[position := vector::Float2[x := 3.0, y := 4.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n\
+    \x20 LET grp AS canvas::Group = canvas::Group[id := \"\", position := vector::Float2[x := 3.0, y := 4.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n\
     \x20 IF grp.name <> \"panel\" OR grp.position.x <> 3.0 THEN\n\
     \x20   RETURN 8\n\
     \x20 END IF\n\

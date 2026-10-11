@@ -12,9 +12,11 @@ use crate::types::ParameterType;
 /// already true of any `term::` program, so a prefix test would make a program
 /// that only draws a box pay for the mouse handlers.
 pub(super) fn module_uses_mouse(module: &NirModule) -> bool {
-    runtime_symbols(module)
-        .iter()
-        .any(|symbol| symbol.ends_with("_enableMouse") || symbol.ends_with("_pollMouse"))
+    runtime_symbols(module).iter().any(|symbol| {
+        symbol.ends_with("_enableMouse")
+            || symbol.ends_with("_pollMouse")
+            || symbol.ends_with("_pollMouseRaw")
+    })
 }
 
 pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {

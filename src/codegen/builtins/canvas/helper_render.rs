@@ -757,7 +757,7 @@ END FUNC
 ' A stand-in `DrawItem` for an index `__CANVAS_FRAME_ITEMS` does not hold. A group named
 ' by nothing resolves to no slot and draws nothing, so reaching it is harmless.
 FUNC __canvas_noItem() AS DrawItem
-  RETURN Group[position := vector::Float2[x := 0.0, y := 0.0], transform := __canvas_noTransform(), name := ""]
+  RETURN Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := __canvas_noTransform(), name := ""]
 END FUNC
 
 ' Every item of the frame's scene -- the snapshot `canvas::sceneSnapshot` took (bug-686)
@@ -1243,7 +1243,7 @@ FUNC __canvas_hashScene(items AS List OF DrawItem, carried AS List OF Integer) A
     IF collections::getOr(out, i, 0) < 0 THEN
       ' Never read: every index below `count` is present. A group naming nothing
       ' would draw nothing, so it is also a harmless value if it ever were.
-      LET none AS DrawItem = Group[position := vector::Float2[x := 0.0, y := 0.0], transform := __canvas_noTransform(), name := ""]
+      LET none AS DrawItem = Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := __canvas_noTransform(), name := ""]
       LET item AS DrawItem = collections::getOr(items, i, none)
       out = collections::set(out, i, __canvas_hashItem(item))
     END IF

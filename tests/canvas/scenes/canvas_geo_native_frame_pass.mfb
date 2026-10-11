@@ -43,7 +43,7 @@ FUNC main() AS Nothing
     LET pic AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := toFloat(frame), y := 600.0], size := canvas::Size[width := 8.0, height := 4.0], image := img, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, pic)
     IF frame >= 6 THEN
-      LET node AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := toFloat(frame), y := 3.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "badge"]
+      LET node AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := toFloat(frame), y := 3.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "badge"]
       items = collections::append(items, node)
     END IF
     canvas::present(items)

@@ -345,6 +345,37 @@ Commit: —
   `id` plays no part in `AutoPaint`'s state. §3's "Instance key" is rewritten, with what
   a structural key costs, and the "two uses of one group" test case covers named
   instances under equal and empty group `id`s.
+- **From 172-I as built (2026-10-11): §3's step 2 does not exist yet in the form it
+  assumes.** "`__canvas_hitAt` gives the topmost entry" needs four things 172-I did not
+  leave on the graphics thread, each read from `helper_hit.rs`:
+  1. **The hit test is compiled only into a program that calls `canvas::pollMouse`**
+     (`HelperGate::WhenUsed(&["pollMouse"])`): an always-compiled wrapper would have
+     made every canvas program reserve a mouse ring. A program with an `AutoPaint` and
+     no `pollMouse` has no `__canvas_hitAt`. Phase 3 must either widen the gate to the
+     use of `AutoPaint`, or move the region test (`__canvas_hitEntry` and what it
+     calls) into the always-compiled source and leave `pollMouse`'s half gated. Measure
+     the second: it is code in every canvas program.
+  2. **`__canvas_hitAt` walks `__CANVAS_HIT_OFFSETS`**, the list `__canvas_hitAppend`
+     builds on the worker, beside the calling thread's `__CANVAS_DRAW_DX` / `_DY` /
+     `_MAT`. On the graphics thread the frame's list is the `offsets`
+     `__canvas_sceneOffsets` returns; step 2 has to point the walk at it.
+  3. **The renderer's text records carry no layout box.** `__canvas_hitEntry` answers a
+     `Text` only over a list `__canvas_hitAppend` built, where a `Text` is
+     `__canvas_textBoxHeader`'s record. On the graphics thread a `TEXT` record is a
+     glyph run and a stroked `Text` is a `POLYGON`, so a label lying on an `AutoPaint`
+     button would not be found, and "only the topmost item under the pointer is
+     affected" would be wrong for the commonest button there is. 172-I's first cut
+     wrote the box into every text record (`__canvas_withTextBox`, the gradient's four
+     point slots, `__CANVAS_GEO_GRADIENT_KIND` = 2 as the mark): 6,128 instructions and
+     33,024 bytes on every canvas program, measured, and removed because nothing in
+     172-I read it. That is the known-working design and its known cost; Phase 3
+     decides whether to pay it or to gate it with the rest.
+  4. **`canvas::sceneIdBits` fails the BUILD on a `DrawItem` variant whose first field
+     is not `id AS String`** — deliberately, so a new variant cannot be read from the
+     wrong slot. `AutoPaint` has no `id` (owner's decision above), so Phase 1 has to
+     teach `lower_scene_id_bits` what an `AutoPaint` is — its wrapped shape's `id` —
+     and give `__canvas_itemId` and `__canvas_hitAppend` an `AutoPaint` arm that
+     reports and hit-tests the shape.
 - **From 172-I's id path (owner's decision, 2026-10-10):** Open Decision 2 was added for
   two instances whose id paths are equal. The original wording — "the item's `id` when it is non-empty … two
   uses of one group therefore get two keys" — did not hold for a named item, whose `id`

@@ -115,6 +115,18 @@ r#"' plan-116-G: the resolved-groups signature of the LAST present, so a `setGro
 ' thread has its own zeroed copy and never reads this one.
 MUT __CANVAS_LAST_GROUP_SIG AS List OF Integer = []
 
+' plan-172-I: what `canvas::pollMouse` asks about the scene this thread last presented
+' before it builds anything for it (`helper_hit.rs`). Worker-thread globals, like the
+' signature above.
+'
+' `__CANVAS_SCENE_REV` counts the presents that changed something -- the scene's items
+' or a group they name -- so a draw list built for one revision is known stale at the
+' next. `__CANVAS_SCENE_IDS` is `canvas::sceneIdBits` of that scene: 0 when no item has
+' an `id` and none is a group node, which is every scene written before `id` existed,
+' and such a scene costs a poll one compare.
+MUT __CANVAS_SCENE_REV AS Integer = 0
+MUT __CANVAS_SCENE_IDS AS Integer = 0
+
 FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
   ' Two independent reasons to redraw, and both must be consulted.
   '
@@ -164,6 +176,8 @@ FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
   __canvas_ensureGraphics()
   canvas::notePresent(canvas::frameNanos())
   IF installed OR moved THEN
+    __CANVAS_SCENE_REV = __CANVAS_SCENE_REV + 1
+    __CANVAS_SCENE_IDS = canvas::sceneIdBits(items)
     canvas::publishHashes(__canvas_hashScene(items, carried))
     canvas::signalRedraw()
     canvas::syncFrame()

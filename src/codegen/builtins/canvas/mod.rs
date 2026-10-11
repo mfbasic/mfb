@@ -93,6 +93,7 @@ mod helper_font_name;
 mod helper_geometry;
 mod helper_glyph;
 mod helper_glyph_cache;
+mod helper_hit;
 mod helper_items;
 mod helper_joins;
 mod helper_paint_defaults;
@@ -310,6 +311,19 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "alt",
                 ty: ParameterType::Boolean,
                 description: "`TRUE` when Alt (Option) was held as the event happened.",
+            },
+            RecordProp {
+                name: "overID",
+                ty: ParameterType::String,
+                description: "Which of your items the mouse was over: the `id` of the \
+                              topmost item under `position` in the scene you last \
+                              presented, tested against the item's own outline after \
+                              every transform. An item inside a group is reported with \
+                              the `id` of each group that holds it in front, outermost \
+                              first, joined by `::` — `\"toolbar::save::label\"` — and \
+                              a part that is `\"\"` is left out. `\"\"` when nothing \
+                              is there, or when the topmost item and its groups have \
+                              no `id`.",
             },
         ],
     });
@@ -1444,8 +1458,13 @@ pub(crate) fn register(r: &mut Registry) {
                       has a usable default, so the short way to make one is to \
                       declare it and set what you need: `MUT panel AS canvas::Group`, \
                       then `WITH panel { name := \"panel\", position := \
-                      vector::Float2[x := 40.0, y := 40.0] }`.",
+                      vector::Float2[x := 40.0, y := 40.0] }`. Its `id` names this \
+                      USE of the group, not the group: draw one group twice under \
+                      two `id`s and `canvas::MouseEvent.overID` says which of the \
+                      two the mouse is over, by putting the `id` in front of the \
+                      item's own.",
         props: vec![
+            id_prop(),
             RecordProp {
                 name: "position",
                 ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
@@ -1698,6 +1717,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_joins::register(&mut pkg);
     helper_items::register(&mut pkg);
     helper_surface::register(&mut pkg);
+    helper_hit::register(&mut pkg);
     helper_render::register(&mut pkg);
 
     r.add_package(pkg);
@@ -1719,8 +1739,9 @@ fn id_prop() -> RecordProp {
         ty: ParameterType::String,
         description: "A name for this item, of your choosing. `\"\"` is no name. It \
                       draws nothing and changes nothing about how the item looks; it \
-                      is how a program tells its own items apart. Two items may \
-                      share one.",
+                      is how a program tells its own items apart, and what \
+                      `canvas::MouseEvent.overID` reports for the item under the \
+                      mouse. Two items may share one.",
     }
 }
 

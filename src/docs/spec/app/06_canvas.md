@@ -986,13 +986,20 @@ measured from the return, so a loop that fell behind gets no burst of catch-up r
 
 `canvas::setGroup(name, items)` installs a list of items under a name;
 `canvas::removeGroup(name)` drops the name. A scene draws an installed group by
-including a `canvas::Group` node — `position`, `transform` and the name — in place of
-the items:
+including a `canvas::Group` node — `id`, `position`, `transform` and the name — in place
+of the items:
 
 ```basic
 canvas::setGroup("panel", panelItems)
-canvas::present([canvas::Group[position := vector::Float2[x := 10.0, y := 20.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
+canvas::present([canvas::Group[id := "", position := vector::Float2[x := 10.0, y := 20.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
 ```
+
+**The node's `id` names the USE, not the group.** It is `id` first, as on every other
+item, and it draws nothing: it is not folded into the draw entries' hashes, and no
+geometry reads it. It is one part of the id path `canvas::MouseEvent.overID` reports
+(*Hit-testing*, below), which is how one group drawn through two nodes is told apart.
+`canvas::present` compares the scene's bytes, which include it, so a node whose `id`
+changes is republished.
 
 **A scene copies the node, not the group.** `canvas::present` copies the whole scene
 every time it is called, so a large static sub-picture referenced from many scenes — or
@@ -1117,6 +1124,149 @@ itself — a cycle is unbounded depth, and the two need the same fix.
 **A group stays installed until you replace it or remove it.** Installing again under the
 same name replaces what that name draws. The items are copied, so the list passed to
 `setGroup` is the caller's to change afterwards; the installed group does not follow it.
+
+## Hit-testing
+
+One question — which drawn item is topmost under a surface point — answered by the
+rasteriser's own distance functions, read from the same geometry records. Its first
+user is `canvas::MouseEvent.overID`. The whole of it is one MFBASIC chunk,
+[[src/codegen/builtins/canvas/helper_hit.rs:BODY]], injected only into a program that
+calls `canvas::pollMouse` (`HelperGate::WhenUsed`).
+
+### The region of an item
+
+`__canvas_hitEntry(offset, mat, gdx, gdy, x, y)` asks whether surface point `(x, y)` is on
+the record at `offset`, drawn under group matrix `mat` at group translation
+`(gdx, gdy)`. It makes the entry's matrix current (`__canvas_enterGroupMatrix`) and
+`__canvas_hitCurrent` then does, in order:
+
+1. **Bounds.** Reject outside the entry's surface box (`__canvas_drawBound`) widened by
+   3 px.
+2. **The item's own point.** `(x − gdx, y − gdy)`, then `__canvas_invX` / `__canvas_invY`
+   when `__canvas_hasTransform` — the groups' inverse linear part and the item's own
+   inverse, which is exactly the rasteriser's `qx`, `qy`.
+3. **The clip.** A path clip (`__CANVAS_GEO_CLIP_MODE` = 2) rejects where
+   `__canvas_clipPathDistance > 0`; a rectangle clip where `__canvas_clipRectDistance >
+   0`. Both are evaluated at the item's own point, so a clip under a transform needs no
+   rescale: the sign of a distance does not change with scale.
+4. **The shape**, by kind:
+
+| Kind | Hit when |
+|---|---|
+| `RECT`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PICTURE` | `d ≤ max(strokeHalf, 0)`, or the record has join records and `__canvas_joinedStroke ≤ 0` |
+| `SEGMENT`, `ARC`, `POLYLINE` | `d ≤ 0`, or `d ≤ 3·scale − halfWidth` |
+| `TEXT` | the item's own point is inside its layout box |
+| `NONE` | never |
+
+`d` is `__canvas_hitDistance`: `__canvas_geoDistance` with the header's per-item
+constants and `dashed` FALSE, so a dashed stroke is hit as the solid one it is cut from.
+
+**A closed kind is its interior and its stroke, painted or not.** The stroke's band is
+`|d| − strokeHalf`, so interior and band together are `d ≤ strokeHalf`; a paint that
+draws nothing changes neither. A rectangle with the zero paint is a record
+(`__canvas_rectHeader` declines only a non-positive size), so it is hit and draws no
+pixel.
+
+**An open kind is its stroke, at least 3 px either side of its centre line.** Its `d`
+is already the distance to the band's edge (the half-width, header slot 6, taken off),
+so the slack is `3·scale − halfWidth`, which is negative — no slack — once the stroke is
+6 px wide. `scale` is shape units per surface pixel: 1 untransformed, otherwise the
+length of `d`'s gradient by central differences at ±0.5 px, the quantity
+`__canvas_drawGeometry` divides a transformed distance by. The 3 px are therefore
+surface pixels under any transform. An open kind whose paint has no stroke builds no
+record (`__canvas_segmentHeader`, `__canvas_arcHeader`, `__canvas_polylineHeader`) and
+is not hit.
+
+**A `Text` is its layout box**: from the baseline origin to where the pen stops, the
+font's ascent above the baseline and its descent below. The hit list's record for a
+`Text` is not the renderer's. `__canvas_textBoxHeader` builds a `TEXT` record that
+holds the paint (for the transform and the clip), the box in `__CANVAS_GEO_TEXT_BOX` —
+the gradient's four point slots, which no `TEXT` record uses — and no glyph: the run is
+shaped for its advances and never rasterised. A stroked run, which the renderer lowers
+to a `POLYGON` of its outlines, is the same box. The renderer's own text records carry
+no box, so `__canvas_hitEntry` answers a `Text` only over a list `__canvas_hitAppend`
+built.
+
+### The walk, and the id path
+
+`__canvas_hitAt(x, y)` walks the calling thread's draw list from the last entry to the
+first and answers the first entry `__canvas_hitEntry` accepts, or −1. The list is
+`__CANVAS_HIT_OFFSETS`, parallel to `__CANVAS_DRAW_DX` / `_DY` / `_MAT` and
+`__CANVAS_HIT_IDS`. Every entry is tested, named or not: an unnamed item lying on a
+named one answers, and its path is `""`.
+
+`__canvas_hitAppend` builds the list. It is `__canvas_appendDraw`'s walk — the same
+depth stop, the same `__canvas_composeGroup`, the same skip of a composed affine with no
+area — with one more thing carried down: the path. A group node passes its children
+`__canvas_joinId(path, g.id)`; a leaf records `__canvas_joinId(path, id)`.
+`__canvas_joinId` joins with `::` and leaves an empty part out. So:
+
+| Item | Path |
+|---|---|
+| `label`, in the scene itself | `label` |
+| `label`, in a group drawn by node `save` | `save::label` |
+| `label`, in a group drawn by node `save`, in a group drawn by node `toolbar` | `toolbar::save::label` |
+| an item with no `id`, in a group drawn by node `save` | `save` |
+| `label`, in a group drawn by a node with no `id` | `label` |
+| nothing on the path has an `id` | `""` |
+
+The path belongs to the draw ENTRY. A group's stored items are not renamed, and one item
+reached through two nodes is two entries with two paths. Two nodes with the same `id`,
+or with none, give equal paths. The path is one string; nothing parses it back, and an
+`id` that contains `::` is reported as written.
+
+It is a second walk rather than a parameter on `__canvas_appendDraw` because that
+function's leaf does what a hit list must not: it builds the renderer's record
+(rasterising every glyph of a `Text`), folds the draw hash, and its output is re-laid
+natively by `canvas::sceneLayout`, which moves one word per entry per list and knows no
+list of strings.
+
+`__canvas_hitGeometry` chooses the record. Every kind but two is the renderer's
+(`__canvas_geometryFor`). A `Text` is `__canvas_textBoxHeader`, above, and a `Picture`
+is its rectangle (`__canvas_rectHeader`), without the image's pixel block.
+
+### `canvas::pollMouse`
+
+`canvas::pollMouse` is MFBASIC, `__canvas_pollMouse`, over the native
+`canvas::pollMouseRaw` ([[src/codegen/builtins/canvas/func_poll_mouse.rs:lower_poll_mouse]]),
+which dequeues one event into a whole `MouseEvent` block whose `overID` is the empty
+string: 88 bytes — seven slots, `position`'s two floats at 56 and the empty string's
+sub-block at 72. The wrapper hands that block straight back when the kind is `None` or
+`__CANVAS_SCENE_IDS` is 0, which is nearly every poll there is. Otherwise it asks
+`__canvas_overId` at the CENTRE of the event's pixel, `position + 0.5`, the point the
+rasteriser evaluates, and answers `WITH event { overID := … }` only when the path is
+not empty.
+
+**`overID` is resolved at the poll, on the worker, against the scene the worker last
+presented** — not at the moment the event happened, and not from a frame. The worker
+builds its own draw list from `canvas::installedItems()` and `installedLayers()` into
+its own thread-local geometry cache (`.ai/canvas-threading.md` section 2); nothing is
+read from the graphics thread. `__canvas_overId` decides how much of that to do:
+
+| Condition | Cost |
+|---|---|
+| `__CANVAS_SCENE_IDS` = 0 | none: `""` |
+| `__CANVAS_HIT_REV` = `__CANVAS_SCENE_REV` | the walk only |
+| otherwise | `__canvas_hitBuild`, then the walk |
+
+`canvas::present` and `canvas::presentLayers` record the two facts, on a present that
+changed the scene or a group it names: `__CANVAS_SCENE_REV`, a count of such presents,
+and `__CANVAS_SCENE_IDS`, `canvas::sceneIdBits` of the scene
+([[src/codegen/builtins/canvas/func_item_hash.rs:lower_scene_id_bits]]) — bit 0 when an
+item of the scene's own lists has a non-empty `id`, a group node's included; bit 1 when
+one of them is a group node. The native pass reads each item's first field, which is
+`id AS String` on all ten variants and is checked against the type model at build time.
+It does not look inside a group, so a value of 2 — group nodes, none of them named —
+makes `__canvas_hitBuild` ask `__canvas_reachesId` before it builds any geometry. A
+list in which no entry has a path (`__CANVAS_HIT_NAMED` FALSE) is never walked.
+
+A `setGroup` is seen at the next `present`, as it is by the renderer: the group
+signature moves, `present` counts a revision, and the list is rebuilt.
+
+The mouse-state reservation keys on the raw poll's symbol
+([[src/target/shared/plan/symbols.rs:module_uses_mouse]]), and the chunk that calls it
+is gated on use, so a canvas program that never calls `canvas::pollMouse` reserves no
+mouse state and compiles none of this.
 
 ## Images are named, not embedded
 

@@ -34,7 +34,7 @@ FUNC main() AS Nothing
     LET c AS color::Color = color::rgb(250, 250, 120)
     LET d AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [ring(40, 0.0, 0.0, r)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::setGroup("g" & toString(k), [d])
-    LET gd AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := x, y := y], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "g" & toString(k)]
+    LET gd AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := x, y := y], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "g" & toString(k)]
     scene = collections::append(scene, gd)
     k = k + 1
   END WHILE

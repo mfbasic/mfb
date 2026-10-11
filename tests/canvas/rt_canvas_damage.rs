@@ -326,7 +326,7 @@ FUNC main() AS Nothing
   LET a AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET b AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 120, 220)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [a])
-  LET node AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 500.0, y := 300.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET node AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 500.0, y := 300.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
   canvas::present([far, node])
   canvas::setGroup("panel", [b])
   canvas::present([far, node])
@@ -400,8 +400,8 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET a AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [a])
-  LET here AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 100.0, y := 100.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
-  LET there AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 600.0, y := 400.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET here AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 100.0, y := 100.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET there AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 600.0, y := 400.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
   canvas::present([here])
   canvas::present([there])
 END FUNC
@@ -444,8 +444,8 @@ FUNC main() AS Nothing
   LET ring AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 100.0, y := 0.0], radius := 30.0, paint := canvas::stroke(color::rgb(255, 255, 255), 6.0), transform := none]
   LET still AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 760.0, y := 120.0], radius := 50.0, paint := canvas::fill(color::rgb(200, 60, 60)), transform := none]
   canvas::setGroup("panel", [bar, ring])
-  LET flat AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 400.0, y := 300.0], transform := none, name := "panel"]
-  LET turned AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 400.0, y := 300.0], transform := canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 0.0, ty := 0.0], name := "panel"]
+  LET flat AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 400.0, y := 300.0], transform := none, name := "panel"]
+  LET turned AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 400.0, y := 300.0], transform := canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 0.0, ty := 0.0], name := "panel"]
   canvas::present([still, flat])
   canvas::present([still, turned])
 END FUNC
