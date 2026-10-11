@@ -1344,6 +1344,9 @@ FUNC __canvas_renderFrame() AS Nothing
   ' Not drawn until a backend says so: the skip below returns with these unchanged.
   __CANVAS_LAST_DREW = FALSE
   __CANVAS_LAST_RENDERER = 0
+  ' plan-172-J: a `--debug` build's scripted pointer, applied before anything in the
+  ' frame could read the pointer. Empty in a normal build.
+  __canvas_pointerScript()
   ' plan-172-E: `canvas::Size` holds Floats, for a shape's extent. The surface is whole
   ' pixels and every consumer below wants them as Integers, so they are read directly.
   LET surfaceW AS Integer = canvas::surfaceWidth()
@@ -1506,6 +1509,86 @@ END FUNC
 
 FUNC __canvas_phaseText() AS String
   RETURN " phaseOffsetsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 0, 0) / 1000000) & " phaseDrawsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 1, 0) / 1000000) & " phaseDamageMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 2, 0) / 1000000) & " phaseRenderMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 3, 0) / 1000000)
+END FUNC"#;
+
+/// plan-172-J: the scripted pointer. A normal build has no script and no reader.
+#[rustfmt::skip]
+const POINTER_SCRIPT: &str = r#"FUNC __canvas_pointerScript() AS Nothing
+END FUNC"#;
+
+/// The `--debug` build's scripted pointer: `MFB_CANVAS_POINTER` holds
+/// `ms,x,y,buttons,inside;...`, and at the start of each frame every entry whose time
+/// has come is published through `canvas::publishPointer` — the writer the platforms'
+/// own pointer handlers call. It is what lets a headless test put the pointer
+/// somewhere, on every platform including the one with no scriptable window.
+///
+/// Time is counted from the first frame, in the monotonic clock the phase timers read.
+/// Entries are applied in order and each once; `inside` 0 is the pointer leaving the
+/// surface. Anything that is not a digit separates numbers, so the `,` and `;` are for
+/// the reader — and a count that is not a multiple of five ignores the tail.
+///
+/// On the GRAPHICS thread, which is the one deliberate departure from "the main thread
+/// publishes": a script has no main-thread event to ride, and the writer is
+/// single-writer either way, which a headless run with no real pointer satisfies.
+#[rustfmt::skip]
+const POINTER_SCRIPT_DEBUG: &str = r#"MUT __CANVAS_POINTER_READ AS Boolean = FALSE
+MUT __CANVAS_POINTER_SCRIPT AS List OF Integer = []
+MUT __CANVAS_POINTER_NEXT AS Integer = 0
+MUT __CANVAS_POINTER_T0 AS Integer = 0
+
+FUNC __canvas_pointerNumbers(text AS String) AS List OF Integer
+  LET bytes AS List OF Byte = encoding::utf8Encode(text)
+  MUT out AS List OF Integer = []
+  MUT value AS Integer = 0
+  MUT open AS Boolean = FALSE
+  MUT i AS Integer = 0
+  WHILE i < len(bytes)
+    LET b AS Integer = toInt(collections::getOr(bytes, i, toByte(0)))
+    IF b >= 48 AND b <= 57 THEN
+      value = value * 10 + (b - 48)
+      open = TRUE
+    ELSEIF open THEN
+      out = collections::append(out, value)
+      value = 0
+      open = FALSE
+    END IF
+    i = i + 1
+  END WHILE
+  IF open THEN
+    out = collections::append(out, value)
+  END IF
+  RETURN out
+END FUNC
+
+FUNC __canvas_pointerScript() AS Nothing
+  IF NOT __CANVAS_POINTER_READ THEN
+    __CANVAS_POINTER_READ = TRUE
+    __CANVAS_POINTER_SCRIPT = __canvas_pointerNumbers(os::getEnvOr("MFB_CANVAS_POINTER", ""))
+    __CANVAS_POINTER_T0 = canvas::frameNanos()
+  END IF
+  LET count AS Integer = len(__CANVAS_POINTER_SCRIPT) / 5
+  IF __CANVAS_POINTER_NEXT >= count THEN
+    RETURN
+  END IF
+  LET elapsedMs AS Integer = (canvas::frameNanos() - __CANVAS_POINTER_T0) / 1000000
+  WHILE __CANVAS_POINTER_NEXT < count
+    LET at AS Integer = __CANVAS_POINTER_NEXT * 5
+    IF collections::getOr(__CANVAS_POINTER_SCRIPT, at, 0) > elapsedMs THEN
+      RETURN
+    END IF
+    LET x AS Integer = collections::getOr(__CANVAS_POINTER_SCRIPT, at + 1, 0)
+    LET y AS Integer = collections::getOr(__CANVAS_POINTER_SCRIPT, at + 2, 0)
+    LET buttons AS Integer = collections::getOr(__CANVAS_POINTER_SCRIPT, at + 3, 0)
+    LET inside AS Integer = collections::getOr(__CANVAS_POINTER_SCRIPT, at + 4, 0)
+    canvas::publishPointer(x, y, buttons, inside)
+    __CANVAS_POINTER_NEXT = __CANVAS_POINTER_NEXT + 1
+  END WHILE
+END FUNC
+
+' The pointer as the graphics thread sees it, for the stats line: `x,y,buttons,inside`.
+FUNC __canvas_pointerText() AS String
+  LET p AS List OF Integer = canvas::pointerSnapshot()
+  RETURN " pointer=" & toString(collections::getOr(p, 0, 0)) & "," & toString(collections::getOr(p, 1, 0)) & "," & toString(collections::getOr(p, 2, 0)) & "," & toString(collections::getOr(p, 3, 0))
 END FUNC"#;
 
 /// [`RENDER_LOOP`] for a `--debug` build: a skipped frame also writes the
@@ -1677,6 +1760,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     ));
     for helper in
         RegistryHelper::debug_split("canvas_phaseTimers", PHASE_TIMERS, PHASE_TIMERS_DEBUG)
+    {
+        pkg.add_helper(helper);
+    }
+    for helper in
+        RegistryHelper::debug_split("canvas_pointerScript", POINTER_SCRIPT, POINTER_SCRIPT_DEBUG)
     {
         pkg.add_helper(helper);
     }

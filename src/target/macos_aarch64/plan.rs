@@ -106,7 +106,7 @@ impl plan::NativePlanPlatform for Platform {
             .collect()
     }
 
-    fn app_mode_imports(&self, uses_mouse: bool) -> Vec<PlatformImport> {
+    fn app_mode_imports(&self, uses_mouse: bool, uses_canvas: bool) -> Vec<PlatformImport> {
         // plan-04-macos-app.md §6.5. The Obj-C runtime drives every AppKit call;
         // the `_OBJC_CLASS_$_*` symbols are referenced as external data (read via
         // the GOT) both to obtain the class pointers and to force-load AppKit and
@@ -199,14 +199,28 @@ impl plan::NativePlanPlatform for Platform {
         })
         .chain(
             // plan-94-C: `mouseMoved:` reaches a view only if it carries a
-            // tracking area, so the class must be bound — but ONLY for a mouse
-            // program. An unused import is still recorded in the plan, so
+            // tracking area, so the class must be bound — but ONLY for a program
+            // that installs one. An unused import is still recorded in the plan, so
             // declaring it alongside the fixed list above diffed the goldens of
             // every app fixture that never touches the mouse.
-            uses_mouse
+            //
+            // plan-172-J: a canvas program installs one too, mouse members or not,
+            // because its view publishes the pointer.
+            (uses_mouse || uses_canvas)
                 .then(|| PlatformImport {
                     library: "AppKit".to_string(),
                     symbol: "_OBJC_CLASS_$_NSTrackingArea".to_string(),
+                    required_by: "_main".to_string(),
+                })
+                .into_iter(),
+        )
+        .chain(
+            // plan-172-J: `+[NSEvent pressedMouseButtons]`, sent only by the canvas
+            // view's publishing IMPs.
+            uses_canvas
+                .then(|| PlatformImport {
+                    library: "AppKit".to_string(),
+                    symbol: "_OBJC_CLASS_$_NSEvent".to_string(),
                     required_by: "_main".to_string(),
                 })
                 .into_iter(),

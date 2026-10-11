@@ -7362,6 +7362,7 @@ mod raw_result_block_ownership {
         "canvas.installedItems",    // List OF canvas.DrawItem
         "canvas.installedLayers",   // List OF canvas.DrawLayer
         "canvas.newSurface",        // List OF Byte
+        "canvas.pointerSnapshot",   // List OF Integer (plan-172-J)
         "canvas.pollMouseRaw",      // canvas.MouseEvent (plan-94-A, plan-172-I)
         "canvas.retiredItems",      // List OF canvas.DrawItem
         "canvas.sceneHashes",       // List OF Integer (bug-686)

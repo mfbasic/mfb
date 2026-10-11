@@ -81,6 +81,8 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "canvas.setDisplayOverride",
     "canvas.notePresent",
     "canvas.frameCounters",
+    "canvas.pointerSnapshot",
+    "canvas.publishPointer",
     "canvas.awaitPickup",
     "canvas.requireCanvasMode",
     "canvas.setGpuMode",

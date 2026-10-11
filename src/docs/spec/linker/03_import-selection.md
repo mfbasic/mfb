@@ -143,7 +143,8 @@ metadata.
 ## App-mode toolkit imports
 
 When the build is app mode, `platform_imports` adds `app_mode_imports`, with
-mouse-specific imports conditional on `module_uses_mouse`. Calls to the `app`
+pointer-specific imports conditional on `module_uses_mouse` and, for the handlers that
+publish the pointer to the canvas graphics state, on `module_uses_canvas`. Calls to the `app`
 window surface additionally select `app_window_imports`. These bootstrap imports
 are attributed to `_main`.
 [[src/target/shared/plan/symbols.rs:platform_imports]]
@@ -154,8 +155,10 @@ are attributed to `_main`.
 `libobjc`, AppKit and Foundation classes and attribute globals, CoreGraphics
 image/color operations, and libSystem thread, pipe, and memory operations.
 `_OBJC_CLASS_$_*` and attribute-name globals are addressed through GOT slots.
-Mouse use adds `_OBJC_CLASS_$_NSTrackingArea`; window operations add notification
-and mutex imports. Canvas helper imports can additionally select Metal,
+A program that installs a tracking area — one that uses a mouse member, or a canvas
+program, whose view publishes the pointer — adds `_OBJC_CLASS_$_NSTrackingArea`, and a
+canvas program adds `_OBJC_CLASS_$_NSEvent` for the held-button mask; window operations
+add notification and mutex imports. Canvas helper imports can additionally select Metal,
 QuartzCore, and CoreText. The exact per-helper mapping is `runtime_imports`;
 framework install paths are specified in `macos-aarch64`.
 [[src/target/macos_aarch64/plan.rs:app_mode_imports]]
@@ -169,8 +172,10 @@ On aarch64 and x86-64, app mode selects ordinary C imports from
 `libgio-2.0.so.0`, `libcairo.so.2`, `libpango-1.0.so.0`, and
 `libpangocairo-1.0.so.0`. It also selects libc/pthread support for the worker,
 input pipe, memory, and `__libc_start_main` bootstrap. Library names for libc and
-pthread follow the target/flavor mapping above. Mouse controllers are conditional
-on mouse use. RISC-V rejects app mode.
+pthread follow the target/flavor mapping above. The controller constructors and
+accessors are conditional: a program that uses a mouse member declares the reporting
+set, a canvas program declares the set its drawing area's publishing controllers call,
+and a symbol both reach is declared once. RISC-V rejects app mode.
 [[src/target/linux_gtk/mod.rs:app_mode_imports]]
 [[src/target/linux_riscv64/mod.rs:supports_app_mode]]
 
@@ -178,8 +183,9 @@ on mouse use. RISC-V rejects app mode.
 
 `app_mode_imports` selects Win32 window/message-loop calls from `user32.dll`,
 drawing operations from `gdi32.dll`, and thread, pipe, memory, and process support
-from `kernel32.dll`. Mouse use adds its coordinate-conversion import; window
-operations add the `app_window_imports` set. The PE writer selects the GUI
+from `kernel32.dll`. Mouse use adds its coordinate-conversion import, and a canvas
+program adds `TrackMouseEvent`, which its window procedure arms `WM_MOUSELEAVE` with;
+window operations add the `app_window_imports` set. The PE writer selects the GUI
 subsystem and embeds resources as described in `windows-x86_64`.
 [[src/target/win_x86_64/plan.rs:app_mode_imports]]
 [[src/target/win_x86_64/plan.rs:app_window_imports]]

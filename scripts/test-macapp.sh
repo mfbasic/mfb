@@ -1167,6 +1167,94 @@ else
   fi
 fi
 
+# Case 6c: the canvas view publishes the pointer (plan-172-J).
+#
+# Every other pointer test scripts the graphics thread's words directly
+# (`MFB_CANVAS_POINTER`), which proves the words and their reader and says nothing
+# about whether AppKit's handlers write them. This is the one instrument that runs the
+# real event path: a real window, the real pointer moved by `tools/pointer-probe`, and
+# the `pointer=` field of a `--debug` build's `MFB_CANVAS_STATS` line read back.
+#
+# The program never touches the mouse members -- that is the point. Before plan-172-J
+# such a program's view had no mouse methods at all. It presents a changing scene ten
+# times a second so there is a stats line to read.
+#
+# Asserted, in order: the pointer inside at the point it was put; the left button held;
+# a drag OFF the surface published as outside with the button still held (AppKit sends
+# no `mouseExited:` during a drag, so this is the drag IMP's own bounds test); the
+# release; and outside once the pointer has left. The pointer is put back afterwards.
+proj="$work/canvaspointer"
+mkdir -p "$proj/src"
+scaffold_project "$proj" canvaspointer
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT os
+IMPORT vector
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT f AS Integer = 0
+  WHILE f < 150
+    MUT r AS canvas::Rectangle
+    r = WITH r { position := vector::Float2[x := toFloat(f), y := 100.0], size := canvas::Size[width := 50.0, height := 50.0], paint := canvas::fill(color::rgb(200, 200, 200)) }
+    LET item AS canvas::DrawItem = r
+    canvas::present([item])
+    os::sleep(100)
+    f = f + 1
+  END WHILE
+END FUNC
+MFB
+probe="$work/pointer-probe"
+if ! gui_enabled; then
+  echo "skip: canvas pointer publication GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! clang -O1 -o "$probe" "$ROOT/tools/pointer-probe/pointer-probe.c" -framework ApplicationServices >/dev/null 2>&1; then
+  fail "build tools/pointer-probe"
+elif [ "$("$probe" trusted)" != "1" ]; then
+  echo "skip: pointer posting unavailable (need Accessibility)"
+elif ! "$MFB_EXE" build -app --debug "$proj" >/dev/null 2>&1; then
+  fail "build -app --debug canvaspointer"
+else
+  stats="$proj/stats.txt"
+  rm -f "$stats"
+  back=$("$probe" where)
+  MFB_CANVAS_STATS="$stats" "$(bundle "$proj" canvaspointer)/Contents/MacOS/canvaspointer" >/dev/null 2>&1 &
+  pointer_pid=$!
+  sleep 3
+  if ! win=$("$probe" window "$pointer_pid"); then
+    kill "$pointer_pid" >/dev/null 2>&1
+    fail "canvaspointer opened no window"
+  else
+    # shellcheck disable=SC2086
+    set -- $win
+    wx=$1; wy=$2; ww=$3; wh=$4
+    # The canvas is the content view, 640 points tall; above it is the title bar.
+    top=$((wy + wh - 640))
+    # A window launched from a shell opens behind whatever is frontmost.
+    osascript -e 'tell application "System Events" to set frontmost of (first process whose unix id is '"$pointer_pid"') to true' >/dev/null 2>&1
+    sleep 1
+    "$probe" move $((wx + 300)) $((top + 200)); sleep 1
+    "$probe" down $((wx + 300)) $((top + 200)); sleep 1
+    "$probe" drag $((wx + ww + 150)) $((top + 220)); sleep 1
+    "$probe" drag $((wx + 330)) $((top + 230)); sleep 1
+    "$probe" up $((wx + 330)) $((top + 230)); sleep 1
+    "$probe" move $((wx + ww + 150)) $((top + 200)); sleep 1
+    "$probe" move $((wx + ww + 160)) $((top + 210)); sleep 1
+    # shellcheck disable=SC2086
+    "$probe" move $back
+    kill "$pointer_pid" >/dev/null 2>&1
+    wait "$pointer_pid" 2>/dev/null
+    seen=$(grep -o 'pointer=[0-9,-]*' "$stats" 2>/dev/null | uniq | tr '\n' ' ')
+    want_out="pointer=$((ww + 150)),220,1,0"
+    case " $seen" in
+      *" pointer=300,200,0,1 pointer=300,200,1,1 $want_out pointer=330,230,1,1 pointer=330,230,0,1 pointer=0,0,0,0 "*)
+        pass "the canvas view published the pointer: inside, pressed, dragged off, released, outside" ;;
+      *)
+        fail "canvas pointer publication: saw '$seen'" ;;
+    esac
+  fi
+fi
+
 # Case 7: app-mode io::is*Terminal -> TRUE (plan §5.4). The window is the
 # interactive console, so all three return TRUE even headless.
 proj="$work/isterm"

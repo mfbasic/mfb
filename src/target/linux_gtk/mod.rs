@@ -25,6 +25,7 @@ mod app_io;
 mod bootstrap;
 mod keys;
 mod mouse;
+mod pointer;
 mod term_draw;
 mod window;
 pub(crate) use window::{app_window_imports, emit_window_sync_seam, window_data_objects};
@@ -641,6 +642,14 @@ pub(crate) fn emit_app_program_entry(
             functions.push(mouse::emit_mouse_handler(kind, spec.uses_canvas)?);
         }
     }
+    // plan-172-J: the canvas area's own controllers, which publish the pointer to the
+    // graphics state. For every canvas program, mouse members or not.
+    if spec.uses_canvas {
+        for kind in pointer::GtkPointerKind::ALL {
+            functions.push(pointer::emit_pointer_handler(kind, true)?);
+        }
+        functions.push(pointer::emit_pointer_attach()?);
+    }
     // bug-539: the positioned drawing helpers, only for a program that uses `term::`
     // — they are what `term::drawHLine`/`drawVLine`/`drawBox`/`fillRect`/`drawGlyph`/
     // `drawText` call instead of falling through to the console emitters, which find
@@ -653,7 +662,10 @@ pub(crate) fn emit_app_program_entry(
     // program that can change mode (static default `None`) — a `Console`-default
     // program never reconciles and keeps its exact function set.
     if spec.initial_mode == PresentationMode::None {
-        functions.push(emit_reconcile_build_helper(spec.uses_window)?);
+        functions.push(emit_reconcile_build_helper(
+            spec.uses_window,
+            spec.uses_mouse,
+        )?);
         functions.push(emit_reconcile_idle_helper(
             spec.uses_canvas,
             spec.uses_window,
@@ -743,6 +755,14 @@ pub(crate) fn emit_app_program_entry_x86(
             functions.push(mouse::emit_mouse_handler(kind, spec.uses_canvas)?);
         }
     }
+    // plan-172-J: the canvas area's own controllers, which publish the pointer to the
+    // graphics state. For every canvas program, mouse members or not.
+    if spec.uses_canvas {
+        for kind in pointer::GtkPointerKind::ALL {
+            functions.push(pointer::emit_pointer_handler(kind, false)?);
+        }
+        functions.push(pointer::emit_pointer_attach()?);
+    }
     // bug-539: the positioned drawing helpers, only for a program that uses `term::`
     // — they are what `term::drawHLine`/`drawVLine`/`drawBox`/`fillRect`/`drawGlyph`/
     // `drawText` call instead of falling through to the console emitters, which find
@@ -753,7 +773,10 @@ pub(crate) fn emit_app_program_entry_x86(
     }
     // plan-62-D Phase 2: the reconcile idle callback (None-default programs only).
     if spec.initial_mode == PresentationMode::None {
-        functions.push(emit_reconcile_build_helper(spec.uses_window)?);
+        functions.push(emit_reconcile_build_helper(
+            spec.uses_window,
+            spec.uses_mouse,
+        )?);
         functions.push(emit_reconcile_idle_helper(
             spec.uses_canvas,
             spec.uses_window,
@@ -993,6 +1016,7 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
 pub(crate) fn app_mode_imports(
     libc_names: AppLibcNames,
     uses_mouse: bool,
+    uses_canvas: bool,
 ) -> Vec<crate::target::shared::plan::PlatformImport> {
     use crate::target::shared::plan::PlatformImport;
     let AppLibcNames { libc, libpthread } = libc_names;
@@ -1001,18 +1025,38 @@ pub(crate) fn app_mode_imports(
     // still recorded in the native plan — declaring these alongside the rest
     // would diff every GTK app golden that never touches the mouse (plan-94-C
     // Corrections C3).
-    let gtk_mouse: &[(&str, &str)] = if uses_mouse {
-        &[
+    //
+    // plan-172-J: a canvas program's drawing area has controllers of its own, which
+    // publish the pointer (`pointer.rs`), whether or not the program uses a mouse
+    // member. They share four symbols with the reporting controllers and add one; a
+    // symbol is declared once however many of the two reach it.
+    let mut gtk_mouse: Vec<(&str, &str)> = Vec::new();
+    if uses_mouse {
+        gtk_mouse.extend([
             (GTK, "gtk_gesture_click_new"),
             (GTK, "gtk_event_controller_motion_new"),
             (GTK, "gtk_event_controller_scroll_new"),
             (GTK, "gtk_gesture_single_get_current_button"),
             (GTK, "gtk_event_controller_get_current_event_state"),
             (GTK, "gtk_widget_translate_coordinates"),
-        ]
-    } else {
-        &[]
-    };
+            // bug-1044: the click gesture is told to listen to every button.
+            (GTK, "gtk_gesture_single_set_button"),
+        ]);
+    }
+    if uses_canvas {
+        for import in [
+            (GTK, "gtk_gesture_click_new"),
+            (GTK, "gtk_event_controller_motion_new"),
+            (GTK, "gtk_gesture_single_get_current_button"),
+            (GTK, "gtk_event_controller_get_current_event_state"),
+            (GTK, "gtk_gesture_single_set_button"),
+        ] {
+            if !gtk_mouse.contains(&import) {
+                gtk_mouse.push(import);
+            }
+        }
+    }
+    let gtk_mouse: &[(&str, &str)] = &gtk_mouse;
     let gtk: &[(&str, &str)] = &[
         // Application + window lifecycle.
         (GIO, "g_application_run"),
@@ -1185,7 +1229,11 @@ pub(crate) fn app_mode_imports(
 /// under. Gated rather than always emitted, because a data object nothing
 /// references still lands in the binary — the rule plan-94-C Corrections C3
 /// arrived at the hard way.
-pub(crate) fn app_mode_data_objects(project_name: &str, uses_mouse: bool) -> Vec<CodeDataObject> {
+pub(crate) fn app_mode_data_objects(
+    project_name: &str,
+    uses_mouse: bool,
+    uses_canvas: bool,
+) -> Vec<CodeDataObject> {
     let app_id = gtk_app_id(project_name);
     let mut objects: Vec<CodeDataObject> = [
         (SYM_APP_ID, app_id.as_str()),
@@ -1233,14 +1281,38 @@ pub(crate) fn app_mode_data_objects(project_name: &str, uses_mouse: bool) -> Vec
     });
     // bug-699: which keys are down, for GTK's missing repeat flag.
     objects.push(keys::keys_held_data_object());
-    // plan-94-D: the mouse controllers' signal names.
+    // plan-94-D: the mouse controllers' signal names -- and, plan-172-J, the names the
+    // canvas area's publishing controllers connect under, with the scripted
+    // pointer's two variables. Each string is emitted for whichever of the two kinds
+    // of program names it, and once.
+    let mut pointer_strings: Vec<(&str, &str)> = Vec::new();
+    if uses_mouse || uses_canvas {
+        pointer_strings.extend([mouse::STR_PRESSED, mouse::STR_RELEASED, mouse::STR_MOTION]);
+    }
     if uses_mouse {
-        for (symbol, text) in [
-            mouse::STR_PRESSED,
-            mouse::STR_RELEASED,
-            mouse::STR_MOTION,
-            mouse::STR_SCROLL,
-        ] {
+        pointer_strings.push(mouse::STR_SCROLL);
+    }
+    if uses_canvas {
+        pointer_strings.extend([
+            pointer::STR_ENTER,
+            pointer::STR_LEAVE,
+            pointer::STR_POINTER_X_ENV,
+            pointer::STR_POINTER_Y_ENV,
+        ]);
+    }
+    // plan-172-J: the held-button record `pointer.rs`'s callbacks keep.
+    if uses_canvas {
+        objects.push(CodeDataObject {
+            symbol: pointer::POINTER_HELD_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "u64 pointer button mask".to_string(),
+            align: 8,
+            size: 8,
+            value: "0000000000000000".to_string(),
+        });
+    }
+    {
+        for (symbol, text) in pointer_strings {
             objects.push(CodeDataObject {
                 symbol: symbol.to_string(),
                 kind: "raw".to_string(),
@@ -1361,7 +1433,7 @@ mod identity_tests {
 
     #[test]
     fn app_mode_data_objects_carry_the_derived_id_and_title() {
-        let objects = app_mode_data_objects("my-app", false);
+        let objects = app_mode_data_objects("my-app", false, false);
         let id = objects
             .iter()
             .find(|object| object.symbol == SYM_APP_ID)
@@ -1401,7 +1473,7 @@ mod import_tests {
     /// produced, so threading the names moves no byte.
     #[test]
     fn app_mode_imports_glibc_is_unchanged() {
-        let libs: Vec<String> = app_mode_imports(GLIBC_NAMES, false)
+        let libs: Vec<String> = app_mode_imports(GLIBC_NAMES, false, false)
             .into_iter()
             .map(|import| import.library)
             .collect();
@@ -1432,7 +1504,7 @@ mod import_tests {
                 "libc.musl-aarch64.so.1",
             ),
         ] {
-            let imports = app_mode_imports(names, false);
+            let imports = app_mode_imports(names, false, false);
             let libs: Vec<&str> = imports.iter().map(|i| i.library.as_str()).collect();
             for glibc_only in [
                 "libc.so.6",
@@ -1469,11 +1541,11 @@ mod import_tests {
     /// The import *set* is flavor-independent — only attribution changes.
     #[test]
     fn app_mode_imports_symbol_set_is_flavor_independent() {
-        let glibc: Vec<String> = app_mode_imports(GLIBC_NAMES, false)
+        let glibc: Vec<String> = app_mode_imports(GLIBC_NAMES, false, false)
             .into_iter()
             .map(|i| i.symbol)
             .collect();
-        let musl: Vec<String> = app_mode_imports(MUSL_X86_NAMES, false)
+        let musl: Vec<String> = app_mode_imports(MUSL_X86_NAMES, false, false)
             .into_iter()
             .map(|i| i.symbol)
             .collect();
@@ -1485,7 +1557,7 @@ mod import_tests {
     /// the import plan against reintroducing the dead symbol or dropping `close`.
     #[test]
     fn app_mode_imports_drop_getenv_add_close() {
-        let symbols: Vec<String> = app_mode_imports(GLIBC_NAMES, false)
+        let symbols: Vec<String> = app_mode_imports(GLIBC_NAMES, false, false)
             .into_iter()
             .map(|import| import.symbol)
             .collect();
@@ -1519,10 +1591,11 @@ mod import_tests {
     /// at build time.
     #[test]
     fn every_emitted_external_call_is_a_declared_import() {
-        let declared: std::collections::HashSet<String> = app_mode_imports(GLIBC_NAMES, false)
-            .into_iter()
-            .map(|import| import.symbol)
-            .collect();
+        let declared: std::collections::HashSet<String> =
+            app_mode_imports(GLIBC_NAMES, false, false)
+                .into_iter()
+                .map(|import| import.symbol)
+                .collect();
         // The symbols the old `lib_for` table enumerated by hand, plus the two
         // whose absence bug-59 pins.
         for symbol in [
@@ -1865,6 +1938,7 @@ mod canvas_reconcile_tests {
             // This case asks what a NON-mouse GTK app declares; the mouse set is
             // covered by the app-mouse-surface fixture's per-target goldens.
             false,
+            false,
         )
         .into_iter()
         .map(|import| import.symbol)
@@ -1891,7 +1965,7 @@ mod canvas_reconcile_tests {
     /// `io::` reads found nothing to read even after switching to `Console`.
     #[test]
     fn the_reconcile_built_window_gets_the_key_controller() {
-        let build = bootstrap::emit_reconcile_build_helper(false).expect("reconcile build");
+        let build = bootstrap::emit_reconcile_build_helper(false, false).expect("reconcile build");
         assert_eq!(
             externals(&build, "gtk_event_controller_key_new"),
             1,
@@ -2030,7 +2104,7 @@ mod canvas_reconcile_tests {
             libc: "libc.so.6",
             libpthread: "libpthread.so.0",
         };
-        let declared: Vec<String> = app_mode_imports(names, false)
+        let declared: Vec<String> = app_mode_imports(names, false, false)
             .into_iter()
             .map(|i| i.symbol)
             .collect();

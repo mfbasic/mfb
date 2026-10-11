@@ -852,9 +852,10 @@ impl CodegenPlatform for FailAt<'_> {
         project_name: &str,
         debug_hooks: bool,
         uses_mouse: bool,
+        uses_canvas: bool,
     ) -> Vec<CodeDataObject> {
         self.inner
-            .app_mode_data_objects(project_name, debug_hooks, uses_mouse)
+            .app_mode_data_objects(project_name, debug_hooks, uses_mouse, uses_canvas)
     }
     fn app_mode_reconcile_data_objects(&self) -> Vec<CodeDataObject> {
         self.inner.app_mode_reconcile_data_objects()

@@ -100,8 +100,8 @@ a `cargo test` target, another script, or a person.
   (always `BatchMode` + `ConnectTimeout`, overridable with `MFB_SSH_CONNECT_TIMEOUT`),
   a `watchdog`, `win_ship`, `scaffold_project`. Sourced, not executable.
   Run by: sourced by `test-winprocess.sh`, `test-winleak.sh`, `test-wintls.sh`, `test-winapp.sh`, `test-appimage.sh`,
-  `test-canvas-vulkan.sh`, `test-canvas-gpu-rows.sh`, `test-macapp.sh`,
-  `linux-runtime-proof.sh`.
+  `test-canvas-vulkan.sh`, `test-canvas-gpu-rows.sh`, `test-canvas-pointer.sh`,
+  `test-macapp.sh`, `linux-runtime-proof.sh`.
 - **remote-common-selftest.sh** — Checks the helpers locally: the watchdog kills and
   passes through, `remote_ssh` fails fast on a closed port, failure counting, and
   `rgba_compare.py` at and beyond tolerance. Usage: `bash scripts/remote-common-selftest.sh`.
@@ -137,6 +137,16 @@ a `cargo test` target, another script, or a person.
   `bash scripts/test-canvas-gpu-rows.sh <mfb-exe> [--target linux-x86_64|linux-aarch64|windows-x86_64] [--box <port>] [--libc glibc|musl] [--icd auto|<manifest>] [--rows <a,b>]`.
   Run by: by hand (box 2226 for linux-aarch64; box 206, the real Intel GPU, for
   windows-x86_64 -- not 2230, whose lavapipe faults intermittently, bug-741).
+- **test-canvas-pointer.sh** — The pointer words on the targets the Mac does not run
+  (plan-172-J): cross-builds one `--debug` canvas app, ships it, and reads the
+  `pointer=` field of `MFB_CANVAS_STATS` back from three headless runs — the
+  graphics-thread script (`MFB_CANVAS_POINTER`, the writer and reader as that target
+  lowers them), and the platform's own pointer callback called with a scripted position
+  inside and outside the surface (`MFB_CANVAS_POINTER_X`/`_Y`). It does not prove a real
+  window delivers the event; `tools/pointer-probe` is for that. Usage:
+  `bash scripts/test-canvas-pointer.sh <mfb-exe> [--target linux-aarch64|linux-x86_64|windows-x86_64] [--box <port>] [--libc glibc|musl]`.
+  Run by: by hand (box 2226 for linux-aarch64, box 2227 for linux-x86_64, box 206 for
+  windows-x86_64).
 - **test-canvas-vulkan.sh** — Runtime acceptance for the canvas Vulkan backend: renders
   the same scenes on a Linux box with and without `MFB_CANVAS_GPU=1` and requires the
   frames to agree within tolerance, including resize, group and polyline scenes (the

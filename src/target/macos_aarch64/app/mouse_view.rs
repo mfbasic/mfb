@@ -34,7 +34,8 @@ use crate::codegen::io::mouse::sgr::{
     emit_format_report, SgrReport, SgrScratch, SGR_REPORT_BYTES, SGR_SCRATCH_BYTES,
 };
 use crate::codegen::runtime::canvas::{
-    GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_WIDTH, GRAPHICS_STATE_SYMBOL,
+    emit_publish_pointer, PointerRegs, GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_WIDTH,
+    GRAPHICS_STATE_SYMBOL,
 };
 
 /// Which view an IMP belongs to, and therefore which mouse-mode value activates
@@ -72,6 +73,11 @@ pub(super) enum MouseAction {
     /// The wheel turned; the direction comes from the event's `deltaY` at run
     /// time, so this carries no static button.
     Wheel,
+    /// plan-172-J: the pointer came onto the view. Published, never reported: the
+    /// mouse surface has no "entered" event, and the first motion says where it is.
+    Enter,
+    /// plan-172-J: the pointer left the view. Published as outside, never reported.
+    Exit,
 }
 
 /// One generated IMP.
@@ -124,7 +130,12 @@ const OFF_TERMINATOR: usize = 64;
 /// the dispatch. Restored at `{sym}_done`, the single exit every path, early or
 /// full, funnels through.
 const OFF_SAVED_LOCAL0: usize = 72;
-const OFF_REPORT: usize = 80;
+/// plan-172-J: the published button mask (bit 0 left, 1 middle, 2 right) and the
+/// inside flag, parked across nothing — computed and published in one straight run —
+/// but kept on the frame so the publish reads every value from one place.
+const OFF_BUTTONS: usize = 80;
+const OFF_INSIDE: usize = 88;
+const OFF_REPORT: usize = 96;
 const OFF_SCRATCH: usize = OFF_REPORT + SGR_REPORT_BYTES;
 const FRAME: usize = {
     let raw = OFF_SCRATCH + SGR_SCRATCH_BYTES;
@@ -133,10 +144,21 @@ const FRAME: usize = {
 };
 
 /// Emit one mouse IMP.
-pub(super) fn emit_mouse_imp(imp: &MouseImp) -> CodeFunction {
+///
+/// `reports` is whether the program uses the mouse members at all — whether there is
+/// a mouse-mode word to gate on and a decoder at the other end of the pipe. A
+/// `TermView` IMP exists only when it does. A `MFBCanvasView` IMP exists in every
+/// canvas program (plan-172-J): it PUBLISHES the pointer to the graphics state first,
+/// whatever the mode word says, and only then — when `reports` — gates and reports as
+/// it always did. So in a program that never touches the mouse it is the publish and a
+/// return.
+pub(super) fn emit_mouse_imp(imp: &MouseImp, reports: bool) -> CodeFunction {
     let mut asm = Asm::new(imp.symbol);
     let sym = imp.symbol;
     let done = format!("{sym}_done");
+    let pixels = imp.surface == MouseSurface::Pixels;
+    let publish_only =
+        pixels && (!reports || matches!(imp.action, MouseAction::Enter | MouseAction::Exit));
 
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(FRAME));
@@ -163,16 +185,20 @@ pub(super) fn emit_mouse_imp(imp: &MouseImp) -> CodeFunction {
 
     // --- 1. Gate on the mouse-mode word -------------------------------------
     //
-    // First act, and cheap on purpose: an un-enabled program pays one load and a
-    // compare per motion event, which is the cost of registering the IMPs
-    // unconditionally.
-    asm.local_address(abi::SCRATCH[0], MOUSE_MODE_SYMBOL);
-    asm.push(abi::load_u64(abi::SCRATCH[0], abi::SCRATCH[0], 0));
-    asm.push(abi::compare_immediate(
-        abi::SCRATCH[0],
-        imp.surface.mode_value(),
-    ));
-    asm.push(abi::branch_ne(&done));
+    // First act on the cell surface, and cheap on purpose: an un-enabled program
+    // pays one load and a compare per motion event, which is the cost of
+    // registering the IMPs unconditionally. On the pixel surface the gate comes
+    // AFTER the publish (step 3b): where the pointer is does not depend on whether
+    // the program asked for mouse events.
+    if !pixels {
+        emit_mode_gate(&mut asm, imp, &done);
+    }
+
+    if imp.action == MouseAction::Exit {
+        // Nothing to locate: the pointer is not on the view.
+        emit_publish(&mut asm, imp, &done);
+        return finish_imp(asm, imp, &done);
+    }
 
     // --- 2. Locate ----------------------------------------------------------
     //
@@ -226,6 +252,15 @@ pub(super) fn emit_mouse_imp(imp: &MouseImp) -> CodeFunction {
 
     // --- 3. Convert to surface coordinates ----------------------------------
     emit_to_surface_coords(&mut asm, imp, &done);
+
+    // --- 3b. Publish (pixel surface), then gate ------------------------------
+    if pixels {
+        emit_publish(&mut asm, imp, &done);
+        if publish_only {
+            return finish_imp(asm, imp, &done);
+        }
+        emit_mode_gate(&mut asm, imp, &done);
+    }
 
     // --- 4. Compose the SGR button code -------------------------------------
     emit_button_code(&mut asm, imp, &done);
@@ -288,7 +323,172 @@ pub(super) fn emit_mouse_imp(imp: &MouseImp) -> CodeFunction {
     // trade for motion, where the next event is along in milliseconds anyway.
     emit_pipe_write(&mut asm, OFF_REPORT, OFF_X);
 
-    asm.push(abi::label(&done));
+    finish_imp(asm, imp, &done)
+}
+
+/// Branch to `done` unless the mouse-mode word names this IMP's surface.
+fn emit_mode_gate(asm: &mut Asm, imp: &MouseImp, done: &str) {
+    asm.local_address(abi::SCRATCH[0], MOUSE_MODE_SYMBOL);
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::SCRATCH[0], 0));
+    asm.push(abi::compare_immediate(
+        abi::SCRATCH[0],
+        imp.surface.mode_value(),
+    ));
+    asm.push(abi::branch_ne(done));
+}
+
+/// plan-172-J: publish the pointer to the graphics state — the position at
+/// `OFF_X`/`OFF_Y`, the held buttons, and whether the position is on the surface —
+/// then branch to `done` if it is not. `Exit` publishes "outside" and no position.
+///
+/// **The buttons are AppKit's current set, corrected by this event.**
+/// `+[NSEvent pressedMouseButtons]` is the hardware's state NOW, and a quick click
+/// can be released before its `mouseDown:` is dispatched — the press would publish
+/// with nothing held and a reader waiting for it would never see it. So a press or a
+/// drag sets its own button's bit and a release clears it, whatever AppKit says.
+/// AppKit numbers the buttons left, right, other; the published mask is left, middle,
+/// right (the SGR order), so bits 1 and 2 change places.
+///
+/// **A point off the surface is published, not dropped.** A drag that leaves the view
+/// keeps arriving here with coordinates outside it; the old range check threw those
+/// away, which is right for a report and wrong for the pointer — it is how the
+/// graphics thread learns the pointer is gone while a button is held, when AppKit
+/// sends no `mouseExited:`.
+fn emit_publish(asm: &mut Asm, imp: &MouseImp, done: &str) {
+    let sym = imp.symbol;
+    let outside = format!("{sym}_outside");
+
+    asm.load_selector(SEL_PRESSED_MOUSE_BUTTONS.0);
+    asm.external_data(abi::c_arg(0), CLASS_NS_EVENT, LIB_APPKIT);
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // left stays bit 0; AppKit's bit 1 (right) -> 2, its bit 2 (other) -> 1.
+    asm.push(abi::move_immediate(abi::SCRATCH[4], "Integer", "1"));
+    asm.push(abi::and_registers(
+        abi::SCRATCH[2],
+        abi::c_return(0),
+        abi::SCRATCH[4],
+    ));
+    for (from_bit, to_bit) in [(1u8, 2u8), (2, 1)] {
+        asm.push(abi::shift_right_immediate(
+            abi::SCRATCH[3],
+            abi::c_return(0),
+            from_bit,
+        ));
+        asm.push(abi::and_registers(
+            abi::SCRATCH[3],
+            abi::SCRATCH[3],
+            abi::SCRATCH[4],
+        ));
+        asm.push(abi::shift_left_immediate(
+            abi::SCRATCH[3],
+            abi::SCRATCH[3],
+            to_bit,
+        ));
+        asm.push(abi::or_registers(
+            abi::SCRATCH[2],
+            abi::SCRATCH[2],
+            abi::SCRATCH[3],
+        ));
+    }
+    let bit = 1u64 << imp.button;
+    match imp.action {
+        MouseAction::Press | MouseAction::Drag => {
+            asm.push(abi::move_immediate(
+                abi::SCRATCH[3],
+                "Integer",
+                &bit.to_string(),
+            ));
+            asm.push(abi::or_registers(
+                abi::SCRATCH[2],
+                abi::SCRATCH[2],
+                abi::SCRATCH[3],
+            ));
+        }
+        MouseAction::Release => {
+            asm.push(abi::move_immediate(
+                abi::SCRATCH[3],
+                "Integer",
+                &(7 ^ bit).to_string(),
+            ));
+            asm.push(abi::and_registers(
+                abi::SCRATCH[2],
+                abi::SCRATCH[2],
+                abi::SCRATCH[3],
+            ));
+        }
+        MouseAction::Move | MouseAction::Wheel | MouseAction::Enter | MouseAction::Exit => {}
+    }
+    asm.push(abi::store_u64(
+        abi::SCRATCH[2],
+        abi::stack_pointer(),
+        OFF_BUTTONS,
+    ));
+
+    // inside = 0 <= x < width && 0 <= y < height, against the published extent.
+    asm.push(abi::move_immediate(abi::SCRATCH[3], "Integer", "0"));
+    if imp.action == MouseAction::Exit {
+        asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    } else {
+        asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), OFF_X));
+        asm.push(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), OFF_Y));
+        asm.local_address(abi::SCRATCH[4], GRAPHICS_STATE_SYMBOL);
+        asm.push(abi::load_u64(
+            abi::SCRATCH[5],
+            abi::SCRATCH[4],
+            GRAPHICS_OFFSET_WIDTH,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[6],
+            abi::SCRATCH[4],
+            GRAPHICS_OFFSET_HEIGHT,
+        ));
+        asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+        asm.push(abi::branch_lt(&outside));
+        asm.push(abi::compare_registers(abi::SCRATCH[0], abi::SCRATCH[5]));
+        asm.push(abi::branch_ge(&outside));
+        asm.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
+        asm.push(abi::branch_lt(&outside));
+        asm.push(abi::compare_registers(abi::SCRATCH[1], abi::SCRATCH[6]));
+        asm.push(abi::branch_ge(&outside));
+        asm.push(abi::move_immediate(abi::SCRATCH[3], "Integer", "1"));
+        asm.push(abi::label(&outside));
+    }
+    asm.push(abi::store_u64(
+        abi::SCRATCH[3],
+        abi::stack_pointer(),
+        OFF_INSIDE,
+    ));
+
+    emit_publish_pointer(
+        sym,
+        true,
+        &PointerRegs {
+            x: abi::SCRATCH[0].into(),
+            y: abi::SCRATCH[1].into(),
+            buttons: abi::SCRATCH[2].into(),
+            inside: abi::SCRATCH[3].into(),
+            base: abi::SCRATCH[4].into(),
+            seq: abi::SCRATCH[5].into(),
+            addr: abi::SCRATCH[6].into(),
+        },
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+    // Off the surface there is nothing to report against.
+    asm.push(abi::load_u64(
+        abi::SCRATCH[3],
+        abi::stack_pointer(),
+        OFF_INSIDE,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[3], "0"));
+    asm.push(abi::branch_eq(done));
+}
+
+/// The single exit every path funnels through, and the function around it.
+fn finish_imp(mut asm: Asm, imp: &MouseImp, done: &str) -> CodeFunction {
+    let sym = imp.symbol;
+    asm.push(abi::label(done));
     asm.push(abi::load_u64(
         abi::LOCAL[0],
         abi::stack_pointer(),
@@ -455,8 +655,9 @@ fn emit_to_surface_coords(asm: &mut Asm, imp: &MouseImp, done: &str) {
             ));
             asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), OFF_X));
             asm.push(abi::store_u64(abi::SCRATCH[1], abi::stack_pointer(), OFF_Y));
-            emit_range_check(asm, sym, abi::SCRATCH[0], abi::SCRATCH[2], done, "x");
-            emit_range_check(asm, sym, abi::SCRATCH[1], abi::SCRATCH[3], done, "y");
+            // No range check here (plan-172-J): `emit_publish` publishes a point off
+            // the surface as "outside" and then leaves, which is the same exit the
+            // check took, one step later.
         }
     }
 }
@@ -503,6 +704,9 @@ fn emit_button_code(asm: &mut Asm, imp: &MouseImp, done: &str) {
                 "Integer",
                 &(SGR_NO_BUTTON | SGR_MOTION).to_string(),
             ));
+        }
+        MouseAction::Enter | MouseAction::Exit => {
+            unreachable!("an enter or exit IMP publishes and returns; it reports nothing")
         }
         MouseAction::Wheel => {
             // Direction from `[event deltaY]`, which returns a double. A zero
@@ -653,7 +857,7 @@ fn emit_pipe_write(asm: &mut Asm, buf_offset: usize, len_offset: usize) {
 pub(super) fn mouse_imps(surface: MouseSurface) -> Vec<MouseImp> {
     let term = surface == MouseSurface::Cells;
     let sym = |t: &'static str, c: &'static str| if term { t } else { c };
-    vec![
+    let mut imps = vec![
         MouseImp {
             symbol: sym(TERM_MOUSE_DOWN_SYMBOL, CANVAS_MOUSE_DOWN_SYMBOL),
             selector: SEL_MOUSE_DOWN,
@@ -731,26 +935,50 @@ pub(super) fn mouse_imps(surface: MouseSurface) -> Vec<MouseImp> {
             action: MouseAction::Wheel,
             button: 0,
         },
-    ]
+    ];
+    // plan-172-J: the pixel surface also hears the pointer come and go, to publish
+    // it. The cell surface publishes nothing and has neither.
+    if !term {
+        imps.push(MouseImp {
+            symbol: CANVAS_MOUSE_ENTERED_SYMBOL,
+            selector: SEL_MOUSE_ENTERED,
+            surface,
+            action: MouseAction::Enter,
+            button: 0,
+        });
+        imps.push(MouseImp {
+            symbol: CANVAS_MOUSE_EXITED_SYMBOL,
+            selector: SEL_MOUSE_EXITED,
+            surface,
+            action: MouseAction::Exit,
+            button: 0,
+        });
+    }
+    imps
 }
 
 /// Emit every mouse IMP for the views this program can present. The pixel IMPs
 /// read the canvas graphics state (`_mfb_rt_canvas_graphics`), a data object that
 /// exists only in a program that uses `canvas::` — so a mouse program without it
 /// gets only `TermView`'s cell IMPs, or its build names an undefined symbol.
-pub(super) fn emit_mouse_imps(uses_canvas: bool) -> Vec<CodeFunction> {
-    let surfaces: &[MouseSurface] = if uses_canvas {
-        &[MouseSurface::Cells, MouseSurface::Pixels]
-    } else {
-        &[MouseSurface::Cells]
-    };
+///
+/// plan-172-J: and a canvas program gets the pixel IMPs whether or not it uses the
+/// mouse members, because they publish the pointer; `uses_mouse` then only decides
+/// whether they go on to report (`emit_mouse_imp`'s `reports`).
+pub(super) fn emit_mouse_imps(uses_canvas: bool, uses_mouse: bool) -> Vec<CodeFunction> {
+    let mut surfaces = Vec::new();
+    if uses_mouse {
+        surfaces.push(MouseSurface::Cells);
+    }
+    if uses_canvas {
+        surfaces.push(MouseSurface::Pixels);
+    }
     surfaces
-        .iter()
-        .copied()
+        .into_iter()
         .flat_map(|surface| {
             mouse_imps(surface)
                 .into_iter()
-                .map(|imp| emit_mouse_imp(&imp))
+                .map(|imp| emit_mouse_imp(&imp, uses_mouse))
                 .collect::<Vec<_>>()
         })
         .collect()
@@ -790,12 +1018,28 @@ pub(super) fn emit_install_mouse_imps(
 /// message whose result AppKit would discard. `NSTrackingActiveAlways` (0x80)
 /// delivers motion whether or not the app is frontmost; `NSTrackingMouseMoved`
 /// (0x02) is the event itself.
-pub(super) fn emit_install_tracking_area(asm: &mut Asm, view_reg: impl Into<Reg>) {
+///
+/// plan-172-J: `entered_and_exited` adds `NSTrackingMouseEnteredAndExited` (0x01), which
+/// is what makes AppKit send `mouseEntered:` and `mouseExited:` at all. The canvas view
+/// asks for it, to publish the pointer leaving; the term view does not, and its area is
+/// what it always was.
+pub(super) fn emit_install_tracking_area(
+    asm: &mut Asm,
+    view_reg: impl Into<Reg>,
+    entered_and_exited: bool,
+) {
+    const NS_TRACKING_ENTERED_AND_EXITED: u64 = 0x01;
     const NS_TRACKING_MOUSE_MOVED: u64 = 0x02;
     const NS_TRACKING_ACTIVE_ALWAYS: u64 = 0x80;
     const NS_TRACKING_IN_VISIBLE_RECT: u64 = 0x200;
-    const OPTIONS: u64 =
-        NS_TRACKING_MOUSE_MOVED | NS_TRACKING_ACTIVE_ALWAYS | NS_TRACKING_IN_VISIBLE_RECT;
+    let options = NS_TRACKING_MOUSE_MOVED
+        | NS_TRACKING_ACTIVE_ALWAYS
+        | NS_TRACKING_IN_VISIBLE_RECT
+        | if entered_and_exited {
+            NS_TRACKING_ENTERED_AND_EXITED
+        } else {
+            0
+        };
 
     let view_reg = view_reg.into();
     // Sixteen bytes of its own, rather than a caller-supplied scratch register.
@@ -825,7 +1069,7 @@ pub(super) fn emit_install_tracking_area(asm: &mut Asm, view_reg: impl Into<Reg>
     asm.push(abi::move_immediate(
         abi::c_arg(2),
         "Integer",
-        &OPTIONS.to_string(),
+        &options.to_string(),
     ));
     asm.push(abi::move_register(abi::c_arg(3), &view_reg)); // owner
     asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0")); // userInfo
@@ -856,9 +1100,15 @@ mod tests {
     fn every_imp_saves_and_restores_local0() {
         let local0 = abi::LOCAL[0].to_string();
         let offset = OFF_SAVED_LOCAL0.to_string();
-        for surface in [MouseSurface::Cells, MouseSurface::Pixels] {
+        // plan-172-J: the pixel IMPs exist in two shapes -- reporting, and publish-only
+        // for a canvas program that uses no mouse member. Both are AAPCS64 callees.
+        for (surface, reports) in [
+            (MouseSurface::Cells, true),
+            (MouseSurface::Pixels, true),
+            (MouseSurface::Pixels, false),
+        ] {
             for imp in mouse_imps(surface) {
-                let func = emit_mouse_imp(&imp);
+                let func = emit_mouse_imp(&imp, reports);
                 let ins = &func.instructions;
                 let done = format!("{}_done", imp.symbol);
                 let done_at = ins
@@ -867,10 +1117,12 @@ mod tests {
                         i.op == CodeOp::Label && i.get("name").as_deref() == Some(&done[..])
                     })
                     .expect("done label");
+                // `mouseExited:` locates nothing and so never writes it; it is saved
+                // and restored all the same, by the one prologue and epilogue.
                 let first_write = ins
                     .iter()
                     .position(|i| i.get("dst").as_deref() == Some(&local0[..]))
-                    .expect("the body writes LOCAL[0]");
+                    .unwrap_or(ins.len());
                 let saved_at = ins
                     .iter()
                     .position(|i| {
@@ -903,6 +1155,58 @@ mod tests {
                         imp.symbol
                     );
                 }
+            }
+        }
+    }
+
+    /// plan-172-J: a canvas program that uses no mouse member still gets the pixel
+    /// IMPs, to publish the pointer -- and `_mfb_rt_mouse_mode` is emitted only for a
+    /// program that does use one. So the publish-only shape must name neither the mode
+    /// word nor the input pipe, or every plain canvas program fails to link.
+    #[test]
+    fn a_publish_only_imp_names_no_mouse_mode_word_and_writes_no_report() {
+        for imp in mouse_imps(MouseSurface::Pixels) {
+            let func = emit_mouse_imp(&imp, false);
+            let names = |symbol: &str| func.relocations.iter().any(|r| r.to == symbol);
+            assert!(
+                !names(MOUSE_MODE_SYMBOL),
+                "{}: names the mouse-mode word",
+                imp.symbol
+            );
+            assert!(!names("_write"), "{}: writes to the input pipe", imp.symbol);
+            assert!(
+                names(GRAPHICS_STATE_SYMBOL),
+                "{}: does not publish to the graphics state",
+                imp.symbol
+            );
+        }
+    }
+
+    /// plan-172-J: on the pixel surface the pointer is published BEFORE the mouse-mode
+    /// gate, so it is published whether or not the program enabled the mouse. A gate
+    /// first -- the order the cell surface keeps, and the order these IMPs had -- would
+    /// make the pointer the graphics thread sees depend on `canvas::enableMouse`.
+    ///
+    /// Read off the relocations, which are recorded in emission order: the graphics
+    /// state is addressed before the mode word is. `mouseEntered:` and `mouseExited:`
+    /// publish and return, so they gate on nothing at all.
+    #[test]
+    fn a_reporting_pixel_imp_publishes_before_it_gates() {
+        for imp in mouse_imps(MouseSurface::Pixels) {
+            let func = emit_mouse_imp(&imp, true);
+            let first = |symbol: &str| func.relocations.iter().position(|r| r.to == symbol);
+            let published = first(GRAPHICS_STATE_SYMBOL)
+                .unwrap_or_else(|| panic!("{}: never addresses the graphics state", imp.symbol));
+            match (imp.action, first(MOUSE_MODE_SYMBOL)) {
+                (MouseAction::Enter | MouseAction::Exit, gate) => {
+                    assert!(gate.is_none(), "{}: gates, but reports nothing", imp.symbol)
+                }
+                (_, Some(gate)) => assert!(
+                    published < gate,
+                    "{}: gates before it publishes",
+                    imp.symbol
+                ),
+                (_, None) => panic!("{}: reports with no mode gate", imp.symbol),
             }
         }
     }

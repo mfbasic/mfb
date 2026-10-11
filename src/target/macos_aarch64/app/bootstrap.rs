@@ -685,7 +685,7 @@ fn emit_termview_surface(asm: &mut Asm, uses_mouse: bool) {
                                                                 // plan-94-C: without a tracking area the `mouseMoved:` IMP is installed and
                                                                 // never called — drags would report and plain motion would not, silently.
     if uses_mouse {
-        mouse_view::emit_install_tracking_area(asm, abi::LOCAL[7]);
+        mouse_view::emit_install_tracking_area(asm, abi::LOCAL[7], false);
     }
     // [tv setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable]
     asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
@@ -1551,10 +1551,15 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
         // gate: its IMP publishes into the canvas graphics state.
         display::emit_install_screen_changed_method(&mut asm, abi::LOCAL[2]);
     }
-    // plan-94-C: the eleven pixel-coordinate mouse IMPs, before registration for
-    // the same reason `TermView`'s are. Only a canvas program has them: they read
-    // the canvas graphics state, which exists only then (`emit_mouse_imps`).
-    if uses_mouse && uses_canvas {
+    // plan-94-C: the pixel-coordinate mouse IMPs, before registration for the same
+    // reason `TermView`'s are. Only a canvas program has them: they read the canvas
+    // graphics state, which exists only then (`emit_mouse_imps`).
+    //
+    // plan-172-J: and EVERY canvas program has them, mouse members or not — they
+    // publish the pointer. `uses_mouse` is unused here for that reason; it still
+    // decides what the IMPs do after publishing.
+    let _ = uses_mouse;
+    if uses_canvas {
         mouse_view::emit_install_mouse_imps(
             &mut asm,
             abi::LOCAL[2],
@@ -1580,8 +1585,8 @@ pub(super) fn emit_reconcile_canvas_helper(uses_canvas: bool, uses_mouse: bool) 
     asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // view
                                                                 // plan-94-C: the canvas view needs the same tracking area the term view does,
                                                                 // and for the same reason — `mouseMoved:` is delivered only on request.
-    if uses_mouse {
-        mouse_view::emit_install_tracking_area(&mut asm, abi::LOCAL[2]);
+    if uses_canvas {
+        mouse_view::emit_install_tracking_area(&mut asm, abi::LOCAL[2], true);
     }
 
     // [view setWantsLayer:YES] — the whole point of the canvas surface. Without it

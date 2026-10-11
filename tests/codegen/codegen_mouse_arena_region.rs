@@ -297,7 +297,16 @@ fn a_canvas_program_that_never_polls_the_mouse_reserves_no_mouse_state() {
         text.matches("_pollMouseRaw").count()
     };
     assert_eq!(polls(CANVAS_WITHOUT_MOUSE, "canvas_mouse_absent"), 0);
-    assert!(mouse_mode_globals(CANVAS_WITHOUT_MOUSE, "canvas_mouse_absent_globals").is_empty());
+    // The mode word specifically, not "nothing named mouse": since plan-172-J every
+    // canvas program's view has mouse methods, to publish the pointer to the graphics
+    // state, and their selector strings (`_mfb_macapp_sel_mouseDown`, ...) are data
+    // objects too. What a non-polling program must not have is the mode word -- and
+    // with it the ring it gates.
+    assert!(
+        !mouse_mode_globals(CANVAS_WITHOUT_MOUSE, "canvas_mouse_absent_globals")
+            .iter()
+            .any(|s| s == "_mfb_rt_mouse_mode"),
+    );
 
     assert!(polls(CANVAS_WITH_MOUSE, "canvas_mouse_present") > 0);
     assert!(

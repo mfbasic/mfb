@@ -63,6 +63,7 @@ mod func_measure_text;
 mod func_metal_draw;
 mod func_metal_present;
 mod func_new_surface;
+mod func_pointer;
 mod func_poll_mouse;
 mod func_present;
 mod func_present_layers;
@@ -1698,6 +1699,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_item_hash::register(&mut pkg);
     func_enable_mouse::register(&mut pkg);
     func_poll_mouse::register(&mut pkg);
+    func_pointer::register(&mut pkg);
     func_get_bytes::register(&mut pkg);
     func_set_bytes::register(&mut pkg);
     helper_clamp_byte::register(&mut pkg);
@@ -1999,6 +2001,7 @@ mod tests {
         // plan-130-E: the `--debug` build's source, with the reporting hooks.
         let debug = canvas.get_mfb_for(true);
         assert!(debug.contains("\"MFB_CANVAS_STATS\"") && debug.contains("\"MFB_CANVAS_DUMP\""));
+        assert!(debug.contains("\"MFB_CANVAS_POINTER\""));
         assert_parses(&debug);
     }
 
@@ -2015,6 +2018,10 @@ mod tests {
             "\"MFB_CANVAS_STATS\"",
             "\"MFB_CANVAS_DUMP\"",
             "__canvas_writeStats",
+            // plan-172-J: the scripted pointer, and the one MFBASIC caller of the
+            // pointer's writer.
+            "\"MFB_CANVAS_POINTER\"",
+            "canvas::publishPointer",
         ] {
             assert!(
                 !normal.contains(hook),

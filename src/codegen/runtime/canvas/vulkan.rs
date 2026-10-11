@@ -9034,6 +9034,23 @@ mod tests {
         );
     }
 
+    /// plan-172-J: the pointer's five words are the block's last 40 bytes, the sequence
+    /// word first and the four published words after it in the order
+    /// `canvas::pointerSnapshot` returns them. Three platform handlers and one reader
+    /// address them by constant; the block is sized from the last.
+    #[test]
+    fn the_pointer_words_end_the_graphics_state() {
+        use crate::codegen::runtime::canvas::{
+            GRAPHICS_OFFSET_POINTER_INSIDE, GRAPHICS_OFFSET_POINTER_SEQ, GRAPHICS_POINTER_WORDS,
+        };
+        assert_eq!(GRAPHICS_STATE_SIZE, GRAPHICS_OFFSET_POINTER_SEQ + 40);
+        assert_eq!(GRAPHICS_OFFSET_POINTER_INSIDE + 8, GRAPHICS_STATE_SIZE);
+        for (index, offset) in GRAPHICS_POINTER_WORDS.into_iter().enumerate() {
+            assert_eq!(offset, GRAPHICS_OFFSET_POINTER_SEQ + 8 * (index + 1));
+        }
+        assert_eq!(GRAPHICS_OFFSET_POINTER_SEQ % 8, 0);
+    }
+
     /// The item block is the size the GLSL `ItemBlock`'s std430 array stride is.
     ///
     /// **This replaced a check against Vulkan's guaranteed 128-byte push-constant

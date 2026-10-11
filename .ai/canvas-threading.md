@@ -11,7 +11,7 @@ or how an image reaches a frame.
 
 | Thread | Owns | Never touches |
 |---|---|---|
-| **main** (UI) | the window, the surface/layer, the event pump, resize notifications | the scene, the geometry cache, the pixel buffer |
+| **main** (UI) | the window, the surface/layer, the event pump, resize notifications, publishing the pointer (plan-172-J) | the scene, the geometry cache, the pixel buffer |
 | **worker** (language) | the program, the scene arena, `canvas::present`, `canvas::setBytes`, `canvas::destroyImage` | the surface, the pixel buffer, the GPU frame buffers |
 | **graphics** | the render loop, the geometry cache, the pixel buffer, copying a frame's picture texels into its GPU buffer | the window, the scene *slots it does not hold* |
 
@@ -226,6 +226,42 @@ drawing part of the picture at each size.
 `contentsGravity` stretches the old frame to fill the resized layer, so a resize that
 never reached the renderer still *looks* plausible. The test therefore measures a
 fixed-size shape as a fraction of the window (`test-macapp.sh` Case 3g).
+
+### 5.1 The pointer is published the same way, but under a sequence word (plan-172-J)
+
+The main thread also publishes the pointer — position, held buttons, inside or not —
+into the graphics state, for the graphics thread to read (`GRAPHICS_OFFSET_POINTER_*`,
+`emit_publish_pointer`, `canvas::pointerSnapshot`). Like the size: plain stores, no lock,
+because a pointer move must not wait behind a frame. **Unlike the size, a torn read is
+not harmless** — an `x` from one move with an `inside` from another is a position the
+pointer never had — so the four words sit behind a sequence word: odd while a publish
+is writing, even after; the reader retries until it reads the same even value on both
+sides. Every access is a store-release or a load-acquire on AArch64, which is what keeps
+a data word from being seen ahead of its mark.
+
+What to remember when touching a handler:
+
+* **Publish BEFORE the mouse-mode gate, never after.** Where the pointer is does not
+  depend on whether the program asked for mouse events. On macOS that meant moving the
+  gate, which every IMP had as its first act.
+* **A canvas program has pointer handlers even with no mouse member.** They used to be
+  compiled in only for a program that used one (`uses_mouse`), and `_mfb_rt_mouse_mode`
+  still is — so a publish-only handler must not name it, or every plain canvas program
+  fails to link. `mouse_view.rs`'s tests hold both halves.
+* **Do not drop a point off the surface.** Publish it as outside. During a drag the
+  platform sends no leave event; the bounds test is the only place the pointer is seen
+  to go.
+* **Take the buttons from the event, not only from "what is held now".** A quick click
+  is released before its press is dispatched.
+* **It signals no redraw.** §4's triggers stand until a scene can react to the pointer.
+* **On GTK, do not read WHICH button is held from the event state.** Bits 9 and 10 are
+  right-then-middle on Wayland and middle-then-right on X11. Keep the mask from the
+  button number a press or release carries; ask the state only "is any button held".
+* **Prove a handler in a real window before trusting it** (`tools/pointer-probe`). The
+  headless variables call the callback, not the window system: on GTK they could not
+  have shown that the reconcile-built window had no mouse controllers at all
+  (bug-1043), nor that right and middle clicks were never delivered (bug-1044), nor the
+  state-bit order above. All three were found in the first real window.
 
 ## 6. Image upload — implemented by bug-484 without a texture
 
@@ -606,7 +642,28 @@ re-binding — one buffer per item would give every item the *last* one's data.
 
 ## 11. Test affordances
 
-Three environment variables, all off by default and none on the production path:
+Five environment variables (two of them a pair), all off by default and none on the
+production path:
+
+* `MFB_CANVAS_POINTER_X` / `MFB_CANVAS_POINTER_Y` — GTK and Windows, headless: after the
+  first completed frame, call the platform's own pointer callback once with that
+  position. It runs AFTER the scripted resize, and that order matters: "inside" is
+  asked of the published surface size, and a headless run has none (0 by 0, everything
+  outside) until `MFB_CANVAS_RESIZE_W`/`_H` publish one. A value of 0 or less is "unset"
+  on Windows (`emit_parse_wide_env`). macOS has no headless path.
+  `scripts/test-canvas-pointer.sh` drives it on the boxes.
+
+* `MFB_CANVAS_POINTER` — **a `--debug` build only**: `ms,x,y,buttons,inside;…`, a
+  script for the pointer words (§5.1). At the start of each frame the graphics thread
+  publishes every entry whose time has come, counted from the FIRST frame, through
+  the writer the platforms' handlers call. It is what puts the pointer somewhere on a
+  headless run, on every platform. Two traps: the clock starts at the first frame, not
+  at launch; and a `--debug` software frame is slow, so leave seconds, not hundreds of
+  milliseconds, between an entry and the frame that must not see it yet
+  (`rt_canvas_pointer`'s first cut used 100 ms margins and saw an entry a frame
+  early). It proves the words, the writer and the reader — NOT that a platform's real
+  handler calls the writer; that is a real window's to prove
+  (`scripts/test-macapp.sh` case 6c, `tools/pointer-probe`).
 
 * `MFB_CANVAS_RESIZE_W` / `MFB_CANVAS_RESIZE_H` — in a headless run, wait for the
   first completed frame and then resize the surface to these dimensions, by calling

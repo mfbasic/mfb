@@ -1177,8 +1177,9 @@ pub(crate) trait CodegenPlatform {
         project_name: &str,
         debug_hooks: bool,
         uses_mouse: bool,
+        uses_canvas: bool,
     ) -> Vec<CodeDataObject> {
-        let _ = (project_name, debug_hooks, uses_mouse);
+        let _ = (project_name, debug_hooks, uses_mouse, uses_canvas);
         Vec::new()
     }
 

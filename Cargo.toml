@@ -341,6 +341,10 @@ name = "rt_canvas_metal"
 path = "tests/canvas/rt_canvas_metal.rs"
 
 [[test]]
+name = "rt_canvas_pointer"
+path = "tests/canvas/rt_canvas_pointer.rs"
+
+[[test]]
 name = "rt_canvas_picture"
 path = "tests/canvas/rt_canvas_picture.rs"
 

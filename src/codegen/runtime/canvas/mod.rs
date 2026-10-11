@@ -413,9 +413,38 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_VIEWS: usize =
     GRAPHICS_OFFSET_VULKAN_SC_IMAGES + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS: usize =
     GRAPHICS_OFFSET_VULKAN_SC_VIEWS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
-/// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize =
+/// plan-172-J: where the pointer is, published by each platform's MAIN thread and read
+/// by the graphics thread — the worker never touches these.
+///
+/// * `POINTER_X` / `POINTER_Y` — surface pixels, the units an SGR mouse report carries.
+///   Meaningless while `POINTER_INSIDE` is 0.
+/// * `POINTER_BUTTONS` — bit 0 left, bit 1 middle, bit 2 right, set while held.
+/// * `POINTER_INSIDE` — 1 while the pointer is over the surface.
+/// * `POINTER_SEQ` — the sequence word of a sequence lock over the other four: odd
+///   while a publish is writing them, bumped to even when it is done
+///   ([`emit_publish_pointer`]). A reader takes the four only between two equal, even
+///   reads of it (`canvas::pointerSnapshot`).
+///
+/// A sequence word rather than the render mutex, for the reason
+/// [`emit_publish_surface_size`] takes no lock: a pointer move is a main-thread
+/// callback, and it must not wait behind a frame. Unlike the size, a torn read here is
+/// not harmless — an `x` from one move with an `inside` from another is a position the
+/// pointer never had — so the four are read as one.
+pub(crate) const GRAPHICS_OFFSET_POINTER_SEQ: usize =
     GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
+pub(crate) const GRAPHICS_OFFSET_POINTER_X: usize = GRAPHICS_OFFSET_POINTER_SEQ + 8;
+pub(crate) const GRAPHICS_OFFSET_POINTER_Y: usize = GRAPHICS_OFFSET_POINTER_X + 8;
+pub(crate) const GRAPHICS_OFFSET_POINTER_BUTTONS: usize = GRAPHICS_OFFSET_POINTER_Y + 8;
+pub(crate) const GRAPHICS_OFFSET_POINTER_INSIDE: usize = GRAPHICS_OFFSET_POINTER_BUTTONS + 8;
+/// The four published words, in the order `canvas::pointerSnapshot` returns them.
+pub(crate) const GRAPHICS_POINTER_WORDS: [usize; 4] = [
+    GRAPHICS_OFFSET_POINTER_X,
+    GRAPHICS_OFFSET_POINTER_Y,
+    GRAPHICS_OFFSET_POINTER_BUTTONS,
+    GRAPHICS_OFFSET_POINTER_INSIDE,
+];
+/// Total block size.
+pub(crate) const GRAPHICS_STATE_SIZE: usize = GRAPHICS_OFFSET_POINTER_INSIDE + 8;
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -3214,6 +3243,72 @@ pub(crate) fn emit_surface_dimension(
     ));
     instructions.push(abi::label(&ready));
     instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
+}
+
+/// The registers [`emit_publish_pointer`] is given: the four values to publish, and
+/// three it may overwrite. A struct because every caller is a hand-written platform
+/// handler that spells its own registers, and seven positional registers of one type
+/// is seven chances to swap two.
+pub(crate) struct PointerRegs {
+    pub(crate) x: abi::Reg,
+    pub(crate) y: abi::Reg,
+    pub(crate) buttons: abi::Reg,
+    pub(crate) inside: abi::Reg,
+    /// Overwritten: the graphics-state base.
+    pub(crate) base: abi::Reg,
+    /// Overwritten: the sequence word's value.
+    pub(crate) seq: abi::Reg,
+    /// Overwritten: an address, where the stores are store-releases.
+    pub(crate) addr: abi::Reg,
+}
+
+/// Publish the pointer from a platform's pointer event (plan-172-J).
+///
+/// Called on the **main** thread — or, for the debug script, on the graphics thread
+/// through `canvas::publishPointer`; never both at once in a run that means anything —
+/// with the four values in registers. One writer at a time, so the sequence word is a
+/// plain increment, not a compare-and-swap: odd, the four stores, even.
+///
+/// `ordered` is whether the target needs the accesses ordered explicitly
+/// (`scene_base::orders_scene_accesses`: AArch64). There every store is a
+/// store-release, which is visible only after every earlier access of this thread —
+/// so no data word can be seen before the odd mark, nor the even mark before the data
+/// — and the reader's loads are load-acquires. x86-64 keeps stores in order and loads
+/// in order by itself.
+///
+/// Makes no call and touches no register outside [`PointerRegs`]. Signals nothing: a
+/// pointer change is not a redraw (`.ai/canvas-threading.md` section 4).
+pub(crate) fn emit_publish_pointer(
+    symbol: &str,
+    ordered: bool,
+    regs: &PointerRegs,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let store = |value: abi::Reg, offset: usize, ins: &mut Vec<CodeInstruction>| {
+        if ordered {
+            ins.push(abi::add_immediate(regs.addr, regs.base, offset));
+            ins.push(abi::store_release_u64(value, regs.addr));
+        } else {
+            ins.push(abi::store_u64(value, regs.base, offset));
+        }
+    };
+    state_base(symbol, regs.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        regs.seq,
+        regs.base,
+        GRAPHICS_OFFSET_POINTER_SEQ,
+    ));
+    instructions.push(abi::add_immediate(regs.seq, regs.seq, 1));
+    store(regs.seq, GRAPHICS_OFFSET_POINTER_SEQ, instructions);
+    for (value, offset) in [regs.x, regs.y, regs.buttons, regs.inside]
+        .into_iter()
+        .zip(GRAPHICS_POINTER_WORDS)
+    {
+        store(value, offset, instructions);
+    }
+    instructions.push(abi::add_immediate(regs.seq, regs.seq, 1));
+    store(regs.seq, GRAPHICS_OFFSET_POINTER_SEQ, instructions);
 }
 
 /// Publish a new surface size from the platform's resize event.

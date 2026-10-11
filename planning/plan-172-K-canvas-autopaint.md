@@ -345,6 +345,25 @@ Commit: —
   `id` plays no part in `AutoPaint`'s state. §3's "Instance key" is rewritten, with what
   a structural key costs, and the "two uses of one group" test case covers named
   instances under equal and empty group `id`s.
+- **From 172-J as built (2026-10-11): Trigger 6 cannot live inside
+  `emit_publish_pointer`.** Phase 3 says "`emit_publish_pointer` signals when
+  `AUTOPAINT_LIVE` is set". That helper makes no call, on purpose: it is emitted inside
+  leaf functions with no frame (Windows' `_mfb_winapp_pointer_move` and
+  `_mfb_winapp_pointer_leave` touch only volatile registers) and inside handlers whose
+  scratch registers are all spoken for. `canvas::signalRedraw` takes the graphics
+  mutex. So the signal belongs at the SIX places that publish, after the publish:
+  macOS `mouse_view.rs:emit_publish`; GTK `pointer.rs:emit_pointer_handler`; Windows
+  `pointer.rs:emit_pointer_arms` (the block has a frame; the two functions it calls do
+  not) — plus the `--debug` script (`__canvas_pointerScript`), which publishes from the
+  graphics thread and must not signal itself into a loop. Also from J:
+  - a canvas program has pointer handlers whether or not it uses a mouse member, and
+    they are proved in real windows on all three platforms (`tools/pointer-probe`);
+  - "inside" is asked of the PUBLISHED surface size, so a headless test that wants the
+    pointer inside scripts a resize as well as a position;
+  - `MFB_CANVAS_POINTER`'s clock starts at the first frame, and a `--debug` software
+    frame is slow: leave seconds between an entry and a frame that must not see it;
+  - on Windows a real window on the GPU renderer writes no stats line (bug-1045, open),
+    so a real-window read-back there needs `MFB_CANVAS_GPU=0`.
 - **From 172-I as built (2026-10-11): §3's step 2 does not exist yet in the form it
   assumes.** "`__canvas_hitAt` gives the topmost entry" needs four things 172-I did not
   leave on the graphics thread, each read from `helper_hit.rs`:

@@ -38,6 +38,80 @@ pub(super) fn emit_libc_start_trampoline() -> Result<CodeFunction, String> {
     asm.finish(MAIN_SYMBOL, "Nothing")
 }
 
+/// Publish one scripted pointer position in a headless run, when
+/// `MFB_CANVAS_POINTER_X`/`_Y` say so (plan-172-J).
+///
+/// A pointer move is a *window* event and headless has no window, so without this the
+/// GTK callback could be written and never executed on a box with no display. It calls
+/// the same `_mfb_gtkapp_pointer_motion` the area's motion controller is connected to,
+/// with the same argument shape — the position as two doubles — and no controller,
+/// which that callback reads as "no event state": no button is held.
+///
+/// It waits for a first completed frame, as the scripted resize does, so the program
+/// under test has a frame from BEFORE the move to compare the next one against.
+///
+/// **Inside or not is asked of the PUBLISHED surface size**, which a headless run has
+/// none of until something publishes one — so a test that wants "inside" scripts a
+/// resize too (`MFB_CANVAS_RESIZE_W`/`_H`, which runs first), exactly as a window
+/// would have published its size before any pointer reached it. Without one the size
+/// is 0 by 0 and every point is outside, which is the honest answer.
+///
+/// Falls through to whatever follows when either variable is unset.
+fn emit_headless_scripted_pointer(asm: &mut Asm) {
+    let skip = "headless_pointer_skip";
+    let wait = "headless_pointer_wait";
+    let ready = "headless_pointer_ready";
+
+    asm.local_address(abi::c_arg(0), pointer::STR_POINTER_X_ENV.0);
+    asm.call_external("getenv");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(skip));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("atoi");
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0)));
+
+    asm.local_address(abi::c_arg(0), pointer::STR_POINTER_Y_ENV.0);
+    asm.call_external("getenv");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(skip));
+    asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+    asm.call_external("atoi");
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_return(0)));
+
+    asm.push(abi::label(wait));
+    push_symbol_address(
+        GTK_MAIN_SYMBOL,
+        GRAPHICS_STATE_SYMBOL,
+        abi::LOCAL[2],
+        &mut asm.ins,
+        &mut asm.rel,
+    );
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::LOCAL[2],
+        GRAPHICS_OFFSET_FRAMES,
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(ready));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "20000"));
+    asm.call_external("usleep");
+    asm.push(abi::branch(wait));
+
+    asm.push(abi::label(ready));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // no controller
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[0],
+        abi::LOCAL[0],
+    ));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[1],
+        abi::LOCAL[1],
+    ));
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0")); // user data
+    asm.call_internal(pointer::POINTER_MOTION_SYMBOL);
+    asm.push(abi::label(skip));
+}
+
 /// Drive one scripted resize in a headless run, when `MFB_CANVAS_RESIZE_W`/`_H` say so.
 ///
 /// A resize is a *window* event, and headless has no window — so without this the
@@ -55,8 +129,10 @@ pub(super) fn emit_libc_start_trampoline() -> Result<CodeFunction, String> {
 ///
 /// This runs on the thread that would otherwise sit in `pause()` forever, which is the
 /// right one: it is the main thread, and publishing the size is the main thread's job.
+///
+/// Falls through to whatever follows when either variable is unset.
 fn emit_headless_scripted_resize(asm: &mut Asm) {
-    let park = "headless_park";
+    let park = "headless_resize_skip";
     let wait = "headless_resize_wait";
     let ready = "headless_resize_ready";
 
@@ -102,6 +178,7 @@ fn emit_headless_scripted_resize(asm: &mut Asm) {
     asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[1]));
     asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0")); // user data
     asm.call_internal(CANVAS_RESIZE_SYMBOL);
+    asm.push(abi::label(park));
 }
 
 /// `int _mfb_gtkapp_main(int argc, char **argv, char **envp)` — the real C main
@@ -178,7 +255,10 @@ pub(super) fn emit_main_bootstrap(uses_canvas: bool) -> Result<CodeFunction, Str
     // wake up.
     emit_spawn_program_thread(&mut asm, 24, 48);
     if uses_canvas {
+        // The resize first: a headless run has no window to publish a surface size,
+        // and the scripted pointer's "is it inside" is asked of the published size.
         emit_headless_scripted_resize(&mut asm);
+        emit_headless_scripted_pointer(&mut asm);
     }
     asm.push(abi::label("headless_park"));
     asm.call_external("pause");
@@ -557,7 +637,10 @@ pub(crate) fn emit_reconcile_seam(
 ///
 /// The scrolled window is `g_object_ref_sink`ed so it survives `gtk_window_set_child`
 /// swapping it out for the canvas area and back.
-pub(super) fn emit_reconcile_build_helper(uses_window: bool) -> Result<CodeFunction, String> {
+pub(super) fn emit_reconcile_build_helper(
+    uses_window: bool,
+    uses_mouse: bool,
+) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(RECONCILE_BUILD_SYMBOL);
     let frame = 16; // lr@0, x19 (the key controller, across g_signal_connect_data)@8
     asm.push(abi::label("entry"));
@@ -614,6 +697,15 @@ pub(super) fn emit_reconcile_build_helper(uses_window: bool) -> Result<CodeFunct
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0))); // controller
                                                                    // bug-699: key-pressed and key-released, in the capture phase.
     super::keys::emit_connect_key_controller(&mut asm);
+
+    // bug-1043: and the three mouse controllers, for the same reason and on the same
+    // window. The `Console`-default startup path attached them and this one did not,
+    // so a window built HERE -- every program that calls `app::setMode`, which is every
+    // canvas program -- had no mouse controller at all: `canvas::pollMouse` reported
+    // nothing in a real window, whatever the pointer did.
+    if uses_mouse {
+        mouse::emit_attach_controllers(&mut asm);
+    }
 
     // close-request: closing a reconcile-built window must end the program exactly
     // as closing a startup-built one does, rather than leaving a held-alive app with
@@ -796,6 +888,10 @@ pub(super) fn emit_reconcile_idle_helper(
         asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
         asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
         asm.call_external("g_signal_connect_data");
+        // plan-172-J: the area's own motion controller and click gesture, which
+        // publish the pointer to the graphics state. With the area, once, and gated
+        // the same way: their callbacks are emitted for a program that uses `canvas::`.
+        asm.call_internal(pointer::POINTER_ATTACH_SYMBOL);
     }
     asm.push(abi::label(&canvas_have_area));
     // gtk_window_set_child(window, canvasArea) — the canvas replaces the transcript.

@@ -1268,6 +1268,93 @@ The mouse-state reservation keys on the raw poll's symbol
 is gated on use, so a canvas program that never calls `canvas::pollMouse` reserves no
 mouse state and compiles none of this.
 
+## The pointer, as the graphics thread sees it
+
+The graphics thread can read where the pointer is without the worker's help: each
+platform's MAIN thread publishes it into the graphics-state block, whether or not the
+program called `canvas::enableMouse`. Nothing here reaches a program — `canvas::pollMouse`
+and the SGR pipe behind it are a separate path, and a pointer change signals no redraw.
+
+**Five words**, the block's last 40 bytes
+([[src/codegen/runtime/canvas/mod.rs:GRAPHICS_OFFSET_POINTER_SEQ]]):
+
+| Word | Holds |
+|---|---|
+| `POINTER_SEQ` | the sequence word: odd while a publish is writing the other four |
+| `POINTER_X`, `POINTER_Y` | surface pixels, the units an SGR mouse report carries; meaningless while `POINTER_INSIDE` is 0 |
+| `POINTER_BUTTONS` | bit 0 left, bit 1 middle, bit 2 right, set while held |
+| `POINTER_INSIDE` | 1 while the pointer is over the surface |
+
+**The four are written and read as one, under the sequence word, with no lock.**
+[[src/codegen/runtime/canvas/mod.rs:emit_publish_pointer]] increments `POINTER_SEQ` to
+odd, stores the four, and increments it to even; it makes no call, so it can sit in any
+platform handler. `canvas::pointerSnapshot`
+([[src/codegen/builtins/canvas/func_pointer.rs:lower_pointer_snapshot]]) reads the
+sequence word, the four, and the sequence word again, and retries until the two reads
+are equal and even. A lock would make a pointer move wait behind a frame. On AArch64
+every store is a store-release and every read a load-acquire, so no data word can be
+seen before the odd mark nor the even mark before the data; x86-64 keeps stores in
+order and loads in order by itself. One writer at a time is the contract: the main
+thread in a window, the graphics thread's own script in a headless `--debug` run.
+
+**A point off the surface is published as outside, not dropped.** A report is dropped
+there — there is nothing to report against — but a drag that leaves the surface keeps
+arriving with the button held and no leave event, and the pointer words are how the
+graphics thread learns it has gone.
+
+**macOS.** `MFBCanvasView`'s mouse methods publish
+([[src/target/macos_aarch64/app/mouse_view.rs:emit_publish]]), and a canvas program has
+them whether or not it uses a mouse member: thirteen IMPs, the eleven that report plus
+`mouseEntered:` and `mouseExited:`, which only publish. Each publishes FIRST and gates
+on the mouse-mode word after; in a program with no mouse member there is no mode word,
+and the IMP is the publish and a return (`emit_mouse_imp`'s `reports`). The buttons are
+`+[NSEvent pressedMouseButtons]` with bits 1 and 2 exchanged (AppKit orders them left,
+right, other) and then corrected by the event itself — a press or a drag sets its own
+button's bit, a release clears it — because that class method is the hardware's state
+NOW, and a quick click is released before its `mouseDown:` is dispatched. The canvas
+view's tracking area asks for `NSTrackingMouseEnteredAndExited`; `TermView`'s does not,
+and `TermView` publishes nothing.
+
+**GTK.** The canvas drawing area carries two controllers of its own, attached where
+the area is created ([[src/target/linux_gtk/pointer.rs:emit_pointer_attach]]): a motion
+controller, whose `motion` and `enter` publish a position and whose `leave` publishes
+outside, and a click gesture told to listen to every button. They are separate from the
+reporting controllers on the window, which they neither replace nor starve: events
+bubble from the area to the window, and nothing here claims a sequence. On the area the
+coordinates GTK hands over are already the surface's, and the controllers are quiet
+whenever the canvas is not the window's child. The held buttons are NOT read from GDK's
+event state: its Wayland backend sets the state bit for a held right or middle button
+by evdev order while numbering a press's `button` left, middle, right — so the two bits
+mean the opposite of `GDK_BUTTON2_MASK` / `GDK_BUTTON3_MASK`, measured in a real
+window. The mask is kept in `_mfb_gtkapp_pointer_held` from the button NUMBER each
+press and release carries ([[src/target/linux_gtk/pointer.rs:emit_pointer_handler]]),
+and a motion whose state shows no button held at all clears it.
+
+**Windows.** The window procedure's dispatch chain ends, in a canvas program, at a
+block that publishes and passes the message on
+([[src/target/win_x86_64/app/pointer.rs:emit_pointer_arms]]): for `WM_MOUSEMOVE`
+through `WM_MBUTTONDBLCLK`, while a canvas surface is live, it calls
+`_mfb_winapp_pointer_move(x, y, MK flags)` with the signed client point from `lParam`,
+and arms one `WM_MOUSELEAVE` with `TrackMouseEvent` unless one is armed; for
+`WM_MOUSELEAVE` it calls `_mfb_winapp_pointer_leave`, which publishes outside with the
+buttons last published. `wParam`'s `MK_*` flags are the state after the event, so the
+mask needs no correction. The SGR arms run after it, unchanged.
+
+**The headless variables.** `MFB_CANVAS_POINTER_X` / `_Y`, on GTK and Windows, call the
+platform's own callback once with that position after the first completed frame — GTK's
+motion callback with no controller, Windows' `_mfb_winapp_pointer_move` with no flags —
+on the scripted-resize precedent, and after the scripted resize: inside is asked of the
+PUBLISHED surface size, which a headless run has none of until `MFB_CANVAS_RESIZE_W` /
+`_H` publish one. macOS has no headless path; its handlers are proved in a real window.
+
+**A `--debug` build can script the pointer.** `MFB_CANVAS_POINTER` holds
+`ms,x,y,buttons,inside;…`; at the start of each frame
+[[src/codegen/builtins/canvas/helper_render.rs:POINTER_SCRIPT_DEBUG]] publishes every
+entry whose time has come, counted from the first frame, through
+`canvas::publishPointer` — the same writer. A normal build's source has neither the
+reader nor a call to the writer. The stats line reports the snapshot as
+`pointer=x,y,buttons,inside`.
+
 ## Images are named, not embedded
 
 An `Image` is an ordinary resource, closing when it leaves scope or with

@@ -213,8 +213,8 @@ pub(crate) trait NativePlanPlatform {
     /// (plan-94-C/D/E). Declaring them unconditionally is golden-visible: an
     /// unused import still lands in the plan, so every app fixture that never
     /// touches the mouse would diff.
-    fn app_mode_imports(&self, uses_mouse: bool) -> Vec<PlatformImport> {
-        let _ = uses_mouse;
+    fn app_mode_imports(&self, uses_mouse: bool, uses_canvas: bool) -> Vec<PlatformImport> {
+        let _ = (uses_mouse, uses_canvas);
         Vec::new()
     }
 
