@@ -126,7 +126,7 @@ src/codegen/resource/cleanup/record_ownership.rs` names that one commit): writte
 record with a `RES` field, it reads a `MapEntry`'s `.value` the same way. bug-1028
 (`62a3037bf`, also after dcf790e9a) does not contain that arm (`git show
 62a3037bf:src/codegen/resource/cleanup/record_ownership.rs | grep MemberAccess` shows only
-the `STATE` arm) and is about `MATCH` over a resource union; bug-1037 is about the trapped
+the `STATE` arm and its two unit tests) and is about `MATCH` over a resource union; bug-1037 is about the trapped
 temporary's box. Neither touches this path. No old compiler was built to confirm it; the
 attribution is from the two commits' text and from `x6`, which bypasses the arm and
 reproduces the filed number on both of today's compilers.
