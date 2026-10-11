@@ -253,8 +253,8 @@ impl CodeBuilder<'_> {
             // A member on its way into a union-typed slot: the node's tag is the
             // member's own (see `module_leaf_kind`).
             let tag_reg = self.allocate_register();
-            self.emit(abi::move_immediate(&tag_reg, "Integer", &tag.to_string()));
-            self.emit(abi::store_u64(&tag_reg, abi::stack_pointer(), tag_slot));
+            self.emit(abi::move_immediate(tag_reg, "Integer", &tag.to_string()));
+            self.emit(abi::store_u64(tag_reg, abi::stack_pointer(), tag_slot));
             value
         } else {
             self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), tag_slot));
