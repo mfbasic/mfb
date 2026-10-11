@@ -176,21 +176,43 @@ impl CodeBuilder<'_> {
         leaves
     }
 
-    /// The `kind` a resource of type `leaf` is listed under: its own leaf, else
-    /// the one leaf sharing its base resource (a `STATE` spelling the slot does
-    /// not repeat).
-    fn module_leaf_kind(&self, leaf: &ParameterType) -> Result<usize, String> {
+    /// The `kind` a resource of type `leaf` is listed under, and the variant tag
+    /// its node records when that is not read from a box: its own leaf, else the
+    /// one leaf sharing its base resource (a `STATE` spelling the slot does not
+    /// repeat), else a resource-union leaf it is a member of.
+    ///
+    /// The last is a concrete resource on its way into a union-typed slot
+    /// (bug-1027): `gHs = collections::append(gHs, a)` with `a` a `fs::File` and
+    /// `gHs` a `List OF RES Handle`. The operand walk raises `a` by its own name,
+    /// before the store wraps it, so the leaf it sees is the member, not the
+    /// union. A union leaf's node is "the active variant's record plus that
+    /// variant's tag", and here both are known without a box: the record is the
+    /// value and the tag is the member's. Any union leaf the resource is a
+    /// member of serves — the drain closes by the variant's close op, which is
+    /// the member's own in every union.
+    fn module_leaf_kind(&self, leaf: &ParameterType) -> Result<(usize, Option<usize>), String> {
         let leaf = typed_strip_res_marker(leaf);
         let leaves = self.module_resource_leaves();
         if let Some(kind) = leaves.iter().position(|kind| kind == leaf) {
-            return Ok(kind);
+            return Ok((kind, None));
         }
         let mut same_base = leaves
             .iter()
             .enumerate()
             .filter(|(_, kind)| kind.without_state() == leaf.without_state());
-        match (same_base.next(), same_base.next()) {
-            (Some((kind, _)), None) => Ok(kind),
+        if let (Some((kind, _)), None) = (same_base.next(), same_base.next()) {
+            return Ok((kind, None));
+        }
+        let member = leaf.without_state();
+        let as_member = leaves.iter().enumerate().find_map(|(kind, union)| {
+            self.resource_union_cleanup(union)?;
+            self.type_model
+                .variants_for_union(&union.without_state())
+                .any(|variant| *variant == member)
+                .then_some(kind)
+        });
+        match (as_member, self.type_model.union_variant_tags.get(&member)) {
+            (Some(kind), Some(tag)) => Ok((kind, Some(*tag))),
             _ => Err(format!(
                 "a resource of type '{leaf}' is stored into a module-level binding, but no \
                  module-level binding's type reaches that resource (bug-806)"
@@ -208,7 +230,7 @@ impl CodeBuilder<'_> {
         leaf: &ParameterType,
     ) -> Result<(), String> {
         let leaf = typed_strip_res_marker(leaf).clone();
-        let kind = self.module_leaf_kind(&leaf)?;
+        let (kind, member_tag) = self.module_leaf_kind(&leaf)?;
         request_kind(kind);
         let union = self.resource_union_cleanup(&leaf).is_some();
         let done = self.label("module_float_done");
@@ -227,6 +249,13 @@ impl CodeBuilder<'_> {
             self.emit(abi::compare_immediate(&record, "0"));
             self.emit(abi::branch_eq(&done));
             record
+        } else if let Some(tag) = member_tag {
+            // A member on its way into a union-typed slot: the node's tag is the
+            // member's own (see `module_leaf_kind`).
+            let tag_reg = self.allocate_register();
+            self.emit(abi::move_immediate(&tag_reg, "Integer", &tag.to_string()));
+            self.emit(abi::store_u64(&tag_reg, abi::stack_pointer(), tag_slot));
+            value
         } else {
             self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), tag_slot));
             value
