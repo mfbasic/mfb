@@ -1,0 +1,10 @@
+{
+  "name": "bug1055_top_level_bare_state_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-1055: a bare top-level RES binding whose initializer carries STATE is refused, as the same binding in a function is; a stateless initializer and an agreeing clause are accepted.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}
