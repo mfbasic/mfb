@@ -1059,6 +1059,10 @@ name = "rt_resource_drop_reclaims"
 path = "tests/runtime/rt_resource_drop_reclaims.rs"
 
 [[test]]
+name = "rt_resource_aggregate_temporary"
+path = "tests/runtime/rt_resource_aggregate_temporary.rs"
+
+[[test]]
 name = "rt_resource_temporary_close"
 path = "tests/runtime/rt_resource_temporary_close.rs"
 
