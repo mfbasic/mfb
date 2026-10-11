@@ -34,10 +34,10 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-172-G complete and archived | `ls planning/plan-172-G-*` → no matches | NOT MET |
-| The software golden exists | `ls tests/golden/canvas/group_affine.png` → present | NOT MET |
-| The draw entry is 16 words | `grep -c 'CANVAS_DRAW_ENTRY_WORDS: usize = 16' src/codegen/runtime/canvas/mod.rs` → 1 | NOT MET |
-| Box 2226 reaches a Vulkan device | `scripts/test-canvas-vulkan.sh target/release/mfb --box 2226` on an unchanged tree → pass | UNVERIFIED — run first |
+| plan-172-G complete and archived | `ls planning/plan-172-G-*` → no matches | MET (2026-10-10) |
+| The software golden exists | `ls tests/golden/canvas/group_affine.png` → present | MET (2026-10-10) |
+| The draw entry is 16 words | `grep -c 'CANVAS_DRAW_ENTRY_WORDS: usize = 16' src/codegen/runtime/canvas/mod.rs` → 1 | MET (2026-10-10) |
+| Box 2226 reaches a Vulkan device | `scripts/test-canvas-vulkan.sh target/release/mfb --box 2226` on an unchanged tree → pass | MET (2026-10-10; run first with `--target linux-aarch64`: "canvas Vulkan runtime tests passed") |
 
 If plan-172-G is not complete, this letter cannot start, full stop.
 
@@ -154,52 +154,62 @@ drivers and silence on others.
 
 ### Phase 1 — Capture the baselines
 
-- [ ] On this letter's starting commit, dump the `groups.png` scene under
+- [x] On this letter's starting commit, dump the `groups.png` scene under
       `MFB_CANVAS_GPU=1` on Metal to `/tmp/plan-172-H/metal-before.rgba`.
-- [ ] Do the same on Vulkan with `scripts/test-canvas-vulkan.sh target/release/mfb --box
+- [x] Do the same on Vulkan with `scripts/test-canvas-vulkan.sh target/release/mfb --box
       2226`, keeping the dump as `/tmp/plan-172-H/vulkan-before.rgba`.
-- [ ] Record both file hashes in Corrections.
+- [x] Record both file hashes in Corrections.
 
 Acceptance: two baseline dumps exist with recorded hashes.
   Check: `shasum /tmp/plan-172-H/*-before.rgba` → two lines (est. 10 min, of which the
   box 2226 run is most; it is the native aarch64 Vulkan box).
+  Observed (2026-10-10): `dfb2bbdd…` Metal (twice), `f087dc9f…` Vulkan on box 2226
+  (twice), `f087dc9f…` Vulkan on box 2227, and `8e4e16ac…` for the `groupsblack` row on
+  box 206 — full hashes and file names in Corrections.
 Commit: —
 
 ### Phase 2 — Metal
 
-- [ ] `metal.rs:emit_draw_list_pass`: copy entry words 2, 3, 5, 6 and 8–11 into the
+- [x] `metal.rs:emit_draw_list_pass`: copy entry words 2, 3, 5, 6 and 8–11 into the
       32-byte pair buffer; send 32 bytes to both stages.
-- [ ] MSL: the per-draw struct gains the four float-bit words; `mfbVertex` maps the
+- [x] MSL: the per-draw struct gains the four float-bit words; `mfbVertex` maps the
       corner when the linear part is non-zero; `mfbFragment` and `dfShapePoint` compose
       the query point.
-- [ ] `helper_render.rs:__canvas_metalRenderable`: stop reading the decline flag.
-- [ ] A Metal parity case for `group_affine_on_black.mfb` in
+- [x] `helper_render.rs:__canvas_metalRenderable`: stop reading the decline flag.
+- [x] A Metal parity case for `group_affine_on_black.mfb` in
       `tests/canvas/rt_canvas_metal.rs`.
-- [ ] Re-dump the `groups.png` scene on Metal and compare with the baseline.
+- [x] Re-dump the `groups.png` scene on Metal and compare with the baseline.
 
 Acceptance: Metal matches `group_affine.png` within `Tolerance::GPU_DEFAULT`, and the
 translate-only dump is byte-identical to `metal-before.rgba`.
   Check: `cargo test --test rt_canvas_metal group` → pass, and `python3
   tools/canvas-bench/cmp.py /tmp/plan-172-H/metal-before.rgba <after>` → 0 differing
   pixels (est. 6 min).
+  Observed (2026-10-10): `cargo test --test rt_canvas_metal group` → 4 passed;
+  `the_gpu_draws_the_group_affine_scene_the_reference_shows` passed (Corrections: it is
+  in `rt_canvas_golden.rs`). The Metal dump after the change, and again on the final
+  build, is `dfb2bbdd…` — the same file as before, so the comparison is `shasum`
+  equality rather than `cmp.py`.
 Commit: —
 
 ### Phase 3 — Vulkan (largest blast radius)
 
-- [ ] `mfb_canvas.vert` and `mfb_canvas.frag`: `Draw` gains `ivec4 inverse`; the same
+- [x] `mfb_canvas.vert` and `mfb_canvas.frag`: `Draw` gains `ivec4 inverse`; the same
       vertex mapping and query-point composition as the MSL.
-- [ ] `bash scripts/regen-spirv.sh`; commit both `.spv` blobs with the shader sources.
-- [ ] `vulkan.rs`: `PUSH_OFFSET_BYTES = 32`; the pipeline layout's range size; the eight
+- [x] `bash scripts/regen-spirv.sh`; commit both `.spv` blobs with the shader sources.
+- [x] `vulkan.rs`: `PUSH_OFFSET_BYTES = 32`; the pipeline layout's range size; the eight
       words in `emit_draw_list_pass`.
-- [ ] `helper_render.rs:__canvas_vulkanRenderable`: stop reading the decline flag;
+- [x] `helper_render.rs:__canvas_vulkanRenderable`: stop reading the decline flag;
       delete the flag and its setter in the walk.
-- [ ] Add `group_affine_on_black.mfb` to `scripts/test-canvas-gpu-rows.sh`.
-- [ ] Run the Vulkan row on box 2226 (native aarch64, lavapipe) and on box 2228
-      (x86_64 glibc; needed because the emitter differs per ISA).
-- [ ] Re-dump the `groups.png` scene on Vulkan and compare with the baseline.
-- [ ] `src/docs/spec/app/06_canvas.md` "Named groups": remove the interim decline; state
+- [x] Add `group_affine_on_black.mfb` to `scripts/test-canvas-gpu-rows.sh`.
+- [x] Run the Vulkan row on box 2226 (native aarch64, lavapipe) and on box 2228
+      (x86_64 glibc; needed because the emitter differs per ISA). — box 2226 done; box
+      2228 is down, and the x86_64 emitter ran on box 2227 and on box 206 instead
+      (Corrections).
+- [x] Re-dump the `groups.png` scene on Vulkan and compare with the baseline.
+- [x] `src/docs/spec/app/06_canvas.md` "Named groups": remove the interim decline; state
       the 32-byte payload and that it binds to both stages, cited to both emitters.
-- [ ] `.ai/canvas-threading.md` §10: the "(itemBase, itemCount, dx, dy, …)" entry line
+- [x] `.ai/canvas-threading.md` §10: the "(itemBase, itemCount, dx, dy, …)" entry line
       and the three binding numbers become the 16-word entry and the 32-byte payload.
 
 Acceptance: Vulkan matches the golden within `Tolerance::GPU_DEFAULT` on both boxes,
@@ -207,6 +217,12 @@ and the translate-only dump is byte-identical to `vulkan-before.rgba`.
   Check: `scripts/test-canvas-vulkan.sh target/release/mfb --box 2226` → pass, the same
   with `--box 2228` → pass, and `cmp.py` on the two dumps → 0 differing pixels (est.
   25 min; box 2228 is emulated x86_64 and is the only place the x86_64 emitter runs).
+  Observed (2026-10-10): box 2226 → "canvas Vulkan runtime tests passed" and the
+  `groupaffine` row "Vulkan matches the software oracle (ok worst=1 differing=0.1502%)";
+  box 2228 is down, so the x86_64 emitter ran on box 2227 (same result, same figures)
+  and on box 206's real GPU ("ok worst=1 differing=0.9651%") — Corrections. The
+  translate-only dump is byte-identical before and after on all three.
+  Local round on the final tree: all 25 canvas-embedding targets green (`rt_canvas_golden` 25, `rt_canvas_metal` 49, `rt_canvas_rasteriser` 106, `rt_canvas_font` 33), `cargo test --bin mfb canvas` 115, `spec` 46, `vulkan` 9, `metal` 10 passed. `scripts/artifact-gate.sh target/release/mfb all` → `2322 golden(s) checked, 0 diff(s)`.
 Commit: —
 
 ## Validation Plan
@@ -228,7 +244,82 @@ None.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **Three phases, one commit**, for the reason 172-G's were: the IR-embedding goldens
+  move at each. The observations above were taken in order — baselines, Metal, Vulkan.
+- **The baselines, in full.** The scene is the `GROUPS` const of
+  `tests/canvas/rt_canvas_golden.rs` (the `groups.png` scene), built with the fixture
+  font and run with `MFB_CANVAS_GPU=1`; each was on the GPU (`gpuFrames=1`).
+
+  | Backend | Where | Before | After |
+  |---|---|---|---|
+  | Metal | this Mac | `dfb2bbdde9551d9cf52231678c9b01f600dd6cb7` (twice) | the same, after the Metal change and on the final build |
+  | Vulkan, aarch64 | box 2226, Mesa lavapipe | `f087dc9f5ad4fd81bb83ae14cff29aaa16c73d22` (twice) | the same |
+  | Vulkan, x86_64 Linux | box 2227, Mesa lavapipe (`--libc musl --icd auto`) | `f087dc9f5ad4fd81bb83ae14cff29aaa16c73d22` | the same |
+  | Vulkan, x86_64 Windows | box 206, Intel UHD 630 | `8e4e16acfe983604c2b20d8dcd489fb9ff16dbd0` (the `groupsblack` row) | the same |
+
+  The dumps are kept by a new `--keep <dir>` option on `scripts/test-canvas-vulkan.sh`
+  and `scripts/test-canvas-gpu-rows.sh`, which is how a later change can repeat this.
+- **Box 2228 is down** (`ssh: connect to host 127.0.0.1 port 2228: Connection refused`,
+  probed twice). The plan wanted it for two things, both met another way:
+  - *the x86_64 emitter* ran on box 2227 (Alpine x86_64 musl, lavapipe provisioned by
+    `--icd auto`): the full Vulkan test passed and the `groupaffine` and `groupsblack`
+    rows passed. ISA is what 2228 was wanted for; the libc differs.
+  - *SPIR-V* was compiled with `MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh` (glslang
+    `11:12.0.0`, not 2228's): `vert` 9144 bytes, `frag` 256440 bytes. Both shaders
+    changed, so both blobs would have changed on any box. That the translate-only frame
+    is byte-identical anyway says the compiler difference reaches no pixel.
+- **The Windows row was run in this letter, not left to 172-M** (owner's prompt, during
+  the letter): `scripts/test-canvas-gpu-rows.sh … --target windows-x86_64 --rows
+  groupaffine,groupsblack,xformblack` on box 206 — all three drawn on Vulkan and within
+  tolerance. That is the Win64 ABI path of the Vulkan emitter and the only real GPU.
+- **`hasMatrix` is not sent, as designed**: the shaders test the four inverse words for
+  all-zero. An entry with no matrix has zeros there from `__canvas_pushOneDraw` and from
+  the native `canvas::sceneDrawsFlat`.
+- **The quad is grown by the inverse's Frobenius norm, not "one pixel".** One pixel on
+  the surface is `|M|` in the group's space at most, so the box is grown by that before
+  it is mapped. A fixed pixel of padding after the map would not be a parallelogram's
+  four corners any more.
+- **A rectangle clip is sampled under a matrix** (`clipRectDistance` in both shaders),
+  as 172-G's Corrections record for the software renderer. The golden's clipped band is
+  the case.
+- **The item-transform path is restructured, not just extended**: `shapeCoverage` now
+  distinguishes `itemMapped` (the item's own inverse applies) from `mapped` (the
+  transformed path is taken). With no matrix the two are equal and every expression is
+  the one it was — which the four byte-identical baselines hold, and
+  `rt_canvas_metal`'s 49 and the `xformblack` row confirm for transformed items.
+- **The Metal parity case is in `tests/canvas/rt_canvas_golden.rs`**
+  (`the_gpu_draws_the_group_affine_scene_the_reference_shows`), beside the other
+  GPU-against-reference cases, because that file has the fixture-font helper the scene
+  needs. `rt_canvas_metal.rs` has the small one: 172-G's
+  `a_group_with_a_matrix_falls_back_to_the_software_renderer` became
+  `a_group_with_a_matrix_draws_on_metal_and_matches_the_software_oracle` — the decline
+  it pinned is what this letter removes.
+- **Three Metal unit tests that pin shader text were updated** to the new spellings
+  (`constant MfbDraw &draw [[buffer(N)]]`, `dfShapePoint(in.pos.xy, draw.offset)`, the
+  32-byte frame slot). What each protects is unchanged: one binding per stage at the
+  index the emitter sends to, the offset subtracted in shape space, no overlapping
+  frame slots.
+- **The fixture font moved to `scripts/remote-common.sh`** (`rc_fixture_font`), so the
+  rows script can ship it beside a scene that draws text — to a Linux box and to
+  Windows. `test-canvas-vulkan.sh` calls the same function.
+- **No `CANVAS_DRAW_ENTRY_INVERSE` constant.** 172-G's Corrections said this letter would
+  add it with its readers. Both emitters copy entry words by a table of
+  `(word, byte offset)` pairs in which the translation words are already the literals
+  2, 3, 5 and 6; the inverse words are 8–11 in the same table. A constant for four of
+  eight entries of one table would not have made either emitter clearer.
+- **One more golden moved than predicted**:
+  `app-window-surface`'s macOS `.ncodesum`. That fixture is a window app that never
+  draws on a canvas, but every macOS app binary carries the Metal shader source
+  (`strings … | grep -c 'MfbDraw\|mfbFragment'` → 7 on a fresh build of it), and the
+  shader text changed.
+- **Runtime proof.** `examples/canvas-demo` is animated from wall-clock time, so a GPU
+  dump and a software dump of it are different moments and cannot be compared. What
+  was done: a copy of the demo with the spring scene's middle parallax group turned
+  6 degrees ran headless on Metal for 14 s — `gpuFrames=634 frames=634`, so no frame
+  was declined — and the dumped frame shows the layer's trunks leaning. The comparable
+  proof is the reference scene, on four GPU configurations.
+- **`rt_canvas_font` passed (33) in this letter's round at load average 34–50**, which
+  is higher than when `bugs/bug-1024-*` was seen. Load alone is not its trigger.
 
 ## Summary
 

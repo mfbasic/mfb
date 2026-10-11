@@ -173,11 +173,6 @@ MUT __CANVAS_DRAW_DY AS List OF Float = []
 MUT __CANVAS_DRAW_MAT AS List OF Integer = []
 MUT __CANVAS_GROUP_ROWS AS List OF Float = []
 
-' Whether this frame holds an entry with a matrix. `.ai/canvas-threading.md` section 10:
-' a GPU predicate cannot find a group in the offsets list, so a backend that has to
-' decline is told by the walk. Both decline until plan-172-H teaches them the matrix.
-MUT __CANVAS_DRAW_HAS_MATRIX AS Boolean = FALSE
-
 ' `__canvas_composeGroup`'s second answer: the composed translation.
 MUT __CANVAS_COMPOSED_X AS Float = 0.0
 MUT __CANVAS_COMPOSED_Y AS Float = 0.0
@@ -325,7 +320,6 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
       ' `canvas::sceneLayout` computes natively for an item outside any group.
       __CANVAS_DRAW_MAT = collections::append(__CANVAS_DRAW_MAT, mat)
       IF mat > 0 THEN
-        __CANVAS_DRAW_HAS_MATRIX = TRUE
         LET row AS Integer = (mat - 1) * 8
         drawHash = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(drawHash, collections::getOr(__CANVAS_GROUP_ROWS, row, 1.0)), collections::getOr(__CANVAS_GROUP_ROWS, row + 1, 0.0)), collections::getOr(__CANVAS_GROUP_ROWS, row + 2, 0.0)), collections::getOr(__CANVAS_GROUP_ROWS, row + 3, 1.0))
       END IF
@@ -822,7 +816,6 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
   __CANVAS_DRAW_HASHES = []
   __CANVAS_DRAW_MAT = []
   __CANVAS_GROUP_ROWS = []
-  __CANVAS_DRAW_HAS_MATRIX = FALSE
   MUT side AS List OF Integer = []
   MUT spans AS List OF Integer = []
   IF pending > 0 THEN
@@ -907,11 +900,6 @@ FUNC __canvas_dashWords(offset AS Integer) AS Integer
 END FUNC
 
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
-  ' plan-172-G: a frame holding a group with a matrix is the software renderer's until
-  ' plan-172-H. The walk says so (`__CANVAS_DRAW_HAS_MATRIX`); the offsets cannot.
-  IF __CANVAS_DRAW_HAS_MATRIX THEN
-    RETURN FALSE
-  END IF
   MUT total AS Integer = 0
   MUT samples AS Integer = 0
   MUT quads AS Integer = 0
@@ -1072,10 +1060,6 @@ FUNC __canvas_pictureSamples(offset AS Integer) AS Integer
 END FUNC
 
 FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
-  ' plan-172-G: as in `__canvas_metalRenderable`.
-  IF __CANVAS_DRAW_HAS_MATRIX THEN
-    RETURN FALSE
-  END IF
   MUT total AS Integer = 0
   MUT samples AS Integer = 0
   MUT quads AS Integer = 0

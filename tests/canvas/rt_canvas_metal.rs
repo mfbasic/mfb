@@ -523,16 +523,15 @@ FUNC main() AS Nothing
 END FUNC
 "#;
 
-/// plan-172-G: a frame holding a group with a matrix is the software renderer's.
+/// plan-172-H: Metal draws a group with a matrix, where the software oracle does.
 ///
-/// The GPU backends bind a group's translation and nothing else, so given this frame
-/// they would draw the bar at the group's position, unturned — a complete, plausible,
-/// wrong picture. Until they are taught the matrix (plan-172-H) the walk tells the
-/// predicate to decline. Pixel equality with the software frame would pass either way
-/// only if the decline happened, but the decline is asserted directly as well, because
-/// a GPU that drew the turn correctly by accident is not what this letter promised.
+/// plan-172-G had Metal decline this frame, because it bound a group's translation and
+/// nothing else and would have drawn the bar at the group's position unturned — a
+/// complete, plausible, wrong picture. It now binds the inverse linear part to both
+/// stages. The frame count is asserted first: a leftover decline would hand the
+/// comparison the software frame, and every pixel would match while proving nothing.
 #[test]
-fn a_group_with_a_matrix_falls_back_to_the_software_renderer() {
+fn a_group_with_a_matrix_draws_on_metal_and_matches_the_software_oracle() {
     if !cfg!(target_os = "macos") {
         return;
     }
@@ -543,9 +542,8 @@ fn a_group_with_a_matrix_falls_back_to_the_software_renderer() {
         return;
     }
     assert!(
-        stats.contains("gpuFrames=0"),
-        "a group with a matrix must be declined to software, but Metal drew the frame: \
-         {stats}"
+        !stats.contains("gpuFrames=0"),
+        "a group with a matrix must be drawn on Metal, not declined to software: {stats}"
     );
     let painted = software
         .pixels
@@ -553,8 +551,14 @@ fn a_group_with_a_matrix_falls_back_to_the_software_renderer() {
         .filter(|p| p[0] == 40 && p[1] == 200 && p[2] == 120)
         .count();
     assert_eq!(painted, 120 * 30, "the turned bar is 30 by 120 pixels");
-    if let Err(diff) = compare_exact(&gpu, &software) {
-        panic!("the declined frame must be the software renderer's own, but {diff}");
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "Metal's turned group disagrees with the software oracle: {diff}\n\
+             The bar unturned means the matrix never reached the backend. The bar in the \
+             right place but cut off means the vertex stage's quad was not carried \
+             through the forward map. The right outline with the wrong inside means the \
+             matrix reached the vertex stage only."
+        );
     }
 }
 

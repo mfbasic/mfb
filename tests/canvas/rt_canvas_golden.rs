@@ -1204,6 +1204,39 @@ fn group_affine_matches_its_reference_exactly() {
     }
 }
 
+/// plan-172-H: the GPU draws the group-affine scene the reference shows.
+///
+/// The reference is the software renderer's (plan-172-G), and the scene carries what a
+/// matrix has to carry beyond an outline: a gradient ramp, a rectangle clip, a stroke
+/// under an uneven scale, a run of text, two nests and a translucent diamond. The frame
+/// count is asserted first, because a predicate that still declined this scene would
+/// hand the comparison the frame the reference was made from.
+#[test]
+fn the_gpu_draws_the_group_affine_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu_with_font("canvas_golden_group_affine_gpu", GROUP_AFFINE);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
+         predicate declined the group-affine scene: {stats}"
+    );
+    let reference = golden_path("group_affine");
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "the GPU's group-affine scene disagrees with the reference: {diff}\n\
+             Localize by panel. Every panel upright: the matrix never reached the \
+             backend. Panels turned but cut off at a straight edge: the vertex stage's \
+             quad. Right outlines with a ramp, a clipped band or letters in the wrong \
+             place: the matrix reached the vertex stage only. Only the squashed ring's \
+             stroke wrong: the distance is not rescaled by the composed map."
+        );
+    }
+}
+
 /// The group reference scene (plan-116-H Phase 4).
 ///
 /// Every drawn item lives inside a group, so a renderer that ignored the per-draw offset

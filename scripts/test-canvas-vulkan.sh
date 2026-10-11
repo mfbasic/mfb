@@ -14,9 +14,14 @@
 #
 # Usage: scripts/test-canvas-vulkan.sh <mfb-exe> [--box <port>] [--libc glibc|musl]
 #                                      [--target linux-x86_64|linux-aarch64]
+#                                      [--keep <dir>]
 #
 #   --box <port>   ssh port of the target box (default 2228, Ubuntu x86_64 glibc).
 #   --target <t>   what to build for (default linux-x86_64). Box 2226 is linux-aarch64.
+#   --keep <dir>   copy the groups scene's two frames there as `groups-sw.rgba` and
+#                  `groups-gpu.rgba` (raw RGBA8, 900 wide). A change that must not move
+#                  a translate-only group's GPU frame is checked by keeping the frame
+#                  before and after and comparing the two files.
 #   --libc <l>     which AppImage to ship (default glibc). It must match the box:
 #                  musl's loader absorbs the glibc compat sonames, so shipping the
 #                  wrong one does not fail cleanly — box 2227 is musl.
@@ -52,12 +57,14 @@ RESIZE_H=480
 # driver behind it, so without this the musl row is a skip — and a skip is what hid a
 # *wrong* `vulkanReady` for a whole phase (Correction 13).
 ICD=""
+KEEP=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --box) PORT="$2"; shift 2 ;;
     --libc) LIBC="$2"; shift 2 ;;
     --target) TARGET="$2"; shift 2 ;;
     --icd) ICD="$2"; shift 2 ;;
+    --keep) KEEP="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -81,14 +88,7 @@ scaffold_project "$proj" vkcanvas
 # the same twelve-glyph file `tests/canvas/rt_canvas_font.rs` builds: `unitsPerEm` 1000, one
 # square glyph at (100,0)-(400,300), so a `Text` item is a row of squares whose pixels
 # are easy to reason about and whose bitmaps are far inside both backends' caps.
-base64 -d > "$proj/fixture.ttf" <<'TTF'
-AAEAAAAGAAAAAAAAY21hcAAAAAAAAABsAAAANGdseWYAAAAAAAAAoAAAACJoZWFkAAAAAAAAAMIA
-AAA2aGhlYQAAAAAAAAD4AAAAJGhtdHgAAAAAAAABHAAAAAxsb2NhAAAAAAAAASgAAAAIAAAAAQAD
-AAoAAAAMAAwAAAAAACgAAAAAAAAAAgAAAEEAAABBAAAAAQAAAEIAAABCAAAAAgABAGQAAAGQASwA
-AwAAAQEBAQBkASwAAP7UAAAAAAEsAAAAAAAAAAAAAAAAAAAAAAAAAAAD6AAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAyD/OABkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMB
-9AAAAPoAAAEsAAAAAAAAABEAEQ==
-TTF
+rc_fixture_font "$proj/fixture.ttf"
 
 # Every primitive the Vulkan shader claims to draw, including `Polygon` — whose edges
 # reach the shader through the descriptor-bound storage buffer rather than the push
@@ -620,6 +620,11 @@ remote_ssh "$PORT" "$host" "
 "
 remote_scp "$PORT" "$host:$remoteg/sw.rgba" "$work/gsw.rgba" >/dev/null
 remote_scp "$PORT" "$host:$remoteg/gpu.rgba" "$work/ggpu.rgba" >/dev/null
+if [ -n "$KEEP" ]; then
+  mkdir -p "$KEEP"
+  cp "$work/gsw.rgba" "$KEEP/groups-sw.rgba"
+  cp "$work/ggpu.rgba" "$KEEP/groups-gpu.rgba"
+fi
 remote_scp "$PORT" "$host:$remoteg/gpu.txt" "$work/ggpu.txt" >/dev/null
 
 gstats="$(tail -1 "$work/ggpu.txt")"

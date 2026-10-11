@@ -465,14 +465,26 @@ per contiguous run of blocks at a given offset:
 It was eight words until plan-172-G, and a translate-only entry is still those eight
 followed by zeros. `hasMatrix` is 1 when the entry's groups compose to more than a
 translation, and `ia`..`id` are then the INVERSE linear part of that composition, as
-float32 bit patterns. Until plan-172-H neither backend reads words 7–11: the walk sets
-`__CANVAS_DRAW_HAS_MATRIX` and both `*Renderable` predicates decline the frame.
+float32 bit patterns.
+
+**The per-draw payload is 32 bytes, bound to both stages** (plan-172-H): the four offset
+words, then `ia`..`id` — `MfbDraw` in the MSL, `uniform Draw { ivec4 offset; ivec4
+inverse; }` in the GLSL. `hasMatrix` itself is not sent: an inverse is never all zero, so
+all-zero bits mean "no matrix" and the shaders take the branch they always took, which is
+what keeps a translate-only frame byte-identical on each backend. With a matrix the
+vertex stage carries the item's box through the FORWARD linear part (it inverts the 2×2
+itself) after growing it by the inverse's Frobenius norm, and the fragment stage puts the
+query point through the inverse before anything else reads it.
 
 `dx`/`dy` are 16.16 words (`toInt(d * 65536)`, truncated) and `dxLo`/`dyLo` their residual
 words in units of 2^-47 px (bug-735): both backends bind all four as the stage offset
 (`int4`/`ivec4`, 16 bytes), and the fragment stage subtracts word plus residual in
 double-float. The 16.16 word alone is up to 2^-16 px from the offset the software
 rasteriser subtracts, and near black that moved a coverage step of every grouped item.
+
+The matrix is bound to the fragment stage as well as the vertex stage for the reason
+the offset is, below: bound to the vertex stage alone, a turned group has the right
+outline and the wrong contents.
 
 Each backend walks it once, after every block is published, and issues one instanced
 draw per entry: `vkCmdDraw` with `firstInstance = itemBase`, or
@@ -505,10 +517,12 @@ plan-163-C it was a surface window evaluated at the un-shifted point, and
 own definition reads `in.pos.xy` — evaluating the clip there again leaves it behind when
 the group moves.
 
-Where the offset is bound differs per backend and per stage, so it is three numbers, not
-one: Vulkan uses a single push-constant range both stages declare; Metal uses
-`setVertexBytes:` at buffer index **1** and `setFragmentBytes:` at index **3**, because
-its fragment stage already has items, edges and the glyph bitmap at 0..2.
+Where the payload is bound differs per backend and per stage, so it is three numbers,
+not one: Vulkan uses a single 32-byte push-constant range both stages declare
+(`PUSH_OFFSET_BYTES`, which the pipeline layout's range, the `vkCmdPushConstants` size
+and the staging slot all read); Metal uses `setVertexBytes:` at buffer index **1** and
+`setFragmentBytes:` at index **3**, 32 bytes each, because its fragment stage already has
+items, edges and the glyph bitmap at 0..2.
 
 **A predicate cannot decline a group scene by looking for a `Group` item.** By the time
 `__canvas_vulkanRenderable` or `__canvas_metalRenderable` sees the offsets list, the walk
@@ -919,10 +933,11 @@ Two consequences worth stating because they are easy to get wrong in the other o
 
 * **The GPU predicates cannot look for a `Group`** — by the time they see the list there
   is none. A backend that must decline is told by the walk: `__CANVAS_DRAW_HAS_GROUP`
-  did that until both backends drew groups, and `__CANVAS_DRAW_HAS_MATRIX` does it now
-  for a group with a transform (plan-172-G). A predicate that searched would find
-  nothing, accept the frame, and draw every group's children untransformed: §10's
-  failure exactly.
+  did that until both backends drew groups, and `__CANVAS_DRAW_HAS_MATRIX` did it for a
+  group with a transform between plan-172-G and plan-172-H. Neither exists now; a future
+  backend that needs to decline has to set a flag again rather than search. A predicate
+  that searched would find nothing, accept the frame, and draw every group's children
+  untransformed: §10's failure exactly.
 * **Both sides of the damage diff need the offset.** The remembered bounds and the
   current bounds must both be translated, and each draw entry's recorded hash must fold
   in its offset — otherwise a moved group changes no geometry and reports "nothing

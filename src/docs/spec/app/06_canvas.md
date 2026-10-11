@@ -1078,13 +1078,34 @@ they were when the entry was eight words. Word 7 is 1 when the entry has a matri
 translate-only entry is therefore its old eight words followed by zeros.
 [[src/codegen/runtime/canvas/mod.rs:CANVAS_DRAW_ENTRY_WORDS]]
 
-**Until the GPU backends read the matrix, a frame that holds one is drawn in software.**
-Metal and Vulkan bind an entry's translation and nothing else, so given a matrix they
-would draw a complete picture with every such group unturned. The walk records that the
-frame holds a matrix and both renderable predicates decline it — a predicate cannot
-find a group in the offsets list, which is flat by then. The frame's statistics report
-the software renderer.
-[[tests/canvas/rt_canvas_metal.rs:a_group_with_a_matrix_falls_back_to_the_software_renderer]]
+**Both GPU backends bind 32 bytes per draw, to both stages.** The entry's four
+translation words, then the four words of the inverse linear part: `MfbDraw` on Metal,
+sent with `setVertexBytes:` and `setFragmentBytes:`, and one push-constant range on
+Vulkan that both stages declare. `hasMatrix` is not sent — an inverse is never all
+zero, so all-zero bits mean the groups only translate, and the shaders then take the
+branch they took before a group could have a matrix.
+[[src/target/macos_aarch64/app/metal.rs:emit_draw_list_pass]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_draw_list_pass]]
+[[src/codegen/runtime/canvas/vulkan.rs:PUSH_OFFSET_BYTES]]
+
+With a matrix:
+
+* the **vertex** stage carries the item's box through the forward linear part — the
+  inverse of the 2×2 it was given, taken in the shader — so the quad is a parallelogram.
+  The box is first grown on every side by the inverse's Frobenius norm, which is at
+  least one surface pixel, because the box's own antialiasing rim is in the group's
+  space and a group that scales down would shrink it;
+* the **fragment** stage subtracts the translation from the pixel, as it always has,
+  then applies the inverse linear part, and only then the item's own inverse if it has
+  one. Every consumer reads that point: the distance (whose four neighbour samples are
+  half a surface pixel apart, so the inverse is applied to those offsets too), the
+  gradient ramp, the glyph texel, the picture texel and the clip. A rectangle clip is
+  sampled like a path clip there, for the reason the software renderer does it.
+
+Bound to the vertex stage alone, a turned group would have the right outline and the
+wrong contents — the reasoning that puts the offset in both stages.
+[[tests/canvas/rt_canvas_golden.rs:the_gpu_draws_the_group_affine_scene_the_reference_shows]]
+[[tests/canvas/rt_canvas_metal.rs:a_group_with_a_matrix_draws_on_metal_and_matches_the_software_oracle]]
 
 **Groups may nest, to a depth of 64.** A nested `canvas::Group` stays a reference: it is
 resolved when the scene is presented, so replacing the inner group changes what the outer

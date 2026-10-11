@@ -556,14 +556,18 @@ const PUSH_RANGE_STAGES: usize = 0;
 const PUSH_RANGE_OFFSET: usize = 4;
 const PUSH_RANGE_BYTES: usize = 8;
 
-/// The per-draw group offset: `dx` and `dy` in 16.16 (plan-116-H), then (bug-735) their
-/// residual words, `ivec4 offset` in both stages. Four 32-bit words.
+/// The per-draw payload, `uniform Draw` in both stages: the group offset — `dx` and `dy`
+/// in 16.16 (plan-116-H), then (bug-735) their residual words, `ivec4 offset` — and
+/// (plan-172-H) the inverse linear part of the groups' composed affine as four float32
+/// bit patterns, `ivec4 inverse`, all zero for a draw its groups only translate. Eight
+/// 32-bit words.
 ///
-/// Sixteen bytes against the 128 every implementation guarantees, so the size is not the
-/// constraint — the constraint is that it is the *only* push constant, so its offset is
-/// 0 and any future addition has to be appended rather than inserted, as the residuals
-/// were.
-const PUSH_OFFSET_BYTES: usize = 16;
+/// Thirty-two bytes against the 128 every implementation guarantees, so the size is not
+/// the constraint — the constraint is that it is the *only* push constant, so its offset
+/// is 0 and any future addition has to be appended rather than inserted, as the
+/// residuals and the matrix were. The pipeline layout's range, the `vkCmdPushConstants`
+/// size and the stack slot the values are staged in all read this one constant.
+const PUSH_OFFSET_BYTES: usize = 32;
 
 /// `VkAttachmentDescription`, 36 bytes.
 const ATTACHMENT_SIZE: usize = 36;
@@ -6175,8 +6179,8 @@ fn emit_draw_list_pass(
 
     let off_push_fn = builder.allocate_stack_object("vk_push_fn", 8);
     let off_index = builder.allocate_stack_object("vk_drawlist_index", 8);
-    // The two 16.16 words and their residual words, contiguous, so `pValues` can point
-    // straight at them.
+    // The two 16.16 words, their residual words and (plan-172-H) the four words of the
+    // inverse linear part, contiguous, so `pValues` can point straight at them.
     let off_offset_pair = builder.allocate_stack_object("vk_push_offset", PUSH_OFFSET_BYTES);
 
     let off_bind_fn = builder.allocate_stack_object("vk_drawlist_bind_fn", 8);
@@ -6208,10 +6212,10 @@ fn emit_draw_list_pass(
     builder.emit(abi::compare_registers(&index, &total));
     builder.emit(abi::branch_ge(&done));
 
-    // entry = draws + index * 64
+    // entry = draws + index * (CANVAS_DRAW_ENTRY_WORDS * 8)
     let entry = builder.temporary_vreg();
     builder.emit(abi::load_u64(&entry, abi::stack_pointer(), off_draws));
-    // 8 elements per entry x 8 bytes per element = 64. An MFBASIC `Integer` is 64-bit,
+    // Sixteen elements per entry, eight bytes each. An MFBASIC `Integer` is 64-bit,
     // which is the whole reason the fields below are at 0/8/16/24/32 and are loaded with
     // `load_u64`: reading them as 32-bit words takes the low half of `base` and the low
     // half of `count` as if they were `base` and `dx`, which draws real geometry at
@@ -6283,9 +6287,19 @@ fn emit_draw_list_pass(
     ));
     emit_call_fn(builder, off_bind_fn);
 
-    // Now the offset pair and (bug-735) its residual words, entry words 5 and 6, into
-    // the slot the bind above borrowed.
-    for (word_index, at) in [(2usize, 0usize), (3, 4), (5, 8), (6, 12)] {
+    // Now the offset pair, (bug-735) its residual words, entry words 5 and 6, and
+    // (plan-172-H) the inverse linear part, entry words 8-11, which are zero in an entry
+    // with no matrix -- into the slot the bind above borrowed.
+    for (word_index, at) in [
+        (2usize, 0usize),
+        (3, 4),
+        (5, 8),
+        (6, 12),
+        (8, 16),
+        (9, 20),
+        (10, 24),
+        (11, 28),
+    ] {
         builder.emit(abi::load_u64(word, entry, word_index * 8));
         builder.emit(abi::store_u32(
             word,
