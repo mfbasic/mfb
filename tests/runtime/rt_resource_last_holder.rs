@@ -1032,3 +1032,258 @@ fn a_trapped_call_that_returns_its_argument_frees_the_default_record() {
         19,
     );
 }
+
+/// bug-1047: `whichL("t", collections::get(hs, i)) TRAP(e) … END TRAP` over a `List
+/// OF RES fs::File`. The inline `TRAP` lifts the fallible `get` out of the argument
+/// into a temporary of its own (`bind $trap_resN = callResult collections.get(hs,
+/// i)`), so the element read is no longer written straight into an argument: the
+/// list counted as read back out of, lost the proof, and with it the free of its
+/// own block. Either trapped read alone keeps the block (96 bytes for one element,
+/// 192 for three), the failing one and the succeeding one alike. The same over a
+/// resource union, a `Map`, a list floated in a loop and read in a loop with an
+/// early `RETURN`, and a `RES` binding of the trapped read itself.
+#[test]
+fn a_trapped_element_read_does_not_keep_the_list_block() {
+    check_at_both_levels(
+        "two_reads",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 LET hs AS List OF RES fs::File = [a]\n\
+         \x20 MUT r AS Integer = 0\n\
+         \x20 r = whichL(\"t\", collections::get(hs, 5)) TRAP(e)\n\
+         \x20   RECOVER 7\n\
+         \x20 END TRAP\n\
+         \x20 MUT q AS Integer = 0\n\
+         \x20 q = whichL(\"t\", collections::get(hs, 0)) TRAP(e)\n\
+         \x20   RECOVER 7\n\
+         \x20 END TRAP\n\
+         \x20 RETURN r + q - 7\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "failing_read",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 LET hs AS List OF RES fs::File = [a]\n\
+         \x20 MUT r AS Integer = 0\n\
+         \x20 r = whichL(\"t\", collections::get(hs, 5)) TRAP(e)\n\
+         \x20   RECOVER 7\n\
+         \x20 END TRAP\n\
+         \x20 RETURN r - 6\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "succeeding_read",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 LET hs AS List OF RES fs::File = [a]\n\
+         \x20 MUT q AS Integer = 0\n\
+         \x20 q = whichL(\"t\", collections::get(hs, 0)) TRAP(e)\n\
+         \x20   RECOVER 7\n\
+         \x20 END TRAP\n\
+         \x20 RETURN q\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "three_elements",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES b AS fs::File = openOne()\n\
+         \x20 RES c AS fs::File = openOne()\n\
+         \x20 LET hs AS List OF RES fs::File = [a, b, c]\n\
+         \x20 MUT q AS Integer = 0\n\
+         \x20 q = whichL(\"t\", collections::get(hs, 0)) TRAP(e)\n\
+         \x20   RECOVER 7\n\
+         \x20 END TRAP\n\
+         \x20 RETURN q\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "union_list",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 LET hs AS List OF RES Handle = [a]\n\
+         \x20 MUT r AS Integer = 0\n\
+         \x20 r = whichLH(\"t\", collections::get(hs, 5)) TRAP(e)\n\
+         \x20   RECOVER 7\n\
+         \x20 END TRAP\n\
+         \x20 MUT q AS Integer = 0\n\
+         \x20 q = whichLH(\"t\", collections::get(hs, 0)) TRAP(e)\n\
+         \x20   RECOVER 7\n\
+         \x20 END TRAP\n\
+         \x20 RETURN r + q - 7\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "map",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 LET m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { \"a\" := a }\n\
+         \x20 MUT r AS Integer = 0\n\
+         \x20 r = whichL(\"t\", collections::get(m, \"zz\")) TRAP(e)\n\
+         \x20   RECOVER 7\n\
+         \x20 END TRAP\n\
+         \x20 MUT q AS Integer = 0\n\
+         \x20 q = whichL(\"t\", collections::get(m, \"a\")) TRAP(e)\n\
+         \x20   RECOVER 7\n\
+         \x20 END TRAP\n\
+         \x20 RETURN r + q - 7\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "floated_loop_return",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT hs AS List OF RES fs::File = []\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   RES a AS fs::File = openOne()\n\
+         \x20   hs = collections::append(hs, a)\n\
+         \x20 NEXT\n\
+         \x20 FOR j = 0 TO 2\n\
+         \x20   MUT q AS Integer = 0\n\
+         \x20   q = whichL(\"t\", collections::get(hs, j)) TRAP(e)\n\
+         \x20     RECOVER 7\n\
+         \x20   END TRAP\n\
+         \x20   t = t + q\n\
+         \x20   IF j = 2 THEN\n\
+         \x20     RETURN t - 8\n\
+         \x20   END IF\n\
+         \x20 NEXT\n\
+         \x20 RETURN 0\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "bound_trapped_read",
+        "FUNC whichL(label AS String, f AS fs::File) AS Integer\n\
+         \x20 LET text AS String = fs::readAll(f)\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC whichLH(label AS String, h AS Handle) AS Integer\n\
+         \x20 MATCH h\n\
+         \x20   CASE fs::File(f)\n\
+         \x20     LET text AS String = fs::readAll(f)\n\
+         \x20     RETURN 1\n\
+         \x20   CASE tcp::Socket(s)\n\
+         \x20     RETURN 2\n\
+         \x20 END MATCH\n\
+         \x20 RETURN 0\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 LET hs AS List OF RES fs::File = [a]\n\
+         \x20 RES g AS fs::File = collections::get(hs, 0) TRAP(e)\n\
+         \x20   RETURN 9\n\
+         \x20 END TRAP\n\
+         \x20 RES g2 AS fs::File = collections::get(hs, 4) TRAP(e)\n\
+         \x20   RECOVER a\n\
+         \x20 END TRAP\n\
+         \x20 RETURN whichL(\"t\", g) + whichL(\"u\", g2) - 1\n\
+         END FUNC\n",
+        1,
+    );
+}
