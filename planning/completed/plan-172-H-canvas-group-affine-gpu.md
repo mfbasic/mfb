@@ -166,7 +166,7 @@ Acceptance: two baseline dumps exist with recorded hashes.
   Observed (2026-10-10): `dfb2bbdd…` Metal (twice), `f087dc9f…` Vulkan on box 2226
   (twice), `f087dc9f…` Vulkan on box 2227, and `8e4e16ac…` for the `groupsblack` row on
   box 206 — full hashes and file names in Corrections.
-Commit: —
+Commit: c4e96512a
 
 ### Phase 2 — Metal
 
@@ -190,7 +190,7 @@ translate-only dump is byte-identical to `metal-before.rgba`.
   in `rt_canvas_golden.rs`). The Metal dump after the change, and again on the final
   build, is `dfb2bbdd…` — the same file as before, so the comparison is `shasum`
   equality rather than `cmp.py`.
-Commit: —
+Commit: c4e96512a
 
 ### Phase 3 — Vulkan (largest blast radius)
 
@@ -223,7 +223,7 @@ and the translate-only dump is byte-identical to `vulkan-before.rgba`.
   and on box 206's real GPU ("ok worst=1 differing=0.9651%") — Corrections. The
   translate-only dump is byte-identical before and after on all three.
   Local round on the final tree: all 25 canvas-embedding targets green (`rt_canvas_golden` 25, `rt_canvas_metal` 49, `rt_canvas_rasteriser` 106, `rt_canvas_font` 33), `cargo test --bin mfb canvas` 115, `spec` 46, `vulkan` 9, `metal` 10 passed. `scripts/artifact-gate.sh target/release/mfb all` → `2322 golden(s) checked, 0 diff(s)`.
-Commit: —
+Commit: c4e96512a
 
 ## Validation Plan
 
