@@ -41,7 +41,9 @@ const GROUPS = {
   "parse/lenient/host-forbidden-code-point": ["a", "MFBASIC accepts a host containing a WHATWG forbidden host code point (space, control, `<>^|%` ...); spec Parse failures lists \"garbage host\", owner decision on bug-873 item 5: validate hosts"],
   "parse/lenient/host-ipv4-invalid": ["a", "MFBASIC accepts a host that ends in a number but is not a valid IPv4 address (`256.0.0.1`, `1.2.3.09`, `foo.09`)"],
   "parse/lenient/host-ipv6-invalid": ["a", "MFBASIC accepts any text between `[` and `]` as an IPv6 host (`[1::2::3]`, `[g::1]`, zones, `[v1.fe]`)"],
-  "parse/lenient/host-idna-invalid": ["a", "MFBASIC accepts a non-ASCII or `xn--` host that UTS #46 (WHATWG domain-to-ASCII) refuses"],
+  "parse/lenient/host-idna-invalid": ["b", "MFBASIC accepts a non-ASCII (raw or percent-encoded) or `xn--` host that UTS #46 (WHATWG domain-to-ASCII) refuses. Owner decision on bug-979 (2026-10-10): no IDNA for now, a documented difference (spec: Not implemented: IDNA); implementing it is bug-1042"],
+  "parse/strict/host-idna-mapped": ["b", "a non-ASCII host whose last part is a number: WHATWG maps it with UTS #46 first (fullwidth digits become ASCII) and reads an IPv4 address, MFBASIC does no mapping and refuses it as an invalid IPv4 address (spec: Not implemented: IDNA; bug-1042)"],
+  "parse/host-idna-mapped": ["b", "both accept; WHATWG maps a non-ASCII host with UTS #46 and what results is an IPv4 address, MFBASIC keeps the host as written (spec: Not implemented: IDNA; bug-1042)"],
   "parse/lenient/host-percent-invalid": ["a", "MFBASIC accepts a host whose percent-decoding WHATWG refuses (`%zz`, `%00`, invalid UTF-8)"],
   "parse/lenient/port-out-of-range": ["a", "MFBASIC accepts a port WHATWG refuses"],
   "parse/lenient/backslash-authority": ["a", "the authority holds a `\\`: WHATWG ends the authority there (then refuses what is left, e.g. a non-digit port), MFBASIC keeps it inside userinfo/host. Owner decision 3 on bug-979: `\\` is `/`"],
@@ -110,6 +112,15 @@ function nodeParse(line) {
   return u;
 }
 
+// A host that needs UTS #46: a non-ASCII character, raw or percent-encoded, or an `xn--` label.
+const needsIdna = (h) => {
+  let decoded = h;
+  try {
+    decoded = decodeURIComponent(h);
+  } catch {}
+  return /[^\u0000-\u007f]/.test(decoded) || /(^|\.)xn--/i.test(decoded);
+};
+
 const bracket = (h) => (h.includes(":") ? `[${h}]` : h);
 const endsInNumber = (h) => {
   const parts = h.split(".");
@@ -133,6 +144,7 @@ function lenientReason(s, m) {
       decoded = decodeURIComponent(m.host);
     } catch {}
     if (decoded === null || FORBIDDEN_HOST.test(decoded)) return "host-percent-invalid";
+    if (/[^\u0000-\u007f]/.test(decoded)) return "host-idna-invalid";
   }
   if (FORBIDDEN_HOST.test(m.host)) return "host-forbidden-code-point";
   if (endsInNumber(m.host.toLowerCase())) return "host-ipv4-invalid";
@@ -153,6 +165,7 @@ function strictReason(s, m) {
   if (authority.includes("\\")) return "backslash-authority";
   if (/non-digit in port/.test(msg)) return "port-not-digits";
   if (/forbidden character in host/.test(msg) && /[\t\n\r]/.test(authority)) return "host-tab-newline";
+  if (/invalid IPv4 address/.test(msg) && needsIdna(authority.slice(authority.lastIndexOf("@") + 1))) return "host-idna-mapped";
   return "other";
 }
 
@@ -210,7 +223,7 @@ function classifyParse(i, ml, nl) {
     return "diverge";
   }
   if (FIELDS.every((f) => f === "host" || m[f] === n[f]) && IPV4.test(n.host) && n.host !== m.host.toLowerCase().replace(/\.$/, "")) {
-    note("parse/host-ipv4-noncanonical", i, detail);
+    note(needsIdna(m.host) ? "parse/host-idna-mapped" : "parse/host-ipv4-noncanonical", i, detail);
     return "diverge";
   }
   if (/[\t\n\r]/.test(m.host)) {

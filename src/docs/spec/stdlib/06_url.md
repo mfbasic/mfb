@@ -192,8 +192,7 @@ For an `http`/`https` href, `toUrl` is checked against Node's WHATWG `URL` by
 `tools/oracles/url/run.sh <mfb> parse`. It agrees on which ASCII hosts are
 valid (an `xn--` label excepted, see IDNA), on the canonical form of an IPv4
 host, and on `\` acting as `/` in the authority and the path. It differs in
-these ways. Each row but IDNA is a declared class-b group of that oracle; the
-IDNA cases are reported by it as class-a divergences:
+these ways. Each row is a declared class-b group of that oracle:
 
 | Difference | Behaviour here | WHATWG |
 |------------|----------------|--------|

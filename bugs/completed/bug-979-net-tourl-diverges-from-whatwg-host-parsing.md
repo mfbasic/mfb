@@ -5,8 +5,8 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Security (parser differential) / Correctness — owner-confirmed
 
-Status: Partly fixed — the three owner decisions and the port message are implemented; 39 oracle entries that need IDNA (UTS #46) remain and wait on an owner decision (see "Open: IDNA")
-Regression Test: `tests/rt-behavior/net/bug979_toUrl_host_canonical`, `tests/rt-error/net/bug979_toUrl_host_invalid`; `tools/oracles/url/run.sh <mfb> parse` (+ `wpt` with `MFB_URL_WPT`) must report zero class-a/c divergences in the `parse/host-*`, `parse/split-differs/backslash` and `strict|lenient/backslash-authority` groups (not yet zero: see "Open: IDNA")
+Status: Fixed (batch 20, 2026-10-10). The three owner decisions and the port message are implemented. IDNA is not: by owner decision (2026-10-10, "c for now") it is a documented difference, and implementing it is bug-1042.
+Regression Test: `tests/rt-behavior/net/bug979_toUrl_host_canonical`, `tests/rt-error/net/bug979_toUrl_host_invalid`; `tools/oracles/url/run.sh <mfb> parse` (+ `wpt` with `MFB_URL_WPT`) must report zero class-a/c divergences in the `parse/host-*`, `parse/split-differs/backslash` and `strict|lenient/backslash-authority` groups (zero in both modes after the IDNA groups became class b, see "IDNA")
 
 **Owner decisions (2026-10-05):** URL handling is checked against Node's WHATWG `URL`
 (oracle `tools/oracles/url/`, built during the hardening review). For http(s) URLs `toUrl`
@@ -98,26 +98,28 @@ including the overflow of an all-digit text.
 
 Class a/c/unclassified entries: parse 260 → 19, wpt 188 → 20.
 
-## Open: IDNA (owner decision needed)
+## IDNA (owner decision, 2026-10-10: a documented difference for now)
 
-Every remaining class-a/unclassified entry needs UTS #46 (Punycode decoding plus the
-Unicode mapping and validity tables), which none of the three decisions settles:
+After the fix, every remaining class-a/unclassified oracle entry needed UTS #46 (Punycode
+decoding plus the Unicode mapping and validity tables), which none of the three decisions
+settled: 19 entries in `parse` mode and 20 in `wpt`. Asked whether to implement UTS #46,
+refuse every non-ASCII host, or declare the difference, the owner chose to declare it, for
+now. Implementing UTS #46 is bug-1042.
 
-- `parse/lenient/host-idna-invalid` (parse 18, wpt 14): a non-ASCII host or an `xn--` label
-  that UTS #46 refuses (`xn--`, `a.b.c.xn--pokxncvks`, U+0301 first, U+2488, U+FFFD, U+00AD
-  alone, U+00A0/U+3000, ZWJ/ZWNJ, fullwidth `%41`). MFBASIC accepts them as written.
-- `parse/lenient/host-forbidden-code-point` (wpt 5): percent-encoded non-ASCII that UTS #46
-  refuses or maps to a forbidden character (`%C2%AD`, `%EF%BF%BD`, `%ef%b7%90zyx.com`,
-  `%ef%bc%85%ef%bc%94%ef%bc%91.com`, `%ef%bc%85%ef%bc%90%ef%bc%90.com`).
-- `parse/host-ipv4-noncanonical` (wpt 1): fullwidth `０Ｘｃ０．０２５０．０１`, which UTS #46 maps
-  to `0xc0.0250.01` = `192.168.0.1`; MFBASIC keeps it as a name.
-- `parse/strict/other` (parse 1): `http://１２７.0.0.1/` (fullwidth digits). Its last part is a
-  number, the others are not IPv4 numbers, so MFBASIC now refuses it; WHATWG maps it to
-  `127.0.0.1`.
+- The oracle's `parse/lenient/host-idna-invalid` group is class b. A host whose
+  percent-decoding holds a non-ASCII character is sorted into it (the five `wpt` cases such
+  as `%C2%AD` were in `host-forbidden-code-point`).
+- Two new class-b groups hold the hosts UTS #46 maps to an IPv4 address:
+  `parse/strict/host-idna-mapped` (`http://１２７.0.0.1/`: its last part is a number and the
+  others are not IPv4 numbers, so MFBASIC refuses it; WHATWG reads `127.0.0.1`) and
+  `parse/host-idna-mapped` (fullwidth `０Ｘｃ０．０２５０．０１`: MFBASIC keeps it as a name,
+  WHATWG reads `192.168.0.1`).
+- `mfb spec stdlib url` states it under "Not implemented: IDNA" and in the Conformance table.
 
-Question: implement UTS #46 `domain to ASCII`; or refuse every host with a non-ASCII byte
-(raw or percent-decoded) and decide separately how to treat `xn--` labels; or declare
-"no IDNA" a class-b difference in the oracle and the spec?
+Measured by the coordinator on staging (`/tmp/bs20-target/release/mfb`):
+`MFB_URL_WPT=<pinned urltestdata.json> tools/oracles/url/run.sh <mfb> parse wpt` exits 0;
+`parse`: 1955 cases, 1280 agree, 0 class a/c/unclassified entries; `wpt`: 746 cases, 421
+agree, 0 class a/c/unclassified entries.
 
 ## Goldens expected to change (not regenerated here)
 

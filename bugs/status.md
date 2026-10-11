@@ -24,8 +24,8 @@ table and waits.
 
 1026, 912, 911, 860, 979 (912 before 911). The two HIGH canvas bugs, 688 and 765, are not
 in this phase. 860 is closed with its fourth-power term fixed; what it left is
-bug-1035, a later phase's work. 979 left the phase with its three owner decisions implemented;
-its IDNA remainder waits on an owner decision.
+bug-1035, a later phase's work. 979 is closed with its three owner decisions implemented;
+IDNA is a documented difference for now and bug-1042.
 
 ## Resources and STATE
 
@@ -137,14 +137,14 @@ its IDNA remainder waits on an owner decision.
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 979    | SECURITY | `net::toUrl` and WHATWG host parsing: host validation, IPv4 canonicalization and `\` as `/` are done; what is left is the 39 oracle entries that need IDNA (NEEDS AN OWNER DECISION: implement UTS #46, refuse every non-ASCII host, or declare "no IDNA" a documented difference) |
 | [ ]  | 980    | SECURITY | the HTTP chunked decoder accepts framing llhttp (and RFC 9112) rejects (builds on 859's rule) |
 | [ ]  | 1017   | SECURITY | on Windows, `http::respondPath` still answers 403 vs 404 by existence for a `..\` traversal (bug-862's oracle, through a backslash) |
 | [ ]  | 876    | MED      | `tcp::connect`/`tcp::listen`/`udp::bind` accept any Integer port and silently use its low 16 bits |
 | [ ]  | 865    | LOW      | http server emits the handler's stale reason phrase (`418 OK` from the spec's own teapot example) and any status integer verbatim (`HTTP/1.1 -5 OK`, `1000`, `0`) |
 | [ ]  | 866    | LOW      | `http` route `:name` binds an empty segment — `/t/:id` matches `/t//` with `id = ""` |
 | [ ]  | 867    | LOW      | the http server's 8 KiB-line and 100-field caps are enforced only after the head is complete |
-| [ ]  | 872    | LOW      | an IPv6-literal URL parses but cannot be used (the connect half; after 979) |
+| [ ]  | 872    | LOW      | an IPv6-literal URL parses but cannot be used (the connect half) |
+| [ ]  | 1042   | LOW      | `net::toUrl` does no IDNA (UTS #46) host processing: a non-ASCII or `xn--` host is stored as written (what bug-979 left; owner decided: a documented difference for now) |
 | [ ]  | 986    | LOW      | an http client HEAD request waits for the server to close when the response carries a non-zero Content-Length (owner decided: a `method` field on `http::PendingState`) |
 | [ ]  | 1003   | LOW      | the `http::pump` man example can hang forever: it fetches a live remote (example.com) with no deadline (flake) |
 
