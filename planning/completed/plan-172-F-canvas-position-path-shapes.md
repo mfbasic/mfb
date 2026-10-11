@@ -153,7 +153,7 @@ Acceptance: every canvas pixel test passes with no PNG regenerated.
   this letter's first round (33 passed) and are not this letter's (Corrections;
   `bugs/bug-1016-*`). `git status --porcelain tests/golden/canvas` → empty.
   `scripts/artifact-gate.sh target/release/mfb all` → `2308 golden(s) checked, 0 diff(s)`.
-Commit: —
+Commit: 04cc405cf
 
 ### Phase 2 — The pivot and the move, proved
 
@@ -172,7 +172,7 @@ Acceptance: the three cases pass and Metal agrees within `Tolerance::GPU_DEFAULT
   path_placement` → pass (est. 5 min).
   Observed (2026-10-10): `rt_canvas_rasteriser path_placement` → `3 passed; 0 failed`;
   `rt_canvas_metal path_placement` → `1 passed; 0 failed`.
-Commit: —
+Commit: 04cc405cf
 
 ### Phase 3 — Cost, measured
 
@@ -192,7 +192,7 @@ start, or the regression is explained and fixed.
   invisible to every pixel test, so nothing smaller catches it).
   Observed (2026-10-10): one sweep takes about 4 minutes. The figures, the regression
   found and its fix are in Corrections.
-Commit: —
+Commit: 04cc405cf
 
 ## Validation Plan
 
