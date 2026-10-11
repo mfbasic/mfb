@@ -145,7 +145,10 @@ fn check(case: &str, body: &str, per_iteration: u64, expect: Expect) {
         );
         if expect == Expect::Balanced {
             assert_eq!(
-                (counters.alloc_calls - counters.free_calls, counters.live_bytes),
+                (
+                    counters.alloc_calls - counters.free_calls,
+                    counters.live_bytes
+                ),
                 (0, 0),
                 "{case} N={n}: blocks never freed and bytes still live at exit \
                  ({} allocations, {} frees)",

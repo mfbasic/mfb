@@ -43,7 +43,7 @@
 
 use crate::codegen::engine::builder::CodeBuilder;
 use crate::target::shared::nir::visit::{walk_op, walk_value, NirVisitor};
-use crate::target::shared::nir::{NirFunction, NirOp, NirValue};
+use crate::target::shared::nir::{NirFunction, NirMatchPattern, NirOp, NirValue};
 use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};
 
@@ -346,7 +346,6 @@ pub(crate) fn record_ownership(
     functions: &HashMap<String, &NirFunction>,
     record_type: &dyn Fn(&ParameterType) -> bool,
     res_collection_type: &dyn Fn(&ParameterType) -> bool,
-    union_collection_type: &dyn Fn(&ParameterType) -> bool,
 ) -> RecordOwnership {
     let stores = collect(function, functions);
     let params: HashSet<String> = function.params.iter().map(|p| p.name.clone()).collect();
@@ -396,7 +395,6 @@ pub(crate) fn record_ownership(
         functions,
         record_type,
         res_collection_type,
-        union_collection_type,
         &stores,
         &params,
     );
@@ -511,7 +509,6 @@ fn owning_collections(
     functions: &HashMap<String, &NirFunction>,
     record_type: &dyn Fn(&ParameterType) -> bool,
     res_collection_type: &dyn Fn(&ParameterType) -> bool,
-    union_collection_type: &dyn Fn(&ParameterType) -> bool,
     stores: &Stores,
     params: &HashSet<String>,
 ) -> HashSet<String> {
@@ -526,15 +523,6 @@ fn owning_collections(
     }
     let mut callees = CalleeParamUses::default();
     let uses = CollectionUses::of(function, functions, &mut callees);
-    // bug-1000's wider rule, except for a collection that reaches a resource
-    // union (`block_held_elsewhere_strict`).
-    let held_elsewhere = |name: &str, type_: &ParameterType| {
-        if union_collection_type(type_) {
-            uses.block_held_elsewhere_strict(name)
-        } else {
-            uses.block_held_elsewhere(name)
-        }
-    };
     let all_floated: HashSet<String> = floats.values().flatten().cloned().collect();
     let mut owning = HashSet::new();
     // bug-651: a `RES`-marked collection that no element ever floats into still owns its
@@ -552,7 +540,7 @@ fn owning_collections(
         if !res_collection_type(type_) || floats.contains_key(name) {
             continue;
         }
-        if held_elsewhere(name, type_) {
+        if uses.block_held_elsewhere(name) {
             continue;
         }
         if !uses.block_is_fresh(name) {
@@ -567,7 +555,7 @@ fn owning_collections(
         // A float target with no bind in this body (a parameter) takes the strict
         // rule: its type is not known here.
         let held = match stores.types.get(collection) {
-            Some(type_) => held_elsewhere(collection, type_),
+            Some(_) => uses.block_held_elsewhere(collection),
             None => uses.block_held_elsewhere_strict(collection),
         };
         if held {
@@ -642,15 +630,23 @@ struct CollectionUses<'m, 'f> {
     /// the loop variable itself goes somewhere (see [`Self::owner_held_elsewhere`]).
     escaping_beyond_iteration: HashSet<String>,
     /// bug-1000: every `FOR EACH <variable> IN <local>`, as `(local, variable)`.
+    ///
+    /// bug-1028: and the three references a `MATCH` makes, which live by the same
+    /// rule (see [`is_match_view`]): the scrutinee temporary of the local it was
+    /// bound from, as `(local, temporary)`; a case binding of that temporary, as
+    /// `(temporary, binding)`; and the temporary of the collection a borrowed
+    /// element was read from, as `(collection, temporary)`.
     iterations: Vec<(String, String)>,
-    /// Set while the walk is on a `FOR EACH`'s iterable.
+    /// Set while the walk is on a `FOR EACH`'s iterable, or on the one local a
+    /// `MATCH` reference is derived from.
     in_iterable: bool,
     /// bug-1000: set, for the walk of one call argument, when that argument is a
     /// borrowed-element read whose result the receiving call does not keep.
     transient_borrow: bool,
     /// bug-1000: collections a borrowed-element read names only transiently (see
-    /// `transient_borrow`). Kept apart from `element_readers` for the collections
-    /// that still take the strict rule ([`Self::block_held_elsewhere_strict`]).
+    /// `transient_borrow`). Kept apart from `element_readers` for the float
+    /// targets that still take the strict rule
+    /// ([`Self::block_held_elsewhere_strict`]).
     transient_readers: HashSet<String>,
     /// bug-1000: the locals handed to code this walk cannot read
     /// ([`Self::call_reaches_unread_code`]): a callback that keeps what it is
@@ -829,17 +825,16 @@ impl<'m, 'f> CollectionUses<'m, 'f> {
 
     /// [`Self::block_held_elsewhere`] without bug-1000's two readings: named
     /// anywhere outside an argument position, a `FOR EACH` included, or read
-    /// through a borrowed-element call at all. For a collection that reaches a
-    /// resource union.
+    /// through a borrowed-element call at all. For a float target that has no
+    /// bind in this body (a parameter), whose stores this walk cannot see.
     ///
-    /// It was written around a defect bug-1012 has since removed: an adopted
-    /// list's drain freed 16 bytes at the address of each element's box, which is
-    /// a span of the list's own block. A drain now frees no box at all — an
-    /// owned-list node holds a copy of the box's two words — so the wider rule
-    /// would no longer free anything twice. It stays strict because the wider
-    /// rule has not been measured for these collections: a `List OF RES <Union>`
-    /// that is iterated or read through `collections::get` keeps its block and
-    /// its records (a bounded leak, the direction this module fails in).
+    /// bug-1028: a collection that reaches a resource union used to take this
+    /// rule too. It was written around a defect bug-1012 removed (an adopted
+    /// list's drain freed 16 bytes at the address of each element's box, a span
+    /// of the list's own block; a drain now frees no box at all, because an
+    /// owned-list node holds a copy of the box's two words). Measured with the
+    /// wider rule, such a collection frees its block and its records once
+    /// (`tests/runtime/rt_resource_union_reclaim.rs`).
     fn block_held_elsewhere_strict(&self, name: &str) -> bool {
         self.escaping.contains(name)
             || self.kept.contains(name)
@@ -925,6 +920,42 @@ impl CollectionUses<'_, '_> {
     }
 }
 
+impl CollectionUses<'_, '_> {
+    /// Walk the one local a `FOR EACH` variable or a `MATCH` reference is derived
+    /// from: it lands in `escaping` (every strict verdict keeps reading it) but
+    /// not in `escaping_beyond_iteration`.
+    fn visit_derived_from(&mut self, source: &NirValue) {
+        let previous = self.in_iterable;
+        self.in_iterable = true;
+        self.visit_value(source);
+        self.in_iterable = previous;
+    }
+}
+
+/// bug-1028: whether `name` is the temporary the `MATCH` desugar binds its
+/// scrutinee to (`Bind $matchN = <scrutinee>`, `ir::lower`). No source program can
+/// spell the name.
+///
+/// A `MATCH` reads its scrutinee in two places only: as the `MATCH`'s own value,
+/// which reads the tag, and inside the `UnionExtract` each case binding is
+/// initialized from. So the temporary is a reference to what it was bound from
+/// that lasts for the `MATCH` and no longer, and a case binding is a reference to
+/// the variant the scrutinee holds. Each is a holder only if it goes somewhere
+/// itself, which is the rule a `FOR EACH` variable lives by (bug-1000), and
+/// [`CollectionUses::iterated_reference_leaves`] asks it of all of them.
+///
+/// Before this, `MATCH h` named `h` outside an argument position, so a function
+/// that only inspected a resource-union parameter counted as keeping it. A
+/// resource union can be read no other way, so every `List`/`Map OF RES <Union>`
+/// whose elements were looked at lost its owner and kept its block.
+///
+/// Only those readings are recognized. The temporary named anywhere else, or a
+/// case binding bound, returned, captured, stored or kept by a callee, lands in
+/// the ordinary sets and answers "held".
+fn is_match_view(name: &str) -> bool {
+    name.starts_with("$match")
+}
+
 impl NirVisitor for CollectionUses<'_, '_> {
     fn visit_op(&mut self, op: &NirOp) {
         match op {
@@ -934,6 +965,85 @@ impl NirVisitor for CollectionUses<'_, '_> {
                 self.in_return = true;
                 self.visit_value(value);
                 self.in_return = previous;
+                return;
+            }
+            // bug-1028: the `MATCH` desugar's scrutinee temporary is a reference to
+            // the local it reads, for the length of the `MATCH`.
+            NirOp::Bind {
+                name,
+                value: Some(value @ NirValue::Local(source)),
+                ..
+            } if is_match_view(name) => {
+                self.note_store(name, Some(value));
+                self.iterations.push((source.clone(), name.clone()));
+                self.visit_derived_from(value);
+                return;
+            }
+            // bug-1028: and so is one bound from a borrowed-element read, to the
+            // collection the element was read from. The read is transient exactly
+            // as one written into an argument is: the temporary is read by the
+            // `MATCH` and its case bindings and by nothing else.
+            NirOp::Bind {
+                name,
+                value:
+                    Some(
+                        value @ (NirValue::Call { target, args, .. }
+                        | NirValue::CallResult { target, args, .. }
+                        | NirValue::RuntimeCall { target, args, .. }),
+                    ),
+                ..
+            } if is_match_view(name) && CodeBuilder::target_returns_borrowed_resource(target) => {
+                self.note_store(name, Some(value));
+                if let Some(NirValue::Local(source)) = args.first() {
+                    self.iterations.push((source.clone(), name.clone()));
+                    self.transient_borrow = true;
+                }
+                self.visit_value(value);
+                self.transient_borrow = false;
+                return;
+            }
+            // bug-1028: a case binding is a reference to the variant its scrutinee
+            // holds. The scrutinee is the temporary, or the local itself where the
+            // optimizer forwarded an immutable one (a `FOR EACH` variable).
+            NirOp::Bind {
+                name,
+                value:
+                    Some(
+                        value @ NirValue::UnionExtract {
+                            value: scrutinee, ..
+                        },
+                    ),
+                ..
+            } if matches!(scrutinee.as_ref(), NirValue::Local(_)) => {
+                self.note_store(name, Some(value));
+                if let NirValue::Local(scrutinee) = scrutinee.as_ref() {
+                    self.iterations.push((scrutinee.clone(), name.clone()));
+                }
+                self.visit_derived_from(scrutinee);
+                return;
+            }
+            // bug-1028: the `MATCH` itself reads its scrutinee's tag and keeps
+            // nothing.
+            NirOp::Match {
+                value: value @ NirValue::Local(_),
+                cases,
+            } => {
+                self.visit_derived_from(value);
+                for case in cases {
+                    match &case.pattern {
+                        NirMatchPattern::Else => {}
+                        NirMatchPattern::Value(value) => self.visit_value(value),
+                        NirMatchPattern::OneOf(values) => {
+                            for value in values {
+                                self.visit_value(value);
+                            }
+                        }
+                    }
+                    if let Some(guard) = &case.guard {
+                        self.visit_value(guard);
+                    }
+                    self.visit_ops(&case.body);
+                }
                 return;
             }
             NirOp::Bind {
@@ -1750,6 +1860,179 @@ mod owned_list_ownership_tests {
                 assert!(!uses.block_held_elsewhere("read"));
                 assert!(uses.block_held_elsewhere("unknown"));
             },
+        );
+    }
+
+    /// The `MATCH` desugar over `scrutinee`: the temporary's bind, the `MATCH` on
+    /// it, and one case that binds `f` from the temporary and runs `case_body`.
+    fn match_on(scrutinee: NirValue, case_body: Vec<NirOp>) -> Vec<NirOp> {
+        let mut body = vec![NirOp::Bind {
+            mutable: false,
+            name: "f".to_string(),
+            type_: ParameterType::parse("fs.File"),
+            value: Some(NirValue::UnionExtract {
+                type_: ParameterType::parse("fs.File"),
+                value: Box::new(local("$match0")),
+            }),
+        }];
+        body.extend(case_body);
+        vec![
+            NirOp::Bind {
+                mutable: false,
+                name: "$match0".to_string(),
+                type_: ParameterType::parse("Handle"),
+                value: Some(scrutinee),
+            },
+            NirOp::Match {
+                value: local("$match0"),
+                cases: vec![crate::target::shared::nir::NirMatchCase {
+                    pattern: NirMatchPattern::Value(local("fs.File")),
+                    guard: None,
+                    body,
+                }],
+            },
+        ]
+    }
+
+    /// bug-1028: a function that reads a resource-union parameter with `MATCH`
+    /// keeps nothing, so a list whose loop variable or borrowed element it is
+    /// handed still owns its block. Reading it is all a `MATCH` does: the
+    /// scrutinee temporary and the case binding stay inside it.
+    #[test]
+    fn a_match_that_only_reads_its_scrutinee_does_not_hold_the_list() {
+        let which = function(
+            &["h"],
+            match_on(local("h"), vec![eval(call("fs.readAll", vec![local("f")]))]),
+        );
+        let functions: HashMap<String, &NirFunction> =
+            HashMap::from([("which".to_string(), &which)]);
+        uses_of(
+            vec![
+                for_each("h", "iterated", vec![eval(call("which", vec![local("h")]))]),
+                eval(call(
+                    "which",
+                    vec![call("collections.get", vec![local("read"), local("i")])],
+                )),
+            ],
+            &functions,
+            &mut CalleeParamUses::default(),
+            |uses| {
+                assert!(!uses.block_held_elsewhere("iterated"));
+                assert!(!uses.block_held_elsewhere("read"));
+            },
+        );
+        // The `MATCH` written in the loop body, on the loop variable itself (the
+        // optimizer forwards an immutable scrutinee, so no temporary is left) and
+        // on a borrowed element.
+        let on_variable = vec![NirOp::Match {
+            value: local("h"),
+            cases: vec![crate::target::shared::nir::NirMatchCase {
+                pattern: NirMatchPattern::Value(local("fs.File")),
+                guard: None,
+                body: vec![
+                    NirOp::Bind {
+                        mutable: false,
+                        name: "f".to_string(),
+                        type_: ParameterType::parse("fs.File"),
+                        value: Some(NirValue::UnionExtract {
+                            type_: ParameterType::parse("fs.File"),
+                            value: Box::new(local("h")),
+                        }),
+                    },
+                    eval(call("fs.readAll", vec![local("f")])),
+                ],
+            }],
+        }];
+        let mut body = vec![for_each("h", "iterated", on_variable)];
+        body.extend(match_on(
+            call("collections.get", vec![local("read"), local("i")]),
+            vec![eval(call("fs.readAll", vec![local("f")]))],
+        ));
+        uses_of(
+            body,
+            &HashMap::new(),
+            &mut CalleeParamUses::default(),
+            |uses| {
+                assert!(!uses.block_held_elsewhere("iterated"));
+                assert!(!uses.block_held_elsewhere("read"));
+                assert!(
+                    uses.escaping.contains("iterated") && uses.transient_readers.contains("read"),
+                    "the strict verdicts still see both readings"
+                );
+            },
+        );
+    }
+
+    /// The guard on that: a case binding that is returned, bound again, or stored
+    /// into a collection is a second holder of the record, and so is the
+    /// scrutinee temporary named anywhere but in its `MATCH`.
+    #[test]
+    fn a_match_whose_case_binding_leaves_holds_the_list() {
+        let leaving: [Vec<NirOp>; 3] = [
+            vec![NirOp::Return {
+                value: Some(local("f")),
+            }],
+            vec![NirOp::Bind {
+                mutable: false,
+                name: "keep".to_string(),
+                type_: ParameterType::parse("fs.File"),
+                value: Some(local("f")),
+            }],
+            vec![NirOp::Assign {
+                name: "out".to_string(),
+                value: call("collections.append", vec![local("out"), local("f")]),
+            }],
+        ];
+        for case_body in leaving {
+            // In a callee the loop variable and a borrowed element are handed to.
+            let pick = function(&["h"], match_on(local("h"), case_body.clone()));
+            let functions: HashMap<String, &NirFunction> =
+                HashMap::from([("pick".to_string(), &pick)]);
+            uses_of(
+                vec![
+                    for_each("h", "iterated", vec![eval(call("pick", vec![local("h")]))]),
+                    eval(call(
+                        "pick",
+                        vec![call("collections.get", vec![local("read"), local("i")])],
+                    )),
+                ],
+                &functions,
+                &mut CalleeParamUses::default(),
+                |uses| {
+                    assert!(uses.block_held_elsewhere("iterated"));
+                    assert!(uses.block_held_elsewhere("read"));
+                },
+            );
+            // And written where the element is read.
+            let mut body = vec![for_each(
+                "h",
+                "iterated",
+                match_on(local("h"), case_body.clone()),
+            )];
+            body.extend(match_on(
+                call("collections.get", vec![local("read"), local("i")]),
+                case_body,
+            ));
+            uses_of(
+                body,
+                &HashMap::new(),
+                &mut CalleeParamUses::default(),
+                |uses| {
+                    assert!(uses.block_held_elsewhere("iterated"));
+                    assert!(uses.block_held_elsewhere("read"));
+                },
+            );
+        }
+        // The temporary itself handed on.
+        let mut body = match_on(local("h"), Vec::new());
+        body.push(NirOp::Return {
+            value: Some(local("$match0")),
+        });
+        uses_of(
+            vec![for_each("h", "iterated", body)],
+            &HashMap::new(),
+            &mut CalleeParamUses::default(),
+            |uses| assert!(uses.block_held_elsewhere("iterated")),
         );
     }
 }

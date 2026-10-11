@@ -457,7 +457,11 @@ calls, or a local whose every store is fresh, that no call keeps and that is nam
 nowhere but in its `RETURN`s (a parameter never qualifies: it is the caller's block); it
 is never named outside a call's argument position, except as the iterable of a
 `FOR EACH` whose loop variable itself stays inside the loop (used only as an argument
-no call keeps); no call keeps its block — it is never
+no call keeps); a `MATCH` holds nothing either — it reads its scrutinee's tag, and the
+temporary it binds the scrutinee to and each case binding are references that count
+only if they leave the `MATCH` themselves, by the loop variable's rule, so a function
+that reads a resource-union parameter with `MATCH` does not keep it; no call keeps its
+block — it is never
 a `collections::` member's non-receiver argument (`collections::append(out, piece)`
 stores `piece`'s block inside `out`), nor an argument a callee's body keeps by the same
 rules, a recursive callee counting as keeping, nor an argument of a call that reaches
@@ -466,7 +470,8 @@ callback whose body keeps a parameter that can carry a reference (a callback hel
 local counts as keeping); no element read back out of it by `collections::get`/`getOr`
 (or a `*::poll`) is kept — a read written straight into an argument of a call that does
 not keep it ends with that call, while one that is bound, returned, stored as an element
-or nested in another value disqualifies the collection; and every element that floats
+or nested in another value disqualifies the collection (a read that is a `MATCH`'s
+scrutinee ends with the `MATCH` unless a case binding leaves it); and every element that floats
 into it is a fresh producer record that does not escape and is not handed to such
 unread code. Such a collection also frees the block a copying
 reassignment replaces (`out = collections::append(out, x)` when the in-place append
@@ -474,7 +479,9 @@ declines); the elements are references and are not touched. The intermediates a 
 element's singleton, `set`'s removed copy) are freed the same shallow way.
 [[src/codegen/collection/buffer/collection_buffer.rs:free_intermediate_collection]] A collection that fails any of those keeps a close-only drain, which leaks
 those blocks rather than risking a double free.
+A collection that reaches a resource union is held to the same proof as any other.
 [[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
+[[src/codegen/resource/cleanup/record_ownership.rs:is_match_view]]
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
 
 A binding that adopts a call's result lists only the records it takes. A record that

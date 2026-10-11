@@ -504,8 +504,9 @@ fn a_returned_box_is_freed_by_its_caller() {
 /// (`which` returned 0 because no case matched the fill pattern).
 ///
 /// The slope each case allows is the collection's own final block and nothing
-/// else. A `List OF RES <Union>` read through `collections::get` keeps its block
-/// (`record_ownership.rs:block_held_elsewhere_strict`, a documented bounded leak
+/// else. A collection whose element is BOUND from `collections::get` keeps its block
+/// (`record_ownership.rs:block_held_elsewhere`: a bound read is a second holder, for
+/// a `List OF RES fs::File` too; a documented bounded leak
 /// this bug does not touch): 6,192 B for the 41-element list and 5,168 B for the
 /// 41-entry map, the same figures the compiler without this fix reports for these
 /// programs. A leaked box would add 16 B per iteration to them.
