@@ -275,14 +275,15 @@ N=10. "fd" is `(ulimit -n 64; N=300 <program>)`; `double_free_skips` is 0 in eve
 | `q` | control: record and list in ONE scope | `140`, 142/122/2240 | unchanged (nothing is raised) | 0 |
 | `w` | control: a module-level list (bug-806's path) | `110`, 107/86/3824 | unchanged | n/a (the list holds every file) |
 
-Rows that run now and still keep memory, each equal to a control that has no such store, so
-the bytes are another defect's:
+Rows that run now and still keep memory, each equal to a control that has no such store (or,
+for `ac`, to a row that has one), so the bytes are another defect's:
 
 | row | shape | fixed | control |
 | --- | --- | --- | --- |
 | `l` | `LET k AS HB = mk() TRAP ...`, appended | `140`, 142/122/2240 | `l2`, the same binding with no list, on BASE: `120`, 102/82/2240 (a record bound through an inline `TRAP` never frees its resource's record) |
 | `m` | `RES f`, `LET k = HB[f]`, appended (`f` floats by the escape analysis) | `140`, 122/102/2240 | identical on base |
 | `p` | an inner `List OF RES fs::File` appended to a `List OF List OF RES fs::File` | `240`, 222/152/11680 | identical on base |
+| `ac` | `RES f`, `LET k AS HB = HB[f]`, then `fsl = collections::append(fsl, k.h)` | `210`, 172/142/3360, fd 0 | on BASE this program exits 255 with `7-703-0009` ("moved to another thread"), a flag bit read out of a record the loop body's end had already freed; the store now raises the record, so it is read open, and what is left is row `m`'s bytes (`f` named in a constructor keeps the list's drain close-only) |
 | `z` | the outer list then passed to a callee that copies its elements out | `140`, 162/142/2240 | the existing rule: a list a callee stores an element of keeps a close-only drain |
 
 ### Checks
