@@ -703,9 +703,8 @@ impl CodeBuilder<'_> {
     /// names the one scope that closes it; what a drain cannot know is whether
     /// another cleanup of the same exit still reads that word. So a list with a
     /// `reclaim_slot` splits its drain in two ([`OwnedListPass`]): this walk
-    /// closes each record its scope owns, marks it taken (owner word all ones,
-    /// which no claim, float, release or drain matches) and moves its node to the
-    /// reclaim list; [`Self::emit_owned_list_reclaims`] frees the taken records
+    /// closes each record its scope owns, marks it taken (an owner word no claim,
+    /// float, release or drain matches) and moves its node to the reclaim list; [`Self::emit_owned_list_reclaims`] frees the taken records
     /// after every cleanup of the exit has run. A second list or binding that
     /// names the same record reads a live owner word that is not its token, and
     /// skips. A list with neither proof nor `reclaim_slot` is close-only.
@@ -978,15 +977,10 @@ impl CodeBuilder<'_> {
     }
 
     /// bug-1053: the record in `payload_slot` is closed and this list's scope owns
-    /// it. Mark it taken and move its node (in `node_slot`, link at `next_offset`)
-    /// to the reclaim list.
-    ///
-    /// The mark is an owner word of all ones. It equals no scope token (a token is
-    /// a shifted stack address minus a small depth), it is not below any token (so
-    /// no float or adopting push takes the record), it is not `0` (so no claim
-    /// does), and its frame part matches no frame (so no `RETURN` releases it):
-    /// every other cleanup that still names the record skips it, having read only
-    /// this word, which stays valid until the reclaim.
+    /// it. Mark it taken (`resource::owner::RESOURCE_OWNER_TAKEN`, which every
+    /// other cleanup that still names the record reads and skips on) and move its
+    /// node (in `node_slot`, link at `next_offset`) to the reclaim list. The word
+    /// stays readable until the reclaim frees the record.
     fn emit_owned_list_take(
         &mut self,
         payload_slot: usize,
@@ -997,8 +991,11 @@ impl CodeBuilder<'_> {
         let record = self.allocate_register();
         self.emit(abi::load_u64(&record, abi::stack_pointer(), payload_slot));
         let taken = self.allocate_register();
+        // Built as `0 - 2`: an immediate cannot be negative.
+        const _: () =
+            assert!(crate::codegen::resource::owner::RESOURCE_OWNER_TAKEN == 0u64.wrapping_sub(2));
         self.emit(abi::move_immediate(&taken, "Integer", "0"));
-        self.emit(abi::subtract_immediate(&taken, &taken, 1));
+        self.emit(abi::subtract_immediate(&taken, &taken, 2));
         self.emit(abi::store_u64(&taken, &record, RESOURCE_OFFSET_OWNER));
         let node = self.allocate_register();
         self.emit(abi::load_u64(&node, abi::stack_pointer(), node_slot));
