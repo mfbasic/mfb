@@ -9835,11 +9835,109 @@ fn rejects_non_record_state_at_every_position() {
     invalid(&p, "a native parameter");
 }
 
+/// bug-998: a `STATE` clause on a type that is not a resource is its own rule,
+/// reported once, at every position. The clause reports nothing else: not
+/// `TYPE_STATE_INVALID` for a clause whose type is also not a record, and not
+/// `TYPE_STATE_MISMATCH`.
+#[test]
+fn rejects_state_on_a_non_resource_at_every_position() {
+    let types = || {
+        vec![
+            record_typed("Cur", &[("n", "Integer")]),
+            enum_type("Mode", &["Fast", "Slow"]),
+        ]
+    };
+    let only = |p: &IrProject, what: &str| {
+        let got = rules(p);
+        assert_eq!(
+            count_rule(&got, "TYPE_STATE_REQUIRES_RESOURCE"),
+            1,
+            "{what} must be refused once: {got:?}"
+        );
+        for other in ["TYPE_STATE_INVALID", "TYPE_STATE_MISMATCH"] {
+            assert_eq!(count_rule(&got, other), 0, "{what}: {got:?}");
+        }
+    };
+    // A parameter: a scalar, a record, an enum; and a non-record STATE on one.
+    for type_ in [
+        "Integer STATE Cur",
+        "String STATE Cur",
+        "Cur STATE Cur",
+        "Mode STATE Cur",
+        "Integer STATE Mode",
+        "Integer STATE Integer",
+        "List OF RES Integer STATE Cur",
+        "ThreadWorker OF Integer RES Integer STATE Cur TO Integer",
+    ] {
+        let f = func_returns("run", "Nothing", vec![param("p", type_, None)], vec![]);
+        only(&project(vec![f], types()), &format!("parameter {type_}"));
+    }
+    // A return.
+    let f = func_returns("run", "Integer STATE Cur", vec![], vec![]);
+    let got = rules(&project(vec![f], types()));
+    assert_eq!(
+        count_rule(&got, "TYPE_STATE_REQUIRES_RESOURCE"),
+        1,
+        "a return: {got:?}"
+    );
+    // A `RES` binding.
+    let mut f = func_returns("run", "Nothing", vec![], vec![]);
+    let b = res_bind_owned(&mut f, "x", "Integer STATE Cur", Some(int_const("1")));
+    f.body = vec![b];
+    only(&project(vec![f], types()), "a RES binding");
+    // A record field, and a field's element.
+    for field in ["RES Integer STATE Cur", "List OF RES String STATE Cur"] {
+        let mut all = types();
+        all.push(record_typed("Holder", &[("h", field)]));
+        let p = project(vec![func_returns("run", "Nothing", vec![], vec![])], all);
+        only(&p, &format!("field {field}"));
+    }
+    // A native declaration's parameter.
+    let mut p = project(
+        vec![func_returns("run", "Nothing", vec![], vec![])],
+        types(),
+    );
+    let mut poke = link_fn();
+    poke.params = vec![(
+        "path".to_string(),
+        crate::types::ParameterType::parse("String STATE Cur"),
+    )];
+    p.link_functions = vec![poke];
+    only(&p, "a native parameter");
+}
+
+/// bug-998: the `RES` marker's own rule is unchanged. It is reported for a
+/// `RES` binding of a data type with or without a `STATE` clause — the clause's
+/// rule is added beside it, it does not replace it.
+#[test]
+fn res_on_a_non_resource_is_still_the_res_rule() {
+    for (type_, state_rule) in [("Integer", 0), ("Integer STATE Cur", 1)] {
+        let mut f = func_returns("run", "Nothing", vec![], vec![]);
+        let b = res_bind_owned(&mut f, "x", type_, Some(int_const("1")));
+        f.body = vec![b];
+        let got = rules(&project(
+            vec![f],
+            vec![record_typed("Cur", &[("n", "Integer")])],
+        ));
+        assert_eq!(
+            count_rule(&got, "TYPE_RES_REQUIRES_RESOURCE"),
+            1,
+            "{type_}: {got:?}"
+        );
+        assert_eq!(
+            count_rule(&got, "TYPE_STATE_REQUIRES_RESOURCE"),
+            state_rule,
+            "{type_}: {got:?}"
+        );
+    }
+}
+
 /// bug-1013 across a package boundary, on the SOURCE path, where the
 /// importer's own type table holds only its own declarations: the kind of an
 /// imported type is read from the package's type table. An imported record is
 /// accepted (libsnd's `STATE libsnd::SoundInfo`); an imported ENUM or UNION is
-/// refused.
+/// refused; and an imported record or enum is positively NOT a resource
+/// (bug-998).
 #[test]
 fn imported_types_are_judged_by_their_kind() {
     use crate::ir::{ImportedTypeDef, ImportedTypeField, ImportedTypeKind, ImportedTypeVariant};
@@ -9896,8 +9994,22 @@ fn imported_types_are_judged_by_their_kind() {
             "{state}: {got:?}"
         );
     }
-    // A name no table has heard of may be an external package's record: the
-    // rule does not guess.
+    for host in ["pkg.Cursor", "pkg.Mode"] {
+        let got = source_rules(&format!("{host} STATE pkg.Cursor"));
+        assert_eq!(
+            count_rule(&got, "TYPE_STATE_REQUIRES_RESOURCE"),
+            1,
+            "{host}: {got:?}"
+        );
+        assert_eq!(count_rule(&got, "TYPE_STATE_INVALID"), 0, "{host}: {got:?}");
+    }
+    // A name no table has heard of may be an external package's resource, and
+    // its STATE type an external record: neither rule guesses.
     let got = source_rules("ext.Handle STATE ext.Info");
     assert_eq!(count_rule(&got, "TYPE_STATE_INVALID"), 0, "{got:?}");
+    assert_eq!(
+        count_rule(&got, "TYPE_STATE_REQUIRES_RESOURCE"),
+        0,
+        "{got:?}"
+    );
 }

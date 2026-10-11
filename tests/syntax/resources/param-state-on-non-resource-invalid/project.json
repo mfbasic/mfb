@@ -1,0 +1,10 @@
+{
+  "name": "param_state_on_non_resource_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-998: STATE on a parameter whose type is not a resource is one located TYPE_STATE_REQUIRES_RESOURCE, not a TYPE_UNKNOWN_VALUE at each use and a TYPE_STATE_MISMATCH at each call.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}
