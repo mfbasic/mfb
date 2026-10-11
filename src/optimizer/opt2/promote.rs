@@ -183,6 +183,16 @@ pub(crate) fn promote(instructions: &mut [CodeInstruction], frame: &FrameFacts<'
 /// entry loads before storing: backward liveness over the allocator's own CFG,
 /// with a load as a use and a store as a definition, read off at the entry
 /// block.
+///
+/// bug-860: solved one slot at a time, never as a `blocks × slots` matrix. A
+/// candidate is a statement-local temporary, live in a handful of blocks, while
+/// a function whose every exit path repeats its cleanup has a block count and a
+/// candidate count that both grow with the square of its statement count (100
+/// inline `TRAP` handlers: 110,985 candidates), so three dense bit matrices were
+/// 4 GB there and 18 GB at 150 handlers. Each slot's search walks only the
+/// blocks the slot is live into, with two stamp arrays shared by every search,
+/// so the memory is linear in the stream and the work is the size of the
+/// liveness relation itself.
 fn read_before_written(
     instructions: &[CodeInstruction],
     accesses: &BTreeMap<usize, Vec<usize>>,
@@ -190,61 +200,118 @@ fn read_before_written(
     if accesses.is_empty() {
         return Vec::new();
     }
-    let slots: Vec<usize> = accesses.keys().copied().collect();
-    let words = slots.len().div_ceil(64);
-    // Per instruction: which candidate it loads or stores, if any.
-    let mut slot_at: std::collections::HashMap<usize, (usize, bool)> =
-        std::collections::HashMap::new();
-    for (k, sites) in accesses.values().enumerate() {
-        for &index in sites {
-            slot_at.insert(index, (k, instructions[index].op == CodeOp::LdrU64));
-        }
-    }
     let blocks = crate::codegen::engine::regalloc::analysis::build_cfg(instructions);
-    // Per block: `gen` = loaded before any store in the block; `kill` = stored.
-    let mut gen = vec![vec![0u64; words]; blocks.len()];
-    let mut kill = vec![vec![0u64; words]; blocks.len()];
-    for (b, block) in blocks.iter().enumerate() {
-        for index in (block.start..block.end).rev() {
-            if let Some(&(k, is_load)) = slot_at.get(&index) {
-                let (word, bit) = (k / 64, 1u64 << (k % 64));
-                if is_load {
-                    gen[b][word] |= bit;
-                } else {
-                    gen[b][word] &= !bit;
-                    kill[b][word] |= bit;
-                }
-            }
-        }
-    }
-    let mut live_in = vec![vec![0u64; words]; blocks.len()];
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for b in (0..blocks.len()).rev() {
-            let mut out = vec![0u64; words];
-            for &s in &blocks[b].succ {
-                for w in 0..words {
-                    out[w] |= live_in[s][w];
-                }
-            }
-            for w in 0..words {
-                let value = gen[b][w] | (out[w] & !kill[b][w]);
-                if value != live_in[b][w] {
-                    live_in[b][w] = value;
-                    changed = true;
-                }
-            }
-        }
-    }
-    (0..slots.len())
-        .filter(|&k| {
-            live_in
-                .first()
-                .is_some_and(|entry| entry[k / 64] & (1u64 << (k % 64)) != 0)
-        })
-        .map(|k| slots[k])
+    let mut search = EntryLiveness::new(&blocks);
+    accesses
+        .iter()
+        .filter(|(_, sites)| search.live_into_entry(instructions, sites))
+        .map(|(&start, _)| start)
         .collect()
+}
+
+/// The per-slot backward liveness search of [`read_before_written`], and the
+/// state every search shares.
+struct EntryLiveness<'a> {
+    blocks: &'a [crate::codegen::engine::regalloc::analysis::Block],
+    /// Predecessor lists, flattened: block `b`'s are
+    /// `preds[pred_start[b]..pred_start[b + 1]]`.
+    pred_start: Vec<usize>,
+    preds: Vec<u32>,
+    /// `stores[b] == stamp`: block `b` stores the slot being searched.
+    stores: Vec<u32>,
+    /// `live_in[b] == stamp`: the slot being searched is live into block `b`.
+    live_in: Vec<u32>,
+    stamp: u32,
+    worklist: Vec<u32>,
+    /// Blocks marked live-in, over every search: the work the pass did, which
+    /// `the_search_visits_only_the_blocks_a_slot_is_live_into` bounds.
+    #[cfg(test)]
+    visited: u64,
+}
+
+impl<'a> EntryLiveness<'a> {
+    fn new(blocks: &'a [crate::codegen::engine::regalloc::analysis::Block]) -> Self {
+        let mut pred_start = vec![0usize; blocks.len() + 1];
+        for block in blocks {
+            for &s in &block.succ {
+                pred_start[s + 1] += 1;
+            }
+        }
+        for b in 0..blocks.len() {
+            pred_start[b + 1] += pred_start[b];
+        }
+        let mut fill = pred_start.clone();
+        let mut preds = vec![0u32; pred_start[blocks.len()]];
+        for (b, block) in blocks.iter().enumerate() {
+            for &s in &block.succ {
+                preds[fill[s]] = b as u32;
+                fill[s] += 1;
+            }
+        }
+        Self {
+            blocks,
+            pred_start,
+            preds,
+            stores: vec![0; blocks.len()],
+            live_in: vec![0; blocks.len()],
+            stamp: 0,
+            worklist: Vec::new(),
+            #[cfg(test)]
+            visited: 0,
+        }
+    }
+
+    /// Mark the searched slot live into `block` and queue the block.
+    fn mark_live_in(&mut self, block: usize) {
+        self.live_in[block] = self.stamp;
+        self.worklist.push(block as u32);
+        #[cfg(test)]
+        {
+            self.visited += 1;
+        }
+    }
+
+    /// The block holding instruction `index`.
+    fn block_of(&self, index: usize) -> usize {
+        self.blocks.partition_point(|block| block.end <= index)
+    }
+
+    /// Whether the slot accessed at `sites` (ascending instruction indices, each
+    /// a full-word load or store of it) is live into the entry block: the least
+    /// fixed point of `in[b] = gen[b] ∪ (out[b] − kill[b])`, where a block
+    /// generates the slot when its first access is a load and kills it when it
+    /// stores it anywhere.
+    fn live_into_entry(&mut self, instructions: &[CodeInstruction], sites: &[usize]) -> bool {
+        self.stamp += 1;
+        let stamp = self.stamp;
+        self.worklist.clear();
+        let mut previous_block = usize::MAX;
+        for &index in sites {
+            let block = self.block_of(index);
+            let is_load = instructions[index].op == CodeOp::LdrU64;
+            if block != previous_block && is_load && self.live_in[block] != stamp {
+                // Upward-exposed: nothing in the block stores the slot first.
+                self.mark_live_in(block);
+            }
+            if !is_load {
+                self.stores[block] = stamp;
+            }
+            previous_block = block;
+        }
+        while let Some(block) = self.worklist.pop() {
+            let block = block as usize;
+            if block == 0 {
+                return true;
+            }
+            for at in self.pred_start[block]..self.pred_start[block + 1] {
+                let pred = self.preds[at] as usize;
+                if self.stores[pred] != stamp && self.live_in[pred] != stamp {
+                    self.mark_live_in(pred);
+                }
+            }
+        }
+        false
+    }
 }
 
 /// The copy that replaces a full-word frame access to a promoted slot.
@@ -313,9 +380,7 @@ fn touch(instructions: &[CodeInstruction], index: usize) -> Touch {
             } else {
                 "src"
             };
-            let integer = instruction
-                .operand(value)
-                .is_some_and(|operand| is_integer_register(operand));
+            let integer = instruction.operand(value).is_some_and(is_integer_register);
             match numeric(instruction, "offset") {
                 Some(offset) if integer => Touch::Word(offset),
                 Some(offset) => Touch::Pin(offset),
@@ -606,6 +671,157 @@ mod tests {
 
         let mut wide = vec![store("%v1", "0"), load("%v2", "0")];
         assert_eq!(run(&mut wide, &[0, 16], 24, &[], 1), 0);
+    }
+
+    /// The `blocks × slots` bit-matrix dataflow `read_before_written` used
+    /// before bug-860, kept as the oracle the per-slot search is held to.
+    fn read_before_written_dense(
+        instructions: &[CodeInstruction],
+        accesses: &BTreeMap<usize, Vec<usize>>,
+    ) -> Vec<usize> {
+        let slots: Vec<usize> = accesses.keys().copied().collect();
+        let words = slots.len().div_ceil(64);
+        let mut slot_at: std::collections::HashMap<usize, (usize, bool)> =
+            std::collections::HashMap::new();
+        for (k, sites) in accesses.values().enumerate() {
+            for &index in sites {
+                slot_at.insert(index, (k, instructions[index].op == CodeOp::LdrU64));
+            }
+        }
+        let blocks = crate::codegen::engine::regalloc::analysis::build_cfg(instructions);
+        let mut gen = vec![vec![0u64; words]; blocks.len()];
+        let mut kill = vec![vec![0u64; words]; blocks.len()];
+        for (b, block) in blocks.iter().enumerate() {
+            for index in (block.start..block.end).rev() {
+                if let Some(&(k, is_load)) = slot_at.get(&index) {
+                    let (word, bit) = (k / 64, 1u64 << (k % 64));
+                    if is_load {
+                        gen[b][word] |= bit;
+                    } else {
+                        gen[b][word] &= !bit;
+                        kill[b][word] |= bit;
+                    }
+                }
+            }
+        }
+        let mut live_in = vec![vec![0u64; words]; blocks.len()];
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for b in (0..blocks.len()).rev() {
+                let mut out = vec![0u64; words];
+                for &s in &blocks[b].succ {
+                    for w in 0..words {
+                        out[w] |= live_in[s][w];
+                    }
+                }
+                for w in 0..words {
+                    let value = gen[b][w] | (out[w] & !kill[b][w]);
+                    if value != live_in[b][w] {
+                        live_in[b][w] = value;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        (0..slots.len())
+            .filter(|&k| live_in[0][k / 64] & (1u64 << (k % 64)) != 0)
+            .map(|k| slots[k])
+            .collect()
+    }
+
+    /// Every full-word frame access in `stream`, by slot offset, as `promote`
+    /// collects them.
+    fn word_accesses(stream: &[CodeInstruction]) -> BTreeMap<usize, Vec<usize>> {
+        let mut accesses: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        for index in 0..stream.len() {
+            if let Touch::Word(offset) = touch(stream, index) {
+                accesses.entry(offset).or_default().push(index);
+            }
+        }
+        accesses
+    }
+
+    /// bug-860: the per-slot search answers exactly what the dense dataflow did,
+    /// over random control flow — forward and backward branches, loops, blocks
+    /// nothing reaches, slots stored on one arm only.
+    #[test]
+    fn the_per_slot_search_agrees_with_the_dense_dataflow() {
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move |bound: u64| {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (state >> 33) % bound
+        };
+        let mut read_first_cases = 0;
+        for _ in 0..400 {
+            let block_count = 1 + next(12) as usize;
+            let slot_count = 1 + next(70);
+            let mut stream = Vec::new();
+            for block in 0..block_count {
+                stream.push(ci("label", &[("name", &format!("L{block}"))]));
+                for _ in 0..next(5) {
+                    let offset = (8 * next(slot_count)).to_string();
+                    stream.push(if next(2) == 0 {
+                        store("%v1", &offset)
+                    } else {
+                        load("%v2", &offset)
+                    });
+                }
+                let target = format!("L{}", next(block_count as u64));
+                match next(4) {
+                    0 => stream.push(ci("b", &[("target", &target)])),
+                    1 => stream.push(ci("b.eq", &[("target", &target)])),
+                    2 => stream.push(ci("ret", &[])),
+                    _ => {}
+                }
+            }
+            let accesses = word_accesses(&stream);
+            let expected = read_before_written_dense(&stream, &accesses);
+            assert_eq!(read_before_written(&stream, &accesses), expected);
+            read_first_cases += usize::from(!expected.is_empty());
+        }
+        assert!(
+            read_first_cases > 50,
+            "the random streams must exercise both answers, got {read_first_cases} of 400"
+        );
+    }
+
+    /// bug-860: the search for one slot visits only the blocks that slot is live
+    /// into, so the work is linear in a stream of statement-local slots however
+    /// many blocks and slots it has. The dense dataflow this replaced kept three
+    /// `blocks × slots` bit matrices: 4 GB for 100 inline `TRAP` handlers in one
+    /// function, 18 GB for 150.
+    #[test]
+    fn the_search_visits_only_the_blocks_a_slot_is_live_into() {
+        for statements in [100usize, 1_000, 10_000] {
+            // Each statement: a block that stores a temporary, a conditional
+            // branch around a second block, and a third block that reloads it.
+            let mut stream = Vec::new();
+            for k in 0..statements {
+                let offset = (8 * k).to_string();
+                stream.push(ci("label", &[("name", &format!("s{k}"))]));
+                stream.push(store("%v1", &offset));
+                stream.push(ci("b.eq", &[("target", &format!("j{k}"))]));
+                stream.push(ci("label", &[("name", &format!("m{k}"))]));
+                stream.push(ci("mov", &[("dst", "%v3"), ("src", "%v1")]));
+                stream.push(ci("label", &[("name", &format!("j{k}"))]));
+                stream.push(load("%v2", &offset));
+            }
+            stream.push(ci("ret", &[]));
+            let accesses = word_accesses(&stream);
+            assert_eq!(accesses.len(), statements);
+            let blocks = crate::codegen::engine::regalloc::analysis::build_cfg(&stream);
+            assert_eq!(blocks.len(), 3 * statements);
+            let mut search = EntryLiveness::new(&blocks);
+            for sites in accesses.values() {
+                assert!(!search.live_into_entry(&stream, sites));
+            }
+            // Live into the reloading block and the skipped block; the storing
+            // block kills it. Two blocks per slot, at every size.
+            assert_eq!(search.visited, 2 * statements as u64);
+        }
     }
 
     /// Off at `-O0`.

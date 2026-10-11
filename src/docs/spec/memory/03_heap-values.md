@@ -202,9 +202,19 @@ one owner, which frees it exactly once:
 
 - A **binding** owns the box its initializer made — a wrap of a variant, the box a
   called function returned, the closed default of a trapped bind — and frees it at
-  its scope exit. A binding initialized from a record field takes its own copy of
-  the field's box and frees that. A binding that names another local shares that
-  local's box and frees nothing. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_union_cleanup_call]] [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:register_union_box_cleanup]]
+  its scope exit. A binding initialized from a record field, or from an element
+  read (`collections::get`/`getOr` over a `List` or a `Map`), takes its own copy
+  of the box and frees that: the field or element read is an address inside the
+  record's or the collection's block, which replacing the record or growing the
+  collection frees, and a variant written as `getOr`'s default is a box its
+  statement frees. The copy closes nothing. A binding that names another local
+  shares that local's box and frees nothing. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_resource_union_cleanup_call]] [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:register_union_box_cleanup]]
+- The temporary an inline **`TRAP`** delivers a resource union through owns its box
+  on every path. An element read it traps reaches it as a copy of the box, made
+  when the trapped call's `Result` is built, and a `RECOVER` value that only names
+  a live resource (another local, a field, an element read) is copied as it is
+  stored. Either is lent: the temporary's drop frees the copy and closes nothing.
+  [[src/codegen/memory/arena/builder_arena_transfer.rs:materialize_current_result_boxed]] [[src/codegen/resource/cleanup/trap_ownership.rs:collect_trap_ownership]]
 - A box made inside a **statement** that no binding takes — a variant passed to a
   union parameter, a variant written as a collection element or a record field, an
   unbound call that returns a resource union — is the statement's, and is freed

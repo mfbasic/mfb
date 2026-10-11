@@ -29,7 +29,6 @@ in this phase.
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 1026   | HIGH     | `RES v AS Handle = collections::get(hs, 0)` binds a view into the list block; after the list grows, `MATCH v` matches no case |
 | [ ]  | 999    | MED      | a `List OF RES` (or record of resources) returned by a call nested in an expression is never closed — `len(mkList())` leaks every resource it holds (NEEDS AN OWNER DECISION before it starts: adopt at every bind/assign/store/RETURN, or require the call to be bound first) |
 | [ ]  | 1018   | MED      | a `List OF RES fs::File` given where a `List OF RES Handle` (a resource union) is expected is accepted unconverted, so `MATCH` takes no arm (after 999) |
 | [ ]  | 1025   | MED      | a closed resource record, and its read buffer, are kept when a callee returns a record holding a resource that its caller's callee produced |

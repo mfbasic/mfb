@@ -534,7 +534,14 @@ that built it (a `union_box` pending temp, freed at statement end) — and every
 longer-lived holder copies the two words. So never store the address of a box
 into anything that outlives the statement: copy it. A binding initialized from
 such a field takes its own copy for the same reason (reassigning the record frees
-the block the field read points into).
+the block the field read points into), and so does one initialized from
+`collections::get`/`getOr` (bug-1026: the element read points into the list's or
+map's block, which an append reallocates; `getOr`'s wrapped default is a
+statement temp). The inline-`TRAP` spelling reaches the same place by another
+road: the borrowed element is copied when the trapped call's `Result` is built
+(`materialize_current_result_boxed`), an aliasing `RECOVER` at the `Assign`, and
+the lent temp's drop frees that box while closing nothing — the bug-648 owner
+flag answers for the RECORD only on a union temp.
 
 **1. The `RES` marker survives only where a type is stored unstripped.**
 `typed_list_element_type` and `typed_map_type_parts` **strip** it
