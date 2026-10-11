@@ -1146,7 +1146,7 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET red AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [red])
-  canvas::present([canvas::Group[dx := 200.0, dy := 200.0, name := "panel"]])
+  canvas::present([canvas::Group[position := vector::Float2[x := 200.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
   io::print("rendered")
 END FUNC
 "#;
@@ -1164,6 +1164,45 @@ FUNC main() AS Nothing
   io::print("rendered")
 END FUNC
 "#;
+
+/// plan-172-G: groups under a transform — turned, scaled unevenly, nested, at a
+/// fraction of their size, and one leaf drawn through two nodes.
+const GROUP_AFFINE: &str = include_str!("scenes/group_affine_on_black.mfb");
+
+/// The group-affine reference renders exactly, and renders the same twice.
+///
+/// Exactly, because the software renderer is the oracle the GPU backends will be held
+/// to (plan-172-H). Twice, because the composed inverse is built per frame from a table
+/// the walk fills as it goes: nothing in it may depend on what the process drew before.
+#[test]
+fn group_affine_matches_its_reference_exactly() {
+    let rendered = render_with_font("canvas_golden_group_affine", GROUP_AFFINE);
+    let again = render_with_font("canvas_golden_group_affine_again", GROUP_AFFINE);
+    assert!(
+        compare_exact(&rendered, &again).is_ok(),
+        "the group-affine scene does not render identically on two consecutive runs"
+    );
+    let reference = golden_path("group_affine");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let expected = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &expected) {
+        panic!("the group-affine scene differs from its reference: {diff:?}");
+    }
+}
 
 /// The group reference scene (plan-116-H Phase 4).
 ///
@@ -1203,10 +1242,10 @@ FUNC main() AS Nothing
   LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 70.0, y := 155.0], text := "AA", font := face, fontSize := 46.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [bar, band, dot, tag])
   ' A nested group: the outer holds the panel, so the two offsets compose.
-  canvas::setGroup("outer", [canvas::Group[name := "panel", dx := 20.0, dy := 30.0]])
+  canvas::setGroup("outer", [canvas::Group[position := vector::Float2[x := 20.0, y := 30.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
   ' A leaf referenced twice from the scene -- the diamond.
   canvas::setGroup("leaf", [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 70.0, height := 45.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(120, 220, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
-  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Group[name := "panel", dx := 340.0, dy := 210.0], canvas::Group[name := "outer", dx := 600.0, dy := 40.0], canvas::Group[name := "leaf", dx := 120.0, dy := 420.0], canvas::Group[name := "leaf", dx := 260.0, dy := 520.0]])
+  canvas::present([canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Group[position := vector::Float2[x := 340.0, y := 210.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Group[position := vector::Float2[x := 600.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "outer"], canvas::Group[position := vector::Float2[x := 120.0, y := 420.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "leaf"], canvas::Group[position := vector::Float2[x := 260.0, y := 520.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "leaf"]])
 END FUNC
 "#;
 

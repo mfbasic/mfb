@@ -986,11 +986,12 @@ measured from the return, so a loop that fell behind gets no burst of catch-up r
 
 `canvas::setGroup(name, items)` installs a list of items under a name;
 `canvas::removeGroup(name)` drops the name. A scene draws an installed group by
-including a `canvas::Group` node — `dx`, `dy` and the name — in place of the items:
+including a `canvas::Group` node — `position`, `transform` and the name — in place of
+the items:
 
 ```basic
 canvas::setGroup("panel", panelItems)
-canvas::present([canvas::Group[dx := 10.0, dy := 20.0, name := "panel"]])
+canvas::present([canvas::Group[position := vector::Float2[x := 10.0, y := 20.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
 ```
 
 **A scene copies the node, not the group.** `canvas::present` copies the whole scene
@@ -1007,21 +1008,88 @@ follows, and it is worth stating because the natural expectation is the opposite
 installed or has since been removed. A scene may therefore reference a group before it is
 built, and removing a group does not invalidate any scene that names it.
 
-**A group is translated, not transformed.** The node carries two offsets and no matrix.
-The item's `transform` on the group's own items covers reshaping, and the two compose in the
-order you would expect: the item is transformed in its own coordinates, then the group's
-translation places it. Two things travel with that translation because of what they are:
+**A group node is an affine: `T(position) ∘ transform`.** The group's own origin lands
+at `position`, and `transform` turns, scales or shears what the group holds about that
+point, its `tx` / `ty` adding to `position` — the placement rule an item follows
+(Placement, above), with the group's items in the place of the item's geometry. A point
+`q` of an item's geometry, already through the item's own placement `I`, reaches the
+surface at
 
-* **`Paint.clip` moves** — it is in the item's own coordinates, so a group places the
-  clipped item and its clip together.
-* **`Paint.gradient` moves too** — the ramp is in the item's own coordinates as well. A
-  group exists to be drawn somewhere else, and an item whose colours depend on where its
-  group was placed would not be reusable.
+    G₁(G₂(… Gₙ(I(q)) …))
+
+where `G₁` is the outermost node. So the item is placed in its group's coordinates
+first and the groups carry it from the inside out.
+
+A node's transform that is **not in effect** — all-zero, or with no area — makes the
+node a translation by `position`, by the same test an item's uses. A scene whose nodes
+are all like that is drawn exactly as a scene of `dx` / `dy` nodes was: the composed
+translation is the same sum, and nothing below changes for it.
+[[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL_TEMPLATE]]
+[[src/codegen/builtins/canvas/helper_paint_defaults.rs:TRANSFORM_ACTIVE]]
+[[tests/canvas/rt_canvas_rasteriser.rs:group_affine_a_nested_group_composes_with_its_parent]]
+
+Everything an item has travels with its group, because all of it is in the item's own
+coordinates:
+
+* **`Paint.clip`** — a group places the clipped item and its clip together, and turns
+  them together.
+* **`Paint.gradient`** — the ramp is evaluated at the item's own point. A group exists to
+  be drawn somewhere else, and an item whose colours depended on where its group was
+  placed would not be reusable.
+* **The stroke** — its width is in the item's space, so a group scaled 2× draws a 4-pixel
+  stroke 8 pixels wide, and an uneven scale draws it uneven.
+  [[tests/canvas/rt_canvas_rasteriser.rs:group_affine_a_scaled_group_scales_its_strokes]]
+* **Text** — a run inside a group with a matrix is sampled as a transformed run is:
+  nearest texel of the untransformed glyph bitmap, at the inverse-mapped point.
+
+**How the composed affine is carried.** Both walks of the group tree — the software and
+damage walk and the GPU draw-list walk — compose a node with its parents through one
+function, so they cannot disagree about what a nested group means. The composition is
+kept as a translation and, only when some node on the path has a transform in effect, a
+2×2 linear part with its inverse:
+
+* each draw entry of the software walk has its translation in `__CANVAS_DRAW_DX` /
+  `_DY`, as before, and a matrix number in `__CANVAS_DRAW_MAT` — 0 for none, otherwise a
+  row of `__CANVAS_GROUP_ROWS` (forward `a b c d`, then the inverse) plus one;
+* the rasteriser subtracts the translation from the surface point, as it always has,
+  then applies the inverse linear part, then the item's own inverse if it has one. An
+  entry with a matrix takes the transformed-item path whatever the item is, so the
+  distance is rescaled by its gradient and the stroke scales
+  ([[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]);
+* an item's bounds under a matrix are the hull of its header box through the linear
+  part, padded by a pixel — the header's own antialiasing rim is in the group's space
+  and a group that scales down would shrink it. The damage diff remembers and compares
+  that hull ([[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_FOR]]);
+* a rectangle clip, which is axis-aligned only in the item's space, is evaluated under a
+  matrix as a path clip is: its distance at the item's point, divided by its own
+  gradient;
+* a draw entry's hash folds in the linear part when it has one, so a group turned in
+  place — no geometry and no translation changed — is repainted.
+  [[tests/canvas/rt_canvas_damage.rs:turning_a_group_repaints_and_matches_a_full_redraw]]
+
+A composed linear part with no area (`|det| < 1e-12`, reached only by scaling something
+out of existence through several nodes) draws nothing: the node and everything under it
+is skipped.
+
+**A GPU draw entry is sixteen 64-bit words.** Base and count, the translation as two
+16.16 words, the blend mode and the translation's two residual words are words 0–6, as
+they were when the entry was eight words. Word 7 is 1 when the entry has a matrix, words
+8–11 are the inverse linear part as float32 bit patterns, and words 12–15 are zero. A
+translate-only entry is therefore its old eight words followed by zeros.
+[[src/codegen/runtime/canvas/mod.rs:CANVAS_DRAW_ENTRY_WORDS]]
+
+**Until the GPU backends read the matrix, a frame that holds one is drawn in software.**
+Metal and Vulkan bind an entry's translation and nothing else, so given a matrix they
+would draw a complete picture with every such group unturned. The walk records that the
+frame holds a matrix and both renderable predicates decline it — a predicate cannot
+find a group in the offsets list, which is flat by then. The frame's statistics report
+the software renderer.
+[[tests/canvas/rt_canvas_metal.rs:a_group_with_a_matrix_falls_back_to_the_software_renderer]]
 
 **Groups may nest, to a depth of 64.** A nested `canvas::Group` stays a reference: it is
 resolved when the scene is presented, so replacing the inner group changes what the outer
 one draws without reinstalling the outer. Two groups may name the same third one, and it
-is drawn once per reference at each reference's position. Exceeding the depth raises
+is drawn once per reference, through each reference's own position and transform. Exceeding the depth raises
 `ErrDepthExceeded` from `canvas::present`, and so does a group that eventually references
 itself — a cycle is unbounded depth, and the two need the same fix.
 

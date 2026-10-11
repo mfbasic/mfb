@@ -39,11 +39,11 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-172-F complete and archived | `ls planning/plan-172-F-*` → no matches | NOT MET |
-| No shape record carries a bare coordinate scalar | `grep -c 'name: "x1"' src/codegen/builtins/canvas/mod.rs` → 0 | NOT MET |
-| The group suites are green | `cargo test --test rt_canvas_group_ownership --test rt_canvas_damage` → pass | UNVERIFIED — run first |
-| The Metal text tests pass on a quiet machine, or `bugs/bug-1024-*` is root-caused (added at 172-F's close: they were red there, on a machine at load average 10–21, with source that had passed an hour earlier) | `cargo test --test rt_canvas_font gpu` → 2 passed | NOT MET |
-| The field-kind grid's `STATE`-site expectations are current (`bugs/bug-1023-*`, fallout of plan-172-N found at 172-F's close) | `cargo test --test rt_inplace_self_update every_field_kind_meets_its_expectation -- --ignored` → pass | NOT MET |
+| plan-172-F complete and archived | `ls planning/plan-172-F-*` → no matches | MET (2026-10-10) |
+| No shape record carries a bare coordinate scalar | `grep -c 'name: "x1"' src/codegen/builtins/canvas/mod.rs` → 0 | MET (2026-10-10) |
+| The group suites are green | `cargo test --test rt_canvas_group_ownership --test rt_canvas_damage` → pass | MET (2026-10-10; run first, 11 and 6 passed) |
+| The Metal text tests pass on a quiet machine, or `bugs/bug-1024-*` is root-caused (added at 172-F's close: they were red there, on a machine at load average 10–21, with source that had passed an hour earlier) | `cargo test --test rt_canvas_font gpu` → 2 passed | MET (2026-10-10 17:25, twice running; `bugs/bug-1024-*` stays open as an intermittent) |
+| The field-kind grid's `STATE`-site expectations are current (`bugs/completed/bug-1023-*`, fallout of plan-172-N found at 172-F's close) | the `T1`–`T8` run in `bugs/completed/bug-1023-*` → `1 passed` (208 pairs) | MET (2026-10-10, `e3ed16804`). The whole grid is `4 of 1155` failed — `http::Route` at four `S` sites, the same at `main`; that is `bugs/bug-1014-*`, not this row. |
 
 If plan-172-F is not complete, this letter cannot start, full stop.
 
@@ -202,30 +202,35 @@ group scaled 3× by 0.5× holding a stroked circle to prove it.
 Lands the field change with no new behaviour, so the port is checked against unchanged
 pixels.
 
-- [ ] `mod.rs`: `Group` becomes `position`, `transform`, `name`; rewrite its description
+- [x] `mod.rs`: `Group` becomes `position`, `transform`, `name`; rewrite its description
       (it says "drawn translated by `dx`/`dy`").
-- [ ] `helper_render.rs`: the eight reads of `g.dx` / `g.dy` read `g.position`;
+- [x] `helper_render.rs`: the eight reads of `g.dx` / `g.dy` read `g.position`;
       `__canvas_hashItem`'s Group arm folds `position` and the six transform fields.
-- [ ] Add `canvas::group(name, position)` with a man example.
-- [ ] Port the 101 sites: `dx`/`dy` become `position`, `transform` all-zero.
-- [ ] `FIELD_KIND_TABLE` and its `.tsv`; the IR-embedding goldens.
+- [x] ~~Add `canvas::group(name, position)` with a man example.~~ — moot: Open
+      Decision 1 of 172-A was answered "no constructor functions"
+      (`grep -c 'ANSWER: no constructor functions' planning/completed/plan-172-A-*.md`
+      → 1). `Group`'s description gives the `MUT` + `WITH` form instead.
+- [x] Port the 101 sites: `dx`/`dy` become `position`, `transform` all-zero.
+- [x] `FIELD_KIND_TABLE` and its `.tsv`; the IR-embedding goldens.
 
 Acceptance: every group test passes with no PNG regenerated.
   Check: `cargo test --test rt_canvas_golden groups --test rt_canvas_group_ownership
   --test rt_canvas_damage` → pass (est. 8 min); `git status --porcelain
   tests/golden/canvas` → empty.
+  Observed (2026-10-10, with phase 1 alone applied): `rt_canvas_golden` 23 passed,
+  `rt_canvas_group_ownership` 11 passed, `rt_canvas_damage` 6 passed; no PNG changed.
 Commit: —
 
 ### Phase 2 — The widened entry, still translate-only
 
-- [ ] `src/codegen/runtime/canvas/mod.rs`: `CANVAS_DRAW_ENTRY_WORDS = 16`; add
+- [x] `src/codegen/runtime/canvas/mod.rs`: `CANVAS_DRAW_ENTRY_WORDS = 16`; add
       `CANVAS_DRAW_ENTRY_HAS_MATRIX` and `CANVAS_DRAW_ENTRY_INVERSE`; update every one of
       the 35 references whose stride or offset depends on the width.
-- [ ] `helper_render.rs:__canvas_pushOneDraw`, `__canvas_pushDraw`, `__canvas_drawsJoin`:
+- [x] `helper_render.rs:__canvas_pushOneDraw`, `__canvas_pushDraw`, `__canvas_drawsJoin`:
       write and compare 16 words; two entries join only if their matrix words are equal.
-- [ ] `func_geo_cache.rs:canvas::sceneDrawsFlat` and `canvas::sceneLayout`: emit and
+- [x] `func_geo_cache.rs:canvas::sceneDrawsFlat` and `canvas::sceneLayout`: emit and
       copy 16-word entries.
-- [ ] `src/target/macos_aarch64/app/metal.rs:emit_draw_list_pass` and
+- [x] `src/target/macos_aarch64/app/metal.rs:emit_draw_list_pass` and
       `src/codegen/runtime/canvas/vulkan.rs:emit_draw_list_pass`: stride by 16 words,
       still binding the same 16 bytes.
 
@@ -233,35 +238,38 @@ Acceptance: every canvas suite passes on software and Metal with no PNG regenera
 the entry is wider and nothing reads the new words yet.
   Check: `cargo test --test rt_canvas_golden --test rt_canvas_metal --test
   rt_canvas_graphics_thread` → pass (est. 12 min).
+  Observed (2026-10-10, with phases 1 and 2 applied): `rt_canvas_golden` 23 passed,
+  `rt_canvas_metal` 48 passed, `rt_canvas_graphics_thread` 13 passed (2 ignored, as
+  before); no PNG changed.
 Commit: —
 
 ### Phase 3 — The affine, on software (largest blast radius)
 
-- [ ] `helper_paint_defaults.rs`: `__canvas_composeGroup` and its unit tests (identity
+- [x] `helper_paint_defaults.rs`: `__canvas_composeGroup` and its unit tests (identity
       under identity; translation under rotation; a no-area group transform treated as
       identity).
-- [ ] `helper_render.rs`: both walks call it; `__CANVAS_DRAW_MATRIX` is filled beside
+- [x] `helper_render.rs`: both walks call it; `__CANVAS_DRAW_MATRIX` is filled beside
       the offset arrays; entries carry `hasMatrix` and `A⁻¹`; the walk sets the
       decline flag; both `*Renderable` predicates read it.
-- [ ] `helper_items.rs:__canvas_drawGeometry`: when the entry has a matrix, compose
+- [x] `helper_items.rs:__canvas_drawGeometry`: when the entry has a matrix, compose
       `A⁻¹` with the item's inverse and take the transformed path, for shapes, text and
       pictures; bounds are the forward hull.
-- [ ] `helper_damage.rs`: the three consumers map bounds through the entry's affine.
-- [ ] `helper_render.rs:__canvas_appendDraw`: fold the six matrix floats into the draw
+- [x] `helper_damage.rs`: the three consumers map bounds through the entry's affine.
+- [x] `helper_render.rs:__canvas_appendDraw`: fold the six matrix floats into the draw
       hash.
-- [ ] Scene `tests/canvas/scenes/group_affine_on_black.mfb` and golden
+- [x] Scene `tests/canvas/scenes/group_affine_on_black.mfb` and golden
       `tests/golden/canvas/group_affine.png`: a rotated group, a group scaled 3× by 0.5×
       holding a stroked circle, a nested rotated group inside a translated one, a group
       holding a gradient-filled item, a `Text` item and a clipped item, and one
       translucent item drawn through a diamond.
-- [ ] Rasteriser cases: a rotated group's item lands at the hand-computed pixel; a
+- [x] Rasteriser cases: a rotated group's item lands at the hand-computed pixel; a
       group scaled 2× draws a 4-pixel stroke 8 pixels wide; a no-area group transform
       draws as identity.
-- [ ] Damage case in `tests/canvas/rt_canvas_damage.rs`: changing only a group's
+- [x] Damage case in `tests/canvas/rt_canvas_damage.rs`: changing only a group's
       `transform` repaints, and the damaged frame equals a full redraw byte for byte.
-- [ ] A stats assertion: a transformed-group scene under `MFB_CANVAS_GPU=1` reports the
+- [x] A stats assertion: a transformed-group scene under `MFB_CANVAS_GPU=1` reports the
       software renderer.
-- [ ] `src/docs/spec/app/06_canvas.md` "Named groups": replace "A group is translated,
+- [x] `src/docs/spec/app/06_canvas.md` "Named groups": replace "A group is translated,
       not transformed" with the composition rule, the widened entry, and the interim
       decline, each cited.
 
@@ -269,6 +277,7 @@ Acceptance: the new golden renders identically on two consecutive runs; `groups.
 still matches unregenerated; and a damaged frame equals a full redraw.
   Check: `cargo test --test rt_canvas_golden group --test rt_canvas_rasteriser group
   --test rt_canvas_damage` → pass (est. 10 min).
+  Observed (2026-10-10): `group_affine_matches_its_reference_exactly` passes, and renders the same on two consecutive runs inside one test; `groups_match_their_reference_exactly` passes against the unregenerated `groups.png`; `rt_canvas_rasteriser group` → 21 passed (five new `group_affine_*`); `rt_canvas_damage` → 7 passed, the new `turning_a_group_repaints_and_matches_a_full_redraw` among them (the damaged frame equals the full redraw); `a_group_with_a_matrix_falls_back_to_the_software_renderer` passes (`gpuFrames=0`). Whole round on the final tree: all 25 canvas-embedding targets green (`rt_canvas_golden` 24, `rt_canvas_rasteriser` 106, `rt_canvas_metal` 49, `rt_canvas_font` 33), `cargo test --bin mfb canvas` 115 passed, `spec` 46 passed. `git status --porcelain tests/golden/canvas` → `?? group_affine.png` only. `scripts/artifact-gate.sh target/release/mfb all` → `2322 golden(s) checked, 0 diff(s)`.
 Commit: —
 
 ## Validation Plan
@@ -290,7 +299,70 @@ None.
 
 ## Corrections
 
-<Filled in DURING execution.>
+- **Three phases, one commit**, each verified before the next was applied (the
+  observations above were taken phase by phase). The IR-embedding goldens change at
+  every phase, so three commits would each have re-baselined the same two fixtures.
+- **Two prerequisite rows were added at 172-F's close and settled before this letter**:
+  the Metal text tests (`bugs/bug-1024-*`) passed twice running once the machine's
+  load fell, and the field-kind grid's `STATE` sites (`bugs/completed/bug-1023-*`) were
+  fixed in `e3ed16804`.
+- **`canvas::group` is struck** (Open Decision 1 of 172-A); the description carries the
+  `MUT` + `WITH` form.
+- **No `CANVAS_DRAW_ENTRY_HAS_MATRIX` / `_INVERSE` constants.** Phase 2 names them, but
+  nothing native reads words 7–11 in this letter — the GPU emitters are 172-H — and a
+  constant with no reader is dead code the build warns about. The layout is stated in
+  `CANVAS_DRAW_ENTRY_WORDS`'s doc and written by `__canvas_pushOneDraw`; 172-H adds the
+  constants with their readers. `the_draw_entry_width_agrees_with_the_emitter` still
+  holds the sixteen appends to the constant.
+- **The 35 `CANVAS_DRAW_ENTRY_*` references needed two edits, not 35.** Both emitters
+  stride by `CANVAS_DRAW_ENTRY_SHIFT` and count by `_COUNT_SHIFT`, which derive from the
+  word count. What changed by hand: `__canvas_pushOneDraw` (eight more appends),
+  `__canvas_drawsText` (its stride), and `canvas::sceneDrawsFlat`, which had the width
+  as a literal `3` and an eight-element array and now uses the constants.
+  `__canvas_drawsJoin` needed no change: it joins two BLOCKS of one run, and a run has
+  one matrix by construction — a group node ends the run.
+- **The software side carries a matrix NUMBER per entry, not six floats.** §3 says a
+  third parallel global `__CANVAS_DRAW_MATRIX`, six floats an entry. `canvas::sceneLayout`
+  lays the parallel lists out natively, one word per entry per list; a six-wide list
+  would have needed its own strided copy. Instead `__CANVAS_DRAW_MAT` is one Integer an
+  entry (0, or a row of `__CANVAS_GROUP_ROWS` plus one), which `sceneLayout` moves with
+  the others, and the row holds the linear part forward and inverse. The translation
+  stays in `__CANVAS_DRAW_DX` / `_DY` for every entry, so a translate-only entry is
+  untouched and the identity path is today's by construction rather than by a flag.
+- **`__canvas_composeGroup` is in `helper_render.rs`, takes the parent as translation
+  plus matrix number, and answers through two globals.** It writes
+  `__CANVAS_GROUP_ROWS`, so it lives with the walks, not in `helper_paint_defaults.rs`.
+  MFBASIC returns one value: the matrix number is the result and the composed
+  translation is left in `__CANVAS_COMPOSED_X` / `_Y`, which avoids a list allocation
+  per group node, on a path both walks take for every node of every frame.
+- **Its "unit tests" are compiled-program tests**, as 172-D's and 172-E's were: the
+  function is MFBASIC text. `group_affine_*` (five rasteriser cases) put a pixel where
+  the composition says and assert it: a turn about the position, a nested node under a
+  turned parent (which distinguishes the two composition orders), a scale and its
+  stroke, a no-area transform, and `tx`/`ty` adding to `position`.
+- **The rasteriser reads the group matrix from globals set per entry**
+  (`__canvas_enterGroupMatrix`), not from new parameters: `__canvas_invX` / `_invY` are
+  called in five places per pixel and inside two clip helpers. With no matrix they
+  evaluate the expression they always did; `rt_canvas_golden transforms` and every
+  transformed-item test are unchanged.
+- **Three things the design did not list, found while writing the rasteriser:**
+  - *A rectangle clip.* Under an item's own transform a clip is built as a path, so the
+    rectangle path never met a rotation. Under a group matrix it does: it is evaluated
+    like a path clip (`__canvas_clipRectSurface`), and the loop's clip narrowing is
+    skipped. The golden's clipped band is this case.
+  - *The bounds pad.* A header's antialiasing rim is in the group's space; a group
+    scaled to 0.6 would have clipped it. The hull is padded by a pixel after mapping.
+  - *A composed affine with no area* draws nothing (the node is skipped), which is not
+    the single-node rule (not in effect → translate only). It can only be reached by
+    scaling through several nodes until nothing is left.
+- **The decline flag is set by the software walk** (`__canvas_appendDraw`), which runs
+  on every frame before either predicate, rather than by the GPU walk.
+- **Runtime proof.** `examples/canvas-demo`'s first frame is byte-identical
+  (`90f2a990…`), but that frame is the title screen, which uses no group. The two
+  scenes that do — the spring's parallax layers and the wanderer's level — were run
+  headless and looked at; they are animated, so they are not byte-comparable.
+- **`mfb man canvas group` does not exist** (no such function); `mfb man canvas types`
+  was rendered and shows `Group`'s three fields.
 
 ## Summary
 

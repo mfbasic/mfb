@@ -46,6 +46,9 @@ use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::codegen::runtime::canvas::{
+    CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_WORDS,
+};
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
@@ -1132,10 +1135,11 @@ fn emit_hash_step_zero(builder: &mut CodeBuilder, acc: &VirtualRegister) {
 ///
 /// `spans` is `(index, start, count)` per index MFBASIC handled, ascending; its entries
 /// are `side[start..start+count]` with their group offsets and draw hashes at the same
-/// positions of `__CANVAS_DRAW_DX`, `__CANVAS_DRAW_DY` and `__CANVAS_DRAW_HASHES`. Every
-/// other index is one entry: its offset at no group offset, whose draw hash is
+/// positions of `__CANVAS_DRAW_DX`, `__CANVAS_DRAW_DY`, `__CANVAS_DRAW_MAT` (plan-172-G:
+/// each entry's group matrix number) and `__CANVAS_DRAW_HASHES`. Every
+/// other index is one entry: its offset at no group offset and no matrix, whose draw hash is
 /// `__canvas_hashFloat(__canvas_hashFloat(hash, 0.0), 0.0)` of its published hash —
-/// exactly what `__canvas_appendDraw` records for it. The three `__CANVAS_DRAW_*`
+/// exactly what `__canvas_appendDraw` records for it. The four `__CANVAS_DRAW_*`
 /// globals are replaced by the whole frame's lists, and the offsets are the answer.
 fn lower_scene_layout(
     builder: &mut CodeBuilder,
@@ -1146,6 +1150,7 @@ fn lower_scene_layout(
     let dx_off = global(builder, "CANVAS_DRAW_DX")?;
     let dy_off = global(builder, "CANVAS_DRAW_DY")?;
     let dh_off = global(builder, "CANVAS_DRAW_HASHES")?;
+    let dm_off = global(builder, "CANVAS_DRAW_MAT")?;
     let spans_slot = builder.spill_to_slot("canvas_layout_spans", &args[0].location);
     let side_slot = builder.spill_to_slot("canvas_layout_side", &args[1].location);
 
@@ -1181,6 +1186,9 @@ fn lower_scene_layout(
     let t = builder.temporary_vreg();
     builder.emit(abi::load_u64(&t, abi::stack_pointer(), total_slot));
     let odh_slot = alloc_words(builder, &t, &t, &int_list())?;
+    let t = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&t, abi::stack_pointer(), total_slot));
+    let odm_slot = alloc_words(builder, &t, &t, &int_list())?;
 
     // The walk. Nothing below calls anything until the frees.
     let top = gload(builder, top_off);
@@ -1200,14 +1208,17 @@ fn lower_scene_layout(
     let sdx = gload(builder, dx_off);
     let sdy = gload(builder, dy_off);
     let sdh = gload(builder, dh_off);
+    let sdm = gload(builder, dm_off);
     let out = builder.temporary_vreg();
     let odx = builder.temporary_vreg();
     let ody = builder.temporary_vreg();
     let odh = builder.temporary_vreg();
+    let odm = builder.temporary_vreg();
     builder.emit(abi::load_u64(&out, abi::stack_pointer(), out_slot));
     builder.emit(abi::load_u64(&odx, abi::stack_pointer(), odx_slot));
     builder.emit(abi::load_u64(&ody, abi::stack_pointer(), ody_slot));
     builder.emit(abi::load_u64(&odh, abi::stack_pointer(), odh_slot));
+    builder.emit(abi::load_u64(&odm, abi::stack_pointer(), odm_slot));
     let nspan_words = builder.temporary_vreg();
     builder.emit(abi::load_u64(&nspan_words, &spans, COLLECTION_OFFSET_COUNT));
     let i = imm(builder, 0);
@@ -1237,7 +1248,13 @@ fn lower_scene_layout(
     builder.emit(abi::branch_ge(&copied));
     let src = builder.temporary_vreg();
     builder.emit(abi::add_registers(&src, &start, &k));
-    for (from, to) in [(&side, &out), (&sdx, &odx), (&sdy, &ody), (&sdh, &odh)] {
+    for (from, to) in [
+        (&side, &out),
+        (&sdx, &odx),
+        (&sdy, &ody),
+        (&sdh, &odh),
+        (&sdm, &odm),
+    ] {
         let v = load_word(builder, from, &src, 0);
         let at = word_addr(builder, to, &e);
         builder.emit(abi::store_u64(&v, &at, 0));
@@ -1253,7 +1270,8 @@ fn lower_scene_layout(
     let offset = load_word(builder, &top, &i, 0);
     let at = word_addr(builder, &out, &e);
     builder.emit(abi::store_u64(&offset, &at, 0));
-    for list in [&odx, &ody] {
+    // No group offset and no group matrix: an item of the scene itself.
+    for list in [&odx, &ody, &odm] {
         let at = word_addr(builder, list, &e);
         builder.emit(abi::store_u64(&zero, &at, 0));
     }
@@ -1275,11 +1293,12 @@ fn lower_scene_layout(
     builder.emit(abi::branch(&head));
     builder.emit(abi::label(&done));
 
-    // Replace the three globals.
+    // Replace the four globals.
     for (goff, slot, ty) in [
         (dx_off, odx_slot, float_list()),
         (dy_off, ody_slot, float_list()),
         (dh_off, odh_slot, int_list()),
+        (dm_off, odm_slot, int_list()),
     ] {
         let old = gload(builder, goff);
         let old_slot = builder.spill_to_slot("canvas_layout_old", &old);
@@ -1369,8 +1388,9 @@ fn emit_block_instances(
 /// reduces to: every offset into `__CANVAS_DRAW_BLOCKS`, the running instance count
 /// into `__CANVAS_DRAW_INST` (`__canvas_blockInstances`), and one draw entry per maximal
 /// stretch `__canvas_drawsJoin` joins — split where the blend mode changes or at a
-/// `Text` block — each eight words `(instBase, instCount, 0, 0, mode, 0, 0, 0)`, skipped
-/// when it publishes no instance (`__canvas_pushOneDraw`). The memo lists are emptied,
+/// `Text` block — each `CANVAS_DRAW_ENTRY_WORDS` words, `(instBase, instCount, 0, 0, mode)`
+/// and zeros after (no offset, no matrix), skipped when it publishes no instance
+/// (`__canvas_pushOneDraw`). The memo lists are emptied,
 /// as the walk empties them.
 fn lower_scene_draws_flat(
     builder: &mut CodeBuilder,
@@ -1423,7 +1443,11 @@ fn lower_scene_draws_flat(
     let n = builder.temporary_vreg();
     builder.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
     let words = builder.temporary_vreg();
-    builder.emit(abi::shift_left_immediate(&words, &n, 3));
+    builder.emit(abi::shift_left_immediate(
+        &words,
+        &n,
+        CANVAS_DRAW_ENTRY_COUNT_SHIFT as u8,
+    ));
     emit_reserve(builder, draws_off, &words, &int_list())?;
 
     // Nothing below allocates.
@@ -1510,14 +1534,18 @@ fn lower_scene_draws_flat(
         let first = load_word(builder, &blocks, &run_start, 0);
         let mode = geo_int(builder, &data, &first, 26);
         let zero = imm(builder, 0);
-        for (k, value) in [&base, &count, &zero, &zero, &mode, &zero, &zero, &zero]
-            .iter()
-            .enumerate()
-        {
-            let at = word_addr(builder, &draws, &d);
-            builder.emit(abi::store_u64(*value, &at, k * 8));
+        // A flat frame's entry: base, count, the blend mode in word 4, zeros elsewhere.
+        let at = word_addr(builder, &draws, &d);
+        for k in 0..CANVAS_DRAW_ENTRY_WORDS {
+            let value = match k {
+                0 => &base,
+                1 => &count,
+                k if k * 8 == CANVAS_DRAW_ENTRY_MODE => &mode,
+                _ => &zero,
+            };
+            builder.emit(abi::store_u64(value, &at, k * 8));
         }
-        builder.emit(abi::add_immediate(&d, &d, 8));
+        builder.emit(abi::add_immediate(&d, &d, CANVAS_DRAW_ENTRY_WORDS));
         builder.emit(abi::label(&skip));
         builder.emit(abi::move_register(&run_start, &i));
     }

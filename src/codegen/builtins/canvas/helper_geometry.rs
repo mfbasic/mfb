@@ -1934,7 +1934,8 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
     ' groups at the same offset must not collide, and neither must one group at two.
     CASE Group(g)
       MUT h AS Integer = __canvas_hashStart(9)
-      h = __canvas_hashFloat(__canvas_hashFloat(h, g.dx), g.dy)
+      h = __canvas_hashPoint(h, g.position)
+      h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, g.transform.a), g.transform.b), g.transform.c), g.transform.d), g.transform.tx), g.transform.ty)
       RETURN __canvas_hashText(h, g.name)
     ' plan-154-A. Hashed natively (`func_item_hash.rs`), so this arm is what keeps the
     ' MATCH exhaustive; it folds the same fields in case that ever changes.

@@ -45,7 +45,7 @@ END FUNC
 FUNC main() AS Integer
   app::setMode(app::Mode.Canvas)
   canvas::setGroup(\"light\", scene(3.0))
-  canvas::present([canvas::Group[dx := 4.0, dy := 5.0, name := \"light\"]])
+  canvas::present([canvas::Group[position := vector::Float2[x := 4.0, y := 5.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"light\"]])
   canvas::removeGroup(\"light\")
   canvas::present(scene(5.0))
   canvas::presentLayers(layered(5.0))

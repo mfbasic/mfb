@@ -74,11 +74,14 @@ r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integ
     LET offset AS Integer = collections::getOr(offsets, di, 0)
     LET gdx AS Float = collections::getOr(__CANVAS_DRAW_DX, di, 0.0)
     LET gdy AS Float = collections::getOr(__CANVAS_DRAW_DY, di, 0.0)
+    ' plan-172-G: the entry's group matrix, current for the bounds test and the draw.
+    __canvas_enterGroupMatrix(collections::getOr(__CANVAS_DRAW_MAT, di, 0))
     IF full OR __canvas_boundsMeetOffset(offset, damage, gdx, gdy) THEN
       buffer = __canvas_drawGeometry(buffer, width, height, offset, gdx, gdy)
     END IF
     di = di + 1
   END WHILE
+  __canvas_enterGroupMatrix(0)
   ' Kept only for damage mode, the one reader (`__canvas_damageFor` answers a full
   ' redraw otherwise): the assignment is a whole-frame copy -- 20 MB at 2880x1800,
   ' measured at 6 ms a frame -- paid on every frame for nothing (bug-686).
@@ -158,6 +161,91 @@ r#"' plan-116-G: the accumulated group translation of each draw entry, parallel 
 MUT __CANVAS_DRAW_DX AS List OF Float = []
 MUT __CANVAS_DRAW_DY AS List OF Float = []
 
+' plan-172-G: the matrix of each draw entry, parallel to the two lists above: 0 for an
+' entry its groups only translate, otherwise one more than its row in
+' `__CANVAS_GROUP_ROWS`. `__CANVAS_DRAW_DX` / `_DY` stay the TRANSLATION of the composed
+' affine in both cases, so a consumer that knows nothing of matrices still places a
+' translate-only entry exactly as it did.
+'
+' A row is eight floats: the composed linear part forward (`a`, `b`, `c`, `d`), then its
+' inverse. One row per group node that has a matrix, per frame; an index rather than
+' six floats an entry because `canvas::sceneLayout` moves one word per entry per list.
+MUT __CANVAS_DRAW_MAT AS List OF Integer = []
+MUT __CANVAS_GROUP_ROWS AS List OF Float = []
+
+' Whether this frame holds an entry with a matrix. `.ai/canvas-threading.md` section 10:
+' a GPU predicate cannot find a group in the offsets list, so a backend that has to
+' decline is told by the walk. Both decline until plan-172-H teaches them the matrix.
+MUT __CANVAS_DRAW_HAS_MATRIX AS Boolean = FALSE
+
+' `__canvas_composeGroup`'s second answer: the composed translation.
+MUT __CANVAS_COMPOSED_X AS Float = 0.0
+MUT __CANVAS_COMPOSED_Y AS Float = 0.0
+
+' A new row for the linear part `a b c d`, answering its matrix number (row + 1) -- or
+' -1 when it has no area, which a composed affine can reach only by scaling something
+' out of existence, and such a group draws nothing.
+FUNC __canvas_groupRow(a AS Float, b AS Float, c AS Float, d AS Float) AS Integer
+  LET det AS Float = a * d - b * c
+  IF NOT (__canvas_absF(det) >= 0.000000000001) THEN
+    RETURN 0 - 1
+  END IF
+  __CANVAS_GROUP_ROWS = collections::append(__CANVAS_GROUP_ROWS, a)
+  __CANVAS_GROUP_ROWS = collections::append(__CANVAS_GROUP_ROWS, b)
+  __CANVAS_GROUP_ROWS = collections::append(__CANVAS_GROUP_ROWS, c)
+  __CANVAS_GROUP_ROWS = collections::append(__CANVAS_GROUP_ROWS, d)
+  __CANVAS_GROUP_ROWS = collections::append(__CANVAS_GROUP_ROWS, d / det)
+  __CANVAS_GROUP_ROWS = collections::append(__CANVAS_GROUP_ROWS, (0.0 - b) / det)
+  __CANVAS_GROUP_ROWS = collections::append(__CANVAS_GROUP_ROWS, (0.0 - c) / det)
+  __CANVAS_GROUP_ROWS = collections::append(__CANVAS_GROUP_ROWS, a / det)
+  RETURN len(__CANVAS_GROUP_ROWS) / 8
+END FUNC
+
+' plan-172-G: one group node under its parents. The parents' composed affine arrives as
+' its translation (`gdx`, `gdy`) and its matrix number (`mat`, 0 for none); the node is
+' `T(position) . transform`. The answer is the composed matrix number, with the composed
+' translation left in `__CANVAS_COMPOSED_X` / `_Y`.
+'
+' Both walks call this -- the software and damage walk (`__canvas_appendDraw`) and the
+' GPU walk (`__canvas_drawGroup`) -- so they cannot disagree about what a nested group
+' means.
+'
+' A node whose transform is not in effect (all zero, or no area: the two cases
+' `__canvas_transformActive` answers FALSE for) only translates. Under translate-only
+' parents that is the sum this walk always computed, `gdx + position.x`, to the bit --
+' which is what keeps every group scene written before this letter drawing the same
+' frame. Under a parent with a matrix, the node's translation is carried through it.
+FUNC __canvas_composeGroup(gdx AS Float, gdy AS Float, mat AS Integer, position AS vector::Float2, t AS Transform) AS Integer
+  IF mat < 0 THEN
+    RETURN mat
+  END IF
+  IF mat = 0 THEN
+    IF NOT __canvas_transformActive(t) THEN
+      __CANVAS_COMPOSED_X = gdx + position.x
+      __CANVAS_COMPOSED_Y = gdy + position.y
+      RETURN 0
+    END IF
+    __CANVAS_COMPOSED_X = gdx + (position.x + t.tx)
+    __CANVAS_COMPOSED_Y = gdy + (position.y + t.ty)
+    RETURN __canvas_groupRow(t.a, t.b, t.c, t.d)
+  END IF
+  LET row AS Integer = (mat - 1) * 8
+  LET pa AS Float = collections::getOr(__CANVAS_GROUP_ROWS, row, 1.0)
+  LET pb AS Float = collections::getOr(__CANVAS_GROUP_ROWS, row + 1, 0.0)
+  LET pc AS Float = collections::getOr(__CANVAS_GROUP_ROWS, row + 2, 0.0)
+  LET pd AS Float = collections::getOr(__CANVAS_GROUP_ROWS, row + 3, 1.0)
+  IF NOT __canvas_transformActive(t) THEN
+    __CANVAS_COMPOSED_X = pa * position.x + pc * position.y + gdx
+    __CANVAS_COMPOSED_Y = pb * position.x + pd * position.y + gdy
+    RETURN mat
+  END IF
+  LET nx AS Float = position.x + t.tx
+  LET ny AS Float = position.y + t.ty
+  __CANVAS_COMPOSED_X = pa * nx + pc * ny + gdx
+  __CANVAS_COMPOSED_Y = pb * nx + pd * ny + gdy
+  RETURN __canvas_groupRow(pa * t.a + pc * t.b, pb * t.a + pd * t.b, pa * t.c + pc * t.d, pb * t.c + pd * t.d)
+END FUNC
+
 ' The hash of each DRAW entry, which is not the same list as the scene's hashes once a
 ' group is expanded: one `Group` node becomes N children.
 '
@@ -176,7 +264,7 @@ LET __CANVAS_GROUP_MAX_DEPTH AS Integer = 64
 ' a separate pass over the published scene: it is the same walk either way, and doing it
 ' here means the offsets list a renderer receives is already flat, so no consumer of it
 ' has to know groups exist.
-FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS Integer, gdx AS Float, gdy AS Float, depth AS Integer) AS List OF Integer
+FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer) AS List OF Integer
   MUT out AS List OF Integer = offsets
   MATCH item
     CASE Group(g)
@@ -196,8 +284,16 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
       ' An unresolved name draws nothing and does NOT raise: `canvas::groupItems`
       ' answers an empty list for the -1 a miss returns, so the loop runs zero times and
       ' no branch is needed to make an absent group a silent no-op.
+      ' plan-172-G: this node under its parents. A composed affine with no area draws
+      ' nothing, so its children are not walked.
+      LET childMat AS Integer = __canvas_composeGroup(gdx, gdy, mat, g.position, g.transform)
+      IF childMat < 0 THEN
+        RETURN out
+      END IF
+      LET childX AS Float = __CANVAS_COMPOSED_X
+      LET childY AS Float = __CANVAS_COMPOSED_Y
       FOR EACH child IN canvas::groupItems(canvas::groupResolve(g.name))
-        out = __canvas_appendDraw(out, child, __canvas_hashItem(child), gdx + g.dx, gdy + g.dy, depth + 1)
+        out = __canvas_appendDraw(out, child, __canvas_hashItem(child), childX, childY, childMat, depth + 1)
       NEXT
       RETURN out
     CASE ELSE
@@ -222,7 +318,18 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
       IF toInt(__canvas_geoAt(offset, 0)) = __CANVAS_GEO_PICTURE THEN
         drawHash = __canvas_hashFloat(__canvas_hashFloat(drawHash, __canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)), __canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
       END IF
-      __CANVAS_DRAW_HASHES = collections::append(__CANVAS_DRAW_HASHES, __canvas_hashFloat(__canvas_hashFloat(drawHash, gdx), gdy))
+      drawHash = __canvas_hashFloat(__canvas_hashFloat(drawHash, gdx), gdy)
+      ' plan-172-G: and the matrix, for the same reason as the offset -- a group turned
+      ' in place changes no geometry and no offset. Only an entry that has one folds it
+      ' in, so a translate-only entry's hash is what it was, and what
+      ' `canvas::sceneLayout` computes natively for an item outside any group.
+      __CANVAS_DRAW_MAT = collections::append(__CANVAS_DRAW_MAT, mat)
+      IF mat > 0 THEN
+        __CANVAS_DRAW_HAS_MATRIX = TRUE
+        LET row AS Integer = (mat - 1) * 8
+        drawHash = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(drawHash, collections::getOr(__CANVAS_GROUP_ROWS, row, 1.0)), collections::getOr(__CANVAS_GROUP_ROWS, row + 1, 0.0)), collections::getOr(__CANVAS_GROUP_ROWS, row + 2, 0.0)), collections::getOr(__CANVAS_GROUP_ROWS, row + 3, 1.0))
+      END IF
+      __CANVAS_DRAW_HASHES = collections::append(__CANVAS_DRAW_HASHES, drawHash)
       RETURN out
   END MATCH
 END FUNC
@@ -400,7 +507,7 @@ END FUNC
 ' Append one draw entry: offsets in 16.16 so the whole list stays `List OF Integer`
 ' and reaches an emitter without a second parallel Float list -- each with its residual
 ' word (bug-735), so the shaders recover the offset the oracle subtracts to 2^-47 px.
-FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float) AS Nothing
+FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float, mat AS Integer) AS Nothing
   IF count <= 0 THEN
     RETURN
   END IF
@@ -418,14 +525,16 @@ FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS 
   IF instCount <= 0 THEN
     RETURN
   END IF
-  ' EIGHT words per entry, not four. The emitter addresses an entry with a shift, so the
-  ' stride has to be a power of two; the trailing words are their own rather than
-  ' packed into the others, because a mode smuggled into the high bits of `count` is the
-  ' kind of encoding that survives exactly until someone draws 65536 instances.
+  ' SIXTEEN words per entry (plan-172-G; eight before it, four before that). The emitter
+  ' addresses an entry with a shift, so the stride has to be a power of two; the trailing
+  ' words are their own rather than packed into the others, because a mode smuggled into
+  ' the high bits of `count` is the kind of encoding that survives exactly until someone
+  ' draws 65536 instances.
   '
   ' This width is agreed in THREE places and there is no gate that checks they agree:
   ' here, `__canvas_drawsText` in helper_surface.rs, and `emit_draw_list_pass` in
-  ' src/codegen/runtime/canvas/vulkan.rs (`shift_left_immediate(.., 6)` = 8 x 8 bytes).
+  ' src/codegen/runtime/canvas/vulkan.rs (`CANVAS_DRAW_ENTRY_SHIFT`), with
+  ' `canvas::sceneDrawsFlat` writing the same width natively.
   ' When they disagreed -- this function writing four words while the emitter strode by eight --
   ' the emitter read every other entry and took the following entry's `base` as a blend
   ' mode, which indexes the pipeline table out of range and hands Vulkan a junk
@@ -451,6 +560,30 @@ FUNC __canvas_pushOneDraw(base AS Integer, count AS Integer, dx AS Float, dy AS 
   ' (`canvas::sceneDrawsFlat`) at offset 0, residuals 0.
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt((dx * 65536.0 - toFloat(wordX)) * 2147483648.0))
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, toInt((dy * 65536.0 - toFloat(wordY)) * 2147483648.0))
+  ' plan-172-G: word 7 is `hasMatrix`, words 8-11 the inverse linear part of the groups'
+  ' composed affine as float32 bits, words 12-15 reserved. The translation stays in
+  ' words 2-3 and 5-6 either way.
+  MUT hasMatrix AS Integer = 0
+  MUT inverseA AS Integer = 0
+  MUT inverseB AS Integer = 0
+  MUT inverseC AS Integer = 0
+  MUT inverseD AS Integer = 0
+  IF mat > 0 THEN
+    LET row AS Integer = (mat - 1) * 8
+    hasMatrix = 1
+    inverseA = __canvas_float32Bits(collections::getOr(__CANVAS_GROUP_ROWS, row + 4, 1.0))
+    inverseB = __canvas_float32Bits(collections::getOr(__CANVAS_GROUP_ROWS, row + 5, 0.0))
+    inverseC = __canvas_float32Bits(collections::getOr(__CANVAS_GROUP_ROWS, row + 6, 0.0))
+    inverseD = __canvas_float32Bits(collections::getOr(__CANVAS_GROUP_ROWS, row + 7, 1.0))
+  END IF
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, hasMatrix)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, inverseA)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, inverseB)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, inverseC)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, inverseD)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
+  __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
   __CANVAS_DRAWS = collections::append(__CANVAS_DRAWS, 0)
 END FUNC
 
@@ -484,7 +617,7 @@ END FUNC
 ' backend where its draw calls are, so a rule applied afterwards would live in two
 ' assemblers and could differ between them -- the failure family
 ' `.ai/canvas-threading.md` section 10 records.
-FUNC __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float) AS Nothing
+FUNC __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Float, mat AS Integer) AS Nothing
   IF count <= 0 THEN
     RETURN
   END IF
@@ -494,12 +627,12 @@ FUNC __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Flo
     LET prev AS Integer = collections::getOr(__CANVAS_DRAW_BLOCKS, i - 1, 0)
     LET here AS Integer = collections::getOr(__CANVAS_DRAW_BLOCKS, i, 0)
     IF NOT __canvas_drawsJoin(prev, here) THEN
-      __canvas_pushOneDraw(runStart, i - runStart, dx, dy)
+      __canvas_pushOneDraw(runStart, i - runStart, dx, dy, mat)
       runStart = i
     END IF
     i = i + 1
   END WHILE
-  __canvas_pushOneDraw(runStart, base + count - runStart, dx, dy)
+  __canvas_pushOneDraw(runStart, base + count - runStart, dx, dy, mat)
 END FUNC
 
 ' Lay out one group's own (non-group) items once, returning its memo index.
@@ -538,16 +671,20 @@ END FUNC
 
 ' Emit the draw entries for one group reference at an accumulated offset: its own run,
 ' then its nested groups recursively.
-FUNC __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float, gdy AS Float, depth AS Integer) AS Nothing
+FUNC __canvas_drawGroup(slot AS Integer, hashes AS List OF Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer) AS Nothing
   IF depth >= __CANVAS_GROUP_MAX_DEPTH THEN
     RETURN
   END IF
   LET row AS Integer = __canvas_memoGroup(slot, hashes, depth)
-  __canvas_pushDraw(collections::getOr(__CANVAS_DRAW_MEMO_BASE, row, 0), collections::getOr(__CANVAS_DRAW_MEMO_COUNT, row, 0), gdx, gdy)
+  __canvas_pushDraw(collections::getOr(__CANVAS_DRAW_MEMO_BASE, row, 0), collections::getOr(__CANVAS_DRAW_MEMO_COUNT, row, 0), gdx, gdy, mat)
   FOR EACH child IN canvas::groupItems(slot)
     MATCH child
       CASE Group(g)
-        __canvas_drawGroup(canvas::groupResolve(g.name), hashes, gdx + g.dx, gdy + g.dy, depth + 1)
+        ' plan-172-G: the same composition the software walk makes.
+        LET childMat AS Integer = __canvas_composeGroup(gdx, gdy, mat, g.position, g.transform)
+        IF childMat >= 0 THEN
+          __canvas_drawGroup(canvas::groupResolve(g.name), hashes, __CANVAS_COMPOSED_X, __CANVAS_COMPOSED_Y, childMat, depth + 1)
+        END IF
       CASE ELSE
         ' A non-group child contributes no draw entry of its own: its block is already
         ' inside the run this group's memo laid out.
@@ -595,9 +732,12 @@ FUNC __canvas_sceneDrawsWalk() AS List OF Integer
       ' A group node: it ends the current run, then lays out (or reuses) its own.
       MATCH collections::getOr(__CANVAS_FRAME_ITEMS, index, none)
         CASE Group(g)
-          __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
+          __canvas_pushDraw(runBase, runCount, 0.0, 0.0, 0)
           runCount = 0
-          __canvas_drawGroup(canvas::groupResolve(g.name), hashes, g.dx, g.dy, 0)
+          LET topMat AS Integer = __canvas_composeGroup(0.0, 0.0, 0, g.position, g.transform)
+          IF topMat >= 0 THEN
+            __canvas_drawGroup(canvas::groupResolve(g.name), hashes, __CANVAS_COMPOSED_X, __CANVAS_COMPOSED_Y, topMat, 0)
+          END IF
           runBase = len(__CANVAS_DRAW_BLOCKS)
         CASE ELSE
           LET unreachable AS Integer = 0
@@ -616,14 +756,14 @@ FUNC __canvas_sceneDrawsWalk() AS List OF Integer
     END IF
     index = index + 1
   END WHILE
-  __canvas_pushDraw(runBase, runCount, 0.0, 0.0)
+  __canvas_pushDraw(runBase, runCount, 0.0, 0.0, 0)
   RETURN __CANVAS_DRAWS
 END FUNC
 
 ' A stand-in `DrawItem` for an index `__CANVAS_FRAME_ITEMS` does not hold. A group named
 ' by nothing resolves to no slot and draws nothing, so reaching it is harmless.
 FUNC __canvas_noItem() AS DrawItem
-  RETURN Group[name := "", dx := 0.0, dy := 0.0]
+  RETURN Group[position := vector::Float2[x := 0.0, y := 0.0], transform := __canvas_noTransform(), name := ""]
 END FUNC
 
 ' Every item of the frame's scene -- the snapshot `canvas::sceneSnapshot` took (bug-686)
@@ -680,6 +820,9 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
   __CANVAS_DRAW_DX = []
   __CANVAS_DRAW_DY = []
   __CANVAS_DRAW_HASHES = []
+  __CANVAS_DRAW_MAT = []
+  __CANVAS_GROUP_ROWS = []
+  __CANVAS_DRAW_HAS_MATRIX = FALSE
   MUT side AS List OF Integer = []
   MUT spans AS List OF Integer = []
   IF pending > 0 THEN
@@ -697,7 +840,7 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
       IF collections::getOr(__CANVAS_TOP_OFFSETS, i, 0) < 0 THEN
         LET item AS DrawItem = collections::getOr(__CANVAS_FRAME_ITEMS, i, none)
         LET before AS Integer = len(side)
-        side = __canvas_appendDraw(side, item, collections::getOr(__CANVAS_FRAME_HASHES, i, 0), 0.0, 0.0, 0)
+        side = __canvas_appendDraw(side, item, collections::getOr(__CANVAS_FRAME_HASHES, i, 0), 0.0, 0.0, 0, 0)
         spans = collections::append(spans, i)
         spans = collections::append(spans, before)
         spans = collections::append(spans, len(side) - before)
@@ -764,6 +907,11 @@ FUNC __canvas_dashWords(offset AS Integer) AS Integer
 END FUNC
 
 FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
+  ' plan-172-G: a frame holding a group with a matrix is the software renderer's until
+  ' plan-172-H. The walk says so (`__CANVAS_DRAW_HAS_MATRIX`); the offsets cannot.
+  IF __CANVAS_DRAW_HAS_MATRIX THEN
+    RETURN FALSE
+  END IF
   MUT total AS Integer = 0
   MUT samples AS Integer = 0
   MUT quads AS Integer = 0
@@ -924,6 +1072,10 @@ FUNC __canvas_pictureSamples(offset AS Integer) AS Integer
 END FUNC
 
 FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
+  ' plan-172-G: as in `__canvas_metalRenderable`.
+  IF __CANVAS_DRAW_HAS_MATRIX THEN
+    RETURN FALSE
+  END IF
   MUT total AS Integer = 0
   MUT samples AS Integer = 0
   MUT quads AS Integer = 0
@@ -1107,7 +1259,7 @@ FUNC __canvas_hashScene(items AS List OF DrawItem, carried AS List OF Integer) A
     IF collections::getOr(out, i, 0) < 0 THEN
       ' Never read: every index below `count` is present. A group naming nothing
       ' would draw nothing, so it is also a harmless value if it ever were.
-      LET none AS DrawItem = Group[name := "", dx := 0.0, dy := 0.0]
+      LET none AS DrawItem = Group[position := vector::Float2[x := 0.0, y := 0.0], transform := __canvas_noTransform(), name := ""]
       LET item AS DrawItem = collections::getOr(items, i, none)
       out = collections::set(out, i, __canvas_hashItem(item))
     END IF

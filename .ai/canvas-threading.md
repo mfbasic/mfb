@@ -458,8 +458,15 @@ worker builds a **draw list** (`__canvas_sceneDraws`) alongside the block list, 
 per contiguous run of blocks at a given offset:
 
 ```
-(itemBase, itemCount, dx, dy, blendMode, dxLo, dyLo, 0)     eight 64-bit words
+(itemBase, itemCount, dx, dy, blendMode, dxLo, dyLo,        sixteen 64-bit words
+ hasMatrix, ia, ib, ic, id, 0, 0, 0, 0)
 ```
+
+It was eight words until plan-172-G, and a translate-only entry is still those eight
+followed by zeros. `hasMatrix` is 1 when the entry's groups compose to more than a
+translation, and `ia`..`id` are then the INVERSE linear part of that composition, as
+float32 bit patterns. Until plan-172-H neither backend reads words 7–11: the walk sets
+`__CANVAS_DRAW_HAS_MATRIX` and both `*Renderable` predicates decline the frame.
 
 `dx`/`dy` are 16.16 words (`toInt(d * 65536)`, truncated) and `dxLo`/`dyLo` their residual
 words in units of 2^-47 px (bug-735): both backends bind all four as the stage offset
@@ -904,15 +911,18 @@ Rows **R17–R21** in §8.
 
 `__canvas_appendDraw` resolves and flattens the group tree where the draw list is built,
 so the offsets list handed to the render walk, the damage diff and both GPU predicates
-contains only leaf items, each carrying its accumulated `(dx, dy)` in parallel globals.
+contains only leaf items, each carrying its accumulated `(dx, dy)` — and, since
+plan-172-G, a matrix number (`__CANVAS_DRAW_MAT`) — in parallel globals.
 No consumer knows groups exist.
 
 Two consequences worth stating because they are easy to get wrong in the other order:
 
 * **The GPU predicates cannot look for a `Group`** — by the time they see the list there
-  is none. They read `__CANVAS_DRAW_HAS_GROUP`, set by the walk. A predicate that
-  searched would find nothing, accept the frame, and draw every group's children at the
-  origin: §10's failure exactly.
+  is none. A backend that must decline is told by the walk: `__CANVAS_DRAW_HAS_GROUP`
+  did that until both backends drew groups, and `__CANVAS_DRAW_HAS_MATRIX` does it now
+  for a group with a transform (plan-172-G). A predicate that searched would find
+  nothing, accept the frame, and draw every group's children untransformed: §10's
+  failure exactly.
 * **Both sides of the damage diff need the offset.** The remembered bounds and the
   current bounds must both be translated, and each draw entry's recorded hash must fold
   in its offset — otherwise a moved group changes no geometry and reports "nothing

@@ -499,7 +499,7 @@ fn published_polygon_rings_are_copied_not_aliased() {
         \x20 p = WITH p { contours := collections::set(p.contours, 1, sq(110.0, 110.0, 20.0)) }\n\
         \x20 p = WITH p { contours := collections::append(p.contours, sq(400.0, 400.0, 50.0)) }\n\
         \x20 io::print(toString(len(p.contours)))\n\
-        \x20 LET g AS canvas::DrawItem = canvas::Group[name := \"held\", dx := 0.0, dy := 0.0]\n\
+        \x20 LET g AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"held\"]\n\
         \x20 canvas::presentLayers([canvas::DrawLayer[items := [g]], layer()])\n\
         \x20 io::print(\"rendered\")\n\
          END FUNC\n";

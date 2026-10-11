@@ -90,8 +90,118 @@ END FUNC
 ' Slot 33 is the flag `__canvas_invertTransform` computed, so "is this the identity"
 ' is decided once, by the same code that decides what the identity IS -- rather than
 ' by six compares here that could disagree with it.
+'
+' plan-172-G: or is it being drawn inside a group whose composed affine is more than a
+' translation (`__CANVAS_GM`)? Either way the query point is inverse-mapped, so every
+' consumer that asks takes the transformed path.
 FUNC __canvas_hasTransform(offset AS Integer) AS Boolean
+  IF __CANVAS_GM THEN
+    RETURN TRUE
+  END IF
   RETURN __canvas_geoAt(offset, 33) > 0.5
+END FUNC
+
+' plan-172-G: the linear part of the enclosing groups' composed affine, for the draw
+' entry being rasterised -- forward (`F*`) and inverse (`I*`) -- and whether there is
+' one. Set by `__canvas_enterGroupMatrix` for one entry at a time and FALSE otherwise,
+' so nothing outside the software walk ever sees it set.
+'
+' Globals rather than six more parameters on `__canvas_drawGeometry` and on every
+' helper it calls: the inverse map is taken in five places per pixel and in two clip
+' helpers, and each would have had to carry them.
+'
+' The group's TRANSLATION is not here. It stays the entry's `gdx`/`gdy`, which every
+' consumer already subtracts from the surface point, so an item inside a turned group
+' reaches its own space as `item⁻¹(L⁻¹(p − t))`: the same subtraction as before, then
+' this linear part, then the item's own inverse if it has one.
+MUT __CANVAS_GM AS Boolean = FALSE
+MUT __CANVAS_GM_FA AS Float = 1.0
+MUT __CANVAS_GM_FB AS Float = 0.0
+MUT __CANVAS_GM_FC AS Float = 0.0
+MUT __CANVAS_GM_FD AS Float = 1.0
+MUT __CANVAS_GM_IA AS Float = 1.0
+MUT __CANVAS_GM_IB AS Float = 0.0
+MUT __CANVAS_GM_IC AS Float = 0.0
+MUT __CANVAS_GM_ID AS Float = 1.0
+
+' Make draw entry matrix `mat` current: a row of `__CANVAS_GROUP_ROWS` plus one, or 0
+' for an entry that is only translated.
+FUNC __canvas_enterGroupMatrix(mat AS Integer) AS Nothing
+  IF mat <= 0 THEN
+    __CANVAS_GM = FALSE
+    RETURN
+  END IF
+  LET row AS Integer = (mat - 1) * 8
+  __CANVAS_GM_FA = collections::getOr(__CANVAS_GROUP_ROWS, row, 1.0)
+  __CANVAS_GM_FB = collections::getOr(__CANVAS_GROUP_ROWS, row + 1, 0.0)
+  __CANVAS_GM_FC = collections::getOr(__CANVAS_GROUP_ROWS, row + 2, 0.0)
+  __CANVAS_GM_FD = collections::getOr(__CANVAS_GROUP_ROWS, row + 3, 1.0)
+  __CANVAS_GM_IA = collections::getOr(__CANVAS_GROUP_ROWS, row + 4, 1.0)
+  __CANVAS_GM_IB = collections::getOr(__CANVAS_GROUP_ROWS, row + 5, 0.0)
+  __CANVAS_GM_IC = collections::getOr(__CANVAS_GROUP_ROWS, row + 6, 0.0)
+  __CANVAS_GM_ID = collections::getOr(__CANVAS_GROUP_ROWS, row + 7, 1.0)
+  __CANVAS_GM = TRUE
+END FUNC
+
+' One edge of the surface box a geometry record occupies as the current draw entry
+' places it: `k` is 0, 1, 2, 3 for x0, y0, x1, y1.
+'
+' Translate-only, it is the header's bound plus the offset -- the expression every
+' consumer used to write out. Under a group matrix the header's box (already the hull
+' of the item under its OWN transform) is carried through the groups' linear part, and
+' the hull of its four corners is padded by a pixel: the header's antialiasing rim is
+' in the group's space, so a group that scales down would shrink it under the pixel it
+' has to cover. A bound only has to be conservative.
+FUNC __canvas_drawBound(offset AS Integer, k AS Integer, gdx AS Float, gdy AS Float) AS Float
+  IF NOT __CANVAS_GM THEN
+    IF k = 0 OR k = 2 THEN
+      RETURN __canvas_geoAt(offset, 16 + k) + gdx
+    END IF
+    RETURN __canvas_geoAt(offset, 16 + k) + gdy
+  END IF
+  LET x0 AS Float = __canvas_geoAt(offset, 16)
+  LET y0 AS Float = __canvas_geoAt(offset, 17)
+  LET x1 AS Float = __canvas_geoAt(offset, 18)
+  LET y1 AS Float = __canvas_geoAt(offset, 19)
+  IF k = 0 OR k = 2 THEN
+    LET a AS Float = __CANVAS_GM_FA * x0 + __CANVAS_GM_FC * y0
+    LET b AS Float = __CANVAS_GM_FA * x1 + __CANVAS_GM_FC * y0
+    LET c AS Float = __CANVAS_GM_FA * x0 + __CANVAS_GM_FC * y1
+    LET d AS Float = __CANVAS_GM_FA * x1 + __CANVAS_GM_FC * y1
+    IF k = 0 THEN
+      RETURN __canvas_minF(__canvas_minF(a, b), __canvas_minF(c, d)) + gdx - 1.0
+    END IF
+    RETURN __canvas_maxF(__canvas_maxF(a, b), __canvas_maxF(c, d)) + gdx + 1.0
+  END IF
+  LET ya AS Float = __CANVAS_GM_FB * x0 + __CANVAS_GM_FD * y0
+  LET yb AS Float = __CANVAS_GM_FB * x1 + __CANVAS_GM_FD * y0
+  LET yc AS Float = __CANVAS_GM_FB * x0 + __CANVAS_GM_FD * y1
+  LET yd AS Float = __CANVAS_GM_FB * x1 + __CANVAS_GM_FD * y1
+  IF k = 1 THEN
+    RETURN __canvas_minF(__canvas_minF(ya, yb), __canvas_minF(yc, yd)) + gdy - 1.0
+  END IF
+  RETURN __canvas_maxF(__canvas_maxF(ya, yb), __canvas_maxF(yc, yd)) + gdy + 1.0
+END FUNC
+
+' The forward affine an item is drawn through, as six floats: its own (the inverse of
+' the header's inverse), under the groups' linear part when there is one. The group's
+' translation is the entry's `gdx`/`gdy` and is not in it. A glyph run walks the surface
+' box this maps each glyph to.
+FUNC __canvas_drawForward(offset AS Integer) AS List OF Float
+  MUT f AS List OF Float = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+  IF __canvas_geoAt(offset, 33) > 0.5 THEN
+    f = __canvas_forwardOf(__canvas_f32FromBits(__canvas_geoAt(offset, 27)), __canvas_f32FromBits(__canvas_geoAt(offset, 28)), __canvas_f32FromBits(__canvas_geoAt(offset, 29)), __canvas_f32FromBits(__canvas_geoAt(offset, 30)), __canvas_f32FromBits(__canvas_geoAt(offset, 31)), __canvas_f32FromBits(__canvas_geoAt(offset, 32)))
+  END IF
+  IF NOT __CANVAS_GM THEN
+    RETURN f
+  END IF
+  LET a AS Float = collections::getOr(f, 0, 1.0)
+  LET b AS Float = collections::getOr(f, 1, 0.0)
+  LET c AS Float = collections::getOr(f, 2, 0.0)
+  LET d AS Float = collections::getOr(f, 3, 1.0)
+  LET tx AS Float = collections::getOr(f, 4, 0.0)
+  LET ty AS Float = collections::getOr(f, 5, 0.0)
+  RETURN [__CANVAS_GM_FA * a + __CANVAS_GM_FC * b, __CANVAS_GM_FB * a + __CANVAS_GM_FD * b, __CANVAS_GM_FA * c + __CANVAS_GM_FC * d, __CANVAS_GM_FB * c + __CANVAS_GM_FD * d, __CANVAS_GM_FA * tx + __CANVAS_GM_FC * ty, __CANVAS_GM_FB * tx + __CANVAS_GM_FD * ty]
 END FUNC
 
 ' The inverse-mapped x (or y) of a surface point.
@@ -126,11 +236,31 @@ FUNC __canvas_f32FromBits(raw AS Float) AS Float
   RETURN sign * value
 END FUNC
 
+'
+' plan-172-G: inside a group with a matrix the point goes through the groups' inverse
+' linear part first, then through the item's own inverse if it has one. With no group
+' matrix the expression is the one it always was.
 FUNC __canvas_invX(offset AS Integer, px AS Float, py AS Float) AS Float
+  IF __CANVAS_GM THEN
+    LET gx AS Float = __CANVAS_GM_IA * px + __CANVAS_GM_IC * py
+    IF __canvas_geoAt(offset, 33) > 0.5 THEN
+      LET gy AS Float = __CANVAS_GM_IB * px + __CANVAS_GM_ID * py
+      RETURN __canvas_f32FromBits(__canvas_geoAt(offset, 27)) * gx + __canvas_f32FromBits(__canvas_geoAt(offset, 29)) * gy + __canvas_f32FromBits(__canvas_geoAt(offset, 31))
+    END IF
+    RETURN gx
+  END IF
   RETURN __canvas_f32FromBits(__canvas_geoAt(offset, 27)) * px + __canvas_f32FromBits(__canvas_geoAt(offset, 29)) * py + __canvas_f32FromBits(__canvas_geoAt(offset, 31))
 END FUNC
 
 FUNC __canvas_invY(offset AS Integer, px AS Float, py AS Float) AS Float
+  IF __CANVAS_GM THEN
+    LET gy AS Float = __CANVAS_GM_IB * px + __CANVAS_GM_ID * py
+    IF __canvas_geoAt(offset, 33) > 0.5 THEN
+      LET gx AS Float = __CANVAS_GM_IA * px + __CANVAS_GM_IC * py
+      RETURN __canvas_f32FromBits(__canvas_geoAt(offset, 28)) * gx + __canvas_f32FromBits(__canvas_geoAt(offset, 30)) * gy + __canvas_f32FromBits(__canvas_geoAt(offset, 32))
+    END IF
+    RETURN gy
+  END IF
   RETURN __canvas_f32FromBits(__canvas_geoAt(offset, 28)) * px + __canvas_f32FromBits(__canvas_geoAt(offset, 30)) * py + __canvas_f32FromBits(__canvas_geoAt(offset, 32))
 END FUNC
 
@@ -175,7 +305,43 @@ FUNC __canvas_glyphClip(offset AS Integer, qx AS Float, qy AS Float, px AS Float
   IF __canvas_geoAt(offset, __CANVAS_GEO_CLIP_MODE) = 2.0 THEN
     RETURN __canvas_coverage(__canvas_clipPathSurface(offset, px, py, qx, qy, __canvas_hasTransform(offset)))
   END IF
+  IF __CANVAS_GM THEN
+    RETURN __canvas_coverage(__canvas_clipRectSurface(offset, px, py, qx, qy))
+  END IF
   RETURN __canvas_clipCoverage(offset, px, py)
+END FUNC
+
+' plan-172-G: a RECTANGLE clip under a group matrix. The rectangle is in the item's own
+' space and the group has turned that space, so it is no longer axis-aligned on the
+' surface: its distance is taken at the shape-space point (`qx`, `qy`) and divided by
+' its own gradient there, by central differences at the inverse-mapped neighbours --
+' `__canvas_clipPathSurface`'s arithmetic with the rectangle's distance in place of the
+' path's. An item's own transform never reaches here: a transformed item's clip is
+' built as a path. A rectangle with no area encloses nothing.
+FUNC __canvas_clipRectDistance(offset AS Integer, x AS Float, y AS Float) AS Float
+  LET x0 AS Float = __canvas_geoAt(offset, 22)
+  LET y0 AS Float = __canvas_geoAt(offset, 23)
+  LET x1 AS Float = __canvas_geoAt(offset, 24)
+  LET y1 AS Float = __canvas_geoAt(offset, 25)
+  IF NOT (x0 < x1 AND y0 < y1) THEN
+    RETURN 1000000.0
+  END IF
+  RETURN __canvas_rectDistance(x, y, (x0 + x1) / 2.0, (y0 + y1) / 2.0, (x1 - x0) / 2.0, (y1 - y0) / 2.0)
+END FUNC
+
+FUNC __canvas_clipRectSurface(offset AS Integer, px AS Float, py AS Float, qx AS Float, qy AS Float) AS Float
+  LET d AS Float = __canvas_clipRectDistance(offset, qx, qy)
+  LET dxp AS Float = __canvas_clipRectDistance(offset, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py))
+  LET dxm AS Float = __canvas_clipRectDistance(offset, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py))
+  LET dyp AS Float = __canvas_clipRectDistance(offset, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5))
+  LET dym AS Float = __canvas_clipRectDistance(offset, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5))
+  LET gx AS Float = dxp - dxm
+  LET gy AS Float = dyp - dym
+  LET g AS Float = math::sqrt(gx * gx + gy * gy)
+  IF g > 0.000001 THEN
+    RETURN d / g
+  END IF
+  RETURN d
 END FUNC
 
 ' plan-163-C: a path clip's signed distance at the item's own point (`x`, `y`, the
@@ -331,7 +497,9 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       ' bytes between renderers unless all three implemented identical fixed-point
       ' weights, which is a letter of its own.
       IF tTransformed THEN
-        LET fwd AS List OF Float = __canvas_forwardOf(__canvas_f32FromBits(__canvas_geoAt(offset, 27)), __canvas_f32FromBits(__canvas_geoAt(offset, 28)), __canvas_f32FromBits(__canvas_geoAt(offset, 29)), __canvas_f32FromBits(__canvas_geoAt(offset, 30)), __canvas_f32FromBits(__canvas_geoAt(offset, 31)), __canvas_f32FromBits(__canvas_geoAt(offset, 32)))
+        ' plan-172-G: the item's own forward map, under the groups' linear part when the
+        ' entry has one (`__canvas_drawForward`).
+        LET fwd AS List OF Float = __canvas_drawForward(offset)
         LET fa AS Float = collections::getOr(fwd, 0, 1.0)
         LET fb AS Float = collections::getOr(fwd, 1, 0.0)
         LET fc AS Float = collections::getOr(fwd, 2, 0.0)
@@ -573,10 +741,12 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   ' off-screen would otherwise be clipped against the rectangle its untranslated bounds
   ' occupy, which is a different rectangle -- it would lose the columns it was moved
   ' *into* and keep ones it was moved out of.
-  MUT firstX AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 16) + gdx), 0)
-  MUT lastX AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 18) + gdx), width - 1)
-  MUT lastY AS Integer = __canvas_minI(toInt(__canvas_geoAt(offset, 19) + gdy), height - 1)
-  MUT y AS Integer = __canvas_maxI(toInt(__canvas_geoAt(offset, 17) + gdy), 0)
+  ' plan-172-G: `__canvas_drawBound` is that sum for a translated entry, and the hull of
+  ' the box through the groups' linear part for one with a matrix.
+  MUT firstX AS Integer = __canvas_maxI(toInt(__canvas_drawBound(offset, 0, gdx, gdy)), 0)
+  MUT lastX AS Integer = __canvas_minI(toInt(__canvas_drawBound(offset, 2, gdx, gdy)), width - 1)
+  MUT lastY AS Integer = __canvas_minI(toInt(__canvas_drawBound(offset, 3, gdx, gdy)), height - 1)
+  MUT y AS Integer = __canvas_maxI(toInt(__canvas_drawBound(offset, 1, gdx, gdy)), 0)
   LET clipped AS Boolean = __canvas_hasClip(offset)
   LET clipPath AS Boolean = __canvas_geoAt(offset, __CANVAS_GEO_CLIP_MODE) = 2.0
   LET transformed AS Boolean = __canvas_hasTransform(offset)
@@ -591,7 +761,11 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   ' it with the item -- reversing plan-116-G's G5, where it was a surface rectangle the
   ' group moved the shape through. These four narrow the already-offset bounds by the
   ' offset clip.
-  IF clipped THEN
+  '
+  ' plan-172-G: not under a group matrix, where the clip's box is no longer axis-aligned
+  ' on the surface. The per-pixel clip coverage below is 0 outside it, so the loop
+  ' visits more pixels and draws the same ones.
+  IF clipped AND NOT __CANVAS_GM THEN
     firstX = __canvas_maxI(firstX, toInt(__canvas_geoAt(offset, 22) + gdx))
     y = __canvas_maxI(y, toInt(__canvas_geoAt(offset, 23) + gdy))
     lastX = __canvas_minI(lastX, toInt(__canvas_geoAt(offset, 24) + gdx))
@@ -672,6 +846,8 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         ' is antialiased as a transformed shape's edge of the same geometry is.
         IF clipPath THEN
           clipCov = __canvas_coverage(__canvas_clipPathSurface(offset, px, py, qx, qy, transformed))
+        ELSEIF __CANVAS_GM THEN
+          clipCov = __canvas_coverage(__canvas_clipRectSurface(offset, px, py, qx, qy))
         ELSE
           clipCov = __canvas_clipCoverage(offset, px, py)
         END IF

@@ -178,7 +178,7 @@ FUNC main() AS Nothing
   ' 3. a NESTED group: outer holds inner, so the offsets compose
   LET inner AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(200, 200, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   canvas::setGroup("inner", inner)
-  LET outer AS List OF canvas::DrawItem = [canvas::Group[name := "inner", dx := 15.0, dy := 25.0]]
+  LET outer AS List OF canvas::DrawItem = [canvas::Group[position := vector::Float2[x := 15.0, y := 25.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "inner"]]
   canvas::setGroup("outer", outer)
 
   ' 4. a DIAMOND: one leaf referenced twice, at two offsets
@@ -198,7 +198,7 @@ FUNC main() AS Nothing
   canvas::setGroup("grad", grad)
 
 
-  LET scene AS List OF canvas::DrawItem = [canvas::Group[name := "atOrigin", dx := 0.0, dy := 0.0], canvas::Group[name := "moved", dx := 37.0, dy := 53.0], canvas::Group[name := "outer", dx := 380.0, dy := 40.0], canvas::Group[name := "leaf", dx := 600.0, dy := 40.0], canvas::Group[name := "leaf", dx := 700.0, dy := 140.0], canvas::Group[name := "clipped", dx := 60.0, dy := 200.0], canvas::Group[name := "grad", dx := 420.0, dy := 200.0]]
+  LET scene AS List OF canvas::DrawItem = [canvas::Group[position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "atOrigin"], canvas::Group[position := vector::Float2[x := 37.0, y := 53.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "moved"], canvas::Group[position := vector::Float2[x := 380.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "outer"], canvas::Group[position := vector::Float2[x := 600.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "leaf"], canvas::Group[position := vector::Float2[x := 700.0, y := 140.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "leaf"], canvas::Group[position := vector::Float2[x := 60.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "clipped"], canvas::Group[position := vector::Float2[x := 420.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "grad"]]
   canvas::present(scene)
 END FUNC
 "#;
@@ -216,7 +216,7 @@ FUNC main() AS Nothing
   LET a AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 70.0, height := 45.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(120, 220, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET b AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 100.0, y := 22.0], radius := 18.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("pair", [a, b])
-  canvas::present([canvas::Group[name := "pair", dx := 120.0, dy := 90.0], canvas::Group[name := "pair", dx := 430.0, dy := 300.0]])
+  canvas::present([canvas::Group[position := vector::Float2[x := 120.0, y := 90.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "pair"], canvas::Group[position := vector::Float2[x := 430.0, y := 300.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "pair"]])
 END FUNC
 "#;
 
@@ -242,7 +242,7 @@ IMPORT canvas
 IMPORT vector
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  canvas::present([canvas::Group[name := "neverInstalled", dx := 40.0, dy := 60.0]])
+  canvas::present([canvas::Group[position := vector::Float2[x := 40.0, y := 60.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "neverInstalled"]])
 END FUNC
 "#;
 
@@ -505,6 +505,56 @@ fn an_unsupported_scene_falls_back_to_the_software_renderer() {
              renderer must decline the whole scene and let the software oracle draw it \
              — the two frames must be byte-identical, but {diff}"
         );
+    }
+}
+
+/// plan-172-G: one group node with a quarter turn.
+const TURNED_GROUP: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 40.0, y := 0.0 - 15.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.0, height := 30.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := none]
+  canvas::setGroup("panel", [bar])
+  canvas::present([canvas::Group[position := vector::Float2[x := 400.0, y := 300.0], transform := canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 0.0, ty := 0.0], name := "panel"]])
+END FUNC
+"#;
+
+/// plan-172-G: a frame holding a group with a matrix is the software renderer's.
+///
+/// The GPU backends bind a group's translation and nothing else, so given this frame
+/// they would draw the bar at the group's position, unturned — a complete, plausible,
+/// wrong picture. Until they are taught the matrix (plan-172-H) the walk tells the
+/// predicate to decline. Pixel equality with the software frame would pass either way
+/// only if the decline happened, but the decline is asserted directly as well, because
+/// a GPU that drew the turn correctly by accident is not what this letter promised.
+#[test]
+fn a_group_with_a_matrix_falls_back_to_the_software_renderer() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_group_matrix", TURNED_GROUP);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return;
+    }
+    assert!(
+        stats.contains("gpuFrames=0"),
+        "a group with a matrix must be declined to software, but Metal drew the frame: \
+         {stats}"
+    );
+    let painted = software
+        .pixels
+        .chunks(4)
+        .filter(|p| p[0] == 40 && p[1] == 200 && p[2] == 120)
+        .count();
+    assert_eq!(painted, 120 * 30, "the turned bar is 30 by 120 pixels");
+    if let Err(diff) = compare_exact(&gpu, &software) {
+        panic!("the declined frame must be the software renderer's own, but {diff}");
     }
 }
 
@@ -996,7 +1046,7 @@ FUNC main() AS Nothing
   LET fractional AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 700.5, y := 10.25], size := canvas::Size[width := 50.5, height := 33.3], image := thin, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET inner AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 0.0, y := 0.0], size := canvas::Size[width := 40.0, height := 40.0], image := grouped, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("pics", [inner])
-  LET node AS canvas::DrawItem = canvas::Group[name := "pics", dx := 600.0, dy := 120.0]
+  LET node AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 600.0, y := 120.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "pics"]
   ' plan-163-C: the tint's strength is the fill's alpha, the opacity is transparency.
   LET untinted AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 10.0, y := 120.0], size := canvas::Size[width := 80.0, height := 80.0], image := img, paint := WITH white { fill := color::rgba(0, 0, 0, 0) }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET halfRed AS canvas::DrawItem = canvas::Picture[id := "", position := vector::Float2[x := 100.0, y := 120.0], size := canvas::Size[width := 80.0, height := 80.0], image := img, paint := canvas::fill(color::rgba(255, 0, 0, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
@@ -1073,7 +1123,7 @@ FUNC main() AS Nothing
   LET plain AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 450.0, y := 100.0], radius := 40.0, paint := canvas::fill(color::rgb(40, 200, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET dot AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 30.0, height := 30.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(20, 60, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("g", [dot])
-  canvas::present([ground, words, mul, plain, canvas::Group[name := "g", dx := 600.0, dy := 80.0]])
+  canvas::present([ground, words, mul, plain, canvas::Group[position := vector::Float2[x := 600.0, y := 80.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "g"]])
 END FUNC
 "#;
 

@@ -460,7 +460,7 @@ FUNC main() AS Nothing
   END TRAP
   LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "A", font := face, fontSize := 200.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("label", [label])
-  canvas::present([canvas::Group[dx := 400.0, dy := 300.0, name := "label"]])
+  canvas::present([canvas::Group[position := vector::Float2[x := 400.0, y := 300.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "label"]])
   io::print("done")
 END FUNC
 "#;

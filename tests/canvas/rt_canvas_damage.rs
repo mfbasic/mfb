@@ -326,7 +326,7 @@ FUNC main() AS Nothing
   LET a AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET b AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 120, 220)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [a])
-  LET node AS canvas::DrawItem = canvas::Group[dx := 500.0, dy := 300.0, name := "panel"]
+  LET node AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 500.0, y := 300.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
   canvas::present([far, node])
   canvas::setGroup("panel", [b])
   canvas::present([far, node])
@@ -400,8 +400,8 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET a AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [a])
-  LET here AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := "panel"]
-  LET there AS canvas::DrawItem = canvas::Group[dx := 600.0, dy := 400.0, name := "panel"]
+  LET here AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 100.0, y := 100.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET there AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 600.0, y := 400.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
   canvas::present([here])
   canvas::present([there])
 END FUNC
@@ -423,5 +423,65 @@ fn a_moved_group_repaints_both_positions() {
         "the group's OLD position was not erased — a moved item has to repaint where it \
          was as well as where it is, and for a group the geometry in the cache is \
          unchanged, so damage keyed off the geometry alone would miss this entirely",
+    );
+}
+
+/// plan-172-G: changing only a group node's `transform` repaints.
+///
+/// Nothing else about the frame changes: the same group, at the same position, holding
+/// the same geometry in the cache. The node is turned a quarter turn between the two
+/// presents. Damage has to see that, erase where the group was and paint where it is
+/// — and what it paints has to be the frame a full redraw paints, byte for byte.
+const GROUP_TURNED: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 40.0, y := 0.0 - 15.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.0, height := 30.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := none]
+  LET ring AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 100.0, y := 0.0], radius := 30.0, paint := canvas::stroke(color::rgb(255, 255, 255), 6.0), transform := none]
+  LET still AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 760.0, y := 120.0], radius := 50.0, paint := canvas::fill(color::rgb(200, 60, 60)), transform := none]
+  canvas::setGroup("panel", [bar, ring])
+  LET flat AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 400.0, y := 300.0], transform := none, name := "panel"]
+  LET turned AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 400.0, y := 300.0], transform := canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 0.0, ty := 0.0], name := "panel"]
+  canvas::present([still, flat])
+  canvas::present([still, turned])
+END FUNC
+"#;
+
+#[test]
+fn turning_a_group_repaints_and_matches_a_full_redraw() {
+    let (damaged, stats) = render("canvas_damage_group_turn", GROUP_TURNED, true);
+    let (full, _) = render("canvas_damage_group_turn_full", GROUP_TURNED, false);
+
+    assert_eq!(number(&stats, "frames"), 2, "stats:\n{}", stats.join("\n"));
+    assert_eq!(
+        pixel(&damaged, 400, 400),
+        (40, 200, 120, 255),
+        "the bar was not painted where the quarter turn puts it — (440..560, 285..315) \
+         turned about (400, 300) is (385..415, 340..460)",
+    );
+    assert_eq!(
+        pixel(&damaged, 500, 300),
+        (0, 0, 0, 255),
+        "the group's unturned place was not erased: the geometry and the node's \
+         position are unchanged, so only a hash that folds in the matrix sees the turn",
+    );
+    assert_eq!(
+        pixel(&damaged, 760, 120),
+        (200, 60, 60, 255),
+        "the item outside the group was disturbed",
+    );
+    // The second frame was a partial redraw, not a fallback to the whole window.
+    let damage = last(&stats, "damage");
+    assert_ne!(
+        damage, "0,0,900,640",
+        "turning one group damaged the whole window: {damage}",
+    );
+    assert!(
+        damaged == full,
+        "the frame drawn through damage differs from the frame a full redraw draws",
     );
 }

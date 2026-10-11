@@ -1218,7 +1218,14 @@ pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 /// which indexes the pipeline table out of range and hands Vulkan a junk `VkPipeline`.
 /// That does not fail as a wrong picture: it SIGSEGVs inside the driver's JIT-compiled
 /// code, with no MFBASIC frame anywhere in the backtrace.
-pub(crate) const CANVAS_DRAW_ENTRY_WORDS: usize = 8;
+///
+/// plan-172-G: sixteen words. The first seven are what an entry always was — block base
+/// and count, the translation as 16.16, the blend mode, the translation's residuals —
+/// so a translate-only entry is its old eight words followed by zeros. Word 7 says
+/// whether the entry carries a matrix, and words 8–11 are that matrix: the linear part
+/// of the INVERSE of the enclosing groups' composed affine, as float32 bit patterns.
+/// Words 12–15 are reserved and zero.
+pub(crate) const CANVAS_DRAW_ENTRY_WORDS: usize = 16;
 
 /// `log2(CANVAS_DRAW_ENTRY_WORDS * 8)` -- entry index to byte offset.
 pub(crate) const CANVAS_DRAW_ENTRY_SHIFT: u32 = CANVAS_DRAW_ENTRY_WORDS.trailing_zeros() + 3;

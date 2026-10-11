@@ -1429,25 +1429,38 @@ pub(crate) fn register(r: &mut Registry) {
         name: "Group",
         export: true,
         description: "A reference to a sub-scene installed under a name by \
-                      `canvas::setGroup`, drawn translated by `dx`/`dy`. Presenting a \
-                      scene copies this node — two offsets and a name — rather than \
-                      the items it stands for, which is the point: a large static \
-                      sub-picture referenced from many scenes is copied once when you \
-                      install it, not once per frame. A name with no group installed \
-                      draws nothing and does not raise, so a scene can reference a \
-                      group that has not been built yet. Unlike every other \
-                      `canvas::DrawItem` this one has no `paint`: it is a container, \
-                      and the items inside it carry their own.",
+                      `canvas::setGroup`, drawn with its own origin at `position` and \
+                      turned, scaled or sheared about that point by `transform`. A \
+                      group inside a group is placed by both, the outer one last, so \
+                      a figure built from groups moves and turns as one thing. \
+                      Presenting a scene copies this node — a point, a transform and \
+                      a name — rather than the items it stands for, which is the \
+                      point: a large static sub-picture referenced from many scenes \
+                      is copied once when you install it, not once per frame. A name \
+                      with no group installed draws nothing and does not raise, so a \
+                      scene can reference a group that has not been built yet. Unlike \
+                      every other `canvas::DrawItem` this one has no `paint`: it is a \
+                      container, and the items inside it carry their own. Every field \
+                      has a usable default, so the short way to make one is to \
+                      declare it and set what you need: `MUT panel AS canvas::Group`, \
+                      then `WITH panel { name := \"panel\", position := \
+                      vector::Float2[x := 40.0, y := 40.0] }`.",
         props: vec![
             RecordProp {
-                name: "dx",
-                ty: ParameterType::Float,
-                description: "How far right to move the group's items, in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "Where the group's own origin lands, in pixels: an item \
+                              the group holds at `(0, 0)` is drawn here. The transform \
+                              turns the group about it.",
             },
             RecordProp {
-                name: "dy",
-                ty: ParameterType::Float,
-                description: "How far down to move the group's items, in pixels.",
+                name: "transform",
+                ty: ParameterType::named("Transform"),
+                description: "Turns, scales or shears everything the group holds, \
+                              about `position`; its `tx` and `ty` add to `position`. \
+                              It scales the items' strokes with them and carries \
+                              their clips and gradients. All zero, or a transform \
+                              with no area, leaves the group as it was built.",
             },
             RecordProp {
                 name: "name",

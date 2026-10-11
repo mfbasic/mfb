@@ -9,11 +9,12 @@ use crate::types::ParameterType;
 const INTRO: &str = r#"Install a list of items under a name, to be drawn by `canvas::Group`."#;
 
 const DESC: &str = r#"`setGroup` installs `items` under `name`. A scene then draws them by including a
-`canvas::Group` node — two offsets and a name — instead of the items themselves:
+`canvas::Group` node — a position, a transform and a name — instead of the items
+themselves:
 
 ```
 canvas::setGroup("panel", panelItems)
-canvas::present([canvas::Group[dx := 10.0, dy := 20.0, name := "panel"]])
+canvas::present([canvas::Group[position := vector::Float2[x := 10.0, y := 20.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
 ```
 
 `canvas::present` copies the whole scene every time it is called. A large static
@@ -38,10 +39,20 @@ raises `ErrDepthExceeded` past it — which is also how a group that eventually 
 itself is reported, since a cycle is unbounded depth. Both need the same fix, so both get
 the same error.
 
-A group is **translated by `dx`/`dy`, not transformed.** There is no rotation or scale on
-the node; the `transform` on each of the group's own items covers that, and it composes
-with the translation the way you would expect — the item is reshaped in place, then the
-group moves it.
+A group node **places and turns everything it draws as one thing.** The group's own
+origin — the point its items call `(0, 0)` — lands at the node's `position`, and the
+node's `transform` turns, scales or shears the whole group about that point. So build a
+figure around its own origin, install it once, and each node that names it can put it
+somewhere else, at another angle and another size. An item's own `transform` still
+shapes that item inside the group; the group then carries the result. Strokes scale
+with the group, and each item's clip and gradient go with it.
+
+Nested groups compose from the inside out: an inner node places its group inside the
+outer group, and the outer node then places all of it. A wheel turning on a cart that
+is itself moving is two nodes, each with one job.
+
+A `transform` left at all zeros — which is what `MUT node AS canvas::Group` gives you —
+turns nothing, and the node only places the group at `position`.
 
 The items are copied, so the list you pass is yours to change afterwards — the
 installed group does not follow it. The group stays installed until you replace it or
@@ -75,9 +86,36 @@ FUNC main() AS Nothing
   LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 24.0, y := 24.0], radius := 8.0, paint := canvas::fill(color::rgb(255, 200, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [body, dot])
 
-  LET left AS canvas::DrawItem = canvas::Group[dx := 40.0, dy := 40.0, name := "panel"]
-  LET right AS canvas::DrawItem = canvas::Group[dx := 260.0, dy := 40.0, name := "panel"]
+  LET left AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 40.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET right AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 260.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
   canvas::present([left, right])
+END FUNC
+```
+
+One figure, drawn upright and again turned and enlarged. The arrow is built around
+its own origin, pointing right; the second node turns it a quarter turn about its
+`position` and doubles it, so it points down:
+
+```
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET ink AS canvas::Paint = canvas::fill(color::rgb(255, 200, 60))
+  MUT shaft AS canvas::Rectangle
+  shaft = WITH shaft { position := vector::Float2[x := 0.0 - 40.0, y := 0.0 - 6.0], size := canvas::Size[width := 60.0, height := 12.0], paint := ink }
+  MUT head AS canvas::Polygon
+  head = WITH head { position := vector::Float2[x := 20.0, y := 0.0], contours := [[vector::Float2[x := 0.0, y := 0.0 - 18.0], vector::Float2[x := 30.0, y := 0.0], vector::Float2[x := 0.0, y := 18.0]]], paint := ink }
+  canvas::setGroup("arrow", [shaft, head])
+
+  MUT plain AS canvas::Group
+  plain = WITH plain { name := "arrow", position := vector::Float2[x := 120.0, y := 120.0] }
+  MUT turned AS canvas::Group
+  turned = WITH turned { name := "arrow", position := vector::Float2[x := 320.0, y := 120.0], transform := canvas::Transform[a := 0.0, b := 2.0, c := 0.0 - 2.0, d := 0.0, tx := 0.0, ty := 0.0] }
+  canvas::present([plain, turned])
 END FUNC
 ```
 
@@ -93,7 +131,7 @@ IMPORT os
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET node AS canvas::DrawItem = canvas::Group[dx := 100.0, dy := 100.0, name := "light"]
+  LET node AS canvas::DrawItem = canvas::Group[position := vector::Float2[x := 100.0, y := 100.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "light"]
 
   LET off AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 0.0, y := 0.0], radius := 30.0, paint := canvas::fill(color::rgb(60, 60, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("light", [off])

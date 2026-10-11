@@ -104,19 +104,19 @@ END FUNC
 ' other way to see it, which is the same reason `groups=` and `groupBytes=` exist
 ' (`.ai/canvas-threading.md` section 11).
 FUNC __canvas_drawsText() AS String
-  IF len(__CANVAS_DRAWS) < 8 THEN
+  IF len(__CANVAS_DRAWS) < 16 THEN
     RETURN "none"
   END IF
   MUT out AS String = ""
   MUT i AS Integer = 0
-  WHILE i + 7 < len(__CANVAS_DRAWS)
+  WHILE i + 15 < len(__CANVAS_DRAWS)
     IF i > 0 THEN
       out = out & "|"
     END IF
     ' base:count:dx:dy:mode. The mode is word 4 and it selects the PIPELINE, so a draw
     ' list that reads correct in the first four fields can still bind the wrong program.
     out = out & toString(collections::getOr(__CANVAS_DRAWS, i, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 1, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 2, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 3, 0)) & ":" & toString(collections::getOr(__CANVAS_DRAWS, i + 4, 0))
-    i = i + 8
+    i = i + 16
   END WHILE
   RETURN out
 END FUNC
