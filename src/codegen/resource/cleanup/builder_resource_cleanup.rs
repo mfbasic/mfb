@@ -423,6 +423,7 @@ impl CodeBuilder<'_> {
                 record_free_tags: Vec::new(),
                 closes_variant: false,
                 owner_flag_slot: None,
+                default_record_slot: None,
                 scope_depth,
             }));
     }
@@ -674,6 +675,13 @@ impl CodeBuilder<'_> {
             )?;
         }
         self.emit(abi::label(&dropped));
+        // bug-1051: the closed default record the temp's default box names is the
+        // temp's own, and goes before the box that is the only way to reach it.
+        if cleanup.record_free_tags.is_empty() {
+            if let Some(default_slot) = cleanup.default_record_slot {
+                self.emit_free_trap_default_record(stack_offset, 8, default_slot, false);
+            }
+        }
         let block = self.allocate_register();
         self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
         self.emit(abi::move_register(abi::c_arg(0), &block));
@@ -1022,9 +1030,101 @@ impl CodeBuilder<'_> {
                 cleanup.has_io_buffers,
                 cleanup.frees_record,
             )?;
+            if !cleanup.frees_record {
+                if let Some(default_slot) = cleanup.default_record_slot {
+                    self.emit_free_trap_default_record(offset, 0, default_slot, true);
+                }
+            }
         }
         self.emit(abi::label(&done));
         Ok(())
+    }
+
+    /// bug-1051: free the closed default record of an inline-`TRAP` temp when it is
+    /// the record the binding holds now.
+    ///
+    /// The temp's value-less bind materializes a closed default record that nothing
+    /// else can name, and the delivery of the trapped call's value (or the
+    /// handler's `RECOVER`) stores over it. A temp proved to own every record
+    /// stored into it frees the default with its ordinary record free. One that is
+    /// not — `RES v = same(a) TRAP …`, where `same` hands back its argument — has a
+    /// drop that closes and frees nothing, because the record it holds may be
+    /// another binding's; but the default is the temp's own whatever the stores
+    /// are, and it was kept on every evaluation: by the store's old-value drop on
+    /// the success path, and by the scope's drop when the handler leaves without
+    /// storing.
+    ///
+    /// `default_slot` remembers the default's address from the bind. The record
+    /// read through `holder_slot` (the binding's slot for a concrete resource,
+    /// `record_offset` 0; its `{tag, record}` box for a union, `record_offset` 8) is
+    /// freed only when it IS that address, and the slot is then cleared, so the
+    /// free is once-only and never touches a stored record. `null_holder` also
+    /// clears the binding's slot (the concrete binding holds the record itself).
+    pub(crate) fn emit_free_trap_default_record(
+        &mut self,
+        holder_slot: usize,
+        record_offset: usize,
+        default_slot: usize,
+        null_holder: bool,
+    ) {
+        let done = self.label("trap_default_record_kept");
+        let default = self.allocate_register();
+        self.emit(abi::load_u64(default, abi::stack_pointer(), default_slot));
+        self.emit(abi::compare_immediate(default, "0"));
+        self.emit(abi::branch_eq(&done));
+        let record = self.allocate_register();
+        self.emit(abi::load_u64(record, abi::stack_pointer(), holder_slot));
+        if record_offset != 0 {
+            // A union binding: the slot holds its box.
+            self.emit(abi::compare_immediate(record, "0"));
+            self.emit(abi::branch_eq(&done));
+            self.emit(abi::load_u64(record, record, record_offset));
+        }
+        self.emit(abi::compare_registers(record, default));
+        self.emit(abi::branch_ne(&done));
+        self.emit(abi::move_register(abi::c_arg(0), record));
+        self.emit(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            RESOURCE_RECORD_SIZE,
+        ));
+        self.emit_arena_free_call();
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            default_slot,
+        ));
+        if null_holder {
+            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), holder_slot));
+        }
+        self.emit(abi::label(&done));
+    }
+
+    /// bug-1051: remember, for the inline-`TRAP` temp `name` whose value-less bind
+    /// has just stored its closed default, the default record's address, and
+    /// return the slot it is kept in. `record_offset` is 0 for a concrete resource
+    /// (the binding's slot holds the record) and 8 for a union (it holds the box).
+    pub(crate) fn remember_trap_default_record(
+        &mut self,
+        name: &str,
+        holder_slot: usize,
+        record_offset: usize,
+    ) -> usize {
+        let slot = self.allocate_stack_object("trap_default_record", 8);
+        // Zeroed with the frame: a drop reached before this bind finds no default.
+        self.owned_value_slots.push(slot);
+        let record = self.allocate_register();
+        self.emit(abi::load_u64(record, abi::stack_pointer(), holder_slot));
+        if record_offset != 0 {
+            let none = self.label("trap_default_record_none");
+            self.emit(abi::compare_immediate(record, "0"));
+            self.emit(abi::branch_eq(&none));
+            self.emit(abi::load_u64(record, record, record_offset));
+            self.emit(abi::label(&none));
+        }
+        self.emit(abi::store_u64(record, abi::stack_pointer(), slot));
+        self.trap_default_records.insert(name.to_string(), slot);
+        slot
     }
 
     /// Reclaim the blocks a resource record points at — its output buffer, its

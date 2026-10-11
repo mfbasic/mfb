@@ -420,6 +420,20 @@ binds `v` from a delivery temporary typed by the producer, with no `STATE`, and 
 temporary's cleanup is the one that runs. A resource union's binding does the same.
 [[src/codegen/engine/control/builder_control.rs:live_resource_aliases]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_alias_root]]
+The temporary an inline `TRAP` delivers a resource through is bound to a closed
+default record of its own (`./mfb spec architecture ir`), and the delivery stores
+over it. A temporary proved to own every record stored into it frees the default
+with its ordinary record free, when the store drops the value it replaces. One that
+is not (the trapped call hands back a record another binding owns, `RES v =
+same(a) TRAP …`) frees no stored record, but the default is still its own. Its bind
+remembers the default's address in a `trap_default_record` stack slot, zeroed with
+the frame, and each drop of the temporary (the store's drop of the old value, or
+the scope's when the handler leaves without storing) frees the record it holds
+when that record is at the remembered address, then clears the slot. A resource
+union's temporary does the same for the record its default box names, before it
+frees the box.
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_free_trap_default_record]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:remember_trap_default_record]]
 The assigned scope's eligible cleanup also frees the resource record for `fs.File`,
 `tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`, `tls.Listener`,
 `audio.AudioInput`, `audio.AudioOutput`, and the parent `Thread` view. It frees
