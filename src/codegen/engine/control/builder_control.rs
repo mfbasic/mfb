@@ -3624,6 +3624,34 @@ impl CodeBuilder<'_> {
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)
+                            } else if let Some(cleanup) = self
+                                .resource_union_cleanup(&local_type)
+                                .and_then(|_| self.resource_union_binding_cleanup(name))
+                            {
+                                // bug-1037: a resource-union binding that is assigned
+                                // drops the value it held first, as the concrete arm
+                                // above does. The only such binding is the inline-`TRAP`
+                                // desugar's `$trap_valN` (a `RES` binding is not
+                                // assignable), whose bind materializes a closed default
+                                // `{tag, record}` box and record that nothing else
+                                // names: storing the call's result over it kept 16 +
+                                // 112 bytes per evaluation. The drop is the binding's
+                                // own registered one, so it answers for the old value
+                                // exactly as the scope exit would have: the owner flag
+                                // still describes that value (it is rewritten below,
+                                // after the store), a lent value loses only the temp's
+                                // copy of its box, and the slot is nulled. The new value
+                                // is spilled across it because the drop calls the close
+                                // op and `arena_free`.
+                                let slot =
+                                    self.allocate_stack_object("resource_union_assign_value", 8);
+                                self.emit(abi::store_u64(
+                                    &result.location,
+                                    abi::stack_pointer(),
+                                    slot,
+                                ));
+                                self.emit_resource_union_cleanup_call(&cleanup)?;
+                                Some(slot)
                             } else if by_ref && self.is_freeable_flat_value(&result.type_) {
                                 // plan-142-G: a reference local's reassignment frees the
                                 // parent binding's previous block, read through the

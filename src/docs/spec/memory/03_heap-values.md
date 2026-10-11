@@ -214,7 +214,11 @@ one owner, which frees it exactly once:
   when the trapped call's `Result` is built, and a `RECOVER` value that only names
   a live resource (another local, a field, an element read) is copied as it is
   stored. Either is lent: the temporary's drop frees the copy and closes nothing.
-  [[src/codegen/memory/arena/builder_arena_transfer.rs:materialize_current_result_boxed]] [[src/codegen/resource/cleanup/trap_ownership.rs:collect_trap_ownership]]
+  Its bind gives it a closed default box and record, and every store into it —
+  the trapped call's result, a `RECOVER` value — first runs the temporary's own
+  drop on the value it replaces, so the default is released by the first store
+  and a temporary never holds two values' blocks.
+  [[src/codegen/memory/arena/builder_arena_transfer.rs:materialize_current_result_boxed]] [[src/codegen/resource/cleanup/trap_ownership.rs:collect_trap_ownership]] [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_union_binding_cleanup]]
 - A box made inside a **statement** that no binding takes — a variant passed to a
   union parameter, a variant written as a collection element or a record field, an
   unbound call that returns a resource union — is the statement's, and is freed

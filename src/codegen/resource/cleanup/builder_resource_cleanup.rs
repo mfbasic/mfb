@@ -561,6 +561,22 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// bug-1037: the tag-dispatched drop registered for resource-union binding
+    /// `name`, when it has one: the drop an assignment runs on the value the
+    /// binding held before the new one is stored.
+    pub(crate) fn resource_union_binding_cleanup(
+        &self,
+        name: &str,
+    ) -> Option<ResourceUnionCleanup> {
+        self.active_cleanups
+            .iter()
+            .rev()
+            .find_map(|cleanup| match cleanup {
+                ActiveCleanup::ResourceUnion(union) if union.name == name => Some(union.clone()),
+                _ => None,
+            })
+    }
+
     /// bug-648: branch to `skip` when a binding's run-time ownership flag is clear —
     /// the value it holds was lent to it (a borrowed element, an aliasing `RECOVER`),
     /// so its drop must neither close the record nor reclaim it. A concrete

@@ -623,10 +623,9 @@ fn a_binding_of_a_getor_default_outlives_the_statement_that_wrapped_it() {
 /// trapped call's `resultValue`, and an aliasing `RECOVER` as a plain store; both
 /// lend the temp a record and must hand it a copy of the box.
 ///
-/// Each slope is the collection's kept block plus 128 B: the closed default the
-/// temp's bind materializes (a 16 B box and its 112 B record), which no store into
-/// a resource-union temp releases. `RES v AS Handle = mkH() TRAP …`, with no
-/// collection in it, keeps the same 128 B per evaluation.
+/// Each slope is the collection's kept block and nothing else. The closed default
+/// the temp's bind materializes (a 16 B box and its 112 B record) is released by
+/// the store that replaces it (bug-1037); these slopes allowed 128 B more before.
 #[test]
 fn a_trapped_binding_of_an_element_outlives_the_block_it_was_read_from() {
     check(
@@ -647,7 +646,7 @@ fn a_trapped_binding_of_an_element_outlives_the_block_it_was_read_from() {
          \x20 RETURN which(\"v\", v)\n\
          END FUNC\n",
         1,
-        6192 + 128,
+        6192,
     );
     check(
         "trap_map_get_grow",
@@ -666,7 +665,7 @@ fn a_trapped_binding_of_an_element_outlives_the_block_it_was_read_from() {
          \x20 RETURN which(\"v\", v)\n\
          END FUNC\n",
         1,
-        5168 + 128,
+        5168,
     );
     check(
         "trap_getor_default",
@@ -682,7 +681,7 @@ fn a_trapped_binding_of_an_element_outlives_the_block_it_was_read_from() {
          \x20 RETURN which(\"v\", v)\n\
          END FUNC\n",
         1,
-        240 + 128,
+        240,
     );
 }
 
@@ -707,7 +706,7 @@ fn a_trapped_binding_recovered_with_an_alias_owns_its_box() {
          \x20 RETURN which(\"v\", v)\n\
          END FUNC\n",
         1,
-        48 + 128,
+        48,
     );
     check(
         "trap_recover_local",
@@ -720,6 +719,6 @@ fn a_trapped_binding_recovered_with_an_alias_owns_its_box() {
          \x20 RETURN which(\"v\", v) + which(\"a\", a) - 1\n\
          END FUNC\n",
         1,
-        48 + 128,
+        48,
     );
 }
