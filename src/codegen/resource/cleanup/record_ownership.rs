@@ -111,7 +111,7 @@ pub(crate) struct StoreFloats {
     /// is stored by pointer, so the store really is a second holder of its block.
     handed_over: HashSet<usize>,
     /// The containers whose drain may only CLOSE what such a store handed it — see
-    /// [`store_float_close_only`].
+    /// [`StoreFloatProof`].
     pub(crate) close_only: HashSet<String>,
 }
 
@@ -685,7 +685,6 @@ pub(crate) fn record_ownership(
         functions,
         record_type,
         res_collection_type,
-        &record_container,
         &stores,
         &params,
         &mut store_floats,
@@ -814,11 +813,16 @@ fn owning_collections(
     functions: &HashMap<String, &NirFunction>,
     record_type: &dyn Fn(&ParameterType) -> bool,
     res_collection_type: &dyn Fn(&ParameterType) -> bool,
-    record_container: &dyn Fn(&ParameterType) -> bool,
     stores: &Stores,
     params: &HashSet<String>,
     store_floats: &mut StoreFloats,
 ) -> (HashSet<String>, HashMap<usize, bool>) {
+    // bug-1025: a record that reaches a resource, as opposed to a collection that
+    // does (`record_ownership`'s own `record_container`).
+    let record_container = &|type_: &ParameterType| {
+        res_collection_type(type_)
+            && !crate::codegen::engine::types::typed_is_collection_type(type_)
+    };
     let mut floats: HashMap<String, Vec<String>> = HashMap::new();
     for (name, owner) in &function.resource_owners {
         if let crate::ir::resource_escape::ResOwner::Float(collection) = owner {
@@ -899,18 +903,25 @@ fn owning_collections(
             owning.insert(collection.clone());
         }
     }
-    store_floats.close_only = store_float_close_only(
+    store_floats.close_only = StoreFloatProof {
         function,
-        functions,
-        record_type,
         record_container,
         stores,
         params,
         store_floats,
-        &uses,
-        &owning,
-        &all_floated,
-    );
+        uses: &uses,
+        owning: &owning,
+        resolver: Resolver {
+            functions,
+            record_type,
+            floats: vec![all_floated],
+            memo: HashMap::new(),
+            visiting_functions: HashSet::new(),
+        },
+        memo: HashMap::new(),
+        visiting: HashSet::new(),
+    }
+    .close_only();
     (owning, exclusive_temps)
 }
 
@@ -943,119 +954,78 @@ fn owning_collections(
 ///
 /// Anything else answers close-only: the records are closed by the container's
 /// scope, as the language requires, and their blocks are kept, never freed twice.
-#[allow(clippy::too_many_arguments)]
-fn store_float_close_only(
-    function: &NirFunction,
-    functions: &HashMap<String, &NirFunction>,
-    record_type: &dyn Fn(&ParameterType) -> bool,
-    record_container: &dyn Fn(&ParameterType) -> bool,
-    stores: &Stores,
-    params: &HashSet<String>,
-    store_floats: &StoreFloats,
-    uses: &CollectionUses<'_, '_, '_>,
-    owning: &HashSet<String>,
-    all_floated: &HashSet<String>,
-) -> HashSet<String> {
-    let mut resolver = Resolver {
-        functions,
-        record_type,
-        floats: vec![all_floated.clone()],
-        memo: HashMap::new(),
-        visiting_functions: HashSet::new(),
-    };
-    // Whether everything raised into `container` came out of a binding that leaves
-    // no other holder behind. A `FOR EACH` variable answers for its iterable, which
-    // may itself be such a container, so the answer is computed on demand; a cycle
-    // answers "not proved".
-    fn proved(
-        container: &str,
-        function: &NirFunction,
-        record_container: &dyn Fn(&ParameterType) -> bool,
-        stores: &Stores,
-        params: &HashSet<String>,
-        store_floats: &StoreFloats,
-        uses: &CollectionUses<'_, '_, '_>,
-        owning: &HashSet<String>,
-        resolver: &mut Resolver<'_, '_, '_>,
-        memo: &mut HashMap<String, bool>,
-        visiting: &mut HashSet<String>,
-    ) -> bool {
-        if let Some(known) = memo.get(container) {
+/// [`StoreFloatProof::close_only`] is the answer.
+struct StoreFloatProof<'a, 'm, 'f, 'p, 'u> {
+    function: &'a NirFunction,
+    record_container: &'a dyn Fn(&ParameterType) -> bool,
+    stores: &'a Stores,
+    params: &'a HashSet<String>,
+    store_floats: &'a StoreFloats,
+    uses: &'a CollectionUses<'u, 'f, 'p>,
+    owning: &'a HashSet<String>,
+    resolver: Resolver<'m, 'f, 'a>,
+    memo: HashMap<String, bool>,
+    visiting: HashSet<String>,
+}
+
+impl StoreFloatProof<'_, '_, '_, '_, '_> {
+    fn close_only(mut self) -> HashSet<String> {
+        let store_floats = self.store_floats;
+        store_floats
+            .sources
+            .keys()
+            .filter(|container| !self.proved(container))
+            .cloned()
+            .collect()
+    }
+
+    /// Whether everything raised into `container` came out of a binding that
+    /// leaves no other holder behind. A `FOR EACH` variable answers for its
+    /// iterable, which may itself be such a container, so the answer is computed
+    /// on demand; a cycle answers "not proved".
+    fn proved(&mut self, container: &str) -> bool {
+        if let Some(known) = self.memo.get(container) {
             return *known;
         }
+        let store_floats = self.store_floats;
         let Some(sources) = store_floats.sources.get(container) else {
             return true;
         };
-        if !visiting.insert(container.to_string()) {
+        if !self.visiting.insert(container.to_string()) {
             return false;
         }
-        let mut all = true;
-        for source in sources {
-            let name = &source.name;
-            let unheld = !uses.escaping.contains(name)
-                && !uses.kept.contains(name)
-                && !uses.kept_by_unread_code.contains(name);
-            let ok = if let Some(iterable) = &source.iterates {
-                unheld
-                    && owning.contains(iterable)
-                    && proved(
-                        iterable,
-                        function,
-                        record_container,
-                        stores,
-                        params,
-                        store_floats,
-                        uses,
-                        owning,
-                        resolver,
-                        memo,
-                        visiting,
-                    )
-            } else if function.resource_owners.contains_key(name)
-                && !stores.types.get(name).is_some_and(|t| record_container(t))
-            {
-                unheld
-                    && !stores
-                        .stores
-                        .get(name)
-                        .is_some_and(|s| s.iter().any(|s| matches!(s, Source::WrapLocal(_))))
-                    && resolver.local_fresh(name, stores, params, &mut HashSet::new())
-            } else {
-                stores
-                    .types
+        let proved = sources.iter().all(|source| self.source_proved(source));
+        self.visiting.remove(container);
+        self.memo.insert(container.to_string(), proved);
+        proved
+    }
+
+    fn source_proved(&mut self, source: &StoreSource) -> bool {
+        let name = &source.name;
+        let unheld = !self.uses.escaping.contains(name)
+            && !self.uses.kept.contains(name)
+            && !self.uses.kept_by_unread_code.contains(name);
+        let record = self
+            .stores
+            .types
+            .get(name)
+            .is_some_and(self.record_container);
+        if let Some(iterable) = &source.iterates {
+            return unheld && self.owning.contains(iterable) && self.proved(iterable);
+        }
+        if self.function.resource_owners.contains_key(name) && !record {
+            return unheld
+                && !self
+                    .stores
+                    .stores
                     .get(name)
-                    .is_some_and(|type_| record_container(type_))
-                    && owning.contains(name)
-            };
-            if !ok {
-                all = false;
-                break;
-            }
+                    .is_some_and(|s| s.iter().any(|s| matches!(s, Source::WrapLocal(_))))
+                && self
+                    .resolver
+                    .local_fresh(name, self.stores, self.params, &mut HashSet::new());
         }
-        visiting.remove(container);
-        memo.insert(container.to_string(), all);
-        all
+        record && self.owning.contains(name)
     }
-    let mut memo = HashMap::new();
-    let mut close_only = HashSet::new();
-    for container in store_floats.sources.keys() {
-        if !proved(
-            container,
-            function,
-            record_container,
-            stores,
-            params,
-            store_floats,
-            uses,
-            owning,
-            &mut resolver,
-            &mut memo,
-            &mut HashSet::new(),
-        ) {
-            close_only.insert(container.clone());
-        }
-    }
-    close_only
 }
 
 /// Where each local is NAMED, for [`owning_collections`]: the positions that can create

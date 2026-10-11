@@ -562,7 +562,7 @@ record source is itself an owning container by the rules above, a `RES` binding 
 fresh record that does not escape, and a `FOR EACH` variable's iterable is an owning
 container (proved in turn when it took records the same way). Otherwise the
 container closes what it took and frees none of it; its own block is unaffected.
-[[src/codegen/resource/cleanup/record_ownership.rs:store_float_close_only]]
+[[src/codegen/resource/cleanup/record_ownership.rs:StoreFloatProof]]
 
 A resource union's drop reclaims what the concrete drop reclaims. After the
 tag-dispatched close it frees a `File` variant's output and read buffers, then the

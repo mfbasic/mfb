@@ -50,7 +50,7 @@ impl CodeBuilder<'_> {
         let owns_block = self.owned_list_owning_collections.contains(name);
         // bug-1045: a container that took a record from an inner scope's binding
         // frees it only when that binding is proved to leave no other holder
-        // (`record_ownership::store_float_close_only`); its own block is its own
+        // (`record_ownership::StoreFloatProof`); its own block is its own
         // either way.
         let owns_elements = owns_block && !self.store_floats.close_only.contains(name);
         // bug-645: the collection BLOCK itself. A `List OF RES X` is not

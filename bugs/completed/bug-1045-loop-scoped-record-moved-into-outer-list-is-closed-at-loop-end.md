@@ -237,7 +237,7 @@ The owner ruling is implemented at the store, where the escape analysis has no a
   rooted at a record (copied by value where stored) or a `RES` binding; an operand rooted at
   a collection is stored by pointer and is still a holder. A container that took records
   this way frees them only when each source is proved to leave no other holder
-  (`store_float_close_only`): a record source must itself be an owning container, a `RES`
+  (`StoreFloatProof`): a record source must itself be an owning container, a `RES`
   binding a fresh record that does not escape, a `FOR EACH` variable's iterable an owning
   container. Otherwise the container closes what it took and frees nothing
   (`StoreFloats::close_only`), and its own block is its own either way.
