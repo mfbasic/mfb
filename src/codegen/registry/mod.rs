@@ -768,6 +768,14 @@ pub(crate) struct RegistryUnion {
     pub(crate) export: bool,
     /// The union's variants, in declaration order (`>= 1`).
     pub(crate) variants: Vec<UnionVariant>,
+    /// Unions of the same package whose members this one also has
+    /// (`UNION X INCLUDES Y`, plan-172-K). An included union's members come FIRST, in
+    /// its own order, then `variants` (`binary_repr::writer::concrete_union_variants`),
+    /// so a union and one it includes agree on every tag they share.
+    ///
+    /// Inclusion is of MEMBERS, not of the union: a value of the included union's type
+    /// is not accepted where this one is expected; each of its member records is.
+    pub(crate) includes: Vec<&'static str>,
 }
 
 impl RegistryUnion {
@@ -779,6 +787,10 @@ impl RegistryUnion {
         }
         out.push_str("UNION ");
         out.push_str(self.name);
+        if !self.includes.is_empty() {
+            out.push_str(" INCLUDES ");
+            out.push_str(&self.includes.join(", "));
+        }
         for variant in &self.variants {
             out.push_str("\n  ");
             out.push_str(variant.name);
@@ -2648,6 +2660,28 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
     true
 }
 
+/// Whether `concrete` is a member of `union` -- one of its own variants (a variant that
+/// is itself a union widening transitively), or a member of a union it `INCLUDES`.
+fn union_has_member(
+    package: &str,
+    union: &RegistryUnion,
+    concrete: &ParameterType,
+    actual: &str,
+) -> bool {
+    union.variants.iter().any(|variant| {
+        let variant = match variant.name.split_once("::") {
+            Some((owner, leaf)) => format!("{owner}.{leaf}"),
+            None => format!("{package}.{}", variant.name),
+        };
+        variant == actual || value_type_accepts(&variant, concrete) == Some(true)
+    }) || union.includes.iter().any(|included| {
+        matches!(
+            registry().resolve_type(&format!("{package}.{included}")),
+            Some(ResolvedType::Union(inner)) if union_has_member(package, inner, concrete, actual)
+        )
+    })
+}
+
 /// Whether the registry value type `declared` (package-qualified, `datetime.Instant`)
 /// accepts a `concrete` argument in strict matching, or `None` when `declared` names no
 /// registry record, enum or union. A record or enum accepts only itself; a union accepts
@@ -2655,21 +2689,18 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
 /// package (`JsonNull` is `json.JsonNull`) and one spelled `pkg::Name` naming that
 /// package's type (`http.Stream`'s `tcp::Socket`). A variant that is itself a union
 /// widens transitively. A resource variant's `STATE` clause is transparent (bug-427).
+///
+/// plan-172-K: the members of a union this one `INCLUDES` are its members too
+/// ([`union_has_member`]) -- but the included union's own TYPE is not: `INCLUDES` is not
+/// subtyping.
 fn value_type_accepts(declared: &str, concrete: &ParameterType) -> Option<bool> {
     let package = declared.split_once('.')?.0;
     let actual = concrete.without_state().name().into_owned();
     match registry().resolve_type(declared)? {
         ResolvedType::Record(_) | ResolvedType::Enum(_) => Some(actual == declared),
-        ResolvedType::Union(union) => Some(
-            actual == declared
-                || union.variants.iter().any(|variant| {
-                    let variant = match variant.name.split_once("::") {
-                        Some((owner, leaf)) => format!("{owner}.{leaf}"),
-                        None => format!("{package}.{}", variant.name),
-                    };
-                    variant == actual || value_type_accepts(&variant, concrete) == Some(true)
-                }),
-        ),
+        ResolvedType::Union(union) => {
+            Some(actual == declared || union_has_member(package, union, concrete, &actual))
+        }
         ResolvedType::Resource(_) => None,
     }
 }
@@ -5534,6 +5565,7 @@ mod tests {
 
     fn uni(name: &'static str, export: bool, variants: Vec<UnionVariant>) -> RegistryUnion {
         RegistryUnion {
+            includes: vec![],
             name,
             export,
             variants,

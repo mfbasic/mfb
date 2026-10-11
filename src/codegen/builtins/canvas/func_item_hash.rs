@@ -51,8 +51,10 @@ const FINAL: u64 = 0x2545_F491_4F6C_DD1D;
 /// The seed every item hash starts from.
 const SEED: u64 = 0x1B87_3593_CC9E_2D51;
 
-/// The variants this walk hashes. `Text` and `Group` are the MFBASIC path's; a variant
-/// in neither list fails the build rather than falling to a default nobody chose.
+/// The variants this walk hashes. `Text` and `Group` are the MFBASIC path's, and
+/// `AutoPaint` (plan-172-K), whose `shape` is a union field the walk does not fold; a
+/// variant in neither list fails the build rather than falling to a default nobody
+/// chose.
 const HASHED: [&str; 8] = [
     "Rectangle",
     "Circle",
@@ -63,7 +65,7 @@ const HASHED: [&str; 8] = [
     "Ellipse",
     "PolyLine",
 ];
-const NOT_HASHED: [&str; 2] = ["Text", "Group"];
+const NOT_HASHED: [&str; 3] = ["Text", "Group", "AutoPaint"];
 
 struct Mixer {
     hash: VirtualRegister,
@@ -446,15 +448,20 @@ pub(crate) fn lower_scene_hashes(
     Ok(finish_integer(builder, &reg, "canvas.sceneHashes"))
 }
 
+/// The one variant whose `id` this pass cannot read from its first field: an
+/// `AutoPaint` reports its wrapped shape's (plan-172-K).
+const UNSEEN_DECORATOR: &str = "AutoPaint";
+
 /// `canvas::sceneIdBits(items)`: what `canvas::pollMouse` needs to know about a scene
 /// before it builds anything for it (plan-172-I) — bit 0 when some item of the list has a
-/// non-empty `id`, a `Group` node's included; bit 1 when the list holds a `Group` node,
-/// whose own items this pass does not see.
+/// non-empty `id`, a `Group` node's included; bit 1 when the list holds something this
+/// pass does not see into: a `Group` node, whose own items are elsewhere, or an
+/// `AutoPaint`, whose `id` is its shape's. `helper_hit.rs:__canvas_reachesId` looks.
 ///
 /// One pass, two loads an item, no allocation. It leans on the one thing every
-/// `DrawItem` variant has in common: `id` is its record's FIRST field, a `String`. That
-/// is checked here against the type model for all ten variants, so a variant that ever
-/// broke it fails the build instead of answering from the wrong slot.
+/// `DrawItem` variant but `AutoPaint` has in common: `id` is its record's FIRST field, a
+/// `String`. That is checked here against the type model for each of them, so a variant
+/// that ever broke it fails the build instead of answering from the wrong slot.
 pub(crate) fn lower_scene_id_bits(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -467,6 +474,12 @@ pub(crate) fn lower_scene_id_bits(
         .location
         .clone();
     for name in HASHED.iter().chain(NOT_HASHED.iter()) {
+        // plan-172-K: an `AutoPaint` has no `id` -- it reports its shape's -- and its
+        // first field is the shape, a union. This pass does not look inside it: like a
+        // group node, it is counted as "holds something this pass does not see".
+        if *name == UNSEEN_DECORATOR {
+            continue;
+        }
         let (_, record) = variant(builder, name)?;
         match record_fields(builder, &record)?.first() {
             Some((field, ParameterType::String)) if field == "id" => {}
@@ -478,6 +491,7 @@ pub(crate) fn lower_scene_id_bits(
         }
     }
     let (group_tag, _) = variant(builder, "Group")?;
+    let (auto_tag, _) = variant(builder, UNSEEN_DECORATOR)?;
     let inlined = builder.record_field_is_inlined(&ParameterType::String);
 
     let items = builder.temporary_vreg();
@@ -511,6 +525,13 @@ pub(crate) fn lower_scene_id_bits(
     emit_list_element(builder, &item, &view, &i);
     // A data union's tag is its first word; the variant's record follows at +16.
     builder.emit(abi::load_u64(&word, &item, 0));
+    // An `AutoPaint`: unseen, and its first slot is not an `id` -- skip the read.
+    let not_auto = builder.label("canvas_id_bits_not_auto");
+    builder.emit(abi::compare_immediate(&word, &auto_tag.to_string()));
+    builder.emit(abi::branch_ne(&not_auto));
+    builder.emit(abi::or_registers(&bits, &bits, &two));
+    builder.emit(abi::branch(&next));
+    builder.emit(abi::label(&not_auto));
     builder.emit(abi::compare_immediate(&word, &group_tag.to_string()));
     builder.emit(abi::branch_ne(&leaf));
     builder.emit(abi::or_registers(&bits, &bits, &two));

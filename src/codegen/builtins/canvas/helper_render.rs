@@ -291,6 +291,11 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
         out = __canvas_appendDraw(out, child, __canvas_hashItem(child), childX, childY, childMat, depth + 1)
       NEXT
       RETURN out
+    ' plan-172-K: an `AutoPaint` draws its shape. The entry is the SHAPE's -- its
+    ' geometry, built from the shape's own paint -- under the AutoPaint's hash, so the
+    ' cache and the damage diff tell it from the bare shape.
+    CASE AutoPaint(a)
+      RETURN __canvas_appendDraw(out, __canvas_autoItem(a), hash, gdx, gdy, mat, depth)
     CASE ELSE
       LET offset AS Integer = __canvas_geometryFor(item, hash)
       out = collections::append(out, offset)
@@ -651,6 +656,14 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
         ' A nested group is NOT part of this group's own run -- it gets its own memoised
         ' run and its own draw entry, at the composed offset.
         LET nested AS Integer = 0
+      ' plan-172-K: an `AutoPaint` child is its shape's block, under its own hash --
+      ' what `__canvas_appendDraw` records for it, so the two walks name one record.
+      CASE AutoPaint(a)
+        LET autoOffset AS Integer = __canvas_geometryFor(__canvas_autoItem(a), __canvas_hashItem(child))
+        __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, autoOffset)
+        __CANVAS_DRAW_INST = collections::append(__CANVAS_DRAW_INST, __CANVAS_DRAW_NEXT_INST)
+        __CANVAS_DRAW_NEXT_INST = __CANVAS_DRAW_NEXT_INST + __canvas_blockInstances(autoOffset)
+        count = count + 1
       CASE ELSE
         LET childOffset AS Integer = __canvas_geometryFor(child, __canvas_hashItem(child))
         __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, childOffset)
@@ -1682,6 +1695,16 @@ const CLOSE_RETIRED: &str = r#"FUNC __canvas_closeRetired(gone AS List OF DrawIt
         IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
           canvas::destroyFont(t.font)
         END IF
+      ' plan-172-K: an `AutoPaint` around a `Text` names that text's font.
+      CASE AutoPaint(a)
+        MATCH a.shape
+          CASE Text(t)
+            LET fh AS Integer = canvas::fontHandle(t.font)
+            IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
+              canvas::destroyFont(t.font)
+            END IF
+          CASE ELSE
+        END MATCH
       CASE ELSE
     END MATCH
   NEXT
@@ -1747,6 +1770,15 @@ FUNC __canvas_listNamesFont(live AS List OF DrawItem, handle AS Integer) AS Bool
         IF canvas::fontHandle(t.font) = handle THEN
           RETURN TRUE
         END IF
+      ' plan-172-K: and so does an `AutoPaint` around one.
+      CASE AutoPaint(a)
+        MATCH a.shape
+          CASE Text(t)
+            IF canvas::fontHandle(t.font) = handle THEN
+              RETURN TRUE
+            END IF
+          CASE ELSE
+        END MATCH
       CASE ELSE
     END MATCH
   NEXT

@@ -1,6 +1,6 @@
 # plan-172-K: The `Shape` / `AutoShape` / `DrawItem` unions and `AutoPaint`
 
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 Effort: large (3h–1d)
 Depends on: plan-172-J
 
@@ -33,10 +33,10 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-172-J complete and archived | `ls planning/plan-172-J-*` → no matches | NOT MET |
-| Premises P1 and P2 have verdicts | `grep -cE 'P[12].*(CONFIRMED\|FALSIFIED)' planning/completed/plan-172-A-*.md` → 2 | NOT MET |
-| If P2 was FALSIFIED, its bug is fixed | `grep -c 'P2.*CONFIRMED' planning/completed/plan-172-A-*.md` → 1, or the bug-NN it names is archived | NOT MET |
-| The scripted pointer works | `cargo test --test rt_canvas_pointer` → pass | NOT MET |
+| plan-172-J complete and archived | `ls planning/plan-172-J-*` → no matches | MET (2026-10-11: "no matches found") |
+| Premises P1 and P2 have verdicts | `grep -cE 'P[12].*(CONFIRMED\|FALSIFIED)' planning/completed/plan-172-A-*.md` → 2 | MET (2026-10-11: 2) |
+| If P2 was FALSIFIED, its bug is fixed | `grep -c 'P2.*CONFIRMED' planning/completed/plan-172-A-*.md` → 1, or the bug-NN it names is archived | MET (2026-10-11: 1) |
+| The scripted pointer works | `cargo test --test rt_canvas_pointer` → pass | MET (2026-10-11: "2 passed; 0 failed") |
 
 If plan-172-J is not complete, this letter cannot start, full stop.
 
@@ -203,30 +203,74 @@ scene, steps 2–5 do nothing and both state words are zero.
 
 Lands the types with a complete, if modest, behaviour: an `AutoPaint` draws its shape.
 
-- [ ] Re-measure the `CASE` arm count and list the enclosing `MATCH`es by function.
-- [ ] `src/codegen/registry/mod.rs`: `RegistryUnion.includes` and its rendering, if P1
-      was CONFIRMED.
-- [ ] `mod.rs`: declare `Shape`, `AutoShape`, `DrawItem` and the `AutoPaint` record with
-      field descriptions that state each rule from "AutoPaint states".
-- [ ] Amend `draw_item_variant_set_is_frozen` to the eleven names, with the four answers
+- [x] Re-measure the `CASE` arm count and list the enclosing `MATCH`es by function.
+      Entering: 65 arms in 18 `MATCH`es (the §2 grep, `RoundedRect` gone since 172-E).
+      Leaving: 85 arms in 21 `MATCH`es, 10 of them `CASE AutoPaint(` (the same grep
+      with `AutoPaint` added, and `grep -rhoE 'CASE AutoPaint\('`). By function, and
+      how each answers an `AutoPaint`:
+      - its own arm: `__canvas_clipOf`, `__canvas_geometryFor` (the builder `MATCH`),
+        `__canvas_hashItem`, `__canvas_geoReference` (`--debug`), `__canvas_itemId`,
+        `__canvas_hitGeometry`, `__canvas_appendDraw`, `__canvas_memoGroup`,
+        `__canvas_closeRetired`, `__canvas_listNamesFont`;
+      - a `CASE ELSE` that is right for it: `__canvas_geometryFor`'s picture check (an
+        `AutoPaint` is never a picture), `__canvas_hitAppend` and `__canvas_reachesId`
+        (a leaf, and the two functions they call have the arm),
+        `__canvas_groupSignature`, `__canvas_drawGroup`, `__canvas_sceneDrawsWalk` and
+        `__canvas_sceneOffsets` (group or not-a-group), `__canvas_listNamesImage` (a
+        `Shape` holds no `Picture`);
+      - the three new `MATCH`es are over `a.shape`: `__canvas_autoItem` (all eight
+        shapes) and the two that ask whether the shape is a `Text`.
+- [x] `src/codegen/registry/mod.rs`: `RegistryUnion.includes` and its rendering, if P1
+      was CONFIRMED. P1 was CONFIRMED. `render()` writes `UNION X INCLUDES Y`;
+      `value_type_accepts` follows the chain through `union_has_member`, which does not
+      accept the included union's own type — `INCLUDES` is not subtyping; `mfb man`
+      lists "everything in `canvas::Shape`" first. `cargo test --bin mfb registry` →
+      "104 passed; 0 failed".
+- [x] `mod.rs`: declare `Shape`, `AutoShape`, `DrawItem` and the `AutoPaint` record with
+      field descriptions that state each rule from "AutoPaint states". Rendered and
+      read: `mfb man canvas types`. The four paint fields are `enterPaint`, `exitPaint`,
+      `hoverPaint`, `pressedPaint` — see Corrections.
+- [x] Amend `draw_item_variant_set_is_frozen` to the eleven names, with the four answers
       in the commit; add `shape_variant_set_is_frozen` and
       `auto_shape_variant_set_is_frozen`; extend
       `every_draw_item_variant_carries_a_paint`'s container list with `AutoPaint` only
-      if it declares no `paint` — it does not, its shape carries one.
-- [ ] `__canvas_appendDraw`: `CASE AutoPaint(a)` appends the wrapped shape's entry.
-      Every other `MATCH` over `DrawItem` in the companion source gets its arm.
-- [ ] Native: add `AutoPaint` to the variant handling in `func_item_hash.rs`,
+      if it declares no `paint` — it does not, its shape carries one. `AutoPaint` went
+      into a second list, `DECORATORS`, not into `CONTAINERS`: a container must have no
+      `paint` because nothing could honour one, a decorator must have none because its
+      shape has it, and the decorator arm also checks that `shape` is a `Shape` and that
+      no `Shape` member is itself exempt. `cargo test --bin mfb canvas` → "120 passed; 0
+      failed".
+- [x] `__canvas_appendDraw`: `CASE AutoPaint(a)` appends the wrapped shape's entry.
+      Every other `MATCH` over `DrawItem` in the companion source gets its arm. Through
+      one converter, `__canvas_autoItem`; the list is under the first box.
+- [x] Native: add `AutoPaint` to the variant handling in `func_item_hash.rs`,
       `func_geo_build.rs` and `func_carried_hashes.rs` so it is hashed through its
-      fields and built through the MFBASIC path.
-- [ ] `__canvas_groupSignature`, `__canvas_closeRetired` and the
+      fields and built through the MFBASIC path. `NOT_HASHED` is `["Text", "Group",
+      "AutoPaint"]`; `lower_carried_hashes` never carries one; `lower_scene_id_bits`
+      answers "may have an id" for one without reading a first field it does not have.
+      `func_geo_build.rs` needed nothing: it builds the kinds it lists and declines the
+      rest, and the walk hands it the shape, never the `AutoPaint`.
+- [x] `__canvas_groupSignature`, `__canvas_closeRetired` and the
       `__canvas_listNames*` helpers: an `AutoPaint` wrapping a `Text` names a font.
-- [ ] Runtime case in new `tests/canvas/rt_canvas_autopaint.rs`: an `AutoPaint` with no
+      `__canvas_closeRetired` and `__canvas_listNamesFont` have the arm.
+      `__canvas_groupSignature` and `__canvas_listNamesImage` are right as they are: an
+      `AutoPaint` is not a group and cannot hold a picture.
+- [x] Runtime case in new `tests/canvas/rt_canvas_autopaint.rs`: an `AutoPaint` with no
       pointer draws exactly what its bare shape draws, in a scene and inside a group,
-      and survives 200 present / drop cycles with no leak.
+      and survives 200 present / drop cycles with no leak. Three tests; the scene is a
+      stroked rounded rectangle, a circle and a `Text`, every state paint red and in
+      use, and the frames are compared byte for byte.
 
 Acceptance: an `AutoPaint` renders as its shape, with every existing golden unchanged.
   Check: `cargo test --test rt_canvas_autopaint --test rt_canvas_golden --test
   rt_canvas_present_leak --test rt_canvas_group_ownership` → pass (est. 12 min).
+  Observed 2026-10-11: "3 passed", "25 passed", "5 passed", "11 passed", 0 failed in
+  each. "Every existing golden unchanged" holds for every golden whose program has no
+  canvas source in it: `scripts/artifact-gate.sh target/release/mfb all` reported 8
+  diffs, all in the two fixtures that dump the canvas companion
+  (`syntax/app/app-mouse-surface`, `syntax/resources/loop-body-resource-reference-valid`).
+  One was inspected: the `.ir` moved by its `"line"` numbers and gained 17 mentions of
+  `AutoPaint`. Resynced, and the gate reads "2322 golden(s) checked, 0 diff(s)".
 Commit: —
 
 ### Phase 2 — The state machine, as a pure function
@@ -336,6 +380,26 @@ Commit: —
    the owner's words.
 
 ## Corrections
+
+- **The four paint fields are `enterPaint`, `exitPaint`, `hoverPaint`, `pressedPaint`
+  (2026-10-11) — NEEDS THE OWNER'S CONFIRMATION.** `planning/new_canvas.md` names them
+  `enter`, `exit`, `hover`, `pressed`, and §1 says the record is "exactly the nine-field
+  record" there. `EXIT` is a keyword (`Statement::Exit`, case-insensitive), so a field
+  cannot be called `exit`. Renaming one of four would leave three bare names and one
+  odd one, so all four take the suffix; the `use*` flags are unchanged. Nine fields, the
+  types and the order are as designed. If the owner prefers other names it is a rename
+  in `mod.rs`, the companion source and the tests.
+- **An `AutoPaint` has no default value (2026-10-11).** Its `shape` is a union, and a
+  union has no default, so `MUT a AS canvas::AutoPaint` is
+  `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` and the record is written as a full literal. The
+  owner's standing rule is "no constructor functions"; nothing here adds one. The man
+  page says so and its examples do it.
+- **Open Decision 1 is taken as written: any button (2026-10-11).**
+  `planning/new_canvas.md` says "`pressed` is any mouse button", which is the
+  recommendation, so nothing was left to decide.
+- **Phase 1's fourth box names three native files; one needed nothing.**
+  `func_geo_build.rs` lists the kinds it builds and declines everything else, and the
+  walk passes it the wrapped shape.
 
 - **`AutoPaint` has no `id` (owner's decision, 2026-10-10).** "Auto paint is a decorated
   version of a shape, it's not 'using' a shape like Picture or containing a shape like

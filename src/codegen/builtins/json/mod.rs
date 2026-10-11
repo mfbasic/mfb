@@ -220,6 +220,7 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     pkg.add_union(RegistryUnion {
+        includes: vec![],
         name: "Json",
         export: true,
         variants: vec![

@@ -345,6 +345,10 @@ name = "rt_canvas_pointer"
 path = "tests/canvas/rt_canvas_pointer.rs"
 
 [[test]]
+name = "rt_canvas_autopaint"
+path = "tests/canvas/rt_canvas_autopaint.rs"
+
+[[test]]
 name = "rt_canvas_picture"
 path = "tests/canvas/rt_canvas_picture.rs"
 

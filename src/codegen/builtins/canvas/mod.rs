@@ -1383,14 +1383,21 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    // plan-172-K: three unions, each including the one before it. `Shape` is what can
+    // be drawn with a paint of its own; `AutoShape` adds the one thing that DECORATES a
+    // shape; `DrawItem` adds the two things that are not shapes at all. An included
+    // union's members come first, in its own order, so the three agree on every tag
+    // they share: Rectangle 0, Line 1, Polygon 2, Circle 3, Arc 4, Text 5, Ellipse 6,
+    // PolyLine 7, AutoPaint 8, Picture 9, Group 10.
+    //
+    // The order is `planning/new_canvas.md`'s and it is load-bearing once, here: a
+    // variant's tag is its position, and the native walks ask the type model for a tag
+    // by name (`func_geo_build::variant`), never by number.
     pkg.add_union(RegistryUnion {
-        name: "DrawItem",
+        includes: vec![],
+        name: "Shape",
         export: true,
         variants: vec![
-            UnionVariant {
-                name: "Picture",
-                description: "An image drawn into a rectangle.",
-            },
             UnionVariant {
                 name: "Rectangle",
                 description: "A rectangle, with a radius for each corner.",
@@ -1415,27 +1422,129 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "Text",
                 description: "A run of text.",
             },
-            // plan-116-E. Appended LAST deliberately: the order fixes each variant's
-            // tag, so inserting `Ellipse` beside `Circle` where it reads better would
-            // renumber `Arc` and `Text`.
             UnionVariant {
                 name: "Ellipse",
                 description: "An ellipse, optionally rotated.",
             },
-            // plan-116-G, appended last for the same reason. This one is different in
-            // kind from the nine above it: `Group` is a CONTAINER, not a shape. It
-            // draws nothing itself and carries no `paint` — see
-            // `every_draw_item_variant_carries_a_paint`, which is narrowed rather than
-            // weakened to admit it.
-            UnionVariant {
-                name: "Group",
-                description: "A reference to a named group of items, translated.",
-            },
-            // plan-154-A, appended last for the same reason as `Ellipse`: the order fixes
-            // each variant's tag.
             UnionVariant {
                 name: "PolyLine",
                 description: "An open path, stroked, with a colour per point.",
+            },
+        ],
+    });
+
+    pkg.add_union(RegistryUnion {
+        includes: vec!["Shape"],
+        name: "AutoShape",
+        export: true,
+        variants: vec![UnionVariant {
+            name: "AutoPaint",
+            description: "A shape whose paint follows the mouse.",
+        }],
+    });
+
+    pkg.add_union(RegistryUnion {
+        includes: vec!["AutoShape"],
+        name: "DrawItem",
+        export: true,
+        variants: vec![
+            UnionVariant {
+                name: "Picture",
+                description: "An image drawn into a rectangle.",
+            },
+            // `Group` is a CONTAINER, not a shape. It draws nothing itself and carries
+            // no `paint` -- see `every_draw_item_variant_carries_a_paint`, which is
+            // narrowed rather than weakened to admit it.
+            UnionVariant {
+                name: "Group",
+                description: "A reference to a named group of items, placed and turned.",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "AutoPaint",
+        export: true,
+        description: "A shape that changes its paint as the mouse moves over it, with no \
+                      code of yours running: present it once and the window keeps it \
+                      up to date, even while your program is waiting for a key. It \
+                      wraps one `canvas::Shape` and holds up to four other paints for \
+                      it. The shape is drawn with its own `paint` until the mouse \
+                      arrives. When several of the four apply at once the order is \
+                      `pressedPaint`, then `enterPaint`, then `hoverPaint`, then `exitPaint`, and a paint \
+                      whose `use…` flag is `FALSE` is skipped. Only the TOPMOST item \
+                      under the mouse reacts: anything drawn over this shape — an \
+                      `AutoPaint` or not — takes the mouse instead. Where the mouse \
+                      counts as over the shape is decided by the shape and its own \
+                      `paint`, never by one of the four, so a hover paint with a \
+                      wider outline does not make the shape easier to hit. Each use of \
+                      a group has its own state, so one group drawn twice lights only \
+                      the copy the mouse is on. An `AutoPaint` has no `id` of its own: \
+                      `canvas::MouseEvent.overID` reports the wrapped shape's. It \
+                      carries four whole paints through every `present`, so it is for \
+                      the few items in a scene you interact with, not for all of them.",
+        props: vec![
+            RecordProp {
+                name: "shape",
+                ty: ParameterType::named("Shape"),
+                description: "The shape that is drawn. Its own `paint` is what you see \
+                              when the mouse is elsewhere, and what decides where the \
+                              mouse counts as over it.",
+            },
+            RecordProp {
+                name: "useEnter",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` to flash `enterPaint` when the mouse arrives. `FALSE` \
+                              goes straight to the hover paint.",
+            },
+            RecordProp {
+                name: "useExit",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` to flash `exitPaint` when the mouse leaves. `FALSE` \
+                              goes straight back to the shape's own paint.",
+            },
+            RecordProp {
+                name: "useHover",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` to show `hoverPaint` while the mouse rests on the \
+                              shape. `FALSE` shows the shape's own paint.",
+            },
+            RecordProp {
+                name: "usePressed",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` to show `pressedPaint` while a button is held on the \
+                              shape. `FALSE` shows whatever hovering would.",
+            },
+            RecordProp {
+                name: "enterPaint",
+                ty: ParameterType::named("Paint"),
+                description: "Shown for 50 milliseconds from the moment the mouse \
+                              arrives, then the hover paint takes over — with the mouse still, \
+                              too. It is a flash, not a fade: nothing is blended. If \
+                              the mouse leaves first, the exit paint starts at once.",
+            },
+            RecordProp {
+                name: "exitPaint",
+                ty: ParameterType::named("Paint"),
+                description: "Shown for 50 milliseconds from the moment the mouse \
+                              leaves, then the shape's own paint returns. If the mouse \
+                              comes back first, the enter paint starts at once.",
+            },
+            RecordProp {
+                name: "hoverPaint",
+                ty: ParameterType::named("Paint"),
+                description: "Shown while the mouse is over the shape and no button \
+                              was pressed on it.",
+            },
+            RecordProp {
+                name: "pressedPaint",
+                ty: ParameterType::named("Paint"),
+                description: "Shown while any mouse button is held, the press began on \
+                              this shape, and the mouse is still over it. Drag off \
+                              with the button down and the shape leaves as it would \
+                              for any exit; drag back on and this paint returns. A \
+                              press that began somewhere else and is dragged onto the \
+                              shape shows the hover paint.",
             },
         ],
     });
@@ -1771,39 +1880,51 @@ mod tests {
     use crate::codegen::registry::registry;
     use crate::types::ParameterType;
 
-    /// The `DrawItem` variants are a **closed set** (plan-98-A invariant 6): adding
-    /// one later stops a user's `SELECT CASE` being exhaustive, which is a breaking
-    /// change. Pinning the exact list — and its order, which fixes the tags — makes
-    /// any addition a deliberate, visible act rather than a silent one.
-    ///
-    /// It has been extended exactly twice, and this is the record of both:
-    /// **plan-116-E appended `Ellipse`** ninth, and **plan-116-G appended `Group`**
-    /// tenth. Appended rather than inserted where each reads better, because the order
-    /// fixes the tags and inserting would renumber every variant after it.
-    ///
-    /// Note what these amendments are not: the assertion did not become laxer either
-    /// time. The list grew by one entry a reader can see, the message keeps its
-    /// warning, and the next addition is exactly as visible as these were.
-    ///
-    /// `Group` is the first variant that is not a shape — it draws nothing itself and
-    /// carries no `paint`. That distinction is enforced next door by
-    /// `every_draw_item_variant_carries_a_paint`, which names its container exemptions
-    /// explicitly rather than dropping the check.
-    #[test]
-    fn draw_item_variant_set_is_frozen() {
+    /// The members of a canvas union in TAG order: what it `INCLUDES` first, in that
+    /// union's own order, then its own variants — the order
+    /// `binary_repr::writer::concrete_union_variants` numbers them in.
+    fn members(name: &str) -> Vec<&'static str> {
         let pkg = registry()
             .resolve_package("canvas")
             .expect("canvas package");
         let union = pkg
             .unions()
             .iter()
-            .find(|u| u.name == "DrawItem")
-            .expect("DrawItem union");
-        let names: Vec<&str> = union.variants.iter().map(|v| v.name).collect();
+            .find(|u| u.name == name)
+            .unwrap_or_else(|| panic!("no canvas union `{name}`"));
+        let mut out: Vec<&'static str> = union
+            .includes
+            .iter()
+            .flat_map(|included| members(included))
+            .collect();
+        out.extend(union.variants.iter().map(|v| v.name));
+        out
+    }
+
+    /// The `DrawItem` variants are a **closed set** (plan-98-A invariant 6): adding
+    /// one later stops a user's `SELECT CASE` being exhaustive, which is a breaking
+    /// change. Pinning the exact list — and its order, which fixes the tags — makes
+    /// any addition a deliberate, visible act rather than a silent one.
+    ///
+    /// It was extended three times by appending — **plan-116-E `Ellipse`**,
+    /// **plan-116-G `Group`**, **plan-154-A `PolyLine`** — appended rather than
+    /// inserted where each reads better, because the order fixes the tags.
+    ///
+    /// **plan-172-K re-derived it, once, and that is the one time the order moved.**
+    /// `DrawItem` became three nested unions (`Shape`, `AutoShape INCLUDES Shape`,
+    /// `DrawItem INCLUDES AutoShape`) and gained `AutoPaint`. An included union's
+    /// members come first, so the eight shapes lead, the decorator follows, and the two
+    /// things that are not shapes come last. Every variant's tag changed: nothing may
+    /// depend on a tag's number, and the native walks ask the type model for a tag by
+    /// NAME.
+    ///
+    /// The assertion did not become laxer: the list is still exact and still ordered,
+    /// and two sibling tests pin the two inner unions the same way.
+    #[test]
+    fn draw_item_variant_set_is_frozen() {
         assert_eq!(
-            names,
+            members("DrawItem"),
             vec![
-                "Picture",
                 "Rectangle",
                 "Line",
                 "Polygon",
@@ -1811,11 +1932,45 @@ mod tests {
                 "Arc",
                 "Text",
                 "Ellipse",
-                "Group",
                 "PolyLine",
+                "AutoPaint",
+                "Picture",
+                "Group",
             ],
             "the DrawItem variant set is frozen; extending it is a breaking change"
         );
+    }
+
+    /// plan-172-K: `Shape` is what an `AutoPaint` may wrap and (plan-172-L) what a
+    /// `Picture` is cut to — exactly the eight things drawn with a paint of their own.
+    /// `AutoPaint` is not in it, which is what makes an `AutoPaint` of an `AutoPaint`
+    /// a type error rather than a rule.
+    #[test]
+    fn shape_variant_set_is_frozen() {
+        assert_eq!(
+            members("Shape"),
+            vec![
+                "Rectangle",
+                "Line",
+                "Polygon",
+                "Circle",
+                "Arc",
+                "Text",
+                "Ellipse",
+                "PolyLine",
+            ],
+            "the Shape variant set is frozen; extending it is a breaking change"
+        );
+    }
+
+    /// plan-172-K: `AutoShape` is every shape, plain or decorated — `Shape`'s eight and
+    /// `AutoPaint`. It shares every tag with `Shape`, and `DrawItem` every tag with it.
+    #[test]
+    fn auto_shape_variant_set_is_frozen() {
+        let auto = members("AutoShape");
+        assert_eq!(auto.last(), Some(&"AutoPaint"));
+        assert_eq!(auto[..auto.len() - 1], members("Shape")[..]);
+        assert_eq!(members("DrawItem")[..auto.len()], auto[..]);
     }
 
     /// Every `DrawItem` variant must name a record the package actually declares,
@@ -1825,16 +1980,10 @@ mod tests {
         let pkg = registry()
             .resolve_package("canvas")
             .expect("canvas package");
-        let union = pkg
-            .unions()
-            .iter()
-            .find(|u| u.name == "DrawItem")
-            .expect("DrawItem union");
-        for variant in &union.variants {
+        for variant in members("DrawItem") {
             assert!(
-                pkg.records().iter().any(|r| r.name == variant.name),
-                "DrawItem variant `{}` has no record declaration",
-                variant.name
+                pkg.records().iter().any(|r| r.name == variant),
+                "DrawItem variant `{variant}` has no record declaration",
             );
         }
     }
@@ -1850,59 +1999,75 @@ mod tests {
     /// would be a field no renderer could honour, so requiring one would be requiring a
     /// lie.
     ///
-    /// The exemption is an explicit list rather than a property anything could drift
-    /// into, so a future variant is not silently excused — a new container has to be
-    /// added here by hand, in the same deliberate act that adds it to the union. The
-    /// other nine are asserted exactly as before, and `CONTAINERS` is itself checked
-    /// against the union so a typo cannot quietly exempt nothing.
+    /// **plan-172-K added the second kind of exemption, a DECORATOR.** `AutoPaint` has
+    /// no `paint` of its own either — but for the opposite reason: it draws its `shape`,
+    /// and the shape carries one. So it is not excused, it is checked differently: its
+    /// `shape` must be a `Shape`, and every member of `Shape` is in the checked set
+    /// below.
+    ///
+    /// Both exemptions are explicit lists rather than a property anything could drift
+    /// into, so a future variant is not silently excused, and each list is itself
+    /// checked against the union so a typo cannot quietly exempt nothing.
     #[test]
     fn every_draw_item_variant_carries_a_paint() {
         /// Variants that are containers rather than shapes (plan-116-G).
         const CONTAINERS: &[&str] = &["Group"];
+        /// Variants that draw a `shape` they hold, with that shape's paint (plan-172-K).
+        const DECORATORS: &[&str] = &["AutoPaint"];
 
         let pkg = registry()
             .resolve_package("canvas")
             .expect("canvas package");
-        let union = pkg
-            .unions()
-            .iter()
-            .find(|u| u.name == "DrawItem")
-            .expect("DrawItem union");
-        for name in CONTAINERS {
+        let all = members("DrawItem");
+        for name in CONTAINERS.iter().chain(DECORATORS) {
             assert!(
-                union.variants.iter().any(|v| &v.name == name),
+                all.contains(name),
                 "`{name}` is exempted from the paint requirement but is not a \
-                 DrawItem variant — a renamed or removed container leaves an \
+                 DrawItem variant — a renamed or removed variant leaves an \
                  exemption that silently covers nothing",
             );
         }
-        for variant in &union.variants {
-            if CONTAINERS.contains(&variant.name) {
-                let record = pkg
-                    .records()
-                    .iter()
-                    .find(|r| r.name == variant.name)
-                    .expect("variant record");
-                assert!(
-                    !record.props.iter().any(|p| p.name == "paint"),
-                    "`{}` is listed as a container but declares a `paint` field, which \
-                     no renderer can honour — either it is a shape and belongs in the \
-                     checked set, or the field should go",
-                    variant.name,
-                );
-                continue;
-            }
+        for variant in all {
             let record = pkg
                 .records()
                 .iter()
-                .find(|r| r.name == variant.name)
+                .find(|r| r.name == variant)
                 .expect("variant record");
+            if CONTAINERS.contains(&variant) {
+                assert!(
+                    !record.props.iter().any(|p| p.name == "paint"),
+                    "`{variant}` is listed as a container but declares a `paint` field, \
+                     which no renderer can honour — either it is a shape and belongs in \
+                     the checked set, or the field should go",
+                );
+                continue;
+            }
+            if DECORATORS.contains(&variant) {
+                assert!(
+                    !record.props.iter().any(|p| p.name == "paint"),
+                    "`{variant}` is listed as a decorator but declares a `paint` of its \
+                     own, beside the one its shape carries",
+                );
+                let shape = record
+                    .props
+                    .iter()
+                    .find(|p| p.name == "shape")
+                    .unwrap_or_else(|| panic!("`{variant}` has no shape field"));
+                assert_eq!(shape.ty.name(), "Shape", "{variant}");
+                for inner in members("Shape") {
+                    assert!(
+                        !CONTAINERS.contains(&inner) && !DECORATORS.contains(&inner),
+                        "`{inner}` is a Shape and is exempt from carrying a paint",
+                    );
+                }
+                continue;
+            }
             let paint = record
                 .props
                 .iter()
                 .find(|p| p.name == "paint")
-                .unwrap_or_else(|| panic!("`{}` has no paint field", variant.name));
-            assert_eq!(paint.ty.name(), "Paint", "{}", variant.name);
+                .unwrap_or_else(|| panic!("`{variant}` has no paint field"));
+            assert_eq!(paint.ty.name(), "Paint", "{variant}");
         }
     }
 

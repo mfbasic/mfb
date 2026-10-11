@@ -62,6 +62,43 @@ A scene is exactly one shape at a time: installing one replaces the other, so
 switching shapes always publishes. Both calls share one implementation and
 therefore one set of guarantees; they differ only in what they copy.
 
+### The item unions
+
+What a scene holds is three nested unions, each a registry union that `INCLUDES` the
+one before it (`./mfb spec language types`):
+
+| Union | Members | What it is for |
+|---|---|---|
+| `canvas::Shape` | `Rectangle`, `Line`, `Polygon`, `Circle`, `Arc`, `Text`, `Ellipse`, `PolyLine` | the eight things drawn with a paint of their own; what an `AutoPaint` wraps |
+| `canvas::AutoShape` | `Shape`'s eight, then `AutoPaint` | a shape, plain or decorated |
+| `canvas::DrawItem` | `AutoShape`'s nine, then `Picture`, `Group` | what `present` takes |
+
+An included union's members come first, in its own order, so the three share tags: a
+`Rectangle` is tag 0 in all of them, an `AutoPaint` tag 8 in the two that have it. The
+order is pinned by three tests, one per union.
+[[src/codegen/builtins/canvas/mod.rs:draw_item_variant_set_is_frozen]]
+`INCLUDES` is not subtyping: a `Shape` value is not a `DrawItem`, but each member record
+is a member of every union that reaches it, which is why `canvas::Rectangle[...]` is
+accepted where either is expected.
+[[src/codegen/registry/mod.rs:union_has_member]]
+
+Nothing may depend on a tag's number. The native walks that branch on a variant ask the
+type model for its tag by name, and each keeps a list of the variants it handles and the
+variants it leaves to the MFBASIC path; a variant in neither fails the build.
+[[src/codegen/builtins/canvas/func_item_hash.rs:NOT_HASHED]]
+
+A `canvas::AutoPaint` holds a `Shape` and draws it. It has no `id`, no `position`, no
+`paint` and no `transform` of its own — the shape's are its — so wherever a shape is
+what is asked about (what is drawn, where it is hit, which `id` is reported, which font
+is named), every `MATCH` over `DrawItem` answers its `AutoPaint` arm with the shape.
+[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_autoItem]]
+Its `shape` field is a union, so the record has no default value: an `AutoPaint` is
+written as a full literal, not built up from `MUT a AS canvas::AutoPaint`. It is hashed
+in MFBASIC — its shape's hash, its four flags and its four paints — because the native
+hash does not fold a union field, and it is never carried from the previous scene's
+hashes, because the shape it wraps may be a `Text`, whose hash folds its font's id.
+[[src/codegen/builtins/canvas/func_carried_hashes.rs:lower_carried_hashes]]
+
 ## A published scene points at nothing caller-owned
 
 `present` **deep-copies the scene transitively** into runtime-owned storage:
@@ -671,7 +708,7 @@ still comes from the round walk, so it stays continuous round a corner.
 * **Fill is ignored**, as for `Line`: the stroke is carried in the fill slots and slot 7
   is negative. So `Paint.fill` and `Paint.gradient` never reach a polyline.
 
-**An item's `transform` maps its coordinates onto the surface.** Every drawn item — each `DrawItem` variant but `Group` — carries one as its last field, and an `id` as its first; `Paint` has none. The item is
+**An item's `transform` maps its coordinates onto the surface.** Every drawn item — each `DrawItem` variant but `Group` and `AutoPaint` — carries one as its last field, and each variant but `AutoPaint` an `id` as its first; `Paint` has none, and an `AutoPaint` has its shape's. The item is
 drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,
 b*x + d*y + ty)`. The all-zero transform is the identity (above), so an item that
 never sets one is unaffected.

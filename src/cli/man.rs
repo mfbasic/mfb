@@ -505,6 +505,10 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
         for union in unions {
             md.push_str(&format!("#### {pkg}::{}\n\n", union.name));
             md.push_str("A union of:\n\n");
+            // plan-172-K: what it INCLUDES comes first, as the members do.
+            for included in &union.includes {
+                md.push_str(&format!("- everything in `{pkg}::{included}`\n"));
+            }
             for variant in &union.variants {
                 md.push_str(&format!("- `{}` — {}\n", variant.name, variant.description));
             }

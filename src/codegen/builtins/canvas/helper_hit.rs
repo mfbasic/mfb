@@ -77,6 +77,9 @@ FUNC __canvas_itemId(item AS DrawItem) AS String
       RETURN pic.id
     CASE PolyLine(pl)
       RETURN pl.id
+    ' An `AutoPaint` has no `id` of its own: it reports its shape's.
+    CASE AutoPaint(a)
+      RETURN __canvas_itemId(__canvas_autoItem(a))
   END MATCH
 END FUNC
 
@@ -293,6 +296,9 @@ FUNC __canvas_hitGeometry(item AS DrawItem, hash AS Integer) AS Integer
       LET built AS List OF List OF Float = __canvas_withClipEdges(header, [], item)
       LET none AS List OF Float = []
       RETURN canvas::geoInsert(hash, collections::getOr(built, 0, header), collections::getOr(built, 1, none))
+    ' An `AutoPaint` is hit where its shape is, by the shape's own paint.
+    CASE AutoPaint(a)
+      RETURN __canvas_hitGeometry(__canvas_autoItem(a), hash)
     CASE ELSE
       RETURN __canvas_geometryFor(item, hash)
   END MATCH

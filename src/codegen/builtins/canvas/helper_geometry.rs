@@ -653,6 +653,44 @@ FUNC __canvas_clipHeader(h AS List OF Float, paint AS Paint) AS List OF Float
   RETURN collections::set(out, 25, maxY + 1.0)
 END FUNC
 
+' plan-172-K: the shape an `AutoPaint` decorates, as the `DrawItem` it would be on its
+' own. An `AutoPaint` IS its shape wherever a shape is what is asked about -- what it
+' draws, where it is hit, what its `id` is, which font it names -- so every `MATCH` over
+' `DrawItem` answers its `AutoPaint` arm by asking this and going round again. A
+' `Shape` cannot hold an `AutoPaint`, so that never goes round twice.
+'
+' It copies the shape. An `AutoPaint` is for the handful of items a program interacts
+' with, and none of the paths that call this run per pixel.
+FUNC __canvas_autoItem(a AS AutoPaint) AS DrawItem
+  MATCH a.shape
+    CASE Rectangle(r)
+      LET item AS DrawItem = r
+      RETURN item
+    CASE Line(l)
+      LET item AS DrawItem = l
+      RETURN item
+    CASE Polygon(p)
+      LET item AS DrawItem = p
+      RETURN item
+    CASE Circle(c)
+      LET item AS DrawItem = c
+      RETURN item
+    CASE Arc(arc)
+      LET item AS DrawItem = arc
+      RETURN item
+    CASE Text(t)
+      LET item AS DrawItem = t
+      RETURN item
+    CASE Ellipse(e)
+      LET item AS DrawItem = e
+      RETURN item
+    CASE PolyLine(pl)
+      LET item AS DrawItem = pl
+      RETURN item
+  END MATCH
+  RETURN __canvas_noItem()
+END FUNC
+
 ' plan-163-C: an item's clip rings, whatever its kind; none for a group.
 FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
   MATCH item
@@ -676,6 +714,8 @@ FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
       RETURN __canvas_placedClip(pl.paint.clip, __canvas_buildX(pl.position, pl.transform), __canvas_buildY(pl.position, pl.transform))
     CASE Group(g)
       RETURN []
+    CASE AutoPaint(a)
+      RETURN __canvas_clipOf(__canvas_autoItem(a))
   END MATCH
   RETURN []
 END FUNC
@@ -1646,6 +1686,11 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
     ' the walk (a group is expanded, not cached); the arm is what keeps MATCH exhaustive.
     CASE Group(g)
       header = __canvas_emptyHeader()
+    ' plan-172-K: nor has an `AutoPaint` -- it draws its shape, and the walk hands this
+    ' function the SHAPE (`__canvas_appendDraw`, `__canvas_autoItem`). The same arm as a
+    ' group's, for the same reason.
+    CASE AutoPaint(a)
+      header = __canvas_emptyHeader()
     ' plan-154-A. The tail only when the header is a real polyline: an empty header
     ' declares a 51-float record, and a tail appended behind it would be floats the
     ' record does not own.
@@ -1937,6 +1982,31 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       h = __canvas_hashPoint(h, g.position)
       h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, g.transform.a), g.transform.b), g.transform.c), g.transform.d), g.transform.tx), g.transform.ty)
       RETURN __canvas_hashText(h, g.name)
+    ' plan-172-K: an `AutoPaint` is its shape's hash, its four flags and its four
+    ' paints -- so an item that differs only in a state paint is a different item to
+    ' `present`, to the damage diff and to the geometry cache. Never hashed natively:
+    ' its `shape` is a union field, which the structural walk does not fold.
+    CASE AutoPaint(a)
+      MUT h AS Integer = __canvas_hashStart(11)
+      h = __canvas_hashStep(h, __canvas_hashItem(__canvas_autoItem(a)))
+      MUT flags AS Integer = 0
+      IF a.useEnter THEN
+        flags = flags + 1
+      END IF
+      IF a.useExit THEN
+        flags = flags + 2
+      END IF
+      IF a.useHover THEN
+        flags = flags + 4
+      END IF
+      IF a.usePressed THEN
+        flags = flags + 8
+      END IF
+      h = __canvas_hashStep(h, flags)
+      h = __canvas_hashPaint(h, a.enterPaint, __canvas_noTransform())
+      h = __canvas_hashPaint(h, a.exitPaint, __canvas_noTransform())
+      h = __canvas_hashPaint(h, a.hoverPaint, __canvas_noTransform())
+      RETURN __canvas_hashPaint(h, a.pressedPaint, __canvas_noTransform())
     ' plan-154-A. Hashed natively (`func_item_hash.rs`), so this arm is what keeps the
     ' MATCH exhaustive; it folds the same fields in case that ever changes.
     CASE PolyLine(pl)
@@ -2073,6 +2143,8 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
         header = __canvas_textHeader(t, tail)
       END IF
     CASE Group(g)
+      header = __canvas_emptyHeader()
+    CASE AutoPaint(a)
       header = __canvas_emptyHeader()
     CASE PolyLine(pl)
       LET moved AS PolyLine = __canvas_polylinePlaced(pl)
