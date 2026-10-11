@@ -16,6 +16,15 @@ Check that every open bug has exactly one row:
 python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.glob('bugs/bug-*.md')];b=re.findall(r'^\|\s*\[.\]\s*\|\s*(\d+)\s',open('bugs/status.md').read(),re.M);print(len(a),sorted(set(a)^set(b))+[n for n in set(b) if b.count(n)>1])"
 ```
 
+## Running phase: batch 20 (`bug-staging-20`)
+
+The list is fixed: the five open documents whose `Severity:` line is HIGH and that are not
+canvas work. Nothing is added to it; a bug found while it runs gets a row in its area
+table and waits.
+
+1026, 912, 911, 860, 979 (912 before 911). The two HIGH canvas bugs, 688 and 765, are not
+in this phase.
+
 ## Resources and STATE
 
 | Done | Number | Priority | Description |
