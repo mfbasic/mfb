@@ -86,7 +86,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [x] 1001, 1000, 992, 984: leaks (union-drop I/O buffers; owned-list drain; `graphemesCount`/`graphemeAt`/`fromScalars`/`normalizeNfc`; macOS TLS listener)
 [x] 1016 (canvas name collision), 1020 (`reduce` returned the seed block): found and fixed during the batch
 
-**P2c: STATE rules and the resource-union box** (NOT started; waiting for the owner's go; 4 bugs, list fixed when it starts)
+**P2c: STATE rules and the resource-union box** (batch 19, branch `bug-staging-19`; STARTED 2026-10-10 on the owner's work order. LIST FROZEN: 1013, 998, 1012, 1019. Nothing is added; bugs found meanwhile are filed into a later phase)
 [ ] 1013 (HIGH): a STATE must be a record (`TYPE_STATE_INVALID` everywhere a STATE clause can appear). Census done: nothing that works today uses a non-record STATE. bs18-agent-l's partial work is parked, uncommitted, in `.claude/worktrees/bs18-agent-l`.
 [ ] 998: STATE only on a resource (new rule `TYPE_STATE_REQUIRES_RESOURCE`); same agent as 1013
 [ ] 1012 (HIGH): a resource-union box has no owner outside a binding (use-after-free exit 139; double free of a returned `List OF RES Union`)
