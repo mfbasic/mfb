@@ -1,4 +1,4 @@
-I've placed all 157 open bug documents in `bugs/` into 11 phases (counted with `python3 -c 'from pathlib import Path; print(len(list(Path("bugs").glob("bug-*.md"))))'`). The phase lists were compared against the open bug documents, with no bug missing or listed twice. I worked from each bug's header (title, severity, effort, class, owner decisions) and the references between bugs. I did not re-run each repro, so some of these may already be fixed. `/fix-bug` re-runs the repro first, so that will show up when each one is picked up.
+Every one of the 159 open bug documents in `bugs/` is in exactly one phase below (counted with `python3 -c 'from pathlib import Path; print(len(list(Path("bugs").glob("bug-*.md"))))'`; last checked 2026-10-10 after P2c). A bug found during a phase is filed and put in a phase here in the same commit: a bug in no phase does not get done. The original ordering worked from each bug's header (title, severity, effort, class, owner decisions) and the references between bugs, without re-running each repro, so some may already be fixed; `/fix-bug` re-runs the repro first.
 
 ## How I ordered them
 1. **Crashes and security holes first**, when the fix is small and doesn't sit inside a planned redesign.
@@ -22,14 +22,16 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [x] 843, 842, 852, 854, 899: fixed, reviewed, merged into staging (842 scoped out inline aggregates → bug-999)
 [x] 844, 933, 935, 851: fixed, reviewed, merged into staging
 [x] integration fix: a closure may not capture a ThreadWorker (975 × 843 interaction; capture check now shares the List-element predicate)
-[ ] 856 moved to P2b (owner re-decided: remove the cleanup table and its format fields, version bump; derive the audit)
 [x] Golden proofs done (131 goldens, each attributed), committed in staging
 [x] Full gate #1: 2 real failures (bug-852 over-carried a consuming call's take-over round the loop) → fixed by agent F, reviewed, merged; + 2 pre-existing flakes filed (1003, 1004)
 [x] Full gate #2 green; merged to main. Paused, then resumed by the owner (2026-10-07).
 
 **P3: Networking and HTTP**
-[ ] 979 first: it takes over the validation half of 872 and shares an oracle with 868 (if 868 didn't land in P1).
+[ ] 979 first: it takes over the validation half of 872 and shares an oracle with 868 (fixed in P1).
 [ ] Then 872 (the connect half), 980 (builds on 859's rule), 864, 865, 866, 867, 876
+[ ] 986 (HEAD response waits for EOF; owner decided: a `method` field on `http::PendingState`)
+[ ] 1017 (Windows `respondPath`: `..\` traversal still answers 403-vs-404 by existence; reproduced on box 206)
+[ ] 1003 (flake: the `http::pump` man example hangs on a stalled remote)
 [ ] Close with 873 (the spec drift for this area)
 
 **P4: Modules, visibility and templates**
@@ -37,7 +39,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 
 **P5: Inline TRAP, internal compiler errors, diagnostics**
 [ ] 860 (large; compile memory blows up with many inline TRAP handlers), 835 → 874, 870, 900, 901, 915, 846, 875, 877, 882, 832, 847, 880
-[ ] Message-quality only: 836, 837, 838, 887, 936, 937
+[ ] Message-quality only: 836, 837, 838, 887, 936, 937, 1002 (`TYPE_COLLECTION_OWNERSHIP_VIOLATION` reported twice)
 
 **P6: Language changes (owner-confirmed)**
 [ ] 977 → 878, then 978 + 839, then 945 (large; `Result`/`Ok` reserved in user code)
@@ -48,11 +50,12 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [ ] Numbers: 831, 931, 932, 934, 845
 [ ] Text and formats: 1005 (`strings::repeat` on an empty string still loops `times` times), 827, 828, 829, 869, 871, 863, 905, 906, 879, 888
 [ ] I/O and OS: 891, 892, 893, 886
-[ ] Collections/strings capacity (filed on main 2026-10-07): 1005, 1006, 1007, 1008, 1009, 1010, 1011
 
 **P8: App, terminal and canvas**
 [ ] 966 → 965, 964, 969, 970, 971, 968
 [ ] Owner-decided: 972 (new `app::shouldClose`), 973
+[ ] 1015 (GTK `pollMouse` sees nothing without a stdin read; owner decided: events come from the window, like macOS/Windows) → then 985 (GTK `setMode` window has no mouse controllers)
+[ ] Canvas and windows: 991 (transformed item bounds pad scaled by magnification), 995 (path clip on a transformed item walks the clip five times per pixel), 996 (Vulkan first frame waits 25 s for a cold pipeline compile), 997 (Windows app window opens at 400x300, not 900x640)
 [ ] 960 (signing `--app` bundles)
 [ ] Last, both huge performance items: 688 (its remaining Linux work is blocked on a real-GPU Linux box), then 765 (cites 688)
 
@@ -60,6 +63,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 [ ] Registry: 954 (also covers 947), 948, 949, 950 → 956, 951, 952, 953, 955, 940
 [ ] CLI: 850, 919, 918, 925 → 941, 916, 943, 853, 907, 908, 909, 923, 921, 922, 926, 939, 942
 [ ] Platform and linker: 958, 959
+[ ] Test tooling: 987 (Windows test scripts default to retired box 2230; owner decided: repoint to 206), 1004 (flake: the `cli_dbg` attached threaded-arena test timing)
 
 **P10: Codegen internals**
 [ ] 946 (huge refactor) together with 930
@@ -69,12 +73,12 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 **P11: Spec-drift sweep**
 [ ] Any order: 830, 840, 883, 889, 890, 894, 896, 904, 910, 927, 944, 961, 974
 [-] These must wait for their dependencies:
-  [ ] 857 needs 975.
+  [ ] 857 needed 975 (fixed in P2); it is unblocked.
   [ ] 884 needs 840, 857 and 873.
   [ ] 938 needs 977 and 978.
   [ ] 917 needs 930, 945 and 946, so it is the very last bug.
 
-## New bugs filed since the plan
+## Phases added since the plan
 
 **P2b: Memory safety, ABI and silent wrong values** (batch 18; in main at 34ae6f130, 2026-10-10; full gate green first time)
 [x] 982 + 993: OS-entered callbacks keep callee-saved registers (mouse handlers, graphics-thread entry, thread trampoline, OpenSSL verify callback)
@@ -94,7 +98,7 @@ Legend: `[x]` in main · `[~]` fixed and merged into the staging branch, not yet
 
 **P2d: resource aggregates, templates, package format** (after P2c; 4 bugs)
 [ ] 999: an inline aggregate of resources is never closed. A first fix was reverted out of batch 18 (it closed resources a bound record still named). NEEDS AN OWNER DECISION before it starts: adopt at every bind/assign/store/RETURN, or require the call to be bound first.
-[ ] 1018: a `List OF RES fs::File` given as `List OF RES Handle` is not converted (needs 999 here and 1012 from P2c)
+[ ] 1018: a `List OF RES fs::File` given as `List OF RES Handle` is not converted (needs 999 here; 1012 is fixed)
 [ ] 1022: template calls (`collections::merge`, user `FUNC f OF T`) reject a variant for their union; make them follow the builtin rules
 [ ] 856: remove the `.mfp` cleanup table + `FUNCTION_TABLE` cleanup fields (format bump); derive the secondary-close audit
 
