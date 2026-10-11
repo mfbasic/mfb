@@ -24,7 +24,8 @@ table and waits.
 
 1026, 912, 911, 860, 979 (912 before 911). The two HIGH canvas bugs, 688 and 765, are not
 in this phase. 860 is closed with its fourth-power term fixed; what it left is
-bug-1035, a later phase's work.
+bug-1035, a later phase's work. 979 left the phase with its three owner decisions implemented;
+its IDNA remainder waits on an owner decision.
 
 ## Resources and STATE
 
@@ -136,7 +137,7 @@ bug-1035, a later phase's work.
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 979    | SECURITY | `net::toUrl` diverges from WHATWG host parsing — no host validation, numeric IPv4 kept as written, `\` not an authority terminator (do first in this area: takes over the validation half of 872) |
+| [ ]  | 979    | SECURITY | `net::toUrl` and WHATWG host parsing: host validation, IPv4 canonicalization and `\` as `/` are done; what is left is the 39 oracle entries that need IDNA (NEEDS AN OWNER DECISION: implement UTS #46, refuse every non-ASCII host, or declare "no IDNA" a documented difference) |
 | [ ]  | 980    | SECURITY | the HTTP chunked decoder accepts framing llhttp (and RFC 9112) rejects (builds on 859's rule) |
 | [ ]  | 1017   | SECURITY | on Windows, `http::respondPath` still answers 403 vs 404 by existence for a `..\` traversal (bug-862's oracle, through a backslash) |
 | [ ]  | 876    | MED      | `tcp::connect`/`tcp::listen`/`udp::bind` accept any Integer port and silently use its low 16 bits |
