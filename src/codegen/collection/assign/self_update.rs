@@ -2734,6 +2734,7 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
     ("canvas.Arc", SIZE_VARIES),
     ("canvas.Text", SIZE_VARIES),
     ("canvas.Picture", SIZE_VARIES),
+    ("canvas.AutoPaint", SIZE_VARIES),
     ("canvas.Group", SIZE_VARIES),
     ("canvas.Ellipse", SIZE_VARIES),
     ("canvas.PolyLine", SIZE_VARIES),
