@@ -891,3 +891,144 @@ fn a_copy_of_a_record_returned_by_a_callee_is_freed_at_every_level() {
         107,
     );
 }
+
+/// bug-1051: `RES v AS fs::File = sameF(a) TRAP(e) … END TRAP`, where `sameF`
+/// returns its argument. The desugar's temp is bound to a closed default record of
+/// its own and the call's value is stored over it. The temp is not proved to own
+/// what `sameF` hands back (it does not: the record is `a`'s), so its drop frees no
+/// record, and that included the default: 112 bytes on every evaluation, on the
+/// success path (the store's drop of the old value) and when the handler leaves
+/// without storing (the scope's drop). The same for a resource union, whose default
+/// is a box and a record; with the handler taken (`CONTINUE`, and `RECOVER` of
+/// another binding); and with the argument read through a record field or
+/// `collections::get`, beside a control whose producer the temp does own.
+#[test]
+fn a_trapped_call_that_returns_its_argument_frees_the_default_record() {
+    check_at_both_levels(
+        "same_file",
+        "FUNC sameF(h AS fs::File) AS RES fs::File\n\
+         \x20 RETURN h\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES v AS fs::File = sameF(a) TRAP(e)\n\
+         \x20   RETURN 5\n\
+         \x20 END TRAP\n\
+         \x20 RETURN len(fs::readAll(v)) - 5\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "same_union",
+        "FUNC same(h AS Handle) AS RES Handle\n\
+         \x20 RETURN h\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES v AS Handle = same(a) TRAP(e)\n\
+         \x20   RETURN 5\n\
+         \x20 END TRAP\n\
+         \x20 RETURN which(v) - 5\n\
+         END FUNC\n",
+        1,
+    );
+    check_at_both_levels(
+        "handler_continues",
+        "FUNC sameF(h AS fs::File, n AS Integer) AS RES fs::File\n\
+         \x20 IF n > 1 THEN\n\
+         \x20   FAIL error(77, \"boom\")\n\
+         \x20 END IF\n\
+         \x20 RETURN h\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   RES v AS fs::File = sameF(a, j) TRAP(e)\n\
+         \x20     t = t + 100\n\
+         \x20     CONTINUE FOR\n\
+         \x20   END TRAP\n\
+         \x20   t = t + len(fs::readAll(v)) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        107,
+    );
+    check_at_both_levels(
+        "recover_alias",
+        "FUNC sameF(h AS fs::File, n AS Integer) AS RES fs::File\n\
+         \x20 IF n > 1 THEN\n\
+         \x20   FAIL error(77, \"boom\")\n\
+         \x20 END IF\n\
+         \x20 RETURN h\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES b AS fs::File = openOne()\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   RES v AS fs::File = sameF(a, j) TRAP(e)\n\
+         \x20     RECOVER b\n\
+         \x20   END TRAP\n\
+         \x20   t = t + len(fs::readAll(v)) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        14,
+    );
+    check_at_both_levels(
+        "union_recover_and_continue",
+        "FUNC same(h AS Handle, n AS Integer) AS RES Handle\n\
+         \x20 IF n > 1 THEN\n\
+         \x20   FAIL error(77, \"boom\")\n\
+         \x20 END IF\n\
+         \x20 RETURN h\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS Handle = openOne()\n\
+         \x20 RES b AS Handle = openOne()\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   RES v AS Handle = same(a, j) TRAP(e)\n\
+         \x20     RECOVER b\n\
+         \x20   END TRAP\n\
+         \x20   t = t + which(v) + 1\n\
+         \x20 NEXT\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   RES w AS Handle = same(a, j) TRAP(e)\n\
+         \x20     t = t + 100\n\
+         \x20     CONTINUE FOR\n\
+         \x20   END TRAP\n\
+         \x20   t = t + which(w) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        115,
+    );
+    check_at_both_levels(
+        "field_get_and_producer",
+        "FUNC mk() AS HB\n\
+         \x20 RETURN HB[openOne()]\n\
+         END FUNC\n\
+         FUNC sameF(h AS fs::File) AS RES fs::File\n\
+         \x20 RETURN h\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET k AS HB = mk()\n\
+         \x20 RES v AS fs::File = sameF(k.h) TRAP(e)\n\
+         \x20   RETURN 5\n\
+         \x20 END TRAP\n\
+         \x20 MUT xs AS List OF RES fs::File = []\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 xs = collections::append(xs, a)\n\
+         \x20 RES g AS fs::File = sameF(collections::get(xs, 0)) TRAP(e)\n\
+         \x20   RETURN 6\n\
+         \x20 END TRAP\n\
+         \x20 RES p AS fs::File = openOne() TRAP(e)\n\
+         \x20   RETURN 7\n\
+         \x20 END TRAP\n\
+         \x20 RETURN rd(v) + rd(g) + rd(p) + 1\n\
+         END FUNC\n",
+        19,
+    );
+}
