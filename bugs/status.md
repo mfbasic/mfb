@@ -106,6 +106,7 @@ P2e (resource-union and record ownership follow-ups):
 [ ] 1028: a `List`/`Map` of resource unions that is iterated or read through `collections::get` keeps its block and records (`block_held_elsewhere_strict`)
 [ ] 1029: a call through a function value that returns a resource union leaks its 16 B box
 [ ] 1030: the `STATE` clause of a top-level `RES` binding and of a `LAMBDA` parameter is dropped in lowering, so `.state` does not type
+[ ] P5 (diagnostics): 1034 (`RES n AS Integer STATE Cur` reports two errors; owner decided: only `TYPE_STATE_REQUIRES_RESOURCE`)
 [ ] P5 (diagnostics): 1031 (`RES` on a non-resource is not refused at the top level, on a return, or on a record field that also carries `STATE`)
 [ ] P4 (templates): 1032 (generic `T STATE Cur` called with a `fs::File STATE Cur` is rejected, the clause is carried twice; NEEDS AN OWNER DECISION on whether `T STATE S` is legal at all)
 [ ] P11 (docs): 1033 (man example `variable::guide#2` does not build; an intentional error example the runner does not recognise)
@@ -120,7 +121,7 @@ Into existing phases:
 [ ] P8: 991, 995, 996, 997
 [ ] Standalone: 987 (Windows test scripts → box 206)
 
-Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject; one direction only), 988 reduce (works), 1015 (GTK mouse events come from the window), 1013 (a STATE must always be a record), 988 (the collection fixes `T`; a union never fits a member bucket, no run-time narrowing), 1021 (partial by-field record constructor uses defaults).
+Owner decisions recorded: 986 (method field), 902 (keep `abort()`), 987 (repoint to 206), 998 (dedicated rule), 856 (remove the cleanup table, derive the audit), 989 (convert, never reject; one direction only), 988 reduce (works), 1015 (GTK mouse events come from the window), 1013 (a STATE must always be a record), 988 (the collection fixes `T`; a union never fits a member bucket, no run-time narrowing), 1021 (partial by-field record constructor uses defaults), 1034 (a `STATE` clause on a non-resource `RES` binding reports `TYPE_STATE_REQUIRES_RESOURCE` alone).
 Not run (boxes down): 962 on x86_64 GTK / musl GTK; 902 on x86_64 glibc.
 
 Numbering note: other sessions file bugs too (the plan-172 session used 1013 and 1014 the same day the coordinator did). The coordinator renumbers its own unmerged docs on a collision; check `ls bugs` in every worktree before taking a number.
