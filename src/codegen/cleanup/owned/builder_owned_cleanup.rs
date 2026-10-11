@@ -117,7 +117,25 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), head_slot));
             self.owned_list_heads
                 .insert((name.to_string(), leaf.clone()), head_slot);
-            let reclaim_slot = reclaims.then(|| {
+            // A leaf whose record stays as the closed tombstone and that has no
+            // buffer or `STATE` of its own (a `canvas` image or font) leaves the
+            // reclaim nothing to free: its drain stays as it was.
+            let reclaimable = match &drop {
+                OwnedListDrop::Concrete {
+                    state_type,
+                    has_io_buffers,
+                    frees_record,
+                    ..
+                } => *frees_record || *has_io_buffers || state_type.is_some(),
+                // The first walk's dispatch already frees a union leaf's `STATE`.
+                OwnedListDrop::Union {
+                    io_buffer_tags,
+                    record_free_tags,
+                    ..
+                } => !io_buffer_tags.is_empty() || !record_free_tags.is_empty(),
+                OwnedListDrop::Dynamic => false,
+            };
+            let reclaim_slot = (reclaims && reclaimable).then(|| {
                 // Zeroed with the frame, never here: a walk that an exit path
                 // emitted before this point reads it empty, and a reclaim always
                 // leaves it empty.

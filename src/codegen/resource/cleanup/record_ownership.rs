@@ -3212,4 +3212,213 @@ mod owned_list_ownership_tests {
             },
         );
     }
+
+    /// bug-1053: a callee that keeps what it reads OUT of its parameter (an element
+    /// appended to the list it returns) is a second reader of the elements and no
+    /// holder of the parameter's block; one that returns the parameter is.
+    #[test]
+    fn a_callee_that_keeps_an_element_does_not_keep_the_block() {
+        let pick = function(
+            &["hs"],
+            vec![
+                for_each(
+                    "h",
+                    "hs",
+                    vec![NirOp::Assign {
+                        name: "out".to_string(),
+                        value: call("collections.append", vec![local("out"), local("h")]),
+                    }],
+                ),
+                NirOp::Return {
+                    value: Some(local("out")),
+                },
+            ],
+        );
+        let same = function(
+            &["xs"],
+            vec![NirOp::Return {
+                value: Some(local("xs")),
+            }],
+        );
+        let functions: HashMap<String, &NirFunction> =
+            HashMap::from([("pick".to_string(), &pick), ("same".to_string(), &same)]);
+        let literal = || NirValue::ListLiteral {
+            type_: ParameterType::parse("List OF RES fs.File"),
+            values: Vec::new(),
+        };
+        let caller = function(
+            &[],
+            vec![
+                bind("read", "List OF RES fs.File", literal()),
+                bind("returned", "List OF RES fs.File", literal()),
+                bind("aliased", "List OF RES fs.File", literal()),
+                bind("alias", "List OF RES fs.File", local("aliased")),
+                eval(call("pick", vec![local("read")])),
+                eval(call("same", vec![local("returned")])),
+            ],
+        );
+        let stores = collect(&caller, &functions);
+        let mut callees = CalleeParamUses::default();
+        let uses = CollectionUses::of(&caller, &functions, &mut callees);
+        // The whole proof still refuses `read`: its elements have a second reader.
+        assert!(uses.block_held_elsewhere("read"));
+        let blocks = block_owning_collections(&stores, &uses, &HashSet::new());
+        assert!(blocks.contains("read"));
+        assert!(!blocks.contains("returned"));
+        assert!(!blocks.contains("aliased"));
+        assert!(!blocks.contains("alias"));
+    }
+
+    /// bug-1053: a list of lists is not judged by the block rule: what a `FOR EACH`
+    /// over it yields is itself a block.
+    #[test]
+    fn a_nested_collection_is_not_judged_by_the_block_rule() {
+        let no_functions = HashMap::new();
+        let caller = function(
+            &[],
+            vec![bind(
+                "nested",
+                "List OF List OF RES fs.File",
+                NirValue::ListLiteral {
+                    type_: ParameterType::parse("List OF List OF RES fs.File"),
+                    values: Vec::new(),
+                },
+            )],
+        );
+        let stores = collect(&caller, &no_functions);
+        let mut callees = CalleeParamUses::default();
+        let uses = CollectionUses::of(&caller, &no_functions, &mut callees);
+        assert!(block_owning_collections(&stores, &uses, &HashSet::new()).is_empty());
+    }
+
+    fn capture(by_ref: bool) -> NirValue {
+        NirValue::Capture {
+            index: 0,
+            type_: ParameterType::parse("List OF RES fs.File"),
+            by_ref,
+        }
+    }
+
+    /// bug-1053: the one store that carries a reference to a longer-lived binding
+    /// from code the storing function never sees as a store is an assignment
+    /// through a by-reference capture of a binding that reaches a resource.
+    #[test]
+    fn a_lambda_that_assigns_a_captured_container_is_found() {
+        let reaches = |type_: &ParameterType| *type_ == ParameterType::parse("List OF RES fs.File");
+        let append = || NirOp::Assign {
+            name: "keep".to_string(),
+            value: call("collections.append", vec![local("keep"), local("h")]),
+        };
+        let writes = function(
+            &["h"],
+            vec![bind("keep", "List OF RES fs.File", capture(true)), append()],
+        );
+        // A capture by value is the lambda's own copy of the pointer.
+        let copies = function(
+            &["h"],
+            vec![
+                bind("keep", "List OF RES fs.File", capture(false)),
+                append(),
+            ],
+        );
+        // A by-reference capture that is only read stores nothing.
+        let reads = function(
+            &["h"],
+            vec![
+                bind("keep", "List OF RES fs.File", capture(true)),
+                eval(call("len", vec![local("keep")])),
+            ],
+        );
+        // And a captured binding that reaches no resource is no concern here.
+        let counts = function(
+            &["h"],
+            vec![
+                NirOp::Bind {
+                    mutable: true,
+                    name: "keep".to_string(),
+                    type_: ParameterType::parse("List OF Integer"),
+                    value: Some(capture(true)),
+                },
+                append(),
+            ],
+        );
+        let harmless: HashMap<String, &NirFunction> = HashMap::from([
+            ("copies".to_string(), &copies),
+            ("reads".to_string(), &reads),
+            ("counts".to_string(), &counts),
+        ]);
+        assert!(!module_stores_through_a_captured_reference(
+            &harmless, &reaches
+        ));
+        let mut with_writer = harmless.clone();
+        with_writer.insert("writes".to_string(), &writes);
+        assert!(module_stores_through_a_captured_reference(
+            &with_writer,
+            &reaches
+        ));
+    }
+
+    /// bug-1053: an assignment that carries an inner scope's binding outward in a
+    /// position the store-time raise does not cover is recorded; the stores it
+    /// does cover, a same-scope store and an adopted call result are not.
+    #[test]
+    fn an_assignment_the_raise_does_not_cover_is_recorded() {
+        let list = "List OF RES fs.File";
+        let container = |type_: &ParameterType| *type_ == ParameterType::parse(list);
+        let record = |_: &ParameterType| false;
+        let literal = || NirValue::ListLiteral {
+            type_: ParameterType::parse(list),
+            values: Vec::new(),
+        };
+        let nested = |store: NirValue| {
+            function(
+                &[],
+                vec![
+                    bind("keep", list, literal()),
+                    NirOp::If {
+                        condition: NirValue::Const {
+                            type_: ParameterType::Boolean,
+                            value: "true".to_string(),
+                        },
+                        then_body: vec![
+                            bind("xs", list, literal()),
+                            NirOp::Assign {
+                                name: "keep".to_string(),
+                                value: store,
+                            },
+                        ],
+                        else_body: Vec::new(),
+                    },
+                ],
+            )
+        };
+        let unraised = |function: &NirFunction| {
+            collect_store_floats(function, &container, &record).unraised_outward_store
+        };
+        // A member that re-packages its argument's handles: nothing raises them.
+        assert!(unraised(&nested(call(
+            "collections.filter",
+            vec![local("xs")]
+        ))));
+        // The inserting members are the store-time raise's own.
+        assert!(!unraised(&nested(call(
+            "collections.append",
+            vec![local("keep"), local("xs")]
+        ))));
+        // A call to a function with a body: the assignment adopts its result.
+        assert!(!unraised(&nested(call("build", vec![local("xs")]))));
+        // The same scope: ownership is unchanged.
+        let same_scope = function(
+            &[],
+            vec![
+                bind("keep", list, literal()),
+                bind("xs", list, literal()),
+                NirOp::Assign {
+                    name: "keep".to_string(),
+                    value: call("collections.filter", vec![local("xs")]),
+                },
+            ],
+        );
+        assert!(!unraised(&same_scope));
+    }
 }

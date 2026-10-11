@@ -271,3 +271,400 @@ fn a_record_whose_copy_is_appended_to_a_list_is_freed() {
         6,
     );
 }
+
+/// The filed shapes over a resource union and over a `Map`: a handle of a union
+/// field bound on its own, a map whose value a callee stores in the list it
+/// returns (the map's block is the binding's), a floated `List OF RES Handle` an
+/// element of which is bound from `collections::get`, and a list literal around
+/// two bindings with one element bound again.
+#[test]
+fn a_resource_union_and_a_map_follow_the_same_rule() {
+    check(
+        "union_field_handle",
+        "FUNC mkU() AS HU\n\
+         \x20 RES u AS fs::File = openOne()\n\
+         \x20 RETURN HU[u]\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET k AS HU = mkU()\n\
+         \x20 RES f AS Handle = k.h\n\
+         \x20 LET k2 AS HU = k\n\
+         \x20 RETURN which(f) + which(k2.h) + 1\n\
+         END FUNC\n",
+        7,
+    );
+    check(
+        "map_value_kept_by_callee",
+        "FUNC pickM(m AS Map OF String TO RES fs::File) AS List OF RES fs::File\n\
+         \x20 MUT out AS List OF RES fs::File = []\n\
+         \x20 FOR EACH e IN m\n\
+         \x20   out = collections::append(out, e.value)\n\
+         \x20 NEXT\n\
+         \x20 RETURN out\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES c AS fs::File = openOne()\n\
+         \x20 LET m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File { \"a\" := a, \"c\" := c }\n\
+         \x20 LET fl AS List OF RES fs::File = pickM(m)\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR EACH f IN fl\n\
+         \x20   t = t + rd(f) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t + len(m)\n\
+         END FUNC\n",
+        16,
+    );
+    check(
+        "union_list_get",
+        "FUNC once() AS Integer\n\
+         \x20 MUT xs AS List OF RES Handle = []\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   RES a AS Handle = openOne()\n\
+         \x20   xs = collections::append(xs, a)\n\
+         \x20 NEXT\n\
+         \x20 RES g AS Handle = collections::get(xs, 0)\n\
+         \x20 MUT t AS Integer = which(g)\n\
+         \x20 FOR EACH h IN xs\n\
+         \x20   t = t + which(h) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        14,
+    );
+    check(
+        "union_literal_get",
+        "FUNC once() AS Integer\n\
+         \x20 RES a AS fs::File = openOne()\n\
+         \x20 RES c AS fs::File = openOne()\n\
+         \x20 LET hs AS List OF RES Handle = [a, c]\n\
+         \x20 RES s AS Handle = collections::get(hs, 1)\n\
+         \x20 MUT t AS Integer = which(s)\n\
+         \x20 FOR EACH h IN hs\n\
+         \x20   t = t + which(h) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        14,
+    );
+}
+
+/// Each iteration of a loop body frees what it took: at the end of the body, at a
+/// `CONTINUE`, at an `EXIT` and at a `RETURN` out of the loop.
+#[test]
+fn a_loop_body_frees_on_every_way_out() {
+    check(
+        "loop_body",
+        "FUNC mk() AS HB\n\
+         \x20 RETURN HB[openOne()]\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 3\n\
+         \x20   LET k AS HB = mk()\n\
+         \x20   RES f AS fs::File = k.h\n\
+         \x20   LET g = LAMBDA() -> rd(k.h)\n\
+         \x20   t = t + rd(f) + g() + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        21,
+    );
+    check(
+        "loop_return_continue",
+        "FUNC mk() AS HB\n\
+         \x20 RETURN HB[openOne()]\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 3\n\
+         \x20   LET k AS HB = mk()\n\
+         \x20   RES f AS fs::File = k.h\n\
+         \x20   t = t + rd(f) + 1\n\
+         \x20   IF j = 2 THEN\n\
+         \x20     RETURN t\n\
+         \x20   END IF\n\
+         \x20   IF j = 1 THEN\n\
+         \x20     CONTINUE FOR\n\
+         \x20   END IF\n\
+         \x20   t = t + 100\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        14,
+    );
+    check(
+        "while_exit_continue",
+        "FUNC mk() AS HB\n\
+         \x20 RETURN HB[openOne()]\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 MUT j AS Integer = 0\n\
+         \x20 WHILE j < 5\n\
+         \x20   j = j + 1\n\
+         \x20   LET k AS HB = mk()\n\
+         \x20   RES f AS fs::File = k.h\n\
+         \x20   IF j = 2 THEN\n\
+         \x20     CONTINUE WHILE\n\
+         \x20   END IF\n\
+         \x20   t = t + rd(f) + 1\n\
+         \x20   IF j = 4 THEN\n\
+         \x20     EXIT WHILE\n\
+         \x20   END IF\n\
+         \x20 END WHILE\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        21,
+    );
+}
+
+/// An error leaves by other roads than the end of a scope: an inline `TRAP` in the
+/// scope, an error return through the landing pads (the caller recovers), a
+/// function-level `TRAP` reached from the function's own scope (the handler still
+/// reads the container, so the route closes in place and the handler's exit
+/// frees), and one reached from a loop body.
+#[test]
+fn an_error_exit_frees_what_the_scope_took() {
+    check(
+        "inline_trap",
+        "FUNC mk() AS HB\n\
+         \x20 RETURN HB[openOne()]\n\
+         END FUNC\n\
+         FUNC rdT(f AS fs::File, n AS Integer) AS Integer\n\
+         \x20 IF n > 1 THEN\n\
+         \x20   FAIL error(77, \"boom\")\n\
+         \x20 END IF\n\
+         \x20 RETURN len(fs::readAll(f))\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 3\n\
+         \x20   LET k AS HB = mk()\n\
+         \x20   RES f AS fs::File = k.h\n\
+         \x20   LET n AS Integer = rdT(f, j) TRAP(e)\n\
+         \x20     RECOVER 50\n\
+         \x20   END TRAP\n\
+         \x20   t = t + n + rdT(k.h, 0) TRAP(e)\n\
+         \x20     RECOVER 1000\n\
+         \x20   END TRAP\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        118,
+    );
+    check(
+        "error_return",
+        "FUNC mk() AS HB\n\
+         \x20 RETURN HB[openOne()]\n\
+         END FUNC\n\
+         FUNC boom(n AS Integer) AS Integer\n\
+         \x20 IF n > 0 THEN\n\
+         \x20   FAIL error(77, \"boom\")\n\
+         \x20 END IF\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC inner() AS Integer\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   LET k AS HB = mk()\n\
+         \x20   RES f AS fs::File = k.h\n\
+         \x20   t = t + rd(f)\n\
+         \x20   t = t + boom(t)\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET r AS Integer = inner() TRAP(e)\n\
+         \x20   RECOVER 5\n\
+         \x20 END TRAP\n\
+         \x20 RETURN r\n\
+         END FUNC\n",
+        5,
+    );
+    check(
+        "function_trap",
+        "FUNC boom(n AS Integer) AS Integer\n\
+         \x20 IF n > 0 THEN\n\
+         \x20   FAIL error(77, \"boom\")\n\
+         \x20 END IF\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT xs AS List OF RES fs::File = []\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 IF len(\"x\") = 1 THEN\n\
+         \x20   RES a AS fs::File = openOne()\n\
+         \x20   xs = collections::append(xs, a)\n\
+         \x20 END IF\n\
+         \x20 IF len(\"x\") = 1 THEN\n\
+         \x20   RES g AS fs::File = collections::get(xs, 0)\n\
+         \x20   t = t + len(fs::readLine(g))\n\
+         \x20 END IF\n\
+         \x20 t = t + boom(len(xs))\n\
+         \x20 RETURN t\n\
+         \x20 TRAP(e)\n\
+         \x20   RETURN t + len(xs) + 100\n\
+         \x20 END TRAP\n\
+         END FUNC\n",
+        106,
+    );
+    check(
+        "function_trap_from_loop",
+        "FUNC mk() AS HB\n\
+         \x20 RETURN HB[openOne()]\n\
+         END FUNC\n\
+         FUNC boom(n AS Integer) AS Integer\n\
+         \x20 IF n > 0 THEN\n\
+         \x20   FAIL error(77, \"boom\")\n\
+         \x20 END IF\n\
+         \x20 RETURN 1\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT t AS Integer = 0\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   LET k AS HB = mk()\n\
+         \x20   RES f AS fs::File = k.h\n\
+         \x20   t = t + rd(f)\n\
+         \x20   IF j = 2 THEN\n\
+         \x20     t = t + boom(t)\n\
+         \x20   END IF\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         \x20 TRAP(e)\n\
+         \x20   RETURN t + 100\n\
+         \x20 END TRAP\n\
+         END FUNC\n",
+        112,
+    );
+}
+
+/// Two cleanups of one scope that name the same record: the record's own
+/// container and a list its handle floated into (declared before the record, and
+/// after it), and a chain of calls that hand the same handle back. The first
+/// drain to reach the record closes and takes it; every other one reads an owner
+/// word that is no longer its token and leaves it alone.
+#[test]
+fn two_cleanups_that_name_one_record_free_it_once() {
+    check(
+        "list_then_record",
+        "FUNC mk() AS HB\n\
+         \x20 RETURN HB[openOne()]\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 MUT xs AS List OF RES fs::File = []\n\
+         \x20 LET k AS HB = mk()\n\
+         \x20 RES f AS fs::File = k.h\n\
+         \x20 xs = collections::append(xs, f)\n\
+         \x20 MUT t AS Integer = rd(k.h)\n\
+         \x20 FOR EACH h IN xs\n\
+         \x20   t = t + rd(h) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        7,
+    );
+    check(
+        "record_then_list",
+        "FUNC mk() AS HB\n\
+         \x20 RETURN HB[openOne()]\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET k AS HB = mk()\n\
+         \x20 MUT xs AS List OF RES fs::File = []\n\
+         \x20 RES f AS fs::File = k.h\n\
+         \x20 xs = collections::append(xs, f)\n\
+         \x20 MUT t AS Integer = rd(k.h)\n\
+         \x20 FOR EACH h IN xs\n\
+         \x20   t = t + rd(h) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        7,
+    );
+    check(
+        "handed_back",
+        "FUNC mk() AS HB\n\
+         \x20 RETURN HB[openOne()]\n\
+         END FUNC\n\
+         FUNC ident(f AS fs::File) AS RES fs::File\n\
+         \x20 RETURN f\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET k AS HB = mk()\n\
+         \x20 RES b AS fs::File = ident(k.h)\n\
+         \x20 LET k2 AS HB = wrap(b)\n\
+         \x20 LET k3 AS HB = wrap(k.h)\n\
+         \x20 RETURN rd(b) + rd(k2.h) + rd(k3.h) + rd(k.h) + 1\n\
+         END FUNC\n",
+        7,
+    );
+}
+
+/// A floated list an element of which is bound from `collections::get`, the same
+/// list returned to a caller that reads it the same way, and a record a callee
+/// copies into the list it returns.
+#[test]
+fn a_list_read_through_get_or_copied_by_a_callee_is_freed() {
+    check(
+        "float_get",
+        "FUNC once() AS Integer\n\
+         \x20 MUT xs AS List OF RES fs::File = []\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   RES a AS fs::File = openOne()\n\
+         \x20   xs = collections::append(xs, a)\n\
+         \x20 NEXT\n\
+         \x20 RES g AS fs::File = collections::get(xs, 0)\n\
+         \x20 MUT t AS Integer = rd(g)\n\
+         \x20 FOR EACH h IN xs\n\
+         \x20   t = t + rd(h) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        14,
+    );
+    check(
+        "returned_get",
+        "FUNC build() AS List OF RES fs::File\n\
+         \x20 MUT xs AS List OF RES fs::File = []\n\
+         \x20 FOR j = 1 TO 2\n\
+         \x20   RES a AS fs::File = openOne()\n\
+         \x20   xs = collections::append(xs, a)\n\
+         \x20 NEXT\n\
+         \x20 RES g AS fs::File = collections::get(xs, 0)\n\
+         \x20 LET n AS Integer = rd(g)\n\
+         \x20 RETURN xs\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET ys AS List OF RES fs::File = build()\n\
+         \x20 RES g AS fs::File = collections::get(ys, 1)\n\
+         \x20 MUT t AS Integer = rd(g)\n\
+         \x20 FOR EACH h IN ys\n\
+         \x20   t = t + rd(h) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        8,
+    );
+    check(
+        "callee_copies",
+        "FUNC mk() AS HB\n\
+         \x20 RETURN HB[openOne()]\n\
+         END FUNC\n\
+         FUNC keepIt(k AS HB) AS List OF HB\n\
+         \x20 MUT out AS List OF HB = []\n\
+         \x20 out = collections::append(out, k)\n\
+         \x20 RETURN out\n\
+         END FUNC\n\
+         FUNC once() AS Integer\n\
+         \x20 LET k AS HB = mk()\n\
+         \x20 LET ks AS List OF HB = keepIt(k)\n\
+         \x20 MUT t AS Integer = rd(k.h)\n\
+         \x20 FOR EACH x IN ks\n\
+         \x20   t = t + rd(x.h) + 1\n\
+         \x20 NEXT\n\
+         \x20 RETURN t\n\
+         END FUNC\n",
+        7,
+    );
+}
