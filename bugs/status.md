@@ -1,4 +1,4 @@
-Every one of the 159 open bug documents in `bugs/` is in exactly one table below, grouped by what the bug affects (check below; it must print the count and an empty list). Priority is the `Severity:` line of the bug's own document. Rows are ordered by priority, then number; ordering constraints between bugs, owner decisions and open owner questions are in the description.
+Every one of the 159 open bug documents in `bugs/` is in exactly one table below, grouped by what the bug affects (check below; it must print the count and an empty list). Priority is SECURITY, HIGH, MED or LOW: SECURITY when the bug document's `Class:` is Security, otherwise its `Severity:` line. Rows are ordered by priority, then number; ordering constraints between bugs, owner decisions and open owner questions are in the description.
 
 Rules: a bug found while working is filed and gets a row in the table of the area it affects, in the same commit. A fixed bug's row is removed when its document moves to `bugs/completed/` (git history keeps the record). A bug in no table does not get done.
 
@@ -13,13 +13,13 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
 | [ ] | 1026 | HIGH | `RES v AS Handle = collections::get(hs, 0)` binds a view into the list block; after the list grows, `MATCH v` matches no case |
-| [ ] | 999 | MEDIUM | a `List OF RES` (or record of resources) returned by a call nested in an expression is never closed — `len(mkList())` leaks every resource it holds (NEEDS AN OWNER DECISION before it starts: adopt at every bind/assign/store/RETURN, or require the call to be bound first) |
-| [ ] | 1018 | MEDIUM | a `List OF RES fs::File` given where a `List OF RES Handle` (a resource union) is expected is accepted unconverted, so `MATCH` takes no arm (after 999) |
-| [ ] | 1025 | MEDIUM | a closed resource record, and its read buffer, are kept when a callee returns a record holding a resource that its caller's callee produced |
-| [ ] | 1027 | MEDIUM | a concrete `fs::File` binding appended to a module-level `List OF RES Handle` fails to build |
-| [ ] | 1028 | MEDIUM | a `List`/`Map` of resource unions that is iterated or read through `collections::get` keeps its block and records |
-| [ ] | 1030 | MEDIUM | the `STATE` clause of a top-level `RES` binding and of a `LAMBDA` parameter is dropped, so `.state` on it does not type |
-| [ ] | 1029 | LOW-MEDIUM | a call through a function value that returns a resource union leaks the 16-byte union box |
+| [ ] | 999 | MED | a `List OF RES` (or record of resources) returned by a call nested in an expression is never closed — `len(mkList())` leaks every resource it holds (NEEDS AN OWNER DECISION before it starts: adopt at every bind/assign/store/RETURN, or require the call to be bound first) |
+| [ ] | 1018 | MED | a `List OF RES fs::File` given where a `List OF RES Handle` (a resource union) is expected is accepted unconverted, so `MATCH` takes no arm (after 999) |
+| [ ] | 1025 | MED | a closed resource record, and its read buffer, are kept when a callee returns a record holding a resource that its caller's callee produced |
+| [ ] | 1027 | MED | a concrete `fs::File` binding appended to a module-level `List OF RES Handle` fails to build |
+| [ ] | 1028 | MED | a `List`/`Map` of resource unions that is iterated or read through `collections::get` keeps its block and records |
+| [ ] | 1030 | MED | the `STATE` clause of a top-level `RES` binding and of a `LAMBDA` parameter is dropped, so `.state` on it does not type |
+| [ ] | 1029 | LOW | a call through a function value that returns a resource union leaks the 16-byte union box |
 | [ ] | 1031 | LOW | `RES` on a non-resource type is not refused at the top level, on a return type, or on a record field that also carries `STATE` |
 
 ## Canvas and graphics
@@ -28,19 +28,19 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | --- | --- | --- | --- |
 | [ ] | 688 | HIGH | The Vulkan canvas backend is still at pre-bug-686 Metal: ordinary scenes fall to software, large polygons are O(edges × pixels), pictures copy per occurrence, every frame is read back (remaining Linux work is blocked on a real-GPU Linux box) |
 | [ ] | 765 | HIGH | Canvas renders 100,000 color-changing dots at 3 PPS / 4 FPS instead of 30 (after 688) |
-| [ ] | 968 | MEDIUM | canvas frame skip republishes an identical scene when it contains a nested list (Polygon points, DrawLayer items) built by a different allocation history |
-| [ ] | 991 | MEDIUM | A magnified transformed item's bounds pad scales with the transform, so a 27 px polygon covers 369 px |
-| [ ] | 995 | MEDIUM | A `Paint.clip` on a transformed item evaluates the whole clip five times on every pixel, with no early-out, so the canvas-demo menu renders at 273 ms a frame on Vulkan |
-| [ ] | 996 | MEDIUM | On Intel Vulkan the first canvas frame of every newly built program waits ~25 s for the pipeline compile, behind a blank window |
+| [ ] | 968 | MED | canvas frame skip republishes an identical scene when it contains a nested list (Polygon points, DrawLayer items) built by a different allocation history |
+| [ ] | 991 | MED | A magnified transformed item's bounds pad scales with the transform, so a 27 px polygon covers 369 px |
+| [ ] | 995 | MED | A `Paint.clip` on a transformed item evaluates the whole clip five times on every pixel, with no early-out, so the canvas-demo menu renders at 273 ms a frame on Vulkan |
+| [ ] | 996 | MED | On Intel Vulkan the first canvas frame of every newly built program waits ~25 s for the pipeline compile, behind a blank window |
 | [ ] | 970 | LOW | `canvas::didResize()` answers TRUE once at startup in a real window although the surface never changed size (macOS and GTK) |
 
 ## App windows and GTK
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 965 | MEDIUM | GTK `app::setMode` returns before the window is reconciled, so the next `io::print` goes to the wrong sink (stdout instead of the new transcript, or the hidden transcript instead of stdout) (after 966) |
-| [ ] | 985 | MEDIUM | a GTK window built by `app::setMode` never attaches the mouse controllers, so `term::pollMouse` gets no events (after 1015) |
-| [ ] | 1015 | MEDIUM | on GTK, `term::pollMouse` sees no mouse events unless the program also reads stdin (owner decided: events come from the window, like macOS/Windows) |
+| [ ] | 965 | MED | GTK `app::setMode` returns before the window is reconciled, so the next `io::print` goes to the wrong sink (stdout instead of the new transcript, or the hidden transcript instead of stdout) (after 966) |
+| [ ] | 985 | MED | a GTK window built by `app::setMode` never attaches the mouse controllers, so `term::pollMouse` gets no events (after 1015) |
+| [ ] | 1015 | MED | on GTK, `term::pollMouse` sees no mouse events unless the program also reads stdin (owner decided: events come from the window, like macOS/Windows) |
 | [ ] | 960 | LOW | `mfb build --app` bundles fail `codesign --verify` ("code has no resources but signature indicates they must be present") |
 | [ ] | 972 | LOW | closing an `--app` window (or Cmd-Q) ends a running program with exit status 0 and no teardown — buffered file output is lost, no `--debug` report (owner decided: new `app::shouldClose`) |
 | [ ] | 997 | LOW | Windows `--app` windows open at 400×300 (a 384×261 client) while macOS and Linux open at 900×640 |
@@ -49,8 +49,8 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 964 | MEDIUM | GTK app `term::` treats every width-2 glyph as "at the right edge" (after 966) |
-| [ ] | 966 | MEDIUM | `app::setMode` does not perform the documented implicit `term::off` — TUI state survives a mode switch, and on macOS all later output is invisible |
+| [ ] | 964 | MED | GTK app `term::` treats every width-2 glyph as "at the right edge" (after 966) |
+| [ ] | 966 | MED | `app::setMode` does not perform the documented implicit `term::off` — TUI state survives a mode switch, and on macOS all later output is invisible |
 | [ ] | 969 | LOW | `term::getForeground` / `getBackground` (all app backends) and `term::isOn` (macOS) do not raise `ErrWrongMode` outside `Mode.Console`, though they declare it (after 966) |
 | [ ] | 971 | LOW | the SGR mouse decoder and the key decoder accept malformed/overflowing numeric parameters |
 | [ ] | 973 | LOW | in an `--app` window, `io::readKey` right after `io::readLine`/`io::input` (or a canvas `readLine`) first returns the Return key's `Release`, a release whose press was never reported |
@@ -59,14 +59,14 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 832 | MEDIUM | a `Set OF T { … }` literal skips the element-comparability check (non-comparable T accepted; ICE when non-empty with a List element) |
-| [ ] | 846 | MEDIUM | field access on a MapEntry / List / Map escapes the verifier and fails in native lowering with an uncoded, unlocated internal error |
-| [ ] | 847 | MEDIUM | a `Map OF K TO V { … }` literal with a repeated key builds a map holding that key twice |
-| [ ] | 1007 | MEDIUM | fixed-width `collections::chunks` fast path allocates each chunk at the requested size, even when it holds only a few elements |
-| [ ] | 1008 | MEDIUM | valid large constant `chunks`/`window` sizes and strides fail during native code generation (codegen panic) |
-| [ ] | 1009 | MEDIUM | fixed-width `collections::toSet` reserves by input length even when nearly every element is a duplicate |
-| [ ] | 1010 | MEDIUM | native `collections::merge` reserves for every input entry even when all keys overlap |
-| [ ] | 1011 | MEDIUM | reserved collection results retain source-sized capacity when outputs are smaller |
+| [ ] | 832 | MED | a `Set OF T { … }` literal skips the element-comparability check (non-comparable T accepted; ICE when non-empty with a List element) |
+| [ ] | 846 | MED | field access on a MapEntry / List / Map escapes the verifier and fails in native lowering with an uncoded, unlocated internal error |
+| [ ] | 847 | MED | a `Map OF K TO V { … }` literal with a repeated key builds a map holding that key twice |
+| [ ] | 1007 | MED | fixed-width `collections::chunks` fast path allocates each chunk at the requested size, even when it holds only a few elements |
+| [ ] | 1008 | MED | valid large constant `chunks`/`window` sizes and strides fail during native code generation (codegen panic) |
+| [ ] | 1009 | MED | fixed-width `collections::toSet` reserves by input length even when nearly every element is a duplicate |
+| [ ] | 1010 | MED | native `collections::merge` reserves for every input entry even when all keys overlap |
+| [ ] | 1011 | MED | reserved collection results retain source-sized capacity when outputs are smaller |
 | [ ] | 1002 | LOW | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` is reported twice for one collection declaration that holds a thread worker |
 | [ ] | 1006 | LOW | `collections::window` overflows while advancing past its last window for a large valid stride |
 
@@ -74,7 +74,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 905 | MEDIUM | `strings::caseFold` (and regex `(?i)`) fold with Unicode 9.0 data — 184 scalars never fold |
+| [ ] | 905 | MED | `strings::caseFold` (and regex `(?i)`) fold with Unicode 9.0 data — 184 scalars never fold |
 | [ ] | 887 | LOW | `AttributedString & String` fails with an unlocated diagnostic naming the internal helper `#astrings_concat` |
 | [ ] | 888 | LOW | `astrings::toMarkdown` renders an empty font name (documented as allowed) exactly like an omitted slot, so `font("")` + size reads as "font unchanged" |
 | [ ] | 906 | LOW | runtime grapheme segmentation treats 5,222 unassigned code points as Other — diverges from UAX #29 and from the folded path |
@@ -84,10 +84,10 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 831 | MEDIUM | `toFixed(String)` parses through binary64 — wrong value near the top of the range, and rejects in-range text with ErrOverflow |
-| [ ] | 845 | MEDIUM | MATCH on a Float compares bit patterns, so `CASE 0.0` misses `-0.0` although `-0.0 = 0.0` is TRUE |
-| [ ] | 931 | MEDIUM | `math::pow(Fixed, Fixed)` raises ErrOverflow for a negative whole exponent whose result is tiny (`pow(2.0F, -31.0F)`, `pow(10.0F, -10.0F)`) |
-| [ ] | 932 | MEDIUM | `math::atan2(y, -0.0)` returns the wrong sign: `atan2(1.0, -0.0)` is -pi/2, `atan2(-1.0, -0.0)` is +pi/2 |
+| [ ] | 831 | MED | `toFixed(String)` parses through binary64 — wrong value near the top of the range, and rejects in-range text with ErrOverflow |
+| [ ] | 845 | MED | MATCH on a Float compares bit patterns, so `CASE 0.0` misses `-0.0` although `-0.0 = 0.0` is TRUE |
+| [ ] | 931 | MED | `math::pow(Fixed, Fixed)` raises ErrOverflow for a negative whole exponent whose result is tiny (`pow(2.0F, -31.0F)`, `pow(10.0F, -10.0F)`) |
+| [ ] | 932 | MED | `math::atan2(y, -0.0)` returns the wrong sign: `atan2(1.0, -0.0)` is -pi/2, `atan2(-1.0, -0.0)` is +pi/2 |
 | [ ] | 837 | LOW | `toString` argument-mismatch diagnostic lists accepted types without `Money` |
 | [ ] | 839 | LOW | `LET b AS Byte = -0` is `TYPE_BINDING_MISMATCH`, while the spec and the range checker treat `-0` as an in-range Byte literal (with 978) |
 | [ ] | 878 | LOW | `toString(Fixed, n)` does not round the exact Q32.32 value: it truncates at n >= 10 (not "trailing zeros") and over-rounds just below a midpoint at n < 10 (after 977) |
@@ -100,7 +100,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 827 | MEDIUM | datetime::parse `f` token scales by run length, not digits read — ".12" under "fff" parses as 12 ms, ".1" under 9×f as 1 ns |
+| [ ] | 827 | MED | datetime::parse `f` token scales by run length, not digits read — ".12" under "fff" parses as 12 ms, ".1" under 9×f as 1 ns |
 | [ ] | 828 | LOW | json::parse depth cap admits 257 nested containers when the innermost is empty |
 | [ ] | 829 | LOW | csv::stringify → csv::parse drops a trailing single-empty-cell row and turns a zero-cell row into a one-cell row |
 | [ ] | 869 | LOW | `encoding::base64Decode` accepts excess `=` padding (`"AAAA===="`, `"AA======"`) |
@@ -109,18 +109,18 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 863 | MEDIUM | `crypto::open(cipher, key, nonce, sealed, aad)` — the documented Sealed+aad overload fails to compile with an unlocated TYPE_CALL_ARGUMENT_MISMATCH |
-| [ ] | 864 | MEDIUM | `tls::listen` / `http::serverSSL` fail with ErrTlsFailed for an EC (P-256) PKCS#8 key on macOS |
+| [ ] | 863 | MED | `crypto::open(cipher, key, nonce, sealed, aad)` — the documented Sealed+aad overload fails to compile with an unlocated TYPE_CALL_ARGUMENT_MISMATCH |
+| [ ] | 864 | MED | `tls::listen` / `http::serverSSL` fail with ErrTlsFailed for an EC (P-256) PKCS#8 key on macOS |
 | [ ] | 871 | LOW | `crypto::hmac(crypto::Hash.SHA1, key, "text")` reports CRYPTO_SHA1_INSECURE — the String-data overload misses the sound-use exemption |
 
 ## Networking and HTTP
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 979 | HIGH | `net::toUrl` diverges from WHATWG host parsing — no host validation, numeric IPv4 kept as written, `\` not an authority terminator (do first in this area: takes over the validation half of 872) |
-| [ ] | 876 | MEDIUM | `tcp::connect`/`tcp::listen`/`udp::bind` accept any Integer port and silently use its low 16 bits |
-| [ ] | 980 | MEDIUM | the HTTP chunked decoder accepts framing llhttp (and RFC 9112) rejects (builds on 859's rule) |
-| [ ] | 1017 | MEDIUM | on Windows, `http::respondPath` still answers 403 vs 404 by existence for a `..\` traversal (bug-862's oracle, through a backslash) |
+| [ ] | 979 | SECURITY | `net::toUrl` diverges from WHATWG host parsing — no host validation, numeric IPv4 kept as written, `\` not an authority terminator (do first in this area: takes over the validation half of 872) |
+| [ ] | 980 | SECURITY | the HTTP chunked decoder accepts framing llhttp (and RFC 9112) rejects (builds on 859's rule) |
+| [ ] | 1017 | SECURITY | on Windows, `http::respondPath` still answers 403 vs 404 by existence for a `..\` traversal (bug-862's oracle, through a backslash) |
+| [ ] | 876 | MED | `tcp::connect`/`tcp::listen`/`udp::bind` accept any Integer port and silently use its low 16 bits |
 | [ ] | 865 | LOW | http server emits the handler's stale reason phrase (`418 OK` from the spec's own teapot example) and any status integer verbatim (`HTTP/1.1 -5 OK`, `1000`, `0`) |
 | [ ] | 866 | LOW | `http` route `:name` binds an empty segment — `/t/:id` matches `/t//` with `id = ""` |
 | [ ] | 867 | LOW | the http server's 8 KiB-line and 100-field caps are enforced only after the head is complete |
@@ -132,8 +132,8 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 886 | MEDIUM | macOS `os::executablePath` / `os::appResourcePath` return the unresolved invocation path |
-| [ ] | 891 | MEDIUM | io::readLine/io::input deliver the tail of an ill-formed UTF-8 line as a separate, error-free line |
+| [ ] | 886 | MED | macOS `os::executablePath` / `os::appResourcePath` return the unresolved invocation path |
+| [ ] | 891 | MED | io::readLine/io::input deliver the tail of an ill-formed UTF-8 line as a separate, error-free line |
 | [ ] | 892 | LOW | fs::readAll / fs::readAllBytes raise ErrReadFailed after fs::seek past end of file |
 | [ ] | 893 | LOW | fs::canonicalPath / fs::isWithin accept "file/" and "file/.." on macOS but raise ErrInvalidPath on Linux |
 
@@ -141,9 +141,9 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 874 | MEDIUM | `typeName(Enum.Member)` with a literal enum member fails the build with an internal codegen error (after 835) |
-| [ ] | 945 | MEDIUM | `Result` and `Ok` are reserved in user code — a user cannot declare their own `TYPE Result` or `TYPE Ok` (owner-confirmed language change; after 977 and 978) |
-| [ ] | 1021 | MEDIUM | a by-field record constructor must name every field (owner decided: omitted fields take their defaults) |
+| [ ] | 874 | MED | `typeName(Enum.Member)` with a literal enum member fails the build with an internal codegen error (after 835) |
+| [ ] | 945 | MED | `Result` and `Ok` are reserved in user code — a user cannot declare their own `TYPE Result` or `TYPE Ok` (owner-confirmed language change; after 977 and 978) |
+| [ ] | 1021 | MED | a by-field record constructor must name every field (owner decided: omitted fields take their defaults) |
 | [ ] | 855 | LOW | walking a recursive union with `MUT cur = c.rest` deep-copies the remaining tail every step — O(n²) time and allocations |
 
 ## Templates and overloads
@@ -152,21 +152,21 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | --- | --- | --- | --- |
 | [ ] | 911 | HIGH | a user template declared outside the first source file is instantiated in the first file's scope |
 | [ ] | 912 | HIGH | a `PRIVATE` overload renames every same-named declaration in its file (do first in this area) |
-| [ ] | 833 | MEDIUM | a parameter of user-template type (`Stack OF T`, `Pair OF A, B`) cannot be followed by another parameter |
-| [ ] | 913 | MEDIUM | two template FUNCs sharing a name (or a template and a plain FUNC) — the earlier declaration is silently discarded, calls bind to the wrong body |
-| [ ] | 914 | MEDIUM | the same import alias bound to different packages in two files breaks imported-overload resolution (`TYPE_UNKNOWN_VALUE`), depending on file sort order |
-| [ ] | 1022 | MEDIUM | a template call (`collections::merge`, any user `FUNC f OF T`) rejects a union variant where its `T` is the union, though the builtin collection members now accept it |
-| [ ] | 1032 | LOW-MEDIUM | a generic `FUNC gen OF T(x AS T STATE Cur)` called with a `fs::File STATE Cur` argument is rejected; the instantiation carries the clause twice (NEEDS AN OWNER DECISION: is `T STATE S` on a generic parameter legal at all?) |
+| [ ] | 833 | MED | a parameter of user-template type (`Stack OF T`, `Pair OF A, B`) cannot be followed by another parameter |
+| [ ] | 913 | MED | two template FUNCs sharing a name (or a template and a plain FUNC) — the earlier declaration is silently discarded, calls bind to the wrong body |
+| [ ] | 914 | MED | the same import alias bound to different packages in two files breaks imported-overload resolution (`TYPE_UNKNOWN_VALUE`), depending on file sort order |
+| [ ] | 1022 | MED | a template call (`collections::merge`, any user `FUNC f OF T`) rejects a union variant where its `T` is the union, though the builtin collection members now accept it |
 | [ ] | 836 | LOW | a call that matches no user overload reports `SYMBOL_UNKNOWN_IDENTIFIER: Callable `f` is not a top-level function` |
 | [ ] | 870 | LOW | a return-type overload (`encoding::utf8Encode`) loses its expected type under an inline TRAP |
+| [ ] | 1032 | LOW | a generic `FUNC gen OF T(x AS T STATE Cur)` called with a `fs::File STATE Cur` argument is rejected; the instantiation carries the clause twice (NEEDS AN OWNER DECISION: is `T STATE S` on a generic parameter legal at all?) |
 
 ## Modules, visibility and entry point
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 848 | MEDIUM | a `PUBLIC` field of an `EXPORT TYPE` is readable, constructible and `WITH`-updatable by importers |
-| [ ] | 849 | MEDIUM | `WITH` can overwrite a `PRIVATE` record field from another file or an importing project |
-| [ ] | 920 | MEDIUM | Source selection with a directory-symlink alias depends on `read_dir` order (files silently dropped or renamed) |
+| [ ] | 848 | MED | a `PUBLIC` field of an `EXPORT TYPE` is readable, constructible and `WITH`-updatable by importers |
+| [ ] | 849 | MED | `WITH` can overwrite a `PRIVATE` record field from another file or an importing project |
+| [ ] | 920 | MED | Source selection with a directory-symlink alias depends on `read_dir` order (files silently dropped or renamed) |
 | [ ] | 881 | LOW | a PUBLIC and a PRIVATE declaration of one name in the same file report `SYMBOL_DUPLICATE_TOP_LEVEL` with the internal mangled name (after 912) |
 | [ ] | 924 | LOW | Overloaded (or `PRIVATE`) `main` is reported as "must declare an entry point named `main`"; the "exactly one" diagnostic is unreachable |
 
@@ -174,9 +174,9 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 875 | MEDIUM | calling a non-function top-level binding is not `SYMBOL_NOT_CALLABLE` — statement form dies in the linker |
-| [ ] | 900 | MEDIUM | a runtime helper called only in a module-level initializer fails the build with "NIR runtime call requires undeclared helper" |
-| [ ] | 901 | MEDIUM | a module-level initializer that reads stdin fails with `ErrInvalidContext` — the main thread is subscribed only after global initialization |
+| [ ] | 875 | MED | calling a non-function top-level binding is not `SYMBOL_NOT_CALLABLE` — statement form dies in the linker |
+| [ ] | 900 | MED | a runtime helper called only in a module-level initializer fails the build with "NIR runtime call requires undeclared helper" |
+| [ ] | 901 | MED | a module-level initializer that reads stdin fails with `ErrInvalidContext` — the main thread is subscribed only after global initialization |
 | [ ] | 903 | LOW | a user `FUNC __mfb_init_globals_<project>` collides with the compiler's global initializer — unlocated internal error |
 
 ## Inline TRAP and runtime errors
@@ -184,14 +184,14 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
 | [ ] | 860 | HIGH | compile memory grows ~cubically with inline TRAP handlers in one function — 458 handlers use 77 GB RSS and the compiler is SIGKILLed |
-| [ ] | 835 | MEDIUM | `typeName(x)` under an inline `TRAP` fails the build with an internal error (`native code plan does not emit runtime helper '_mfb_rt_general_typeName'`) |
+| [ ] | 835 | MED | `typeName(x)` under an inline `TRAP` fails the build with an internal error (`native code plan does not emit runtime helper '_mfb_rt_general_typeName'`) |
 | [ ] | 838 | LOW | `ErrStackOverflow` carries `source.line = 0`, `source.char = 0` — no usable origin location |
 
 ## Lambdas, native wrappers and function values
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 915 | MEDIUM | a non-predicate built-in (`toString`, `len`, `io::print`) passed as a callback argument fails with the unlocated internal error `NIR local reference '…' does not resolve` |
+| [ ] | 915 | MED | a non-predicate built-in (`toString`, `len`, `io::print`) passed as a callback argument fails with the unlocated internal error `NIR local reference '…' does not resolve` |
 | [ ] | 877 | LOW | a lambda assignment body targeting a captured `LET` reaches the NIR validator as an internal error |
 | [ ] | 880 | LOW | a native `LINK` wrapper with more than eight MFBASIC parameters fails the build with an internal aarch64 error, regardless of its ABI slot count |
 
@@ -207,17 +207,19 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 946 | MEDIUM | `Operand::Raw` keeps operands as untyped strings — remove the arm and give every operand kind a typed variant (together with 930; do after the behaviour fixes so its diffs are measured on a stable tree) |
+| [ ] | 946 | MED | `Operand::Raw` keeps operands as untyped strings — remove the arm and give every operand kind a typed variant (together with 930; do after the behaviour fixes so its diffs are measured on a stable tree) |
 | [ ] | 930 | LOW | the `.mir` dump documented as "target-neutral" contains the runtime helpers, which are hand-written per architecture with physical register names |
 
 ## Packages and registry
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 947 | MEDIUM | `/log/publish` returns another release's entry for idents/versions that differ only in ASCII case |
-| [ ] | 948 | MEDIUM | owner names of 241–255 bytes pass validation but cannot register (246+) or ever rotate their ident (241–245) |
-| [ ] | 949 | MEDIUM | an empty `MFB_HOME` (or empty `HOME`) puts the private key store in the current directory |
-| [ ] | 954 | MEDIUM | package idents differing only in owner-prefix case are distinct packages, so a former owner can re-publish a transferred package's name (also covers 947) |
+| [ ] | 952 | SECURITY | `/signing` signs and permanently logs attestations for idents/versions that the registry's REPO-17 charset forbids |
+| [ ] | 954 | SECURITY | package idents differing only in owner-prefix case are distinct packages, so a former owner can re-publish a transferred package's name (also covers 947) |
+| [ ] | 955 | SECURITY | ident-authorized mutations (release-state, org role, token revoke) sign no nonce, so a captured signature can be replayed with any live session |
+| [ ] | 947 | MED | `/log/publish` returns another release's entry for idents/versions that differ only in ASCII case |
+| [ ] | 948 | MED | owner names of 241–255 bytes pass validation but cannot register (246+) or ever rotate their ident (241–245) |
+| [ ] | 949 | MED | an empty `MFB_HOME` (or empty `HOME`) puts the private key store in the current directory |
 | [ ] | 856 | LOW | §15 requires compiled cleanup metadata for drop-close failures, but the `.mfp` cleanup table is always empty, so `pkg info`'s secondary-close audit line can never fire (owner decided: remove the `.mfp` cleanup table and its `FUNCTION_TABLE` fields (format bump); derive the audit) |
 | [ ] | 907 | LOW | a package whose IR enum members disagree with its TYPE_TABLE is accepted, and `toString(<enum>)` then returns another member's name |
 | [ ] | 908 | LOW | FUNCTION_TABLE parameter whose `paramFlags` and `defaultConst` disagree is accepted — ABI hash says "has default", importer says "no default" |
@@ -228,19 +230,17 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | [ ] | 943 | LOW | `mfb pkg remove <name>` on a declared local (`file://`) package says it "is not declared in project.json" |
 | [ ] | 950 | LOW | the registry publishes a package whose header identity disagrees with its embedded manifest, and every client then refuses to install it |
 | [ ] | 951 | LOW | `/search` matches description text from the newest release of any state but shows the newest *active* release's description |
-| [ ] | 952 | LOW | `/signing` signs and permanently logs attestations for idents/versions that the registry's REPO-17 charset forbids |
 | [ ] | 953 | LOW | `mfb repo transfer` tells the recipient to run a `transfer-accept` command that always fails |
-| [ ] | 955 | LOW | ident-authorized mutations (release-state, org role, token revoke) sign no nonce, so a captured signature can be replayed with any live session |
 | [ ] | 956 | LOW | package-manager spec (01–04) drift and small protocol status/message defects (after 950) |
 
 ## Audit
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 850 | MEDIUM | `mfb audit` exits 3 with spurious errors on any project that uses an imported package's exported types or globals, so `EXPORT MUT` is never surfaced |
-| [ ] | 918 | MEDIUM | `mfb audit` misses `AUDIT-TLS-RELAXED-TRUST` when `allowSelfSigned` is passed positionally |
-| [ ] | 919 | MEDIUM | `mfb audit` exits 0 with `errors: 0` for a program that does not type-check |
-| [ ] | 941 | MEDIUM | `mfb audit --locked` always fails a project with no registry dependencies, the state where `pkg update` deletes `mfb.lock` (after 925) |
+| [ ] | 918 | SECURITY | `mfb audit` misses `AUDIT-TLS-RELAXED-TRUST` when `allowSelfSigned` is passed positionally |
+| [ ] | 850 | MED | `mfb audit` exits 3 with spurious errors on any project that uses an imported package's exported types or globals, so `EXPORT MUT` is never surfaced |
+| [ ] | 919 | MED | `mfb audit` exits 0 with `errors: 0` for a program that does not type-check |
+| [ ] | 941 | MED | `mfb audit --locked` always fails a project with no registry dependencies, the state where `pkg update` deletes `mfb.lock` (after 925) |
 
 ## Formatter
 
@@ -262,7 +262,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | --- | --- | --- | --- |
-| [ ] | 958 | MEDIUM | Mach-O `__LINKEDIT` layout is non-canonical — `strip`, `install_name_tool`, `dyld_info` refuse every mfb macOS executable |
+| [ ] | 958 | MED | Mach-O `__LINKEDIT` layout is non-canonical — `strip`, `install_name_tool`, `dyld_info` refuse every mfb macOS executable |
 | [ ] | 853 | LOW | importing a source dependency whose manifest is `kind: "executable"` first compiles and links it into its own `build/`, then refuses it |
 | [ ] | 923 | LOW | A `libraries` locator with `libc` on `os: "windows"` passes validation but can never match |
 | [ ] | 959 | LOW | `LINK … AS win` with a function named `pathbuf`/`vendorsep` fails the Windows vendoring build with an internal duplicate-symbol error |
