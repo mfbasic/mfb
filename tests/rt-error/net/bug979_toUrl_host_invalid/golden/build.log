@@ -1,0 +1,48 @@
+$ mfb build -ast -ir tests/rt-error/net/bug979_toUrl_host_invalid
+Wrote AST to tests/rt-error/net/bug979_toUrl_host_invalid/bug979_toUrl_host_invalid.ast
+Wrote IR to tests/rt-error/net/bug979_toUrl_host_invalid/bug979_toUrl_host_invalid.ir
+[exit 0]
+$ mfb build tests/rt-error/net/bug979_toUrl_host_invalid
+Wrote executable to tests/rt-error/net/bug979_toUrl_host_invalid/build/bug979_toUrl_host_invalid.out
+[exit 0]
+$ tests/rt-error/net/bug979_toUrl_host_invalid/build/bug979_toUrl_host_invalid.out
+CR LF in host raised 77050003 invalid URL: forbidden character in host
+tab in host raised 77050003 invalid URL: forbidden character in host
+NUL in host raised 77050003 invalid URL: forbidden character in host
+space in host raised 77050003 invalid URL: forbidden character in host
+DEL in host raised 77050003 invalid URL: forbidden character in host
+less-than in host raised 77050003 invalid URL: forbidden character in host
+caret in host raised 77050003 invalid URL: forbidden character in host
+pipe in host raised 77050003 invalid URL: forbidden character in host
+close bracket host raised 77050003 invalid URL: forbidden character in host
+non-hex escape raised 77050003 invalid URL: invalid percent-escape in host
+truncated escape raised 77050003 invalid URL: invalid percent-escape in host
+escaped NUL raised 77050003 invalid URL: forbidden character in host
+escaped percent raised 77050003 invalid URL: forbidden character in host
+escape is not UTF-8 raised 77050003 invalid URL: invalid percent-escape in host
+part above 255 raised 77050003 invalid URL: invalid IPv4 address
+digit 9 in octal raised 77050003 invalid URL: invalid IPv4 address
+lone 09 raised 77050003 invalid URL: invalid IPv4 address
+name then number raised 77050003 invalid URL: invalid IPv4 address
+name then hex raised 77050003 invalid URL: invalid IPv4 address
+five parts raised 77050003 invalid URL: invalid IPv4 address
+empty part raised 77050003 invalid URL: invalid IPv4 address
+above 32 bits raised 77050003 invalid URL: invalid IPv4 address
+long hex run raised 77050003 invalid URL: invalid IPv4 address
+IPvFuture raised 77050003 invalid URL: invalid IPv6 literal
+two compressions raised 77050003 invalid URL: invalid IPv6 literal
+non-hex group raised 77050003 invalid URL: invalid IPv6 literal
+zone raised 77050003 invalid URL: invalid IPv6 literal
+lone colon start raised 77050003 invalid URL: invalid IPv6 literal
+lone colon end raised 77050003 invalid URL: invalid IPv6 literal
+nine groups raised 77050003 invalid URL: invalid IPv6 literal
+seven groups raised 77050003 invalid URL: invalid IPv6 literal
+five hex digits raised 77050003 invalid URL: invalid IPv6 literal
+IPv4 tail above 255 raised 77050003 invalid URL: invalid IPv6 literal
+IPv4 tail leading zero raised 77050003 invalid URL: invalid IPv6 literal
+empty brackets raised 77050003 invalid URL: empty host
+huge port raised 77050003 invalid URL: port out of range
+port 65536 raised 77050003 invalid URL: port out of range
+letter in port raised 77050003 invalid URL: non-digit in port
+signed port raised 77050003 invalid URL: non-digit in port
+[exit 0]

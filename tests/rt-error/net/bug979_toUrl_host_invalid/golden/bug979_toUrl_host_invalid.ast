@@ -1,0 +1,91 @@
+{
+  "project": "bug979_toUrl_host_invalid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 6 },
+    { "module": "io", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "attempt",
+      "line": 9,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 9 },
+      { "name": "href", "type": "String", "default": null, "line": 9 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "u", "type": "net.Url", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 10,
+        "expression": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "href" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " raised " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "message" } }] }, "line": 11 },
+        { "kind": "return", "value": null, "line": 12 }
+        ]
+      }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " DID NOT RAISE, host has " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "host" }] }] } }, "right": { "kind": "string", "value": " characters" } }] }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "CR LF in host" }, { "kind": "string", "value": "http://h\r\n/" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "tab in host" }, { "kind": "string", "value": "http://h\t.com/" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "NUL in host" }, { "kind": "string", "value": "http://h\u0000.com/" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "space in host" }, { "kind": "string", "value": "http://exa mple.com/" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "DEL in host" }, { "kind": "string", "value": "http://h.com/" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "less-than in host" }, { "kind": "string", "value": "http://a<b/" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "caret in host" }, { "kind": "string", "value": "http://a^b/" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "pipe in host" }, { "kind": "string", "value": "http://a|b/" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "close bracket host" }, { "kind": "string", "value": "http://]/" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "non-hex escape" }, { "kind": "string", "value": "http://%zz.com/" }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "truncated escape" }, { "kind": "string", "value": "http://h.com%/" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "escaped NUL" }, { "kind": "string", "value": "http://hello%00/" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "escaped percent" }, { "kind": "string", "value": "http://%25/" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "escape is not UTF-8" }, { "kind": "string", "value": "http://%ff.com/" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "part above 255" }, { "kind": "string", "value": "http://256.0.0.1/" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "digit 9 in octal" }, { "kind": "string", "value": "http://1.2.3.09/" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "lone 09" }, { "kind": "string", "value": "http://09/" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "name then number" }, { "kind": "string", "value": "http://foo.09/" }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "name then hex" }, { "kind": "string", "value": "http://foo.0x4/" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "five parts" }, { "kind": "string", "value": "http://1.2.3.4.5/" }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "empty part" }, { "kind": "string", "value": "http://1..2/" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "above 32 bits" }, { "kind": "string", "value": "http://4294967296/" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "long hex run" }, { "kind": "string", "value": "http://0x100000000000000000000000/" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "IPvFuture" }, { "kind": "string", "value": "http://[v1.fe]/" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "two compressions" }, { "kind": "string", "value": "http://[1::2::3]/" }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "non-hex group" }, { "kind": "string", "value": "http://[g::1]/" }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "zone" }, { "kind": "string", "value": "http://[fe80::1%25eth0]/" }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "lone colon start" }, { "kind": "string", "value": "http://[:1]/" }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "lone colon end" }, { "kind": "string", "value": "http://[1:]/" }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "nine groups" }, { "kind": "string", "value": "http://[1:2:3:4:5:6:7:8:9]/" }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "seven groups" }, { "kind": "string", "value": "http://[1:2:3:4:5:6:7]/" }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "five hex digits" }, { "kind": "string", "value": "http://[12345::]/" }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "IPv4 tail above 255" }, { "kind": "string", "value": "http://[::1.2.3.256]/" }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "IPv4 tail leading zero" }, { "kind": "string", "value": "http://[::1.2.3.04]/" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "empty brackets" }, { "kind": "string", "value": "http://[]/" }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "huge port" }, { "kind": "string", "value": "http://example.com:18446744073709551696/" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "port 65536" }, { "kind": "string", "value": "http://example.com:65536/" }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "letter in port" }, { "kind": "string", "value": "http://example.com:8a/" }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "signed port" }, { "kind": "string", "value": "http://example.com:+80/" }] }, "line": 61 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 62 }
+      ]
+    }
+    ]
+  }
+  ]
+}
