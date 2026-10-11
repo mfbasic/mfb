@@ -1,0 +1,99 @@
+' bug-1013: a STATE type is a record TYPE, and nothing else.
+'
+' The back end holds a resource's STATE as a pointer to a block the resource
+' owns. A scalar has no block, so `STATE Integer` failed the build with an
+' internal lowering error ("native inlined field size not available for type
+' 'Integer'"), and the default `String` is a shared constant, so `STATE String`
+' built and then died with a bus error on the first `f.state = ...`. A
+' collection happened to work. The owner's ruling (2026-10-10) is the narrow
+' contract: a STATE must always be a record, and the compiler says so.
+'
+' Every line marked BAD is refused with TYPE_STATE_INVALID. The rule is one
+' walk over the declared type, so it holds wherever a clause can be written:
+' a binding (local and top-level), a parameter, a return, a record field, a
+' collection element, a thread's resource plane and a thread view.
+'
+' The lines marked OK are the contrast: a record, including one whose fields are
+' the very types refused bare.
+IMPORT fs
+IMPORT thread
+
+ENUM Mode
+  Fast, Slow
+END ENUM
+
+TYPE Circle
+  r AS Integer
+END TYPE
+
+TYPE Square
+  s AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+  Square
+END UNION
+
+TYPE Cursor
+  pos AS Integer
+  label AS String
+  marks AS List OF Integer
+END TYPE
+
+TYPE Holder
+  ok AS RES fs::File STATE Cursor               ' OK
+  scalar AS RES fs::File STATE Integer          ' BAD: a record field
+  text AS RES fs::File STATE String             ' BAD
+  many AS List OF RES fs::File STATE Mode       ' BAD: an element inside a field
+END TYPE
+
+RES topOk AS fs::File STATE Cursor = fs::createTempFile()    ' OK
+RES topBad AS fs::File STATE Float = fs::createTempFile()    ' BAD: a top-level binding
+
+FUNC takesOk(f AS fs::File STATE Cursor) AS Nothing          ' OK
+END FUNC
+
+FUNC takesInteger(f AS fs::File STATE Integer) AS Nothing    ' BAD: a parameter
+END FUNC
+
+FUNC takesList(f AS fs::File STATE List OF Integer) AS Nothing   ' BAD
+END FUNC
+
+FUNC takesElement(xs AS List OF RES fs::File STATE Boolean) AS Nothing   ' BAD: a parameter's element
+END FUNC
+
+FUNC makeOk() AS RES fs::File STATE Cursor                   ' OK
+  RES f AS fs::File STATE Cursor = fs::createTempFile()
+  RETURN f
+END FUNC
+
+FUNC makeString() AS RES fs::File STATE String               ' BAD: a return
+  RES f AS fs::File STATE String = fs::createTempFile()                ' BAD: and the binding that feeds it
+  RETURN f
+END FUNC
+
+ISOLATED FUNC planeWorker(w AS ThreadWorker OF Integer RES fs::File STATE Mode TO Integer, n AS Integer) AS Integer   ' BAD: a thread's resource plane
+  RETURN n
+END FUNC
+
+ISOLATED FUNC viewWorker(w AS ThreadWorker OF Integer TO Integer STATE Integer, n AS Integer) AS Integer   ' BAD: a thread view
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  RES ok AS fs::File STATE Cursor = fs::createTempFile()                 ' OK
+  RES variant AS fs::File STATE Circle = fs::createTempFile()            ' OK: a union's member is a record
+  RES a AS fs::File STATE Integer = fs::createTempFile()                 ' BAD
+  RES b AS fs::File STATE Boolean = fs::createTempFile()                 ' BAD
+  RES c AS fs::File STATE Float = fs::createTempFile()                   ' BAD
+  RES d AS fs::File STATE String = fs::createTempFile()                  ' BAD
+  RES e AS fs::File STATE Mode = fs::createTempFile()                    ' BAD: a bare ENUM
+  RES g AS fs::File STATE List OF Integer = fs::createTempFile()         ' BAD: a collection
+  RES h AS fs::File STATE Map OF String TO Integer = fs::createTempFile()   ' BAD
+  RES i AS fs::File STATE Set OF Integer = fs::createTempFile()          ' BAD
+  RES j AS fs::File STATE Shape = fs::createTempFile()                   ' BAD: a UNION
+  RES k AS fs::File STATE fs::File = fs::createTempFile()                ' BAD: a resource
+  MUT files AS List OF RES fs::File STATE Integer = []                   ' BAD: a collection element
+  RETURN 0
+END FUNC

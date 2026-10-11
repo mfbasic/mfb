@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/native/bug1013_native_state_requires_record_invalid
+  13 | 
+  14 | LINK "sqlite3" AS sql
+  15 |   FUNC open(path AS String) AS RES Db STATE Integer
+     | ^
+tests/syntax/native/bug1013_native_state_requires_record_invalid/src/lib.mfb:15 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               native FUNC `open` return STATE type `Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+  19 |     SUCCESS_ON status = 0
+  20 |   END FUNC
+  21 |   FUNC close(db AS Db STATE Integer) AS Nothing
+     | ^
+tests/syntax/native/bug1013_native_state_requires_record_invalid/src/lib.mfb:21 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               native FUNC `close` parameter `db` STATE type `Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+[exit 1]

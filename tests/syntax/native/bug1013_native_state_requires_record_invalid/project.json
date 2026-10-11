@@ -1,0 +1,14 @@
+{
+  "name": "bug1013_native_state_requires_record_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "bug-1013 at the native boundary: a LINK declaration's STATE clause must name a record TYPE (TYPE_STATE_INVALID).",
+  "libraries": {
+    "sqlite3": [
+      { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },
+      { "os": "linux", "type": "system", "source": "libsqlite3.so.0" }
+    ]
+  },
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/bug1013_state_record_rt
+Wrote AST to tests/rt-behavior/resources/bug1013_state_record_rt/bug1013_state_record_rt.ast
+Wrote IR to tests/rt-behavior/resources/bug1013_state_record_rt/bug1013_state_record_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/bug1013_state_record_rt
+Wrote executable to tests/rt-behavior/resources/bug1013_state_record_rt/build/bug1013_state_record_rt.out
+[exit 0]
+$ tests/rt-behavior/resources/bug1013_state_record_rt/build/bug1013_state_record_rt.out
+count 0
+count set 5
+count whole 9
+label []
+label set [five]
+label whole [nine]
+marks 0
+marks set 3
+marks appended 4
+cursor pos=0 line=0
+cursor set pos=7 line=3
+[exit 0]

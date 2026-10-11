@@ -9671,3 +9671,219 @@ fn a_read_after_a_check_chain_join_is_a_use_after_move() {
     let p = chain_transfer(vec![read_of("f")], vec![read_of("f")]);
     expect_rule(&p, "TYPE_USE_AFTER_MOVE");
 }
+
+// --- bug-1013: a STATE type is a record TYPE --------------------------------
+
+/// The rules a `fs.File` binding declared `type_` reports, over `types`.
+fn state_binding_rules(type_: &str, types: Vec<IrType>) -> Vec<String> {
+    let mut f = func_returns("run", "Nothing", vec![], vec![]);
+    let b = res_bind_owned(&mut f, "h", type_, None);
+    f.body = vec![b];
+    rules(&project(vec![f], types))
+}
+
+fn count_rule(got: &[String], rule: &str) -> usize {
+    got.iter().filter(|r| *r == rule).count()
+}
+
+/// bug-1013: a `STATE` type is a record `TYPE`. Every other kind is refused —
+/// the scalars the back end could not hold, the `String` that crashed, and the
+/// collections that happened to work.
+#[test]
+fn rejects_state_type_that_is_not_a_record() {
+    for state in [
+        "Integer",
+        "Boolean",
+        "Float",
+        "Fixed",
+        "Money",
+        "Byte",
+        "String",
+        "List OF Integer",
+        "Set OF Integer",
+        "Map OF String TO Integer",
+        "Mode",
+        "Shape",
+        "fs.File",
+        "FUNC(Integer) AS Integer",
+    ] {
+        let got = state_binding_rules(
+            &format!("fs.File STATE {state}"),
+            vec![
+                enum_type("Mode", &["Fast", "Slow"]),
+                union("Shape", &["Dot"]),
+                record_typed("Dot", &[("x", "Integer")]),
+            ],
+        );
+        assert_eq!(
+            count_rule(&got, "TYPE_STATE_INVALID"),
+            1,
+            "STATE {state} must be refused once: {got:?}"
+        );
+    }
+}
+
+/// bug-1013's other half: a record stays a legal `STATE` type, whatever its
+/// fields — including the very types refused bare — and so does a union's
+/// member, which is a record `TYPE` in its own right.
+#[test]
+fn accepts_state_type_that_is_a_record() {
+    let types = || {
+        vec![
+            record_typed(
+                "Cursor",
+                &[
+                    ("pos", "Integer"),
+                    ("label", "String"),
+                    ("marks", "List OF Integer"),
+                    ("seen", "Map OF String TO Integer"),
+                ],
+            ),
+            record_typed("Dot", &[("x", "Integer")]),
+            union("Shape", &["Dot"]),
+        ]
+    };
+    for state in ["Cursor", "Dot"] {
+        let got = state_binding_rules(&format!("fs.File STATE {state}"), types());
+        assert_eq!(count_rule(&got, "TYPE_STATE_INVALID"), 0, "{state}: {got:?}");
+    }
+}
+
+/// bug-1013: the rule is one walk over the declared type, so it holds at every
+/// position a clause can be written — the binding was the only one checked for
+/// a nested clause, and an element, a field, a thread plane and a thread view
+/// all let `STATE Integer` through.
+#[test]
+fn rejects_non_record_state_at_every_position() {
+    let invalid = |p: &IrProject, what: &str| {
+        let got = rules(p);
+        assert_eq!(
+            count_rule(&got, "TYPE_STATE_INVALID"),
+            1,
+            "{what} must be refused once: {got:?}"
+        );
+    };
+    // A parameter, and a parameter's collection element.
+    for type_ in [
+        "fs.File STATE Integer",
+        "List OF RES fs.File STATE Integer",
+        "Map OF String TO RES fs.File STATE Integer",
+        "ThreadWorker OF Integer RES fs.File STATE Integer TO Integer",
+        "ThreadWorker OF Integer TO Integer STATE Integer",
+        "Thread OF Integer TO Integer STATE Integer",
+    ] {
+        let f = func_returns("run", "Nothing", vec![param("p", type_, None)], vec![]);
+        invalid(&project(vec![f], vec![]), &format!("parameter {type_}"));
+    }
+    // A return.
+    let f = func_returns("run", "fs.File STATE Integer", vec![], vec![]);
+    invalid(&project(vec![f], vec![]), "a return");
+    // A binding's collection element.
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind(
+            "xs",
+            "List OF RES fs.File STATE Integer",
+            None,
+            true,
+            true,
+        )],
+    );
+    invalid(&project(vec![f], vec![]), "a binding's element");
+    // A record field, and a field's collection element.
+    for field in [
+        "RES fs.File STATE Integer",
+        "List OF RES fs.File STATE Integer",
+    ] {
+        let p = project(
+            vec![func_returns("run", "Nothing", vec![], vec![])],
+            vec![record_typed("Holder", &[("h", field)])],
+        );
+        invalid(&p, &format!("field {field}"));
+    }
+    // A top-level binding.
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.bindings = vec![binding("g", "fs.File STATE Integer", None, true, true)];
+    invalid(&p, "a top-level binding");
+    // A native declaration: its return and its parameter.
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    let mut open = link_fn();
+    open.return_type = crate::types::ParameterType::parse("fs.File");
+    open.return_resource = true;
+    open.return_state_type = Some(crate::types::ParameterType::Integer);
+    p.link_functions = vec![open];
+    invalid(&p, "a native return");
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    let mut close = link_fn();
+    close.params = vec![(
+        "path".to_string(),
+        crate::types::ParameterType::parse("fs.File STATE Integer"),
+    )];
+    p.link_functions = vec![close];
+    invalid(&p, "a native parameter");
+}
+
+/// bug-1013 across a package boundary, on the SOURCE path, where the
+/// importer's own type table holds only its own declarations: the kind of an
+/// imported type is read from the package's type table. An imported record is
+/// accepted (libsnd's `STATE libsnd::SoundInfo`); an imported ENUM or UNION is
+/// refused.
+#[test]
+fn imported_types_are_judged_by_their_kind() {
+    use crate::ir::{ImportedTypeDef, ImportedTypeField, ImportedTypeKind, ImportedTypeVariant};
+    let imported = vec![
+        ImportedTypeDef {
+            name: "pkg.Cursor".to_string(),
+            kind: ImportedTypeKind::Record,
+            fields: vec![ImportedTypeField {
+                name: "pos".to_string(),
+                type_: crate::types::ParameterType::Integer,
+            }],
+            variants: vec![],
+            members: vec![],
+        },
+        ImportedTypeDef {
+            name: "pkg.Mode".to_string(),
+            kind: ImportedTypeKind::Enum,
+            fields: vec![],
+            variants: vec![],
+            members: vec!["Fast".to_string(), "Slow".to_string()],
+        },
+        ImportedTypeDef {
+            name: "pkg.Shape".to_string(),
+            kind: ImportedTypeKind::Union,
+            fields: vec![],
+            variants: vec![ImportedTypeVariant {
+                name: "pkg.Dot".to_string(),
+                fields: vec![],
+            }],
+            members: vec![],
+        },
+    ];
+    let source_rules = |param_type: &str| -> Vec<String> {
+        let f = func_returns("run", "Nothing", vec![param("p", param_type, None)], vec![]);
+        super::collect_source_diagnostics(
+            &project(vec![f], vec![]),
+            std::path::Path::new("/proj"),
+            &[],
+            &imported,
+            &[],
+            &crate::ir::LinkSpans::default(),
+        )
+        .into_iter()
+        .map(|d| d.rule)
+        .collect()
+    };
+    let got = source_rules("fs.File STATE pkg.Cursor");
+    assert_eq!(count_rule(&got, "TYPE_STATE_INVALID"), 0, "{got:?}");
+    for state in ["pkg.Mode", "pkg.Shape"] {
+        let got = source_rules(&format!("fs.File STATE {state}"));
+        assert_eq!(count_rule(&got, "TYPE_STATE_INVALID"), 1, "{state}: {got:?}");
+    }
+    // A name no table has heard of may be an external package's record: the
+    // rule does not guess.
+    let got = source_rules("ext.Handle STATE ext.Info");
+    assert_eq!(count_rule(&got, "TYPE_STATE_INVALID"), 0, "{got:?}");
+}

@@ -1,0 +1,134 @@
+$ mfb build -ast -ir tests/syntax/resources/bug1013_state_requires_record_invalid
+  50 | 
+  51 | RES topOk AS fs::File STATE Cursor = fs::createTempFile()    ' OK
+  52 | RES topBad AS fs::File STATE Float = fs::createTempFile()    ' BAD: a top-level binding
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:52 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `topBad` STATE type `Float` is not a record; declare a record TYPE that holds the value and name it instead.
+  55 | END FUNC
+  56 | 
+  57 | FUNC takesInteger(f AS fs::File STATE Integer) AS Nothing    ' BAD: a parameter
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:57 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Parameter `f` STATE type `Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+  58 | END FUNC
+  59 | 
+  60 | FUNC takesList(f AS fs::File STATE List OF Integer) AS Nothing   ' BAD
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:60 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Parameter `f` STATE type `List OF Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+  61 | END FUNC
+  62 | 
+  63 | FUNC takesElement(xs AS List OF RES fs::File STATE Boolean) AS Nothing   ' BAD: a parameter's element
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:63 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Parameter `xs` STATE type `Boolean` is not a record; declare a record TYPE that holds the value and name it instead.
+  69 | END FUNC
+  70 | 
+  71 | FUNC makeString() AS RES fs::File STATE String               ' BAD: a return
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:71 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               FUNC `makeString` return STATE type `String` is not a record; declare a record TYPE that holds the value and name it instead.
+  70 | 
+  71 | FUNC makeString() AS RES fs::File STATE String               ' BAD: a return
+  72 |   RES f AS fs::File STATE String = fs::createTempFile()                ' BAD: and the binding that feeds it
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:72 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `f` STATE type `String` is not a record; declare a record TYPE that holds the value and name it instead.
+  74 | END FUNC
+  75 | 
+  76 | ISOLATED FUNC planeWorker(w AS ThreadWorker OF Integer RES fs::File STATE Mode TO Integer, n AS Integer) AS Integer   ' BAD: a thread's resource plane
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:76 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Parameter `w` STATE type `Mode` is not a record; declare a record TYPE that holds the value and name it instead.
+  78 | END FUNC
+  79 | 
+  80 | ISOLATED FUNC viewWorker(w AS ThreadWorker OF Integer TO Integer STATE Integer, n AS Integer) AS Integer   ' BAD: a thread view
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:80 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Parameter `w` STATE type `Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+  85 |   RES ok AS fs::File STATE Cursor = fs::createTempFile()                 ' OK
+  86 |   RES variant AS fs::File STATE Circle = fs::createTempFile()            ' OK: a union's member is a record
+  87 |   RES a AS fs::File STATE Integer = fs::createTempFile()                 ' BAD
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:87 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `a` STATE type `Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+  86 |   RES variant AS fs::File STATE Circle = fs::createTempFile()            ' OK: a union's member is a record
+  87 |   RES a AS fs::File STATE Integer = fs::createTempFile()                 ' BAD
+  88 |   RES b AS fs::File STATE Boolean = fs::createTempFile()                 ' BAD
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:88 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `b` STATE type `Boolean` is not a record; declare a record TYPE that holds the value and name it instead.
+  87 |   RES a AS fs::File STATE Integer = fs::createTempFile()                 ' BAD
+  88 |   RES b AS fs::File STATE Boolean = fs::createTempFile()                 ' BAD
+  89 |   RES c AS fs::File STATE Float = fs::createTempFile()                   ' BAD
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:89 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `c` STATE type `Float` is not a record; declare a record TYPE that holds the value and name it instead.
+  88 |   RES b AS fs::File STATE Boolean = fs::createTempFile()                 ' BAD
+  89 |   RES c AS fs::File STATE Float = fs::createTempFile()                   ' BAD
+  90 |   RES d AS fs::File STATE String = fs::createTempFile()                  ' BAD
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:90 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `d` STATE type `String` is not a record; declare a record TYPE that holds the value and name it instead.
+  89 |   RES c AS fs::File STATE Float = fs::createTempFile()                   ' BAD
+  90 |   RES d AS fs::File STATE String = fs::createTempFile()                  ' BAD
+  91 |   RES e AS fs::File STATE Mode = fs::createTempFile()                    ' BAD: a bare ENUM
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:91 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `e` STATE type `Mode` is not a record; declare a record TYPE that holds the value and name it instead.
+  90 |   RES d AS fs::File STATE String = fs::createTempFile()                  ' BAD
+  91 |   RES e AS fs::File STATE Mode = fs::createTempFile()                    ' BAD: a bare ENUM
+  92 |   RES g AS fs::File STATE List OF Integer = fs::createTempFile()         ' BAD: a collection
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:92 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `g` STATE type `List OF Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+  91 |   RES e AS fs::File STATE Mode = fs::createTempFile()                    ' BAD: a bare ENUM
+  92 |   RES g AS fs::File STATE List OF Integer = fs::createTempFile()         ' BAD: a collection
+  93 |   RES h AS fs::File STATE Map OF String TO Integer = fs::createTempFile()   ' BAD
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:93 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `h` STATE type `Map OF String TO Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+  92 |   RES g AS fs::File STATE List OF Integer = fs::createTempFile()         ' BAD: a collection
+  93 |   RES h AS fs::File STATE Map OF String TO Integer = fs::createTempFile()   ' BAD
+  94 |   RES i AS fs::File STATE Set OF Integer = fs::createTempFile()          ' BAD
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:94 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `i` STATE type `Set OF Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+  93 |   RES h AS fs::File STATE Map OF String TO Integer = fs::createTempFile()   ' BAD
+  94 |   RES i AS fs::File STATE Set OF Integer = fs::createTempFile()          ' BAD
+  95 |   RES j AS fs::File STATE Shape = fs::createTempFile()                   ' BAD: a UNION
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:95 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `j` STATE type `Shape` is not a record; declare a record TYPE that holds the value and name it instead.
+  94 |   RES i AS fs::File STATE Set OF Integer = fs::createTempFile()          ' BAD
+  95 |   RES j AS fs::File STATE Shape = fs::createTempFile()                   ' BAD: a UNION
+  96 |   RES k AS fs::File STATE fs::File = fs::createTempFile()                ' BAD: a resource
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:96 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `k` STATE type `fs.File` is not a record; declare a record TYPE that holds the value and name it instead.
+  95 |   RES j AS fs::File STATE Shape = fs::createTempFile()                   ' BAD: a UNION
+  96 |   RES k AS fs::File STATE fs::File = fs::createTempFile()                ' BAD: a resource
+  97 |   MUT files AS List OF RES fs::File STATE Integer = []                   ' BAD: a collection element
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:97 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `files` STATE type `Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+  44 | TYPE Holder
+  45 |   ok AS RES fs::File STATE Cursor               ' OK
+  46 |   scalar AS RES fs::File STATE Integer          ' BAD: a record field
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:46 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Record `Holder` field `scalar` STATE type `Integer` is not a record; declare a record TYPE that holds the value and name it instead.
+  45 |   ok AS RES fs::File STATE Cursor               ' OK
+  46 |   scalar AS RES fs::File STATE Integer          ' BAD: a record field
+  47 |   text AS RES fs::File STATE String             ' BAD
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:47 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Record `Holder` field `text` STATE type `String` is not a record; declare a record TYPE that holds the value and name it instead.
+  46 |   scalar AS RES fs::File STATE Integer          ' BAD: a record field
+  47 |   text AS RES fs::File STATE String             ' BAD
+  48 |   many AS List OF RES fs::File STATE Mode       ' BAD: an element inside a field
+     | ^
+tests/syntax/resources/bug1013_state_requires_record_invalid/src/main.mfb:48 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Record `Holder` field `many` STATE type `Mode` is not a record; declare a record TYPE that holds the value and name it instead.
+[exit 1]

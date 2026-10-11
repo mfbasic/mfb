@@ -1,0 +1,9 @@
+{
+  "name": "state_kinds_pkg",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "bug-1013: the source-directory dependency consumed by `../../` -- one exported type of each kind (a record, an ENUM, a UNION), so the importer's STATE rule is tested against types it can only know from the package.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "targets": ["native"]
+}
