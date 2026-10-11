@@ -33,9 +33,10 @@ const GROUPS = {
   "parse/strict/empty-host-after-slashes": ["b", "WHATWG skips extra slashes or backslashes before the host (`http:///h`, `http://\\h`); the spec grammar takes the authority right after `://` and fails an empty host"],
   "parse/strict/scheme-with-tab-newline-or-c0": ["b", "WHATWG strips tab/LF/CR anywhere and C0/space at the ends before parsing; the spec does no input cleanup"],
   "parse/strict/port-not-digits": ["b", "WHATWG accepts a port after stripping tab/LF/CR; MFBASIC keeps them and fails the port as non-digit (spec: no input cleanup, non-digit port fails)"],
+  "parse/strict/host-tab-newline": ["b", "WHATWG strips tab/LF/CR before parsing, so it accepts a host written with one; MFBASIC keeps them and fails the host on a forbidden character (spec: no input cleanup, a forbidden host character fails; owner decision 1 on bug-979)"],
   "parse/host-keeps-tab-newline": ["a", "both accept; WHATWG strips tab/LF/CR from the input, MFBASIC stores them in `host` (`http://h\\r\\n/` -> host `h\\r\\n`): a garbage host the spec says fails (bug-873 item 5)"],
   "parse/input-cleanup": ["b", "both accept; WHATWG strips tab/LF/CR anywhere and C0/space at the ends, MFBASIC keeps them in the component (spec: no normalization)"],
-  "parse/strict/backslash-authority": ["c", "WHATWG treats `\\` as `/` in an http(s) URL, so it ends the authority; MFBASIC keeps it in the authority and then fails (port or IPv6 trailing characters)"],
+  "parse/strict/backslash-authority": ["a", "WHATWG treats `\\` as `/` in an http(s) URL, so it ends the authority; MFBASIC keeps it in the authority and then fails (port or IPv6 trailing characters). Owner decision 3 on bug-979: `\\` is `/`"],
   "parse/strict/other": [null, "MFBASIC refuses a URL WHATWG accepts, for a reason no rule above explains"],
   "parse/lenient/host-forbidden-code-point": ["a", "MFBASIC accepts a host containing a WHATWG forbidden host code point (space, control, `<>^|%` ...); spec Parse failures lists \"garbage host\", owner decision on bug-873 item 5: validate hosts"],
   "parse/lenient/host-ipv4-invalid": ["a", "MFBASIC accepts a host that ends in a number but is not a valid IPv4 address (`256.0.0.1`, `1.2.3.09`, `foo.09`)"],
@@ -43,11 +44,11 @@ const GROUPS = {
   "parse/lenient/host-idna-invalid": ["a", "MFBASIC accepts a non-ASCII or `xn--` host that UTS #46 (WHATWG domain-to-ASCII) refuses"],
   "parse/lenient/host-percent-invalid": ["a", "MFBASIC accepts a host whose percent-decoding WHATWG refuses (`%zz`, `%00`, invalid UTF-8)"],
   "parse/lenient/port-out-of-range": ["a", "MFBASIC accepts a port WHATWG refuses"],
-  "parse/lenient/backslash-authority": ["c", "the authority holds a `\\`: WHATWG ends the authority there (then refuses what is left, e.g. a non-digit port), MFBASIC keeps it inside userinfo/host"],
+  "parse/lenient/backslash-authority": ["a", "the authority holds a `\\`: WHATWG ends the authority there (then refuses what is left, e.g. a non-digit port), MFBASIC keeps it inside userinfo/host. Owner decision 3 on bug-979: `\\` is `/`"],
   "parse/lenient/other": [null, "MFBASIC accepts a URL WHATWG refuses, for a reason no rule above explains"],
-  "parse/split-differs/backslash": ["c", "both accept, but a `\\` in the authority moves the host: WHATWG reads `\\` as `/` (host ends there), MFBASIC keeps it in userinfo/host. `http://good.com\\@evil.com/` is host good.com to WHATWG and evil.com to MFBASIC -- a parser differential"],
+  "parse/split-differs/backslash": ["a", "both accept, but a `\\` in the authority moves the host: WHATWG reads `\\` as `/` (host ends there), MFBASIC keeps it in userinfo/host. `http://good.com\\@evil.com/` is host good.com to WHATWG and evil.com to MFBASIC -- a parser differential. Owner decision 3 on bug-979: `\\` is `/`"],
   "parse/split-differs": ["c", "both accept, but the URL is split into different components even after WHATWG normalization of MFBASIC's fields (backslash or tab/LF/CR handling moves text between components)"],
-  "parse/host-ipv4-noncanonical": ["c", "both accept; WHATWG rewrites a numeric/short/hex/octal IPv4 host to dotted-decimal, MFBASIC keeps the text (resolver then decides what it means)"],
+  "parse/host-ipv4-noncanonical": ["a", "both accept; WHATWG rewrites a numeric/short/hex/octal IPv4 host to dotted-decimal, MFBASIC keeps the text (resolver then decides what it means). Owner decision 2 on bug-979: canonicalize like WHATWG"],
   "parse/normalized-only": ["b", "both accept and agree after WHATWG normalization of MFBASIC's fields (case, IDNA, percent-encoding, dot segments, IPv6 compression); the spec says toUrl performs no normalization"],
   "parse/render-not-inverse": ["a", "toString(toUrl(x)) does not parse back to the same Url (spec: rendering is the inverse of parsing)"],
   "parse/judge-roundtrip": [null, "Node's own href did not re-parse to itself (a judge oddity, inspect)"],
@@ -151,6 +152,7 @@ function strictReason(s, m) {
   const authority = end < 0 ? auth : auth.slice(0, end);
   if (authority.includes("\\")) return "backslash-authority";
   if (/non-digit in port/.test(msg)) return "port-not-digits";
+  if (/forbidden character in host/.test(msg) && /[\t\n\r]/.test(authority)) return "host-tab-newline";
   return "other";
 }
 

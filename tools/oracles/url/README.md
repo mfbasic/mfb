@@ -78,7 +78,7 @@ Class-b groups and their spec basis:
 |---|---|
 | `parse/out-of-scope-scheme` | 06_url step 1: only `http` / `https` |
 | `parse/strict/missing-slashes`, `parse/strict/empty-host-after-slashes` | 06_url grammar `scheme "://" authority` |
-| `parse/strict/scheme-with-tab-newline-or-c0`, `parse/strict/port-not-digits`, `parse/input-cleanup` | 06_url: no input cleanup; WHATWG strips tab/LF/CR and outer C0/space |
+| `parse/strict/scheme-with-tab-newline-or-c0`, `parse/strict/port-not-digits`, `parse/strict/host-tab-newline`, `parse/input-cleanup` | 06_url: no input cleanup; WHATWG strips tab/LF/CR and outer C0/space. A tab/LF/CR left in the host is a forbidden host character and fails (bug-979) |
 | `parse/normalized-only/<fields>` | 06_url / `mfb man net toUrl`: no normalization. A case lands here only when WHATWG's normalization of each MFBASIC field, placed alone in a fixed URL, equals Node's parse of the whole input |
 | `pdecode/form/strict` | 08_encoding: form decoding fails on a malformed escape or invalid UTF-8 |
 | `query/raw-fallback` | 06_url: a malformed component is kept raw |
