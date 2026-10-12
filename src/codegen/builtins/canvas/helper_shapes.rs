@@ -448,9 +448,9 @@ END FUNC"#;
 /// is flattened to a ring (`__canvas_rrectRing`).
 ///
 /// For four EQUAL pixel radii the answer is the radius as given, not clamped: the
-/// header builder clamps it to half the shorter side, exactly as it always clamped
-/// `RoundedRect.cornerRadius`, and the native builder does the same arithmetic on the
-/// same value. Clamping here as well would be harmless, and one clamp is one place.
+/// header builder clamps it to half the shorter side, exactly as it clamped the one
+/// radius a rounded rectangle had before plan-172-E, and the native builder does the
+/// same arithmetic on the same value. Clamping here as well would be harmless, and one clamp is one place.
 #[rustfmt::skip]
 const CORNERS: &str =
 r#"FUNC __canvas_cornerRadii(w AS Float, h AS Float, r AS Float) AS vector::Float2

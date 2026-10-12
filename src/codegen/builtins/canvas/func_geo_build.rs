@@ -2032,7 +2032,7 @@ fn put_empty(builder: &mut CodeBuilder, out: &VirtualRegister) {
     put_const(builder, out, 1, GEO_HEADER as f64);
 }
 
-/// `__canvas_rectHeader` (four square corners pass `cornerRadius = 0.0`).
+/// `__canvas_rectHeader` (four square corners pass `corner = 0.0`).
 fn fill_rect(
     builder: &mut CodeBuilder,
     out: &VirtualRegister,
@@ -2159,7 +2159,7 @@ struct RectInputs {
 /// This builder draws only the exact record, and only the cases whose radius needs
 /// no resolving: **four equal radii that are either all `<= 0.0` or all `> 1.0`**. The
 /// value is passed on as it is and the caller clamps it to half the shorter side —
-/// the arithmetic `RoundedRect.cornerRadius` always had. Anything else (unequal
+/// the arithmetic a rounded rectangle's one radius always had. Anything else (unequal
 /// radii, or a fraction of the half-size) branches to `decline`, and the MFBASIC
 /// builder resolves it. The size pass passes `decline`; the fill pass, which runs only
 /// for an item the size pass took, passes `None`.

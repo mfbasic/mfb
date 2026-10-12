@@ -103,15 +103,16 @@ TYPE AutoPaint
     useExit    AS Boolean
     useHover   AS Boolean
     usePressed AS Boolean
-    enter      AS canvas::Paint
-    exit       AS canvas::Paint
-    hover      AS canvas::Paint
-    pressed    AS canvas::Paint
+    enterPaint   AS canvas::Paint
+    exitPaint    AS canvas::Paint
+    hoverPaint   AS canvas::Paint
+    pressedPaint AS canvas::Paint
 END TYPE
 
-> As built (plan-172-K, 2026-10-11): the four paint fields are `enterPaint`, `exitPaint`,
-> `hoverPaint` and `pressedPaint`. `EXIT` is a keyword, so a field cannot be named `exit`,
-> and all four took the suffix rather than one. Confirmed by the owner, 2026-10-11.
+> The four paint fields were first written here as `enter`, `exit`, `hover` and
+> `pressed`. `EXIT` is a keyword, so a field cannot be named `exit`, and all four took
+> the suffix rather than one (plan-172-K; confirmed by the owner, 2026-10-11). The block
+> above was brought into line by plan-172-M's surface audit.
 >
 > The enter and exit flashes last 100 ms, not 50, and the length is the project's
 > `options.canvasAutoPaintMS` (owner, 2026-10-11, after trying both in a real window).

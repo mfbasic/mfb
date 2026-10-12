@@ -769,7 +769,7 @@ FUNC __canvas_boundsHeader(h AS List OF Float, minX AS Float, minY AS Float, max
   RETURN out
 END FUNC
 
-FUNC __canvas_rectHeader(x AS Float, y AS Float, w AS Float, h AS Float, cornerRadius AS Float, paint AS Paint, transform AS Transform, ox AS Float, oy AS Float) AS List OF Float
+FUNC __canvas_rectHeader(x AS Float, y AS Float, w AS Float, h AS Float, corner AS Float, paint AS Paint, transform AS Transform, ox AS Float, oy AS Float) AS List OF Float
   MUT out AS List OF Float = __canvas_blankHeader()
   IF w <= 0.0 THEN
     RETURN __canvas_emptyHeader()
@@ -778,7 +778,7 @@ FUNC __canvas_rectHeader(x AS Float, y AS Float, w AS Float, h AS Float, cornerR
     RETURN __canvas_emptyHeader()
   END IF
   LET limit AS Float = __canvas_minF(w, h) / 2.0
-  LET radius AS Float = __canvas_minF(__canvas_maxF(cornerRadius, 0.0), limit)
+  LET radius AS Float = __canvas_minF(__canvas_maxF(corner, 0.0), limit)
   out = collections::set(out, 0, toFloat(__CANVAS_KIND_RECT))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))
   out = collections::set(out, 2, x + w / 2.0)
