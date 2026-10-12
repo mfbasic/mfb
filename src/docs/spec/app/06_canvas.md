@@ -1607,6 +1607,33 @@ The mouse-state reservation keys on the raw poll's symbol
 is gated on use, so a canvas program that never calls `canvas::pollMouse` reserves no
 mouse state and compiles none of this.
 
+## The surface size, and what counts as a resize
+
+The main thread publishes the surface's width and height into the graphics state from
+each platform's resize path — macOS `MFBCanvasView setFrameSize:`, the GTK resize
+handler, Windows `WM_SIZE` and its canvas reconcile, and the headless scripted resize
+(`MFB_CANVAS_RESIZE_W`/`_H`, GTK and Windows) — with two plain stores and no lock.
+[[src/codegen/runtime/canvas/mod.rs:emit_publish_surface_size_tagged]] Both words are 0
+until the first publish, and a zero word reads as the startup size, 900 by 640: that is
+what `canvas::getSize` answers before a window has published anything and in a headless
+run, and the size a frame is rendered at.
+[[src/codegen/runtime/canvas/mod.rs:SurfaceDimension]]
+
+`canvas::didResize` is two counters. The publisher adds one to
+`GRAPHICS_OFFSET_RESIZES` when the size it publishes differs from the size read as
+above — the size the program sees — and `didResize` answers TRUE, and records the
+counter in `GRAPHICS_OFFSET_RESIZES_SEEN`, when the two differ.
+[[src/codegen/runtime/canvas/mod.rs:emit_did_resize]] So:
+
+- a publish of the size the program already sees counts nothing. That is a repeat of
+  the current size (AppKit sends them routinely), and equally a window's FIRST publish
+  when it opens at 900 by 640;
+- a first publish of any other size counts one, as every later change does. The
+  publisher does not know which publish is the first.
+
+Each word has one writer (the main thread the counter, the worker the acknowledgement),
+so neither takes a lock.
+
 ## The pointer, as the graphics thread sees it
 
 The graphics thread can read where the pointer is without the worker's help: each

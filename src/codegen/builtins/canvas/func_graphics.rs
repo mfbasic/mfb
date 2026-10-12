@@ -20,8 +20,7 @@ use crate::codegen::runtime::canvas::{
     emit_await_pickup, emit_display_milli_hz, emit_frame_counters, emit_frame_done,
     emit_note_present, emit_set_display_override, emit_set_gpu_mode, emit_set_sync_mode,
     emit_signal_redraw, emit_start_graphics, emit_surface_dimension, emit_sync_frame, emit_use_gpu,
-    emit_wait_for_redraw, FrameRecord, GraphicsScratch, DEFAULT_SURFACE_HEIGHT,
-    DEFAULT_SURFACE_WIDTH, GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_WIDTH,
+    emit_wait_for_redraw, FrameRecord, GraphicsScratch, SurfaceDimension,
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -332,16 +331,14 @@ pub(crate) fn lower_set_sync_mode(
 /// makes a resize visible to the renderer without the program doing anything.
 fn lower_dimension(
     builder: &mut CodeBuilder,
-    offset: usize,
-    default: usize,
+    dimension: SurfaceDimension,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
     emit_surface_dimension(
         &symbol,
         &scratch,
-        offset,
-        default,
+        dimension,
         &mut builder.instructions,
         &mut builder.relocations,
     );
@@ -364,7 +361,7 @@ pub(crate) fn lower_surface_width(
     _args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    lower_dimension(builder, GRAPHICS_OFFSET_WIDTH, DEFAULT_SURFACE_WIDTH)
+    lower_dimension(builder, SurfaceDimension::Width)
 }
 
 pub(crate) fn lower_surface_height(
@@ -372,7 +369,7 @@ pub(crate) fn lower_surface_height(
     _args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    lower_dimension(builder, GRAPHICS_OFFSET_HEIGHT, DEFAULT_SURFACE_HEIGHT)
+    lower_dimension(builder, SurfaceDimension::Height)
 }
 
 /// `canvas::displayMilliHz() AS Integer` — the display's refresh rate in millihertz

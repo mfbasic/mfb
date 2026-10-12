@@ -5,9 +5,9 @@ Effort: small (<1h)
 Severity: LOW
 Class: Correctness
 
-Status: Open
+Status: Fixed (bs23-agent-a)
 Coordinator note: measured by the review agent only (Linux runs in podman, or a macOS window screenshot); the coordinator did not re-run it.
-Regression Test: (proposed) non-headless run (or a scripted first publish of 900×640) of a program polling `didResize` after `setMode(Canvas)` reports FALSE until a real size change
+Regression Test: `codegen::runtime::canvas::tests::publishing_the_size_the_program_already_sees_counts_no_resize` (the publisher's instructions, executed), `rt_canvas_damage::a_first_publish_of_the_startup_size_is_not_a_resize` and `a_first_publish_of_another_size_is_one_resize` (scripted first publish; GTK and Windows hosts), `scripts/test-macapp.sh` case 3d3 (a real macOS window, `MFB_MACAPP_GUI=1`)
 
 ## Cause (coordinator, 2026-10-12, bug-staging-23)
 
@@ -83,3 +83,55 @@ reports the default for 0. The comparison should be against the *effective* size
 
 - macOS `MFBCanvasView setFrameSize:`, GTK resize handler, Windows `WM_SIZE` — all use
   the shared publisher (Windows not run).
+
+## Resolution (bs23-agent-a, 2026-10-12)
+
+The Cause note is right. `runtime/canvas/mod.rs` now has one reading of a size word,
+`SurfaceDimension::emit_load` (load the word; zero reads as the startup size), with the
+word's offset and its startup value paired in `SurfaceDimension` and nowhere else.
+`emit_surface_dimension` (what `canvas::getSize` and the renderer read) and
+`emit_publish_surface_size_tagged` both go through it, so the publisher compares the new
+size against the size the program sees. Nothing is special-cased as "first": a first
+publish of 900 by 640 is no change, and a first publish of any other size is one.
+
+Register budget: unchanged. The publisher still writes only `base` and `SCRATCH[5]`
+(`x14`; `r10` on x86-64), which it already wrote at every site, and reads `width` and
+`height`. The five callers pass `LOCAL[1..3]` (macOS `setFrameSize:`), `LOCAL[0..2]`
+(GTK resize helper, Windows headless resize) and `SCRATCH[0..2]` (Windows `WM_SIZE` and
+the canvas reconcile); none is `SCRATCH[5]`. The getter's instructions are the same as
+before (same label, same order).
+
+### Measured
+
+- Real macOS window, `bugs/repro/bug-970/did_resize.mfb`, `mfb build --app`, run without
+  `MFB_MACAPP_HEADLESS`: before `start size=900.00x640.00 didResize=TRUE`, after
+  `start size=900.00x640.00 didResize=FALSE` (then `later ... FALSE`, `again ... FALSE`
+  both times). `scripts/test-macapp.sh` case 3d3 is that run as a row: FAIL with
+  `/tmp/main-dbg-target/release/mfb`, `ok` with the fix.
+- Scripted first publish, `rt_canvas_damage.rs:RESIZE_POLL` cross-built and run headless
+  with `MFB_CANVAS_SYNC=1` and `MFB_CANVAS_RESIZE_W`/`_H`:
+
+  | box | publish | before | after |
+  |---|---|---|---|
+  | 206, windows-x86_64 | 900 x 640 | `first:TRUE resizes:0` | `first:FALSE resizes:0` |
+  | 206, windows-x86_64 | 640 x 480 | `first:TRUE resizes:0` | `first:TRUE resizes:0` |
+  | 2226, linux-aarch64 (GTK, glibc AppImage) | 900 x 640 | `first:TRUE resizes:0` | `first:FALSE resizes:0` |
+  | 2226, linux-aarch64 | 640 x 480 | `first:TRUE resizes:0` | `first:TRUE resizes:0` |
+
+  So a real resize is still reported once, and the publish of the size already seen is
+  not. `--target linux-x86_64` builds; it was not run (boxes 2227 and 2228 are down).
+- The unit test runs the publisher's emitted instructions over a zeroed state: 900 x 640
+  counts 0, a repeat 0, 640 x 640 one, 640 x 480 two, a repeat two, back to 900 x 640
+  three; a first publish of 384 x 261, 900 x 261 or 384 x 640 counts one. Before the fix
+  it failed at the first step (`left: 1, right: 0`).
+
+A Windows real window (first client area 384 x 261) was not run.
+
+### Golden impact
+
+`scripts/artifact-gate.sh target/release/mfb all`: 4 diffs, the same four
+`syntax/app/app-mouse-surface/app_mouse_surface.<target>.app.ncode` goldens bug-968
+moves. Each holds the publisher (`grep -c resize_old_width`: 2 labels on macos-aarch64,
+linux-aarch64 and linux-x86_64, 6 on windows-x86_64, which publishes from three sites).
+No other fixture moved. Goldens were not regenerated.
+

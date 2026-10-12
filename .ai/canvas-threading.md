@@ -862,6 +862,16 @@ headless scripted resize does too. `canvas::didResize` compares it against
 `GRAPHICS_OFFSET_RESIZES_SEEN`, which the worker owns, and records the new value when it
 answers TRUE.
 
+**"Changed" is against the size the program SEES, not against the stored words.** The
+two words start at 0 and a zero word reads as the startup size (`SurfaceDimension`,
+900 by 640 — what `canvas::getSize` answers before any publish). The publisher reads the
+old size through that same reading, so a window that opens at 900 by 640 publishes no
+change, and one that opens at another size (Windows' first client area) publishes one.
+Comparing against the raw words made every real window answer `didResize` TRUE once at
+startup (bug-970); a headless run never showed it, because nothing publishes there
+unless a resize is scripted. Do not add a second reading of a size word, and do not
+special-case "the first publish".
+
 Two words with one writer each, so no lock: the main thread only ever writes the
 counter, the worker only ever writes the acknowledgement. A single read-and-clear flag
 would need one, because a resize landing between a reader's load and its store would be

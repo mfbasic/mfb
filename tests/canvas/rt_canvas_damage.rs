@@ -232,8 +232,9 @@ fn a_moved_item_repaints_its_own_rectangle_and_not_the_window() {
 ///
 /// The resize affordance is `MFB_CANVAS_RESIZE_W`/`_H`, which drives the **production**
 /// resize path — the same helper the platform's own resize signal calls — and it exists
-/// only on the GTK backend, so this runs headless there. On macOS there is no scripted
-/// resize, so the same program exercises only the "no resize yet" half; that is why the
+/// only on the GTK and Windows backends, so this runs headless there. On macOS there is
+/// no scripted resize, so the same program exercises only the "no resize yet" half; that
+/// is why the
 /// assertions below are about the sequence of answers rather than about a fixed count.
 const RESIZE_POLL: &str = r#"IMPORT app
 IMPORT canvas
@@ -298,6 +299,70 @@ fn did_resize_is_false_until_the_surface_changes_and_then_true_once() {
     assert!(
         out.contains("resizes:0"),
         "didResize reported a resize in a run where nothing resized:\n{out}",
+    );
+}
+
+/// `RESIZE_POLL` run headless with a scripted resize to `width` by `height`: whether the
+/// first `didResize` answered TRUE, and how many later ones did.
+fn scripted_resize(name: &str, width: &str, height: &str) -> (bool, String) {
+    let project = common::temp_project(name, RESIZE_POLL);
+    let binary = common::build_app(&project, name);
+    let run = std::process::Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .env("MFB_CANVAS_RESIZE_W", width)
+        .env("MFB_CANVAS_RESIZE_H", height)
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let out = String::from_utf8_lossy(&run.stdout).to_string();
+    assert!(
+        run.status.success(),
+        "program {}:\n{out}\n{}",
+        common::exit_description(&run.status),
+        String::from_utf8_lossy(&run.stderr),
+    );
+    let _ = std::fs::remove_dir_all(&project);
+    let later = out
+        .lines()
+        .find_map(|line| line.strip_prefix("resizes:"))
+        .unwrap_or_else(|| panic!("no `resizes:` line:\n{out}"))
+        .to_string();
+    (out.contains("first:TRUE"), later)
+}
+
+/// bug-970: a publish of the size the program already sees is not a resize, even when
+/// it is the first.
+///
+/// The surface is 900 by 640 before anything publishes a size (`canvas::getSize` says
+/// so), and a window that opens at that size publishes exactly that. The scripted
+/// resize calls the platform's own resize handler, so on GTK and Windows this is that
+/// first publish without a window; macOS has no scripted resize, and there the
+/// publisher is covered by executing its instructions
+/// (`publishing_the_size_the_program_already_sees_counts_no_resize`) and by a real
+/// window (`scripts/test-macapp.sh` case 3d3).
+#[test]
+fn a_first_publish_of_the_startup_size_is_not_a_resize() {
+    let (first, later) = scripted_resize("canvas_did_resize_same", "900", "640");
+    assert!(
+        !first && later == "0",
+        "a publish of 900 by 640 over a surface that already reads 900 by 640 changed \
+         nothing, but didResize answered first={first} then {later} more",
+    );
+}
+
+/// The other half: a publish of another size is one resize, reported once.
+#[test]
+fn a_first_publish_of_another_size_is_one_resize() {
+    let (first, later) = scripted_resize("canvas_did_resize_other", "640", "480");
+    let reported = usize::from(first) + later.parse::<usize>().expect("a count");
+    // macOS has no scripted resize, so nothing publishes there.
+    let expected = if cfg!(target_os = "macos") { 0 } else { 1 };
+    assert_eq!(
+        reported, expected,
+        "one scripted resize to 640 by 480: first={first}, later={later}",
     );
 }
 

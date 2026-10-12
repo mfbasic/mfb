@@ -408,6 +408,44 @@ MFB
   fi
 done
 
+# Case 3d3 (bug-970, GUI): opening the canvas window is not a resize. The canvas view's
+# first setFrameSize: publishes 900x640 over size words that are still zero, and zero
+# already reads as 900x640 (canvas::getSize says so before the window exists), so
+# nothing the program sees changed and canvas::didResize must stay FALSE. Headless never
+# publishes a size, so only a real window shows this.
+proj="$work/didresize"
+mkdir -p "$proj/src"
+scaffold_project "$proj" "didresize"
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT canvas
+IMPORT io
+IMPORT os
+FUNC main() AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET s0 AS canvas::Size = canvas::getSize()
+  io::print("start " & toString(toInt(s0.width)) & "x" & toString(toInt(s0.height)) & " " & toString(canvas::didResize()))
+  canvas::present([])
+  os::sleep(700)
+  LET s1 AS canvas::Size = canvas::getSize()
+  io::print("later " & toString(toInt(s1.width)) & "x" & toString(toInt(s1.height)) & " " & toString(canvas::didResize()))
+  io::flush()
+  RETURN 0
+END FUNC
+MFB
+if ! gui_enabled; then
+  echo "skip: canvas didResize at startup GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app didresize"
+else
+  out=$("$(bundle "$proj" "didresize")/Contents/MacOS/didresize" 2>/dev/null | tr '\n' '|')
+  if [ "$out" = "start 900x640 FALSE|later 900x640 FALSE|" ]; then
+    pass "opening the canvas window reported no resize ($out)"
+  else
+    fail "canvas::didResize at startup in a window: expected 'start 900x640 FALSE|later 900x640 FALSE|', got '$out'"
+  fi
+fi
+
 # Case 3e (plan-98-A Phase 3, GUI): the Mode.Canvas reconcile arm builds and tears
 # down the canvas surface across a full enter -> exit -> re-enter cycle.
 #

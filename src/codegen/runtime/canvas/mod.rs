@@ -3423,26 +3423,71 @@ pub(crate) fn emit_set_sync_mode(
 pub(crate) const DEFAULT_SURFACE_WIDTH: usize = 900;
 pub(crate) const DEFAULT_SURFACE_HEIGHT: usize = 640;
 
+/// One of the surface's two dimensions: where its word is in the graphics state, and
+/// what a zero there reads as.
+#[derive(Clone, Copy)]
+pub(crate) enum SurfaceDimension {
+    Width,
+    Height,
+}
+
+impl SurfaceDimension {
+    fn offset(self) -> usize {
+        match self {
+            SurfaceDimension::Width => GRAPHICS_OFFSET_WIDTH,
+            SurfaceDimension::Height => GRAPHICS_OFFSET_HEIGHT,
+        }
+    }
+
+    fn startup(self) -> usize {
+        match self {
+            SurfaceDimension::Width => DEFAULT_SURFACE_WIDTH,
+            SurfaceDimension::Height => DEFAULT_SURFACE_HEIGHT,
+        }
+    }
+
+    /// Load this dimension of the graphics state at `base` into `dst`, as the program
+    /// sees it: a zero word is the startup size.
+    ///
+    /// The ONE reading of a size word. `canvas::getSize` answers through it
+    /// ([`emit_surface_dimension`]) and the resize publisher decides "did the size
+    /// change" through it ([`emit_publish_surface_size_tagged`]), so the two cannot
+    /// give 0 different meanings (bug-970). `ready` is a label the caller owns.
+    fn emit_load(
+        self,
+        dst: abi::Reg,
+        base: abi::Reg,
+        ready: &str,
+        instructions: &mut Vec<CodeInstruction>,
+    ) {
+        instructions.push(abi::load_u64(dst, base, self.offset()));
+        instructions.push(abi::compare_immediate(dst, "0"));
+        instructions.push(abi::branch_ne(ready));
+        instructions.push(abi::move_immediate(
+            dst,
+            "Integer",
+            &self.startup().to_string(),
+        ));
+        instructions.push(abi::label(ready));
+    }
+}
+
 /// Read one published surface dimension, falling back to the startup size.
 pub(crate) fn emit_surface_dimension(
     symbol: &str,
     scratch: &GraphicsScratch,
-    offset: usize,
-    default: usize,
+    dimension: SurfaceDimension,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let ready = format!("{symbol}_dim_ready_{offset}");
+    let ready = format!("{symbol}_dim_ready_{}", dimension.offset());
     state_base(symbol, &scratch.base, instructions, relocations);
-    instructions.push(abi::load_u64(&scratch.scratch, &scratch.base, offset));
-    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
-    instructions.push(abi::branch_ne(&ready));
-    instructions.push(abi::move_immediate(
-        &scratch.scratch,
-        "Integer",
-        &default.to_string(),
-    ));
-    instructions.push(abi::label(&ready));
+    dimension.emit_load(
+        (&scratch.scratch).into(),
+        (&scratch.base).into(),
+        &ready,
+        instructions,
+    );
     instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
 }
 
@@ -3607,13 +3652,28 @@ pub(crate) fn emit_publish_surface_size_tagged(
     // already has, and the headless scripted resize does the same — and
     // `canvas::didResize` promises the program a *change*, not an event.
     //
+    // "Changed" is against the size the program SEES, which is the startup size while
+    // the words are still zero (bug-970): a window that opens at that size publishes
+    // what `canvas::getSize` already answered, and one that opens at another size
+    // publishes a change. Nothing here knows whether a publish is the first.
+    //
     // The compare reads the old values before the stores overwrite them, and uses the
     // scratch the caller already gave us rather than a fifth register: this runs in a
     // platform resize callback, where the register budget is whatever the caller had.
-    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_WIDTH));
+    SurfaceDimension::Width.emit_load(
+        SCRATCH_RESIZE,
+        base,
+        &format!("{symbol}{tag}_resize_old_width"),
+        instructions,
+    );
     instructions.push(abi::compare_registers(SCRATCH_RESIZE, width));
     instructions.push(abi::branch_ne(&changed));
-    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_HEIGHT));
+    SurfaceDimension::Height.emit_load(
+        SCRATCH_RESIZE,
+        base,
+        &format!("{symbol}{tag}_resize_old_height"),
+        instructions,
+    );
     instructions.push(abi::compare_registers(SCRATCH_RESIZE, height));
     instructions.push(abi::branch_eq(&unchanged));
     instructions.push(abi::label(&changed));
@@ -3788,11 +3848,11 @@ pub(crate) fn emit_use_gpu(
 
 #[cfg(test)]
 mod tests {
-    use super::{graphics_trampoline_frame, graphics_trampoline_saved, graphics_trampoline_shadow};
     use super::{
         emit_publish_surface_size, DEFAULT_SURFACE_HEIGHT, DEFAULT_SURFACE_WIDTH,
         GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_RESIZES, GRAPHICS_OFFSET_WIDTH,
     };
+    use super::{graphics_trampoline_frame, graphics_trampoline_saved, graphics_trampoline_shadow};
     use crate::arch::ops::CodeOp;
     use crate::target::shared::abi;
     use std::collections::HashMap;
@@ -3902,9 +3962,8 @@ mod tests {
     #[test]
     fn publishing_the_size_the_program_already_sees_counts_no_resize() {
         let (w, h) = (DEFAULT_SURFACE_WIDTH as u64, DEFAULT_SURFACE_HEIGHT as u64);
-        let resizes = |state: &HashMap<usize, u64>| {
-            state.get(&GRAPHICS_OFFSET_RESIZES).copied().unwrap_or(0)
-        };
+        let resizes =
+            |state: &HashMap<usize, u64>| state.get(&GRAPHICS_OFFSET_RESIZES).copied().unwrap_or(0);
 
         let mut state = HashMap::new();
         publish(&mut state, w, h);
