@@ -16,22 +16,6 @@ Check that every open bug has exactly one row:
 python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.glob('bugs/bug-*.md')];b=re.findall(r'^\|\s*\[.\]\s*\|\s*(\d+)\s',open('bugs/status.md').read(),re.M);print(len(a),sorted(set(a)^set(b))+[n for n in set(b) if b.count(n)>1])"
 ```
 
-## Running phase: batch 22 (`bug-staging-22-real`)
-
-The seventeen documents that were open in "Resources and STATE" with priority HIGH or MED
-when the phase started are all fixed on this branch: 999, 1018, 1043 to 1057 (except 1048,
-which was already fixed and gained its regression test). The fix is the owner's ruling of
-2026-10-11: the code follows the resource model, with no rule keyed on statement shape. The
-Resource always has a cleanup scope and is closed once by it; a `RES` is an alias; a value
-made of aliases is plain data, copied, moved and freed like any other value; a cleanup scope
-only floats up; `RETURN` hands it to the caller's current scope at once; the scope that
-closes a Resource frees its record; which variant of a union a value is does not depend on
-the `RES` marker or a `STATE` clause.
-
-Found while it ran: 1060 to 1078 and 1081. The same rules fixed 1063 to 1067, 1069 to 1072
-and 1074 to 1078, each with a regression test (`tests/runtime/rt_resource_model.rs`). Open
-and waiting: 1060, 1061, 1062, 1068, 1073, 1081.
-
 ## Resources and STATE
 
 | Done | Number | Priority | Description |
@@ -44,16 +28,16 @@ and waiting: 1060, 1061, 1062, 1068, 1073, 1081.
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 688    | HIGH     | The Vulkan canvas backend is still at pre-bug-686 Metal: ordinary scenes fall to software, large polygons are O(edges × pixels), pictures copy per occurrence, every frame is read back (remaining Linux work is blocked on a real-GPU Linux box) |
-| [ ]  | 765    | HIGH     | Canvas renders 100,000 color-changing dots at 3 PPS / 4 FPS instead of 30 (after 688) |
-| [ ]  | 968    | MED      | canvas frame skip republishes an identical scene when it contains a nested list (Polygon points, DrawLayer items) built by a different allocation history |
-| [ ]  | 991    | MED      | A magnified transformed item's bounds pad scales with the transform, so a 27 px polygon covers 369 px |
-| [ ]  | 995    | MED      | A `Paint.clip` on a transformed item evaluates the whole clip five times on every pixel, with no early-out, so the canvas-demo menu renders at 273 ms a frame on Vulkan |
-| [ ]  | 996    | MED      | On Intel Vulkan the first canvas frame of every newly built program waits ~25 s for the pipeline compile, behind a blank window |
-| [ ]  | 1024   | MED      | a Metal text frame is dumped with unwritten tiles (seen on a loaded machine; a concurrency defect is suspected) |
-| [ ]  | 1045   | MED      | on Windows, a real canvas window drawn on the GPU writes no `MFB_CANVAS_STATS` line (severity unknown until root-caused: LOW if only the report is missing, HIGH if frames are; the number 1045 was also used by a Resources bug that is fixed and in `bugs/completed/`) |
-| [ ]  | 970    | LOW      | `canvas::didResize()` answers TRUE once at startup in a real window although the surface never changed size (macOS and GTK) |
-| [ ]  | 1079   | LOW      | on Intel's Vulkan driver a picture takes the wrong texel where a texel boundary is a pixel centre (one row or column, one texel off) |
+| [ ]  | 688    | HIGH     | Vulkan canvas parity with Metal: V1 to V4 fixed and Windows presents through a swapchain; what remains is 10,000 quads at 104 ms of render a frame on the Intel GPU, and Linux present, still readback-only (blocked on a real-GPU Linux box). Re-measured 2026-10-12 |
+| [ ]  | 765    | HIGH     | Canvas renders 100,000 color-changing dots at 5 PPS / 5 FPS instead of 30: the scene is past the 65,536-item frame cap, so Metal declines it and software draws it (60,000 dots hold 38 FPS on the GPU); a fill-only change also rebuilds every item's geometry (after 688). Re-verified 2026-10-12 |
+| [ ]  | 968    | MED      | canvas frame skip republishes an identical scene when it contains a nested list (Polygon contours, DrawLayer items) built by a different allocation history. Re-verified 2026-10-12 |
+| [ ]  | 991    | MED      | A magnified transformed item's bounds pad scales with the transform, so a 27 px polygon covers 369 px; a scaled `canvas::Group` costs the same. Re-verified 2026-10-12 |
+| [ ]  | 995    | MED      | A `Paint.clip` on a transformed item, or on an item inside a group that has a matrix, evaluates the whole clip five times on every pixel, with no early-out (2× on Metal, 3 to 8× on Intel Vulkan). Re-verified on Metal 2026-10-12 |
+| [ ]  | 996    | MED      | On Intel Vulkan the first canvas frame of every newly built program waits for the pipeline compile behind a blank window: 37 s on 2026-10-12, 25 s when filed |
+| [ ]  | 1024   | MED      | a Metal text frame is dumped with unwritten tiles (intermittent, cause unknown; not reproduced in 5 runs on 2026-10-12; the same two tests as 1059 in "Test tooling") |
+| [ ]  | 970    | LOW      | `canvas::didResize()` answers TRUE once at startup in a real window although the surface never changed size (macOS and GTK). Re-verified on macOS 2026-10-12 |
+| [ ]  | 1045   | LOW      | on Windows, a real canvas window drawn on the GPU writes no `MFB_CANVAS_STATS` line: root-caused 2026-10-12 as 996's pipeline compile (lines appear, one a frame, once it ends); owner to decide whether to close as a duplicate of 996 (the number 1045 was also used by a Resources bug that is fixed and in `bugs/completed/`) |
+| [ ]  | 1079   | LOW      | on Intel's Vulkan driver a picture takes the wrong texel where a texel boundary is a pixel centre (one row or column, one texel off). Re-verified 2026-10-12 |
 
 ## App windows and GTK
 
@@ -302,7 +286,7 @@ and waiting: 1060, 1061, 1062, 1068, 1073, 1081.
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 1059   | MED      | two GPU text tests in `rt_canvas_font` fail with main's compiler on the development Mac (6 of 6 runs on 2026-10-11; they passed in the batch 20 gate hours earlier; cause not traced) |
+| [ ]  | 1059   | MED      | two GPU text tests in `rt_canvas_font` fail with main's compiler on the development Mac (6 of 6 runs on 2026-10-11; they passed in the batch 20 gate hours earlier and 5 of 5 times on 2026-10-12; cause not traced; the same two tests as 1024 in "Canvas and graphics") |
 | [ ]  | 987    | LOW      | the Windows test scripts still default to the retired box 2230 (owner decided: repoint to box 206) |
 | [ ]  | 1014   | LOW      | `field_kinds.tsv` is not what `field_kinds_gen.py` generates |
 | [ ]  | 1033   | LOW      | the man example `variable::guide#2` does not build |
