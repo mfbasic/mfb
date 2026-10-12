@@ -481,8 +481,16 @@ emitted code**. A program that constructs or matches an `AutoPaint`, a `Picture`
       NaN" is the driver exiting cleanly (Corrections 2). The 120° arc over the top of a
       circle is the rational curve that IS cut at a y-extremum; both halves stay at
       radius 100 to 1e-12.
-- [ ] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` (expected). Inspect the
+- [x] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` (expected). Inspect the
       `.ir` diff: it should be the added types, the two variants and the moved tags.
+      — regenerated with Phase 2's functions in, so the two fixtures are re-baselined
+      once: `mfb build -q -ast -ir` for the two `.ir` files and
+      `scripts/regen-native-goldens.sh target/release/mfb
+      tests/syntax/app/app-mouse-surface` → `4 build(s), 6 golden(s) rewritten, 0
+      failure(s)`. The `.ir` inspection is Corrections 1 (line fields, the new
+      functions and types, the new `MATCH` arms; variants are matched by name there, so
+      no tag appears). Before re-baselining, every other canvas suite was run on the
+      Phase 1 compiler (Corrections 15): 20 suites, all `ok`.
 
 Acceptance: the reduction meets its tolerance and exactness claims; both shapes are
 `Shape`s that every walk accepts; and every existing scene draws what it drew.
@@ -495,17 +503,25 @@ Acceptance: the reduction meets its tolerance and exactness claims; both shapes 
   `rt_canvas_rasteriser` 106 passed (2 ignored), `rt_canvas_hit` 13, `rt_canvas_autopaint`
   18, `rt_canvas_picture` 16. No file under `tests/canvas/` is modified but the new
   `rt_canvas_curves.rs`.
-Commit: —
+Commit: cb658a67d
 
 ### Phase 2 — `canvas::nurbsToBeziers` and `canvas::flatten`
 
-- [ ] `func_nurbs_to_beziers.rs`: a registry function with its descriptor, `intro`,
+- [x] `func_nurbs_to_beziers.rs`: a registry function with its descriptor, `intro`,
       `desc` and a runnable `example`. The body is MFBASIC Boehm knot insertion, with
       the §1 validation. Its points are `vector::Float2`.
-- [ ] `func_flatten.rs`: a registry function with its descriptor and a runnable
+      — the insertion itself is `helper_curves.rs:__canvas_cvKnotPoints` and
+      `__canvas_cvRefine` (every knot of the domain raised to multiplicity `degree`);
+      the body validates, refines and cuts the control points into runs of
+      `degree + 1`. `bash scripts/man-run-examples.sh canvas --run` →
+      `canvas::nurbsToBeziers example 1 — ran`.
+- [x] `func_flatten.rs`: a registry function with its descriptor and a runnable
       `example`. The body is adaptive de Casteljau with a chord-distance test against
       `tolerance`.
-- [ ] Tests:
+      — `helper_curves.rs:__canvas_cvFlatten`: a span is flat when every inner control
+      point is within `tolerance` of the chord SEGMENT, which bounds the curve by the
+      hull property. `canvas::flatten example 1 — ran`.
+- [x] Tests:
       - a NURBS unit circle (9 points, degree 2, the standard knot vector) converts to
         4 rational quadratics whose points are within 1e-12 of radius 1, each ending
         where the next begins, so the result is a contour with no implied segment;
@@ -515,10 +531,24 @@ Commit: —
       - `flatten` on a cubic keeps every chord within `tolerance` on dense samples;
       - `flatten` includes both endpoints;
       - `flatten`'s points, used as a `Polygon` contour at the same `position`, build.
+      — `cargo test --release --test rt_canvas_curves` → the five tests named
+      `canvas_nurbs_*` and `canvas_flatten_*` pass. The B-spline test also converts a
+      rational cubic on a clamped vector with a single and a doubled interior knot (3
+      spans). Eleven invalid inputs each return `[]`. Flatten, 4096 samples of the
+      curve against the chords: tolerance 2.0 → 15 points, 0.622 px; 0.1 → 57 points,
+      0.058 px; 0.001 → 461 points, 0.0007 px; a quarter circle at 0.05 → 63 points,
+      0.025 px. A tolerance of 0.0 and of -5.0 return the 0.001 points exactly.
+- [x] Function fixtures (added: `.ai/compiler.md` asks for an invalid fixture for every
+      new function): `tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid` and
+      `func_canvas_flatten_invalid` — wrong argument count, wrong argument types, and
+      a result bound to the wrong type are each refused. The valid half is the runtime
+      tests above; a canvas function cannot run in a fixture, which has no app mode.
 
 Acceptance: both functions are exact or within tolerance, as stated.
   Check: `cargo test --test rt_canvas_curves` → pass (est. 5 min, guess);
   `bash scripts/man-run-examples.sh canvas --run` → pass (est. 3 min, guess).
+  Result (2026-10-11): the five Phase 2 tests pass (`5 passed; 0 failed; 12 filtered
+  out`); `examples: 37   built: 37   ran: 37   not run: 0   failed: 0`.
 Commit: —
 
 ## Validation Plan
@@ -636,6 +666,18 @@ The curve design's own choices are recorded in §3.
     (Validation Plan, "Runtime proof"). The curves measured are the cubic S, a cusp, a
     loop, a rational cubic with weights four orders of magnitude apart, a quintic wave
     and a degree-16 zig-zag; the numbers are on the Phase 1 test task.
+15. **"Run the full suite first" was run as every canvas suite, not `cargo test`**
+    (§3 "Gate"). The only programs whose emitted code moved are the ones that import
+    `canvas` — the gate shows every other fixture byte-identical, and a byte-identical
+    program cannot behave differently. So what was run before re-baselining is every
+    test that builds a canvas program: the five suites Phase 1 names, and then
+    `rt_canvas_{auto_step,damage,debug_hooks,font,frame_stats,geo_arena,geo_native,
+    golden,graphics_thread,group_ownership,image_decode,metal,picture_fit,pointer,
+    present_deep_copy,present_leak,system_fonts}` and
+    `cli_{app_canvas_mode,canvas_image_resource,canvas_man_examples_compile,
+    canvas_package}`, against a frozen copy of the Phase 1 compiler
+    (`MFB_TEST_EXE`) — all `ok`. The whole `cargo test` runs once, at the end of
+    plan-164-C.
 
 ## Summary
 

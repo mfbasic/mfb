@@ -106,6 +106,21 @@ normalised to 1), exactly for degrees 1 and 2 and within 0.05 surface pixels —
 the larger singular value of the shape's own `transform` — for degree 3 and above.
 [[src/codegen/builtins/canvas/helper_curves.rs:CURVE_MATH]]
 [[src/codegen/builtins/canvas/helper_curves.rs:CURVE_CHAIN]]
+
+Two functions hand a program what the reduction is built from. `canvas::nurbsToBeziers`
+converts a NURBS curve exactly, by Boehm's knot insertion: every knot of the domain
+`knots[degree] .. knots[len(controlPoints)]` is raised to multiplicity `degree`, after
+which each run of `degree + 1` control points is one rational Bézier of the same degree.
+Input that is not a curve — a degree outside 1 to 16, fewer than `degree + 1` points, a
+knot count other than points + degree + 1, a decreasing knot, a weight list that is
+neither empty nor one per point, a weight of zero or less, an empty domain — returns
+`[]` and does not raise.
+[[src/codegen/builtins/canvas/func_nurbs_to_beziers.rs:BODY]]
+`canvas::flatten` returns points along one curve by de Casteljau halving: a span is
+taken as its chord once every inner control point is within `tolerance` (at least
+0.001) of the chord segment, which bounds the curve because a curve with positive
+weights lies in the hull of its control points. The first and last points returned are
+the curve's own. [[src/codegen/builtins/canvas/func_flatten.rs:BODY]]
 `INCLUDES` is not subtyping: a `Shape` value is not a `DrawItem`, but each member record
 is a member of every union that reaches it, which is why `canvas::Rectangle[...]` is
 accepted where either is expected.

@@ -1,0 +1,44 @@
+$ mfb build -ast -ir tests/syntax/canvas/func_canvas_flatten_invalid
+  12 |   app::setMode(app::Mode.Canvas)
+  13 |   LET curve AS canvas::BezierCurve = canvas::BezierCurve[points := [vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 1.0, y := 1.0]], weights := []]
+  14 |   LET a AS List OF vector::Float2 = canvas::flatten(curve)
+     | ^
+tests/syntax/canvas/func_canvas_flatten_invalid/src/main.mfb:14 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `canvas.flatten` has 1 argument(s), expected 2.
+  12 |   app::setMode(app::Mode.Canvas)
+  13 |   LET curve AS canvas::BezierCurve = canvas::BezierCurve[points := [vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 1.0, y := 1.0]], weights := []]
+  14 |   LET a AS List OF vector::Float2 = canvas::flatten(curve)
+     | ^
+tests/syntax/canvas/func_canvas_flatten_invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `a` does not have a known type.
+  13 |   LET curve AS canvas::BezierCurve = canvas::BezierCurve[points := [vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 1.0, y := 1.0]], weights := []]
+  14 |   LET a AS List OF vector::Float2 = canvas::flatten(curve)
+  15 |   LET b AS List OF vector::Float2 = canvas::flatten([curve], 0.5)
+     | ^
+tests/syntax/canvas/func_canvas_flatten_invalid/src/main.mfb:15 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `canvas.flatten` has argument type(s) (List OF canvas.BezierCurve, Float), expected canvas.BezierCurve, Float.
+  13 |   LET curve AS canvas::BezierCurve = canvas::BezierCurve[points := [vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 1.0, y := 1.0]], weights := []]
+  14 |   LET a AS List OF vector::Float2 = canvas::flatten(curve)
+  15 |   LET b AS List OF vector::Float2 = canvas::flatten([curve], 0.5)
+     | ^
+tests/syntax/canvas/func_canvas_flatten_invalid/src/main.mfb:15 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+  14 |   LET a AS List OF vector::Float2 = canvas::flatten(curve)
+  15 |   LET b AS List OF vector::Float2 = canvas::flatten([curve], 0.5)
+  16 |   LET c AS List OF vector::Float2 = canvas::flatten(curve, 1)
+     | ^
+tests/syntax/canvas/func_canvas_flatten_invalid/src/main.mfb:16 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `canvas.flatten` has argument type(s) (canvas.BezierCurve, Integer), expected canvas.BezierCurve, Float.
+  14 |   LET a AS List OF vector::Float2 = canvas::flatten(curve)
+  15 |   LET b AS List OF vector::Float2 = canvas::flatten([curve], 0.5)
+  16 |   LET c AS List OF vector::Float2 = canvas::flatten(curve, 1)
+     | ^
+tests/syntax/canvas/func_canvas_flatten_invalid/src/main.mfb:16 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `c` does not have a known type.
+  15 |   LET b AS List OF vector::Float2 = canvas::flatten([curve], 0.5)
+  16 |   LET c AS List OF vector::Float2 = canvas::flatten(curve, 1)
+  17 |   LET d AS List OF canvas::BezierCurve = canvas::flatten(curve, 0.5)
+     | ^
+tests/syntax/canvas/func_canvas_flatten_invalid/src/main.mfb:17 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `d` has initializer type List OF vector.Float2, expected List OF canvas.BezierCurve.
+[exit 1]

@@ -1,0 +1,19 @@
+' plan-164-A: `canvas::flatten` takes one `canvas::BezierCurve` and a `Float` tolerance
+' and returns a list of `vector::Float2`. A wrong argument count, a list of curves where
+' one curve is wanted, an `Integer` tolerance, and a result bound to the wrong type are
+' each refused at compile time. (A curve that breaks a `BezierCurve` rule is not an
+' error: it returns an empty list, checked at run time in
+' `tests/canvas/rt_canvas_curves.rs`.)
+IMPORT app
+IMPORT canvas
+IMPORT vector
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET curve AS canvas::BezierCurve = canvas::BezierCurve[points := [vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 1.0, y := 1.0]], weights := []]
+  LET a AS List OF vector::Float2 = canvas::flatten(curve)
+  LET b AS List OF vector::Float2 = canvas::flatten([curve], 0.5)
+  LET c AS List OF vector::Float2 = canvas::flatten(curve, 1)
+  LET d AS List OF canvas::BezierCurve = canvas::flatten(curve, 0.5)
+  RETURN 0
+END FUNC

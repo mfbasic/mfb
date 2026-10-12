@@ -1,0 +1,68 @@
+$ mfb build -ast -ir tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid
+  14 |   LET weights AS List OF Float = []
+  15 |   LET knots AS List OF Float = [0.0, 0.0, 1.0, 1.0]
+  16 |   LET a AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots)
+     | ^
+tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid/src/main.mfb:16 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `canvas.nurbsToBeziers` has 3 argument(s), expected 4.
+  14 |   LET weights AS List OF Float = []
+  15 |   LET knots AS List OF Float = [0.0, 0.0, 1.0, 1.0]
+  16 |   LET a AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots)
+     | ^
+tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid/src/main.mfb:16 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `a` does not have a known type.
+  15 |   LET knots AS List OF Float = [0.0, 0.0, 1.0, 1.0]
+  16 |   LET a AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots)
+  17 |   LET b AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, [0, 0, 1, 1], 1)
+     | ^
+tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid/src/main.mfb:17 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `canvas.nurbsToBeziers` has argument type(s) (List OF vector.Float2, List OF Float, List OF Integer, Integer), expected List OF vector.Float2, List OF Float, List OF Float, Integer.
+  15 |   LET knots AS List OF Float = [0.0, 0.0, 1.0, 1.0]
+  16 |   LET a AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots)
+  17 |   LET b AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, [0, 0, 1, 1], 1)
+     | ^
+tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid/src/main.mfb:17 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+  16 |   LET a AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots)
+  17 |   LET b AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, [0, 0, 1, 1], 1)
+  18 |   LET c AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots, 1.0)
+     | ^
+tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid/src/main.mfb:18 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `canvas.nurbsToBeziers` has argument type(s) (List OF vector.Float2, List OF Float, List OF Float, Float), expected List OF vector.Float2, List OF Float, List OF Float, Integer.
+  16 |   LET a AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots)
+  17 |   LET b AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, [0, 0, 1, 1], 1)
+  18 |   LET c AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots, 1.0)
+     | ^
+tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid/src/main.mfb:18 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `c` does not have a known type.
+  15 |   LET knots AS List OF Float = [0.0, 0.0, 1.0, 1.0]
+  16 |   LET a AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots)
+  17 |   LET b AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, [0, 0, 1, 1], 1)
+     | ^
+tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid/src/main.mfb:17 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type Integer, expected Float.
+  15 |   LET knots AS List OF Float = [0.0, 0.0, 1.0, 1.0]
+  16 |   LET a AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots)
+  17 |   LET b AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, [0, 0, 1, 1], 1)
+     | ^
+tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid/src/main.mfb:17 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type Integer, expected Float.
+  15 |   LET knots AS List OF Float = [0.0, 0.0, 1.0, 1.0]
+  16 |   LET a AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots)
+  17 |   LET b AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, [0, 0, 1, 1], 1)
+     | ^
+tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid/src/main.mfb:17 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type Integer, expected Float.
+  15 |   LET knots AS List OF Float = [0.0, 0.0, 1.0, 1.0]
+  16 |   LET a AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots)
+  17 |   LET b AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, [0, 0, 1, 1], 1)
+     | ^
+tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid/src/main.mfb:17 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type Integer, expected Float.
+  17 |   LET b AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, [0, 0, 1, 1], 1)
+  18 |   LET c AS List OF canvas::BezierCurve = canvas::nurbsToBeziers(points, weights, knots, 1.0)
+  19 |   LET d AS List OF vector::Float2 = canvas::nurbsToBeziers(points, weights, knots, 1)
+     | ^
+tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid/src/main.mfb:19 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `d` has initializer type List OF canvas.BezierCurve, expected List OF vector.Float2.
+[exit 1]

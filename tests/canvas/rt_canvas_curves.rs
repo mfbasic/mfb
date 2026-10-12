@@ -858,6 +858,39 @@ FUNC conic(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 A
   RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2)], weights := [1.0, w, 1.0]]
 END FUNC
 
+' A float to every bit: `v * 2^20` split at the binary point, the fraction in 2^-40ths.
+FUNC exact(v AS Float) AS String
+  LET scaled AS Float = v * 1048576.0
+  LET hi AS Integer = toInt(scaled)
+  LET lo AS Integer = toInt((scaled - toFloat(hi)) * 1099511627776.0)
+  RETURN toString(hi) & ":" & toString(lo)
+END FUNC
+
+' One line a curve: `tag x y x y ... / w w ...`, after a line counting them.
+FUNC showCurves(tag AS String, curves AS List OF canvas::BezierCurve) AS Nothing
+  io::print(tag & "-count " & toString(len(curves)))
+  FOR EACH c IN curves
+    MUT text AS String = tag
+    FOR EACH q IN c.points
+      text = text & " " & exact(q.x) & " " & exact(q.y)
+    NEXT
+    text = text & " /"
+    FOR EACH w IN c.weights
+      text = text & " " & exact(w)
+    NEXT
+    io::print(text)
+  NEXT
+END FUNC
+
+' One line: `tag x y x y ...`.
+FUNC showPoints(tag AS String, points AS List OF vector::Float2) AS Nothing
+  MUT text AS String = tag
+  FOR EACH q IN points
+    text = text & " " & exact(q.x) & " " & exact(q.y)
+  NEXT
+  io::print(text)
+END FUNC
+
 ' Every injected press, in order, as the bracketed `overID` it reported.
 FUNC report(tag AS String) AS Nothing
   canvas::enableMouse(TRUE)
@@ -913,8 +946,12 @@ fn scene(name: &str, body: &str, functions: &str, presses: &[(u32, u32)]) -> Sce
         common::exit_description(&run.status),
         String::from_utf8_lossy(&run.stderr),
     );
-    let pixels = std::fs::read(&frame).unwrap_or_else(|e| panic!("no canvas dump: {e}\n{stdout}"));
-    assert_eq!(pixels.len(), WIDTH * HEIGHT * 4, "the dump is one frame");
+    // A program that presents nothing leaves no dump, and its frame is empty.
+    let pixels = std::fs::read(&frame).unwrap_or_default();
+    assert!(
+        pixels.is_empty() || pixels.len() == WIDTH * HEIGHT * 4,
+        "the dump is one frame"
+    );
     let lines = std::fs::read_to_string(&stats)
         .unwrap_or_default()
         .lines()
@@ -1025,4 +1062,470 @@ END FUNC
         .count();
     assert_eq!(other, 0, "nothing but the square and the background is drawn");
     assert_eq!(run.stat("geoVerifyMismatches"), "0");
+}
+
+// ---- canvas::nurbsToBeziers and canvas::flatten (plan-164-A Phase 2) ----------------
+
+impl Scene {
+    /// The curves a `showCurves(tag, …)` printed, after checking its count line.
+    fn curves(&self, tag: &str) -> Vec<Curve> {
+        let count: usize = self
+            .stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(&format!("{tag}-count ")))
+            .unwrap_or_else(|| panic!("no `{tag}-count` line:\n{}", self.stdout))
+            .parse()
+            .expect("a count");
+        let prefix = format!("{tag} ");
+        let curves: Vec<Curve> = self
+            .stdout
+            .lines()
+            .filter_map(|line| line.strip_prefix(prefix.as_str()))
+            .map(|line| {
+                let (xy, w) = line.split_once('/').expect("points / weights");
+                let xy: Vec<f64> = xy.split_whitespace().map(value).collect();
+                Curve {
+                    points: xy.chunks(2).map(|p| (p[0], p[1])).collect(),
+                    weights: w.split_whitespace().map(value).collect(),
+                }
+            })
+            .collect();
+        assert_eq!(curves.len(), count, "{tag}:\n{}", self.stdout);
+        curves
+    }
+
+    /// The points a `showPoints(tag, …)` printed.
+    fn points(&self, tag: &str) -> Vec<(f64, f64)> {
+        let prefix = format!("{tag} ");
+        let line = self
+            .stdout
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix(prefix.as_str())
+                    .or_else(|| (line == tag).then_some(""))
+            })
+            .unwrap_or_else(|| panic!("no `{tag}` line:\n{}", self.stdout));
+        let xy: Vec<f64> = line.split_whitespace().map(value).collect();
+        xy.chunks(2).map(|p| (p[0], p[1])).collect()
+    }
+}
+
+/// A `Float` as MFBASIC source. A negative one is written as a subtraction, the way
+/// the canvas sources write theirs.
+fn float_source(v: f64) -> String {
+    if v < 0.0 {
+        format!("0.0 - {:?}", -v)
+    } else {
+        format!("{v:?}")
+    }
+}
+
+/// A list of `Float` as MFBASIC source.
+fn float_list(values: &[f64]) -> String {
+    let spelled: Vec<String> = values.iter().map(|v| float_source(*v)).collect();
+    format!("[{}]", spelled.join(", "))
+}
+
+/// A list of `vector::Float2` as MFBASIC source.
+fn point_list(points: &[(f64, f64)]) -> String {
+    let spelled: Vec<String> = points
+        .iter()
+        .map(|(x, y)| format!("at({}, {})", float_source(*x), float_source(*y)))
+        .collect();
+    format!("[{}]", spelled.join(", "))
+}
+
+/// A NURBS curve, evaluated directly: the Cox–de Boor recurrence over the knot vector,
+/// on the weighted points. Nothing here is shared with the conversion under test.
+struct Nurbs {
+    points: Vec<(f64, f64)>,
+    weights: Vec<f64>,
+    knots: Vec<f64>,
+    degree: usize,
+}
+
+impl Nurbs {
+    fn basis(&self, i: usize, p: usize, u: f64) -> f64 {
+        if p == 0 {
+            return if self.knots[i] <= u && u < self.knots[i + 1] {
+                1.0
+            } else {
+                0.0
+            };
+        }
+        let mut value = 0.0;
+        let left = self.knots[i + p] - self.knots[i];
+        if left > 0.0 {
+            value += (u - self.knots[i]) / left * self.basis(i, p - 1, u);
+        }
+        let right = self.knots[i + p + 1] - self.knots[i + 1];
+        if right > 0.0 {
+            value += (self.knots[i + p + 1] - u) / right * self.basis(i + 1, p - 1, u);
+        }
+        value
+    }
+
+    fn at(&self, u: f64) -> (f64, f64) {
+        let (mut x, mut y, mut w) = (0.0, 0.0, 0.0);
+        for (i, (px, py)) in self.points.iter().enumerate() {
+            let weight = self.weights.get(i).copied().unwrap_or(1.0);
+            let b = self.basis(i, self.degree, u) * weight;
+            x += b * px;
+            y += b * py;
+            w += b;
+        }
+        (x / w, y / w)
+    }
+
+    /// The distinct knots of the domain `knots[degree] ..= knots[points]`.
+    fn breaks(&self) -> Vec<f64> {
+        let (first, last) = (self.knots[self.degree], self.knots[self.points.len()]);
+        let mut out: Vec<f64> = vec![];
+        for k in &self.knots {
+            if *k >= first && *k <= last && out.last() != Some(k) {
+                out.push(*k);
+            }
+        }
+        out
+    }
+
+    /// The call that converts it, printed under `tag`.
+    fn call(&self, tag: &str) -> String {
+        format!(
+            "  showCurves(\"{tag}\", canvas::nurbsToBeziers({}, {}, {}, {}))\n",
+            point_list(&self.points),
+            float_list(&self.weights),
+            float_list(&self.knots),
+            self.degree
+        )
+    }
+
+    /// Every Bézier the conversion returned agrees with the NURBS itself, at 256
+    /// parameters across each span, to `tolerance`.
+    fn assert_matches(&self, beziers: &[Curve], tolerance: f64, what: &str) {
+        let breaks = self.breaks();
+        assert_eq!(beziers.len(), breaks.len() - 1, "{what}: one Bézier a span");
+        for (span, bezier) in beziers.iter().enumerate() {
+            assert_eq!(
+                bezier.points.len(),
+                self.degree + 1,
+                "{what}: the degree is kept"
+            );
+            let (lo, hi) = (breaks[span], breaks[span + 1]);
+            for i in 0..256 {
+                // Strictly inside the span: the recurrence is half-open at a knot.
+                let t = (i as f64 + 0.5) / 256.0;
+                let want = self.at(lo + t * (hi - lo));
+                let got = bezier.at(t);
+                assert!(
+                    distance(want, got) <= tolerance,
+                    "{what}: span {span} at t={t}: {got:?}, the NURBS is at {want:?}"
+                );
+            }
+        }
+    }
+}
+
+/// The standard NURBS circle — nine points round a square, degree 2, each interior
+/// knot doubled — is four rational quadratics. Every point of each is at radius 1 to
+/// `1e-12`, each ends exactly where the next begins, and the last ends where the first
+/// began: the list is a closed contour as it stands, with no implied segment.
+#[test]
+fn canvas_nurbs_a_circle_converts_to_four_exact_arcs() {
+    let corner = SQRT_HALF;
+    let circle = Nurbs {
+        points: vec![
+            (1.0, 0.0),
+            (1.0, 1.0),
+            (0.0, 1.0),
+            (-1.0, 1.0),
+            (-1.0, 0.0),
+            (-1.0, -1.0),
+            (0.0, -1.0),
+            (1.0, -1.0),
+            (1.0, 0.0),
+        ],
+        weights: vec![1.0, corner, 1.0, corner, 1.0, corner, 1.0, corner, 1.0],
+        knots: vec![
+            0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
+        ],
+        degree: 2,
+    };
+    let run = scene("canvas_nurbs_circle", &circle.call("arc"), "", &[]);
+    let arcs = run.curves("arc");
+    assert_eq!(arcs.len(), 4);
+    for (index, arc) in arcs.iter().enumerate() {
+        assert_eq!(arc.points.len(), 3, "a rational quadratic");
+        assert_eq!(arc.weights, vec![1.0, corner, 1.0]);
+        for i in 0..=256 {
+            let (x, y) = arc.at(i as f64 / 256.0);
+            let radius = (x * x + y * y).sqrt();
+            assert!(
+                (radius - 1.0).abs() <= 1e-12,
+                "arc {index}: radius {radius:?}"
+            );
+        }
+        let next = &arcs[(index + 1) % 4];
+        assert_eq!(arc.points[2], next.points[0], "arc {index} meets the next");
+    }
+    circle.assert_matches(&arcs, 1e-12, "the circle");
+}
+
+/// A B-spline whose knots are NOT clamped — a uniform cubic, knots 0 to 10 — converts
+/// to the Béziers of its domain (knots 3 to 7, four spans), and each agrees with the
+/// B-spline evaluated directly, at 256 parameters, to `1e-12`. Then a rational curve
+/// on a clamped vector with a single and a doubled interior knot, the same way.
+#[test]
+fn canvas_nurbs_a_b_spline_converts_to_the_beziers_of_its_spans() {
+    let uniform = Nurbs {
+        points: vec![
+            (0.0, 0.0),
+            (1.0, 4.0),
+            (3.0, 5.0),
+            (4.0, 1.0),
+            (6.0, 0.0),
+            (7.0, 3.0),
+            (8.0, 6.0),
+        ],
+        weights: vec![],
+        knots: (0..11).map(f64::from).collect(),
+        degree: 3,
+    };
+    let mixed = Nurbs {
+        points: vec![
+            (0.0, 0.0),
+            (2.0, 6.0),
+            (5.0, 7.0),
+            (6.0, 2.0),
+            (8.0, 1.0),
+            (9.0, 5.0),
+            (7.0, 8.0),
+        ],
+        weights: vec![1.0, 2.0, 0.5, 1.0, 3.0, 0.75, 1.0],
+        knots: vec![0.0, 0.0, 0.0, 0.0, 1.0, 2.5, 2.5, 4.0, 4.0, 4.0, 4.0],
+        degree: 3,
+    };
+    let run = scene(
+        "canvas_nurbs_spline",
+        &(uniform.call("uniform") + &mixed.call("mixed")),
+        "",
+        &[],
+    );
+    let beziers = run.curves("uniform");
+    assert_eq!(beziers.len(), 4);
+    assert!(
+        beziers.iter().all(|b| b.weights.is_empty()),
+        "no weights in, none out"
+    );
+    uniform.assert_matches(&beziers, 1e-12, "the uniform cubic");
+    for pair in beziers.windows(2) {
+        assert_eq!(pair[0].points[3], pair[1].points[0], "the chain is joined");
+    }
+
+    let beziers = run.curves("mixed");
+    assert_eq!(beziers.len(), 3, "spans 0-1, 1-2.5 and 2.5-4");
+    assert!(beziers.iter().all(|b| b.weights.len() == 4));
+    mixed.assert_matches(&beziers, 1e-12, "the rational cubic");
+    assert_eq!(
+        beziers[0].points[0],
+        (0.0, 0.0),
+        "clamped: it starts on its first point"
+    );
+    assert_eq!(beziers[2].points[3], (7.0, 8.0), "and ends on its last");
+}
+
+/// Input that is not a curve returns `[]` and does not raise — every rule the manual
+/// lists, one at a time, against a call that differs from a valid one in that alone.
+#[test]
+fn canvas_nurbs_invalid_input_returns_an_empty_list() {
+    let points = [(0.0, 0.0), (1.0, 2.0), (3.0, 2.0), (4.0, 0.0)];
+    let ones = [1.0, 1.0, 1.0, 1.0];
+    let knots = [0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0];
+    let call = |tag: &str, points: &[(f64, f64)], weights: &[f64], knots: &[f64], degree: &str| {
+        format!(
+            "  showCurves(\"{tag}\", canvas::nurbsToBeziers({}, {}, {}, {degree}))\n",
+            point_list(points),
+            float_list(weights),
+            float_list(knots)
+        )
+    };
+    let cases: Vec<(&str, String)> = vec![
+        ("valid", call("valid", &points, &ones, &knots, "2")),
+        ("unweighted", call("unweighted", &points, &[], &knots, "2")),
+        ("degree0", call("degree0", &points, &ones, &knots, "0")),
+        ("degree17", call("degree17", &points, &ones, &knots, "17")),
+        (
+            "negdegree",
+            call("negdegree", &points, &ones, &knots, "0 - 1"),
+        ),
+        (
+            "fewknots",
+            call("fewknots", &points, &ones, &knots[..6], "2"),
+        ),
+        (
+            "manyknots",
+            call(
+                "manyknots",
+                &points,
+                &ones,
+                &[0.0, 0.0, 0.0, 0.5, 0.7, 1.0, 1.0, 1.0],
+                "2",
+            ),
+        ),
+        (
+            "decreasing",
+            call(
+                "decreasing",
+                &points,
+                &ones,
+                &[0.0, 0.0, 0.0, 0.5, 0.25, 1.0, 1.0],
+                "2",
+            ),
+        ),
+        (
+            "zeroweight",
+            call("zeroweight", &points, &[1.0, 0.0, 1.0, 1.0], &knots, "2"),
+        ),
+        (
+            "negweight",
+            call("negweight", &points, &[1.0, -2.0, 1.0, 1.0], &knots, "2"),
+        ),
+        (
+            "shortweights",
+            call("shortweights", &points, &[1.0, 1.0, 1.0], &knots, "2"),
+        ),
+        // Degree 3 needs four points for one span; two points cannot carry it.
+        (
+            "fewpoints",
+            call(
+                "fewpoints",
+                &points[..2],
+                &[],
+                &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                "3",
+            ),
+        ),
+        // Every knot the same: `knots[degree]` is not below `knots[points]`.
+        ("nodomain", call("nodomain", &points, &ones, &[2.0; 7], "2")),
+    ];
+    let body: String = cases.iter().map(|(_, c)| c.as_str()).collect();
+    let run = scene("canvas_nurbs_invalid", &body, "", &[]);
+    assert_eq!(run.curves("valid").len(), 2, "the control case converts");
+    assert_eq!(run.curves("unweighted").len(), 2);
+    for (tag, _) in &cases[2..] {
+        assert!(run.curves(tag).is_empty(), "{tag} is not a curve");
+    }
+}
+
+/// How far `q` is from the polyline through `points`.
+fn polyline_distance(points: &[(f64, f64)], q: (f64, f64)) -> f64 {
+    points
+        .windows(2)
+        .map(|s| segment_distance(s[0], s[1], q))
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// `canvas::flatten`: the points begin on the curve's first point and end on its last,
+/// exactly; every point of the curve is within `tolerance` of the chords between them
+/// (4096 samples); a smaller tolerance returns more points; a tolerance below 0.001 —
+/// zero and negative included — is 0.001; a straight curve is its two ends; an invalid
+/// curve is `[]`.
+#[test]
+fn canvas_flatten_stays_within_its_tolerance() {
+    let s = cubic_s();
+    let quarter = rational(
+        &[(100.0, 0.0), (100.0, 100.0), (0.0, 100.0)],
+        &[1.0, SQRT_HALF, 1.0],
+    );
+    let curve = |c: &Curve| {
+        format!(
+            "canvas::BezierCurve[points := {}, weights := {}]",
+            point_list(&c.points),
+            float_list(&c.weights)
+        )
+    };
+    let body = format!(
+        "  LET s AS canvas::BezierCurve = {}\n  \
+         LET q AS canvas::BezierCurve = {}\n  \
+         showPoints(\"coarse\", canvas::flatten(s, 2.0))\n  \
+         showPoints(\"fine\", canvas::flatten(s, 0.1))\n  \
+         showPoints(\"floor\", canvas::flatten(s, 0.001))\n  \
+         showPoints(\"zero\", canvas::flatten(s, 0.0))\n  \
+         showPoints(\"negative\", canvas::flatten(s, 0.0 - 5.0))\n  \
+         showPoints(\"arc\", canvas::flatten(q, 0.05))\n  \
+         showPoints(\"straight\", canvas::flatten(line(10.0, 20.0, 30.0, 60.0), 0.5))\n  \
+         showPoints(\"broken\", canvas::flatten(canvas::BezierCurve[points := [at(0.0, 0.0), at(5.0, 5.0), at(9.0, 0.0)], weights := [1.0, 0.0, 1.0]], 0.5))\n  \
+         showPoints(\"single\", canvas::flatten(canvas::BezierCurve[points := [at(0.0, 0.0)], weights := []], 0.5))\n",
+        curve(&s),
+        curve(&quarter),
+    );
+    let run = scene("canvas_flatten", &body, "", &[]);
+
+    for (tag, tolerance, input) in [
+        ("coarse", 2.0, &s),
+        ("fine", 0.1, &s),
+        ("floor", 0.001, &s),
+        ("arc", 0.05, &quarter),
+    ] {
+        let points = run.points(tag);
+        assert_eq!(points[0], input.points[0], "{tag}: the first point");
+        assert_eq!(points.last(), input.points.last(), "{tag}: the last point");
+        let worst = (0..=4096)
+            .map(|i| polyline_distance(&points, input.at(i as f64 / 4096.0)))
+            .fold(0.0, f64::max);
+        println!(
+            "flatten {tag}: {} points, max deviation {worst:.6}",
+            points.len()
+        );
+        assert!(worst <= tolerance, "{tag}: the chords stray {worst}");
+    }
+    let (coarse, fine, floor) = (
+        run.points("coarse"),
+        run.points("fine"),
+        run.points("floor"),
+    );
+    assert!(coarse.len() < fine.len() && fine.len() < floor.len());
+    assert_eq!(run.points("zero"), floor, "0.0 is treated as 0.001");
+    assert_eq!(run.points("negative"), floor, "and so is a negative one");
+    assert_eq!(run.points("straight"), vec![(10.0, 20.0), (30.0, 60.0)]);
+    assert!(run.points("broken").is_empty());
+    assert!(run.points("single").is_empty());
+}
+
+/// `flatten`'s points are a `Polygon` contour as they stand, at the same `position` the
+/// curve's shape would have. A lens: a quadratic up and a quadratic back, flattened and
+/// joined. Its top edge is `y = -160 t(1 - t)` over `x = 200 t`, so it is 40 above the
+/// chord at the middle; at `position` (100, 300) the lens spans y = 260 to 340 on
+/// x = 200. (200, 300) is its centre; (200, 262) and (200, 337) are 2 px inside its top
+/// and bottom, (200, 257) and (200, 342) 3 px outside them; (95, 300) is left of its
+/// first point.
+#[test]
+fn canvas_flatten_points_build_a_polygon() {
+    let run = scene(
+        "canvas_flatten_polygon",
+        r#"  LET up AS canvas::BezierCurve = canvas::BezierCurve[points := [at(0.0, 0.0), at(100.0, 0.0 - 80.0), at(200.0, 0.0)], weights := []]
+  LET down AS canvas::BezierCurve = canvas::BezierCurve[points := [at(200.0, 0.0), at(100.0, 80.0), at(0.0, 0.0)], weights := []]
+  MUT outline AS List OF vector::Float2 = canvas::flatten(up, 0.05)
+  LET back AS List OF vector::Float2 = canvas::flatten(down, 0.05)
+  MUT i AS Integer = 1
+  WHILE i < len(back)
+    outline = collections::append(outline, collections::getOr(back, i, at(0.0, 0.0)))
+    i = i + 1
+  END WHILE
+  MUT lens AS canvas::Polygon
+  lens = WITH lens { position := at(100.0, 300.0), contours := [outline], paint := canvas::fill(color::rgb(0, 0, 255)) }
+  LET item AS canvas::DrawItem = lens
+  canvas::present([item])
+"#,
+        "",
+        &[],
+    );
+    let blue = (0, 0, 255, 255);
+    let black = (0, 0, 0, 255);
+    assert_eq!(run.pixel(200, 300), blue, "the centre");
+    assert_eq!(run.pixel(200, 262), blue, "2 px inside the top");
+    assert_eq!(run.pixel(200, 337), blue, "2 px inside the bottom");
+    assert_eq!(run.pixel(200, 257), black, "3 px above the top");
+    assert_eq!(run.pixel(200, 342), black, "3 px below the bottom");
+    assert_eq!(run.pixel(95, 300), black, "left of the first point");
 }
