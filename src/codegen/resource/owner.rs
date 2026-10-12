@@ -161,6 +161,55 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// The one test behind every take (a float, a claim, an adopting push):
+    /// branch to `take` when the scope whose token is in `token` takes the record
+    /// whose owner word is in `owner`, and fall through when the record keeps its
+    /// owner.
+    ///
+    /// A scope takes a record that is unowned (`0`), or owned by a scope of THIS
+    /// STACK inside it. "Inside" is "a smaller token" only among the scopes of one
+    /// stack: a token is a stack address, and another thread's stack lies wholly
+    /// above or wholly below this one, so a bare `owner < token` would let a
+    /// function running on one thread take (and then close) a record a scope of
+    /// another thread owns, whenever that thread's stack happened to be lower. A
+    /// `Mode.Canvas` program does exactly that: the scene a worker presents holds
+    /// aliases to fonts and images its own scopes own, and the helpers that walk
+    /// it read them from another stack. So the owner's frame must also be at or
+    /// above this frame's stack pointer, which with `owner < token` places it
+    /// between the two on one stack. A record owned by a frame that has already
+    /// returned (below the stack pointer) is one that frame closed; it keeps its
+    /// owner word too.
+    pub(crate) fn emit_branch_if_takeable(
+        &mut self,
+        owner: impl Into<Reg>,
+        token: impl Into<Reg>,
+        take: &str,
+    ) {
+        let (owner, token): (Reg, Reg) = (owner.into(), token.into());
+        let below = self.label("resource_take_below");
+        let keep = self.label("resource_take_keep");
+        // Unsigned: an unowned record (`0`) is below every token.
+        self.emit(abi::compare_registers(&owner, &token));
+        self.emit(abi::branch_lo(&below));
+        self.emit(abi::branch(&keep));
+        self.emit(abi::label(&below));
+        self.emit(abi::compare_immediate(&owner, "0"));
+        self.emit(abi::branch_eq(take));
+        let frame = self.allocate_register();
+        self.emit(abi::shift_right_immediate(
+            &frame,
+            &owner,
+            SCOPE_TOKEN_DEPTH_BITS,
+        ));
+        self.emit(abi::add_immediate(&frame, &frame, 1));
+        let stack = self.allocate_register();
+        self.emit(abi::add_immediate(&stack, abi::stack_pointer(), 0));
+        self.emit(abi::compare_registers(&frame, &stack));
+        self.emit(abi::branch_lo(&keep));
+        self.emit(abi::branch(take));
+        self.emit(abi::label(&keep));
+    }
+
     /// Float the record in `record` up to the scope at `depth` (an owner
     /// collection's scope): an unowned record, or one owned by a scope inside
     /// `depth`'s, takes `depth`'s token. A record owned by an enclosing scope or an
@@ -174,8 +223,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&owner, record, RESOURCE_OFFSET_OWNER));
         let token = self.emit_scope_token(depth)?;
         // Unsigned: an unowned record (`0`) is below every token, so it is taken too.
-        self.emit(abi::compare_registers(&owner, &token));
-        self.emit(abi::branch_lo(&take));
+        self.emit_branch_if_takeable(&owner, &token, &take);
         self.emit(abi::branch(&done));
         self.emit(abi::label(&take));
         self.emit(abi::store_u64(&token, record, RESOURCE_OFFSET_OWNER));
@@ -443,8 +491,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(token, abi::stack_pointer(), token_slot));
         // Unsigned, as `emit_resource_float`: raised only when below the token.
         let take = self.label("resource_claim_against_take");
-        self.emit(abi::compare_registers(owner, token));
-        self.emit(abi::branch_lo(&take));
+        self.emit_branch_if_takeable(owner, token, &take);
         self.emit(abi::branch(&done));
         self.emit(abi::label(&take));
         self.emit(abi::store_u64(token, record, RESOURCE_OFFSET_OWNER));

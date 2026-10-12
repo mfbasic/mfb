@@ -462,8 +462,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(owner, record, RESOURCE_OFFSET_OWNER));
             let token = self.emit_scope_token(depth)?;
             // Unsigned, as `emit_resource_float`: taken only when below the token.
-            self.emit(abi::compare_registers(owner, token));
-            self.emit(abi::branch_lo(&kept));
+            self.emit_branch_if_takeable(owner, token, &kept);
             self.emit(abi::label(&skipped));
             self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
             self.emit(abi::label(&kept));

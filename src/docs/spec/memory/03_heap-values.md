@@ -389,6 +389,16 @@ Tokens need no per-thread state: each thread runs on its own stack, and a record
 changes thread only through `thread::transfer`/`thread::accept`, whose copy starts
 unowned. [[src/codegen/resource/owner.rs:SCOPE_TOKEN_DEPTH_BITS]]
 
+**Taking** a record (a binding's claim, a float, an adopting push) is one test: the
+record is unowned, or its owner is a scope of the taker's own stack inside the
+taker's — the owner word is below the taker's token and its frame is at or above
+the current stack pointer. "Below" alone orders scopes of one stack only. A
+reference can be read on another thread without the record changing thread (a
+`Mode.Canvas` scene's items alias fonts and images the presenting scopes own), and
+that thread's stack is wholly above or wholly below; without the second half a
+function there would take, and then close, a record another thread's scope owns.
+[[src/codegen/resource/owner.rs:emit_branch_if_takeable]]
+
 **The module instance owner.** A record stored into a module-level binding is owned
 by the module instance: its owner word is `MODULE_OWNER_TOKEN`, all ones. No frame
 token equals it — `(addr << 12) - depth` is all ones only for `depth == 1` at a

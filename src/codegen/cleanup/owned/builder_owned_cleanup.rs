@@ -389,8 +389,7 @@ impl CodeBuilder<'_> {
                 let token = self.emit_scope_token(depth)?;
                 // Unsigned, as `emit_resource_float`: an unowned record (`0`) and
                 // one owned deeper are below the token and are taken.
-                self.emit(abi::compare_registers(owner, token));
-                self.emit(abi::branch_lo(&take));
+                self.emit_branch_if_takeable(owner, token, &take);
                 self.emit(abi::branch(listed));
                 self.emit(abi::label(&take));
             }
@@ -731,8 +730,7 @@ impl CodeBuilder<'_> {
             let token = builder.allocate_register();
             builder.emit(abi::load_u64(token, cell, 8));
             // Unsigned, as `emit_resource_float`: taken only when below the token.
-            builder.emit(abi::compare_registers(owner, token));
-            builder.emit(abi::branch_lo(&take));
+            builder.emit_branch_if_takeable(owner, token, &take);
             builder.emit(abi::branch(&done));
             builder.emit(abi::label(&take));
             builder.emit(abi::store_u64(token, record, RESOURCE_OFFSET_OWNER));

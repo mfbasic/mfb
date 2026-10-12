@@ -362,8 +362,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(token, sp, token_slot));
         // Unsigned: an unowned record (`0`) is below every token, so it is taken too;
         // one owned here or further out keeps its owner (ownership only floats up).
-        self.emit(abi::compare_registers(owner, token));
-        self.emit(abi::branch_lo(&take));
+        self.emit_branch_if_takeable(owner, token, &take);
         self.emit(abi::branch(if take_only { &done } else { &push }));
         self.emit(abi::label(&take));
         self.emit(abi::store_u64(token, record, RESOURCE_OFFSET_OWNER));
