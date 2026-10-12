@@ -1,6 +1,6 @@
 # bug-995: A `Paint.clip` on a transformed item evaluates the whole clip five times on every pixel, with no early-out, so the canvas-demo menu renders at 273 ms a frame on Vulkan
 
-Last updated: 2026-10-06
+Last updated: 2026-10-12
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other (Performance)
@@ -52,6 +52,42 @@ References:
 - `planning/completed/plan-163-C-clip-path-transparency.md` §4 / Correction 4: why a path clip is divided by its own gradient (the five clip samples)
 - bug-991 (a transformed item's bounds pad scales with magnification): related cost on transformed items, but NOT this cause (the transformed no-clip controls below are fast)
 - Found while profiling the canvas-demo menu on box 206 (5 fps windowed, ~213 ms render phase)
+
+## Re-verified 2026-10-12: still reproduces on Metal; a group matrix now takes the same path (HEAD `555130a25`)
+
+`bugs/repro/bug-995/clips.mfb` (arguments: clip points, scale, frames; 0 means none):
+150 clipped 100×100 px squares, `mfb build --app --debug`, headless with
+`MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS`, 40 frames, all on the GPU
+(`gpuFrames=40`); ms/frame = `phaseRenderMs / gpuFrames`:
+
+| scene | Metal ms/frame |
+| --- | --- |
+| no clip, untransformed | 5.6 |
+| 64-pt clip, untransformed | 5.9 |
+| 28-pt clip, untransformed | 8.5 |
+| no clip, scale 4 | 8.6 |
+| **64-pt clip, scale 4** | **17.9** |
+| **28-pt clip, scale 4** | **23.8** |
+| no clip, scale 0.1 | 7.5 |
+| **64-pt clip, scale 0.1** | **12.9** |
+
+The same 2× on Metal as before. Box 206 (Vulkan) was not re-measured.
+
+Two things changed in the shader since this was written, and both widen the bug:
+
+- `clipMapped` is now `itemMapped || grouped` (plan-172-H) in both
+  `mfb_canvas.frag:shapeCoverage` and `metal.rs:METAL_SHADER_BODY`. An untransformed
+  clipped item inside a `canvas::Group` that has a matrix therefore takes the five
+  unbounded clip samples too. Not measured.
+- `clipSampled` is `clipMode == 2 || (clipMode == 1 && grouped)`: under a group matrix a
+  *rectangle* clip is sampled five times as well, through `clipRectDistance`, which is a
+  closed form and not an edge walk, so it is expected to be cheap. Not measured.
+
+The Fix Design's `clipReach` must use the composed norm the shape's `reach` now uses
+(`norm * length(gi)` when grouped), not the item's inverse alone.
+
+The API name has moved: the transform is the item's `transform` field since plan-172-C,
+not `Paint.transform`. `Paint.clip` is unchanged.
 
 ## Failing Reproduction
 

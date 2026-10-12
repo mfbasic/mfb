@@ -1,0 +1,46 @@
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+IMPORT os
+IMPORT vector
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = []
+  FOR i = 0 TO n - 1
+    LET a AS Float = toFloat(i) * 6.2831853 / toFloat(n)
+    out = collections::append(out, at(cx + math::cos(a) * r, cy + math::sin(a) * r))
+  NEXT
+  RETURN out
+END FUNC
+
+' args: clipPoints (0 = none), scale (0 = no transform), frames
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET pts AS Integer = toInt(collections::get(os::args(), 0))
+  LET s AS Float = toFloat(collections::get(os::args(), 1))
+  LET total AS Integer = toInt(collections::get(os::args(), 2))
+  MUT k AS Float = 1.0
+  IF s > 0.0 THEN k = s
+  MUT frame AS Integer = 0
+  DO WHILE frame < total
+    MUT scene AS List OF canvas::DrawItem = []
+    FOR i = 0 TO 149
+      LET x AS Float = (20.0 + toFloat(i MOD 15) * 52.0 + toFloat(frame MOD 7)) / k
+      LET y AS Float = (20.0 + toFloat(i / 15) * 52.0) / k
+      LET w AS Float = 100.0 / k
+      MUT cl AS List OF List OF vector::Float2 = []
+      IF pts > 0 THEN cl = [ring(pts, x + w / 2.0, y + w / 2.0, w * 0.45)]
+      MUT t AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      IF s > 0.0 THEN t = canvas::Transform[a := s, b := 0.0, c := 0.0, d := s, tx := 0.0, ty := 0.0]
+      scene = collections::append(scene, canvas::Polygon[id := "", position := at(0.0, 0.0), contours := [[at(x, y), at(x + w, y), at(x + w, y + w), at(x, y + w)]], rule := canvas::FillRule.NonZero, paint := WITH canvas::fill(color::rgba(80, 160, 220, 90)) { clip := cl }, transform := t])
+    NEXT
+    canvas::present(scene)
+    frame = frame + 1
+  LOOP
+END FUNC
