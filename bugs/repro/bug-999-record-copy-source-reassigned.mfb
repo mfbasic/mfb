@@ -1,0 +1,84 @@
+IMPORT io
+IMPORT os
+IMPORT fs
+IMPORT tcp
+IMPORT collections
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE HB
+  h AS RES Handle
+END TYPE
+
+FUNC openOne AS RES fs::File
+  RETURN fs::openFile("/tmp/g933/data.txt")
+END FUNC
+
+FUNC which(label AS String, h AS Handle) AS Integer
+  MATCH h
+    CASE fs::File(f)
+      LET text AS String = fs::readAll(f)
+      RETURN 1
+    CASE tcp::Socket(s)
+      RETURN 2
+  END MATCH
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  MUT t AS Integer = 0
+  FOR i = 1 TO toInt(os::getEnvOr("N", "10"))
+    t = t + once()
+  NEXT
+  io::print(toString(t))
+  RETURN 0
+END FUNC
+FUNC whichF(label AS String, f AS fs::File) AS Integer
+  LET text AS String = fs::readAll(f)
+  RETURN 1
+END FUNC
+TYPE Bag
+  n AS Integer
+  hs AS List OF RES fs::File
+END TYPE
+TYPE UBag
+  n AS Integer
+  hs AS List OF RES Handle
+END TYPE
+TYPE MBag
+  n AS Integer
+  m AS Map OF String TO RES fs::File
+END TYPE
+TYPE Outer
+  bag AS Bag
+  tag AS Integer
+END TYPE
+FUNC mkBag() AS Bag
+  RES a AS fs::File = openOne()
+  LET b AS Bag = Bag[1, [a]]
+  RETURN b
+END FUNC
+FUNC countBag(b AS Bag) AS Integer
+  MUT t AS Integer = 0
+  FOR EACH h IN b.hs
+    t = t + whichF("e", h)
+  NEXT
+  RETURN t
+END FUNC
+MUT gKeep AS List OF RES fs::File = []
+FUNC once() AS Integer
+  MUT b AS Bag = mkBag()
+  LET c AS Bag = WITH b { n := 2 }
+  b = mkBag()
+  MUT t AS Integer = 0
+  FOR EACH h IN c.hs
+    t = t + whichF("e", h)
+  NEXT
+  FOR EACH h IN b.hs
+    t = t + whichF("e", h)
+  NEXT
+  RETURN t - 1
+END FUNC

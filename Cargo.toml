@@ -1087,6 +1087,10 @@ name = "rt_resource_last_holder"
 path = "tests/runtime/rt_resource_last_holder.rs"
 
 [[test]]
+name = "rt_resource_model"
+path = "tests/runtime/rt_resource_model.rs"
+
+[[test]]
 name = "rt_resource_store_float"
 path = "tests/runtime/rt_resource_store_float.rs"
 

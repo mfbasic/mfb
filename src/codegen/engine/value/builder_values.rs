@@ -442,7 +442,32 @@ impl CodeBuilder<'_> {
             // next scope depth's), so a callee it is handed to cannot take it and
             // a taker that outlives the statement raises it.
             let depth = self.current_scope_depth() + 1;
-            if self.resource_union_cleanup(&result.type_).is_some() {
+            let union = self.resource_union_cleanup(&result.type_).is_some();
+            // Only the temporary that TAKES the record keeps it: a call that
+            // hands back a record the statement (or anything further out)
+            // already owns (`ident(mk())`) registers nothing, so one record has
+            // one statement temporary and its close-and-free runs once.
+            let kept = self.label("resource_temp_taken");
+            let skipped = self.label("resource_temp_not_taken");
+            let record = self.allocate_register();
+            self.emit(abi::load_u64(record, abi::stack_pointer(), slot));
+            self.emit(abi::compare_immediate(record, "0"));
+            self.emit(abi::branch_eq(&kept));
+            if union {
+                self.emit(abi::load_u64(record, record, 8));
+                self.emit(abi::compare_immediate(record, "0"));
+                self.emit(abi::branch_eq(&skipped));
+            }
+            let owner = self.allocate_register();
+            self.emit(abi::load_u64(owner, record, RESOURCE_OFFSET_OWNER));
+            let token = self.emit_scope_token(depth)?;
+            // Unsigned, as `emit_resource_float`: taken only when below the token.
+            self.emit(abi::compare_registers(owner, token));
+            self.emit(abi::branch_lo(&kept));
+            self.emit(abi::label(&skipped));
+            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
+            self.emit(abi::label(&kept));
+            if union {
                 self.emit_resource_union_claim_at(slot, depth)?;
             } else {
                 self.emit_resource_claim_at(slot, depth)?;

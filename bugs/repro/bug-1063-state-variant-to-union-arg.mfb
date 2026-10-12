@@ -1,0 +1,70 @@
+IMPORT io
+IMPORT os
+IMPORT fs
+IMPORT tcp
+IMPORT collections
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE HB
+  h AS RES Handle
+  n AS Integer
+END TYPE
+
+FUNC openOne AS RES fs::File
+  RETURN fs::openFile("/tmp/g933/data.txt")
+END FUNC
+
+FUNC countH(hs AS List OF RES Handle) AS Integer
+  MUT t AS Integer = 0
+  FOR EACH h IN hs
+    MATCH h
+      CASE fs::File(f)
+        t = t + len(fs::readAll(f))
+      CASE tcp::Socket(s)
+        t = t + 100
+    END MATCH
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC countM(hs AS Map OF String TO RES Handle) AS Integer
+  MUT t AS Integer = 0
+  FOR EACH e IN hs
+    MATCH e.value
+      CASE fs::File(f)
+        t = t + len(fs::readAll(f))
+      CASE tcp::Socket(s)
+        t = t + 100
+    END MATCH
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC main AS Integer
+  MUT t AS Integer = 0
+  FOR i = 1 TO toInt(os::getEnvOr("N", "10"))
+    t = t + once()
+  NEXT
+  io::print(toString(t))
+  RETURN 0
+END FUNC
+TYPE Cur
+  n AS Integer
+END TYPE
+FUNC rd(h AS Handle STATE Cur) AS Integer
+  RETURN h.state.n
+END FUNC
+FUNC openS() AS RES fs::File STATE Cur
+  RES f AS fs::File STATE Cur = openOne()
+  f.state.n = 5
+  RETURN f
+END FUNC
+FUNC once() AS Integer
+  RES s AS fs::File STATE Cur = openOne()
+  s.state.n = 7
+  RETURN rd(s)
+END FUNC
