@@ -2042,8 +2042,9 @@ vec2 dfMapY(vec2 x, vec2 y) {
 // space before the scale. The five samples are one loop so each distance helper is inlined
 // once. A transformed CENTRE sample past `half + 0.5 * max(F, 1)` (F the inverse matrix's
 // Frobenius norm, which bounds the gradient) decides the coverage by its sign and the four
-// neighbours are skipped; never for an arc, whose distance jumps. Metal's `shapeCoverage`,
-// line for line, where the bound is argued.
+// neighbours are skipped; never for an arc, whose distance jumps. A clip's centre sample
+// past `0.5 * max(F, 1)` decides the clip's coverage the same way (bug-995). Metal's
+// `shapeCoverage`, line for line, where both bounds are argued.
 //
 // plan-172-H: (`x`, `y`) arrives already through the groups' inverse linear part when
 // `grouped`, and `gi` is that part: the four neighbour samples are half a SURFACE pixel
@@ -2057,6 +2058,9 @@ ivec4 shapeCoverage(vec2 x, vec2 y) {
     vec2 half2 = dfFixed(item.misc.z, item.miscLo.y);
     bool stroked = dfLess(vec2(0.0), half2);
     float reach = 0.5 + max(half2.x, 0.0);
+    // bug-995: the clip's reach -- the shape's without the stroke half, and for any kind
+    // (a clip's distance is 1-Lipschitz whatever the item is, an arc's too).
+    float clipReach = 0.5;
     if (mapped) {
         vec2 c0 = itemMapped ? vec2(intBitsToFloat(item.xform0.x), intBitsToFloat(item.xform0.y)) : vec2(1.0, 0.0);
         vec2 c1 = itemMapped ? vec2(intBitsToFloat(item.xform0.z), intBitsToFloat(item.xform0.w)) : vec2(0.0, 1.0);
@@ -2065,6 +2069,7 @@ ivec4 shapeCoverage(vec2 x, vec2 y) {
         if (grouped) { norm = (itemMapped ? norm : 1.0) * length(gi); }
         float frob = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;
         reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);
+        clipReach = 0.5 * max(frob, 1.0);
     }
     // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
     // distance (`joinedStroke`), which a miter can reach past `half` from the outline --
@@ -2078,6 +2083,12 @@ ivec4 shapeCoverage(vec2 x, vec2 y) {
     // plan-163-C: samples 5..9 are a path clip's distance at the same five points, so the
     // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's;
     // one loop keeps one `sampleDistance` call site. Metal's, line for line.
+    // bug-995: the clip's CENTRE sample (5) past `clipReach` decides its coverage by its
+    // sign, exactly as the shape's does, and its four neighbours are skipped: their
+    // central difference `cg` is at most `frob` (or the fallback 1.0), so
+    // `|d5| > 0.5 * max(frob, 1)` puts `|d5 / cg|` past 0.5, where `dfCoverage` has
+    // clamped. Sample 5 therefore takes `clipReach`, not an unbounded reach, and
+    // `edgeDistance`'s fp32 pass may answer it. The bound is argued in Metal's twin.
     int clipMode = item.clipPath.z & 3;
     bool clipMapped = itemMapped || grouped;
     // plan-172-H: a rectangle clip is sampled too, under a group matrix.
@@ -2097,9 +2108,13 @@ ivec4 shapeCoverage(vec2 x, vec2 y) {
         vec2 qx = itemMapped ? dfMapX(sx, sy) : sx;
         vec2 qy = itemMapped ? dfMapY(sx, sy) : sy;
         if (k == 0) { cqx = qx; cqy = qy; }
-        if (clipK && clipMode == 1) { d[k] = clipRectDistance(qx, qy); continue; }
-        d[k] = sampleDistance(clipK ? cband : band, qx, qy, k == 0 ? reach : ((k == 5 && !clipMapped) ? 0.5 : 1.0e30), clipK);
+        if (clipK && clipMode == 1) {
+            d[k] = clipRectDistance(qx, qy);
+        } else {
+            d[k] = sampleDistance(clipK ? cband : band, qx, qy, k == 0 ? reach : (k == 5 ? clipReach : 1.0e30), clipK);
+        }
         if (k == 0 && !joined && abs(d[0].x) > reach) { mapped = false; }
+        if (k == 5 && abs(d[5].x) > clipReach) { clipMapped = false; }
     }
     vec2 dRaw = d[0];
     vec2 g = vec2(1.0, 0.0);

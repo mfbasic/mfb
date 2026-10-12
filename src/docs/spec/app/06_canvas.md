@@ -875,7 +875,14 @@ nothing. The builder takes one of two paths, in header slot 51:
 against the same per-frame edge cap, and they are banded by the same index builder
 with no stroke in the reach — a clip's coverage clamps at `|d| ≥ 0.5`. Each shader
 takes the clip's five samples at the same shape-space points as the shape's and divides
-by the clip's own gradient, as the oracle does.
+by the clip's own gradient, as the oracle does. The clip's centre sample has the shape's
+early-out: asked with reach `0.5·max(F, 1)` (`F` the composed inverse's Frobenius norm,
+as for the shape, without the stroke half-width), and past it the coverage is decided by
+that sample's sign and the four neighbours are not evaluated. It is exact because the
+gradient the coverage divides by is at most `F` (a clip's distance, a path's or a
+rectangle's, is 1-Lipschitz), so the quotient is past 0.5, where the coverage has
+clamped; untransformed and outside a group matrix the reach is the 0.5 of the one sample
+there is.
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_BAND]]
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_PATH]]
 [[src/target/macos_aarch64/app/metal.rs:emit_clip_buffer]]
