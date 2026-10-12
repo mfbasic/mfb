@@ -53,41 +53,6 @@ impl CodeBuilder<'_> {
         // (`record_ownership::StoreFloatProof`); its own block is its own
         // either way.
         let owns_elements = owns_block && !self.store_floats.close_only.contains(name);
-        // bug-645: the collection BLOCK itself. A `List OF RES X` is not
-        // `is_freeable_flat_value` — `collection_payload_types` strips the `RES`
-        // marker, so the walk sees a bare resource nominal and answers "not flat"
-        // (`a_res_collection_does_not_diverge` pins that, and it is what keeps such a
-        // list out of `copy_flat_block`). The consequence nobody had measured is that
-        // NO scope-drop frees the block either: an owner collection rebuilt in a loop
-        // leaked one whole list block per iteration (48 B empty, 240 B and up once
-        // appended to) on top of its elements.
-        //
-        // The free is registered as an ordinary [`ActiveCleanup::OwnedValue`], pushed
-        // BEFORE the drain so it runs after it, because every rule that governs it is
-        // already written there and keyed on the slot: `plan_returned_move` retires it
-        // when the list is RETURNed, `trap_route_cleanups` keeps a function-level one
-        // live for the handler to read, and `_mfb_rt_drop_owned_collection` null-guards
-        // and nulls the slot, so a re-reached drop frees nothing. Gated on the same
-        // sole-ownership proof as the elements: copy-insertion does NOT deep-copy such
-        // a list (it is not flat), so an aliasing store really can leave two holders,
-        // and only `owning_collections` rules that out.
-        //
-        // Restricted to a collection that is not freeable-flat: a record with a `RES`
-        // field (plan-114-C), or a collection of such records, IS freeable-flat (its
-        // fields walk unstripped to the `Res(_)` arm) and so already has its own
-        // `OwnedValue` from the bind — adding a second here would be the double free
-        // this whole file guards against.
-        // A collection of function values owns its block through its own drop, like
-        // any graph-owning value; the RES-collection block free is not for it.
-        if owns_block
-            && typed_is_collection_type(type_)
-            && !self.is_freeable_flat_value(type_)
-            && !dynamic
-        {
-            if let Some(stack_offset) = self.locals.get(name).map(|local| local.stack_offset) {
-                self.register_res_collection_block_free(name, type_, stack_offset);
-            }
-        }
         for (leaf, drop) in drops {
             let head_slot = self.allocate_stack_object(&format!("owned_list_{name}"), 8);
             let scratch9 = self.temporary_vreg();
@@ -109,43 +74,6 @@ impl CodeBuilder<'_> {
             self.setup_dynamic_owned_list(name);
         }
         Ok(())
-    }
-
-    /// bug-645/bug-651: register the free of a `RES` collection's own block as an
-    /// ordinary [`ActiveCleanup::OwnedValue`]. Shared by the floated container (where it
-    /// is pushed BEFORE the drain so it runs after it) and the unfloated one (which has
-    /// no drain at all).
-    ///
-    /// Every rule that governs it is already written for `OwnedValue` and keyed on the
-    /// slot: `plan_returned_move` retires it when the collection is RETURNed,
-    /// `trap_route_cleanups` keeps a function-level one live for the handler to read, and
-    /// `_mfb_rt_drop_owned_collection` null-guards and nulls the slot, so a re-reached
-    /// drop frees nothing. It frees the container block only — the elements are resources
-    /// with their own close obligations.
-    ///
-    /// Sole ownership is NOT assumed here: both callers gate on
-    /// `owned_list_owning_collections`, which is `record_ownership`'s verdict that the
-    /// block is fresh, non-escaping and never read through a borrowed-element call.
-    /// Copy-insertion does not deep-copy such a list (it is not flat), so an aliasing
-    /// store really can leave two holders and only that pass rules it out.
-    pub(crate) fn register_res_collection_block_free(
-        &mut self,
-        name: &str,
-        type_: &ParameterType,
-        stack_offset: usize,
-    ) {
-        if self.inner_owning_collections.contains(name) {
-            self.inner_block_slots.insert(stack_offset);
-        }
-        self.active_cleanups
-            .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
-                type_: type_.clone(),
-                stack_offset,
-                capacity_slot: None,
-                loop_alias_slot: None,
-                result_wrapper: None,
-            }));
-        self.owned_value_slots.push(stack_offset);
     }
 
     /// A consuming call took over the resources container `name` owns: drop its
@@ -832,57 +760,6 @@ impl CodeBuilder<'_> {
     /// `arena_free(ptr, size)`. `arena_free` scrubs the bytes (entropy poison),
     /// so a later use-after-free reads garbage and traps loudly. Clobbers
     /// caller-saved scratch; the caller reloads anything it needs afterward.
-    /// bug-753: free each inner block of the nested collection in `slot` (an
-    /// inner-owning binding, `record_ownership::block_collections`), before the
-    /// caller frees the outer block. The inner lists are held by pointer, so each is
-    /// its own block; their elements are references with their own owners.
-    fn emit_inner_block_frees(
-        &mut self,
-        slot: usize,
-        inner_type: &ParameterType,
-    ) -> Result<(), String> {
-        let done = self.label("inner_block_free_done");
-        let null_check = self.temporary_vreg();
-        self.emit(abi::load_u64(&null_check, abi::stack_pointer(), slot));
-        self.emit(abi::compare_immediate(&null_check, "0"));
-        self.emit(abi::branch_eq(&done));
-        let cursor_slot = self.allocate_stack_object("inner_free_cursor", 8);
-        let remaining_slot = self.allocate_stack_object("inner_free_remaining", 8);
-        let inner_slot = self.allocate_stack_object("inner_free_block", 8);
-        self.initialize_collection_loop_slots(slot, cursor_slot, remaining_slot, inner_type);
-        let top = self.label("inner_block_free_loop");
-        self.emit(abi::label(&top));
-        let remaining = self.temporary_vreg();
-        self.emit(abi::load_u64(
-            &remaining,
-            abi::stack_pointer(),
-            remaining_slot,
-        ));
-        self.emit(abi::compare_immediate(&remaining, "0"));
-        self.emit(abi::branch_eq(&done));
-        let inner = self.load_collection_loop_item(slot, cursor_slot, inner_type)?;
-        self.emit(abi::store_u64(&inner, abi::stack_pointer(), inner_slot));
-        let leaf = typed_list_element_type(inner_type)
-            .cloned()
-            .unwrap_or_else(|| ParameterType::named(""));
-        self.emit(abi::add_immediate(
-            abi::c_arg(0),
-            abi::stack_pointer(),
-            inner_slot,
-        ));
-        self.emit(abi::move_immediate(
-            abi::c_arg(1),
-            "Integer",
-            &list_entry_stride(&leaf).to_string(),
-        ));
-        self.emit(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
-        self.emit(abi::branch_link(DROP_OWNED_COLLECTION_SYMBOL));
-        self.push_internal_call_relocation(DROP_OWNED_COLLECTION_SYMBOL);
-        self.advance_collection_loop(cursor_slot, remaining_slot, &top, inner_type);
-        self.emit(abi::label(&done));
-        Ok(())
-    }
-
     pub(crate) fn emit_owned_value_drop(
         &mut self,
         cleanup: &OwnedValueCleanup,
@@ -922,9 +799,6 @@ impl CodeBuilder<'_> {
             let element = typed_list_element_type(&cleanup.type_)
                 .cloned()
                 .unwrap_or_else(|| ParameterType::named(""));
-            if self.inner_block_slots.contains(&cleanup.stack_offset) {
-                self.emit_inner_block_frees(cleanup.stack_offset, &element)?;
-            }
             let stride = list_entry_stride(&element);
             let buckets = matches!(
                 cleanup.type_,

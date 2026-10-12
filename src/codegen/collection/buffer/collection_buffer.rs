@@ -25,12 +25,7 @@ impl CodeBuilder<'_> {
         //   temp or local.
         // A builtin's result gets its own edges afterwards (`own_collection_payload_edges`).
         let shallow = !self.is_freeable_flat_value(type_) && self.owns_graph(type_);
-        // bug-753: a `RES` collection's intermediate is a private block of references
-        // (the resources belong to their owners), so its own block is freed exactly as
-        // bug-651 frees such a collection's block at drop. It leaked one singleton per
-        // `collections::append`/`prepend`/`insert` and two blocks per `set`.
-        let res_block = Self::is_res_marked_resource_collection(type_);
-        if !self.is_freeable_flat_value(type_) && !shallow && !res_block {
+        if !self.is_freeable_flat_value(type_) && !shallow {
             return Ok(result);
         }
         let keep = self.allocate_stack_object("intermediate_free_keep", 8);

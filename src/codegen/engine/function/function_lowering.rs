@@ -1133,9 +1133,6 @@ pub(crate) fn lower_function(
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
         store_floats: Default::default(),
-        reassign_free_collections: HashSet::new(),
-        inner_owning_collections: HashSet::new(),
-        inner_block_slots: HashSet::new(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
         live_resource_aliases: HashMap::new(),
@@ -1410,8 +1407,6 @@ pub(crate) fn lower_function(
     builder.record_owning_locals = ownership.owning_locals;
     builder.resource_alias_sources = ownership.alias_sources;
     builder.owned_list_owning_collections = ownership.owning_collections;
-    builder.reassign_free_collections = ownership.reassign_free_collections;
-    builder.inner_owning_collections = ownership.inner_owning_collections;
     builder.exclusive_temps.calls = ownership.exclusive_temps;
     // bug-1045: a container that a store raises an inner scope's value into lists
     // what the store hands it, so it needs its owned-lists from its bind, like a
@@ -1810,9 +1805,6 @@ pub(crate) fn lower_abi_function_helper(
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
         store_floats: Default::default(),
-        reassign_free_collections: HashSet::new(),
-        inner_owning_collections: HashSet::new(),
-        inner_block_slots: HashSet::new(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
         live_resource_aliases: HashMap::new(),
@@ -2068,9 +2060,6 @@ pub(crate) fn helper_code_builder<'a>(
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
         store_floats: Default::default(),
-        reassign_free_collections: HashSet::new(),
-        inner_owning_collections: HashSet::new(),
-        inner_block_slots: HashSet::new(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
         live_resource_aliases: HashMap::new(),

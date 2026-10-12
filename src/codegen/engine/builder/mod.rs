@@ -278,14 +278,6 @@ pub(crate) struct CodeBuilder<'a> {
     /// declared further out, and the containers whose drain may only close what
     /// such a store handed them (`record_ownership::StoreFloats`).
     pub(crate) store_floats: crate::codegen::resource::cleanup::record_ownership::StoreFloats,
-    /// bug-753: `record_ownership`'s reassign-free verdict: a copying reassignment
-    /// of one of these frees the block it replaces.
-    pub(crate) reassign_free_collections: HashSet<String>,
-    /// bug-753: `record_ownership`'s inner-owning verdict, by local name.
-    pub(crate) inner_owning_collections: HashSet<String>,
-    /// bug-753: the slots of nested collections whose drop frees each inner block
-    /// before the outer one (an inner-owning binding's block free).
-    pub(crate) inner_block_slots: HashSet<usize>,
     /// bug-648: the inline-`TRAP` temps that receive a borrowed store, and the rule
     /// that classifies each store (`resource::cleanup::trap_ownership`).
     pub(crate) trap_ownership: crate::codegen::resource::cleanup::trap_ownership::TrapOwnership,
@@ -783,9 +775,6 @@ impl<'a> CodeBuilder<'a> {
             resource_alias_sources: HashMap::new(),
             owned_list_owning_collections: HashSet::new(),
             store_floats: Default::default(),
-            reassign_free_collections: HashSet::new(),
-            inner_owning_collections: HashSet::new(),
-            inner_block_slots: HashSet::new(),
             trap_ownership: Default::default(),
             trap_owner_flags: HashMap::new(),
             live_resource_aliases: HashMap::new(),

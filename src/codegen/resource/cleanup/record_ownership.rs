@@ -57,12 +57,6 @@ pub(crate) struct RecordOwnership {
     /// bug-645: owner-collection locals whose owned-list drain provably owns every
     /// block it can reach — see [`owning_collections`].
     pub(crate) owning_collections: HashSet<String>,
-    /// bug-753: `RES`-block collections whose copying reassignment may free the
-    /// block it replaces — see [`block_collections`].
-    pub(crate) reassign_free_collections: HashSet<String>,
-    /// bug-753: owning nested collections whose inner blocks are theirs alone, so
-    /// the scope-exit free releases each inner block, then the outer one.
-    pub(crate) inner_owning_collections: HashSet<String>,
     /// bug-999: the call nodes (by address) whose aggregate result nothing but
     /// their own statement can hold, mapped to whether the result's block is one
     /// the callee built — see [`CollectionUses::exclusive_temps`].
@@ -689,77 +683,14 @@ pub(crate) fn record_ownership(
         &params,
         &mut store_floats,
     );
-    let (reassign_free_collections, inner_owning_collections) = block_collections(
-        function,
-        functions,
-        &stores,
-        &owning_collections,
-        &record_container,
-        &store_floats,
-    );
     RecordOwnership {
         owning_locals,
         alias_sources,
         owning_collections,
-        reassign_free_collections,
-        inner_owning_collections,
         exclusive_temps,
         store_floats,
     }
 }
-
-/// bug-753: the two block-free verdicts beyond [`owning_collections`].
-///
-/// * **Reassign-free.** A copying `c = collections::append(c, …)` installs a new
-///   block and copies `c`'s entries into it. The block it replaces may be freed when
-///   every store into `c` is fresh, no call keeps `c`'s block, no element is read
-///   back out of it, and `c` is named outside a call argument only by `RETURN`. A
-///   `RETURN` hands on the CURRENT block, never one a reassignment already replaced,
-///   so it is no reason to keep the old ones. The free is shallow: entries are
-///   references (a `RES` element) or inner-block pointers the new block now holds.
-/// * **Inner-owning.** A nested `List OF List OF RES T` holds its inner lists by
-///   POINTER (bug-801), so its scope-exit free may release them only when no other
-///   holder can exist. That is proved for a sole-owner binding whose every store is
-///   `collections::chunks`/`window`: their bodies are audited to append each fresh
-///   `__collections_slice` piece exactly once (`FRESH_BUILTIN_BODIES`).
-fn block_collections(
-    function: &NirFunction,
-    functions: &HashMap<String, &NirFunction>,
-    stores: &Stores,
-    owning: &HashSet<String>,
-    record_container: &dyn Fn(&ParameterType) -> bool,
-    store_floats: &StoreFloats,
-) -> (HashSet<String>, HashSet<String>) {
-    let mut callees = CalleeParamUses {
-        record_container: Some(record_container),
-        ..CalleeParamUses::default()
-    };
-    let uses = CollectionUses::of_with(function, functions, &mut callees, store_floats);
-    let mut reassign_free = HashSet::new();
-    let mut inner_owning = HashSet::new();
-    for (name, type_) in &stores.types {
-        if !CodeBuilder::is_res_collection_block(type_) {
-            continue;
-        }
-        if uses.block_is_fresh(name)
-            && !uses.kept.contains(name)
-            && !uses.element_readers.contains(name)
-            && !uses.escaping_outside_return.contains(name)
-        {
-            reassign_free.insert(name.clone());
-        }
-        let nested = matches!(type_, ParameterType::ListOf(inner)
-            if CodeBuilder::is_res_marked_resource_collection(inner));
-        if nested && owning.contains(name) && uses.chunk_stores.get(name).copied().unwrap_or(false)
-        {
-            inner_owning.insert(name.clone());
-        }
-    }
-    (reassign_free, inner_owning)
-}
-
-/// The audited builtin bodies whose nested result owns each inner block it holds.
-const INNER_OWNING_BUILTIN_BODIES: &[&str] = &["#collections_chunks$", "#collections_window$"];
 
 /// bug-645: which owner collections an owned-list drain may RECLAIM through, not just
 /// close through.
@@ -1051,9 +982,6 @@ struct CollectionUses<'m, 'f, 'p> {
     fresh_block: HashMap<String, bool>,
     /// bug-753: the locals in `escaping` named somewhere other than a `RETURN`'s value.
     escaping_outside_return: HashSet<String>,
-    /// bug-753: per local, whether every store is a call to an
-    /// [`INNER_OWNING_BUILTIN_BODIES`] body.
-    chunk_stores: HashMap<String, bool>,
     /// bug-753: every `RETURN`'s value, for asking whether the function hands back
     /// only blocks it built.
     returns: Vec<NirValue>,
@@ -1171,7 +1099,6 @@ impl<'m, 'f, 'p> CollectionUses<'m, 'f, 'p> {
             element_readers: HashSet::new(),
             fresh_block: HashMap::new(),
             escaping_outside_return: HashSet::new(),
-            chunk_stores: HashMap::new(),
             returns: Vec::new(),
             in_return: false,
             escaping_beyond_iteration: HashSet::new(),
@@ -1399,13 +1326,6 @@ impl<'m, 'f, 'p> CollectionUses<'m, 'f, 'p> {
                     && updates.iter().any(|update| self.is_store_operand(&update.value)));
         let entry = self.fresh_block.entry(name.to_string()).or_insert(true);
         *entry &= fresh;
-        let chunks = matches!(
-            value,
-            Some(NirValue::Call { target, .. } | NirValue::CallResult { target, .. })
-                if INNER_OWNING_BUILTIN_BODIES.iter().any(|prefix| target.starts_with(prefix))
-        );
-        let entry = self.chunk_stores.entry(name.to_string()).or_insert(true);
-        *entry &= chunks;
     }
 }
 

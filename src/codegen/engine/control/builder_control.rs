@@ -2964,23 +2964,20 @@ impl CodeBuilder<'_> {
                         //
                         // * a read of a record field (`RES v AS Handle = b.h`). The
                         //   record holds the box inline, so the field read is an
-                        //   address inside the record's block, which a later
-                        //   reassignment of the record frees. The binding takes its
-                        //   own copy of the two words. A `MATCH` scrutinee temporary
-                        //   is the exception: its only reads are the tag test and the
-                        //   case binds at the head of each case, before any statement
-                        //   that could replace the record.
+                        //   address inside the record's block, which the record's
+                        //   owner frees. The binding takes its own copy of the two
+                        //   words, as a binding of any plain value read out of a
+                        //   field copies it.
                         // * a borrowed-element read (bug-1026: `RES v AS Handle =
                         //   collections::get(hs, 0)`, `getOr`, over a `List` or a
                         //   `Map`). The collection holds the box inline too, so the
                         //   call yields an address inside the collection's block,
-                        //   which growing or replacing the collection frees; and a
-                        //   variant written as `getOr`'s default is wrapped in a box
-                        //   the statement frees at its end. The binding copies the
-                        //   two words either way. A `MATCH` scrutinee temporary of
-                        //   `get` is excepted as the field read is; one of `getOr`
-                        //   is not, because the default's box is already freed by
-                        //   the time the tag test reads it.
+                        //   which its owner frees (at the end of the statement when
+                        //   the collection is a temporary: `MATCH
+                        //   collections::get(mkHandles(), 0)`); and a variant
+                        //   written as `getOr`'s default is wrapped in a box the
+                        //   statement frees at its end. The binding copies the two
+                        //   words either way.
                         // * a binding whose resource floated to an outer container.
                         //   The container's owned-list keeps its own copy of the box
                         //   (`emit_owned_list_push_node`), so the box this bind's
@@ -2994,17 +2991,12 @@ impl CodeBuilder<'_> {
                             && !aliases_capture;
                         let copies_borrowed_box = is_union_binding
                             && match value {
-                                Some(NirValue::MemberAccess { .. }) => !name.starts_with("$match"),
+                                Some(NirValue::MemberAccess { .. }) => true,
                                 Some(
                                     NirValue::Call { target, .. }
                                     | NirValue::CallResult { target, .. }
                                     | NirValue::RuntimeCall { target, .. },
-                                ) => {
-                                    Self::target_returns_borrowed_resource(target)
-                                        && !(name.starts_with("$match")
-                                            && crate::codegen::registry::native_bare_target(target)
-                                                == Some("get"))
-                                }
+                                ) => Self::target_returns_borrowed_resource(target),
                                 _ => false,
                             };
                         let owns_box_only = copies_borrowed_box
@@ -3224,18 +3216,6 @@ impl CodeBuilder<'_> {
                                     type_,
                                 )?;
                             }
-                        } else if Self::is_res_collection_block(&type_)
-                            && self.owned_list_owning_collections.contains(name)
-                        {
-                            // bug-651: a `RES`-marked collection neither floated into nor
-                            // bound from a call — `MUT xs AS List OF RES X = []` — reaches
-                            // neither branch above, so nothing owned its collection BLOCK
-                            // and it leaked 48 B per binding even when no resource was ever
-                            // put in it. There is no owned-list to hang the free on (that
-                            // needs a float), so register the block free on its own; the
-                            // sole-ownership proof is the same `owning_collections` gate the
-                            // floated case uses, extended to the unfloated container.
-                            self.register_res_collection_block_free(name, type_, stack_offset);
                         }
                         // Where this binding's close obligation lives (§15.6).
                         let resource_owner = self
@@ -3747,16 +3727,7 @@ impl CodeBuilder<'_> {
                                 Some(slot)
                             } else if !by_ref
                                 && (self.is_freeable_flat_value(&result.type_)
-                                    || self.owns_graph(&result.type_)
-                                    // bug-753: a `RES` collection proved the sole holder
-                                    // of its block (`record_ownership::owning_collections`)
-                                    // frees the block a copying reassignment replaces —
-                                    // `out = collections::append(out, collections::get(xs, 0))`
-                                    // leaked every replaced block. Shallow: its elements
-                                    // are references with their own owners.
-                                    || (Self::is_res_collection_block(&result.type_)
-                                        && (self.owned_list_owning_collections.contains(name)
-                                            || self.reassign_free_collections.contains(name))))
+                                    || self.owns_graph(&result.type_))
                                 && !self.for_each_iterable_locals.iter().any(|n| n == name)
                                 // bug-430: a live `FOR EACH x IN name.field` holds an
                                 // alias into this record's block; freeing the block
