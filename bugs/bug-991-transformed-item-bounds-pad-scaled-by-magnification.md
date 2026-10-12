@@ -1,6 +1,6 @@
 # bug-991: A magnified transformed item's bounds pad scales with the transform, so a 27 px polygon covers 369 px
 
-Last updated: 2026-10-06
+Last updated: 2026-10-12
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other (Performance)
@@ -48,6 +48,38 @@ References:
 - Found while building `examples/canvas-demo` (`examples/canvas-demo/src/cathedral.mfb`:
   `winT` = `Transform[a := rose.r, d := rose.r, …]` over unit-space `rosePanes`, and
   `onFloor` for the pools).
+
+## Re-verified 2026-10-12: still reproduces, and a scaled `Group` costs the same (HEAD `555130a25`)
+
+**The API this document names has moved.** Since plan-172-C the transform is the item's own
+`transform` field, not `Paint.transform`, and the program below no longer compiles. The same
+scene in today's syntax is `bugs/repro/bug-991/magnified.mfb` (arguments: mode, frame
+count). `mfb build --app`, 240 frames in a real window on Metal; software is
+`MFB_CANVAS_GPU=0 MFB_MACAPP_HEADLESS=1`, 3 frames for the slow rows and 24 for the fast:
+
+| Mode | Metal frameMs | Software frameMs |
+| --- | --- | --- |
+| `flat` (radius 0.08, item transform ×170) | 35.4, 37.2 ✗ | 17,543 ✗ |
+| `group` (same items untransformed, inside a `canvas::Group` whose transform is ×170) | 35.3 ✗ | 13,793 ✗ |
+| `x10` | 8.8 | not run |
+| `x100` | 7.9 | not run |
+| `pix` | 5.0, 6.1 ✓ | 25.1 ✓ |
+| `circle-xf` | 7.8 | 3,981 ✗ |
+| `circle-pix` | 2.0 ✓ | 5.4 ✓ |
+
+Machine load average was 9.6 (`uptime`) during the Metal rows.
+
+- `__canvas_strokePad` still ends in `+ 1.0`, `__canvas_boundsHeader` still adds its own
+  `± 1.0` after mapping, and `func_geo_build.rs` still takes only an item whose transform
+  is all zero. The cause below stands as written.
+- **`group` is new.** Group matrices are plan-172-G/H, after this bug was filed. The row
+  above is a measurement of the cost only. The likely cause, by reading and not confirmed
+  by a patched build: an untransformed child's header carries the shape-unit `+ 1.0`, and
+  the group's forward matrix then scales that box (`.ai/canvas-threading.md` §10, "the
+  vertex stage carries the item's box through the FORWARD linear part"). Phase 1's audit
+  must give the group path a verdict, and Phase 2's fix in `__canvas_boundsHeader` alone
+  will not reach it, because that function only sees the item's own transform.
+- Not audited: the header builders plan-164 added for `PolyCurve` and `CurvePolygon`.
 
 ## Failing Reproduction
 

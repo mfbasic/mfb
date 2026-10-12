@@ -1,0 +1,66 @@
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT io
+IMPORT math
+IMPORT os
+IMPORT vector
+
+FUNC tr(a AS Float, tx AS Float, ty AS Float) AS canvas::Transform
+  RETURN canvas::Transform[a := a, b := 0.0, c := 0.0, d := a, tx := tx, ty := ty]
+END FUNC
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+' A 24-point disc of radius r about (ux, uy), scaled by k.
+FUNC wedge(ux AS Float, uy AS Float, k AS Float, ox AS Float, oy AS Float) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = []
+  FOR i = 0 TO 23
+    LET a AS Float = toFloat(i) * 6.2831853 / 24.0
+    out = collections::append(out, at(ox + (ux + math::cos(a) * 0.08) * k, oy + (uy + math::sin(a) * 0.08) * k))
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET mode AS String = collections::get(os::args(), 0)
+  LET total AS Integer = toInt(collections::get(os::args(), 1))
+  LET R AS Float = 170.0
+  MUT frame AS Integer = 0
+  DO WHILE frame < total
+    MUT scene AS List OF canvas::DrawItem = []
+    FOR i = 0 TO 48
+      LET ux AS Float = math::cos(toFloat(i) * 0.4) * (toFloat(i) / 60.0)
+      LET uy AS Float = math::sin(toFloat(i) * 0.4) * (toFloat(i) / 60.0)
+      LET k AS Integer = (frame + i) MOD 200
+      LET p AS canvas::Paint = canvas::fill(color::rgba(200, 80, 80, 55 + k))
+      MUT d AS canvas::DrawItem = canvas::Polygon[id := "", position := at(0.0, 0.0), contours := [wedge(ux, uy, 1.0, 0.0, 0.0)], rule := canvas::FillRule.NonZero, paint := p, transform := tr(R, 450.0, 300.0)]
+      IF mode = "x10" THEN d = canvas::Polygon[id := "", position := at(0.0, 0.0), contours := [wedge(ux, uy, 10.0, 0.0, 0.0)], rule := canvas::FillRule.NonZero, paint := p, transform := tr(R / 10.0, 450.0, 300.0)]
+      IF mode = "x100" THEN d = canvas::Polygon[id := "", position := at(0.0, 0.0), contours := [wedge(ux, uy, 100.0, 0.0, 0.0)], rule := canvas::FillRule.NonZero, paint := p, transform := tr(R / 100.0, 450.0, 300.0)]
+      IF mode = "group" THEN d = canvas::Polygon[id := "", position := at(0.0, 0.0), contours := [wedge(ux, uy, 1.0, 0.0, 0.0)], rule := canvas::FillRule.NonZero, paint := p, transform := none()]
+      IF mode = "pix" THEN d = canvas::Polygon[id := "", position := at(0.0, 0.0), contours := [wedge(ux, uy, R, 450.0, 300.0)], rule := canvas::FillRule.NonZero, paint := p, transform := none()]
+      IF mode = "circle-pix" THEN d = canvas::Circle[id := "", position := at(450.0 + ux * R, 300.0 + uy * R), radius := 0.08 * R, paint := p, transform := none()]
+      IF mode = "circle-xf" THEN d = canvas::Circle[id := "", position := at(450.0 + ux * R, 300.0 + uy * R), radius := 0.08, paint := p, transform := tr(R, 0.0, 0.0)]
+      scene = collections::append(scene, d)
+    NEXT
+    IF mode = "group" THEN
+      canvas::setGroup("g", scene)
+      canvas::present([canvas::Group[id := "", position := at(0.0, 0.0), transform := tr(R, 450.0, 300.0), name := "g"]])
+    ELSE
+      canvas::present(scene)
+    END IF
+    canvas::waitFrame()
+    frame = frame + 1
+  LOOP
+  LET s AS canvas::FrameStats = canvas::getFrameStats()
+  io::printError(mode & " frames=" & toString(s.frames) & " fps=" & toString(s.fps) & " frameMs=" & toString(s.frameSeconds * 1000.0))
+  RETURN 0
+END FUNC
