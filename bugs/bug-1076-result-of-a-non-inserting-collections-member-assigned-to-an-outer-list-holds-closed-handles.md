@@ -16,9 +16,9 @@ Regression Test: (proposed) a runtime test over the program, and the same with `
 
 ## Failing Reproduction
 
-Measured 2026-10-11 on macOS aarch64 with main's compiler (`/tmp/main-dbg-target/release/mfb`, main at b6bf0327b) and an earlier batch 22 build, the same result on both unless a line says otherwise: `mfb build -q --debug`, run with `N=<n>`, reading the `arena.0.*` counters printed to stderr at exit. `/tmp/g933/data.txt` is a 6-byte file ("hello\n"). The whole program is `bugs/repro/bug-1076-filter-result-assigned-to-outer-list.mfb`; the part after its `main` is shown.
+Measured 2026-10-11 on macOS aarch64 with main's compiler (`/tmp/main-dbg-target/release/mfb`, main at b6bf0327b) and the batch 22 staging compiler (15449e66a), the same result on both unless a line says otherwise: `mfb build -q --debug`, run with `N=<n>`, reading the `arena.0.*` counters printed to stderr at exit. `/tmp/g933/data.txt` is a 6-byte file ("hello\n"). The whole program is `bugs/repro/bug-1076-filter-result-assigned-to-outer-list.mfb`; the part after its `main` is shown.
 
-`N=10` and `N=40`: exit 255, empty stdout, `Error: 7-703-0004` (`Resource handle is already closed.`). Main's compiler: `alloc_calls 12`, `free_calls 9`, `live_bytes 480`; the batch 22 build: 12 / 10 / 240.
+`N=10` and `N=40`: exit 255, empty stdout, `Error: 7-703-0004` (`Resource handle is already closed.`). Main's compiler: `alloc_calls 12`, `free_calls 9`, `live_bytes 480`; staging: 12 / 10 / 240.
 
 ```
 FUNC mkList() AS List OF RES fs::File
@@ -45,6 +45,6 @@ END FUNC
 
 ## What is known
 
-`record_ownership::store_operands` walks only the inserting members, so a value built by `filter`, `take`, `drop`, `transform` and the like out of an inner-scope collection does not move the cleanup scope of the Resources it reaches out to the outer binding's scope (not traced further).
+`record_ownership::store_operands` walks only the inserting members, so a value built by `filter`, `take`, `drop`, `transform` and the like out of an inner-scope collection is not raised (`StoreFloats::unraised_outward_store` names this store). See bug-1078.
 
 Found during batch 22 (reported by bs22-agent-c, reproduced by the coordinator).
