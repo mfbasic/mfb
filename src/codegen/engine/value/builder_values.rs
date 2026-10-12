@@ -89,62 +89,6 @@ pub(crate) enum EscapingValue {
     InSlot(usize),
 }
 
-/// bug-999: whether every `RETURN` of `function` hands back a view — the value of
-/// a module-level binding, or a parameter the body never reassigns. Such a function
-/// transfers nothing: a parameter's resources are the caller's, and a module-level
-/// binding's are the module instance's (`resource/module_owner.rs`). A call to one
-/// is therefore no producer of resources, and its statement has nothing of its to
-/// adopt.
-fn function_returns_only_views(function: &NirFunction) -> bool {
-    use crate::target::shared::nir::visit::{walk_op, NirVisitor};
-    struct Returns<'f> {
-        function: &'f NirFunction,
-        any: bool,
-        only_views: bool,
-        returned_params: Vec<&'f str>,
-    }
-    impl NirVisitor for Returns<'_> {
-        fn visit_op(&mut self, op: &NirOp) {
-            if let NirOp::Return { value: Some(value) } = op {
-                self.any = true;
-                match value {
-                    NirValue::Global { .. } => {}
-                    NirValue::Local(name) => {
-                        match self
-                            .function
-                            .params
-                            .iter()
-                            .find(|param| param.name == *name)
-                        {
-                            Some(param) => self.returned_params.push(param.name.as_str()),
-                            None => self.only_views = false,
-                        }
-                    }
-                    _ => self.only_views = false,
-                }
-            }
-            walk_op(self, op);
-        }
-    }
-    let mut returns = Returns {
-        function,
-        any: false,
-        only_views: true,
-        returned_params: Vec::new(),
-    };
-    returns.visit_ops(&function.body);
-    if !returns.any || !returns.only_views {
-        return false;
-    }
-    let reassigned = crate::codegen::engine::function::function_lowering::collect_reassigned_locals(
-        &function.body,
-    );
-    !returns
-        .returned_params
-        .iter()
-        .any(|param| reassigned.contains(*param))
-}
-
 impl CodeBuilder<'_> {
     pub(crate) fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         // bug-592: plan-86 E's borrow flag belongs to exactly one frame — the
@@ -465,10 +409,8 @@ impl CodeBuilder<'_> {
     /// group store's own items — so closing what it reaches is not this rule's to
     /// decide. A borrowed element (`collections::get`, a `poll`) produces nothing.
     ///
-    /// bug-999: one class of aggregate is a temporary all the same — the result
-    /// of a function body that nothing but its own statement can hold
-    /// ([`ExclusiveTemps`], `len(mkList())`). It is adopted, not merely closed
-    /// ([`Self::adopt_exclusive_temp`]).
+    /// The aggregate a function body returns is taken by the statement too
+    /// ([`StatementTemps`], [`Self::adopt_statement_temp`]), in every position.
     fn register_resource_temp(
         &mut self,
         value: &NirValue,
@@ -487,7 +429,7 @@ impl CodeBuilder<'_> {
             return Ok(());
         }
         let leaf = self.is_resource_leaf(&result.type_);
-        if !leaf && !self.is_exclusive_aggregate_temp(value, target, &result.type_) {
+        if !leaf && !self.call_releases_into_statement(target, &result.type_) {
             return Ok(());
         }
         let slot = self.allocate_stack_object("resource_temp", 8);
@@ -496,7 +438,7 @@ impl CodeBuilder<'_> {
         // iteration's path) never wrote must read null, not stack garbage.
         self.owned_value_slots.push(slot);
         if !leaf {
-            self.adopt_exclusive_temp(value, slot, result)?;
+            self.adopt_statement_temp(slot, result)?;
             // The adoption allocated list nodes, and an arena call destroys every
             // caller-saved register: hand the consumer the value back from its slot.
             self.emit(abi::load_u64(
@@ -517,100 +459,34 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    /// bug-999: whether the call `value` (to `target`, answering `type_`) is an
-    /// aggregate temporary its statement owns outright: `record_ownership` found
-    /// nothing else can hold the result, and the call hands over what the result
-    /// reaches, as the bound form `LET t = f()` requires before it adopts
-    /// (`adopts_from_call`). Left to the rule above, which does nothing for an
-    /// aggregate:
+    /// Rule 5 (`mfb spec language resource-management`, "The owner of a resource"):
+    /// whether a call to `target` answering `type_` can hand the caller's
+    /// statement resources its `RETURN` released: a call to a function body whose
+    /// result is an aggregate reaching a resource. Which expression the call sits
+    /// in is not asked.
     ///
-    /// * a body that can only hand back a view ([`function_returns_only_views`]);
-    /// * a result reaching a function value, whose resources ride its environment
-    ///   routine and not a list;
-    /// * a result reaching a resource-union box. A box belongs to whoever made it
-    ///   (bug-1012), and which of the boxes such a result reaches are the callee's
-    ///   to free has not been measured for this position.
-    fn is_exclusive_aggregate_temp(
-        &self,
-        value: &NirValue,
-        target: &str,
-        type_: &ParameterType,
-    ) -> bool {
-        if !self
-            .exclusive_temps
-            .calls
-            .contains_key(&(value as *const NirValue as usize))
-            || !crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value)
-            || self.type_reaches_closure_leaf(type_)
-        {
-            return false;
-        }
-        let leaves = self.resource_leaf_types(type_);
-        !leaves.is_empty()
-            && !leaves
-                .iter()
-                .any(|leaf| self.resource_union_cleanup(leaf).is_some())
-            && self
-                .functions
-                .get(target)
-                .is_some_and(|callee| !function_returns_only_views(callee))
+    /// A natively lowered builtin has no `RETURN`: what its result reaches already
+    /// has a cleanup scope (a view, `canvas::groupItems`; the caller's own
+    /// handles, `collections::take`), or was taken by this statement when the
+    /// call that produced it returned.
+    fn call_releases_into_statement(&self, target: &str, type_: &ParameterType) -> bool {
+        !self.locals.contains_key(target)
+            && self.functions.contains_key(target)
+            && self.type_carries_resources(type_)
+            && !self.type_reaches_closure_leaf(type_)
     }
 
-    /// bug-999: `copy` is a clone of `original` that is about to be lowered in its
-    /// place. The pre-pass named its exclusive aggregate temporaries by the address
-    /// of the ORIGINAL node, so each one in the tree is carried to the node that
-    /// corresponds to it in the copy (a clone has the same shape, so the two
-    /// pre-order walks meet the same nodes in the same order). Costs nothing in a
-    /// function with no such temporary. Answers with the copies' addresses it
-    /// entered, for the caller to withdraw once the copy has been lowered.
-    fn carry_exclusive_temps(&mut self, original: &NirValue, copy: &NirValue) -> Vec<usize> {
-        use crate::target::shared::nir::visit::{walk_value, NirVisitor};
-        if self.exclusive_temps.calls.is_empty() {
-            return Vec::new();
-        }
-        struct Nodes(Vec<usize>);
-        impl NirVisitor for Nodes {
-            fn visit_value(&mut self, value: &NirValue) {
-                self.0.push(value as *const NirValue as usize);
-                walk_value(self, value);
-            }
-        }
-        let mut originals = Nodes(Vec::new());
-        originals.visit_value(original);
-        let mut copies = Nodes(Vec::new());
-        copies.visit_value(copy);
-        let mut carried = Vec::new();
-        if originals.0.len() != copies.0.len() {
-            return carried;
-        }
-        for (original, copy) in originals.0.into_iter().zip(copies.0) {
-            if let Some(fresh_block) = self.exclusive_temps.calls.get(&original).copied() {
-                self.exclusive_temps.calls.insert(copy, fresh_block);
-                carried.push(copy);
-            }
-        }
-        carried
-    }
-
-    /// bug-999: adopt, for the statement, what the exclusive aggregate temporary in
-    /// `slot` reaches. Every unowned record is claimed for the current scope and
-    /// listed, one list per resource leaf kind, exactly as a binding of the same
-    /// call adopts (`emit_owned_list_seed_from_collection`); a record that already
-    /// has an owner is left to it.
-    fn adopt_exclusive_temp(
-        &mut self,
-        value: &NirValue,
-        slot: usize,
-        result: &ValueResult,
-    ) -> Result<(), String> {
+    /// Rule 5: the statement takes, at once, every resource the call result in
+    /// `slot` reaches that the callee released. The statement is a scope one
+    /// inside the current one (its token is the next depth's), so every taker
+    /// that outlives it (a binding, a store into a container some binding holds,
+    /// a module-level store, a `RETURN`) raises what it keeps past this token by
+    /// the ordinary float, and nothing a callee does can take it. Each record
+    /// taken is listed, one list per resource leaf kind; a record that already
+    /// has an owner is left to it and not listed.
+    fn adopt_statement_temp(&mut self, slot: usize, result: &ValueResult) -> Result<(), String> {
         let type_ = &result.type_;
-        let fresh_block = self
-            .exclusive_temps
-            .calls
-            .get(&(value as *const NirValue as usize))
-            .copied()
-            .unwrap_or(false);
-        let depth = self.current_scope_depth();
+        let depth = self.current_scope_depth() + 1;
         let mut lists = Vec::new();
         for leaf in self.resource_leaf_types(type_) {
             let drop = self.resource_leaf_drop(&leaf)?;
@@ -627,69 +503,54 @@ impl CodeBuilder<'_> {
                 leaf,
             });
         }
-        let heads: Vec<(ParameterType, usize)> = lists
+        let heads: Vec<(ParameterType, usize, bool)> = lists
             .iter()
-            .map(|list| (list.leaf.clone(), list.head_slot))
+            .map(|list| {
+                (
+                    list.leaf.clone(),
+                    list.head_slot,
+                    matches!(list.drop, OwnedListDrop::Union { .. }),
+                )
+            })
             .collect();
         self.emit_for_each_resource(slot, type_, &mut |builder, leaf_slot, leaf| {
             let leaf = crate::codegen::engine::types::typed_strip_res_marker(leaf);
-            let Some((_, head_slot)) = heads.iter().find(|(kind, _)| kind == leaf).or_else(|| {
-                heads
-                    .iter()
-                    .find(|(kind, _)| kind.without_state() == leaf.without_state())
-            }) else {
+            let Some((_, head_slot, union)) =
+                heads.iter().find(|(kind, _, _)| kind == leaf).or_else(|| {
+                    heads
+                        .iter()
+                        .find(|(kind, _, _)| kind.without_state() == leaf.without_state())
+                })
+            else {
                 return Err(format!(
-                    "resource temporary reaches '{leaf}', which it has no list for (bug-999)"
+                    "resource temporary reaches '{leaf}', which it has no list for"
                 ));
             };
-            // No leaf here is a resource union (`is_exclusive_aggregate_temp`).
             builder.emit_owned_list_push_node(
                 *head_slot,
-                Some((depth, false)),
-                false,
+                Some((depth, *union)),
+                *union,
                 leaf_slot,
                 true,
                 None,
             )
         })?;
-        // The block: the callee built it, and nothing else frees it. A value that
-        // is freeable-flat (a record with a `RES` field, a list of such records)
-        // already has a pending-temp free of its own from `register_pending_temp`;
-        // a `List OF RES T` is not flat and has none (`setup_owned_list`, bug-645).
-        let frees_block = fresh_block
-            && typed_is_collection_type(type_)
-            && !self.is_freeable_flat_value(type_)
-            && !self
-                .pending_temp_frees
-                .iter()
-                .any(|temp| !temp.resource && !temp.union_box && temp.location == result.location);
-        self.exclusive_temps
-            .drops
-            .insert(slot, (lists, frees_block));
+        self.statement_temps.drops.insert(slot, lists);
         Ok(())
     }
 
-    /// bug-999: the statement-end drop of an exclusive aggregate temporary: drain
-    /// the lists [`Self::adopt_exclusive_temp`] seeded — close each record this
-    /// scope took, then free its buffers, `STATE` and record, as a sole owner's
-    /// drain does — and free the result's own block when that is this drop's to
-    /// do. Every step nulls what it consumed, so a drop reached again on this slot
-    /// (another exit path, a loop that skipped the producer) does nothing.
-    fn emit_exclusive_temp_drop(&mut self, temp: &PendingTemp) -> Result<bool, String> {
-        let Some((lists, frees_block)) = self.exclusive_temps.drops.get(&temp.slot).cloned() else {
+    /// Rule 5: the statement-end drain of what a call result handed the statement
+    /// ([`Self::adopt_statement_temp`]): close each record the statement still
+    /// owns, then free its buffers, `STATE` and record. Every step nulls what it
+    /// consumed, so a drain reached again on this slot (another exit path, a loop
+    /// that skipped the producer) does nothing. The result's own block is a flat
+    /// temporary with its own free.
+    fn emit_statement_temp_drop(&mut self, temp: &PendingTemp) -> Result<bool, String> {
+        let Some(lists) = self.statement_temps.drops.get(&temp.slot).cloned() else {
             return Ok(false);
         };
         for list in &lists {
             self.emit_owned_list_drain(list)?;
-        }
-        if frees_block {
-            self.emit_owned_value_drop(&OwnedValueCleanup {
-                type_: temp.type_.clone(),
-                stack_offset: temp.slot,
-                capacity_slot: None,
-                loop_alias_slot: None,
-                result_wrapper: None,
-            })?;
         }
         Ok(true)
     }
@@ -1035,7 +896,7 @@ impl CodeBuilder<'_> {
             // bug-999: a temporary the statement owns outright frees what it
             // closes. Its drop is the same on every path, a `RETURN`'s included:
             // nothing a returned value carries can be among its records.
-            if self.emit_exclusive_temp_drop(temp)? {
+            if self.emit_statement_temp_drop(temp)? {
                 self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), temp.slot));
                 return Ok(());
             }
@@ -1067,9 +928,9 @@ impl CodeBuilder<'_> {
     pub(crate) fn close_resource_temps_before_return(&mut self) -> Result<(), String> {
         let temps = self.pending_temp_frees.clone();
         for temp in temps.iter().rev() {
-            // bug-999: an exclusive temporary is dropped whole by the interior
+            // A statement-owned aggregate is drained whole by the interior
             // drop this path emits next, which does not consult the flag below.
-            if temp.resource && !self.exclusive_temps.drops.contains_key(&temp.slot) {
+            if temp.resource && !self.statement_temps.drops.contains_key(&temp.slot) {
                 self.emit_resource_temp_close(temp.slot, &temp.type_)?;
             }
         }
@@ -4274,20 +4135,7 @@ impl CodeBuilder<'_> {
         raw: bool,
     ) -> Result<ValueResult, String> {
         let helper_args = args.to_vec();
-        // bug-999: the exclusive aggregate temporaries are known by node address,
-        // and these are copies of the nodes the ownership pre-pass read. The
-        // copies die with this call, so their entries are withdrawn when it has
-        // been lowered: an address the allocator hands to a later copy must not
-        // answer for a node that was never read as exclusive.
-        let mut carried = Vec::new();
-        for (original, copy) in args.iter().zip(&helper_args) {
-            carried.extend(self.carry_exclusive_temps(original, copy));
-        }
-        let result = self.lower_runtime_helper_call_copied(helper, target, args, helper_args, raw);
-        for copy in carried {
-            self.exclusive_temps.calls.remove(&copy);
-        }
-        result
+        self.lower_runtime_helper_call_copied(helper, target, args, helper_args, raw)
     }
 
     /// [`Self::lower_runtime_helper_call`] over `helper_args`, its own copy of
@@ -4890,103 +4738,5 @@ mod borrowed_resource_tests {
         assert!(CodeBuilder::value_aliases_live_resource(&plain_call(
             "collections.get"
         )));
-    }
-}
-
-#[cfg(test)]
-mod view_return_tests {
-    use super::*;
-    use crate::types::ParameterType;
-    use std::collections::HashMap;
-
-    fn function(params: &[&str], body: Vec<NirOp>) -> NirFunction {
-        NirFunction {
-            name: "f".to_string(),
-            visibility: String::new(),
-            kind: "function".to_string(),
-            isolated: false,
-            params: params
-                .iter()
-                .map(|name| NirParam {
-                    name: name.to_string(),
-                    type_: ParameterType::parse("List OF RES fs.File"),
-                    default: None,
-                })
-                .collect(),
-            returns: ParameterType::parse("List OF RES fs.File"),
-            body,
-            file: String::new(),
-            resource_owners: HashMap::new(),
-        }
-    }
-
-    fn returns(value: NirValue) -> NirOp {
-        NirOp::Return { value: Some(value) }
-    }
-
-    fn local(name: &str) -> NirValue {
-        NirValue::Local(name.to_string())
-    }
-
-    fn global(name: &str) -> NirValue {
-        NirValue::Global {
-            name: name.to_string(),
-            type_: ParameterType::parse("List OF RES fs.File"),
-        }
-    }
-
-    fn fresh_list() -> NirValue {
-        NirValue::ListLiteral {
-            type_: ParameterType::parse("List OF RES fs.File"),
-            values: Vec::new(),
-        }
-    }
-
-    /// bug-999: a function that hands back only what it was given, or what the
-    /// module holds, transfers nothing, so a call to it is no resource producer.
-    #[test]
-    fn a_parameter_or_a_module_binding_is_a_view() {
-        assert!(function_returns_only_views(&function(
-            &["xs"],
-            vec![returns(local("xs"))]
-        )));
-        assert!(function_returns_only_views(&function(
-            &[],
-            vec![returns(global("frameItems"))]
-        )));
-        assert!(function_returns_only_views(&function(
-            &["xs"],
-            vec![returns(global("frameItems")), returns(local("xs"))]
-        )));
-    }
-
-    /// The guard: anything the body could have built or filled is not a view — a
-    /// local, a literal, a reassigned parameter — and neither is a function with
-    /// one such `RETURN` among view ones, or with no value `RETURN` at all.
-    #[test]
-    fn anything_the_body_built_is_not_a_view() {
-        assert!(!function_returns_only_views(&function(
-            &[],
-            vec![returns(fresh_list())]
-        )));
-        assert!(!function_returns_only_views(&function(
-            &[],
-            vec![returns(local("built"))]
-        )));
-        assert!(!function_returns_only_views(&function(
-            &["xs"],
-            vec![
-                NirOp::Assign {
-                    name: "xs".to_string(),
-                    value: fresh_list(),
-                },
-                returns(local("xs")),
-            ]
-        )));
-        assert!(!function_returns_only_views(&function(
-            &["xs"],
-            vec![returns(local("xs")), returns(fresh_list())]
-        )));
-        assert!(!function_returns_only_views(&function(&["xs"], Vec::new())));
     }
 }

@@ -2950,9 +2950,13 @@ impl CodeBuilder<'_> {
                         // bug-375: a bind that merely aliases an already-live
                         // resource registers no cleanup below, so it owns no
                         // slot to zero here either.
-                        let aliases_live_resource = value
-                            .as_ref()
-                            .is_some_and(Self::value_aliases_live_resource);
+                        // Rule 4: an alias read out of a value the statement owns
+                        // (`RES r = collections::get(mkList(), 0)`) is taken by this
+                        // binding's scope like any other, so it is no mere alias.
+                        let aliases_live_resource = value.as_ref().is_some_and(|value| {
+                            Self::value_aliases_live_resource(value)
+                                && !crate::codegen::cleanup::owned::builder_owned_cleanup::value_may_carry_statement_resources(value)
+                        });
                         let owns_resource_slot = !aliases_union_variant
                             && !by_ref_capture_slot
                             && !floats_to_collection
@@ -3205,7 +3209,7 @@ impl CodeBuilder<'_> {
                         // (bug-643).
                         let adopts_call_result = self.is_resource_owning_container(type_)
                             && value.as_ref().is_some_and(|value| {
-                                crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value)
+                                crate::codegen::cleanup::owned::builder_owned_cleanup::value_may_carry_statement_resources(value)
                             });
                         if self.owner_containers.contains(name) || adopts_call_result {
                             self.setup_owned_list(name, type_)?;
@@ -3256,7 +3260,15 @@ impl CodeBuilder<'_> {
                             if owns_box_only {
                                 self.register_union_box_cleanup(name, type_);
                             }
-                        } else if copies_borrowed_box {
+                        } else if copies_borrowed_box
+                            && !value.as_ref().is_some_and(|value| {
+                                crate::codegen::cleanup::owned::builder_owned_cleanup::value_may_carry_statement_resources(value)
+                            })
+                        {
+                            // A box read out of a named place: the record has its
+                            // owner there. One read out of a value the statement
+                            // owns takes the full union arm below (rule 4): the
+                            // binding raises the record to its scope and closes it.
                             self.register_union_box_cleanup(name, type_);
                         } else if aliases_live_resource
                             && (self.resource_cleanup_symbol(type_).is_some()
@@ -3848,8 +3860,7 @@ impl CodeBuilder<'_> {
                                 // resources the callee handed out, exactly as a bind of
                                 // one does (`call_assigned_owner_containers` gave it its
                                 // owned-lists at its bind).
-                                if (crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value)
-                                    || self.adopts_from_trapped_call(value))
+                                if self.adopts_from_trapped_call(value)
                                     && (self.owned_list_heads.keys().any(|(list, _)| list == name)
                                         || self.dynamic_owned_list(name).is_some())
                                 {
@@ -4443,6 +4454,16 @@ impl CodeBuilder<'_> {
             // frees them; a control transfer has already dealt with them according
             // to its `TransferTemps` class, and `forget_pending_temps_to` checks
             // the two classes that claim to have nothing left (bug-567).
+            // Rule 4: an assignment whose value can carry a resource the statement
+            // owns stores it into a binding that outlives the statement, so every
+            // resource the binding now reaches is raised to the binding's scope
+            // before the statement's temporaries close what it still owns. Done
+            // here, after the store, so it holds for every way an assignment is
+            // lowered (a plain store, an in-place append or set), as the
+            // module-level store walks its global after a call (bug-806).
+            if let NirOp::Assign { name, value } = op {
+                self.emit_assigned_container_float(name, value)?;
+            }
             match Self::transfer_temp_disposition(op) {
                 TransferTemps::StatementScope => self.drop_pending_temps_to(temp_watermark)?,
                 disposition => self.forget_pending_temps_to(temp_watermark, disposition)?,

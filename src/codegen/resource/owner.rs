@@ -92,22 +92,15 @@ impl CodeBuilder<'_> {
         Ok(Reg::from(token))
     }
 
-    /// Claim the record in `record` for the scope at `depth` when it is unowned: a
-    /// fresh producer result, or a record a callee's `RETURN` released. A record that
-    /// already has an owner keeps it — this binding is a reference. A null record
+    /// A binding takes the record in `record` for the scope at `depth`: rule 4, the
+    /// owner word is raised to this scope's token when it is below it. That takes
+    /// a fresh producer result (unowned, `0`) and a record the binding's own
+    /// statement holds (a callee's `RETURN` released it to the statement, whose
+    /// token is one scope inside this one's). A record owned by this scope or
+    /// further out keeps its owner: this binding is a reference. A null record
     /// (a slot an error left unwritten) is skipped.
     pub(crate) fn emit_resource_claim(&mut self, record: &Reg, depth: usize) -> Result<(), String> {
-        let done = self.label("resource_claim_done");
-        self.emit(abi::compare_immediate(record, "0"));
-        self.emit(abi::branch_eq(&done));
-        let owner = self.allocate_register();
-        self.emit(abi::load_u64(&owner, record, RESOURCE_OFFSET_OWNER));
-        self.emit(abi::compare_immediate(&owner, "0"));
-        self.emit(abi::branch_ne(&done));
-        let token = self.emit_scope_token(depth)?;
-        self.emit(abi::store_u64(&token, record, RESOURCE_OFFSET_OWNER));
-        self.emit(abi::label(&done));
-        Ok(())
+        self.emit_resource_float(record, depth)
     }
 
     /// [`Self::emit_resource_claim`] for the record a stack slot holds.
@@ -402,10 +395,14 @@ impl CodeBuilder<'_> {
         }
         let owner = self.allocate_register();
         self.emit(abi::load_u64(owner, record, RESOURCE_OFFSET_OWNER));
-        self.emit(abi::compare_immediate(owner, "0"));
-        self.emit(abi::branch_ne(&done));
         let token = self.allocate_register();
         self.emit(abi::load_u64(token, abi::stack_pointer(), token_slot));
+        // Unsigned, as `emit_resource_float`: raised only when below the token.
+        let take = self.label("resource_claim_against_take");
+        self.emit(abi::compare_registers(owner, token));
+        self.emit(abi::branch_lo(&take));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&take));
         self.emit(abi::store_u64(token, record, RESOURCE_OFFSET_OWNER));
         self.emit(abi::label(&done));
         Ok(())

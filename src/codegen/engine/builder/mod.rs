@@ -239,7 +239,7 @@ pub(crate) struct CodeBuilder<'a> {
     /// clears it.
     pub(crate) resource_temps_closed_on_path: bool,
     /// bug-999: the aggregate resource temporaries their statement owns outright.
-    pub(crate) exclusive_temps: ExclusiveTemps,
+    pub(crate) statement_temps: StatementTemps,
     /// plan-86 K1: true while lowering a function whose every value-return is a bare
     /// parameter (`function_returns_param_borrow`). Its `RETURN <param>` returns the
     /// argument pointer uncopied (a borrow); callers deep-copy the result only at an
@@ -769,7 +769,7 @@ impl<'a> CodeBuilder<'a> {
             resource_temp_exempt: None,
             trap_call_results: HashSet::new(),
             resource_temps_closed_on_path: false,
-            exclusive_temps: ExclusiveTemps::default(),
+            statement_temps: StatementTemps::default(),
             current_returns_param_borrow: false,
             record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
@@ -1234,22 +1234,18 @@ pub(crate) enum ResultWrapperDrop {
     OkGraphPayload,
 }
 
-/// bug-999: the aggregate resource temporaries whose result is their statement's
-/// alone (`record_ownership`'s `exclusive_temps`), and what each one registered.
-///
-/// Such a temporary is the bound form shrunk to one statement: when the call
-/// returns, every record its result reaches that nobody owns is claimed for the
-/// current scope and listed, exactly as `LET t = mkList()` adopts; at the end of
-/// the statement the lists are drained with the frees a sole owner's drain runs,
-/// and the result's own block is freed when the callee built it and nothing else
-/// frees it.
+/// Rule 5 (`mfb spec language resource-management`): what each call result that
+/// handed its statement resources registered. When a call to a function body
+/// returns, every record its result reaches that the callee released is taken by
+/// the caller's statement (a scope one inside the current one) and listed; at
+/// the end of the statement, on every exit from it, the lists are drained: a
+/// record the statement still owns is closed and freed, one a longer-lived taker
+/// raised is left to it.
 #[derive(Default)]
-pub(crate) struct ExclusiveTemps {
-    /// Call node address → whether the result's block is one the callee built.
-    pub(crate) calls: HashMap<usize, bool>,
+pub(crate) struct StatementTemps {
     /// Per temporary (by its `PendingTemp` slot): the owned-lists it seeded, one
-    /// per resource leaf kind, and whether its block is freed after them.
-    pub(crate) drops: HashMap<usize, (Vec<OwnedListCleanup>, bool)>,
+    /// per resource leaf kind.
+    pub(crate) drops: HashMap<usize, Vec<OwnedListCleanup>>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free

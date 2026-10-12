@@ -1127,7 +1127,7 @@ pub(crate) fn lower_function(
         resource_temp_exempt: None,
         trap_call_results: HashSet::new(),
         resource_temps_closed_on_path: false,
-        exclusive_temps: ExclusiveTemps::default(),
+        statement_temps: StatementTemps::default(),
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
@@ -1407,7 +1407,6 @@ pub(crate) fn lower_function(
     builder.record_owning_locals = ownership.owning_locals;
     builder.resource_alias_sources = ownership.alias_sources;
     builder.owned_list_owning_collections = ownership.owning_collections;
-    builder.exclusive_temps.calls = ownership.exclusive_temps;
     // bug-1045: a container that a store raises an inner scope's value into lists
     // what the store hands it, so it needs its owned-lists from its bind, like a
     // float target.
@@ -1799,7 +1798,7 @@ pub(crate) fn lower_abi_function_helper(
         resource_temp_exempt: None,
         trap_call_results: HashSet::new(),
         resource_temps_closed_on_path: false,
-        exclusive_temps: ExclusiveTemps::default(),
+        statement_temps: StatementTemps::default(),
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
@@ -2054,7 +2053,7 @@ pub(crate) fn helper_code_builder<'a>(
         resource_temp_exempt: None,
         trap_call_results: HashSet::new(),
         resource_temps_closed_on_path: false,
-        exclusive_temps: ExclusiveTemps::default(),
+        statement_temps: StatementTemps::default(),
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),

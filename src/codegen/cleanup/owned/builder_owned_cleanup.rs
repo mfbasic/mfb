@@ -502,7 +502,7 @@ impl CodeBuilder<'_> {
                         self.types.insert(name.clone(), type_.clone());
                     }
                     NirOp::Assign { name, value }
-                        if adopts_from_call(value)
+                        if value_may_carry_statement_resources(value)
                             || trapped_call_source(value)
                                 .is_some_and(|source| self.trapped.contains(source)) =>
                     {
@@ -528,6 +528,31 @@ impl CodeBuilder<'_> {
                     .is_some_and(|type_| self.is_resource_owning_container(type_))
             })
             .collect()
+    }
+
+    /// Rule 4, for an assignment: when `value` can carry a resource its statement
+    /// owns, raise every resource container `name` reaches after the store to
+    /// the container's scope and list the ones it takes. A record the container
+    /// already listed, or one owned further out, is skipped by the push.
+    pub(crate) fn emit_assigned_container_float(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+    ) -> Result<(), String> {
+        if !value_may_carry_statement_resources(value) {
+            return Ok(());
+        }
+        let Some(local) = self.locals.get(name).filter(|local| !local.by_ref) else {
+            return Ok(());
+        };
+        let (slot, type_) = (local.stack_offset, local.type_.clone());
+        if !self.is_resource_owning_container(&type_)
+            || !(self.owned_list_heads.keys().any(|(list, _)| list == name)
+                || self.dynamic_owned_list(name).is_some())
+        {
+            return Ok(());
+        }
+        self.emit_owned_list_seed_from_collection(name, slot, &type_)
     }
 
     /// Adopt the resources a value transferred in from a call carries: walk every
@@ -1025,6 +1050,17 @@ pub(crate) fn call_result_holds_only_argument_resources(value: &NirValue) -> boo
 pub(crate) fn adopts_from_call(value: &NirValue) -> bool {
     matches!(value, NirValue::Call { .. } | NirValue::CallResult { .. })
         && !call_result_holds_only_argument_resources(value)
+}
+
+/// Rule 4 (`mfb spec language resource-management`, "The owner of a resource"):
+/// whether storing `value` into a place that outlives the statement can carry a
+/// resource the STATEMENT owns, so the taker must float what the stored value
+/// reaches up to its own scope. A value read from named places only reaches
+/// resources already owned at those places' scopes or further out; only a call
+/// somewhere in the expression can have handed the statement one. Where in the
+/// expression the call sits does not matter.
+pub(crate) fn value_may_carry_statement_resources(value: &NirValue) -> bool {
+    !value_produces_no_resource(value)
 }
 
 /// bug-842: the `Result` local a `resultValue(<local>)` reads — the inline-`TRAP`
