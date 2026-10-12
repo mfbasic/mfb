@@ -18,44 +18,24 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 ## Running phase: batch 22 (`bug-staging-22-real`)
 
-The list is fixed: the seventeen documents that were open in "Resources and STATE" with
-priority HIGH or MED when the phase started. Nothing is added to it; a bug found while it
-runs gets a row in its area table and waits (1060 to 1078 and 1081 so far).
+The seventeen documents that were open in "Resources and STATE" with priority HIGH or MED
+when the phase started are all fixed on this branch: 999, 1018, 1043 to 1057 (except 1048,
+which was already fixed and gained its regression test). The fix is the owner's ruling of
+2026-10-11: the code follows the resource model, with no rule keyed on statement shape. The
+Resource always has a cleanup scope and is closed once by it; a `RES` is an alias; a value
+made of aliases is plain data, copied, moved and freed like any other value; a cleanup scope
+only floats up; `RETURN` hands it to the caller's current scope at once; the scope that
+closes a Resource frees its record; which variant of a union a value is does not depend on
+the `RES` marker or a `STATE` clause.
 
-Merged here: 1045, 1046, 1047, 1048, 1050, 1051, 1052, 1053, 1054, 1055. Still to do: 999,
-1018, 1043, 1044, 1049, 1056, 1057. The owner's ruling of 2026-10-11 on HOW (it replaces a
-day of per-shape fixes that were never merged to main): the code follows the resource model,
-with no rule keyed on statement shape. The Resource always has a cleanup scope and is closed
-once by it; a `RES` is an alias; a value made of aliases (a list, map or record of them) is
-plain data and is copied, moved and freed like any other value; a cleanup scope only floats
-up; `RETURN` hands it to the caller's current scope at once. Which variant of a union a value
-is does not depend on the `RES` marker or a `STATE` clause.
+Found while it ran: 1060 to 1078 and 1081. The same rules fixed 1063 to 1067, 1069 to 1072
+and 1074 to 1078, each with a regression test (`tests/runtime/rt_resource_model.rs`). Open
+and waiting: 1060, 1061, 1062, 1068, 1073, 1081.
 
 ## Resources and STATE
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 1063   | HIGH     | a concrete resource carrying `STATE` given where its resource union with the same `STATE` is expected is not wrapped: a binding from a call and an argument crash with SIGSEGV, an append fails to build with an unlocated internal error |
-| [ ]  | 1075   | HIGH     | a `collections::forEach` lambda that appends its argument to a captured outer list leaves that list reading freed memory (`7-703-0009`) |
-| [ ]  | 1076   | HIGH     | `keep = collections::filter(xs, …)` from a nested block leaves closed handles in the outer list (1045's defect for a non-inserting `collections` member) |
-| [ ]  | 1077   | HIGH     | a function-level `TRAP` handler that reads a `List OF RES` of the function reads freed records |
-| [ ]  | 999    | MED      | a `List OF RES` (or record of resources) returned by a call and taken unbound by a constructor argument, a member read, a `FOR EACH` or a call that answers with more than a plain scalar is never closed (`len(mkList())` is fixed; the owner's rule is settled: the aggregate takes the scope of whatever takes it) |
-| [ ]  | 1018   | MED      | a `List OF RES fs::File` given where a `List OF RES Handle` (a resource union) is expected is accepted unconverted, so `MATCH` takes no arm, and one form crashes; the conversion is written and right but keeps 272 bytes per conversion (needs `transform` to free a resource-union box, and the rest of 999) |
-| [ ]  | 1043   | MED      | a single resource returned by a call and used unbound (`len(fs::readAll(openOne()))`) is closed but keeps its 112-byte record on every call |
-| [ ]  | 1044   | MED      | a record built from a call that returns a `List OF RES` (`Box[items := mkList()]`) closes its descriptors but keeps 384 bytes per call |
-| [ ]  | 1049   | MED      | a `List OF RES` held in a record field, iterated or read with `get(b.hs, 0)`, keeps 112 bytes per call |
-| [ ]  | 1056   | MED      | a `List OF List OF RES fs::File` returned by a call and bound (`LET t = mkNested()`) keeps the inner list blocks, 240 bytes per call |
-| [ ]  | 1057   | MED      | `hs = files` on a `MUT hs AS List OF RES Handle` keeps 48 bytes per assignment (near 1018) |
-| [ ]  | 1064   | MED      | `LET k AS HB = mk() TRAP …` (a record holding a resource, bound from a call under an inline `TRAP`) keeps 112 bytes per evaluation (near 1051) |
-| [ ]  | 1065   | MED      | a `List OF RES fs::File STATE Cur` that a loop floats stateful files into keeps every record and `STATE` block, 672 bytes per call |
-| [ ]  | 1066   | MED      | `FOR EACH e` over a `Map OF String TO RES Handle` with `MATCH e.value` keeps 1408 bytes per call (1048's shape over a union map; re-measure after 1048) |
-| [ ]  | 1067   | MED      | `hs = [s, u]` in a loop on an outer `MUT List OF RES Handle` keeps 832 bytes per call (near 1057; re-measure after 1057) |
-| [ ]  | 1069   | MED      | a `RES f` put in a constructed record whose field is appended to an outer list keeps 112 bytes per file (the close-only drain class of 1053) |
-| [ ]  | 1070   | MED      | a list a loop raises resources into and a callee then copies keeps 112 bytes per file (the close-only drain class of 1053) |
-| [ ]  | 1071   | MED      | a loop-scoped `List OF RES fs::File` appended to an outer `List OF List OF RES fs::File` keeps 1168 bytes per call (near 1056; re-measure after 1056) |
-| [ ]  | 1072   | MED      | `LET xs AS List OF RES fs::File = mkList() TRAP …` (a bound call under an inline `TRAP`) keeps 768 bytes per evaluation (near 1064) |
-| [ ]  | 1074   | MED      | `LET b = WITH a { items := mkList() }` keeps 752 bytes per evaluation (an unbound aggregate taken by a `WITH`) |
-| [ ]  | 1078   | MED      | a function containing a store 1075 or 1076 describes keeps the close-only drain for its unproved containers, 112 bytes per call (the guard 1053 left; after 1075 and 1076) |
 | [ ]  | 1029   | LOW      | a call through a function value that returns a resource union leaks the 16-byte union box |
 | [ ]  | 1031   | LOW      | `RES` on a non-resource type is not refused at the top level, on a return type, or on a record field that also carries `STATE` |
 | [ ]  | 1073   | LOW      | a function-level `List OF RES` keeps its 48-byte block at exit when the function has any inline `TRAP` (constant) |
