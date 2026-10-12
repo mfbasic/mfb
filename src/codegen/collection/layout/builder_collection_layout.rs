@@ -3090,6 +3090,18 @@ pub(crate) fn is_resource_nominal(model: &TypeModel, type_: &ParameterType) -> b
         || model.resource_names.contains(&base_resource_type(type_))
 }
 
+/// True when a collection payload of `type_` is an **alias** to a resource: a
+/// resource nominal (an 8-byte pointer to its record) or a resource union (the
+/// `{tag, record-ptr}` box held inline). The element accessors strip the `RES`
+/// marker, so this is asked of the bare payload type.
+fn is_resource_alias_payload(model: &TypeModel, type_: &ParameterType) -> bool {
+    if is_resource_nominal(model, type_) {
+        return true;
+    }
+    let base = base_resource_type(type_);
+    model.union_names.contains(&base) && !union_is_data(model, &base)
+}
+
 /// True when a resource nominal may cross a thread boundary — a built-in with
 /// the registry's `sendable` bit, or a user declaration carrying
 /// `THREAD_SENDABLE` (17_native-libraries.md).
@@ -3233,9 +3245,20 @@ fn flatness_walk(
         // `else` gave it. Naming it there rather than here is the point: that
         // answer is inherited, not chosen.
         ParameterType::ListOf(_) | ParameterType::MapOf(..) | ParameterType::SetOf(_) => {
-            collection_payload_types(type_)
-                .into_iter()
-                .all(|p| flatness_walk(model, &p, mode, visited))
+            // DIVERGENCE 2 — a resource ELEMENT (or map value) is an alias, exactly
+            // as a `RES` record field is: the element-type accessors strip the `RES`
+            // marker, so it arrives here as the bare nominal, but the slot is the
+            // same 8-byte pointer to the one resource record (a resource union's is
+            // its `{tag, record-ptr}` box, two plain words held inline). Copying the
+            // block copies aliases and duplicates no resource; freeing it closes
+            // nothing (`mfb spec language resource-management` 15.6: "the collection
+            // is still an ordinary copyable collection of references and owns
+            // nothing"). So a collection of aliases is plain data within a thread,
+            // and, like the `Res(_)` arm, never relocatable into another arena.
+            collection_payload_types(type_).into_iter().all(|p| {
+                (mode == Flatness::MemcpyCopyable && is_resource_alias_payload(model, &p))
+                    || flatness_walk(model, &p, mode, visited)
+            })
         }
         // Every remaining variant is either a NOMINAL, whose answer only the
         // `TypeModel` knows, or a scalar that has always taken the same default
@@ -3883,7 +3906,7 @@ mod flatness_split_tests {
     /// sender's arena).
     ///
     /// C7: this list is deliberately SHORT, and the collection spellings are
-    /// absent on purpose — see `a_res_collection_does_not_diverge`.
+    /// covered by `a_res_collection_is_a_block_of_aliases`.
     #[test]
     fn a_res_field_and_its_record_diverge_between_the_two_predicates() {
         let model = model_with_res_field_record();
@@ -3902,20 +3925,18 @@ mod flatness_split_tests {
         }
     }
 
-    /// A `RES` **collection** does not reach the `Res(_)` arm at all, so it does
-    /// not diverge — it is flat in neither mode, exactly as before plan-114-B.
+    /// A `RES` **collection** diverges exactly as a record with a `RES` field
+    /// does: it is a block of aliases, so a `memcpy` copies it correctly within a
+    /// thread (each slot still names the one resource, §15.6) and it may not be
+    /// relocated into another arena.
     ///
-    /// C7: `typed_list_element_type` / `typed_map_type_parts` **strip** the `RES`
-    /// marker (`type_utils.rs:345`, `:352`), so `collection_payload_types`
-    /// yields a BARE `fs.File` and the walk takes the bare-resource arm. The
-    /// `Res(_)` arm is reachable only where a type is stored unstripped — a
-    /// record field, which is exactly the new shape this letter exists for.
-    ///
-    /// Pinned because the plan predicted the opposite, and because it is what
-    /// keeps a resource-carrying collection out of `copy_flat_block` and out of
-    /// `is_freeable_flat_value` — both of which would be wrong for it.
+    /// `typed_list_element_type` / `typed_map_type_parts` strip the `RES` marker,
+    /// so the walk meets the BARE resource as the payload; the collection arm
+    /// answers for it there (`is_resource_alias_payload`), which is what puts a
+    /// list of aliases under the ordinary copy-insertion and scope-drop rules
+    /// every other flat collection follows.
     #[test]
-    fn a_res_collection_does_not_diverge() {
+    fn a_res_collection_is_a_block_of_aliases() {
         let model = model_with_res_field_record();
         for spelling in [
             "List OF RES fs.File",
@@ -3924,9 +3945,9 @@ mod flatness_split_tests {
         ] {
             let type_ = ParameterType::parse(spelling);
             assert!(
-                !type_is_memcpy_copyable(&model, &type_),
-                "`{spelling}` is flat in neither mode: its payload strips to a \
-                 bare resource, which is not a self-contained block"
+                type_is_memcpy_copyable(&model, &type_),
+                "`{spelling}` is a block of aliases: copying it copies pointers \
+                 and duplicates no resource"
             );
             assert!(!type_is_arena_transferable(&model, &type_), "`{spelling}`");
         }

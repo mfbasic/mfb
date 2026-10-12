@@ -191,15 +191,17 @@ fn a_res_list_bound_from_a_user_function_frees_its_block() {
         counter(&large, "peak_live_bytes"),
         "peak live bytes grew with the iteration count"
     );
-    // Exactly one block outlives the run, whatever N is: `la`'s. `same` keeps its
-    // parameter, so `la` is not proved its block's sole holder (bug-801) and `s` is
-    // its alias — neither frees it, rather than both.
+    // Nothing outlives the run. A `List OF RES` is a block of aliases and follows
+    // the rules of any flat list: `LET s = same(la)` copies the block `same` hands
+    // back (its own parameter, the caller's block), so `s` and `la` each own one
+    // and each frees its own.
     for stats in [&small, &large] {
         assert_eq!(
             counter(stats, "alloc_calls"),
-            counter(stats, "free_calls") + 1,
-            "only the aliased `la` block is left"
+            counter(stats, "free_calls"),
+            "every block is freed, `la`'s included"
         );
+        assert_eq!(counter(stats, "double_free_skips"), 0, "no block is freed twice");
     }
 }
 
