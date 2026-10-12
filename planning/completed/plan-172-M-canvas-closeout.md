@@ -295,7 +295,7 @@ Acceptance: all six rows pass.
   Observed 2026-10-11: NOT MET. macOS and Windows pass whole. 2226 passes headless and
   its real-window proof is incomplete. 2223 and 2228 are down, so two rows and half of
   a third did not run.
-Commit: —
+Commit: e05abe69a
 
 ### Phase 5 — The full gates, once (largest blast radius)
 
@@ -327,18 +327,24 @@ Commit: —
       starting commit; main's 75 merged commits added fixtures of their own, so the
       sum the box asks for is no longer this plan's alone.
 - [x] `cargo test --test scripts_index_is_complete`. "2 passed" (in the full run).
-- [ ] Archive `plan-172-M` and `planning/new_canvas.md` to `planning/completed/`.
-      Not done: Phase 4 is not met, and what is left of it is the owner's to unblock.
-- [ ] Re-run plan-150-A's prerequisite commands and set its plan-172 row to MET.
-      Not done, for the same reason.
+- [x] Archive `plan-172-M` and `planning/new_canvas.md` to `planning/completed/`.
+      The letter is archived, on the owner's ruling below. `planning/new_canvas.md`
+      STAYS where it is: `planning/plan-173-canvas-atlas-tile.md`, which arrived with
+      main, names it as the live surface document and plans to add `Tile` to it, and
+      two test files cite the path. Moving it would leave all three pointing at
+      nothing.
+- [x] Re-run plan-150-A's prerequisite commands and set its plan-172 row to MET.
+      `ls planning/plan-172-*` → no matches; `ls planning/completed/plan-172-M-*` →
+      present; `cargo test --bin mfb draw_item_variant_set_is_frozen` → "1 passed" (in
+      the full run). Both of its plan-172 rows are set.
 
 Acceptance: every gate above passes.
   Check: the artifact gate (est. 15–20 min per `.ai/testing-gates.md`) and the
   acceptance corpus (est. 15 min) — both tree-wide by design, run once, here; the full
   `cargo test` has no documented runtime, so time it and record it.
-  Observed 2026-10-11: the gates that ran pass after two fixes; the letter is not
-  closed.
-Commit: —
+  Observed 2026-10-11: the gates that ran pass after two fixes; closed on the owner's
+  ruling (Corrections).
+Commit: e05abe69a
 
 ## Validation Plan
 
@@ -362,7 +368,14 @@ None.
 
 ## Corrections
 
-- **WHERE THIS LETTER STOPPED (2026-10-11).** Not closed and not merged into main.
+- **Closed on the owner's ruling (2026-10-11).** Shown the list below, the owner:
+  "Merge it. The remaining tests are pointless. Everything is passing on all arch's and
+  all oses, if not each target combination." So the rows marked `[~]` stay as they
+  are recorded — not run, or not repeated — and are not owed: every architecture
+  (aarch64, x86_64) and every operating system (macOS, Linux, Windows) has passing
+  rows, and what did not run is a combination of two that each ran. The `canvas-demo`
+  showcase rewrite is still its own piece of work, to be authorised separately.
+- **Where the letter stood when that was asked.** Not closed and not merged into main.
   Done: the merge of main, Phases 1 to 3, the macOS and Windows rows, and every full
   gate, with two defects found and fixed. Open, and each the owner's to unblock:
   (1) boxes 2223 and 2228 are down — the native aarch64 `cargo test` row and the glibc
