@@ -20,9 +20,9 @@ an image cannot be resized, only re-filled.
 
 **This does not go through `canvas::present`.** Changing an image's pixels does not
 change the scene: the same items are in the same places, and only the content
-behind one of their ids is different. So there is no scene to re-install, and the
-new pixels appear on the next rendered frame. That is the whole reason images are
-identified by handle rather than embedded in items — a video frame, a plot, or a
+of an image one of them names is different. So there is no scene to re-install, and
+the new pixels appear on the next rendered frame. That is the whole reason an item
+names its image rather than holding a copy of its pixels — a video frame, a plot, or a
 progress bar can update without rebuilding the scene at all.
 
 The pixels are copied, so you may reuse or discard the list immediately.
@@ -44,7 +44,7 @@ FUNC main() AS Nothing
   LET tile AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 16.0, height := 16.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   canvas::present([tile])
 
-  ' The scene is unchanged; only the pixels behind the id are.
+  ' The scene is unchanged; only the image's pixels are.
   LET white AS List OF Byte = [toByte(255), toByte(255), toByte(255), toByte(255)]
   canvas::setBytes(img, white)
 END FUNC

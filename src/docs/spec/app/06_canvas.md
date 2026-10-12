@@ -45,8 +45,10 @@ present-diff. The consequences are the point:
   its contents rather than a call ordering. Re-presenting an unchanged item
   re-uses its cached geometry.
 
-The comparison is exact rather than hashed: both sides are shrink-to-fit copies,
-so equal content is equal bytes and there are no collisions to reason about.
+The comparison is exact rather than hashed — the two scenes' contents, element
+for element — so there are no collisions to reason about. It is of CONTENT, not of
+whole blocks: two shrink-to-fit copies of one scene need not be equal bytes
+(`.ai/canvas-threading.md` section 3.1).
 
 ### Flat or layered
 
@@ -250,8 +252,8 @@ of three paths:
 
 1. **Four square corners** — the rectangle record (kind 0, radius 0).
 2. **Four corners that are one circular radius** — the same record with that radius in
-   slot 6: a box distance less the radius, exact on all three renderers. This is every
-   rectangle that was a `RoundedRect`, byte for byte. Four equal fractional radii on a
+   slot 6: a box distance less the radius, exact on all three renderers. This is the
+   record a rounded rectangle has always been, byte for byte. Four equal fractional radii on a
    square rectangle are this path too, since the ellipse they describe is a circle.
 3. **Anything else** — per-corner radii, or an elliptical corner. The outline is
    flattened to one clockwise ring and the item is a polygon record (kind 4), so it
@@ -270,8 +272,10 @@ The native builder draws paths 1 and 2 only when the four radii are equal and ar
 either all `<= 0` or all `> 1`; every other rectangle is built by the MFBASIC builder.
 [[src/codegen/builtins/canvas/func_geo_build.rs:emit_rect_inputs]]
 
-A `Picture`'s record is always path 1, whatever its shape: the image is sampled from
-the rectangle in the record's own slots (*A picture is drawn inside a shape*).
+A `Picture`'s record is always the rectangle record of paths 1 and 2 re-kinded, never
+path 3's polygon, whatever its shape: the image is sampled from the rectangle in the
+record's own slots (*A picture is drawn inside a shape*, which is also where its
+radius slot is put to another use).
 
 `canvas::Size` — a rectangle's `size`, and what `canvas::getSize`
 returns — is two `Float`s. A shape's extent may be a fraction of a pixel; the
@@ -720,7 +724,7 @@ still comes from the round walk, so it stays continuous round a corner.
 * **Fill is ignored**, as for `Line`: the stroke is carried in the fill slots and slot 7
   is negative. So `Paint.fill` and `Paint.gradient` never reach a polyline.
 
-**An item's `transform` maps its coordinates onto the surface.** Every drawn item — each `DrawItem` variant but `Group` and `AutoPaint` — carries one as its last field, and each variant but `AutoPaint` an `id` as its first; `Paint` has none, and an `AutoPaint` has its shape's. The item is
+**An item's `transform` maps its coordinates onto the surface.** Each of the eight shapes carries one as its last field, and a `Group` carries one before its `name`; `Paint` has none, and an `AutoPaint` and a `Picture` have their shape's. Every `DrawItem` variant but `AutoPaint` has an `id` as its first field. The item is
 drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,
 b*x + d*y + ty)`. The all-zero transform is the identity (above), so an item that
 never sets one is unaffected.
@@ -1457,7 +1461,7 @@ while the program is blocked in a key read. Everything below but the type and it
 `MATCH` arms is one MFBASIC chunk, [[src/codegen/builtins/canvas/helper_autopaint.rs:RESOLVE]]
 with [[src/codegen/builtins/canvas/helper_autopaint.rs:AUTO_STEP]], injected only into a
 program that constructs an `AutoPaint`. Every other canvas program gets
-[[src/codegen/builtins/canvas/helper_autopaint.rs:ABSENT]] in its place: the same twelve
+[[src/codegen/builtins/canvas/helper_autopaint.rs:ABSENT]] in its place: the same fifteen
 function names, with the bodies that are right when no `AutoPaint` can exist
 (`HelperGate::WhenNotConstructed`). A record value exists only where a constructor
 expression made it, so a program that constructs none holds none, and the gate is
@@ -1579,8 +1583,8 @@ shows one.
 
 ### The two redraw triggers
 
-A redraw is otherwise owed only by a `present`, a `setBytes` on a drawn image, or a
-resize. An `AutoPaint` adds two ways for the render loop to wake, and neither OWES a
+A redraw is otherwise owed only by a `present`, a `setBytes` on a drawn image, a
+resize, or the window system asking for the surface again (an expose). An `AutoPaint` adds two ways for the render loop to wake, and neither OWES a
 frame:
 
 * **The pointer changed.** Each platform's pointer handler, after it publishes, reads

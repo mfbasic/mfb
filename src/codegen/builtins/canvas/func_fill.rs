@@ -17,7 +17,7 @@ Use `canvas::stroke` for the outline-only case and `canvas::fillStroke` for both
 To set blend or clip, update the result:
 
 ```
-LET soft AS Paint = WITH canvas::fill(color::rgb(220, 40, 40)) { blend := canvas::BlendMode.Multiply }
+LET soft AS canvas::Paint = WITH canvas::fill(color::rgb(220, 40, 40)) { blend := canvas::BlendMode.Multiply }
 ```
 
 These constructors exist because MFBASIC named construction requires **every**

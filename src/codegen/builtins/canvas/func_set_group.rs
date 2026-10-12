@@ -113,7 +113,7 @@ FUNC main() AS Nothing
   MUT shaft AS canvas::Rectangle
   shaft = WITH shaft { position := vector::Float2[x := 0.0 - 40.0, y := 0.0 - 6.0], size := canvas::Size[width := 60.0, height := 12.0], paint := ink }
   MUT head AS canvas::Polygon
-  head = WITH head { position := vector::Float2[x := 20.0, y := 0.0], contours := [[vector::Float2[x := 0.0, y := 0.0 - 18.0], vector::Float2[x := 30.0, y := 0.0], vector::Float2[x := 0.0, y := 18.0]]], paint := ink }
+  head = WITH head { position := vector::Float2[x := 20.0, y := 0.0], contours := [[ vector::Float2[x := 0.0, y := 0.0 - 18.0], vector::Float2[x := 30.0, y := 0.0], vector::Float2[x := 0.0, y := 18.0]]], paint := ink }
   canvas::setGroup("arrow", [shaft, head])
 
   MUT plain AS canvas::Group

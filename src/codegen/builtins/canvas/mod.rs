@@ -191,9 +191,9 @@ LET glow AS canvas::Paint = WITH canvas::fill(color::rgb(255, 64, 0)) { blend :=
 ```
 
 `canvas::Paint` is designed so that **each field's zero value is that field's no-op** —
-transparent fill and stroke, zero stroke width, `Normal` blend, the identity
-transform (which is the *all-zero* `canvas::Transform`, by definition) and a zero-area,
-meaning absent, clip. That is what lets `canvas::fill(red)` mean simply "a red
+transparent fill and stroke, zero stroke width, `Normal` blend and an empty,
+meaning absent, clip. A shape's `transform` follows the same rule: the *all-zero*
+`canvas::Transform` is the identity, by definition. That is what lets `canvas::fill(red)` mean simply "a red
 shape": every field the caller did not name is already inert. The transparent
 colour is the all-zero `color::Color`, so this holds for `fill` and `stroke` too.
 
@@ -324,9 +324,12 @@ pub(crate) fn register(r: &mut Registry) {
                               every transform. An item inside a group is reported with \
                               the `id` of each group that holds it in front, outermost \
                               first, joined by `::` — `\"toolbar::save::label\"` — and \
-                              a part that is `\"\"` is left out. `\"\"` when nothing \
-                              is there, or when the topmost item and its groups have \
-                              no `id`.",
+                              a part that is `\"\"` is left out. A \
+                              `canvas::Picture`'s `id` goes in front of its shape's in \
+                              the same way, and a `canvas::AutoPaint` reports the \
+                              `id` of the shape it holds. `\"\"` when nothing is \
+                              there, or when nothing on the way to the topmost item \
+                              has an `id`.",
             },
         ],
     });
@@ -736,12 +739,12 @@ pub(crate) fn register(r: &mut Registry) {
                       unset `transform` leave an item untransformed. \
                       A rotation by θ is `a := cos(θ), b := sin(θ), c := -sin(θ), \
                       d := cos(θ)`; a scale is `a := sx, d := sy` with `b` and `c` \
-                      zero; an X shear is `c := tan(θ)`. A shape that has a `position` — \
-                      `canvas::Circle`, `canvas::Ellipse`, `canvas::Arc` and \
-                      `canvas::Text` — is turned and scaled about that position, so a \
-                      rotation spins it in place, and `tx` and `ty` move it from \
-                      there. The other shapes are still turned about the surface's \
-                      top-left corner.",
+                      zero; an X shear is `c := tan(θ)`. Every shape is turned and scaled \
+                      about its own `position` — for a `canvas::Rectangle`, the \
+                      point its `bind` names — so a rotation spins it in place, and \
+                      `tx` and `ty` move it from there. A `canvas::Group` is turned \
+                      about its `position` in the same way, and everything in it \
+                      turns with it.",
         props: vec![
             RecordProp {
                 name: "a",
@@ -828,9 +831,9 @@ pub(crate) fn register(r: &mut Registry) {
                       write as `canvas::fill`, and zero stops name no colour at all. \
                       The ramp is placed in the item's own coordinates, from its own \
                       two points and never from the shape's bounds: the gradient's \
-                      `transform` maps it first, then the item's \
-                      the item's `transform` and a group's translation, so a \
-                      rotated or moved item carries its ramp with it. Colours between \
+                      `transform` maps it first, then the item's `transform` and \
+                      any group's, so a rotated or moved item carries its ramp \
+                      with it. Colours between \
                       two stops are mixed in **linear light**, the same space \
                       everything else on the surface is blended in, so a \
                       black-to-white ramp is evenly bright across its width rather \
@@ -909,8 +912,8 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Paint",
         export: true,
-        description: "How an item is filled, stroked, blended, transformed and \
-                      clipped. A flat value threaded through each item — there is no \
+        description: "How an item is filled, stroked, blended and clipped. \
+                      A flat value threaded through each item — there is no \
                       ambient drawing state. Every field's zero value is that \
                       field's no-op — `miterLimit` aside, which only a `Miter` join \
                       reads — and `canvas::fill`, `canvas::stroke` and \
@@ -960,9 +963,10 @@ pub(crate) fn register(r: &mut Registry) {
                               the zero value, means no clipping. A clip that encloses \
                               nothing, such as rings of fewer than two points, hides \
                               the whole item. The rings are in the item's own \
-                              coordinates: the item's `transform` and a group's \
-                              translation apply to the clip as well as to the item, \
-                              so a clipped item moves with its clip. Its edges may \
+                              coordinates, measured from its `position`: the \
+                              item's `transform` and any group's apply to the clip \
+                              as well as to the item, so a clipped item moves with \
+                              its clip. Its edges may \
                               fall between pixels, and a partly-covered pixel is \
                               drawn partly, exactly as a shape's own edge is.",
             },
@@ -1008,8 +1012,8 @@ pub(crate) fn register(r: &mut Registry) {
                               `canvas::Polygon` ring or a `canvas::PolyLine` meet, and \
                               at the four corners of a `canvas::Rectangle`. \
                               `Round`, the zero value, rounds the outside of the \
-                              corner. Circles, ellipses, arcs and rounded rectangles \
-                              have no corners and ignore it.",
+                              corner. Circles, ellipses, arcs and a rectangle with \
+                              rounded corners have no corners and ignore it.",
             },
             RecordProp {
                 name: "miterLimit",
@@ -1408,15 +1412,20 @@ pub(crate) fn register(r: &mut Registry) {
                       and a half-transparent red fill goes halfway — and never fills \
                       the shape itself; `canvas::Paint.transparency` fades the \
                       picture; its blend mode composites it; its stroke outlines the \
-                      shape on top of the image; and its clip, if it has one, cuts \
-                      the image further, so it shows only where the shape and the \
-                      clip both cover. A fill gradient is ignored. When the shape is a \
-                      `canvas::AutoPaint`, the paint the mouse selects is the one used. \
-                      `canvas::MouseEvent.overID` reports the picture's own `id` in \
-                      front of its shape's. A `Picture` has no default value — it \
-                      holds an image — so every field is written out. Named \
-                      `canvas::Picture` rather than `Image` because `Image` is the \
-                      resource type this variant *names* — the two would collide.",
+                      shape on top of the image; and the shape's `paint.clip`, if it \
+                      has one, cuts the image further, so it shows only where the \
+                      shape and that clip both cover. A fill gradient is ignored. \
+                      The image is fitted to the box around the shape — the smallest \
+                      upright rectangle that holds it — as `fit` says, and `clip` \
+                      says which box when the shape has a `transform`. A group the \
+                      picture is in moves and turns the whole picture, image and \
+                      all, whatever `clip` is. When the shape is a \
+                      `canvas::AutoPaint`, the paint the mouse selects is the one \
+                      used, and nothing else is needed for that to work — not \
+                      `canvas::enableMouse`. `canvas::MouseEvent.overID` reports the \
+                      picture's own `id` in front of its shape's. A `Picture` has no \
+                      default value — it holds an image — so every field is \
+                      written out.",
         props: vec![
             id_prop(),
             RecordProp {
@@ -1489,7 +1498,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             UnionVariant {
                 name: "Ellipse",
-                description: "An ellipse, optionally rotated.",
+                description: "An ellipse.",
             },
             UnionVariant {
                 name: "PolyLine",
@@ -1583,23 +1592,26 @@ pub(crate) fn register(r: &mut Registry) {
             RecordProp {
                 name: "enterPaint",
                 ty: ParameterType::named("Paint"),
-                description: "Shown for a tenth of a second (or your project.json options.canvasAutoPaintMS) from the moment the mouse \
-                              arrives, then the hover paint takes over — with the mouse still, \
+                description: "Shown for a tenth of a second from the moment the mouse \
+                              arrives — or for `options.canvasAutoPaintMS` \
+                              milliseconds, 1 to 10000, if your project.json sets \
+                              it — then the hover paint takes over — with the mouse still, \
                               too. It is a flash, not a fade: nothing is blended. If \
                               the mouse leaves first, the exit paint starts at once.",
             },
             RecordProp {
                 name: "exitPaint",
                 ty: ParameterType::named("Paint"),
-                description: "Shown for a tenth of a second (or your project.json options.canvasAutoPaintMS) from the moment the mouse \
-                              leaves, then the shape's own paint returns. If the mouse \
+                description: "Shown for a tenth of a second from the moment the mouse \
+                              leaves — the same `options.canvasAutoPaintMS` — then the shape's own paint returns. If the mouse \
                               comes back first, the enter paint starts at once.",
             },
             RecordProp {
                 name: "hoverPaint",
                 ty: ParameterType::named("Paint"),
-                description: "Shown while the mouse is over the shape and no button \
-                              was pressed on it.",
+                description: "Shown while the mouse is over the shape, once any \
+                              enter flash is over — and while a button is held on it \
+                              too, when `usePressed` is `FALSE`.",
             },
             RecordProp {
                 name: "pressedPaint",
@@ -1622,14 +1634,14 @@ pub(crate) fn register(r: &mut Registry) {
                       turned, scaled or sheared about that point by `transform`. A \
                       group inside a group is placed by both, the outer one last, so \
                       a figure built from groups moves and turns as one thing. \
-                      Presenting a scene copies this node — a point, a transform and \
-                      a name — rather than the items it stands for, which is the \
+                      Presenting a scene copies this node — an `id`, a position, a \
+                      transform and a name — rather than the items it stands for, which is the \
                       point: a large static sub-picture referenced from many scenes \
                       is copied once when you install it, not once per frame. A name \
                       with no group installed draws nothing and does not raise, so a \
-                      scene can reference a group that has not been built yet. Unlike \
-                      every other `canvas::DrawItem` this one has no `paint`: it is a \
-                      container, and the items inside it carry their own. Every field \
+                      scene can reference a group that has not been built yet. A \
+                      group has no `paint`: it is a container, and the items inside \
+                      it carry their own. Every field \
                       has a usable default, so the short way to make one is to \
                       declare it and set what you need: `MUT panel AS canvas::Group`, \
                       then `WITH panel { name := \"panel\", position := \

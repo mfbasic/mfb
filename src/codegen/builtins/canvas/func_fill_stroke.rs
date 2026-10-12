@@ -17,7 +17,7 @@ corners, no dashes, opaque), with a `miterLimit` of `4.0`. To set one of those, 
 result:
 
 ```
-LET glow AS Paint = WITH canvas::fillStroke(core, halo, 2.0) { blend := BlendMode.Add }
+LET glow AS canvas::Paint = WITH canvas::fillStroke(core, halo, 2.0) { blend := canvas::BlendMode.Add }
 ```
 
 These constructors exist because MFBASIC named construction requires **every**

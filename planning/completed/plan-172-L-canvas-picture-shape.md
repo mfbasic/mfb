@@ -516,9 +516,12 @@ None beyond 172-A's Open Decision 3.
   one builder — the native one declines a picture — so there is nothing to hold one
   against, and `__canvas_geoReference` answers the record under test. A shaped
   picture's outline is checked where it is built, as the item it is.
-- **`examples/canvas-demo` was ported, not rewritten.** Its nine `Picture` literals got
-  the mechanical port every site got, so it builds; the showcase rewrite the owner
-  asked for is still to be authorised.
+- **`examples/canvas-demo` was ported, not rewritten — and it did NOT build.** Its nine
+  `Picture` literals got the mechanical port every site got. This entry first said "so
+  it builds", which nobody had run: two of its functions `MATCH` over every `DrawItem`
+  and read a picture's old fields, and had lacked an `AutoPaint` arm since 172-K.
+  172-M's Phase 2 found it and repaired the two functions (corrected here 2026-10-11).
+  The showcase rewrite the owner asked for is still to be authorised.
 
 - **Phase 1's cases are an integration test, and its functions are in their own gated
   file (2026-10-11).** As in 172-K Phase 2: a `--bin mfb` test cannot run MFBASIC, so

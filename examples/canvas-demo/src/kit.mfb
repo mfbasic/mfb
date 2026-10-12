@@ -261,9 +261,11 @@ FUNC placed(d AS canvas::DrawItem, t AS canvas::Transform) AS canvas::DrawItem
     CASE canvas::Text(v) :
       IF isZero(t) AND isZero(v.transform) THEN RETURN d
       RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
-    CASE canvas::Picture(v) :
-      IF isZero(t) AND isZero(v.transform) THEN RETURN d
-      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
+    ' What holds other things is placed by what it holds, not here: a group by its
+    ' node, a picture and an AutoPaint by their shape. None of this kit's figures is
+    ' one, so each is handed back as it came.
+    CASE canvas::Picture(v) : RETURN v
+    CASE canvas::AutoPaint(v) : RETURN v
     CASE canvas::Group(v) : RETURN v
   END MATCH
 END FUNC

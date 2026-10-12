@@ -13,7 +13,7 @@ list of items. Layers composite in order — later layers paint over earlier one
 and within a layer the items draw in list order, exactly as `canvas::present`
 draws them.
 
-Everything `canvas::present` guarantees holds here: the scene is deep-copied, so
+Everything `canvas::present` guarantees holds here: the scene is copied, so
 after the call the installed scene is entirely its own; installing an
 identical scene republishes nothing; and the runtime keeps rendering what was
 installed until the next call replaces it.

@@ -87,7 +87,7 @@ What it costs depends on whether anything has an `id`. A scene with no `id`
 anywhere costs `pollMouse` nothing extra, however large it is. With an `id` in it,
 the first event after each `present` that changed the scene looks the whole scene
 over once, and every further event until the next change only walks the items from
-the top one down to the one under the pointer. Measured on an Apple M2 Max with every item named, that first event
+the top one down to the one under the mouse. Measured on an Apple M2 Max with every item named, that first event
 took about 0.8 milliseconds for 1,000 items and about 9 milliseconds for 10,000;
 each further one about 9 microseconds and about 170. A scene that changes every
 frame while the mouse moves pays the first figure every frame, and one that is

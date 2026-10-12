@@ -156,32 +156,83 @@ Commit: —
 
 ### Phase 2 — Every example and tool builds and runs
 
-- [ ] Build each canvas example and each `tools/` program that imports canvas with a
+- [x] Build each canvas example and each `tools/` program that imports canvas with a
       release `mfb`; run each headless with `MFB_CANVAS_SYNC=1` for one frame.
-- [ ] `bash scripts/man-examples-gate.sh target/release/mfb`.
-- [ ] `tools/canvas-bench`: run `bench.sh target/release/mfb sweep` and compare with the
+      `/tmp/plan-172-M/examples.sh`: each project is built twice in a scratch copy (as
+      it ships, and `--debug`) and the debug build run headless with stdin held open
+      six seconds. First run: 7 of 8 — **`examples/canvas-demo` did not build**
+      (Corrections). After the repair: "projects ok=8 failed=0", every one "exit
+      code=0" with a dumped frame — canvas-demo (4 frames), dungeon (1), fractals
+      (13), fractals-image (72), sorts (29), swat/canvas (37), water (107), weather
+      (4). The three `tools/` programs: `tools/water-probe/run.sh` → "PASS: bug-716 …";
+      `tools/wind-map-probe/run.sh` → first a build error, a `canvas::Size` still
+      written with Integers (172-E's change, missed there; fixed), then "PASS:
+      wind-map-probe …"; `tools/key-probe` builds as an app (`build.py app`) and is
+      not run — its canvas leg is driven by keystrokes injected into a real window.
+- [x] `bash scripts/man-examples-gate.sh target/release/mfb`. "man examples: 1127
+      checked, 0 failed, 0 stale not-run entr(y/ies), 1489s"; the `canvas` row is 35
+      built, 35 run. Rerun for canvas alone after Phase 3 changed its pages:
+      `scripts/man-run-examples.sh canvas --run` → "examples: 35 built: 35 ran: 35 not
+      run: 0 failed: 0".
+- [x] `tools/canvas-bench`: run `bench.sh target/release/mfb sweep` and compare with the
       figures 172-F recorded; a regression is root-caused here.
+      Seven sweeps of the merged tree against seven with the compiler built at 172-F's
+      end (`04cc405cf`), the build phase (`phaseOffsetsMs`) as 172-F compared it. The
+      machine was loaded and a row's seven runs spread by up to a factor of two, so
+      the sweeps alone could not say: the minimums were within 3% on five moving rows,
+      and 7% up on `5000/3` and 11% up on the static `1000/8` (0.061 → 0.068 ms).
+      Those two rows were then run twelve times each, alternated, built once per
+      compiler (`/tmp/plan-172-M/row_ab.sh`): static `1000/8` minimum 0.0591 → 0.0587
+      ms, median 0.0668 → 0.0665 (ratio 0.99); moving `5000/3` minimum 1.1329 → 1.1399,
+      median 1.1399 → 1.1469 (ratio 1.006). No regression: nothing since 172-F — the
+      group matrix, the hit test, the pointer, `AutoPaint`, the picture, or main's 75
+      commits — costs these scenes more than 1% in the build phase. (172-F's own
+      recorded figures are within 8% of what its compiler measures today, some rows
+      above and some below.)
 
 Acceptance: every example and tool exits 0, and the man-example gate passes.
   Check: `bash scripts/man-examples-gate.sh target/release/mfb` → pass (est.
   UNMEASURED — time it and record it; it is the only gate that builds and runs every
   manual example).
+  Observed 2026-10-11: pass, 1,489 s (24 min 49 s) on a loaded machine.
 Commit: —
 
 ### Phase 3 — Reader audits
 
-- [ ] `mfb man canvas --all` and `mfb man canvas types`: every description checked
+- [x] `mfb man canvas --all` and `mfb man canvas types`: every description checked
       against `.ai/man-content.md`, including the memory-vocabulary ban, with
-      `scripts/man-census.sh --memory-scope canvas`.
-- [ ] `mfb spec app canvas` read whole against `.ai/spec-content.md`; no leaked `[[`
+      `scripts/man-census.sh --memory-scope canvas`. The census first: one
+      memory-vocabulary hit ("the one under the pointer", in `pollMouse`) and one
+      internals hit (an example's `[[vector::Float2[…` read as a citation marker);
+      both reworded, and both censuses now report 0. Then the rendered pages (3,945
+      lines) were read against the standard and against `planning/new_canvas.md` by a
+      reviewer given the pages and not the conclusions. What it found and what was
+      done is in Corrections; in short, nine sentences that still described the
+      surface before this plan, two snippets with unqualified type names, three
+      places where two pages disagreed, and dead "See also" links.
+- [x] `mfb spec app canvas` read whole against `.ai/spec-content.md`; no leaked `[[`
       marker in `mfb spec app --all`; every citation's symbol grep-confirmed.
-- [ ] `.ai/canvas-threading.md` read whole: §1, §4, §8, §9, §10, §11 and §13 agree with
-      what G, H, J and K landed.
+      `/tmp/plan-172-M/citations.py`: "citations 177 unresolved 0" (each file exists
+      and names its symbol). `mfb spec app --all | grep -c '\[\['` → 5, all five
+      Objective-C message sends in the macOS topics (`[[NSWindow alloc] …`), none a
+      marker. The rendered topic was read against the source by a second reviewer:
+      five statements corrected (Corrections).
+- [x] `.ai/canvas-threading.md` read whole: §1, §4, §8, §9, §10, §11 and §13 agree with
+      what G, H, J and K landed. §1, §4, §9, §10 and §13 do, checked against the source
+      (the sixteen-word draw entry, the matrix words, `waitForRedraw`'s three answers,
+      `signalRedraw(1)`, damage off by default). Stale and corrected: §2 (the scene
+      region as arena state), §5 ("stay five"), §6 and §14 (three statements about a
+      picture's record that 172-L made false), §8's R4 to R6 (their "Protected by"
+      column named text §3 no longer has), §11 (a count), §16 ("twelve" names; it is
+      fifteen), two test paths and three cross-references.
 
 Acceptance: the census and the spec tests pass and the rendered pages carry no removed
 name.
   Check: `cargo test --bin mfb spec` → pass, and `cargo run -- man canvas --all | grep
   -cE 'RoundedRect|canvas::Point|Paint\.transform'` → 0 (est. 4 min).
+  Observed 2026-10-11: `cargo test --bin mfb -- man:: spec` → "98 passed; 0 failed";
+  the grep → 0; and the same grep over `mfb spec app canvas` → 0 (it was 1: "every
+  rectangle that was a `RoundedRect`", reworded).
 Commit: —
 
 ### Phase 4 — Platform rows
@@ -248,6 +299,47 @@ None.
 
 ## Corrections
 
+- **`examples/canvas-demo` did not build, and had not since 172-K (Phase 2).** Two of
+  its functions — `kit.mfb:placed` and `ui.mfb:restyleItem` — `MATCH` over every
+  `DrawItem`. 172-K added the `AutoPaint` variant and 172-L took a picture's
+  `position`, `paint` and `transform` away, and neither letter built this example
+  afterwards (172-L's record said it did; corrected there). Both functions already
+  hand a `Group` back unchanged; they now do the same for a `Picture` and an
+  `AutoPaint`, which none of the demo's figures is, so nothing it draws changes — its
+  menu frame was looked at. This is the repair that makes it build, NOT the showcase
+  rewrite the owner asked for, which is still theirs to authorise.
+- **What the reader audits changed (Phase 3).** In `mfb man canvas`: `Paint` no longer
+  described as transforming; the package page no longer lists a transform among
+  `Paint`'s fields; `Transform` says every shape turns about its `position` (it said
+  four did and the rest turned about the surface corner); `Gradient` and `Paint.clip`
+  say a group's transform, not its translation, and that clip rings are measured from
+  `position`; `join` says "a rectangle with rounded corners"; `Group` no longer claims
+  to be the only item with no paint; the `Shape` union's `Ellipse` is no longer
+  "optionally rotated"; `MouseEvent.overID` names a picture's part of the path;
+  `hoverPaint` agrees with `usePressed`; the flash length gives its unit and range;
+  `Picture` says whose clip it means, what box the image is fitted to, that a group
+  moves the whole picture, and that an `AutoPaint` shape needs no `enableMouse`;
+  `destroyImage` and `setBytes` no longer say a scene carries an image's "id"; two
+  description snippets qualify `canvas::Paint` and `canvas::BlendMode`. In the
+  renderer: "See also" listed anything spelled `a::b` in a description, so
+  `pollMouse`'s page offered `save::label` and `avatar::frame`; it now lists only
+  what names a package (`src/cli/man.rs:render_see_also`).
+  NOT changed, and reported: the reviewer also flagged prose that describes the
+  renderer to a developer (the geometry cache, "no GPU readback", a measured cost in
+  `pollMouse`). None is stale, none is this plan's, and both censuses pass them; they
+  are a judgement about the standard, not a defect a gate found.
+- **What the spec audit changed.** Which items carry a `transform` (it said every one
+  but `Group` and `AutoPaint`; a `Picture` has none and a `Group` has one); the frame
+  skip compares content, not "equal bytes"; a picture's record is the rectangle record
+  and never the flattened one (it said "always path 1", which its own radius slot
+  contradicts); a redraw is also owed by an expose; `ABSENT` defines fifteen names.
+- **bug-1015 holds on Windows too (Phase 4's `overID` proof found it).** The proof
+  program first recorded nothing in a real window: `canvas::pollMouse` reports no
+  event until the program also reads the keyboard, because the only decoder of the
+  mouse reports is in the `io` read family. That bug was filed for GTK with Windows
+  as the model to match; the measurement and the repro are added to it
+  (`bugs/repro/bug-1015/`). The proof program reads a key each loop, as every
+  example does.
 - **main was merged in FIRST (2026-10-11), so the gates run once, on the tree that will
   land.** The follow-plan order is gates, then merge; main was 75 commits ahead (369
   files, with codegen changes under the same goldens this plan moved), and gates run
@@ -288,7 +380,7 @@ None.
   - **The rows script has two more rows** (`pictureshapes`, `pictureauto`), and they
     pass on 2226, 2227 and 206 at `b83b09637`.
   - **`examples/canvas-demo` has no shaped picture and no `AutoPaint`.** Its `Picture`
-    literals were ported mechanically. The Validation Plan's runtime proof asks for
+    literals were ported mechanically (and it did not build until Phase 2 below). The Validation Plan's runtime proof asks for
     one "with an `AutoPaint` button, a shaped picture and a rotated group visible";
     the showcase rewrite that would put them there is the owner's to authorise and
     has not been (their words: "Do a rewrite, not a port").

@@ -31,8 +31,9 @@ Each thread pins `ARENA_STATE_REGISTER` (`x19`) to **its own** block:
   (`lower_thread_start_helper`).
 
 Everything addressed off `x19` is therefore **thread-local**: module-level globals,
-the `term::` state, the presentation-mode word, **and the canvas scene region**
-(`canvas_scene_offset`, `builder/mod.rs`).
+the `term::` state and the presentation-mode word. The canvas scene region WAS there
+too, which is the problem this section describes; it has since moved to
+process-global storage (`CANVAS_SCENE_SYMBOL`, §3).
 
 **Consequence, and the central design constraint of plan-98-D:** a graphics thread
 with its own arena state would read *its own* canvas scene region — which is empty and
@@ -231,7 +232,7 @@ surface's `enter-monitor` (connected once per surface); Windows when the canvas 
 is shown, on `WM_DISPLAYCHANGE`, and on a `WM_MOVE` that lands on a different monitor.
 `0` means unknown — and on GTK it is what the first frame usually reports, because an
 unmapped Wayland surface has no monitor until the compositor sends `enter`. A rate changes no pixel, so nothing is signalled — §4's triggers
-stay five.
+stay as they are.
 
 A frame already in flight when the resize lands finishes at the old size and is
 presented; the next frame is at the new size. Tearing the frame mid-render would mean
@@ -316,7 +317,7 @@ Why this holds up where the texture design needed care:
   per-texture ring or barrier.
 * **The block address is the content generation.** It is in the header, so a
   `setBytes` changes the header: the geometry cache's confirmation misses, and the
-  damage diff sees a changed item (`__canvas_appendDraw` folds the address into the
+  damage diff sees a changed item (`__canvas_noteEntry` folds the address into the
   draw hash, because the worker's published hash predates the swap).
 
 The cost is the per-frame copy of every drawn picture's texels on the GPU paths, and
@@ -385,9 +386,9 @@ row names the rule from above that protects it.
 | R2 | present → `destroyImage` → frame completes → next frame | the next frame skips the picture (there is no free — bug-484, §7) | §7 skip-in-new-frames |
 | R3 | `destroyImage(img)` → try to name `img` again | **Refused at compile time** — a direct `destroyImage` moves the binding, so there is no "name it again". A scene built *before* the destroy still draws, as nothing. | plan-116-I; was plan-98-B's closed-read guard |
 | R3b | close behind a resource parameter → name it again | **Compiles**, and raises `ErrResourceClosed` at run time. A resource parameter is an alias and consumes nothing, so R3's compile-time refusal does not reach here — this is the row that covers every close performed inside the runtime. | §7 closed-read guard; `closedRefuses` in `tests/cli/cli_canvas_image_resource.rs` |
-| R4 | two presents, no frame between | the second scene renders; the first is skipped, not rendered late | §3 step 2 overwrite |
-| R5 | present while graphics is mid-render | `present` does not block; the new scene renders next frame | §3 three slots |
-| R6 | graphics stalled indefinitely, worker presents repeatedly | `present` still never blocks; slots are reused, no unbounded allocation | §3 "nobody frees a slot" |
+| R4 | two presents, no frame between | the second scene renders; the first is skipped, not rendered late | §3: one set of published pointers, replaced by each publish |
+| R5 | present while graphics is mid-render | `present` does not block; the new scene renders next frame | §3: the frame reads one snapshot; the displaced block is retired, not freed |
+| R6 | graphics stalled indefinitely, worker presents repeatedly | `present` still never blocks; every displaced block waits on the retirement list, which grows until a frame completes (bug-683) | §3: the retirement list, drained by the first publish after a frame |
 | R7 | resize while graphics is mid-render | the in-flight frame completes at the old size; the next is at the new size | §5 clear-at-frame-start |
 | R8 | resize with the worker blocked in `io::input` | repaint happens with zero worker involvement | §5 main↔graphics only |
 | | *(proven on the Vulkan path too: `MFB_CANVAS_RESIZE_W`/`_H` resize while the worker sits in `os::sleep`, and both renderers repaint at the new size)* | | |
@@ -428,7 +429,7 @@ nothing live names it** — where "live" is the scene about to be published *plu
 group's live items*. Closing on the narrower "what the retired buffer named" is wrong in
 three of these five rows, and wrong **silently**: `imageHandle`/`fontHandle` answer `0` for
 a closed resource, `0` is "no such object", so the item simply stops drawing and nothing is
-raised. All five are pinned by `tests/rt_canvas_group_ownership.rs`.
+raised. All five are pinned by `tests/canvas/rt_canvas_group_ownership.rs`.
 
 **R13–R16 are plan-116-G's, and R13 is the first mid-frame row that is deterministic
 rather than probabilistic** — see `MFB_CANVAS_FRAME_HOLD_MS` in §11. R14's *"of an
@@ -680,8 +681,8 @@ re-binding — one buffer per item would give every item the *last* one's data.
 
 ## 11. Test affordances
 
-Six environment variables (two of them a pair), all off by default and none on the
-production path:
+A set of environment variables, all off by default and none on the production
+path:
 
 * `MFB_CANVAS_AUTO_WINDOW_MS` — **a `--debug` build only**: the length of an
   `AutoPaint`'s enter and exit windows, in place of the project's
@@ -750,7 +751,7 @@ production path:
   once and `main` returns behind it, and the process tears down while the graphics
   thread is still reading the scene. The geometry survives that — the ring holds a
   published copy — but a `canvas::Font`'s outlines do not, because they live in the
-  worker's own arena, which is per-thread (§1). The dump then lands with **every shape
+  worker's own arena, which is per-thread (§2). The dump then lands with **every shape
   and no text**.
 
   What makes this dangerous is that it is not a race. Measured on plan-116-C's
@@ -811,14 +812,14 @@ lost — on the one path whose entire job is to report edges.
 
 * `MFB_CANVAS_DAMAGE` — repaint only what changed: keep the previous frame's pixels,
   clear the union of the changed items' bounds, and redraw only the items that meet it.
-  Off by default. It changes no pixels — that is what `tests/rt_canvas_damage.rs`
+  Off by default. It changes no pixels — that is what `tests/canvas/rt_canvas_damage.rs`
   asserts, byte for byte — but it does change *when* the renderer runs at all, and a
   frame counter that silently stops advancing is the kind of thing a stale test reads as
   a pass.
 
   Two notes for anyone testing it. An unchanged scene never reaches the renderer in the
   first place: `canvas::publishScene` refuses it and `present` does not signal a redraw
-  (§2's invariant), so the *empty* damage union only fires on a platform wake — a resize
+  (§3.1's frame skip), so the *empty* damage union only fires on a platform wake — a resize
   or an OS damage repaint. And the GPU backends always render full-frame: they draw into
   their own texture and read it back, so there is no kept surface for them to preserve.
 * `MFB_CANVAS_SYNC` — make `present` wait for the frame it asked for. Frames coalesce
@@ -1089,8 +1090,9 @@ Lifetime rules, and why:
   declined kinds), and `canvas::sceneLayout` / `canvas::sceneDrawsFlat` lay the draw list
   out from the offsets — items AND layers (the draw list used to walk items only, and a
   `presentLayers` scene drew nothing on Metal).
-* **A picture is never resolved on its hash alone** — `sceneResolve` refers every picture
-  hit back to `__canvas_geometryFor`, which re-reads the image.
+* **A picture is never resolved on its hash alone** — `sceneResolve` leaves every picture
+  hit to the MFBASIC walk, whose `__canvas_pictureCached` confirms the record against
+  the image's current pixel block (§17).
 
 The worker computes the hashes in `canvas::present`: `canvas::carriedHashes` (native,
 taken BEFORE `publishScene` replaces the installed scene) carries the installed hash of
@@ -1112,9 +1114,9 @@ threads and nothing waits on a frame.
 Three things follow, and each was a design choice rather than an accident:
 
 * **The worker's records are not the renderer's.** A `Text` is built as its layout box
-  with no glyph (`__canvas_textBoxHeader`) and a `Picture` as its rectangle, because the
-  renderer's versions rasterise every glyph and read the image's pixel block — work for
-  a thread that draws nothing. So a `TEXT` record on the worker has zero glyphs and a
+  with no glyph (`__canvas_textBoxHeader`), because the renderer's version rasterises
+  every glyph — work for a thread that draws nothing. A `Picture` is not built on the
+  worker at all: it is hit as its shape (`__canvas_pictureHitItem`, §17). So a `TEXT` record on the worker has zero glyphs and a
   box in the gradient point slots; **do not hand a worker offset to anything that
   draws.**
 * **It is its own walk** (`__canvas_hitAppend`), not a parameter on
@@ -1181,8 +1183,9 @@ A `canvas::AutoPaint` is a shape and four alternative paints; which is drawn fol
 the pointer. **The graphics thread decides, alone.** The worker never resolves a state
 and `present` never waits on one — hover goes on working while the program is blocked
 in `io::input` — so everything below is graphics-thread globals (§2) in
-`helper_autopaint.rs`, and the only words shared with another thread are
-`AUTOPAINT_LIVE` and `AUTO_WAKE` in the graphics state.
+`helper_autopaint.rs`, and the only words it ADDS to what is shared with another
+thread are `AUTOPAINT_LIVE` and `AUTO_WAKE` in the graphics state (it reads the pointer
+words too, which are §5.1's).
 
 ### An instance is a PLACE, and the table is keyed by it
 
@@ -1278,7 +1281,7 @@ them. A resize in flight has always done the same.
 
 ### The code is gated on the program constructing one
 
-`helper_autopaint.rs` is two chunks that define the same twelve names:
+`helper_autopaint.rs` is two chunks that define the same fifteen names:
 `HelperGate::WhenUsedOrConstructed(&[], &["AutoPaint"])` for the real ones and
 `WhenNotConstructed` for `ABSENT`, the bodies that are right when no `AutoPaint` can
 exist. The unconditional source calls the names. Adding a hook means adding it to BOTH,

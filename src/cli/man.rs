@@ -850,9 +850,20 @@ fn render_function_markdown(package: &RegistryPackage, function: &RegistryFuncti
 
 /// Collect every `package::function` reference that appears in the Description and
 /// list it under "See also", excluding the current member and collapsing duplicates.
+///
+/// Only a reference whose first part is a PACKAGE is one. A description may hold
+/// other things spelled `a::b` — `canvas::pollMouse`'s explains that `overID` reads
+/// `"save::label"` — and those are not links to anything.
 fn render_see_also(md: &mut String, package: &RegistryPackage, function: &RegistryFunction) {
     let current = format!("{}::{}", package.import_name(), function.name);
-    let referenced = referenced_functions(function.desc, &current);
+    let referenced: Vec<String> = referenced_functions(function.desc, &current)
+        .into_iter()
+        .filter(|reference| {
+            reference
+                .split_once("::")
+                .is_some_and(|(owner, _)| registry().resolve_package(owner).is_some())
+        })
+        .collect();
     if referenced.is_empty() {
         return;
     }
