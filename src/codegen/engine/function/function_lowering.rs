@@ -1411,7 +1411,8 @@ pub(crate) fn lower_function(
     builder.record_owning_locals = ownership.owning_locals;
     builder.resource_alias_sources = ownership.alias_sources;
     builder.owned_list_owning_collections = ownership.owning_collections;
-    builder.owned_list_runtime_reclaim = ownership.runtime_reclaim;
+    builder.owned_list_runtime_reclaim = true;
+    builder.statement_temps.ref_cells = builder.by_ref_resource_captures(&function.body);
     // bug-1045: a container that a store raises an inner scope's value into lists
     // what the store hands it, so it needs its owned-lists from its bind, like a
     // float target.

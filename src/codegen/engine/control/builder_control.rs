@@ -2747,7 +2747,19 @@ impl CodeBuilder<'_> {
                         {
                             return self.lower_element_update(&element, Some(key), value);
                         }
-                        let stack_offset = self.allocate_stack_object(name, 8);
+                        // bug-1075: a binding a `LAMBDA` captures by reference
+                        // and that reaches a resource is a three-word cell.
+                        let ref_cell = self.statement_temps.ref_cells.contains(name)
+                            && self.type_carries_resources(type_)
+                            && !self.type_reaches_closure_leaf(type_)
+                            && !matches!(value, Some(NirValue::Capture { by_ref: true, .. }));
+                        let stack_offset = self.allocate_stack_object(
+                            name,
+                            if ref_cell { self.ref_cell_size(type_) } else { 8 },
+                        );
+                        if ref_cell {
+                            self.setup_ref_cell(name, type_, stack_offset)?;
+                        }
                         // A non-escaping `MUT` by-ref capture: the env slot holds a
                         // pointer to the parent binding's slot, so this binding is a
                         // *reference* local — its slot stores that pointer and reads

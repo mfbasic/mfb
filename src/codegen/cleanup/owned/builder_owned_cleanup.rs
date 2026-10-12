@@ -50,6 +50,19 @@ impl CodeBuilder<'_> {
         name: &str,
         type_: &ParameterType,
     ) -> Result<(), String> {
+        self.setup_owned_list_at(name, type_, None)
+    }
+
+    /// [`Self::setup_owned_list`] with the list heads at `first_head`,
+    /// `first_head + 8`, … (one per leaf kind, in `resource_leaf_types` order)
+    /// instead of fresh stack objects: the heads of a by-reference capture cell
+    /// (bug-1075), which the capturing `LAMBDA`'s frame pushes onto.
+    fn setup_owned_list_at(
+        &mut self,
+        name: &str,
+        type_: &ParameterType,
+        first_head: Option<usize>,
+    ) -> Result<(), String> {
         let leaves = self.resource_leaf_types(type_);
         // bug-843: a holder of function values can come to own whatever kinds the
         // module's closures carry, which its type does not name.
@@ -74,8 +87,14 @@ impl CodeBuilder<'_> {
         // the scope that closed it.
         let owns_elements = false;
         let reclaims = self.owned_list_runtime_reclaim;
-        for (leaf, drop) in drops {
-            let head_slot = self.allocate_stack_object(&format!("owned_list_{name}"), 8);
+        for (index, (leaf, drop)) in drops.into_iter().enumerate() {
+            let head_slot = match first_head {
+                Some(first) => {
+                    self.owned_value_slots.push(first + 8 * index);
+                    first + 8 * index
+                }
+                None => self.allocate_stack_object(&format!("owned_list_{name}"), 8),
+            };
             let scratch9 = self.temporary_vreg();
             self.emit(abi::move_immediate(&scratch9, "Integer", "0"));
             self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), head_slot));
@@ -122,7 +141,7 @@ impl CodeBuilder<'_> {
             }
             self.active_cleanups.push(ActiveCleanup::OwnedList(cleanup));
         }
-        if dynamic {
+        if dynamic && first_head.is_none() {
             self.setup_dynamic_owned_list(name);
         }
         Ok(())
@@ -596,6 +615,20 @@ impl CodeBuilder<'_> {
         if std::mem::take(&mut self.statement_temps.item_floated) {
             return Ok(());
         }
+        // A store through a by-reference capture: the whole stored value, by the
+        // owner word (bug-1075).
+        if let Some(local) = self.locals.get(name).filter(|local| local.by_ref) {
+            let (reference, type_) = (local.stack_offset, local.type_.clone());
+            if !self.type_carries_resources(&type_) || self.is_resource_leaf(&type_) {
+                return Ok(());
+            }
+            let cell = self.allocate_register();
+            self.emit(abi::load_u64(cell, abi::stack_pointer(), reference));
+            let block = self.allocate_register();
+            self.emit(abi::load_u64(block, cell, 0));
+            let slot = self.spill_to_slot("captured_store_value", block);
+            return self.emit_captured_store_float(name, slot, &type_);
+        }
         if !assigned_value_may_carry_inner_resources(name, value) {
             return Ok(());
         }
@@ -623,18 +656,28 @@ impl CodeBuilder<'_> {
         value: &NirValue,
         mut item: ValueResult,
     ) -> Result<ValueResult, String> {
-        if !value_contains_call(value)
-            || !self.type_carries_resources(&item.type_)
-            || !(self.owned_list_heads.keys().any(|(list, _)| list == name)
-                || self.dynamic_owned_list(name).is_some())
+        if !self.type_carries_resources(&item.type_) {
+            return Ok(item);
+        }
+        let by_ref = self.locals.get(name).is_some_and(|local| local.by_ref);
+        if !by_ref
+            && (!value_contains_call(value)
+                || !(self.owned_list_heads.keys().any(|(list, _)| list == name)
+                    || self.dynamic_owned_list(name).is_some()))
         {
             return Ok(item);
         }
         let slot = self.spill_to_slot("stored_item_float", &item.location);
-        let container = name.to_string();
-        self.emit_for_each_resource(slot, &item.type_, &mut |builder, leaf_slot, leaf| {
-            builder.emit_owned_list_push_as(&container, leaf_slot, leaf, true)
-        })?;
+        if by_ref {
+            // What a captured binding's scope is relative to this value's is not
+            // known in this frame: the owner word decides.
+            self.emit_captured_store_float(name, slot, &item.type_.clone())?;
+        } else {
+            let container = name.to_string();
+            self.emit_for_each_resource(slot, &item.type_, &mut |builder, leaf_slot, leaf| {
+                builder.emit_owned_list_push_as(&container, leaf_slot, leaf, true)
+            })?;
+        }
         self.statement_temps.item_floated = true;
         // The pushes allocate nodes, and an arena call destroys every
         // caller-saved register: hand the store its item back from the slot.
@@ -642,6 +685,160 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(reloaded, abi::stack_pointer(), slot));
         item.location = crate::codegen::engine::operand::Operand::from(reloaded);
         Ok(item)
+    }
+
+    /// bug-1075: the locals of `body` that a `LAMBDA` captures by reference and
+    /// that reach a resource.
+    pub(crate) fn by_ref_resource_captures(
+        &self,
+        body: &[crate::target::shared::nir::NirOp],
+    ) -> std::collections::HashSet<String> {
+        struct Scan<'b, 'c> {
+            builder: &'b CodeBuilder<'c>,
+            names: std::collections::HashSet<String>,
+        }
+        impl NirVisitor for Scan<'_, '_> {
+            fn visit_value(&mut self, value: &NirValue) {
+                if let NirValue::Closure { captures, .. } = value {
+                    for capture in captures {
+                        if let NirValue::LocalRef { name, type_ } = capture {
+                            if self.builder.type_carries_resources(type_) {
+                                self.names.insert(name.clone());
+                            }
+                        }
+                    }
+                }
+                walk_value(self, value);
+            }
+        }
+        let mut scan = Scan {
+            builder: self,
+            names: std::collections::HashSet::new(),
+        };
+        scan.visit_ops(body);
+        scan.names
+    }
+
+    /// bug-1075: the bytes of the cell of a `type_` binding a `LAMBDA` captures
+    /// by reference: `{value@0, scope token@8, one owned-list head per resource
+    /// leaf kind@16…}`.
+    pub(crate) fn ref_cell_size(&self, type_: &ParameterType) -> usize {
+        16 + 8 * self.resource_leaf_types(type_).len()
+    }
+
+    /// bug-1075: arm the cell of a binding a `LAMBDA` captures by reference
+    /// (`StatementTemps::ref_cells`): this scope's token at `+8`, and at `+16…`
+    /// the heads of owned-lists that are drained, and whose records are freed,
+    /// on every exit of this scope like any other container's.
+    pub(crate) fn setup_ref_cell(
+        &mut self,
+        name: &str,
+        type_: &ParameterType,
+        stack_offset: usize,
+    ) -> Result<(), String> {
+        let depth = self.current_scope_depth();
+        let token = self.emit_scope_token(depth)?;
+        self.emit(abi::store_u64(token, abi::stack_pointer(), stack_offset + 8));
+        self.setup_owned_list_at(&format!("{name}$ref"), type_, Some(stack_offset + 16))
+    }
+
+    /// Rule 4 for a store through a by-reference capture (bug-1075): the binding
+    /// lives in the frame that created the `LAMBDA`, and its cell carries its
+    /// scope's token and its owned-list heads. Every resource the value in
+    /// `value_slot` (of `type_`, a value the `container` binding now holds)
+    /// reaches is raised to that scope and listed there when taken; one owned
+    /// there or further out keeps its owner.
+    pub(crate) fn emit_captured_store_float(
+        &mut self,
+        name: &str,
+        value_slot: usize,
+        type_: &ParameterType,
+    ) -> Result<(), String> {
+        let Some(local) = self.locals.get(name).filter(|local| local.by_ref) else {
+            return Ok(());
+        };
+        let (reference, container) = (local.stack_offset, local.type_.clone());
+        let kinds = self.resource_leaf_types(&container);
+        let sp = abi::stack_pointer();
+        let cell = self.allocate_register();
+        self.emit(abi::load_u64(cell, sp, reference));
+        let cell_slot = self.spill_to_slot("captured_store_cell", cell);
+        self.emit_for_each_resource(value_slot, type_, &mut |builder, leaf_slot, leaf| {
+            let leaf = typed_strip_res_marker(leaf).clone();
+            let Some(index) = kinds.iter().position(|kind| *kind == leaf).or_else(|| {
+                kinds
+                    .iter()
+                    .position(|kind| kind.without_state() == leaf.without_state())
+            }) else {
+                return Err(format!(
+                    "a resource of type '{leaf}' is stored through a captured reference \
+                     to a '{container}', which lists no such resource (bug-1075)"
+                ));
+            };
+            let union = builder.resource_union_cleanup(&kinds[index]).is_some();
+            let done = builder.label("captured_store_done");
+            let take = builder.label("captured_store_take");
+            let value = builder.allocate_register();
+            builder.emit(abi::load_u64(value, sp, leaf_slot));
+            builder.emit(abi::compare_immediate(value, "0"));
+            builder.emit(abi::branch_eq(&done));
+            let record = if union {
+                let record = builder.allocate_register();
+                builder.emit(abi::load_u64(record, value, 8));
+                builder.emit(abi::compare_immediate(record, "0"));
+                builder.emit(abi::branch_eq(&done));
+                record
+            } else {
+                value
+            };
+            let owner = builder.allocate_register();
+            builder.emit(abi::load_u64(owner, record, RESOURCE_OFFSET_OWNER));
+            let cell = builder.allocate_register();
+            builder.emit(abi::load_u64(cell, sp, cell_slot));
+            let token = builder.allocate_register();
+            builder.emit(abi::load_u64(token, cell, 8));
+            // Unsigned, as `emit_resource_float`: taken only when below the token.
+            builder.emit(abi::compare_registers(owner, token));
+            builder.emit(abi::branch_lo(&take));
+            builder.emit(abi::branch(&done));
+            builder.emit(abi::label(&take));
+            builder.emit(abi::store_u64(token, record, RESOURCE_OFFSET_OWNER));
+            let size = if union { OWNED_LIST_UNION_NODE_SIZE } else { 16 };
+            let alloc_ok = builder.label("captured_store_alloc_ok");
+            builder.emit(abi::move_immediate(
+                abi::return_register(),
+                "Integer",
+                &size.to_string(),
+            ));
+            builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+            builder.emit_arena_alloc_call();
+            builder.emit(abi::branch_eq(&alloc_ok));
+            builder.raise_error_bare("ErrOutOfMemory")?;
+            builder.emit(abi::label(&alloc_ok));
+            let node = builder.allocate_register();
+            builder.emit(abi::move_register(node, abi::mfb_return(1)));
+            let value = builder.allocate_register();
+            builder.emit(abi::load_u64(value, sp, leaf_slot));
+            let cell = builder.allocate_register();
+            builder.emit(abi::load_u64(cell, sp, cell_slot));
+            let head_offset = 16 + 8 * index;
+            let head = builder.allocate_register();
+            builder.emit(abi::load_u64(head, cell, head_offset));
+            if union {
+                let word = builder.allocate_register();
+                builder.emit(abi::load_u64(word, value, 0));
+                builder.emit(abi::store_u64(word, node, 0));
+                builder.emit(abi::load_u64(word, value, 8));
+                builder.emit(abi::store_u64(word, node, 8));
+                builder.emit(abi::store_u64(head, node, OWNED_LIST_UNION_NODE_NEXT_OFFSET));
+            } else {
+                builder.emit(abi::store_u64(value, node, 0));
+                builder.emit(abi::store_u64(head, node, 8));
+            }
+            builder.emit(abi::store_u64(node, cell, head_offset));
+            builder.emit(abi::label(&done));
+            Ok(())
+        })
     }
 
     /// Adopt the resources a value transferred in from a call carries: walk every

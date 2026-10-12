@@ -660,9 +660,12 @@ END FUNC
     std::fs::create_dir_all(&dir).expect("probe dir");
     let run = run_at("b1000_callback_keeps", &exe, &dir, 3);
     assert_eq!(run.double_free_skips, 0);
+    // bug-1075: the store inside the `LAMBDA` raises the element to `keep`'s
+    // scope (§15.6), so it is still open after the inner block, as the element a
+    // function value handed back is.
     assert_eq!(
         run.stdout.trim(),
-        "closed openopen closed openopen closed openopen"
+        "open openopen open openopen open openopen"
     );
     assert!(run.frees <= run.allocs);
 }

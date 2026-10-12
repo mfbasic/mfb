@@ -1309,6 +1309,13 @@ pub(crate) struct StatementTemps {
     /// Set when the store floated the one item it added, so the assignment's
     /// statement-end float of the whole container is not needed.
     pub(crate) item_floated: bool,
+    /// bug-1075: the locals of this function that a `LAMBDA` captures by
+    /// reference and that reach a resource. Such a binding's stack object is a
+    /// three-word cell, `{value, owned-list head, scope token}`, so a store
+    /// through the reference (in the lambda's frame) can raise what it stores
+    /// to the binding's scope and list it there
+    /// (`CodeBuilder::emit_captured_store_float`).
+    pub(crate) ref_cells: HashSet<String>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free
