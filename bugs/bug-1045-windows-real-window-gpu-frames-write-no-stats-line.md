@@ -1,11 +1,11 @@
 # bug-1045: on Windows, a real canvas window drawn on the GPU writes no `MFB_CANVAS_STATS` line
 
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 Effort: unknown — not root-caused
-Severity: unknown until root-caused (LOW if only the report is missing; HIGH if frames are)
+Severity: LOW (2026-10-12: no frame and no report is lost once the pipeline exists; the wait is bug-996)
 Class: Other
 
-Status: Open
+Status: Open — root-caused 2026-10-12 as bug-996's cold pipeline compile; nothing left that is this bug's own (owner to decide: close as a duplicate of 996)
 Regression Test: none
 
 A `--debug` canvas program run in a REAL window on box 206 (Windows 11, Intel UHD 630)
@@ -27,7 +27,31 @@ References:
 - `tools/pointer-probe/windows-pointer.ps1` and its README — the harness.
 - Found while proving plan-172-J's pointer publication in a real Windows window.
 
-## Repro
+## Root-caused 2026-10-12: the first frame is waiting on bug-996's pipeline compile (HEAD `555130a25`)
+
+`bugs/repro/bug-1045/window_stats.mfb`: a rectangle presented at a new position every
+100 ms, 120 times, then one line with `canvas::getFrameStats()`. Built `--app --debug
+--target windows-x86_64`, run on box 206 in a REAL window (a scheduled task with `/it`),
+`MFB_CANVAS_STATS` set and nothing else unless the row says so:
+
+| run | program's line after its 12 s loop | stats file | last stats line |
+|---|---|---|---|
+| GPU, first launch of this exe name | `presents=120 frames=0` | 2 lines, written after the loop | `gpuFrames=2 directFrames=2 phaseRenderMs=37427` |
+| GPU, second launch | `presents=120 frames=120` | 120 lines | `gpuFrames=120 directFrames=120 phaseRenderMs=494` |
+| `MFB_CANVAS_GPU=0` | `presents=120 frames=120` | 120 lines | `gpuFrames=0 phaseRenderMs=398` |
+
+So the direct swapchain path does report: one line a frame, `directFrames` counting each.
+What the original run saw is the first row. Under an executable name Intel's driver has
+not seen, the graphics thread spends the first ~37 s inside `vkCreateGraphicsPipelines`
+(bug-996; ~25 s when this was filed), no frame completes, and so no line is written. "Not
+one line in about fifteen seconds" is inside that wait. The table below fits: its software
+and dump rows ran after the first row had warmed the driver's cache for that name.
+
+That answers "What is not known": frames are not lost once the pipeline exists, and
+neither is the report. Not looked at here: the screen during the wait
+(`tools/win-screen-capture`); bug-996 already records that the window is blank then.
+
+## Repro (as first filed)
 
 Cross-build a `--debug` windows-x86_64 app that calls `app::setMode(app::Mode.Canvas)`
 and presents a rectangle at a new position every 100 ms for a minute. Ship it to box
