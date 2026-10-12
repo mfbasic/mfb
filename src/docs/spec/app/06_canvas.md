@@ -784,7 +784,13 @@ transform, the group-relative one inside a group), **nearest**, as texel
 `(x, y, w, h)` being the rectangle in the record's slots 2 to 5. It
 is nearest for the reason a transformed glyph is: `floor` and `+ - * /` only, so every
 backend picks the same texel; a bilinear filter would change edge bytes between
-renderers unless all three shared identical fixed-point weights. Which rectangle that
+renderers unless all three shared identical fixed-point weights. The index does not
+depend on how a backend rounds the division (Vulkan allows `/` 2.5 ULP): with
+`t = (px - x) * width`, each renderer takes `u = floor(t / w)` and then `u + 1` if
+`(u + 1) * w <= t`, or `u - 1` if `u * w > t`, and likewise in `y` (`pictureTexel` in
+both shaders, the picture arm of `__canvas_drawGeometry` in the oracle). Where a texel
+boundary is a pixel centre `t` is exactly a whole number of `w`, the products are
+exact, and the pixel takes the texel that starts there. Which rectangle that
 is, and what else a `canvas::Picture` item draws, is *A picture is drawn inside a
 shape*, below.
 

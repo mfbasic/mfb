@@ -1888,12 +1888,22 @@ const METAL_SHADER_BODY: &str = concat!(
     "  }\n",
     "  return out;\n",
     "}\n",
+    // bug-1079: which of `n` texels holds `t`, the texels `d` apart -- `floor(t / d)`
+    // corrected by at most one from the exact products, so the index does not hang on
+    // the last bit of the quotient (Vulkan allows `/` 2.5 ULP and one driver takes it;
+    // Apple's GPUs divide exactly, and this is the same rule so the copies stay one).
+    // The GLSL's `pictureTexel`, line for line, and the oracle's picture arm.
+    "static int pictureTexel(float t, float d, int n) {\n",
+    "  float u = floor(t / d);\n",
+    "  if ((u + 1.0) * d <= t) { u += 1.0; } else if (u * d > t) { u -= 1.0; }\n",
+    "  return clamp(int(u), 0, n - 1);\n",
+    "}\n",
     // bug-484: a picture's fill colour at the SHAPE-space point `q` -- its image sampled
     // NEAREST and tinted by the fill (plan-163-C: towards `texel * fill / 255` by
     // `fill.a / 255`, rounded half away from zero, and its alpha faded by the transparency
     // step in `clipPath.w` -- `__canvas_tintChannel`), the twin of the `isPicture` arm of
     // `__canvas_drawGeometry`. Same operation order as the oracle, `(q - x0) * iw / dw`,
-    // and `floor` rather than a cast, so all renderers pick the same texel; the index is
+    // through `pictureTexel`, so all renderers pick the same texel; the index is
     // CLAMPED because the antialiased pixels just outside the destination belong to the
     // border texel. The texels ride the glyph region one packed `r | g<<8 | b<<16 | a<<24`
     // word each, and the block names its slice as a glyph's does: width in `misc.w`,
@@ -1907,8 +1917,8 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float hw = fx(item.shape.z), hh = fx(item.shape.w);\n",
     "  float x0 = fx(item.shape.x) - hw, y0 = fx(item.shape.y) - hh;\n",
     "  float dw = hw * 2.0, dh = hh * 2.0;\n",
-    "  int u = clamp(int(floor((q.x - x0) * float(iw) / dw)), 0, iw - 1);\n",
-    "  int v = clamp(int(floor((q.y - y0) * float(ih) / dh)), 0, ih - 1);\n",
+    "  int u = pictureTexel((q.x - x0) * float(iw), dw, iw);\n",
+    "  int v = pictureTexel((q.y - y0) * float(ih), dh, ih);\n",
     "  uint word = as_type<uint>(edges[METAL_GLYPH_BASE + item.arc.z + v * iw + u]);\n",
     "  int4 tex = int4(int(word & 255u), int((word >> 8) & 255u),\n",
     "                  int((word >> 16) & 255u), int((word >> 24) & 255u));\n",

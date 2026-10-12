@@ -922,8 +922,28 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       ' destination (centre within half a pixel of it) still take coverage, and they
       ' belong to the border texel -- exactly as a rectangle's edge pixels take its fill.
       IF isPicture THEN
-        LET tu AS Integer = __canvas_maxI(__canvas_minI(math::floor((qx - picX0) * toFloat(picW) / picDW), picW - 1), 0)
-        LET tv AS Integer = __canvas_maxI(__canvas_minI(math::floor((qy - picY0) * toFloat(picH) / picDH), picH - 1), 0)
+        '
+        ' bug-1079: the index is `floor(t / d)` corrected by at most one from the exact
+        ' products, so it does not hang on the last bit of the quotient. A GPU driver may
+        ' round `/` either way (Vulkan allows 2.5 ULP), and where a texel boundary is a
+        ' pixel centre -- `t` exactly a whole number of `d` -- that bit chose the texel.
+        ' Both shaders' `pictureTexel` take these same three steps.
+        LET picTX AS Float = (qx - picX0) * toFloat(picW)
+        LET picTY AS Float = (qy - picY0) * toFloat(picH)
+        MUT tu AS Integer = math::floor(picTX / picDW)
+        MUT tv AS Integer = math::floor(picTY / picDH)
+        IF toFloat(tu + 1) * picDW <= picTX THEN
+          tu = tu + 1
+        ELSEIF toFloat(tu) * picDW > picTX THEN
+          tu = tu - 1
+        END IF
+        IF toFloat(tv + 1) * picDH <= picTY THEN
+          tv = tv + 1
+        ELSEIF toFloat(tv) * picDH > picTY THEN
+          tv = tv - 1
+        END IF
+        tu = __canvas_maxI(__canvas_minI(tu, picW - 1), 0)
+        tv = __canvas_maxI(__canvas_minI(tv, picH - 1), 0)
         LET texel AS Integer = canvas::shadowTexel(picShadow, tv * picW + tu)
         gR = __canvas_tintChannel(texel MOD 256, toInt(fillR), fillA)
         gG = __canvas_tintChannel((texel / 256) MOD 256, toInt(fillG), fillA)

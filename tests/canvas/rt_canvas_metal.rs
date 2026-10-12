@@ -1519,6 +1519,21 @@ fn picture_shapes_match_the_software_oracle_on_metal() {
     );
 }
 
+/// bug-1079: plain pictures whose texel boundaries are pixel centres, in x and in y
+/// (`scenes/picture_texel_edge.mfb`). The texel there used to hang on the last bit of
+/// the backend's division; Apple's GPUs divide exactly, so this row passed before the
+/// index was made exact and holds Metal to the same frame after.
+const PICTURE_TEXEL_EDGE: &str = include_str!("scenes/picture_texel_edge.mfb");
+
+#[test]
+fn texel_boundaries_on_pixel_centres_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_texel_edge",
+        PICTURE_TEXEL_EDGE,
+        "pictures with texel boundaries on pixel centres",
+    );
+}
+
 /// The same scene with the pointer on its `AutoPaint` picture, the circle about
 /// (770, 470): both of the picture's entries are swapped for the hover paint's -- the
 /// image under an orange tint, the outline 6 px of red -- and the GPU draw list must

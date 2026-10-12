@@ -1743,11 +1743,26 @@ int glyphCoverage(vec2 p) {
     return edges.values[GLYPH_BASE + item.arc.z + iy * item.misc.w + ix];
 }
 
+// bug-1079: which of `n` texels holds `t`, the texels `d` apart: `floor(t / d)`, made
+// independent of how the driver rounds `/`. Vulkan allows a quotient 2.5 ULP of error,
+// and one real driver takes it (it multiplies by a reciprocal), so where `t` is exactly a
+// whole number of `d` -- a texel boundary on a pixel centre -- `floor` of the quotient
+// alone is the texel on either side. The quotient is within one of the answer whatever
+// its last bits are, so it is corrected by at most one from the products, which every
+// backend rounds correctly and which are exact wherever the quotient is a whole number.
+// The oracle's picture arm (`helper_items.rs`) and the MSL take the same three steps.
+int pictureTexel(float t, float d, int n) {
+    float u = floor(t / d);
+    if ((u + 1.0) * d <= t) { u += 1.0; } else if (u * d > t) { u -= 1.0; }
+    return clamp(int(u), 0, n - 1);
+}
+
 // A picture's fill colour at the SHAPE-space point `q`, as an `ivec4` of 0..255
 // (bug-484) — the oracle's picture arm in `helper_items.rs`, operation for operation.
 //
 // Sampled NEAREST, the plan-116-C §4.5 rule glyphs follow: `floor` and `+ - * /` only,
-// in the oracle's order `(q - x0) * iw / dw`, so every renderer picks the same texel.
+// in the oracle's order `(q - x0) * iw / dw`, with the index taken by `pictureTexel`
+// so it does not hang on the division's last bit; every renderer picks the same texel.
 // The index is clamped rather than rejected, because the antialiased edge pixels just
 // outside the destination still take coverage and belong to the border texel.
 //
@@ -1765,8 +1780,8 @@ ivec4 pictureColour(vec2 q) {
     float y0 = fx(item.shape.y) - fx(item.shape.w);
     float dw = fx(item.shape.z) * 2.0;
     float dh = fx(item.shape.w) * 2.0;
-    int u = clamp(int(floor((q.x - x0) * float(iw) / dw)), 0, iw - 1);
-    int v = clamp(int(floor((q.y - y0) * float(ih) / dh)), 0, ih - 1);
+    int u = pictureTexel((q.x - x0) * float(iw), dw, iw);
+    int v = pictureTexel((q.y - y0) * float(ih), dh, ih);
     int word = edges.values[GLYPH_BASE + item.arc.z + v * iw + u];
     ivec4 tex = ivec4(word & 255, (word >> 8) & 255, (word >> 16) & 255, (word >> 24) & 255);
     // plan-163-C: towards `texel * fill / 255` by `fill.a / 255`, rounded half away from
