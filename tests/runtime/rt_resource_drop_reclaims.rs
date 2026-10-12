@@ -698,3 +698,151 @@ END FUNC
     );
     assert_eq!(out.trim(), "50");
 }
+
+// ---- bug-1044, bug-1056, bug-1043: what a call hands back and a binding or a
+// ---- statement takes is freed with it ----
+
+/// Run `exe` at `n` iterations with at most 64 open descriptors: a shape that
+/// leaves one file open per iteration runs out within the first hundred.
+fn run_limited(exe: &std::path::Path, dir: &std::path::Path, n: u32) -> (bool, String, String) {
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("ulimit -n 64 && exec \"$0\"")
+        .arg(exe)
+        .env("N", n.to_string())
+        .env("PROBE_DIR", dir)
+        .output()
+        .expect("run the program under sh");
+    (
+        out.status.success(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+/// [`assert_balanced`], then 300 iterations inside 64 descriptors printing
+/// `at_300`.
+fn assert_balanced_and_closed(name: &str, source: &str, at_10: &str, at_300: &str) {
+    assert_eq!(assert_balanced(name, source), at_10, "{name}");
+    let exe = build_debug(name, source);
+    let dir = exe.parent().expect("build dir").join("probe");
+    std::fs::create_dir_all(&dir).expect("probe dir");
+    std::fs::write(dir.join("data.txt"), "first\nsecond\n").expect("data");
+    let (ok, stdout, stderr) = run_limited(&exe, &dir, 300);
+    assert!(
+        ok && stdout == at_300,
+        "{name}: 300 iterations must fit in 64 descriptors; stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+/// bug-1044: a record built around a call that returns a `List OF RES`, returned
+/// by a call and bound. The binding owns the record, the list block and the
+/// file records, and frees them all with its scope.
+#[test]
+fn a_record_built_from_a_list_of_resources_frees_what_it_holds() {
+    let source = program(
+        "TYPE Box\n  items AS List OF RES fs::File\nEND TYPE\n\n\
+         FUNC mkList() AS List OF RES fs::File\n\
+         \x20 MUT xs AS List OF RES fs::File = []\n\
+         \x20 RES f AS fs::File = fs::createTempFile()\n\
+         \x20 xs = collections::append(xs, f)\n\
+         \x20 RETURN xs\n\
+         END FUNC\n\n\
+         FUNC mkBox() AS Box\n\
+         \x20 RETURN Box[items := mkList()]\n\
+         END FUNC\n\n\
+         FUNC once() AS Integer\n\
+         \x20 LET b AS Box = mkBox()\n\
+         \x20 RETURN len(b.items)\n\
+         END FUNC\n\n\
+         FUNC main AS Integer\n\
+         \x20 MUT n AS Integer = 0\n\
+         \x20 FOR i = 1 TO count()\n\
+         \x20   n = n + once()\n\
+         \x20 NEXT\n\
+         \x20 io::print(\"n=\" & toString(n))\n\
+         \x20 RETURN 0\n\
+         END FUNC\n",
+    );
+    assert_balanced_and_closed("bug1044_box_from_call", &source, "n=10\n", "n=300\n");
+}
+
+/// bug-1056: a `List OF List OF RES fs::File` returned by a call and bound. The
+/// binding frees the inner list blocks before the outer one.
+#[test]
+fn a_nested_list_of_resources_bound_from_a_call_frees_its_inner_blocks() {
+    let source = program(
+        "FUNC mkList() AS List OF RES fs::File\n\
+         \x20 MUT xs AS List OF RES fs::File = []\n\
+         \x20 RES f AS fs::File = fs::createTempFile()\n\
+         \x20 xs = collections::append(xs, f)\n\
+         \x20 RES g AS fs::File = fs::createTempFile()\n\
+         \x20 xs = collections::append(xs, g)\n\
+         \x20 RETURN xs\n\
+         END FUNC\n\n\
+         FUNC mkNested() AS List OF List OF RES fs::File\n\
+         \x20 MUT outer AS List OF List OF RES fs::File = []\n\
+         \x20 outer = collections::append(outer, mkList())\n\
+         \x20 outer = collections::append(outer, mkList())\n\
+         \x20 RETURN outer\n\
+         END FUNC\n\n\
+         FUNC main AS Integer\n\
+         \x20 MUT n AS Integer = 0\n\
+         \x20 FOR i = 1 TO count()\n\
+         \x20   LET t AS List OF List OF RES fs::File = mkNested()\n\
+         \x20   n = n + len(t)\n\
+         \x20 NEXT\n\
+         \x20 io::print(\"n=\" & toString(n))\n\
+         \x20 RETURN 0\n\
+         END FUNC\n",
+    );
+    assert_balanced_and_closed("bug1056_nested_from_call", &source, "n=20\n", "n=600\n");
+}
+
+/// bug-1043: a single resource a call returns, used unbound. Its statement closes
+/// it and frees its record.
+#[test]
+fn a_resource_returned_by_a_call_and_used_unbound_frees_its_record() {
+    let source = program(
+        "FUNC openOne() AS RES fs::File\n\
+         \x20 RETURN fs::openFile(dir() & \"/data.txt\")\n\
+         END FUNC\n\n\
+         FUNC once() AS Integer\n\
+         \x20 RETURN len(fs::readAll(openOne()))\n\
+         END FUNC\n\n\
+         FUNC main AS Integer\n\
+         \x20 MUT n AS Integer = 0\n\
+         \x20 FOR i = 1 TO count()\n\
+         \x20   n = n + once()\n\
+         \x20 NEXT\n\
+         \x20 io::print(\"n=\" & toString(n))\n\
+         \x20 RETURN 0\n\
+         END FUNC\n",
+    );
+    assert_balanced_and_closed("bug1043_unbound_resource", &source, "n=130\n", "n=3900\n");
+}
+
+/// bug-1043: the unbound resource is handed to a function that puts it in the
+/// list it returns, and nothing takes that list either.
+#[test]
+fn a_resource_used_unbound_through_a_list_building_call_frees_its_record() {
+    let source = program(
+        "FUNC openOne() AS RES fs::File\n\
+         \x20 RETURN fs::openFile(dir() & \"/data.txt\")\n\
+         END FUNC\n\n\
+         FUNC mkFrom(f AS fs::File) AS List OF RES fs::File\n\
+         \x20 MUT xs AS List OF RES fs::File = []\n\
+         \x20 xs = collections::append(xs, f)\n\
+         \x20 RETURN xs\n\
+         END FUNC\n\n\
+         FUNC main AS Integer\n\
+         \x20 MUT n AS Integer = 0\n\
+         \x20 FOR i = 1 TO count()\n\
+         \x20   n = n + len(mkFrom(openOne()))\n\
+         \x20 NEXT\n\
+         \x20 io::print(\"n=\" & toString(n))\n\
+         \x20 RETURN 0\n\
+         END FUNC\n",
+    );
+    assert_balanced_and_closed("bug1043_through_list", &source, "n=10\n", "n=300\n");
+}

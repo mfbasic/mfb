@@ -295,9 +295,10 @@ impl CodeBuilder<'_> {
     /// Close what a call statement's discarded result carries that nobody owns: a
     /// record the callee produced or released and the caller never bound, at any
     /// depth of the result (bug-805). A record with an owner — a handle the callee
-    /// was passed and handed back — is left to that owner. The record itself stays
-    /// as the tombstone; its buffers and `STATE` are reclaimed exactly as a
-    /// binding's drop reclaims them.
+    /// was passed and handed back — is left to that owner. Nothing took an unowned
+    /// record, so the discarding statement is its last holder: its buffers,
+    /// `STATE` and (for the record-freeing kinds) the record are reclaimed
+    /// exactly as an owning binding's drop reclaims them.
     pub(crate) fn emit_close_discarded_value(
         &mut self,
         location: &crate::codegen::engine::operand::Operand,
@@ -465,14 +466,16 @@ impl CodeBuilder<'_> {
             self.emit(abi::compare_immediate(&owner, "0"));
             self.emit(abi::branch_ne(&done));
             // bug-1001: the buffers are reclaimed as the concrete arm below
-            // reclaims them; the record stays as the tombstone.
+            // reclaims them, and so is the record: nothing took it, so the
+            // statement discarding it is its last holder.
             let io_buffer_tags = self.resource_union_io_buffer_tags(type_);
+            let record_free_tags = self.resource_union_record_free_tags(type_);
             self.emit_union_tag_dispatch_drop(
                 &value,
                 &variants,
                 type_.state().as_ref(),
                 &io_buffer_tags,
-                &[],
+                &record_free_tags,
                 &done,
             )?;
             self.emit(abi::label(&done));
@@ -495,7 +498,7 @@ impl CodeBuilder<'_> {
             slot,
             type_.state().as_ref(),
             Self::resource_uses_io_buffers(type_),
-            false,
+            Self::resource_record_freed_at_drop(type_),
         )?;
         self.emit(abi::label(&done));
         Ok(())
