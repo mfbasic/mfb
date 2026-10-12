@@ -1,0 +1,60 @@
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT io
+IMPORT vector
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC mkpts() AS List OF vector::Float2
+  MUT pts AS List OF vector::Float2 = []
+  pts = collections::append(pts, vector::Float2[x := 1.0, y := 1.0])
+  pts = collections::append(pts, vector::Float2[x := 9.0, y := 1.0])
+  pts = collections::append(pts, vector::Float2[x := 5.0, y := 9.0])
+  RETURN pts
+END FUNC
+
+FUNC poly(pts AS List OF vector::Float2) AS canvas::DrawItem
+  RETURN canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [pts], rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(255, 0, 0)), transform := none()]
+END FUNC
+
+FUNC frames() AS String
+  RETURN toString(canvas::getFrameStats().frames)
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET lit AS List OF vector::Float2 = [vector::Float2[x := 1.0, y := 1.0], vector::Float2[x := 9.0, y := 1.0], vector::Float2[x := 5.0, y := 9.0]]
+  LET bound AS canvas::DrawItem = poly(lit)
+  canvas::present([bound])
+  io::print("bound polygon 1: " & frames())
+  canvas::present([bound])
+  io::print("bound polygon 2: " & frames())
+  canvas::present([canvas::Circle[id := "", position := vector::Float2[x := 5.0, y := 5.0], radius := 3.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := none()]])
+  io::print("flat circle 1: " & frames())
+  canvas::present([canvas::Circle[id := "", position := vector::Float2[x := 5.0, y := 5.0], radius := 3.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := none()]])
+  io::print("flat circle 2: " & frames())
+  canvas::present([poly(lit)])
+  io::print("literal 1: " & frames())
+  canvas::present([poly(lit)])
+  io::print("literal 2: " & frames())
+  canvas::present([poly(mkpts())])
+  io::print("append 1 (same content as literal): " & frames())
+  canvas::present([poly(mkpts())])
+  io::print("append 2: " & frames())
+  canvas::present([poly(mkpts())])
+  io::print("append 3: " & frames())
+  LET a AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 5.0, y := 5.0], radius := 3.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := none()]
+  LET one AS List OF canvas::DrawLayer = [canvas::DrawLayer[items := [a]]]
+  canvas::presentLayers(one)
+  io::print("layers bound 1: " & frames())
+  canvas::presentLayers(one)
+  io::print("layers bound 2: " & frames())
+  canvas::presentLayers([canvas::DrawLayer[items := [a]]])
+  io::print("layers inline 1: " & frames())
+  canvas::presentLayers([canvas::DrawLayer[items := [a]]])
+  io::print("layers inline 2: " & frames())
+END FUNC

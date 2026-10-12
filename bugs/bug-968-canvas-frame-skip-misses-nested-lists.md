@@ -1,6 +1,6 @@
 # bug-968: canvas frame skip republishes an identical scene when it contains a nested list (Polygon points, DrawLayer items) built by a different allocation history
 
-Last updated: 2026-10-05
+Last updated: 2026-10-12
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
@@ -36,6 +36,28 @@ References:
   sides are shrink-to-fit copies, so equal content is equal bytes"; "Both calls share
   one implementation and therefore one set of guarantees".
 - `.ai/canvas-threading.md` §3.1 "The frame skip compares CONTENT, not bytes".
+
+## Re-verified 2026-10-12: still reproduces (HEAD `555130a25`, after plan-172 and plan-164)
+
+The program below no longer compiles: plan-172 changed the item records (`Polygon` takes
+`contours`, `rule`, `id`, `position` and `transform`; a point is `vector::Float2`). The
+same cases in today's syntax are `bugs/repro/bug-968/frame_skip.mfb`. Built with
+`mfb build --app` and run with `MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1`, the frame counter
+after each call:
+
+| call | frames | |
+|---|---|---|
+| `present([bound])`, one LET-bound polygon, twice | 1, 1 | ✓ |
+| `present([Circle[…]])` written inline, twice | 2, 2 | ✓ |
+| `present([poly(lit)])`, polygon built by a function from LET-bound literal points, twice | 3, 4 | ✗ |
+| `present([poly(mkpts())])`, points built by `collections::append`, three times | 5, 6, 7 | ✗ |
+| `presentLayers(one)`, LET-bound layers, twice | 8, 8 | ✓ |
+| `presentLayers([DrawLayer[items := [a]]])` inline, twice | 9, 10 | ✗ |
+
+`gen_present.rs:emit_publish` has not changed since bug-686 (`git log -- src/codegen/builtins/canvas/gen_present.rs`:
+newest commit `e5e8167ef`, 2026-09-24). The root-cause hypothesis is still not instrumented.
+One row is new: a polygon rebuilt by a function from the *same* LET-bound literal points
+also redraws, so a different allocation history is enough even with no `append`.
 
 ## Failing Reproduction
 
