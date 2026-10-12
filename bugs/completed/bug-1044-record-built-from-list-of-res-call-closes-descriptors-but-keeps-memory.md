@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory leak)
 
-Status: Open
+Status: Fixed (bs22-agent-g)
 Regression Test: (proposed) a `--debug` alloc/free test over the program below asserting `live_bytes 0` at `N=10` and `N=20`, plus 300 iterations under `ulimit -n 64`
 
 `LET b AS Box = mkBox()`, where `mkBox` returns `Box[items := mkList()]` and `Box` holds a
@@ -75,3 +75,16 @@ in a constructor argument, which bug-999 describes as unregistered, and nothing 
 block or records once the record `b` is dropped.
 
 Found during batch 21.
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+The general cause: A collection of resource aliases was classified "not flat" (`flatness_walk` met the bare resource the element accessors leave after stripping the `RES` marker), so such a list was shared by pointer at every hand-off and no scope freed its block. It is plain data now (rule 3: `is_resource_alias_payload`, concrete and resource-union elements), copied at every hand-off to a longer-lived owner and freed by its one owner through the ordinary owned-value path. The record built around the call's list copies it like any flat field, and the binding frees both.
+
+Measured with `/tmp/bs22/bin/probe.sh` and `/tmp/bs22/sweep.sh` (alloc/free/live bytes, `--debug` arena 0), this branch's compiler:
+o_boxcall: 103/103/0 at N=10, 403/403/0 at N=40, same at -O0, N=300 exits 0 (main: 103/73/2720).
+
+Tests: `tests/runtime/rt_res_list_from_call_leak.rs` (the list block counts), the 31 resource targets of the batch. No rule keyed on where the call or the value is written.
+
+## Golden impact
+
+Not regenerated. `scripts/artifact-gate.sh <mfb> all`: every fixture that binds, copies, reassigns or drops a collection of `RES` elements gains the ordinary copy and scope-drop of a flat list (`.ncode`), and every call to a function body that returns a value reaching resources gains the statement's take and drain.

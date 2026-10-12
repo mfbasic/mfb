@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory leak)
 
-Status: Open
+Status: Fixed (bs22-agent-g)
 Regression Test: (proposed) a `--debug` alloc/free test over the program below asserting `live_bytes 0` at `N=10` and `N=20`, plus 300 iterations under `ulimit -n 64`
 
 `len(fs::readAll(openOne()))`, where `openOne` returns a single `RES fs::File`, closes the
@@ -72,3 +72,16 @@ that temporary is closed but its record is not freed. This is the single-resourc
 bug-999 is about a `List OF RES` or a record of resources returned by a nested call.
 
 Found during batch 21.
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+The general cause: A resource a callee's `RETURN` released stayed unowned until some binding claimed it; when nothing bound it, nothing owned it. It is the caller's statement's at once now (rule 5: `register_resource_temp`, `adopt_statement_temp`), every longer-lived taker raises it by the ordinary float (rule 4), and the statement closes and frees what it still owns at its end. For a single resource used unbound that also frees the record: the statement is its last holder (`emit_resource_temp_close`).
+
+Measured with `/tmp/bs22/bin/probe.sh` and `/tmp/bs22/sweep.sh` (alloc/free/live bytes, `--debug` arena 0), this branch's compiler:
+t_res (/tmp/bs22/src): 33/33/0 at N=10, 123/123/0 at N=40, 33/33/0 at -O0, N=300 under `ulimit -n 64` exits 0 (main: 33/23/1120 at N=10).
+
+Tests: `tests/runtime/rt_res_list_from_call_leak.rs` (the list block counts), the 31 resource targets of the batch. No rule keyed on where the call or the value is written.
+
+## Golden impact
+
+Not regenerated. `scripts/artifact-gate.sh <mfb> all`: every fixture that binds, copies, reassigns or drops a collection of `RES` elements gains the ordinary copy and scope-drop of a flat list (`.ncode`), and every call to a function body that returns a value reaching resources gains the statement's take and drain.

@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (memory leak)
 
-Status: Open
+Status: Fixed (bs22-agent-g)
 Regression Test: (proposed) a `--debug` alloc/free test over the program below asserting the live bytes do not grow between `N=10` and `N=40`
 
 `MUT hs AS List OF RES Handle = []` followed by `hs = files` inside a loop keeps 48 bytes
@@ -110,3 +110,16 @@ will change this program's behavior, so this document's check must be re-run aft
 Whether the 48 bytes is the old empty list block (guess; not traced) was not measured.
 
 Found during batch 21.
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+The general cause: A collection of resource aliases was classified "not flat" (`flatness_walk` met the bare resource the element accessors leave after stripping the `RES` marker), so such a list was shared by pointer at every hand-off and no scope freed its block. It is plain data now (rule 3: `is_resource_alias_payload`, concrete and resource-union elements), copied at every hand-off to a longer-lived owner and freed by its one owner through the ordinary owned-value path. A `List OF RES Handle` (resource-union elements, each a `{tag, record}` box held inline) is such a block, so the assignment frees the value it replaces.
+
+Measured with `/tmp/bs22/bin/probe.sh` and `/tmp/bs22/sweep.sh` (alloc/free/live bytes, `--debug` arena 0), this branch's compiler:
+b1057 and f1057_0: 63/63/0 at N=10, 213/213/0 at N=40, same at -O0, N=300 exits 0 (main: 23/12/720, 53/12/2160).
+
+Tests: `tests/runtime/rt_res_list_from_call_leak.rs` (the list block counts), the 31 resource targets of the batch. No rule keyed on where the call or the value is written.
+
+## Golden impact
+
+Not regenerated. `scripts/artifact-gate.sh <mfb> all`: every fixture that binds, copies, reassigns or drops a collection of `RES` elements gains the ordinary copy and scope-drop of a flat list (`.ncode`), and every call to a function body that returns a value reaching resources gains the statement's take and drain.

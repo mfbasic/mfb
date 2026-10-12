@@ -5,7 +5,7 @@ Effort: small (<1h) once bug-999 and bug-1012 are fixed
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open (stopped by bs21-agent-b: the conversion is functionally right and still cannot be made to balance; see "Attempt in bug-staging-21")
+Status: Fixed (bs22-agent-g)
 Regression Test: (proposed) a resource case in tests/rt-behavior/types/union-container-conversion-rt, plus a `--debug` alloc == free loop
 
 bug-989 (owner decision: a collection of union variants is converted where the union's collection
@@ -181,3 +181,16 @@ index 296264752..93fabe776 100644
          };
          match (actual, expected) {
 ```
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+The general cause is a union rule, not a collection rule: `TypeIndex::variant_belongs_to_union` compared exact spellings, so a variant written with the `RES` alias marker (a list element) or a `STATE` clause was "not a member" and no wrap or conversion was emitted. Membership is asked of the bare types in that one place now, the wrap records the bare variant, and the list converter is handed the element without the slot's marker. Nothing collection-side was written for this bug. It balances because of rule 3 (the converted list is a flat block its statement or binding frees) and because a callback's resource-union result box is freed once the collection has copied its two words (`free_callback_result`).
+
+Measured with `/tmp/bs22/bin/probe.sh` and `/tmp/bs22/sweep.sh` (alloc/free/live bytes, `--debug` arena 0), this branch's compiler:
+b1018 prints `file`, 9/9/0. /tmp/bs22-agent-d/src18 v01..v07: `n=20` at N=10 with 53/53/0 or 63/63/0, `n=80` at N=40 balanced, same at -O0, N=300 exits 0 balanced; v08 (`Map`): 83/83/0, 293/293/0, 93/93/0 at -O0. On main these print the no-arm total (`n=200000`) and v07 dies with SIGSEGV.
+
+Tests: `tests/runtime/rt_res_list_from_call_leak.rs` (the list block counts), the 31 resource targets of the batch. No rule keyed on where the call or the value is written.
+
+## Golden impact
+
+Not regenerated. `scripts/artifact-gate.sh <mfb> all`: every fixture that binds, copies, reassigns or drops a collection of `RES` elements gains the ordinary copy and scope-drop of a flat list (`.ncode`), and every call to a function body that returns a value reaching resources gains the statement's take and drain.
