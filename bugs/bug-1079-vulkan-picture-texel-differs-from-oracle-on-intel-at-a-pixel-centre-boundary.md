@@ -1,6 +1,6 @@
 # bug-1079: on Intel's Vulkan driver a picture takes the wrong texel where a texel boundary is a pixel centre
 
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 Effort: small in code (one expression in each GPU shader), medium to land (SPIR-V
 regeneration, and proof on Metal and three Vulkan drivers)
 Severity: LOW — one row or column of a picture, one texel off, on one driver
@@ -35,6 +35,20 @@ References:
 - Found by plan-172-L's `pictureshapes` row of `scripts/test-canvas-gpu-rows.sh`, whose
   first scene put two such boundaries on pixel centres (an ellipse 110 px tall over a
   4-row image). The scene was changed to avoid them; this bug is what it avoided.
+
+## Re-verified 2026-10-12: still reproduces, same pixels (HEAD `555130a25`)
+
+The repro as a row of a scratch copy of `scripts/test-canvas-gpu-rows.sh`
+(`--target windows-x86_64 --rows texeledge,pictureshapes`, box 206):
+
+```
+ok: texeledge: drawn on Vulkan (gpuFrames=1)
+FAIL: texeledge: Vulkan disagrees with the software oracle: worst=220 differing=0.0278% first-beyond-tolerance=(460, 262, '286f00ff', '2828dcff')
+ok: pictureshapes: Vulkan matches the software oracle (ok worst=1 differing=1.2231%, 168562 lit)
+```
+
+The failure line is byte for byte the one below. `pictureColour` is unchanged in
+`mfb_canvas.frag` and in `metal.rs`. Metal and lavapipe were not re-run.
 
 ## Repro
 
