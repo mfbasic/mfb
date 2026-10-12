@@ -5076,6 +5076,9 @@ fn the_group_drain_does_not_depend_on_the_scene_changing() {
 /// freed too) and not the sum of both (which would mean the old one never was). The new
 /// group is deliberately a *different size* from the old, so "one copy of the new
 /// contents" is a number only the correct implementation produces.
+///
+/// The last present puts the same two nodes in the other order: an identical
+/// re-present publishes nothing and draws no frame (bug-968), and the drain needs one.
 #[test]
 fn replacing_a_group_frees_only_the_displaced_buffer() {
     let (_, stats) = render(
@@ -5090,7 +5093,7 @@ fn replacing_a_group_frees_only_the_displaced_buffer() {
              canvas::present([canvas::Group[id := \"\", position := vector::Float2[x := 400.0, y := 400.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"one\"], node])\n  \
              canvas::setGroup(\"panel\", [b])\n  \
              canvas::present([canvas::Group[id := \"\", position := vector::Float2[x := 400.0, y := 400.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"one\"], node])\n  \
-             canvas::present([canvas::Group[id := \"\", position := vector::Float2[x := 400.0, y := 400.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"one\"], node])\n",
+             canvas::present([node, canvas::Group[id := \"\", position := vector::Float2[x := 400.0, y := 400.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"one\"]])\n",
         ),
     );
 
