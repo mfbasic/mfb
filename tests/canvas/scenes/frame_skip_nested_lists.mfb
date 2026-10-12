@@ -1,0 +1,228 @@
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT io
+IMPORT vector
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+' The same three points, by three allocation histories.
+FUNC ptsLit(last AS Float) AS List OF vector::Float2
+  RETURN [at(1.0, 1.0), at(9.0, 1.0), at(5.0, last)]
+END FUNC
+
+FUNC ptsAppend(last AS Float) AS List OF vector::Float2
+  MUT pts AS List OF vector::Float2 = []
+  pts = collections::append(pts, at(1.0, 1.0))
+  pts = collections::append(pts, at(9.0, 1.0))
+  pts = collections::append(pts, at(5.0, last))
+  RETURN pts
+END FUNC
+
+FUNC ptsSet(last AS Float) AS List OF vector::Float2
+  MUT pts AS List OF vector::Float2 = [at(7.0, 7.0), at(9.0, 1.0), at(0.0, 0.0), at(3.0, 3.0)]
+  pts = collections::set(pts, 0, at(1.0, 1.0))
+  pts = collections::set(pts, 2, at(5.0, last))
+  pts = collections::removeAt(pts, 3)
+  RETURN pts
+END FUNC
+
+FUNC pts(how AS Integer, last AS Float) AS List OF vector::Float2
+  IF how = 0 THEN
+    RETURN ptsLit(last)
+  END IF
+  IF how = 1 THEN
+    RETURN ptsAppend(last)
+  END IF
+  RETURN ptsSet(last)
+END FUNC
+
+FUNC floats(how AS Integer, last AS Float) AS List OF Float
+  IF how = 0 THEN
+    RETURN [4.0, 2.0, last]
+  END IF
+  MUT out AS List OF Float = []
+  out = collections::append(out, 4.0)
+  out = collections::append(out, 2.0)
+  out = collections::append(out, 0.0)
+  IF how = 1 THEN
+    out = collections::set(out, 2, last)
+    RETURN out
+  END IF
+  out = collections::append(out, 1.0)
+  out = collections::removeAt(out, 3)
+  out = collections::set(out, 2, last)
+  RETURN out
+END FUNC
+
+FUNC colors(how AS Integer, last AS Integer) AS List OF color::Color
+  IF how = 0 THEN
+    RETURN [color::rgb(255, 0, 0), color::rgb(0, 255, 0), color::rgb(0, 0, last)]
+  END IF
+  MUT out AS List OF color::Color = []
+  out = collections::append(out, color::rgb(255, 0, 0))
+  out = collections::append(out, color::rgb(0, 255, 0))
+  out = collections::append(out, color::rgb(1, 2, 3))
+  out = collections::set(out, 2, color::rgb(0, 0, last))
+  RETURN out
+END FUNC
+
+FUNC stops(how AS Integer, last AS Float) AS List OF canvas::GradientStop
+  IF how = 0 THEN
+    RETURN [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := last, color := color::rgb(0, 0, 255)]]
+  END IF
+  MUT out AS List OF canvas::GradientStop = []
+  out = collections::append(out, canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)])
+  out = collections::append(out, canvas::GradientStop[offset := last, color := color::rgb(0, 0, 255)])
+  RETURN out
+END FUNC
+
+FUNC rings(how AS Integer, last AS Float) AS List OF List OF vector::Float2
+  IF how = 0 THEN
+    RETURN [pts(0, last)]
+  END IF
+  MUT out AS List OF List OF vector::Float2 = []
+  out = collections::append(out, pts(how, last))
+  RETURN out
+END FUNC
+
+FUNC red() AS canvas::Paint
+  RETURN canvas::fill(color::rgb(255, 0, 0))
+END FUNC
+
+FUNC polygon(how AS Integer, last AS Float) AS canvas::DrawItem
+  RETURN canvas::Polygon[id := "p", position := at(0.0, 0.0), contours := rings(how, last), rule := canvas::FillRule.NonZero, paint := red(), transform := none()]
+END FUNC
+
+FUNC polyline(how AS Integer, last AS Float, blue AS Integer) AS canvas::DrawItem
+  RETURN canvas::PolyLine[id := "l", position := at(0.0, 0.0), points := pts(how, last), colors := colors(how, blue), paint := canvas::stroke(color::rgb(255, 255, 255), 2.0), transform := none()]
+END FUNC
+
+FUNC box(paint AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Circle[id := "c", position := at(5.0, 5.0), radius := 3.0, paint := paint, transform := none()]
+END FUNC
+
+FUNC gradient(how AS Integer, last AS Float) AS canvas::DrawItem
+  LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := at(0.0, 0.0), endPoint := at(8.0, 0.0), stops := stops(how, last), spread := canvas::GradientSpread.Pad, transform := none(), focalOffset := at(0.0, 0.0), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillAndStroke]
+  RETURN box(WITH red() { gradient := g })
+END FUNC
+
+FUNC clipped(how AS Integer, last AS Float) AS canvas::DrawItem
+  RETURN box(WITH red() { clip := rings(how, last) })
+END FUNC
+
+FUNC dashed(how AS Integer, last AS Float) AS canvas::DrawItem
+  RETURN box(WITH canvas::stroke(color::rgb(255, 255, 255), 2.0) { dashes := floats(how, last) })
+END FUNC
+
+' One item of every list-carrying kind, each built by history `how`; `vary` picks
+' the one value that differs (0 = none).
+FUNC scene(how AS Integer, vary AS Integer) AS List OF canvas::DrawItem
+  MUT a AS Float = 9.0
+  MUT b AS Float = 9.0
+  MUT c AS Integer = 255
+  MUT d AS Float = 1.0
+  MUT e AS Float = 9.0
+  MUT f AS Float = 3.0
+  IF vary = 1 THEN
+    a = 9.5
+  END IF
+  IF vary = 2 THEN
+    b = 9.5
+  END IF
+  IF vary = 3 THEN
+    c = 254
+  END IF
+  IF vary = 4 THEN
+    d = 0.75
+  END IF
+  IF vary = 5 THEN
+    e = 9.5
+  END IF
+  IF vary = 6 THEN
+    f = 3.5
+  END IF
+  LET g AS canvas::DrawItem = canvas::Group[id := "g", name := "grp", position := at(1.0, 2.0), transform := none()]
+  IF how = 0 THEN
+    RETURN [polygon(0, a), polyline(0, b, c), gradient(0, d), clipped(0, e), dashed(0, f), g]
+  END IF
+  MUT out AS List OF canvas::DrawItem = []
+  out = collections::append(out, polygon(how, a))
+  out = collections::append(out, polyline(how, b, c))
+  out = collections::append(out, gradient(how, d))
+  out = collections::append(out, clipped(how, e))
+  out = collections::append(out, dashed(how, f))
+  IF how = 1 THEN
+    out = collections::append(out, g)
+    RETURN out
+  END IF
+  out = collections::append(out, box(red()))
+  out = collections::set(out, 5, g)
+  RETURN out
+END FUNC
+
+FUNC layers(how AS Integer, vary AS Integer) AS List OF canvas::DrawLayer
+  IF how = 0 THEN
+    RETURN [canvas::DrawLayer[items := scene(0, vary)], canvas::DrawLayer[items := [box(red())]]]
+  END IF
+  MUT out AS List OF canvas::DrawLayer = []
+  out = collections::append(out, canvas::DrawLayer[items := scene(how, vary)])
+  out = collections::append(out, canvas::DrawLayer[items := [box(red())]])
+  RETURN out
+END FUNC
+
+FUNC show(label AS String) AS Nothing
+  io::print(label & " " & toString(canvas::getFrameStats().frames))
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  canvas::setGroup("grp", [box(red())])
+  ' Same content, every history: one frame.
+  FOR how = 0 TO 2
+    canvas::present(scene(how, 0))
+    show("same flat how=" & toString(how))
+  NEXT
+  ' One value different, deep in each nested list: a frame each, by every history.
+  FOR vary = 1 TO 6
+    FOR how = 0 TO 2
+      canvas::present(scene(how, vary))
+      show("vary=" & toString(vary) & " how=" & toString(how))
+    NEXT
+  NEXT
+  ' A different count, and a different variant, at the same place.
+  canvas::present([polygon(0, 9.0)])
+  show("one polygon")
+  canvas::present([polygon(1, 9.0)])
+  show("one polygon again")
+  canvas::present([canvas::Polygon[id := "p", position := at(0.0, 0.0), contours := [pts(0, 9.0), pts(1, 9.0)], rule := canvas::FillRule.NonZero, paint := red(), transform := none()]])
+  show("two contours")
+  canvas::present([canvas::Polygon[id := "p", position := at(0.0, 0.0), contours := [collections::append(pts(1, 9.0), at(2.0, 2.0))], rule := canvas::FillRule.NonZero, paint := red(), transform := none()]])
+  show("four points")
+  canvas::present([polyline(0, 9.0, 255)])
+  show("another variant")
+  canvas::present([polyline(2, 9.0, 255)])
+  show("another variant again")
+  ' Layers: the same content by every history, then one value different.
+  FOR how = 0 TO 2
+    canvas::presentLayers(layers(how, 0))
+    show("same layers how=" & toString(how))
+  NEXT
+  FOR vary = 1 TO 6
+    FOR how = 0 TO 2
+      canvas::presentLayers(layers(how, vary))
+      show("layers vary=" & toString(vary) & " how=" & toString(how))
+    NEXT
+  NEXT
+  canvas::presentLayers([canvas::DrawLayer[items := scene(1, 6)]])
+  show("one layer")
+  canvas::presentLayers([canvas::DrawLayer[items := scene(2, 6)]])
+  show("one layer again")
+END FUNC
