@@ -39,8 +39,11 @@ exists, and 1045 closes with it; 765 is batched frames plus a plan for the hash 
 | [ ]  | 991    | MED      | A magnified transformed item's bounds pad scales with the transform, so a 27 px polygon covers 369 px; a scaled `canvas::Group` costs the same. Re-verified 2026-10-12. Stopped in bug-staging-23: the one-pixel rim changes pixels under an uneven transform, and three callers of the mapper do not pass a 1.0 rim (the document's "Stopped" section) |
 | [ ]  | 996    | MED      | On Intel Vulkan the first canvas frame of every newly built program waits for the pipeline compile behind a blank window: 37 s on 2026-10-12, 25 s when filed |
 | [ ]  | 1024   | MED      | a Metal text frame is dumped with unwritten tiles (intermittent, cause unknown; not reproduced in 5 + 5 runs on 2026-10-12; the same two tests as 1059 in "Test tooling"). bs23: a command buffer that did not complete is now declined to software; whether that was this failure is unproven |
-| [ ]  | 1045   | LOW      | on Windows, a real canvas window drawn on the GPU writes no `MFB_CANVAS_STATS` line: root-caused 2026-10-12 as 996's pipeline compile (lines appear, one a frame, once it ends); owner to decide whether to close as a duplicate of 996 (the number 1045 was also used by a Resources bug that is fixed and in `bugs/completed/`) |
 | [ ]  | 1082   | MED      | on Linux a windowed Vulkan canvas frame is read back and blitted, never presented through a swapchain (split from 688; blocked on a real-GPU Linux box and the GTK4 surface decision; a later phase than `bug-staging-23`) |
+| [ ]  | 1083   | MED      | an item inside a magnifying `canvas::Group` is rasterised over a box that scales with the group (49 small polygons: 40 ms a frame against 4.5); split from 991, needs the geometry record to carry its rim (a later phase than `bug-staging-23`) |
+| [ ]  | 1085   | MED      | a banded shape or path clip (32 or more edges) inside a `canvas::Group` whose matrix shrinks disagrees with the software oracle on Metal (a later phase than `bug-staging-23`) |
+| [ ]  | 1045   | LOW      | on Windows, a real canvas window drawn on the GPU writes no `MFB_CANVAS_STATS` line: root-caused 2026-10-12 as 996's pipeline compile (lines appear, one a frame, once it ends); owner to decide whether to close as a duplicate of 996 (the number 1045 was also used by a Resources bug that is fixed and in `bugs/completed/`) |
+| [ ]  | 1086   | LOW      | the Vulkan canvas path reads a frame back without testing `vkQueueSubmit`'s or `vkQueueWaitIdle`'s result (Metal's twin fixed under 1024; a later phase than `bug-staging-23`) |
 
 ## App windows and GTK
 
@@ -227,6 +230,7 @@ exists, and 1045 closes with it; 765 is batched frames plus a plan for the hash 
 | [ ]  | 946    | MED      | `Operand::Raw` keeps operands as untyped strings — remove the arm and give every operand kind a typed variant (together with 930; do after the behaviour fixes so its diffs are measured on a stable tree) |
 | [ ]  | 930    | LOW      | the `.mir` dump documented as "target-neutral" contains the runtime helpers, which are hand-written per architecture with physical register names |
 | [ ]  | 1080   | LOW      | a defaulted record updated with `WITH` costs about 27 KB of machine code a statement (the program is right; the executable is large and slower to build) |
+| [ ]  | 1084   | LOW      | `toString` of a package enum read straight off a call result fails to build ("native code string literal has no data object"); binding the record first works |
 
 ## Packages and registry
 
