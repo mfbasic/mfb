@@ -126,51 +126,15 @@ to measure after the pad is fixed.
 
 ## Cause (coordinator, 2026-10-12, bug-staging-23)
 
-- Rule: `mfb spec app canvas` "Rendering conventions": coverage is `clamp(0.5 - d, 0, 1)` with `d` measured AFTER the transform, so the antialiasing rim is one SURFACE pixel. Every header's box (slots 16-19) is `extent +- reach +- 1.0`, with that 1.0 in the space the box is written in.
-- Place: the two functions that carry a box into another space scale the rim with it: `helper_geometry.rs:__canvas_boundsHeader` (the item's own transform; it then adds a second pixel) and `helper_items.rs:__canvas_drawBound` (a group matrix), plus the GPU vertex stages that do the group mapping (`.ai/canvas-threading.md` 10).
-- Fix: whoever maps a box takes the 1.0 rim off first, maps `extent +- reach`, and adds one pixel in the destination space. That is one rule at the mapping sites; the nine header builders are not touched, an untransformed ungrouped header stays bit-identical (so does `canvas::geoBuild`), and no per-builder "divide the pad by the scale" exists.
-- Audit, not assume: `__canvas_glyphRunHeader` (`+- advance`, `+- 2.0`) and `__canvas_pictureHeader` (`+- 2.0`), whose pads are not a plain 1.0 rim, and the plan-164 `PolyCurve`/`CurvePolygon` headers (`helper_curves.rs`).
+SECOND note. The first (take the 1.0 rim off at the mapping sites, map, add a pixel; no
+builder touched) was WRONG on two counts, both shown by bs23-agent-b's audit above: the
+removed pixels are not all coverage 0 (finding 1), and three callers do not pass a 1.0 rim
+(finding 2). This note replaces it.
 
-When a canvas item is drawn in a small "unit" coordinate space and placed on the surface
-by a large-magnification `Paint.transform`, every renderer rasterises a much larger
-screen rectangle than the item covers. On macOS Metal, 49 small 24-point polygons
-(~27 px across on screen) with radius 0.08 under scale 170 render at 31–47 ms a frame
-(21–29 fps). The same on-screen polygons with pre-transformed pixel coordinates render
-in about 2–8 ms. The software renderer is slower still: the same polygon scene takes 17.5 s a frame
-against ~30 ms untransformed, and a transformed circle scene takes 4.5 s against 7 ms. The pictures are identical; only the cost
-differs. `examples/canvas-demo` hit this: the cathedral rose window draws 49 unit-space
-panes scaled by the window radius, plus the same panes again as floor pools, and it ran
-at 14 fps.
-
-The cause is that the "+1" antialiasing margin every header builder adds to its bounds
-is added in **shape units**, *before* `__canvas_boundsHeader` forward-maps the box.
-Under scale S that margin is S surface pixels on each side. At S = 170 a 0.16-unit
-polygon's quad is `(0.16 + 2) · 170 + 2 ≈ 369` px square, when it should be about 31 px.
-
-**The single correct behavior a fix produces:** a transformed item's header bounds
-(slots 16–19, the software loop's box and the GPU quad) are the forward-mapped hull of
-the shape plus its *transformed* stroke/cap/join reach, with the antialiasing margin
-added once **in surface pixels**. So the rasterised area of an item does not grow with
-magnification beyond the item's own on-screen extent plus a fixed pixel margin. Every
-rendered pixel stays byte-identical, because the pixels this removes all have coverage 0.
-
-References:
-
-- `src/docs/spec/app/06_canvas.md` "Rendering conventions": "`Paint.transform` maps the
-  item's coordinates onto the surface"; coverage is `clamp(0.5 - d, 0, 1)` with `d`
-  measured **after** the transform. So the ramp is ≤ 0.5 *surface* px wide whatever the
-  scale, and a margin in shape units has no basis.
-- `.ai/canvas-threading.md` §10 (renderer branch, item blocks, band index) and §14 (the
-  geometry cache).
-- `src/target/macos_aarch64/app/metal.rs` doc comment above `emit_glyph_publish` (the
-  "quad is the header's bounds" note). It says the quad carries "the `strokeHalf + 1`
-  pad the software rasteriser gives itself so its coverage ramp has pixels to run over".
-  That holds in surface pixels only when there is no transform.
-- `bugs/bug-765-canvas-100k-color-changing-dots-miss-30-fps.md`: the sibling canvas
-  performance bug (item count, not item area).
-- Found while building `examples/canvas-demo` (`examples/canvas-demo/src/cathedral.mfb`:
-  `winT` = `Transform[a := rose.r, d := rose.r, …]` over unit-space `rosePanes`, and
-  `onFloor` for the pools).
+- Rule: under a transform a pixel takes coverage only where `d < 0.5 * g`, and `g <= F` (the inverse's Frobenius norm, the bound `shapeCoverage`'s early-out already uses). So the rim a mapped box needs is `0.5 * F` SHAPE units around `extent +- reach`, and then the pixel `__canvas_boundsHeader` already adds after mapping. That rim depends on the transform, so only the mapper can know it; a builder's literal `+ 1.0` is the rim of the untransformed case only.
+- Place: `helper_geometry.rs:__canvas_boundsHeader` is handed a box with the builder's rim already folded in, so it cannot replace it. Fix: every caller hands it the box and its rim separately (what each already computes; no caller's behaviour is decided by its kind). Untransformed, the mapper writes exactly today's values by today's operations (`min - (reach + rim)`: slots 16-19 and `canvas::geoBuild` stay bit-identical, `MFB_CANVAS_GEO_VERIFY` 0 mismatches). Transformed, it maps `extent +- reach +- 0.5 * F` and adds its pixel. A caller whose pad is not a rim (`__canvas_glyphRunHeader`, `__canvas_textBoxHeader`, the picture's 2.0) passes its box as it is with rim 0.
+- Every pixel stays identical on every backend, the uneven-transform halo of `bugs/repro/bug-991/anisotropic_halo.mfb` included (it is inside `0.5 * F`; whether that halo should exist is not this bug). Under a uniform scale S the box is the mapped extent plus 0.71 px plus the pixel, whatever S is.
+- NOT in this bug any more: the scaled-`canvas::Group` cost. Its three sites (`__canvas_drawBound`, the two GPU vertex stages) map a FINISHED header box and would need the header to carry its rim, a record change. It is bug-1083, a later phase.
 
 ## Re-verified 2026-10-12: still reproduces, and a scaled `Group` costs the same (HEAD `555130a25`)
 
