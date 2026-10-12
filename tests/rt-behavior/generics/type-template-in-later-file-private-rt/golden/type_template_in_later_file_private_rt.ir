@@ -1,0 +1,186 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "type_template_in_later_file_private_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 1,
+    "visibility": "private",
+    "name": "#2eb5ac35a29c8d59$Cell$Integer",
+    "fields": [
+    { "visibility": null, "line": 2, "name": "v", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 5,
+    "visibility": "public",
+    "name": "Box$Integer",
+    "fields": [
+    { "visibility": "private", "line": 6, "name": "secret", "type": "Integer" },
+    { "visibility": null, "line": 7, "name": "shown", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 5,
+    "visibility": "public",
+    "name": "Box$String",
+    "fields": [
+    { "visibility": "private", "line": 6, "name": "secret", "type": "String" },
+    { "visibility": null, "line": 7, "name": "shown", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "helperA",
+    "line": 1,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 2, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 3,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 4, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "helperA", "args": [] }] }] } },
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "cellSum", "args": [] }] }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "boxSum", "args": [] }] }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "b", "type": "Box$String", "value": { "kind": "call", "type": "Box$String", "target": "boxOfText", "args": [] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "shown" }, "right": { "kind": "call", "type": "Integer", "target": "shownOf", "args": [{ "kind": "local", "name": "b" }] } }] }] } },
+    { "op": "return", "line": 9, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "cellSum",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 11, "mutable": false, "name": "c", "type": "#2eb5ac35a29c8d59$Cell$Integer", "value": { "kind": "constructor", "type": "#2eb5ac35a29c8d59$Cell$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "40" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "d", "type": "#2eb5ac35a29c8d59$Cell$Integer", "value": { "kind": "with", "type": "#2eb5ac35a29c8d59$Cell$Integer", "target": { "kind": "local", "name": "c" }, "updates": [{ "field": "v", "value": { "kind": "const", "type": "Integer", "value": "2" } }] } },
+    { "op": "return", "line": 13, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "c" }, "member": "v" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "v" } } }
+    ]
+  },
+  {
+    "name": "boxSum",
+    "line": 16,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 17, "mutable": false, "name": "b", "type": "Box$Integer", "value": { "kind": "constructor", "type": "Box$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "33" }, { "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "return", "line": 18, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "secret" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "shown" } } }
+    ]
+  },
+  {
+    "name": "shownOf",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "b", "line": 21, "type": "Box$String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 22, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "shown" } }
+    ]
+  },
+  {
+    "name": "boxOfText",
+    "line": 25,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Box$String",
+    "body": [
+    { "op": "return", "line": 26, "value": { "kind": "constructor", "type": "Box$String", "args": [{ "kind": "const", "type": "String", "value": "hidden" }, { "kind": "const", "type": "Integer", "value": "5" }] } }
+    ]
+  }
+  ]
+}

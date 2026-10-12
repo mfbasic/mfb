@@ -1,0 +1,203 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "template_in_later_file_import_alias_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 5,
+    "visibility": "private",
+    "name": "#0fd20d0660c720e8$Rec",
+    "fields": [
+    { "visibility": null, "line": 6, "name": "n", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 4,
+    "visibility": "public",
+    "name": "Box$$0fd20d0660c720e8$Rec",
+    "fields": [
+    { "visibility": null, "line": 5, "name": "held", "type": "#0fd20d0660c720e8$Rec" },
+    { "visibility": null, "line": 6, "name": "shown", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "fromA",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 10, "value": { "kind": "call", "type": "Integer", "target": "tmpl_scope_a.idI", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } }
+    ]
+  },
+  {
+    "name": "typeArgsFromA",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 16, "mutable": false, "name": "r", "type": "#0fd20d0660c720e8$Rec", "value": { "kind": "call", "type": "#0fd20d0660c720e8$Rec", "target": "ident$$0fd20d0660c720e8$Rec", "args": [{ "kind": "constructor", "type": "#0fd20d0660c720e8$Rec", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "made", "type": "tmpl_scope_a.Thing", "value": { "kind": "call", "type": "tmpl_scope_a.Thing", "target": "tmpl_scope_a.make", "args": [] } },
+    { "op": "bind", "line": 18, "mutable": false, "name": "t", "type": "tmpl_scope_a.Thing", "value": { "kind": "call", "type": "tmpl_scope_a.Thing", "target": "ident$tmpl_scope_a$Thing", "args": [{ "kind": "local", "name": "made" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "b", "type": "Box$$0fd20d0660c720e8$Rec", "value": { "kind": "call", "type": "Box$$0fd20d0660c720e8$Rec", "target": "boxOf$$0fd20d0660c720e8$Rec", "args": [{ "kind": "constructor", "type": "#0fd20d0660c720e8$Rec", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] }] } },
+    { "op": "return", "line": 20, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "r" }, "member": "n" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "n" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "#0fd20d0660c720e8$Rec", "target": { "kind": "local", "name": "b" }, "member": "held" }, "member": "n" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "shown" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 3,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 4, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "fromA = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "fromA", "args": [] }] } }] } },
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "direct = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "direct", "args": [] }] } }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "viaTemplate = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "viaTemplate$Boolean", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] }] } }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "typeArgsFromA = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "typeArgsFromA", "args": [] }] } }] } },
+    { "op": "return", "line": 8, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "direct",
+    "line": 22,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 23, "value": { "kind": "call", "type": "Integer", "target": "tmpl_scope_f.idI", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } }
+    ]
+  },
+  {
+    "name": "boxOf$$0fd20d0660c720e8$Rec",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 13, "type": "#0fd20d0660c720e8$Rec", "default": null }
+    ],
+    "returns": "Box$$0fd20d0660c720e8$Rec",
+    "body": [
+    { "op": "return", "line": 14, "value": { "kind": "constructor", "type": "Box$$0fd20d0660c720e8$Rec", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "9" }] } }
+    ]
+  },
+  {
+    "name": "ident$$0fd20d0660c720e8$Rec",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 9, "type": "#0fd20d0660c720e8$Rec", "default": null }
+    ],
+    "returns": "#0fd20d0660c720e8$Rec",
+    "body": [
+    { "op": "return", "line": 10, "value": { "kind": "local", "name": "x" } }
+    ]
+  },
+  {
+    "name": "ident$tmpl_scope_a$Thing",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 9, "type": "tmpl_scope_a.Thing", "default": null }
+    ],
+    "returns": "tmpl_scope_a.Thing",
+    "body": [
+    { "op": "return", "line": 10, "value": { "kind": "local", "name": "x" } }
+    ]
+  },
+  {
+    "name": "viaTemplate$Boolean",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 18, "type": "Boolean", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 19, "value": { "kind": "call", "type": "Integer", "target": "tmpl_scope_f.idI", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } }
+    ]
+  }
+  ]
+}

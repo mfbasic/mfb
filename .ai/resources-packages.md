@@ -55,7 +55,7 @@ Adding a `STATE T` clause to a `RES` collection element needs FAR less work than
 ### Owned-list union drain (a FLOATED `List OF RES <Union> STATE`)
 
 The owned-list drain only fires when the `RES` elements FLOAT — produced in an INNER scope (loop body) and appended to an outer collection (§15.6). A same-scope union list never floats, so never emits the drain (why an earlier bug passed while the browser's dynamically-built `List OF RES http::Stream STATE PendingState` did not) — reproduce by forcing the float with a loop-scoped binding. Four independent codegen layers (2-4 latent for ANY stateful resource union, surfacing once layer 1 lets the program reach later stages):
-1. **Owned-list drain** (`builder_owned_cleanup.rs`/`builder_resource_cleanup.rs`): no single close op — drain each node by tag-dispatch on the active variant, then free the uniform STATE. Share `emit_union_tag_dispatch_drop`; node field-0 is the `{tag@0,record-ptr@8}` block. Keep the concrete path byte-identical.
+1. **Owned-list drain** (`builder_owned_cleanup.rs`/`builder_resource_cleanup.rs`): no single close op — drain each node by tag-dispatch on the active variant, then free the uniform STATE. Share `emit_union_tag_dispatch_drop`; a union node is `{tag@0, record-ptr@8, next@16}` — it holds a COPY of the element's box and its own address is the union pointer the dispatch reads (bug-1012; a node that kept the box's address read a box its binding had freed, or freed 16 bytes out of the middle of an adopted list's block). Keep the concrete path byte-identical.
 2. **Verifier** (`ir/verify/values.rs:check_result_value_type`): strip `Result OF ` BEFORE base-normalizing, else the annotation reduces to `Stream` but the element keeps `Stream STATE PendingState` and a correct `ResultValue` is rejected asymmetrically (bites only across a package boundary).
 3. **Builtin call-site resolver** (`builtins/http.rs` ready/pump/done/finish): match the BASE name — a call-site stream is spelled `Stream STATE PendingState`, so an exact match resolves to `Unknown` (FATAL when the TRAP desugar binds an intermediate `$trap_val` of that type: "no native storage class for 'Unknown'").
 4. **Default-value materializer** (`builder_value_semantics.rs:lower_default_value`): a diverging-handler union `RES x = <fallible> TRAP` had no closed default — materialize a closed `{tag@0,record-ptr@8}` (any variant tag; closed → drop is a no-op), STATE init via `emit_resource_record_ptr`.
@@ -188,7 +188,7 @@ Storing one makes the other miss silently. `code::resolve_closer_symbol` tries t
 
 ### `HirFile::imports` is the resolution scope, not what the author imported
 
-Monomorph emits every instantiation into the first file and unions every file's imports into it, so post-monomorph `imports` lists packages the author never wrote (including ones a companion source imports). A rule asking "did this file import P?" must read `HirFile::own_imports`, snapshotted in `hir::elaborate_file`. Don't narrow the union; lowering needs it.
+Monomorph emits an instantiation into the file that declares its template (the first file for a toolchain-declared template — a builtin package's, the prelude's) and unions every file's imports into each file that hosts one — the host's own bindings win, and a foreign import whose alias is taken is added under an unspellable `#<package>` binding (bug-911) — so post-monomorph `imports` lists packages the author never wrote (including ones a companion source imports). A rule asking "did this file import P?" must read `HirFile::own_imports`, snapshotted in `hir::elaborate_file`. Don't narrow the union; lowering needs it.
 
 ### A package that calls a builtin must be tested by linking an executable
 
@@ -525,6 +525,23 @@ A record field may hold a resource: `TYPE Holder { handle AS RES fs::File }`.
 The field is **one 8-byte handle slot** — copying the record copies the pointer
 and aliases the same resource, never duplicating it (§15.6). Four things about it
 are non-obvious and cost real bugs during plan-114.
+
+**A `RES <resource union>` field is different (bug-1012): the record holds the
+union's 16-byte `{tag, record-ptr}` box INLINE** (`field_is_inlined_union_box`),
+like a collection element, and a read of the field is an address inside the
+record's block. A box has one owner — the binding that took it, or the statement
+that built it (a `union_box` pending temp, freed at statement end) — and every
+longer-lived holder copies the two words. So never store the address of a box
+into anything that outlives the statement: copy it. A binding initialized from
+such a field takes its own copy for the same reason (reassigning the record frees
+the block the field read points into), and so does one initialized from
+`collections::get`/`getOr` (bug-1026: the element read points into the list's or
+map's block, which an append reallocates; `getOr`'s wrapped default is a
+statement temp). The inline-`TRAP` spelling reaches the same place by another
+road: the borrowed element is copied when the trapped call's `Result` is built
+(`materialize_current_result_boxed`), an aliasing `RECOVER` at the `Assign`, and
+the lent temp's drop frees that box while closing nothing — the bug-648 owner
+flag answers for the RECORD only on a union temp.
 
 **1. The `RES` marker survives only where a type is stored unstripped.**
 `typed_list_element_type` and `typed_map_type_parts` **strip** it

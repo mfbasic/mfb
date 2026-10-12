@@ -1,0 +1,90 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "package_private_overload_export",
+  "entry": null,
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "r",
+    "line": 3,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 3, "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 4, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "int+" }, "right": { "kind": "call", "type": "String", "target": "#39e5507f10a7e790$r$String", "args": [{ "kind": "const", "type": "String", "value": "s" }] } } }
+    ]
+  },
+  {
+    "name": "#39e5507f10a7e790$r$String",
+    "line": 7,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 7, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 8, "value": { "kind": "const", "type": "String", "value": "str" } }
+    ]
+  },
+  {
+    "name": "pick$Integer$AS$String",
+    "line": 12,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 12, "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 13, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "#39e5507f10a7e790$pick$String", "args": [{ "kind": "const", "type": "String", "value": "seven" }] } },
+    { "op": "return", "line": 14, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "text" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "n" }] } } }
+    ]
+  },
+  {
+    "name": "pick$Integer$AS$Boolean",
+    "line": 17,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 17, "type": "Integer", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "return", "line": 18, "value": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "x" }, "right": { "kind": "const", "type": "Integer", "value": "0" } } }
+    ]
+  },
+  {
+    "name": "#39e5507f10a7e790$pick$String",
+    "line": 21,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 21, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 22, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "x" }] } }
+    ]
+  },
+  {
+    "name": "pickAll",
+    "line": 27,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 28, "mutable": false, "name": "s", "type": "String", "value": { "kind": "call", "type": "String", "target": "pick$Integer$AS$String", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 29, "mutable": false, "name": "b", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "pick$Integer$AS$Boolean", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "return", "line": 30, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "b" }] } } }
+    ]
+  }
+  ]
+}

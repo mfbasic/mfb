@@ -676,6 +676,10 @@ name = "rt_reduce_collection_accumulator_frees"
 path = "tests/runtime/rt_reduce_collection_accumulator_frees.rs"
 
 [[test]]
+name = "rt_param_borrow_handover_frees"
+path = "tests/runtime/rt_param_borrow_handover_frees.rs"
+
+[[test]]
 name = "rt_inplace_field_nested"
 path = "tests/runtime/rt_inplace_field_nested.rs"
 
@@ -1075,8 +1079,20 @@ name = "rt_resource_drop_reclaims"
 path = "tests/runtime/rt_resource_drop_reclaims.rs"
 
 [[test]]
+name = "rt_resource_aggregate_temporary"
+path = "tests/runtime/rt_resource_aggregate_temporary.rs"
+
+[[test]]
 name = "rt_resource_temporary_close"
 path = "tests/runtime/rt_resource_temporary_close.rs"
+
+[[test]]
+name = "rt_resource_union_box_owner"
+path = "tests/runtime/rt_resource_union_box_owner.rs"
+
+[[test]]
+name = "rt_resource_union_reclaim"
+path = "tests/runtime/rt_resource_union_reclaim.rs"
 
 [[test]]
 name = "rt_thread_transfer_trap_fail_drop"

@@ -1,0 +1,153 @@
+{
+  "project": "private_overload_beside_export_rt",
+  "files": [
+  {
+    "path": "src/a.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "r",
+      "line": 3,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 3 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int" }, "right": { "kind": "call", "callee": "#0fd20d0660c720e8$r", "arguments": [{ "kind": "string", "value": "s" }] } }, "line": 4 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "isolated": false,
+      "name": "#0fd20d0660c720e8$r",
+      "line": 7,
+      "params": [
+      { "name": "x", "type": "String", "default": null, "line": 7 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "string", "value": "str" }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "isolated": false,
+      "name": "#0fd20d0660c720e8$helper",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "string", "value": "helper-a" }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "isolated": false,
+      "name": "#0fd20d0660c720e8$tag",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "string", "value": "tag-private-a" }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fromA",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "#0fd20d0660c720e8$helper", "arguments": [] }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "#0fd20d0660c720e8$tag", "arguments": [] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "#0fd20d0660c720e8$r", "arguments": [{ "kind": "number", "value": "2" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "#0fd20d0660c720e8$r", "arguments": [{ "kind": "string", "value": "x" }] } }, "line": 22 }
+      ]
+    }
+    ]
+  },
+  {
+    "path": "src/b.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "isolated": false,
+      "name": "#dbd8d822f3f13711$helper",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "string", "value": "helper-b" }, "line": 2 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "tag",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "string", "value": "tag-public-b" }, "line": 6 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fromB",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "#dbd8d822f3f13711$helper", "arguments": [] }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "tag", "arguments": [] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "r", "arguments": [{ "kind": "number", "value": "3" }] } }, "line": 10 }
+      ]
+    }
+    ]
+  },
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "privovl_pkg", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "r", "arguments": [{ "kind": "number", "value": "1" }] }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fromA", "arguments": [] }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fromB", "arguments": [] }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "tag", "arguments": [] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "privovl_pkg.r", "arguments": [{ "kind": "number", "value": "1" }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "privovl_pkg.pickAll", "arguments": [] }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      ]
+    }
+    ]
+  }
+  ]
+}

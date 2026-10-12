@@ -8,12 +8,18 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
 #[rustfmt::skip]
 const BODY: &str =
-r##"' Index where the authority ends: the first of '/', '?', '#', or end-of-string.
+r##"' Index where the authority ends: the first of '/', '\', '?', '#', or
+' end-of-string. bug-979: an http(s) URL reads `\` as `/` (WHATWG), so it ends the
+' authority too -- `http://good.com\@evil.com/` is host `good.com`, not a userinfo.
 FUNC __net_authorityEnd(rest AS String) AS Integer
   MUT best AS Integer = len(rest)
   LET slash AS Integer = __net_indexOf(rest, "/", 0)
   IF slash >= 0 AND slash < best THEN
     best = slash
+  END IF
+  LET backslash AS Integer = __net_indexOf(rest, "\\", 0)
+  IF backslash >= 0 AND backslash < best THEN
+    best = backslash
   END IF
   LET question AS Integer = __net_indexOf(rest, "?", 0)
   IF question >= 0 AND question < best THEN

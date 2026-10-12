@@ -1,0 +1,9 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::print(toString(helperA()))
+  io::print(toString(usesFunc("q")))
+  io::print(toString(usesBinding(TRUE)))
+  io::print(toString(usesRecord(1.5)))
+  RETURN 0
+END FUNC

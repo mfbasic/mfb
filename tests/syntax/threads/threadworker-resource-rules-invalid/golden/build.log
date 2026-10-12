@@ -15,7 +15,7 @@ tests/syntax/threads/threadworker-resource-rules-invalid/src/main.mfb:31 error[2
   35 | ISOLATED FUNC noState(t AS ThreadWorker OF String TO Integer, n AS Integer) AS Integer
   36 |   t.state.hits = 1
      | ^
-tests/syntax/threads/threadworker-resource-rules-invalid/src/main.mfb:36 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
+tests/syntax/threads/threadworker-resource-rules-invalid/src/main.mfb:36 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
                `t` has no STATE to assign; declare the resource with `STATE T`.
   17 | 
   18 | TYPE Holder

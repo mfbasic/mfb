@@ -1,0 +1,102 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug1030_state_top_level_only_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "g", "line": 16, "visibility": "public", "mutable": false, "type": "fs.File STATE Cur", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
+  { "name": "h", "line": 17, "visibility": "public", "mutable": false, "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } }
+  ],
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "public",
+    "name": "Cur",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "n", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cur", "target": { "kind": "global", "name": "g" }, "member": "state" }, "member": "n" }] }] } },
+    { "op": "return", "line": 20, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

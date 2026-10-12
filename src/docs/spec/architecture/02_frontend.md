@@ -76,8 +76,10 @@ The full glob-matching algorithm is
 The parser appends one synthetic file, the built-in prelude, after
 all selected user sources. Its path is the sentinel
 `"<builtin prelude>"`, and it is appended last so the user's first source file
-remains `files[0]` — the monomorphizer emits generated instantiations into that
-first file.[[src/ast/manifest.rs:builtin_prelude_file]]
+remains `files[0]` — the monomorphizer emits the instantiations of
+toolchain-declared templates (the prelude's and the built-in packages') into that
+first file; a user template's instantiations go into the file that declares it
+(`./mfb spec architecture monomorphization`).[[src/ast/manifest.rs:builtin_prelude_file]]
 
 The prelude declares the always-in-scope generic record templates
 `Pair OF A, B` (fields `first AS A`, `second AS B`) and `Partition OF T` (fields
@@ -247,7 +249,13 @@ value" cascade, the `TESTING` assertion builtins' argument rules (lowering
 expands the assertion into comparisons + `FAIL`), a `Money` scaled by a bare
 decimal literal (the literal's spelling), the `Error`/`ErrorLoc` constructor
 form (lowering synthesizes `Constructor{Error}` itself), a native `CONST` pin
-that does not fold and a `FREE` block's deallocator signature, and the
+that does not fold and a `FREE` block's deallocator signature, the `STATE`
+type of a top-level binding or a lambda parameter (`TYPE_STATE_INVALID` —
+lowering carries neither clause into the IR; see
+`./mfb spec language resource-management`), a `STATE` clause on a parameter,
+return or top-level binding whose type is not a resource
+(`TYPE_STATE_REQUIRES_RESOURCE` — a parameter's or return's clause is taken
+off the declaration before lowering so it types as the plain value it is), and the
 imported-package metadata validation (`PACKAGE_INVALID`). It walks the
 concrete (post-monomorph) HIR with lowering's own typing oracle
 (`ir::lower::expression_type`) and tracks scopes exactly as lowering binds them,

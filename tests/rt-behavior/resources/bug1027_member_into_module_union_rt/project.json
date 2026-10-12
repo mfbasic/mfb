@@ -1,0 +1,10 @@
+{
+  "name": "bug1027_member_into_module_union_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-1027: a concrete fs::File binding stored into a module-level List/Map/record slot typed by a resource union it is a member of builds, keeps the file open and matches the right arm, in two unions that list the member at different positions.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

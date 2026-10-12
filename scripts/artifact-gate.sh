@@ -66,6 +66,17 @@ GATE_LOCK_TREE="$REPO"
 . "$SCRIPT_DIR/gate-lock.sh"
 gate_lock_acquire || exit $?
 
+# Run every build below from a private copy of the compiler, so a rebuild of
+# `$1` part-way through cannot split this run across two binaries. Taken after
+# the lock, so a refused run copies nothing.
+# shellcheck source=mfb-snapshot.sh
+. "$SCRIPT_DIR/mfb-snapshot.sh"
+# `trap` replaces rather than chains (bug-470), so this handler must release the
+# lock as well as remove the snapshot.
+trap '[ -n "${MFB_SNAPSHOT_DIR:-}" ] && rm -rf "$MFB_SNAPSHOT_DIR"; gate_lock_release' EXIT
+mfb_snapshot_take "$MFB" || exit $?
+MFB="$MFB_SNAPSHOT_EXE"
+
 # shellcheck source=artifact-kinds.sh
 . "$SCRIPT_DIR/artifact-kinds.sh"
 host_arch="$(uname -m)"; case "$host_arch" in arm64) A=aarch64;; x86_64) A=x86_64;; *) A=$host_arch;; esac

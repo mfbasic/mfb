@@ -238,6 +238,8 @@ pub(crate) struct CodeBuilder<'a> {
     /// that path emits next frees their blocks without closing them twice, then
     /// clears it.
     pub(crate) resource_temps_closed_on_path: bool,
+    /// bug-999: the aggregate resource temporaries their statement owns outright.
+    pub(crate) exclusive_temps: ExclusiveTemps,
     /// plan-86 K1: true while lowering a function whose every value-return is a bare
     /// parameter (`function_returns_param_borrow`). Its `RETURN <param>` returns the
     /// argument pointer uncopied (a borrow); callers deep-copy the result only at an
@@ -771,6 +773,7 @@ impl<'a> CodeBuilder<'a> {
             resource_temp_exempt: None,
             trap_call_results: HashSet::new(),
             resource_temps_closed_on_path: false,
+            exclusive_temps: ExclusiveTemps::default(),
             current_returns_param_borrow: false,
             record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
@@ -1237,6 +1240,24 @@ pub(crate) enum ResultWrapperDrop {
     OkGraphPayload,
 }
 
+/// bug-999: the aggregate resource temporaries whose result is their statement's
+/// alone (`record_ownership`'s `exclusive_temps`), and what each one registered.
+///
+/// Such a temporary is the bound form shrunk to one statement: when the call
+/// returns, every record its result reaches that nobody owns is claimed for the
+/// current scope and listed, exactly as `LET t = mkList()` adopts; at the end of
+/// the statement the lists are drained with the frees a sole owner's drain runs,
+/// and the result's own block is freed when the callee built it and nothing else
+/// frees it.
+#[derive(Default)]
+pub(crate) struct ExclusiveTemps {
+    /// Call node address → whether the result's block is one the callee built.
+    pub(crate) calls: HashMap<usize, bool>,
+    /// Per temporary (by its `PendingTemp` slot): the owned-lists it seeded, one
+    /// per resource leaf kind, and whether its block is freed after them.
+    pub(crate) drops: HashMap<usize, (Vec<OwnedListCleanup>, bool)>,
+}
+
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free
 /// (plan-25 temp-lifetime fix). `location` is the register the value occupied
 /// when produced — used to recognise (and exempt) the temp an owning consumer
@@ -1255,6 +1276,12 @@ pub(crate) struct PendingTemp {
     /// already closed) instead of freeing a block (`emit_resource_temp_close`); its
     /// identity token is a register no owner names, so no claim can take it.
     pub(crate) resource: bool,
+    /// bug-1012: a resource-union `{tag, record-ptr}` box this statement made — a
+    /// union wrap, or the box a called function handed back — that no binding,
+    /// `RETURN` or module-level store took. Its drop frees the 16-byte box and
+    /// nothing else: the record it names has its own owner, or is a resource
+    /// temporary (`resource`) with an entry of its own.
+    pub(crate) union_box: bool,
 }
 
 /// bug-781: one capturing `LAMBDA`'s environment, as its routine copies and drops
@@ -1285,10 +1312,11 @@ pub(crate) enum ClosureEnvWord {
     /// address, a resource or thread handle.
     Plain,
     /// bug-843: a captured resource union. A union value is a 16-byte
-    /// `{tag@0, record@8}` box owned by the binding that wrapped it and freed at that
-    /// binding's scope exit whoever owns the record, so the environment holds its
-    /// own copy of the box: copied with the environment, freed with it, and never
-    /// closed through (the record belongs to its own, possibly raised, scope).
+    /// `{tag@0, record@8}` box owned by the binding or statement that made it and
+    /// freed at that owner's end whoever owns the record (bug-1012), so the
+    /// environment holds its own copy of the box: copied with the environment,
+    /// freed with it, and never closed through (the record belongs to its own,
+    /// possibly raised, scope).
     ResourceUnionBox,
 }
 
@@ -2395,9 +2423,14 @@ pub(crate) fn lower_module_for_platform(
     // byte-identical.
     {
         let mut emitted: HashSet<(String, u64)> = HashSet::new();
-        let mut pending: Vec<(String, u64)> = variant_demand(module, &functions, &type_model)
-            .into_iter()
-            .collect();
+        let mut pending: Vec<(String, u64)> = variant_demand(
+            module,
+            &functions,
+            &type_model,
+            &callback_referenced_functions,
+        )
+        .into_iter()
+        .collect();
         pending.sort();
         while let Some((name, mask)) = pending.pop() {
             if !emitted.insert((name.clone(), mask)) {
@@ -4837,6 +4870,7 @@ fn variant_demand(
     module: &NirModule,
     functions: &HashMap<String, &NirFunction>,
     type_model: &TypeModel,
+    callback_referenced: &HashSet<String>,
 ) -> HashSet<(String, u64)> {
     // A FIXPOINT over `(function, mask)`: a variant's body owns parameters the base
     // does not, so it can approve hand-overs the base cannot and ask for further
@@ -4849,7 +4883,11 @@ fn variant_demand(
     let mut pending: Vec<(String, u64)> = Vec::new();
     for function in &module.functions {
         for (name, mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
-            function, type_model, functions, &empty,
+            function,
+            type_model,
+            functions,
+            &empty,
+            callback_referenced,
         )
         .demanded_variants()
         {
@@ -4870,7 +4908,11 @@ fn variant_demand(
             .map(|(_, param)| param.name.clone())
             .collect();
         for (next, next_mask) in crate::codegen::engine::analysis::handover::collect_handover_args(
-            function, type_model, functions, &owned,
+            function,
+            type_model,
+            functions,
+            &owned,
+            callback_referenced,
         )
         .demanded_variants()
         {

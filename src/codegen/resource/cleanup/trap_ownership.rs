@@ -34,6 +34,12 @@
 //! store, and tested by the old-value drop and the scope drop alike. A temp whose
 //! every store is owned is not in [`TrapOwnership::lent_temps`] and lowers exactly
 //! as before.
+//!
+//! bug-1026: for a resource UNION the flag answers for the record only. The temp
+//! always owns its `{tag, record-ptr}` box: a lent store hands it a copy of the two
+//! words (the address a lent value names lies inside a collection's or a record's
+//! block, or is a box its statement frees), so a clear flag skips the close and the
+//! drop still frees the box.
 
 use crate::codegen::engine::builder::CodeBuilder;
 use crate::target::shared::nir::visit::{walk_op, NirVisitor};

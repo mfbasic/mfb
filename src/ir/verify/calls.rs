@@ -177,7 +177,17 @@ impl TypeEnv {
                     let Some(actual) = self.infer_type(arg, locals) else {
                         continue;
                     };
-                    if !self.assignable(expected, &actual, arg) {
+                    // A lambda's `STATE T` parameter rides in its callable
+                    // type (bug-1030), and binds the argument as a declared
+                    // FUNC's does: the same state, never a re-typing. A bare
+                    // parameter of a callable type is compared as written.
+                    let (expected, actual) = if expected.state().is_some() {
+                        self.check_argument_state_agreement(target, index, expected, &actual);
+                        (resource_base_type(expected), resource_base_type(&actual))
+                    } else {
+                        (expected.clone(), actual)
+                    };
+                    if !self.assignable(&expected, &actual, arg) {
                         let (actual, expected) = (actual.name(), expected.name());
                         self.emit_argument_mismatch(format!(
                             "Argument {} for `{target}` has type {actual}, expected {expected}.",
@@ -375,12 +385,13 @@ impl TypeEnv {
         );
     }
 
-    /// Apply the STATE payload-type rules to a **declared return**: the state type
-    /// must be defaultable (`TYPE_STATE_INVALID`). plan-74 lifted the former
+    /// Apply the STATE clause rule to a **declared return**: the clause must name
+    /// a copyable, defaultable record `TYPE` (`TYPE_STATE_INVALID`, bug-1013).
+    /// plan-74 lifted the former
     /// `TYPE_UNION_STATE_FORBIDDEN` ban here — a resource union may now return a
-    /// uniform STATE just as a concrete stateful resource does; the defaultable
-    /// rule is a property of the STATE type itself and does not care which position
-    /// declares it.
+    /// uniform STATE just as a concrete stateful resource does; the rule is a
+    /// property of the clause itself and does not care which position declares it
+    /// (`check_state_clauses`).
     ///
     /// This was unreachable from a return for a subtle reason worth recording:
     /// the binding rules pattern-match `" STATE "` in a type string, and the return
@@ -389,18 +400,10 @@ impl TypeEnv {
     /// function's return is not a binding. The same omission that rejected the
     /// legal stateful `RETURN` also hid it, and each needed its own fix.
     pub(super) fn check_return_state_declaration(&self, function: &IrFunction) {
-        let Some(state_type) = function.returns.state() else {
-            return;
-        };
-        if !self.is_defaultable(&state_type, &mut HashSet::new()) {
-            self.emit(
-                "TYPE_STATE_INVALID",
-                format!(
-                    "FUNC `{}` return STATE type `{state_type}` must be a copyable, defaultable data type.",
-                    function.name
-                ),
-            );
-        }
+        self.check_state_clauses(
+            &function.returns,
+            &format!("FUNC `{}` return", function.name),
+        );
     }
 
     /// Reject a **bare** `RES` binding of a value that carries a `STATE`

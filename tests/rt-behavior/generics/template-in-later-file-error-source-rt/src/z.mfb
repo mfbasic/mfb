@@ -1,0 +1,4 @@
+FUNC boom OF T(x AS T) AS Integer
+  LET d = 0
+  RETURN 10 / d
+END FUNC

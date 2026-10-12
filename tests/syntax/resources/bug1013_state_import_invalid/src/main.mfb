@@ -1,0 +1,29 @@
+' bug-1013, across a package boundary: the STATE rule is about the KIND of the
+' type, and an importer's own type table holds only its own declarations. The
+' kind of `state_kinds_pkg::Mode` is known only from the package, so a rule that
+' asked "is this a record I declared?" would either refuse every imported
+' record (libsnd's `STATE libsnd::SoundInfo`) or accept every imported
+' non-record. It does neither: the imported record is accepted, the imported
+' ENUM and UNION are refused with TYPE_STATE_INVALID.
+'
+' `Mode` below is the trap the rule must not fall into: this file declares a
+' RECORD named `Mode`, and the package exports an ENUM named `Mode`. The
+' qualified spelling names the package's.
+IMPORT fs
+IMPORT state_kinds_pkg
+
+TYPE Mode
+  n AS Integer
+END TYPE
+
+FUNC takes(f AS fs::File STATE state_kinds_pkg::Mode) AS Nothing     ' BAD: a parameter
+END FUNC
+
+FUNC main AS Integer
+  RES ok AS fs::File STATE state_kinds_pkg::Cursor = fs::createTempFile()   ' OK: an imported record
+  RES own AS fs::File STATE Mode = fs::createTempFile()                     ' OK: this file's record
+  RES a AS fs::File STATE state_kinds_pkg::Mode = fs::createTempFile()      ' BAD: an imported ENUM
+  RES b AS fs::File STATE state_kinds_pkg::Shape = fs::createTempFile()     ' BAD: an imported UNION
+  RES c AS fs::File STATE state_kinds_pkg::Dot = fs::createTempFile()       ' OK: an imported union's member is a record
+  RETURN 0
+END FUNC

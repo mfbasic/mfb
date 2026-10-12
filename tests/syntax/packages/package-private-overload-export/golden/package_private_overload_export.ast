@@ -1,0 +1,98 @@
+{
+  "project": "package_private_overload_export",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "r",
+      "line": 3,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 3 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int+" }, "right": { "kind": "call", "callee": "#39e5507f10a7e790$r", "arguments": [{ "kind": "string", "value": "s" }] } }, "line": 4 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "isolated": false,
+      "name": "#39e5507f10a7e790$r",
+      "line": 7,
+      "params": [
+      { "name": "x", "type": "String", "default": null, "line": 7 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "string", "value": "str" }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "pick",
+      "line": 12,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 12 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "callee": "#39e5507f10a7e790$pick", "arguments": [{ "kind": "string", "value": "seven" }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "text" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "n" }] } }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "pick",
+      "line": 17,
+      "params": [
+      { "name": "x", "type": "Integer", "default": null, "line": 17 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "0" } }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "isolated": false,
+      "name": "#39e5507f10a7e790$pick",
+      "line": 21,
+      "params": [
+      { "name": "x", "type": "String", "default": null, "line": 21 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "x" }] }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "pickAll",
+      "line": 27,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "s", "type": "String", "value": { "kind": "call", "callee": "#39e5507f10a7e790$pick", "arguments": [{ "kind": "number", "value": "1" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Boolean", "value": { "kind": "call", "callee": "#39e5507f10a7e790$pick", "arguments": [{ "kind": "number", "value": "1" }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] } }, "line": 30 }
+      ]
+    }
+    ]
+  }
+  ]
+}

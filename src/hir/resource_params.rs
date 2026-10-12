@@ -40,6 +40,11 @@ pub(crate) struct ResourceTypes {
     /// Union type → its direct variant types (the shape `ir::verify`'s
     /// `UnionInfo::variants` holds), local and imported.
     unions: HashMap<ParameterType, Vec<ParameterType>>,
+    /// Whether the imported packages' resources are folded in
+    /// ([`with_imported`](Self::with_imported)) — the build path's derivation.
+    /// Only then is "not a resource" an answer rather than "not one the sources
+    /// declare", which is what moving a stray `STATE` clause needs (bug-998).
+    complete: bool,
 }
 
 impl ResourceTypes {
@@ -90,6 +95,7 @@ impl ResourceTypes {
         resources: &[crate::ir::ImportedResource],
         types: &[crate::ir::ImportedTypeDef],
     ) -> Self {
+        self.complete = true;
         for resource in resources {
             self.declared
                 .insert(ParameterType::named(&resource.type_name));
@@ -129,6 +135,34 @@ impl ResourceTypes {
             })
     }
 
+    /// bug-998: the `STATE` clause a declaration wrote on `type_`, taken out of
+    /// `state` when `type_` is not a resource — or `None`, leaving `state` as it
+    /// is, when the clause is where it belongs.
+    ///
+    /// A clause on a non-resource has nothing to attach to. Left in place it
+    /// rides into the parameter's type (`Integer STATE Cur`), which no expression
+    /// can use, so the author saw `TYPE_UNKNOWN_VALUE` at every use of the
+    /// parameter and `TYPE_STATE_MISMATCH` at every call, and nothing at the
+    /// clause. Moved aside, the declaration types as the plain value it is and
+    /// `ir::shape` reports the clause itself, once.
+    ///
+    /// Only with the imported packages folded in: before that an imported
+    /// resource is indistinguishable from a data type. An unannotated
+    /// declaration has no host to judge and is left to its own rule.
+    fn take_stray_state(
+        &self,
+        type_: &ParameterType,
+        state: &mut Option<ParameterType>,
+    ) -> Option<ParameterType> {
+        if !self.complete
+            || matches!(type_, ParameterType::Unknown | ParameterType::Var(_))
+            || self.is_resource(type_)
+        {
+            return None;
+        }
+        state.take()
+    }
+
     /// A parameter's resource-ness: its type is a resource, or it carries `STATE`.
     pub(crate) fn is_resource_param(
         &self,
@@ -157,6 +191,11 @@ fn derive_in_file(file: &mut HirFile, types: &ResourceTypes) {
     for item in &mut file.items {
         match item {
             HirItem::Function(function) => {
+                if let Some(stray) =
+                    types.take_stray_state(&function.returns, &mut function.return_state_type)
+                {
+                    function.return_stray_state = Some(stray);
+                }
                 derive_in_params(&mut function.params, types);
                 derive_in_statements(&mut function.body, types);
                 if let Some(trap) = &mut function.trap {
@@ -193,6 +232,9 @@ fn derive_in_file(file: &mut HirFile, types: &ResourceTypes) {
 
 fn derive_in_params(params: &mut [HirParam], types: &ResourceTypes) {
     for param in params {
+        if let Some(stray) = types.take_stray_state(&param.type_, &mut param.state_type) {
+            param.stray_state = Some(stray);
+        }
         param.resource = types.is_resource_param(&param.type_, param.state_type.as_ref());
         if let Some(default) = &mut param.default {
             derive_in_expression(default, types);
@@ -358,6 +400,7 @@ mod tests {
 
     use super::{derive_resource_params, ResourceTypes};
     use crate::hir::{elaborate, HirExpression, HirItem, HirProject, HirStatement};
+    use crate::types::ParameterType;
 
     fn project(source: &str) -> HirProject {
         let file = crate::ast::parse_source(Path::new("main.mfb"), "main.mfb", source)
@@ -493,5 +536,75 @@ mod tests {
         );
         derive_resource_params(&mut hir, &types);
         assert!(resource_of(&hir, "f", "db"));
+    }
+
+    /// The `(state_type, stray_state)` pair of parameter `name` of function `f`.
+    fn clause_of(
+        hir: &HirProject,
+        function: &str,
+        name: &str,
+    ) -> (Option<ParameterType>, Option<ParameterType>) {
+        hir.files
+            .iter()
+            .flat_map(|file| &file.items)
+            .find_map(|item| match item {
+                HirItem::Function(f) if f.name == function => f
+                    .params
+                    .iter()
+                    .find(|p| p.name == name)
+                    .map(|p| (p.state_type.clone(), p.stray_state.clone())),
+                _ => None,
+            })
+            .expect("the parameter is declared")
+    }
+
+    /// bug-998: a `STATE` clause on a parameter whose type is not a resource is
+    /// moved aside, so the parameter types as the plain value it is — but only
+    /// once the imported packages are folded in. Before that an imported
+    /// resource is indistinguishable from a data type, and taking ITS clause
+    /// would un-type every `.state` the callee reads.
+    #[test]
+    fn a_stray_state_clause_is_moved_aside_only_with_imports_folded_in() {
+        let source = "IMPORT fs\nIMPORT demo\nTYPE Cur\n  n AS Integer\nEND TYPE\n\
+            FUNC f(x AS Integer STATE Cur, h AS fs::File STATE Cur, db AS demo::Db STATE Cur) AS RES Integer STATE Cur\n  RETURN 1\nEND FUNC\n";
+        let cur = Some(ParameterType::named("Cur"));
+
+        // What the sources declare alone: nothing is moved.
+        let hir = project(source);
+        for name in ["x", "h", "db"] {
+            assert_eq!(clause_of(&hir, "f", name), (cur.clone(), None), "{name}");
+        }
+
+        let mut hir = project(source);
+        let types = ResourceTypes::from_project(&hir).with_imported(
+            &[crate::ir::ImportedResource {
+                type_name: "demo.Db".to_string(),
+                close_function: "demo.close".to_string(),
+                sendable: false,
+            }],
+            &[],
+        );
+        derive_resource_params(&mut hir, &types);
+        // The data parameter's clause is the stray one, and it is no longer a
+        // resource parameter because of it.
+        assert_eq!(clause_of(&hir, "f", "x"), (None, cur.clone()));
+        assert!(!resource_of(&hir, "f", "x"));
+        // A built-in resource and an imported one keep theirs.
+        for name in ["h", "db"] {
+            assert_eq!(clause_of(&hir, "f", name), (cur.clone(), None), "{name}");
+            assert!(resource_of(&hir, "f", name), "{name}");
+        }
+        // The return is judged the same way.
+        let function = hir
+            .files
+            .iter()
+            .flat_map(|file| &file.items)
+            .find_map(|item| match item {
+                HirItem::Function(f) if f.name == "f" => Some(f),
+                _ => None,
+            })
+            .expect("f is declared");
+        assert_eq!(function.return_state_type, None);
+        assert_eq!(function.return_stray_state, cur);
     }
 }

@@ -1,0 +1,12 @@
+{
+  "name": "package_private_overload_export",
+  "version": "1.0.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "bug-912: the export table of a package whose EXPORT functions sit beside PRIVATE overloads of the same name lists the EXPORT members under their source names (`r`, and the return-type set `pick$Integer$AS$String` / `pick$Integer$AS$Boolean`), never a file-scoped `#<hash>$name`.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:package-private-overload-export",
+  "identKey": "ed25519-public:test-package-private-overload-export-ident",
+  "identFingerprint": "sha256:test-package-private-overload-export-ident",
+  "signingFingerprint": "sha256:test-package-private-overload-export-signing"
+}

@@ -12,7 +12,17 @@ Visibility (default is `PUBLIC`): [[src/ast/types.rs:Visibility]]
   name without colliding (the compiler renames each to a file-unique internal name
   before resolution). Where a file's own `PRIVATE` declaration shares a name with a
   project `PUBLIC` declaration, the `PRIVATE` one wins *within that file* and the
-  compiler emits a `PRIVATE_SHADOWS_PUBLIC` warning.
+  compiler emits a `PRIVATE_SHADOWS_PUBLIC` warning. A `PRIVATE FUNC` beside a
+  `PUBLIC`/`EXPORT FUNC` of the same name **in the same file** is an overload of it,
+  not a replacement: only the `PRIVATE` declaration is file-local, the
+  `PUBLIC`/`EXPORT` one stays visible to the other files (and, for an `EXPORT`, in
+  the package's export table) under its own name, and a call inside the file
+  selects among all of the file's own declarations of the name by the ordinary
+  overload rule (`./mfb spec language functions`). The same signature twice in one
+  file is `SYMBOL_DUPLICATE_TOP_LEVEL` whatever the two visibilities are. Another
+  file's `PUBLIC` declarations of the name stay hidden inside a file that declares
+  it `PRIVATE`. [[src/ast/scope_privates.rs:scope_privates]]
+  [[src/resolver/mod.rs:insert_function]]
 - `PUBLIC` (default) — visible to all files in the same package, hidden from importers.
 - `EXPORT` — visible to importers. `EXPORT` is the flag that writes a symbol into
   the compiled `.mfp` public API, so it is **valid only in a `kind: "package"`
@@ -115,7 +125,7 @@ Rules:
 - Nested package qualifiers are illegal: `a::b::c` is a compile error.
 - Record fields use `value.field`. Methods and object-style access do not exist.
 - Imports are not transitive for package namespaces. A package cannot export an imported package namespace; foreign types may pass through exported signatures as described below.
-- `IMPORT packageName AS aliasName` binds the package to `aliasName` in the importing file. The original package name is not also introduced by that import; use a second import only if both names are needed.
+- `IMPORT packageName AS aliasName` binds the package to `aliasName` in the importing file. The original package name is not also introduced by that import; use a second import only if both names are needed. The binding is the file's alone: two files may bind one alias to different packages, and a template body uses the bindings of the file that declares the template, not of the file that instantiates it (`./mfb spec language templates`).
 - An import alias must not conflict with another imported package name or alias, a top-level declaration visible in the file, or a built-in package name. The complete built-in package set is listed in `./mfb spec language builtin-functions`. [[src/codegen/builtins/mod.rs:is_builtin_import]]
 - `[visibility] FUNC alias AS qualified::name` declares a **function alias**. This form exists only as a transparent re-export of a native `LINK` function: the resolver requires the alias target to resolve to a `LINK` (native) function signature and reports `SYMBOL_UNKNOWN_IDENTIFIER` otherwise. [[src/resolver/mod.rs:link_target_signature]] It is not a general mechanism for aliasing arbitrary MFBASIC functions to package-qualified names.
 

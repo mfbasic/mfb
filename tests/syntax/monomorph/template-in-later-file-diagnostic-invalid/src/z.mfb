@@ -1,0 +1,3 @@
+FUNC less OF T(x AS T, y AS T) AS Boolean
+  RETURN x < y
+END FUNC

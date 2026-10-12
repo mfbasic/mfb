@@ -1,0 +1,86 @@
+$ mfb build -ast -ir tests/syntax/resources/bug998_state_requires_resource_invalid
+  38 | END FUNC
+  39 | 
+  40 | FUNC plain(x AS Integer STATE Cur) AS Integer   ' BAD: a parameter
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:40 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               Parameter `x` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
+  42 | END FUNC
+  43 | 
+  44 | FUNC record(c AS Cur STATE Cur) AS Integer      ' BAD: a record is not a resource
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:44 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               Parameter `c` attaches `STATE Cur` to `Cur`, which is not a resource; remove the STATE clause.
+  46 | END FUNC
+  47 | 
+  48 | FUNC text(s AS String STATE Cur, n AS Integer) AS String   ' BAD
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:48 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               Parameter `s` attaches `STATE Cur` to `String`, which is not a resource; remove the STATE clause.
+  50 | END FUNC
+  51 | 
+  52 | FUNC both(x AS Integer STATE Mode) AS Integer   ' BAD: and only this rule
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:52 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               Parameter `x` attaches `STATE Mode` to `Integer`, which is not a resource; remove the STATE clause.
+  58 | END FUNC
+  59 | 
+  60 | FUNC make() AS RES Integer STATE Cur            ' BAD: a return
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:60 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               FUNC `make` return attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
+  70 |   RES bound AS Integer STATE Cur = 1                            ' BAD: a RES binding
+  71 |   MUT slots AS List OF RES Integer STATE Cur = []               ' BAD: a collection element
+  72 |   LET bump = LAMBDA(x AS Integer STATE Cur) -> x + 1            ' BAD: a lambda parameter
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:72 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               Parameter `x` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
+  54 | END FUNC
+  55 | 
+  56 | FUNC element(xs AS List OF RES Integer STATE Cur) AS Integer   ' BAD: a parameter's element
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:56 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               Parameter `xs` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
+  62 | END FUNC
+  63 | 
+  64 | ISOLATED FUNC planeWorker(w AS ThreadWorker OF Integer RES Integer STATE Cur TO Integer, n AS Integer) AS Integer   ' BAD: a thread's resource plane
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:64 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               Parameter `w` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
+  68 | FUNC main AS Integer
+  69 |   RES f AS fs::File STATE Cur = fs::createTempFile()            ' OK
+  70 |   RES bound AS Integer STATE Cur = 1                            ' BAD: a RES binding
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:70 error[2-203-0083 TYPE_RES_REQUIRES_RESOURCE]: RES binds only resource types
+               binding `bound` is declared `RES` but `Integer` is not a resource type; use `LET`/`MUT`.
+  68 | FUNC main AS Integer
+  69 |   RES f AS fs::File STATE Cur = fs::createTempFile()            ' OK
+  70 |   RES bound AS Integer STATE Cur = 1                            ' BAD: a RES binding
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:70 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               binding `bound` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
+  69 |   RES f AS fs::File STATE Cur = fs::createTempFile()            ' OK
+  70 |   RES bound AS Integer STATE Cur = 1                            ' BAD: a RES binding
+  71 |   MUT slots AS List OF RES Integer STATE Cur = []               ' BAD: a collection element
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:71 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               binding `slots` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
+  32 | END TYPE
+  33 | 
+  34 | RES top AS Integer STATE Cur = 1                ' BAD: a top-level binding
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:34 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               binding `top` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
+  28 | TYPE Holder
+  29 |   ok AS RES fs::File STATE Cur                  ' OK
+  30 |   field AS RES Integer STATE Cur                ' BAD: a record field
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:30 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               Record `Holder` field `field` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
+  29 |   ok AS RES fs::File STATE Cur                  ' OK
+  30 |   field AS RES Integer STATE Cur                ' BAD: a record field
+  31 |   many AS List OF RES String STATE Cur          ' BAD: an element inside a field
+     | ^
+tests/syntax/resources/bug998_state_requires_resource_invalid/src/main.mfb:31 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               Record `Holder` field `many` attaches `STATE Cur` to `String`, which is not a resource; remove the STATE clause.
+[exit 1]

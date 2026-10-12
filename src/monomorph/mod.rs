@@ -58,7 +58,15 @@ struct Monomorphizer<'a> {
     /// that has no declaration in `concrete_types`.
     imported_enums: HashSet<crate::types::ParameterType>,
     concrete_functions: HashMap<String, HirFunction>,
+    /// The overload set each function name denotes. A file-scoped PRIVATE name
+    /// (`#<hash>$f`) also holds the same file's PUBLIC/EXPORT `f` declarations,
+    /// which are one overload set with it inside that file (bug-912); each member
+    /// keeps the name it was declared under.
     function_overloads: HashMap<String, Vec<HirFunction>>,
+    /// A file-scoped PRIVATE name with no template of its own -> the same file's
+    /// PUBLIC/EXPORT template of that name, which a call inside the file reaches
+    /// through the file-scoped spelling (bug-912).
+    template_views: HashMap<String, String>,
     overload_names: HashMap<String, String>,
     /// Overloaded functions exported by imported packages, keyed by the
     /// importer-facing `binding.base` name. Lets a call to an imported overload
@@ -92,6 +100,11 @@ struct Monomorphizer<'a> {
     /// be attributed to the file the offending function actually lives in rather
     /// than always the first project file (bug-107).
     function_files: HashMap<String, String>,
+    /// The declaring file of each user/toolchain TYPE template, keyed by the
+    /// template's name: where its instantiations are emitted (bug-911). A
+    /// function instantiation's file is recorded in `function_files` under its
+    /// concrete name.
+    type_template_files: HashMap<String, String>,
     /// The paths of the internal (built-in package) files, so an instantiation of
     /// a template declared in one is marked `HirFunction::internal_origin`.
     internal_files: HashSet<String>,

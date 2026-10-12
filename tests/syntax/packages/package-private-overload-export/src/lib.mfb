@@ -1,0 +1,31 @@
+' The EXPORT overload is the package's whole public surface for `r`; the PRIVATE
+' overload beside it is a file-local helper it calls.
+EXPORT FUNC r(x AS Integer) AS String
+  RETURN "int+" & r("s")
+END FUNC
+
+PRIVATE FUNC r(x AS String) AS String
+  RETURN "str"
+END FUNC
+
+' A return-type EXPORT overload set beside a PRIVATE member of the same name.
+EXPORT FUNC pick(x AS Integer) AS String
+  LET n AS Integer = pick("seven")
+  RETURN "text" & toString(n)
+END FUNC
+
+EXPORT FUNC pick(x AS Integer) AS Boolean
+  RETURN x > 0
+END FUNC
+
+PRIVATE FUNC pick(x AS String) AS Integer
+  RETURN len(x)
+END FUNC
+
+' Inside the file all three `pick`s are one overload set: the argument type picks
+' the PRIVATE member, the expected type picks between the two EXPORT members.
+EXPORT FUNC pickAll() AS String
+  LET s AS String = pick(1)
+  LET b AS Boolean = pick(1)
+  RETURN s & " " & toString(b)
+END FUNC

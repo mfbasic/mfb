@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/syntax/packages/package-private-overload-export
+src/lib.mfb:7 warn[2-201-0017 PRIVATE_SHADOWS_PUBLIC]: PRIVATE declaration shadows a PUBLIC declaration of the same name within its file
+               PRIVATE `r` shadows a PUBLIC declaration of the same name within this file.
+src/lib.mfb:21 warn[2-201-0017 PRIVATE_SHADOWS_PUBLIC]: PRIVATE declaration shadows a PUBLIC declaration of the same name within its file
+               PRIVATE `pick` shadows a PUBLIC declaration of the same name within this file.
+Wrote AST to tests/syntax/packages/package-private-overload-export/package_private_overload_export.ast
+Wrote IR to tests/syntax/packages/package-private-overload-export/package_private_overload_export.ir
+[exit 0]
+$ mfb build tests/syntax/packages/package-private-overload-export
+src/lib.mfb:7 warn[2-201-0017 PRIVATE_SHADOWS_PUBLIC]: PRIVATE declaration shadows a PUBLIC declaration of the same name within its file
+               PRIVATE `r` shadows a PUBLIC declaration of the same name within this file.
+src/lib.mfb:21 warn[2-201-0017 PRIVATE_SHADOWS_PUBLIC]: PRIVATE declaration shadows a PUBLIC declaration of the same name within its file
+               PRIVATE `pick` shadows a PUBLIC declaration of the same name within this file.
+Wrote package to tests/syntax/packages/package-private-overload-export/package_private_overload_export.mfp
+[exit 0]

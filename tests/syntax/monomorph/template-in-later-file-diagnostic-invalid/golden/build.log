@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/syntax/monomorph/template-in-later-file-diagnostic-invalid
+   1 | FUNC less OF T(x AS T, y AS T) AS Boolean
+   2 |   RETURN x < y
+     | ^
+tests/syntax/monomorph/template-in-later-file-diagnostic-invalid/src/z.mfb:2 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               Operator `<` requires numeric or String operands, got Boolean and Boolean.
+   1 | FUNC less OF T(x AS T, y AS T) AS Boolean
+   2 |   RETURN x < y
+     | ^
+tests/syntax/monomorph/template-in-later-file-diagnostic-invalid/src/z.mfb:2 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
+[exit 1]

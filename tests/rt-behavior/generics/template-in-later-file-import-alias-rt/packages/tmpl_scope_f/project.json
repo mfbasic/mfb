@@ -1,0 +1,9 @@
+{
+  "name": "tmpl_scope_f",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "bug-911: one of the two dependencies of `../../`, which binds both to the import alias `lib` in different files. Both export `idI`; they differ in what it returns.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "targets": ["native"]
+}

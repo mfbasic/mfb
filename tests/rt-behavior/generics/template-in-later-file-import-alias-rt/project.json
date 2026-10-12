@@ -1,0 +1,26 @@
+{
+  "name": "template_in_later_file_import_alias_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-911 (A): an instantiation of a user template binds its import aliases in the file that DECLARES the template. `src/a.mfb` (the first source file) and `src/z.mfb` both bind the alias `lib`, to different packages; the template in z.mfb calls `lib::idI` and must reach the package z.mfb imports. A type argument still comes from the calling file: a PRIVATE record of a.mfb, and a record of the package only a.mfb imports, under the alias z.mfb binds elsewhere.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "tmpl_scope_a",
+      "version": "=0.1.0",
+      "source": "file:packages/tmpl_scope_a",
+      "direct": true,
+      "requiredBy": []
+    },
+    {
+      "name": "tmpl_scope_f",
+      "version": "=0.1.0",
+      "source": "file:packages/tmpl_scope_f",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

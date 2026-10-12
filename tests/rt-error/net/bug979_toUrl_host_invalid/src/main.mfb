@@ -1,0 +1,63 @@
+' bug-979: `net::toUrl` validates the host of an http(s) URL at parse time. A
+' host that is not a registered name, an IPv4 address or a bracketed IPv6
+' literal raises ErrInvalidFormat (77050003) instead of being stored for a
+' resolver to interpret.
+
+IMPORT net
+IMPORT io
+
+FUNC attempt(label AS String, href AS String) AS Nothing
+  LET u AS net::Url = net::toUrl(href) TRAP(e)
+    io::print(label & " raised " & toString(e.code) & " " & e.message)
+    RETURN
+  END TRAP
+  io::print(label & " DID NOT RAISE, host has " & toString(len(u.host)) & " characters")
+END FUNC
+
+FUNC main AS Integer
+  ' Forbidden host characters: controls, space, and the delimiters.
+  attempt("CR LF in host", "http://h\r\n/")
+  attempt("tab in host", "http://h\t.com/")
+  attempt("NUL in host", "http://h\u{0}.com/")
+  attempt("space in host", "http://exa mple.com/")
+  attempt("DEL in host", "http://h\u{7f}.com/")
+  attempt("less-than in host", "http://a<b/")
+  attempt("caret in host", "http://a^b/")
+  attempt("pipe in host", "http://a|b/")
+  attempt("close bracket host", "http://]/")
+  ' Percent escapes are checked in their decoded form.
+  attempt("non-hex escape", "http://%zz.com/")
+  attempt("truncated escape", "http://h.com%/")
+  attempt("escaped NUL", "http://hello%00/")
+  attempt("escaped percent", "http://%25/")
+  attempt("escape is not UTF-8", "http://%ff.com/")
+  ' A host that ends in a number must be an IPv4 address.
+  attempt("part above 255", "http://256.0.0.1/")
+  attempt("digit 9 in octal", "http://1.2.3.09/")
+  attempt("lone 09", "http://09/")
+  attempt("name then number", "http://foo.09/")
+  attempt("name then hex", "http://foo.0x4/")
+  attempt("five parts", "http://1.2.3.4.5/")
+  attempt("empty part", "http://1..2/")
+  attempt("above 32 bits", "http://4294967296/")
+  attempt("long hex run", "http://0x100000000000000000000000/")
+  ' The text between brackets must be an IPv6 address.
+  attempt("IPvFuture", "http://[v1.fe]/")
+  attempt("two compressions", "http://[1::2::3]/")
+  attempt("non-hex group", "http://[g::1]/")
+  attempt("zone", "http://[fe80::1%25eth0]/")
+  attempt("lone colon start", "http://[:1]/")
+  attempt("lone colon end", "http://[1:]/")
+  attempt("nine groups", "http://[1:2:3:4:5:6:7:8:9]/")
+  attempt("seven groups", "http://[1:2:3:4:5:6:7]/")
+  attempt("five hex digits", "http://[12345::]/")
+  attempt("IPv4 tail above 255", "http://[::1.2.3.256]/")
+  attempt("IPv4 tail leading zero", "http://[::1.2.3.04]/")
+  attempt("empty brackets", "http://[]/")
+  ' A port made only of digits that overflows is out of range, not a non-digit.
+  attempt("huge port", "http://example.com:18446744073709551696/")
+  attempt("port 65536", "http://example.com:65536/")
+  attempt("letter in port", "http://example.com:8a/")
+  attempt("signed port", "http://example.com:+80/")
+  RETURN 0
+END FUNC

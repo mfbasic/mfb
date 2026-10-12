@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/bug1030_state_top_level_rt
+Wrote AST to tests/rt-behavior/resources/bug1030_state_top_level_rt/bug1030_state_top_level_rt.ast
+Wrote IR to tests/rt-behavior/resources/bug1030_state_top_level_rt/bug1030_state_top_level_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/bug1030_state_top_level_rt
+Wrote executable to tests/rt-behavior/resources/bug1030_state_top_level_rt/build/bug1030_state_top_level_rt.out
+[exit 0]
+$ tests/rt-behavior/resources/bug1030_state_top_level_rt/build/bug1030_state_top_level_rt.out
+plain 0 []
+bump 10 20
+plain 20 [++]
+replaced 7 [seven]
+opaque 1
+tagged 42 [tagged]
+tagged bump 52 [tagged+]
+stream 0
+stream bump 3 3
+worker 11
+plain after worker 7
+[exit 0]

@@ -1,61 +1,86 @@
-# plan-93-E: Server-side cookies (request parse + `Set-Cookie` emit)
+# plan-93-E: The `Cookie` type and its wire format (server read + emit, client parse)
 
-Last updated: 2026-09-13
-Effort: medium (1h–2h)
-Depends on: nothing for parsing; shares one cookie-attribute helper with plan-93-F
-(see Design).
+Last updated: 2026-10-10
+Effort: large (3h–1d) — a guess; the record changes touch every `Request`/`Response`
+constructor and their fixtures.
+Depends on: bug-1021 (partial by-field record constructor). Plan-93-F (the client
+cookie jar) depends on this letter.
 
-The server neither exposes incoming cookies nor helps a handler set one. This
-sub-plan parses the request `Cookie` header into a `req.cookies` map and adds a
-`Set-Cookie` builder that survives the server's last-wins header map (which cannot,
-today, hold two `Set-Cookie` values). Behavioral outcome: a handler reads
-`collections::getOr(req.cookies, "session", "")` and calls
-`http::withCookie(resp, "session", id, ...)` to emit a well-formed `Set-Cookie`,
-and a client sees every cookie the handler set — even when it sets several.
+The `http` package has no cookie support in either direction. This sub-plan adds one
+value type, `http::Cookie`, used on both sides of the wire, and the code that moves it
+on and off the wire: the server parses the request `Cookie` header into `req.cookies`
+and emits one `Set-Cookie` line per entry of `resp.cookies`; the client parses every
+`Set-Cookie` line of a response into the same `resp.cookies`. Behavioral outcome: a
+handler reads `collections::get(req.cookies, "session").value`, sets a cookie with
+`http::withCookie(resp, http::Cookie[name := "session", value := id, httpOnly := TRUE])`,
+and a client reading that response finds the same `Cookie` in `resp.cookies` — even when
+the handler set several.
+
+There is no cookie constructor function. A `Cookie` is built with the by-field record
+constructor, naming only the fields that differ from their defaults (bug-1021).
 
 References:
 
-- `src/builtins/http_package.mfb:__http_serializeHead` (lines 1166-1180) — iterates
-  `resp.headers` (a `Map`, last-wins) writing each header line; the reason multiple
-  `Set-Cookie` values need special handling.
-- `src/docs/spec/stdlib/05_http.md:270-298` — the `Request` record (headers/query/
-  params maps) that `cookies` joins.
-- `src/builtins/http_package.mfb:__http_partHeader` / header parsing — the request
-  header parsing to extend for the `Cookie` line.
+- `src/codegen/builtins/http/mod.rs` — the `add_record` registrations for `Response`,
+  `Request`, `RequestPart`, `Route`; `Cookie` and the `SameSite` enum register here.
+- `src/codegen/builtins/http/helper_serialize_head.rs:__http_serializeHead` — writes
+  one line per `resp.headers` entry; gains the `Set-Cookie` lines.
+- `src/codegen/builtins/http/helper_check_response.rs:__http_checkResponse` — turns a
+  response that cannot be serialized safely into a `500` (bug-506); must cover cookies.
+- `src/codegen/builtins/http/helper_parse_request.rs:__http_parseRequest` and
+  `helper_request_header_map.rs:__http_requestHeaderMap` — the strict server-side
+  request parse the `Cookie` header parse hangs off.
+- `src/codegen/builtins/http/helper_parse_response.rs:__http_parseResponse` and
+  `helper_header_map_from_head.rs:__http_headerMapFromHead` — the lenient client-side
+  parse; the header map collapses duplicates last-wins, so `Set-Cookie` lines are read
+  from the head text, not from the map.
+- `src/codegen/builtins/http/func_with_header.rs` — the combinator `withCookie` mirrors.
+- `src/docs/spec/stdlib/05_http.md` — §Response Record, §Header Model, §Server →
+  Value records / Request parsing / Constructors, combinators, static helpers.
+- `bugs/bug-1021-by-field-record-constructor-requires-every-field.md`.
+- RFC 6265 (cookie syntax, `Set-Cookie` attributes) and its successor draft
+  `rfc6265bis` (the `SameSite` attribute — RFC 6265 itself has none). Cite the exact
+  sections from the documents when writing the spec text; this plan's summary of them
+  is from memory.
 
 ## Prerequisites
 
-If plan-93-F (client cookies) is also planned, this letter lands first and owns
-the shared cookie-attribute serializer.
-
 | Must be true | Command | Status |
 |---|---|---|
+| bug-1021 fixed: `Ck[name := "a"]` builds, omitted fields take their defaults | `ls bugs/completed/bug-1021-*` | NOT MET |
+| An enum has a default, so an omitted `sameSite` is `Unset` (owner: enums have or will have a default) | Phase 0 probe | UNMEASURED |
 | Tree builds & tests green | `cargo test` | UNMEASURED — run before starting |
+
+If any prerequisite is not met, this plan cannot start, full stop.
 
 ## 1. Goal
 
-- `Request` gains `cookies AS Map OF String TO String` — the parsed request
-  `Cookie` header (`name=value; name2=value2`), names case-sensitive per RFC 6265,
-  last-wins on duplicates, read with the ordinary `collections::*` accessors.
-- `http::withCookie(resp, name, value, opts)` returns a copy of `resp` carrying a
-  correctly-serialized `Set-Cookie` header supporting the standard attributes:
-  `Path`, `Domain`, `Max-Age`, `Expires`, `Secure`, `HttpOnly`, `SameSite`.
-- **Multiple `Set-Cookie` values coexist:** two `withCookie` calls emit two
-  `Set-Cookie` lines on the wire (the last-wins header map cannot represent this
-  today — this sub-plan fixes the emit path for this one header).
-- Malformed cookie names/values (control chars, separators) are rejected or
-  percent-escaped per a documented rule, never emitted raw.
+- A `SameSite` enum and a `Cookie` record, exported from `http`, shared by client and
+  server (§3 gives the fields).
+- `Request` gains `cookies AS Map OF String TO Cookie` — the parsed request `Cookie`
+  header, keyed by cookie name (case-sensitive), last-wins on a repeated name.
+- `Response` gains `cookies AS List OF Cookie`. On the server it is what a handler sets
+  and the server emits, one `Set-Cookie` line per entry, in list order. On the client it
+  is what the response parser found, one entry per `Set-Cookie` line, in wire order.
+- `http::withCookie(resp, cookie) AS Response` returns a copy of `resp` with `cookie`
+  appended to `cookies`.
+- **Multiple `Set-Cookie` values coexist** in both directions: two cookies set by a
+  handler are two lines on the wire, and a client sees both.
+- A cookie that cannot be emitted safely is never emitted raw: the response is answered
+  `500`, exactly like a header carrying a control byte today.
 
 ### Non-goals (explicit constraints)
 
-- **No cookie jar / no statefulness** on the server — it parses what came in and
-  emits what the handler asks. Persistence and cross-request tracking are the
-  client's concern (plan-93-F).
-- **No change to the general last-wins header model** for any header other than
-  `Set-Cookie`. Only `Set-Cookie` gains multi-value emit.
-- No signature change to `Request` consumers that ignore `cookies` (it's an added
-  field; confirm added fields don't break existing positional record literals —
-  see Verified properties).
+- **No constructor function** — no `http::cookie(...)`, no `http::cookieDefault()`. The
+  by-field record constructor is the only way to build a `Cookie`.
+- **No cookie jar, no statefulness.** Storing cookies between requests and choosing
+  which to send is plan-93-F. This letter only moves cookies on and off the wire.
+- **No signed or encrypted cookies.** A cookie's value is the caller's string.
+- **No change to the last-wins header model.** `headers` stays a
+  `Map OF String TO String` on both records. `Set-Cookie` no longer travels through it
+  on the server; on the client the map keeps its last-wins `set-cookie` entry as today.
+- **No percent-encoding or decoding of cookie values.** A value goes out and comes in
+  byte-for-byte; a caller that needs arbitrary bytes encodes them itself.
 
 ## 2. Current State
 
@@ -63,126 +88,279 @@ the shared cookie-attribute serializer.
 
 | What | Count | Command |
 |---|---|---|
-| cookie handling anywhere in the package | 0 | `grep -ci cookie src/builtins/http_package.mfb → 0` |
-| `Request` record fields today | 7 | read `05_http.md:270-279` (method,path,rawPath,headers,query,params,parts,body) |
+| cookie handling in the package | 0 functions; 1 comment mention | `grep -rli cookie src/codegen/builtins/http` → `helper_check_response.rs` only |
+| `Request[` constructors in the package | 2 | `grep -rn 'Request\[' src/codegen/builtins/http` (`__http_emptyRequest`, `__http_parseRequest`) |
+| `Response[` constructors in the package | 5 | `grep -rn 'Response\[' src/codegen/builtins/http` |
+| fixtures building `http::Request[` positionally | 2 | `grep -rln 'http::Request\[' tests examples src/docs` |
+| fixtures building `http::Response[` positionally | 1 | `grep -rln 'http::Response\[' tests examples src/docs` |
+| `Request` record fields today | 8 | `05_http.md` §Server → Value records |
 
 ### Verified properties
 
-- **The response header map is last-wins and serialized by iteration.**
-  `__http_serializeHead` (`http_package.mfb:1166-1180`) loops `resp.headers` (a
-  `Map OF String TO String`) writing one line per entry. A `Map` keyed by header
-  name therefore cannot hold two `Set-Cookie` values — the second overwrites the
-  first. **VERIFIED** by reading the serialize loop. The fix must carry set-cookies
-  outside the collapsing map (see Design).
-- **Adding a `Request` field touches every constructor of it.** `Request[...]`
-  positional literals in `__http_handleRequest` and its helpers must all gain the
-  new field. **UNVERIFIED count** — census `Request[` before editing:
-  `grep -n 'Request\[' src/builtins/http_package.mfb`. Make this the first task.
+- **A response header map cannot hold two `Set-Cookie` values.** `__http_serializeHead`
+  loops `resp.headers`, a `Map OF String TO String`, writing one line per entry.
+  **VERIFIED** by reading the function. (`withHeader` keys are case-sensitive, so
+  `"Set-Cookie"` and `"set-cookie"` do emit two lines today; that is an accident of the
+  map, not a mechanism, and the docs must not recommend it.)
+- **The control-byte guard only scans `resp.headers`.** `__http_checkResponse` and the
+  `FAIL` backstop in `__http_serializeHead` iterate `resp.headers` and check
+  `resp.reason`. A cookie list beside the map is outside both. **VERIFIED** by reading
+  both functions. Emitting cookies without extending both reopens bug-506.
+- **Both records are public and built positionally by callers.** The fixtures in the
+  table above construct `http::Request[...]` and `http::Response[...]` with every field
+  in order. Adding a field is a compile error for any such program. **VERIFIED** by the
+  grep. This is a breaking change to state in the spec and to fix in the three fixtures
+  (a fixture edited because the record it constructs gained a field is not a weakened
+  test; the assertion it makes is unchanged).
+- **The client collapses `Set-Cookie` before anyone can read it.** `__http_parseResponse`
+  hands the head text to `__http_headerMapFromHead`, which is last-wins. **VERIFIED** by
+  reading `__http_parseResponse`. The cookie parse must read the head text itself.
+- **A request has one `Cookie` header in HTTP/1.1.** The strict request parse collapses
+  a repeated field last-wins, so a second `Cookie` line replaces the first.
+  **UNVERIFIED** against the RFC text — confirm RFC 6265 §5.4 forbids a client sending
+  more than one, and document the last-wins outcome either way.
 
 ## 3. Design Overview
 
-Two independent pieces:
+### The types
 
-1. **Request `cookies`** — in request parsing, split the (last-wins) `cookie`
-   header on `;`, each into `name=value`, trim, into a new `cookies` map; add
-   `cookies` to the `Request` record and every `Request[...]` constructor.
-2. **`Set-Cookie` emit that survives last-wins** — the collapsing `Map` cannot
-   hold multiple `Set-Cookie`. Chosen approach (see Rejected alternatives): carry
-   an **ordered list of already-serialized `Set-Cookie` lines** and emit them in
-   `__http_serializeHead` in addition to the header map. `withCookie` appends a
-   serialized line built by `__http_serializeCookie(name, value, opts)` — the
-   **shared attribute serializer** that plan-93-F reuses for the client's outgoing
-   `Cookie`/jar formatting. To avoid a `Response` shape change rippling everywhere,
-   store the set-cookie list *inside* the headers map under a reserved sentinel key
-   that `__http_serializeHead` expands into N `Set-Cookie:` lines (documented,
-   internal) — or add a `setCookies AS List OF String` field to `Response` if a
-   census shows few constructors. Decide by the `Response[` census (Open Decisions).
+```text
+ENUM SameSite
+  Unset     ; no SameSite attribute on the wire
+  Strict
+  Lax
+  None
+END ENUM
 
-**Correctness/design risk (schedule the emit piece last):** representing multiple
-`Set-Cookie` under a last-wins map is the one non-trivial call. Prove it with a
-fixture that sets two cookies and asserts two `Set-Cookie` lines on the wire.
+TYPE Cookie
+  name     AS String
+  value    AS String
+  path     AS String     ; "" = not set
+  domain   AS String     ; "" = not set
+  maxAge   AS Integer    ; 0 = not set; > 0 = seconds to live; < 0 = delete now
+  expires  AS Integer    ; 0 = not set; else Unix time in seconds
+  secure   AS Boolean
+  httpOnly AS Boolean
+  sameSite AS SameSite
+END TYPE
+```
 
-Gate is **runtime behavior** (wire bytes / round-tripped cookies), never
-byte-identity.
+Every field's default is its "not set" value, so a by-field constructor names only what
+it wants:
+
+```text
+http::Cookie[name := "theme", value := "dark"]
+http::Cookie[name := "session", value := id, path := "/", httpOnly := TRUE,
+             secure := TRUE, sameSite := http::SameSite.Lax]
+http::Cookie[name := "session", maxAge := -1]        ' delete it
+```
+
+`Unset` is distinct from `None`: `Unset` emits no attribute and leaves the choice to the
+browser (the `rfc6265bis` "Default" state); `None` emits `SameSite=None`, an explicit
+request for cross-site sending.
+
+`maxAge` and `expires` both use 0 for "not set" because 0 is the `Integer` default. A
+wire `Max-Age=0` means "expire now", so the record spells that as a negative `maxAge`.
+`expires` is whole seconds because an HTTP date has one-second resolution and
+`datetime::Instant.seconds` is already that count.
+
+### On a request, only `name` and `value` are real
+
+A client sends `Cookie: a=1; b=2` and nothing else. Every `Cookie` in `req.cookies` has
+its other fields at their defaults, whatever attributes it was set with:
+`req.cookies["session"].httpOnly` is `FALSE` for an `HttpOnly` cookie. The spec and the
+`Cookie` man text must say so in plain words.
+
+### Four pieces
+
+1. **Types** — register `SameSite` (`add_enum`) and `Cookie` (`add_record`); add
+   `cookies` to `Request` and `Response`; update every constructor in the census.
+2. **Server read** — `__http_parseCookieHeader(value AS String) AS Map OF String TO Cookie`,
+   called from `__http_parseRequest` on the `cookie` header:
+   - split on `;`, trim each piece;
+   - split the piece at the **first** `=` (a value may contain `=`);
+   - a piece with no `=`, or an empty name, is skipped — never a `400`;
+   - one pair of surrounding double quotes is stripped from the value;
+   - no percent-decoding;
+   - a repeated name is last-wins.
+   An absent header gives an empty map.
+3. **Server emit** — `__http_serializeCookie(c AS Cookie) AS String` renders one
+   `Set-Cookie` value: `name=value`, then `Path`, `Domain`, `Max-Age`, `Expires`,
+   `Secure`, `HttpOnly`, `SameSite`, each only when set. A negative `maxAge` renders
+   `Max-Age=0`. `expires` renders as an HTTP date (IMF-fixdate, GMT).
+   `__http_serializeHead` writes `Set-Cookie: <value>` for every entry of
+   `resp.cookies`, in order, after the header map.
+   `__http_cookieIsValid(c AS Cookie) AS Boolean` is the one validity rule, called by
+   `__http_checkResponse` (invalid → the built-in `500`) and by the `FAIL` backstop in
+   `__http_serializeHead`:
+   - `name` is non-empty and an HTTP token;
+   - `value` has no control character, space, double quote, comma, semicolon or
+     backslash;
+   - `path` and `domain` have no control character and no `;`;
+   - `sameSite = None` requires `secure`.
+4. **Client parse** — `__http_parseSetCookie(line AS String) AS Cookie` is the inverse
+   of piece 3, and lenient like the rest of the client parse:
+   - attribute names are case-insensitive; an unknown attribute is ignored;
+   - a `SameSite` value that is not `Strict`/`Lax`/`None` is `Unset`;
+   - wire `Max-Age` ≤ 0 becomes a negative `maxAge`; a non-numeric one is ignored;
+   - an `Expires` that does not parse as an HTTP date leaves `expires` at 0;
+   - a line with no `=` before its first `;`, or an empty name, yields no cookie.
+   `__http_parseResponse` collects every `set-cookie` line of the head text, in order,
+   into `resp.cookies`. `resp.headers` is untouched.
+
+`http::withCookie(resp, cookie)` is `WITH resp { cookies := … }` with the cookie
+appended, the same shape as `http::withHeader`. It does not validate; emit does, so a
+hand-built `WITH` gets the same check.
+
+**Correctness risk (schedule last, behind fixtures):** the emit path. It is the one
+place a handler-controlled string reaches the wire, and it sits beside a guard that
+today knows nothing about cookies. Pin it with the two-cookie wire fixture and one
+fixture per rejected shape before anything else depends on it.
+
+**HTTP dates.** `expires` needs a Unix-seconds → IMF-fixdate formatter on emit and the
+inverse on the client. `datetime::format` and `datetime::parse` exist; confirm in
+Phase 0 that they produce and accept `Sun, 06 Nov 1994 08:49:37 GMT` exactly, and use
+them. If they cannot, that is a blocker to report, not something to hand-roll around.
+
+Gate is **runtime behavior** (wire bytes; cookies round-tripped through a real
+exchange), never byte-identity.
 
 ### Rejected alternatives
 
-- **Comma-join multiple cookies into one `Set-Cookie`** — illegal; `Set-Cookie`
-  does not fold (its value contains commas in `Expires`). Rejected.
-- **Change the whole header model to multi-valued** — large blast radius across
-  client and server parsing/emit for a single-header need. Rejected in favor of the
-  targeted `Set-Cookie` list.
+- **`withCookie(resp, name, value, opts)`** — `opts` had no type; a record replaces it.
+- **A constructor function** (`http::cookie(...)`, `http::cookieDefault()`) — the
+  language builds records with record constructors; bug-1021 makes that practical.
+- **`req.cookies AS Map OF String TO String`** — simpler to read, but a second cookie
+  shape; one type on both sides is the point of this plan.
+- **`Response.cookies AS Map OF String TO Cookie`** — a response cookie's identity is
+  (name, domain, path); a map keyed by name drops a legal second cookie.
+- **A reserved sentinel key in `headers`** — visible to `len`/iteration, leaks to the
+  client's `Response`, and cannot be told apart from a handler's own header.
+- **Comma-joining cookies into one `Set-Cookie`** — illegal; the header does not fold
+  (`Expires` contains a comma).
+- **Making every header multi-valued** — a far larger change for one header's need.
 
 ## Compatibility / Format Impact
 
-- `Request` gains a `cookies` field (every `Request[...]` constructor updated).
-- `Response` emit gains multi-`Set-Cookie` support; all other headers keep last-wins.
-- New public helper `http::withCookie`. No existing signature changes.
+- **Breaking:** `Request` and `Response` each gain a field, so a positional
+  `http::Request[...]` / `http::Response[...]` with the old field count no longer
+  compiles. A by-field constructor is unaffected once bug-1021 lands.
+- New exported names: `http::Cookie`, `http::SameSite`, `http::withCookie`.
+- Wire: the server may now emit `Set-Cookie` lines. No other header changes.
+- A handler that set `Set-Cookie` through `http::withHeader` keeps working as before.
 
 ## Phases
 
-### Phase 1 — Parse request `Cookie` → `req.cookies`
+### Phase 0 — Prerequisite probes
 
-- [ ] Census `Request[` constructors (`grep -n 'Request\[' src/builtins/http_package.mfb`)
-      and record the count in Corrections.
-- [ ] Add `cookies AS Map OF String TO String` to the `Request` record and every
-      constructor; parse the `cookie` header into it during request parsing.
-- [ ] Tests: fixtures for a single cookie, multiple `name=value` pairs, an absent
-      `Cookie` header (empty map), and a malformed pair (documented handling).
+- [ ] Build `Ck[name := "a"]` against a record with an enum field and confirm the
+      omitted field holds the enum's default; record the result.
+- [ ] Confirm `http::SameSite.None` is a legal member name (`None` is not a keyword;
+      prove it with a compile).
+- [ ] Confirm `datetime::format` / `datetime::parse` round-trip an IMF-fixdate; record
+      the exact calls in Corrections.
+- [ ] Re-run the three census greps in §2 and record the counts in Corrections.
 
-Acceptance: a handler reads `collections::getOr(req.cookies, "k", "")` and gets the
-sent value; absent header → empty map.
+Acceptance: every probe result is written in Corrections with its command.
 Commit: —
 
-### Phase 2 — `withCookie` + multi-`Set-Cookie` emit (behind the two-cookie fixture)
+### Phase 1 — Types and the record changes
 
-- [ ] Add `__http_serializeCookie(name, value, opts)` producing one RFC 6265
-      `Set-Cookie` value with `Path`/`Domain`/`Max-Age`/`Expires`/`Secure`/
-      `HttpOnly`/`SameSite`; reject/escape invalid name/value chars.
-- [ ] Add `http::withCookie(resp, name, value, opts) AS Response` appending a
-      serialized line via the chosen multi-value carrier.
-- [ ] Extend `__http_serializeHead` to emit every carried `Set-Cookie` line (in
-      order) alongside the header map.
-- [ ] Tests: a fixture setting **two** cookies and asserting **two** `Set-Cookie`
-      lines on the wire; an attribute fixture asserting `HttpOnly; Secure;
-      SameSite=Lax; Path=/`; an invalid-name fixture.
+- [ ] Register `SameSite` and `Cookie` in `http/mod.rs` with full descriptions.
+- [ ] Add `cookies` to `Request` and `Response`; update the 2 + 5 package constructors
+      and the 3 fixtures so the tree builds.
+- [ ] Add `http::withCookie`.
+- [ ] Tests: a fixture that builds cookies with the by-field constructor (minimal, all
+      fields, the delete form) and checks every field; a `withCookie` fixture checking
+      order and that the original response is unchanged.
 
-Acceptance: two `withCookie` calls produce two `Set-Cookie` lines; attributes
-serialize per RFC 6265; invalid input is rejected/escaped, never emitted raw.
+Acceptance: the tree builds; `resp.cookies` and `req.cookies` exist and are empty where
+nothing set them; the full suite is green.
+Commit: —
+
+### Phase 2 — Server read: `Cookie` header → `req.cookies`
+
+- [ ] Add `__http_parseCookieHeader` and call it from `__http_parseRequest`.
+- [ ] Tests: one cookie; several pairs; no `Cookie` header (empty map); a value
+      containing `=`; a quoted value; a piece with no `=` (skipped, request still
+      served); a repeated name (last wins); attribute fields at their defaults.
+
+Acceptance: a handler reads `collections::get(req.cookies, "k").value` and gets the
+sent value; a malformed pair never fails the request.
+Commit: —
+
+### Phase 3 — Client parse: `Set-Cookie` lines → `resp.cookies`
+
+- [ ] Add `__http_parseSetCookie` and collect the lines in `__http_parseResponse`.
+- [ ] Tests, feeding canned response bytes: two `Set-Cookie` lines give two entries in
+      wire order; every attribute; mixed-case attribute names; unknown `SameSite` →
+      `Unset`; `Max-Age=0` → negative; unparseable `Expires` → 0; an unusable line is
+      skipped; `resp.headers` is unchanged from today.
+
+Acceptance: `http::read` of a response with N `Set-Cookie` lines returns N cookies with
+the right fields.
+Commit: —
+
+### Phase 4 — Server emit (behind the two-cookie fixture)
+
+- [ ] Add `__http_cookieIsValid` and `__http_serializeCookie`.
+- [ ] Extend `__http_checkResponse` and the `__http_serializeHead` backstop to cover
+      `resp.cookies`; emit one `Set-Cookie` line per entry in `__http_serializeHead`.
+- [ ] Tests on wire bytes: **two** cookies → **two** `Set-Cookie` lines in order; an
+      attribute fixture (`Path=/; HttpOnly; Secure; SameSite=Lax`); `maxAge := -1` →
+      `Max-Age=0`; `expires` → the exact HTTP date; `Unset` → no `SameSite`.
+- [ ] Tests on rejection, each answered `500` with no `Set-Cookie` on the wire: an empty
+      name; a `\r\n` in the value; a `;` in `path`; `SameSite.None` without `secure`.
+- [ ] Round-trip fixture: a local `http::server` handler sets two cookies, `http::read`
+      returns both in `resp.cookies` with equal fields; a second request carrying a
+      `cookie` header is echoed back from `req.cookies`.
+
+Acceptance: two `withCookie` calls produce two `Set-Cookie` lines; every rejected shape
+is a `500`; the round-trip fixture holds.
 Commit: —
 
 ## Validation Plan
 
-- Tests: fixtures under the http server test home asserting raw emitted headers and
-  parsed `req.cookies`.
-- Coverage check: green run with the two-`Set-Cookie` fixture present (it exercises
-  the multi-value emit path).
-- Runtime proof: `http::server` handler that echoes `req.cookies` and sets two
-  cookies; curl `-b`/`-c` to confirm round-trip.
-- Doc sync: extend `05_http.md` Server §Request record (add `cookies`) and
-  §Constructors (add `withCookie`); add a man page
-  `src/docs/man/builtins/http/withCookie.md` per `.ai/man_template.md`; update the
-  http `types` man page for the new `Request` field.
-- Acceptance: full `cargo test` + acceptance harness.
+- Tests: fixtures under `tests/rt-behavior/http/`, beside `http_server_loopback`,
+  asserting raw emitted head bytes, parsed `req.cookies`, and parsed `resp.cookies`.
+- Coverage check: the two-`Set-Cookie` wire fixture and the four rejection fixtures are
+  present and green; they are the only tests that exercise the emit guard.
+- Runtime proof: the round-trip fixture, plus `curl -i -b 'a=1; b=2'` against a handler
+  that echoes `req.cookies` and sets two cookies, confirming two `Set-Cookie` lines.
+- Doc sync (`.ai/specifications.md`, `.ai/spec-content.md`, `.ai/man-content.md`):
+  - `05_http.md`: `cookies` on §Response Record and on `Request` under Value records;
+    the `Cookie` and `SameSite` types; the request-side "only `name` and `value`" rule;
+    the `Cookie` header parse rules under Request parsing; `Set-Cookie` emit, validity
+    and the `500` under Lifecycle; the client `Set-Cookie` parse under Response
+    Parsing; `withCookie` in the combinators table; the positional-constructor break.
+  - Man text lives in the registry descriptors, not in files: the `Cookie` / `SameSite`
+    / `Request` / `Response` record descriptions in `http/mod.rs`, a new
+    `func_with_cookie.rs` descriptor, and the `withHeader` description (stop it reading
+    as the way to set a cookie). Verify by rendering each page with `mfb man`.
+- Acceptance: full `cargo test` + the acceptance harness.
 
 ## Open Decisions
 
-- **Multi-`Set-Cookie` carrier** — recommend a reserved sentinel entry in the
-  headers map expanded on emit **iff** the `Response[` census shows many
-  constructors (avoids editing them all); otherwise add an explicit
-  `setCookies AS List OF String` field to `Response`. Decide from the census in
-  Phase 2's first task. (§3)
-- **Invalid cookie value handling** — recommend reject (error) over silent escape,
-  so a handler bug surfaces. (§1)
+- **`maxAge` zero rule** — recommend 0 = not set, negative = delete, matching the
+  owner's rule for `expires`. Alternative: keep the wire meaning (0 = delete) and
+  accept that a default `Cookie` would then mean "delete". (§3)
+- **`expires` unit** — recommend Unix seconds (`datetime::Instant.seconds`).
+  Alternative: milliseconds. (§3)
+- **Emit when both `maxAge` and `expires` are set** — recommend emitting both; a
+  browser prefers `Max-Age`. (§3)
+- **An invalid cookie** — recommend the `500` (the existing rule for a response that
+  cannot be serialized safely) over dropping the one cookie, so a handler bug is not
+  silent. (§3)
 
 ## Corrections
 
-<Filled in during execution — record the `Request[` and `Response[` census counts
-here.>
+<Filled in during execution — the Phase 0 probe results and census counts go here.>
 
 ## Summary
 
-Two loosely-coupled pieces: trivial request-cookie parsing, and the one genuinely
-tricky bit — emitting multiple `Set-Cookie` through a last-wins header map, pinned
-by a two-cookie fixture. Owns the shared cookie-attribute serializer that
-plan-93-F consumes.
+One `Cookie` record, built with the by-field constructor and used on both sides of the
+wire, plus the three pieces of wire code around it: the request `Cookie` header into
+`req.cookies`, `resp.cookies` out as `Set-Cookie` lines, and `Set-Cookie` lines back
+into `resp.cookies` on the client. The risky part is emit, which must extend the
+bug-506 control-byte guard to the new list. It starts once bug-1021 lands. Plan-93-F
+builds the client jar on top.

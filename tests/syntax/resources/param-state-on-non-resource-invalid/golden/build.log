@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/param-state-on-non-resource-invalid
+  19 | END TYPE
+  20 | 
+  21 | FUNC f(x AS Integer STATE Cur) AS Integer
+     | ^
+tests/syntax/resources/param-state-on-non-resource-invalid/src/main.mfb:21 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               Parameter `x` attaches `STATE Cur` to `Integer`, which is not a resource; remove the STATE clause.
+[exit 1]

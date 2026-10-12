@@ -564,15 +564,18 @@ fn lower_binding(binding: &HirTopLevelBinding, context: &mut LowerContext<'_>) -
             .and_then(|value| expression_type(value, &locals, context))
             .unwrap_or(ParameterType::Unknown)
     };
+    let value = binding
+        .value
+        .as_ref()
+        .map(|value| lower_expression_with_expected(value, Some(&type_), &locals, context));
     IrBinding {
         name: binding.name.clone(),
         visibility: visibility_name(binding.visibility).to_string(),
         mutable: binding.mutable,
-        type_: type_.clone(),
-        value: binding
-            .value
-            .as_ref()
-            .map(|value| lower_expression_with_expected(value, Some(&type_), &locals, context)),
+        // A top-level `RES` binding's `STATE T` rides in the lowered type, as a
+        // local binding's does (`lower_statement`'s `Let` arm), bug-1030.
+        type_: top_level_binding_type(binding, type_),
+        value,
         loc,
         file: context.current_file.clone(),
         explicit_type: binding.explicit_type,
@@ -4179,12 +4182,43 @@ fn link_params(hir: &HirProject) -> HashMap<String, Vec<CallParam>> {
     params
 }
 
+/// The type a top-level binding is known by: `type_` with the binding's `STATE T`
+/// clause folded in, the way a local binding's and a parameter's type carry
+/// theirs (bug-1030). Without the clause `g.state` has no state type to read.
+pub(super) fn top_level_binding_type(
+    binding: &HirTopLevelBinding,
+    type_: ParameterType,
+) -> ParameterType {
+    match &binding.state_type {
+        Some(state) => type_.with_state(state),
+        None => type_,
+    }
+}
+
+/// The type of a lambda parameter: its `STATE T` clause rides in the type,
+/// exactly as a declared FUNC's parameter carries it (`lower_param`), bug-1030.
+///
+/// The lambda's own callable type carries the clause too. A function value is
+/// called through that type alone, so it is the only place the rule "a
+/// parameter observes a resource's state, it cannot re-type it" can be checked:
+/// with the bare type there, `j(bareFile)` would hand a resource with no state
+/// payload to a body that reads `x.state`.
+pub(super) fn lambda_param_type(param: &HirParam) -> ParameterType {
+    match &param.state_type {
+        Some(state) => param.type_.with_state(state),
+        None => param.type_.clone(),
+    }
+}
+
 fn declared_binding_types(hir: &HirProject) -> HashMap<String, ParameterType> {
     let mut bindings = HashMap::new();
     for file in &hir.files {
         for item in &file.items {
             if let HirItem::Binding(binding) = item {
-                bindings.insert(binding.name.clone(), binding.type_.clone());
+                bindings.insert(
+                    binding.name.clone(),
+                    top_level_binding_type(binding, binding.type_.clone()),
+                );
             }
         }
     }
@@ -4214,7 +4248,9 @@ fn infer_binding_types(hir: &HirProject, context: &mut LowerContext<'_>) {
                 if let Some(value) = &binding.value {
                     let locals = HashMap::new();
                     if let Some(type_) = expression_type(value, &locals, context) {
-                        context.binding_types.insert(binding.name.clone(), type_);
+                        context
+                            .binding_types
+                            .insert(binding.name.clone(), top_level_binding_type(binding, type_));
                     }
                 }
             }
@@ -4491,8 +4527,9 @@ pub(super) fn expression_type(
             let param_types = params
                 .iter()
                 .map(|param| {
-                    nested.insert(param.name.clone(), param.type_.clone());
-                    param.type_.clone()
+                    let type_ = lambda_param_type(param);
+                    nested.insert(param.name.clone(), type_.clone());
+                    type_
                 })
                 .collect::<Vec<_>>();
             // An assignment-bodied lambda yields `Nothing`.
@@ -5651,10 +5688,11 @@ fn lower_expression_unwrapped(
             let ir_params = params
                 .iter()
                 .map(|param| {
-                    lambda_locals.insert(param.name.clone(), param.type_.clone());
+                    let type_ = lambda_param_type(param);
+                    lambda_locals.insert(param.name.clone(), type_.clone());
                     IrParam {
                         name: param.name.clone(),
-                        type_: param.type_.clone(),
+                        type_,
                         default: None,
                         loc,
                     }
@@ -5719,10 +5757,7 @@ fn lower_expression_unwrapped(
                 loc,
                 resource_owners: HashMap::new(),
             });
-            let params = params
-                .iter()
-                .map(|param| param.type_.clone())
-                .collect::<Vec<_>>();
+            let params = params.iter().map(lambda_param_type).collect::<Vec<_>>();
             // A lambda is never `ISOLATED`, matching the un-prefixed
             // `FUNC(…) AS …` spelling this used to `format!`.
             let type_ = ParameterType::Func(params, Box::new(returns), false);

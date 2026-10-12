@@ -1,0 +1,28 @@
+' bug-998: `STATE` on a parameter whose type is not a resource.
+'
+' Nothing rejected the clause where it is written. It rode into the parameter's
+' type (`Integer STATE Cur`), which no expression can use, so the author saw
+'
+'   line 22  TYPE_UNKNOWN_VALUE   RETURN value does not have a known type.
+'   line 26  TYPE_STATE_MISMATCH  Argument 1 for `f` is declared `STATE Cur` but
+'                                 carries no STATE ... declare `STATE Cur` on
+'                                 the owning binding.
+'
+' and nothing at line 21. The second message's advice cannot be followed for an
+' `Integer`. The clause is the mistake, so the clause is what is reported: one
+' TYPE_STATE_REQUIRES_RESOURCE at the parameter, and the body and the call type
+' as if it were not there.
+IMPORT io
+
+TYPE Cur
+  n AS Integer
+END TYPE
+
+FUNC f(x AS Integer STATE Cur) AS Integer
+  RETURN x + 1
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(f(41)))
+  RETURN 0
+END FUNC

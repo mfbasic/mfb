@@ -72,6 +72,25 @@ so its symbol cannot equal an export's. Intra-package calls are unaffected: they
 resolve through `overload_names`, which maps each declaration to the symbol it was
 given. [[src/monomorph/lower.rs:Monomorphizer::new]]
 
+**A `PRIVATE` member's set is its file's.** File-private scoping renames a `PRIVATE
+FUNC f` to `#<hash>$f`, and every reference to `f` inside that file with it, but
+leaves the file's own `PUBLIC`/`EXPORT FUNC f` declarations named `f`.
+[[src/ast/scope_privates.rs:scope_privates]] The overload set of the file-scoped
+name is therefore built as the `PRIVATE` declarations plus those same-file
+siblings, each keeping the name it was declared under: a call inside the file
+selects among all of them and is rewritten to the chosen member's own symbol,
+while the set a bare `f` names from any other file never holds a `PRIVATE`
+member. A `PRIVATE` member counts that whole file-scoped set, so it is mangled
+(`#<hash>$f$String`) whenever a same-file sibling exists; the `PUBLIC`/`EXPORT`
+siblings are counted and named by the bare name's set alone, so a `PRIVATE`
+helper never renames them — `EXPORT r(Integer)` beside `PRIVATE r(String)` is
+exported as `r`. When the file's `PRIVATE f` is a template and its `PUBLIC f` is
+not (or the reverse), the file-scoped name reaches the `PUBLIC` declaration too,
+instantiated or called under its own name.
+[[src/monomorph/lower.rs:Monomorphizer::new]]
+[[src/monomorph/lower.rs:resolve_overload]]
+[[src/monomorph/lower.rs:template_name]]
+
 Imported-overload resolution recovers base names by **splitting on `$`** — it
 groups a package's exported `Func`/`Sub` symbols by the substring before the
 first `$`. [[src/monomorph/helpers.rs:collect_imported_overloads]]
@@ -133,6 +152,40 @@ under the per-parameter substitution after the same total-instantiation budget
 and 256-frame depth cap used for functions. [[src/monomorph/lower.rs:instantiate_type]] A constructor
 instantiates its type either from the expected (contextual) type, or by unifying
 field types against the constructor argument types.
+
+### Where an instantiation is emitted
+
+`into_project` emits each generated instantiation — function or type — into the
+source file that **declares its template**, after that file's own items (types
+before functions, each sorted by concrete name). Every later stage keyed on a
+declaration's file therefore sees the scope the template body was written in:
+the post-monomorph resolve binds the body's import aliases through that file's
+`IMPORT`s and reaches that file's `PRIVATE` declarations, the constructor and
+field visibility checks treat an instantiated `PRIVATE` type or `PRIVATE` field
+as that file's, a diagnostic raised in the body cites that file and line, and
+`IrFunction::file` — the `ErrorLoc.filename` of a runtime failure in the body —
+names it. The result does not depend on the order of the source files.
+[[src/monomorph/lower.rs:into_project]]
+
+A template the toolchain declares — a built-in package's injected source, the
+prelude's `Pair`/`Partition` — has no user file. Its instantiations are emitted
+into the project's **first** source file, and a function among them is marked
+`HirFunction::internal_origin` and carries its own call-site attribution (see
+"Diagnostics inside a built-in package's body").
+
+A hosted body can name a package its file never imported: a type argument is
+spelled where the call is written, as the canonical `<package>.<Type>`, and a
+built-in package's body keeps calling that package's helpers. So the resolution
+scope (`HirFile::imports`) of every file that hosts an instantiation, and always
+of the first file, is widened with the other files' imports, in source-file
+order. The hosting file's **own bindings win**: an alias it binds means, in its
+template bodies, the package it bound. A foreign import whose alias is already
+taken there is added under the binding `#<package>`, which no source can spell,
+unless the file already imports that package — a package-qualified type resolves
+through any binding of its package. `HirFile::own_imports` is never widened.
+The mangled symbol of an instantiation and a package's export table do not
+depend on where the instantiation is emitted.
+[[src/monomorph/lower.rs:into_project]] [[src/hir/mod.rs:HirFile]]
 
 ## `unify_type`: structural matching with an `Unknown` wildcard
 
@@ -402,9 +455,10 @@ Non-collections calls return the callee unchanged.
 
 ### Diagnostics inside a built-in package's body
 
-Every instantiation is emitted into the project's first source file, so its
-`HirFunction::file` names that file while its statements keep the line numbers of
-the package source. A rule that fails while checking the body — an operator the
+An instantiation of a built-in package's template is emitted into the project's
+first source file (see "Where an instantiation is emitted"), so the file it is
+checked in is that file while its statements keep the line numbers of the package
+source. A rule that fails while checking the body — an operator the
 element type does not support (`collections::sort` over `Boolean`), a
 comparability requirement (`collections::distinct` over a `FUNC`) — would cite a
 line past the end of the user's file. So an instantiation of a template declared in

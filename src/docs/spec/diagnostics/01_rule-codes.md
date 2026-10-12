@@ -477,7 +477,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0082` | `TYPE_RESOURCE_REQUIRES_RES` | error | resource must be bound with RES |
 | `2-203-0083` | `TYPE_RES_REQUIRES_RESOURCE` | error | RES binds only resource types |
 | `2-203-0084` | `TYPE_RESOURCE_FIELD_FORBIDDEN` | error | reserved; not emitted; resource record fields use `2-203-0082`/`2-203-0083` |
-| `2-203-0085` | `TYPE_STATE_INVALID` | error | STATE must be a copyable, defaultable data type |
+| `2-203-0085` | `TYPE_STATE_INVALID` | error | a STATE type must be a record TYPE that is copyable and defaultable |
 | `2-203-0086` | `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` | error | reserved; not emitted; code is not reused |
 | `2-203-0087` | `TYPE_MIXED_RESOURCE_UNION` | error | a union must be all-data or all-resource, never mixed |
 | `2-203-0088` | `TYPE_UNION_STATE_FORBIDDEN` | error | reserved; not emitted; code is not reused |
@@ -496,6 +496,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0142` | `OS_CONFIG_TYPE_MISMATCH` | error | the selected config declares an os::getConfigOr key with a type other than the default's |
 | `2-203-0143` | `TYPE_TRAP_LOCAL_UNINITIALIZED` | error | a TRAP handler reads a local that an error can reach before it is declared |
 | `2-203-0144` | `TYPE_OVERLOAD_NO_MATCH` | error | no overload has the expected callable type |
+| `2-203-0145` | `TYPE_STATE_REQUIRES_RESOURCE` | error | STATE can only be attached to a resource |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | a resource's CLOSE BY op must be a native LINK function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | error | a resource's CLOSE BY op names no function in its LINK block |
 | `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | a close op must consume exactly one parameter of its resource |

@@ -1,0 +1,19 @@
+{
+  "name": "private_overload_beside_export_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-912: a PRIVATE overload beside a PUBLIC/EXPORT overload of the same name file-scopes only the PRIVATE declaration. The PUBLIC one stays callable from other files, the EXPORT one stays in the package's export table, and inside the declaring file a call selects among both by argument type. Also pins the two neighbours that must not move: two files each declaring `PRIVATE FUNC helper()` do not collide, and a PRIVATE in one file still hides another file's PUBLIC of that name within its own file.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "privovl_pkg",
+      "version": "=0.1.0",
+      "source": "file:packages/privovl_pkg",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

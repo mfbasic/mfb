@@ -1,0 +1,187 @@
+' The MFB subject of the URL oracle (tools/oracles/url/run.sh).
+'
+' MFB_URL_MODE names the mode. The string modes (parse, wpt, pdecode, query, encode) read the
+' job named by MFB_URL_JOB -- one case per line, the case's UTF-8 bytes in hex -- and print
+' one `case <index> <fields...>` line per case. Every String field is printed as `x` plus
+' the hex of its UTF-8 bytes, so an empty field is `x` and no byte needs escaping; the
+' Node judge (node/oracle.mjs) prints the same shape and node/compare.mjs decodes both.
+'
+' The two chunked modes talk to node/chunked.mjs over 127.0.0.1:
+'   chunk-client  http::read of http://127.0.0.1:<MFB_URL_PORT>/c/<i> for i in
+'                 0..MFB_URL_COUNT-1, against Node's raw-socket server.
+'   chunk-server  http::server on 127.0.0.1:<MFB_URL_PORT>, serving MFB_URL_COUNT
+'                 connections whose request bodies Node's raw client writes; the
+'                 handler answers with the hex of the de-chunked Request.body.
+'
+' With no mode it prints nothing and exits 0, which is how the harness checks that a
+' built flavor runs on this host.
+IMPORT collections
+IMPORT encoding
+IMPORT fs
+IMPORT http
+IMPORT io
+IMPORT net
+IMPORT os
+IMPORT strings
+IMPORT tcp
+
+FUNC hx(s AS String) AS String
+  RETURN "x" & encoding::hexEncode(strings::toBytes(s))
+END FUNC
+
+FUNC urlFields(u AS net::Url) AS String
+  RETURN hx(u.scheme) & " " & hx(u.username) & " " & hx(u.password) & " " & hx(u.host) & " " & toString(u.port) & " " & hx(u.path) & " " & hx(u.query) & " " & hx(u.fragment)
+END FUNC
+
+' Re-parse the rendered href: `rt` when it parses back to the same eight fields.
+FUNC reparse(rendered AS String, want AS String) AS String
+  LET v AS net::Url = net::toUrl(rendered) TRAP(e)
+    RETURN "rterr:" & toString(e.code)
+  END TRAP
+  IF urlFields(v) = want THEN
+    RETURN "rt"
+  END IF
+  RETURN "rtdiff:" & urlFields(v)
+END FUNC
+
+' parse: `ok <scheme> <user> <pass> <host> <port> <path> <query> <fragment> <href> <rt>`
+' or `err <code> x<message>`.
+FUNC parseCase(href AS String) AS String
+  LET u AS net::Url = net::toUrl(href) TRAP(e)
+    RETURN "err " & toString(e.code) & " " & hx(e.message)
+  END TRAP
+  LET fields AS String = urlFields(u)
+  LET rendered AS String = toString(u)
+  RETURN "ok " & fields & " " & hx(rendered) & " " & reparse(rendered, fields)
+END FUNC
+
+FUNC netDecode(s AS String) AS String
+  LET out AS String = net::percentDecode(s) TRAP(e)
+    RETURN "err:" & toString(e.code)
+  END TRAP
+  RETURN "ok:" & hx(out)
+END FUNC
+
+FUNC encDecode(s AS String) AS String
+  LET out AS String = encoding::percentDecode(s) TRAP(e)
+    RETURN "err:" & toString(e.code)
+  END TRAP
+  RETURN "ok:" & hx(out)
+END FUNC
+
+FUNC formDecode(s AS String) AS String
+  LET out AS String = encoding::formUrlDecode(s) TRAP(e)
+    RETURN "err:" & toString(e.code)
+  END TRAP
+  RETURN "ok:" & hx(out)
+END FUNC
+
+' pdecode: `<net::percentDecode> <encoding::percentDecode> <encoding::formUrlDecode>`,
+' each `ok:x<hex>` or `err:<code>`.
+FUNC pdecodeCase(s AS String) AS String
+  RETURN netDecode(s) & " " & encDecode(s) & " " & formDecode(s)
+END FUNC
+
+' query: `ok <entries>` -- net::parseQuery's map as `x<key>=x<value>` joined by `,`
+' (`-` when empty), in the map's own order; the comparator sorts.
+FUNC queryCase(s AS String) AS String
+  LET m AS Map OF String TO String = net::parseQuery(s) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  MUT out AS String = ""
+  FOR EACH entry IN m
+    IF out <> "" THEN
+      out = out & ","
+    END IF
+    out = out & hx(entry.key) & "=" & hx(entry.value)
+  NEXT
+  IF out = "" THEN
+    out = "-"
+  END IF
+  RETURN "ok " & out
+END FUNC
+
+' encode: `<percentEncode> <formUrlEncode>`, each `x<hex>`.
+FUNC encodeCase(s AS String) AS String
+  RETURN hx(encoding::percentEncode(s)) & " " & hx(encoding::formUrlEncode(s))
+END FUNC
+
+FUNC runJob(mode AS String, text AS String) AS Nothing
+  LET lines AS List OF String = strings::split(text, "\n")
+  MUT i AS Integer = 0
+  FOR EACH line IN lines
+    IF line <> "" THEN
+      ' A case's hex is `-` for the empty string (an empty line would be skipped).
+      MUT s AS String = ""
+      IF line <> "-" THEN
+        s = toString(encoding::hexDecode(line))
+      END IF
+      MUT fields AS String = "unknown-mode " & mode
+      IF mode = "parse" OR mode = "wpt" THEN
+        fields = parseCase(s)
+      ELSEIF mode = "pdecode" THEN
+        fields = pdecodeCase(s)
+      ELSEIF mode = "query" THEN
+        fields = queryCase(s)
+      ELSEIF mode = "encode" THEN
+        fields = encodeCase(s)
+      END IF
+      io::print("case " & toString(i) & " " & fields)
+      i = i + 1
+    END IF
+  NEXT
+END FUNC
+
+' chunk-client: `ok <status> x<body>` or `err <code>`.
+FUNC clientCase(port AS Integer, i AS Integer) AS String
+  LET u AS net::Url = net::toUrl("http://127.0.0.1:" & toString(port) & "/c/" & toString(i))
+  LET r AS http::Response = http::read(u) TRAP(e)
+    RETURN "err " & toString(e.code)
+  END TRAP
+  RETURN "ok " & toString(r.status) & " x" & encoding::hexEncode(r.body)
+END FUNC
+
+FUNC runClient(port AS Integer, count AS Integer) AS Nothing
+  MUT i AS Integer = 0
+  WHILE i < count
+    io::print("case " & toString(i) & " " & clientCase(port, i))
+    i = i + 1
+  END WHILE
+END FUNC
+
+FUNC echo(req AS http::Request) AS http::Response
+  RETURN http::ok("x" & encoding::hexEncode(req.body))
+END FUNC
+
+FUNC runServer(port AS Integer, count AS Integer) AS Nothing
+  RES s AS tcp::Listener = http::server(port, "127.0.0.1")
+  MUT rs AS List OF http::Route = []
+  rs = collections::append(rs, http::route("/echo", echo))
+  io::print("listening")
+  MUT i AS Integer = 0
+  WHILE i < count
+    http::handleRequest(s, rs)
+    i = i + 1
+  END WHILE
+END FUNC
+
+FUNC main() AS Nothing
+  LET mode AS String = os::getEnvOr("MFB_URL_MODE", "")
+  IF mode = "" THEN
+    RETURN
+  END IF
+  IF mode = "chunk-client" OR mode = "chunk-server" THEN
+    LET port AS Integer = toInt(os::getEnvOr("MFB_URL_PORT", "0"))
+    LET count AS Integer = toInt(os::getEnvOr("MFB_URL_COUNT", "0"))
+    IF mode = "chunk-client" THEN
+      runClient(port, count)
+    ELSE
+      runServer(port, count)
+    END IF
+    RETURN
+  END IF
+  RES h AS fs::File = fs::openFile(os::getEnvOr("MFB_URL_JOB", ""), "r")
+  LET text AS String = fs::readAll(h)
+  fs::close(h)
+  runJob(mode, text)
+END FUNC

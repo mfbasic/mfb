@@ -1,0 +1,72 @@
+' bug-1030: `LAMBDA(x AS fs::File STATE Cur) -> x.state.n` lost the parameter's
+' STATE clause, so the body's `x.state` was refused with TYPE_STATE_INVALID and
+' the lambda had no known type.
+'
+' The clause is part of the parameter's type, as it is for a declared FUNC's
+' parameter, and of the lambda's callable type, so a call through the function
+' value is checked against it
+' (`tests/syntax/resources/bug1030_state_agreement_invalid` is the refusals).
+'
+'   read      the body reads the state its caller attached
+'   update    the body hands the parameter to a `STATE Cur` FUNC, which updates
+'             the caller's resource (a parameter is an alias, not a copy)
+'   capture   a closure over a local does the same
+'   global    a lambda held by a top-level binding
+'   union     a resource-union parameter with a state, beside a plain parameter
+'   list      lambdas of one callable type in a list, called in a loop
+'   loop      one lambda called on a fresh resource per iteration
+IMPORT fs
+IMPORT io
+IMPORT tcp
+
+TYPE Cur
+  n AS Integer
+END TYPE
+
+UNION Stream
+  fs::File
+  tcp::Socket
+END UNION
+
+LET topLevel = LAMBDA(x AS fs::File STATE Cur) -> bump(x) + x.state.n
+
+FUNC bump(x AS fs::File STATE Cur) AS Integer
+  x.state.n = x.state.n + 10
+  RETURN x.state.n
+END FUNC
+
+FUNC main() AS Integer
+  RES f AS fs::File STATE Cur = fs::createTempFile()
+  f.state.n = 4
+
+  LET read = LAMBDA(x AS fs::File STATE Cur) -> x.state.n
+  io::print("read " & toString(read(f)))
+
+  LET update = LAMBDA(x AS fs::File STATE Cur) -> bump(x)
+  io::print("update " & toString(update(f)) & " owner " & toString(f.state.n))
+
+  LET k = 100
+  LET capture = LAMBDA(x AS fs::File STATE Cur) -> bump(x) + k
+  io::print("capture " & toString(capture(f)) & " owner " & toString(f.state.n))
+
+  io::print("global " & toString(topLevel(f)) & " owner " & toString(f.state.n))
+
+  RES s AS Stream STATE Cur = fs::createTempFile()
+  s.state.n = 5
+  LET mixed = LAMBDA(x AS Stream STATE Cur, y AS Integer) -> x.state.n + y
+  io::print("union " & toString(mixed(s, 7)))
+
+  LET both = [read, LAMBDA(x AS fs::File STATE Cur) -> x.state.n * 2]
+  MUT total AS Integer = 0
+  FOR EACH fn IN both
+    total = total + fn(f)
+  NEXT
+  io::print("list " & toString(total))
+
+  FOR i = 1 TO 3
+    RES t AS fs::File STATE Cur = fs::createTempFile()
+    t.state.n = i
+    io::print("loop " & toString(capture(t)) & " owner " & toString(t.state.n))
+  NEXT
+  RETURN 0
+END FUNC

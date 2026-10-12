@@ -1,0 +1,10 @@
+{
+  "name": "template_in_later_file_private_scope_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-911 (B): the body of a user template declared in a later source file calls a PRIVATE function, reads a PRIVATE binding and constructs a PRIVATE record of its OWN file. The instantiation is checked in the declaring file, so those names resolve whatever the file's place in the source order.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

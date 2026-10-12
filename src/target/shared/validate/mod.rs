@@ -169,10 +169,11 @@ fn type_owns_resource(type_: &ParameterType) -> bool {
 ///
 /// plan-114-B: the **record** half of this is gone. It used to reject any record
 /// field owning a resource, on the grounds that such a field would mislead the
-/// layout and drop lowering. That is no longer true: a resource field is an
-/// ordinary 8-byte handle slot (`record_field_is_pointer` classifies it as a
+/// layout and drop lowering. That is no longer true: a concrete resource field is
+/// an ordinary 8-byte handle slot (`record_field_is_pointer` classifies it as a
 /// plain scalar slot, `record_field_is_inlined` as not inlined, so
-/// `emit_record_block_size_to_slot` contributes its 8 bytes and skips it), and
+/// `emit_record_block_size_to_slot` contributes its 8 bytes and skips it), a
+/// resource-union field holds the union's 16-byte box inline (bug-1012), and
 /// `type_is_memcpy_copyable` now says a `memcpy` of that slot is a correct
 /// aliasing copy while `type_is_arena_transferable` says the block may not cross
 /// an arena. The union half is unchanged — a `{tag, record-ptr}` block really

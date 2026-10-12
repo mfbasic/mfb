@@ -1,0 +1,192 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "private_overload_beside_export_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "r",
+    "line": 3,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 3, "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 4, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "int" }, "right": { "kind": "call", "type": "String", "target": "#0fd20d0660c720e8$r$String", "args": [{ "kind": "const", "type": "String", "value": "s" }] } } }
+    ]
+  },
+  {
+    "name": "#0fd20d0660c720e8$r$String",
+    "line": 7,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 7, "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 8, "value": { "kind": "const", "type": "String", "value": "str" } }
+    ]
+  },
+  {
+    "name": "#0fd20d0660c720e8$helper",
+    "line": 12,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 13, "value": { "kind": "const", "type": "String", "value": "helper-a" } }
+    ]
+  },
+  {
+    "name": "#0fd20d0660c720e8$tag",
+    "line": 17,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 18, "value": { "kind": "const", "type": "String", "value": "tag-private-a" } }
+    ]
+  },
+  {
+    "name": "fromA",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 22, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "#0fd20d0660c720e8$helper", "args": [] }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "#0fd20d0660c720e8$tag", "args": [] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "r", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "#0fd20d0660c720e8$r$String", "args": [{ "kind": "const", "type": "String", "value": "x" }] } } }
+    ]
+  },
+  {
+    "name": "#dbd8d822f3f13711$helper",
+    "line": 1,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 2, "value": { "kind": "const", "type": "String", "value": "helper-b" } }
+    ]
+  },
+  {
+    "name": "tag",
+    "line": 5,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 6, "value": { "kind": "const", "type": "String", "value": "tag-public-b" } }
+    ]
+  },
+  {
+    "name": "fromB",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 10, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "#dbd8d822f3f13711$helper", "args": [] }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "tag", "args": [] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "r", "args": [{ "kind": "const", "type": "Integer", "value": "3" }] } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 4,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "r", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fromA", "args": [] }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fromB", "args": [] }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "tag", "args": [] }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "privovl_pkg.r", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "privovl_pkg.pickAll", "args": [] }] } },
+    { "op": "return", "line": 11, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

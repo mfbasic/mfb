@@ -1465,6 +1465,154 @@ impl TypeEnv {
         result
     }
 
+    /// Why a `STATE` clause's type is not a legal payload, or `None` when it is
+    /// (bug-1013): a `STATE` type is a record `TYPE` that is copyable and
+    /// defaultable, and nothing else.
+    ///
+    /// Native code generation treats the resource record's one `STATE` word as a
+    /// pointer to an arena block the resource owns, with 0 meaning "no payload
+    /// yet" (`emit_resource_state_init`, `emit_free_resource_state_block`). A
+    /// scalar has no block and the default `String` is a shared constant, so
+    /// those two were never payloads the back end could hold; a collection
+    /// happened to work and is refused by the same rule, because the contract is
+    /// "a record", not "whatever has a block today".
+    ///
+    /// The kind is decided from what is POSITIVELY known — the project's own
+    /// declarations, the imported packages' (`record_decls`, `enums`, `unions`
+    /// are all seeded from the `.mfp` type table on the source path) and the
+    /// built-in registry. A nominal no table has heard of falls through to
+    /// `is_defaultable`, which already carries the source/package split for it
+    /// (bug-258): the resolver has rejected a typo, and a decoded `.mfp` has no
+    /// unknown names.
+    pub(super) fn state_type_fault(&self, state: &ParameterType) -> Option<StateTypeFault> {
+        match state {
+            // Unresolved, or a generic's own variable: nothing to judge here.
+            // The resolver reports the first; the instantiation is judged with
+            // its concrete type.
+            ParameterType::Unknown | ParameterType::Var(_) | ParameterType::Arg(_) => return None,
+            ParameterType::Named(_) | ParameterType::UserOf(..) => {}
+            // A scalar, a collection, a `FUNC`, a `Result`, a thread handle, a
+            // C ABI type, a `RES` slot or another stateful resource.
+            _ => return Some(StateTypeFault::NotRecord),
+        }
+        // `AttributedString` is spelled as a nominal but is a built-in value
+        // type, not a record (`Error` and `ErrorLoc`, the other two built-in
+        // nominals, ARE records and pass through to `is_defaultable`).
+        if state.is_named("AttributedString")
+            || self.is_resource_or_resource_union(state)
+            || self.enums.contains_key(state)
+            || self.unions.contains_key(state)
+        {
+            return Some(StateTypeFault::NotRecord);
+        }
+        if !self.record_decls.contains(state) {
+            use crate::codegen::registry::{registry, ResolvedType};
+            match registry().resolve_type(&state.name()) {
+                Some(ResolvedType::Record(_)) | None => {}
+                Some(_) => return Some(StateTypeFault::NotRecord),
+            }
+        }
+        if !self.is_defaultable(state, &mut HashSet::new()) {
+            return Some(StateTypeFault::NotDefaultable);
+        }
+        None
+    }
+
+    /// Whether `host` — the type a `STATE` clause is written on — is positively
+    /// NOT a resource (bug-998). Only a known data type answers `true`: a name
+    /// no table has heard of may be an external package's resource, the stance
+    /// [`provably_data_type`](Self::provably_data_type) takes for the `RES`
+    /// marker. This adds the two kinds that predicate cannot see on the source
+    /// path: an imported record and a built-in package's record or enum.
+    pub(super) fn state_host_is_data(&self, host: &ParameterType) -> bool {
+        let host = strip_res(host);
+        if self.is_resource_or_resource_union(host) {
+            return false;
+        }
+        if self.provably_data_type(host) || self.record_decls.contains(host) {
+            return true;
+        }
+        use crate::codegen::registry::{registry, ResolvedType};
+        matches!(host, ParameterType::Named(_))
+            && matches!(
+                registry().resolve_type(&host.name()),
+                Some(ResolvedType::Record(_) | ResolvedType::Enum(_))
+            )
+    }
+
+    /// Apply the two `STATE` clause rules to every clause `type_` spells, at any
+    /// depth: its own top-level one, a collection element's, a record field's
+    /// `RES` slot, a thread's resource plane, a thread view's.
+    ///
+    /// One clause reports at most one of the two, in this order:
+    ///
+    /// 1. `TYPE_STATE_REQUIRES_RESOURCE` (bug-998) — the clause is written on a
+    ///    type that is not a resource. The clause has nothing to attach to, so
+    ///    its own type is not examined.
+    /// 2. `TYPE_STATE_INVALID` (bug-1013) — the host is a resource and the
+    ///    `STATE` type is not a copyable, defaultable record `TYPE`.
+    ///
+    /// Every position that declares a type routes through here, so the rule
+    /// cannot hold at a binding and lapse at an element — which is how a
+    /// `List OF RES fs::File STATE Color`, a thread plane and a field's
+    /// `STATE Integer` all went unchecked while the binding was refused.
+    pub(super) fn check_state_clauses(&self, type_: &ParameterType, subject: &str) {
+        match type_ {
+            ParameterType::Stateful { base, state } => {
+                if self.state_host_is_data(base) {
+                    self.emit(
+                        "TYPE_STATE_REQUIRES_RESOURCE",
+                        format!(
+                            "{subject} attaches `STATE {state}` to `{base}`, which is not a resource; remove the STATE clause."
+                        ),
+                    );
+                } else {
+                    match self.state_type_fault(state) {
+                        Some(StateTypeFault::NotRecord) => self.emit(
+                            "TYPE_STATE_INVALID",
+                            format!(
+                                "{subject} STATE type `{state}` is not a record; declare a record TYPE that holds the value and name it instead."
+                            ),
+                        ),
+                        Some(StateTypeFault::NotDefaultable) => self.emit(
+                            "TYPE_STATE_INVALID",
+                            format!(
+                                "{subject} STATE type `{state}` must be a copyable, defaultable record TYPE."
+                            ),
+                        ),
+                        None => {}
+                    }
+                }
+                self.check_state_clauses(base, subject);
+            }
+            ParameterType::ListOf(inner)
+            | ParameterType::SetOf(inner)
+            | ParameterType::ResultOf(inner)
+            | ParameterType::Res(inner) => self.check_state_clauses(inner, subject),
+            ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+                self.check_state_clauses(key, subject);
+                self.check_state_clauses(value, subject);
+            }
+            ParameterType::UserOf(_, args) => {
+                for arg in args {
+                    self.check_state_clauses(arg, subject);
+                }
+            }
+            ParameterType::Func(params, ret, _) => {
+                for param in params {
+                    self.check_state_clauses(param, subject);
+                }
+                self.check_state_clauses(ret, subject);
+            }
+            ParameterType::ThreadHandle { msg, res, out, .. } => {
+                self.check_state_clauses(msg, subject);
+                self.check_state_clauses(res, subject);
+                self.check_state_clauses(out, subject);
+            }
+            _ => {}
+        }
+    }
+
     /// Whether every path through `ops` leaves the function (mirrors
     /// the former source checker's `Flow::AlwaysReturns`): a Return/Fail/ExitProgram op, an If
     /// whose both branches return, a MATCH with an unguarded CASE ELSE whose

@@ -1,0 +1,61 @@
+Package: package_private_overload_export
+Ident: tests:package-private-overload-export
+Version: 1.0.0
+Ident Key: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
+Author: <empty>
+URL: <empty>
+Path: tests/syntax/packages/package-private-overload-export/package_private_overload_export.mfp
+
+Container:
+  format: MFP
+  version: 1.0
+  binary representation version: 1.0
+  flags: 0x00000000
+  signature type: unsigned
+  signature length: 0
+  package binary hash: dd2db781c642aeab1ee958828b2715d5cb7b0d9c895fc9775417a0b3a866d7a9
+  content hash: 45e621c3cb6b440250e2803f71a1be4aa00787076be9db15f987d8a944d40c05
+  binary representation length: 2951
+
+Manifest:
+  name: package_private_overload_export
+  ident: tests:package-private-overload-export
+  version: 1.0.0
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
+  author: <empty>
+  url: <empty>
+
+Binary Representation:
+  ABI format version: 1
+  types: 0
+  constants: 0
+  resources: 0
+  functions: 6
+  globals: 0
+  cleanups: 0
+  imports: 0
+  exports: 4
+
+Exports:
+  FUNC r
+    sigHash: be513648933da1d22b42432914c9b4a72a62855b94d1140d4e8b55010a6c8c27
+  FUNC pick$Integer$AS$String
+    sigHash: be513648933da1d22b42432914c9b4a72a62855b94d1140d4e8b55010a6c8c27
+  FUNC pick$Integer$AS$Boolean
+    sigHash: 00057e14d827129c7cba09289755224227aeb258bc5f0d28e510d846d17dd9e1
+  FUNC pickAll
+    sigHash: 3becb932decdf9ac677f1fa5ab56ef6c2be350f8f0cf6cedb139a55d1c999d84
+
+Package State:
+  <none>
+
+Resource Cleanups:
+  <none>
+
+Imports:
+  <none>

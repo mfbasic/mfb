@@ -1,0 +1,168 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "template_in_later_file_private_scope_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "#2eb5ac35a29c8d59$base", "line": 5, "visibility": "private", "mutable": false, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "30" } }
+  ],
+  "types": [
+  {
+    "kind": "type",
+    "line": 7,
+    "visibility": "private",
+    "name": "#2eb5ac35a29c8d59$Hid",
+    "fields": [
+    { "visibility": null, "line": 8, "name": "n", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "helperA",
+    "line": 1,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 2, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 3,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 4, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "helperA", "args": [] }] }] } },
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "usesFunc$String", "args": [{ "kind": "const", "type": "String", "value": "q" }] }] }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "usesBinding$Boolean", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] }] }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "usesRecord$Float", "args": [{ "kind": "const", "type": "Float", "value": "1.5" }] }] }] } },
+    { "op": "return", "line": 8, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "#2eb5ac35a29c8d59$hid",
+    "line": 1,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 2, "value": { "kind": "const", "type": "Integer", "value": "41" } }
+    ]
+  },
+  {
+    "name": "usesBinding$Boolean",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 15, "type": "Boolean", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 16, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "global", "name": "#2eb5ac35a29c8d59$base" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+    ]
+  },
+  {
+    "name": "usesFunc$String",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 11, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 12, "value": { "kind": "call", "type": "Integer", "target": "#2eb5ac35a29c8d59$hid", "args": [] } }
+    ]
+  },
+  {
+    "name": "usesRecord$Float",
+    "line": 19,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "x", "line": 19, "type": "Float", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 20, "mutable": false, "name": "h", "type": "#2eb5ac35a29c8d59$Hid", "value": { "kind": "constructor", "type": "#2eb5ac35a29c8d59$Hid", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "return", "line": 21, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "h" }, "member": "n" } }
+    ]
+  }
+  ]
+}

@@ -88,6 +88,10 @@ a `cargo test` target, another script, or a person.
   Sourced, not executable. Run by: sourced by `artifact-gate.sh`, `test-accept.sh`,
   `sync-goldens.sh`, `regen-native-goldens.sh`, `ncode-determinism-alltargets.sh`,
   `diag-set-diff.sh`, `tools/bench-lowering/bench-lowering.sh`.
+- **mfb-snapshot.sh** — Copies the `mfb` binary a harness was handed into a private
+  directory and has the harness run from the copy, so a rebuild of the original
+  part-way through cannot split one run across two compilers. Sourced, not executable.
+  Run by: sourced by `artifact-gate.sh`, `test-accept.sh`.
 - **artifact-kinds.sh** — The shared table of execution-free dump kinds (host and
   per-target native) and the `-O` level-variance predicate, so the harness and the
   gate cannot drift about which dumps exist. Sourced, not executable.

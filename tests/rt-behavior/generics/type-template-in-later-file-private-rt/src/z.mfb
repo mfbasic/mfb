@@ -1,0 +1,27 @@
+PRIVATE TYPE Cell OF T
+  v AS T
+END TYPE
+
+TYPE Box OF T
+  PRIVATE secret AS T
+  shown AS Integer
+END TYPE
+
+FUNC cellSum() AS Integer
+  LET c AS Cell OF Integer = Cell[40]
+  LET d = WITH c { v := 2 }
+  RETURN c.v + d.v
+END FUNC
+
+FUNC boxSum() AS Integer
+  LET b AS Box OF Integer = Box[33, 9]
+  RETURN b.secret + b.shown
+END FUNC
+
+FUNC shownOf(b AS Box OF String) AS Integer
+  RETURN b.shown
+END FUNC
+
+FUNC boxOfText() AS Box OF String
+  RETURN Box["hidden", 5]
+END FUNC

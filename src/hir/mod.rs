@@ -54,9 +54,11 @@ pub(crate) struct HirFile {
     /// The packages this file's own source `IMPORT`ed, in source order.
     ///
     /// Held separately from [`imports`](Self::imports) because monomorphization
-    /// widens that list: `monomorph::lower` emits every generated instantiation
-    /// into the FIRST file and unions every other file's imports into it, so
-    /// those bodies' package-qualified calls still resolve. After that pass
+    /// widens that list: `monomorph::lower` emits a generated instantiation into
+    /// the file that declares its template (the FIRST file for a template the
+    /// toolchain declares) and unions every other file's imports into each file
+    /// that hosts one, so those bodies' package-qualified names still resolve;
+    /// the hosting file's own bindings win. After that pass
     /// `main.mfb`'s `imports` reads `{tcp, udp, net, strings, collections}` for a
     /// program that wrote only `IMPORT tcp` and `IMPORT udp` — `net`, `strings`
     /// and `collections` arrive from the injected `udp` companion source.
@@ -312,13 +314,17 @@ pub(crate) struct HirFunction {
     pub(crate) return_resource: bool,
     /// The `STATE T` type attached to a `RES` return type, if any (bare, parsed).
     pub(crate) return_state_type: Option<ParameterType>,
+    /// A return's `STATE T` clause on a type that is not a resource (bug-998),
+    /// moved here exactly as [`HirParam::stray_state`] is.
+    pub(crate) return_stray_state: Option<ParameterType>,
     pub(crate) body: Vec<HirStatement>,
     pub(crate) trap: Option<HirTrap>,
     pub(crate) line: usize,
     /// Set by the monomorphizer on an instantiation of a template declared in an
     /// internal (built-in package) file. The instantiation is emitted into the
-    /// user's first file, but it is still the package's code: the resolver exempts
-    /// it from the rules an internal file is exempt from.
+    /// user's first file (a user template's goes into its declaring file), but it
+    /// is still the package's code: the resolver exempts it from the rules an
+    /// internal file is exempt from.
     pub(crate) internal_origin: bool,
     /// bug-642: for an `internal_origin` instantiation, every user call that
     /// reaches it, in the order monomorphization met them (one instantiation
@@ -372,6 +378,12 @@ pub(crate) struct HirParam {
     pub(crate) resource: bool,
     /// The `STATE T` type attached to the parameter, if any (bare, parsed).
     pub(crate) state_type: Option<ParameterType>,
+    /// A `STATE T` clause the source wrote on a parameter whose type is not a
+    /// resource (bug-998). [`resource_params`] moves the clause here on the
+    /// build path, so the parameter types as the plain value it is and
+    /// `ir::shape` reports the clause once (`TYPE_STATE_REQUIRES_RESOURCE`)
+    /// instead of every use of the parameter failing to type.
+    pub(crate) stray_state: Option<ParameterType>,
     pub(crate) default: Option<HirExpression>,
     pub(crate) line: usize,
 }
@@ -842,6 +854,7 @@ fn elaborate_function(function: &crate::ast::Function) -> HirFunction {
         returns: parse_optional_type(&function.return_type, type_params),
         return_resource: function.return_resource,
         return_state_type: parse_optional_state(&function.return_state_type, type_params),
+        return_stray_state: None,
         body: function
             .body
             .iter()
@@ -876,6 +889,7 @@ fn elaborate_param(param: &crate::ast::Param, type_params: &[String]) -> HirPara
         // Derived from the type once the project is elaborated (bug-976).
         resource: false,
         state_type: parse_optional_state(&param.state_type, type_params),
+        stray_state: None,
         default: param
             .default
             .as_ref()

@@ -1,0 +1,21 @@
+' The FIRST source file. It binds `lib` to a different package than z.mfb does,
+' and it declares no template.
+IMPORT tmpl_scope_a AS lib
+
+PRIVATE TYPE Rec
+  n AS Integer
+END TYPE
+
+FUNC fromA() AS Integer
+  RETURN lib::idI(1)
+END FUNC
+
+' Type arguments come from the CALLING file: a PRIVATE record of this file, and a
+' record of a package z.mfb does not import (and whose alias z.mfb binds elsewhere).
+FUNC typeArgsFromA() AS Integer
+  LET r AS Rec = ident(Rec[5])
+  LET made AS lib::Thing = lib::make()
+  LET t AS lib::Thing = ident(made)
+  LET b AS Box OF Rec = boxOf(Rec[7])
+  RETURN r.n + t.n + b.held.n + b.shown
+END FUNC

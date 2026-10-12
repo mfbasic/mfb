@@ -1,0 +1,10 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET r = boom(helperA())
+  RETURN r
+  TRAP(e)
+    io::print(e.source.filename & ":" & toString(e.source.line))
+    RETURN 0
+  END TRAP
+END FUNC

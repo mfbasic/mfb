@@ -1,0 +1,11 @@
+EXPORT TYPE Thing
+  n AS Integer
+END TYPE
+
+EXPORT FUNC idI(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+EXPORT FUNC make() AS Thing
+  RETURN Thing[11]
+END FUNC

@@ -436,13 +436,35 @@ close/reclamation distinction.
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_moved_resource_record_free]]
 [[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
 
+An **aggregate temporary its statement owns outright** (`./mfb spec language
+resource-management`, `len(mkList())`) is the bound form shrunk to one statement.
+When the call returns, the result is spilled to a `resource_temp` slot and every
+resource it reaches is pushed, adopting, onto a list of its leaf kind headed by a
+`resource_temp_owned` slot: an unowned record takes the current scope's token and
+gets a `{record, next}` node, a record that already has an owner is skipped. The
+slots are zero-initialized with the frame, so a path that never ran the producer
+drops nothing. At the end of the statement — and on each of its other exits, an
+error exit and a `RETURN` included — the lists are drained with the owning frees
+described next (close, then the buffers, `STATE` and record), and the result's own
+block is freed when the callee built it and no pending-temporary free already
+covers it (a `List OF RES T` is not freeable-flat and has none; a record or a list
+of records is, and has one). A record the receiving call raised to a longer-lived
+owner no longer holds this scope's token and is skipped by the drain.
+[[src/codegen/engine/value/builder_values.rs:adopt_exclusive_temp]]
+[[src/codegen/engine/value/builder_values.rs:emit_exclusive_temp_drop]]
+[[src/codegen/engine/builder/mod.rs:ExclusiveTemps]]
+
 A resource that **floats** into an owner collection (`./mfb spec language
 resource-management` §15.6) has no binding of its own left to drop, so its memory is
 reclaimed by that collection's owned-list drain instead. The drain always frees the
-16-byte `{record, next}` node it allocated for the element, which nothing but the drain
-can name. Everything the node POINTS at — the element's `STATE` block, its per-`File`
-I/O buffers, its record for the record-freeing kinds above, a union element's
-`{tag, record-ptr}` box, and the collection block itself — is freed only for a
+node it allocated for the element, which nothing but the drain can name: a 16-byte
+`{record, next}` node, or for a resource-union element a 24-byte
+`{tag, record, next}` node holding a copy of the element's box. The drain frees no
+union box: a box is its binding's or its statement's, or a span of the collection
+block that holds the element inline (`./mfb spec memory heap-values`, "Union").
+Everything the node POINTS at — the element's `STATE` block, its per-`File`
+I/O buffers, its record for the record-freeing kinds above, and the collection
+block itself — is freed only for a
 collection proved to be their one owner: every store into it is a collection
 literal, a self-receiving `collections::` mutator, a call audited to return a block
 nothing else holds — `collections::take`/`drop`/`chunks`/`window` (source bodies over
@@ -453,7 +475,11 @@ calls, or a local whose every store is fresh, that no call keeps and that is nam
 nowhere but in its `RETURN`s (a parameter never qualifies: it is the caller's block); it
 is never named outside a call's argument position, except as the iterable of a
 `FOR EACH` whose loop variable itself stays inside the loop (used only as an argument
-no call keeps); no call keeps its block — it is never
+no call keeps); a `MATCH` holds nothing either — it reads its scrutinee's tag, and the
+temporary it binds the scrutinee to and each case binding are references that count
+only if they leave the `MATCH` themselves, by the loop variable's rule, so a function
+that reads a resource-union parameter with `MATCH` does not keep it; no call keeps its
+block — it is never
 a `collections::` member's non-receiver argument (`collections::append(out, piece)`
 stores `piece`'s block inside `out`), nor an argument a callee's body keeps by the same
 rules, a recursive callee counting as keeping, nor an argument of a call that reaches
@@ -462,7 +488,8 @@ callback whose body keeps a parameter that can carry a reference (a callback hel
 local counts as keeping); no element read back out of it by `collections::get`/`getOr`
 (or a `*::poll`) is kept — a read written straight into an argument of a call that does
 not keep it ends with that call, while one that is bound, returned, stored as an element
-or nested in another value disqualifies the collection; and every element that floats
+or nested in another value disqualifies the collection (a read that is a `MATCH`'s
+scrutinee ends with the `MATCH` unless a case binding leaves it); and every element that floats
 into it is a fresh producer record that does not escape and is not handed to such
 unread code. Such a collection also frees the block a copying
 reassignment replaces (`out = collections::append(out, x)` when the in-place append
@@ -470,7 +497,23 @@ declines); the elements are references and are not touched. The intermediates a 
 element's singleton, `set`'s removed copy) are freed the same shallow way.
 [[src/codegen/collection/buffer/collection_buffer.rs:free_intermediate_collection]] A collection that fails any of those keeps a close-only drain, which leaks
 those blocks rather than risking a double free.
+A collection that reaches a resource union is held to the same proof as any other.
+
+A **record** that reaches a resource — a record with a `RES` field, or one nesting
+such a record — is an owner container too: bound to a call's result, it adopts the
+records the call hands back inside it, and its drain frees them under the same
+proof. A function that returns a record it constructed returns a fresh block. A
+record is read through its fields and is copied by value, so three readings of it
+leave no holder behind: a field read written straight into an argument of a call
+that neither keeps nor consumes it (`fs::readAll(k.h)`), a field read that is an
+operand of a comparison or is bound to a plain scalar, and a copy bound from it
+(`LET k2 = k`, `LET k2 = WITH k { … }`) that itself stays inside the scope, by the
+loop variable's rule. A handle bound on its own (`RES f = k.h`), a field stored as an
+element, a copy made by assignment, and a record returned or handed to a callee that
+keeps it are holders, and the record's drain then closes without freeing.
+[[src/codegen/resource/cleanup/record_ownership.rs:field_read_root]]
 [[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
+[[src/codegen/resource/cleanup/record_ownership.rs:is_match_view]]
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
 
 A binding that adopts a call's result lists only the records it takes. A record that

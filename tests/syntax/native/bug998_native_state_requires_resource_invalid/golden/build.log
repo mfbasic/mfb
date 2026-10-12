@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/native/bug998_native_state_requires_resource_invalid
+  22 |     SUCCESS_ON status = 0
+  23 |   END FUNC
+  24 |   FUNC count() AS RES Integer STATE Info
+     | ^
+tests/syntax/native/bug998_native_state_requires_resource_invalid/src/lib.mfb:24 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               native FUNC `count` return attaches `STATE Info` to `Integer`, which is not a resource; remove the STATE clause.
+  27 |     RETURN n
+  28 |   END FUNC
+  29 |   FUNC poke(n AS Integer STATE Info) AS Integer
+     | ^
+tests/syntax/native/bug998_native_state_requires_resource_invalid/src/lib.mfb:29 error[2-203-0145 TYPE_STATE_REQUIRES_RESOURCE]: STATE can only be attached to a resource
+               native FUNC `poke` parameter `n` attaches `STATE Info` to `Integer`, which is not a resource; remove the STATE clause.
+[exit 1]

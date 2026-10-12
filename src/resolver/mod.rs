@@ -667,6 +667,48 @@ impl<'a> Resolver<'a> {
             return;
         }
 
+        // bug-912: a PRIVATE `FUNC f` is file-scoped to `#<hash>$f` while a
+        // PUBLIC/EXPORT `FUNC f` of the same file keeps its name, so the two no
+        // longer share a key above. They are still one overload set inside that
+        // file, where visibility is not part of a callable's identity: the same
+        // signature twice is a duplicate declaration there, whichever comes first.
+        if !file.internal {
+            let (private_name, sibling) =
+                match crate::internal_name::private_name_parts(&function.name) {
+                    Some((_, plain)) => (function.name.clone(), plain.to_string()),
+                    None => {
+                        let private_name = crate::internal_name::mangle_private(
+                            &crate::internal_name::file_scope_hash(&file.path),
+                            &function.name,
+                        );
+                        (private_name.clone(), private_name)
+                    }
+                };
+            if let Some(previous) = self
+                .functions
+                .get(&sibling)
+                .and_then(|functions| {
+                    functions.iter().find(|candidate| {
+                        candidate.symbol.file_path == file.path
+                            && candidate.params == params
+                            && candidate.return_type == return_type
+                    })
+                })
+                .cloned()
+            {
+                self.report(
+                    "SYMBOL_DUPLICATE_TOP_LEVEL",
+                    &format!(
+                        "Top-level symbol `{private_name}` was already declared in {}:{}.",
+                        previous.symbol.file_path, previous.symbol.line
+                    ),
+                    file,
+                    function.line,
+                );
+                return;
+            }
+        }
+
         self.functions
             .entry(function.name.clone())
             .or_default()
@@ -807,6 +849,7 @@ mod tests {
             type_: type_name.map_or(ParameterType::Unknown, ParameterType::parse),
             resource: false,
             state_type: None,
+            stray_state: None,
             default: None,
             line: 1,
         }
@@ -822,6 +865,7 @@ mod tests {
             returns: ParameterType::Unknown,
             return_resource: false,
             return_state_type: None,
+            return_stray_state: None,
             body: Vec::new(),
             trap: None,
             line: 1,
@@ -1390,5 +1434,70 @@ mod tests {
         let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
         assert!(!resolver.had_error);
         assert!(resolver.function_visible_in_file(&file, "closeDb"));
+    }
+
+    /// A `FUNC name(x AS Integer)` of `visibility` declared on `line`.
+    fn func_at(name: &str, visibility: Visibility, line: usize) -> HirItem {
+        let mut function = func(name, vec![hir_param("x", Some("Integer"))]);
+        function.visibility = visibility;
+        function.line = line;
+        HirItem::Function(function)
+    }
+
+    /// bug-912: a PRIVATE `FUNC f` is file-scoped while the same file's PUBLIC
+    /// `FUNC f` keeps its name, so they no longer share a symbol-table key. They
+    /// are still one overload set inside the file, and the same signature twice
+    /// stays a duplicate declaration in either order.
+    #[test]
+    fn a_private_and_a_public_function_of_one_signature_in_one_file_are_duplicates() {
+        let private_f = crate::internal_name::mangle_private(
+            &crate::internal_name::file_scope_hash("a.mfb"),
+            "f",
+        );
+        let dir = std::path::Path::new(".");
+        for items in [
+            vec![
+                func_at("f", Visibility::Public, 1),
+                func_at(&private_f, Visibility::Private, 4),
+            ],
+            vec![
+                func_at(&private_f, Visibility::Private, 1),
+                func_at("f", Visibility::Public, 4),
+            ],
+        ] {
+            let hir = project_of(items);
+            let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
+            assert!(resolver.had_error, "the second declaration is a duplicate");
+        }
+    }
+
+    /// The neighbours of that rule: a different signature is a legal overload,
+    /// and another file's PRIVATE `f` never meets this file's PUBLIC `f`.
+    #[test]
+    fn a_private_overload_or_another_files_private_is_not_a_duplicate() {
+        let private_f = crate::internal_name::mangle_private(
+            &crate::internal_name::file_scope_hash("a.mfb"),
+            "f",
+        );
+        let dir = std::path::Path::new(".");
+        let mut overload = func(&private_f, vec![hir_param("x", Some("String"))]);
+        overload.visibility = Visibility::Private;
+        let hir = project_of(vec![
+            func_at("f", Visibility::Public, 1),
+            HirItem::Function(overload),
+        ]);
+        assert!(!quiet(|| Resolver::new(dir, &HashMap::new(), &hir)).had_error);
+
+        let other_private_f = crate::internal_name::mangle_private(
+            &crate::internal_name::file_scope_hash("b.mfb"),
+            "f",
+        );
+        let mut other = hir_file("b.mfb");
+        other
+            .items
+            .push(func_at(&other_private_f, Visibility::Private, 1));
+        let mut hir = project_of(vec![func_at("f", Visibility::Public, 1)]);
+        hir.files.push(other);
+        assert!(!quiet(|| Resolver::new(dir, &HashMap::new(), &hir)).had_error);
     }
 }

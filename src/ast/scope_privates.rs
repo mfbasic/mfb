@@ -11,6 +11,13 @@
 //! later stage (resolve, monomorph, IR, NIR, native symbols) sees distinct names
 //! and needs no per-file visibility bookkeeping.
 //!
+//! One name can be both: a `PRIVATE FUNC f` beside a `PUBLIC`/`EXPORT FUNC f`
+//! with a different signature is a legal overload set (bug-912). Only the
+//! `PRIVATE` declaration is renamed; the file's references to `f` all become the
+//! file-scoped name, and that name's overload set is the file's own `f`
+//! declarations of every visibility (built by the monomorphizer, and checked for
+//! a same-signature duplicate by the resolver).
+//!
 //! Reference rewriting is scope-aware: a reference shadowed by a local binding
 //! (param, `LET`/`MUT`, `FOR`/`FOR EACH` variable, lambda param, `MATCH` binding,
 //! or `TRAP` binding) is left alone.
@@ -78,8 +85,15 @@ pub fn scope_privates(project: &mut AstProject) -> Vec<PendingDiagnostic> {
         let hash = &file_hashes[index];
         let mut rename: HashMap<String, String> = HashMap::new();
         let mut private_types: HashMap<String, String> = HashMap::new();
+        // Names whose PRIVATE declarations in this file include something other
+        // than a `FUNC`. Only a name that is PRIVATE purely as functions can form
+        // an overload set with a same-file PUBLIC/EXPORT `FUNC` (see below).
+        let mut private_non_function: HashSet<String> = HashSet::new();
         for item in &file.items {
             if let Some((name, Visibility::Private, is_type)) = item_name_vis(item) {
+                if !matches!(item, Item::Function(_)) {
+                    private_non_function.insert(name.to_string());
+                }
                 let mangled = mangle_private(hash, name);
                 if public_names.contains(name) {
                     diagnostics.push(PendingDiagnostic {
@@ -102,7 +116,25 @@ pub fn scope_privates(project: &mut AstProject) -> Vec<PendingDiagnostic> {
             continue;
         }
         for item in &mut file.items {
-            rename_decl(item, &rename);
+            // bug-912: visibility is not part of a callable's identity, so a
+            // PUBLIC/EXPORT `FUNC` and a PRIVATE `FUNC` of the same name in one
+            // file are overloads of each other. Only the PRIVATE one is
+            // file-scoped: the PUBLIC/EXPORT sibling keeps its source name, so it
+            // stays callable from the other files and stays in the package's
+            // export table. References inside this file are still rewritten to
+            // the file-scoped name, which the monomorphizer resolves against both
+            // (`Monomorphizer::new` adds the same-file sibling to that name's
+            // overload set). Every other same-name pairing is not overloadable and
+            // keeps colliding under the one file-scoped name.
+            let public_overload = matches!(
+                &*item,
+                Item::Function(function)
+                    if !matches!(function.visibility, Visibility::Private)
+                        && !private_non_function.contains(&function.name)
+            );
+            if !public_overload {
+                rename_decl(item, &rename);
+            }
             rewrite_item_refs(item, &rename, &private_types);
         }
     }
@@ -1015,5 +1047,66 @@ END TESTING
         let mut project = crate::testutil::project_from_src(src);
         scope_privates(&mut project);
         assert!(project.to_json().contains(&mangled("Elem")));
+    }
+
+    /// The `(name, visibility)` of every top-level `FUNC` in the user's file.
+    fn declared_functions(project: &AstProject) -> Vec<(String, Visibility)> {
+        project.files[0]
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Function(function) => Some((function.name.clone(), function.visibility)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_public_overload_beside_a_private_overload_keeps_its_name() {
+        // bug-912: an EXPORT/PUBLIC `r` and a PRIVATE `r` with a different
+        // signature are a legal overload set. Renaming the EXPORT one with the
+        // PRIVATE one took it out of the package's export table and made a PUBLIC
+        // one uncallable from every other file.
+        let src = "EXPORT FUNC r(x AS Integer) AS String\n  RETURN r(\"s\")\nEND FUNC\n\n\
+             FUNC r(x AS Boolean) AS String\n  RETURN \"bool\"\nEND FUNC\n\n\
+             PRIVATE FUNC r(x AS String) AS String\n  RETURN \"str\"\nEND FUNC\n";
+        let mut project = project_from_src(src);
+        scope_privates(&mut project);
+        assert_eq!(
+            declared_functions(&project),
+            vec![
+                ("r".to_string(), Visibility::Export),
+                ("r".to_string(), Visibility::Public),
+                (mangled("r"), Visibility::Private),
+            ]
+        );
+        // The file's own references still name the file-scoped overload set, which
+        // is what lets a call inside the file reach the PRIVATE member.
+        let Item::Function(exported) = &project.files[0].items[0] else {
+            panic!("the first item is the EXPORT function");
+        };
+        let Statement::Return {
+            value: Some(Expression::Call { callee, .. }),
+            ..
+        } = &exported.body[0]
+        else {
+            panic!("the EXPORT function returns a call");
+        };
+        assert_eq!(callee, &mangled("r"));
+    }
+
+    #[test]
+    fn a_public_func_beside_a_private_non_function_is_still_renamed() {
+        // Only a FUNC/FUNC pair is an overload set. A PUBLIC `FUNC shared` beside
+        // a PRIVATE `LET shared` is not, and keeps colliding under the one
+        // file-scoped name so the resolver reports the duplicate.
+        let src =
+            "FUNC shared() AS Integer\n  RETURN 1\nEND FUNC\n\nPRIVATE LET shared AS Integer = 2\n";
+        let mut project = project_from_src(src);
+        scope_privates(&mut project);
+        assert_eq!(
+            declared_functions(&project),
+            vec![(mangled("shared"), Visibility::Public)]
+        );
     }
 }

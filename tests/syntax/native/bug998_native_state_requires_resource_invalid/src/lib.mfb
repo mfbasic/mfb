@@ -1,0 +1,34 @@
+' bug-998 at the native boundary. A LINK declaration is a position a STATE
+' clause can be written like any other, and the clause must sit on a resource
+' (TYPE_STATE_REQUIRES_RESOURCE): `count` returns a `RES Integer` with a STATE,
+' and `poke` takes an Integer with one. `open` is the contrast, a STATE on the
+' declared resource.
+EXPORT RESOURCE Db CLOSE BY sql::close
+
+EXPORT TYPE Info
+  opens AS Integer
+END TYPE
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db STATE Info
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC count() AS RES Integer STATE Info
+    SYMBOL "sqlite3_libversion_number"
+    ABI () AS n CInt32
+    RETURN n
+  END FUNC
+  FUNC poke(n AS Integer STATE Info) AS Integer
+    SYMBOL "sqlite3_sleep"
+    ABI (n CInt32) AS slept CInt32
+    RETURN slept
+  END FUNC
+END LINK

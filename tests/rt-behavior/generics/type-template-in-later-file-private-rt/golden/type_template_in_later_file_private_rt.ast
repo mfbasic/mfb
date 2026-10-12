@@ -1,0 +1,135 @@
+{
+  "project": "type_template_in_later_file_private_rt",
+  "files": [
+  {
+    "path": "src/a.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "helperA",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 2 }
+      ]
+    }
+    ]
+  },
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "helperA", "arguments": [] }] }] }, "line": 4 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "cellSum", "arguments": [] }] }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "boxSum", "arguments": [] }] }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Box OF String", "value": { "kind": "call", "callee": "boxOfText", "arguments": [] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "shown" }, "right": { "kind": "call", "callee": "shownOf", "arguments": [{ "kind": "identifier", "value": "b" }] } }] }] }, "line": 8 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 9 }
+      ]
+    }
+    ]
+  },
+  {
+    "path": "src/z.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "#2eb5ac35a29c8d59$Cell",
+      "templateParams": ["T"],
+      "line": 1,
+      "fields": [
+      { "visibility": null, "name": "v", "type": "T", "line": 2 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Box",
+      "templateParams": ["T"],
+      "line": 5,
+      "fields": [
+      { "visibility": "private", "name": "secret", "type": "T", "line": 6 },
+      { "visibility": null, "name": "shown", "type": "Integer", "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "cellSum",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "c", "type": "#2eb5ac35a29c8d59$Cell OF Integer", "value": { "kind": "constructor", "type": "#2eb5ac35a29c8d59$Cell", "arguments": [{ "kind": "number", "value": "40" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": null, "value": { "kind": "with", "target": { "kind": "identifier", "value": "c" }, "updates": [{ "field": "v", "value": { "kind": "number", "value": "2" } }] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "v" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "v" } }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "boxSum",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Box OF Integer", "value": { "kind": "constructor", "type": "Box", "arguments": [{ "kind": "number", "value": "33" }, { "kind": "number", "value": "9" }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "secret" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "shown" } }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "shownOf",
+      "line": 21,
+      "params": [
+      { "name": "b", "type": "Box OF String", "default": null, "line": 21 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "shown" }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "boxOfText",
+      "line": 25,
+      "params": [
+      ],
+      "returnType": "Box OF String",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Box", "arguments": [{ "kind": "string", "value": "hidden" }, { "kind": "number", "value": "5" }] }, "line": 26 }
+      ]
+    }
+    ]
+  }
+  ]
+}

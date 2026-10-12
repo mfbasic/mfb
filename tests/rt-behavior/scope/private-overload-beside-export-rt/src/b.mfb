@@ -1,0 +1,11 @@
+PRIVATE FUNC helper() AS String
+  RETURN "helper-b"
+END FUNC
+
+FUNC tag() AS String
+  RETURN "tag-public-b"
+END FUNC
+
+FUNC fromB() AS String
+  RETURN helper() & " " & tag() & " " & r(3)
+END FUNC

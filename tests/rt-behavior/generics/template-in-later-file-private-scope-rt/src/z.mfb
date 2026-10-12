@@ -1,0 +1,22 @@
+PRIVATE FUNC hid() AS Integer
+  RETURN 41
+END FUNC
+
+PRIVATE LET base AS Integer = 30
+
+PRIVATE TYPE Hid
+  n AS Integer
+END TYPE
+
+FUNC usesFunc OF T(x AS T) AS Integer
+  RETURN hid()
+END FUNC
+
+FUNC usesBinding OF T(x AS T) AS Integer
+  RETURN base + 1
+END FUNC
+
+FUNC usesRecord OF T(x AS T) AS Integer
+  LET h AS Hid = Hid[7]
+  RETURN h.n
+END FUNC

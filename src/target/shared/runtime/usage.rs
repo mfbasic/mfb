@@ -148,6 +148,17 @@ pub fn required_helpers(ir: &IrProject) -> Vec<RuntimeHelper> {
     for function in &ir.functions {
         push_op_helpers(&function.body, &resource_union_closes, &mut helpers);
     }
+    // A top-level binding's initializer is code too (it runs in the module
+    // initializer, which `validate_nir` walks like any function), so a package
+    // called only from there needs its helper declared: `RES g AS fs::File =
+    // fs::createTempFile()` in a program whose functions never call `fs`
+    // (bug-1030's reproduction) otherwise fails with "requires undeclared
+    // helper 'fs'".
+    for binding in &ir.bindings {
+        if let Some(value) = &binding.value {
+            push_value_helpers(value, &mut helpers);
+        }
+    }
     helpers
 }
 

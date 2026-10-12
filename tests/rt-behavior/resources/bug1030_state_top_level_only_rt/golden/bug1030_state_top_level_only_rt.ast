@@ -1,0 +1,39 @@
+{
+  "project": "bug1030_state_top_level_only_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 10 },
+    { "module": "fs", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Cur",
+      "line": 12,
+      "fields": [
+      { "visibility": null, "name": "n", "type": "Integer", "line": 13 }
+      ]
+    },
+    { "kind": "binding", "visibility": "public", "mutable": false, "resource": true, "state": "Cur", "name": "g", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 16 },
+    { "kind": "binding", "visibility": "public", "mutable": false, "resource": true, "state": null, "name": "h", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 17 },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "g" }, "member": "state" }, "member": "n" }] }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

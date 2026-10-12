@@ -13,8 +13,13 @@ not a resource handle.
 
 Parsing splits at the first `://`. The scheme before it is lowercased and must be
 `http` or `https`; anything else raises `ErrUnsupported`, and a missing `://`
-raises `ErrInvalidFormat`. The authority runs to the first `/`, `?`, or `#`, or
-to the end of the string.
+raises `ErrInvalidFormat`. The authority runs to the first `/`, `\`, `?`, or `#`,
+or to the end of the string.
+
+A backslash counts as a slash, as it does in a browser. It ends the authority, so
+`http://good.com\@evil.com/` has host `good.com` and path `/@evil.com/` — the text
+before the backslash is never read as userinfo — and every `\` in the path is
+stored as `/`. A backslash in the query or the fragment is kept.
 
 Userinfo is optional and is split off at the **last** `@` in the authority, not
 the first, as RFC 3986 and the WHATWG URL standard require. That matters for an
@@ -23,26 +28,53 @@ host `c`, not host `b@c`. Within the userinfo the split is at the *first* colon:
 before it is `username`, after it is `password`, both stored exactly as written
 with no decoding. Userinfo with no colon is a username only.
 
-The host may be a DNS name, an IPv4 literal, or a bracketed IPv6 literal, whose
-brackets are stripped so `[::1]` stores host `::1`. After a bracketed literal
-only a `:port` may follow — anything else raises `ErrInvalidFormat`, as does an
-unterminated bracket. An empty host is rejected. The host is otherwise **not**
-validated: a name that is syntactically odd but non-empty is accepted here and
-only fails later, at resolution time.
+The host must be a name, an IPv4 address, or a bracketed IPv6 address, and it is
+checked here, not later when something connects. Anything else raises
+`ErrInvalidFormat`, as does an empty host.
+
+A name may not contain a control character, a space, or any of
+`#%/:<>?@[\]^|`. That is checked after `%XX` escapes are decoded, so `%00` and a
+malformed escape such as `%zz` fail too. A tab, line feed or carriage return in
+the host is one of those control characters: `toUrl` removes nothing from the text
+you give it. A valid name is stored exactly as written, escapes and letter case
+included.
+
+A host whose last dot-separated part is a number is an IPv4 address and must be a
+valid one. Each part may be decimal, octal with a leading `0`, or hexadecimal with
+a leading `0x`, and there may be one to four parts, the last filling the bytes the
+others leave. The stored host is always the plain dotted-decimal address:
+`http://0x7f.1/`, `http://2130706433/`, `http://127.1/` and `http://0177.0.0.1/`
+all store `127.0.0.1`, and `127.0.0.010` stores `127.0.0.8`. A check you write
+against `host` therefore sees the address a connection would reach. A part that
+is out of range, a digit that does not belong to its base (`1.2.3.09`), or a name
+ending in a number (`foo.09`) raises `ErrInvalidFormat`.
+
+A bracketed host must be an IPv6 address: groups of one to four hexadecimal
+digits separated by colons, at most one `::`, optionally ending in a dotted-decimal
+IPv4 address. The brackets are stripped, so `[::1]` stores host `::1`, and the
+address is otherwise stored as written. After a bracketed literal only a `:port`
+may follow — anything else raises `ErrInvalidFormat`, as does an unterminated
+bracket.
+
+A host containing a character outside ASCII is stored as written; `toUrl` does
+not convert an internationalized name to its `xn--` form, and it does not check
+that an `xn--` label is a valid one. The number rule above still applies: such a
+host whose last part is a number is refused, because its other parts are not
+numbers.
 
 The port is optional and defaults to the scheme default — 443 for `https` and 80
 for everything else, which given the scheme check means 80 for `http`. A bare
 trailing `:` with nothing after it counts as absent, so
 `http://example.com:` takes the default 80 rather than failing.
 
-A **non-empty** explicit port must not carry a leading `+` or `-` (ports are
-unsigned), must be base-10 digits, and must not exceed 65535; each of those
-raises `ErrInvalidFormat`. `ErrOutOfMemory` means the program ran out of memory.
+A **non-empty** explicit port must be ASCII digits only — so no leading `+` or
+`-` — and must not exceed 65535; each of those raises `ErrInvalidFormat`. `ErrOutOfMemory` means the program ran out of memory.
 
 What remains is split at the first `#` into a fragment and at the first `?` into a
 query, each stored without its leading punctuation. An absent path becomes `"/"`.
-No percent-decoding and no other normalization is performed anywhere in `toUrl` —
-use `net::percentDecode` for a path component and `net::parseQuery` for the query
+Apart from the IPv4 host and the path's backslashes, `toUrl` stores each part as
+written: nothing is percent-decoded and letter case is kept — use
+`net::percentDecode` for a path component and `net::parseQuery` for the query
 string. A universal `toString` on a `net::Url` renders it back to an href, omitting a
 port equal to the scheme default and re-bracketing a host containing a colon."#;
 
@@ -118,12 +150,14 @@ r##"FUNC __net_toUrl(href AS String) AS Url
   ' Host (DNS name, IPv4, or bracketed IPv6) and optional port.
   MUT host AS String = ""
   MUT portText AS String = ""
+  MUT bracketed AS Boolean = FALSE
   IF strings::startsWith(hostport, "[") THEN
     LET closeBracket AS Integer = __net_indexOf(hostport, "]", 0)
     IF closeBracket < 0 THEN
       FAIL error(77050003, "invalid URL: unterminated IPv6 literal")
     END IF
     host = __net_slice(hostport, 1, closeBracket)
+    bracketed = TRUE
     LET afterBracket AS String = __net_slice(hostport, closeBracket + 1, len(hostport))
     IF strings::startsWith(afterBracket, ":") THEN
       portText = __net_slice(afterBracket, 1, len(afterBracket))
@@ -142,6 +176,10 @@ r##"FUNC __net_toUrl(href AS String) AS Url
   IF host = "" THEN
     FAIL error(77050003, "invalid URL: empty host")
   END IF
+  ' bug-979: the host is validated here, and a numeric IPv4 host is replaced by
+  ' its canonical dotted-decimal form, so what a caller compares is what a
+  ' connection reaches.
+  host = __net_host(host, bracketed)
 
   MUT port AS Integer = __net_defaultPort(scheme)
   IF portText <> "" THEN
@@ -165,6 +203,11 @@ r##"FUNC __net_toUrl(href AS String) AS Url
   END IF
   IF path = "" THEN
     path = "/"
+  END IF
+  ' bug-979: an http(s) path reads `\` as `/` (WHATWG). The query and the fragment
+  ' keep theirs.
+  IF strings::contains(path, "\\") THEN
+    path = strings::replace(path, "\\", "/")
   END IF
 
   RETURN Url[scheme, username, password, host, port, path, query, fragment]

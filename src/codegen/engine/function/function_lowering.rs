@@ -121,16 +121,31 @@ pub(crate) fn function_returns_param_borrow(
     f: &NirFunction,
     callback_referenced: &HashSet<String>,
 ) -> bool {
+    param_borrow_returns(f, callback_referenced).is_some()
+}
+
+/// The parameters a [`function_returns_param_borrow`] function returns — `Some`
+/// exactly when that predicate holds, and then never empty.
+///
+/// bug-1019: these are the parameters whose block the CALLER must keep owning.
+/// The result of such a call is a borrow of one of them, so the hand-over
+/// analysis (`analysis::handover`) never gives one away: a block handed to the
+/// callee's owned variant comes straight back as the result, which the caller
+/// still reads as a borrow of an argument it no longer owns, and nothing frees it.
+pub(crate) fn param_borrow_returns(
+    f: &NirFunction,
+    callback_referenced: &HashSet<String>,
+) -> Option<HashSet<String>> {
     use nir::visit::{walk_op, NirVisitor};
     // A function used as a `FunctionRef` (callback) is invoked through an ABI that
     // OWNS and frees its return value, so it must keep returning a fresh copy — never
     // a parameter borrow (see `collect_function_ref_names`).
     if callback_referenced.contains(&f.name) {
-        return false;
+        return None;
     }
     let params: HashSet<String> = f.params.iter().map(|p| p.name.clone()).collect();
     if params.is_empty() {
-        return false;
+        return None;
     }
     struct Returns<'a> {
         params: &'a HashSet<String>,
@@ -160,7 +175,7 @@ pub(crate) fn function_returns_param_borrow(
     };
     r.visit_ops(&f.body);
     if !r.any || !r.all_param {
-        return false;
+        return None;
     }
     // A returned parameter that is reassigned or address-taken is no longer
     // guaranteed to be the caller's untouched argument block, so the "borrow" could
@@ -168,9 +183,13 @@ pub(crate) fn function_returns_param_borrow(
     let reassigned = collect_reassigned_locals(&f.body);
     let mut address_taken = HashSet::new();
     collect_address_taken_locals(&f.body, &mut address_taken);
-    !r.returned
+    if r.returned
         .iter()
         .any(|p| reassigned.contains(p) || address_taken.contains(p))
+    {
+        return None;
+    }
+    Some(r.returned)
 }
 
 /// bug-536 shape B-2: whether a caller may free the bare `String` this function
@@ -1108,6 +1127,7 @@ pub(crate) fn lower_function(
         resource_temp_exempt: None,
         trap_call_results: HashSet::new(),
         resource_temps_closed_on_path: false,
+        exclusive_temps: ExclusiveTemps::default(),
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
@@ -1316,6 +1336,7 @@ pub(crate) fn lower_function(
             &builder.type_model,
             functions,
             &owned_param_names,
+            callback_referenced_functions,
         ),
     );
     // Small-vector locals that can live in registers for their whole lifetime with
@@ -1371,25 +1392,18 @@ pub(crate) fn lower_function(
         // bug-805: a collection whose elements reach a resource at any depth (a
         // `List OF Holder`, a `List OF List OF Holder`) owns its adopted resources
         // exactly as a `List OF RES` does.
+        // bug-1025: and so does a record that reaches one (a record with a `RES`
+        // field, or one nesting such a record), which adopts the resources a call
+        // hands back inside it.
         let res_collection_type = |type_: &ParameterType| {
             CodeBuilder::is_res_collection_block(type_)
-                || (crate::codegen::engine::types::typed_is_collection_type(type_)
-                    && builder.is_resource_owning_container(type_))
-        };
-        // bug-1000: a value that reaches a resource-union box keeps the stricter
-        // ownership rule until a box has an owner outside a binding (bug-1012).
-        let union_collection_type = |type_: &ParameterType| {
-            builder
-                .resource_leaf_types(type_)
-                .iter()
-                .any(|leaf| builder.resource_union_cleanup(leaf).is_some())
+                || builder.is_resource_owning_container(type_)
         };
         crate::codegen::resource::cleanup::record_ownership::record_ownership(
             function,
             functions,
             &record_type,
             &res_collection_type,
-            &union_collection_type,
         )
     };
     builder.record_owning_locals = ownership.owning_locals;
@@ -1397,6 +1411,7 @@ pub(crate) fn lower_function(
     builder.owned_list_owning_collections = ownership.owning_collections;
     builder.reassign_free_collections = ownership.reassign_free_collections;
     builder.inner_owning_collections = ownership.inner_owning_collections;
+    builder.exclusive_temps.calls = ownership.exclusive_temps;
     // bug-805: a container local later ASSIGNED a call result adopts what the call
     // hands out, so it needs its owned-lists from its bind, like a float target.
     let call_assigned = builder.call_assigned_owner_containers(&function.body);
@@ -1781,6 +1796,7 @@ pub(crate) fn lower_abi_function_helper(
         resource_temp_exempt: None,
         trap_call_results: HashSet::new(),
         resource_temps_closed_on_path: false,
+        exclusive_temps: ExclusiveTemps::default(),
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
@@ -2037,6 +2053,7 @@ pub(crate) fn helper_code_builder<'a>(
         resource_temp_exempt: None,
         trap_call_results: HashSet::new(),
         resource_temps_closed_on_path: false,
+        exclusive_temps: ExclusiveTemps::default(),
         current_returns_param_borrow: false,
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),

@@ -2959,11 +2959,69 @@ impl CodeBuilder<'_> {
                             && !aliases_live_resource
                             && (self.resource_cleanup_symbol(type_).is_some()
                                 || self.resource_union_cleanup(type_).is_some());
+                        // bug-1012: a resource-union binding that owns its box and
+                        // nothing else. Three shapes:
+                        //
+                        // * a read of a record field (`RES v AS Handle = b.h`). The
+                        //   record holds the box inline, so the field read is an
+                        //   address inside the record's block, which a later
+                        //   reassignment of the record frees. The binding takes its
+                        //   own copy of the two words. A `MATCH` scrutinee temporary
+                        //   is the exception: its only reads are the tag test and the
+                        //   case binds at the head of each case, before any statement
+                        //   that could replace the record.
+                        // * a borrowed-element read (bug-1026: `RES v AS Handle =
+                        //   collections::get(hs, 0)`, `getOr`, over a `List` or a
+                        //   `Map`). The collection holds the box inline too, so the
+                        //   call yields an address inside the collection's block,
+                        //   which growing or replacing the collection frees; and a
+                        //   variant written as `getOr`'s default is wrapped in a box
+                        //   the statement frees at its end. The binding copies the
+                        //   two words either way. A `MATCH` scrutinee temporary of
+                        //   `get` is excepted as the field read is; one of `getOr`
+                        //   is not, because the default's box is already freed by
+                        //   the time the tag test reads it.
+                        // * a binding whose resource floated to an outer container.
+                        //   The container's owned-list keeps its own copy of the box
+                        //   (`emit_owned_list_push_node`), so the box this bind's
+                        //   initializer made is still the binding's to free.
+                        //
+                        // Either way the drop frees the 16 bytes and closes nothing:
+                        // the record belongs to the field's record's owner, or to
+                        // the container.
+                        let is_union_binding = self.resource_union_cleanup(type_).is_some()
+                            && !aliases_union_variant
+                            && !aliases_capture;
+                        let copies_borrowed_box = is_union_binding
+                            && match value {
+                                Some(NirValue::MemberAccess { .. }) => !name.starts_with("$match"),
+                                Some(
+                                    NirValue::Call { target, .. }
+                                    | NirValue::CallResult { target, .. }
+                                    | NirValue::RuntimeCall { target, .. },
+                                ) => {
+                                    Self::target_returns_borrowed_resource(target)
+                                        && !(name.starts_with("$match")
+                                            && crate::codegen::registry::native_bare_target(target)
+                                                == Some("get"))
+                                }
+                                _ => false,
+                            };
+                        let owns_box_only = copies_borrowed_box
+                            || (is_union_binding
+                                && floats_to_collection
+                                && value.as_ref().is_some_and(|value| {
+                                    self.value_yields_fresh_union_box(value, type_)
+                                }));
                         // Zero the slot before a (possibly fallible) initializer
                         // runs. If the initializer traps before storing, the slot
                         // stays null and the scope-drop free/close skips it instead of
                         // touching an uninitialized pointer.
-                        if owns_freeable_value || result_wrapper.is_some() || owns_resource_slot {
+                        if owns_freeable_value
+                            || result_wrapper.is_some()
+                            || owns_resource_slot
+                            || owns_box_only
+                        {
                             self.emit(abi::move_immediate(&zero_slot, "Integer", "0"));
                             self.emit(abi::store_u64(
                                 &zero_slot,
@@ -2978,7 +3036,7 @@ impl CodeBuilder<'_> {
                         // is consumed only as the entry-zeroing list. A `Thread` view's
                         // slot is one of them: a `thread::start` that raises on a bad
                         // queue limit leaves it unwritten too (bug-469).
-                        if owns_resource_slot {
+                        if owns_resource_slot || owns_box_only {
                             self.owned_value_slots.push(stack_offset);
                         }
                         // bug-648: an inline-`TRAP` temp has no initializer to classify,
@@ -3083,6 +3141,18 @@ impl CodeBuilder<'_> {
                                 r?
                             } else {
                                 self.lower_value_owned(value)?
+                            };
+                            // bug-1012, bug-1026: the binding's own copy of the box
+                            // a field read or a borrowed-element read named.
+                            let result = if copies_borrowed_box {
+                                let copied = self
+                                    .materialize_inline_value_in_arena(type_, &result.location)?;
+                                ValueResult {
+                                    location: Operand::from(copied),
+                                    ..result
+                                }
+                            } else {
+                                result
                             };
                             self.raw_result_discard_error = false;
                             // Observation boundary: a `Float` becoming a named
@@ -3201,8 +3271,13 @@ impl CodeBuilder<'_> {
                             // each loop iteration (a floated handle would otherwise be
                             // closed while the collection still held it).
                             if let Some(NirValue::Local(src)) = value {
-                                self.deactivate_resource_cleanup(src);
+                                self.release_floated_source_cleanup(src);
                             }
+                            if owns_box_only {
+                                self.register_union_box_cleanup(name, type_);
+                            }
+                        } else if copies_borrowed_box {
+                            self.register_union_box_cleanup(name, type_);
                         } else if aliases_live_resource
                             && (self.resource_cleanup_symbol(type_).is_some()
                                 || self.resource_union_cleanup(type_).is_some())
@@ -3354,6 +3429,18 @@ impl CodeBuilder<'_> {
                         if walk_after {
                             self.emit_module_float_global(name)?;
                         }
+                        // bug-1030: a module-level `RES g AS T STATE S` owns its
+                        // state as a local owner does, so the store
+                        // default-initializes the payload the same way (a
+                        // resource that arrives carrying one keeps it).
+                        let declared = self.global_value(name)?.type_.clone();
+                        if let Some(state_type) = declared.state() {
+                            let address = self.load_global_address(name)?;
+                            let stored = self.allocate_register();
+                            self.emit(abi::load_u64(stored, address, 0));
+                            let slot = self.spill_to_slot("module_state_init", stored);
+                            self.emit_resource_state_init(slot, &state_type, &declared)?;
+                        }
                     }
                     NirOp::Assign { name, value } => {
                         // bug-689: an element-bound binding's update, its write-back
@@ -3484,6 +3571,32 @@ impl CodeBuilder<'_> {
                             // (the slot is overwritten with the new owner). Deep-copy
                             // an aliasing source so the binding stays unaliased.
                             let result = self.lower_value_owned(value)?;
+                            // bug-1026: an aliasing `RECOVER` into a resource-union
+                            // inline-`TRAP` temp (`RECOVER other`, `RECOVER b.h`,
+                            // `RECOVER collections::getOr(…)`) lends the temp a
+                            // record and hands it a COPY of the box: the address the
+                            // value names is another binding's box, or lies inside a
+                            // record's or a collection's block, and none of those
+                            // need outlive the temp. A borrowed element that arrives
+                            // as the trapped call's own `resultValue` was copied when
+                            // its `Result` was built. The temp's drop frees the copy
+                            // and closes nothing (the flag written below is clear).
+                            let result = if self.trap_owner_flags.contains_key(name)
+                                && self.resource_union_cleanup(&local_type).is_some()
+                                && !matches!(value, NirValue::ResultValue { .. })
+                                && !self.trap_ownership.store_is_owned(value)
+                            {
+                                let copied = self.materialize_inline_value_in_arena(
+                                    &local_type,
+                                    &result.location,
+                                )?;
+                                ValueResult {
+                                    location: Operand::from(copied),
+                                    ..result
+                                }
+                            } else {
+                                result
+                            };
                             // Observation boundary: a `Float` reassignment must
                             // be finite (plan-17).
                             self.observe_float(value, &result)?;
@@ -3522,6 +3635,34 @@ impl CodeBuilder<'_> {
                                         .unwrap_or_else(|| self.current_scope_depth()),
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
+                                Some(slot)
+                            } else if let Some(cleanup) = self
+                                .resource_union_cleanup(&local_type)
+                                .and_then(|_| self.resource_union_binding_cleanup(name))
+                            {
+                                // bug-1037: a resource-union binding that is assigned
+                                // drops the value it held first, as the concrete arm
+                                // above does. The only such binding is the inline-`TRAP`
+                                // desugar's `$trap_valN` (a `RES` binding is not
+                                // assignable), whose bind materializes a closed default
+                                // `{tag, record}` box and record that nothing else
+                                // names: storing the call's result over it kept 16 +
+                                // 112 bytes per evaluation. The drop is the binding's
+                                // own registered one, so it answers for the old value
+                                // exactly as the scope exit would have: the owner flag
+                                // still describes that value (it is rewritten below,
+                                // after the store), a lent value loses only the temp's
+                                // copy of its box, and the slot is nulled. The new value
+                                // is spilled across it because the drop calls the close
+                                // op and `arena_free`.
+                                let slot =
+                                    self.allocate_stack_object("resource_union_assign_value", 8);
+                                self.emit(abi::store_u64(
+                                    &result.location,
+                                    abi::stack_pointer(),
+                                    slot,
+                                ));
+                                self.emit_resource_union_cleanup_call(&cleanup)?;
                                 Some(slot)
                             } else if by_ref && self.is_freeable_flat_value(&result.type_) {
                                 // plan-142-G: a reference local's reassignment frees the

@@ -1,0 +1,22 @@
+$ mfb build -ast -ir tests/syntax/resources/bug1013_state_import_invalid
+Wrote package to tests/syntax/resources/bug1013_state_import_invalid/build/packages/state_kinds_pkg.mfp
+uses state_kinds_pkg - [Unsigned]
+  17 | END TYPE
+  18 | 
+  19 | FUNC takes(f AS fs::File STATE state_kinds_pkg::Mode) AS Nothing     ' BAD: a parameter
+     | ^
+tests/syntax/resources/bug1013_state_import_invalid/src/main.mfb:19 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Parameter `f` STATE type `state_kinds_pkg.Mode` is not a record; declare a record TYPE that holds the value and name it instead.
+  23 |   RES ok AS fs::File STATE state_kinds_pkg::Cursor = fs::createTempFile()   ' OK: an imported record
+  24 |   RES own AS fs::File STATE Mode = fs::createTempFile()                     ' OK: this file's record
+  25 |   RES a AS fs::File STATE state_kinds_pkg::Mode = fs::createTempFile()      ' BAD: an imported ENUM
+     | ^
+tests/syntax/resources/bug1013_state_import_invalid/src/main.mfb:25 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `a` STATE type `state_kinds_pkg.Mode` is not a record; declare a record TYPE that holds the value and name it instead.
+  24 |   RES own AS fs::File STATE Mode = fs::createTempFile()                     ' OK: this file's record
+  25 |   RES a AS fs::File STATE state_kinds_pkg::Mode = fs::createTempFile()      ' BAD: an imported ENUM
+  26 |   RES b AS fs::File STATE state_kinds_pkg::Shape = fs::createTempFile()     ' BAD: an imported UNION
+     | ^
+tests/syntax/resources/bug1013_state_import_invalid/src/main.mfb:26 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               binding `b` STATE type `state_kinds_pkg.Shape` is not a record; declare a record TYPE that holds the value and name it instead.
+[exit 1]

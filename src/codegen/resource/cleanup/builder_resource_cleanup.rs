@@ -402,6 +402,56 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// bug-1012: register the drop of a resource-union binding that owns its
+    /// `{tag, record-ptr}` box and nothing else — the copy a field read or an element
+    /// read (bug-1026) was given, or the box of a binding whose resource floated to a
+    /// container. It frees the box
+    /// at the binding's scope exit and closes nothing (`closes_variant` is false).
+    /// The caller zeroes the slot before the initializer and lists it for the
+    /// prologue zero-init, so a bind a path never reached drops nothing.
+    pub(crate) fn register_union_box_cleanup(&mut self, name: &str, type_: &ParameterType) {
+        let Some(variants) = self.resource_union_cleanup(type_) else {
+            return;
+        };
+        let scope_depth = self.current_scope_depth();
+        self.active_cleanups
+            .push(ActiveCleanup::ResourceUnion(ResourceUnionCleanup {
+                name: name.to_string(),
+                variants,
+                state_type: None,
+                io_buffer_tags: Vec::new(),
+                record_free_tags: Vec::new(),
+                closes_variant: false,
+                owner_flag_slot: None,
+                scope_depth,
+            }));
+    }
+
+    /// The source binding of a floated bind (`RES f = local $src`, the inline-`TRAP`
+    /// desugar's temp) gives up its close: ownership of the record moved to the
+    /// container. A concrete source's cleanup is removed. bug-1012: a resource-union
+    /// source keeps a drop that frees its box — the container's owned-list holds a
+    /// copy of the box, not the box — and closes nothing.
+    pub(crate) fn release_floated_source_cleanup(&mut self, name: &str) {
+        let Some(index) = self.active_cleanups.iter().rposition(|cleanup| {
+            matches!(cleanup, ActiveCleanup::Resource(resource) if resource.name == name)
+                || matches!(cleanup, ActiveCleanup::ResourceUnion(u) if u.name == name)
+        }) else {
+            return;
+        };
+        match &mut self.active_cleanups[index] {
+            ActiveCleanup::ResourceUnion(union) => {
+                union.closes_variant = false;
+                union.record_free_tags.clear();
+                union.io_buffer_tags.clear();
+                union.state_type = None;
+            }
+            _ => {
+                self.active_cleanups.remove(index);
+            }
+        }
+    }
+
     pub(crate) fn deactivate_resource_cleanup(&mut self, name: &str) {
         if let Some(index) = self.active_cleanups.iter().rposition(|cleanup| {
             matches!(cleanup, ActiveCleanup::Resource(resource) if resource.name == name)
@@ -511,9 +561,27 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// bug-1037: the tag-dispatched drop registered for resource-union binding
+    /// `name`, when it has one: the drop an assignment runs on the value the
+    /// binding held before the new one is stored.
+    pub(crate) fn resource_union_binding_cleanup(
+        &self,
+        name: &str,
+    ) -> Option<ResourceUnionCleanup> {
+        self.active_cleanups
+            .iter()
+            .rev()
+            .find_map(|cleanup| match cleanup {
+                ActiveCleanup::ResourceUnion(union) if union.name == name => Some(union.clone()),
+                _ => None,
+            })
+    }
+
     /// bug-648: branch to `skip` when a binding's run-time ownership flag is clear —
     /// the value it holds was lent to it (a borrowed element, an aliasing `RECOVER`),
-    /// so its drop must neither close nor reclaim anything. Emits nothing for a
+    /// so its drop must neither close the record nor reclaim it. A concrete
+    /// resource's drop skips everything; a resource union's skips to the free of
+    /// its box, which is the temp's own copy (bug-1026). Emits nothing for a
     /// binding that owns unconditionally.
     fn emit_owner_flag_skip(&mut self, owner_flag_slot: Option<usize>, skip: &str) {
         let Some(flag) = owner_flag_slot else {
@@ -548,7 +616,6 @@ impl CodeBuilder<'_> {
         // load at `union_ptr+0` would SIGSEGV on null (bug-246).
         self.emit(abi::compare_immediate(&union_ptr, "0"));
         self.emit(abi::branch_eq(&done));
-        self.emit_owner_flag_skip(cleanup.owner_flag_slot, &done);
 
         // plan-59-D Phase 3: the same identity skip as the plain-resource case.
         // A returned resource union escapes to the caller, so this scope must not
@@ -563,15 +630,30 @@ impl CodeBuilder<'_> {
         }
 
         // bug-623: every dispatched drop converges on `dropped`, which frees the
-        // union's own `{tag@0, record-ptr@8}` box. The box is this binding's alone:
-        // a resource-union `UnionWrap` and the closed default both allocate a fresh
-        // 16-byte block for the bind, and every other holder of it (an aliasing
-        // bind, a record `RES` field, a floated owned-list node, a `RETURN`) either
-        // registers no cleanup or skips to `done` above. The variant RECORD is not
-        // freed here: `RES c AS Union = u` wraps a record the concrete binding `u`
-        // still owns and frees. The slot is zeroed so a re-reached drop skips on
-        // the null guard. The null and escaping-value skips branch past it.
+        // union's own `{tag@0, record-ptr@8}` box. The box is this binding's alone
+        // (bug-1012): the bind took it from a resource-union `UnionWrap`, a call
+        // that handed one back, the closed default, or a copy of the box a record
+        // field or a collection element holds inline (bug-1026), and nothing else
+        // keeps its address past the binding. An aliasing
+        // bind of this local shares the pointer inside this binding's scope and
+        // registers no cleanup; a `RETURN` moves the box out and skips to `done`
+        // above; every longer-lived holder has its own copy of the two words — a
+        // record `RES` field and a collection element hold them inline, an
+        // owned-list node, a closure environment and the module list keep a copy.
+        // The variant RECORD is not freed here: `RES c AS Union = u` wraps a
+        // record the concrete binding `u` still owns and frees. The slot is zeroed
+        // so a re-reached drop skips on the null guard. The null and
+        // escaping-value skips branch past it.
         let dropped = self.label("resource_union_drop_box");
+        // bug-648, bug-1026: an inline-`TRAP` temp whose run-time ownership flag is
+        // clear holds a value that was lent to it (a borrowed element, an aliasing
+        // `RECOVER`). The record is its owner's to close, but the box is the
+        // temp's: every lent store hands it a copy of the two words
+        // (`materialize_current_result_boxed` for a borrowed element, the `Assign`
+        // arm for an aliasing `RECOVER`), because the address a lent value names
+        // is inside a collection's or a record's block, or is a box its statement
+        // frees. So a clear flag skips the close and still frees the box.
+        self.emit_owner_flag_skip(cleanup.owner_flag_slot, &dropped);
         // Resource-union alias class: an alias union (`closes_variant == false`) does not
         // own the record, so it neither closes it nor frees its STATE — only its box.
         if cleanup.closes_variant {

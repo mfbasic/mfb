@@ -3,6 +3,6 @@ $ mfb build -ast -ir tests/syntax/resources/record-res-field-state-invalid
   17 | TYPE Holder
   18 |   handle AS RES fs::File STATE fs::File
      | ^
-tests/syntax/resources/record-res-field-state-invalid/src/main.mfb:18 error[2-203-0085 TYPE_STATE_INVALID]: STATE must be a copyable, defaultable data type
-               Record `Holder` field `handle` STATE type `fs.File` must be a copyable, defaultable data type.
+tests/syntax/resources/record-res-field-state-invalid/src/main.mfb:18 error[2-203-0085 TYPE_STATE_INVALID]: a STATE type must be a record TYPE that is copyable and defaultable
+               Record `Holder` field `handle` STATE type `fs.File` is not a record; declare a record TYPE that holds the value and name it instead.
 [exit 1]

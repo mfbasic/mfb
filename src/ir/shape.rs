@@ -1271,6 +1271,9 @@ impl<'a> Walker<'a> {
         for item in &file.items {
             match item {
                 HirItem::Binding(binding) => {
+                    // A top-level binding's `STATE` clause rides in its lowered
+                    // type (bug-1030), so both clause rules are `ir::verify`'s
+                    // (`check_state_clauses`), as for a local binding.
                     if let Some(value) = &binding.value {
                         let locals = HashMap::new();
                         self.current_line = binding.line;
@@ -1301,11 +1304,66 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// TYPE_STATE_REQUIRES_RESOURCE (bug-998): a `STATE` clause written on a
+    /// parameter or a return whose type is not a resource.
+    ///
+    /// Erased fact: the clause itself. `hir::resource_params` takes it off a
+    /// parameter or a return before lowering (`HirParam::stray_state`,
+    /// `HirFunction::return_stray_state`), because a clause left on a data type
+    /// rides into the type (`Integer STATE Cur`) and makes every use of the
+    /// parameter untypable — the author used to see `TYPE_UNKNOWN_VALUE` at each
+    /// use and `TYPE_STATE_MISMATCH` at each call, and nothing at the clause.
+    /// So the IR `ir::verify` reads does not carry it, and this is the one place
+    /// that can still name it. (`ir::verify` keeps the same rule for the
+    /// positions lowering does not erase — a binding, local or top-level, a
+    /// field, an element, a thread plane, a native declaration — and for
+    /// decoded package IR.)
+    ///
+    /// The clause's own type is not examined (`TYPE_STATE_INVALID`): with no
+    /// resource to attach to, there is no payload to be the wrong kind of.
+    fn check_stray_state(
+        &mut self,
+        subject: &str,
+        host: &ParameterType,
+        state: &ParameterType,
+        line: usize,
+    ) {
+        self.emit(
+            "TYPE_STATE_REQUIRES_RESOURCE",
+            format!(
+                "{subject} attaches `STATE {state}` to `{host}`, which is not a resource; remove the STATE clause."
+            ),
+            line,
+        );
+    }
+
+    fn check_stray_param_state(&mut self, param: &crate::hir::HirParam, line: usize) {
+        if let Some(state) = &param.stray_state {
+            self.check_stray_state(
+                &format!("Parameter `{}`", param.name),
+                &param.type_,
+                state,
+                line,
+            );
+        }
+    }
+
     fn walk_function(&mut self, function: &HirFunction) {
         // Parameter locals as `lower_function` seeds them: a resource parameter's
         // `STATE T` rides in its type.
         let mut locals = HashMap::new();
+        // TYPE_STATE_REQUIRES_RESOURCE, the return and parameter forms (see
+        // `check_stray_state`).
+        if let Some(state) = &function.return_stray_state {
+            self.check_stray_state(
+                &format!("FUNC `{}` return", function.name),
+                &function.returns,
+                state,
+                function.line,
+            );
+        }
         for param in &function.params {
+            self.check_stray_param_state(param, param.line);
             let type_ = match &param.state_type {
                 Some(state) => param.type_.with_state(state),
                 None => param.type_.clone(),
@@ -2092,7 +2150,8 @@ impl<'a> Walker<'a> {
                 // (`expression_type`'s Lambda arm).
                 let mut nested = locals.clone();
                 for param in params {
-                    nested.insert(param.name.clone(), param.type_.clone());
+                    self.check_stray_param_state(param, self.current_line);
+                    nested.insert(param.name.clone(), lower::lambda_param_type(param));
                 }
                 // TYPE_UNKNOWN_VALUE, the assignment-bodied lambda's target form.
                 if let Some(target) = assign_target {
@@ -2852,8 +2911,16 @@ impl<'a> Walker<'a> {
                     && expected_params
                         .iter()
                         .zip(actual_params.iter())
-                        // Parameters are contravariant (bug-173 A).
-                        .all(|(expected, actual)| self.compatible(actual, expected))
+                        // Parameters are contravariant (bug-173 A). A
+                        // lambda's `STATE T` parameter is part of its callable
+                        // type (bug-1030) and is not an annotation to compare
+                        // without here: a `FUNC(File STATE Cur)` reads its
+                        // argument's state, so it is not a `FUNC(File)`, whose
+                        // callers may pass any state or none.
+                        .all(|(expected, actual)| {
+                            strip_res(expected).state() == strip_res(actual).state()
+                                && self.compatible(actual, expected)
+                        })
                     && self.compatible(expected_return, actual_return)
             }
             (ParameterType::Named(_), ParameterType::Named(_)) => {
@@ -3059,6 +3126,11 @@ impl<'a> Walker<'a> {
                         continue;
                     };
                     let actual = self.type_of(value, locals).without_state();
+                    // A lambda's `STATE T` parameter rides in its callable type
+                    // (bug-1030). Whether the argument's state agrees is
+                    // `ir::verify`'s `check_argument_state_agreement`, as for
+                    // a declared FUNC; the resource itself is compared here.
+                    let expected = &expected.without_state();
                     if !self.expression_compatible(expected, &actual, value) {
                         self.emit(
                             "TYPE_CALL_ARGUMENT_MISMATCH",

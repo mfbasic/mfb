@@ -187,7 +187,8 @@ TYPE Holder
 END TYPE
 ```
 
-The field is one 8-byte handle slot holding a reference. Copying the record copies the
+The field holds a reference: one handle slot for a concrete resource, the tag and
+the handle for a resource union. Copying the record copies the
 reference and aliases the same resource — it never duplicates it — so the record stays
 ordinary copyable data, and the close obligation floats to the record binding's
 scope (§15.6). A bare `handle AS fs::File` is rejected for the missing marker

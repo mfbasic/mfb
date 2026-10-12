@@ -98,6 +98,16 @@ block, and freeing that is not permitted. A `String` *field* of a record is
 unaffected, because it travels by value inside the record's own block.
 [[src/codegen/engine/analysis/handover.rs:collect_handover_args]]
 
+An argument for a parameter the callee **returns as a borrow** is lent too. A
+function whose every `RETURN` is a bare parameter it never reassigns, and which is
+not reachable as a `FUNC` value, returns that argument's own pointer uncopied; the
+caller reads the result as a borrow of its argument, copies it at an owning store,
+and goes on freeing the argument itself. That only holds while the caller still
+owns the argument's block, so `idOf(squares(20.0))` with `FUNC idOf OF T(x AS T)
+AS T` / `RETURN x` lends the temporary and frees it at the end of the statement.
+A parameter such a function does not return is handed over as usual.
+[[src/codegen/engine/function/function_lowering.rs:param_borrow_returns]]
+
 **The base symbol retains the lent-parameter contract.** It is lowered first, with every parameter lent,
 and keeps its name, arity and lent-parameter ABI. A variant is an additional
 internal symbol reached only from a direct call the analysis approved.
