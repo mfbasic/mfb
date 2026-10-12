@@ -1,0 +1,22 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT datetime
+IMPORT fs
+IMPORT os
+IMPORT collections
+IMPORT vector
+
+FUNC rect(x AS Float) AS canvas::DrawItem
+  RETURN canvas::Rectangle[id := "", position := vector::Float2[x := x, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(200, 40, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+END FUNC
+
+FUNC main() AS Nothing
+  LET start AS Integer = datetime::monotonicNanos()
+  app::setMode(app::Mode.Canvas)
+  canvas::present([rect(10.0)])
+  LET first AS Integer = datetime::monotonicNanos()
+  canvas::present([rect(20.0)])
+  LET second AS Integer = datetime::monotonicNanos()
+  fs::appendText(collections::get(os::args(), 0), "firstPresentMs=" & toString((first - start) / 1000000) & " secondPresentMs=" & toString((second - first) / 1000000) & "\n")
+END FUNC

@@ -1,6 +1,6 @@
 # bug-996: On Intel Vulkan the first canvas frame of every newly built program waits ~25 s for the pipeline compile, behind a blank window
 
-Last updated: 2026-10-06
+Last updated: 2026-10-12
 Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Other (Performance)
@@ -31,6 +31,36 @@ References:
 - `mfb man os` `os::appCachePath` (per-user rebuildable cache directory)
 - bug-688 (Vulkan parity, V5/V6 measured on box 206)
 - Found while bringing up `examples/canvas-demo` on box 206. A prior session's cold-cache screenshot (`/tmp/cdwin/cold/probe.png`, scratch) shows the blank 400×300 window during the wait.
+
+## Re-verified 2026-10-12: still reproduces, and the wait is now ~37 s (HEAD `555130a25`)
+
+`bugs/repro/bug-996/coldstart.mfb` (the program below in today's record syntax, writing
+its line to the file named by its first argument), `mfb build --app --target windows-x86_64`
+(not `--debug`), copied to box 206 under a name the driver had never seen, run from a CRLF
+`.bat` with `MFB_WINAPP_HEADLESS=1 MFB_CANVAS_SYNC=1`:
+
+```
+MFB_CANVAS_GPU=1, first launch    firstPresentMs=37325 secondPresentMs=6
+MFB_CANVAS_GPU=1, second launch   firstPresentMs=70    secondPresentMs=7
+MFB_CANVAS_GPU=0                  firstPresentMs=6     secondPresentMs=4
+```
+
+One cold launch was measured. A second new name, in a real window (bug-1045's probe),
+reported `phaseRenderMs=37427` for its first two frames.
+
+The fragment shader has grown since the 25 s measurement: `mfb_canvas.frag` is 2,206 lines
+(`wc -l`), `mfb_canvas.frag.spv` 298,680 bytes (`ls -l`), against 1,843 lines and 248,628
+bytes; plan-164-C added the curve shapes. There is still no `VkPipelineCache`
+(`grep -rn PipelineCache src` finds nothing) and `emit_vulkan_pipeline` still passes 0 for
+the cache.
+
+`tools/canvas-bench/bench.sh --target windows-x86_64 … sweep` does not discard a first
+run, so its first row on box 206 is the compile, not the scene (`fps=0.4
+phaseRenderMs=18500` for 95 items on 2026-10-12). Later rows reuse the exe name and are
+warm. The `coldstart` subcommand's work in Phase 1 should give the bench a warm-up run.
+
+**This is also what bug-1045 saw.** A program that presents for 12 s in a real window under
+a new exe name ends its loop with `frames=0`; see that document.
 
 ## Failing Reproduction
 
