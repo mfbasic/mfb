@@ -47,6 +47,18 @@ pub(crate) const SCOPE_TOKEN_DEPTH_BITS: u8 = 12;
 /// The largest scope depth a token can encode.
 pub(crate) const SCOPE_TOKEN_MAX_DEPTH: usize = (1 << SCOPE_TOKEN_DEPTH_BITS) - 1;
 
+/// bug-1053: the owner word of a record an owned-list drain has closed and taken,
+/// between that drain and the reclaim that frees the record at the end of the
+/// same exit (`CodeBuilder::emit_owned_list_drain`). One below the module
+/// instance's token. Like it, it equals no scope token (`(addr << 12) - depth`
+/// reaches it only for `depth == 2` at a stack address of `0` modulo `2^52`), it
+/// is above every frame token (no float or adopting push takes the record), it is
+/// not `0` (no claim does) and its frame part is `2^52`, no stack address (no
+/// `RETURN` releases it). It is not the module's token either, so the module
+/// instance's own tests leave the record alone too. Every other cleanup that
+/// still names the record therefore skips it, having read only this word.
+pub(crate) const RESOURCE_OWNER_TAKEN: u64 = u64::MAX - 1;
+
 impl CodeBuilder<'_> {
     /// The nesting depth of the scope a cleanup registered now belongs to: the
     /// function body is 1, each nested block one more.

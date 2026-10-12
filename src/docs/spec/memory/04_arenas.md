@@ -420,6 +420,20 @@ binds `v` from a delivery temporary typed by the producer, with no `STATE`, and 
 temporary's cleanup is the one that runs. A resource union's binding does the same.
 [[src/codegen/engine/control/builder_control.rs:live_resource_aliases]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_alias_root]]
+The temporary an inline `TRAP` delivers a resource through is bound to a closed
+default record of its own (`./mfb spec architecture ir`), and the delivery stores
+over it. A temporary proved to own every record stored into it frees the default
+with its ordinary record free, when the store drops the value it replaces. One that
+is not (the trapped call hands back a record another binding owns, `RES v =
+same(a) TRAP …`) frees no stored record, but the default is still its own. Its bind
+remembers the default's address in a `trap_default_record` stack slot, zeroed with
+the frame, and each drop of the temporary (the store's drop of the old value, or
+the scope's when the handler leaves without storing) frees the record it holds
+when that record is at the remembered address, then clears the slot. A resource
+union's temporary does the same for the record its default box names, before it
+frees the box.
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_free_trap_default_record]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:remember_trap_default_record]]
 The assigned scope's eligible cleanup also frees the resource record for `fs.File`,
 `tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`, `tls.Listener`,
 `audio.AudioInput`, `audio.AudioOutput`, and the parent `Thread` view. It frees
@@ -519,6 +533,91 @@ reassignment replaces and the intermediates a `collections` member builds includ
 [[src/codegen/collection/buffer/collection_buffer.rs:free_intermediate_collection]]
 A collection that reaches a resource union is held to the same proof as any other.
 
+A collection that fails that proof still has the records it lists freed, by their
+**last holder**, and its own block freed when the binding is the block's one
+holder. These are two separate questions.
+
+*The records.* The proof fails for readings that leave no holder behind (a handle
+bound on its own, a copy stored in the same scope, a `LAMBDA` that only reads its
+capture, a callee that keeps an element in the list it returns), and what decides
+the question at run time is already in the record: its owner word names the one
+scope that closes it (`./mfb spec memory heap-values`, "The owner word"), and every
+store that lets a reference outlive that scope raises the word first. So when the
+scope holding the token exits, every remaining reference is in that scope or
+inside it. What the drain cannot know is whether another cleanup of the same exit
+still reads the word, so the free is split from the close:
+
+1. The drain closes each record its scope owns, writes the **taken** owner word
+   (`RESOURCE_OWNER_TAKEN`) into it, and moves its node from the owned-list to a
+   reclaim list headed by a second stack slot, `owned_list_reclaim_<name>`. A node
+   whose record the scope does not own is freed and its record left alone.
+2. After the last cleanup of the exit, each reclaim list is walked: the record's
+   buffers, `STATE` and (for the record-freeing kinds) the record are freed, then
+   the node.
+
+A second list, or a binding, that names the same record reads an owner word that
+is not its token and skips it, having read nothing else; the record is still
+allocated at that point. The reclaim follows the whole cleanup sequence of an
+exit: the end of a block, an `EXIT`/`CONTINUE` branch, a `RETURN`, and an error
+exit. The error-return landing pads drop one cleanup each and share their tail, so
+there the reclaim is the last pad's, which walks the reclaim list of every such
+owned-list of the function. A reclaim slot is zeroed with the frame and emptied by
+every walk, so a list the path never reached, or already reclaimed, costs one load
+and a branch. An owned-list whose leaf has nothing to reclaim (no record free, no
+I/O buffers and no `STATE`: a `canvas` image or font) has no reclaim list and
+keeps the plain close.
+[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_drain]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_reclaims]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:OwnedListPass]]
+[[src/codegen/engine/control/builder_exits.rs:append_error_return_pads]]
+[[src/codegen/resource/owner.rs:RESOURCE_OWNER_TAKEN]]
+
+An error routed to the function's own `TRAP` handler leaves the function-level
+bindings in scope. A function-level owned-list of this kind is therefore walked in
+place on that route: each record its scope owns is closed, nothing is freed and
+the list keeps its nodes; the handler's own exit runs the drain and the reclaim.
+(An owned-list proved the one holder is drained in full on the route, as before.)
+[[src/codegen/engine/control/builder_exits.rs:trap_route_cleanups]]
+
+Two stores carry a reference to a longer-lived binding **without** raising the
+owner word. A function that contains one keeps the close-only
+drain for every container it cannot prove: the records are closed and stay
+allocated, so a later read through the longer-lived binding is `ErrResourceClosed`
+and not a read of freed memory.
+
+* A `LAMBDA` that assigns, through a by-reference capture, a binding that reaches
+  a resource (`collections::forEach(xs, LAMBDA(h) -> keep = collections::append(keep,
+  h))`), itself or through a lambda nested in it. Only the function that creates
+  the lambda can hand it a record: a by-reference capture is licensed for one
+  position, a lambda written directly as a builtin's non-escaping callback
+  argument (every other `MUT` capture is `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`), and
+  the builtin calls it only during that call, with what the call's other
+  arguments and the lambda's own captures reach.
+* An assignment to a binding that reaches a resource whose value names, in a
+  position the store-time raise below does not cover and that is not an adopted
+  call result, a binding of an inner scope that reaches one too (`keep =
+  collections::filter(xs, …)` with `xs` bound in a nested block). This is asked of
+  the function that contains the assignment.
+
+[[src/codegen/resource/cleanup/record_ownership.rs:runtime_reclaim]]
+[[src/codegen/resource/cleanup/record_ownership.rs:stores_through_a_captured_reference]]
+[[src/codegen/builtins/mod.rs:is_nonescaping_callback_arg]]
+
+*The block.* A `List OF RES T` or `Map OF K TO RES T` block is held by whatever
+holds its pointer and by nothing else: an element read out of it is a record
+pointer, or a copy of a union box. So the binding frees its block at its scope's
+end when every store into it installs a fresh block (as above), it is named
+outside a call's argument list only as a `FOR EACH` iterable (a bind shares the
+block; a `RETURN`, a constructor, a literal and a capture hold the pointer), and
+no call keeps the block: it is not a `collections` member's non-receiver argument,
+not handed to code the proof cannot read, and not an argument a callee's body
+names anywhere but in such positions. A callee that keeps what it reads out of
+the argument (an element, a `MATCH` case binding) is a second reader of the
+elements and no holder of the block. A collection whose elements are themselves
+collections is held to the whole proof above: what a `FOR EACH` over it yields is
+a block.
+[[src/codegen/resource/cleanup/record_ownership.rs:block_owning_collections]]
+
 A **record** that reaches a resource — a record with a `RES` field, or one nesting
 such a record — is an owner container too: bound to a call's result, it adopts the
 records the call hands back inside it, and its drain frees them under the same
@@ -530,7 +629,8 @@ operand of a comparison or is bound to a plain scalar, and a copy bound from it
 (`LET k2 = k`, `LET k2 = WITH k { … }`) that itself stays inside the scope, by the
 loop variable's rule. A handle bound on its own (`RES f = k.h`), a field stored as an
 element, a copy made by assignment, and a record returned or handed to a callee that
-keeps it are holders, and the record's drain then closes without freeing.
+keeps it are holders: the record is then not proved the one holder, and its drain
+frees what it lists by the last-holder rule above.
 [[src/codegen/resource/cleanup/record_ownership.rs:field_read_root]]
 [[src/codegen/resource/cleanup/record_ownership.rs:owning_collections]]
 [[src/codegen/resource/cleanup/record_ownership.rs:is_match_view]]
@@ -565,7 +665,8 @@ container frees the records it took only when each source leaves no other holder
 record source is itself an owning container by the rules above, a `RES` binding is a
 fresh record that does not escape, and a `FOR EACH` variable's iterable is an owning
 container (proved in turn when it took records the same way). Otherwise the
-container closes what it took and frees none of it; its own block is unaffected.
+container is not proved the one holder of what it took, and frees it by the
+last-holder rule above; its own block is unaffected.
 [[src/codegen/resource/cleanup/record_ownership.rs:StoreFloatProof]]
 
 A resource union's drop reclaims what the concrete drop reclaims. After the

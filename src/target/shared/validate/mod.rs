@@ -278,6 +278,7 @@ mod tests {
             native_resources: Vec::new(),
             native_libraries: Default::default(),
             max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
+            canvas_auto_paint_ms: crate::manifest::DEFAULT_CANVAS_AUTO_PAINT_MS,
         }
     }
 
@@ -516,6 +517,7 @@ mod tests {
             native_resources: Vec::new(),
             native_libraries: Default::default(),
             max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
+            canvas_auto_paint_ms: crate::manifest::DEFAULT_CANVAS_AUTO_PAINT_MS,
         }
     }
 

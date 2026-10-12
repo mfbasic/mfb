@@ -137,13 +137,13 @@ fn the_canvas_graphics_thread_registers_a_graphics_arena() {
     let name = "dbg_arena_graphics";
     let source = concat!(
         "IMPORT app\n",
-        "IMPORT canvas\n",
+        "IMPORT canvas\nIMPORT vector\n",
         "IMPORT color\n",
         "IMPORT io\n",
         "\n",
         "FUNC main() AS Nothing\n",
         "  app::setMode(app::Mode.Canvas)\n",
-        "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n",
+        "  LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n",
         "  canvas::present([box])\n",
         "  io::print(\"done\")\n",
         "END FUNC\n",

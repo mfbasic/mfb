@@ -1,8 +1,10 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT io
+IMPORT math
 
 FUNC paints() AS List OF canvas::Paint
   MUT out AS List OF canvas::Paint = []
@@ -10,7 +12,7 @@ FUNC paints() AS List OF canvas::Paint
   LET strokes AS List OF color::Color = [color::rgba(200, 100, 50, 255), color::rgba(1, 2, 3, 0)]
   LET widths AS List OF Float = [0.0, 1.0, 2.75, 0.0 - 1.5]
   LET modes AS List OF canvas::BlendMode = [canvas::BlendMode.Normal, canvas::BlendMode.Multiply, canvas::BlendMode.Screen, canvas::BlendMode.Add]
-  LET clips AS List OF List OF List OF canvas::Point = [[], [[canvas::Point[x := 5.5, y := 0.0 - 3.25], canvas::Point[x := 105.625, y := 0.0 - 3.25], canvas::Point[x := 105.625, y := 46.75], canvas::Point[x := 5.5, y := 46.75]]], [[canvas::Point[x := 10.0, y := 10.0], canvas::Point[x := 5.0, y := 10.0], canvas::Point[x := 5.0, y := 13.0], canvas::Point[x := 10.0, y := 13.0]]]]
+  LET clips AS List OF List OF List OF vector::Float2 = [[], [[vector::Float2[x := 5.5, y := 0.0 - 3.25], vector::Float2[x := 105.625, y := 0.0 - 3.25], vector::Float2[x := 105.625, y := 46.75], vector::Float2[x := 5.5, y := 46.75]]], [[vector::Float2[x := 10.0, y := 10.0], vector::Float2[x := 5.0, y := 10.0], vector::Float2[x := 5.0, y := 13.0], vector::Float2[x := 10.0, y := 13.0]]]]
   FOR EACH f IN fills
     FOR EACH s IN strokes
       FOR EACH w IN widths
@@ -22,14 +24,11 @@ FUNC paints() AS List OF canvas::Paint
       NEXT
     NEXT
   NEXT
-  LET nz AS Float = 0.0 * (0.0 - 1.0)
   LET one AS canvas::GradientStop = canvas::GradientStop[offset := 0.25, color := color::rgb(9, 8, 7)]
-  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := canvas::Point[x := 1.5, y := 2.5], endPoint := canvas::Point[x := 0.0 - 3.5, y := 4.25], stops := [one], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
-  LET flat AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 7.0, y := 8.0], endPoint := canvas::Point[x := 9.0, y := 10.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
-  LET negZero AS canvas::Transform = canvas::Transform[a := nz, b := nz, c := nz, d := nz, tx := nz, ty := nz]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := vector::Float2[x := 1.5, y := 2.5], endPoint := vector::Float2[x := 0.0 - 3.5, y := 4.25], stops := [one], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET flat AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 7.0, y := 8.0], endPoint := vector::Float2[x := 9.0, y := 10.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
   out = collections::append(out, WITH canvas::fill(color::rgb(1, 2, 3)) { stroke := color::rgb(4, 5, 6), strokeWidth := 2.0, gradient := ramp })
   out = collections::append(out, WITH canvas::fill(color::rgb(1, 2, 3)) { gradient := flat, blend := canvas::BlendMode.Add })
-  out = collections::append(out, WITH canvas::stroke(color::rgb(4, 5, 6), 3.0) { transform := negZero })
   ' plan-163-B. Join records, built natively: Miter at the default limit (sharp corners
   ' bevel), Miter at a high one and below 1.0 (every corner bevels), and Bevel, each on a
   ' fill-and-stroke, plus a Miter paint whose stroke draws nothing (no tail at all).
@@ -57,76 +56,76 @@ FUNC paints() AS List OF canvas::Paint
   ' plan-163-C. Path clips, built natively: a triangle, a ring with a hole under NonZero, a
   ' rectangle as five points (not the rectangle fast path), a clip of rings too short to
   ' enclose anything, and a clip on a faded paint whose polyline colours fade too.
-  LET tri AS List OF canvas::Point = [canvas::Point[x := 3.5, y := 1.25], canvas::Point[x := 60.0, y := 0.0 - 4.0], canvas::Point[x := 20.75, y := 70.0]]
-  LET hole AS List OF canvas::Point = [canvas::Point[x := 10.0, y := 10.0], canvas::Point[x := 30.0, y := 10.0], canvas::Point[x := 30.0, y := 30.0], canvas::Point[x := 10.0, y := 30.0]]
-  LET box AS List OF canvas::Point = [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 50.0, y := 0.0], canvas::Point[x := 50.0, y := 40.0], canvas::Point[x := 0.0, y := 40.0], canvas::Point[x := 0.0, y := 40.0]]
+  LET tri AS List OF vector::Float2 = [vector::Float2[x := 3.5, y := 1.25], vector::Float2[x := 60.0, y := 0.0 - 4.0], vector::Float2[x := 20.75, y := 70.0]]
+  LET hole AS List OF vector::Float2 = [vector::Float2[x := 10.0, y := 10.0], vector::Float2[x := 30.0, y := 10.0], vector::Float2[x := 30.0, y := 30.0], vector::Float2[x := 10.0, y := 30.0]]
+  LET box AS List OF vector::Float2 = [vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 50.0, y := 0.0], vector::Float2[x := 50.0, y := 40.0], vector::Float2[x := 0.0, y := 40.0], vector::Float2[x := 0.0, y := 40.0]]
   out = collections::append(out, WITH inked { clip := [tri] })
   out = collections::append(out, WITH inked { clip := [box, hole], clipRule := canvas::FillRule.NonZero })
   out = collections::append(out, WITH inked { clip := [box] })
-  out = collections::append(out, WITH inked { clip := [[canvas::Point[x := 1.0, y := 2.0]], []] })
+  out = collections::append(out, WITH inked { clip := [[vector::Float2[x := 1.0, y := 2.0]], []] })
   out = collections::append(out, WITH inked { clip := [tri], transparency := 0.3, dashes := [5.0, 2.5] })
   RETURN out
 END FUNC
 
-FUNC pt(x AS Float, y AS Float) AS canvas::Point
-  RETURN canvas::Point[x := x, y := y]
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
 END FUNC
 
-FUNC shapes(p AS canvas::Paint) AS List OF canvas::DrawItem
+FUNC shapes(p AS canvas::Paint, t AS canvas::Transform) AS List OF canvas::DrawItem
   MUT out AS List OF canvas::DrawItem = []
   LET nz AS Float = 0.0 * (0.0 - 1.0)
-  LET r1 AS canvas::DrawItem = canvas::Rectangle[x := 10.5, y := 20.25, w := 30.0, h := 40.0, paint := p]
-  LET r2 AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 15.75, y := 0.0 - 3.5, w := 7.25, h := 9.125, paint := p]
-  LET r3 AS canvas::DrawItem = canvas::Rectangle[x := 1000000.3, y := 0.0 - 2000000.0, w := 1234.5, h := 0.001, paint := p]
-  LET r4 AS canvas::DrawItem = canvas::Rectangle[x := 5.0, y := 5.0, w := 0.0, h := 10.0, paint := p]
-  LET r5 AS canvas::DrawItem = canvas::Rectangle[x := 5.0, y := 5.0, w := 0.0 - 3.0, h := 10.0, paint := p]
-  LET r6 AS canvas::DrawItem = canvas::Rectangle[x := 5.0, y := 5.0, w := 10.0, h := 0.0, paint := p]
-  LET r7 AS canvas::DrawItem = canvas::Rectangle[x := 5.0, y := 5.0, w := 10.0, h := 0.0 - 0.5, paint := p]
-  LET r8 AS canvas::DrawItem = canvas::Rectangle[x := nz, y := nz, w := 0.000000001, h := 0.3, paint := p]
-  LET q1 AS canvas::DrawItem = canvas::RoundedRect[x := 10.0, y := 10.0, w := 40.0, h := 20.0, cornerRadius := 5.0, paint := p]
-  LET q2 AS canvas::DrawItem = canvas::RoundedRect[x := 10.0, y := 10.0, w := 40.0, h := 20.0, cornerRadius := 100.0, paint := p]
-  LET q3 AS canvas::DrawItem = canvas::RoundedRect[x := 10.0, y := 10.0, w := 40.0, h := 20.0, cornerRadius := 0.0 - 3.0, paint := p]
-  LET q4 AS canvas::DrawItem = canvas::RoundedRect[x := 0.0 - 3.3, y := 7.7, w := 0.5, h := 8.25, cornerRadius := 0.2, paint := p]
-  LET q5 AS canvas::DrawItem = canvas::RoundedRect[x := 1.0, y := 1.0, w := 0.0, h := 8.0, cornerRadius := 2.0, paint := p]
-  LET c1 AS canvas::DrawItem = canvas::Circle[x := 100.5, y := 50.25, radius := 20.0, paint := p]
-  LET c2 AS canvas::DrawItem = canvas::Circle[x := 0.0 - 7.0, y := 0.0 - 8.0, radius := 0.5, paint := p]
-  LET c3 AS canvas::DrawItem = canvas::Circle[x := 300000.0, y := 1.5, radius := 12345.678, paint := p]
-  LET c4 AS canvas::DrawItem = canvas::Circle[x := 3.0, y := 3.0, radius := 0.0, paint := p]
-  LET c5 AS canvas::DrawItem = canvas::Circle[x := 3.0, y := 3.0, radius := 0.0 - 1.0, paint := p]
-  LET l1 AS canvas::DrawItem = canvas::Line[x1 := 1.0, y1 := 2.0, x2 := 300.0, y2 := 200.0, paint := WITH p { cap := canvas::CapStyle.Round }]
-  LET l2 AS canvas::DrawItem = canvas::Line[x1 := 1.0, y1 := 2.0, x2 := 300.0, y2 := 200.0, paint := WITH p { cap := canvas::CapStyle.Butt }]
-  LET l3 AS canvas::DrawItem = canvas::Line[x1 := 5.0, y1 := 5.0, x2 := 5.0, y2 := 5.0, paint := WITH p { cap := canvas::CapStyle.Round }]
-  LET l4 AS canvas::DrawItem = canvas::Line[x1 := 0.0 - 10.5, y1 := 3.25, x2 := 7.75, y2 := 0.0 - 2.0, paint := WITH p { cap := canvas::CapStyle.Butt }]
-  LET l5 AS canvas::DrawItem = canvas::Line[x1 := 1000000.0, y1 := 1000000.0, x2 := 1000001.0, y2 := 999999.0, paint := WITH p { cap := canvas::CapStyle.Round }]
-  LET l6 AS canvas::DrawItem = canvas::Line[x1 := nz, y1 := 0.0, x2 := 0.0, y2 := nz, paint := WITH p { cap := canvas::CapStyle.Butt }]
+  LET r1 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 10.5, y := 20.25], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 30.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := p, transform := t]
+  LET r2 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0 - 15.75, y := 0.0 - 3.5], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 7.25, height := 9.125], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := p, transform := t]
+  LET r3 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 1000000.3, y := 0.0 - 2000000.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 1234.5, height := 0.001], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := p, transform := t]
+  LET r4 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 5.0, y := 5.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 0.0, height := 10.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := p, transform := t]
+  LET r5 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 5.0, y := 5.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 0.0 - 3.0, height := 10.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := p, transform := t]
+  LET r6 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 5.0, y := 5.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 10.0, height := 0.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := p, transform := t]
+  LET r7 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 5.0, y := 5.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 10.0, height := 0.0 - 0.5], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := p, transform := t]
+  LET r8 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := nz, y := nz], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 0.000000001, height := 0.3], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := p, transform := t]
+  LET q1 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 40.0, height := 20.0], radiusTL := 5.0, radiusTR := 5.0, radiusBL := 5.0, radiusBR := 5.0, paint := p, transform := t]
+  LET q2 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 40.0, height := 20.0], radiusTL := 100.0, radiusTR := 100.0, radiusBL := 100.0, radiusBR := 100.0, paint := p, transform := t]
+  LET q3 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 40.0, height := 20.0], radiusTL := 0.0 - 3.0, radiusTR := 0.0 - 3.0, radiusBL := 0.0 - 3.0, radiusBR := 0.0 - 3.0, paint := p, transform := t]
+  LET q4 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0 - 3.3, y := 7.7], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 0.5, height := 8.25], radiusTL := 1.5, radiusTR := 1.5, radiusBL := 1.5, radiusBR := 1.5, paint := p, transform := t]
+  LET q5 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 1.0, y := 1.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 0.0, height := 8.0], radiusTL := 2.0, radiusTR := 2.0, radiusBL := 2.0, radiusBR := 2.0, paint := p, transform := t]
+  LET c1 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 100.5, y := 50.25], radius := 20.0, paint := p, transform := t]
+  LET c2 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 0.0 - 7.0, y := 0.0 - 8.0], radius := 0.5, paint := p, transform := t]
+  LET c3 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 300000.0, y := 1.5], radius := 12345.678, paint := p, transform := t]
+  LET c4 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 3.0, y := 3.0], radius := 0.0, paint := p, transform := t]
+  LET c5 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 3.0, y := 3.0], radius := 0.0 - 1.0, paint := p, transform := t]
+  LET l1 AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 1.0, y := 2.0], endAt := vector::Float2[x := 300.0, y := 200.0], paint := WITH p { cap := canvas::CapStyle.Round }, transform := t]
+  LET l2 AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 1.0, y := 2.0], endAt := vector::Float2[x := 300.0, y := 200.0], paint := WITH p { cap := canvas::CapStyle.Butt }, transform := t]
+  LET l3 AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 5.0, y := 5.0], endAt := vector::Float2[x := 5.0, y := 5.0], paint := WITH p { cap := canvas::CapStyle.Round }, transform := t]
+  LET l4 AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 0.0 - 10.5, y := 3.25], endAt := vector::Float2[x := 7.75, y := 0.0 - 2.0], paint := WITH p { cap := canvas::CapStyle.Butt }, transform := t]
+  LET l5 AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 1000000.0, y := 1000000.0], endAt := vector::Float2[x := 1000001.0, y := 999999.0], paint := WITH p { cap := canvas::CapStyle.Round }, transform := t]
+  LET l6 AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := nz, y := 0.0], endAt := vector::Float2[x := 0.0, y := nz], paint := WITH p { cap := canvas::CapStyle.Butt }, transform := t]
   ' plan-163-B. Square ends: the tag 2 and the `half * sqrt(2)` bounds pad, on a line,
   ' a zero-length line, a polyline and an all-coincident polyline (the square dot).
   LET sq AS canvas::Paint = WITH p { cap := canvas::CapStyle.Square }
-  LET l7 AS canvas::DrawItem = canvas::Line[x1 := 1.5, y1 := 2.25, x2 := 300.0, y2 := 200.75, paint := sq]
-  LET l8 AS canvas::DrawItem = canvas::Line[x1 := 5.0, y1 := 5.0, x2 := 5.0, y2 := 5.0, paint := sq]
-  LET none AS List OF canvas::Point = []
-  LET g1 AS canvas::DrawItem = canvas::Polygon[contours := [[pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)]], rule := canvas::FillRule.EvenOdd, paint := p]
-  LET g2 AS canvas::DrawItem = canvas::Polygon[contours := [[pt(1.0, 2.0), pt(3.0, 4.0)]], rule := canvas::FillRule.EvenOdd, paint := p]
-  LET g3 AS canvas::DrawItem = canvas::Polygon[contours := [[pt(1.0, 2.0)]], rule := canvas::FillRule.EvenOdd, paint := p]
-  LET g4 AS canvas::DrawItem = canvas::Polygon[contours := [none], rule := canvas::FillRule.EvenOdd, paint := p]
-  LET g5 AS canvas::DrawItem = canvas::Polygon[contours := [[pt(0.0, 0.0), pt(5.0, 5.0), pt(10.0, 10.0)]], rule := canvas::FillRule.EvenOdd, paint := p]
-  LET g6 AS canvas::DrawItem = canvas::Polygon[contours := [[pt(0.0, 0.0), pt(8.0, 0.0), pt(8.0, 0.0), pt(8.0, 8.0), pt(0.0, 8.0)]], rule := canvas::FillRule.EvenOdd, paint := p]
-  LET g7 AS canvas::DrawItem = canvas::Polygon[contours := [[pt(0.0 - 4.125, 0.0 - 9.5), pt(2000000.5, 3.0), pt(nz, 0.1), pt(0.3, 0.7), pt(0.0 - 0.001, 5.0)]], rule := canvas::FillRule.EvenOdd, paint := p]
+  LET l7 AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 1.5, y := 2.25], endAt := vector::Float2[x := 300.0, y := 200.75], paint := sq, transform := t]
+  LET l8 AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 5.0, y := 5.0], endAt := vector::Float2[x := 5.0, y := 5.0], paint := sq, transform := t]
+  LET none AS List OF vector::Float2 = []
+  LET g1 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)]], rule := canvas::FillRule.EvenOdd, paint := p, transform := t]
+  LET g2 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[pt(1.0, 2.0), pt(3.0, 4.0)]], rule := canvas::FillRule.EvenOdd, paint := p, transform := t]
+  LET g3 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[pt(1.0, 2.0)]], rule := canvas::FillRule.EvenOdd, paint := p, transform := t]
+  LET g4 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [none], rule := canvas::FillRule.EvenOdd, paint := p, transform := t]
+  LET g5 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[pt(0.0, 0.0), pt(5.0, 5.0), pt(10.0, 10.0)]], rule := canvas::FillRule.EvenOdd, paint := p, transform := t]
+  LET g6 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[pt(0.0, 0.0), pt(8.0, 0.0), pt(8.0, 0.0), pt(8.0, 8.0), pt(0.0, 8.0)]], rule := canvas::FillRule.EvenOdd, paint := p, transform := t]
+  LET g7 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[pt(0.0 - 4.125, 0.0 - 9.5), pt(2000000.5, 3.0), pt(nz, 0.1), pt(0.3, 0.7), pt(0.0 - 0.001, 5.0)]], rule := canvas::FillRule.EvenOdd, paint := p, transform := t]
   ' plan-163-A. Several rings in one item: a hole under each rule (the inner ring one
   ' way, then the other), rings of 0, 1 and 2 points mixed with real ones (the first
   ' contributing ring is not ring 0, so the bounds seed from a later ring), no rings
   ' at all, only rings that contribute nothing, and a later ring that widens the
   ' bounds in every direction.
-  LET outer AS List OF canvas::Point = [pt(10.0, 10.0), pt(90.0, 10.0), pt(90.0, 90.0), pt(10.0, 90.0)]
-  LET innerCw AS List OF canvas::Point = [pt(30.0, 30.0), pt(70.0, 30.0), pt(70.0, 70.0), pt(30.0, 70.0)]
-  LET innerCcw AS List OF canvas::Point = [pt(30.0, 30.0), pt(30.0, 70.0), pt(70.0, 70.0), pt(70.0, 30.0)]
-  LET noRings AS List OF List OF canvas::Point = []
-  LET g8 AS canvas::DrawItem = canvas::Polygon[contours := [outer, innerCw], rule := canvas::FillRule.EvenOdd, paint := p]
-  LET g9 AS canvas::DrawItem = canvas::Polygon[contours := [outer, innerCcw], rule := canvas::FillRule.NonZero, paint := p]
-  LET g10 AS canvas::DrawItem = canvas::Polygon[contours := [[pt(500.0, 500.0)], none, [pt(1.5, 2.5), pt(3.0, 4.0)], innerCw, none], rule := canvas::FillRule.NonZero, paint := p]
-  LET g11 AS canvas::DrawItem = canvas::Polygon[contours := noRings, rule := canvas::FillRule.NonZero, paint := p]
-  LET g12 AS canvas::DrawItem = canvas::Polygon[contours := [none, [pt(7.0, 7.0)], none], rule := canvas::FillRule.EvenOdd, paint := p]
-  LET g13 AS canvas::DrawItem = canvas::Polygon[contours := [innerCw, [pt(0.0 - 4.125, nz), pt(2000000.5, 3.0), pt(0.3, 0.0 - 900.7)]], rule := canvas::FillRule.EvenOdd, paint := p]
+  LET outer AS List OF vector::Float2 = [pt(10.0, 10.0), pt(90.0, 10.0), pt(90.0, 90.0), pt(10.0, 90.0)]
+  LET innerCw AS List OF vector::Float2 = [pt(30.0, 30.0), pt(70.0, 30.0), pt(70.0, 70.0), pt(30.0, 70.0)]
+  LET innerCcw AS List OF vector::Float2 = [pt(30.0, 30.0), pt(30.0, 70.0), pt(70.0, 70.0), pt(70.0, 30.0)]
+  LET noRings AS List OF List OF vector::Float2 = []
+  LET g8 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [outer, innerCw], rule := canvas::FillRule.EvenOdd, paint := p, transform := t]
+  LET g9 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [outer, innerCcw], rule := canvas::FillRule.NonZero, paint := p, transform := t]
+  LET g10 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[pt(500.0, 500.0)], none, [pt(1.5, 2.5), pt(3.0, 4.0)], innerCw, none], rule := canvas::FillRule.NonZero, paint := p, transform := t]
+  LET g11 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := noRings, rule := canvas::FillRule.NonZero, paint := p, transform := t]
+  LET g12 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [none, [pt(7.0, 7.0)], none], rule := canvas::FillRule.EvenOdd, paint := p, transform := t]
+  LET g13 AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [innerCw, [pt(0.0 - 4.125, nz), pt(2000000.5, 3.0), pt(0.3, 0.0 - 900.7)]], rule := canvas::FillRule.EvenOdd, paint := p, transform := t]
   ' plan-154-A. Colours none / one per point / fewer / more than the points, both caps,
   ' repeated end points (the butt cut moves inward), every point coincident with each
   ' cap (a dot, and the empty header), one point and none, and extreme coordinates.
@@ -134,17 +133,17 @@ FUNC shapes(p AS canvas::Paint) AS List OF canvas::DrawItem
   LET three AS List OF color::Color = [color::rgba(255, 0, 0, 255), color::rgba(0, 255, 0, 128), color::rgba(0, 0, 255, 0)]
   LET one AS List OF color::Color = [color::rgba(7, 8, 9, 10)]
   LET many AS List OF color::Color = [color::rgb(1, 1, 1), color::rgb(2, 2, 2), color::rgb(3, 3, 3), color::rgb(4, 4, 4), color::rgb(5, 5, 5), color::rgb(6, 6, 6), color::rgb(7, 7, 7), color::rgb(8, 8, 8)]
-  LET pl1 AS canvas::DrawItem = canvas::PolyLine[points := [pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)], colors := noColors, paint := WITH p { cap := canvas::CapStyle.Round }]
-  LET pl2 AS canvas::DrawItem = canvas::PolyLine[points := [pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)], colors := three, paint := WITH p { cap := canvas::CapStyle.Butt }]
-  LET pl3 AS canvas::DrawItem = canvas::PolyLine[points := [pt(0.0 - 4.5, 1.0), pt(2.0, 3.0), pt(9.75, 0.0 - 6.0), pt(12.0, 12.0)], colors := one, paint := WITH p { cap := canvas::CapStyle.Round }]
-  LET pl4 AS canvas::DrawItem = canvas::PolyLine[points := [pt(5.0, 5.0), pt(5.0, 5.0), pt(8.0, 9.0), pt(8.0, 9.0), pt(8.0, 9.0), pt(20.0, 1.0), pt(20.0, 1.0)], colors := many, paint := WITH p { cap := canvas::CapStyle.Butt }]
-  LET pl5 AS canvas::DrawItem = canvas::PolyLine[points := [pt(3.0, 3.0), pt(3.0, 3.0), pt(3.0, 3.0)], colors := three, paint := WITH p { cap := canvas::CapStyle.Round }]
-  LET pl6 AS canvas::DrawItem = canvas::PolyLine[points := [pt(3.0, 3.0), pt(3.0, 3.0)], colors := noColors, paint := WITH p { cap := canvas::CapStyle.Butt }]
-  LET pl7 AS canvas::DrawItem = canvas::PolyLine[points := [pt(3.0, 3.0)], colors := three, paint := WITH p { cap := canvas::CapStyle.Round }]
-  LET pl8 AS canvas::DrawItem = canvas::PolyLine[points := none, colors := noColors, paint := WITH p { cap := canvas::CapStyle.Butt }]
-  LET pl9 AS canvas::DrawItem = canvas::PolyLine[points := [pt(nz, 0.1), pt(2000000.5, 3.0), pt(0.0 - 0.001, 5.0), pt(1000000.0, 0.0 - 1000000.0)], colors := three, paint := WITH p { cap := canvas::CapStyle.Round }]
-  LET pl10 AS canvas::DrawItem = canvas::PolyLine[points := [pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)], colors := three, paint := sq]
-  LET pl11 AS canvas::DrawItem = canvas::PolyLine[points := [pt(3.0, 3.0), pt(3.0, 3.0)], colors := noColors, paint := sq]
+  LET pl1 AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)], colors := noColors, paint := WITH p { cap := canvas::CapStyle.Round }, transform := t]
+  LET pl2 AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)], colors := three, paint := WITH p { cap := canvas::CapStyle.Butt }, transform := t]
+  LET pl3 AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(0.0 - 4.5, 1.0), pt(2.0, 3.0), pt(9.75, 0.0 - 6.0), pt(12.0, 12.0)], colors := one, paint := WITH p { cap := canvas::CapStyle.Round }, transform := t]
+  LET pl4 AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(5.0, 5.0), pt(5.0, 5.0), pt(8.0, 9.0), pt(8.0, 9.0), pt(8.0, 9.0), pt(20.0, 1.0), pt(20.0, 1.0)], colors := many, paint := WITH p { cap := canvas::CapStyle.Butt }, transform := t]
+  LET pl5 AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(3.0, 3.0), pt(3.0, 3.0), pt(3.0, 3.0)], colors := three, paint := WITH p { cap := canvas::CapStyle.Round }, transform := t]
+  LET pl6 AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(3.0, 3.0), pt(3.0, 3.0)], colors := noColors, paint := WITH p { cap := canvas::CapStyle.Butt }, transform := t]
+  LET pl7 AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(3.0, 3.0)], colors := three, paint := WITH p { cap := canvas::CapStyle.Round }, transform := t]
+  LET pl8 AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := none, colors := noColors, paint := WITH p { cap := canvas::CapStyle.Butt }, transform := t]
+  LET pl9 AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(nz, 0.1), pt(2000000.5, 3.0), pt(0.0 - 0.001, 5.0), pt(1000000.0, 0.0 - 1000000.0)], colors := three, paint := WITH p { cap := canvas::CapStyle.Round }, transform := t]
+  LET pl10 AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(10.0, 10.0), pt(60.0, 15.5), pt(30.25, 70.0)], colors := three, paint := sq, transform := t]
+  LET pl11 AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(3.0, 3.0), pt(3.0, 3.0)], colors := noColors, paint := sq, transform := t]
   out = [r1, r2, r3, r4, r5, r6, r7, r8, q1, q2, q3, q4, q5, c1, c2, c3, c4, c5, l1, l2, l3, l4, l5, l6, l7, l8, g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, pl1, pl2, pl3, pl4, pl5, pl6, pl7, pl8, pl9, pl10, pl11]
   RETURN out
 END FUNC
@@ -152,18 +151,24 @@ END FUNC
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   MUT items AS List OF canvas::DrawItem = []
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
   FOR EACH p IN paints()
-    items = collections::append(items, shapes(p))
+    items = collections::append(items, shapes(p, none))
   NEXT
+  ' plan-172-C: the transform is the item's now. Negative zero in every field is still
+  ' the all-zero transform, so every shape here must still build natively.
+  LET nz AS Float = 0.0 * (0.0 - 1.0)
+  LET negZero AS canvas::Transform = canvas::Transform[a := nz, b := nz, c := nz, d := nz, tx := nz, ty := nz]
+  items = collections::append(items, shapes(canvas::stroke(color::rgb(4, 5, 6), 3.0), negZero))
   canvas::present(items)
   LET t AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 3.5, ty := 0.0]
   LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]]
-  LET moved AS canvas::DrawItem = canvas::Rectangle[x := 1.0, y := 2.0, w := 3.0, h := 4.0, paint := WITH canvas::fill(color::rgb(1, 2, 3)) { transform := t }]
-  LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 10.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET moved AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 1.0, y := 2.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 3.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 2, 3)), transform := t]
+  LET grad AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 10.0, y := 0.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
   LET gradPaint AS canvas::Paint = WITH canvas::fill(color::rgb(1, 2, 3)) { gradient := grad }
-  LET ramp AS canvas::DrawItem = canvas::Circle[x := 50.0, y := 50.0, radius := 9.0, paint := gradPaint]
-  LET oval AS canvas::DrawItem = canvas::Ellipse[x := 40.0, y := 40.0, radiusX := 10.0, radiusY := 5.0, angle := 0.5, paint := canvas::fill(color::rgb(9, 9, 9))]
-  LET bow AS canvas::DrawItem = canvas::Arc[x := 40.0, y := 40.0, radius := 10.0, startAngle := 0.0, endAngle := 2.0, paint := WITH canvas::stroke(color::rgb(9, 9, 9), 2.0) { cap := canvas::CapStyle.Round }]
+  LET ramp AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 50.0, y := 50.0], radius := 9.0, paint := gradPaint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET oval AS canvas::DrawItem = canvas::Ellipse[id := "", position := vector::Float2[x := 40.0, y := 40.0], radiusX := 10.0, radiusY := 5.0, paint := canvas::fill(color::rgb(9, 9, 9)), transform := canvas::Transform[a := math::cos(0.5), b := math::sin(0.5), c := 0.0 - math::sin(0.5), d := math::cos(0.5), tx := 0.0, ty := 0.0]]
+  LET bow AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := 40.0, y := 40.0], radius := 10.0, startAngle := 0.0, endAngle := 2.0, paint := WITH canvas::stroke(color::rgb(9, 9, 9), 2.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([moved, ramp, oval, bow])
   io::print("rendered")
 END FUNC

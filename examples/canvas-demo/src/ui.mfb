@@ -190,8 +190,8 @@ FUNC compose(outer AS canvas::Transform, inner AS canvas::Transform) AS canvas::
   RETURN canvas::Transform[a := o.a * i.a + o.c * i.b, b := o.b * i.a + o.d * i.b, c := o.a * i.c + o.c * i.d, d := o.b * i.c + o.d * i.d, tx := o.a * i.tx + o.c * i.ty + o.tx, ty := o.b * i.tx + o.d * i.ty + o.ty]
 END FUNC
 
-FUNC restylePaint(p AS canvas::Paint, t AS canvas::Transform, fadeBy AS Float) AS canvas::Paint
-  RETURN WITH p { transform := compose(t, p.transform), transparency := 1.0 - (1.0 - clamp01(p.transparency)) * (1.0 - clamp01(fadeBy)) }
+FUNC restylePaint(p AS canvas::Paint, fadeBy AS Float) AS canvas::Paint
+  RETURN WITH p { transparency := 1.0 - (1.0 - clamp01(p.transparency)) * (1.0 - clamp01(fadeBy)) }
 END FUNC
 
 ' The same picture moved by `t` and faded by `fadeBy` (0 leaves it, 1 hides it)
@@ -203,17 +203,19 @@ END FUNC
 
 FUNC restyleItem(d AS canvas::DrawItem, t AS canvas::Transform, fadeBy AS Float) AS canvas::DrawItem
   MATCH d
-    CASE canvas::Picture(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Rectangle(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Line(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Polygon(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Circle(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Arc(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Text(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::RoundedRect(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
-    CASE canvas::Ellipse(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
+    CASE canvas::Rectangle(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
+    CASE canvas::Line(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::Polygon(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::Circle(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
+    CASE canvas::Arc(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
+    CASE canvas::Text(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
+    CASE canvas::Ellipse(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
+    ' A group, a picture and an AutoPaint carry no paint of their own to restyle -- it
+    ' is their items' or their shape's -- and no panel this is used on holds one.
     CASE canvas::Group(v) : RETURN v
-    CASE canvas::PolyLine(v) : RETURN WITH v { paint := restylePaint(v.paint, t, fadeBy) }
+    CASE canvas::Picture(v) : RETURN v
+    CASE canvas::AutoPaint(v) : RETURN v
+    CASE canvas::PolyLine(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
   END MATCH
 END FUNC
 
@@ -259,7 +261,7 @@ FUNC divider(cx AS Float, y AS Float, halfW AS Float, a AS Float) AS List OF can
   RETURN [
     rect(cx - halfW, y - 0.6, halfW - d * 2.0, 1.2, gradP(linear(cx - halfW, 0.0, cx - d * 2.0, 0.0, [gstop(0.0, fade(c, 0.0)), gstop(1.0, fade(c, 0.7 * a))]))),
     rect(cx + d * 2.0, y - 0.6, halfW - d * 2.0, 1.2, gradP(linear(cx + d * 2.0, 0.0, cx + halfW, 0.0, [gstop(0.0, fade(c, 0.7 * a)), gstop(1.0, fade(c, 0.0))]))),
-    poly([pt(cx, y - d), pt(cx + d, y), pt(cx, y + d), pt(cx - d, y)], fillP(fade(c, a)))
+    polyAt(cx, y, [pt(0.0, -d), pt(d, 0.0), pt(0.0, d), pt(-d, 0.0)], fillP(fade(c, a)))
   ]
 END FUNC
 
@@ -369,7 +371,7 @@ FUNC overBegin(lay AS PanelLayout, mx AS Float, my AS Float) AS Boolean
 END FUNC
 
 FUNC bullet(x AS Float, y AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN poly([pt(x, y - r), pt(x + r, y), pt(x, y + r), pt(x - r, y)], fillP(c))
+  RETURN polyAt(x, y, [pt(0.0, -r), pt(r, 0.0), pt(0.0, r), pt(-r, 0.0)], fillP(c))
 END FUNC
 
 ' The panel itself, at full size and opacity; drawIntro animates it in.

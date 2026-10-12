@@ -37,6 +37,7 @@
 
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT errorCode
@@ -190,11 +191,11 @@ FUNC hintItem(face AS canvas::Font, height AS Float, p AS Pipe) AS canvas::DrawI
   MUT state AS String = "on"
   IF NOT p.on THEN state = "off"
   LET text AS String = "pipe " & state & "  \u{00B7}  " & toString(dropsOut()) & " of " & toString(POOL_SIZE) & " drops  \u{00B7}  drag the pipe, click it on/off  \u{00B7}  a d turn  \u{00B7}  q e spin  \u{00B7}  w s size  \u{00B7}  delete removes  \u{00B7}  esc quits"
-  RETURN canvas::Text[x := 12.0, y := height - 12.0, text := text, font := face, size := HINT_SIZE, paint := canvas::fill(HINT_COLOR)]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := 12.0, y := height - 12.0], text := text, font := face, fontSize := HINT_SIZE, paint := canvas::fill(HINT_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC frameScene(width AS Float, height AS Float, p AS Pipe, selected AS Integer) AS List OF canvas::DrawItem
-  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND)]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := width, height := height], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   FOR EACH item IN shapeItems(selected)
     items = collections::append(items, item)
   NEXT
@@ -238,15 +239,15 @@ FUNC main AS Integer
   canvas::enableMouse(TRUE)
 
   MUT size AS canvas::Size = canvas::getSize()
-  MUT pipe AS Pipe = Pipe[x := playWidth(toFloat(size.width)) / 2.0, on := TRUE, owed := 0.0]
+  MUT pipe AS Pipe = Pipe[x := playWidth(size.width) / 2.0, on := TRUE, owed := 0.0]
   MUT selected AS Integer = -1
   MUT gesture AS Gesture = NO_GESTURE
   MUT running AS Boolean = TRUE
 
   DO WHILE running
     IF canvas::didResize() THEN size = canvas::getSize()
-    LET width AS Float = toFloat(size.width)
-    LET height AS Float = toFloat(size.height)
+    LET width AS Float = size.width
+    LET height AS Float = size.height
     LET play AS Float = playWidth(width)
     pipe = pipeWithin(pipe, play)
     clampShapes(play, height)
@@ -277,7 +278,7 @@ FUNC main AS Integer
     DO WHILE TRUE
       LET mouse AS canvas::MouseEvent = canvas::pollMouse()
       IF mouse.kind = canvas::MouseKind.None THEN EXIT DO
-      LET at AS canvas::Point = mouse.position
+      LET at AS vector::Float2 = mouse.position
 
       IF mouse.kind = canvas::MouseKind.Down AND mouse.button = canvas::MouseButton.Left THEN
         gesture = WITH NO_GESTURE { startX := at.x, startY := at.y }

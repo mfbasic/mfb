@@ -44,7 +44,7 @@ def instrument(source, output, frames):
     canvas::waitFrame()
     LET finished AS Integer = datetime::monotonicNanos()
     IF frame >= 3 THEN
-      report = report & toString(sampleIndex) & "," & toString(submitted - frameStart) & "," & toString(finished - frameStart) & "," & toString(checksum) & "," & toString(size.width) & "," & toString(size.height) & "\\n"
+      report = report & toString(sampleIndex) & "," & toString(submitted - frameStart) & "," & toString(finished - frameStart) & "," & toString(checksum) & "," & toString(toInt(size.width)) & "," & toString(toInt(size.height)) & "\\n"
     END IF
     frame = frame + 1''')
     return replace_once(source, '  RETURN 0\nEND FUNC', f'  fs::writeText("{output}", report)\n  RETURN 0\nEND FUNC')

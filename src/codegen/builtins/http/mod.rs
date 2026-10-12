@@ -502,6 +502,7 @@ pub(crate) fn register(r: &mut Registry) {
     //   END WHILE
     //   LET resp AS Response = http::finish(s)
     pkg.add_union(RegistryUnion {
+        includes: vec![],
         name: "Stream",
         export: true,
         variants: vec![

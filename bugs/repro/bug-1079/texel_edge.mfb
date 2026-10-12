@@ -1,0 +1,38 @@
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT io
+IMPORT vector
+
+' A PLAIN picture whose texel boundaries fall exactly on pixel centres: an 8 by 4 image
+' over 160 by 110 pixels at (460, 235). Rows are 27.5 px tall, so the boundary between
+' rows 0 and 1 is y = 262.5 -- the centre of pixel row 262.
+FUNC texels(w AS Integer, h AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT y AS Integer = 0
+  WHILE y < h
+    MUT x AS Integer = 0
+    WHILE x < w
+      out = collections::append(out, toByte(40 + (x * 215) / (w - 1)))
+      out = collections::append(out, toByte(40 + (y * 215) / (h - 1)))
+      IF (x + y) MOD 2 = 0 THEN
+        out = collections::append(out, toByte(220))
+      ELSE
+        out = collections::append(out, toByte(0))
+      END IF
+      out = collections::append(out, toByte(255))
+      x = x + 1
+    END WHILE
+    y = y + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES wide AS canvas::Image = canvas::createImage(8, 4, texels(8, 4))
+  LET tile AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 460.0, y := 235.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 160.0, height := 110.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := wide]
+  canvas::present([tile])
+  io::print("rendered")
+END FUNC

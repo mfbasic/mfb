@@ -6,7 +6,7 @@
 //! `s + dashOffset`. Where `s = 0` is, per kind: a Line at its first point, an Arc at
 //! `startAngle`, a PolyLine at its first point, each Polygon ring at its first point
 //! (each ring restarts the pattern), a Rectangle at its top-left corner going clockwise
-//! (towards +X under Y-down), a RoundedRect at the start of its top straight edge, a
+//! (towards +X under Y-down), a rounded Rectangle at the start of its top straight edge, a
 //! Circle or Ellipse at angle 0 (+X in its own frame) going the way angles increase.
 //!
 //! **An outline of edges is cut edge by edge.** A pixel's position on an edge is its
@@ -23,7 +23,7 @@
 //! Round join paint carries corner pieces too when it is dashed (discs), because the
 //! round corner of an undashed stroke must disappear where the dash pattern is off.
 //!
-//! **A curve is cut at its nearest point.** A Circle, Arc, Ellipse or RoundedRect has
+//! **A curve is cut at its nearest point.** A Circle, Arc, Ellipse or rounded Rectangle has
 //! no corner, so its `s` is the perimeter position of the pixel's nearest outline point
 //! and `along` is measured in outline length there: a dash end is cut along the
 //! outline's normal, to within the band's curvature (`half / radius` of the antialiased

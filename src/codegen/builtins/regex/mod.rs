@@ -397,6 +397,7 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     pkg.add_union(RegistryUnion {
+        includes: vec![],
         name: "__regex_ClassItem",
         export: false,
         variants: vec![
@@ -570,6 +571,7 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     pkg.add_union(RegistryUnion {
+        includes: vec![],
         name: "__regex_Node",
         export: false,
         variants: vec![
@@ -612,6 +614,7 @@ pub(crate) fn register(r: &mut Registry) {
     // `MATCH`es, so it is borrowed in place (plan-86 E). The variants keep their
     // `__regex_Node` order, so each record's union tag is the same in both unions.
     pkg.add_union(RegistryUnion {
+        includes: vec![],
         name: "__regex_Leaf",
         export: false,
         variants: vec![

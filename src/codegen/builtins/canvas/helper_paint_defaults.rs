@@ -160,10 +160,131 @@ r#"FUNC __canvas_forwardOf(ia AS Float, ib AS Float, ic AS Float, id AS Float, i
   RETURN [fa, fb, fc, fd, 0.0 - (fa * itx + fc * ity), 0.0 - (fb * itx + fd * ity)]
 END FUNC"#;
 
+/// plan-172-D: whether a shape's `transform` is in effect.
+///
+/// The all-zero transform is the identity and so is one with no area (a zero row, or
+/// `|a*d - b*c|` under `1e-12`) — the two cases `__canvas_invertTransform` answers with
+/// the identity. A shape whose transform is NOT in effect is built at its `position`,
+/// with the record every renderer has always drawn for those surface coordinates; one
+/// whose transform is in effect is built at the local origin and carried by the affine
+/// `__canvas_placement` returns. This function is the single test that picks between
+/// them, so the builder and the inverse cannot disagree about which items are turned.
+#[rustfmt::skip]
+const TRANSFORM_ACTIVE: &str =
+r#"FUNC __canvas_transformActive(t AS Transform) AS Boolean
+  IF t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0 THEN
+    RETURN FALSE
+  END IF
+  RETURN NOT (__canvas_absF(t.a * t.d - t.b * t.c) < 0.000000000001)
+END FUNC"#;
+
+/// plan-172-D: the affine a shape at `position` with `transform` is drawn through.
+///
+/// A point `p` of the shape's local geometry reaches the surface at
+/// `position + transform(p)`: the transform pivots about the reference point, and
+/// `transform.tx` / `ty` add to `position`. So the effective affine is the transform's
+/// linear part with the translation `position + (tx, ty)`.
+///
+/// When the transform is not in effect the answer is the all-zero transform, and the
+/// caller adds `position` to the geometry's own coordinates instead: building an
+/// untransformed shape locally and translating it would send every positioned item
+/// down the transformed path — no native builder, no rectangular clip, antialiasing
+/// through an inverse map — to draw the same pixels.
+#[rustfmt::skip]
+const PLACEMENT: &str =
+r#"FUNC __canvas_placement(position AS vector::Float2, t AS Transform) AS Transform
+  IF NOT __canvas_transformActive(t) THEN
+    RETURN __canvas_noTransform()
+  END IF
+  RETURN Transform[a := t.a, b := t.b, c := t.c, d := t.d, tx := position.x + t.tx, ty := position.y + t.ty]
+END FUNC"#;
+
+/// plan-172-D: a paint whose `clip` rings and gradient points are moved by `(ox, oy)`.
+///
+/// Both are in the shape's local space. A shape built at its position (see
+/// `__canvas_placement`) needs them in the same coordinates as its geometry, so they
+/// are moved once here and every builder downstream reads them unchanged.
+///
+/// A paint with no clip and no gradient is returned as it is — the common case, and
+/// no allocation. A clip is moved even when the offset is zero: the native builder adds
+/// the offset to every clip point unconditionally, and `-0.0 + 0.0` is `+0.0`, so
+/// skipping the add here would differ from it in a sign bit. The gradient's two points
+/// are moved only when it has the two stops that make it a gradient, which is exactly
+/// when the native builder declines the item.
+///
+/// A gradient's own `transform` is in local space as well, so it is re-centred on the
+/// offset with its points. `__canvas_gradientInverse` treats the same transforms as the
+/// identity that `__canvas_transformActive` calls not in effect, and those are left
+/// alone: the identity is the identity about any point.
+#[rustfmt::skip]
+const PLACED_PAINT: &str =
+r#"FUNC __canvas_placedClip(rings AS List OF List OF vector::Float2, ox AS Float, oy AS Float) AS List OF List OF vector::Float2
+  IF len(rings) = 0 THEN
+    RETURN rings
+  END IF
+  MUT out AS List OF List OF vector::Float2 = []
+  FOR EACH ring IN rings
+    MUT moved AS List OF vector::Float2 = []
+    FOR EACH q IN ring
+      moved = collections::append(moved, vector::Float2[x := q.x + ox, y := q.y + oy])
+    NEXT
+    out = collections::append(out, moved)
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC __canvas_placedPaint(paint AS Paint, ox AS Float, oy AS Float) AS Paint
+  LET ramp AS Boolean = len(paint.gradient.stops) >= 2
+  IF len(paint.clip) = 0 AND NOT ramp THEN
+    RETURN paint
+  END IF
+  MUT g AS Gradient = paint.gradient
+  IF ramp THEN
+    g = WITH g { startPoint := vector::Float2[x := g.startPoint.x + ox, y := g.startPoint.y + oy], endPoint := vector::Float2[x := g.endPoint.x + ox, y := g.endPoint.y + oy] }
+    ' The gradient's own transform G is in local space too. Moved to the build origin
+    ' it is G'(x) = G(x - o) + o: the same linear part, and the translation
+    ' t + o - L*o. Without this a turned or scaled ramp would be turned about the
+    ' surface origin instead of the shape's reference point.
+    LET gt AS Transform = g.transform
+    IF __canvas_transformActive(gt) THEN
+      g = WITH g { transform := Transform[a := gt.a, b := gt.b, c := gt.c, d := gt.d, tx := gt.tx + ox - (gt.a * ox + gt.c * oy), ty := gt.ty + oy - (gt.b * ox + gt.d * oy)] }
+    END IF
+  END IF
+  RETURN WITH paint { clip := __canvas_placedClip(paint.clip, ox, oy), gradient := g }
+END FUNC
+
+' plan-172-F: a polygon's rings in the coordinates its record is built in. Its points
+' are offsets from `position`; built at its position (no transform in effect) each is
+' `position + point`, added whatever the position -- the native builder adds it to
+' every point it reads, and `-0.0 + 0.0` is `+0.0`, so skipping the add for a zero
+' position would differ from it in a sign bit. A turned polygon is built at the local
+' origin, where the points are already what the record wants, and is never built
+' natively, so they are returned as they are.
+FUNC __canvas_placedRings(rings AS List OF List OF vector::Float2, position AS vector::Float2, t AS Transform) AS List OF List OF vector::Float2
+  IF __canvas_transformActive(t) THEN
+    RETURN rings
+  END IF
+  RETURN __canvas_placedClip(rings, position.x, position.y)
+END FUNC
+
+FUNC __canvas_buildX(position AS vector::Float2, t AS Transform) AS Float
+  IF __canvas_transformActive(t) THEN
+    RETURN 0.0
+  END IF
+  RETURN position.x
+END FUNC
+
+FUNC __canvas_buildY(position AS vector::Float2, t AS Transform) AS Float
+  IF __canvas_transformActive(t) THEN
+    RETURN 0.0
+  END IF
+  RETURN position.y
+END FUNC"#;
+
 /// No clip rings, which means "no clip" (plan-163-C).
 #[rustfmt::skip]
 const NO_CLIP: &str =
-r#"FUNC __canvas_noClip() AS List OF List OF Point
+r#"FUNC __canvas_noClip() AS List OF List OF vector::Float2
   RETURN []
 END FUNC"#;
 
@@ -177,7 +298,7 @@ END FUNC"#;
 #[rustfmt::skip]
 const NO_GRADIENT: &str =
 r#"FUNC __canvas_noGradient() AS Gradient
-  RETURN Gradient[kind := GradientKind.Linear, startPoint := Point[x := 0.0, y := 0.0], endPoint := Point[x := 0.0, y := 0.0], stops := [], spread := GradientSpread.Pad, transform := __canvas_noTransform(), focalOffset := Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := GradientApply.FillOnly]
+  RETURN Gradient[kind := GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 0.0, y := 0.0], stops := [], spread := GradientSpread.Pad, transform := __canvas_noTransform(), focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := GradientApply.FillOnly]
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
@@ -191,4 +312,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     ));
     pkg.add_helper(RegistryHelper::always("canvas_float32Bits", FLOAT32_BITS));
     pkg.add_helper(RegistryHelper::always("canvas_forwardOf", FORWARD_OF));
+    pkg.add_helper(RegistryHelper::always(
+        "canvas_transformActive",
+        TRANSFORM_ACTIVE,
+    ));
+    pkg.add_helper(RegistryHelper::always("canvas_placement", PLACEMENT));
+    pkg.add_helper(RegistryHelper::always("canvas_placedPaint", PLACED_PAINT));
 }

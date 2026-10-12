@@ -13,6 +13,7 @@
 ' falling at all the map shows through untouched.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -145,14 +146,15 @@ LET KEY_TITLE_COLOR AS color::Color = color::rgb(244, 246, 248)
 LET KEY_LABEL_COLOR AS color::Color = color::rgb(196, 200, 206)
 
 ' The scale as a bottom-to-top ramp of the same stops the map is painted with.
-FUNC rainGradient(bottom AS Float, top AS Float) AS canvas::Gradient
+' Coordinates are offsets from the bar's top left corner (originX, originY).
+FUNC rainGradient(originX AS Float, originY AS Float, bottom AS Float, top AS Float) AS canvas::Gradient
   MUT stops AS List OF canvas::GradientStop = []
   LET steps AS Integer = len(RAIN_COLORS) - 1
   FOR k = 0 TO steps
     LET stop AS canvas::GradientStop = canvas::GradientStop[offset := toFloat(k) / toFloat(steps), color := collections::get(RAIN_COLORS, k)]
     stops = collections::append(stops, stop)
   NEXT
-  RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := bottom], endPoint := canvas::Point[x := 0.0, y := top], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0 - originX, y := bottom - originY], endPoint := vector::Float2[x := 0.0 - originX, y := top - originY], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
 END FUNC
 
 ' The key, in a panel whose top left corner is at (left, top), drawn at a
@@ -185,18 +187,18 @@ FUNC precipitationKey(face AS canvas::Font, size AS Float, left AS Float, top AS
   LET barBottom AS Float = barTop + barHeight
   LET height AS Float = barBottom + pad - top
 
-  MUT items AS List OF canvas::DrawItem = [canvas::RoundedRect[x := left, y := top, w := width, h := height, cornerRadius := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0)]]
-  LET heading AS canvas::DrawItem = canvas::Text[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8, text := title, font := face, size := titleSize, paint := canvas::fill(KEY_TITLE_COLOR)]
-  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := dividerY, x2 := left + width, y2 := dividerY, paint := WITH canvas::stroke(KEY_EDGE, 1.0) { cap := canvas::CapStyle.Butt }]
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := left, y := top], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := width, height := height], radiusTL := size * 0.7, radiusTR := size * 0.7, radiusBL := size * 0.7, radiusBR := size * 0.7, paint := canvas::fillStroke(KEY_BACKGROUND, KEY_EDGE, 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
+  LET heading AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := left + (width - titleWidth) / 2.0, y := top + pad + titleSize * 0.8], text := title, font := face, fontSize := titleSize, paint := canvas::fill(KEY_TITLE_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET divider AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := left, y := dividerY], endAt := vector::Float2[x := left + width, y := dividerY], paint := WITH canvas::stroke(KEY_EDGE, 1.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   items = collections::append(items, [heading, divider])
 
   LET barLeft AS Float = left + pad
-  LET bar AS canvas::DrawItem = canvas::RoundedRect[x := barLeft, y := barTop, w := barWidth, h := barHeight, cornerRadius := barWidth / 2.0, paint := WITH canvas::fill(collections::get(RAIN_COLORS, 0)) { gradient := rainGradient(barBottom, barTop) }]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := barLeft, y := barTop], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := barWidth, height := barHeight], radiusTL := barWidth / 2.0, radiusTR := barWidth / 2.0, radiusBL := barWidth / 2.0, radiusBR := barWidth / 2.0, paint := WITH canvas::fill(collections::get(RAIN_COLORS, 0)) { gradient := rainGradient(barLeft, barTop, barBottom, barTop) }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   items = collections::append(items, bar)
 
   FOR k = 0 TO len(RAIN_LABELS) - 1
     LET y AS Float = barBottom - collections::get(RAIN_LABEL_POSITIONS, k) * barHeight
-    LET label AS canvas::DrawItem = canvas::Text[x := barLeft + barWidth + gap, y := y + labelSize * 0.35, text := collections::get(RAIN_LABELS, k), font := face, size := labelSize, paint := canvas::fill(KEY_LABEL_COLOR)]
+    LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := barLeft + barWidth + gap, y := y + labelSize * 0.35], text := collections::get(RAIN_LABELS, k), font := face, fontSize := labelSize, paint := canvas::fill(KEY_LABEL_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, label)
   NEXT
 

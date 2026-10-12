@@ -1,0 +1,211 @@
+IMPORT fs
+IMPORT io
+IMPORT os
+IMPORT tcp
+IMPORT collections
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE Holder
+  h AS RES fs::File
+  n AS Integer
+END TYPE
+
+TYPE Layer
+  items AS List OF RES fs::File
+END TYPE
+
+MUT gKeep AS List OF RES fs::File = []
+
+FUNC mkList() AS List OF RES fs::File
+  MUT xs AS List OF RES fs::File = []
+  RES f AS fs::File = fs::createTempFile()
+  xs = collections::append(xs, f)
+  RES g AS fs::File = fs::createTempFile()
+  xs = collections::append(xs, g)
+  RETURN xs
+END FUNC
+
+FUNC mkListN(k AS Integer, tag AS String) AS List OF RES fs::File
+  MUT xs AS List OF RES fs::File = []
+  FOR i = 1 TO k
+    RES f AS fs::File = fs::createTempFile()
+    xs = collections::append(xs, f)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC mkDup() AS List OF RES fs::File
+  MUT xs AS List OF RES fs::File = []
+  RES f AS fs::File = fs::createTempFile()
+  xs = collections::append(xs, f)
+  xs = collections::append(xs, f)
+  RETURN xs
+END FUNC
+
+FUNC mkMap() AS Map OF String TO RES fs::File
+  MUT m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File {}
+  RES f AS fs::File = fs::createTempFile()
+  m = collections::set(m, "a", f)
+  RETURN m
+END FUNC
+
+FUNC mkHolder() AS Holder
+  RES f AS fs::File = fs::createTempFile()
+  RETURN Holder[f, 1]
+END FUNC
+
+FUNC mkHolders() AS List OF Holder
+  MUT hs AS List OF Holder = []
+  RES f AS fs::File = fs::createTempFile()
+  hs = collections::append(hs, Holder[f, 1])
+  RETURN hs
+END FUNC
+
+FUNC mkNested() AS List OF List OF RES fs::File
+  MUT outer AS List OF List OF RES fs::File = []
+  outer = collections::append(outer, mkList())
+  RETURN outer
+END FUNC
+
+FUNC mkHandles() AS List OF RES Handle
+  MUT xs AS List OF RES Handle = []
+  RES f AS Handle = fs::createTempFile()
+  xs = collections::append(xs, f)
+  RETURN xs
+END FUNC
+
+FUNC mkLayer() AS Layer
+  RETURN Layer[items := mkList()]
+END FUNC
+
+FUNC mkFrom(f AS fs::File) AS List OF RES fs::File
+  MUT xs AS List OF RES fs::File = []
+  xs = collections::append(xs, f)
+  RETURN xs
+END FUNC
+
+FUNC viewG() AS List OF RES fs::File
+  RETURN gKeep
+END FUNC
+
+FUNC count(xs AS List OF RES fs::File) AS Integer
+  MUT t AS Integer = 0
+  FOR EACH h IN xs
+    fs::writeAll(h, "x")
+    t = t + 1
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC countFail(xs AS List OF RES fs::File) AS Integer
+  IF len(xs) > 0 THEN
+    FAIL error(77, "boom")
+  END IF
+  RETURN 0
+END FUNC
+
+FUNC stash(xs AS List OF RES fs::File) AS Integer
+  gKeep = collections::append(gKeep, collections::get(xs, 0))
+  RETURN 1
+END FUNC
+
+FUNC useH(h AS Holder) AS Integer
+  RETURN h.n
+END FUNC
+
+FUNC countH(hs AS List OF Holder) AS Integer
+  RETURN len(hs)
+END FUNC
+
+FUNC early(i AS Integer) AS Integer
+  IF i MOD 2 = 0 THEN
+    RETURN len(mkList())
+  END IF
+  RETURN count(mkList()) + len(mkList())
+END FUNC
+
+
+TYPE HLayer
+  items AS List OF RES Handle
+END TYPE
+
+TYPE MLayer
+  m AS Map OF String TO RES fs::File
+END TYPE
+
+TYPE Outer
+  layer AS Layer
+  tag AS Integer
+END TYPE
+
+MUT gLayer AS Layer = Layer[items := []]
+
+FUNC mkHLayer() AS HLayer
+  RETURN HLayer[items := mkHandles()]
+END FUNC
+
+FUNC countHandles(xs AS List OF RES Handle) AS Integer
+  MUT t AS Integer = 0
+  FOR EACH h IN xs
+    MATCH h
+      CASE fs::File(f)
+        fs::writeAll(f, "x")
+        t = t + 1
+      CASE ELSE
+        t = t + 100
+    END MATCH
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC useHres(h AS Holder) AS Integer
+  fs::writeAll(h.h, "x")
+  RETURN h.n
+END FUNC
+
+FUNC ctorEarly(i AS Integer) AS Integer
+  LET back AS Layer = Layer[items := mkList()]
+  IF i MOD 2 = 0 THEN
+    RETURN 1
+  END IF
+  RETURN len(back.items)
+END FUNC
+
+FUNC mk2() AS Layer
+  LET back AS Layer = Layer[items := mkList()]
+  RETURN back
+END FUNC
+
+FUNC loopReturn(i AS Integer) AS Integer
+  FOR EACH h IN mkList()
+    fs::writeAll(h, "x")
+    IF i MOD 2 = 0 THEN
+      RETURN 7
+    END IF
+  NEXT
+  RETURN 1
+END FUNC
+
+FUNC main AS Integer
+  MUT n AS Integer = 0
+  MUT keepL AS List OF RES fs::File = []
+  FOR i = 1 TO toInt(os::getEnvOr("N", "10"))
+    LET k AS Integer = toInt("7") TRAP(e)
+      RECOVER 100
+    END TRAP
+    n = n + k
+  NEXT
+  FOR EACH k IN keepL
+    fs::writeAll(k, "still open")
+    n = n + 1000
+  NEXT
+  io::print("n=" & toString(n) & " keep=" & toString(len(gKeep)))
+  FOR EACH k IN gKeep
+    fs::writeAll(k, "still open")
+  NEXT
+  RETURN 0
+END FUNC

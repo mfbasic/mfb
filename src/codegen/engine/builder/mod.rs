@@ -274,6 +274,17 @@ pub(crate) struct CodeBuilder<'a> {
     /// close-only drain and leaks those blocks
     /// (`resource::cleanup::record_ownership::owning_collections`).
     pub(crate) owned_list_owning_collections: HashSet<String>,
+    /// bug-1053: whether an owned-list this function cannot prove the one holder
+    /// of its records frees them at run time, by the owner word, instead of only
+    /// closing them (`record_ownership::RecordOwnership::runtime_reclaim`).
+    pub(crate) owned_list_runtime_reclaim: bool,
+    /// bug-1053: every owned-list of this function whose drain takes records for a
+    /// later reclaim, for the error-return exit that frees them (the last
+    /// error-return pad, `CodeBuilder::append_error_return_pads`).
+    pub(crate) reclaiming_owned_lists: Vec<OwnedListCleanup>,
+    /// The `RES` bindings of this function whose drop takes its record for the
+    /// reclaim, for the shared last error-return pad.
+    pub(crate) reclaiming_resources: Vec<ActiveCleanup>,
     /// bug-1045: the stores that raise an inner scope's value into a container
     /// declared further out, and the containers whose drain may only close what
     /// such a store handed them (`record_ownership::StoreFloats`).
@@ -285,6 +296,9 @@ pub(crate) struct CodeBuilder<'a> {
     /// store with whether that store handed the temp an owned value. The temp's drop
     /// closes only when it is set.
     pub(crate) trap_owner_flags: HashMap<String, usize>,
+    /// bug-1051: per inline-`TRAP` temp, the slot holding the closed default record
+    /// its bind materialized (`ResourceCleanup::default_record_slot`).
+    pub(crate) trap_default_records: HashMap<String, usize>,
     /// Resource-union alias class: bind-time `name -> src` for a resource bind that is a
     /// bare-local alias (`RES v = u`, `RES d AS Union = c`), in lowering order. Unlike
     /// `resource_alias_sources` it follows the binding actually live at a `RETURN`.
@@ -774,9 +788,13 @@ impl<'a> CodeBuilder<'a> {
             record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
             owned_list_owning_collections: HashSet::new(),
+            owned_list_runtime_reclaim: false,
+            reclaiming_owned_lists: Vec::new(),
+            reclaiming_resources: Vec::new(),
             store_floats: Default::default(),
             trap_ownership: Default::default(),
             trap_owner_flags: HashMap::new(),
+            trap_default_records: HashMap::new(),
             live_resource_aliases: HashMap::new(),
             live_union_wraps: HashMap::new(),
             current_returns_fresh_string: false,
@@ -1029,9 +1047,25 @@ pub(crate) struct ResourceCleanup {
     /// and reclaims nothing while it reads 0. `None` for every binding that owns
     /// unconditionally.
     pub(crate) owner_flag_slot: Option<usize>,
+    /// bug-1051: for an inline-`TRAP` temp that is not proved to own every record
+    /// stored into it, the stack slot holding the closed default record its bind
+    /// materialized (0 once that record is freed). The default is the temp's own
+    /// whatever the stores are, so a drop that finds it still in the binding's
+    /// slot frees it (`CodeBuilder::emit_free_trap_default_record`). `None` for
+    /// every other binding.
+    pub(crate) default_record_slot: Option<usize>,
     /// bug-755: the nesting depth of the scope the binding belongs to. The drop
     /// closes the record only when its owner word holds that scope's token.
     pub(crate) scope_depth: usize,
+    /// The stack slot that holds the record this binding's drop closed and took
+    /// (`RESOURCE_OWNER_TAKEN`), until the reclaim that follows the last cleanup
+    /// of the same exit frees it (`CodeBuilder::emit_resource_reclaim`). `Some`
+    /// for every binding of a record-freeing kind: the scope that closes a
+    /// resource frees its record, decided by the owner word alone.
+    pub(crate) reclaim_slot: Option<usize>,
+    /// On the route to the function's own `TRAP` handler the function-level
+    /// scope has not exited: the drop closes and takes nothing.
+    pub(crate) trap_shared: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -1058,8 +1092,16 @@ pub(crate) struct ResourceUnionCleanup {
     pub(crate) closes_variant: bool,
     /// bug-648: the same run-time ownership flag as `ResourceCleanup.owner_flag_slot`.
     pub(crate) owner_flag_slot: Option<usize>,
+    /// bug-1051: as `ResourceCleanup.default_record_slot`, for the closed default
+    /// record the temp's default box names.
+    pub(crate) default_record_slot: Option<usize>,
     /// bug-755: as `ResourceCleanup.scope_depth`, for the active variant's record.
     pub(crate) scope_depth: usize,
+    /// As `ResourceCleanup::reclaim_slot`: the slot that holds the box of the
+    /// record this binding's drop closed and took, until the reclaim after the
+    /// exit's last cleanup frees the record's blocks and the box
+    /// (`CodeBuilder::emit_resource_union_reclaim`).
+    pub(crate) reclaim_slot: Option<usize>,
 }
 
 /// A per-scope runtime owned-list (§15.6): the close obligations for resources
@@ -1120,6 +1162,17 @@ pub(crate) struct OwnedListCleanup {
     /// bug-805: the resource leaf type (`RES` stripped, `STATE` kept) this list
     /// holds; `drop` is that leaf's descriptor.
     pub(crate) leaf: ParameterType,
+    /// bug-1053: for a list whose container is not proved the one holder of what
+    /// it lists (`owns_elements` false), the stack slot heading the nodes whose
+    /// records its drain has closed and taken, and that are freed once every
+    /// cleanup of the exit has run (`CodeBuilder::emit_owned_list_reclaims`).
+    /// `None` keeps the close-only drain.
+    pub(crate) reclaim_slot: Option<usize>,
+    /// bug-1053: set on the copy of a function-level list that an error routed to
+    /// the function's `TRAP` handler runs. The handler still reads the container,
+    /// so that walk closes what the list owns and frees nothing; the handler's own
+    /// exit runs the real drain.
+    pub(crate) trap_shared: bool,
 }
 
 /// bug-778: the frame representation of an inline-`TRAP` desugar temporary
@@ -1250,6 +1303,12 @@ pub(crate) struct StatementTemps {
     /// statement's scope depth, whose token the record took when the call
     /// returned.
     pub(crate) leaf_depths: HashMap<usize, usize>,
+    /// The container the assignment being lowered stores into, for the in-place
+    /// lowerings' item float (`CodeBuilder::emit_stored_item_float`).
+    pub(crate) assign_target: Option<String>,
+    /// Set when the store floated the one item it added, so the assignment's
+    /// statement-end float of the whole container is not needed.
+    pub(crate) item_floated: bool,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free
@@ -1644,7 +1703,9 @@ pub(crate) fn lower_module_for_platform(
     // documentation and `.ai/canvas-threading.md` §2. Emitted only for a module that
     // uses `canvas::`, so every other program keeps its exact data-object set.
     if module_uses_canvas(module) {
-        data_objects.push(crate::codegen::runtime::canvas::graphics_state_data_object());
+        data_objects.push(crate::codegen::runtime::canvas::graphics_state_data_object(
+            module.canvas_auto_paint_ms,
+        ));
         data_objects.push(CodeDataObject {
             symbol: CANVAS_SCENE_SYMBOL.to_string(),
             kind: "raw".to_string(),
@@ -1794,11 +1855,11 @@ pub(crate) fn lower_module_for_platform(
     // only draws a box carries neither — the same reason the escape table above was
     // trimmed to two entries (bug-326-A21), and the same key that reserves the
     // mouse arena region.
-    if native_plan
-        .runtime_symbols
-        .iter()
-        .any(|symbol| symbol.ends_with("_enableMouse") || symbol.ends_with("_pollMouse"))
-    {
+    if native_plan.runtime_symbols.iter().any(|symbol| {
+        symbol.ends_with("_enableMouse")
+            || symbol.ends_with("_pollMouse")
+            || symbol.ends_with("_pollMouseRaw")
+    }) {
         data_objects.extend(term::mouse_data_objects());
     }
     // TLS helpers reference read-only C strings (library names + symbol names)
@@ -2024,11 +2085,14 @@ pub(crate) fn lower_module_for_platform(
     // `_mfb_rt_term_` is already true for any `term::` program: a program that draws
     // a box and never touches the mouse must not pay for a ring. Matching the
     // suffix covers both packages' spellings (`_mfb_rt_term_term_pollMouse`,
-    // `_mfb_rt_canvas_canvas_pollMouse`) without enumerating four symbols that would
-    // then have to be kept in step with the registry.
-    let uses_mouse = runtime_symbols
-        .iter()
-        .any(|symbol| symbol.ends_with("_enableMouse") || symbol.ends_with("_pollMouse"));
+    // `_mfb_rt_canvas_canvas_pollMouseRaw` -- plan-172-I: the canvas native is the raw
+    // half of an MFBASIC `canvas::pollMouse`) without enumerating four symbols that
+    // would then have to be kept in step with the registry.
+    let uses_mouse = runtime_symbols.iter().any(|symbol| {
+        symbol.ends_with("_enableMouse")
+            || symbol.ends_with("_pollMouse")
+            || symbol.ends_with("_pollMouseRaw")
+    });
     let mouse_state_offset = if uses_mouse {
         Some(
             ENTRY_GLOBALS_OFFSET
@@ -2266,10 +2330,15 @@ pub(crate) fn lower_module_for_platform(
                 &platform_imports,
             )?);
             code_functions.extend(app_entry);
+            // plan-172-J: a canvas program's window has pointer handlers whether or
+            // not it uses the mouse members -- they publish the pointer to the graphics
+            // state -- so a platform is told both facts, and emits the strings its
+            // handlers name for whichever handlers it installs.
             data_objects.extend(platform.app_mode_data_objects(
                 &module.project,
                 module.debug.enabled,
                 uses_mouse,
+                app_spec.uses_canvas,
             ));
             // plan-62-C Phase 2: the reconcile's selector/key data objects, for a
             // program that can change mode (static default `None`) — matching where

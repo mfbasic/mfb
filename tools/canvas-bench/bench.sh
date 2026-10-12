@@ -13,6 +13,7 @@
 #   text LINES COLS SIZE
 #   weather [window_secs]
 #   worker
+#   hit
 #   compare stress|poly|pics|text ARGS...
 #
 # Without --target/--box, everything runs headless (MFB_MACAPP_HEADLESS=1)
@@ -627,6 +628,50 @@ cmd_worker() {
 }
 
 # ---------------------------------------------------------------------------
+# hit
+# ---------------------------------------------------------------------------
+# One row per (items, ids): the median and the minimum, in nanoseconds over the
+# 40 frames `gen/hit.sh` runs, of a present, of the first poll after it and of
+# each further poll against the same scene; then the `overID` the last poll
+# reported and how many of the last frame's sixty presses arrived.
+hit_stat() {
+  # hit_stat FILE LABEL -- "median/min" of the numbers on FILE's LABEL line.
+  local nums
+  nums=$(grep "^$2" "$1" | cut -d: -f2 | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -n)
+  [ -n "$nums" ] || { echo "-/-"; return; }
+  local count; count=$(echo "$nums" | wc -l | tr -d ' ')
+  echo "$(echo "$nums" | sed -n "$(( (count + 1) / 2 ))p")/$(echo "$nums" | head -1)"
+}
+
+cmd_hit() {
+  [ "$WIN" != 1 ] || die "hit: MFB_MOUSE_INJECT is POSIX-only, so there is no event to poll on Windows"
+  # Sixty presses of button 0 at pixel (444, 54): SGR-1006, 1-based column;row.
+  # The ring holds 64.
+  local n ids
+  printf '%-7s %-4s %-18s %-20s %-20s %-9s %s\n' items ids "present(med/min)" "poll-first(med/min)" "poll-again(med/min)" overID events
+  for n in 1000 10000; do
+    for ids in 1 0; do
+      local dir="$WORK/hit-$n-$ids" outfile
+      outfile="$dir/run.out"
+      bash "$GEN/hit.sh" "$dir" "$n" "$ids"
+      build_app "$dir"
+      if [ -n "$LINUX_TARGET" ]; then
+        # The value is built on the box: an escape and a `;` do not survive the
+        # unquoted `env K=V` line `linux_run` sends.
+        linux_run "$dir" hit "$outfile" "MFB_CANVAS_GPU=0" "MFB_MOUSE_INJECT=\$(for i in \$(seq 60); do printf '\\033[<0;445;55M'; done)"
+      else
+        local bin; bin=$(bin_path "$dir" hit)
+        env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=0 MFB_MOUSE_INJECT="$(for i in $(seq 60); do printf '\033[<0;445;55M'; done)" "$bin" > "$outfile" 2>&1
+      fi
+      printf '%-7s %-4s %-18s %-20s %-20s %-9s %s\n' "$n" "$ids" \
+        "$(hit_stat "$outfile" present-ns)" "$(hit_stat "$outfile" poll-first-ns)" \
+        "$(hit_stat "$outfile" poll-again-ns)" "$(grep '^over:' "$outfile" | cut -d' ' -f2)" \
+        "$(grep '^events:' "$outfile" | cut -d' ' -f2)"
+    done
+  done
+}
+
+# ---------------------------------------------------------------------------
 # compare
 # ---------------------------------------------------------------------------
 compare_run() {
@@ -713,6 +758,7 @@ case "$CMD" in
   text) cmd_text "$@" ;;
   weather) cmd_weather "$@" ;;
   worker) cmd_worker "$@" ;;
+  hit) cmd_hit "$@" ;;
   compare) cmd_compare "$@" ;;
   *) usage ;;
 esac

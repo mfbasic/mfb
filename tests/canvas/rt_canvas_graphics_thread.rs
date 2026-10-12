@@ -72,14 +72,13 @@ fn run_env(name: &str, source: &str, sync: bool, env: &[(&str, &str)]) -> (Strin
 /// A program body, wrapped in the canvas-mode boilerplate.
 fn program(body: &str) -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT io\n\nFUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n{body}END FUNC\n"
     )
 }
 
 const ONE_BOX: &str =
-    "  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, \
-                       h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n";
+    "  LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n";
 
 /// A program that presents and returns immediately still gets its frame drawn.
 ///
@@ -232,11 +231,9 @@ fn an_identical_re_present_draws_no_second_frame() {
 fn sync_mode_gives_one_frame_per_changed_present() {
     let body = format!(
         "{ONE_BOX}  canvas::present([box])\n  \
-         LET two AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
-         paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+         LET two AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 80.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([box, two])\n  \
-         LET three AS canvas::DrawItem = canvas::Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
-         paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
+         LET three AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 150.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([box, two, three])\n  io::print(\"done\")\n"
     );
     let (_, frames) = run("canvas_gfx_sync", &program(&body), true);
@@ -269,11 +266,9 @@ fn the_metal_path_gives_one_completed_frame_per_changed_present() {
     }
     let body = format!(
         "{ONE_BOX}  canvas::present([box])\n  \
-         LET two AS canvas::DrawItem = canvas::Rectangle[x := 80.0, y := 10.0, w := 50.0, h := 50.0, \
-         paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+         LET two AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 80.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([box, two])\n  \
-         LET three AS canvas::DrawItem = canvas::Rectangle[x := 150.0, y := 10.0, w := 50.0, h := 50.0, \
-         paint := canvas::fill(color::rgb(0, 0, 255))]\n  \
+         LET three AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 150.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([box, two, three])\n  io::print(\"done\")\n"
     );
     let (out, frames) = run_with("canvas_gfx_sync_metal", &program(&body), true, true);
@@ -439,11 +434,11 @@ fn stat_field(line: &str, name: &str) -> String {
 #[test]
 #[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
 fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
-    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [a])\n  \
-         LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := \"panel\"]\n  \
+         LET node AS canvas::DrawItem = canvas::Group[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n  \
          canvas::present([node])\n  \
-         LET b AS canvas::DrawItem = canvas::Rectangle[x := 700.0, y := 500.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]\n  \
+         LET b AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 700.0, y := 500.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [b])\n  \
          canvas::present([node])\n  io::print(\"done\")\n";
     let (_, frames) = run("canvas_group_revision", &program(body), true);
@@ -481,9 +476,9 @@ fn a_group_replaced_between_two_identical_presents_draws_a_second_frame() {
 #[test]
 #[ignore = "plan-116-G Phase 4 lands the resolution pass that makes this pass"]
 fn two_identical_presents_of_an_unchanged_group_draw_one_frame() {
-    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+    let body = "  LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::setGroup(\"panel\", [a])\n  \
-         LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := \"panel\"]\n  \
+         LET node AS canvas::DrawItem = canvas::Group[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n  \
          canvas::present([node])\n  \
          canvas::present([node])\n  \
          canvas::present([node])\n  io::print(\"done\")\n";
@@ -506,11 +501,11 @@ const FRAME_H: usize = 640;
 /// Build a picture program, run it headless with `env`, and return the last dumped frame.
 fn picture_frame(name: &str, body: &str, env: &[(&str, &str)]) -> Vec<u8> {
     let source = format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT os\n\nFUNC main() AS Nothing\n  \
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT os\n\nFUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(0), toByte(255), toByte(0), toByte(255)])\n  \
-         LET tile AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 100.0, w := 32.0, h := 32.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]\n  \
-         LET mark AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n\
+         LET tile AS canvas::DrawItem = canvas::Picture[id := \"\", shape := canvas::Rectangle[id := \"\", position := vector::Float2[x := 100.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]\n  \
+         LET mark AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 700.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
          {body}END FUNC\n"
     );
     let project = common::temp_project(name, &source);
@@ -585,7 +580,7 @@ fn the_frame_after_a_destroy_skips_the_picture() {
     let frame = picture_frame(
         "canvas_picture_r2",
         "  canvas::present([tile, mark])\n  os::sleep(120)\n  canvas::destroyImage(img)\n  os::sleep(1200)\n  \
-         LET moved AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+         LET moved AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 600.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([tile, moved])\n  os::sleep(1200)\n",
         &[("MFB_CANVAS_FRAME_HOLD_MS", "600")],
     );
@@ -610,7 +605,7 @@ fn set_bytes_then_destroy_then_a_frame_draws_nothing() {
         "  canvas::present([tile, mark])\n  \
          canvas::setBytes(img, [toByte(0), toByte(0), toByte(255), toByte(255)])\n  \
          canvas::destroyImage(img)\n  \
-         LET moved AS canvas::DrawItem = canvas::Circle[x := 600.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n  \
+         LET moved AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 600.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
          canvas::present([tile, moved])\n",
         &[("MFB_CANVAS_SYNC", "1")],
     );
@@ -623,5 +618,199 @@ fn set_bytes_then_destroy_then_a_frame_draws_nothing() {
         rgba_at(&frame, 600, 500),
         (255, 0, 0, 255),
         "the frame around it rendered"
+    );
+}
+
+// ---------------------------------------------------------------------------------
+// plan-172-K: `canvas::AutoPaint` — a frame the worker did not ask for, and a wait that
+// can run out. Rows R26–R29 of `.ai/canvas-threading.md` section 8.
+// ---------------------------------------------------------------------------------
+
+/// One `AutoPaint` button at x 100..300, y 100..180 (moved to `x` by `button(x)`), its
+/// four `use…` flags read from `FLAGS` (1 enter, 2 exit, 4 hover, 8 pressed). Each test
+/// below appends its own `main`.
+const AUTO_BUTTON: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT datetime
+IMPORT io
+IMPORT os
+IMPORT vector
+
+FUNC flag(bit AS Integer) AS Boolean
+  RETURN (toInt(os::getEnvOr("FLAGS", "15")) / bit) MOD 2 = 1
+END FUNC
+
+FUNC button(x AS Float) AS canvas::DrawItem
+  MUT r AS canvas::Rectangle
+  r = WITH r { id := "btn", position := vector::Float2[x := x, y := 100.0], size := canvas::Size[width := 200.0, height := 80.0], paint := canvas::fill(color::rgb(40, 90, 200)) }
+  LET a AS canvas::AutoPaint = canvas::AutoPaint[shape := r, useEnter := flag(1), useExit := flag(2), useHover := flag(4), usePressed := flag(8), enterPaint := canvas::fill(color::rgb(0, 255, 0)), exitPaint := canvas::fill(color::rgb(255, 255, 0)), hoverPaint := canvas::fill(color::rgb(255, 0, 0)), pressedPaint := canvas::fill(color::rgb(255, 0, 255))]
+  LET item AS canvas::DrawItem = a
+  RETURN item
+END FUNC
+
+"#;
+
+/// The `auto=` field of each stats line, a run of equal values written once.
+fn auto_states(lines: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in lines {
+        let value = stat_field(line, "auto=");
+        if out.last() != Some(&value) {
+            out.push(value);
+        }
+    }
+    out
+}
+
+/// R26: the pointer changes while a frame is in flight. The frame completes with the
+/// state it resolved, and the next frame has the new one.
+///
+/// A frame reads the pointer ONCE, at its resolve, and everything it draws follows from
+/// that one reading. Here the frame is held for a second after its resolve
+/// (`MFB_CANVAS_FRAME_HOLD_MS`) and the pointer's next position falls due 300 ms into
+/// the hold. The held frame's line still says hover, at the position it read; the
+/// frame after it says the shape's own paint, at the new one — and that second frame
+/// was asked for by nobody but the pointer.
+#[test]
+fn auto_a_pointer_change_during_a_frame_belongs_to_the_next_frame() {
+    let source =
+        format!("{AUTO_BUTTON}FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  canvas::present([button(100.0)])\n  os::sleep(3000)\nEND FUNC\n");
+    let (_, lines) = run_env(
+        "canvas_auto_r26",
+        &source,
+        true,
+        &[
+            ("FLAGS", "4"),
+            ("MFB_CANVAS_POINTER", "0,150,120,0,1;300,500,500,0,1"),
+            ("MFB_CANVAS_FRAME_HOLD_MS", "1000"),
+        ],
+    );
+    assert_eq!(auto_states(&lines), vec!["3", "0"], "{}", lines.join("\n"));
+    assert_eq!(stat_field(&lines[0], "pointer="), "150,120,0,1");
+    assert_eq!(stat_field(&lines[0], "frames="), "1");
+    let last = lines.last().expect("a stats line");
+    assert_eq!(stat_field(last, "pointer="), "500,500,0,1");
+    assert_eq!(stat_field(last, "frames="), "2");
+}
+
+/// R27: a `present` lands during an enter window. The window is not restarted.
+///
+/// The window is stretched to six seconds. The pointer arrives on the frame AFTER the
+/// first — the first frame of a headless run can take seconds when the machine is busy
+/// (the first cut of this test timed the window from it and found it over before the
+/// first `present` had returned), and that frame is where the program's clock and the
+/// window's would otherwise part. From there the program waits three seconds, presents
+/// the button again ten pixels over with the pointer still on it, and waits four and a
+/// half more. An instance's state belongs to its place in the scene, and the deadline
+/// is part of that state, so the window still ends six seconds after the pointer
+/// arrived: hover shows a second and a half before the program ends. Restarted at the
+/// second present, it would end a second and a half AFTER, and the last line would
+/// still say enter.
+#[test]
+fn auto_a_present_during_an_enter_window_does_not_restart_it() {
+    let source = format!(
+        "{AUTO_BUTTON}FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  canvas::present([button(100.0)])\n  os::sleep(3000)\n  canvas::present([button(110.0)])\n  os::sleep(4500)\nEND FUNC\n"
+    );
+    let (_, lines) = run_env(
+        "canvas_auto_r27",
+        &source,
+        true,
+        &[
+            ("MFB_CANVAS_POINTER", "1,150,120,0,1"),
+            ("MFB_CANVAS_AUTO_WINDOW_MS", "6000"),
+        ],
+    );
+    assert_eq!(
+        auto_states(&lines),
+        vec!["0", "1", "3"],
+        "{}",
+        lines.join("\n")
+    );
+    // Four frames drawn: the first present, the pointer's arrival, the second present
+    // — still inside the window — and the window's end.
+    let re_present = lines
+        .iter()
+        .find(|line| stat_field(line, "frames=") == "3")
+        .unwrap_or_else(|| panic!("no third frame:\n{}", lines.join("\n")));
+    assert_eq!(stat_field(re_present, "auto="), "1", "{}", lines.join("\n"));
+    assert_eq!(
+        stat_field(lines.last().expect("a stats line"), "frames="),
+        "4",
+        "{}",
+        lines.join("\n")
+    );
+}
+
+/// R28: the graphics thread stops while a deadline is pending. Shutdown completes.
+///
+/// The render loop is in a TIMED wait — two minutes of enter window — when the program
+/// returns. The stop signals the same condition variable the timed wait is on, and the
+/// wait checks `STOPPING` before it looks at its deadline, so the loop leaves at once
+/// rather than when the window would have ended.
+#[test]
+fn auto_shutdown_completes_while_a_window_is_pending() {
+    let source = format!(
+        "{AUTO_BUTTON}FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  canvas::present([button(100.0)])\nEND FUNC\n"
+    );
+    let started = std::time::Instant::now();
+    let (_, lines) = run_env(
+        "canvas_auto_r28",
+        &source,
+        true,
+        &[
+            ("MFB_CANVAS_POINTER", "0,150,120,0,1"),
+            ("MFB_CANVAS_AUTO_WINDOW_MS", "120000"),
+        ],
+    );
+    let took = started.elapsed().as_secs();
+    assert_eq!(auto_states(&lines), vec!["1"], "{}", lines.join("\n"));
+    assert!(
+        took < 60,
+        "the program took {took} s to exit with a 120 s window pending — shutdown waited \
+         for the deadline"
+    );
+}
+
+/// R29: `waitFrame` is in progress when a deadline expires. It returns as it would
+/// have.
+///
+/// The display floor is half a second (`MFB_CANVAS_DISPLAY_HZ=2`) and the enter window
+/// 700 ms. The pointer arrives on the frame after the first — see R27 for why nothing is
+/// timed from the first — which is as the first `present` returns, so the window ends,
+/// and the render loop draws the hover frame on its own, while the worker is inside one
+/// of the five `waitFrame` calls that follow. Those calls wait on their own condition
+/// variable and for their own deadline; the frame neither wakes them early nor owes
+/// them anything. Four calls after a first are at least three whole intervals.
+#[test]
+fn auto_wait_frame_is_not_cut_short_by_a_window_ending() {
+    let source = format!(
+        "{AUTO_BUTTON}FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  canvas::present([button(100.0)])\n  canvas::waitFrame()\n  LET t0 AS Integer = datetime::monotonicNanos()\n  MUT i AS Integer = 0\n  WHILE i < 4\n    canvas::waitFrame()\n    i = i + 1\n  END WHILE\n  io::print(\"loopMs=\" & toString((datetime::monotonicNanos() - t0) / 1000000))\nEND FUNC\n"
+    );
+    let (out, lines) = run_env(
+        "canvas_auto_r29",
+        &source,
+        true,
+        &[
+            ("MFB_CANVAS_POINTER", "1,150,120,0,1"),
+            ("MFB_CANVAS_AUTO_WINDOW_MS", "700"),
+            ("MFB_CANVAS_DISPLAY_HZ", "2"),
+        ],
+    );
+    let ms: i64 = out
+        .lines()
+        .find_map(|l| l.strip_prefix("loopMs="))
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or_else(|| panic!("no loopMs= line in:\n{out}"));
+    assert!(
+        ms >= 1450,
+        "four waitFrame calls at a 500 ms floor took {ms} ms — the window's end cut one \
+         short:\n{out}"
+    );
+    assert_eq!(
+        auto_states(&lines),
+        vec!["0", "1", "3"],
+        "the window did not end inside the loop:\n{}",
+        lines.join("\n")
     );
 }

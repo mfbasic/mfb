@@ -247,7 +247,7 @@ FUNC main() AS Nothing
   END TRAP
   LET size AS canvas::Size = canvas::getSize(img)
   LET px AS List OF Byte = canvas::getBytes(img)
-  MUT out AS String = toString(size.width) & "," & toString(size.height)
+  MUT out AS String = toString(toInt(size.width)) & "," & toString(toInt(size.height))
   MUT i AS Integer = 0
   WHILE i < len(px)
     out = out & "," & toString(toInt(collections::getOr(px, i, toByte(0))))

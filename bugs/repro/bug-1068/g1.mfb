@@ -1,0 +1,8 @@
+IMPORT io
+IMPORT fs
+IMPORT collections
+MUT gKeep AS List OF RES fs::File = []
+FUNC main AS Integer
+  io::print(toString(len(gKeep)))
+  RETURN 0
+END FUNC

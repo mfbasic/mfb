@@ -1132,9 +1132,13 @@ pub(crate) fn lower_function(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        owned_list_runtime_reclaim: false,
+        reclaiming_owned_lists: Vec::new(),
+        reclaiming_resources: Vec::new(),
         store_floats: Default::default(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
+        trap_default_records: HashMap::new(),
         live_resource_aliases: HashMap::new(),
         live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
@@ -1407,6 +1411,7 @@ pub(crate) fn lower_function(
     builder.record_owning_locals = ownership.owning_locals;
     builder.resource_alias_sources = ownership.alias_sources;
     builder.owned_list_owning_collections = ownership.owning_collections;
+    builder.owned_list_runtime_reclaim = ownership.runtime_reclaim;
     // bug-1045: a container that a store raises an inner scope's value into lists
     // what the store hands it, so it needs its owned-lists from its bind, like a
     // float target.
@@ -1803,9 +1808,13 @@ pub(crate) fn lower_abi_function_helper(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        owned_list_runtime_reclaim: false,
+        reclaiming_owned_lists: Vec::new(),
+        reclaiming_resources: Vec::new(),
         store_floats: Default::default(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
+        trap_default_records: HashMap::new(),
         live_resource_aliases: HashMap::new(),
         live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
@@ -2058,9 +2067,13 @@ pub(crate) fn helper_code_builder<'a>(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        owned_list_runtime_reclaim: false,
+        reclaiming_owned_lists: Vec::new(),
+        reclaiming_resources: Vec::new(),
         store_floats: Default::default(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
+        trap_default_records: HashMap::new(),
         live_resource_aliases: HashMap::new(),
         live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,

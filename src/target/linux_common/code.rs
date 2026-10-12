@@ -561,13 +561,13 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         &self,
         project_name: &str,
         debug_hooks: bool,
-        // plan-94-D/E add their mouse data here when these backends land.
-        _uses_mouse: bool,
+        uses_mouse: bool,
+        uses_canvas: bool,
     ) -> Vec<CodeDataObject> {
         self.arch.app().require_gtk();
         // The GTK bootstrap has no reporting hook of its own.
         let _ = debug_hooks;
-        gtk::app_mode_data_objects(project_name, _uses_mouse)
+        gtk::app_mode_data_objects(project_name, uses_mouse, uses_canvas)
     }
 
     fn emit_app_mode_reconcile(
@@ -1859,7 +1859,7 @@ mod tests {
         #[test]
         #[should_panic(expected = "rv64 app mode not ported")]
         fn data_objects() {
-            let _ = riscv64().app_mode_data_objects("demo", false, false);
+            let _ = riscv64().app_mode_data_objects("demo", false, false, false);
         }
 
         #[test]

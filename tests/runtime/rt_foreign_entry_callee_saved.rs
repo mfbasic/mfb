@@ -48,6 +48,7 @@ IMPORT app\n\
 IMPORT canvas\n\
 IMPORT io\n\
 IMPORT term\n\
+IMPORT vector\n\
 FUNC pixels() AS Nothing\n\
   app::setMode(app::Mode.Canvas)\n\
   canvas::enableMouse(TRUE)\n\

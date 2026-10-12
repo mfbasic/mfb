@@ -1,0 +1,60 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT vector
+
+' plan-172-E: a rectangle's corners, one case per way a radius can mean something.
+'
+' Row 1 is the three meanings of ONE value, side by side on the same 160 x 80 box:
+' square (0), a fraction of the half-size (0.5: an ellipse quadrant 40 across and 20
+' down), and pixels (24: a circle of radius 24). The fourth is the jump at 1 -- `1.0`
+' is the full pill.
+'
+' Row 2 is what only the flattened outline can draw: four different radii, a single
+' rounded corner, and an elliptical corner beside a pixel one.
+'
+' Row 3 is the outline as a polygon: stroked, and dashed -- the dashes start on the top
+' edge where it leaves the top-left corner, where a rounded rectangle's always have.
+'
+' Row 4 is `bind`: the same rectangle bound by its centre and turned, so it spins in
+' place, beside one bound by its top-left corner with the same turn, which swings
+' about that corner.
+FUNC box(x AS Float, y AS Float, tl AS Float, tr AS Float, bl AS Float, br AS Float, paint AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 160.0, height := 80.0], radiusTL := tl, radiusTR := tr, radiusBL := bl, radiusBR := br, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET warm AS canvas::Paint = canvas::fill(color::rgb(255, 196, 84))
+  LET cool AS canvas::Paint = canvas::fill(color::rgb(120, 214, 255))
+  LET edge AS canvas::Paint = canvas::fillStroke(color::rgb(60, 40, 90), color::rgb(226, 150, 255), 6.0)
+  LET dashed AS canvas::Paint = WITH canvas::stroke(color::rgb(150, 255, 190), 5.0) { dashes := [18.0, 9.0] }
+
+  ' Row 1 -- one value, its meanings.
+  LET square AS canvas::DrawItem = box(40.3, 30.6, 0.0, 0.0, 0.0, 0.0, warm)
+  LET fraction AS canvas::DrawItem = box(250.3, 30.6, 0.5, 0.5, 0.5, 0.5, warm)
+  LET pixels AS canvas::DrawItem = box(460.3, 30.6, 24.0, 24.0, 24.0, 24.0, warm)
+  LET pill AS canvas::DrawItem = box(670.3, 30.6, 1.0, 1.0, 1.0, 1.0, warm)
+
+  ' Row 2 -- per-corner.
+  LET four AS canvas::DrawItem = box(40.3, 160.6, 8.0, 20.0, 40.0, 0.0, cool)
+  LET single AS canvas::DrawItem = box(250.3, 160.6, 36.0, 0.0, 0.0, 0.0, cool)
+  LET mixed AS canvas::DrawItem = box(460.3, 160.6, 0.8, 0.0, 0.0, 30.0, cool)
+  LET leaf AS canvas::DrawItem = box(670.3, 160.6, 1.0, 0.0, 0.0, 1.0, cool)
+
+  ' Row 3 -- the flattened outline stroked and dashed.
+  LET stroked AS canvas::DrawItem = box(40.3, 300.6, 30.0, 0.5, 0.0, 12.0, edge)
+  LET dashedFlat AS canvas::DrawItem = box(250.3, 300.6, 30.0, 0.5, 0.0, 12.0, dashed)
+  LET dashedRound AS canvas::DrawItem = box(460.3, 300.6, 20.0, 20.0, 20.0, 20.0, dashed)
+  LET dashedSquare AS canvas::DrawItem = box(670.3, 300.6, 0.0, 0.0, 0.0, 0.0, dashed)
+
+  ' Row 4 -- bind. A sixth of a turn; cos and sin of 30 degrees.
+  LET co AS Float = 0.8660254037844387
+  LET si AS Float = 0.5
+  LET turn AS canvas::Transform = canvas::Transform[a := co, b := si, c := 0.0 - si, d := co, tx := 0.0, ty := 0.0]
+  LET centred AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 200.0, y := 520.0], bind := canvas::BindTo.Center, size := canvas::Size[width := 200.0, height := 80.0], radiusTL := 16.0, radiusTR := 16.0, radiusBL := 16.0, radiusBR := 16.0, paint := edge, transform := turn]
+  LET centredFlat AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 470.0, y := 520.0], bind := canvas::BindTo.Center, size := canvas::Size[width := 200.0, height := 80.0], radiusTL := 30.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.6, paint := edge, transform := turn]
+  LET cornered AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 660.0, y := 450.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 200.0, height := 80.0], radiusTL := 16.0, radiusTR := 16.0, radiusBL := 16.0, radiusBR := 16.0, paint := edge, transform := turn]
+
+  canvas::present([square, fraction, pixels, pill, four, single, mixed, leaf, stroked, dashedFlat, dashedRound, dashedSquare, centred, centredFlat, cornered])
+END FUNC

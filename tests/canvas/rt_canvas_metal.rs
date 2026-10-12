@@ -42,16 +42,17 @@ const HEIGHT: u32 = 640;
 /// the chain moves them.
 const RECTANGLES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET red AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]
-  LET grey AS canvas::DrawItem = canvas::Rectangle[x := 100.0, y := 10.0, w := 60.0, h := 60.0, paint := canvas::fill(color::rgb(128, 128, 128))]
-  LET half AS canvas::DrawItem = canvas::Rectangle[x := 120.0, y := 30.0, w := 60.0, h := 60.0, paint := canvas::fill(color::rgba(0, 0, 255, 128))]
-  LET faint AS canvas::DrawItem = canvas::Rectangle[x := 200.0, y := 10.0, w := 80.0, h := 40.0, paint := canvas::fill(color::rgba(255, 255, 255, 40))]
-  LET wide AS canvas::DrawItem = canvas::Rectangle[x := 300.0, y := 100.0, w := 500.0, h := 300.0, paint := canvas::fill(color::rgb(17, 200, 90))]
-  LET over AS canvas::DrawItem = canvas::Rectangle[x := 400.0, y := 150.0, w := 200.0, h := 100.0, paint := canvas::fill(color::rgba(255, 200, 0, 200))]
+  LET red AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET grey AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 100.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 60.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(128, 128, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET half AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 120.0, y := 30.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 60.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(0, 0, 255, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET faint AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 200.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(255, 255, 255, 40)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET wide AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 300.0, y := 100.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 500.0, height := 300.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(17, 200, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET over AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 400.0, y := 150.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 200.0, height := 100.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(255, 200, 0, 200)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([red, grey, half, faint, wide, over])
 END FUNC
 "#;
@@ -74,6 +75,7 @@ END FUNC
 /// for the first time.)
 const PRIMITIVES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -82,21 +84,21 @@ FUNC main() AS Nothing
   LET yellow AS color::Color = color::rgb(255, 255, 0)
   LET green AS color::Color = color::rgb(0, 160, 0)
 
-  LET face AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 320.0, radius := 150.0, paint := canvas::fill(yellow)]
-  LET eyeL AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
-  LET eyeR AS canvas::DrawItem = canvas::Circle[x := 500.0, y := 280.0, radius := 22.0, paint := canvas::fill(green)]
-  LET smile AS canvas::DrawItem = canvas::Arc[x := 450.0, y := 335.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }]
-  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(255, 0, 0))]
-  LET rounded AS canvas::DrawItem = canvas::RoundedRect[x := 100.0, y := 10.0, w := 90.0, h := 60.0, cornerRadius := 18.0, paint := canvas::fillStroke(color::rgb(0, 0, 255), color::rgb(255, 255, 255), 4.0)]
-  LET line AS canvas::DrawItem = canvas::Line[x1 := 220.0, y1 := 20.0, x2 := 380.0, y2 := 90.0, paint := WITH canvas::stroke(color::rgb(255, 128, 0), 9.0) { cap := canvas::CapStyle.Round }]
+  LET face AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 450.0, y := 320.0], radius := 150.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET eyeL AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 400.0, y := 280.0], radius := 22.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET eyeR AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 500.0, y := 280.0], radius := 22.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET smile AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := 450.0, y := 335.0], radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET box AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET rounded AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 100.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 90.0, height := 60.0], radiusTL := 18.0, radiusTR := 18.0, radiusBL := 18.0, radiusBR := 18.0, paint := canvas::fillStroke(color::rgb(0, 0, 255), color::rgb(255, 255, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET line AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 220.0, y := 20.0], endAt := vector::Float2[x := 380.0, y := 90.0], paint := WITH canvas::stroke(color::rgb(255, 128, 0), 9.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   ' plan-154-B: a PolyLine, with a colour per point.
-  LET path AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 720.0, y := 180.0], canvas::Point[x := 800.0, y := 240.0], canvas::Point[x := 740.0, y := 300.0], canvas::Point[x := 850.0, y := 330.0]], colors := [color::rgb(255, 60, 60), color::rgb(60, 255, 60), color::rgba(60, 60, 255, 128)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { cap := canvas::CapStyle.Round }]
-  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
+  LET path AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 720.0, y := 180.0], vector::Float2[x := 800.0, y := 240.0], vector::Float2[x := 740.0, y := 300.0], vector::Float2[x := 850.0, y := 330.0]], colors := [color::rgb(255, 60, 60), color::rgb(60, 255, 60), color::rgba(60, 60, 255, 128)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tri AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[x := 600.0, y := 40.0], vector::Float2[x := 700.0, y := 40.0], vector::Float2[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   ' The second polygon, and concave on purpose: it is the one item in this scene drawn
   ' from a non-zero edge base, and the crossing-count sign test only disagrees with the
   ' nearest-edge magnitude on a shape that is not convex -- so a wrong base here shows as
   ' a wrong FILL, not merely a shifted outline.
-  LET arrow AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 60.0, y := 400.0], canvas::Point[x := 160.0, y := 400.0], canvas::Point[x := 160.0, y := 360.0], canvas::Point[x := 230.0, y := 430.0], canvas::Point[x := 160.0, y := 500.0], canvas::Point[x := 160.0, y := 460.0], canvas::Point[x := 60.0, y := 460.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 180, 180, 200))]
+  LET arrow AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[x := 60.0, y := 400.0], vector::Float2[x := 160.0, y := 400.0], vector::Float2[x := 160.0, y := 360.0], vector::Float2[x := 230.0, y := 430.0], vector::Float2[x := 160.0, y := 500.0], vector::Float2[x := 160.0, y := 460.0], vector::Float2[x := 60.0, y := 460.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 180, 180, 200)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' plan-116-B: one item per non-Normal BlendMode, and one clipped item.
   '
@@ -115,22 +117,22 @@ FUNC main() AS Nothing
   ' but rarely exactly (the oracle blends through a 16-bit linear table, the hardware
   ' in float), and Tolerance::GPU_DEFAULT's population budget is a fraction of the
   ' WHOLE frame -- a large blended patch would exhaust it without testing anything more.
-  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 20.0, y := 400.0, w := 360.0, h := 120.0, paint := canvas::fill(color::rgb(128, 128, 128))]
-  LET blendMul AS canvas::DrawItem = canvas::Circle[x := 70.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Multiply }]
-  LET blendScr AS canvas::DrawItem = canvas::Circle[x := 170.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Screen }]
-  LET blendAdd AS canvas::DrawItem = canvas::Circle[x := 270.0, y := 460.0, radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }]
-  LET blendStroke AS canvas::DrawItem = canvas::Circle[x := 350.0, y := 460.0, radius := 12.0, paint := WITH canvas::fillStroke(color::rgb(230, 120, 40), color::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }]
-  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[x := 420.0, y := 400.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 460.25, y := 400.0], canvas::Point[x := 660.75, y := 400.0], canvas::Point[x := 660.75, y := 460.0], canvas::Point[x := 460.25, y := 460.0]]] }]
+  LET ground AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 20.0, y := 400.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 360.0, height := 120.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(128, 128, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET blendMul AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 70.0, y := 460.0], radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET blendScr AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 170.0, y := 460.0], radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Screen }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET blendAdd AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 270.0, y := 460.0], radius := 14.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Add }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET blendStroke AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 350.0, y := 460.0], radius := 12.0, paint := WITH canvas::fillStroke(color::rgb(230, 120, 40), color::rgb(40, 120, 230), 8.0) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET clippedBox AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 420.0, y := 400.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 300.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[vector::Float2[x := 40.25, y := 0.0], vector::Float2[x := 240.75, y := 0.0], vector::Float2[x := 240.75, y := 60.0], vector::Float2[x := 40.25, y := 60.0]]] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   ' plan-116-C: transformed items, so the shader's inverse-map path actually runs.
   ' A rotation exercises the gradient correction on a curved edge; the non-uniform
   ' scale is the case Phase 1 measured sqrt(|det M|) as 37/255 wrong on. Rotated TEXT
   ' is covered by rt_canvas_font's a_rotated_text_run_draws_rotated, which owns the
   ' font fixture -- this scene has no font.
-  LET rotT AS canvas::Transform = canvas::Transform[a := 0.7071067811865476, b := 0.7071067811865476, c := 0.0 - 0.7071067811865476, d := 0.7071067811865476, tx := 120.0, ty := 560.0]
-  LET rotBox AS canvas::DrawItem = canvas::Rectangle[x := 0.0 - 25.0, y := 0.0 - 25.0, w := 50.0, h := 50.0, paint := WITH canvas::fill(color::rgb(255, 200, 40)) { transform := rotT }]
+  LET rotT AS canvas::Transform = canvas::Transform[a := 0.7071067811865476, b := 0.7071067811865476, c := 0.0 - 0.7071067811865476, d := 0.7071067811865476, tx := 145.0, ty := 585.0 - 50.0 * 0.7071067811865476]
+  LET rotBox AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0 - 25.0, y := 0.0 - 25.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 200, 40)), transform := rotT]
   LET scaleT AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 1.0, tx := 250.0, ty := 560.0]
-  LET scaleDot AS canvas::DrawItem = canvas::Circle[x := 0.0, y := 0.0, radius := 18.0, paint := WITH canvas::fillStroke(color::rgb(90, 200, 255), color::rgb(255, 255, 255), 6.0) { transform := scaleT }]
+  LET scaleDot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 0.0, y := 0.0], radius := 18.0, paint := canvas::fillStroke(color::rgb(90, 200, 255), color::rgb(255, 255, 255), 6.0), transform := scaleT]
 
   ' plan-116-D: the same line twice, butt and round, so the shader's cap arm actually
   ' runs on the GPU. `line` above is round-capped and pre-dates this letter; without a
@@ -138,13 +140,13 @@ FUNC main() AS Nothing
   ' butt arm is wrong would still match the oracle everywhere the scene looks.
   ' Thick and short, because the cap is a half-width feature: at 24 px wide the two
   ' styles differ over a visibly large region rather than one antialiased pixel.
-  LET capButt AS canvas::DrawItem = canvas::Line[x1 := 120.0, y1 := 600.0, x2 := 240.0, y2 := 600.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 24.0) { cap := canvas::CapStyle.Butt }]
-  LET capRound AS canvas::DrawItem = canvas::Line[x1 := 320.0, y1 := 600.0, x2 := 440.0, y2 := 600.0, paint := WITH canvas::stroke(color::rgb(255, 240, 120), 24.0) { cap := canvas::CapStyle.Round }]
+  LET capButt AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 120.0, y := 600.0], endAt := vector::Float2[x := 240.0, y := 600.0], paint := WITH canvas::stroke(color::rgb(255, 240, 120), 24.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET capRound AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 320.0, y := 600.0], endAt := vector::Float2[x := 440.0, y := 600.0], paint := WITH canvas::stroke(color::rgb(255, 240, 120), 24.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   ' And a ROUND-capped arc, for the same reason. `smile` above is butt-capped -- which
   ' is what every arc was before plan-116-D -- so without this the arc's cap-disc arm
   ' is compiled into both shaders and never taken. The sweep stops at 0.6*PI so both
   ' ends are visible rather than one running off the item's own band.
-  LET capArc AS canvas::DrawItem = canvas::Arc[x := 620.0, y := 600.0, radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, paint := WITH canvas::stroke(color::rgb(120, 255, 200), 20.0) { cap := canvas::CapStyle.Round }]
+  LET capArc AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := 620.0, y := 600.0], radius := 60.0, startAngle := 0.0, endAngle := 1.884955592153876, paint := WITH canvas::stroke(color::rgb(120, 255, 200), 20.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   canvas::present([box, rounded, line, path, tri, arrow, face, eyeL, eyeR, smile, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, capButt, capRound, capArc])
 END FUNC
@@ -159,43 +161,44 @@ END FUNC
 /// nothing, and prove nothing.
 const GROUPS: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
 
   ' 1. a group drawn at (0,0) -- the offset is present but zero
-  LET atOrigin AS List OF canvas::DrawItem = [canvas::Rectangle[x := 20.0, y := 20.0, w := 80.0, h := 40.0, paint := canvas::fill(color::rgb(255, 0, 0))]]
+  LET atOrigin AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 20.0, y := 20.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   canvas::setGroup("atOrigin", atOrigin)
 
   ' 2. a group drawn at (37, 53) -- a non-zero offset, which a vertex-only
   '    implementation cannot get right for anything position-dependent
-  LET moved AS List OF canvas::DrawItem = [canvas::Circle[x := 200.0, y := 60.0, radius := 30.0, paint := canvas::fillStroke(color::rgb(0, 160, 220), color::rgb(255, 255, 255), 5.0)]]
+  LET moved AS List OF canvas::DrawItem = [canvas::Circle[id := "", position := vector::Float2[x := 200.0, y := 60.0], radius := 30.0, paint := canvas::fillStroke(color::rgb(0, 160, 220), color::rgb(255, 255, 255), 5.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   canvas::setGroup("moved", moved)
 
   ' 3. a NESTED group: outer holds inner, so the offsets compose
-  LET inner AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(200, 200, 0))]]
+  LET inner AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(200, 200, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   canvas::setGroup("inner", inner)
-  LET outer AS List OF canvas::DrawItem = [canvas::Group[name := "inner", dx := 15.0, dy := 25.0]]
+  LET outer AS List OF canvas::DrawItem = [canvas::Group[id := "", position := vector::Float2[x := 15.0, y := 25.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "inner"]]
   canvas::setGroup("outer", outer)
 
   ' 4. a DIAMOND: one leaf referenced twice, at two offsets
-  LET leaf AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 60.0, h := 40.0, paint := canvas::fill(color::rgb(120, 220, 60))]]
+  LET leaf AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 60.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(120, 220, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   canvas::setGroup("leaf", leaf)
 
   ' 5. a CLIPPED item inside a translated group -- the clip is evaluated in SURFACE
   '    space while the shape is evaluated in shape space (section 4.2)
-  LET clipped AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 300.0, h := 60.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[canvas::Point[x := 40.25, y := 0.0], canvas::Point[x := 240.75, y := 0.0], canvas::Point[x := 240.75, y := 60.0], canvas::Point[x := 40.25, y := 60.0]]] }]]
+  LET clipped AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 300.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[vector::Float2[x := 40.25, y := 0.0], vector::Float2[x := 240.75, y := 0.0], vector::Float2[x := 240.75, y := 60.0], vector::Float2[x := 40.25, y := 60.0]]] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   canvas::setGroup("clipped", clipped)
 
   ' 6. a GRADIENT-filled item inside a translated group -- the ramp is sampled from
   '    the shape-space point, so a missing fragment offset shows as a shifted ramp
   LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := color::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
-  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[x := 0.0, y := 0.0], endPoint := canvas::Point[x := 150.0, y := 60.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
-  LET grad AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := 150.0, h := 60.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := ramp }]]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 150.0, y := 60.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET grad AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 150.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := ramp }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   canvas::setGroup("grad", grad)
 
 
-  LET scene AS List OF canvas::DrawItem = [canvas::Group[name := "atOrigin", dx := 0.0, dy := 0.0], canvas::Group[name := "moved", dx := 37.0, dy := 53.0], canvas::Group[name := "outer", dx := 380.0, dy := 40.0], canvas::Group[name := "leaf", dx := 600.0, dy := 40.0], canvas::Group[name := "leaf", dx := 700.0, dy := 140.0], canvas::Group[name := "clipped", dx := 60.0, dy := 200.0], canvas::Group[name := "grad", dx := 420.0, dy := 200.0]]
+  LET scene AS List OF canvas::DrawItem = [canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "atOrigin"], canvas::Group[id := "", position := vector::Float2[x := 37.0, y := 53.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "moved"], canvas::Group[id := "", position := vector::Float2[x := 380.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "outer"], canvas::Group[id := "", position := vector::Float2[x := 600.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "leaf"], canvas::Group[id := "", position := vector::Float2[x := 700.0, y := 140.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "leaf"], canvas::Group[id := "", position := vector::Float2[x := 60.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "clipped"], canvas::Group[id := "", position := vector::Float2[x := 420.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "grad"]]
   canvas::present(scene)
 END FUNC
 "#;
@@ -206,13 +209,14 @@ END FUNC
 /// longhand at the same absolute coordinates and uses no group at all.
 const DIAMOND_GROUPED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 70.0, h := 45.0, paint := canvas::fill(color::rgb(120, 220, 60))]
-  LET b AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 22.0, radius := 18.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 4.0)]
+  LET a AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 70.0, height := 45.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(120, 220, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET b AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 100.0, y := 22.0], radius := 18.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("pair", [a, b])
-  canvas::present([canvas::Group[name := "pair", dx := 120.0, dy := 90.0], canvas::Group[name := "pair", dx := 430.0, dy := 300.0]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 120.0, y := 90.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "pair"], canvas::Group[id := "", position := vector::Float2[x := 430.0, y := 300.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "pair"]])
 END FUNC
 "#;
 
@@ -220,13 +224,14 @@ END FUNC
 /// coordinates the group offsets would have put them.
 const DIAMOND_FLAT: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET a1 AS canvas::DrawItem = canvas::Rectangle[x := 120.0, y := 90.0, w := 70.0, h := 45.0, paint := canvas::fill(color::rgb(120, 220, 60))]
-  LET b1 AS canvas::DrawItem = canvas::Circle[x := 220.0, y := 112.0, radius := 18.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 4.0)]
-  LET a2 AS canvas::DrawItem = canvas::Rectangle[x := 430.0, y := 300.0, w := 70.0, h := 45.0, paint := canvas::fill(color::rgb(120, 220, 60))]
-  LET b2 AS canvas::DrawItem = canvas::Circle[x := 530.0, y := 322.0, radius := 18.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 4.0)]
+  LET a1 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 120.0, y := 90.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 70.0, height := 45.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(120, 220, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET b1 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 220.0, y := 112.0], radius := 18.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET a2 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 430.0, y := 300.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 70.0, height := 45.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(120, 220, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET b2 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 530.0, y := 322.0], radius := 18.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 4.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([a1, b1, a2, b2])
 END FUNC
 "#;
@@ -234,15 +239,17 @@ END FUNC
 /// A scene whose only item names a group that was never installed.
 const ABSENT_GROUP: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  canvas::present([canvas::Group[name := "neverInstalled", dx := 40.0, dy := 60.0]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 40.0, y := 60.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "neverInstalled"]])
 END FUNC
 "#;
 
 /// The same scene with nothing in it at all — the control for `ABSENT_GROUP`.
 const EMPTY_SCENE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   canvas::present([])
@@ -259,21 +266,22 @@ END FUNC
 /// is the decline this proves. 6 px across, so the software oracle stays quick.
 const TOO_MANY_EDGES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT math
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  MUT points AS List OF canvas::Point = []
+  MUT points AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   WHILE i < 262145
     LET a AS Float = toFloat(i) * 6.283185307179586 / 262145.0
-    points = collections::append(points, canvas::Point[x := 450.0 + 3.0 * math::cos(a), y := 320.0 + 3.0 * math::sin(a)])
+    points = collections::append(points, vector::Float2[x := 450.0 + 3.0 * math::cos(a), y := 320.0 + 3.0 * math::sin(a)])
     i = i + 1
   END WHILE
-  LET ring AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 200, 255))]
-  LET box AS canvas::DrawItem = canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]
+  LET ring AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 200, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET box AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([box, ring])
 END FUNC
 "#;
@@ -296,25 +304,26 @@ const TOO_MANY_FRAME_EDGES: &str = include_str!("scenes/forty_thousand_edges.mfb
 /// being blank.
 const PAST_THE_FRAME_EDGE_REGION: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT math
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[x := 10.0, y := 10.0, w := 50.0, h := 50.0, paint := canvas::fill(color::rgb(0, 255, 0))]]
+  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   MUT ring AS Integer = 0
   WHILE ring < 1025
     LET cx AS Float = 20.0 + toFloat((ring MOD 70) * 12)
     LET cy AS Float = 80.0 + toFloat((ring / 70) * 12)
-    MUT points AS List OF canvas::Point = []
+    MUT points AS List OF vector::Float2 = []
     MUT i AS Integer = 0
     WHILE i < 256
       LET a AS Float = toFloat(i) * 6.283185307179586 / 256.0
-      points = collections::append(points, canvas::Point[x := cx + 4.0 * math::cos(a), y := cy + 4.0 * math::sin(a)])
+      points = collections::append(points, vector::Float2[x := cx + 4.0 * math::cos(a), y := cy + 4.0 * math::sin(a)])
       i = i + 1
     END WHILE
-    LET poly AS canvas::DrawItem = canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160))]
+    LET poly AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::append(scene, poly)
     ring = ring + 1
   END WHILE
@@ -342,10 +351,17 @@ fn build(name: &str, source: &str) -> Program {
 
 /// Render one frame, returning it with the stats line the run reported.
 fn render(program: &Program, metal: bool, tag: &str) -> (Frame, String) {
+    render_env(program, metal, tag, &[])
+}
+
+/// [`render`] with more of the environment set, run from the project's directory so a
+/// scene that opens a file beside itself finds it.
+fn render_env(program: &Program, metal: bool, tag: &str, envs: &[(&str, &str)]) -> (Frame, String) {
     let frame_path = program.project.join(format!("frame-{tag}.rgba"));
     let stats_path = program.project.join(format!("stats-{tag}.txt"));
     let mut command = Command::new(&program.binary);
     command
+        .current_dir(&program.project)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
@@ -354,6 +370,7 @@ fn render(program: &Program, metal: bool, tag: &str) -> (Frame, String) {
     if metal {
         command.env("MFB_CANVAS_GPU", "1");
     }
+    command.envs(envs.iter().copied());
     let run = command
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", program.binary.display()));
@@ -499,31 +516,86 @@ fn an_unsupported_scene_falls_back_to_the_software_renderer() {
     }
 }
 
+/// plan-172-G: one group node with a quarter turn.
+const TURNED_GROUP: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 40.0, y := 0.0 - 15.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.0, height := 30.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := none]
+  canvas::setGroup("panel", [bar])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 400.0, y := 300.0], transform := canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 0.0, ty := 0.0], name := "panel"]])
+END FUNC
+"#;
+
+/// plan-172-H: Metal draws a group with a matrix, where the software oracle does.
+///
+/// plan-172-G had Metal decline this frame, because it bound a group's translation and
+/// nothing else and would have drawn the bar at the group's position unturned — a
+/// complete, plausible, wrong picture. It now binds the inverse linear part to both
+/// stages. The frame count is asserted first: a leftover decline would hand the
+/// comparison the software frame, and every pixel would match while proving nothing.
+#[test]
+fn a_group_with_a_matrix_draws_on_metal_and_matches_the_software_oracle() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_group_matrix", TURNED_GROUP);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "a group with a matrix must be drawn on Metal, not declined to software: {stats}"
+    );
+    let painted = software
+        .pixels
+        .chunks(4)
+        .filter(|p| p[0] == 40 && p[1] == 200 && p[2] == 120)
+        .count();
+    assert_eq!(painted, 120 * 30, "the turned bar is 30 by 120 pixels");
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!(
+            "Metal's turned group disagrees with the software oracle: {diff}\n\
+             The bar unturned means the matrix never reached the backend. The bar in the \
+             right place but cut off means the vertex stage's quad was not carried \
+             through the forward map. The right outline with the wrong inside means the \
+             matrix reached the vertex stage only."
+        );
+    }
+}
+
 /// Two `canvas::PolyLine`s (plan-154-A): one with a colour per point, one plain with
 /// butt ends, beside a polygon so the frame is otherwise one Metal draws. The third is
 /// long enough (40 segments) to get a band index, so the band reach for a polyline is
 /// exercised, and it doubles back across its own rows.
 const POLYLINES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET tri AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := 600.0, y := 40.0], canvas::Point[x := 700.0, y := 40.0], canvas::Point[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180))]
-  LET trail AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 60.0, y := 300.0], canvas::Point[x := 160.0, y := 200.0], canvas::Point[x := 260.0, y := 300.0], canvas::Point[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], paint := WITH canvas::stroke(color::rgba(0, 0, 0, 0), 18.0) { cap := canvas::CapStyle.Round }]
-  LET plain AS canvas::DrawItem = canvas::PolyLine[points := [canvas::Point[x := 460.0, y := 500.0], canvas::Point[x := 600.0, y := 420.0], canvas::Point[x := 760.0, y := 520.0]], colors := [], paint := WITH canvas::stroke(color::rgb(255, 214, 92), 12.0) { cap := canvas::CapStyle.Butt }]
-  MUT wave AS List OF canvas::Point = []
+  LET tri AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[x := 600.0, y := 40.0], vector::Float2[x := 700.0, y := 40.0], vector::Float2[x := 650.0, y := 130.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 180)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET trail AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 60.0, y := 300.0], vector::Float2[x := 160.0, y := 200.0], vector::Float2[x := 260.0, y := 300.0], vector::Float2[x := 360.0, y := 200.0]], colors := [color::rgba(255, 140, 40, 255), color::rgba(40, 255, 140, 170), color::rgba(140, 40, 255, 85), color::rgba(255, 255, 255, 0)], paint := WITH canvas::stroke(color::rgba(0, 0, 0, 0), 18.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET plain AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[x := 460.0, y := 500.0], vector::Float2[x := 600.0, y := 420.0], vector::Float2[x := 760.0, y := 520.0]], colors := [], paint := WITH canvas::stroke(color::rgb(255, 214, 92), 12.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  MUT wave AS List OF vector::Float2 = []
   MUT hues AS List OF color::Color = []
   MUT k AS Integer = 0
   WHILE k <= 40
     LET x AS Float = 80.0 + toFloat(k) * 18.0
     LET y AS Float = 420.0 + toFloat((k MOD 4) * 22) - toFloat(k) * 2.5
-    wave = collections::append(wave, canvas::Point[x := x, y := y])
+    wave = collections::append(wave, vector::Float2[x := x, y := y])
     hues = collections::append(hues, color::rgba(40 + k * 5, 200 - k * 4, 255, 255 - k * 5))
     k = k + 1
   END WHILE
-  LET long AS canvas::DrawItem = canvas::PolyLine[points := wave, colors := hues, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 7.0) { cap := canvas::CapStyle.Butt }]
+  LET long AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := wave, colors := hues, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 7.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([tri, trail, plain, long])
 END FUNC
 "#;
@@ -576,6 +648,125 @@ fn polylines_match_the_software_oracle_on_metal() {
              a colour that jumps at a corner is the path parameter; a missing path is \
              the edge upload or the band reach (`emit_band_index`, radius slot)."
         );
+    }
+}
+
+const PIVOTED: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET quarter AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 0.0, ty := 0.0]
+  LET egg AS canvas::DrawItem = canvas::Ellipse[id := "", position := vector::Float2[x := 300.0, y := 200.0], radiusX := 150.0, radiusY := 20.0, paint := canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(255, 120, 0), 6.0), transform := quarter]
+  LET ring AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := 600.0, y := 300.0], radius := 90.0, startAngle := 0.0, endAngle := 2.0, paint := canvas::stroke(color::rgb(120, 220, 255), 12.0), transform := quarter]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 600.0, y := 520.0], radius := 60.0, paint := canvas::fill(color::rgb(160, 255, 160)), transform := canvas::Transform[a := 1.5, b := 0.0, c := 0.0, d := 0.5, tx := 0.0, ty := 0.0]]
+  canvas::present([egg, ring, dot])
+END FUNC
+"#;
+
+/// plan-172-D: Metal draws a shape turned about its `position` where the software
+/// oracle does. A turned ellipse, a turned arc and a circle squashed in place: each is
+/// built at its local origin and carried by an affine whose translation is its
+/// position, which is the path the GPU's inverse-mapped query point has to agree on.
+///
+/// Gated on the frame having been drawn on the GPU, as every parity case here is.
+#[test]
+fn shapes_turned_about_their_position_match_the_software_oracle() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_pivoted", PIVOTED);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return;
+    }
+    let line = stats.lines().next_back().expect("a stats line");
+    let count = |name: &str| -> i64 {
+        line.split_whitespace()
+            .find_map(|f| f.strip_prefix(&format!("{name}=")))
+            .unwrap_or_else(|| panic!("no `{name}=` in {line}"))
+            .parse()
+            .expect("a number")
+    };
+    assert!(
+        count("frames") > 0 && count("gpuFrames") == count("frames"),
+        "the pivoted scene must be drawn on Metal, not declined to software: {line}"
+    );
+    let painted = software
+        .pixels
+        .chunks(4)
+        .filter(|p| p[0] != 0 || p[1] != 0 || p[2] != 0)
+        .count();
+    assert!(
+        painted > 5_000,
+        "the scene drew {painted} pixels, so it proves nothing"
+    );
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!("Metal's pivoted shapes disagree with the software oracle: {diff}");
+    }
+}
+
+/// plan-172-F: the point-list shapes, each turned about its `position`.
+const PATH_PLACEMENT: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT vector
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET half AS canvas::Transform = canvas::Transform[a := 0.0 - 1.0, b := 0.0, c := 0.0, d := 0.0 - 1.0, tx := 0.0, ty := 0.0]
+  LET tilt AS canvas::Transform = canvas::Transform[a := 0.8, b := 0.6, c := 0.0 - 0.6, d := 0.8, tx := 0.0, ty := 0.0]
+  LET wedge AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 250.0, y := 200.0], contours := [[vector::Float2[x := 0.0, y := 0.0 - 120.0], vector::Float2[x := 100.0, y := 80.0], vector::Float2[x := 0.0 - 100.0, y := 80.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(255, 160, 0), color::rgb(255, 255, 255), 6.0), transform := half]
+  LET bar AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 600.0, y := 200.0], startAt := vector::Float2[x := 0.0 - 150.0, y := 0.0], endAt := vector::Float2[x := 150.0, y := 0.0], paint := canvas::stroke(color::rgb(120, 200, 255), 14.0), transform := tilt]
+  LET trail AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 450.0, y := 470.0], points := [vector::Float2[x := 0.0 - 200.0, y := 0.0], vector::Float2[x := 0.0 - 60.0, y := 0.0 - 70.0], vector::Float2[x := 60.0, y := 70.0], vector::Float2[x := 200.0, y := 0.0]], colors := [color::rgb(255, 0, 0), color::rgb(0, 255, 0), color::rgb(0, 0, 255), color::rgb(255, 255, 255)], paint := WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { join := canvas::JoinStyle.Round }, transform := tilt]
+  LET moved AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 760.0, y := 480.0], contours := [[vector::Float2[x := 0.0 - 60.0, y := 0.0 - 60.0], vector::Float2[x := 60.0, y := 0.0 - 60.0], vector::Float2[x := 0.0, y := 60.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(160, 255, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  canvas::present([wedge, bar, trail, moved])
+END FUNC
+"#;
+
+/// plan-172-F: Metal draws a `Polygon`, a `Line` and a `PolyLine` turned about their
+/// `position` where the software oracle does, and an unturned polygon at its position.
+/// The first three are built at the local origin and carried by an affine whose
+/// translation is the position; the last is built at its position.
+///
+/// Gated on the frame having been drawn on the GPU, as every parity case here is.
+#[test]
+fn path_placement_matches_the_software_oracle() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_path_placement", PATH_PLACEMENT);
+    let (software, _) = render(&program, false, "sw");
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return;
+    }
+    let line = stats.lines().next_back().expect("a stats line");
+    let count = |name: &str| -> i64 {
+        line.split_whitespace()
+            .find_map(|f| f.strip_prefix(&format!("{name}=")))
+            .unwrap_or_else(|| panic!("no `{name}=` in {line}"))
+            .parse()
+            .expect("a number")
+    };
+    assert!(
+        count("frames") > 0 && count("gpuFrames") == count("frames"),
+        "the path-placement scene must be drawn on Metal, not declined to software: {line}"
+    );
+    let painted = software
+        .pixels
+        .chunks(4)
+        .filter(|p| p[0] != 0 || p[1] != 0 || p[2] != 0)
+        .count();
+    assert!(
+        painted > 20_000,
+        "the scene drew {painted} pixels, so it proves nothing"
+    );
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!("Metal's placed paths disagree with the software oracle: {diff}");
     }
 }
 
@@ -772,14 +963,15 @@ fn a_group_naming_an_absent_group_draws_nothing_on_the_gpu() {
 /// what hid the bug below.
 const TEXT_LINE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
-  LET bg AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(20, 24, 30))]
-  LET a AS canvas::DrawItem = canvas::Text[x := 20.0, y := 40.0, text := "LEVEL 01", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 255, 255))]
-  LET b AS canvas::DrawItem = canvas::Text[x := 300.0, y := 40.0, text := "BUGS quick", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 214, 90))]
+  LET bg AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 900.0, height := 640.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(20, 24, 30)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET a AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 20.0, y := 40.0], text := "LEVEL 01", font := face, fontSize := 22.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET b AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 300.0, y := 40.0], text := "BUGS quick", font := face, fontSize := 22.0, paint := canvas::fill(color::rgb(255, 214, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([bg, a, b])
 END FUNC
 "#;
@@ -842,6 +1034,7 @@ fn every_glyph_of_a_text_run_draws_its_own_bitmap() {
 /// offset, and a destination on fractional coordinates for the antialiased edge.
 const PICTURES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -853,27 +1046,27 @@ FUNC main() AS Nothing
   RES grouped AS canvas::Image = canvas::createImage(2, 2, quad)
   RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
   LET white AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
-  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 260.0, paint := canvas::fill(color::rgb(96, 96, 96))]
-  LET plain AS canvas::DrawItem = canvas::Picture[x := 10.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := white]
-  LET label AS canvas::DrawItem = canvas::Text[x := 10.0, y := 240.0, text := "Pictures 01", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 255, 255))]
-  LET tinted AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := canvas::fill(color::rgb(255, 128, 0))]
-  LET translucent AS canvas::DrawItem = canvas::Picture[x := 200.0, y := 10.0, w := 90.0, h := 30.0, image := thin, paint := white]
+  LET ground AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 900.0, height := 260.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(96, 96, 96)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET plain AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 10.0, y := 240.0], text := "Pictures 01", font := face, fontSize := 22.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tinted AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 100.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 128, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET translucent AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 200.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 90.0, height := 30.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := thin]
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 10.0]
-  LET rotated AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 60.0, image := img, paint := WITH white { transform := t }]
-  LET clipped AS canvas::DrawItem = canvas::Picture[x := 420.0, y := 10.0, w := 80.0, h := 80.0, image := img, paint := WITH white { clip := [[canvas::Point[x := 420.0, y := 10.0], canvas::Point[x := 460.0, y := 10.0], canvas::Point[x := 460.0, y := 90.0], canvas::Point[x := 420.0, y := 90.0]]] }]
-  LET blended AS canvas::DrawItem = canvas::Picture[x := 520.0, y := 10.0, w := 60.0, h := 60.0, image := img, paint := WITH canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }]
-  LET fractional AS canvas::DrawItem = canvas::Picture[x := 700.5, y := 10.25, w := 50.5, h := 33.3, image := thin, paint := white]
-  LET inner AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 40.0, h := 40.0, image := grouped, paint := white]
+  LET rotated AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := t], clip := canvas::PictureClip.ClipAndTransform, fit := canvas::PictureFit.Stretch, image := img]
+  LET clipped AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 420.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH white { clip := [[vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 40.0, y := 0.0], vector::Float2[x := 40.0, y := 80.0], vector::Float2[x := 0.0, y := 80.0]]] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET blended AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 520.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 60.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET fractional AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 700.5, y := 10.25], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.5, height := 33.3], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := thin]
+  LET inner AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 40.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := grouped]
   canvas::setGroup("pics", [inner])
-  LET node AS canvas::DrawItem = canvas::Group[name := "pics", dx := 600.0, dy := 120.0]
+  LET node AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 600.0, y := 120.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "pics"]
   ' plan-163-C: the tint's strength is the fill's alpha, the opacity is transparency.
-  LET untinted AS canvas::DrawItem = canvas::Picture[x := 10.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := WITH white { fill := color::rgba(0, 0, 0, 0) }]
-  LET halfRed AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := canvas::fill(color::rgba(255, 0, 0, 128))]
-  LET faded AS canvas::DrawItem = canvas::Picture[x := 200.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := WITH white { transparency := 0.6 }]
+  LET untinted AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 120.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH white { fill := color::rgba(0, 0, 0, 0) }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET halfRed AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 100.0, y := 120.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(255, 0, 0, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET faded AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 200.0, y := 120.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH white { transparency := 0.6 }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   ' plan-163-D: a blended stroked picture whose fill is transparent (the zero tint) still
   ' fills with its image, so the GPUs publish it as two records like any blended item
   ' that fills and strokes.
-  LET blendedClear AS canvas::DrawItem = canvas::Picture[x := 300.0, y := 120.0, w := 80.0, h := 80.0, image := img, paint := WITH canvas::fillStroke(color::rgba(0, 0, 0, 0), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }]
+  LET blendedClear AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 300.0, y := 120.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fillStroke(color::rgba(0, 0, 0, 0), color::rgb(40, 120, 230), 6.0) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   canvas::present([ground, plain, label, tinted, translucent, rotated, clipped, blended, fractional, node, untinted, halfRed, faded, blendedClear])
 END FUNC
 "#;
@@ -930,18 +1123,19 @@ fn every_picture_path_matches_the_software_oracle() {
 /// invisible there.
 const SPACE_THEN_SHAPES: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("/System/Library/Fonts/Supplemental/Arial.ttf")
-  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 200.0, paint := canvas::fill(color::rgb(128, 128, 128))]
-  LET words AS canvas::DrawItem = canvas::Text[x := 20.0, y := 40.0, text := "A B C", font := face, size := 22.0, paint := canvas::fill(color::rgb(255, 255, 255))]
-  LET mul AS canvas::DrawItem = canvas::Circle[x := 300.0, y := 100.0, radius := 40.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Multiply }]
-  LET plain AS canvas::DrawItem = canvas::Circle[x := 450.0, y := 100.0, radius := 40.0, paint := canvas::fill(color::rgb(40, 200, 90))]
-  LET dot AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 30.0, h := 30.0, paint := canvas::fill(color::rgb(20, 60, 230))]
+  LET ground AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 900.0, height := 200.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(128, 128, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET words AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 20.0, y := 40.0], text := "A B C", font := face, fontSize := 22.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET mul AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 300.0, y := 100.0], radius := 40.0, paint := WITH canvas::fill(color::rgb(230, 120, 40)) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET plain AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 450.0, y := 100.0], radius := 40.0, paint := canvas::fill(color::rgb(40, 200, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET dot AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 30.0, height := 30.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(20, 60, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("g", [dot])
-  canvas::present([ground, words, mul, plain, canvas::Group[name := "g", dx := 600.0, dy := 80.0]])
+  canvas::present([ground, words, mul, plain, canvas::Group[id := "", position := vector::Float2[x := 600.0, y := 80.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "g"]])
 END FUNC
 "#;
 
@@ -1282,6 +1476,86 @@ fn path_clips_match_the_software_oracle_on_metal() {
     );
 }
 
+/// plan-172-E: a rectangle's corners -- the exact square and rounded records beside the
+/// flattened outline of per-corner and elliptical corners, filled, stroked and dashed,
+/// and `Center`- and `TopLeft`-bound rectangles under a turn.
+const CORNERS: &str = include_str!("scenes/rect_corners_on_black.mfb");
+
+#[test]
+fn corners_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_corners",
+        CORNERS,
+        "the rectangle corners over black",
+    );
+}
+
+/// plan-172-L: pictures inside shapes (`scenes/picture_shapes_on_black.mfb`). Every
+/// shaped picture is a picture record with a polygonal clip and, where it strokes, the
+/// shape itself -- two entries the GPU already draws -- so this is the check that the
+/// two walks lay the same entries out: a top-level picture that is two entries is
+/// resolved by the draw walk, not the native layout.
+const PICTURE_SHAPES: &str = include_str!("scenes/picture_shapes_on_black.mfb");
+
+#[test]
+fn picture_shapes_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_picture_shapes",
+        PICTURE_SHAPES,
+        "pictures inside shapes over black",
+    );
+}
+
+/// The same scene with the pointer on its `AutoPaint` picture, the circle about
+/// (770, 470): both of the picture's entries are swapped for the hover paint's -- the
+/// image under an orange tint, the outline 6 px of red -- and the GPU draw list must
+/// name those two records, not the ones the walk appended.
+///
+/// (818, 470) is 48.5 px from the centre of a circle of radius 48: on the hover
+/// outline, which covers 45 to 51, and red. At rest the circle's own 2 px outline
+/// there is white.
+#[test]
+fn a_hovered_autopaint_picture_matches_the_software_oracle_on_metal() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_picture_auto", PICTURE_SHAPES);
+    let pixel = |frame: &Frame, x: usize, y: usize| {
+        let at = (y * WIDTH as usize + x) * 4;
+        [frame.pixels[at], frame.pixels[at + 1], frame.pixels[at + 2]]
+    };
+    let envs = [("MFB_CANVAS_POINTER", "0,770,470,0,1")];
+    let (software, software_stats) = render_env(&program, false, "sw", &envs);
+    let (gpu, stats) = render_env(&program, true, "gpu", &envs);
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    assert!(
+        software_stats.contains(" auto=3"),
+        "the software run did not hover the picture: {software_stats}"
+    );
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the hovered scene fell back to the software renderer: {stats}"
+    );
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!("Metal draws the hovered picture differently from the software oracle: {diff}");
+    }
+    let (rest, _) = render(&program, false, "rest");
+    for (name, frame) in [("software", &software), ("Metal", &gpu)] {
+        let outline = pixel(frame, 818, 470);
+        assert!(
+            outline[0] > 200 && outline[1] < 80 && outline[2] < 80,
+            "the hover outline is {outline:?} on {name}"
+        );
+        assert_ne!(
+            pixel(frame, 770, 470),
+            pixel(&rest, 770, 470),
+            "the hover tint did not change the image on {name}"
+        );
+    }
+}
+
 /// plan-163-B: dashed strokes -- polygons whose dashes cross their corners under each cap
 /// and under Miter and Bevel joins, an odd pattern with an offset, dashed polylines and
 /// lines, a circle, a rotated ellipse, a rounded rectangle, an arc, a rectangle and a
@@ -1506,4 +1780,79 @@ fn a_blended_item_stroked_under_the_fixed_point_step_matches_the_software_oracle
         BLENDED_HAIRLINE_STROKE,
         "a blended rectangle with a 1e-5 px stroke, then two opaque items",
     );
+}
+
+/// plan-172-K: `canvas::AutoPaint` on the GPU. The scene's own comment says what each
+/// pointer position puts under test.
+const AUTOPAINT: &str = include_str!("scenes/autopaint_on_black.mfb");
+
+/// A hovered `AutoPaint` draws on Metal as the software oracle draws it — for a button
+/// in the scene itself, and for one use of a group that is drawn twice.
+///
+/// The state is the graphics thread's, resolved after the walk, and the two renderers
+/// read it by different routes: software from the frame's draw entries, Metal from the
+/// GPU draw list, which is laid out from `__CANVAS_TOP_OFFSETS` and, for a group, from
+/// a run shared by every node that draws the group. So a hover that reached one route
+/// and not the other is a wrong frame on one backend only, and this is where it shows.
+///
+/// Each case also checks the Metal frame itself — the hovered button is the hover
+/// paint's orange and the other use of the group is still blue — because two frames
+/// that agree on NO hover agree within tolerance too.
+#[test]
+fn a_hovered_autopaint_matches_the_software_oracle_on_metal() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_autopaint", AUTOPAINT);
+    std::fs::write(
+        program.project.join("fixture.ttf"),
+        common::fixture_truetype(),
+    )
+    .expect("write the font fixture");
+    let pixel = |frame: &Frame, x: usize, y: usize| {
+        let at = (y * WIDTH as usize + x) * 4;
+        [frame.pixels[at], frame.pixels[at + 1], frame.pixels[at + 2]]
+    };
+    let lit = |rgb: [u8; 3]| rgb[0] > 200 && rgb[2] < 120;
+    let unlit = |rgb: [u8; 3]| rgb[0] < 100 && rgb[2] > 150;
+    for (what, pointer, hovered, other) in [
+        // (280, 120) is on the scene's own button; (150, 320) is the group's first use.
+        (
+            "the scene's own button",
+            "0,280,120,0,1",
+            (280, 120),
+            (150, 320),
+        ),
+        // (150, 320) is the group's first use; (550, 320) its second.
+        (
+            "one use of a group",
+            "0,150,320,0,1",
+            (150, 320),
+            (550, 320),
+        ),
+    ] {
+        let envs = [("MFB_CANVAS_POINTER", pointer)];
+        let (software, software_stats) = render_env(&program, false, "sw", &envs);
+        let (gpu, stats) = render_env(&program, true, "gpu", &envs);
+        if !metal_built(&stats) {
+            return; // no Metal device on this host (§metal_built)
+        }
+        assert!(
+            software_stats.contains(" auto=300") || software_stats.contains(" auto=030"),
+            "{what}: the software run did not hover exactly one button: {software_stats}"
+        );
+        assert!(
+            !stats.contains("gpuFrames=0"),
+            "{what}: the hovered scene fell back to the software renderer: {stats}"
+        );
+        if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+            panic!("Metal draws {what}, hovered, differently from the software oracle: {diff}");
+        }
+        for (name, frame) in [("software", &software), ("Metal", &gpu)] {
+            let on = pixel(frame, hovered.0, hovered.1);
+            let off = pixel(frame, other.0, other.1);
+            assert!(lit(on), "{what}: the hovered button is {on:?} on {name}");
+            assert!(unlit(off), "{what}: the other button is {off:?} on {name}");
+        }
+    }
 }

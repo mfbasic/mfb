@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT fs
+IMPORT collections
+TYPE Cur
+  n AS Integer
+END TYPE
+RES g AS fs::File STATE Cur = fs::createTempFile()
+FUNC main AS Integer
+  io::print(toString(g.state.n))
+  RETURN 0
+END FUNC

@@ -124,7 +124,7 @@ impl NativePlanPlatform for Platform {
         ]
     }
 
-    fn app_mode_imports(&self, uses_mouse: bool) -> Vec<PlatformImport> {
+    fn app_mode_imports(&self, uses_mouse: bool, uses_canvas: bool) -> Vec<PlatformImport> {
         // plan-66-J: the Win32 app-mode floor (win_x86_64::app). `_main` builds a
         // RegisterClassExW/CreateWindowExW window and runs a GetMessageW loop; the
         // worker is a CreateThread routine; console output rides GetStdHandle +
@@ -214,6 +214,9 @@ impl NativePlanPlatform for Platform {
         // (`GetKeyState`, which supplies Alt — `wParam` alone does not carry it —
         // is imported for every app program below.)
         .chain(uses_mouse.then(|| import("ScreenToClient", USER32, "_main")))
+        // plan-172-J: the `WndProc`'s pointer block arms `WM_MOUSELEAVE` with it, in
+        // every canvas program, mouse members or not.
+        .chain(uses_canvas.then(|| import("TrackMouseEvent", USER32, "_main")))
         // bug-699: the key translator reads every modifier with `GetKeyState` and a
         // key's unshifted character with `MapVirtualKeyW`, in every app program.
         .chain([
@@ -600,7 +603,7 @@ impl NativePlanPlatform for Platform {
             // `canvas.enableMouse` needs neither here — the ring allocation makes
             // no call, and the `MFB_MOUSE_INJECT` affordance (which would stamp an
             // event) is POSIX-only.
-            "canvas.pollMouse" => vec![
+            "canvas.pollMouseRaw" => vec![
                 import("QueryPerformanceCounter", KERNEL32, required_by),
                 import("QueryPerformanceFrequency", KERNEL32, required_by),
             ],

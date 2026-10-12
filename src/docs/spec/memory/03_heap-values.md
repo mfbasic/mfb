@@ -398,6 +398,15 @@ stack address, so a `RETURN` never releases it. Every scope-exit close, owned-li
 drain, discarded-result close and binding claim therefore leaves it alone.
 [[src/codegen/resource/module_owner.rs:MODULE_OWNER_TOKEN]]
 
+**The taken word.** An owned-list drain that closes a record whose one holder it
+cannot prove writes `RESOURCE_OWNER_TAKEN`, all ones but the lowest bit, into the
+owner word, and the record is freed after the last cleanup of the same exit
+(`./mfb spec memory arenas`). No user code runs in between. The value is chosen by
+the module token's argument: it equals no frame token, it is above every frame
+token, it is not `0`, and its frame part is `2^52`; and it is not the module
+token. Every other cleanup that names the record reads this word and skips.
+[[src/codegen/resource/owner.rs:RESOURCE_OWNER_TAKEN]]
+
 The instance lists each such record once, on taking it, in a singly linked list of
 32-byte arena nodes `{record@0, next@8, kind@16, tag@24}` headed by the
 `$module_resources` global slot (`./mfb spec memory program-startup`). The slot is

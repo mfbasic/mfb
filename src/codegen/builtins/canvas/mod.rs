@@ -63,6 +63,7 @@ mod func_measure_text;
 mod func_metal_draw;
 mod func_metal_present;
 mod func_new_surface;
+mod func_pointer;
 mod func_poll_mouse;
 mod func_present;
 mod func_present_layers;
@@ -83,6 +84,7 @@ mod gen_system_fonts_linux;
 mod gen_system_fonts_macos;
 mod gen_system_fonts_shared;
 mod gen_system_fonts_windows;
+mod helper_autopaint;
 mod helper_clamp_byte;
 mod helper_color;
 mod helper_damage;
@@ -93,9 +95,11 @@ mod helper_font_name;
 mod helper_geometry;
 mod helper_glyph;
 mod helper_glyph_cache;
+mod helper_hit;
 mod helper_items;
 mod helper_joins;
 mod helper_paint_defaults;
+mod helper_picture;
 mod helper_png;
 mod helper_render;
 mod helper_shapes;
@@ -108,7 +112,7 @@ mod scene_base;
 /// `term::` is `Mode.Console`-gated and `canvas::` is `Mode.Canvas`-gated, so a
 /// canvas program must never have to `IMPORT term` to ask where the mouse is. The
 /// two differ in their coordinate prop: `term`'s is `row`/`column` cells, this one's
-/// is a `position AS Point` in surface pixels.
+/// is a `position AS vector::Float2` in surface pixels.
 pub(crate) const MOUSE_EVENT_TYPE: &str = "MouseEvent";
 
 /// The `Image` resource's bare type name, and the package-qualified id members
@@ -187,9 +191,9 @@ LET glow AS canvas::Paint = WITH canvas::fill(color::rgb(255, 64, 0)) { blend :=
 ```
 
 `canvas::Paint` is designed so that **each field's zero value is that field's no-op** —
-transparent fill and stroke, zero stroke width, `Normal` blend, the identity
-transform (which is the *all-zero* `canvas::Transform`, by definition) and a zero-area,
-meaning absent, clip. That is what lets `canvas::fill(red)` mean simply "a red
+transparent fill and stroke, zero stroke width, `Normal` blend and an empty,
+meaning absent, clip. A shape's `transform` follows the same rule: the *all-zero*
+`canvas::Transform` is the identity, by definition. That is what lets `canvas::fill(red)` mean simply "a red
 shape": every field the caller did not name is already inert. The transparent
 colour is the all-zero `color::Color`, so this holds for `fill` and `stroke` too.
 
@@ -252,6 +256,14 @@ pub(crate) fn register(r: &mut Registry) {
         "fs",
         "encoding",
         "bits",
+        // plan-172-B: every coordinate pair is a `vector::Float2`. Injected by
+        // `vector`'s late pass, because a canvas program need not import it. This is
+        // the largest import here by far: `vector` has no gated helpers, so its whole
+        // companion — nine types and every overload — comes with it. Measured on
+        // macOS aarch64 for a program that presents an empty scene: 2,666,000 bytes
+        // without it, 2,996,236 with (+330,236), the same size a program that
+        // imports `vector` itself already was.
+        "vector",
     ]);
 
     // ---- Value types the items are built from -----------------------------
@@ -261,36 +273,6 @@ pub(crate) fn register(r: &mut Registry) {
     // props below reference it by qualified type id, exactly as `tcp` references
     // `net.Address`, and every canvas internal that reads `paint.fill.red` is
     // unchanged. Colour construction lives in `color` and needs no `Mode.Canvas`.
-    pkg.add_record(RegistryRecord {
-        name: "Point",
-        export: true,
-        description: "A point in canvas pixels, top-left origin, Y increasing downward.",
-        props: vec![
-            RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The horizontal coordinate in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The vertical coordinate in pixels, increasing downward.",
-            },
-        ],
-    });
-
-    // plan-94-A: the mouse surface, in canvas pixels. `term::` carries an
-    // independent set of the same three types, and deliberately so: `term::` traps
-    // outside `Mode.Console` and `canvas::` outside `Mode.Canvas`, so a canvas
-    // program must never be made to `IMPORT term` to ask where the mouse is. Two
-    // small type sets cost a little duplication and keep `IMPORT` at zero bytes —
-    // the shape `term::didResize` / `canvas::didResize` already have.
-    //
-    // `position` is a `Point` rather than two bare `Float`s so an event hands
-    // straight to a hit test, and so every canvas coordinate is the same type.
-    // Being a record makes it an INLINED prop (its slot holds a block-relative
-    // offset, and the `Point` sub-block follows the fixed slots) — see
-    // `func_poll_mouse.rs`, which has to build that layout by hand.
     pkg.add_record(RegistryRecord {
         name: MOUSE_EVENT_TYPE,
         export: true,
@@ -313,7 +295,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "position",
-                ty: ParameterType::named("Point"),
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
                 description: "Where the mouse was, in surface pixels — the same \
                               top-left-origin coordinates every `canvas::DrawItem` \
                               uses, so it hands straight to a hit test.",
@@ -332,6 +314,22 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "alt",
                 ty: ParameterType::Boolean,
                 description: "`TRUE` when Alt (Option) was held as the event happened.",
+            },
+            RecordProp {
+                name: "overID",
+                ty: ParameterType::String,
+                description: "Which of your items the mouse was over: the `id` of the \
+                              topmost item under `position` in the scene you last \
+                              presented, tested against the item's own outline after \
+                              every transform. An item inside a group is reported with \
+                              the `id` of each group that holds it in front, outermost \
+                              first, joined by `::` — `\"toolbar::save::label\"` — and \
+                              a part that is `\"\"` is left out. A \
+                              `canvas::Picture`'s `id` goes in front of its shape's in \
+                              the same way, and a `canvas::AutoPaint` reports the \
+                              `id` of the shape it holds. `\"\"` when nothing is \
+                              there, or when nothing on the way to the topmost item \
+                              has an `id`.",
             },
         ],
     });
@@ -416,16 +414,19 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Size",
         export: true,
-        description: "A pixel extent — the dimensions of the canvas surface or of an image.",
+        description: "A pixel extent — the dimensions of the canvas surface, of an \
+                      image, or of a `canvas::Rectangle`. The two are `Float`s because \
+                      a shape's extent may be a fraction of a pixel; the surface's and \
+                      an image's are always whole numbers.",
         props: vec![
             RecordProp {
                 name: "width",
-                ty: ParameterType::Integer,
+                ty: ParameterType::Float,
                 description: "The width in pixels.",
             },
             RecordProp {
                 name: "height",
-                ty: ParameterType::Integer,
+                ty: ParameterType::Float,
                 description: "The height in pixels.",
             },
         ],
@@ -735,13 +736,15 @@ pub(crate) fn register(r: &mut Registry) {
                       `x' = a*x + c*y + tx`, `y' = b*x + d*y + ty`. **The all-zero \
                       value means the identity**, not the degenerate matrix that \
                       collapses every point to the origin — which is what lets an \
-                      unset `canvas::Paint.transform` leave an item untransformed. \
+                      unset `transform` leave an item untransformed. \
                       A rotation by θ is `a := cos(θ), b := sin(θ), c := -sin(θ), \
                       d := cos(θ)`; a scale is `a := sx, d := sy` with `b` and `c` \
-                      zero; an X shear is `c := tan(θ)`. Rotation and shear turn about \
-                      the item's own origin, so give the item coordinates around \
-                      `(0, 0)` and put the position in `tx` and `ty` — that is what \
-                      makes the transform readable as \"where\" plus \"how turned\".",
+                      zero; an X shear is `c := tan(θ)`. Every shape is turned and scaled \
+                      about its own `position` — for a `canvas::Rectangle`, the \
+                      point its `bind` names — so a rotation spins it in place, and \
+                      `tx` and `ty` move it from there. A `canvas::Group` is turned \
+                      about its `position` in the same way, and everything in it \
+                      turns with it.",
         props: vec![
             RecordProp {
                 name: "a",
@@ -789,7 +792,7 @@ pub(crate) fn register(r: &mut Registry) {
     // draws nothing exactly as a zero handle did.
     //
     // What changed for a caller is that the compiler now knows a scene names a
-    // resource. That is the point: `canvas::Picture[image := imageRef(img)]` could
+    // resource. That is the point: `canvas::Picture[id := "", image := imageRef(img), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]` could
     // outlive `img` silently, and `image := img` cannot.
 
     pkg.add_record(RegistryRecord {
@@ -828,9 +831,9 @@ pub(crate) fn register(r: &mut Registry) {
                       write as `canvas::fill`, and zero stops name no colour at all. \
                       The ramp is placed in the item's own coordinates, from its own \
                       two points and never from the shape's bounds: the gradient's \
-                      `transform` maps it first, then the item's \
-                      `canvas::Paint.transform` and a group's translation, so a \
-                      rotated or moved item carries its ramp with it. Colours between \
+                      `transform` maps it first, then the item's `transform` and \
+                      any group's, so a rotated or moved item carries its ramp \
+                      with it. Colours between \
                       two stops are mixed in **linear light**, the same space \
                       everything else on the surface is blended in, so a \
                       black-to-white ramp is evenly bright across its width rather \
@@ -843,12 +846,12 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "startPoint",
-                ty: ParameterType::named("Point"),
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
                 description: "Linear: where the ramp starts. Radial: the centre.",
             },
             RecordProp {
                 name: "endPoint",
-                ty: ParameterType::named("Point"),
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
                 description: "Linear: where the ramp ends. Radial: a point on the \
                               outer circle. Giving the same point as `startPoint` \
                               leaves the first stop's colour everywhere, rather than \
@@ -870,16 +873,16 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "transform",
                 ty: ParameterType::named("Transform"),
                 description: "Maps the ramp before the item's own \
-                              `canvas::Paint.transform` does: scale, turn or shear the \
+                              an item's `transform` does: scale, turn or shear the \
                               gradient without touching the shape. Scaling a radial \
                               gradient by different amounts in x and y makes it \
                               elliptical. The all-zero value is the identity, and a \
                               transform that flattens the ramp to a line is treated as \
-                              the identity, as for `canvas::Paint.transform`.",
+                              the identity, as for an item's `transform`.",
             },
             RecordProp {
                 name: "focalOffset",
-                ty: ParameterType::named("Point"),
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
                 description: "Radial only: where the ramp starts, as an offset from \
                               `startPoint` — an off-centre highlight on a sphere. The \
                               zero value starts it at the centre. An offset that would \
@@ -909,8 +912,8 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Paint",
         export: true,
-        description: "How an item is filled, stroked, blended, transformed and \
-                      clipped. A flat value threaded through each item — there is no \
+        description: "How an item is filled, stroked, blended and clipped. \
+                      A flat value threaded through each item — there is no \
                       ambient drawing state. Every field's zero value is that \
                       field's no-op — `miterLimit` aside, which only a `Miter` join \
                       reads — and `canvas::fill`, `canvas::stroke` and \
@@ -950,40 +953,20 @@ pub(crate) fn register(r: &mut Registry) {
                               beneath, then the outline onto that.",
             },
             RecordProp {
-                name: "transform",
-                ty: ParameterType::named("Transform"),
-                description: "The affine transform applied to the item's geometry. \
-                              The all-zero value is the identity, so an item you \
-                              never set this on draws where its own coordinates put \
-                              it. Set it and the item's coordinates become a space of \
-                              their own: a `canvas::Circle` at `x := 0, y := 0` with \
-                              `tx := 200, ty := 380` draws centred at 200, 380. \
-                              Edges stay smooth after the transform — a rotated \
-                              square's sides are as clean as an upright one's. \
-                              A stroke is transformed with the shape it outlines \
-                              rather than held at a fixed pixel width, so scaling an \
-                              item by 2 draws its 4-pixel outline 8 pixels wide; \
-                              divide the width you ask for by the scale if you want \
-                              it to stay put. A transform that flattens the item to a \
-                              line or a point — a zero row, or one whose determinant \
-                              is smaller than 1e-12 — is treated as the identity \
-                              instead, because there is no sensible picture of a \
-                              shape with no area and silently drawing nothing is the \
-                              worse answer. It applies to `canvas::Paint.clip` and \
-                              `canvas::Paint.gradient` as well as to the item.",
-            },
-            RecordProp {
                 name: "clip",
-                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named("Point"))),
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(
+                    crate::codegen::builtins::vector::FLOAT2_TYPE_ID,
+                ))),
                 description: "Restricts drawing to the area these rings enclose, \
                               under `clipRule` — each ring a closed path of points, \
                               as a `canvas::Polygon`'s `contours` are. The empty list, \
                               the zero value, means no clipping. A clip that encloses \
                               nothing, such as rings of fewer than two points, hides \
                               the whole item. The rings are in the item's own \
-                              coordinates: `canvas::Paint.transform` and a group's \
-                              translation apply to the clip as well as to the item, \
-                              so a clipped item moves with its clip. Its edges may \
+                              coordinates, measured from its `position`: the \
+                              item's `transform` and any group's apply to the clip \
+                              as well as to the item, so a clipped item moves with \
+                              its clip. Its edges may \
                               fall between pixels, and a partly-covered pixel is \
                               drawn partly, exactly as a shape's own edge is.",
             },
@@ -1027,10 +1010,10 @@ pub(crate) fn register(r: &mut Registry) {
                 ty: ParameterType::named("JoinStyle"),
                 description: "How the stroke turns a corner: where two edges of a \
                               `canvas::Polygon` ring or a `canvas::PolyLine` meet, and \
-                              at the four corners of a `canvas::Rectangle` or \
-                              `canvas::Picture`. `Round`, the zero value, rounds the \
-                              outside of the corner. Circles, ellipses, arcs and \
-                              rounded rectangles have no corners and ignore it.",
+                              at the four corners of a `canvas::Rectangle`. \
+                              `Round`, the zero value, rounds the outside of the \
+                              corner. Circles, ellipses, arcs and a rectangle with \
+                              rounded corners have no corners and ignore it.",
             },
             RecordProp {
                 name: "miterLimit",
@@ -1057,10 +1040,10 @@ pub(crate) fn register(r: &mut Registry) {
                               start: a `canvas::Line`'s first point, a \
                               `canvas::PolyLine`'s first point, an `canvas::Arc`'s \
                               `startAngle`, each `canvas::Polygon` ring's own first \
-                              point, a `canvas::Rectangle`'s top-left corner, a \
-                              `canvas::RoundedRect`'s top edge where it leaves the \
-                              corner, and a `canvas::Circle`'s or `canvas::Ellipse`'s \
-                              rightmost point (before `angle`) — going clockwise \
+                              point, a `canvas::Rectangle`'s top-left corner — or, when \
+                              that corner is rounded, its top edge where it leaves the \
+                              corner — and a `canvas::Circle`'s or `canvas::Ellipse`'s \
+                              rightmost point (before its `transform`) — going clockwise \
                               round every closed shape.",
             },
             RecordProp {
@@ -1086,60 +1069,125 @@ pub(crate) fn register(r: &mut Registry) {
 
     // ---- The `DrawItem` variants (a CLOSED set) ---------------------------
 
-    pkg.add_record(RegistryRecord {
-        name: "Rectangle",
+    pkg.add_enum(RegistryEnum {
+        name: "BindTo",
         export: true,
-        description: "An axis-aligned rectangle.",
-        props: rect_props("The rectangle"),
+        variants: vec![
+            EnumVariant {
+                name: "TopLeft",
+                description: "`position` is the rectangle's top-left corner. The zero \
+                              value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Center",
+                description: "`position` is the rectangle's centre, so a rotation \
+                              spins it in place.",
+                advisory: None,
+            },
+        ],
     });
 
     pkg.add_record(RegistryRecord {
-        name: "RoundedRect",
+        name: "Rectangle",
         export: true,
-        description: "An axis-aligned rectangle with rounded corners.",
-        props: {
-            let mut props = rect_props("The rectangle");
-            props.insert(
-                4,
-                RecordProp {
-                    name: "cornerRadius",
-                    ty: ParameterType::Float,
-                    description: "The corner radius in pixels, clamped to half the \
-                                  shorter side.",
-                },
-            );
-            props
-        },
+        description: "A rectangle, with a radius for each corner. `position` places \
+                      it by the point `bind` names — its top-left corner, or its \
+                      centre — and its `transform` turns it about that same point: a \
+                      `Center` rectangle spins in place, a `TopLeft` one swings about \
+                      its corner. Every field has a usable default, so the short way to \
+                      make one is to declare it and set what you need: \
+                      `MUT box AS canvas::Rectangle`, then `WITH box { position := \
+                      vector::Float2[x := 20.0, y := 20.0], size := canvas::Size[width \
+                      := 120.0, height := 80.0], paint := canvas::fill(ink) }` — it \
+                      binds top-left, has four square corners, no `id` and the \
+                      identity transform.",
+        props: vec![
+            id_prop(),
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "Where the rectangle is, in pixels: the point `bind` \
+                              names. The transform turns the rectangle about it.",
+            },
+            RecordProp {
+                name: "bind",
+                ty: ParameterType::named("BindTo"),
+                description: "Which point of the rectangle `position` is.",
+            },
+            RecordProp {
+                name: "size",
+                ty: ParameterType::named("Size"),
+                description: "The width and height in pixels. A rectangle with no \
+                              width or no height draws nothing.",
+            },
+            RecordProp {
+                name: "radiusTL",
+                ty: ParameterType::Float,
+                description: "The top-left corner's radius. `0.0` or less is a square corner. Above `0.0` through \
+                              `1.0` it is a fraction of the half-size, so the corner is \
+                              an ellipse quadrant: `radiusTL * width / 2` across and \
+                              `radiusTL * height / 2` down. Above `1.0` it is pixels, and \
+                              the corner is circular, no larger than half the shorter \
+                              side. `1.0` is the full pill and `1.01` is a one-pixel \
+                              corner, so a radius animated in pixels starts above `1.0`.",
+            },
+            RecordProp {
+                name: "radiusTR",
+                ty: ParameterType::Float,
+                description: "The top-right corner's radius. See `radiusTL` for how its size chooses its meaning.",
+            },
+            RecordProp {
+                name: "radiusBL",
+                ty: ParameterType::Float,
+                description: "The bottom-left corner's radius. See `radiusTL` for how its size chooses its meaning.",
+            },
+            RecordProp {
+                name: "radiusBR",
+                ty: ParameterType::Float,
+                description: "The bottom-right corner's radius. See `radiusTL` for how its size chooses its meaning.",
+            },
+            paint_prop(),
+            transform_prop(),
+        ],
     });
 
     pkg.add_record(RegistryRecord {
         name: "Line",
         export: true,
-        description: "A straight segment from one point to another. A line has no \
-                      interior, so it is drawn from `paint.stroke`/`paint.strokeWidth` \
-                      and ignores `paint.fill`; `paint.cap` shapes its two ends.",
+        description: "A straight segment from one point to another. Its two ends, \
+                      `startAt` and `endAt`, are measured from `position`, so moving \
+                      the line is changing `position` alone, and its `transform` turns \
+                      it about `position` — put `position` at the middle and the line \
+                      spins in place. A line has no interior, so it is drawn from \
+                      `paint.stroke`/`paint.strokeWidth` and ignores `paint.fill`; \
+                      `paint.cap` shapes its two ends. Every field has a usable \
+                      default, so the short way to make one is to declare it and set \
+                      what you need: `MUT rule AS canvas::Line`, then `WITH rule { \
+                      startAt := vector::Float2[x := 20.0, y := 40.0], endAt := \
+                      vector::Float2[x := 220.0, y := 40.0], paint := \
+                      canvas::stroke(ink, 2.0) }` — `position` stays at the surface's \
+                      top-left corner, so the two ends are surface pixels.",
         props: vec![
+            id_prop(),
             RecordProp {
-                name: "x1",
-                ty: ParameterType::Float,
-                description: "The starting point's X coordinate in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The point the two ends are measured from, in pixels. \
+                              The transform turns the line about it.",
             },
             RecordProp {
-                name: "y1",
-                ty: ParameterType::Float,
-                description: "The starting point's Y coordinate in pixels.",
+                name: "startAt",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "Where the line starts, as an offset from `position`.",
             },
             RecordProp {
-                name: "x2",
-                ty: ParameterType::Float,
-                description: "The ending point's X coordinate in pixels.",
-            },
-            RecordProp {
-                name: "y2",
-                ty: ParameterType::Float,
-                description: "The ending point's Y coordinate in pixels.",
+                name: "endAt",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "Where the line ends, as an offset from `position`.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
@@ -1151,12 +1199,31 @@ pub(crate) fn register(r: &mut Registry) {
                       can be a hole (an \"O\", a donut) or more of the fill, as \
                       `rule` decides. The stroke outlines every ring. A ring of \
                       fewer than three points has no area and adds only its \
-                      stroke; a ring of fewer than two adds nothing.",
+                      stroke; a ring of fewer than two adds nothing. Every point is \
+                      measured from `position`, so moving the shape is changing \
+                      `position` alone, and its `transform` turns it about \
+                      `position`. Every field has a usable default, so the short way \
+                      to make one is to declare it and set what you need: `MUT wedge \
+                      AS canvas::Polygon`, then `WITH wedge { position := \
+                      vector::Float2[x := 120.0, y := 80.0], contours := [[ \
+                      vector::Float2[x := 0.0, y := 0.0 - 40.0], vector::Float2[x := \
+                      40.0, y := 40.0], vector::Float2[x := 0.0 - 40.0, y := 40.0]]], \
+                      paint := canvas::fill(ink) }` — a triangle around 120, 80.",
         props: vec![
+            id_prop(),
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The point every vertex is measured from, in pixels. \
+                              The transform turns the shape about it.",
+            },
             RecordProp {
                 name: "contours",
-                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named("Point"))),
-                description: "The rings, each a list of vertices in order. Every \
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(
+                    crate::codegen::builtins::vector::FLOAT2_TYPE_ID,
+                ))),
+                description: "The rings, each a list of vertices in order, each \
+                              vertex an offset from `position`. Every \
                               ring closes from its own last point back to its own \
                               first point automatically. The direction a ring runs \
                               in matters only under `FillRule.NonZero`.",
@@ -1170,23 +1237,25 @@ pub(crate) fn register(r: &mut Registry) {
                               opposite way to the ring around it.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
     pkg.add_record(RegistryRecord {
         name: "Circle",
         export: true,
-        description: "A circle given by its centre and radius.",
+        description: "A circle given by its centre and radius. Every field has a usable \
+                      default, so the short way to make one is to declare it and set \
+                      what you need: `MUT dot AS canvas::Circle`, then \
+                      `WITH dot { position := vector::Float2[x := 80.0, y := 60.0], \
+                      radius := 20.0, paint := canvas::fill(ink) }`. `id` stays empty \
+                      and `transform` stays the identity.",
         props: vec![
+            id_prop(),
             RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The centre's X coordinate in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The centre's Y coordinate in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The centre, in pixels. The transform turns the circle about it.",
             },
             RecordProp {
                 name: "radius",
@@ -1194,6 +1263,7 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "The radius in pixels.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
@@ -1205,17 +1275,17 @@ pub(crate) fn register(r: &mut Registry) {
                       because Y increases downward, a `0.0`..`PI` arc sweeps below \
                       its centre (so that is the smile, not the frown). An arc has \
                       no interior, so it is drawn from `paint.stroke`; `paint.cap` \
-                      shapes its two ends.",
+                      shapes its two ends. It is shortest made from its default: \
+                      `MUT bow AS canvas::Arc`, then `WITH bow { position := …, \
+                      radius := …, startAngle := …, endAngle := …, paint := … }`.",
         props: vec![
+            id_prop(),
             RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The centre's X coordinate in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The centre's Y coordinate in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description:
+                    "The centre of the circle the arc lies on, in pixels. The transform turns \
+                              the arc about it.",
             },
             RecordProp {
                 name: "radius",
@@ -1233,25 +1303,24 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "Where the arc ends, in radians clockwise from +X.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
     pkg.add_record(RegistryRecord {
         name: "Text",
         export: true,
-        description: "A run of text drawn in a font at a size. `x`/`y` place the \
+        description: "A run of text drawn in a font at a size. `position` is the \
                       start of the baseline, not the top-left corner — use \
                       `canvas::measureText` to lay text out without drawing it.",
         props: vec![
+            id_prop(),
             RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The X coordinate of the baseline's start, in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The Y coordinate of the baseline, in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description:
+                    "Where the baseline starts, in pixels: its left end. The transform turns \
+                              the text about it.",
             },
             RecordProp {
                 name: "text",
@@ -1267,58 +1336,145 @@ pub(crate) fn register(r: &mut Registry) {
                               failing.",
             },
             RecordProp {
-                name: "size",
+                name: "fontSize",
                 ty: ParameterType::Float,
                 description: "The em size in pixels.",
             },
             paint_prop(),
+            transform_prop(),
+        ],
+    });
+
+    // plan-172-L: how a picture's image is placed in its shape.
+    pkg.add_enum(RegistryEnum {
+        name: "PictureClip",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "ClipOnly",
+                description: "The shape only cuts the image out. The image stays \
+                              upright however the shape is turned, fitted to the box \
+                              around the shape as it sits on the canvas. The zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "ClipAndTransform",
+                description: "The image is fitted to the shape as it was built, and \
+                              the shape's transform carries the image with it: turn \
+                              the shape and the image turns too.",
+                advisory: None,
+            },
+        ],
+    });
+    pkg.add_enum(RegistryEnum {
+        name: "PictureFit",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Stretch",
+                description: "The image is scaled to the box around the shape, each \
+                              way separately, so it fills it and may be squashed. The \
+                              zero value.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Contain",
+                description: "The image keeps its proportions and is as large as fits \
+                              inside the box, centred. The rest of the shape shows \
+                              nothing.",
+                advisory: None,
+            },
+            EnumVariant {
+                name: "Cover",
+                description: "The image keeps its proportions and is as small as \
+                              covers the whole box, centred. What spills past the \
+                              shape is cut off.",
+                advisory: None,
+            },
         ],
     });
 
     pkg.add_record(RegistryRecord {
         name: "Picture",
         export: true,
-        description: "An image drawn into a rectangle, scaled to fit it. Scaling picks \
-                      the nearest image pixel, with no smoothing, so a small image drawn \
-                      large shows crisp blocks. The paint's fill colour tints the image: \
-                      each channel moves towards the image's channel multiplied by the \
-                      fill's, by the fill's alpha — so the zero paint and a white fill \
-                      draw it unchanged, an opaque red fill keeps only its red, and a \
-                      half-transparent red fill goes halfway. How opaque the picture is \
-                      comes from `canvas::Paint.transparency`, never from the fill; a \
-                      fill gradient is ignored. Stroke, clip, blend and transform work \
-                      as they do on a \
-                      `canvas::Rectangle`. Named `canvas::Picture` rather than `Image` \
-                      because `Image` is the resource type this variant *names* — the two \
-                      would collide.",
-        props: {
-            let mut props = rect_props("The destination rectangle");
-            props.insert(
-                4,
-                RecordProp {
-                    name: "image",
-                    ty: ParameterType::res(ParameterType::named("canvas.Image")),
-                    description: "The image to draw. The item holds the image \
-                                  itself — you still close it, and closing it while \
-                                  a scene still names it draws nothing rather than \
-                                  failing.",
-                },
-            );
-            props
-        },
+        description: "An image drawn inside a shape. The shape says where the picture \
+                      is and what outline it is cut to: a `canvas::Rectangle`, with \
+                      square or rounded corners, a `canvas::Circle`, a \
+                      `canvas::Ellipse` or a `canvas::Polygon`. A shape with no inside \
+                      — a `canvas::Line`, `canvas::Arc`, `canvas::PolyLine` or \
+                      `canvas::Text` — draws nothing. The image is visible only inside \
+                      the shape. Scaling picks the nearest image pixel, with no \
+                      smoothing, so a small image drawn large shows crisp blocks. The \
+                      shape's paint is the picture's: its fill colour tints the image \
+                      — each channel moves towards the image's channel multiplied by \
+                      the fill's, by the fill's alpha, so the zero paint and a white \
+                      fill draw it unchanged, an opaque red fill keeps only its red, \
+                      and a half-transparent red fill goes halfway — and never fills \
+                      the shape itself; `canvas::Paint.transparency` fades the \
+                      picture; its blend mode composites it; its stroke outlines the \
+                      shape on top of the image; and the shape's `paint.clip`, if it \
+                      has one, cuts the image further, so it shows only where the \
+                      shape and that clip both cover. A fill gradient is ignored. \
+                      The image is fitted to the box around the shape — the smallest \
+                      upright rectangle that holds it — as `fit` says, and `clip` \
+                      says which box when the shape has a `transform`. A group the \
+                      picture is in moves and turns the whole picture, image and \
+                      all, whatever `clip` is. When the shape is a \
+                      `canvas::AutoPaint`, the paint the mouse selects is the one \
+                      used, and nothing else is needed for that to work — not \
+                      `canvas::enableMouse`. `canvas::MouseEvent.overID` reports the \
+                      picture's own `id` in front of its shape's. A `Picture` has no \
+                      default value — it holds an image — so every field is \
+                      written out.",
+        props: vec![
+            id_prop(),
+            RecordProp {
+                name: "shape",
+                ty: ParameterType::named("AutoShape"),
+                description: "The shape the image is drawn inside, and whose paint \
+                              tints, fades, blends and outlines it.",
+            },
+            RecordProp {
+                name: "clip",
+                ty: ParameterType::named("PictureClip"),
+                description: "Whether the shape's transform turns the image with it \
+                              or only the outline it is cut to.",
+            },
+            RecordProp {
+                name: "fit",
+                ty: ParameterType::named("PictureFit"),
+                description: "How the image is scaled to the shape: stretched to \
+                              fill it, kept whole inside it, or made to cover it.",
+            },
+            RecordProp {
+                name: "image",
+                ty: ParameterType::res(ParameterType::named("canvas.Image")),
+                description: "The image to draw. The item holds the image \
+                              itself — you still close it, and closing it while \
+                              a scene still names it draws nothing rather than \
+                              failing.",
+            },
+        ],
     });
 
+    // plan-172-K: three unions, each including the one before it. `Shape` is what can
+    // be drawn with a paint of its own; `AutoShape` adds the one thing that DECORATES a
+    // shape; `DrawItem` adds the two things that are not shapes at all. An included
+    // union's members come first, in its own order, so the three agree on every tag
+    // they share: Rectangle 0, Line 1, Polygon 2, Circle 3, Arc 4, Text 5, Ellipse 6,
+    // PolyLine 7, AutoPaint 8, Picture 9, Group 10.
+    //
+    // The order is `planning/new_canvas.md`'s and it is load-bearing once, here: a
+    // variant's tag is its position, and the native walks ask the type model for a tag
+    // by name (`func_geo_build::variant`), never by number.
     pkg.add_union(RegistryUnion {
-        name: "DrawItem",
+        includes: vec![],
+        name: "Shape",
         export: true,
         variants: vec![
             UnionVariant {
-                name: "Picture",
-                description: "An image drawn into a rectangle.",
-            },
-            UnionVariant {
                 name: "Rectangle",
-                description: "An axis-aligned rectangle.",
+                description: "A rectangle, with a radius for each corner.",
             },
             UnionVariant {
                 name: "Line",
@@ -1341,30 +1497,131 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "A run of text.",
             },
             UnionVariant {
-                name: "RoundedRect",
-                description: "A rectangle with rounded corners.",
-            },
-            // plan-116-E. Appended LAST deliberately: the order fixes each variant's
-            // tag, so inserting `Ellipse` beside `Circle` where it reads better would
-            // renumber `Arc`, `Text` and `RoundedRect`.
-            UnionVariant {
                 name: "Ellipse",
-                description: "An ellipse, optionally rotated.",
+                description: "An ellipse.",
             },
-            // plan-116-G, appended last for the same reason. This one is different in
-            // kind from the nine above it: `Group` is a CONTAINER, not a shape. It
-            // draws nothing itself and carries no `paint` — see
-            // `every_draw_item_variant_carries_a_paint`, which is narrowed rather than
-            // weakened to admit it.
-            UnionVariant {
-                name: "Group",
-                description: "A reference to a named group of items, translated.",
-            },
-            // plan-154-A, appended last for the same reason as `Ellipse`: the order fixes
-            // each variant's tag.
             UnionVariant {
                 name: "PolyLine",
                 description: "An open path, stroked, with a colour per point.",
+            },
+        ],
+    });
+
+    pkg.add_union(RegistryUnion {
+        includes: vec!["Shape"],
+        name: "AutoShape",
+        export: true,
+        variants: vec![UnionVariant {
+            name: "AutoPaint",
+            description: "A shape whose paint follows the mouse.",
+        }],
+    });
+
+    pkg.add_union(RegistryUnion {
+        includes: vec!["AutoShape"],
+        name: "DrawItem",
+        export: true,
+        variants: vec![
+            UnionVariant {
+                name: "Picture",
+                description: "An image drawn inside a shape.",
+            },
+            // `Group` is a CONTAINER, not a shape. It draws nothing itself and carries
+            // no `paint` -- see `every_draw_item_variant_carries_a_paint`, which is
+            // narrowed rather than weakened to admit it.
+            UnionVariant {
+                name: "Group",
+                description: "A reference to a named group of items, placed and turned.",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "AutoPaint",
+        export: true,
+        description: "A shape that changes its paint as the mouse moves over it, with no \
+                      code of yours running: present it once and the window keeps it \
+                      up to date, even while your program is waiting for a key. It \
+                      wraps one `canvas::Shape` and holds up to four other paints for \
+                      it. The shape is drawn with its own `paint` until the mouse \
+                      arrives. When several of the four apply at once the order is \
+                      `pressedPaint`, then `enterPaint`, then `hoverPaint`, then `exitPaint`, and a paint \
+                      whose `use…` flag is `FALSE` is skipped. Only the TOPMOST item \
+                      under the mouse reacts: anything drawn over this shape — an \
+                      `AutoPaint` or not — takes the mouse instead. Where the mouse \
+                      counts as over the shape is decided by the shape and its own \
+                      `paint`, never by one of the four, so a hover paint with a \
+                      wider outline does not make the shape easier to hit. Each use of \
+                      a group has its own state, so one group drawn twice lights only \
+                      the copy the mouse is on. An `AutoPaint` has no `id` of its own: \
+                      `canvas::MouseEvent.overID` reports the wrapped shape's. It \
+                      carries four whole paints through every `present`, so it is for \
+                      the few items in a scene you interact with, not for all of them.",
+        props: vec![
+            RecordProp {
+                name: "shape",
+                ty: ParameterType::named("Shape"),
+                description: "The shape that is drawn. Its own `paint` is what you see \
+                              when the mouse is elsewhere, and what decides where the \
+                              mouse counts as over it.",
+            },
+            RecordProp {
+                name: "useEnter",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` to flash `enterPaint` when the mouse arrives. `FALSE` \
+                              goes straight to the hover paint.",
+            },
+            RecordProp {
+                name: "useExit",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` to flash `exitPaint` when the mouse leaves. `FALSE` \
+                              goes straight back to the shape's own paint.",
+            },
+            RecordProp {
+                name: "useHover",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` to show `hoverPaint` while the mouse rests on the \
+                              shape. `FALSE` shows the shape's own paint.",
+            },
+            RecordProp {
+                name: "usePressed",
+                ty: ParameterType::Boolean,
+                description: "`TRUE` to show `pressedPaint` while a button is held on the \
+                              shape. `FALSE` shows whatever hovering would.",
+            },
+            RecordProp {
+                name: "enterPaint",
+                ty: ParameterType::named("Paint"),
+                description: "Shown for a tenth of a second from the moment the mouse \
+                              arrives — or for `options.canvasAutoPaintMS` \
+                              milliseconds, 1 to 10000, if your project.json sets \
+                              it — then the hover paint takes over — with the mouse still, \
+                              too. It is a flash, not a fade: nothing is blended. If \
+                              the mouse leaves first, the exit paint starts at once.",
+            },
+            RecordProp {
+                name: "exitPaint",
+                ty: ParameterType::named("Paint"),
+                description: "Shown for a tenth of a second from the moment the mouse \
+                              leaves — the same `options.canvasAutoPaintMS` — then the shape's own paint returns. If the mouse \
+                              comes back first, the enter paint starts at once.",
+            },
+            RecordProp {
+                name: "hoverPaint",
+                ty: ParameterType::named("Paint"),
+                description: "Shown while the mouse is over the shape, once any \
+                              enter flash is over — and while a button is held on it \
+                              too, when `usePressed` is `FALSE`.",
+            },
+            RecordProp {
+                name: "pressedPaint",
+                ty: ParameterType::named("Paint"),
+                description: "Shown while any mouse button is held, the press began on \
+                              this shape, and the mouse is still over it. Drag off \
+                              with the button down and the shape leaves as it would \
+                              for any exit; drag back on and this paint returns. A \
+                              press that began somewhere else and is dragged onto the \
+                              shape shows the hover paint.",
             },
         ],
     });
@@ -1373,25 +1630,43 @@ pub(crate) fn register(r: &mut Registry) {
         name: "Group",
         export: true,
         description: "A reference to a sub-scene installed under a name by \
-                      `canvas::setGroup`, drawn translated by `dx`/`dy`. Presenting a \
-                      scene copies this node — two offsets and a name — rather than \
-                      the items it stands for, which is the point: a large static \
-                      sub-picture referenced from many scenes is copied once when you \
-                      install it, not once per frame. A name with no group installed \
-                      draws nothing and does not raise, so a scene can reference a \
-                      group that has not been built yet. Unlike every other \
-                      `canvas::DrawItem` this one has no `paint`: it is a container, \
-                      and the items inside it carry their own.",
+                      `canvas::setGroup`, drawn with its own origin at `position` and \
+                      turned, scaled or sheared about that point by `transform`. A \
+                      group inside a group is placed by both, the outer one last, so \
+                      a figure built from groups moves and turns as one thing. \
+                      Presenting a scene copies this node — an `id`, a position, a \
+                      transform and a name — rather than the items it stands for, which is the \
+                      point: a large static sub-picture referenced from many scenes \
+                      is copied once when you install it, not once per frame. A name \
+                      with no group installed draws nothing and does not raise, so a \
+                      scene can reference a group that has not been built yet. A \
+                      group has no `paint`: it is a container, and the items inside \
+                      it carry their own. Every field \
+                      has a usable default, so the short way to make one is to \
+                      declare it and set what you need: `MUT panel AS canvas::Group`, \
+                      then `WITH panel { name := \"panel\", position := \
+                      vector::Float2[x := 40.0, y := 40.0] }`. Its `id` names this \
+                      USE of the group, not the group: draw one group twice under \
+                      two `id`s and `canvas::MouseEvent.overID` says which of the \
+                      two the mouse is over, by putting the `id` in front of the \
+                      item's own.",
         props: vec![
+            id_prop(),
             RecordProp {
-                name: "dx",
-                ty: ParameterType::Float,
-                description: "How far right to move the group's items, in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "Where the group's own origin lands, in pixels: an item \
+                              the group holds at `(0, 0)` is drawn here. The transform \
+                              turns the group about it.",
             },
             RecordProp {
-                name: "dy",
-                ty: ParameterType::Float,
-                description: "How far down to move the group's items, in pixels.",
+                name: "transform",
+                ty: ParameterType::named("Transform"),
+                description: "Turns, scales or shears everything the group holds, \
+                              about `position`; its `tx` and `ty` add to `position`. \
+                              It scales the items' strokes with them and carries \
+                              their clips and gradients. All zero, or a transform \
+                              with no area, leaves the group as it was built.",
             },
             RecordProp {
                 name: "name",
@@ -1406,34 +1681,34 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Ellipse",
         export: true,
-        description: "An ellipse given by its centre, two radii and a rotation.                       `radiusX = radiusY` with `angle := 0.0` is a circle, and draws                       identically to `canvas::Circle` of that radius — so an                       animation that squashes a circle can use one item type                       throughout. Rotation is about the centre, so an ellipse is                       placed by `x`/`y` and oriented by `angle` independently. A                       radius of `0.0` or less draws nothing, the same rule                       `canvas::Circle` follows.",
+        description: "An ellipse given by its centre and two radii, along the X and Y \
+                      axes. `radiusX = radiusY` is a circle, and draws identically to \
+                      `canvas::Circle` of that radius — so an animation that squashes \
+                      a circle can use one item type throughout. To tilt it, give it \
+                      a rotation in `transform`. A radius of `0.0` or less draws \
+                      nothing, the same rule `canvas::Circle` follows. Like a circle, it is \
+                      shortest made from its default: `MUT egg AS canvas::Ellipse`, then \
+                      `WITH egg { position := …, radiusX := …, radiusY := …, paint := … }`.",
         props: vec![
+            id_prop(),
             RecordProp {
-                name: "x",
-                ty: ParameterType::Float,
-                description: "The centre's X coordinate in pixels.",
-            },
-            RecordProp {
-                name: "y",
-                ty: ParameterType::Float,
-                description: "The centre's Y coordinate in pixels.",
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The centre, in pixels. The transform turns the ellipse about it.",
             },
             RecordProp {
                 name: "radiusX",
                 ty: ParameterType::Float,
-                description: "The radius along the ellipse's own X axis, in pixels —                               before `angle` rotates it.",
+                description: "The radius along the X axis, in pixels, before `transform` \
+                              turns it.",
             },
             RecordProp {
                 name: "radiusY",
                 ty: ParameterType::Float,
-                description: "The radius along the ellipse's own Y axis, in pixels.",
-            },
-            RecordProp {
-                name: "angle",
-                ty: ParameterType::Float,
-                description: "Rotation about the centre, in radians clockwise from                               +X. `0.0` leaves the radii axis-aligned. Because Y                               grows downward, a positive angle turns the long axis                               towards the bottom-right.",
+                description: "The radius along the Y axis, in pixels.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
@@ -1451,12 +1726,30 @@ pub(crate) fn register(r: &mut Registry) {
                       segment. Colours mix in linear light, as a `canvas::Gradient`'s \
                       do. A path has no interior, so it is drawn from \
                       `paint.strokeWidth` and ignores `paint.fill` and \
-                      `paint.gradient`. Fewer than two points draws nothing.",
+                      `paint.gradient`. Fewer than two points draws nothing. Every \
+                      point is measured from `position`, so moving the path is \
+                      changing `position` alone, and its `transform` turns it about \
+                      `position`. Every field has a usable default, so the short way \
+                      to make one is to declare it and set what you need: `MUT trail \
+                      AS canvas::PolyLine`, then `WITH trail { points := \
+                      [vector::Float2[x := 20.0, y := 20.0], vector::Float2[x := \
+                      120.0, y := 60.0], vector::Float2[x := 220.0, y := 20.0]], \
+                      paint := canvas::stroke(ink, 3.0) }`.",
         props: vec![
+            id_prop(),
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The point every point of the path is measured from, in \
+                              pixels. The transform turns the path about it.",
+            },
             RecordProp {
                 name: "points",
-                ty: ParameterType::list_of(ParameterType::named("Point")),
-                description: "The points in order. The path does not close — use \
+                ty: ParameterType::list_of(ParameterType::named(
+                    crate::codegen::builtins::vector::FLOAT2_TYPE_ID,
+                )),
+                description: "The points in order, each an offset from \
+                              `position`. The path does not close — use \
                               `canvas::Polygon` for a closed shape. A point repeated \
                               in place adds nothing; if every point is the same one, \
                               the path draws what a zero-length `canvas::Line` with \
@@ -1476,6 +1769,7 @@ pub(crate) fn register(r: &mut Registry) {
                               draws even when `paint.stroke` is transparent.",
             },
             paint_prop(),
+            transform_prop(),
         ],
     });
 
@@ -1591,6 +1885,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_item_hash::register(&mut pkg);
     func_enable_mouse::register(&mut pkg);
     func_poll_mouse::register(&mut pkg);
+    func_pointer::register(&mut pkg);
     func_get_bytes::register(&mut pkg);
     func_set_bytes::register(&mut pkg);
     helper_clamp_byte::register(&mut pkg);
@@ -1610,54 +1905,49 @@ pub(crate) fn register(r: &mut Registry) {
     helper_joins::register(&mut pkg);
     helper_items::register(&mut pkg);
     helper_surface::register(&mut pkg);
+    helper_hit::register(&mut pkg);
+    helper_autopaint::register(&mut pkg);
+    helper_picture::register(&mut pkg);
     helper_render::register(&mut pkg);
 
     r.add_package(pkg);
 }
 
-/// The `x`/`y`/`w`/`h` prefix shared by every rectangle-shaped item, plus the
-/// trailing `paint`. Callers that need an extra field (`cornerRadius`, `image`)
-/// insert it at index 4, between the extent and the paint.
-fn rect_props(what: &'static str) -> Vec<RecordProp> {
-    vec![
-        RecordProp {
-            name: "x",
-            ty: ParameterType::Float,
-            description: "The left edge in pixels.",
-        },
-        RecordProp {
-            name: "y",
-            ty: ParameterType::Float,
-            description: "The top edge in pixels.",
-        },
-        RecordProp {
-            name: "w",
-            ty: ParameterType::Float,
-            description: if what.starts_with("The destination") {
-                "The destination width in pixels; the image is scaled to it."
-            } else {
-                "The width in pixels."
-            },
-        },
-        RecordProp {
-            name: "h",
-            ty: ParameterType::Float,
-            description: if what.starts_with("The destination") {
-                "The destination height in pixels; the image is scaled to it."
-            } else {
-                "The height in pixels."
-            },
-        },
-        paint_prop(),
-    ]
-}
-
-/// The `paint` field every `DrawItem` variant carries.
+/// The `paint` field every drawn `DrawItem` variant carries.
 fn paint_prop() -> RecordProp {
     RecordProp {
         name: "paint",
         ty: ParameterType::named("Paint"),
-        description: "How to fill, stroke, blend, transform and clip the item.",
+        description: "How to fill, stroke, blend and clip the item.",
+    }
+}
+
+/// The `id` field every drawn `DrawItem` variant carries, first (plan-172-C).
+fn id_prop() -> RecordProp {
+    RecordProp {
+        name: "id",
+        ty: ParameterType::String,
+        description: "A name for this item, of your choosing. `\"\"` is no name. It \
+                      draws nothing and changes nothing about how the item looks; it \
+                      is how a program tells its own items apart, and what \
+                      `canvas::MouseEvent.overID` reports for the item under the \
+                      mouse. Two items may share one.",
+    }
+}
+
+/// The `transform` field every drawn `DrawItem` variant carries, last (plan-172-C).
+fn transform_prop() -> RecordProp {
+    RecordProp {
+        name: "transform",
+        ty: ParameterType::named("Transform"),
+        description: "The affine transform applied to this item: its geometry, its \
+                      stroke, its `paint.clip` and its `paint.gradient` together. The \
+                      all-zero value is the identity, so an item you never set this \
+                      on draws where its own coordinates put it. Edges stay smooth \
+                      after the transform — a rotated square's sides are as clean as \
+                      an upright one's. A transform with no area (a zero row, or \
+                      `a*d - b*c` within `1e-12` of zero) is treated as the identity \
+                      rather than collapsing the item to nothing.",
     }
 }
 
@@ -1669,52 +1959,97 @@ mod tests {
     use crate::codegen::registry::registry;
     use crate::types::ParameterType;
 
-    /// The `DrawItem` variants are a **closed set** (plan-98-A invariant 6): adding
-    /// one later stops a user's `SELECT CASE` being exhaustive, which is a breaking
-    /// change. Pinning the exact list — and its order, which fixes the tags — makes
-    /// any addition a deliberate, visible act rather than a silent one.
-    ///
-    /// It has been extended exactly twice, and this is the record of both:
-    /// **plan-116-E appended `Ellipse`** ninth, and **plan-116-G appended `Group`**
-    /// tenth. Appended rather than inserted where each reads better, because the order
-    /// fixes the tags and inserting would renumber every variant after it.
-    ///
-    /// Note what these amendments are not: the assertion did not become laxer either
-    /// time. The list grew by one entry a reader can see, the message keeps its
-    /// warning, and the next addition is exactly as visible as these were.
-    ///
-    /// `Group` is the first variant that is not a shape — it draws nothing itself and
-    /// carries no `paint`. That distinction is enforced next door by
-    /// `every_draw_item_variant_carries_a_paint`, which names its container exemptions
-    /// explicitly rather than dropping the check.
-    #[test]
-    fn draw_item_variant_set_is_frozen() {
+    /// The members of a canvas union in TAG order: what it `INCLUDES` first, in that
+    /// union's own order, then its own variants — the order
+    /// `binary_repr::writer::concrete_union_variants` numbers them in.
+    fn members(name: &str) -> Vec<&'static str> {
         let pkg = registry()
             .resolve_package("canvas")
             .expect("canvas package");
         let union = pkg
             .unions()
             .iter()
-            .find(|u| u.name == "DrawItem")
-            .expect("DrawItem union");
-        let names: Vec<&str> = union.variants.iter().map(|v| v.name).collect();
+            .find(|u| u.name == name)
+            .unwrap_or_else(|| panic!("no canvas union `{name}`"));
+        let mut out: Vec<&'static str> = union
+            .includes
+            .iter()
+            .flat_map(|included| members(included))
+            .collect();
+        out.extend(union.variants.iter().map(|v| v.name));
+        out
+    }
+
+    /// The `DrawItem` variants are a **closed set** (plan-98-A invariant 6): adding
+    /// one later stops a user's `SELECT CASE` being exhaustive, which is a breaking
+    /// change. Pinning the exact list — and its order, which fixes the tags — makes
+    /// any addition a deliberate, visible act rather than a silent one.
+    ///
+    /// It was extended three times by appending — **plan-116-E `Ellipse`**,
+    /// **plan-116-G `Group`**, **plan-154-A `PolyLine`** — appended rather than
+    /// inserted where each reads better, because the order fixes the tags.
+    ///
+    /// **plan-172-K re-derived it, once, and that is the one time the order moved.**
+    /// `DrawItem` became three nested unions (`Shape`, `AutoShape INCLUDES Shape`,
+    /// `DrawItem INCLUDES AutoShape`) and gained `AutoPaint`. An included union's
+    /// members come first, so the eight shapes lead, the decorator follows, and the two
+    /// things that are not shapes come last. Every variant's tag changed: nothing may
+    /// depend on a tag's number, and the native walks ask the type model for a tag by
+    /// NAME.
+    ///
+    /// The assertion did not become laxer: the list is still exact and still ordered,
+    /// and two sibling tests pin the two inner unions the same way.
+    #[test]
+    fn draw_item_variant_set_is_frozen() {
         assert_eq!(
-            names,
+            members("DrawItem"),
             vec![
-                "Picture",
                 "Rectangle",
                 "Line",
                 "Polygon",
                 "Circle",
                 "Arc",
                 "Text",
-                "RoundedRect",
                 "Ellipse",
-                "Group",
                 "PolyLine",
+                "AutoPaint",
+                "Picture",
+                "Group",
             ],
             "the DrawItem variant set is frozen; extending it is a breaking change"
         );
+    }
+
+    /// plan-172-K: `Shape` is what an `AutoPaint` may wrap and (plan-172-L) what a
+    /// `Picture` is cut to — exactly the eight things drawn with a paint of their own.
+    /// `AutoPaint` is not in it, which is what makes an `AutoPaint` of an `AutoPaint`
+    /// a type error rather than a rule.
+    #[test]
+    fn shape_variant_set_is_frozen() {
+        assert_eq!(
+            members("Shape"),
+            vec![
+                "Rectangle",
+                "Line",
+                "Polygon",
+                "Circle",
+                "Arc",
+                "Text",
+                "Ellipse",
+                "PolyLine",
+            ],
+            "the Shape variant set is frozen; extending it is a breaking change"
+        );
+    }
+
+    /// plan-172-K: `AutoShape` is every shape, plain or decorated — `Shape`'s eight and
+    /// `AutoPaint`. It shares every tag with `Shape`, and `DrawItem` every tag with it.
+    #[test]
+    fn auto_shape_variant_set_is_frozen() {
+        let auto = members("AutoShape");
+        assert_eq!(auto.last(), Some(&"AutoPaint"));
+        assert_eq!(auto[..auto.len() - 1], members("Shape")[..]);
+        assert_eq!(members("DrawItem")[..auto.len()], auto[..]);
     }
 
     /// Every `DrawItem` variant must name a record the package actually declares,
@@ -1724,16 +2059,10 @@ mod tests {
         let pkg = registry()
             .resolve_package("canvas")
             .expect("canvas package");
-        let union = pkg
-            .unions()
-            .iter()
-            .find(|u| u.name == "DrawItem")
-            .expect("DrawItem union");
-        for variant in &union.variants {
+        for variant in members("DrawItem") {
             assert!(
-                pkg.records().iter().any(|r| r.name == variant.name),
-                "DrawItem variant `{}` has no record declaration",
-                variant.name
+                pkg.records().iter().any(|r| r.name == variant),
+                "DrawItem variant `{variant}` has no record declaration",
             );
         }
     }
@@ -1749,59 +2078,80 @@ mod tests {
     /// would be a field no renderer could honour, so requiring one would be requiring a
     /// lie.
     ///
-    /// The exemption is an explicit list rather than a property anything could drift
-    /// into, so a future variant is not silently excused — a new container has to be
-    /// added here by hand, in the same deliberate act that adds it to the union. The
-    /// other nine are asserted exactly as before, and `CONTAINERS` is itself checked
-    /// against the union so a typo cannot quietly exempt nothing.
+    /// **plan-172-K added the second kind of exemption, a DECORATOR.** `AutoPaint` has
+    /// no `paint` of its own either — but for the opposite reason: it draws its `shape`,
+    /// and the shape carries one. So it is not excused, it is checked differently: its
+    /// `shape` must be a `Shape`, and every member of `Shape` is in the checked set
+    /// below.
+    ///
+    /// Both exemptions are explicit lists rather than a property anything could drift
+    /// into, so a future variant is not silently excused, and each list is itself
+    /// checked against the union so a typo cannot quietly exempt nothing.
     #[test]
     fn every_draw_item_variant_carries_a_paint() {
         /// Variants that are containers rather than shapes (plan-116-G).
         const CONTAINERS: &[&str] = &["Group"];
+        /// Variants that draw a `shape` they hold, with that shape's paint, and the
+        /// union that shape is: `AutoPaint` (plan-172-K) and `Picture` (plan-172-L),
+        /// whose shape may itself be an `AutoPaint`.
+        const DECORATORS: &[(&str, &str)] = &[("AutoPaint", "Shape"), ("Picture", "AutoShape")];
 
         let pkg = registry()
             .resolve_package("canvas")
             .expect("canvas package");
-        let union = pkg
-            .unions()
-            .iter()
-            .find(|u| u.name == "DrawItem")
-            .expect("DrawItem union");
-        for name in CONTAINERS {
+        let all = members("DrawItem");
+        let decorators: Vec<&str> = DECORATORS.iter().map(|(name, _)| *name).collect();
+        for name in CONTAINERS.iter().chain(decorators.iter()) {
             assert!(
-                union.variants.iter().any(|v| &v.name == name),
+                all.contains(name),
                 "`{name}` is exempted from the paint requirement but is not a \
-                 DrawItem variant — a renamed or removed container leaves an \
+                 DrawItem variant — a renamed or removed variant leaves an \
                  exemption that silently covers nothing",
             );
         }
-        for variant in &union.variants {
-            if CONTAINERS.contains(&variant.name) {
-                let record = pkg
-                    .records()
-                    .iter()
-                    .find(|r| r.name == variant.name)
-                    .expect("variant record");
-                assert!(
-                    !record.props.iter().any(|p| p.name == "paint"),
-                    "`{}` is listed as a container but declares a `paint` field, which \
-                     no renderer can honour — either it is a shape and belongs in the \
-                     checked set, or the field should go",
-                    variant.name,
-                );
-                continue;
-            }
+        for variant in all {
             let record = pkg
                 .records()
                 .iter()
-                .find(|r| r.name == variant.name)
+                .find(|r| r.name == variant)
                 .expect("variant record");
+            if CONTAINERS.contains(&variant) {
+                assert!(
+                    !record.props.iter().any(|p| p.name == "paint"),
+                    "`{variant}` is listed as a container but declares a `paint` field, \
+                     which no renderer can honour — either it is a shape and belongs in \
+                     the checked set, or the field should go",
+                );
+                continue;
+            }
+            if let Some((_, holds)) = DECORATORS.iter().find(|(name, _)| *name == variant) {
+                assert!(
+                    !record.props.iter().any(|p| p.name == "paint"),
+                    "`{variant}` is listed as a decorator but declares a `paint` of its \
+                     own, beside the one its shape carries",
+                );
+                let shape = record
+                    .props
+                    .iter()
+                    .find(|p| p.name == "shape")
+                    .unwrap_or_else(|| panic!("`{variant}` has no shape field"));
+                assert_eq!(shape.ty.name(), *holds, "{variant}");
+                // Every member of what it holds either carries a paint or is itself a
+                // decorator of things that do — never a container, and never `variant`.
+                for inner in members(holds) {
+                    assert!(
+                        !CONTAINERS.contains(&inner) && inner != variant,
+                        "`{inner}` is a member of {holds} and has no paint to give",
+                    );
+                }
+                continue;
+            }
             let paint = record
                 .props
                 .iter()
                 .find(|p| p.name == "paint")
-                .unwrap_or_else(|| panic!("`{}` has no paint field", variant.name));
-            assert_eq!(paint.ty.name(), "Paint", "{}", variant.name);
+                .unwrap_or_else(|| panic!("`{variant}` has no paint field"));
+            assert_eq!(paint.ty.name(), "Paint", "{variant}");
         }
     }
 
@@ -1900,6 +2250,7 @@ mod tests {
         // plan-130-E: the `--debug` build's source, with the reporting hooks.
         let debug = canvas.get_mfb_for(true);
         assert!(debug.contains("\"MFB_CANVAS_STATS\"") && debug.contains("\"MFB_CANVAS_DUMP\""));
+        assert!(debug.contains("\"MFB_CANVAS_POINTER\""));
         assert_parses(&debug);
     }
 
@@ -1916,6 +2267,12 @@ mod tests {
             "\"MFB_CANVAS_STATS\"",
             "\"MFB_CANVAS_DUMP\"",
             "__canvas_writeStats",
+            // plan-172-J: the scripted pointer, and the one MFBASIC caller of the
+            // pointer's writer.
+            "\"MFB_CANVAS_POINTER\"",
+            "canvas::publishPointer",
+            // plan-172-K: the stretched AutoPaint window.
+            "\"MFB_CANVAS_AUTO_WINDOW_MS\"",
         ] {
             assert!(
                 !normal.contains(hook),
@@ -1992,7 +2349,6 @@ mod tests {
             "DrawItem",
             "DrawLayer",
             "Paint",
-            "Point",
             "Size",
             "FillRule",
             "JoinStyle",

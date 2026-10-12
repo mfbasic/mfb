@@ -23,7 +23,7 @@ FUNC main AS Integer
   loadCoastline()
   LET world AS Ring = worldOutline()
 
-  LET size AS canvas::Size = canvas::Size[width := 1920, height := 1080]
+  LET size AS canvas::Size = canvas::Size[width := 1920.0, height := 1080.0]
   LET wholeView AS View = wholeWorld(size)
   LET wholeItems AS List OF canvas::DrawItem = mapItems(world, wholeView)
   io::print("whole-world frame items: " & toString(len(wholeItems)))

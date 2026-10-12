@@ -356,10 +356,17 @@ const SEL_OTHER_MOUSE_DRAGGED: (&str, &str) =
     ("_mfb_macapp_sel_otherMouseDragged", "otherMouseDragged:");
 const SEL_MOUSE_MOVED: (&str, &str) = ("_mfb_macapp_sel_mouseMoved", "mouseMoved:");
 const SEL_SCROLL_WHEEL: (&str, &str) = ("_mfb_macapp_sel_scrollWheel", "scrollWheel:");
-/// `mouseEntered:`/`mouseExited:` are not overridden — the mouse surface reports
-/// where the pointer IS, and a program that wants enter/leave can compare
-/// successive positions against its own regions. Adding them would mean two more
-/// `MouseKind`s the plan froze without.
+/// `mouseEntered:`/`mouseExited:` are overridden on the canvas view only, and only to
+/// PUBLISH the pointer to the graphics state (plan-172-J): the graphics thread has to
+/// know the pointer left the surface, and AppKit says so nowhere else. They report
+/// nothing to the program — the mouse surface says where the pointer IS, and there is
+/// no enter or leave `MouseKind`.
+const SEL_MOUSE_ENTERED: (&str, &str) = ("_mfb_macapp_sel_mouseEntered", "mouseEntered:");
+const SEL_MOUSE_EXITED: (&str, &str) = ("_mfb_macapp_sel_mouseExited", "mouseExited:");
+/// `+[NSEvent pressedMouseButtons]` — the buttons held now, as a bit mask (left,
+/// right, other).
+const SEL_PRESSED_MOUSE_BUTTONS: (&str, &str) =
+    ("_mfb_macapp_sel_pressedMouseButtons", "pressedMouseButtons");
 const SEL_INIT_TRACKING: (&str, &str) = (
     "_mfb_macapp_sel_initTrackingArea",
     "initWithRect:options:owner:userInfo:",
@@ -543,6 +550,8 @@ const STR_WRITE_STRING_TYPES: (&str, &str) = ("_mfb_macapp_str_writeStringTypes"
 const CLASS_NS_VIEW: &str = "_OBJC_CLASS_$_NSView";
 /// plan-94-C: the class whose instances make a view receive `mouseMoved:` at all.
 const CLASS_NS_TRACKING_AREA: &str = "_OBJC_CLASS_$_NSTrackingArea";
+/// plan-172-J: the class `pressedMouseButtons` is sent to.
+const CLASS_NS_EVENT: &str = "_OBJC_CLASS_$_NSEvent";
 
 // The 22 mouse IMP symbols — eleven per synthesized view. Named per view rather
 // than shared because `class_addMethod` installs an IMP address, and the two
@@ -571,6 +580,9 @@ const CANVAS_OMOUSE_UP_SYMBOL: &str = "_mfb_macapp_canvas_otherMouseUp";
 const CANVAS_OMOUSE_DRAGGED_SYMBOL: &str = "_mfb_macapp_canvas_otherMouseDragged";
 const CANVAS_MOUSE_MOVED_SYMBOL: &str = "_mfb_macapp_canvas_mouseMoved";
 const CANVAS_SCROLL_SYMBOL: &str = "_mfb_macapp_canvas_scrollWheel";
+/// plan-172-J: the canvas view's two publish-only IMPs. `TermView` has neither.
+const CANVAS_MOUSE_ENTERED_SYMBOL: &str = "_mfb_macapp_canvas_mouseEntered";
+const CANVAS_MOUSE_EXITED_SYMBOL: &str = "_mfb_macapp_canvas_mouseExited";
 const CLASS_NS_COLOR: &str = "_OBJC_CLASS_$_NSColor";
 const CLASS_NS_MUTABLE_DICTIONARY: &str = "_OBJC_CLASS_$_NSMutableDictionary";
 const CLASS_NS_NUMBER: &str = "_OBJC_CLASS_$_NSNumber";
@@ -914,12 +926,20 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_key_down_helper(),
         emit_term_set_frame_size_helper(),
     ];
-    // plan-94-C: the 22 mouse IMPs (eleven per synthesized view). Emitted only for
-    // a program that uses the mouse members — each body loads `_mfb_rt_mouse_mode`,
-    // which is itself emitted only then, so installing them unconditionally would
-    // leave every other app binary naming an undefined symbol.
-    if spec.uses_mouse {
-        functions.extend(mouse_view::emit_mouse_imps(spec.uses_canvas));
+    // plan-94-C: the mouse IMPs. `TermView`'s eleven are emitted only for a program
+    // that uses the mouse members — each body loads `_mfb_rt_mouse_mode`, which is
+    // itself emitted only then, so installing them unconditionally would leave every
+    // other app binary naming an undefined symbol.
+    //
+    // plan-172-J: `MFBCanvasView`'s thirteen are emitted for every canvas program,
+    // because they publish the pointer to the graphics state whether or not the
+    // program asked for mouse events. Without the mouse members they name no mode word:
+    // they publish and return (`emit_mouse_imp`).
+    if spec.uses_mouse || spec.uses_canvas {
+        functions.extend(mouse_view::emit_mouse_imps(
+            spec.uses_canvas,
+            spec.uses_mouse,
+        ));
     }
     // The `app` window members' sync, marshal and fullscreen-tracking IMPs. Gated:
     // each names the process-global window data, emitted only for such a program.
@@ -1107,7 +1127,7 @@ fn emit_double_immediate(asm: &mut Asm, dst: Reg, value: u32) {
 /// entries (bug-326-A21): a data object nothing references still lands in the
 /// binary, and nineteen dead strings in every app program that never touches the
 /// mouse is exactly that bug again — which the app fixtures' goldens caught.
-pub(crate) fn app_mode_data_objects(uses_mouse: bool) -> Vec<CodeDataObject> {
+pub(crate) fn app_mode_data_objects(uses_mouse: bool, uses_canvas: bool) -> Vec<CodeDataObject> {
     let mut objects: Vec<CodeDataObject> = [
         SEL_SHARED_APPLICATION,
         SEL_SET_ACTIVATION_POLICY,
@@ -1263,15 +1283,18 @@ pub(crate) fn app_mode_data_objects(uses_mouse: bool) -> Vec<CodeDataObject> {
         size: 8,
         value: "0000000000000000".to_string(),
     });
-    // plan-94-C: the mouse selectors, only for a program that installs the IMPs.
-    if uses_mouse {
-        for (symbol, text) in [
+    // plan-94-C: the mouse selectors, only for a program that installs the IMPs --
+    // which since plan-172-J is one that uses the mouse members (`TermView`'s IMPs)
+    // or the canvas (`MFBCanvasView`'s, which publish the pointer). Three lists,
+    // because a string nothing names is still in the binary (bug-326-A21).
+    let mut mouse_selectors: Vec<(&str, &str)> = Vec::new();
+    if uses_mouse || uses_canvas {
+        mouse_selectors.extend([
             SEL_LOCATION_IN_WINDOW,
             SEL_CONVERT_POINT_FROM_VIEW,
             // `SEL_MODIFIER_FLAGS` is not listed: `keys::KEY_SELECTORS` already
             // emits it for every app program, and a second copy would define
             // the symbol twice.
-            SEL_DELTA_Y,
             SEL_MOUSE_DOWN,
             SEL_MOUSE_UP,
             SEL_MOUSE_DRAGGED,
@@ -1285,7 +1308,21 @@ pub(crate) fn app_mode_data_objects(uses_mouse: bool) -> Vec<CodeDataObject> {
             SEL_SCROLL_WHEEL,
             SEL_INIT_TRACKING,
             SEL_ADD_TRACKING_AREA,
-        ] {
+        ]);
+    }
+    if uses_mouse {
+        // Only a REPORTING wheel IMP reads the scroll delta.
+        mouse_selectors.push(SEL_DELTA_Y);
+    }
+    if uses_canvas {
+        mouse_selectors.extend([
+            SEL_MOUSE_ENTERED,
+            SEL_MOUSE_EXITED,
+            SEL_PRESSED_MOUSE_BUTTONS,
+        ]);
+    }
+    {
+        for (symbol, text) in mouse_selectors {
             objects.push(CodeDataObject {
                 symbol: symbol.to_string(),
                 kind: "raw".to_string(),
@@ -1536,7 +1573,7 @@ mod release_tests {
     #[test]
     fn release_selector_string_is_emitted() {
         assert!(
-            app_mode_data_objects(false)
+            app_mode_data_objects(false, false)
                 .iter()
                 .any(|d| d.symbol.as_str() == SEL_RELEASE.0),
             "the `release` selector C-string must be emitted (bug-53)"
@@ -1887,10 +1924,34 @@ mod canvas_reconcile_tests {
                 "the canvas view must override {selector}: {why}"
             );
         }
+        // plan-172-J: and the pointer methods, in EVERY canvas program -- this one uses
+        // no mouse member (`uses_mouse` is false) and still gets all thirteen, because
+        // they publish the pointer to the graphics state.
+        for (selector, why) in [
+            (
+                SEL_MOUSE_MOVED.0,
+                "without it the graphics thread never learns where the pointer is",
+            ),
+            (
+                SEL_MOUSE_EXITED.0,
+                "without it the pointer is never reported as having left the surface",
+            ),
+        ] {
+            assert!(
+                referenced.contains(&selector),
+                "the canvas view must override {selector}: {why}"
+            );
+        }
         assert_eq!(
             calls_external(&func, "_class_addMethod"),
-            5,
-            "one class_addMethod per override, and no more"
+            5 + mouse_view::mouse_imps(mouse_view::MouseSurface::Pixels).len(),
+            "one class_addMethod per override -- the five above and the pointer \
+             methods -- and no more"
+        );
+        assert_eq!(
+            mouse_view::mouse_imps(mouse_view::MouseSurface::Pixels).len(),
+            13,
+            "eleven that report, plus mouseEntered: and mouseExited:"
         );
         assert_eq!(
             calls_external(&func, "_objc_registerClassPair"),

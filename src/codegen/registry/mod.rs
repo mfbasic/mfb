@@ -349,6 +349,26 @@ pub(crate) enum HelperGate {
     /// package's surface as dead code (the legacy `term::bridge_uses_package`
     /// required BOTH). Both names are matched by raw import name.
     WhenBothImported(&'static str, &'static str),
+    /// Inject only when the owning package is imported and the program calls one of
+    /// the first names **or** constructs a record of one of the second (plan-172-K).
+    ///
+    /// A record type has no call to gate on: canvas's `AutoPaint` is a value a program
+    /// builds and hands to `present`, and the graphics-thread code that gives it a
+    /// state exists for nothing else. A value of a record type can only come from a
+    /// constructor expression naming it, so "the program constructs one" is "the
+    /// program can hold one". Type names are matched like callees, by their final
+    /// segment, and over-matching (a user's own `AutoPaint`) only injects the chunk
+    /// unnecessarily.
+    WhenUsedOrConstructed(&'static [&'static str], &'static [&'static str]),
+    /// The complement of a `WhenUsedOrConstructed(&[], names)` gate: inject only when
+    /// the owning package is imported and the program constructs **none** of these
+    /// record types (plan-172-K).
+    ///
+    /// It carries the bodies the package's unconditional source calls when the gated
+    /// chunk is absent, so that source can call one name and get the real function or
+    /// the function for a program that has nothing for it to do. Exactly one of the
+    /// pair is injected into any program that imports the package.
+    WhenNotConstructed(&'static [&'static str]),
 }
 
 /// A source chunk (or ordering edge) the owning package contributes to an injected
@@ -768,6 +788,14 @@ pub(crate) struct RegistryUnion {
     pub(crate) export: bool,
     /// The union's variants, in declaration order (`>= 1`).
     pub(crate) variants: Vec<UnionVariant>,
+    /// Unions of the same package whose members this one also has
+    /// (`UNION X INCLUDES Y`, plan-172-K). An included union's members come FIRST, in
+    /// its own order, then `variants` (`binary_repr::writer::concrete_union_variants`),
+    /// so a union and one it includes agree on every tag they share.
+    ///
+    /// Inclusion is of MEMBERS, not of the union: a value of the included union's type
+    /// is not accepted where this one is expected; each of its member records is.
+    pub(crate) includes: Vec<&'static str>,
 }
 
 impl RegistryUnion {
@@ -779,6 +807,10 @@ impl RegistryUnion {
         }
         out.push_str("UNION ");
         out.push_str(self.name);
+        if !self.includes.is_empty() {
+            out.push_str(" INCLUDES ");
+            out.push_str(&self.includes.join(", "));
+        }
         for variant in &self.variants {
             out.push_str("\n  ");
             out.push_str(variant.name);
@@ -1253,7 +1285,9 @@ impl RegistryPackage {
                 HelperGate::DebugBuildOnly => debug,
                 HelperGate::WhenUsed(_)
                 | HelperGate::WhenImported(_)
-                | HelperGate::WhenBothImported(..) => false,
+                | HelperGate::WhenBothImported(..)
+                | HelperGate::WhenUsedOrConstructed(..)
+                | HelperGate::WhenNotConstructed(_) => false,
             })
             .filter_map(|h| h.body)
             .collect()
@@ -1750,6 +1784,15 @@ impl Registry {
                     // code, shifting the injected `.ir`/`build.log` of a program that
                     // imports only one.
                     HelperGate::WhenBothImported(a, b) => view.imports(a) && view.imports(b),
+                    // plan-172-K: a chunk a record type opens as well as a call, and
+                    // the chunk that stands in for it when nothing constructs one.
+                    HelperGate::WhenUsedOrConstructed(names, types) => {
+                        package_imported
+                            && (view.references_any(names) || view.constructs_any(types))
+                    }
+                    HelperGate::WhenNotConstructed(types) => {
+                        package_imported && !view.constructs_any(types)
+                    }
                 };
                 if !gate_open || !injected_helpers.insert(helper.name) {
                     continue;
@@ -2648,6 +2691,28 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
     true
 }
 
+/// Whether `concrete` is a member of `union` -- one of its own variants (a variant that
+/// is itself a union widening transitively), or a member of a union it `INCLUDES`.
+fn union_has_member(
+    package: &str,
+    union: &RegistryUnion,
+    concrete: &ParameterType,
+    actual: &str,
+) -> bool {
+    union.variants.iter().any(|variant| {
+        let variant = match variant.name.split_once("::") {
+            Some((owner, leaf)) => format!("{owner}.{leaf}"),
+            None => format!("{package}.{}", variant.name),
+        };
+        variant == actual || value_type_accepts(&variant, concrete) == Some(true)
+    }) || union.includes.iter().any(|included| {
+        matches!(
+            registry().resolve_type(&format!("{package}.{included}")),
+            Some(ResolvedType::Union(inner)) if union_has_member(package, inner, concrete, actual)
+        )
+    })
+}
+
 /// Whether the registry value type `declared` (package-qualified, `datetime.Instant`)
 /// accepts a `concrete` argument in strict matching, or `None` when `declared` names no
 /// registry record, enum or union. A record or enum accepts only itself; a union accepts
@@ -2655,21 +2720,18 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
 /// package (`JsonNull` is `json.JsonNull`) and one spelled `pkg::Name` naming that
 /// package's type (`http.Stream`'s `tcp::Socket`). A variant that is itself a union
 /// widens transitively. A resource variant's `STATE` clause is transparent (bug-427).
+///
+/// plan-172-K: the members of a union this one `INCLUDES` are its members too
+/// ([`union_has_member`]) -- but the included union's own TYPE is not: `INCLUDES` is not
+/// subtyping.
 fn value_type_accepts(declared: &str, concrete: &ParameterType) -> Option<bool> {
     let package = declared.split_once('.')?.0;
     let actual = concrete.without_state().name().into_owned();
     match registry().resolve_type(declared)? {
         ResolvedType::Record(_) | ResolvedType::Enum(_) => Some(actual == declared),
-        ResolvedType::Union(union) => Some(
-            actual == declared
-                || union.variants.iter().any(|variant| {
-                    let variant = match variant.name.split_once("::") {
-                        Some((owner, leaf)) => format!("{owner}.{leaf}"),
-                        None => format!("{package}.{}", variant.name),
-                    };
-                    variant == actual || value_type_accepts(&variant, concrete) == Some(true)
-                }),
-        ),
+        ResolvedType::Union(union) => {
+            Some(actual == declared || union_has_member(package, union, concrete, &actual))
+        }
         ResolvedType::Resource(_) => None,
     }
 }
@@ -4210,6 +4272,10 @@ pub(crate) struct ProjectView {
     /// project instead of once per gate. Over-matching (a user's own
     /// `toScalars`) only injects a helper unnecessarily, never wrongly.
     callees: std::collections::HashSet<String>,
+    /// Every constructed record type, reduced the same way (plan-172-K) — what a
+    /// [`HelperGate::WhenUsedOrConstructed`] gate matches. Kept apart from `callees`
+    /// so a record that happens to share a gated function's name opens nothing.
+    constructed: std::collections::HashSet<String>,
 }
 
 impl ProjectView {
@@ -4226,7 +4292,7 @@ impl ProjectView {
         for file in &hir.files {
             view.absorb_imports(&file.imports);
             for item in &file.items {
-                hir_item_callees(item, &mut view.callees);
+                hir_item_callees(item, &mut view.callees, &mut view.constructed);
             }
         }
         view
@@ -4242,7 +4308,7 @@ impl ProjectView {
     pub(crate) fn absorb_ast_file(&mut self, file: &crate::ast::AstFile) {
         self.absorb_imports(&file.imports);
         for item in &file.items {
-            item_callees(item, &mut self.callees);
+            item_callees(item, &mut self.callees, &mut self.constructed);
         }
     }
 
@@ -4260,6 +4326,12 @@ impl ProjectView {
     /// Whether the program calls any of `names` (a [`HelperGate::WhenUsed`] gate).
     pub(crate) fn references_any(&self, names: &[&'static str]) -> bool {
         names.iter().any(|name| self.callees.contains(*name))
+    }
+
+    /// Whether the program constructs a record of any of `types` (a
+    /// [`HelperGate::WhenUsedOrConstructed`] gate).
+    pub(crate) fn constructs_any(&self, types: &[&'static str]) -> bool {
+        types.iter().any(|name| self.constructed.contains(*name))
     }
 }
 
@@ -4371,32 +4443,49 @@ fn short_callee(callee: &str) -> &str {
         .unwrap_or(callee)
 }
 
-fn item_callees(item: &crate::ast::Item, out: &mut std::collections::HashSet<String>) {
+fn item_callees(
+    item: &crate::ast::Item,
+    out: &mut std::collections::HashSet<String>,
+    made: &mut std::collections::HashSet<String>,
+) {
     use crate::ast::Item;
     match item {
-        Item::Function(f) => f.body.iter().for_each(|s| stmt_callees(s, out)),
+        Item::Function(f) => f.body.iter().for_each(|s| stmt_callees(s, out, made)),
         Item::Binding(b) => {
             if let Some(value) = &b.value {
-                expr_callees(value, out);
+                expr_callees(value, out, made);
             }
         }
-        Item::Testing(block) => block.groups.iter().for_each(|g| group_callees(g, out)),
+        Item::Testing(block) => block
+            .groups
+            .iter()
+            .for_each(|g| group_callees(g, out, made)),
         _ => {}
     }
 }
 
 /// A `TESTING` block is the verbatim AST node in HIR too, so one walk serves both.
-fn group_callees(group: &crate::ast::TestGroup, out: &mut std::collections::HashSet<String>) {
+fn group_callees(
+    group: &crate::ast::TestGroup,
+    out: &mut std::collections::HashSet<String>,
+    made: &mut std::collections::HashSet<String>,
+) {
     use crate::ast::TestGroupMember;
     for member in &group.members {
         match member {
-            TestGroupMember::Case(case) => case.body.iter().for_each(|s| stmt_callees(s, out)),
-            TestGroupMember::Group(nested) => group_callees(nested, out),
+            TestGroupMember::Case(case) => {
+                case.body.iter().for_each(|s| stmt_callees(s, out, made))
+            }
+            TestGroupMember::Group(nested) => group_callees(nested, out, made),
         }
     }
 }
 
-fn stmt_callees(stmt: &crate::ast::Statement, out: &mut std::collections::HashSet<String>) {
+fn stmt_callees(
+    stmt: &crate::ast::Statement,
+    out: &mut std::collections::HashSet<String>,
+    made: &mut std::collections::HashSet<String>,
+) {
     use crate::ast::Statement;
     match stmt {
         Statement::Let { value, .. }
@@ -4404,30 +4493,30 @@ fn stmt_callees(stmt: &crate::ast::Statement, out: &mut std::collections::HashSe
         | Statement::Recover { value, .. }
         | Statement::Exit { code: value, .. } => {
             if let Some(value) = value {
-                expr_callees(value, out);
+                expr_callees(value, out, made);
             }
         }
-        Statement::Fail { error, .. } => expr_callees(error, out),
+        Statement::Fail { error, .. } => expr_callees(error, out, made),
         Statement::Assign { value, .. } | Statement::StateAssign { value, .. } => {
-            expr_callees(value, out)
+            expr_callees(value, out, made)
         }
-        Statement::Expression { expression, .. } => expr_callees(expression, out),
+        Statement::Expression { expression, .. } => expr_callees(expression, out, made),
         Statement::If {
             condition,
             then_body,
             else_body,
             ..
         } => {
-            expr_callees(condition, out);
-            then_body.iter().for_each(|s| stmt_callees(s, out));
-            else_body.iter().for_each(|s| stmt_callees(s, out));
+            expr_callees(condition, out, made);
+            then_body.iter().for_each(|s| stmt_callees(s, out, made));
+            else_body.iter().for_each(|s| stmt_callees(s, out, made));
         }
         Statement::Match {
             expression, cases, ..
         } => {
-            expr_callees(expression, out);
+            expr_callees(expression, out, made);
             for case in cases {
-                case.body.iter().for_each(|s| stmt_callees(s, out));
+                case.body.iter().for_each(|s| stmt_callees(s, out, made));
             }
         }
         Statement::For {
@@ -4437,16 +4526,16 @@ fn stmt_callees(stmt: &crate::ast::Statement, out: &mut std::collections::HashSe
             body,
             ..
         } => {
-            expr_callees(start, out);
-            expr_callees(end, out);
+            expr_callees(start, out, made);
+            expr_callees(end, out, made);
             if let Some(step) = step {
-                expr_callees(step, out);
+                expr_callees(step, out, made);
             }
-            body.iter().for_each(|s| stmt_callees(s, out));
+            body.iter().for_each(|s| stmt_callees(s, out, made));
         }
         Statement::ForEach { iterable, body, .. } => {
-            expr_callees(iterable, out);
-            body.iter().for_each(|s| stmt_callees(s, out));
+            expr_callees(iterable, out, made);
+            body.iter().for_each(|s| stmt_callees(s, out, made));
         }
         Statement::While {
             condition, body, ..
@@ -4454,14 +4543,18 @@ fn stmt_callees(stmt: &crate::ast::Statement, out: &mut std::collections::HashSe
         | Statement::DoUntil {
             condition, body, ..
         } => {
-            expr_callees(condition, out);
-            body.iter().for_each(|s| stmt_callees(s, out));
+            expr_callees(condition, out, made);
+            body.iter().for_each(|s| stmt_callees(s, out, made));
         }
         Statement::Continue { .. } | Statement::Propagate { .. } => {}
     }
 }
 
-fn expr_callees(expr: &crate::ast::Expression, out: &mut std::collections::HashSet<String>) {
+fn expr_callees(
+    expr: &crate::ast::Expression,
+    out: &mut std::collections::HashSet<String>,
+    made: &mut std::collections::HashSet<String>,
+) {
     use crate::ast::{CallArg, ConstructorArg, Expression};
     match expr {
         Expression::Call {
@@ -4471,48 +4564,54 @@ fn expr_callees(expr: &crate::ast::Expression, out: &mut std::collections::HashS
             for argument in arguments {
                 match argument {
                     CallArg::Positional(v) | CallArg::Named { value: v, .. } => {
-                        expr_callees(v, out)
+                        expr_callees(v, out, made)
                     }
                 }
             }
         }
         Expression::Binary { left, right, .. } => {
-            expr_callees(left, out);
-            expr_callees(right, out);
+            expr_callees(left, out, made);
+            expr_callees(right, out, made);
         }
-        Expression::Unary { operand, .. } => expr_callees(operand, out),
-        Expression::Lambda { body, .. } => expr_callees(body, out),
-        Expression::Constructor { arguments, .. } => {
+        Expression::Unary { operand, .. } => expr_callees(operand, out, made),
+        Expression::Lambda { body, .. } => expr_callees(body, out, made),
+        Expression::Constructor {
+            type_name,
+            arguments,
+        } => {
+            made.insert(short_callee(type_name).to_string());
             for argument in arguments {
                 match argument {
                     ConstructorArg::Positional(v) | ConstructorArg::Named { value: v, .. } => {
-                        expr_callees(v, out)
+                        expr_callees(v, out, made)
                     }
                 }
             }
         }
         Expression::WithUpdate { target, updates } => {
-            expr_callees(target, out);
-            updates.iter().for_each(|u| expr_callees(&u.value, out));
+            expr_callees(target, out, made);
+            updates
+                .iter()
+                .for_each(|u| expr_callees(&u.value, out, made));
         }
-        Expression::ListLiteral(values) => values.iter().for_each(|v| expr_callees(v, out)),
+        Expression::ListLiteral(values) => values.iter().for_each(|v| expr_callees(v, out, made)),
         Expression::SetLiteral { elements, .. } => {
-            elements.iter().for_each(|v| expr_callees(v, out))
+            elements.iter().for_each(|v| expr_callees(v, out, made))
         }
         Expression::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                expr_callees(key, out);
-                expr_callees(value, out);
+                expr_callees(key, out, made);
+                expr_callees(value, out, made);
             }
         }
-        Expression::MemberAccess { target, .. } => expr_callees(target, out),
+        Expression::MemberAccess { target, .. } => expr_callees(target, out, made),
         Expression::Trapped {
             expression,
             handler,
             ..
         } => {
-            expr_callees(expression, out);
-            handler.iter().for_each(|s| stmt_callees(s, out));
+            expr_callees(expression, out, made);
+            handler.iter().for_each(|s| stmt_callees(s, out, made));
         }
         Expression::String(_)
         | Expression::Number(_)
@@ -4522,22 +4621,33 @@ fn expr_callees(expr: &crate::ast::Expression, out: &mut std::collections::HashS
     }
 }
 
-fn hir_item_callees(item: &crate::hir::HirItem, out: &mut std::collections::HashSet<String>) {
+fn hir_item_callees(
+    item: &crate::hir::HirItem,
+    out: &mut std::collections::HashSet<String>,
+    made: &mut std::collections::HashSet<String>,
+) {
     use crate::hir::HirItem;
     match item {
-        HirItem::Function(f) => f.body.iter().for_each(|s| hir_stmt_callees(s, out)),
+        HirItem::Function(f) => f.body.iter().for_each(|s| hir_stmt_callees(s, out, made)),
         HirItem::Binding(b) => {
             if let Some(value) = &b.value {
-                hir_expr_callees(value, out);
+                hir_expr_callees(value, out, made);
             }
         }
         // HIR reuses the AST `TestingBlock` verbatim.
-        HirItem::Testing(block) => block.groups.iter().for_each(|g| group_callees(g, out)),
+        HirItem::Testing(block) => block
+            .groups
+            .iter()
+            .for_each(|g| group_callees(g, out, made)),
         _ => {}
     }
 }
 
-fn hir_stmt_callees(stmt: &crate::hir::HirStatement, out: &mut std::collections::HashSet<String>) {
+fn hir_stmt_callees(
+    stmt: &crate::hir::HirStatement,
+    out: &mut std::collections::HashSet<String>,
+    made: &mut std::collections::HashSet<String>,
+) {
     use crate::hir::HirStatement;
     match stmt {
         HirStatement::Let { value, .. }
@@ -4545,30 +4655,36 @@ fn hir_stmt_callees(stmt: &crate::hir::HirStatement, out: &mut std::collections:
         | HirStatement::Recover { value, .. }
         | HirStatement::Exit { code: value, .. } => {
             if let Some(value) = value {
-                hir_expr_callees(value, out);
+                hir_expr_callees(value, out, made);
             }
         }
-        HirStatement::Fail { error, .. } => hir_expr_callees(error, out),
+        HirStatement::Fail { error, .. } => hir_expr_callees(error, out, made),
         HirStatement::Assign { value, .. } | HirStatement::StateAssign { value, .. } => {
-            hir_expr_callees(value, out)
+            hir_expr_callees(value, out, made)
         }
-        HirStatement::Expression { expression, .. } => hir_expr_callees(expression, out),
+        HirStatement::Expression { expression, .. } => hir_expr_callees(expression, out, made),
         HirStatement::If {
             condition,
             then_body,
             else_body,
             ..
         } => {
-            hir_expr_callees(condition, out);
-            then_body.iter().for_each(|s| hir_stmt_callees(s, out));
-            else_body.iter().for_each(|s| hir_stmt_callees(s, out));
+            hir_expr_callees(condition, out, made);
+            then_body
+                .iter()
+                .for_each(|s| hir_stmt_callees(s, out, made));
+            else_body
+                .iter()
+                .for_each(|s| hir_stmt_callees(s, out, made));
         }
         HirStatement::Match {
             expression, cases, ..
         } => {
-            hir_expr_callees(expression, out);
+            hir_expr_callees(expression, out, made);
             for case in cases {
-                case.body.iter().for_each(|s| hir_stmt_callees(s, out));
+                case.body
+                    .iter()
+                    .for_each(|s| hir_stmt_callees(s, out, made));
             }
         }
         HirStatement::For {
@@ -4578,16 +4694,16 @@ fn hir_stmt_callees(stmt: &crate::hir::HirStatement, out: &mut std::collections:
             body,
             ..
         } => {
-            hir_expr_callees(start, out);
-            hir_expr_callees(end, out);
+            hir_expr_callees(start, out, made);
+            hir_expr_callees(end, out, made);
             if let Some(step) = step {
-                hir_expr_callees(step, out);
+                hir_expr_callees(step, out, made);
             }
-            body.iter().for_each(|s| hir_stmt_callees(s, out));
+            body.iter().for_each(|s| hir_stmt_callees(s, out, made));
         }
         HirStatement::ForEach { iterable, body, .. } => {
-            hir_expr_callees(iterable, out);
-            body.iter().for_each(|s| hir_stmt_callees(s, out));
+            hir_expr_callees(iterable, out, made);
+            body.iter().for_each(|s| hir_stmt_callees(s, out, made));
         }
         HirStatement::While {
             condition, body, ..
@@ -4595,14 +4711,18 @@ fn hir_stmt_callees(stmt: &crate::hir::HirStatement, out: &mut std::collections:
         | HirStatement::DoUntil {
             condition, body, ..
         } => {
-            hir_expr_callees(condition, out);
-            body.iter().for_each(|s| hir_stmt_callees(s, out));
+            hir_expr_callees(condition, out, made);
+            body.iter().for_each(|s| hir_stmt_callees(s, out, made));
         }
         HirStatement::Continue { .. } | HirStatement::Propagate { .. } => {}
     }
 }
 
-fn hir_expr_callees(expr: &crate::hir::HirExpression, out: &mut std::collections::HashSet<String>) {
+fn hir_expr_callees(
+    expr: &crate::hir::HirExpression,
+    out: &mut std::collections::HashSet<String>,
+    made: &mut std::collections::HashSet<String>,
+) {
     use crate::hir::{HirCallArg, HirConstructorArg, HirExpression};
     match expr {
         HirExpression::Call {
@@ -4612,47 +4732,52 @@ fn hir_expr_callees(expr: &crate::hir::HirExpression, out: &mut std::collections
             for argument in arguments {
                 match argument {
                     HirCallArg::Positional(v) | HirCallArg::Named { value: v, .. } => {
-                        hir_expr_callees(v, out)
+                        hir_expr_callees(v, out, made)
                     }
                 }
             }
         }
         HirExpression::Binary { left, right, .. } => {
-            hir_expr_callees(left, out);
-            hir_expr_callees(right, out);
+            hir_expr_callees(left, out, made);
+            hir_expr_callees(right, out, made);
         }
-        HirExpression::Unary { operand, .. } => hir_expr_callees(operand, out),
-        HirExpression::Lambda { body, .. } => hir_expr_callees(body, out),
-        HirExpression::Constructor { arguments, .. } => {
+        HirExpression::Unary { operand, .. } => hir_expr_callees(operand, out, made),
+        HirExpression::Lambda { body, .. } => hir_expr_callees(body, out, made),
+        HirExpression::Constructor { type_, arguments } => {
+            made.insert(short_callee(&type_.name()).to_string());
             for argument in arguments {
                 match argument {
                     HirConstructorArg::Positional(v)
-                    | HirConstructorArg::Named { value: v, .. } => hir_expr_callees(v, out),
+                    | HirConstructorArg::Named { value: v, .. } => hir_expr_callees(v, out, made),
                 }
             }
         }
         HirExpression::WithUpdate { target, updates } => {
-            hir_expr_callees(target, out);
-            updates.iter().for_each(|u| hir_expr_callees(&u.value, out));
+            hir_expr_callees(target, out, made);
+            updates
+                .iter()
+                .for_each(|u| hir_expr_callees(&u.value, out, made));
         }
-        HirExpression::ListLiteral(values) => values.iter().for_each(|v| hir_expr_callees(v, out)),
+        HirExpression::ListLiteral(values) => {
+            values.iter().for_each(|v| hir_expr_callees(v, out, made))
+        }
         HirExpression::SetLiteral { elements, .. } => {
-            elements.iter().for_each(|v| hir_expr_callees(v, out))
+            elements.iter().for_each(|v| hir_expr_callees(v, out, made))
         }
         HirExpression::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                hir_expr_callees(key, out);
-                hir_expr_callees(value, out);
+                hir_expr_callees(key, out, made);
+                hir_expr_callees(value, out, made);
             }
         }
-        HirExpression::MemberAccess { target, .. } => hir_expr_callees(target, out),
+        HirExpression::MemberAccess { target, .. } => hir_expr_callees(target, out, made),
         HirExpression::Trapped {
             expression,
             handler,
             ..
         } => {
-            hir_expr_callees(expression, out);
-            handler.iter().for_each(|s| hir_stmt_callees(s, out));
+            hir_expr_callees(expression, out, made);
+            handler.iter().for_each(|s| hir_stmt_callees(s, out, made));
         }
         HirExpression::String(_)
         | HirExpression::Number(_)
@@ -5534,6 +5659,7 @@ mod tests {
 
     fn uni(name: &'static str, export: bool, variants: Vec<UnionVariant>) -> RegistryUnion {
         RegistryUnion {
+            includes: vec![],
             name,
             export,
             variants,
@@ -7135,6 +7261,86 @@ mod tests {
         ))));
     }
 
+    /// plan-172-K: a `WhenUsedOrConstructed` chunk and its `WhenNotConstructed`
+    /// complement. Exactly one of the pair is injected into a program that imports the
+    /// package, and which one turns on whether the program constructs the record —
+    /// qualified or bare, at any depth of expression — or calls a gated name. A program
+    /// that does not import the package gets neither.
+    #[test]
+    fn a_constructed_record_opens_its_gate_and_closes_the_complement() {
+        let mut pkg = RegistryPackage::new("demo", "i", "d");
+        pkg.add_helper(RegistryHelper {
+            name: "demo_real",
+            gate: HelperGate::WhenUsedOrConstructed(&["poke"], &["Widget"]),
+            body: Some("FUNC __demo_step() AS Integer\n  RETURN 1\nEND FUNC"),
+            import_name: None,
+            natively_called: false,
+        });
+        pkg.add_helper(RegistryHelper {
+            name: "demo_absent",
+            gate: HelperGate::WhenNotConstructed(&["Widget"]),
+            body: Some("FUNC __demo_step() AS Integer\n  RETURN 0\nEND FUNC"),
+            import_name: None,
+            natively_called: false,
+        });
+        let mut r = Registry::new();
+        r.add_package(pkg);
+
+        let injected = |src: &str| -> Vec<String> {
+            let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
+                .expect("parse");
+            let ast = crate::ast::AstProject {
+                name: "test".to_string(),
+                files: vec![file],
+            };
+            r.synthetic_files(&ProjectView::of_ast(&ast), false)
+                .expect("synthetic files")
+                .into_iter()
+                .map(|f| f.path)
+                .filter(|path| path.contains("demo_"))
+                .collect()
+        };
+
+        // Nothing constructs a Widget: the complement, alone.
+        assert_eq!(
+            injected("IMPORT demo\nFUNC main AS Nothing\nEND FUNC\n"),
+            vec!["builtins/demo_absent.mfb"]
+        );
+        // A qualified constructor, nested in a list in a call argument.
+        assert_eq!(
+            injected(
+                "IMPORT demo\nFUNC main AS Nothing\n  show([demo::Widget[size := 1]])\nEND FUNC\n"
+            ),
+            vec!["builtins/demo_real.mfb"]
+        );
+        // A bare one, in a module-level binding.
+        assert_eq!(
+            injected(
+                "IMPORT demo\nLET w AS Widget = Widget[size := 1]\nFUNC main AS Nothing\nEND FUNC\n"
+            ),
+            vec!["builtins/demo_real.mfb"]
+        );
+        // The gated CALL opens the chunk without closing the complement: the complement
+        // is keyed on the record alone, so a chunk gated on both names must not share a
+        // function with it. Canvas's does not (`helper_hit.rs`, `helper_autopaint.rs`).
+        assert_eq!(
+            injected("IMPORT demo\nFUNC main AS Nothing\n  demo::poke()\nEND FUNC\n"),
+            vec!["builtins/demo_real.mfb", "builtins/demo_absent.mfb"]
+        );
+        // A record that merely shares a gated CALL's name opens nothing.
+        assert_eq!(
+            injected(
+                "IMPORT demo\nFUNC main AS Nothing\n  LET p AS poke = poke[n := 1]\nEND FUNC\n"
+            ),
+            vec!["builtins/demo_absent.mfb"]
+        );
+        // Not imported: neither.
+        assert!(injected(
+            "FUNC main AS Nothing\n  LET w AS Widget = Widget[size := 1]\nEND FUNC\n"
+        )
+        .is_empty());
+    }
+
     /// plan-104-C: the typed entry and the string wrapper must agree on every
     /// call shape — same overload selection, same return (typed's `name()` ==
     /// string's answer) — across containers, `RES` markers, unions, `Unknown`,
@@ -7362,7 +7568,8 @@ mod raw_result_block_ownership {
         "canvas.installedItems",    // List OF canvas.DrawItem
         "canvas.installedLayers",   // List OF canvas.DrawLayer
         "canvas.newSurface",        // List OF Byte
-        "canvas.pollMouse",         // canvas.MouseEvent (plan-94-A)
+        "canvas.pointerSnapshot",   // List OF Integer (plan-172-J)
+        "canvas.pollMouseRaw",      // canvas.MouseEvent (plan-94-A, plan-172-I)
         "canvas.retiredItems",      // List OF canvas.DrawItem
         "canvas.sceneHashes",       // List OF Integer (bug-686)
         "canvas.systemFontTable",   // String

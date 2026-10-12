@@ -10,6 +10,7 @@
 
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT datetime
@@ -247,7 +248,7 @@ FUNC quitPressed AS Boolean
 END FUNC
 
 FUNC textItem(face AS canvas::Font, x AS Float, y AS Float, size AS Float, text AS String, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Text[x := x, y := y, text := text, font := face, size := size, paint := canvas::fill(c)]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := text, font := face, fontSize := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC main AS Integer
@@ -256,15 +257,15 @@ FUNC main AS Integer
   app::setTitle("Fractals")
 
   RES face AS canvas::Font = canvas::loadSystemFont("Menlo Regular")
-  LET empty AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 0.0, h := 0.0, paint := canvas::fill(BACKGROUND)]
+  LET empty AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 0.0, height := 0.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   scene = collections::repeat(scene, empty, DOT_COUNT + 4)
   MUT size AS canvas::Size = canvas::getSize()
   LET started AS Integer = datetime::monotonicNanos()
 
   DO WHILE NOT quitPressed()
     IF canvas::didResize() THEN size = canvas::getSize()
-    LET width AS Float = toFloat(size.width)
-    LET height AS Float = toFloat(size.height)
+    LET width AS Float = size.width
+    LET height AS Float = size.height
     LET cellW AS Float = width / toFloat(DOT_COLUMNS)
     LET cellH AS Float = height / toFloat(DOT_ROWS)
     LET radius AS Float = math::min(cellW, cellH) * 0.39
@@ -283,7 +284,7 @@ FUNC main AS Integer
       fade = smoothstep(toFloat(localNanos - (VIEW_NANOS - FADE_NANOS)) / toFloat(FADE_NANOS))
     END IF
 
-    LET back AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(BACKGROUND)]
+    LET back AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := width, height := height], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(BACKGROUND), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::set(scene, 0, back)
     FOR i = 0 TO DOT_COUNT - 1
       LET column AS Integer = i MOD DOT_COLUMNS
@@ -296,7 +297,7 @@ FUNC main AS Integer
         LET b AS Rgb = palette(following, sampleAt(following, u * aspect, v, 1.0), phase)
         shown = mixRgb(a, b, fade)
       END IF
-      LET dot AS canvas::DrawItem = canvas::Circle[x := (toFloat(column) + 0.5) * cellW, y := (toFloat(row) + 0.5) * cellH, radius := radius, paint := canvas::fill(color::rgb(shown.r, shown.g, shown.b))]
+      LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := (toFloat(column) + 0.5) * cellW, y := (toFloat(row) + 0.5) * cellH], radius := radius, paint := canvas::fill(color::rgb(shown.r, shown.g, shown.b)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       scene = collections::set(scene, i + 1, dot)
     NEXT
 

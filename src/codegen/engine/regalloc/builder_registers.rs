@@ -62,7 +62,7 @@ impl CodeBuilder<'_> {
         self.instructions.extend(cold);
         // bug-695: the inline-raise landing pads go after the body, before anything
         // reads the stream as final.
-        self.append_error_return_pads();
+        self.append_error_return_pads()?;
         {
             let _span = crate::trace::span("physical-operand scan");
             if let Some(offense) = regalloc::find_physical_operand(&self.instructions) {

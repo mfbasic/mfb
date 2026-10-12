@@ -202,6 +202,10 @@ pub fn augment_project(ast: &AstProject, debug: bool) -> Result<AstProject, ()> 
     // decoder calls `compress::zlibDecode`, whose gated helpers the generic pass over
     // the pre-injection AST cannot see a use of (plan-137-C).
     let augmented = crate::codegen::builtins::compress::augmented_project(&augmented)?;
+    // `vector` after the generic pass, for the same reason: canvas's injected companion
+    // carries `IMPORT vector` and its records name `vector::Float2`, which the generic
+    // pass over the pre-injection AST cannot see (plan-172-B).
+    let augmented = crate::codegen::builtins::vector::augmented_project(&augmented)?;
     Ok(augmented)
 }
 
@@ -223,6 +227,7 @@ pub fn augment_hir_project(hir: &HirProject) -> Result<HirProject, ()> {
     let augmented = crate::codegen::builtins::encoding::augmented_hir_project(&augmented)?;
     let augmented = crate::codegen::builtins::color::augmented_hir_project(&augmented)?;
     let augmented = crate::codegen::builtins::compress::augmented_hir_project(&augmented)?;
+    let augmented = crate::codegen::builtins::vector::augmented_hir_project(&augmented)?;
     Ok(augmented)
 }
 

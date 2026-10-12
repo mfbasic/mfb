@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory leak)
 
-Status: Fixed (bs22-agent-g)
-Regression Test: (proposed) a `--debug` alloc/free test over the program below asserting `live_bytes 0` at `N=10` and `N=20`, plus 300 iterations under `ulimit -n 64`
+Status: Fixed (bs22-agent-c, by bug-1053's block rule)
+Regression Test: `tests/runtime/rt_resource_last_holder.rs`, `a_trapped_element_read_does_not_keep_the_list_block` (`cargo test --test rt_resource_last_holder`)
 
 `whichF("t", collections::get(hs, i)) TRAP(e) … END TRAP`, where `hs` is a
 `List OF RES fs::File`, keeps 96 bytes per call of the enclosing function. The descriptors are
@@ -91,15 +91,82 @@ isolated, and the kept block was not identified.
 
 Found during batch 21.
 
-## Resolution (bs22-agent-g, 2026-10-11)
+## Resolution (bs22-agent-c, 2026-10-11)
 
-The general cause: A collection of resource aliases was classified "not flat" (`flatness_walk` met the bare resource the element accessors leave after stripping the `RES` marker), so such a list was shared by pointer at every hand-off and no scope freed its block. It is plain data now (rule 3: `is_resource_alias_payload`, concrete and resource-union elements), copied at every hand-off to a longer-lived owner and freed by its one owner through the ordinary owned-value path. The kept 96 bytes were the list's own block.
+### Which read keeps what
 
-Measured with `/tmp/bs22/bin/probe.sh` and `/tmp/bs22/sweep.sh` (alloc/free/live bytes, `--debug` arena 0), this branch's compiler:
-c5: 82/82/0 at N=10, 322/322/0 at N=40, same at -O0, N=300 exits 0 (main: 82/72/960).
+Either one, and what is kept is neither read's: it is the block of the list `hs`.
 
-Tests: `tests/runtime/rt_res_list_from_call_leak.rs` (the list block counts), the 31 resource targets of the batch. No rule keyed on where the call or the value is written.
+Isolated with three programs (`/tmp/bs22-agent-c/src/c5a.mfb`, `c5b.mfb`, `c5c.mfb`: the filed
+prelude and one statement each), on the staging compiler `/tmp/bs22-target/release/mfb`, N=10:
 
-## Golden impact
+| row | `once()` | alloc / free / live |
+| --- | --- | --- |
+| `c5` | as filed: both trapped reads | 82 / 72 / 960 |
+| `c5a` | only `get(hs, 5)` (out of range, takes the `RECOVER`) | 62 / 52 / 960 |
+| `c5b` | only `get(hs, 0)` (succeeds) | 52 / 42 / 960 |
+| `c5c` | `get(hs, 0)` with no `TRAP` | 42 / 42 / 0 |
+| `c5d` | the list alone (`RETURN len(hs)`) | 32 / 32 / 0 |
+| `c5e` | `c5b` with three files in the list | 92 / 82 / 1920 |
 
-Not regenerated. `scripts/artifact-gate.sh <mfb> all`: every fixture that binds, copies, reassigns or drops a collection of `RES` elements gains the ordinary copy and scope-drop of a flat list (`.ncode`), and every call to a function body that returns a value reaching resources gains the statement's take and drain.
+One allocation per call is not freed in every leaking row, and its size follows the list:
+96 bytes for one element (a 40-byte header, one 40-byte entry, 8 bytes of data, rounded to
+16), 192 for three. Two reads in one function still keep one block, not two. So neither the
+`Result`, nor the trapped error, nor a record is kept; the list's own block is.
+
+### Cause
+
+An inline `TRAP` lifts every fallible call of the trapped expression into a temporary of its
+own (`mfb build -nir` of `c5b`: `bind $trap_res5 : Result OF fs.File = callResult
+collections.get(hs, 0)`, then `whichF("t", resultValue($trap_res5))` on the `Ok` branch). The
+untrapped `whichF("t", collections::get(hs, 0))` is a borrowed-element read written straight
+into an argument, which `record_ownership` reads as a use that ends with the call. Bound to
+`$trap_res5` it is an element read that is kept, so `hs` landed in
+`CollectionUses::element_readers`, failed `owning_collections`, and the free of its block
+(registered only for a proved collection) was never emitted. Debugger, `bp
+_mfb_rt_drop_owned_collection` on the `-O0 --debug` builds of `c5b` at N=1: the fixed build
+stops once, under `once + 5020`, and reports 7 allocations and 7 frees; the base build never
+reaches the helper and reports 7 and 6.
+
+### Fix
+
+No change of its own. bug-1053 judges a `List`/`Map OF RES T` block separately from the
+records it lists (`record_ownership::block_owning_collections`): an element read out of the
+collection is a record pointer or a copy of a union box, never a holder of the block, so
+`hs`, whose every store is a literal and which is named nowhere but in argument positions,
+frees its block at its scope's end whoever read its elements.
+
+### Measured
+
+Fixed compiler `target/release/mfb`, N=10 (`N=<n> P=/tmp/bs22-agent-c/p SRC=/tmp/bs22-agent-c/src
+/tmp/bs22/bin/probe.sh <mfb> <name> [-O0]`). Every fixed row is the same at `-O0`, balanced at
+N=20, passes `(ulimit -n 64; N=300 <program>)`, and has `double_free_skips 0`.
+
+| row | shape | base | fixed N=10 | fixed N=20 |
+| --- | --- | --- | --- | --- |
+| `c5` | as filed | 82/72/960 | `10`, 82/82/0 | 162/162/0 (N=300: 2402/2402/0) |
+| `c5a` | the failing read alone | 62/52/960 | 62/62/0 | 122/122/0 |
+| `c5b` | the succeeding read alone | 52/42/960 | 52/52/0 | 102/102/0 |
+| `c5e` | three elements | 92/82/1920 | 92/92/0 | 182/182/0 |
+| `c5f` | `List OF RES Handle`, both reads | 102/92/960 | 102/102/0 | 202/202/0 |
+| `c5g` | `Map OF String TO RES fs::File`, a missing key and a present one | 82/72/1120 | 82/82/0 | 162/162/0 |
+| `c5h` | a list floated in a loop, read under `TRAP` in a loop with an early `RETURN` | 152/122/4640 | 152/152/0 | 302/302/0 |
+| `c5i` | `RES g = collections::get(hs, 0) TRAP …`, and one that `RECOVER`s another binding | 112/102/960 | 112/112/0 | 222/222/0 |
+
+`c5h` kept the two records and their buffers as well as the block (464 bytes a call): its
+list is a float target, so its drain was close-only; bug-1053's last-holder rule frees them.
+
+### Checks
+
+* RED: `MFB_TEST_EXE=/tmp/bs22-target/release/mfb cargo test --release --test rt_resource_last_holder a_trapped_element_read`:
+  1 failed (`two_reads N=10: 82 allocations, 72 frees, 960 bytes live at exit`). GREEN:
+  `cargo test --release --test rt_resource_last_holder`: 14 passed.
+* Every other check is bug-1053's and bug-1051's (no source changed for this bug).
+
+### Golden impact
+
+None of its own.
+
+### Shared functions changed
+
+None beyond bug-1053's.

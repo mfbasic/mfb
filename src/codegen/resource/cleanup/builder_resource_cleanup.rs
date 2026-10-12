@@ -422,7 +422,9 @@ impl CodeBuilder<'_> {
                 io_buffer_tags: Vec::new(),
                 record_free_tags: Vec::new(),
                 closes_variant: false,
+                reclaim_slot: None,
                 owner_flag_slot: None,
+                default_record_slot: None,
                 scope_depth,
             }));
     }
@@ -664,16 +666,54 @@ impl CodeBuilder<'_> {
             self.emit(abi::compare_immediate(&record, "0"));
             self.emit(abi::branch_eq(&dropped));
             self.emit_skip_unless_owned(&abi::Reg::from(record), cleanup.scope_depth, &dropped)?;
-            self.emit_union_tag_dispatch_drop(
-                &union_ptr,
-                &cleanup.variants,
-                cleanup.state_type.as_ref(),
-                &cleanup.io_buffer_tags,
-                &cleanup.record_free_tags,
-                &dropped,
-            )?;
+            if let Some(reclaim_slot) = cleanup.reclaim_slot {
+                // This scope closes the record, so it frees it, after every other
+                // cleanup of the exit has read the owner word: close now, mark
+                // the record taken and park the box for the reclaim.
+                let closed = self.label("resource_union_drop_taken");
+                self.emit_union_tag_dispatch_drop(
+                    &union_ptr,
+                    &cleanup.variants,
+                    None,
+                    &[],
+                    &[],
+                    &closed,
+                )?;
+                self.emit(abi::label(&closed));
+                let parked = self.allocate_register();
+                self.emit(abi::load_u64(parked, abi::stack_pointer(), stack_offset));
+                let record = self.allocate_register();
+                self.emit(abi::load_u64(record, parked, 8));
+                let taken = self.allocate_register();
+                self.emit(abi::move_immediate(taken, "Integer", "0"));
+                self.emit(abi::subtract_immediate(taken, taken, 2));
+                self.emit(abi::store_u64(taken, record, RESOURCE_OFFSET_OWNER));
+                self.emit(abi::store_u64(parked, abi::stack_pointer(), reclaim_slot));
+                self.emit(abi::store_u64(
+                    abi::ZERO,
+                    abi::stack_pointer(),
+                    stack_offset,
+                ));
+                self.emit(abi::branch(&done));
+            } else {
+                self.emit_union_tag_dispatch_drop(
+                    &union_ptr,
+                    &cleanup.variants,
+                    cleanup.state_type.as_ref(),
+                    &cleanup.io_buffer_tags,
+                    &cleanup.record_free_tags,
+                    &dropped,
+                )?;
+            }
         }
         self.emit(abi::label(&dropped));
+        // bug-1051: the closed default record the temp's default box names is the
+        // temp's own, and goes before the box that is the only way to reach it.
+        if cleanup.record_free_tags.is_empty() {
+            if let Some(default_slot) = cleanup.default_record_slot {
+                self.emit_free_trap_default_record(stack_offset, 8, default_slot, false);
+            }
+        }
         let block = self.allocate_register();
         self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
         self.emit(abi::move_register(abi::c_arg(0), &block));
@@ -1016,15 +1056,193 @@ impl CodeBuilder<'_> {
         self.emit_drop_close_outcome(&reclaim);
         self.emit(abi::label(&reclaim));
         if let Some(offset) = resource_slot {
-            self.emit_resource_block_reclaim(
-                offset,
-                cleanup.state_type.as_ref(),
-                cleanup.has_io_buffers,
-                cleanup.frees_record,
-            )?;
+            match cleanup.reclaim_slot {
+                // The function-level scope has not exited on the route to its own
+                // handler: closed, nothing taken, nothing freed.
+                Some(_) if cleanup.trap_shared => {}
+                // This scope closed the record, so it frees it: after every other
+                // cleanup of the exit has read the owner word. Mark it taken and
+                // park it for `emit_resource_reclaim`.
+                Some(reclaim_slot) => {
+                    let record = self.allocate_register();
+                    self.emit(abi::load_u64(record, abi::stack_pointer(), offset));
+                    let taken = self.allocate_register();
+                    const _: () = assert!(
+                        crate::codegen::resource::owner::RESOURCE_OWNER_TAKEN
+                            == 0u64.wrapping_sub(2)
+                    );
+                    self.emit(abi::move_immediate(taken, "Integer", "0"));
+                    self.emit(abi::subtract_immediate(taken, taken, 2));
+                    self.emit(abi::store_u64(taken, record, RESOURCE_OFFSET_OWNER));
+                    self.emit(abi::store_u64(record, abi::stack_pointer(), reclaim_slot));
+                }
+                None => {
+                    self.emit_resource_block_reclaim(
+                        offset,
+                        cleanup.state_type.as_ref(),
+                        cleanup.has_io_buffers,
+                        cleanup.frees_record,
+                    )?;
+                    if !cleanup.frees_record {
+                        if let Some(default_slot) = cleanup.default_record_slot {
+                            self.emit_free_trap_default_record(offset, 0, default_slot, true);
+                        }
+                    }
+                }
+            }
         }
         self.emit(abi::label(&done));
         Ok(())
+    }
+
+    /// [`Self::emit_resource_reclaim`] for a resource-union binding: the parked
+    /// box's record is closed already; free its buffers, `STATE` and record by
+    /// its tag, then the box.
+    pub(crate) fn emit_resource_union_reclaim(
+        &mut self,
+        cleanup: &ResourceUnionCleanup,
+    ) -> Result<(), String> {
+        let Some(reclaim_slot) = cleanup.reclaim_slot else {
+            return Ok(());
+        };
+        let done = self.label("resource_union_reclaim_done");
+        let freed = self.label("resource_union_reclaim_box");
+        let union_ptr = self.allocate_register();
+        self.emit(abi::load_u64(&union_ptr, abi::stack_pointer(), reclaim_slot));
+        self.emit(abi::compare_immediate(&union_ptr, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit_union_tag_dispatch_drop(
+            &union_ptr,
+            &cleanup.variants,
+            cleanup.state_type.as_ref(),
+            &cleanup.io_buffer_tags,
+            &cleanup.record_free_tags,
+            &freed,
+        )?;
+        self.emit(abi::label(&freed));
+        let block = self.allocate_register();
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), reclaim_slot));
+        self.emit(abi::move_register(abi::c_arg(0), &block));
+        self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
+        self.emit_arena_free_call();
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), reclaim_slot));
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    /// Free what the record a `RES` binding's drop took points at, and the
+    /// record: its buffers, its `STATE`, then itself. Emitted after the last
+    /// cleanup of the exit ([`Self::emit_owned_list_reclaims`]); the slot is
+    /// zeroed with the frame and emptied here, so a path that took nothing frees
+    /// nothing.
+    pub(crate) fn emit_resource_reclaim(
+        &mut self,
+        cleanup: &ResourceCleanup,
+    ) -> Result<(), String> {
+        let Some(reclaim_slot) = cleanup.reclaim_slot.filter(|_| !cleanup.trap_shared) else {
+            return Ok(());
+        };
+        let done = self.label("resource_reclaim_done");
+        let record = self.allocate_register();
+        self.emit(abi::load_u64(record, abi::stack_pointer(), reclaim_slot));
+        self.emit(abi::compare_immediate(record, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit_resource_block_reclaim(
+            reclaim_slot,
+            cleanup.state_type.as_ref(),
+            cleanup.has_io_buffers,
+            true,
+        )?;
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), reclaim_slot));
+        self.emit(abi::label(&done));
+        Ok(())
+    }
+
+    /// bug-1051: free the closed default record of an inline-`TRAP` temp when it is
+    /// the record the binding holds now.
+    ///
+    /// The temp's value-less bind materializes a closed default record that nothing
+    /// else can name, and the delivery of the trapped call's value (or the
+    /// handler's `RECOVER`) stores over it. A temp proved to own every record
+    /// stored into it frees the default with its ordinary record free. One that is
+    /// not — `RES v = same(a) TRAP …`, where `same` hands back its argument — has a
+    /// drop that closes and frees nothing, because the record it holds may be
+    /// another binding's; but the default is the temp's own whatever the stores
+    /// are, and it was kept on every evaluation: by the store's old-value drop on
+    /// the success path, and by the scope's drop when the handler leaves without
+    /// storing.
+    ///
+    /// `default_slot` remembers the default's address from the bind. The record
+    /// read through `holder_slot` (the binding's slot for a concrete resource,
+    /// `record_offset` 0; its `{tag, record}` box for a union, `record_offset` 8) is
+    /// freed only when it IS that address, and the slot is then cleared, so the
+    /// free is once-only and never touches a stored record. `null_holder` also
+    /// clears the binding's slot (the concrete binding holds the record itself).
+    pub(crate) fn emit_free_trap_default_record(
+        &mut self,
+        holder_slot: usize,
+        record_offset: usize,
+        default_slot: usize,
+        null_holder: bool,
+    ) {
+        let done = self.label("trap_default_record_kept");
+        let default = self.allocate_register();
+        self.emit(abi::load_u64(default, abi::stack_pointer(), default_slot));
+        self.emit(abi::compare_immediate(default, "0"));
+        self.emit(abi::branch_eq(&done));
+        let record = self.allocate_register();
+        self.emit(abi::load_u64(record, abi::stack_pointer(), holder_slot));
+        if record_offset != 0 {
+            // A union binding: the slot holds its box.
+            self.emit(abi::compare_immediate(record, "0"));
+            self.emit(abi::branch_eq(&done));
+            self.emit(abi::load_u64(record, record, record_offset));
+        }
+        self.emit(abi::compare_registers(record, default));
+        self.emit(abi::branch_ne(&done));
+        self.emit(abi::move_register(abi::c_arg(0), record));
+        self.emit(abi::move_immediate(
+            abi::c_arg(1),
+            "Integer",
+            RESOURCE_RECORD_SIZE,
+        ));
+        self.emit_arena_free_call();
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            default_slot,
+        ));
+        if null_holder {
+            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), holder_slot));
+        }
+        self.emit(abi::label(&done));
+    }
+
+    /// bug-1051: remember, for the inline-`TRAP` temp `name` whose value-less bind
+    /// has just stored its closed default, the default record's address, and
+    /// return the slot it is kept in. `record_offset` is 0 for a concrete resource
+    /// (the binding's slot holds the record) and 8 for a union (it holds the box).
+    pub(crate) fn remember_trap_default_record(
+        &mut self,
+        name: &str,
+        holder_slot: usize,
+        record_offset: usize,
+    ) -> usize {
+        let slot = self.allocate_stack_object("trap_default_record", 8);
+        // Zeroed with the frame: a drop reached before this bind finds no default.
+        self.owned_value_slots.push(slot);
+        let record = self.allocate_register();
+        self.emit(abi::load_u64(record, abi::stack_pointer(), holder_slot));
+        if record_offset != 0 {
+            let none = self.label("trap_default_record_none");
+            self.emit(abi::compare_immediate(record, "0"));
+            self.emit(abi::branch_eq(&none));
+            self.emit(abi::load_u64(record, record, record_offset));
+            self.emit(abi::label(&none));
+        }
+        self.emit(abi::store_u64(record, abi::stack_pointer(), slot));
+        self.trap_default_records.insert(name.to_string(), slot);
+        slot
     }
 
     /// Reclaim the blocks a resource record points at — its output buffer, its

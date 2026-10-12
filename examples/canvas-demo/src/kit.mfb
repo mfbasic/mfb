@@ -7,6 +7,7 @@
 ' field matters to what the scene is showing.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -137,8 +138,8 @@ END FUNC
 ' Points, transforms and paints
 ' ---------------------------------------------------------------------------
 
-FUNC pt(x AS Float, y AS Float) AS canvas::Point
-  RETURN canvas::Point[x := x, y := y]
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
 END FUNC
 
 FUNC identity AS canvas::Transform
@@ -208,58 +209,144 @@ FUNC item(d AS canvas::DrawItem) AS canvas::DrawItem
   RETURN d
 END FUNC
 
-FUNC rect(x AS Float, y AS Float, w AS Float, h AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Rectangle[x := x, y := y, w := w, h := h, paint := p]
+' True for the all-zero transform, which means "no transform".
+FUNC isZero(t AS canvas::Transform) AS Boolean
+  RETURN t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0
 END FUNC
 
+' `composed` is a surface-space transform `t` laid over an item's own transform;
+' an item turns about its position, so the translation also has to carry the
+' position through `t`'s matrix: t(position) - position.
+FUNC pivoted(composed AS canvas::Transform, t AS canvas::Transform, position AS vector::Float2) AS canvas::Transform
+  LET m AS canvas::Transform = concrete(t)
+  RETURN WITH composed { tx := composed.tx + m.a * position.x + m.c * position.y - position.x, ty := composed.ty + m.b * position.x + m.d * position.y - position.y }
+END FUNC
+
+' A paint given in surface coordinates, moved to be offsets from (x, y): the
+' clip rings and the gradient's two end points. A circle, ellipse, arc or text
+' takes those relative to its position.
+FUNC localPaint(p AS canvas::Paint, x AS Float, y AS Float) AS canvas::Paint
+  IF len(p.clip) = 0 AND len(p.gradient.stops) < 2 THEN RETURN p
+  MUT rings AS List OF List OF vector::Float2 = []
+  FOR EACH ring IN p.clip
+    MUT moved AS List OF vector::Float2 = []
+    FOR EACH q IN ring
+      moved = collections::append(moved, pt(q.x - x, q.y - y))
+    NEXT
+    rings = collections::append(rings, moved)
+  NEXT
+  IF len(p.gradient.stops) < 2 THEN RETURN WITH p { clip := rings }
+  RETURN WITH p { clip := rings, gradient := WITH p.gradient { startPoint := pt(p.gradient.startPoint.x - x, p.gradient.startPoint.y - y), endPoint := pt(p.gradient.endPoint.x - x, p.gradient.endPoint.y - y) } }
+END FUNC
+
+' Gives an item the transform `t` after any it already carries (an ellipse's
+' turn), so a figure built at the origin can be moved into place as a whole.
+FUNC placed(d AS canvas::DrawItem, t AS canvas::Transform) AS canvas::DrawItem
+  MATCH d
+    CASE canvas::Rectangle(v) :
+      IF isZero(t) AND isZero(v.transform) THEN RETURN d
+      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
+    CASE canvas::Circle(v) :
+      IF isZero(t) AND isZero(v.transform) THEN RETURN d
+      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
+    CASE canvas::Ellipse(v) :
+      IF isZero(t) AND isZero(v.transform) THEN RETURN d
+      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
+    CASE canvas::Line(v) : RETURN WITH v { transform := t }
+    CASE canvas::Arc(v) :
+      IF isZero(t) AND isZero(v.transform) THEN RETURN d
+      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
+    CASE canvas::Polygon(v) : RETURN WITH v { transform := t }
+    CASE canvas::PolyLine(v) : RETURN WITH v { transform := t }
+    CASE canvas::Text(v) :
+      IF isZero(t) AND isZero(v.transform) THEN RETURN d
+      RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
+    ' What holds other things is placed by what it holds, not here: a group by its
+    ' node, a picture and an AutoPaint by their shape. None of this kit's figures is
+    ' one, so each is handed back as it came.
+    CASE canvas::Picture(v) : RETURN v
+    CASE canvas::AutoPaint(v) : RETURN v
+    CASE canvas::Group(v) : RETURN v
+  END MATCH
+END FUNC
+
+FUNC rect(x AS Float, y AS Float, w AS Float, h AS Float, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := localPaint(p, x, y), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+END FUNC
+
+' A rounded rectangle. A radius above one is pixels, which a rectangle takes
+' as it is; a smaller one (a figure built at unit scale and put in place by a
+' transform) would read as a fraction of the half size, so it is drawn as the
+' outline of the same rectangle with circular corners.
 FUNC rrect(x AS Float, y AS Float, w AS Float, h AS Float, r AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::RoundedRect[x := x, y := y, w := w, h := h, cornerRadius := r, paint := p]
+  IF r <= 0.0 OR r > 1.0 THEN RETURN canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := r, radiusTR := r, radiusBL := r, radiusBR := r, paint := localPaint(p, x, y), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET q AS Float = math::min(r, math::min(w, h) / 2.0)
+  LET steps AS Integer = 8
+  MUT ring AS List OF vector::Float2 = []
+  FOR corner = 0 TO 3
+    MUT cx AS Float = x + q
+    MUT cy AS Float = y + q
+    IF corner = 1 OR corner = 2 THEN cx = x + w - q
+    IF corner = 2 OR corner = 3 THEN cy = y + h - q
+    FOR i = 0 TO steps
+      LET a AS Float = TAU * (0.5 + 0.25 * toFloat(corner) + 0.25 * toFloat(i) / toFloat(steps))
+      ring = collections::append(ring, pt(cx + q * math::cos(a), cy + q * math::sin(a)))
+    NEXT
+  NEXT
+  RETURN canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [ring], rule := canvas::FillRule.NonZero, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC circle(x AS Float, y AS Float, r AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Circle[x := x, y := y, radius := r, paint := p]
+  RETURN canvas::Circle[id := "", position := vector::Float2[x := x, y := y], radius := r, paint := localPaint(p, x, y), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC ellipse(x AS Float, y AS Float, rx AS Float, ry AS Float, angle AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Ellipse[x := x, y := y, radiusX := rx, radiusY := ry, angle := angle, paint := p]
+  RETURN canvas::Ellipse[id := "", position := vector::Float2[x := x, y := y], radiusX := rx, radiusY := ry, paint := localPaint(p, x, y), transform := canvas::Transform[a := math::cos(angle), b := math::sin(angle), c := 0.0 - math::sin(angle), d := math::cos(angle), tx := 0.0, ty := 0.0]]
 END FUNC
 
 FUNC line(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Line[x1 := x1, y1 := y1, x2 := x2, y2 := y2, paint := p]
+  RETURN canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := x1, y := y1], endAt := vector::Float2[x := x2, y := y2], paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC arc(x AS Float, y AS Float, r AS Float, a0 AS Float, a1 AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Arc[x := x, y := y, radius := r, startAngle := a0, endAngle := a1, paint := p]
+  RETURN canvas::Arc[id := "", position := vector::Float2[x := x, y := y], radius := r, startAngle := a0, endAngle := a1, paint := localPaint(p, x, y), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
-FUNC poly(points AS List OF canvas::Point, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Polygon[contours := [points], rule := canvas::FillRule.NonZero, paint := p]
+FUNC poly(points AS List OF vector::Float2, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.NonZero, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
-FUNC shape(rings AS List OF List OF canvas::Point, rule AS canvas::FillRule, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Polygon[contours := rings, rule := rule, paint := p]
+' A polygon whose points are measured from (x, y): the shape is drawn around that
+' point, and moving it is changing the point alone. The paint's clip and gradient,
+' if it has any, are measured from it too.
+FUNC polyAt(x AS Float, y AS Float, points AS List OF vector::Float2, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Polygon[id := "", position := pt(x, y), contours := [points], rule := canvas::FillRule.NonZero, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
-FUNC path(points AS List OF canvas::Point, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::PolyLine[points := points, colors := [], paint := p]
+FUNC shape(rings AS List OF List OF vector::Float2, rule AS canvas::FillRule, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := rings, rule := rule, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
-FUNC trail(points AS List OF canvas::Point, colors AS List OF color::Color, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::PolyLine[points := points, colors := colors, paint := p]
+FUNC path(points AS List OF vector::Float2, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := points, colors := [], paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+END FUNC
+
+FUNC trail(points AS List OF vector::Float2, colors AS List OF color::Color, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := points, colors := colors, paint := p, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC label(font AS canvas::Font, size AS Float, text AS String, x AS Float, baseline AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Text[x := x, y := baseline, text := text, font := font, size := size, paint := canvas::fill(c)]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := baseline], text := text, font := font, fontSize := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC labelP(font AS canvas::Font, size AS Float, text AS String, x AS Float, baseline AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Text[x := x, y := baseline, text := text, font := font, size := size, paint := p]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := baseline], text := text, font := font, fontSize := size, paint := localPaint(p, x, baseline), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' A soft round glow: a disc whose radial ramp falls away quickly from `c` and
 ' then slowly to nothing, as light does, added onto what is beneath it.
 FUNC glow(x AS Float, y AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Circle[x := x, y := y, radius := r, paint := WITH glowP(color::white) { gradient := radial(x, y, r, [gstop(0.0, c), gstop(0.2, fade(c, 0.5)), gstop(0.5, fade(c, 0.15)), gstop(1.0, fade(c, 0.0))]) }]
+  RETURN canvas::Circle[id := "", position := vector::Float2[x := x, y := y], radius := r, paint := localPaint(WITH glowP(color::white) { gradient := radial(x, y, r, [gstop(0.0, c), gstop(0.2, fade(c, 0.5)), gstop(0.5, fade(c, 0.15)), gstop(1.0, fade(c, 0.0))]) }, x, y), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -267,8 +354,8 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 ' `n` points around an ellipse, starting at angle `a0`, clockwise.
-FUNC ovalRing(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Integer, a0 AS Float) AS List OF canvas::Point
-  MUT out AS List OF canvas::Point = []
+FUNC ovalRing(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Integer, a0 AS Float) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = []
   FOR i = 0 TO n - 1
     LET a AS Float = a0 + TAU * toFloat(i) / toFloat(n)
     out = collections::append(out, pt(cx + rx * math::cos(a), cy + ry * math::sin(a)))
@@ -278,8 +365,8 @@ END FUNC
 
 ' The same, running anticlockwise: under FillRule.NonZero a ring wound against
 ' the one around it cuts a hole.
-FUNC ovalRingCcw(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Integer, a0 AS Float) AS List OF canvas::Point
-  MUT out AS List OF canvas::Point = []
+FUNC ovalRingCcw(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Integer, a0 AS Float) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = []
   FOR i = 0 TO n - 1
     LET a AS Float = a0 - TAU * toFloat(i) / toFloat(n)
     out = collections::append(out, pt(cx + rx * math::cos(a), cy + ry * math::sin(a)))
@@ -287,14 +374,14 @@ FUNC ovalRingCcw(cx AS Float, cy AS Float, rx AS Float, ry AS Float, n AS Intege
   RETURN out
 END FUNC
 
-FUNC rectRing(x AS Float, y AS Float, w AS Float, h AS Float) AS List OF canvas::Point
+FUNC rectRing(x AS Float, y AS Float, w AS Float, h AS Float) AS List OF vector::Float2
   RETURN [pt(x, y), pt(x + w, y), pt(x + w, y + h), pt(x, y + h)]
 END FUNC
 
 ' Points along a quadratic Bezier from p0 to p2 bending towards p1, excluding
 ' the first point (so consecutive curves join without repeating a vertex).
-FUNC quadPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, n AS Integer) AS List OF canvas::Point
-  MUT out AS List OF canvas::Point = []
+FUNC quadPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, n AS Integer) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = []
   FOR i = 1 TO n
     LET t AS Float = toFloat(i) / toFloat(n)
     LET u AS Float = 1.0 - t
@@ -304,8 +391,8 @@ FUNC quadPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2
 END FUNC
 
 ' Points along a cubic Bezier, excluding the first point.
-FUNC cubicPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float, n AS Integer) AS List OF canvas::Point
-  MUT out AS List OF canvas::Point = []
+FUNC cubicPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float, n AS Integer) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = []
   FOR i = 1 TO n
     LET t AS Float = toFloat(i) / toFloat(n)
     LET u AS Float = 1.0 - t
@@ -319,15 +406,15 @@ FUNC cubicPts(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y
 END FUNC
 
 ' Every point moved by (dx, dy).
-FUNC shiftPts(points AS List OF canvas::Point, dx AS Float, dy AS Float) AS List OF canvas::Point
-  RETURN collections::transform(points, LAMBDA(p AS canvas::Point) -> pt(p.x + dx, p.y + dy))
+FUNC shiftPts(points AS List OF vector::Float2, dx AS Float, dy AS Float) AS List OF vector::Float2
+  RETURN collections::transform(points, LAMBDA(p AS vector::Float2) -> pt(p.x + dx, p.y + dy))
 END FUNC
 
 ' A ridge line across the width `w`: a mountain range or a hill crest, as the
 ' top edge of a polygon closed along `baseY`. `seed` picks the ridge; `rough`
 ' is how jagged it is.
-FUNC ridge(w AS Float, baseY AS Float, topY AS Float, amp AS Float, seed AS Integer, rough AS Float, steps AS Integer) AS List OF canvas::Point
-  MUT out AS List OF canvas::Point = [pt(-20.0, baseY)]
+FUNC ridge(w AS Float, baseY AS Float, topY AS Float, amp AS Float, seed AS Integer, rough AS Float, steps AS Integer) AS List OF vector::Float2
+  MUT out AS List OF vector::Float2 = [pt(-20.0, baseY)]
   FOR i = 0 TO steps
     LET u AS Float = toFloat(i) / toFloat(steps)
     LET s AS Float = toFloat(seed)
@@ -370,6 +457,6 @@ END FUNC
 ' its transform, which makes a polygon scaled up a hundredfold cost the GPU
 ' several times what the same polygon costs given in pixels (bug-991). Single
 ' showcase items still use Paint.transform.
-FUNC mapRing(ring AS List OF canvas::Point, t AS canvas::Transform) AS List OF canvas::Point
-  RETURN collections::transform(ring, LAMBDA(q AS canvas::Point) -> pt(t.a * q.x + t.c * q.y + t.tx, t.b * q.x + t.d * q.y + t.ty))
+FUNC mapRing(ring AS List OF vector::Float2, t AS canvas::Transform) AS List OF vector::Float2
+  RETURN collections::transform(ring, LAMBDA(q AS vector::Float2) -> pt(t.a * q.x + t.c * q.y + t.tx, t.b * q.x + t.d * q.y + t.ty))
 END FUNC

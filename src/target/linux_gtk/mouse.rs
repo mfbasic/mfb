@@ -392,7 +392,7 @@ fn emit_translate_and_convert(asm: &mut Asm, done: &str, uses_canvas: bool) -> R
     asm.push(abi::branch("mouse_converted"));
 
     // Pixels: the translated point already is the surface point, and GTK's origin
-    // is top-left like `canvas::Point`'s, so there is no flip. Clamp-check against
+    // is top-left like `vector::Float2`'s, so there is no flip. Clamp-check against
     // the published surface extent, which is what the program draws against.
     asm.push(abi::label(convert_pixels));
     // The pixel surface's extent lives in the canvas graphics state, a data object
@@ -659,6 +659,14 @@ pub(super) fn emit_attach_controllers(asm: &mut Asm) {
     // The click gesture carries both press and release.
     asm.call_external("gtk_gesture_click_new");
     asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0)));
+    // bug-1044: for EVERY button. A `GtkGestureSingle` listens to the primary button
+    // alone unless told otherwise (`button` defaults to `GDK_BUTTON_PRIMARY`; 0 is
+    // "any"), so the right and middle buttons the handlers below know how to report
+    // were never delivered to them: measured in a real GNOME window, a right press and
+    // a middle press reached `canvas::pollMouse` as nothing at all.
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+    asm.call_external("gtk_gesture_single_set_button");
     for (signal, handler) in [
         (STR_PRESSED, MOUSE_PRESSED_SYMBOL),
         (STR_RELEASED, MOUSE_RELEASED_SYMBOL),

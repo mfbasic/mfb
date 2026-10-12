@@ -1,6 +1,7 @@
 # plan-150-C: Particle systems — documentation, examples, and Linux/Vulkan parity
 
-Last updated: 2026-09-22
+Last updated: 2026-10-11 (re-derived against the completed plan-172; see
+"Re-derivation record")
 Effort: medium (1h–2h)
 Depends on: plan-150-B
 
@@ -8,11 +9,11 @@ Letters A and B build and measure the particle system. This letter is what makes
 **shipped feature rather than a working one**: the manual entries a user learns it
 from, a worked example per effect, the spec sync the project requires of any new
 package surface, and the Vulkan-side proof that the "no shader change" claim holds on
-Linux and not only on Metal.
+Linux and Windows and not only on Metal.
 
 Behavioral outcome: a user who has never seen the feature can read `mfb man canvas`,
 copy a runnable example, and get fire, fog, or fireworks on macOS, Linux and Windows —
-and the Linux GPU path is proved to match the software oracle, not assumed to.
+and the Vulkan path is proved to match the software oracle, not assumed to.
 
 References:
 
@@ -20,18 +21,24 @@ References:
   manual documents.
 - `planning/plan-150-B-canvas-particles-cost-and-damage.md` — the measured cost model
   the manual must quote instead of adjectives.
-- `scripts/test-canvas-vulkan.sh` — the Linux canvas parity harness.
+- `planning/new_canvas.md` — the shape model every example is written in: `position`
+  and `transform` on each shape, `vector::Float2` coordinates, no `Paint.transform`.
+- `scripts/test-canvas-vulkan.sh`, `scripts/test-canvas-gpu-rows.sh` — the Linux and
+  Windows canvas parity harnesses (`scripts/README.md`).
 - `scripts/man-examples-gate.sh`, `tests/cli/cli_canvas_man_examples_compile.rs` — every
   manual example must compile; this is gated, not aspirational.
-- `.ai/remote_systems.md` — the Linux boxes and how to reach them.
+- `.ai/man-content.md`, `.ai/spec-content.md`, `.ai/specifications.md` — the two
+  documentation surfaces and their standards.
+- `.ai/remote_systems.md` — the test boxes and how to reach them.
 
 ## Prerequisites
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-150-B complete and archived | `ls planning/plan-150-B-* → no matches` | NOT MET |
-| The measured cost table exists in letter B | `grep -c 'particles/frame' planning/completed/plan-150-B-*.md` → ≥1 | NOT MET |
+| plan-150-B complete and archived | `ls planning/plan-150-B-*` → no matches, and `ls planning/completed/plan-150-B-*` → present | NOT MET (2026-10-11) |
+| The measured cost table exists in letter B | `grep -c 'particles/frame' planning/completed/plan-150-B-*.md` → ≥1 | NOT MET (2026-10-11) |
 | A Linux box with a Vulkan device is reachable | `scripts/test-canvas-vulkan.sh` defaults to `--box 2228` (Ubuntu x86_64 glibc); probe per `.ai/remote_systems.md` | UNVERIFIED — check first |
+| The Windows box is reachable | `.ai/remote_systems.md`: 192.168.1.206, the only Windows box and the only real GPU | UNVERIFIED — check first |
 
 If plan-150-B is not complete, this letter cannot start, full stop.
 
@@ -39,14 +46,29 @@ If plan-150-B is not complete, this letter cannot start, full stop.
 > Re-run every command and update every status before you continue, and again before
 > you decide to stop. If you stop, report the status of *all* prerequisites.
 
+### Re-derivation record (2026-10-11)
+
+- **Five types, not seven.** The `Emitter` union and its four `Emit*` records are gone:
+  the emitter is a `canvas::Shape`. Letter A adds `ParticleSystem`, `Emission`, `Motion`,
+  `Appearance` (records) and `EmissionMode` (enum).
+- **The raises are 77050028 and 77050029** (re-measured by letter A; 77050025–27 were
+  taken).
+- **The spec gained whole sections** this feature must appear in: "The item unions",
+  "Hit-testing", "AutoPaint", "A picture is drawn inside a shape"
+  (`grep -n '^## \|^### ' src/docs/spec/app/06_canvas.md`).
+- **There are seven redraw triggers**, so the sentence to add says "not an eighth".
+- **The examples are written in the plan-172 surface**, and there is a Windows GPU lane
+  now (`scripts/test-canvas-gpu-rows.sh --target windows-x86_64`).
+
 ## 1. Goal
 
-- `mfb man canvas` documents `ParticleSystem` and its six companion types with a
+- `mfb man canvas` documents `ParticleSystem` and its four companion types with a
   runnable example each, and the examples are gated to compile.
 - Four worked example programs exist — fire, fog, fireworks, rain — under
   `examples/canvas/`.
 - The Vulkan backend renders a particle scene within `Tolerance::GPU_DEFAULT` of the
-  software oracle on a real Linux host, with **no** diff in either `.spv` blob.
+  software oracle on a real Linux host and on the Windows box, with **no** diff in
+  either `.spv` blob.
 - The spec is in sync per the project's own census.
 
 ### Non-goals (explicit constraints)
@@ -56,14 +78,16 @@ If plan-150-B is not complete, this letter cannot start, full stop.
   rendering is a letter nobody can review.
 - **No `scripts/regen-spirv.sh` run.** The premise under test is that the shaders are
   untouched. Regenerating SPIR-V here would destroy the evidence.
-- **No new public functions.** The surface is the types letter A added.
+- **No new public functions.** The surface is the types letter A added. In particular
+  no constructor functions (the owner's answer to plan-172-A Open Decision 1).
 
 ## 2. Current State
 
-The `canvas` package registers 20 records, 1 union, 5 enums and 62 functions
+The `canvas` package registers 20 records, 3 unions, 13 enums and 95 functions
 (`grep -c 'pkg.add_record(RegistryRecord {' src/codegen/builtins/canvas/mod.rs` → 20;
+`grep -c 'pkg.add_union(RegistryUnion {'` → 3; `grep -c 'pkg.add_enum('` → 13;
 `grep -c 'pkg.add_function' src/codegen/builtins/canvas/*.rs | awk -F: '{s+=$2} END {print s}'`
-→ 62). Letter A adds 5 records, 1 union and 1 enum to that.
+→ 95; all 2026-10-11). Letter A adds 4 records and 1 enum to that, and no union.
 
 Manual examples are **gated**: `tests/cli/cli_canvas_man_examples_compile.rs` compiles
 every example in the canvas manual, so a documented snippet that does not build fails
@@ -73,27 +97,31 @@ project-level equivalents.
 Linux GPU parity has a dedicated harness, `scripts/test-canvas-vulkan.sh`, which builds
 a canvas program with the twelve-glyph test TrueType font and compares GPU against
 software — the same oracle relationship `tests/canvas/rt_canvas_metal.rs` uses on
-macOS. `examples/` currently holds 16 example projects and **no canvas directory**
-(`ls examples/canvas` → no such directory).
+macOS. `scripts/test-canvas-gpu-rows.sh` runs every scene in `tests/canvas/scenes/` on a
+chosen target, Windows included, and requires each to draw on the GPU and agree with the
+oracle; letter A Phase 5 puts the fireworks scene there.
+
+`examples/` holds 25 example projects (`ls examples | wc -l` → 25, 2026-10-11). There is
+a `canvas-demo` and **no `canvas` directory** (`ls examples/canvas` → no such directory).
 
 ### Measured populations
 
 | What | Count | Command |
 |---|---|---|
-| Canvas records / unions / enums before letter A | 20 / 1 / 5 | `grep -c 'pkg.add_record(RegistryRecord {' src/codegen/builtins/canvas/mod.rs` → 20, etc. |
-| Canvas registry functions | 62 | `grep -c 'pkg.add_function' src/codegen/builtins/canvas/*.rs \| awk -F: '{s+=$2} END {print s}'` → 62 |
-| Existing example projects | 16 | `ls examples \| wc -l` → 16 |
-| Existing canvas examples | 0 | `ls examples/canvas` → no such directory |
-| Canvas goldens | 7 | `ls tests/golden/canvas \| wc -l` → 7 |
+| Canvas records / unions / enums before letter A | 20 / 3 / 13 | the three greps above, 2026-10-11 |
+| Canvas registry functions | 95 | `grep -c 'pkg.add_function' src/codegen/builtins/canvas/*.rs \| awk -F: '{s+=$2} END {print s}'` → 95 (2026-10-11) |
+| Existing example projects | 25 | `ls examples \| wc -l` → 25 (2026-10-11) |
+| Existing canvas particle examples | 0 | `ls examples/canvas` → no such directory (2026-10-11) |
+| Canvas goldens | 11 | `ls tests/golden/canvas \| wc -l` → 11 (2026-10-11) |
 
 ### Verified properties
 
-- **Manual examples are compile-gated.** VERIFIED by reading
-  `tests/cli/cli_canvas_man_examples_compile.rs` — the canvas manual's examples are
-  extracted and built, so every snippet this letter writes must be runnable.
+- **Manual examples are compile-gated.** VERIFIED: `tests/cli/cli_canvas_man_examples_compile.rs`
+  exists (`ls`, 2026-10-11) — the canvas manual's examples are extracted and built, so
+  every snippet this letter writes must be runnable.
 - **UNVERIFIED — whether the Vulkan path draws particles correctly.** Letter A proved
-  the claim on Metal only. Both backends read the same `ItemBlock`, so the claim
-  *should* transfer, but "should" is what Phase 2 exists to replace.
+  the claim on Metal only. Both backends read the same `ItemBlock` and the same draw
+  entry, so the claim *should* transfer, but "should" is what Phase 1 exists to replace.
 
 ## 3. Design Overview
 
@@ -101,8 +129,8 @@ Three independent pieces, orderable by risk:
 
 1. **Vulkan parity** (Phase 1) — the only phase that can discover a *defect*, so it
    goes first. If the Vulkan path disagrees with software, everything downstream is
-   documenting something that does not work on Linux.
-2. **Manual entries** (Phase 2) — the six types, each with a compiling example, quoting
+   documenting something that does not work on Linux or Windows.
+2. **Manual entries** (Phase 2) — the five types, each with a compiling example, quoting
    letter B's measured cost model.
 3. **Examples and spec sync** (Phase 3) — four worked programs and the project's census
    scripts.
@@ -124,74 +152,99 @@ compile-gated examples.
 
 - [ ] Extend `scripts/test-canvas-vulkan.sh` with the fireworks scene letter A
       goldened, rendered twice — `MFB_CANVAS_GPU=1` and software — and compared with
-      the existing tolerance comparator.
+      the existing tolerance comparator. Add the same scene inside a turned, scaled
+      group: the draw-entry matrix is the newest thing either backend reads.
 - [ ] Run it on a real Linux host with a Vulkan device. The script ships an AppImage
-      and takes `<mfb-exe> [--box <port>] [--libc glibc|musl]`, defaulting to box 2228
-      (Ubuntu x86_64 glibc). The `--libc` must match the box — musl's loader absorbs the
-      glibc compat sonames, so shipping the wrong one does not fail cleanly.
-      `.ai/remote_systems.md` says **re-probe, do not assume**; three of that table's
-      facts changed during plan-56 itself. Confirm the box reports a Vulkan device
-      before reading a pass as meaningful.
+      and takes `<mfb-exe> [--box <port>] [--target …] [--libc glibc|musl] [--icd …]`,
+      defaulting to box 2228 (Ubuntu x86_64 glibc). The `--libc` must match the box —
+      musl's loader absorbs the glibc compat sonames, so shipping the wrong one does not
+      fail cleanly. `.ai/remote_systems.md` says **re-probe, do not assume**. Confirm the
+      box reports a Vulkan device before reading a pass as meaningful.
+- [ ] Run `scripts/test-canvas-gpu-rows.sh <mfb-exe> --target windows-x86_64` against
+      the Windows box and confirm the particle scene's row reports `gpuFrames` non-zero.
 - [ ] Confirm `git status --porcelain src/codegen/runtime/canvas/shaders/` is empty —
       no `.frag`, `.vert`, or `.spv` diff.
-- [ ] If the comparison fails: **root-cause it, do not re-baseline.** A mismatch means
-      the block composition in letter A Phase 4 is wrong on one backend; localize from
+- [ ] If a comparison fails: **root-cause it, do not re-baseline.** A mismatch means
+      the item composition in letter A Phase 4 is wrong on one backend; localize from
       the reported coordinate, fix, and record it in letter A's Corrections section.
 
 Acceptance: the particle scene renders on Vulkan within `Tolerance::GPU_DEFAULT` of the
-software oracle on a Linux host reporting a Vulkan device, and both `.spv` blobs are
-unchanged.
-  Check: `scripts/test-canvas-vulkan.sh <mfb-exe> --box 2228` → pass (est. 15 min — longer than 10 because it
-  builds on a remote box; no smaller check exists, since the whole question is whether a
-  real Vulkan driver agrees with the oracle).
+software oracle on a Linux host reporting a Vulkan device and on the Windows box, and
+both `.spv` blobs are unchanged.
+  Check: `scripts/test-canvas-vulkan.sh <mfb-exe> --box 2228` → pass (est. 15 min,
+  guess — longer than 10 because it builds on a remote box; no smaller check exists,
+  since the whole question is whether a real Vulkan driver agrees with the oracle), and
+  the Windows row above (est. 15 min, guess).
 Commit: —
 
 ### Phase 2 — Manual entries
 
-- [ ] Write the `mfb man canvas` prose for `ParticleSystem`, `Emitter`, `Emission`,
-      `Motion`, `Appearance`, `EmissionMode` — each field's units named, the tint rule
-      stated as the multiply it is and cross-referenced to `Picture`'s identical rule.
+Registry descriptor prose, in `src/codegen/builtins/canvas/mod.rs`, to `.ai/man-content.md`'s
+standard. Rendering the page is the only verification: the compiler never reads it.
+
+- [ ] Write the `mfb man canvas` prose for `ParticleSystem`, `Emission`, `Motion`,
+      `Appearance`, `EmissionMode` — each field's units named, the tint rule stated as
+      the multiply it is and cross-referenced to `Picture`'s identical rule.
+- [ ] State, in `ParticleSystem`'s prose, what each emitter shape emits from: its
+      interior for a `Rectangle`, `Circle`, `Ellipse`, `Polygon` and `Text`, its length
+      for a `Line`, `Arc` and `PolyLine`; that the emitter's own `position` and
+      `transform` place and turn it; and that its `paint` and `id` are not used.
+- [ ] State what a particle does with each template kind (letter A §6): a shape, an
+      `AutoPaint` (its default paint), a `Picture` (and what `ClipOnly` means for a
+      spinning sprite), a `Group` (and its tint).
+- [ ] State that a particle is never under the mouse: it is not named by
+      `MouseEvent.overID` and does not hide what is beneath it from the mouse.
 - [ ] State explicitly, in `ParticleSystem`'s prose, that `time` is advanced **by the
       program** and that re-presenting is what draws the next frame — there is no timer
       (`.ai/canvas-threading.md` §4).
 - [ ] Quote letter B's measured particle counts. No adjectives where a number exists.
-- [ ] Document the two raises (77050025, 77050026) and the silently-nothing cases from
-      letter A §7.
+- [ ] Document the two raises (77050028, 77050029, by their `errorcode` names) and the
+      silently-nothing cases from letter A §7.
 - [ ] Add one compiling example per type to the manual.
 
-Acceptance: `mfb man canvas types` documents all six types, and every manual example
+Acceptance: `mfb man canvas types` documents all five types, and every manual example
 compiles under the existing gate.
-  Check: `cargo test --test cli_canvas_man_examples_compile` → pass (est. 5 min).
+  Check: `cargo test --test cli_canvas_man_examples_compile` → pass, and
+  `bash scripts/man-census.sh --memory-scope` → 0 unclassified (est. 5 min, guess).
 Commit: —
 
 ### Phase 3 — Worked examples and spec sync
 
-- [ ] Add `examples/canvas/` with four programs: `fire` (an `EmitLine` base, upward
-      drift, orange→transparent ramp, turbulence), `fog` (an `EmitRect` volume, near-zero
-      speed, large soft `Picture` particles, low alpha), `fireworks` (a `Burst`
-      `EmitPoint` with gravity and a colour ramp), `rain` (an `EmitRect` at the top,
-      high downward speed, a thin `Line` template).
+- [ ] Add `examples/canvas/` with four programs: `fire` (a `Line` emitter along the
+      base, upward drift, orange→transparent ramp, turbulence), `fog` (a `Rectangle`
+      emitter, near-zero speed, large soft `Picture` particles, low alpha), `fireworks`
+      (a `Burst` system with a `Circle[radius := 0.0]` emitter, gravity and a colour
+      ramp), `rain` (a `Rectangle` emitter across the top, high downward speed, a thin
+      `Line` template).
 - [ ] Wire them into `scripts/build-examples.sh` so they are built by the suite.
+- [ ] Review the spec letter A wrote against `.ai/spec-content.md`:
+      `src/docs/spec/app/06_canvas.md`'s "The item unions" (the twelfth variant and why
+      it is in neither `Shape` nor `AutoShape`), its particle section (the model, the
+      expansion, what each walk does with a system), "Hit-testing" (a system is not
+      hit), and `src/docs/spec/diagnostics/02_error-codes.md`.
 - [ ] Run the project's census scripts and resolve what they report:
-      `scripts/man-census.sh`, `scripts/spec-census.sh`.
+      `scripts/man-census.sh`, `scripts/spec-census.sh --citations`, `--links`.
 - [ ] Add a `.ai/canvas-threading.md` §4 sentence recording that a particle system is
-      advanced by trigger 1 and is **not** a sixth trigger.
+      advanced by trigger 1 and is **not** an eighth trigger.
 
 Acceptance: all four examples build and run headless to completion, and both census
 scripts report no missing entries for the new types.
-  Check: `scripts/build-examples.sh` → pass, `scripts/man-census.sh && scripts/spec-census.sh`
-  → no missing entries (est. 10 min).
+  Check: `scripts/build-examples.sh` → pass, `scripts/man-census.sh` and
+  `scripts/spec-census.sh --citations` → no missing entries, 0 dangling
+  (est. 10 min, guess).
 Commit: —
 
 ## Validation Plan
 
 - **Tests:** `tests/cli/cli_canvas_man_examples_compile.rs` (examples compile);
-  `scripts/test-canvas-vulkan.sh <mfb-exe> --box 2228` (Linux parity); `scripts/build-examples.sh` (the four
-  new example programs).
+  `scripts/test-canvas-vulkan.sh <mfb-exe> --box 2228` (Linux parity);
+  `scripts/test-canvas-gpu-rows.sh <mfb-exe> --target windows-x86_64` (Windows parity);
+  `scripts/build-examples.sh` (the four new example programs).
 - **Coverage check:** not applicable — this letter adds no executable compiler code.
   Say so explicitly rather than running a gate that cannot fail.
 - **Runtime proof:** each of the four examples run in a real window on macOS and Linux,
-  `time` advancing, with `MFB_CANVAS_STATS` confirming GPU frames on both.
+  `time` advancing, with `canvas::getFrameStats` (or `MFB_CANVAS_STATS`) confirming GPU
+  frames on both.
 - **Doc sync:** `mfb man canvas`; the spec per `scripts/spec-census.sh`;
   `.ai/canvas-threading.md` §4.
 - **Final gate (run ONCE, after Phase 3):** `scripts/test-accept.sh <mfb-exe> <actual-output-dir>` (both arguments are required; the script exits 2 without them) — the full suite
@@ -203,10 +256,12 @@ Commit: —
 - **Whether `examples/canvas/` holds four programs or one menu-driven demo** — four
   recommended. A user copying "fire" should not have to extract it from a switch
   statement, and `scripts/build-examples.sh` builds directories.
-- **Whether the fog example ships a soft-particle PNG** — probably yes, and it would be
-  the first binary asset under `examples/`. Check what `scripts/build-examples.sh`
-  does with non-source files before committing to it; a procedurally-generated
-  radial-gradient `Circle` template is the fallback and needs no asset.
+- **Whether the fog example ships a soft-particle PNG** — probably yes. Check what
+  `scripts/build-examples.sh` does with non-source files before committing to it; a
+  `Circle` template filled with a radial gradient is **not** the fallback it once was,
+  because a particle's tint does not reach a gradient ramp (letter A Open Decision 8) —
+  a gradient fog particle would not fade. If no asset ships, the fallback is an image
+  built at start-up with `canvas::createImage` and `canvas::setBytes`.
 
 ## Corrections
 
@@ -220,5 +275,6 @@ after it is prose, examples and census work — real work, but work whose failur
 
 The thing to resist is regenerating the SPIR-V when Vulkan disagrees. The blobs being
 untouched *is* the evidence that the design's central claim held; if the Vulkan picture
-is wrong, the bug is in how letter A composed the transform and tint, and it will be
-wrong on Metal too under some scene that the macOS test simply did not cover.
+is wrong, the bug is in how letter A composed the particle's `position`, `transform` and
+tint, and it will be wrong on Metal too under some scene that the macOS test simply did
+not cover.

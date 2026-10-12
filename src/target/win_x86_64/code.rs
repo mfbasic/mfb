@@ -4300,10 +4300,10 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         &self,
         project_name: &str,
         debug_hooks: bool,
-        // plan-94-D/E add their mouse data here when these backends land.
         _uses_mouse: bool,
+        uses_canvas: bool,
     ) -> Vec<CodeDataObject> {
-        app::app_mode_data_objects(project_name, debug_hooks)
+        app::app_mode_data_objects(project_name, debug_hooks, uses_canvas)
     }
 }
 

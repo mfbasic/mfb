@@ -329,12 +329,32 @@ name = "rt_canvas_group_ownership"
 path = "tests/canvas/rt_canvas_group_ownership.rs"
 
 [[test]]
+name = "rt_canvas_hit"
+path = "tests/canvas/rt_canvas_hit.rs"
+
+[[test]]
 name = "rt_canvas_image_decode"
 path = "tests/canvas/rt_canvas_image_decode.rs"
 
 [[test]]
 name = "rt_canvas_metal"
 path = "tests/canvas/rt_canvas_metal.rs"
+
+[[test]]
+name = "rt_canvas_pointer"
+path = "tests/canvas/rt_canvas_pointer.rs"
+
+[[test]]
+name = "rt_canvas_autopaint"
+path = "tests/canvas/rt_canvas_autopaint.rs"
+
+[[test]]
+name = "rt_canvas_auto_step"
+path = "tests/canvas/rt_canvas_auto_step.rs"
+
+[[test]]
+name = "rt_canvas_picture_fit"
+path = "tests/canvas/rt_canvas_picture_fit.rs"
 
 [[test]]
 name = "rt_canvas_picture"
@@ -1061,6 +1081,10 @@ path = "tests/runtime/rt_resource_drop_reclaims.rs"
 [[test]]
 name = "rt_resource_aggregate_temporary"
 path = "tests/runtime/rt_resource_aggregate_temporary.rs"
+
+[[test]]
+name = "rt_resource_last_holder"
+path = "tests/runtime/rt_resource_last_holder.rs"
 
 [[test]]
 name = "rt_resource_store_float"

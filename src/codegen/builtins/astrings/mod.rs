@@ -341,6 +341,7 @@ pub(crate) fn register(r: &mut Registry) {
     // One styling attribute: a flag, a String-valued, or an Integer-valued one.
     // Match on the variant to read the underlying value.
     pkg.add_union(RegistryUnion {
+        includes: vec![],
         name: "Attribute",
         export: true,
         variants: vec![

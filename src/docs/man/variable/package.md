@@ -353,7 +353,7 @@ and so on — and `mfb man thread` describes the resource channel that carries i
 
 A `RES` binding may carry a data value alongside the open thing, written with
 `STATE`. That value is always a record: one you declare with `TYPE`, that can be
-copied and has a default for every field — so no enum or handle fields. A number,
+copied and has a default for every field — so no handle fields. A number,
 a `String`, a list or an enum on its own is not accepted as the `STATE`; put it in
 a record with one field. It is the one place a field is updated by assignment
 rather than with `WITH`:

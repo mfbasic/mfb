@@ -511,6 +511,8 @@ impl CodeBuilder<'_> {
                 head_slot,
                 drop,
                 owns_elements: true,
+                reclaim_slot: None,
+                trap_shared: false,
                 scope_depth: depth,
                 leaf,
             });
@@ -3831,6 +3833,13 @@ impl CodeBuilder<'_> {
             // inline builtin exactly as for a called one (`emit_call`). Checked as
             // each is lowered, so a later argument's effects never run first.
             self.observe_float(arg, &value)?;
+            // A register-native vector (plan-01-vector) is one register PER LANE, and
+            // the slot below is one word: it has to become its record block first.
+            // Without this a vector built in place as an argument —
+            // `RETURN collections::append(ring, vector::Float2[…])` — reached the
+            // store as a `%%vecnative` operand and the compiler panicked. Identity for
+            // everything that is not a native vector, so no other argument changes.
+            let value = self.vector_value_as_block(value)?;
             let slot = self.allocate_stack_object(&format!("abi_inline_arg{index}"), 8);
             // Type-aware spill: a `d`-native `Float` stores from its FP register
             // (`str d`) so its bit pattern — including the sign of a `-0.0` — survives

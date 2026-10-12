@@ -109,13 +109,15 @@ pub(crate) fn project_manifest(location: &Path) -> String {
             "  \"targets\": [\"native\"],\n",
             "  \"options\": {{\n",
             "    \"stdinLogCap\": {},\n",
-            "    \"maxBuffer\": {}\n",
+            "    \"maxBuffer\": {},\n",
+            "    \"canvasAutoPaintMS\": {}\n",
             "  }}\n",
             "}}"
         ),
         name,
         crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT,
-        crate::manifest::DEFAULT_MAX_BUFFER_MIB
+        crate::manifest::DEFAULT_MAX_BUFFER_MIB,
+        crate::manifest::DEFAULT_CANVAS_AUTO_PAINT_MS
     )
 }
 
@@ -144,13 +146,15 @@ fn package_project_manifest(location: &Path) -> String {
             "  ],\n",
             "  \"options\": {{\n",
             "    \"stdinLogCap\": {},\n",
-            "    \"maxBuffer\": {}\n",
+            "    \"maxBuffer\": {},\n",
+            "    \"canvasAutoPaintMS\": {}\n",
             "  }}\n",
             "}}"
         ),
         name,
         crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT,
-        crate::manifest::DEFAULT_MAX_BUFFER_MIB
+        crate::manifest::DEFAULT_MAX_BUFFER_MIB,
+        crate::manifest::DEFAULT_CANVAS_AUTO_PAINT_MS
     )
 }
 
@@ -270,6 +274,9 @@ mod tests {
             crate::manifest::stdin_log_cap(object),
             Some(crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT)
         );
+        // plan-172-K: and options.canvasAutoPaintMS, written out at its default.
+        assert!(manifest.contains("\"canvasAutoPaintMS\": 100"));
+        assert_eq!(crate::manifest::canvas_auto_paint_ms(object), 100);
     }
 
     #[test]

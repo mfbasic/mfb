@@ -31,16 +31,17 @@ panel was:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT os
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET body AS canvas::DrawItem = canvas::RoundedRect[x := 0.0, y := 0.0, w := 160.0, h := 90.0, cornerRadius := 12.0, paint := canvas::fill(color::rgb(40, 60, 90))]
+  LET body AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 160.0, height := 90.0], radiusTL := 12.0, radiusTR := 12.0, radiusBL := 12.0, radiusBR := 12.0, paint := canvas::fill(color::rgb(40, 60, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [body])
 
-  LET node AS canvas::DrawItem = canvas::Group[dx := 40.0, dy := 40.0, name := "panel"]
-  LET marker AS canvas::DrawItem = canvas::Circle[x := 400.0, y := 300.0, radius := 20.0, paint := canvas::fill(color::rgb(255, 80, 80))]
+  LET node AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 40.0, y := 40.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET marker AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 400.0, y := 300.0], radius := 20.0, paint := canvas::fill(color::rgb(255, 80, 80)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([node, marker])
   os::sleep(500)
 
@@ -56,6 +57,7 @@ no-op:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)

@@ -916,7 +916,12 @@ impl CodeBuilder<'_> {
         }
         let result = self.lower_value_stored(value);
         self.record_temps.with_item_armed = None;
-        result
+        let result = result?;
+        // Rule 4: the item is what this store adds to its container.
+        if let Some(target) = self.statement_temps.assign_target.clone() {
+            return self.emit_stored_item_float(&target, value, result);
+        }
+        Ok(result)
     }
 
     /// bug-766 B: when `value` is a constructor of `type_` and `type_` is a record
@@ -3210,6 +3215,10 @@ impl CodeBuilder<'_> {
                         let adopts_call_result = self.is_resource_owning_container(type_)
                             && value.as_ref().is_some_and(|value| {
                                 crate::codegen::cleanup::owned::builder_owned_cleanup::value_may_carry_statement_resources(value)
+                                    // The inline-`TRAP` desugar delivers a trapped
+                                    // call's success value through `resultValue`:
+                                    // the binding is that call's taker.
+                                    || self.adopts_from_trapped_call(value)
                             });
                         if self.owner_containers.contains(name) || adopts_call_result {
                             self.setup_owned_list(name, type_)?;
@@ -3326,18 +3335,42 @@ impl CodeBuilder<'_> {
                             // the drop registered here closes nothing.
                             let scope_depth = self.current_scope_depth();
                             self.emit_resource_claim_at(stack_offset, scope_depth)?;
-                            self.active_cleanups
-                                .push(ActiveCleanup::Resource(ResourceCleanup {
-                                    name: name.clone(),
-                                    symbol,
-                                    state_type: type_.state(),
-                                    has_io_buffers: Self::resource_uses_io_buffers(type_),
-                                    frees_record: Self::resource_record_freed_at_drop(type_)
-                                        && self.record_owning_locals.contains(name),
-                                    moved_record_only: false,
-                                    owner_flag_slot,
-                                    scope_depth,
-                                }));
+                            // The scope that closes a resource frees its record:
+                            // the drop takes the record it closed and the exit
+                            // frees it after its last cleanup, by the owner word.
+                            let frees_record = Self::resource_record_freed_at_drop(type_)
+                                && self.owned_list_runtime_reclaim;
+                            let reclaim_slot = frees_record.then(|| {
+                                let slot = self
+                                    .allocate_stack_object(&format!("resource_reclaim_{name}"), 8);
+                                self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
+                                self.owned_value_slots.push(slot);
+                                slot
+                            });
+                            // bug-1051: a value-less bind is the inline-`TRAP`
+                            // desugar's temp, and the closed default it has just
+                            // stored is its own; a store over it frees it.
+                            let default_record_slot = (value.is_none()
+                                && Self::resource_record_freed_at_drop(type_))
+                                .then(|| self.remember_trap_default_record(name, stack_offset, 0));
+                            let cleanup = ResourceCleanup {
+                                name: name.clone(),
+                                symbol,
+                                state_type: type_.state(),
+                                has_io_buffers: Self::resource_uses_io_buffers(type_),
+                                frees_record,
+                                moved_record_only: false,
+                                owner_flag_slot,
+                                default_record_slot,
+                                scope_depth,
+                                reclaim_slot,
+                                trap_shared: false,
+                            };
+                            if reclaim_slot.is_some() {
+                                self.reclaiming_resources
+                                    .push(ActiveCleanup::Resource(cleanup.clone()));
+                            }
+                            self.active_cleanups.push(ActiveCleanup::Resource(cleanup));
                         } else if let Some(variants) = self.resource_union_cleanup(type_) {
                             // A resource union drops by dispatching on its tag to
                             // the active variant's registered close op, then frees
@@ -3381,24 +3414,52 @@ impl CodeBuilder<'_> {
                             if !alias_wrap {
                                 self.emit_resource_union_claim_at(stack_offset, scope_depth)?;
                             }
-                            self.active_cleanups.push(ActiveCleanup::ResourceUnion(
-                                ResourceUnionCleanup {
-                                    name: name.clone(),
-                                    variants,
-                                    state_type: type_.state(),
-                                    io_buffer_tags: self.resource_union_io_buffer_tags(type_),
-                                    record_free_tags: if !alias_wrap
-                                        && self.record_owning_locals.contains(name)
-                                    {
-                                        self.resource_union_record_free_tags(type_)
-                                    } else {
-                                        Vec::new()
-                                    },
-                                    closes_variant: !alias_wrap,
-                                    owner_flag_slot,
-                                    scope_depth,
-                                },
-                            ));
+                            // The scope that closes the active variant frees its
+                            // record, by the owner word, after the exit's last
+                            // cleanup (as the concrete arm).
+                            let reclaims = !alias_wrap && self.owned_list_runtime_reclaim;
+                            let record_free_tags = if reclaims {
+                                self.resource_union_record_free_tags(type_)
+                            } else {
+                                Vec::new()
+                            };
+                            let io_buffer_tags = self.resource_union_io_buffer_tags(type_);
+                            let reclaim_slot = (reclaims
+                                && (!record_free_tags.is_empty()
+                                    || !io_buffer_tags.is_empty()
+                                    || type_.state().is_some()))
+                            .then(|| {
+                                let slot = self.allocate_stack_object(
+                                    &format!("resource_union_reclaim_{name}"),
+                                    8,
+                                );
+                                self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), slot));
+                                self.owned_value_slots.push(slot);
+                                slot
+                            });
+                            // bug-1051: as the concrete arm, for the closed default
+                            // record the temp's default box names.
+                            let default_record_slot = (value.is_none()
+                                && !self.resource_union_record_free_tags(type_).is_empty())
+                            .then(|| self.remember_trap_default_record(name, stack_offset, 8));
+                            let cleanup = ResourceUnionCleanup {
+                                name: name.clone(),
+                                variants,
+                                state_type: type_.state(),
+                                io_buffer_tags,
+                                record_free_tags,
+                                closes_variant: !alias_wrap,
+                                owner_flag_slot,
+                                default_record_slot,
+                                scope_depth,
+                                reclaim_slot,
+                            };
+                            if reclaim_slot.is_some() {
+                                self.reclaiming_resources
+                                    .push(ActiveCleanup::ResourceUnion(cleanup.clone()));
+                            }
+                            self.active_cleanups
+                                .push(ActiveCleanup::ResourceUnion(cleanup));
                         } else if owns_freeable_value {
                             // An owned, non-escaping flat value (plan-01 Phase 5 /
                             // plan-02 Phase 8): a single `arena_free` of its block
@@ -3473,6 +3534,8 @@ impl CodeBuilder<'_> {
                         // container declared further out takes that container's
                         // scope (15.6): raise what it reaches before the store.
                         self.emit_store_float(name, value)?;
+                        self.statement_temps.assign_target = Some(name.clone());
+                        self.statement_temps.item_floated = false;
                         // bug-689: an element-bound binding's update, its write-back
                         // (the element already holds the value it writes), and the
                         // single-expression update. None changes the list's length, so
@@ -3656,13 +3719,21 @@ impl CodeBuilder<'_> {
                                     symbol,
                                     state_type: result.type_.state(),
                                     has_io_buffers: Self::resource_uses_io_buffers(&result.type_),
-                                    frees_record: Self::resource_record_freed_at_drop(
-                                        &result.type_,
-                                    ) && self.record_owning_locals.contains(name),
+                                    // The value a store replaces is closed here
+                                    // and its record kept: the binding's scope has
+                                    // not exited, and another cleanup of it may
+                                    // still read the record.
+                                    frees_record: false,
                                     moved_record_only: false,
                                     owner_flag_slot: self.trap_owner_flags.get(name).copied(),
+                                    default_record_slot: self
+                                        .trap_default_records
+                                        .get(name)
+                                        .copied(),
                                     scope_depth: registered_depth
                                         .unwrap_or_else(|| self.current_scope_depth()),
+                                    reclaim_slot: None,
+                                    trap_shared: false,
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)
@@ -3692,6 +3763,14 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     slot,
                                 ));
+                                // The binding's scope has not exited: the
+                                // replaced value is closed and its record kept
+                                // (the default record is freed by its own rule).
+                                let cleanup = ResourceUnionCleanup {
+                                    reclaim_slot: None,
+                                    record_free_tags: Vec::new(),
+                                    ..cleanup
+                                };
                                 self.emit_resource_union_cleanup_call(&cleanup)?;
                                 Some(slot)
                             } else if by_ref && self.is_freeable_flat_value(&result.type_) {
@@ -4462,6 +4541,7 @@ impl CodeBuilder<'_> {
             // lowered (a plain store, an in-place append or set), as the
             // module-level store walks its global after a call (bug-806).
             if let NirOp::Assign { name, value } = op {
+                self.statement_temps.assign_target = None;
                 self.emit_assigned_container_float(name, value)?;
             }
             match Self::transfer_temp_disposition(op) {
@@ -4471,6 +4551,9 @@ impl CodeBuilder<'_> {
             self.reset_temporary_registers();
         }
         let scope_returns = self.current_block_returns();
+        // bug-1053: the lists of this scope whose drain takes records, in the order
+        // their drains ran; the records are freed after the scope's last cleanup.
+        let mut reclaiming = Vec::new();
         while self.active_cleanups.len() > cleanup_scope_start {
             let cleanup = self
                 .active_cleanups
@@ -4479,16 +4562,29 @@ impl CodeBuilder<'_> {
             if !scope_returns {
                 match cleanup {
                     ActiveCleanup::Resource(cleanup) => {
-                        self.emit_resource_cleanup_call(&cleanup)?
+                        self.emit_resource_cleanup_call(&cleanup)?;
+                        if cleanup.reclaim_slot.is_some() {
+                            reclaiming.push(ActiveCleanup::Resource(cleanup));
+                        }
                     }
                     ActiveCleanup::ResourceUnion(cleanup) => {
-                        self.emit_resource_union_cleanup_call(&cleanup)?
+                        self.emit_resource_union_cleanup_call(&cleanup)?;
+                        if cleanup.reclaim_slot.is_some() {
+                            reclaiming.push(ActiveCleanup::ResourceUnion(cleanup));
+                        }
                     }
-                    ActiveCleanup::OwnedList(cleanup) => self.emit_owned_list_drain(&cleanup)?,
+                    ActiveCleanup::OwnedList(cleanup) => {
+                        self.emit_owned_list_drain(&cleanup)?;
+                        if cleanup.reclaim_slot.is_some() {
+                            reclaiming.push(ActiveCleanup::OwnedList(cleanup));
+                        }
+                    }
                     ActiveCleanup::OwnedValue(cleanup) => self.emit_owned_value_drop(&cleanup)?,
                 }
             }
         }
+        reclaiming.reverse();
+        self.emit_owned_list_reclaims(&reclaiming)?;
         Ok(())
     }
 

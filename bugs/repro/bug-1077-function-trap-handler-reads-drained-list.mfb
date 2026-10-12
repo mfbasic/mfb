@@ -1,0 +1,72 @@
+IMPORT io
+IMPORT os
+IMPORT fs
+IMPORT tcp
+IMPORT collections
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+TYPE HB
+  h AS RES fs::File
+END TYPE
+
+TYPE HU
+  h AS RES Handle
+END TYPE
+
+FUNC openOne AS RES fs::File
+  RETURN fs::openFile("/tmp/g933/data.txt")
+END FUNC
+
+FUNC wrap(h AS fs::File) AS HB
+  RETURN HB[h]
+END FUNC
+
+FUNC rd(f AS fs::File) AS Integer
+  RETURN len(fs::readAll(f))
+END FUNC
+
+FUNC which(h AS Handle) AS Integer
+  MATCH h
+    CASE fs::File(f)
+      RETURN len(fs::readAll(f))
+    CASE tcp::Socket(s)
+      RETURN 2
+  END MATCH
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  MUT t AS Integer = 0
+  FOR i = 1 TO toInt(os::getEnvOr("N", "10"))
+    t = t + once()
+  NEXT
+  io::print(toString(t))
+  RETURN 0
+END FUNC
+
+FUNC boom(n AS Integer) AS Integer
+  IF n > 0 THEN
+    FAIL error(77, "boom")
+  END IF
+  RETURN 1
+END FUNC
+FUNC once() AS Integer
+  MUT xs AS List OF RES fs::File = []
+  MUT t AS Integer = 0
+  IF len("x") = 1 THEN
+    RES a AS fs::File = openOne()
+    xs = collections::append(xs, a)
+  END IF
+  t = t + boom(len(xs))
+  RETURN t
+  TRAP(e)
+    FOR EACH h IN xs
+      t = t + rd(h) + 1
+    NEXT
+    RETURN t
+  END TRAP
+END FUNC

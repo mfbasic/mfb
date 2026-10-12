@@ -123,13 +123,13 @@ const PUBLISH: &str = "_mfb_rt_canvas_canvas_publishScene";
 /// A scene built entirely inside a callee's frame, so nothing it names outlives
 /// the function that made it.
 const SOURCE: &str = "IMPORT app\n\
-     IMPORT canvas\n\
+     IMPORT canvas\n     IMPORT vector\n\
      IMPORT color\n\
      FUNC scene(f AS canvas::Font) AS List OF canvas::DrawItem\n\
     \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
-    \x20 LET pts AS List OF canvas::Point = [canvas::Point[x := 1.0, y := 2.0]]\n\
-    \x20 LET a AS canvas::DrawItem = canvas::Polygon[contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c)]\n\
-    \x20 LET b AS canvas::DrawItem = canvas::Text[x := 0.0, y := 0.0, text := \"hi\", font := f, size := 9.0, paint := canvas::fill(c)]\n\
+    \x20 LET pts AS List OF vector::Float2 = [vector::Float2[x := 1.0, y := 2.0]]\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET b AS canvas::DrawItem = canvas::Text[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], text := \"hi\", font := f, fontSize := 9.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 RETURN [a, b]\n\
      END FUNC\n\
      FUNC main AS Integer\n\
@@ -303,12 +303,12 @@ const SET_GROUP: &str = "_mfb_rt_canvas_canvas_setGroup";
 
 /// A program that installs a group and then removes one that was never installed.
 const GROUP_SOURCE: &str = "IMPORT app\n\
-     IMPORT canvas\n\
+     IMPORT canvas\n     IMPORT vector\n\
      IMPORT color\n\
      FUNC main AS Integer\n\
     \x20 app::setMode(app::Mode.Canvas)\n\
     \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
-    \x20 LET a AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(c)]\n\
+    \x20 LET a AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 canvas::setGroup(\"panel\", [a])\n\
     \x20 canvas::removeGroup(\"absent\")\n\
     \x20 RETURN 0\n\
@@ -480,26 +480,26 @@ fn the_group_table_is_absent_from_a_program_that_does_not_use_canvas() {
 #[test]
 fn published_polygon_rings_are_copied_not_aliased() {
     let source = "IMPORT app\n\
-         IMPORT canvas\n\
+         IMPORT canvas\n         IMPORT vector\n\
          IMPORT color\n\
          IMPORT collections\n\
          IMPORT io\n\
-         FUNC sq(x AS Float, y AS Float, s AS Float) AS List OF canvas::Point\n\
-        \x20 RETURN [canvas::Point[x := x, y := y], canvas::Point[x := x + s, y := y], canvas::Point[x := x + s, y := y + s], canvas::Point[x := x, y := y + s]]\n\
+         FUNC sq(x AS Float, y AS Float, s AS Float) AS List OF vector::Float2\n\
+        \x20 RETURN [vector::Float2[x := x, y := y], vector::Float2[x := x + s, y := y], vector::Float2[x := x + s, y := y + s], vector::Float2[x := x, y := y + s]]\n\
          END FUNC\n\
          FUNC layer() AS canvas::DrawLayer\n\
-        \x20 LET p AS canvas::DrawItem = canvas::Polygon[contours := [sq(500.0, 100.0, 200.0), sq(550.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0))]\n\
+        \x20 LET p AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(500.0, 100.0, 200.0), sq(550.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
         \x20 RETURN canvas::DrawLayer[items := [p]]\n\
          END FUNC\n\
          FUNC main() AS Nothing\n\
         \x20 app::setMode(app::Mode.Canvas)\n\
-        \x20 MUT p AS canvas::Polygon = canvas::Polygon[contours := [sq(100.0, 100.0, 200.0), sq(150.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255))]\n\
+        \x20 MUT p AS canvas::Polygon = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [sq(100.0, 100.0, 200.0), sq(150.0, 150.0, 100.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
         \x20 LET held AS canvas::DrawItem = p\n\
         \x20 canvas::setGroup(\"held\", [held])\n\
         \x20 p = WITH p { contours := collections::set(p.contours, 1, sq(110.0, 110.0, 20.0)) }\n\
         \x20 p = WITH p { contours := collections::append(p.contours, sq(400.0, 400.0, 50.0)) }\n\
         \x20 io::print(toString(len(p.contours)))\n\
-        \x20 LET g AS canvas::DrawItem = canvas::Group[name := \"held\", dx := 0.0, dy := 0.0]\n\
+        \x20 LET g AS canvas::DrawItem = canvas::Group[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"held\"]\n\
         \x20 canvas::presentLayers([canvas::DrawLayer[items := [g]], layer()])\n\
         \x20 io::print(\"rendered\")\n\
          END FUNC\n";

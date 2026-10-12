@@ -27,20 +27,21 @@ use std::process::Command;
 /// closes the font here and the group's text draws no glyphs.
 const DROPS_ITS_BINDING: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC install() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET tag AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170))]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("held", [tag])
 END FUNC
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   install()
-  canvas::present([canvas::Group[name := "held", dx := 0.0, dy := 0.0]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "held"]])
   RETURN 0
 END FUNC
 "#;
@@ -49,6 +50,7 @@ END FUNC
 /// group is drawn while the caller still owns the font either way.
 const KEEPS_ITS_BINDING: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main AS Integer
@@ -56,9 +58,9 @@ FUNC main AS Integer
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN 1
   END TRAP
-  LET tag AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170))]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("held", [tag])
-  canvas::present([canvas::Group[name := "held", dx := 0.0, dy := 0.0]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "held"]])
   RETURN 0
 END FUNC
 "#;
@@ -152,6 +154,7 @@ fn field(stats: &str, name: &str) -> u64 {
 /// it is why the free path closes only what no LIVE buffer names.
 const REBUILDS_EACH_FRAME: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main AS Integer
@@ -160,9 +163,9 @@ FUNC main AS Integer
     RETURN 1
   END TRAP
   FOR i = 1 TO 6
-    LET tag AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170))]
+    LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::setGroup("panel", [tag])
-    canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Rectangle[x := 0.0, y := toFloat(i), w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(1, 1, 1))]])
+    canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := toFloat(i)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
   NEXT
   RETURN 0
 END FUNC
@@ -178,11 +181,12 @@ END FUNC
 /// file descriptor to watch.
 const REPLACED_THEN_DROPPED: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 
 FUNC install(img AS canvas::Image) AS Nothing
-  LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET p AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 8.0, height := 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   canvas::setGroup("panel", [p])
 END FUNC
 
@@ -198,11 +202,11 @@ FUNC main AS Integer
   END TRAP
   io::print("OPEN-AFTER-INSTALL")
 
-  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0]])
-  canvas::setGroup("panel", [canvas::Rectangle[x := 0.0, y := 0.0, w := 20.0, h := 20.0, paint := canvas::fill(color::rgb(0, 200, 0))]])
-  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Rectangle[x := 30.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(1, 1, 1))]])
-  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Rectangle[x := 40.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(1, 1, 1))]])
-  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], canvas::Rectangle[x := 50.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(1, 1, 1))]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
+  canvas::setGroup("panel", [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 20.0, height := 20.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 200, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 30.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 40.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 50.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
 
   LET after AS canvas::Size = canvas::getSize(img) TRAP(e)
     io::print("CLOSED-BY-THE-GROUP")
@@ -226,11 +230,12 @@ END FUNC
 /// replacing slot's.
 const GROUP_AND_SCENE_SHARE: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 
 FUNC install(img AS canvas::Image) AS Nothing
-  LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET p AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 8.0, height := 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   canvas::setGroup("panel", [p])
 END FUNC
 
@@ -238,14 +243,14 @@ FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
   LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
-  LET scenePic AS canvas::DrawItem = canvas::Picture[x := 100.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET scenePic AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 100.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 8.0, height := 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   install(img)
 
-  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], scenePic])
-  canvas::setGroup("panel", [canvas::Rectangle[x := 0.0, y := 0.0, w := 20.0, h := 20.0, paint := canvas::fill(color::rgb(0, 200, 0))]])
-  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], scenePic, canvas::Rectangle[x := 30.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(1, 1, 1))]])
-  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], scenePic, canvas::Rectangle[x := 40.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(1, 1, 1))]])
-  canvas::present([canvas::Group[name := "panel", dx := 0.0, dy := 0.0], scenePic, canvas::Rectangle[x := 50.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(1, 1, 1))]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic])
+  canvas::setGroup("panel", [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 20.0, height := 20.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 200, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic, canvas::Rectangle[id := "", position := vector::Float2[x := 30.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic, canvas::Rectangle[id := "", position := vector::Float2[x := 40.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], scenePic, canvas::Rectangle[id := "", position := vector::Float2[x := 50.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
 
   LET after AS canvas::Size = canvas::getSize(img) TRAP(e)
     io::print("CLOSED-OUT-FROM-UNDER-THE-SCENE")
@@ -385,12 +390,13 @@ fn ownership_does_not_change_what_is_drawn() {
 /// point and `closed` at the second, which a close that fired early or never would break.
 const REMOVE_MID_FRAME: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 IMPORT os
 
 FUNC install(img AS canvas::Image) AS Nothing
-  LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 80.0, h := 80.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET p AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 80.0, height := 80.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   canvas::setGroup("panel", [p])
 END FUNC
 
@@ -400,8 +406,8 @@ FUNC main AS Integer
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
   install(img)
 
-  LET node AS canvas::DrawItem = canvas::Group[dx := 200.0, dy := 200.0, name := "panel"]
-  LET mark AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0))]
+  LET node AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 200.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET mark AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 700.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([mark, node])
 
   os::sleep(120)
@@ -417,7 +423,7 @@ FUNC main AS Integer
   os::sleep(1200)
   ' The reclaim runs at the top of `present`, so a present is what drains it.
   canvas::present([mark])
-  canvas::present([mark, canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(1, 1, 1))]])
+  canvas::present([mark, canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
 
   LET after AS canvas::Size = canvas::getSize(img) TRAP(e)
     io::print("CLOSED-AFTER")
@@ -446,12 +452,13 @@ END FUNC
 /// descriptor to watch either.
 const REMOVE_FONT_MID_FRAME: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 IMPORT os
 
 FUNC install(face AS canvas::Font) AS Nothing
-  LET tag AS canvas::DrawItem = canvas::Text[x := 40.0, y := 120.0, text := "AA", font := face, size := 64.0, paint := canvas::fill(color::rgb(230, 60, 170))]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [tag])
 END FUNC
 
@@ -463,8 +470,8 @@ FUNC main AS Integer
   END TRAP
   install(face)
 
-  LET node AS canvas::DrawItem = canvas::Group[dx := 0.0, dy := 0.0, name := "panel"]
-  LET mark AS canvas::DrawItem = canvas::Circle[x := 700.0, y := 500.0, radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0))]
+  LET node AS canvas::DrawItem = canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+  LET mark AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 700.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([mark, node])
 
   os::sleep(120)
@@ -480,7 +487,7 @@ FUNC main AS Integer
 
   os::sleep(1200)
   canvas::present([mark])
-  canvas::present([mark, canvas::Rectangle[x := 0.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(1, 1, 1))]])
+  canvas::present([mark, canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
 
   LET after AS canvas::TextMetrics = canvas::measureText(face, 64.0, "AA") TRAP(e)
     io::print("CLOSED-AFTER")
@@ -536,13 +543,14 @@ fn removing_a_group_mid_frame_keeps_the_font_until_the_frame_completes() {
 /// a green run that could not have failed.
 const CHURN_200: &str = r#"IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 
 FUNC cycle(n AS Integer) AS Nothing
   LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
-  LET p AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 8.0, h := 8.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET p AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 8.0, height := 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   canvas::setGroup("churn", [p])
 END FUNC
 
@@ -552,12 +560,12 @@ FUNC main AS Integer
   WHILE i < 200
     cycle(i)
     canvas::removeGroup("churn")
-    canvas::present([canvas::Rectangle[x := 0.0, y := toFloat(i - 100 * (i / 100)), w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(1, 1, 1))]])
+    canvas::present([canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := toFloat(i - 100 * (i / 100))], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
     i = i + 1
   END WHILE
   ' Two more presents so the last cycle's retirement drains too.
-  canvas::present([canvas::Rectangle[x := 8.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(2, 2, 2))]])
-  canvas::present([canvas::Rectangle[x := 16.0, y := 0.0, w := 4.0, h := 4.0, paint := canvas::fill(color::rgb(3, 3, 3))]])
+  canvas::present([canvas::Rectangle[id := "", position := vector::Float2[x := 8.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(2, 2, 2)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Rectangle[id := "", position := vector::Float2[x := 16.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(3, 3, 3)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
   io::print("CHURN-DONE")
   RETURN 0
 END FUNC

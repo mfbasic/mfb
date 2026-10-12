@@ -46,6 +46,7 @@ a list literal does not span source lines:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -53,34 +54,44 @@ FUNC main() AS Nothing
   LET yellow AS color::Color = color::rgb(255, 255, 0)
   LET green AS color::Color = color::rgb(0, 160, 0)
 
-  LET face AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
-  LET eyeL AS canvas::DrawItem = canvas::Circle[x := 150.0, y := 160.0, radius := 22.0, paint := canvas::fill(green)]
-  LET eyeR AS canvas::DrawItem = canvas::Circle[x := 250.0, y := 160.0, radius := 22.0, paint := canvas::fill(green)]
+  LET face AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 200.0, y := 200.0], radius := 150.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET eyeL AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 150.0, y := 160.0], radius := 22.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET eyeR AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 250.0, y := 160.0], radius := 22.0, paint := canvas::fill(green), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   ' 0 -> PI sweeps downward under a Y-down origin, so this is a smile.
-  LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }]
+  LET smile AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := 200.0, y := 215.0], radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   canvas::present([face, eyeL, eyeR, smile])
 END FUNC
 ```
 
 The eyes as ellipses instead, half-closed and tilted — the case a `canvas::Circle`
-cannot express and a `canvas::Polygon` would only approximate. `angle` turns each about
-its own centre, clockwise from +X, so the two lean towards each other:
+cannot express and a `canvas::Polygon` would only approximate. Each is turned by its
+`transform`: a rotation, clockwise from +X. A transform turns a shape about its
+`position`, which for an ellipse is its centre, so the two eyes lean towards each other
+without moving:
 
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
+IMPORT math
+
+FUNC turn(angle AS Float) AS canvas::Transform
+  LET co AS Float = math::cos(angle)
+  LET si AS Float = math::sin(angle)
+  RETURN canvas::Transform[a := co, b := si, c := 0.0 - si, d := co, tx := 0.0, ty := 0.0]
+END FUNC
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET yellow AS color::Color = color::rgb(255, 255, 0)
   LET green AS color::Color = color::rgb(0, 160, 0)
 
-  LET face AS canvas::DrawItem = canvas::Circle[x := 200.0, y := 200.0, radius := 150.0, paint := canvas::fill(yellow)]
-  LET eyeL AS canvas::DrawItem = canvas::Ellipse[x := 150.0, y := 160.0, radiusX := 30.0, radiusY := 12.0, angle := 0.0 - 0.35, paint := canvas::fill(green)]
-  LET eyeR AS canvas::DrawItem = canvas::Ellipse[x := 250.0, y := 160.0, radiusX := 30.0, radiusY := 12.0, angle := 0.35, paint := canvas::fill(green)]
-  LET smile AS canvas::DrawItem = canvas::Arc[x := 200.0, y := 215.0, radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Round }]
+  LET face AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 200.0, y := 200.0], radius := 150.0, paint := canvas::fill(yellow), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET eyeL AS canvas::DrawItem = canvas::Ellipse[id := "", position := vector::Float2[x := 150.0, y := 160.0], radiusX := 30.0, radiusY := 12.0, paint := canvas::fill(green), transform := turn(0.0 - 0.35)]
+  LET eyeR AS canvas::DrawItem = canvas::Ellipse[id := "", position := vector::Float2[x := 250.0, y := 160.0], radiusX := 30.0, radiusY := 12.0, paint := canvas::fill(green), transform := turn(0.35)]
+  LET smile AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := 200.0, y := 215.0], radius := 90.0, startAngle := 0.0, endAngle := 3.14159, paint := WITH canvas::stroke(green, 14.0) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   canvas::present([face, eyeL, eyeR, smile])
 END FUNC
@@ -88,7 +99,32 @@ END FUNC
 
 Give an ellipse equal radii and it is a circle — exactly, not nearly — so an animation
 that squashes a circle can hold one item type throughout rather than switching at the
-moment the radii happen to match."#;
+moment the radii happen to match.
+
+A button that lights up under the mouse. It is presented once, and from then on the
+window shows its `hoverPaint` while the mouse rests on it and its `pressedPaint` while
+a mouse button is held on it — with no further code, and even while the program is busy
+or waiting. A `canvas::AutoPaint` has no default value, so every field is written out;
+the two flashes are switched off here, and their paints are never shown:
+
+```
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT box AS canvas::Rectangle
+  box = WITH box { id := "ok", position := vector::Float2[x := 100.0, y := 100.0], size := canvas::Size[width := 200.0, height := 80.0], paint := canvas::fill(color::rgb(40, 90, 200)) }
+  LET unused AS canvas::Paint = canvas::fill(color::rgb(0, 0, 0))
+  LET button AS canvas::AutoPaint = canvas::AutoPaint[shape := box, useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := TRUE, enterPaint := unused, exitPaint := unused, hoverPaint := canvas::fill(color::rgb(70, 130, 255)), pressedPaint := canvas::fill(color::rgb(20, 50, 140))]
+  LET item AS canvas::DrawItem = button
+
+  canvas::present([item])
+END FUNC
+```
+"#;
 
 /// Publish, then render only if the publish actually changed anything.
 ///
@@ -103,6 +139,18 @@ r#"' plan-116-G: the resolved-groups signature of the LAST present, so a `setGro
 ' MFBASIC globals are per-thread (`.ai/canvas-threading.md` section 2). The graphics
 ' thread has its own zeroed copy and never reads this one.
 MUT __CANVAS_LAST_GROUP_SIG AS List OF Integer = []
+
+' plan-172-I: what `canvas::pollMouse` asks about the scene this thread last presented
+' before it builds anything for it (`helper_hit.rs`). Worker-thread globals, like the
+' signature above.
+'
+' `__CANVAS_SCENE_REV` counts the presents that changed something -- the scene's items
+' or a group they name -- so a draw list built for one revision is known stale at the
+' next. `__CANVAS_SCENE_IDS` is `canvas::sceneIdBits` of that scene: 0 when no item has
+' an `id` and none is a group node, which is every scene written before `id` existed,
+' and such a scene costs a poll one compare.
+MUT __CANVAS_SCENE_REV AS Integer = 0
+MUT __CANVAS_SCENE_IDS AS Integer = 0
 
 FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
   ' Two independent reasons to redraw, and both must be consulted.
@@ -153,8 +201,10 @@ FUNC __canvas_present(items AS List OF DrawItem) AS Nothing
   __canvas_ensureGraphics()
   canvas::notePresent(canvas::frameNanos())
   IF installed OR moved THEN
+    __CANVAS_SCENE_REV = __CANVAS_SCENE_REV + 1
+    __CANVAS_SCENE_IDS = canvas::sceneIdBits(items)
     canvas::publishHashes(__canvas_hashScene(items, carried))
-    canvas::signalRedraw()
+    canvas::signalRedraw(FALSE)
     canvas::syncFrame()
   END IF
 END FUNC"#;

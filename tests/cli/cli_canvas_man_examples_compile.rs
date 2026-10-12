@@ -125,3 +125,58 @@ fn every_canvas_man_example_compiles() {
         failures.join("\n")
     );
 }
+
+/// The fenced example of `mfb man canvas <member>` that contains `needle`: the indented
+/// run around it, bounded by the unindented prose on either side.
+fn example_containing(member: &str, needle: &str) -> String {
+    let output = Command::new(common::mfb_exe())
+        .arg("man")
+        .arg("canvas")
+        .arg(member)
+        .output()
+        .unwrap_or_else(|e| panic!("run mfb man canvas {member}: {e}"));
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    let lines: Vec<&str> = text.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| line.contains(needle))
+        .unwrap_or_else(|| panic!("canvas::{member} has no example containing `{needle}`"));
+    let is_code = |line: &str| line.starts_with("  ") || line.trim().is_empty();
+    let mut first = at;
+    while first > 0 && is_code(lines[first - 1]) {
+        first -= 1;
+    }
+    let mut last = at;
+    while last + 1 < lines.len() && is_code(lines[last + 1]) {
+        last += 1;
+    }
+    let code: Vec<&str> = lines[first..=last]
+        .iter()
+        .map(|line| line.strip_prefix("  ").unwrap_or(""))
+        .collect();
+    format!("{}\n", code.join("\n").trim())
+}
+
+/// plan-172-K: the `canvas::AutoPaint` example. A record has no man page of its own to
+/// carry one, so it is on `canvas::present` — the call an `AutoPaint` is handed to —
+/// and it is not that page's FIRST example, which is the only one the test above
+/// compiles. So this compiles it by what it contains.
+#[test]
+fn the_autopaint_example_compiles() {
+    let source = example_containing("present", "canvas::AutoPaint[");
+    assert!(source.contains("FUNC main() AS Nothing"), "{source}");
+    let project = common::temp_project("canvas_ex_autopaint", &source);
+    let output = Command::new(common::mfb_exe())
+        .arg("build")
+        .arg("-app")
+        .arg(&project)
+        .output()
+        .expect("run mfb build -app");
+    let _ = fs::remove_dir_all(&project);
+    assert!(
+        output.status.success(),
+        "the canvas::AutoPaint example does not compile:\n{source}\n{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

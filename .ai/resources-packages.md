@@ -60,6 +60,36 @@ The owned-list drain only fires when the `RES` elements FLOAT — produced in an
 3. **Builtin call-site resolver** (`builtins/http.rs` ready/pump/done/finish): match the BASE name — a call-site stream is spelled `Stream STATE PendingState`, so an exact match resolves to `Unknown` (FATAL when the TRAP desugar binds an intermediate `$trap_val` of that type: "no native storage class for 'Unknown'").
 4. **Default-value materializer** (`builder_value_semantics.rs:lower_default_value`): a diverging-handler union `RES x = <fallible> TRAP` had no closed default — materialize a closed `{tag@0,record-ptr@8}` (any variant tag; closed → drop is a no-op), STATE init via `emit_resource_record_ptr`.
 
+### An owned-list drain has three modes, and the free is split from the close
+
+`OwnedListCleanup` decides per list (`setup_owned_list`): **proved** the one holder
+(`owns_elements`, `record_ownership::owning_collections`) → the drain closes and frees
+in one walk; **unproved** → the drain closes each record its scope owns, writes
+`RESOURCE_OWNER_TAKEN` into its owner word and moves the node to a reclaim list
+(`reclaim_slot`), and `emit_owned_list_reclaims` frees the taken records after the
+LAST cleanup of the exit; **close-only** → only where a reference can leave without a
+raise (`record_ownership::runtime_reclaim`, both asked of the one function: it
+creates a `LAMBDA` that assigns a by-ref captured container, or it has an outward
+assignment the store-time raise does not cover). Things that bite:
+
+- **A new exit path must emit the reclaim after its drops.** `emit_cleanups` does;
+  `emit_cleanup_branch_to_depth` and the scope end in `lower_ops_inner` do it by hand;
+  the error-return landing pads drop ONE cleanup each (`emit_cleanup_drops`), so their
+  reclaim is the last pad's, generated in `append_error_return_pads` over every
+  reclaiming list of the function. A path that forgets leaks (the slot is drained by
+  the next walk), it does not crash.
+- **Nothing may free a taken record but the reclaim, and nothing may read more than
+  its owner word.** A cleanup that runs after the take sees a word that is not its
+  token and skips; that is the whole dedup.
+- **The trap route keeps function-level lists** (`trap_shared`): the handler still
+  reads the container, so the route closes in place and the handler's exit drains.
+- **The BLOCK of a `List`/`Map OF RES T` is a separate, static verdict**
+  (`block_owning_collections`, `CollectionUses::block_kept`): a second reader of an
+  ELEMENT is no holder of the block.
+- A leaf with nothing to reclaim (a `canvas` image/font: no record free, no buffers,
+  no `STATE`) gets no reclaim slot, which is what keeps the canvas helpers' code
+  byte-identical.
+
 ### Scope-drop frees owned flat values
 
 Two pieces landed together: **copy-insertion** `lower_value_owned` (`builder_values.rs`) deep-copies (`copy_flat_block`) an aliasing source at `LET`/`MUT`/`StoreGlobal`/`Assign`/closure-capture/`RETURN` (aliasing sources = `Local`/`Global`/`Capture`/`MemberAccess`/`UnionExtract`/`Result{Value,Error}` AND static `String` constants); **frees** `ActiveCleanup::OwnedValue` (`emit_owned_value_drop`) at every scope exit for `is_freeable_flat_value` locals (returned named local = move, no copy). Gotchas (each a loud crash, never silent):
@@ -296,7 +326,7 @@ that follow, and that a `grep` for `ctype` will not tell you:
 - **`add_helper` / `helper_*.rs` is for PRIVATE helpers only.** A public member's MFBASIC body is a `RegistryFunction` with `Body::mfb(BODY, "__pkg_name")` in `func_*.rs`; that registration is what puts it in `mfb man`.
 - **Build generic signatures, don't parse them**: `ParameterType::var("T")`, `list_of`, `map_of`, `func`. `ParameterType::parse` reads a bare `T` as a `Named` type.
 - **`RegistryPackage::get_mfb` renders in a fixed order**: imports, records, unions, enums, `Always` helpers, `Body::Mfb` bodies. Reordering only renumbers `.ir` lines.
-- **`HelperGate` controls injection**: `Always`, `WhenUsed(&[names])` (keeps a heavy table out of programs that never call it), `WhenImported(pkg)`, `WhenBothImported(a, b)` (a bridge such as `term`↔`astrings`). A gated chunk's functions are file-local, so functions that call each other must share a chunk.
+- **`HelperGate` controls injection**: `Always`, `WhenUsed(&[names])` (keeps a heavy table out of programs that never call it), `WhenImported(pkg)`, `WhenBothImported(a, b)` (a bridge such as `term`↔`astrings`). `WhenUsedOrConstructed(calls, records)` also opens when the program CONSTRUCTS one of the records — the gate for code that serves a value type rather than a call (canvas's `AutoPaint`) — and `WhenNotConstructed(records)` is its complement, carrying the bodies the unconditional source calls when that chunk is absent. The complement is keyed on the records ALONE, so a chunk gated on calls as well must not define a function the complement also defines: a program that makes the call without constructing the record gets both (`a_constructed_record_opens_its_gate_and_closes_the_complement`). A gated chunk's functions are file-local, so functions that call each other must share a chunk.
 - `RegistryRecord` has a `description` that renders into source; unions and enums don't.
 
 ## A builtin value type has two spellings

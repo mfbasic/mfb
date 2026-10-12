@@ -5,12 +5,29 @@ The 2D drawing surface `app::setMode(Mode.Canvas)` presents, and the model the
 is, what installing one guarantees, and how images live; the per-call API is
 `./mfb man canvas`, and the mode itself is `./mfb spec app presentation-mode`.
 
+## Coordinates are `vector::Float2`
+
+Every coordinate pair in the package — a gradient's `startPoint`, `endPoint` and
+`focalOffset`, a `Paint.clip` ring, a `Polygon`'s contours, a `PolyLine`'s points and
+`MouseEvent.position` — is a `vector::Float2`, the two-`Float` record `x`, `y` owned by
+`vector`. The package's own `Point` record is gone; naming it is `SYMBOL_UNKNOWN_IDENTIFIER`.
+[[src/codegen/builtins/vector/mod.rs:FLOAT2_TYPE_ID]]
+
+`canvas` imports `vector` itself, and `vector`'s source is injected by its own late
+pass, so a program that imports only `canvas` still builds.
+[[src/codegen/builtins/vector/mod.rs:augmented_project]] Imports are not transitive,
+though: a program that constructs a pair, or reads `.x` / `.y` from one, must write
+`IMPORT vector` (`./mfb spec language modules-and-packages`). The import brings in the
+whole of `vector`'s source; for a program that presents an empty scene that is 330,236
+bytes of executable on macOS aarch64.
+
 ## Retained, not immediate
 
 `canvas` is a **retained scene**: a program builds a `List OF DrawItem` and
 installs it with `canvas::present`, and the runtime redraws that scene when a
 present changes it, on resize, and on OS damage — until the next `present`
-replaces it. Time is not a trigger and no backend waits for the display: a frame
+replaces it. Time is a trigger in one bounded case — a `canvas::AutoPaint` inside its
+enter or exit window (below, "AutoPaint") — and no backend waits for the display: a frame
 is drawn when one is owed, never on a display-refresh tick.
 [[src/codegen/builtins/canvas/mod.rs:CANVAS]]
 
@@ -28,8 +45,10 @@ present-diff. The consequences are the point:
   its contents rather than a call ordering. Re-presenting an unchanged item
   re-uses its cached geometry.
 
-The comparison is exact rather than hashed: both sides are shrink-to-fit copies,
-so equal content is equal bytes and there are no collisions to reason about.
+The comparison is exact rather than hashed — the two scenes' contents, element
+for element — so there are no collisions to reason about. It is of CONTENT, not of
+whole blocks: two shrink-to-fit copies of one scene need not be equal bytes
+(`.ai/canvas-threading.md` section 3.1).
 
 ### Flat or layered
 
@@ -45,6 +64,54 @@ that moved costs anything.
 A scene is exactly one shape at a time: installing one replaces the other, so
 switching shapes always publishes. Both calls share one implementation and
 therefore one set of guarantees; they differ only in what they copy.
+
+### The item unions
+
+What a scene holds is three nested unions, each a registry union that `INCLUDES` the
+one before it (`./mfb spec language types`):
+
+| Union | Members | What it is for |
+|---|---|---|
+| `canvas::Shape` | `Rectangle`, `Line`, `Polygon`, `Circle`, `Arc`, `Text`, `Ellipse`, `PolyLine` | the eight things drawn with a paint of their own; what an `AutoPaint` wraps |
+| `canvas::AutoShape` | `Shape`'s eight, then `AutoPaint` | a shape, plain or decorated |
+| `canvas::DrawItem` | `AutoShape`'s nine, then `Picture`, `Group` | what `present` takes |
+
+An included union's members come first, in its own order, so the three share tags: a
+`Rectangle` is tag 0 in all of them, an `AutoPaint` tag 8 in the two that have it. The
+order is pinned by three tests, one per union.
+[[src/codegen/builtins/canvas/mod.rs:draw_item_variant_set_is_frozen]]
+`INCLUDES` is not subtyping: a `Shape` value is not a `DrawItem`, but each member record
+is a member of every union that reaches it, which is why `canvas::Rectangle[...]` is
+accepted where either is expected.
+[[src/codegen/registry/mod.rs:union_has_member]]
+
+Nothing may depend on a tag's number. The native walks that branch on a variant ask the
+type model for its tag by name, and each keeps a list of the variants it handles and the
+variants it leaves to the MFBASIC path; a variant in neither fails the build.
+[[src/codegen/builtins/canvas/func_item_hash.rs:NOT_HASHED]]
+
+A `canvas::AutoPaint` holds a `Shape` and draws it. It has no `id`, no `position`, no
+`paint` and no `transform` of its own — the shape's are its — so wherever a shape is
+what is asked about (what is drawn, where it is hit, which `id` is reported, which font
+is named), every `MATCH` over `DrawItem` answers its `AutoPaint` arm with the shape
+(`__canvas_autoItem`). [[src/codegen/builtins/canvas/helper_autopaint.rs:RESOLVE]]
+Its `shape` field is a union, so the record has no default value: an `AutoPaint` is
+written as a full literal, not built up from `MUT a AS canvas::AutoPaint`. It is hashed
+in MFBASIC — its shape's hash, its four flags and its four paints — and it is never
+carried from the previous scene's hashes, because the shape it wraps may be a `Text`,
+whose hash folds its font's id.
+[[src/codegen/builtins/canvas/func_carried_hashes.rs:lower_carried_hashes]]
+
+A `canvas::Picture` holds an `AutoShape` and draws an image inside it (*A picture is
+drawn inside a shape*, below). It has an `id` of its own and nothing else a shape has:
+no `position`, `paint` or `transform`. Its `shape` field is the one union the native
+hash folds. The picture's other fields are folded first; then the shape's tag is
+folded and the walk branches back to its own variant dispatch with the shape's record
+in place of the item's, which folds that record and finishes — one pass, and no second
+copy of any variant's fold. A shape the walk does not hash (a `Text`, an `AutoPaint`)
+falls out of the dispatch as −1, as it would on its own, and the picture is hashed in
+MFBASIC (`__canvas_pictureHash`).
+[[src/codegen/builtins/canvas/func_item_hash.rs:emit_item_hash]]
 
 ## A published scene points at nothing caller-owned
 
@@ -95,12 +162,124 @@ direction that makes a `0`..`PI` arc sweep *below* its centre.
 The convention is stated because an arc is the one primitive where getting it
 wrong is silent: a smile renders as a frown rather than failing.
 
-`Ellipse.angle` follows the same rule: it rotates the ellipse about its own centre,
-clockwise from +X, so a positive angle turns the long axis towards the bottom-right.
-`0.0` leaves `radiusX` along the surface's X axis. An ellipse is therefore *placed* by
-`x`/`y` and *oriented* by `angle`, independently — and `radiusX = radiusY` with
-`angle := 0.0` renders identically to the `Circle` of that radius, so squashing a
-circle does not mean changing item type.
+An `Ellipse` has no angle of its own. `radiusX` lies along the X axis and `radiusY`
+along the Y axis, and it is turned, like every other item, by its `transform` (below);
+header slots 39 and 40, which carried the cosine and sine of the old `angle` field,
+are written as the identity rotation, 1 and 0.
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]] `radiusX = radiusY`
+renders identically to the `Circle` of that radius, so squashing a circle does not mean
+changing item type.
+
+### Placement
+
+Every shape is placed by `position`: the centre for a `Circle`, an `Ellipse` and an
+`Arc`, the left end of the baseline for a `Text`,
+for a `Rectangle` the point its `bind` names — its top-left corner (`BindTo.TopLeft`,
+the zero value) or its centre (`BindTo.Center`) — and for a `Line`, a `Polygon` and a
+`PolyLine` the point their points are measured from. Their geometry is **local** — it
+has its origin at that reference point — and a local point `p` reaches the surface at
+
+    position + transform(p)
+
+before any enclosing group's translation. So the transform **pivots about the reference
+point**: a rotation turns a circle, an ellipse or an arc about its centre, a text about
+the start of its baseline, a `Center` rectangle in place and a `TopLeft` one about that
+corner; and `transform.tx` / `ty` add to `position`.
+
+**The point-list shapes hold offsets.** A `Line`'s `startAt` and `endAt`, every vertex
+of a `Polygon`'s `contours` and every point of a `PolyLine`'s `points` is an offset from
+the item's `position`. `position` is a reference point of the program's choosing and
+need not be a vertex: a polygon whose points surround `(0, 0)` turns about its middle,
+and one whose `position` is the surface origin has its points in surface pixels. A
+`Line` names three points for that reason — its `position` is the pivot, and it can be
+anywhere along the line or off it.
+
+`paint.clip` rings and a gradient's `startPoint` and `endPoint` are in the same local
+space, so a shape moves whole when only its `position` changes — its clip and its ramp
+go with it. `focalOffset` was always an offset from `startPoint` and is unchanged.
+
+The builders do not apply that formula uniformly, and the difference is not observable:
+
+* **A transform that is not in effect** — all-zero, or with no area (`|a·d − b·c| <
+  1e-12`), the two cases that are the identity — builds the shape **at** `position`.
+  The geometry record holds surface coordinates, the clip rings and gradient points
+  have `position` added as the record is built, and `hasTransform` stays 0. This is the
+  record an item at those surface coordinates has always had, so it keeps the native
+  builder, the rectangular clip and direct antialiasing.
+  [[src/codegen/builtins/canvas/helper_paint_defaults.rs:TRANSFORM_ACTIVE]]
+* **A transform in effect** builds the shape at the local origin, leaves the clip and
+  gradient points local, and carries all of it by the affine with the transform's linear
+  part and the translation `position + (tx, ty)`.
+  [[src/codegen/builtins/canvas/helper_paint_defaults.rs:PLACEMENT]]
+
+Building every positioned shape the second way would send each one down the transformed
+path to draw the same pixels. The native builder takes only items whose transform is
+all-zero, so for it the offset is always `position`; it adds that to every clip point
+and to every point of a `Line`, `Polygon` or `PolyLine` as it reads it, as the MFBASIC
+builder does, including when it is zero.
+[[src/codegen/builtins/canvas/helper_paint_defaults.rs:PLACED_PAINT]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:placed_point]]
+
+For a point-list shape built at its position, the record is the one the same shape has
+with `position` at the origin and the position added to each point: each point is moved
+first, and the edge vectors, the bounds, the joins and the dashes are computed from the
+moved points. `PolyLine`'s test for a segment with length is made on the moved points
+too. So moving such a shape by its `position` and moving it by rewriting its points
+draw the same frame, byte for byte, when the sums are exact.
+[[src/codegen/builtins/canvas/helper_paint_defaults.rs:PLACED_PAINT]]
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_TAIL]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:fill_polygon]]
+[[src/codegen/builtins/canvas/func_geo_build.rs:emit_polyline_scan]]
+[[tests/canvas/rt_canvas_rasteriser.rs:path_placement_a_clipped_polygon_moves_whole_with_its_position]]
+
+### A rectangle's corners
+
+A `Rectangle` has a radius for each corner, and one value has two meanings chosen by
+its size:
+
+| Radius `r` | Corner |
+|---|---|
+| `r <= 0` | square |
+| `0 < r <= 1` | a fraction of the half-size: an ellipse quadrant `r * width / 2` across and `r * height / 2` down |
+| `r > 1` | pixels: a circular corner of radius `min(r, width / 2, height / 2)` |
+
+The jump at 1 is intended: `1.0` is the full pill and `1.01` a one-pixel corner, so a
+radius animated in pixels starts above 1. A circular corner under one pixel cannot be
+written. [[src/codegen/builtins/canvas/helper_shapes.rs:CORNERS]]
+
+How the outline is built depends only on what the four corners resolve to, and is one
+of three paths:
+
+1. **Four square corners** — the rectangle record (kind 0, radius 0).
+2. **Four corners that are one circular radius** — the same record with that radius in
+   slot 6: a box distance less the radius, exact on all three renderers. This is the
+   record a rounded rectangle has always been, byte for byte. Four equal fractional radii on a
+   square rectangle are this path too, since the ellipse they describe is a circle.
+3. **Anything else** — per-corner radii, or an elliptical corner. The outline is
+   flattened to one clockwise ring and the item is a polygon record (kind 4), so it
+   strokes, joins, dashes and clips as a polygon does, with no new geometry kind and no
+   shader change. The ring starts on the top edge where it leaves the top-left corner —
+   where a rounded rectangle's dashes have always started — so a dashed outline begins
+   at the same place on every path. Each rounded corner is a quadrant cut into the
+   fewest segments, between 4 and 32, for which a chord of a circle of the corner's
+   larger radius stays within 0.05 px of the arc; the bound holds up to a radius of
+   about 166 px and grows with the radius beyond it (0.3 px at 1,000). Two corners
+   whose radii along a shared side sum to more than the side are scaled back together.
+   The error is in local pixels: a transform or group that scales the shape scales it.
+   [[src/codegen/builtins/canvas/helper_shapes.rs:RRECT_RING]]
+
+The native builder draws paths 1 and 2 only when the four radii are equal and are
+either all `<= 0` or all `> 1`; every other rectangle is built by the MFBASIC builder.
+[[src/codegen/builtins/canvas/func_geo_build.rs:emit_rect_inputs]]
+
+A `Picture`'s record is always the rectangle record of paths 1 and 2 re-kinded, never
+path 3's polygon, whatever its shape: the image is sampled from the rectangle in the
+record's own slots (*A picture is drawn inside a shape*, which is also where its
+radius slot is put to another use).
+
+`canvas::Size` — a rectangle's `size`, and what `canvas::getSize`
+returns — is two `Float`s. A shape's extent may be a fraction of a pixel; the
+surface's and an image's are whole numbers held as Floats.
 
 ## Rendering conventions
 
@@ -368,8 +547,9 @@ The cap travels as header slot 34 (0 `Butt`, 1 `Round`, 2 `Square`), written by 
 [[src/codegen/runtime/canvas/mod.rs:emit_square_cap_reach]]
 
 **`join` shapes the corners**: every vertex where two edges of a `Polygon` ring or a
-`PolyLine` meet, and a `Rectangle`'s or `Picture`'s four corners. A `RoundedRect` has
-none.
+`PolyLine` meet, and a `Rectangle`'s four corners when they are square — a plain `Picture`'s record is that rectangle's. A rectangle with
+one circular radius has no corners to join; one drawn from a flattened ring (above)
+is joined at every vertex of the ring.
 
 * `Round` is the distance field's own corner: the stroke is `|d| − half` of the outline's
   distance, and the distance to a corner is round. An undashed `Round` stroke builds no
@@ -415,10 +595,10 @@ outline starts, taken modulo the pattern's length (and may be negative).
   length, and a stroke that draws nothing all draw solid — SVG treats a negative entry as
   an error and draws solid, and so does this, on purpose.
 * **Where `s = 0` is.** Every point of the outline has a perimeter position `s`: a `Line`
-  from `(x1, y1)`; an `Arc` from `startAngle`; a `PolyLine` from `points[0]`; each
+  from `startAt`; an `Arc` from `startAngle`; a `PolyLine` from `points[0]`; each
   `Polygon` ring from its own first point (each ring restarts the pattern, as SVG
-  restarts it per subpath); a `Rectangle` or `Picture` from its top-left corner,
-  clockwise (towards +X under Y-down); a `RoundedRect` from the left end of its top
+  restarts it per subpath); a `Rectangle` (and so a plain `Picture`) from its top-left corner,
+  clockwise (towards +X under Y-down); a rounded `Rectangle` from the left end of its top
   straight side, clockwise; a `Circle` or `Ellipse` from angle 0 (+X in its own frame),
   the way angles increase.
 * **An outline of edges is cut edge by edge.** A pixel's position on an edge is its
@@ -432,7 +612,7 @@ outline starts, taken modulo the pattern's length (and may be negative).
   *nearest* outline point instead would be discontinuous on a corner's inner side, where
   the nearest edge is the second one while the first edge's band, still inside its dash,
   is what covers the pixel in SVG.
-* **A curve is cut at its nearest point.** A `Circle`, `Arc`, `Ellipse` or `RoundedRect`
+* **A curve is cut at its nearest point.** A `Circle`, `Arc`, `Ellipse` or a `Rectangle` with one circular radius
   has no corner: its `s` is the perimeter position of the pixel's nearest outline point,
   and `along` is measured in outline length there, so a dash end is cut along the
   outline's normal to within the band's curvature (`half / radius` of the antialiasing
@@ -477,7 +657,8 @@ outline's position rather than its coordinates'.
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:dashedStroke]]
 
 **A `Polygon` is one or more closed rings filled under its `rule`.** `contours` is a
-`List OF List OF Point`; each ring closes from its own last point back to its own first.
+`List OF List OF vector::Float2`, each point an offset from `position` (Placement,
+above); each ring closes from its own last point back to its own first.
 A ring of fewer than 2 points contributes no edge and no bounds; a 2-point ring
 contributes its two coincident edges, so it has no area and draws only its stroke; an
 item none of whose rings contributes builds the empty header and draws nothing. Every
@@ -506,7 +687,8 @@ so glyph outlines are always filled even-odd.
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeCrossing32]]
 [[src/target/macos_aarch64/app/metal.rs:edgeCrossing32]]
 
-**A `PolyLine` is the union of its segments' round-capped bands.** For `n` points it
+**A `PolyLine` is the union of its segments' round-capped bands.** Its `points` are
+offsets from `position` (Placement, above). For `n` points it
 strokes the `n − 1` segments `P[i] → P[i+1]`, and its distance is the minimum of the
 segments' distances. A minimum of round-capped bands is what makes every interior corner
 round, so the round join needs no code of its own. Each segment is measured with
@@ -542,7 +724,7 @@ still comes from the round walk, so it stays continuous round a corner.
 * **Fill is ignored**, as for `Line`: the stroke is carried in the fill slots and slot 7
   is negative. So `Paint.fill` and `Paint.gradient` never reach a polyline.
 
-**`Paint.transform` maps the item's coordinates onto the surface.** The item is
+**An item's `transform` maps its coordinates onto the surface.** Each of the eight shapes carries one as its last field, and a `Group` carries one before its `name`; `Paint` has none, and an `AutoPaint` and a `Picture` have their shape's. Every `DrawItem` variant but `AutoPaint` has an `id` as its first field. The item is
 drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,
 b*x + d*y + ty)`. The all-zero transform is the identity (above), so an item that
 never sets one is unaffected.
@@ -575,16 +757,19 @@ specified separately: each pixel of the run's transformed bounds samples the gly
 coverage at its inverse-mapped point. The result is the same rule stated for shapes,
 and a rotated label is a rotated label on every backend.
 
-**A `Picture` is a rectangle whose fill colour is its image.** Its coverage, its
-antialiased edge, its stroke, `Paint.clip`, `Paint.blend`, `Paint.transform` and a
-group's translation are exactly those of a `Rectangle` with the same `x, y, w, h` —
+**A picture record is a rectangle whose fill colour is its image.** Its coverage, its
+antialiased edge, its stroke, `Paint.clip`, `Paint.blend`, its transform and a
+group's translation are exactly those of a square-cornered `Rectangle` —
 the geometry is built as one and re-kinded. Only the fill colour differs: at each pixel
 the image is sampled at the shape-space point (the inverse-mapped point under a
 transform, the group-relative one inside a group), **nearest**, as texel
-`(floor((px - x) * width / w), floor((py - y) * height / h))` clamped to the image. It
+`(floor((px - x) * width / w), floor((py - y) * height / h))` clamped to the image,
+`(x, y, w, h)` being the rectangle in the record's slots 2 to 5. It
 is nearest for the reason a transformed glyph is: `floor` and `+ - * /` only, so every
 backend picks the same texel; a bilinear filter would change edge bytes between
-renderers unless all three shared identical fixed-point weights.
+renderers unless all three shared identical fixed-point weights. Which rectangle that
+is, and what else a `canvas::Picture` item draws, is *A picture is drawn inside a
+shape*, below.
 
 The texel is then **tinted** by `Paint.fill`, whose alpha is the tint's strength, not
 the picture's opacity. Each colour channel moves from the texel towards the product
@@ -600,6 +785,7 @@ alone: `(texel.alpha * (255 - T) + 127) / 255`, `T` the transparency step below.
 fill's alpha never fades it. `Paint.gradient` is ignored — the image, not a ramp,
 fills a picture. An item whose image has been closed draws nothing (see *Images are
 named, not embedded*).
+[[src/codegen/builtins/canvas/helper_picture.rs:PICTURE]]
 [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
 [[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
@@ -617,14 +803,14 @@ texels.
 [[src/codegen/runtime/canvas/vulkan.rs:emit_picture_lookup]]
 
 **`Paint.clip` restricts an item to the area its rings enclose.** `clip` is a
-`List OF List OF Point`, each inner list a closed ring exactly as a `Polygon`'s
+`List OF List OF vector::Float2`, each inner list a closed ring exactly as a `Polygon`'s
 `contours` are, and `Paint.clipRule` decides which points the rings enclose as a
 polygon's `rule` decides its fill (`EvenOdd`, the zero value, or `NonZero`). The empty
 list, the zero value, is no clip. A clip that is not empty but encloses nothing — every
 ring under two points, or a rectangle of no area — **hides the item**: a clip the
 program wrote and that covers nothing is shown as such, never quietly dropped.
 
-**The clip is in the item's own coordinates.** `Paint.transform` maps it with the item,
+**The clip is in the item's own coordinates.** The item's `transform` maps it with the item,
 and a group's translation moves it with the item, so a clipped item and its clip move,
 turn and scale together. (Until plan-163-C the clip was a surface rectangle that a
 transform and a group left where it was; a clip that should stay on the surface is now
@@ -699,12 +885,12 @@ from its image.
 **The ramp is in the item's own coordinates** (plan-163-D, reversing plan-116-F's
 surface-anchored ramp by the user's 2026-09-28 decision). `t` is measured at the
 shape-space point `q`, the point the shape's distance is evaluated at: the pixel centre
-less the group's accumulated offset, mapped through the inverse of `Paint.transform`.
+less the group's accumulated offset, mapped through the inverse of the item's `transform`.
 The gradient's own `transform` `G` maps gradient space into item space first, so the
-order is SVG's — `Gradient.transform`, then `Paint.transform`, then the group's
+order is SVG's — `Gradient.transform`, then the item's `transform`, then the group's
 translation — and a rotated or moved item carries its ramp with it. `G⁻¹` is the
 inverse; the all-zero `G` and one with `|det| < 1e-12` are the identity, the
-`Paint.transform` rule. With `s = startPoint`, `e = endPoint` and `r = |e − s|`:
+the item's `transform` rule. With `s = startPoint`, `e = endPoint` and `r = |e − s|`:
 
 | `GradientKind` | `t` |
 |---|---|
@@ -856,12 +1042,20 @@ measured from the return, so a loop that fell behind gets no burst of catch-up r
 
 `canvas::setGroup(name, items)` installs a list of items under a name;
 `canvas::removeGroup(name)` drops the name. A scene draws an installed group by
-including a `canvas::Group` node — `dx`, `dy` and the name — in place of the items:
+including a `canvas::Group` node — `id`, `position`, `transform` and the name — in place
+of the items:
 
 ```basic
 canvas::setGroup("panel", panelItems)
-canvas::present([canvas::Group[dx := 10.0, dy := 20.0, name := "panel"]])
+canvas::present([canvas::Group[id := "", position := vector::Float2[x := 10.0, y := 20.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])
 ```
+
+**The node's `id` names the USE, not the group.** It is `id` first, as on every other
+item, and it draws nothing: it is not folded into the draw entries' hashes, and no
+geometry reads it. It is one part of the id path `canvas::MouseEvent.overID` reports
+(*Hit-testing*, below), which is how one group drawn through two nodes is told apart.
+`canvas::present` compares the scene's bytes, which include it, so a node whose `id`
+changes is republished.
 
 **A scene copies the node, not the group.** `canvas::present` copies the whole scene
 every time it is called, so a large static sub-picture referenced from many scenes — or
@@ -877,21 +1071,109 @@ follows, and it is worth stating because the natural expectation is the opposite
 installed or has since been removed. A scene may therefore reference a group before it is
 built, and removing a group does not invalidate any scene that names it.
 
-**A group is translated, not transformed.** The node carries two offsets and no matrix.
-`Paint.transform` on the group's own items covers reshaping, and the two compose in the
-order you would expect: the item is transformed in its own coordinates, then the group's
-translation places it. Two things travel with that translation because of what they are:
+**A group node is an affine: `T(position) ∘ transform`.** The group's own origin lands
+at `position`, and `transform` turns, scales or shears what the group holds about that
+point, its `tx` / `ty` adding to `position` — the placement rule an item follows
+(Placement, above), with the group's items in the place of the item's geometry. A point
+`q` of an item's geometry, already through the item's own placement `I`, reaches the
+surface at
 
-* **`Paint.clip` moves** — it is in the item's own coordinates, so a group places the
-  clipped item and its clip together.
-* **`Paint.gradient` moves too** — the ramp is in the item's own coordinates as well. A
-  group exists to be drawn somewhere else, and an item whose colours depend on where its
-  group was placed would not be reusable.
+    G₁(G₂(… Gₙ(I(q)) …))
+
+where `G₁` is the outermost node. So the item is placed in its group's coordinates
+first and the groups carry it from the inside out.
+
+A node's transform that is **not in effect** — all-zero, or with no area — makes the
+node a translation by `position`, by the same test an item's uses. A scene whose nodes
+are all like that is drawn exactly as a scene of `dx` / `dy` nodes was: the composed
+translation is the same sum, and nothing below changes for it.
+[[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL_TEMPLATE]]
+[[src/codegen/builtins/canvas/helper_paint_defaults.rs:TRANSFORM_ACTIVE]]
+[[tests/canvas/rt_canvas_rasteriser.rs:group_affine_a_nested_group_composes_with_its_parent]]
+
+Everything an item has travels with its group, because all of it is in the item's own
+coordinates:
+
+* **`Paint.clip`** — a group places the clipped item and its clip together, and turns
+  them together.
+* **`Paint.gradient`** — the ramp is evaluated at the item's own point. A group exists to
+  be drawn somewhere else, and an item whose colours depended on where its group was
+  placed would not be reusable.
+* **The stroke** — its width is in the item's space, so a group scaled 2× draws a 4-pixel
+  stroke 8 pixels wide, and an uneven scale draws it uneven.
+  [[tests/canvas/rt_canvas_rasteriser.rs:group_affine_a_scaled_group_scales_its_strokes]]
+* **Text** — a run inside a group with a matrix is sampled as a transformed run is:
+  nearest texel of the untransformed glyph bitmap, at the inverse-mapped point.
+
+**How the composed affine is carried.** Both walks of the group tree — the software and
+damage walk and the GPU draw-list walk — compose a node with its parents through one
+function, so they cannot disagree about what a nested group means. The composition is
+kept as a translation and, only when some node on the path has a transform in effect, a
+2×2 linear part with its inverse:
+
+* each draw entry of the software walk has its translation in `__CANVAS_DRAW_DX` /
+  `_DY`, as before, and a matrix number in `__CANVAS_DRAW_MAT` — 0 for none, otherwise a
+  row of `__CANVAS_GROUP_ROWS` (forward `a b c d`, then the inverse) plus one;
+* the rasteriser subtracts the translation from the surface point, as it always has,
+  then applies the inverse linear part, then the item's own inverse if it has one. An
+  entry with a matrix takes the transformed-item path whatever the item is, so the
+  distance is rescaled by its gradient and the stroke scales
+  ([[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]);
+* an item's bounds under a matrix are the hull of its header box through the linear
+  part, padded by a pixel — the header's own antialiasing rim is in the group's space
+  and a group that scales down would shrink it. The damage diff remembers and compares
+  that hull ([[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_FOR]]);
+* a rectangle clip, which is axis-aligned only in the item's space, is evaluated under a
+  matrix as a path clip is: its distance at the item's point, divided by its own
+  gradient;
+* a draw entry's hash folds in the linear part when it has one, so a group turned in
+  place — no geometry and no translation changed — is repainted.
+  [[tests/canvas/rt_canvas_damage.rs:turning_a_group_repaints_and_matches_a_full_redraw]]
+
+A composed linear part with no area (`|det| < 1e-12`, reached only by scaling something
+out of existence through several nodes) draws nothing: the node and everything under it
+is skipped.
+
+**A GPU draw entry is sixteen 64-bit words.** Base and count, the translation as two
+16.16 words, the blend mode and the translation's two residual words are words 0–6, as
+they were when the entry was eight words. Word 7 is 1 when the entry has a matrix, words
+8–11 are the inverse linear part as float32 bit patterns, and words 12–15 are zero. A
+translate-only entry is therefore its old eight words followed by zeros.
+[[src/codegen/runtime/canvas/mod.rs:CANVAS_DRAW_ENTRY_WORDS]]
+
+**Both GPU backends bind 32 bytes per draw, to both stages.** The entry's four
+translation words, then the four words of the inverse linear part: `MfbDraw` on Metal,
+sent with `setVertexBytes:` and `setFragmentBytes:`, and one push-constant range on
+Vulkan that both stages declare. `hasMatrix` is not sent — an inverse is never all
+zero, so all-zero bits mean the groups only translate, and the shaders then take the
+branch they took before a group could have a matrix.
+[[src/target/macos_aarch64/app/metal.rs:emit_draw_list_pass]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_draw_list_pass]]
+[[src/codegen/runtime/canvas/vulkan.rs:PUSH_OFFSET_BYTES]]
+
+With a matrix:
+
+* the **vertex** stage carries the item's box through the forward linear part — the
+  inverse of the 2×2 it was given, taken in the shader — so the quad is a parallelogram.
+  The box is first grown on every side by the inverse's Frobenius norm, which is at
+  least one surface pixel, because the box's own antialiasing rim is in the group's
+  space and a group that scales down would shrink it;
+* the **fragment** stage subtracts the translation from the pixel, as it always has,
+  then applies the inverse linear part, and only then the item's own inverse if it has
+  one. Every consumer reads that point: the distance (whose four neighbour samples are
+  half a surface pixel apart, so the inverse is applied to those offsets too), the
+  gradient ramp, the glyph texel, the picture texel and the clip. A rectangle clip is
+  sampled like a path clip there, for the reason the software renderer does it.
+
+Bound to the vertex stage alone, a turned group would have the right outline and the
+wrong contents — the reasoning that puts the offset in both stages.
+[[tests/canvas/rt_canvas_golden.rs:the_gpu_draws_the_group_affine_scene_the_reference_shows]]
+[[tests/canvas/rt_canvas_metal.rs:a_group_with_a_matrix_draws_on_metal_and_matches_the_software_oracle]]
 
 **Groups may nest, to a depth of 64.** A nested `canvas::Group` stays a reference: it is
 resolved when the scene is presented, so replacing the inner group changes what the outer
 one draws without reinstalling the outer. Two groups may name the same third one, and it
-is drawn once per reference at each reference's position. Exceeding the depth raises
+is drawn once per reference, through each reference's own position and transform. Exceeding the depth raises
 `ErrDepthExceeded` from `canvas::present`, and so does a group that eventually references
 itself — a cycle is unbounded depth, and the two need the same fix.
 
@@ -899,12 +1181,603 @@ itself — a cycle is unbounded depth, and the two need the same fix.
 same name replaces what that name draws. The items are copied, so the list passed to
 `setGroup` is the caller's to change afterwards; the installed group does not follow it.
 
+## Hit-testing
+
+One question — which drawn item is topmost under a surface point — answered by the
+rasteriser's own distance functions, read from the same geometry records. Its first
+user is `canvas::MouseEvent.overID`; its second is `canvas::AutoPaint`. It is two
+MFBASIC chunks. The region test — is a point on a draw entry —
+[[src/codegen/builtins/canvas/helper_hit.rs:REGION]], is injected into a program that
+calls `canvas::pollMouse` or constructs an `AutoPaint`
+(`HelperGate::WhenUsedOrConstructed`), and is the one function both users call. The
+worker's draw list, the id paths and `pollMouse` itself,
+[[src/codegen/builtins/canvas/helper_hit.rs:BODY]], are injected only into a program
+that calls `canvas::pollMouse` (`HelperGate::WhenUsed`).
+
+### The region of an item
+
+`__canvas_hitEntry(offset, mat, gdx, gdy, x, y)` asks whether surface point `(x, y)` is on
+the record at `offset`, drawn under group matrix `mat` at group translation
+`(gdx, gdy)`. It makes the entry's matrix current (`__canvas_enterGroupMatrix`) and
+`__canvas_hitCurrent` then does, in order:
+
+1. **Bounds.** Reject outside the entry's surface box (`__canvas_drawBound`) widened by
+   3 px — except for a record that is hit as a text box (`__canvas_hitIsTextBox`), which
+   skips this step: a record's bounds are what it draws, and a stroked run's are its
+   outlines', tighter than the layout box.
+2. **The item's own point.** `(x − gdx, y − gdy)`, then `__canvas_invX` / `__canvas_invY`
+   when `__canvas_hasTransform` — the groups' inverse linear part and the item's own
+   inverse, which is exactly the rasteriser's `qx`, `qy`.
+3. **The clip.** A path clip (`__CANVAS_GEO_CLIP_MODE` = 2) rejects where
+   `__canvas_clipPathDistance > 0`; a rectangle clip where `__canvas_clipRectDistance >
+   0`. Both are evaluated at the item's own point, so a clip under a transform needs no
+   rescale: the sign of a distance does not change with scale.
+4. **The shape**, by kind:
+
+| Kind | Hit when |
+|---|---|
+| `RECT`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PICTURE` | `d ≤ max(strokeHalf, 0)`, or the record has join records and `__canvas_joinedStroke ≤ 0` |
+| `SEGMENT`, `ARC`, `POLYLINE` | `d ≤ 0`, or `d ≤ 3·scale − halfWidth` |
+| `TEXT`, and a `POLYGON` carrying the text-box mark | the item's own point is inside its layout box |
+| `NONE` | never |
+
+`d` is `__canvas_hitDistance`: `__canvas_geoDistance` with the header's per-item
+constants and `dashed` FALSE, so a dashed stroke is hit as the solid one it is cut from.
+
+**A closed kind is its interior and its stroke, painted or not.** The stroke's band is
+`|d| − strokeHalf`, so interior and band together are `d ≤ strokeHalf`; a paint that
+draws nothing changes neither. A rectangle with the zero paint is a record
+(`__canvas_rectHeader` declines only a non-positive size), so it is hit and draws no
+pixel.
+
+**An open kind is its stroke, at least 3 px either side of its centre line.** Its `d`
+is already the distance to the band's edge (the half-width, header slot 6, taken off),
+so the slack is `3·scale − halfWidth`, which is negative — no slack — once the stroke is
+6 px wide. `scale` is shape units per surface pixel: 1 untransformed, otherwise the
+length of `d`'s gradient by central differences at ±0.5 px, the quantity
+`__canvas_drawGeometry` divides a transformed distance by. The 3 px are therefore
+surface pixels under any transform. An open kind whose paint has no stroke builds no
+record (`__canvas_segmentHeader`, `__canvas_arcHeader`, `__canvas_polylineHeader`) and
+is not hit.
+
+**A `Text` is its layout box**: from the baseline origin to where the pen stops, the
+font's ascent above the baseline and its descent below. The box is four floats in
+`__CANVAS_GEO_TEXT_BOX` — the gradient's four point slots, which no `TEXT` record uses —
+and the two threads come by it differently:
+
+* **The worker's record for a `Text` is not the renderer's.** `__canvas_textBoxHeader`
+  builds a `TEXT` record that holds the paint (for the transform and the clip), the box,
+  and no glyph: the run is shaped for its advances and never rasterised. A stroked run
+  is the same record.
+* **The graphics thread's is the renderer's, with the box written into it** — only in a
+  program that constructs an `AutoPaint`, by `__canvas_autoTextBox` at the end of
+  `__canvas_geometryFor`'s `Text` arm. A filled run is a `TEXT` glyph-run record. A
+  stroked run is a `POLYGON` of its outlines, a kind whose gradient slots may be in
+  use, so that record also carries `__CANVAS_GEO_TEXT_BOX_MARK` (2) in the
+  gradient-kind slot, which a gradient writes 0 or 1 into; the mark is honoured only
+  with fewer than two stops, where nothing else reads the slot or the points, and a
+  stroked run never has more (`__canvas_textHeader` clears the count).
+  [[src/codegen/builtins/canvas/helper_autopaint.rs:RESOLVE]]
+
+In a program with no `AutoPaint` the renderer's text records carry no box and nothing on
+the graphics thread asks for one.
+
+### The walk, and the id path
+
+`__canvas_hitAt(x, y)` walks the calling thread's draw list from the last entry to the
+first and answers the first entry `__canvas_hitEntry` accepts, or −1. The list is
+`__CANVAS_HIT_OFFSETS`, parallel to `__CANVAS_DRAW_DX` / `_DY` / `_MAT` and
+`__CANVAS_HIT_IDS`. Every entry is tested, named or not: an unnamed item lying on a
+named one answers, and its path is `""`.
+
+`__canvas_hitAppend` builds the list. It is `__canvas_appendDraw`'s walk — the same
+depth stop, the same `__canvas_composeGroup`, the same skip of a composed affine with no
+area — with one more thing carried down: the path. A group node passes its children
+`__canvas_joinId(path, g.id)`; a leaf records `__canvas_joinId(path, id)`.
+`__canvas_joinId` joins with `::` and leaves an empty part out. So:
+
+| Item | Path |
+|---|---|
+| `label`, in the scene itself | `label` |
+| `label`, in a group drawn by node `save` | `save::label` |
+| `label`, in a group drawn by node `save`, in a group drawn by node `toolbar` | `toolbar::save::label` |
+| an item with no `id`, in a group drawn by node `save` | `save` |
+| `label`, in a group drawn by a node with no `id` | `label` |
+| nothing on the path has an `id` | `""` |
+| a `Picture` `avatar` on a shape `frame` | `avatar::frame` |
+| a `Picture` `avatar` on a shape with no `id` | `avatar` |
+| a `Picture` with no `id` on a shape `frame` | `frame` |
+| the first of those, in a group drawn by node `card` | `card::avatar::frame` |
+
+The path belongs to the draw ENTRY. A group's stored items are not renamed, and one item
+reached through two nodes is two entries with two paths. Two nodes with the same `id`,
+or with none, give equal paths. The path is one string; nothing parses it back, and an
+`id` that contains `::` is reported as written.
+
+It is a second walk rather than a parameter on `__canvas_appendDraw` because that
+function's leaf does what a hit list must not: it builds the renderer's record
+(rasterising every glyph of a `Text`), folds the draw hash, and its output is re-laid
+natively by `canvas::sceneLayout`, which moves one word per entry per list and knows no
+list of strings.
+
+`__canvas_hitGeometry` chooses the record. Every kind but one is the renderer's
+(`__canvas_geometryFor`). A `Text` is `__canvas_textBoxHeader`, above.
+
+**A `Picture` is hit as its shape.** `__canvas_hitAppend`'s `Picture` arm goes round
+again with the shape as the item (`__canvas_pictureHitItem`) and the path joined with
+the picture's own `id` — exactly what a group node does for its children — so the
+picture is over wherever its shape is, whatever part of it the image covers, and by
+that shape's own region rule. Two pictures built on one shape value are two entries
+with two paths. A picture that draws nothing — its image is closed, or its shape has
+no inside — answers a group that names nothing, and appends no entry: what is not
+drawn is not there to be hit. `canvas::sceneIdBits` reads both of a picture's `id`s
+natively (the shape's is one more load away), so a scene of pictures with no `id`
+anywhere still answers 0 and builds nothing; only a picture whose shape is an
+`AutoPaint` is left to `__canvas_reachesId`.
+[[src/codegen/builtins/canvas/helper_hit.rs:BODY]]
+[[src/codegen/builtins/canvas/func_item_hash.rs:lower_scene_id_bits]]
+
+### `canvas::pollMouse`
+
+`canvas::pollMouse` is MFBASIC, `__canvas_pollMouse`, over the native
+`canvas::pollMouseRaw` ([[src/codegen/builtins/canvas/func_poll_mouse.rs:lower_poll_mouse]]),
+which dequeues one event into a whole `MouseEvent` block whose `overID` is the empty
+string: 88 bytes — seven slots, `position`'s two floats at 56 and the empty string's
+sub-block at 72. The wrapper hands that block straight back when the kind is `None` or
+`__CANVAS_SCENE_IDS` is 0, which is nearly every poll there is. Otherwise it asks
+`__canvas_overId` at the CENTRE of the event's pixel, `position + 0.5`, the point the
+rasteriser evaluates, and answers `WITH event { overID := … }` only when the path is
+not empty.
+
+**`overID` is resolved at the poll, on the worker, against the scene the worker last
+presented** — not at the moment the event happened, and not from a frame. The worker
+builds its own draw list from `canvas::installedItems()` and `installedLayers()` into
+its own thread-local geometry cache (`.ai/canvas-threading.md` section 2); nothing is
+read from the graphics thread. `__canvas_overId` decides how much of that to do:
+
+| Condition | Cost |
+|---|---|
+| `__CANVAS_SCENE_IDS` = 0 | none: `""` |
+| `__CANVAS_HIT_REV` = `__CANVAS_SCENE_REV` | the walk only |
+| otherwise | `__canvas_hitBuild`, then the walk |
+
+`canvas::present` and `canvas::presentLayers` record the two facts, on a present that
+changed the scene or a group it names: `__CANVAS_SCENE_REV`, a count of such presents,
+and `__CANVAS_SCENE_IDS`, `canvas::sceneIdBits` of the scene
+([[src/codegen/builtins/canvas/func_item_hash.rs:lower_scene_id_bits]]) — bit 0 when an
+item of the scene's own lists has a non-empty `id`, a group node's included; bit 1 when
+one of them is a group node or an `AutoPaint`. The native pass reads each item's first
+field, which is `id AS String` on every variant but `AutoPaint` and is checked against
+the type model at build time; an `AutoPaint` has no `id` of its own and reports its
+shape's, which is behind a union field this pass does not open, so it is counted as
+"may be named" with the group nodes.
+It does not look inside a group, so a value of 2 — group nodes, none of them named —
+makes `__canvas_hitBuild` ask `__canvas_reachesId` before it builds any geometry. A
+list in which no entry has a path (`__CANVAS_HIT_NAMED` FALSE) is never walked.
+
+A `setGroup` is seen at the next `present`, as it is by the renderer: the group
+signature moves, `present` counts a revision, and the list is rebuilt.
+
+The mouse-state reservation keys on the raw poll's symbol
+([[src/target/shared/plan/symbols.rs:module_uses_mouse]]), and the chunk that calls it
+is gated on use, so a canvas program that never calls `canvas::pollMouse` reserves no
+mouse state and compiles none of this.
+
+## The pointer, as the graphics thread sees it
+
+The graphics thread can read where the pointer is without the worker's help: each
+platform's MAIN thread publishes it into the graphics-state block, whether or not the
+program called `canvas::enableMouse`. Nothing here reaches a program — `canvas::pollMouse`
+and the SGR pipe behind it are a separate path. A pointer change wakes the render loop
+only while the scene it last drew holds an `AutoPaint` (below, "AutoPaint"); otherwise
+it signals nothing.
+
+**Five words**, 40 contiguous bytes
+([[src/codegen/runtime/canvas/mod.rs:GRAPHICS_OFFSET_POINTER_SEQ]]):
+
+| Word | Holds |
+|---|---|
+| `POINTER_SEQ` | the sequence word: odd while a publish is writing the other four |
+| `POINTER_X`, `POINTER_Y` | surface pixels, the units an SGR mouse report carries; meaningless while `POINTER_INSIDE` is 0 |
+| `POINTER_BUTTONS` | bit 0 left, bit 1 middle, bit 2 right, set while held |
+| `POINTER_INSIDE` | 1 while the pointer is over the surface |
+
+**The four are written and read as one, under the sequence word, with no lock.**
+[[src/codegen/runtime/canvas/mod.rs:emit_publish_pointer]] increments `POINTER_SEQ` to
+odd, stores the four, and increments it to even; it makes no call, so it can sit in any
+platform handler. `canvas::pointerSnapshot`
+([[src/codegen/builtins/canvas/func_pointer.rs:lower_pointer_snapshot]]) reads the
+sequence word, the four, and the sequence word again, and retries until the two reads
+are equal and even. A lock would make a pointer move wait behind a frame. On AArch64
+every store is a store-release and every read a load-acquire, so no data word can be
+seen before the odd mark nor the even mark before the data; x86-64 keeps stores in
+order and loads in order by itself. One writer at a time is the contract: the main
+thread in a window, the graphics thread's own script in a headless `--debug` run.
+
+**A point off the surface is published as outside, not dropped.** A report is dropped
+there — there is nothing to report against — but a drag that leaves the surface keeps
+arriving with the button held and no leave event, and the pointer words are how the
+graphics thread learns it has gone.
+
+**macOS.** `MFBCanvasView`'s mouse methods publish
+([[src/target/macos_aarch64/app/mouse_view.rs:emit_publish]]), and a canvas program has
+them whether or not it uses a mouse member: thirteen IMPs, the eleven that report plus
+`mouseEntered:` and `mouseExited:`, which only publish. Each publishes FIRST and gates
+on the mouse-mode word after; in a program with no mouse member there is no mode word,
+and the IMP is the publish and a return (`emit_mouse_imp`'s `reports`). The buttons are
+`+[NSEvent pressedMouseButtons]` with bits 1 and 2 exchanged (AppKit orders them left,
+right, other) and then corrected by the event itself — a press or a drag sets its own
+button's bit, a release clears it — because that class method is the hardware's state
+NOW, and a quick click is released before its `mouseDown:` is dispatched. The canvas
+view's tracking area asks for `NSTrackingMouseEnteredAndExited`; `TermView`'s does not,
+and `TermView` publishes nothing.
+
+**GTK.** The canvas drawing area carries two controllers of its own, attached where
+the area is created ([[src/target/linux_gtk/pointer.rs:emit_pointer_attach]]): a motion
+controller, whose `motion` and `enter` publish a position and whose `leave` publishes
+outside, and a click gesture told to listen to every button. They are separate from the
+reporting controllers on the window, which they neither replace nor starve: events
+bubble from the area to the window, and nothing here claims a sequence. On the area the
+coordinates GTK hands over are already the surface's, and the controllers are quiet
+whenever the canvas is not the window's child. The held buttons are NOT read from GDK's
+event state: its Wayland backend sets the state bit for a held right or middle button
+by evdev order while numbering a press's `button` left, middle, right — so the two bits
+mean the opposite of `GDK_BUTTON2_MASK` / `GDK_BUTTON3_MASK`, measured in a real
+window. The mask is kept in `_mfb_gtkapp_pointer_held` from the button NUMBER each
+press and release carries ([[src/target/linux_gtk/pointer.rs:emit_pointer_handler]]),
+and a motion whose state shows no button held at all clears it.
+
+**Windows.** The window procedure's dispatch chain ends, in a canvas program, at a
+block that publishes and passes the message on
+([[src/target/win_x86_64/app/pointer.rs:emit_pointer_arms]]): for `WM_MOUSEMOVE`
+through `WM_MBUTTONDBLCLK`, while a canvas surface is live, it calls
+`_mfb_winapp_pointer_move(x, y, MK flags)` with the signed client point from `lParam`,
+and arms one `WM_MOUSELEAVE` with `TrackMouseEvent` unless one is armed; for
+`WM_MOUSELEAVE` it calls `_mfb_winapp_pointer_leave`, which publishes outside with the
+buttons last published. `wParam`'s `MK_*` flags are the state after the event, so the
+mask needs no correction. The SGR arms run after it, unchanged.
+
+**The headless variables.** `MFB_CANVAS_POINTER_X` / `_Y`, on GTK and Windows, call the
+platform's own callback once with that position after the first completed frame — GTK's
+motion callback with no controller, Windows' `_mfb_winapp_pointer_move` with no flags —
+on the scripted-resize precedent, and after the scripted resize: inside is asked of the
+PUBLISHED surface size, which a headless run has none of until `MFB_CANVAS_RESIZE_W` /
+`_H` publish one. macOS has no headless path; its handlers are proved in a real window.
+
+**A `--debug` build can script the pointer.** `MFB_CANVAS_POINTER` holds
+`ms,x,y,buttons,inside;…`; at the start of each frame
+[[src/codegen/builtins/canvas/helper_render.rs:POINTER_SCRIPT_DEBUG]] publishes every
+entry whose time has come, counted from the first frame, through
+`canvas::publishPointer` — the same writer. A normal build's source has neither the
+reader nor a call to the writer. The stats line reports the snapshot as
+`pointer=x,y,buttons,inside`.
+
+## AutoPaint
+
+A `canvas::AutoPaint` is a `Shape` and up to four alternative paints. Which one is
+drawn is decided on the GRAPHICS thread, each frame, from the pointer words above — the
+worker never resolves it and `present` never waits on it, so a shape goes on reacting
+while the program is blocked in a key read. Everything below but the type and its
+`MATCH` arms is one MFBASIC chunk, [[src/codegen/builtins/canvas/helper_autopaint.rs:RESOLVE]]
+with [[src/codegen/builtins/canvas/helper_autopaint.rs:AUTO_STEP]], injected only into a
+program that constructs an `AutoPaint`. Every other canvas program gets
+[[src/codegen/builtins/canvas/helper_autopaint.rs:ABSENT]] in its place: the same fifteen
+function names, with the bodies that are right when no `AutoPaint` can exist
+(`HelperGate::WhenNotConstructed`). A record value exists only where a constructor
+expression made it, so a program that constructs none holds none, and the gate is
+decided from the program's constructor expressions.
+
+### The state of an instance
+
+An instance is kept in one of four phases between frames, with one more bit:
+
+| Phase | Meaning |
+|---|---|
+| 0 `OUT` | it is not the topmost item under the pointer |
+| 1 `IN` | it is, and any enter window is over |
+| 2 `ENTER` | it became so less than a window ago |
+| 3 `EXIT` | it stopped being so less than a window ago |
+
+The bit is whether the instance **owns the press**: set when the first button goes down
+(buttons were 0 at the previous resolve and are not now) while it is the topmost item
+under the pointer, cleared when every button is up. Any button is a press.
+
+`__canvas_autoStep` advances one instance by one frame. In order:
+
+1. A window that has run out ends: `ENTER` → `IN`, `EXIT` → `OUT`, when the clock has
+   reached the instance's deadline. So does a window whose flag is now off, which a
+   re-`present` of the item with different flags can leave behind.
+2. Under the pointer, `OUT` or `EXIT` becomes `ENTER` and a new window starts — or `IN`
+   at once, with no window, when `useEnter` is off. Not under it, `IN` or `ENTER`
+   becomes `EXIT` and a new window starts — or `OUT` at once when `useExit` is off.
+   Leaving during an enter window and returning during an exit window each START a
+   window: the one in progress is abandoned, not resumed.
+3. The paint shown is the first that applies of: `pressedPaint` (under the pointer,
+   owns the press, `usePressed`), `enterPaint` (`ENTER`), `hoverPaint` (`IN`,
+   `useHover`), `exitPaint` (`EXIT`), the shape's own.
+
+A phase is never one its flag forbids, which is the whole of "an unused state falls
+through": an unused flash starts no window and so asks for no frame when it would have
+ended.
+
+The window is the project's `options.canvasAutoPaintMS`, 100 ms unless project.json
+says otherwise (`./mfb spec tooling project-manifest`), on `canvas::frameNanos`'
+monotonic clock. It is one value for the program, not a field of the record: the build
+bakes it into the graphics-state block
+([[src/codegen/runtime/canvas/mod.rs:GRAPHICS_OFFSET_AUTO_WINDOW_MS]]) and
+`__canvas_autoWindow` reads it through `canvas::autoWindowMs`
+([[src/codegen/builtins/canvas/func_pointer.rs:lower_auto_window_ms]]). Nothing is
+interpolated: each paint is drawn whole.
+
+**The pointer is sampled, not replayed.** A frame reads the pointer words once. Two
+changes between two frames are one change to it, so a press and release that both land
+inside one frame are not seen, and a button that goes down off a shape and reaches it
+before the next frame is a press that began on it. Every publish wakes the render loop
+while an `AutoPaint` is live, so the window for this is one frame.
+
+### An instance is a place in the scene
+
+State is kept per instance, and an instance is identified by where the walk found it,
+never by an `id` or by its contents. The key is a hash of the path: the index of the
+top-level item in the frame's scene (its flat items, then each layer's), and for an
+item inside a group, the chain of (index of the group node, slot the node resolved to)
+down to the index of the item in its group (`__canvas_autoPath`, `__canvas_autoKey`).
+
+| Change | Effect on the state |
+|---|---|
+| the item is re-presented in the same place — moved, restyled, its flags changed, or unchanged | kept, deadline included |
+| one group is drawn by two nodes | two instances, whatever the nodes' `id`s are |
+| an item is inserted or removed ahead of it in the scene, or in its group | a new key: it starts from `OUT` |
+| the instance is not in a frame | its row is dropped; returning, it starts from `OUT` |
+
+The table is five parallel lists — key, phase and ownership, deadline, paint shown,
+parent path — rebuilt each frame from the instances that frame saw.
+
+### One frame
+
+`__canvas_appendDraw`'s `AutoPaint` arm calls `__canvas_autoAppend`, which notes the
+instance and appends its shape's draw entry built from the shape's OWN paint. That
+entry's geometry is cached under the item's hash stepped by 16 (`__canvas_autoGeoHash`),
+never under the item's hash itself: the scene's published hashes name `AutoPaint`s, and
+a record cached under one would let the native pass
+(`canvas::sceneResolve`) resolve the item without the walk seeing it. An `AutoPaint` is
+therefore always resolved by the MFBASIC walk, as a `Picture` is, and a frame holding
+one copies the scene out of the ring.
+
+An `AutoPaint` that is a `Picture`'s shape is an instance like any other, at the
+picture's place, noted by `__canvas_pictureAppend` (`__canvas_autoNote`). The picture
+is then always TWO entries — the image, then the outline, either of which may be the
+empty record — and the instance's entry is the second: the outline is the shape, so it
+is what the pointer is tested against. When the instance shows a state paint, both
+entries are swapped for that paint's records (`__canvas_pictureAutoBlocks`): its fill
+is the image's tint, its stroke the outline's.
+
+After `canvas::sceneLayout`, when the frame has an instance or the last frame had one
+(`__canvas_autoPending`), `__canvas_autoResolve`:
+
+1. reads `canvas::pointerSnapshot` and `canvas::frameNanos`, once;
+2. if the pointer is inside the surface, finds the topmost draw entry under the centre
+   of its pixel (`__canvas_autoHitAt`: `__canvas_hitEntry` over the frame's entries as
+   the walk left them, kept in `__CANVAS_AUTO_BASE`, last first). Every entry is
+   tested, so an item that is not an `AutoPaint` and has no `id` takes the pointer from
+   what it covers;
+3. steps each instance, with "under the pointer" meaning its entry is that entry;
+4. for an instance showing a state paint, builds the shape with that paint
+   (`__canvas_autoItemWith`) under the item's hash stepped by 16 + the paint's number,
+   and puts that record's offset in the frame's entries and in `__CANVAS_TOP_OFFSETS`,
+   and steps the entry's draw hash the same way;
+5. publishes that an `AutoPaint` is live (`canvas::autoPublish`).
+
+**The hit test reads the entries before step 4 swaps any**, so a region is always the
+shape's own paint's — its stroke width and its clip. A state paint with a wider stroke
+does not widen it, and one with a different clip does not move it.
+
+**A state paint is a different record under a different draw hash.** That is all that
+connects the state to the renderers: the software walk and the damage diff read the
+swapped entry, and so does the GPU draw list, which is laid out from
+`__CANVAS_TOP_OFFSETS`. A group's run is laid out once per frame and shared by every
+node that draws the group (`__canvas_memoGroup`), so a node under which some `AutoPaint`
+shows a state paint gets a run of its own: the memo row is keyed by the group's slot AND
+`__canvas_autoVariant` of that use, which is 0 — the shared run — when nothing in it
+shows one.
+
+### The two redraw triggers
+
+A redraw is otherwise owed only by a `present`, a `setBytes` on a drawn image, a
+resize, or the window system asking for the surface again (an expose). An `AutoPaint` adds two ways for the render loop to wake, and neither OWES a
+frame:
+
+* **The pointer changed.** Each platform's pointer handler, after it publishes, reads
+  `GRAPHICS_OFFSET_AUTOPAINT_LIVE` and, when it is set, calls `canvas::signalRedraw`
+  with 1 ([[src/codegen/runtime/canvas/mod.rs:emit_skip_unless_autopaint_live]]). The
+  word is set by step 5 and cleared by the first resolve that finds no instance. With
+  it clear, a pointer change signals nothing: a scene with no `AutoPaint` renders no
+  frame for any pointer activity.
+* **A window ended.** `canvas::waitForRedraw` takes a timeout, and the render loop
+  passes `__canvas_autoTimeout`: the time left to the earliest deadline in the table,
+  or 0 — wait until signalled — when no instance is in a window.
+
+`canvas::signalRedraw(pointerOnly)` with exactly 1 sets `GRAPHICS_OFFSET_AUTO_WAKE`
+under the graphics mutex and signals; with anything else it sets `PENDING` and `WANTED`
+as it always did ([[src/codegen/runtime/canvas/mod.rs:emit_signal_redraw]]). The resize
+handlers pass 0. `canvas::waitForRedraw(timeoutNanos)` answers
+([[src/codegen/runtime/canvas/mod.rs:emit_wait_for_redraw]]):
+
+| Answer | When | Takes |
+|---|---|---|
+| 0 | the loop is stopping, and nothing is pending | nothing |
+| 1 | `PENDING` is set | `PENDING` and `AUTO_WAKE`; broadcasts `FRAME_COND` |
+| 2 | `AUTO_WAKE` is set, or the timeout ran out | `AUTO_WAKE` |
+
+They are checked in that order, so a redraw outranks a stop and a stop outranks a
+pointer wake or a deadline: shutdown never waits for a window to end. The timeout is
+turned into one absolute `CLOCK_REALTIME` deadline before the lock is taken — the clock
+`pthread_cond_timedwait` takes — and is compared again after every wake, so a spurious
+wake neither returns early nor restarts it. A wall-clock step during one wait moves
+that one wait, as it does `canvas::waitFrame`'s.
+
+**A frame woken with answer 2 is drawn only if some instance now shows a different
+paint, and that is decided without walking the scene.** `__canvas_renderFrame` asks
+`__canvas_autoLight` first. Nothing is owed, so nothing but the pointer and the clock
+has changed since the last walked frame: its entries (`__CANVAS_AUTO_BASE`), their
+group transforms and the geometry they name are as that frame left them, and each table
+row holds its instance's entry and flags. `__canvas_autoLight` reads the pointer, makes
+the one hit test, steps every row as `__canvas_autoResolve` would, and answers whether
+any row's paint changed. On FALSE the frame ends there — counted in `skipped=`, nothing
+walked, nothing presented, whatever `MFB_CANVAS_DAMAGE` says. On TRUE the frame is an
+ordinary one from that point, and its resolve steps the same rows again moments later
+to no effect: a window the first step started is still running and a press it took is
+still held.
+
+Measured on macOS AArch64 with a `--debug` build, 2,000 scripted pointer changes 1 ms
+apart over a scene of 10,000 rectangles and one `AutoPaint` were 1,842 separate wakes,
+and over 1,000 rectangles 1,830: a wake is under a millisecond at either size, its
+stats line included. Before this function existed a wake walked the scene, which
+copies it out of the ring, and cost 8 ms at 10,000 items.
+
+A pointer change can land between a frame's snapshot (step 1) and the first store of
+the live word (step 5), where the handler reads 0 and signals nothing. The resolve that
+first sets the word reads the pointer again afterwards and, if it differs, has the loop
+wait 1 ns — one more resolve, with nobody asking.
+
+### What it costs a program without one
+
+`ABSENT`'s bodies are a constant or the argument handed back. Per frame that is two
+calls (`__canvas_autoTimeout`, `__canvas_autoPending`), per group node one in each of
+the two walks (`__canvas_autoPath`), per group node in the GPU walk one more
+(`__canvas_autoVariant`), per `Text` record built one (`__canvas_autoTextBox`). The two
+graphics-state words are zero and nothing reads `AUTO_WAKE`'s being set, because nothing
+sets it.
+
+In code, a canvas program with no `AutoPaint` is 13,628 bytes larger than it was before
+the type existed (`__text`, macOS AArch64; one more 16,512-byte page of file): the
+`AutoPaint` arms the item unions oblige every `MATCH` to have, the walks' two extra
+parameters, the timed wait, and `ABSENT`. The shape converter (`__canvas_autoItem`) and
+the item hash (`__canvas_autoHash`) are in the gated pair rather than the unconditional
+source because they alone were another 24,744.
+
+### The `--debug` affordances
+
+`MFB_CANVAS_POINTER`'s script (above) is applied at the start of a frame by the graphics
+thread, so no handler signals for it. With an `AutoPaint` live, `__canvas_autoTimeout`
+also waits no longer than the script's next entry (`__canvas_pointerNextDue`), and the
+entry is applied by the frame that wakes. `MFB_CANVAS_AUTO_WINDOW_MS` replaces the
+project's window for one run (1 to 3,600,000; anything else leaves it). The stats line gains
+`auto=`: the paint each instance of the frame shows, one digit each in walk order — 0 the
+shape's own, 1 enter, 2 exit, 3 hover, 4 pressed — or `-` when the frame had none. A
+normal build has none of the three.
+
 ## Images are named, not embedded
 
 An `Image` is an ordinary resource, closing when it leaves scope or with
 `canvas::destroyImage`. An item that draws one names it directly:
 `canvas::Picture.image` is a `RES canvas::Image`, and `canvas::Text.font` is a
-`RES canvas::Font`.
+`RES canvas::Font`. A `Picture` whose shape is a `Text` names that text's font as well
+— it draws nothing, but it holds the font, and the group ownership rules below count
+it.
+
+### A picture is drawn inside a shape
+
+`canvas::Picture` is `id`, `shape AS canvas::AutoShape`, `clip AS canvas::PictureClip`,
+`fit AS canvas::PictureFit` and `image`. The shape says where the picture is and what
+outline it is cut to, and the shape's paint is the picture's: `fill` tints, `transparency`
+fades, `blend` composites, `stroke` outlines the shape on top of the image, and `clip`
+cuts the image further. The shape's interior is never filled.
+
+**A picture is one or two ordinary draw entries, made where the draw list is built.**
+There is no geometry kind, header slot, item-block field or shader for a shaped
+picture: what the three renderers draw is records they already drew.
+[[src/codegen/builtins/canvas/helper_picture.rs:PICTURE]]
+
+- **A plain picture** — `fit` is `Stretch`, the shape is a `Rectangle` with four square
+  corners, and either `clip` is `ClipAndTransform` or the rectangle's transform is not
+  in effect — is ONE picture record: the rectangle's own, re-kinded, carrying its
+  stroke and its `paint.clip` (`__canvas_picturePlain`). It is cached under the item's
+  hash like any item's record.
+- **A shaped picture** is the **image**, a picture record over the fitted destination
+  rectangle with the outline for its clip, and then the **outline**, the shape itself
+  with a transparent fill and no gradient (`__canvas_pictureOutlineItem`) — an
+  ordinary item, stroked, clipped and transformed as the shape alone would be. The
+  outline is there when the stroke draws, and under `Contain`, where the image may not
+  reach the shape's edge. An entry whose record is the empty one is left out.
+
+A shaped picture's two records are cached under the item's hash stepped
+(`__canvas_pictureKey`), never under the hash itself: a record there would let
+`canvas::sceneResolve` resolve the item to ONE record without the walk seeing it. A
+top-level item that became other than one entry is −2 in `__CANVAS_TOP_OFFSETS` (a
+group node is −1), which sends the frame to `__canvas_sceneDrawsWalk`. That walk takes
+the item's blocks from the frame's own draw entries (`__CANVAS_FRAME_ENTRIES`, found
+through the spans `canvas::sceneLayout` was given) and does not ask the item again: an
+image may be refilled or closed between the two walks, and a frame draws from one
+reading of it. A picture inside a group is laid out by `__canvas_memoGroup`
+(`__canvas_pictureBlocks`). Either
+way a picture record is confirmed against the image's current pixel block before it is
+used (`__canvas_pictureCached`) — `canvas::setBytes` swaps the block without changing
+the item, so it is the one cached kind a hash cannot vouch for.
+
+**The outline** is rings and a fill rule: a `Rectangle`'s `__canvas_rrectRing`; a
+`Circle`'s or an `Ellipse`'s flattened so no chord is more than 0.05 px from the curve,
+up to 512 points (`__canvas_ellipseRing`); a `Polygon`'s own contours and rule. A
+`Line`, an `Arc`, a `PolyLine` and a `Text` have none, and a picture on one draws
+nothing. [[src/codegen/builtins/canvas/helper_picture.rs:PICTURE_GEOMETRY]]
+
+**Fit.** With the shape's box `B` and the image's size `I`, `__canvas_pictureFit`
+answers the destination rectangle: `B` itself for `Stretch`; the largest rectangle of
+`I`'s proportions inside `B`, centred, for `Contain`; the smallest one that covers `B`,
+centred, for `Cover`. `B` is the shape's exact box where it has one — a rectangle's, a
+circle's centre ± its radius, an ellipse's — and the box of the outline's points
+otherwise. Not the flattened outline's box for a curve: that is the true one only to
+the accuracy of this package's sine (4.6e-7), and a destination a hair off a whole
+number moves a texel boundary off a pixel centre it should sit exactly on, where a
+renderer working in float32 and one working in float64 pick different texels.
+
+**Clip mode.** Under `ClipAndTransform` the outline and the destination are in the
+shape's local space and the image record carries the shape's placement transform: turn
+the shape and the image turns. Under `ClipOnly` with a transform in effect, the outline
+(and `paint.clip`) are sent through the transform first, `B` is the box of the result,
+and the record carries no transform: the image stays upright, cut to the turned shape.
+With no transform in effect the two are the same picture. Enclosing groups apply to
+both entries through the draw entry's matrix.
+
+**`paint.clip` on a shaped picture is intersected with the outline.** A record has one
+clip, so `__canvas_clipIntersect` computes the boundary of the two regions' overlap —
+each under its own fill rule — as one edge set, read under the even-odd rule. It works
+by horizontal bands: the band boundaries are every vertex `y` of either set and every
+`y` at which two edges cross; inside a band no two edges cross, so each set's interior
+is a list of x-intervals; the two lists are intersected; each surviving interval gives
+its left and right bounding edges, and where two bands meet, the horizontal boundary is
+the symmetric difference of the two bands' intervals. The result is the outline of the
+intersection and nothing else. No edge lies inside the region, which matters because a
+clip's coverage is taken from the distance to its nearest edge: an interior edge would
+draw a seam. An intersection that encloses nothing is the empty record. The outline
+entry carries `paint.clip` alone, as any shape does.
+
+**One antialiased edge.** A record's coverage is its rectangle's times its clip's, and
+where the image's edge lies along the outline — every straight side of a rectangle
+under `Stretch` — a pixel half covered by each would come out a quarter covered. So the
+clip alone draws the edge: the image record's radius slot (6) is set to 1 with its box
+(slots 2 to 5) left whole. A rectangle's distance is its box's less its radius, on all
+three renderers, and the image is sampled from the box alone, so that moves the
+rectangle's own edge a pixel out — where the clip has already reached zero — and the
+image not at all. Under `Contain` the image stops short of the outline on two sides,
+and those sides are part of the edge too: the outline is intersected with the
+destination rectangle. A `Contain` picture whose paint ALSO has a clip would need two
+intersections; it keeps the rectangle's own edge, and is the one case with two.
+
+Against a filled `Circle` of the same radius, a circle-clipped picture of one white
+texel differs on 1,456 of 74,508 covered pixels, worst by 61 of 255 at a pixel the
+circle covers 4.7% and the flattened outline does not reach — the 0.05 px bound, seen
+through the frame's sRGB encoding where it is steepest. Where the image's edge and the
+outline coincide the two are equal.
+
+**What it costs.** The code is in a chunk compiled only into a program that constructs
+a `Picture` (`HelperGate::WhenUsedOrConstructed`; every other program gets `ABSENT`'s
+eight one-line bodies). On macOS AArch64 (`__text`): a canvas program with no picture
+is 16,904 bytes smaller than before a picture had a shape, because the picture record
+builder left the unconditional source; a program with pictures is 226,012 larger, most
+of it the image builder, the outline item, and the intersection. A plain picture costs
+a frame what it did: one cache probe under its hash, with no list made and the shape
+not copied out of the item (`__canvas_picturePlainOffset`).
 
 **Naming a resource in a scene does not keep it alive.** The scene draws through
 the image you still own, and closing it is still yours to do — `canvas::destroyImage`
@@ -931,7 +1804,7 @@ program does not close it:
 ```
 FUNC installPanel() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("ui.ttf")
-  LET label AS canvas::DrawItem = canvas::Text[x := 8.0, y := 24.0, text := "Ready", font := face, size := 18.0, paint := canvas::fill(color::rgb(230, 230, 230))]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 8.0, y := 24.0], text := "Ready", font := face, fontSize := 18.0, paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [label])
 END FUNC
 ```

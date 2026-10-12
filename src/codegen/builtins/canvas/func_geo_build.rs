@@ -9,7 +9,7 @@
 //! Every one of those costs is per call and per record, not arithmetic.
 //!
 //! `geoBuild` answers the 51-float header followed by its tail for a `Rectangle`,
-//! `RoundedRect`, `Circle`, `Line`, `Polygon` or `PolyLine` whose paint has the all-zero
+//! `Circle`, `Line`, `Polygon` or `PolyLine` whose paint has the all-zero
 //! (identity) transform and fewer than two gradient stops — what an ordinary animated
 //! item is. For
 //! anything else it answers an EMPTY list and `__canvas_geometryFor` runs the MFBASIC
@@ -467,6 +467,87 @@ fn put_field(
 struct PaintView {
     paint: VirtualRegister,
     paint_type: ParameterType,
+    /// plan-172-D: two frame slots holding the item's build offset as doubles —
+    /// where its record puts the local origin, which is its `position` (the native
+    /// builder only takes an item whose transform is all-zero). `paint.clip` is in
+    /// local space, and so are the points of a `Line`, `Polygon` and `PolyLine`
+    /// (plan-172-F), so each is read through [`placed_point`] or [`moved_point`],
+    /// which add it. The add
+    /// happens whatever the offset, as it does in `__canvas_placedClip`, so the two
+    /// builders agree on a `-0.0` coordinate.
+    offset: (usize, usize),
+}
+
+/// The view's build offset, loaded into two registers.
+///
+/// plan-172-F: a point-list walk loads it ONCE, ahead of its loop, and adds it to each
+/// point with [`moved_point`]. Reading it back from the frame for every point
+/// ([`placed_point`], which the clip walks use) cost the moving-polygon rows of
+/// `tools/canvas-bench` 3 to 6% of their build phase; a polygon reads each of its points
+/// three times.
+fn build_offset(builder: &mut CodeBuilder, view: &PaintView) -> (VirtualRegister, VirtualRegister) {
+    let ox = builder.temporary_fp_vreg();
+    let oy = builder.temporary_fp_vreg();
+    builder.emit(abi::load_double(&ox, abi::stack_pointer(), view.offset.0));
+    builder.emit(abi::load_double(&oy, abi::stack_pointer(), view.offset.1));
+    (ox, oy)
+}
+
+/// The local point at `q`, moved by an offset already in registers:
+/// `(q.x + ox, q.y + oy)`.
+fn moved_point(
+    builder: &mut CodeBuilder,
+    offset: &(VirtualRegister, VirtualRegister),
+    q: &VirtualRegister,
+    xo: usize,
+    yo: usize,
+) -> (VirtualRegister, VirtualRegister) {
+    let x = fload(builder, q, xo);
+    let y = fload(builder, q, yo);
+    (fadd(builder, &x, &offset.0), fadd(builder, &y, &offset.1))
+}
+
+/// The local point at `q`, moved by the view's build offset: `(q.x + ox, q.y + oy)`.
+fn placed_point(
+    builder: &mut CodeBuilder,
+    view: &PaintView,
+    q: &VirtualRegister,
+    xo: usize,
+    yo: usize,
+) -> (VirtualRegister, VirtualRegister) {
+    let x = fload(builder, q, xo);
+    let y = fload(builder, q, yo);
+    let ox = builder.temporary_fp_vreg();
+    let oy = builder.temporary_fp_vreg();
+    builder.emit(abi::load_double(&ox, abi::stack_pointer(), view.offset.0));
+    builder.emit(abi::load_double(&oy, abi::stack_pointer(), view.offset.1));
+    (fadd(builder, &x, &ox), fadd(builder, &y, &oy))
+}
+
+/// Fill the build-offset slots for the item at `rec`: its `position`. The native
+/// builder only takes an item whose transform is all-zero, so every kind it builds is
+/// built at its position (plan-172-D, E and F between them position all five).
+fn emit_build_offset(
+    builder: &mut CodeBuilder,
+    rec: &VirtualRegister,
+    record: &ParameterType,
+    offset: (usize, usize),
+) -> Result<(), String> {
+    let position = builder.temporary_vreg();
+    let position_type = emit_field_block(builder, &position, rec, record, "position")?;
+    let x = fload(
+        builder,
+        &position,
+        scalar_offset(builder, &position_type, "x")?,
+    );
+    let y = fload(
+        builder,
+        &position,
+        scalar_offset(builder, &position_type, "y")?,
+    );
+    builder.emit(abi::store_double(&x, abi::stack_pointer(), offset.0));
+    builder.emit(abi::store_double(&y, abi::stack_pointer(), offset.1));
+    Ok(())
 }
 
 /// `__canvas_strokeHalf(paint)`: `-1.0` when the stroke's alpha is 0 or the width is
@@ -606,8 +687,7 @@ fn emit_clip_shape(builder: &mut CodeBuilder, view: &PaintView) -> Result<ClipSh
         builder.emit(abi::move_immediate(&idx, "Integer", &k.to_string()));
         let q = builder.temporary_vreg();
         emit_list_element(builder, &q, &list, &idx);
-        let x = fload(builder, &q, xo);
-        let y = fload(builder, &q, yo);
+        let (x, y) = placed_point(builder, view, &q, xo, yo);
         builder.emit(abi::float_move_d_from_d(&xs[k], &x));
         builder.emit(abi::float_move_d_from_d(&ys[k], &y));
     }
@@ -749,10 +829,8 @@ fn emit_clip_edges(
         builder.emit(abi::label(&wrap));
         emit_list_element(builder, &a, list, &i);
         emit_list_element(builder, &b, list, &j);
-        let ax = fload(builder, &a, xo);
-        let ay = fload(builder, &a, yo);
-        let bx = fload(builder, &b, xo);
-        let by = fload(builder, &b, yo);
+        let (ax, ay) = placed_point(builder, view, &a, xo, yo);
+        let (bx, by) = placed_point(builder, view, &b, xo, yo);
         let dx = fsub(builder, &bx, &ax);
         let dy = fsub(builder, &by, &ay);
         let len_sq = fused_len_sq(builder, &dx, &dy);
@@ -856,8 +934,7 @@ fn emit_paint_header(
         builder.emit(abi::compare_registers(&i, n));
         builder.emit(abi::branch_ge(&done));
         emit_list_element(builder, &q, list, &i);
-        let x = fload(builder, &q, xo);
-        let y = fload(builder, &q, yo);
+        let (x, y) = placed_point(builder, view, &q, xo, yo);
         builder.emit(abi::compare_immediate(&seen, "0"));
         builder.emit(abi::branch_ne(&seeded));
         builder.emit(abi::float_move_d_from_d(&bounds[0], &x));
@@ -1096,16 +1173,13 @@ fn polyline_pad(
 fn emit_paint_supported(
     builder: &mut CodeBuilder,
     view: &PaintView,
+    item: &VirtualRegister,
+    item_type: &ParameterType,
     unsupported: &str,
 ) -> Result<(), String> {
+    // plan-172-C: the transform is the item's own field, not the paint's.
     let transform = builder.temporary_vreg();
-    let transform_type = emit_field_block(
-        builder,
-        &transform,
-        &view.paint,
-        &view.paint_type,
-        "transform",
-    )?;
+    let transform_type = emit_field_block(builder, &transform, item, item_type, "transform")?;
     let zero = fconst(builder, 0.0);
     for name in ["a", "b", "c", "d", "tx", "ty"] {
         let v = fload(
@@ -1535,20 +1609,9 @@ fn emit_rect_joined(
     rec: &VirtualRegister,
     record: &ParameterType,
     view: &PaintView,
-    rounded: bool,
     none: &str,
 ) -> Result<(), String> {
-    let w = fload(builder, rec, scalar_offset(builder, record, "w")?);
-    let h = fload(builder, rec, scalar_offset(builder, record, "h")?);
-    let corner = if rounded {
-        fload(
-            builder,
-            rec,
-            scalar_offset(builder, record, "cornerRadius")?,
-        )
-    } else {
-        fconst(builder, 0.0)
-    };
+    let RectInputs { w, h, corner, .. } = emit_rect_inputs(builder, rec, record, None)?;
     branch_if_not_positive(builder, &w, none);
     branch_if_not_positive(builder, &h, none);
     let two = fconst(builder, 2.0);
@@ -1573,27 +1636,16 @@ fn emit_rect_dash_size(
     rec: &VirtualRegister,
     record: &ParameterType,
     view: &PaintView,
-    rounded: bool,
     solid: &str,
     n: &VirtualRegister,
 ) -> Result<(), String> {
-    let w = fload(builder, rec, scalar_offset(builder, record, "w")?);
-    let h = fload(builder, rec, scalar_offset(builder, record, "h")?);
+    let RectInputs { w, h, corner, .. } = emit_rect_inputs(builder, rec, record, None)?;
     branch_if_not_positive(builder, &w, solid);
     branch_if_not_positive(builder, &h, solid);
     let half = emit_stroke_half(builder, view)?;
     let pattern = emit_dash_pattern(builder, view, &half, solid)?;
     let data = builder.temporary_vreg();
     builder.emit(abi::move_immediate(&data, "Integer", "0"));
-    let corner = if rounded {
-        fload(
-            builder,
-            rec,
-            scalar_offset(builder, record, "cornerRadius")?,
-        )
-    } else {
-        fconst(builder, 0.0)
-    };
     let two = fconst(builder, 2.0);
     let zero = fconst(builder, 0.0);
     let wh = fmin(builder, &w, &h);
@@ -1948,7 +2000,6 @@ fn emit_record_end(builder: &mut CodeBuilder, out: &VirtualRegister) -> VirtualR
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Rect,
-    Rounded,
     Circle,
     Line,
     Polygon,
@@ -1956,9 +2007,8 @@ enum Kind {
 }
 
 impl Kind {
-    const ALL: [Kind; 6] = [
+    const ALL: [Kind; 5] = [
         Kind::Rect,
-        Kind::Rounded,
         Kind::Circle,
         Kind::Line,
         Kind::Polygon,
@@ -1968,7 +2018,6 @@ impl Kind {
     fn variant(self) -> &'static str {
         match self {
             Kind::Rect => "Rectangle",
-            Kind::Rounded => "RoundedRect",
             Kind::Circle => "Circle",
             Kind::Line => "Line",
             Kind::Polygon => "Polygon",
@@ -1983,30 +2032,17 @@ fn put_empty(builder: &mut CodeBuilder, out: &VirtualRegister) {
     put_const(builder, out, 1, GEO_HEADER as f64);
 }
 
-/// `__canvas_rectHeader` (a `Rectangle` passes `cornerRadius = 0.0`).
+/// `__canvas_rectHeader` (four square corners pass `corner = 0.0`).
 fn fill_rect(
     builder: &mut CodeBuilder,
     out: &VirtualRegister,
     rec: &VirtualRegister,
     record: &ParameterType,
     view: &PaintView,
-    rounded: bool,
     done: &str,
 ) -> Result<(), String> {
     let empty = builder.label("canvas_geo_rect_empty");
-    let x = fload(builder, rec, scalar_offset(builder, record, "x")?);
-    let y = fload(builder, rec, scalar_offset(builder, record, "y")?);
-    let w = fload(builder, rec, scalar_offset(builder, record, "w")?);
-    let h = fload(builder, rec, scalar_offset(builder, record, "h")?);
-    let corner = if rounded {
-        fload(
-            builder,
-            rec,
-            scalar_offset(builder, record, "cornerRadius")?,
-        )
-    } else {
-        fconst(builder, 0.0)
-    };
+    let RectInputs { x, y, w, h, corner } = emit_rect_inputs(builder, rec, record, None)?;
     branch_if_not_positive(builder, &w, &empty);
     branch_if_not_positive(builder, &h, &empty);
     let two = fconst(builder, 2.0);
@@ -2103,6 +2139,100 @@ fn fill_rect(
     Ok(())
 }
 
+/// A rectangle's geometry inputs: its top-left corner, its extent and its corner
+/// radius, as `__canvas_rectItem` hands them to `__canvas_rectHeader`.
+struct RectInputs {
+    x: VirtualRegister,
+    y: VirtualRegister,
+    w: VirtualRegister,
+    h: VirtualRegister,
+    corner: VirtualRegister,
+}
+
+/// plan-172-E: read a `Rectangle`'s inputs.
+///
+/// The top-left corner is `position` plus where `bind` puts that corner
+/// (`__canvas_bindOffset`): `0.0` for `TopLeft`, `0.0 - extent / 2.0` for `Center`. The
+/// add happens for both, as it does in MFBASIC, so a `-0.0` coordinate comes out the
+/// same.
+///
+/// This builder draws only the exact record, and only the cases whose radius needs
+/// no resolving: **four equal radii that are either all `<= 0.0` or all `> 1.0`**. The
+/// value is passed on as it is and the caller clamps it to half the shorter side —
+/// the arithmetic a rounded rectangle's one radius always had. Anything else (unequal
+/// radii, or a fraction of the half-size) branches to `decline`, and the MFBASIC
+/// builder resolves it. The size pass passes `decline`; the fill pass, which runs only
+/// for an item the size pass took, passes `None`.
+fn emit_rect_inputs(
+    builder: &mut CodeBuilder,
+    rec: &VirtualRegister,
+    record: &ParameterType,
+    decline: Option<&str>,
+) -> Result<RectInputs, String> {
+    let position = builder.temporary_vreg();
+    let position_type = emit_field_block(builder, &position, rec, record, "position")?;
+    let px = fload(
+        builder,
+        &position,
+        scalar_offset(builder, &position_type, "x")?,
+    );
+    let py = fload(
+        builder,
+        &position,
+        scalar_offset(builder, &position_type, "y")?,
+    );
+    let size = builder.temporary_vreg();
+    let size_type = emit_field_block(builder, &size, rec, record, "size")?;
+    let w = fload(builder, &size, scalar_offset(builder, &size_type, "width")?);
+    let h = fload(
+        builder,
+        &size,
+        scalar_offset(builder, &size_type, "height")?,
+    );
+
+    let (bind_index, bind_type) = field(builder, record, "bind")?;
+    let center = enum_ordinal(builder, &bind_type, "Center")?;
+    let bind = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&bind, rec, 8 * bind_index));
+    let lx = builder.temporary_fp_vreg();
+    let ly = builder.temporary_fp_vreg();
+    let zero = fconst(builder, 0.0);
+    builder.emit(abi::float_move_d_from_d(&lx, &zero));
+    builder.emit(abi::float_move_d_from_d(&ly, &zero));
+    let top_left = builder.label("canvas_geo_rect_top_left");
+    builder.emit(abi::compare_immediate(&bind, &center.to_string()));
+    builder.emit(abi::branch_ne(&top_left));
+    let two = fconst(builder, 2.0);
+    let half_w = fdiv(builder, &w, &two);
+    let back_x = fsub(builder, &zero, &half_w);
+    builder.emit(abi::float_move_d_from_d(&lx, &back_x));
+    let half_h = fdiv(builder, &h, &two);
+    let back_y = fsub(builder, &zero, &half_h);
+    builder.emit(abi::float_move_d_from_d(&ly, &back_y));
+    builder.emit(abi::label(&top_left));
+    let x = fadd(builder, &px, &lx);
+    let y = fadd(builder, &py, &ly);
+
+    let corner = fload(builder, rec, scalar_offset(builder, record, "radiusTL")?);
+    if let Some(decline) = decline {
+        for other in ["radiusTR", "radiusBL", "radiusBR"] {
+            let v = fload(builder, rec, scalar_offset(builder, record, other)?);
+            builder.emit(abi::float_compare_d(&corner, &v));
+            builder.emit(abi::branch_ne(decline));
+        }
+        // `0 < r <= 1` is a fraction of the half-size: an elliptical corner unless the
+        // rectangle is square. Not this builder's.
+        let exact = builder.label("canvas_geo_rect_radius_exact");
+        branch_if_not_positive(builder, &corner, &exact);
+        let one = fconst(builder, 1.0);
+        builder.emit(abi::float_compare_d(&corner, &one));
+        builder.emit(abi::branch_gt(&exact));
+        builder.emit(abi::branch(decline));
+        builder.emit(abi::label(&exact));
+    }
+    Ok(RectInputs { x, y, w, h, corner })
+}
+
 /// `__canvas_circleHeader`.
 fn fill_circle(
     builder: &mut CodeBuilder,
@@ -2113,8 +2243,20 @@ fn fill_circle(
     done: &str,
 ) -> Result<(), String> {
     let empty = builder.label("canvas_geo_circle_empty");
-    let x = fload(builder, rec, scalar_offset(builder, record, "x")?);
-    let y = fload(builder, rec, scalar_offset(builder, record, "y")?);
+    // plan-172-D: the centre is `position`; the transform is all-zero here, so the
+    // circle is built at it.
+    let position = builder.temporary_vreg();
+    let position_type = emit_field_block(builder, &position, rec, record, "position")?;
+    let x = fload(
+        builder,
+        &position,
+        scalar_offset(builder, &position_type, "x")?,
+    );
+    let y = fload(
+        builder,
+        &position,
+        scalar_offset(builder, &position_type, "y")?,
+    );
     let radius = fload(builder, rec, scalar_offset(builder, record, "radius")?);
     branch_if_not_positive(builder, &radius, &empty);
     put_const(builder, out, 0, KIND_CIRCLE);
@@ -2161,10 +2303,25 @@ fn fill_line(
     let empty = builder.label("canvas_geo_line_empty");
     let half = emit_stroke_half(builder, view)?;
     branch_if_not_positive(builder, &half, &empty);
-    let x1 = fload(builder, rec, scalar_offset(builder, record, "x1")?);
-    let y1 = fload(builder, rec, scalar_offset(builder, record, "y1")?);
-    let x2 = fload(builder, rec, scalar_offset(builder, record, "x2")?);
-    let y2 = fload(builder, rec, scalar_offset(builder, record, "y2")?);
+    // plan-172-F: the two ends are offsets from `position`.
+    let start = builder.temporary_vreg();
+    let start_type = emit_field_block(builder, &start, rec, record, "startAt")?;
+    let (x1, y1) = placed_point(
+        builder,
+        view,
+        &start,
+        scalar_offset(builder, &start_type, "x")?,
+        scalar_offset(builder, &start_type, "y")?,
+    );
+    let end = builder.temporary_vreg();
+    let end_type = emit_field_block(builder, &end, rec, record, "endAt")?;
+    let (x2, y2) = placed_point(
+        builder,
+        view,
+        &end,
+        scalar_offset(builder, &end_type, "x")?,
+        scalar_offset(builder, &end_type, "y")?,
+    );
     put_const(builder, out, 0, KIND_SEGMENT);
     put_const(builder, out, 1, GEO_HEADER as f64);
     put(builder, out, 2, &x1);
@@ -2225,7 +2382,7 @@ fn fill_line(
 }
 
 /// The `x`/`y` offsets of a point in a polygon ring of type `ring_type`
-/// (`List OF Point`).
+/// (`List OF vector::Float2`).
 fn ring_point_offsets(
     builder: &CodeBuilder,
     ring_type: &ParameterType,
@@ -2248,6 +2405,11 @@ fn ring_point_offsets(
 /// and the edge total, then every contributing ring's edges with the wrap inside the
 /// ring. Each walk is the MFBASIC builder's loop in its order, so the record is
 /// bit-identical to it.
+///
+/// plan-172-F: a point is an offset from `position`, so each is read through
+/// [`moved_point`] — `position + point`, then everything as before. The joins and
+/// the dashes are computed from the edges written here, never from the item's points,
+/// so they follow without an edit.
 fn fill_polygon(
     builder: &mut CodeBuilder,
     out: &VirtualRegister,
@@ -2265,6 +2427,7 @@ fn fill_polygon(
     let ring_type = outer.element.clone();
     let (xo, yo) = ring_point_offsets(builder, &ring_type)?;
 
+    let offset = build_offset(builder, view);
     // The bounds: `0.0` until the first contributing ring's first point, then
     // minF/maxF over every later point in order. `total` is the edge count so far.
     let total = builder.temporary_vreg();
@@ -2300,8 +2463,7 @@ fn fill_polygon(
     builder.emit(abi::compare_immediate(&total, "0"));
     builder.emit(abi::branch_ne(&head));
     emit_list_element(builder, &q, &list, &i);
-    let fx = fload(builder, &q, xo);
-    let fy = fload(builder, &q, yo);
+    let (fx, fy) = moved_point(builder, &offset, &q, xo, yo);
     builder.emit(abi::float_move_d_from_d(&min_x, &fx));
     builder.emit(abi::float_move_d_from_d(&max_x, &fx));
     builder.emit(abi::float_move_d_from_d(&min_y, &fy));
@@ -2311,8 +2473,7 @@ fn fill_polygon(
     builder.emit(abi::compare_registers(&i, &n));
     builder.emit(abi::branch_ge(&bounds_done));
     emit_list_element(builder, &q, &list, &i);
-    let qx = fload(builder, &q, xo);
-    let qy = fload(builder, &q, yo);
+    let (qx, qy) = moved_point(builder, &offset, &q, xo, yo);
     let v = fmin(builder, &min_x, &qx);
     builder.emit(abi::float_move_d_from_d(&min_x, &v));
     let v = fmax(builder, &max_x, &qx);
@@ -2377,6 +2538,8 @@ fn fill_polygon(
     let j = builder.temporary_vreg();
     let a = builder.temporary_vreg();
     let b = builder.temporary_vreg();
+    let ax = builder.temporary_fp_vreg();
+    let ay = builder.temporary_fp_vreg();
     let edge_ring = builder.label("canvas_geo_poly_edge_ring");
     let edge_ring_next = builder.label("canvas_geo_poly_edge_ring_next");
     let edge_head = builder.label("canvas_geo_poly_edge");
@@ -2391,7 +2554,14 @@ fn fill_polygon(
     builder.emit(abi::compare_immediate(&n, "2"));
     builder.emit(abi::branch_lt(&edge_ring_next));
     let list = emit_list_view(builder, &ring, &ring_type)?;
+    // plan-172-F: an edge's first point is the edge before's second, so it is carried
+    // in two registers instead of being read and moved again. Per edge that is one
+    // point read where there were two, which pays for adding `position` to it.
     builder.emit(abi::move_immediate(&i, "Integer", "0"));
+    emit_list_element(builder, &a, &list, &i);
+    let (first_x, first_y) = moved_point(builder, &offset, &a, xo, yo);
+    builder.emit(abi::float_move_d_from_d(&ax, &first_x));
+    builder.emit(abi::float_move_d_from_d(&ay, &first_y));
     builder.emit(abi::label(&edge_head));
     builder.emit(abi::compare_registers(&i, &n));
     builder.emit(abi::branch_ge(&edge_ring_next));
@@ -2400,12 +2570,8 @@ fn fill_polygon(
     builder.emit(abi::branch_lt(&edge_wrap));
     builder.emit(abi::move_immediate(&j, "Integer", "0"));
     builder.emit(abi::label(&edge_wrap));
-    emit_list_element(builder, &a, &list, &i);
     emit_list_element(builder, &b, &list, &j);
-    let ax = fload(builder, &a, xo);
-    let ay = fload(builder, &a, yo);
-    let bx = fload(builder, &b, xo);
-    let by = fload(builder, &b, yo);
+    let (bx, by) = moved_point(builder, &offset, &b, xo, yo);
     let dx = fsub(builder, &bx, &ax);
     let dy = fsub(builder, &by, &ay);
     // `dx * dx + dy * dy` as `opt::fma_fusion` lowers it: `dy * dy` rounded, then
@@ -2436,6 +2602,8 @@ fn fill_polygon(
     builder.emit(abi::label(&stored));
     builder.emit(abi::store_double(&inv, &cursor, 32));
     builder.emit(abi::add_immediate(&cursor, &cursor, EDGE_FLOATS * 8));
+    builder.emit(abi::float_move_d_from_d(&ax, &bx));
+    builder.emit(abi::float_move_d_from_d(&ay, &by));
     builder.emit(abi::add_immediate(&i, &i, 1));
     builder.emit(abi::branch(&edge_head));
     builder.emit(abi::label(&edge_ring_next));
@@ -2543,6 +2711,8 @@ struct PolylineScan {
     colors: ListView,
     xo: usize,
     yo: usize,
+    /// The build offset (`position`), in registers for the segment walk.
+    offset: (VirtualRegister, VirtualRegister),
     /// `minX, minY, maxX, maxY` over the points, when asked for.
     bounds: Option<[VirtualRegister; 4]>,
 }
@@ -2613,6 +2783,7 @@ fn emit_polyline_scan(
     let yo = scalar_offset(builder, &point_type, "y")?;
     let color_list = emit_list_view(builder, &colors, &colors_type)?;
 
+    let offset = build_offset(builder, view);
     let i = builder.temporary_vreg();
     let j = builder.temporary_vreg();
     let a = builder.temporary_vreg();
@@ -2620,8 +2791,7 @@ fn emit_polyline_scan(
     let bounds = if with_bounds {
         builder.emit(abi::move_immediate(&i, "Integer", "0"));
         emit_list_element(builder, &a, &list, &i);
-        let fx = fload(builder, &a, xo);
-        let fy = fload(builder, &a, yo);
+        let (fx, fy) = moved_point(builder, &offset, &a, xo, yo);
         let slots = [
             builder.temporary_fp_vreg(),
             builder.temporary_fp_vreg(),
@@ -2644,17 +2814,22 @@ fn emit_polyline_scan(
     let dead = builder.label("canvas_geo_pl_dead");
     let seen = builder.label("canvas_geo_pl_seen");
     let walked = builder.label("canvas_geo_pl_walked");
+    // plan-172-F: an edge's first point is the edge before's second, so it is carried
+    // in two registers instead of being read and moved again. Per edge that is one
+    // point read where there were two, which pays for adding `position` to it.
+    let ax = builder.temporary_fp_vreg();
+    let ay = builder.temporary_fp_vreg();
     builder.emit(abi::move_immediate(&i, "Integer", "0"));
+    emit_list_element(builder, &a, &list, &i);
+    let (first_x, first_y) = moved_point(builder, &offset, &a, xo, yo);
+    builder.emit(abi::float_move_d_from_d(&ax, &first_x));
+    builder.emit(abi::float_move_d_from_d(&ay, &first_y));
     builder.emit(abi::label(&head));
     builder.emit(abi::add_immediate(&j, &i, 1));
     builder.emit(abi::compare_registers(&j, &count));
     builder.emit(abi::branch_ge(&walked));
-    emit_list_element(builder, &a, &list, &i);
     emit_list_element(builder, &b, &list, &j);
-    let ax = fload(builder, &a, xo);
-    let ay = fload(builder, &a, yo);
-    let bx = fload(builder, &b, xo);
-    let by = fload(builder, &b, yo);
+    let (bx, by) = moved_point(builder, &offset, &b, xo, yo);
     let dx = fsub(builder, &bx, &ax);
     let dy = fsub(builder, &by, &ay);
     let len_sq = fused_len_sq(builder, &dx, &dy);
@@ -2681,6 +2856,8 @@ fn emit_polyline_scan(
         let v = fmax(builder, &slots[3], &by);
         builder.emit(abi::float_move_d_from_d(&slots[3], &v));
     }
+    builder.emit(abi::float_move_d_from_d(&ax, &bx));
+    builder.emit(abi::float_move_d_from_d(&ay, &by));
     builder.emit(abi::move_register(&i, &j));
     builder.emit(abi::branch(&head));
     builder.emit(abi::label(&walked));
@@ -2707,6 +2884,7 @@ fn emit_polyline_scan(
         colors: color_list,
         xo,
         yo,
+        offset,
         bounds,
     })
 }
@@ -2811,17 +2989,20 @@ fn fill_polyline(
     let b = builder.temporary_vreg();
     let edge_head = builder.label("canvas_geo_pl_edge");
     let edge_done = builder.label("canvas_geo_pl_edges_done");
+    // The carried first point, as in the scan.
+    let ax = builder.temporary_fp_vreg();
+    let ay = builder.temporary_fp_vreg();
     builder.emit(abi::move_immediate(&i, "Integer", "0"));
+    emit_list_element(builder, &a, &scan.points, &i);
+    let (first_x, first_y) = moved_point(builder, &scan.offset, &a, scan.xo, scan.yo);
+    builder.emit(abi::float_move_d_from_d(&ax, &first_x));
+    builder.emit(abi::float_move_d_from_d(&ay, &first_y));
     builder.emit(abi::label(&edge_head));
     builder.emit(abi::add_immediate(&j, &i, 1));
     builder.emit(abi::compare_registers(&j, &scan.count));
     builder.emit(abi::branch_ge(&edge_done));
-    emit_list_element(builder, &a, &scan.points, &i);
     emit_list_element(builder, &b, &scan.points, &j);
-    let ax = fload(builder, &a, scan.xo);
-    let ay = fload(builder, &a, scan.yo);
-    let bx = fload(builder, &b, scan.xo);
-    let by = fload(builder, &b, scan.yo);
+    let (bx, by) = moved_point(builder, &scan.offset, &b, scan.xo, scan.yo);
     let dx = fsub(builder, &bx, &ax);
     let dy = fsub(builder, &by, &ay);
     let len_sq = fused_len_sq(builder, &dx, &dy);
@@ -2847,6 +3028,8 @@ fn fill_polyline(
     builder.emit(abi::label(&stored));
     builder.emit(abi::store_double(&inv, &cursor, 32));
     builder.emit(abi::add_immediate(&cursor, &cursor, EDGE_FLOATS * 8));
+    builder.emit(abi::float_move_d_from_d(&ax, &bx));
+    builder.emit(abi::float_move_d_from_d(&ay, &by));
     builder.emit(abi::move_register(&i, &j));
     builder.emit(abi::branch(&edge_head));
     builder.emit(abi::label(&edge_done));
@@ -2968,6 +3151,10 @@ pub(super) fn emit_record_size(
     builder.emit(abi::add_immediate(&rec, item, 16));
     let unsupported = builder.label("canvas_geo_unsupported");
     let sized = builder.label("canvas_geo_sized");
+    let offset = (
+        builder.allocate_stack_object("canvas_geo_size_ox", 8),
+        builder.allocate_stack_object("canvas_geo_size_oy", 8),
+    );
     let size_labels: Vec<String> = kinds
         .iter()
         .map(|_| builder.label("canvas_geo_size_kind"))
@@ -2981,11 +3168,16 @@ pub(super) fn emit_record_size(
         builder.emit(abi::label(label));
         let paint = builder.temporary_vreg();
         emit_field_block(builder, &paint, &rec, record, "paint")?;
+        emit_build_offset(builder, &rec, record, offset)?;
         let view = PaintView {
             paint,
             paint_type: paint_type.clone(),
+            offset,
         };
-        emit_paint_supported(builder, &view, &unsupported)?;
+        emit_paint_supported(builder, &view, &rec, record, &unsupported)?;
+        if *kind == Kind::Rect {
+            emit_rect_inputs(builder, &rec, record, Some(&unsupported))?;
+        }
         builder.emit(abi::move_immediate(n, "Integer", &GEO_HEADER.to_string()));
         // plan-163-A: five floats per point of every ring of at least 2 points.
         if *kind == Kind::Polygon {
@@ -3081,28 +3273,13 @@ pub(super) fn emit_record_size(
             builder.emit(abi::label(&solid));
         }
         // plan-163-B: a sharp-cornered rectangle's four join records, and its dash tail.
-        if *kind == Kind::Rect || *kind == Kind::Rounded {
+        if *kind == Kind::Rect {
             let no_joins = builder.label("canvas_geo_size_rect_no_joins");
-            emit_rect_joined(
-                builder,
-                &rec,
-                record,
-                &view,
-                *kind == Kind::Rounded,
-                &no_joins,
-            )?;
+            emit_rect_joined(builder, &rec, record, &view, &no_joins)?;
             builder.emit(abi::add_immediate(n, n, 4 * JOIN_FLOATS));
             builder.emit(abi::label(&no_joins));
             let solid = builder.label("canvas_geo_size_rect_solid");
-            emit_rect_dash_size(
-                builder,
-                &rec,
-                record,
-                &view,
-                *kind == Kind::Rounded,
-                &solid,
-                n,
-            )?;
+            emit_rect_dash_size(builder, &rec, record, &view, &solid, n)?;
             builder.emit(abi::label(&solid));
         }
         // plan-163-B: a circle's and a line's dash tails.
@@ -3164,9 +3341,8 @@ pub(super) fn emit_record_size(
         // already left for `sized` when its header is empty.
         let unclipped = builder.label("canvas_geo_size_unclipped");
         match kind {
-            Kind::Rect | Kind::Rounded => {
-                let w = fload(builder, &rec, scalar_offset(builder, record, "w")?);
-                let h = fload(builder, &rec, scalar_offset(builder, record, "h")?);
+            Kind::Rect => {
+                let RectInputs { w, h, .. } = emit_rect_inputs(builder, &rec, record, None)?;
                 branch_if_not_positive(builder, &w, &unclipped);
                 branch_if_not_positive(builder, &h, &unclipped);
             }
@@ -3212,6 +3388,12 @@ pub(super) fn emit_fill_record(
     }
     // plan-163-C: the item's paint, for its path-clip edges once the kind is written.
     let paint_slot = builder.allocate_stack_object("canvas_geo_fill_paint", 8);
+    // plan-172-D: the item's build offset, filled by its kind's arm and read by every
+    // clip point after it, the path-clip edges written past `done` included.
+    let offset = (
+        builder.allocate_stack_object("canvas_geo_fill_ox", 8),
+        builder.allocate_stack_object("canvas_geo_fill_oy", 8),
+    );
     let tag = builder.temporary_vreg();
     let rec = builder.temporary_vreg();
     builder.emit(abi::load_u64(&tag, item, 0));
@@ -3230,13 +3412,14 @@ pub(super) fn emit_fill_record(
         let paint = builder.temporary_vreg();
         emit_field_block(builder, &paint, &rec, record, "paint")?;
         builder.emit(abi::store_u64(&paint, abi::stack_pointer(), paint_slot));
+        emit_build_offset(builder, &rec, record, offset)?;
         let view = PaintView {
             paint,
             paint_type: paint_type.clone(),
+            offset,
         };
         match kind {
-            Kind::Rect => fill_rect(builder, out, &rec, record, &view, false, &done)?,
-            Kind::Rounded => fill_rect(builder, out, &rec, record, &view, true, &done)?,
+            Kind::Rect => fill_rect(builder, out, &rec, record, &view, &done)?,
             Kind::Circle => fill_circle(builder, out, &rec, record, &view, &done)?,
             Kind::Line => fill_line(builder, out, &rec, record, &view, &done)?,
             Kind::Polygon => fill_polygon(builder, out, &rec, record, &view, &done)?,
@@ -3257,9 +3440,11 @@ pub(super) fn emit_fill_record(
     builder.emit(abi::branch_ne(&clipped));
     let paint = builder.temporary_vreg();
     builder.emit(abi::load_u64(&paint, abi::stack_pointer(), paint_slot));
+    // The offset slots still hold what this item's own arm stored.
     let view = PaintView {
         paint,
         paint_type: paint_type.clone(),
+        offset,
     };
     let cursor = emit_record_end(builder, out);
     emit_clip_edges(builder, out, &view, &cursor)?;

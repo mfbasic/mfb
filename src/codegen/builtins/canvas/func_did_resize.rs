@@ -39,6 +39,7 @@ surface changes size.
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -48,7 +49,7 @@ FUNC main() AS Nothing
   WHILE frame < 600
     IF canvas::didResize() OR len(items) = 0 THEN
       LET size AS canvas::Size = canvas::getSize()
-      LET banner AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := toFloat(size.width), h := toFloat(size.height) / 8.0, paint := canvas::fill(color::rgb(30, 90, 200))]
+      LET banner AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := size.width, height := size.height / 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(30, 90, 200)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       items = [banner]
     END IF
     canvas::present(items)

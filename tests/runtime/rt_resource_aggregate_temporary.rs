@@ -396,3 +396,329 @@ fn an_aggregate_a_longer_lived_value_keeps_stays_usable() {
     );
     assert_eq!(run.stdout, "n=30\n", "{name}");
 }
+
+/// The declarations the positions below add to `PRELUDE`: a resource union and a
+/// list of it, a record with a `RES` field built by a call, a reader of one
+/// plain field of such a record, and a receiver that fails.
+const POSITIONS: &str = r#"IMPORT tcp
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+FUNC mkHandles() AS List OF RES Handle
+  MUT xs AS List OF RES Handle = []
+  RES f AS Handle = fs::createTempFile()
+  xs = collections::append(xs, f)
+  RETURN xs
+END FUNC
+
+FUNC mkHolder() AS Holder
+  RES f AS fs::File = fs::createTempFile()
+  RETURN Holder[f, 1]
+END FUNC
+
+FUNC useH(h AS Holder) AS Integer
+  RETURN h.n
+END FUNC
+
+FUNC countFail(xs AS List OF RES fs::File) AS Integer
+  IF len(xs) > 0 THEN
+    FAIL error(77, "boom")
+  END IF
+  RETURN 0
+END FUNC
+"#;
+
+/// bug-999, position 1: a record takes the list a constructor argument built, and
+/// releases it with its own scope.
+#[test]
+fn a_constructor_argument_is_released_with_the_record_that_took_it() {
+    assert_statement_owns_it(
+        "bug999_ctor",
+        POSITIONS,
+        "    LET back AS Layer = Layer[items := mkList()]\n    n = n + len(back.items)",
+        2,
+    );
+}
+
+/// bug-999, position 2: a member read out of a record a call returned. Bound, the
+/// binding takes the list; unbound, the statement does.
+#[test]
+fn a_member_read_of_a_call_result_is_released_by_whatever_took_it() {
+    assert_statement_owns_it(
+        "bug999_member_bound",
+        POSITIONS,
+        "    LET items AS List OF RES fs::File = mkLayer().items\n    n = n + len(items)",
+        2,
+    );
+    assert_statement_owns_it(
+        "bug999_member_unbound",
+        POSITIONS,
+        "    n = n + len(mkLayer().items)",
+        2,
+    );
+}
+
+/// bug-999, position 3: a loop takes its iterable and releases it when it ends.
+#[test]
+fn a_for_each_iterable_is_released_when_the_loop_ends() {
+    assert_statement_owns_it(
+        "bug999_foreach",
+        POSITIONS,
+        "    FOR EACH h IN mkList()\n      fs::writeAll(h, \"x\")\n      n = n + 1\n    NEXT",
+        2,
+    );
+}
+
+/// bug-999, position 4: the receiving call answers with more than a plain scalar
+/// (an element, another list), and nothing takes that answer either.
+#[test]
+fn an_argument_of_a_call_that_answers_with_a_reference_is_dropped_with_the_statement() {
+    assert_statement_owns_it(
+        "bug999_get",
+        POSITIONS,
+        "    fs::writeAll(collections::get(mkList(), 0), \"x\")\n    n = n + 1",
+        1,
+    );
+    assert_statement_owns_it(
+        "bug999_take",
+        POSITIONS,
+        "    n = n + len(collections::take(mkList(), 1))",
+        1,
+    );
+}
+
+/// bug-999, position 5: the result reaches a resource-union box.
+#[test]
+fn a_result_reaching_a_resource_union_is_dropped_with_the_statement() {
+    assert_statement_owns_it("bug999_union", POSITIONS, "    n = n + len(mkHandles())", 1);
+}
+
+/// bug-999, position 6: the receiving function reads a plain field of its record
+/// argument and keeps nothing.
+#[test]
+fn a_receiver_that_reads_a_field_of_its_record_argument_keeps_nothing() {
+    assert_statement_owns_it(
+        "bug999_field_reader",
+        POSITIONS,
+        "    n = n + useH(mkHolder())",
+        1,
+    );
+}
+
+/// bug-999, position 7: an inline `TRAP` on the receiving call. The handler also
+/// catches a `mkList` that runs out of descriptors, so the second statement has a
+/// receiver that succeeds: its `n` is right only while every `mkList` succeeded.
+#[test]
+fn an_inline_trap_on_the_receiving_call_releases_the_argument() {
+    assert_statement_owns_it(
+        "bug999_trap",
+        POSITIONS,
+        "    LET k AS Integer = countFail(mkList()) TRAP(e)\n      RECOVER 5\n    END TRAP\n    n = n + k",
+        5,
+    );
+    assert_statement_owns_it(
+        "bug999_trap_ok",
+        POSITIONS,
+        "    LET k AS Integer = written(mkList()) TRAP(e)\n      RECOVER 100\n    END TRAP\n    n = n + k",
+        2,
+    );
+}
+
+/// bug-999: the loop takes its iterable, and an element the body puts in a list
+/// declared outside the loop takes that list's scope. The kept files are written
+/// after the loop; everything else the iterable held is closed and freed by it.
+#[test]
+fn an_element_a_loop_body_stores_further_out_takes_that_scope() {
+    let name = "bug999_foreach_store";
+    let source = format!(
+        "{PRELUDE}\nFUNC run() AS Integer\n\
+         \x20 MUT n AS Integer = 0\n\
+         \x20 MUT keep AS List OF RES fs::File = []\n\
+         \x20 FOR i = 1 TO count()\n\
+         \x20   FOR EACH h IN mkList()\n\
+         \x20     IF i <= 2 THEN\n\
+         \x20       keep = collections::append(keep, h)\n\
+         \x20     END IF\n\
+         \x20     n = n + 1\n\
+         \x20   NEXT\n\
+         \x20 NEXT\n\
+         \x20 FOR EACH k IN keep\n\
+         \x20   fs::writeAll(k, \"still open\")\n\
+         \x20   n = n + 1000\n\
+         \x20 NEXT\n\
+         \x20 RETURN n\n\
+         END FUNC\n\n\
+         FUNC main() AS Integer\n\
+         \x20 io::print(\"n=\" & toString(run()))\n\
+         \x20 RETURN 0\n\
+         END FUNC\n"
+    );
+    let exe = build_debug(name, &source);
+    for n in [10, 20] {
+        let run = run_at(name, &exe, n);
+        assert_eq!(run.double_free_skips, 0, "{name} N={n}");
+        assert_eq!(
+            (run.allocs, run.live),
+            (run.frees, 0),
+            "{name} N={n}: alloc_calls {} free_calls {} live_bytes {}",
+            run.allocs,
+            run.frees,
+            run.live
+        );
+        assert_eq!(run.stdout, format!("n={}\n", 4000 + 2 * n), "{name} N={n}");
+    }
+    let (ok, stdout, stderr) = run_limited(&exe, 300);
+    assert!(
+        ok && stdout == "n=4600\n",
+        "{name}: stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+/// bug-999: a `RES` binding takes the one element or field it names; the rest of
+/// the aggregate is the statement's.
+#[test]
+fn a_res_binding_takes_the_one_resource_it_names() {
+    assert_statement_owns_it(
+        "bug999_res_get",
+        POSITIONS,
+        "    RES h AS fs::File = collections::get(mkList(), 0)\n    fs::writeAll(h, \"x\")\n    n = n + 1",
+        1,
+    );
+    assert_statement_owns_it(
+        "bug999_res_field",
+        POSITIONS,
+        "    RES h AS fs::File = mkHolder().h\n    fs::writeAll(h, \"x\")\n    n = n + 1",
+        1,
+    );
+}
+
+/// bug-999: a binding of a call's answer over a nested list frees the inner
+/// blocks it took, and the statement frees the ones it did not.
+#[test]
+fn a_binding_through_a_call_over_a_nested_list_ends_balanced() {
+    let nested = "FUNC mkNested() AS List OF List OF RES fs::File\n\
+         \x20 MUT outer AS List OF List OF RES fs::File = []\n\
+         \x20 outer = collections::append(outer, mkList())\n\
+         \x20 outer = collections::append(outer, mkList())\n\
+         \x20 RETURN outer\n\
+         END FUNC\n";
+    assert_statement_owns_it(
+        "bug999_take_nested",
+        nested,
+        "    LET x AS List OF List OF RES fs::File = collections::take(mkNested(), 1)\n    n = n + len(x)",
+        1,
+    );
+}
+
+/// bug-999: a record built around a call and then returned by name is the
+/// caller's, with no block left behind.
+#[test]
+fn a_record_built_around_a_call_and_returned_by_name_ends_balanced() {
+    let mk2 = "FUNC mk2() AS Layer\n\
+         \x20 LET back AS Layer = Layer[items := mkList()]\n\
+         \x20 RETURN back\n\
+         END FUNC\n";
+    assert_statement_owns_it(
+        "bug999_return_named",
+        mk2,
+        "    LET b AS Layer = mk2()\n    n = n + len(b.items)",
+        2,
+    );
+}
+
+/// bug-999, position 7 over the other shapes: the trapped argument is a record
+/// that holds a list by pointer, and a nested list. The binding the desugar makes
+/// for it reads into the `Result` wrapper, and still owns the blocks its value
+/// points at.
+#[test]
+fn an_inline_trap_argument_that_holds_blocks_by_pointer_frees_them() {
+    let extra = "FUNC layerLen(l AS Layer) AS Integer\n\
+         \x20 RETURN len(l.items)\n\
+         END FUNC\n\n\
+         FUNC mkNested() AS List OF List OF RES fs::File\n\
+         \x20 MUT outer AS List OF List OF RES fs::File = []\n\
+         \x20 outer = collections::append(outer, mkList())\n\
+         \x20 outer = collections::append(outer, mkList())\n\
+         \x20 RETURN outer\n\
+         END FUNC\n\n\
+         FUNC nestedLen(xs AS List OF List OF RES fs::File) AS Integer\n\
+         \x20 RETURN len(xs)\n\
+         END FUNC\n";
+    assert_statement_owns_it(
+        "bug999_trap_record",
+        extra,
+        "    LET k AS Integer = layerLen(mkLayer()) TRAP(e)\n      RECOVER 100\n    END TRAP\n    n = n + k",
+        2,
+    );
+    assert_statement_owns_it(
+        "bug999_trap_nested",
+        extra,
+        "    LET k AS Integer = nestedLen(mkNested()) TRAP(e)\n      RECOVER 100\n    END TRAP\n    n = n + k",
+        2,
+    );
+}
+
+/// bug-999: the takers the sweep added. A `RETURN` takes for the caller what a
+/// binding would take; a `MATCH` takes its subject; an element stored by an
+/// in-place append is its container's; and a record or a list a statement builds
+/// around such a call and drops is freed with it.
+#[test]
+fn every_other_taker_releases_what_it_took() {
+    let extra = "FUNC retTake() AS List OF RES fs::File\n\
+         \x20 RETURN collections::take(mkList(), 1)\n\
+         END FUNC\n\n\
+         FUNC retGet() AS RES fs::File\n\
+         \x20 RETURN collections::get(mkList(), 0)\n\
+         END FUNC\n\n\
+         FUNC retField() AS List OF RES fs::File\n\
+         \x20 RETURN mkLayer().items\n\
+         END FUNC\n";
+    let both = format!("{POSITIONS}\n{extra}");
+    assert_statement_owns_it(
+        "bug999_return_take",
+        &both,
+        "    LET x AS List OF RES fs::File = retTake()\n    n = n + len(x) + len(retTake())",
+        2,
+    );
+    assert_statement_owns_it(
+        "bug999_return_get",
+        &both,
+        "    RES h AS fs::File = retGet()\n    fs::writeAll(h, \"x\")\n    n = n + 1",
+        1,
+    );
+    assert_statement_owns_it(
+        "bug999_return_field",
+        &both,
+        "    LET x AS List OF RES fs::File = retField()\n    n = n + len(x)",
+        2,
+    );
+    assert_statement_owns_it(
+        "bug999_match_subject",
+        &both,
+        "    MATCH collections::get(mkHandles(), 0)\n      CASE fs::File(f)\n        \
+         fs::writeAll(f, \"x\")\n        n = n + 1\n      CASE ELSE\n        n = n + 100\n    END MATCH",
+        1,
+    );
+    assert_statement_owns_it(
+        "bug999_append_call",
+        &both,
+        "    MUT ls AS List OF Layer = []\n    ls = collections::append(ls, mkLayer())\n    \
+         ls = collections::append(ls, Layer[items := mkList()])\n    n = n + len(ls)",
+        2,
+    );
+    assert_statement_owns_it(
+        "bug999_unbound_built",
+        &both,
+        "    n = n + len(Layer[items := mkList()].items) + len([mkLayer(), Layer[items := mkList()]])",
+        4,
+    );
+    assert_statement_owns_it(
+        "bug999_list_of_records",
+        &both,
+        "    LET xs AS List OF Layer = [Layer[items := mkList()], mkLayer()]\n    n = n + len(xs)",
+        2,
+    );
+}

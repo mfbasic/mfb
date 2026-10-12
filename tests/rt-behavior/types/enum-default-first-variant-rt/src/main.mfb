@@ -1,0 +1,115 @@
+' plan-172-N: an ENUM defaults to its FIRST declared variant.
+'
+' `MUT x AS E` with no initializer is accepted for an enum, and so for any record
+' whose only obstacle to a default was an enum field. The value is the variant
+' declared first -- ordinal 0, which is what an enum is at run time.
+'
+' Each line asserts the VALUE, not merely that the program built: a default that
+' materialized as some other ordinal would build just as happily. `Mode` puts the
+' variant a careless default would be tempted by (`Off`, the "zero-sounding" name)
+' SECOND, so "first declared" and "the one named like nothing" disagree and only
+' the rule under test prints TRUE.
+'
+' The record cases are the point of the letter: a record is refined with `WITH`
+' from its default, so every field the program does not name has to be a real,
+' usable value -- including the enum ones, at any depth.
+IMPORT fs
+IMPORT io
+
+ENUM Mode
+  Fast, Off, Slow
+END ENUM
+
+ENUM Single
+  Only
+END ENUM
+
+TYPE Inner
+  mode AS Mode
+  weight AS Float
+END TYPE
+
+TYPE Outer
+  name AS String
+  mode AS Mode
+  inner AS Inner
+  marks AS List OF Mode
+  on AS Boolean
+END TYPE
+
+' Module state of an enum type, and of a record holding one: each starts at its
+' default before `main` runs.
+MUT moduleMode AS Mode
+MUT moduleOuter AS Outer
+
+' A resource's STATE payload must be defaultable. An enum-bearing record now is.
+' (A bare enum as STATE is not exercised: a STATE type must be a record, bug-1013.)
+TYPE Cursor
+  mode AS Mode
+  pos AS Integer
+END TYPE
+
+FUNC nameOf(m AS Mode) AS String
+  MATCH m
+    CASE Mode.Fast
+      RETURN "Fast"
+    CASE Mode.Off
+      RETURN "Off"
+    CASE Mode.Slow
+      RETURN "Slow"
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  ' A bare enum.
+  MUT m AS Mode
+  io::print("bare        " & nameOf(m) & " first=" & toString(m = Mode.Fast) & " second=" & toString(m = Mode.Off))
+
+  ' A one-variant enum: its only value is its default.
+  MUT s AS Single
+  io::print("single      " & toString(s = Single.Only))
+
+  ' The default is a value like any other: it can be reassigned and compared.
+  m = Mode.Slow
+  io::print("reassigned  " & nameOf(m))
+
+  ' A record with an enum field, a nested record with one, and a list of them.
+  MUT o AS Outer
+  io::print("record      mode=" & nameOf(o.mode) & " inner=" & nameOf(o.inner.mode) _
+    & " name=[" & o.name & "] marks=" & toString(len(o.marks)) & " on=" & toString(o.on) _
+    & " weight=" & toString(o.inner.weight))
+
+  ' Refined with WITH: the named field changes, every enum field keeps its default.
+  LET named AS Outer = WITH o { name := "n", on := TRUE }
+  io::print("with other  mode=" & nameOf(named.mode) & " inner=" & nameOf(named.inner.mode) _
+    & " name=[" & named.name & "] on=" & toString(named.on))
+
+  ' And the enum field itself is settable from the default, leaving the nested one.
+  LET slowed AS Outer = WITH o { mode := Mode.Slow }
+  io::print("with enum   mode=" & nameOf(slowed.mode) & " inner=" & nameOf(slowed.inner.mode))
+
+  ' The source record is unchanged by either WITH.
+  io::print("source      mode=" & nameOf(o.mode) & " name=[" & o.name & "]")
+
+  ' Two defaults are two values: changing one leaves the other.
+  MUT a AS Inner
+  MUT b AS Inner
+  a = WITH a { mode := Mode.Off, weight := 2.5 }
+  io::print("independent a=" & nameOf(a.mode) & " b=" & nameOf(b.mode) & " b.weight=" & toString(b.weight))
+
+  ' Module state.
+  io::print("module      mode=" & nameOf(moduleMode) & " outer=" & nameOf(moduleOuter.mode) & "/" & nameOf(moduleOuter.inner.mode))
+  moduleMode = Mode.Off
+  io::print("module set  mode=" & nameOf(moduleMode))
+
+  ' STATE: the payload default-initializes when the resource is produced, so its
+  ' enum field is the first variant until the program writes it.
+  fs::writeText("/tmp/mfb-enum-default-first-variant.txt", "x")
+  RES f AS fs::File STATE Cursor = fs::open("/tmp/mfb-enum-default-first-variant.txt", "read")
+  io::print("state       mode=" & nameOf(f.state.mode) & " pos=" & toString(f.state.pos))
+  f.state.mode = Mode.Slow
+  f.state.pos = 7
+  io::print("state set   mode=" & nameOf(f.state.mode) & " pos=" & toString(f.state.pos))
+
+  RETURN 0
+END FUNC

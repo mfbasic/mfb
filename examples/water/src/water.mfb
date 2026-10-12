@@ -30,6 +30,7 @@
 ' `xs = collections::set(xs, i, v)`, which changes the list where it stands.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -330,7 +331,7 @@ FUNC waterItems AS List OF canvas::DrawItem
     LET vx AS Float = collections::get(dropVX, i)
     LET vy AS Float = collections::get(dropVY, i)
     LET paint AS canvas::Paint = canvas::fill(dropColor(math::sqrt(vx * vx + vy * vy)))
-    LET drop AS canvas::DrawItem = canvas::Circle[x := collections::get(dropX, i), y := collections::get(dropY, i), radius := DROP_RADIUS, paint := paint]
+    LET drop AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := collections::get(dropX, i), y := collections::get(dropY, i)], radius := DROP_RADIUS, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, drop)
   NEXT
   RETURN items

@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 ' bug-735: a blended (Multiply) filled rectangle stroked 1e-5 px wide -- a half-width
@@ -15,9 +16,9 @@ IMPORT color
 ' pixel one level off the oracle, which is blend precision, not this row's subject.
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
-  LET ground AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 900.0, h := 640.0, paint := canvas::fill(color::rgb(128, 128, 128))]
-  LET blended AS canvas::DrawItem = canvas::Rectangle[x := 100.25, y := 100.5, w := 100.0, h := 50.0, paint := WITH canvas::fillStroke(color::rgb(250, 200, 100), color::rgb(20, 40, 200), 0.00001) { blend := canvas::BlendMode.Multiply }]
-  LET after1 AS canvas::DrawItem = canvas::Circle[x := 500.0, y := 300.0, radius := 80.0, paint := canvas::fill(color::rgb(40, 200, 90))]
-  LET after2 AS canvas::DrawItem = canvas::Rectangle[x := 600.0, y := 450.0, w := 200.0, h := 120.0, paint := canvas::fill(color::rgb(220, 60, 60))]
+  LET ground AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 900.0, height := 640.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(128, 128, 128)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET blended AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 100.25, y := 100.5], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fillStroke(color::rgb(250, 200, 100), color::rgb(20, 40, 200), 0.00001) { blend := canvas::BlendMode.Multiply }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET after1 AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 500.0, y := 300.0], radius := 80.0, paint := canvas::fill(color::rgb(40, 200, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET after2 AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 600.0, y := 450.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 200.0, height := 120.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(220, 60, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([ground, blended, after1, after2])
 END FUNC

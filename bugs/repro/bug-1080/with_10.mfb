@@ -1,0 +1,53 @@
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT io
+IMPORT vector
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT scene AS List OF canvas::DrawItem = []
+  MUT r0 AS canvas::Rectangle
+  r0 = WITH r0 { position := vector::Float2[x := 0.0, y := 10.0], size := canvas::Size[width := 20.0, height := 20.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET i0 AS canvas::DrawItem = r0
+  scene = collections::append(scene, i0)
+  MUT r1 AS canvas::Rectangle
+  r1 = WITH r1 { position := vector::Float2[x := 1.0, y := 10.0], size := canvas::Size[width := 20.0, height := 20.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET i1 AS canvas::DrawItem = r1
+  scene = collections::append(scene, i1)
+  MUT r2 AS canvas::Rectangle
+  r2 = WITH r2 { position := vector::Float2[x := 2.0, y := 10.0], size := canvas::Size[width := 20.0, height := 20.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET i2 AS canvas::DrawItem = r2
+  scene = collections::append(scene, i2)
+  MUT r3 AS canvas::Rectangle
+  r3 = WITH r3 { position := vector::Float2[x := 3.0, y := 10.0], size := canvas::Size[width := 20.0, height := 20.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET i3 AS canvas::DrawItem = r3
+  scene = collections::append(scene, i3)
+  MUT r4 AS canvas::Rectangle
+  r4 = WITH r4 { position := vector::Float2[x := 4.0, y := 10.0], size := canvas::Size[width := 20.0, height := 20.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET i4 AS canvas::DrawItem = r4
+  scene = collections::append(scene, i4)
+  MUT r5 AS canvas::Rectangle
+  r5 = WITH r5 { position := vector::Float2[x := 5.0, y := 10.0], size := canvas::Size[width := 20.0, height := 20.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET i5 AS canvas::DrawItem = r5
+  scene = collections::append(scene, i5)
+  MUT r6 AS canvas::Rectangle
+  r6 = WITH r6 { position := vector::Float2[x := 6.0, y := 10.0], size := canvas::Size[width := 20.0, height := 20.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET i6 AS canvas::DrawItem = r6
+  scene = collections::append(scene, i6)
+  MUT r7 AS canvas::Rectangle
+  r7 = WITH r7 { position := vector::Float2[x := 7.0, y := 10.0], size := canvas::Size[width := 20.0, height := 20.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET i7 AS canvas::DrawItem = r7
+  scene = collections::append(scene, i7)
+  MUT r8 AS canvas::Rectangle
+  r8 = WITH r8 { position := vector::Float2[x := 8.0, y := 10.0], size := canvas::Size[width := 20.0, height := 20.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET i8 AS canvas::DrawItem = r8
+  scene = collections::append(scene, i8)
+  MUT r9 AS canvas::Rectangle
+  r9 = WITH r9 { position := vector::Float2[x := 9.0, y := 10.0], size := canvas::Size[width := 20.0, height := 20.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET i9 AS canvas::DrawItem = r9
+  scene = collections::append(scene, i9)
+  canvas::present(scene)
+  io::print("rendered")
+END FUNC

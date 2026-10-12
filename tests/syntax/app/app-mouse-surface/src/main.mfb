@@ -2,6 +2,7 @@ IMPORT app
 IMPORT canvas
 IMPORT io
 IMPORT term
+IMPORT vector
 
 ' plan-94-C/D/E: the mouse surface in app mode, so every backend's native mouse
 ' handlers land in this fixture's `.app.ncodesum` goldens.
@@ -26,6 +27,11 @@ FUNC pixels() AS Nothing
   END IF
   IF e.button = canvas::MouseButton.Left THEN
     io::print("left")
+  END IF
+  ' plan-172-I: the id path of the item under the pointer -- which is what puts the
+  ' hit test (`helper_hit.rs`) in this fixture's code plan.
+  IF e.overID <> "" THEN
+    io::print("over " & e.overID)
   END IF
   canvas::enableMouse(FALSE)
   RETURN NOTHING

@@ -1,0 +1,26 @@
+' plan-172-E: the TYPE `canvas::RoundedRect` was REMOVED, and its removal is a tested
+' contract rather than an absence, on the `canvas_color_type_removed_invalid`
+' precedent. A `canvas::Rectangle` carries a radius for each corner instead.
+'
+' The failure mode worth naming: a `RoundedRect` record left in canvas's type table,
+' but out of the `canvas::DrawItem` union, would let the annotation below resolve and
+' then fail where the value meets a `DrawItem` -- "this record is not a member" --
+' which names the union rather than the removal. Both lines are refused BY NAME
+' instead; the golden reports the error twice, once for the annotation and once for
+' the constructor.
+'
+' THE MIGRATION: write `canvas::Rectangle`, with the old `cornerRadius` in all four of
+' `radiusTL`, `radiusTR`, `radiusBL` and `radiusBR`. A radius above 1 means what
+' `cornerRadius` meant: pixels, circular, no larger than half the shorter side.
+'
+' Do not "fix" this fixture by using `canvas::Rectangle`. The point is that the OLD
+' spelling is refused.
+IMPORT app
+IMPORT canvas
+IMPORT color
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET pill AS canvas::RoundedRect = canvas::RoundedRect[x := 8.0, y := 8.0, w := 40.0, h := 20.0, cornerRadius := 10.0, paint := canvas::fill(color::rgb(1, 2, 3))]
+  RETURN 0
+END FUNC

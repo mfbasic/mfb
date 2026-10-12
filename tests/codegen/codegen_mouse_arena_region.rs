@@ -256,3 +256,62 @@ fn a_mouse_app_without_canvas_builds_on_every_app_backend() {
     }
     let _ = std::fs::remove_dir_all(&project);
 }
+
+/// A canvas program that presents and never polls the mouse.
+const CANVAS_WITHOUT_MOUSE: &str = "\
+IMPORT app\n\
+IMPORT canvas\n\
+\n\
+FUNC main() AS Nothing\n\
+  app::setMode(app::Mode.Canvas)\n\
+  canvas::present([])\n\
+END FUNC\n";
+
+/// The same program plus one `canvas::pollMouse()`.
+const CANVAS_WITH_MOUSE: &str = "\
+IMPORT app\n\
+IMPORT canvas\n\
+\n\
+FUNC main() AS Nothing\n\
+  app::setMode(app::Mode.Canvas)\n\
+  canvas::present([])\n\
+  LET event AS canvas::MouseEvent = canvas::pollMouse()\n\
+END FUNC\n";
+
+/// plan-172-I: `canvas::pollMouse` is MFBASIC over a native `canvas::pollMouseRaw`, and
+/// the canvas package's MFBASIC is compiled into every program that imports it. So the
+/// wrapper is a chunk gated on `pollMouse` being called (`helper_hit.rs`) -- otherwise
+/// every canvas program would call the raw poll, and the raw poll's symbol is what
+/// reserves mouse state (`module_uses_mouse`).
+///
+/// The canvas program that never polls must name no poll and emit no mouse mode word;
+/// the one that does must have both, or the first half is true of a compiler that
+/// lost the mouse altogether.
+#[test]
+fn a_canvas_program_that_never_polls_the_mouse_reserves_no_mouse_state() {
+    let polls = |source: &str, name: &str| -> usize {
+        let project = temp_project(name, source);
+        let ncode = build_ncode_app(&project, name);
+        let text = ncode.to_string();
+        let _ = std::fs::remove_dir_all(&project);
+        text.matches("_pollMouseRaw").count()
+    };
+    assert_eq!(polls(CANVAS_WITHOUT_MOUSE, "canvas_mouse_absent"), 0);
+    // The mode word specifically, not "nothing named mouse": since plan-172-J every
+    // canvas program's view has mouse methods, to publish the pointer to the graphics
+    // state, and their selector strings (`_mfb_macapp_sel_mouseDown`, ...) are data
+    // objects too. What a non-polling program must not have is the mode word -- and
+    // with it the ring it gates.
+    assert!(
+        !mouse_mode_globals(CANVAS_WITHOUT_MOUSE, "canvas_mouse_absent_globals")
+            .iter()
+            .any(|s| s == "_mfb_rt_mouse_mode"),
+    );
+
+    assert!(polls(CANVAS_WITH_MOUSE, "canvas_mouse_present") > 0);
+    assert!(
+        mouse_mode_globals(CANVAS_WITH_MOUSE, "canvas_mouse_present_globals")
+            .iter()
+            .any(|s| s == "_mfb_rt_mouse_mode"),
+    );
+}
