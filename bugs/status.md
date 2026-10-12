@@ -50,7 +50,10 @@ and waiting: 1060, 1061, 1062, 1068, 1073, 1081.
 | [ ]  | 991    | MED      | A magnified transformed item's bounds pad scales with the transform, so a 27 px polygon covers 369 px |
 | [ ]  | 995    | MED      | A `Paint.clip` on a transformed item evaluates the whole clip five times on every pixel, with no early-out, so the canvas-demo menu renders at 273 ms a frame on Vulkan |
 | [ ]  | 996    | MED      | On Intel Vulkan the first canvas frame of every newly built program waits ~25 s for the pipeline compile, behind a blank window |
+| [ ]  | 1024   | MED      | a Metal text frame is dumped with unwritten tiles (seen on a loaded machine; a concurrency defect is suspected) |
+| [ ]  | 1045   | MED      | on Windows, a real canvas window drawn on the GPU writes no `MFB_CANVAS_STATS` line (severity unknown until root-caused: LOW if only the report is missing, HIGH if frames are; the number 1045 was also used by a Resources bug that is fixed and in `bugs/completed/`) |
 | [ ]  | 970    | LOW      | `canvas::didResize()` answers TRUE once at startup in a real window although the surface never changed size (macOS and GTK) |
+| [ ]  | 1079   | LOW      | on Intel's Vulkan driver a picture takes the wrong texel where a texel boundary is a pixel centre (one row or column, one texel off) |
 
 ## App windows and GTK
 
@@ -236,6 +239,7 @@ and waiting: 1060, 1061, 1062, 1068, 1073, 1081.
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 946    | MED      | `Operand::Raw` keeps operands as untyped strings — remove the arm and give every operand kind a typed variant (together with 930; do after the behaviour fixes so its diffs are measured on a stable tree) |
 | [ ]  | 930    | LOW      | the `.mir` dump documented as "target-neutral" contains the runtime helpers, which are hand-written per architecture with physical register names |
+| [ ]  | 1080   | LOW      | a defaulted record updated with `WITH` costs about 27 KB of machine code a statement (the program is right; the executable is large and slower to build) |
 
 ## Packages and registry
 
@@ -300,6 +304,7 @@ and waiting: 1060, 1061, 1062, 1068, 1073, 1081.
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 1059   | MED      | two GPU text tests in `rt_canvas_font` fail with main's compiler on the development Mac (6 of 6 runs on 2026-10-11; they passed in the batch 20 gate hours earlier; cause not traced) |
 | [ ]  | 987    | LOW      | the Windows test scripts still default to the retired box 2230 (owner decided: repoint to box 206) |
+| [ ]  | 1014   | LOW      | `field_kinds.tsv` is not what `field_kinds_gen.py` generates |
 | [ ]  | 1033   | LOW      | the man example `variable::guide#2` does not build |
 
 ## Spec and man drift
