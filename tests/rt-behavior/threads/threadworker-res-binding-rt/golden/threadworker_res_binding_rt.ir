@@ -150,7 +150,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 44, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "spin", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "21" }] } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "spin", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer STATE W, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "21" }] } },
     { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "thread=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] }] } }] } },
     { "op": "return", "line": 46, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]

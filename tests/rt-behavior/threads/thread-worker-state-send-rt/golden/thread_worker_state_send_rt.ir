@@ -122,7 +122,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 32, "mutable": false, "name": "t", "type": "Thread OF String RES fs.File TO Integer STATE P", "value": { "kind": "call", "type": "Thread OF String RES fs.File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "worker", "type": "ISOLATED FUNC(ThreadWorker OF String RES fs.File TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "t", "type": "Thread OF String RES fs.File TO Integer STATE P", "value": { "kind": "call", "type": "Thread OF String RES fs.File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "worker", "type": "ISOLATED FUNC(ThreadWorker OF String RES fs.File TO Integer STATE W, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }] } },
     { "op": "stateAssign", "line": 33, "resource": "t", "value": { "kind": "with", "type": "P", "target": { "kind": "memberAccess", "type": "P", "target": { "kind": "local", "name": "t" }, "member": "state" }, "updates": [{ "field": "k", "value": { "kind": "const", "type": "Integer", "value": "9" } }] } },
     { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "5000" }] }] } },
     { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "ping" }, { "kind": "const", "type": "Integer", "value": "5000" }] } },
