@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory leak)
 
-Status: Open
-Regression Test: (proposed) a `--debug` alloc/free test over the program below asserting `live_bytes 0` at `N=10` and `N=40`
+Status: Fixed (bs22-agent-g)
+Regression Test: `rt_resource_model::bug_1071_inner_list_appended_to_a_list_of_lists`
 
 An inner list built in a loop body and appended to an outer list of lists declared before the loop: the files are readable after the loop and are closed, and the inner list blocks and the file records are kept.
 
@@ -113,3 +113,13 @@ END FUNC
 Not traced. A collection is held by pointer where it is stored, so `StoreFloatProof` proves nothing for it and the outer list's drain is close-only. Near bug-1056 (a nested list bound from a call keeps its inner list blocks); re-measure once bug-1056 is fixed.
 
 Found during batch 22 (reported by bs22-agent-b, reproduced by the coordinator).
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+The descriptors were closed and each 112-byte record kept, because a record was freed only for a holder a static proof accepted. The scope that closes a resource now frees its record, decided by the owner word alone: the cleanup takes the record (`RESOURCE_OWNER_TAKEN`) and the exit frees it after its last cleanup (owned-lists, `RES` bindings, resource-union bindings). The proofs are deleted. A `List OF List OF RES T` inlines its inner lists (rule 3), so no inner block is held by pointer.
+
+Regression tests: `rt_resource_model::bug_1071_inner_list_appended_to_a_list_of_lists`. Each builds the bug's repro (`bugs/repro/`) with `--debug` and requires, at N=10 and N=40, exit 0, the expected total, `double_free_skips 0` and live bytes that do not grow, and exit 0 at N=300 under `ulimit -n 64`.
+
+## Golden impact
+
+Not regenerated. Expect `.ncode` changes wherever a `RES` binding, a resource-union binding or an owned-list is dropped (the take and the reclaim after the exit's last cleanup), wherever a call returns a value reaching resources (the statement's take and drain), and at assignments that float.

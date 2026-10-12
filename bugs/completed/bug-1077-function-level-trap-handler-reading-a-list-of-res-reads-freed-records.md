@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (memory safety)
 
-Status: Open
-Regression Test: (proposed) a runtime test over the program asserting exit 0 and stdout `70`
+Status: Fixed (bs22-agent-g)
+Regression Test: `rt_resource_model::bug_1077_function_trap_handler_reads_drained_list`
 
 `MUT xs AS List OF RES fs::File = []` at function level; a file opened in a nested block is appended to it; a later call fails and the function's own `TRAP(e)` handler iterates `xs` and reads each file. The error route frees the records before the handler runs.
 
@@ -48,3 +48,13 @@ END FUNC
 Not traced. On the route to the function's own handler the function-level list is drained (closed and freed) although the binding stays in scope for the handler (`trap_route_cleanups`, `src/codegen/engine/control/builder_exits.rs`).
 
 Found during batch 22 (reported by bs22-agent-c, reproduced by the coordinator).
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+Rule 1 was broken on the trap route: the function-level scope has not exited when its own handler runs, but the route closed (and, once records are freed by their scope, would free) what it owns. `trap_route_cleanups` drops only the inner blocks the jump leaves; the handler's exit runs the function-level cleanups.
+
+Regression tests: `rt_resource_model::bug_1077_function_trap_handler_reads_drained_list`. Each builds the bug's repro (`bugs/repro/`) with `--debug` and requires, at N=10 and N=40, exit 0, the expected total, `double_free_skips 0` and live bytes that do not grow, and exit 0 at N=300 under `ulimit -n 64`.
+
+## Golden impact
+
+Not regenerated. Expect `.ncode` changes wherever a `RES` binding, a resource-union binding or an owned-list is dropped (the take and the reclaim after the exit's last cleanup), wherever a call returns a value reaching resources (the statement's take and drain), and at assignments that float.

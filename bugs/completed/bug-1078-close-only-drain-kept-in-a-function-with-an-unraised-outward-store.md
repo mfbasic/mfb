@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory leak)
 
-Status: Open
-Regression Test: (proposed) a `--debug` alloc/free test over the program asserting `live_bytes 0` at `N=10` and `N=40`
+Status: Fixed (bs22-agent-g)
+Regression Test: `rt_resource_model::bug_1078_close_only_drain_kept_beside_an_unraised_outward_store`
 
 bug-1053 made a record freed by its last holder. It left one guard: a function that contains a store carrying a reference outward WITHOUT raising the owner word (a by-reference capture assignment in a lambda, bug-1075; a non-inserting `collections` member's result assigned to an outer binding, bug-1076) keeps the old close-only drain for every container it cannot prove, because freeing there would turn those bugs' closed-handle error into a read of freed memory. In such a function bug-1053's shapes still keep their record.
 
@@ -42,3 +42,13 @@ END FUNC
 See `mfb spec memory arenas`, "Two stores carry a reference to a longer-lived binding without raising the owner word".
 
 Found during batch 22 (reported by bs22-agent-c, reproduced by the coordinator).
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+The close-only drain was a guard for the two stores that did not float (bug-1075, bug-1076). Both float now, so the guard (`runtime_reclaim`, `stores_through_a_captured_reference`, `unraised_outward_store`) is deleted and every scope frees the records it closes.
+
+Regression tests: `rt_resource_model::bug_1078_close_only_drain_kept_beside_an_unraised_outward_store`. Each builds the bug's repro (`bugs/repro/`) with `--debug` and requires, at N=10 and N=40, exit 0, the expected total, `double_free_skips 0` and live bytes that do not grow, and exit 0 at N=300 under `ulimit -n 64`.
+
+## Golden impact
+
+Not regenerated. Expect `.ncode` changes wherever a `RES` binding, a resource-union binding or an owned-list is dropped (the take and the reclaim after the exit's last cleanup), wherever a call returns a value reaching resources (the statement's take and drain), and at assignments that float.

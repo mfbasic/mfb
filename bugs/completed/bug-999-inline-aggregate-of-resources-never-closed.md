@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (resource leak)
 
-Status: Open (the `len(mkList())` class is fixed, `tests/runtime/rt_resource_aggregate_temporary.rs`; the positions under "Remaining positions" are not)
-Regression Test: `tests/runtime/rt_resource_aggregate_temporary.rs` (9 tests; `the_reported_loop_runs_out_of_no_descriptors` is the report's program)
+Status: Fixed (bs22-agent-g)
+Regression Test: `rt_resource_aggregate_temporary` (22 tests) and `rt_resource_model::bug_999_*` (4)
 
 bug-842 made a resource produced inline in an expression (a call argument, a member read, a
 list or record literal argument) a statement-scoped temporary that is closed at the end of its
@@ -261,3 +261,13 @@ the first.
 positions": each still leaves its resources unreleased with the batch 21 compiler. Position 5
 (a result reaching a resource-union box) also needs the box's owner worked out; positions 6 and 7
 are inside the class batch 21 fixed as worded, and were not reached.
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+A resource a callee's `RETURN` released stayed unowned until some binding claimed it, so in every position where nothing bound the call nothing owned it. It is the caller's statement's at once (rule 5: `register_resource_temp`, `adopt_statement_temp`, however the function was reached), every longer-lived taker raises it (rule 4), and the statement closes and frees what it still owns. The descriptors were closed and each 112-byte record kept, because a record was freed only for a holder a static proof accepted. The scope that closes a resource now frees its record, decided by the owner word alone: the cleanup takes the record (`RESOURCE_OWNER_TAKEN`) and the exit frees it after its last cleanup (owned-lists, `RES` bindings, resource-union bindings). The proofs are deleted. No position list: the taker is whatever stores the value.
+
+Regression tests: `rt_resource_aggregate_temporary` (22 tests) and `rt_resource_model::bug_999_*` (4). Each builds the bug's repro (`bugs/repro/`) with `--debug` and requires, at N=10 and N=40, exit 0, the expected total, `double_free_skips 0` and live bytes that do not grow, and exit 0 at N=300 under `ulimit -n 64`.
+
+## Golden impact
+
+Not regenerated. Expect `.ncode` changes wherever a `RES` binding, a resource-union binding or an owned-list is dropped (the take and the reclaim after the exit's last cleanup), wherever a call returns a value reaching resources (the statement's take and drain), and at assignments that float.

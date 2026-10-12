@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory leak)
 
-Status: Open
-Regression Test: (proposed) a `--debug` alloc/free test over the program below asserting `live_bytes 0` at `N=10` and `N=40`
+Status: Fixed (bs22-agent-g)
+Regression Test: `rt_resource_model::bug_1067_list_literal_assigned_in_a_loop`
 
 A list literal of two concrete files assigned in a `FOR` body to a `MUT hs AS List OF RES Handle` declared before the loop keeps the replaced lists and their boxes.
 
@@ -93,3 +93,13 @@ END FUNC
 Not traced. Near bug-1057 (`hs = files` on a `MUT List OF RES Handle` keeps the old value). Re-measure this program once bug-1057 is fixed.
 
 Found during batch 22 (reported by bs22-agent-b, reproduced by the coordinator).
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+The descriptors were closed and each 112-byte record kept, because a record was freed only for a holder a static proof accepted. The scope that closes a resource now frees its record, decided by the owner word alone: the cleanup takes the record (`RESOURCE_OWNER_TAKEN`) and the exit frees it after its last cleanup (owned-lists, `RES` bindings, resource-union bindings). The proofs are deleted. A `List OF RES Handle` is plain data (rule 3), so the assignment frees the block it replaces.
+
+Regression tests: `rt_resource_model::bug_1067_list_literal_assigned_in_a_loop`. Each builds the bug's repro (`bugs/repro/`) with `--debug` and requires, at N=10 and N=40, exit 0, the expected total, `double_free_skips 0` and live bytes that do not grow, and exit 0 at N=300 under `ulimit -n 64`.
+
+## Golden impact
+
+Not regenerated. Expect `.ncode` changes wherever a `RES` binding, a resource-union binding or an owned-list is dropped (the take and the reclaim after the exit's last cleanup), wherever a call returns a value reaching resources (the statement's take and drain), and at assignments that float.

@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory leak)
 
-Status: Open
-Regression Test: (proposed) a `--debug` alloc/free test over the program below asserting `live_bytes` does not grow between `N=10` and `N=40`
+Status: Fixed (bs22-agent-g)
+Regression Test: `rt_resource_model::bug_1072_bound_list_of_res_inline_trap`
 
 A `List OF RES fs::File` bound from a call under an inline `TRAP` closes its descriptors and keeps memory on every evaluation. The same binding without the `TRAP` is balanced.
 
@@ -49,3 +49,13 @@ END FUNC
 Not traced. The inline-`TRAP` desugar binds the call's result through a wrapper temporary; what stays is the wrapper and the file records (reported by bs22-agent-a, not verified). Near bug-1064 (a record bound from a call under an inline `TRAP`) and bug-1051.
 
 Found during batch 22 (reported by bs22-agent-a, reproduced by the coordinator).
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+The descriptors were closed and each 112-byte record kept, because a record was freed only for a holder a static proof accepted. The scope that closes a resource now frees its record, decided by the owner word alone: the cleanup takes the record (`RESOURCE_OWNER_TAKEN`) and the exit frees it after its last cleanup (owned-lists, `RES` bindings, resource-union bindings). The proofs are deleted. The inline-`TRAP` payload is plain data and its delivery binding the call's taker (`unboxed_trap_payload_is_block` no longer excludes it).
+
+Regression tests: `rt_resource_model::bug_1072_bound_list_of_res_inline_trap`. Each builds the bug's repro (`bugs/repro/`) with `--debug` and requires, at N=10 and N=40, exit 0, the expected total, `double_free_skips 0` and live bytes that do not grow, and exit 0 at N=300 under `ulimit -n 64`.
+
+## Golden impact
+
+Not regenerated. Expect `.ncode` changes wherever a `RES` binding, a resource-union binding or an owned-list is dropped (the take and the reclaim after the exit's last cleanup), wherever a call returns a value reaching resources (the statement's take and drain), and at assignments that float.

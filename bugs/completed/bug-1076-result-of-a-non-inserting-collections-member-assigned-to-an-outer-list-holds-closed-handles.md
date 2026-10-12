@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (use after close)
 
-Status: Open
-Regression Test: (proposed) a runtime test over the program, and the same with `take`, `drop`, `reverse`, `sort`, asserting exit 0 and `live_bytes 0`
+Status: Fixed (bs22-agent-g)
+Regression Test: `rt_resource_model::bug_1076_filter_result_assigned_to_outer_list`
 
 `keep` is declared at function level; in a nested block `xs` is bound from a call and `keep = collections::filter(xs, LAMBDA(h AS fs::File) -> TRUE)` stores a list of `xs`'s elements into it. The nested block's exit closes the files; reading `keep` afterwards fails. This is bug-1045's defect for a `collections` member that does not insert its argument (bug-1045 covered `append`, `prepend`, `insert`, `set`, literals, constructors and `WITH`).
 
@@ -48,3 +48,13 @@ END FUNC
 `record_ownership::store_operands` walks only the inserting members, so a value built by `filter`, `take`, `drop`, `transform` and the like out of an inner-scope collection is not raised (`StoreFloats::unraised_outward_store` names this store). See bug-1078.
 
 Found during batch 22 (reported by bs22-agent-c, reproduced by the coordinator).
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+Rule 4 was not followed at one store: an assignment whose value a call computed from a shorter-lived value (`keep = collections::filter(xs, f)`). Assignments are listed by the deepest scope their value can reach (`StoreFloats`), and the store raises what the assigned value reaches.
+
+Regression tests: `rt_resource_model::bug_1076_filter_result_assigned_to_outer_list`. Each builds the bug's repro (`bugs/repro/`) with `--debug` and requires, at N=10 and N=40, exit 0, the expected total, `double_free_skips 0` and live bytes that do not grow, and exit 0 at N=300 under `ulimit -n 64`.
+
+## Golden impact
+
+Not regenerated. Expect `.ncode` changes wherever a `RES` binding, a resource-union binding or an owned-list is dropped (the take and the reclaim after the exit's last cleanup), wherever a call returns a value reaching resources (the statement's take and drain), and at assignments that float.

@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (memory safety)
 
-Status: Open
-Regression Test: (proposed) a runtime test over the three programs asserting exit 0, the expected stdout and balanced counters
+Status: Fixed (bs22-agent-g)
+Regression Test: `rt_resource_model::bug_1063_state_variant_to_union_{bind,arg,append}`
 
 With `UNION Handle { fs::File, tcp::Socket }`, a `fs::File STATE Cur` value reaches a `Handle STATE Cur` position unwrapped in three forms: a binding from a call (`RES h AS Handle STATE Cur = openS()`, `n4a`), an argument (`rd(s)` with `rd(h AS Handle STATE Cur)`, `n4b`), and an append to a `List OF RES Handle STATE Cur` (`n4c`). The same three forms without `STATE` wrap the value.
 
@@ -148,3 +148,13 @@ END FUNC
 Not traced. Guess: the variant-to-union conversion compares types with the `STATE` clause attached, so `fs.File STATE Cur` is not recognised as a member of `Handle STATE Cur` and no wrap is emitted; the value is then read as a `{tag, record}` box (the crash bug-1046 had for the stateless float).
 
 Found during batch 22 (reported by bs22-agent-b, reproduced by the coordinator).
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+The general cause is the union rule of bug-1018: membership compared exact spellings, so a variant carrying a `STATE` clause was no member and was never wrapped. `TypeIndex::variant_belongs_to_union` asks the bare types, the wrap carries the payload's `STATE`, the verifier compares the bare payload. The append form's records are freed by the one record-free rule.
+
+Regression tests: `rt_resource_model::bug_1063_state_variant_to_union_{bind,arg,append}`. Each builds the bug's repro (`bugs/repro/`) with `--debug` and requires, at N=10 and N=40, exit 0, the expected total, `double_free_skips 0` and live bytes that do not grow, and exit 0 at N=300 under `ulimit -n 64`.
+
+## Golden impact
+
+Not regenerated. Expect `.ncode` changes wherever a `RES` binding, a resource-union binding or an owned-list is dropped (the take and the reclaim after the exit's last cleanup), wherever a call returns a value reaching resources (the statement's take and drain), and at assignments that float.

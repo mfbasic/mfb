@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (memory safety)
 
-Status: Open
-Regression Test: (proposed) a runtime test over the program asserting exit 0, the measured stdout and `live_bytes 0`
+Status: Fixed (bs22-agent-g)
+Regression Test: `rt_resource_model::bug_1075_foreach_lambda_appends_to_captured_outer_list`; `rt_resource_drop_reclaims::an_element_a_callback_keeps_is_closed_not_freed` (its pinned `closed` corrected to `open`)
 
 `keep` is declared at function level. In a nested block a `RES a` is opened, appended to a block-local list `xs`, and `collections::forEach(xs, LAMBDA(h AS fs::File) -> keep = collections::append(keep, h))` stores each element into `keep` through the lambda's by-reference capture. The nested block's exit closes and frees `a`; reading `keep` afterwards reads a freed record.
 
@@ -46,3 +46,13 @@ END FUNC
 The store-time raise of bug-1045 (`record_ownership::StoreFloats`) sees assignments in the function's own body; an assignment made inside a `LAMBDA` through a by-reference capture is not one of them, so nothing raises the record (`record_ownership::stores_through_a_captured_reference` names this store). bug-1053's last-holder rule keeps the close-only drain in a function that contains such a store; see bug-1078.
 
 Found during batch 22 (reported by bs22-agent-c, reproduced by the coordinator).
+
+## Resolution (bs22-agent-g, 2026-10-11)
+
+Rule 4 was not followed at one store: an assignment inside a `LAMBDA` through a by-reference capture carried an alias to a longer-lived binding without raising its cleanup scope. The captured binding is now a cell with its scope token and owned-list heads, and the store raises what it stores to that scope (`setup_ref_cell`, `emit_captured_store_float`).
+
+Regression tests: `rt_resource_model::bug_1075_foreach_lambda_appends_to_captured_outer_list`; `rt_resource_drop_reclaims::an_element_a_callback_keeps_is_closed_not_freed` (its pinned `closed` corrected to `open`). Each builds the bug's repro (`bugs/repro/`) with `--debug` and requires, at N=10 and N=40, exit 0, the expected total, `double_free_skips 0` and live bytes that do not grow, and exit 0 at N=300 under `ulimit -n 64`.
+
+## Golden impact
+
+Not regenerated. Expect `.ncode` changes wherever a `RES` binding, a resource-union binding or an owned-list is dropped (the take and the reclaim after the exit's last cleanup), wherever a call returns a value reaching resources (the statement's take and drain), and at assignments that float.
