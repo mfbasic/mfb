@@ -1153,7 +1153,12 @@ FUNC __canvas_renderMetal(offsets AS List OF Integer, width AS Integer, height A
   ' once in it; `__CANVAS_DRAWS` says who draws which slice and at what offset. Same
   ' arguments as the Vulkan twin, and deliberately so -- the two backends walking
   ' different lists is how a group ends up correct on one and at the origin on the other.
-  canvas::metalDrawScene(buffer, width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS)
+  ' bug-1024: FALSE is a frame the GPU did not draw (its command buffer did not
+  ' complete). The buffer then holds nothing to show, so decline, as for a scene the
+  ' predicate refuses: the caller draws this frame in software.
+  IF NOT canvas::metalDrawScene(buffer, width, height, __CANVAS_GEO_DATA, __CANVAS_DRAW_BLOCKS, __CANVAS_GLYPH_META, __CANVAS_GLYPH_COV, __CANVAS_DRAWS) THEN
+    RETURN FALSE
+  END IF
   ' Damage mode only -- see `__canvas_renderScene`: a whole-frame copy otherwise paid
   ' for nothing (bug-686).
   IF __canvas_damageEnabled() THEN

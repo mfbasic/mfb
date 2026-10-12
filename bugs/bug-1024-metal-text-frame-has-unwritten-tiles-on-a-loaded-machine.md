@@ -105,3 +105,81 @@ cargo test --no-fail-fast --test rt_canvas_font gpu
       payload; the frame is read back for the dump) against the frame handshake in
       `.ai/canvas-threading.md`.
 - [ ] Fix, with a test that holds under load.
+
+## bs23-agent-a, 2026-10-12: the status check landed; the link to this failure is still unproven
+
+This bug stays OPEN.
+
+### Reproduction attempt: not reproduced, 5 of 5 passes
+
+```
+cargo test --no-fail-fast --test rt_canvas_font gpu     # five times, one after another
+```
+
+`2 passed; 0 failed` each time. `uptime` load averages after each run: 11.13, 10.47,
+9.78, 9.16, 8.66 (one-minute); the first run took 78 s and the others 14.5 s. The display
+was awake (`ioreg -n IODisplayWrangler`: `CurrentPowerState=4`). Because nothing failed,
+the planned instrumentation (read the buffer's `status` in a failing run) could not be
+done: whether the frames with unwritten tiles came from a buffer in
+`MTLCommandBufferStatusError` is neither proved nor refuted.
+
+### What landed
+
+- `metal.rs:emit_metal_draw`: after `commit` and `waitUntilCompleted` the renderer sends
+  `status` to the command buffer and leaves for the pool release unless the answer is
+  `MTLCommandBufferStatusCompleted` (4). That is before the readback (`getBytes:`) and
+  before `[drawable present]`, and before either stores 1 into `OFF_PRESENTED`, so the
+  submit answers 0: the answer and the slot `direct_failed` and "no texture" already use.
+- `canvas::metalDrawScene` returns that answer (`AS Boolean`; it was `AS Nothing` and the
+  readback path's 0 was ignored), and `__canvas_renderMetal` returns FALSE on it. So a
+  frame whose buffer did not complete is drawn in software, on the readback path and on
+  the direct present (whose FALSE first tries the readback path, as before).
+- No environment variable and no stats field were added.
+
+### Proof of the fallback (the check itself, not the link to this bug)
+
+- Unit tests beside `the_frame_is_committed_then_waited_on`:
+  `the_buffer_status_is_read_after_the_wait_and_before_the_frame_is_used` and
+  `a_buffer_that_did_not_complete_reports_the_frame_not_drawn`. Both failed before the
+  check existed (`_mfb_macapp_sel_status is sent once, got []`).
+- One experiment, not committed: with the constant set to 5, so that EVERY buffer counts
+  as not completed, a two-shape scene (`/tmp/bs23-agent-a/fb`, `mfb build --app --debug`)
+  run with `MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1`:
+  - headless (readback path): stats `gpuSelected=TRUE gpuFrames=0`, and the
+    `MFB_CANVAS_DUMP` frame is byte-identical (`cmp`) to the `MFB_CANVAS_GPU=0` frame;
+  - real window (direct present): stats `gpuSelected=TRUE gpuFrames=0 directFrames=0`.
+
+  With the constant back at 4 the same two runs report `gpuFrames=1` (headless) and
+  `gpuFrames=1 directFrames=1` (window).
+
+### What remains unproven or open
+
+- That a failed command buffer is what produced the unwritten 32 x 32 tiles. If it was,
+  the two tests now see a software frame and pass; if it was not, this change does not
+  touch the failure.
+- A buffer that failed leaves no trace a test can read: no stats field says "a GPU
+  frame was declined after submit", by this round's rule of adding none. `gpuFrames=`
+  not rising for a frame is the only sign.
+- Vulkan has the same gap on its readback path and was not changed:
+  `vulkan.rs:emit_vulkan_draw_scene` calls `vkQueueSubmit` and `vkQueueWaitIdle` and
+  tests neither result before it copies the mapped image out. The direct present
+  (`vulkan_present.rs`) tests `vkQueueSubmit` and `vkQueuePresentKHR`, and not
+  `vkQueueWaitIdle`.
+- bug-1059 (opaque black where the oracle has text) is not explained by this.
+
+### Golden impact
+
+`scripts/artifact-gate.sh target/release/mfb all`: 9 diffs. Four are the
+`syntax/app/app-mouse-surface/app_mouse_surface.<target>.app.ncode` goldens that bug-968
+and bug-970 already move. Five are new with this change:
+
+| golden | why |
+|---|---|
+| `syntax/app/app-mouse-surface/app_mouse_surface.ir` | `__canvas_renderMetal` tests `canvas::metalDrawScene`'s answer |
+| `syntax/app/app-mouse-surface/app_mouse_surface.macos-aarch64.app.nir` | the same body, and `metalDrawScene` returns `Boolean` |
+| `syntax/app/app-mouse-surface/app_mouse_surface.macos-aarch64.app.nplan` | the same |
+| `syntax/resources/loop-body-resource-reference-valid/loop_body_resource_reference_valid.ir` | it imports `canvas`, so it holds `__canvas_renderMetal` |
+| `syntax/app/app-window-surface/app_window_surface.macos-aarch64.app.ncode` | a macOS app holds `_mfb_macapp_metal_draw` and the selector names; both gained `status` (`grep -c _mfb_macapp_sel_status` on its `--ncode`: 1) |
+
+Goldens were not regenerated.
+

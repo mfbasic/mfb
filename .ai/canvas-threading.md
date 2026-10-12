@@ -515,6 +515,15 @@ __canvas_renderScene()
   as its bounding box would still report success, and that is the failure mode this
   third condition exists to prevent.
 
+  It is also FALSE for a frame the GPU did not FINISH (bug-1024). `waitUntilCompleted`
+  returning is not the buffer having succeeded: the renderer reads the command
+  buffer's `status` after the wait, and anything but Completed leaves before the
+  readback and before the present, with the submit's answer still 0 — the same answer
+  and the same slot (`OFF_PRESENTED`) as "no texture" and `direct_failed`. Both
+  `canvas::metalPresentScene` and `canvas::metalDrawScene` return that answer; do not
+  make either ignore it again (`metalDrawScene` was `AS Nothing` until this bug, so a
+  failed readback frame was shown and counted as a GPU frame).
+
 Three consequences for anything added here later:
 
 * **The Metal objects live in the graphics-state block**, not in the app module's own

@@ -324,6 +324,21 @@ A machine with no Vulkan loader or driver builds no pipeline and draws in softwa
 [[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
 [[src/codegen/runtime/canvas/vulkan.rs:has_vulkan_backend]]
 
+**On Metal, a frame the GPU did not finish is not a GPU frame.** After `commit` and
+`waitUntilCompleted` the renderer reads the command buffer's `status`. Any value but
+`MTLCommandBufferStatusCompleted` (4) — after the wait, that is
+`MTLCommandBufferStatusError` — means the render target was written in part or not at
+all, so the frame is neither read back nor presented and the submit answers 0, the
+answer it gives when it has no texture or no drawable. `canvas::metalPresentScene` and
+`canvas::metalDrawScene` both report that as FALSE; a FALSE from the direct present
+sends the frame down the readback path, and a FALSE from the readback makes
+`__canvas_renderMetal` decline, so the frame is drawn in software and is not counted in
+`gpuFrames=`. The Vulkan readback path does not test the results of `vkQueueSubmit` and
+`vkQueueWaitIdle`. [[src/target/macos_aarch64/app/metal.rs:SEL_STATUS]]
+[[src/codegen/builtins/canvas/func_metal_draw.rs:lower_metal_draw_scene]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_renderMetal]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_draw_scene]]
+
 **What a GPU backend declines is a frame too large for its buffers, never an ordinary
 shape.** Every per-frame payload travels in buffers whose regions are fixed in size, so
 each backend's predicate declines a frame that would overflow one of them. Metal and

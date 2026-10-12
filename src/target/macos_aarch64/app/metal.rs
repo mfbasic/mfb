@@ -2856,9 +2856,11 @@ const OFF_DRAW_PAIR: usize = OFF_TEXTURE + 320;
 /// passes `block + COLLECTION_HEADER_SIZE`, which is never zero.
 ///
 /// Returns 1 in `x0` when the frame is finished — presented, or read back — and 0 when
-/// it was not drawn: no pipeline, no texture, and for a direct present no window layer
-/// (headless) or no drawable. A 0 from a direct present is the caller's cue to render
-/// the frame down the readback path instead; `metalDrawScene` ignores the value.
+/// it was not drawn: no pipeline, no texture, a command buffer that did not reach
+/// `MTLCommandBufferStatusCompleted` (bug-1024), and for a direct present no window
+/// layer (headless) or no drawable. A 0 from a direct present is the caller's cue to
+/// render the frame down the readback path instead; a 0 from the readback path
+/// (`canvas::metalDrawScene` answers FALSE) is its cue to draw the frame in software.
 ///
 /// The whole body runs inside one autorelease pool. The graphics thread has none of
 /// its own, and `renderPassDescriptor`, `commandBuffer` and
@@ -3635,6 +3637,20 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
     }
+    // The wait returning is not the GPU having drawn (bug-1024): a buffer can end in
+    // `MTLCommandBufferStatusError` — the GPU was restarted under it, or it timed out —
+    // with its target written in part or not at all. Such a frame is not read back and
+    // not presented. Leaving here before either path stores `OFF_PRESENTED` is what
+    // makes the submit report 0, exactly as `direct_failed` does, so the caller draws
+    // the frame in software.
+    asm.load_selector(SEL_STATUS.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate(
+        abi::c_return(0),
+        &MTL_COMMAND_BUFFER_STATUS_COMPLETED.to_string(),
+    ));
+    asm.push(abi::branch_ne(&release_pool));
     // The frame is finished: read back, below — or, for a direct present, presented,
     // unless `direct_failed` cleared the drawable to say the copy never happened.
     asm.push(abi::load_u64(
