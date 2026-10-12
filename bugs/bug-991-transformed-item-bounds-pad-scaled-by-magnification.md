@@ -8,6 +8,13 @@ Class: Other (Performance)
 Status: Open
 Regression Test: planned `tests/canvas/rt_canvas_rasteriser.rs` (transformed-bounds case) + `tools/canvas-bench/bench.sh <mfb> magnified-polygons` (new scene)
 
+## Cause (coordinator, 2026-10-12, bug-staging-23)
+
+- Rule: `mfb spec app canvas` "Rendering conventions": coverage is `clamp(0.5 - d, 0, 1)` with `d` measured AFTER the transform, so the antialiasing rim is one SURFACE pixel. Every header's box (slots 16-19) is `extent +- reach +- 1.0`, with that 1.0 in the space the box is written in.
+- Place: the two functions that carry a box into another space scale the rim with it: `helper_geometry.rs:__canvas_boundsHeader` (the item's own transform; it then adds a second pixel) and `helper_items.rs:__canvas_drawBound` (a group matrix), plus the GPU vertex stages that do the group mapping (`.ai/canvas-threading.md` 10).
+- Fix: whoever maps a box takes the 1.0 rim off first, maps `extent +- reach`, and adds one pixel in the destination space. That is one rule at the mapping sites; the nine header builders are not touched, an untransformed ungrouped header stays bit-identical (so does `canvas::geoBuild`), and no per-builder "divide the pad by the scale" exists.
+- Audit, not assume: `__canvas_glyphRunHeader` (`+- advance`, `+- 2.0`) and `__canvas_pictureHeader` (`+- 2.0`), whose pads are not a plain 1.0 rim, and the plan-164 `PolyCurve`/`CurvePolygon` headers (`helper_curves.rs`).
+
 When a canvas item is drawn in a small "unit" coordinate space and placed on the surface
 by a large-magnification `Paint.transform`, every renderer rasterises a much larger
 screen rectangle than the item covers. On macOS Metal, 49 small 24-point polygons

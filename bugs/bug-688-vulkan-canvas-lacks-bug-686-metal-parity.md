@@ -8,6 +8,10 @@ Class: Correctness / Performance
 Status: V1-V4 FIXED; V5 MEASURED on real hardware (box 206) with two fixes landed; V6 FIXED on Windows (swapchain present), Linux present BLOCKED (no real-GPU Linux box); the 10k-quad shader cost OPEN
 Regression Test: `scripts/test-canvas-gpu-rows.sh` (the bug-686 rows and the geo-verify rows, per target); `scripts/test-canvas-vulkan.sh --target`; the `vulkan.rs` unit tests `the_pipeline_specializes_every_region_base` and `the_shared_buffer_holds_every_region`; `both_predicates_count_each_picture_block_once`; `rt_canvas_metal` rows for the shared scenes; V6: `present_layout_tables_are_self_consistent`, `the_present_path_is_windows_only_and_fully_named`, `the_canvas_child_window_is_shown_by_one_arm_and_hidden_by_the_others`, and the real-window run on box 206 with `tools/win-screen-capture` (manual: needs the interactive session)
 
+## Cause (coordinator, 2026-10-12, bug-staging-23)
+
+- Two items remain and neither has a cause a fix can restore. (1) Linux present: blocked on hardware (no real-GPU Linux box) and on the GTK4 surface decision. (2) 10,000 quads at 104 ms of render on box 206: measured as fragment cost (~20 ns a covered pixel), cause not found; "the shader grew" is a guess. Earlier attempts are recorded below (two memory-type fixes landed; the acceptance was not met). Waiting on the owner.
+
 ## Re-verified 2026-10-12: two items remain, both as recorded (HEAD `555130a25`)
 
 What is still open is only this, and the title's four complaints are no longer the state

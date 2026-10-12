@@ -9,6 +9,12 @@ Class: Other
 Status: Open
 Regression Test: none
 
+## Cause (coordinator, 2026-10-12, bug-staging-23)
+
+- Rule: `mfb spec app canvas` "Rendering conventions": a picture's texel is chosen with "`floor` and `+ - * /` only, so every backend picks the same texel". Vulkan allows `/` 2.5 ULP, so that sentence holds only if the index does not depend on how the driver divides (`.ai/canvas-threading.md`, the dash words: the same driver's `atan`/`sin`/`cos`, answered there with the oracle's own series).
+- Place: the one index expression `floor((q - x0) * iw / dw)` in `pictureColour`, three copies: `mfb_canvas.frag`, `metal.rs` (MSL) and the oracle `helper_items.rs:DRAW_GEOMETRY`.
+- Fix: make the index exact whatever the quotient's last bit is: `u = floor(t / dw)` with `t = (q - x0) * iw`, corrected by one from the exact products (`(u + 1) * dw <= t`, `u * dw > t`); the same expression in all three, so they stay one rule. Nothing is keyed on a driver or a vendor.
+
 A `canvas::Picture` drawn on box 206's GPU (Windows 11, Intel UHD 630) shows the
 neighbouring texel along every pixel row or column whose CENTRE is exactly a texel
 boundary. The software renderer, Metal, and lavapipe (box 2226) agree with each other

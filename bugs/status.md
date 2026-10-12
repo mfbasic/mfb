@@ -26,6 +26,12 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 ## Canvas and graphics
 
+Phase `bug-staging-23` (list fixed 2026-10-12, before any agent started; nothing is added
+to it): 688, 765, 968, 970, 991, 995, 996, 1024, 1045, 1079. Each document opens with its
+Cause note. Being fixed: 968, 970, 991, 995, 1024, 1079. Waiting on the owner, and moved
+to a later phase if not answered before the rest is ready: 688, 765, 996 and 1045 (1045 is
+996's first frame).
+
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 688    | HIGH     | Vulkan canvas parity with Metal: V1 to V4 fixed and Windows presents through a swapchain; what remains is 10,000 quads at 104 ms of render a frame on the Intel GPU, and Linux present, still readback-only (blocked on a real-GPU Linux box). Re-measured 2026-10-12 |

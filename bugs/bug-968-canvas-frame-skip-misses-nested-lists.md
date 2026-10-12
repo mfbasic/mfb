@@ -8,6 +8,13 @@ Class: Correctness
 Status: Open
 Regression Test: (proposed) `tests/canvas/rt_canvas_graphics_thread.rs`-style SYNC test: `present([Polygon[points := mkpts()]])` twice (mkpts builds with `collections::append`) yields exactly one frame; `presentLayers([DrawLayer[items := [a]]])` inline twice yields one frame
 
+## Cause (coordinator, 2026-10-12, bug-staging-23)
+
+- Rule: `mfb spec app canvas` "Retained, not immediate": the frame skip compares "the two scenes' contents, element for element ... CONTENT, not whole blocks" (`.ai/canvas-threading.md` 3.1). `mfb spec memory collections` says why bytes cannot stand in for content: shrink-to-fit is "not recursively" applied, and an embedded block keeps its stored capacities.
+- Place: `gen_present.rs:emit_publish` compares `count`, `dataLength` and the outer data region byte for byte, so it reads every nested block's allocation history.
+- Measured (`mfb dbg`, `bp _mfb_rt_canvas_canvas_publishScene show mem x0 480` on `bugs/repro/bug-968/frame_skip.mfb`): two `[poly(lit)]` scenes differ in exactly 2 words, the 7 reserved bytes after each fresh list entry's 1-byte `flags` (never written; `keyOffset`/`keyLength` ARE 0, so the comment in `emit_publish` names the wrong words); the `mkpts()` scene also carries the appended list's `capacity` 8 against `count` 3, and its five spare entries.
+- Fix: compare content through the entries, element by element, by the scene's TYPE (one value-equality emitter beside `emit_comparable_values_match_branch`, gaining the List and union arms it lacks; bytes first per element, the typed walk only where bytes differ). That deletes the `count`/`dataLength`/data-base arithmetic in `emit_publish` and its wrong comment. No hash; no canvas item names in the comparison.
+
 `canvas::present` / `presentLayers` promise that re-presenting identical content
 publishes nothing, so an animation loop that rebuilds an unchanged frame does not
 redraw. That holds for a flat list of fixed-size items, but not when an item carries a

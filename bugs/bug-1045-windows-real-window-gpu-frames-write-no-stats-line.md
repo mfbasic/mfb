@@ -8,6 +8,10 @@ Class: Other
 Status: Open — root-caused 2026-10-12 as bug-996's cold pipeline compile; nothing left that is this bug's own (owner to decide: close as a duplicate of 996)
 Regression Test: none
 
+## Cause (coordinator, 2026-10-12, bug-staging-23)
+
+- Same cause as bug-996 (measured 2026-10-12, below): no frame completes while `vkCreateGraphicsPipelines` runs, so no stats line is written. One fix with 996; nothing here is this bug's own. Waiting on the owner with 996.
+
 A `--debug` canvas program run in a REAL window on box 206 (Windows 11, Intel UHD 630)
 with the default renderer leaves no `MFB_CANVAS_STATS` file at all — not one line in
 about fifteen seconds of a scene presented ten times a second. The same binary writes

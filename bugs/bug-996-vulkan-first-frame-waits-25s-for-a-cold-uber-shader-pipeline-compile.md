@@ -8,6 +8,11 @@ Class: Other (Performance)
 Status: Open
 Regression Test: planned `tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host test@192.168.1.206 coldstart` (time to first present, fresh exe name vs second launch); unit tests in `src/codegen/runtime/canvas/vulkan.rs` for the pipeline-cache seam
 
+## Cause (coordinator, 2026-10-12, bug-staging-23)
+
+- No existing rule: the spec states the opposite of the fix. `mfb spec app canvas`: "Which renderer draws is chosen once, at the first present", and `helper_render.rs` `render_loop_tail!` makes the first frame wait for `canvas::vulkanReady()`, which builds device and pipeline (`vulkan.rs:emit_vulkan_ready`, `emit_vulkan_pipeline`, no `VkPipelineCache`).
+- A fix needs a NEW rule (the pipeline is never on a frame's critical path: software until it exists) and a new mechanism (a build off the graphics thread; a persisted cache in an MFBASIC-wide directory). Both Open Decisions below are unanswered. Waiting on the owner; bug-1045 is this bug's first frame and closes with it.
+
 On box 206 (Intel UHD 630, real Vulkan driver), the first `canvas::present` of a
 program that has never run under that executable name takes **~25 s**. The second launch
 takes **~70 ms**, and a software frame takes **7 ms**. While it waits, the window (400×300

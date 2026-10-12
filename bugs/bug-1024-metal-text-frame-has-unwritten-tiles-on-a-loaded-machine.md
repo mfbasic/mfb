@@ -8,6 +8,13 @@ Class: Concurrency (suspected)
 Status: Open
 Regression Test: `cargo test --test rt_canvas_font gpu` (exists; red when this happens)
 
+## Cause (coordinator, 2026-10-12, bug-staging-23)
+
+- UNPROVEN link (the failure has not been reproduced since 2026-10-10); the cause below is a defect found by reading, and it produces this picture.
+- Rule: the honesty gate (`mfb spec app canvas`; bug-688 non-goals): a frame the GPU did not draw is declined and drawn in software, never reported as a GPU frame.
+- Place: `metal.rs`, the "submit and wait" block: `commit`, `waitUntilCompleted`, then `getBytes:` or `[drawable present]`. Nothing reads the command buffer's `status` (`grep -n 'sel_status' src/target/macos_aarch64/app` finds nothing). A buffer that ends in `MTLCommandBufferStatusError` (a GPU restart another process caused, a timeout) leaves the tile-based target partly written, in whole 32 x 32 tiles, and the frame is read back and counted as drawn.
+- Fix: after the wait, a buffer whose status is not Completed makes the submit answer 0 (as `direct_failed` already does), so the caller falls back to the software frame. The bug stays OPEN unless the failure is reproduced and shown gone.
+
 Two GPU text tests fail with a Metal frame in which whole 32 × 32 blocks are
 `[0, 0, 0, 0]` — never written, alpha included — where the software oracle has opaque
 black. How many blocks are missing changes from run to run, up to the whole frame.

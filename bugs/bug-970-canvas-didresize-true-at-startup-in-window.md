@@ -9,6 +9,12 @@ Status: Open
 Coordinator note: measured by the review agent only (Linux runs in podman, or a macOS window screenshot); the coordinator did not re-run it.
 Regression Test: (proposed) non-headless run (or a scripted first publish of 900×640) of a program polling `didResize` after `setMode(Canvas)` reports FALSE until a real size change
 
+## Cause (coordinator, 2026-10-12, bug-staging-23)
+
+- Rule: `.ai/canvas-threading.md` "`canvas::didResize` is a counter pair": the counter is bumped "only when the size actually changed", and `mfb man canvas didResize` promises a change of the size the program can see.
+- Place: `runtime/canvas/mod.rs:emit_publish_surface_size_tagged` compares the new size against the raw stored words, which start at 0, while the size the program sees (`emit_surface_dimension`, used by `func_graphics.rs:lower_dimension`) reads 0 as `DEFAULT_SURFACE_WIDTH`/`HEIGHT`. One word, two meanings of 0.
+- Fix: the publisher compares against the EFFECTIVE old size, through the same 0-means-default reading the getter uses (one shared definition, not a second copy of the constants). A first publish of 900x640 is then no change; a first publish of any other size (Windows' 384x261 client) still counts, correctly. Nothing is special-cased as "first".
+
 `canvas::didResize` promises TRUE "the first time it is called after the surface's
 dimensions change" and none for "a platform event that re-publishes the size it
 already had". In a real window the canvas view's first `setFrameSize:` (macOS) / first

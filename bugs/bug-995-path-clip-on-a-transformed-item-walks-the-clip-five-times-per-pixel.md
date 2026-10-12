@@ -8,6 +8,12 @@ Class: Other (Performance)
 Status: Open
 Regression Test: planned `tools/canvas-bench/bench.sh <mfb> clips` (new scene: N clipped rectangles, with and without a `Paint.transform`); pixel guards stay `scripts/test-canvas-gpu-rows.sh` row `pathclips` and `rt_canvas_metal` (`path_clips_on_black.mfb`)
 
+## Cause (coordinator, 2026-10-12, bug-staging-23)
+
+- Rule: the shape's own early-out in `shapeCoverage` (bound argued in `metal.rs:METAL_SHADER_BODY`): a centre sample farther than `0.5 * max(frob, 1)` from the outline decides the pixel, so the four neighbours are skipped and the sample may answer from `edgeDistance`'s fp32 pass. A path clip is a second distance field through the same composed inverse, so the same bound holds for it.
+- Place: the one sampling loop in `mfb_canvas.frag:shapeCoverage` and its line-for-line Metal twin exempt the clip: `k == 5` gets reach `1.0e30` when `clipMapped`, and nothing clears `clipMapped` after it.
+- Fix: sample 5 takes the clip's reach (the composed norm the shape uses, without the stroke half) and, past it, `clipMapped` goes false exactly as `mapped` does. The `(k == 5 && !clipMapped) ? 0.5 : 1.0e30` special case goes. Exactness: `|d5| > 0.5 * max(frob, 1)` and `cg <= frob` give `|d5 / cg| > 0.5`, where `dfCoverage` clamps; prove it in the comment and pin it with pixel rows at scales 0.1, 1 and 4.
+
 When an item has a path clip (`Paint.clip`) **and** a `Paint.transform`, every GPU pixel of
 the item computes the clip's signed distance at five points (the pixel centre and its four
 ±0.5 px neighbours, all inverse-mapped), and all five run with an unbounded reach, so the
