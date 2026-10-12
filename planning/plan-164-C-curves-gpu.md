@@ -450,6 +450,38 @@ None. `GPU_CURVE` is measured, bounded above by §1's ceiling.
     moved as predicted and were re-baselined before the gate ran, which is why they
     show as passing in it.)
 
+13. **The final full suite, and what it found.** `MFB_TEST_EXE=target/p164/mfb-c3 cargo
+    test --no-fail-fast` (debug profile, about four hours: one compiler unit test,
+    `the_whole_corpus_survives_the_top_of_the_dial`, is 401 s in release and was 385 s on
+    the commit before this plan, so it is not this plan's) → 344 test binaries `ok`, 7
+    failed:
+    - **Two censuses, real, and letter A's omission**: three new record types had no
+      row in `FIELD_KIND_TABLE` (`self_update.rs`) or in
+      `tests/runtime/inplace_self_update/field_kinds.tsv`. Both now have
+      `canvas.BezierCurve`, `PolyCurve` and `CurvePolygon`, classed as `Polygon` and
+      `PolyLine` are (each holds lists: size-varies). The rows are measured, not
+      assumed: `MFB_SELF_UPDATE_FILTER='BezierCurve|PolyCurve|CurvePolygon' cargo test
+      --release --test rt_inplace_self_update every_field_kind_meets_its_expectation --
+      --ignored` → `1 passed`. The table was NOT regenerated: its generator prints
+      `rebuild` where 35 checked-in rows say `arm`, which is open bug-1014, so the three
+      rows were added by hand — the generator's own fields, and the committed `PolyLine`
+      row's expectations — and the generator gained only their three literals. The
+      whole grid run unfiltered fails four pairs, all `http::Route` (S4, S5, S9, S10);
+      that is bug-1014's "one row of the drift is measurably wrong", and it fails the
+      same way with the compiler of the commit before this plan
+      (`MFB_SELF_UPDATE_FILTER='http::Route' MFB_TEST_EXE=/tmp/p164-base/target/release/mfb
+      …` → `4 of 15 case/site pair(s) failed`).
+    - **Four `cli_repo_*` binaries, my harness**: `mfb-repo missing at
+      target/p164/mfb-repo` — the suite looks for the repository server beside the
+      compiler, and the frozen copy had none. With it there, 29 of 29 pass.
+    - **`rt_canvas_pointer`, load**: `the_graphics_thread_reads_each_scripted_pointer_state`
+      read a scripted pointer state late while the whole suite ran beside it; alone, 2
+      of 2 pass, twice.
+    Re-run of all seven: `cargo test --no-fail-fast --test cli_repo_auth --test
+    cli_repo_governance --test cli_repo_install --test cli_repo_publish --test
+    rt_canvas_pointer --test inplace_self_update_census` → six `ok` (4, 9, 10, 6, 2, 2
+    passed); `cargo test --bin mfb field_kind_census` → `1 passed`.
+
 ## Summary
 
 The risk is fp32 precision in the per-piece quadratic root and the rational search on
