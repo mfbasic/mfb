@@ -62,6 +62,11 @@ References:
 
 ## 1. Goal
 
+> **Read with the Corrections.** What was built differs from this section in four
+> places, each recorded there with its evidence: there is no curve region, emitter pair
+> or `CANVAS_CURVE_PIECES` (Correction 1); the shader text is one template (3); there is
+> one distance function (4); and box 2228 was down, so 2226 stood in (5).
+
 - **A curve region**: a frame-wide region holding the pieces (7 words each), the
   per-item band tables, the per-contour tables and the dash arc-length tables. It is
   filled by new Metal and Vulkan emitters that mirror the edge and band emitters
@@ -125,51 +130,144 @@ References:
 
 ### Phase 1 — Curve region, emitters, band index
 
-- [ ] Decide the item-block words (read the words free for kinds 11 and 12 in the
+- [x] Decide the item-block words (read the words free for kinds 11 and 12 in the
       current layout and record them here). Grow the block only if necessary.
-- [ ] Metal `emit_curve_buffer` and Vulkan `emit_curve_upload` (mirroring the
+      — **No growth, and no new word**: the two kinds use the words a polygon uses.
+      `misc.x` kind, `misc.w` piece count (header slot 20), `arc.z` first edge slot,
+      `arc.y` the fill rule (`emit_item_polygon_rule` now writes it for kind 12 too),
+      `arc.w` the cap, `arcCaps` the band header, `strokeStyle` the join base/count and
+      dash base/count. `git diff 8d3fdd3a3 -- src/codegen/runtime/canvas/mod.rs | grep -c
+      ITEM_BLOCK_SIZE` → 0. See Correction 1 for why nothing more was needed.
+- [x] Metal `emit_curve_buffer` and Vulkan `emit_curve_upload` (mirroring the
       edge/band emitters). The frame-sum predicate counts pieces against
       `CANVAS_CURVE_PIECES`. Remove plan-164-B's whole-frame software fallback for the
       two kinds from `__canvas_metalRenderable` and `__canvas_vulkanRenderable`.
-- [ ] Guard tests: extend `the_draw_frame_slots_do_not_overlap` (Metal),
+      — a piece branch in the existing `emit_edge_buffer` / `emit_edge_upload`, not two
+      new emitters, and `2 × pieces` against the existing edge cap, not a new constant
+      (Correction 1). The fallback is gone from both predicates:
+      `grep -c 'neither GPU backend draws a curve' src/codegen/builtins/canvas/helper_render.rs`
+      → 0. `curve_pieces_are_counted_two_slots_each_against_the_edge_region`
+      (`rt_canvas_metal.rs`): 512 rings of 256 pieces (262,144 slots, the cap) draw on
+      Metal; 513 are declined and the frames are byte-identical.
+- [x] ~~Guard tests: extend `the_draw_frame_slots_do_not_overlap` (Metal),
       `the_metal_shader_region_bases_match_the_buffer_layout` (Metal),
       `the_shared_buffer_holds_every_region` and
-      `the_pipeline_specializes_every_region_base` (Vulkan) for the curve region.
+      `the_pipeline_specializes_every_region_base` (Vulkan) for the curve region.~~
+      — moot: there is no curve region, frame slot or region base to guard
+      (Correction 1): `git diff 8d3fdd3a3 -- src/target/macos_aarch64/app/metal.rs
+      src/codegen/runtime/canvas | grep -cE '^\+.*(const OFF_|_BASE_WORDS: usize)'` → 0.
+      The four tests pass unchanged. What the new code CAN get wrong is guarded instead:
+      `the_metal_fragment_clips_and_samples_in_shape_space` extended to the curve
+      functions (see Phase 2), `the_fragment_shader_holds_the_generated_curve_functions`,
+      `the_fragment_shader_draws_curves_from_the_shape_space_point`,
+      `the_curve_shader_literals_are_the_oracles_constants`, and the census
+      `the_predicates_read_the_edge_count_slot` (6 → 8, two added reads).
 
 Acceptance: pieces and band tables reach the GPU buffers intact.
   Check: `cargo test --bin mfb canvas` → pass (est. 3 min, guess), plus a debug
   readback test that dumps the uploaded piece words for a 4-piece circle and compares
   them with the software tail (est. 3 min, guess).
+  Result (2026-10-12): `cargo test --release --bin mfb canvas` → `133 passed; 0 failed`;
+  `cargo test --release --bin mfb metal` → `10 passed`. The readback is
+  `the_pieces_reach_the_gpu_buffer_with_their_residuals` (Correction 2): circles of four
+  arcs and a cubic a few thousandths of a unit across under a 30,000-fold transform,
+  worst delta 1 on Metal, lavapipe and Intel; with the emitter's residual words zeroed,
+  worst delta 127 over 3,759 pixels.
 Commit: —
 
 ### Phase 2 — Shaders, tolerance measurement
 
-- [ ] The shader functions of §1 in MSL and GLSL, line for line. Regenerate both `.spv`
+- [x] The shader functions of §1 in MSL and GLSL, line for line. Regenerate both `.spv`
       on box 2228 (`scripts/regen-spirv.sh`).
-- [ ] Measure: the plan-164-B test scenes as `rt_canvas_metal.rs` rows and as
+      — one template, `shaders/curves.tpl`, expanded into both languages
+      (`curve_shader.rs`, `tools/canvas-curve-shader`), so "line for line" is a test and
+      not a review (Correction 3). The functions are `pieceCrossing`, `pieceNearest`
+      (one, for polynomial and rational pieces alike — Correction 4), `pieceCut`,
+      `pieceArc`/`pieceAtArc` and `curveWalk`.
+      `MFB_SPIRV_PORT=2226 bash scripts/regen-spirv.sh` → `vert -> 9144 bytes`, `frag ->
+      298680 bytes`; box 2228 is down (Correction 5). `git status --short
+      src/codegen/runtime/canvas/shaders/` shows `mfb_canvas.vert.spv` unchanged, so 2226's
+      glslang (11:12.0.0) writes the blob 2228's did.
+      `the_metal_fragment_clips_and_samples_in_shape_space` extended: no curve function
+      names the surface position, a piece's points are taken relative to the shape-space
+      point in double-float, and both `curveWalk` call sites pass that point.
+- [x] Measure: the plan-164-B test scenes as `rt_canvas_metal.rs` rows and as
       `scripts/test-canvas-vulkan.sh` runs on box 2228. Include, beyond B's fill and
       stroke scenes: each shape under its own rotation; each inside a turned and scaled
       group; an `AutoPaint` over a `CurvePolygon` in its hover state (the scripted
       pointer); and a `Picture` on a `CurvePolygon`, stroked, in both `PictureClip`
       modes. Record the worst per-channel delta and pixel fraction per scene. Set
       `Tolerance::GPU_CURVE`, then apply it to the curve rows only.
-- [ ] Record what a curved picture costs: the flattened edge count of a circle and of a
+      — six scenes, each a `rt_canvas_metal.rs` row and a `test-canvas-gpu-rows.sh` row.
+      Worst per-channel delta / differing fraction against the software renderer:
+
+      | Scene (`tests/canvas/scenes/`) | Metal | lavapipe, box 2226 | Intel UHD 630, Windows |
+      |---|---|---|---|
+      | `curves.mfb` | 1 / 0.058% | 1 / 0.145% | 1 / 0.233% |
+      | `curves.mfb`, pointer on the pill | 1 / 0.061% | 1 / 0.141% | 1 / 0.163% |
+      | `curve_strokes_on_black.mfb` | 1 / 0.623% | 1 / 0.876% | 1 / 0.890% |
+      | `curves_placed_on_black.mfb` | 4 / 0.073% | 4 / 0.189% | 4 / 0.230% |
+      | `curve_pictures_on_black.mfb` | 2 / 0.035% | 2 / 0.130% | 2 / 0.166% |
+      | `curve_residuals_on_black.mfb` | 1 / 0.036% | 1 / 0.116% | 1 / 0.135% |
+
+      Metal: `python3 target/p164/gpucmp.py target/release/mfb <scene>` (a scratch
+      comparator: both renders, then every pixel). Vulkan: the `ok worst=… differing=…`
+      line of `bash scripts/test-canvas-gpu-rows.sh target/p164/mfb-c2 --target
+      linux-aarch64 --box 2226` and `… --target windows-x86_64`.
+      The one pixel past 2 is the same pixel on all three: (203, 531) of the placed
+      scene, a round dash end of the turned spiral, `071c26` in software and `051822` /
+      `061822` on the GPUs — coverage 4 where the oracle has 5.
+      **`Tolerance::GPU_CURVE` = 4 levels a channel, 2% of pixels** (the ceiling was 8
+      and 4%). Applied to the curve rows only: the seven `assert_metal_draws_within(…,
+      Tolerance::GPU_CURVE, …)` rows and the piece-cap row in `rt_canvas_metal.rs`, and
+      the six `curve` rows of the script (`rgba_compare.py … curve`). Every other row is
+      still `GPU_DEFAULT`.
+- [x] Record what a curved picture costs: the flattened edge count of a circle and of a
       rounded-star `CurvePolygon` at three sizes, against the frame edge caps.
-- [ ] Add a curve scene to `tests/canvas/scenes/`, so `scripts/test-canvas-gpu-rows.sh`
+      — `python3 target/p164/probe_cost.py` (the real reducer's pieces, flattened by
+      `__canvas_cvFlatten`'s rule at 0.05):
+
+      | Shape | Pieces | Clip edges (1 slot each) | Outline (2 slots a piece) |
+      |---|---|---|---|
+      | circle of four arcs, r = 50 | 4 | 128 | 8 |
+      | r = 150 | 4 | 256 | 8 |
+      | r = 400 | 4 | 504 | 8 |
+      | rounded star of `curves.mfb`, ×0.5 | 14 | 182 | 28 |
+      | ×1 | 14 | 304 | 28 |
+      | ×3 | 14 | 564 | 28 |
+
+      against 262,144 slots a frame on both backends
+      (`METAL_MAX_FRAME_EDGES`, `VULKAN_MAX_FRAME_EDGES`): about 1,900 pictures in
+      50-pixel circles, or 440 full-size stars. The clip dominates, and it grows as the
+      square root of the size.
+- [x] Add a curve scene to `tests/canvas/scenes/`, so `scripts/test-canvas-gpu-rows.sh`
       carries it to every target, and run
       `scripts/test-canvas-gpu-rows.sh <mfb-exe> --target windows-x86_64` against the
       Windows box: the row draws on the GPU and is within `GPU_CURVE`.
+      — four scene files added beside `curves.mfb` (letter B's), six rows in the script
+      (`curves`, `curveshover`, `curvestrokes`, `curvesplaced`, `curvepictures`,
+      `curveresiduals`) plus `vertexrow` (Correction 6). `bash
+      scripts/test-canvas-gpu-rows.sh target/p164/mfb-c2 --target windows-x86_64` →
+      `bug-688 rows passed on windows-x86_64`: 46 of 46 render rows `ok`, each
+      curve row `drawn on Vulkan (gpuFrames=1)` on the Intel UHD 630 and within
+      `GPU_CURVE` (the table above).
 
 Acceptance: both GPUs draw both shapes within the measured `GPU_CURVE`, and every
 row without a curve still passes `GPU_DEFAULT`.
   Check: `cargo test --test rt_canvas_metal` → pass with `gpuFrames≠0` on the curve
   rows (est. 6 min, guess); the Vulkan runs on 2228 are within `GPU_CURVE` (est. 15
   min, guess; 2228 is the Linux Vulkan lane, `.ai/remote_systems.md`).
+  Result (2026-10-12): `MFB_TEST_EXE=target/p164/mfb-c2 cargo test --release --test
+  rt_canvas_metal` → `60 passed; 0 failed` (52 before; each new row asserts
+  `gpuFrames` is not 0 before it compares). `bash scripts/test-canvas-gpu-rows.sh
+  target/p164/mfb-c2 --target linux-aarch64 --box 2226` → `bug-688 rows passed on
+  linux-aarch64`, 46 of 46 render rows `ok` — every row without a curve under
+  `GPU_DEFAULT`, the six curve rows under `GPU_CURVE` (Correction 5 for the box).
 Commit: —
 
 ### Phase 3 — Docs, spec, final gate
 
-- [ ] `src/docs/spec/app/06_canvas.md`, a new "Curves" section, to
+- [x] `src/docs/spec/app/06_canvas.md`, a new "Curves" section, to
       `.ai/spec-content.md`'s standard:
       - the three types, the validity and joining rules, and that curve points are
         local to `position`;
@@ -180,17 +278,44 @@ Commit: —
       - real-corner joins, caps, and where dashes restart;
       - the curve region and `GPU_CURVE`.
       Cite every symbol (`[[path:Symbol]]`).
-- [ ] The same file's existing sections, reviewed as a whole now that the feature is
+      — `## Curves`, between *Rendering conventions* and *Named groups*, in eight parts:
+      the types with validity and joining; *The reduction*; *The record*; *The fill*;
+      *The distance* (one, Correction 4); *The stroke*; the named-type gate; *On the
+      GPUs* (the two slots a piece, the template, fp32 and `GPU_CURVE`, a curved
+      picture's cost); *The two functions*. The material letters A and B had put under
+      *The item unions* moved there. 19 citations in the section
+      (`[[` between the two headings).
+- [x] The same file's existing sections, reviewed as a whole now that the feature is
       complete: "The item unions" (ten shapes, and the tag list plan-164-A wrote),
       "Hit-testing" → "The region of an item", "AutoPaint", and "A picture is drawn
       inside a shape" (the flattened clip, the true-curve outline, the exact extent).
-- [ ] `.ai/canvas-threading.md`: the curve region and its frame cap; and in §17, that a
+      — *The item unions* keeps the ten shapes, the tags and one paragraph pointing at
+      *Curves*; its "Neither GPU backend draws a curve shape yet" is gone. *Rendering
+      conventions* said every shape's GPU coverage is double-float: now "every shape but
+      the two curve shapes", with the pointer. *The region of an item* and *A picture is
+      drawn inside a shape* read correctly as letter B left them (the curve paragraphs
+      cite `CURVE_DRAW` and `CURVE_BUILD`, both still there). *AutoPaint* names no shape
+      and needed nothing.
+- [x] `.ai/canvas-threading.md`: the curve region and its frame cap; and in §17, that a
       picture on a `CurvePolygon` clips its image to a flattened outline.
-- [ ] Man prose check on the `plan-164-A` types and functions (`.ai/man-content.md`),
+      — §10 "The per-item parameter block…": pieces ride the edge region as two runs
+      (why the chords come first, the factor of two, the fp32 weight, the template and
+      its regeneration, why curve rows have their own tolerance), and the shared-vertex
+      rule Correction 6 taught. §16: the NAMED gate and why a record with all-default
+      fields needs it. §17: the flattened clip, the true-curve outline, the two kinds of
+      slot, the extent.
+- [x] Man prose check on the `plan-164-A` types and functions (`.ai/man-content.md`),
       including what a user must be told that the types do not say: scaling a group
       that holds a curve coarsens it where scaling the shape's own `transform` does
       not; a `PolyCurve` is never closed, so a loop wants a `CurvePolygon`; and a
       `Picture` on a `PolyCurve` draws nothing.
+      — read as rendered (`mfb man canvas types`); all three are said, in letter A's and
+      B's prose: "Enlarging a canvas::Group the path is in does not redraw the curves at
+      the new size … scale the shape's own transform to zoom in"; "It is never closed: a
+      path that ends where it began has two caps there, not a corner — use
+      canvas::CurvePolygon for a closed outline"; and under `Picture`, a
+      `canvas::PolyCurve` shape "draws nothing". No plan number, internal name or memory
+      word in the three entries; nothing to change.
 
 Acceptance: man and spec render and cite, and the whole tree passes.
   Check: `mfb man canvas types` shows `PolyCurve`, `CurvePolygon` and `BezierCurve`;
@@ -198,6 +323,21 @@ Acceptance: man and spec render and cite, and the whole tree passes.
   `bash scripts/man-run-examples.sh canvas --run` → pass;
   `bash scripts/spec-census.sh --citations` and `--links` → 0 dangling;
   `cargo test --bin mfb spec` → pass (est. 8 min, guess).
+  Result (2026-10-12): `mfb man canvas types | grep -c 'canvas::BezierCurve\|canvas::PolyCurve\|canvas::CurvePolygon'`
+  → entries for all three (lines 912, 945, 995 of the page);
+  `bash scripts/man-census.sh --memory-scope` → `unclassified memory-vocabulary hits: 0`;
+  `bash scripts/man-run-examples.sh canvas --run` → `examples: 37 built: 37 ran: 37
+  not run: 0 failed: 0`; `bash scripts/spec-census.sh --citations` → `MISS-PATH 0
+  MISS-LINE 0 MISS-SYMBOL 0`; `--links` → `links=1145 unresolved=0`;
+  `cargo test --release --bin mfb spec` → `46 passed; 0 failed`.
+  Runtime proof (Validation Plan): letter B's program under `MFB_CANVAS_GPU=1`
+  (`python3 target/p164/rundemo.py target/release/mfb gpu`) → `gpuSelected=TRUE
+  gpuFrames=1 geoVerifyMismatches=0 auto=3`, `overID` as in software (`[] [star] [star]
+  [star] [] [] [] [] [button] [photo::frame]`), the hovered pill in its hover paint. The
+  fourteen-cubic spiral at 20× through its OWN transform is smooth on Metal and within
+  delta 2 of software; the same spiral at 20× through a group's transform differs from
+  it in 1,131 pixels (worst 190) — the documented contrast, the fit's 0.05 px grown to
+  1 px.
 Commit: —
 
 ## Validation Plan
@@ -223,7 +363,75 @@ None. `GPU_CURVE` is measured, bounded above by §1's ceiling.
 
 ## Corrections
 
-(none yet)
+1. **There is no curve region, no curve emitter and no `CANVAS_CURVE_PIECES`** (§1,
+   Phase 1). The plan had a new frame region with its own band tables, emitters and cap.
+   A piece's chord `x0, y0, x2, y2` is, to the band index, an edge — a y-monotone piece's
+   two ends are its whole y-range — so the pieces ride the EDGE region as two runs of
+   `count` slots (chords, then `x1, y1, bits(w1), 0`), `emit_band_index` and the item
+   block are untouched, and the cap is the edge cap at two slots a piece. The piece
+   upload is a branch of `emit_edge_buffer` / `emit_edge_upload`. Evidence it is the
+   same contract: 512 rings of 256 pieces (262,144 slots) draw, 513 are declined
+   (`curve_pieces_are_counted_two_slots_each_against_the_edge_region`). §1's
+   "per-contour tables" do not exist either (plan-164-B Correction: one join record and
+   one dash row a piece), and the dash rows are in the dash-word region a polygon's
+   dashes use.
+2. **The "debug readback" of Phase 1's acceptance is a picture, not a dump.** Nothing
+   carries a GPU buffer's words back to a test — the frame's pixels are the only thing
+   that comes back, on any of the three backends. A dump would have needed a new native
+   path in each emitter to prove what the pixels can prove if the scene is chosen so
+   every word matters: `curve_residuals_on_black.mfb` draws shapes ~0.004 units across
+   under a 30,000-fold transform, where a coordinate's 16.16 word alone is good to half
+   a pixel. Measured sensitivity: with the residual store zeroed in `emit_edge_buffer`,
+   worst delta 127 over 3,759 pixels; as shipped, 1. It is stronger than the plan's
+   check in one way that matters — it runs on Metal, lavapipe and Intel, so it reads
+   back the x86-64 and AArch64 Vulkan uploads as well.
+3. **One shader text, not two kept line for line.** `shaders/curves.tpl` is expanded to
+   MSL when Metal's source is built and into `mfb_canvas.frag` by
+   `tools/canvas-curve-shader/generate.py`;
+   `the_fragment_shader_holds_the_generated_curve_functions` fails on a stale copy.
+4. **One distance function.** §1 lists `pieceDistancePoly` (a closed-form cubic) and
+   `pieceDistanceRational` (a fixed search). plan-164-B replaced both in software with
+   root isolation in one function (its Corrections); the shaders have its twin,
+   `pieceNearest`, with the same twelve steps.
+5. **Box 2228 is down; 2226 stood in.** `ssh -p 2228 test@127.0.0.1 true` → `Connection
+   refused`, and the VM would not start from this session (`utmctl` → OSStatus -1743).
+   SPIR-V was regenerated with `MFB_SPIRV_PORT=2226` (the vertex blob came out
+   byte-identical, so the two boxes' glslang agree), and the Linux Vulkan lane is 2226
+   (Debian AArch64, lavapipe) through `scripts/test-canvas-gpu-rows.sh --target
+   linux-aarch64 --box 2226`, the script that carries scene files, rather than
+   `test-canvas-vulkan.sh`, whose scenes are inline. The x86-64 Vulkan upload path is
+   covered by the Windows box. **Not run: any Linux x86-64 Vulkan lane.**
+6. **A polygon bug, found and fixed: a vertex on a pixel-centre row inverted the row.**
+   `dfCrossing` (both shaders) rebuilt an edge's end as `ay + vy`, and double-float
+   addition does not always return `by`, so the two edges sharing a vertex exactly on a
+   pixel row could both count it. Found through the curved picture's flattened clip
+   (239 pixels of one row). It is not this plan's: `python3 target/p164/gpucmp.py
+   /tmp/p164-base/target/release/mfb tests/canvas/scenes/vertex_on_a_pixel_row.mfb`
+   (the compiler of `d2025cd10`, plain polygons) → worst 255, 384 pixels past delta 2;
+   with the fix, worst 1, none. `DfEdge` carries `by`. Regression:
+   `a_polygon_vertex_on_a_pixel_row_is_counted_once_on_metal` and the `vertexrow` row,
+   both under `GPU_DEFAULT`.
+7. **The weight is uploaded as fp32 bits, not 16.16.** A weight is not a coordinate; as
+   a 16.16 word one past 32,767 would wrap. The shader's arithmetic on it is fp32
+   either way.
+8. **`emit_item_polygon_rule` writes the rule for kind 12 too.** No task named it; the
+   first NonZero ring drawn on Metal was EvenOdd (4,835 pixels past delta 2 in the
+   stroke scene) until it did.
+9. **Two tests changed, each on evidence.** letter B's
+   `canvas_curve_frames_fall_back_to_software_on_the_gpu` pinned the fallback this
+   letter removes by instruction; it is now `canvas_curve_frames_are_drawn_on_the_gpu`
+   (`gpuFrames` 1, 2, 3, 4). `the_predicates_read_the_edge_count_slot` counts reads of
+   header slot 20 in the predicates and went 6 → 8: one added piece-count read in each,
+   the same kind of addition its own history records for `PolyLine`.
+10. **`GPU_CURVE`'s population bound is `GPU_DEFAULT`'s 2%, not the measured 0.89%
+    rounded up.** The fraction of pixels that differ at all is a property of how much
+    antialiased edge a scene has, and it is no larger for curves than for the other
+    shapes' rows; only the per-channel bound needed loosening, to the measured 4.
+11. **A build error met on the way is an open bug, not a new one.** A scratch scene with
+    a 1,200-element list literal of `at(0.0 - x, …)` fails to build (`AArch64 branch 'b'
+    displacement … exceeds ±128 MiB`), on the baseline compiler too. That is bug-1035
+    (emitted code quadratic in a function's fallible statements). Nothing here depends
+    on it.
 
 ## Summary
 

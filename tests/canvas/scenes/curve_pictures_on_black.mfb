@@ -1,0 +1,132 @@
+' plan-164-C: pictures inside curved shapes, over black -- each an image cut to the
+' shape's FLATTENED outline (straight clip edges) under an outline that is the true
+' curve, so one item spends both the edge slots a polygon spends and a curve's.
+'
+' Top: the blob under `ClipOnly` and `Cover`, stroked; the same blob under
+' `ClipAndTransform`, turned and stroked with dashes. Bottom: a circle of four exact arcs
+' under `Contain`, where the image does not reach the shape's edge; the rounded star under
+' `Stretch`, unstroked; and the blob inside a group that is turned and scaled.
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT vector
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC quad(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2)], weights := []]
+END FUNC
+
+FUNC cubic(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2), at(x3, y3)], weights := []]
+END FUNC
+
+' A five-pointed star whose points and valleys are rounded: each quadratic runs from the
+' middle of one side to the middle of the next, pulled to the corner between them.
+FUNC star() AS List OF canvas::BezierCurve
+  LET xs AS List OF Float = [0.0, 22.0, 95.0, 36.0, 59.0, 0.0, 0.0 - 59.0, 0.0 - 36.0, 0.0 - 95.0, 0.0 - 22.0]
+  LET ys AS List OF Float = [0.0 - 100.0, 0.0 - 31.0, 0.0 - 31.0, 12.0, 81.0, 38.0, 81.0, 12.0, 0.0 - 31.0, 0.0 - 31.0]
+  MUT out AS List OF canvas::BezierCurve = []
+  MUT i AS Integer = 0
+  WHILE i < 10
+    LET ax AS Float = collections::getOr(xs, i, 0.0)
+    LET ay AS Float = collections::getOr(ys, i, 0.0)
+    LET bx AS Float = collections::getOr(xs, (i + 1) MOD 10, 0.0)
+    LET by AS Float = collections::getOr(ys, (i + 1) MOD 10, 0.0)
+    LET cx AS Float = collections::getOr(xs, (i + 2) MOD 10, 0.0)
+    LET cy AS Float = collections::getOr(ys, (i + 2) MOD 10, 0.0)
+    out = collections::append(out, quad((ax + bx) / 2.0, (ay + by) / 2.0, bx, by, (bx + cx) / 2.0, (by + cy) / 2.0))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' A spiral of cubic quarter turns, each a little wider than the last.
+FUNC spiral() AS List OF canvas::BezierCurve
+  LET k AS Float = 0.5522847498307936
+  MUT out AS List OF canvas::BezierCurve = []
+  MUT r AS Float = 12.0
+  MUT turn AS Integer = 0
+  WHILE turn < 14
+    LET r2 AS Float = r + 7.0
+    LET q AS Integer = turn MOD 4
+    IF q = 0 THEN
+      out = collections::append(out, cubic(r, 0.0, r, r * k, r2 * k, r2, 0.0, r2))
+    ELSEIF q = 1 THEN
+      out = collections::append(out, cubic(0.0, r, 0.0 - r * k, r, 0.0 - r2, r2 * k, 0.0 - r2, 0.0))
+    ELSEIF q = 2 THEN
+      out = collections::append(out, cubic(0.0 - r, 0.0, 0.0 - r, 0.0 - r * k, 0.0 - r2 * k, 0.0 - r2, 0.0, 0.0 - r2))
+    ELSE
+      out = collections::append(out, cubic(0.0, 0.0 - r, r * k, 0.0 - r, r2, 0.0 - r2 * k, r2, 0.0))
+    END IF
+    r = r2
+    turn = turn + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' A pill: two straight sides and two half circles of exact arcs.
+FUNC pill(w AS Float, h AS Float) AS List OF canvas::BezierCurve
+  LET k AS Float = 0.7071067811865476
+  LET r AS Float = h / 2.0
+  RETURN [canvas::BezierCurve[points := [at(r, 0.0), at(w - r, 0.0)], weights := []], canvas::BezierCurve[points := [at(w - r, 0.0), at(w, 0.0), at(w, r)], weights := [1.0, k, 1.0]], canvas::BezierCurve[points := [at(w, r), at(w, h), at(w - r, h)], weights := [1.0, k, 1.0]], canvas::BezierCurve[points := [at(w - r, h), at(r, h)], weights := []], canvas::BezierCurve[points := [at(r, h), at(0.0, h), at(0.0, r)], weights := [1.0, k, 1.0]], canvas::BezierCurve[points := [at(0.0, r), at(0.0, 0.0), at(r, 0.0)], weights := [1.0, k, 1.0]]]
+END FUNC
+
+' A blob for the photograph: four cubics round a lopsided outline.
+FUNC blob() AS List OF canvas::BezierCurve
+  RETURN [cubic(0.0, 0.0 - 90.0, 80.0, 0.0 - 120.0, 150.0, 0.0 - 40.0, 120.0, 30.0), cubic(120.0, 30.0, 100.0, 90.0, 40.0, 130.0, 0.0 - 20.0, 100.0), cubic(0.0 - 20.0, 100.0, 0.0 - 90.0, 70.0, 0.0 - 140.0, 40.0, 0.0 - 110.0, 0.0 - 30.0), cubic(0.0 - 110.0, 0.0 - 30.0, 0.0 - 90.0, 0.0 - 80.0, 0.0 - 50.0, 0.0 - 70.0, 0.0, 0.0 - 90.0)]
+END FUNC
+
+' A 64 x 64 "photograph": a sky that darkens downwards over a band of ground.
+FUNC photo() AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT y AS Integer = 0
+  WHILE y < 64
+    MUT x AS Integer = 0
+    WHILE x < 64
+      IF y > 44 THEN
+        out = collections::append(out, [toByte(40 + x), toByte(120 + x), toByte(50), toByte(255)])
+      ELSE
+        out = collections::append(out, [toByte(250 - y * 3), toByte(160 + x), toByte(255 - y), toByte(255)])
+      END IF
+      x = x + 1
+    END WHILE
+    y = y + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC conic(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2)], weights := [1.0, 0.7071067811865476, 1.0]]
+END FUNC
+
+FUNC disc(r AS Float) AS List OF canvas::BezierCurve
+  RETURN [conic(r, 0.0, r, r, 0.0, r), conic(0.0, r, 0.0 - r, r, 0.0 - r, 0.0), conic(0.0 - r, 0.0, 0.0 - r, 0.0 - r, 0.0, 0.0 - r), conic(0.0, 0.0 - r, r, 0.0 - r, r, 0.0)]
+END FUNC
+
+FUNC framed(x AS Float, y AS Float, contour AS List OF canvas::BezierCurve, paint AS canvas::Paint, transform AS canvas::Transform) AS canvas::AutoShape
+  RETURN canvas::CurvePolygon[id := "", position := at(x, y), contours := [contour], rule := canvas::FillRule.EvenOdd, paint := paint, transform := transform]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES img AS canvas::Image = canvas::createImage(64, 64, photo())
+  LET white AS color::Color = color::rgb(255, 255, 255)
+  LET edge AS canvas::Paint = canvas::fillStroke(white, white, 5.5)
+  LET turned AS canvas::Transform = canvas::Transform[a := 0.8192, b := 0.5736, c := 0.0 - 0.5736, d := 0.8192, tx := 0.0, ty := 0.0]
+  LET a AS canvas::DrawItem = canvas::Picture[id := "a", shape := framed(160.3, 150.6, blob(), edge, none()), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Cover, image := img]
+  LET b AS canvas::DrawItem = canvas::Picture[id := "b", shape := framed(470.4, 160.7, blob(), WITH edge { dashes := [16.0, 8.5] }, turned), clip := canvas::PictureClip.ClipAndTransform, fit := canvas::PictureFit.Cover, image := img]
+  LET c AS canvas::DrawItem = canvas::Picture[id := "c", shape := framed(130.6, 470.3, disc(110.25), canvas::fillStroke(color::rgb(40, 60, 90), white, 3.5), canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 0.7, tx := 0.0, ty := 0.0]), clip := canvas::PictureClip.ClipAndTransform, fit := canvas::PictureFit.Contain, image := img]
+  LET d AS canvas::DrawItem = canvas::Picture[id := "d", shape := framed(400.4, 470.7, star(), canvas::fill(white), none()), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  LET inner AS canvas::DrawItem = canvas::Picture[id := "e", shape := framed(0.0, 0.0, blob(), edge, none()), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Cover, image := img]
+  canvas::setGroup("card", [inner])
+  LET e AS canvas::DrawItem = canvas::Group[id := "", position := at(720.3, 380.6), transform := canvas::Transform[a := 0.0, b := 0.9, c := 0.0 - 0.7, d := 0.0, tx := 0.0, ty := 0.0], name := "card"]
+  canvas::present([a, b, c, d, e])
+END FUNC

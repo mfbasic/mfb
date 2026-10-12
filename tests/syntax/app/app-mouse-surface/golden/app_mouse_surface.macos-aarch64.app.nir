@@ -16334,15 +16334,6 @@
       { "op": "bind", "mutable": false, "name": "kind", "type": "Integer", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "call", "target": "collections.getOr", "args": [{ "kind": "global", "name": "#CANVAS_GEO_DATA", "type": "" }, { "kind": "local", "name": "offset" }, { "kind": "const", "type": "Float", "value": "0.0" }] }] } },
       {
         "op": "if",
-        "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "11" } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "12" } } },
-        "then": [
-        { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
-        ],
-        "else": [
-        ]
-      },
-      {
-        "op": "if",
         "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "6" } },
         "then": [
         { "op": "assign", "name": "samples", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "samples" }, "right": { "kind": "call", "target": "#canvas_runSamples", "args": [{ "kind": "local", "name": "offset" }] } } }
@@ -16394,6 +16385,15 @@
         "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "10" } },
         "then": [
         { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "target": "toInt", "args": [{ "kind": "call", "target": "collections.getOr", "args": [{ "kind": "global", "name": "#CANVAS_GEO_DATA", "type": "" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "offset" }, "right": { "kind": "const", "type": "Integer", "value": "20" } }, { "kind": "const", "type": "Float", "value": "0.0" }] }] } } }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "11" } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "12" } } },
+        "then": [
+        { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "2" }, "right": { "kind": "call", "target": "toInt", "args": [{ "kind": "call", "target": "collections.getOr", "args": [{ "kind": "global", "name": "#CANVAS_GEO_DATA", "type": "" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "offset" }, "right": { "kind": "const", "type": "Integer", "value": "20" } }, { "kind": "const", "type": "Float", "value": "0.0" }] }] } } } }
         ],
         "else": [
         ]
@@ -16577,15 +16577,6 @@
       { "op": "bind", "mutable": false, "name": "kind", "type": "Integer", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "call", "target": "collections.getOr", "args": [{ "kind": "global", "name": "#CANVAS_GEO_DATA", "type": "" }, { "kind": "local", "name": "offset" }, { "kind": "const", "type": "Float", "value": "0.0" }] }] } },
       {
         "op": "if",
-        "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "11" } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "12" } } },
-        "then": [
-        { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
-        ],
-        "else": [
-        ]
-      },
-      {
-        "op": "if",
         "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "6" } },
         "then": [
         { "op": "assign", "name": "samples", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "samples" }, "right": { "kind": "call", "target": "#canvas_runSamples", "args": [{ "kind": "local", "name": "offset" }] } } }
@@ -16637,6 +16628,15 @@
         "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "10" } },
         "then": [
         { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "target": "toInt", "args": [{ "kind": "call", "target": "collections.getOr", "args": [{ "kind": "global", "name": "#CANVAS_GEO_DATA", "type": "" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "offset" }, "right": { "kind": "const", "type": "Integer", "value": "20" } }, { "kind": "const", "type": "Float", "value": "0.0" }] }] } } }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "11" } }, "right": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "kind" }, "right": { "kind": "const", "type": "Integer", "value": "12" } } },
+        "then": [
+        { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "2" }, "right": { "kind": "call", "target": "toInt", "args": [{ "kind": "call", "target": "collections.getOr", "args": [{ "kind": "global", "name": "#CANVAS_GEO_DATA", "type": "" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "offset" }, "right": { "kind": "const", "type": "Integer", "value": "20" } }, { "kind": "const", "type": "Float", "value": "0.0" }] }] } } } }
         ],
         "else": [
         ]
@@ -17440,7 +17440,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "<", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "size" }] }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050023" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "not an image this build can decode: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9116" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050023" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "not an image this build can decode: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9114" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -17450,7 +17450,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "pixels" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050023" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "image file is malformed: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9120" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050023" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "image file is malformed: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9118" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -17480,7 +17480,7 @@
         "op": "if",
         "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "faces" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
         "then": [
-        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "font collection holds no faces: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9133" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "font collection holds no faces: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9131" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ],
         "else": [
         ]
@@ -17511,7 +17511,7 @@
       "op": "if",
       "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "call", "target": "#canvas_isTrueType", "args": [{ "kind": "local", "name": "face" }] } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "not a TrueType font: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9146" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "not a TrueType font: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9144" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -17526,7 +17526,7 @@
         "op": "if",
         "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "upem" }, "right": { "kind": "const", "type": "Integer", "value": "16" } }, "right": { "kind": "binary", "op": ">", "left": { "kind": "local", "name": "upem" }, "right": { "kind": "const", "type": "Integer", "value": "16384" } } },
         "then": [
-        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "font unitsPerEm is outside 16..16384: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9157" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "font unitsPerEm is outside 16..16384: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9155" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ],
         "else": [
         ]
@@ -17577,7 +17577,7 @@
       }
       ]
     },
-    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "no face named " }, "right": { "kind": "local", "name": "face" } }, "right": { "kind": "const", "type": "String", "value": " in " } }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9173" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "no face named " }, "right": { "kind": "local", "name": "face" } }, "right": { "kind": "const", "type": "String", "value": " in " } }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9171" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
     ]
   },
   {
@@ -17657,7 +17657,7 @@
       "op": "if",
       "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "local", "name": "found" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "no system font named: " }, "right": { "kind": "local", "name": "name" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9211" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "no system font named: " }, "right": { "kind": "local", "name": "name" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9209" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]

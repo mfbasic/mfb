@@ -34,6 +34,15 @@
 # environment assignment the row's runs are given (`MFB_CANVAS_POINTER`, the `--debug`
 # pointer script). The first hovers a button of the scene itself, the second one use of
 # a group that is drawn twice, which is the case that needs a group run of its own.
+# The six `curve*` rows are plan-164-C's: `canvas::PolyCurve` and `canvas::CurvePolygon`
+# under every cap, join, dash and fill rule, under their own transforms and inside turned
+# groups, under an `AutoPaint` (at rest and hovered), as a `Picture`'s shape, and a few
+# thousandths of a unit across under a 30,000-fold transform, which draws right only if
+# every piece's residual words reached the buffer. They are judged under
+# `Tolerance::GPU_CURVE`. `vertexrow` is the bug that plan found in the POLYGON path:
+# polygons with a vertex exactly on a pixel-centre row, where the double-float crossing
+# test rebuilt an edge's end as `a + (b - a)` and two edges disagreed about the vertex
+# they share -- one whole row of the shape inverted.
 # `pictureshapes` and `pictureauto` are plan-172-L's: pictures inside shapes — each a
 # picture record with a polygonal clip and, where it strokes, the shape itself — at
 # rest, and with the pointer on the one whose shape is an `AutoPaint`, both of whose
@@ -112,6 +121,8 @@ host="test@127.0.0.1"
 
 # name | scene file | kind [| NAME=value]
 #   render   sw + gpu, compared; the gpu frame must be a GPU frame
+#   curve    as `render`, judged under Tolerance::GPU_CURVE (a frame that draws a curve
+#            shape; `tests/common/canvas_image.rs`)
 #   geo      one GPU run with MFB_CANVAS_SYNC; geometry verification only
 #   race     one GPU run WITHOUT MFB_CANVAS_SYNC; geometry verification only
 # The optional fourth field is one environment assignment every run of the row gets.
@@ -155,6 +166,13 @@ autopaintgroup|autopaint_on_black|render|MFB_CANVAS_POINTER=0,150,320,0,1
 pictureshapes|picture_shapes_on_black|render
 pictureauto|picture_shapes_on_black|render|MFB_CANVAS_POINTER=0,770,470,0,1
 hairline|blended_hairline_stroke|render
+curves|curves|curve
+curveshover|curves|curve|MFB_CANVAS_POINTER=0,200,440,0,1
+curvestrokes|curve_strokes_on_black|curve
+curvesplaced|curves_placed_on_black|curve
+curvepictures|curve_pictures_on_black|curve
+curveresiduals|curve_residuals_on_black|curve
+vertexrow|vertex_on_a_pixel_row|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
 framepass|canvas_geo_native_frame_pass|geo
@@ -287,7 +305,7 @@ while IFS='|' read -r row scene kind ROW_ENV <&3; do
   echo "--- $row ($scene, $kind) ---"
   ship "$row" "$scene"
   case "$kind" in
-    render)
+    render|curve)
       run_remote "$row" sw 1 0
       run_remote "$row" gpu 1 1
       sw_stats="$(tail -1 "$work/$row/sw.txt" 2>/dev/null || true)"
@@ -319,7 +337,9 @@ while IFS='|' read -r row scene kind ROW_ENV <&3; do
         cp "$work/$row/sw.rgba" "$KEEP/$row-sw.rgba"
         cp "$work/$row/gpu.rgba" "$KEEP/$row-gpu.rgba"
       fi
-      verdict="$(python3 scripts/rgba_compare.py "$work/$row/sw.rgba" "$work/$row/gpu.rgba" 900 2>&1 || true)"
+      tolerance=""
+      [ "$kind" = curve ] && tolerance=curve
+      verdict="$(python3 scripts/rgba_compare.py "$work/$row/sw.rgba" "$work/$row/gpu.rgba" 900 $tolerance 2>&1 || true)"
       case "$verdict" in
         ok*) pass "$row: Vulkan matches the software oracle ($verdict, $lit lit)" ;;
         *) fail "$row: Vulkan disagrees with the software oracle: $verdict" ;;

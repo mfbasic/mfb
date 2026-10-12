@@ -1,0 +1,84 @@
+' plan-164-C: every way a curve shape is stroked and filled, over black, at coordinates
+' off the pixel grid so each edge is an antialiased one.
+'
+' Top row, `PolyCurve`s: one cubic S under each cap (Butt, Square, Round); two quadratics
+' meeting at a real corner under Miter, Bevel and Round joins; an exact quarter circle (a
+' rational quadratic) dashed with butt ends; a cubic under a gradient that runs along it.
+' Bottom row, `CurvePolygon`s: a ring of two circles wound the same way under EvenOdd and
+' under NonZero; a rounded square stroked with a Miter join at its two real corners; a
+' leaf stroked with dashes that have square ends; and a half-transparent disc under a
+' radial gradient that paints its stroke too.
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT vector
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC line(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1)], weights := []]
+END FUNC
+
+FUNC quad(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2)], weights := []]
+END FUNC
+
+' A quarter of a circle, exactly: the corner between its ends weighted by cos 45.
+FUNC conic(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2)], weights := [1.0, 0.7071067811865476, 1.0]]
+END FUNC
+
+FUNC cubic(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2), at(x3, y3)], weights := []]
+END FUNC
+
+' A circle of four exact arcs about (cx, cy); `back` winds it the other way.
+FUNC circle(cx AS Float, cy AS Float, r AS Float, back AS Boolean) AS List OF canvas::BezierCurve
+  IF back THEN
+    RETURN [conic(cx + r, cy, cx + r, cy - r, cx, cy - r), conic(cx, cy - r, cx - r, cy - r, cx - r, cy), conic(cx - r, cy, cx - r, cy + r, cx, cy + r), conic(cx, cy + r, cx + r, cy + r, cx + r, cy)]
+  END IF
+  RETURN [conic(cx + r, cy, cx + r, cy + r, cx, cy + r), conic(cx, cy + r, cx - r, cy + r, cx - r, cy), conic(cx - r, cy, cx - r, cy - r, cx, cy - r), conic(cx, cy - r, cx + r, cy - r, cx + r, cy)]
+END FUNC
+
+FUNC wave(x AS Float, y AS Float, curves AS List OF canvas::BezierCurve, paint AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::PolyCurve[id := "", position := at(x, y), curves := curves, paint := paint, transform := none()]
+END FUNC
+
+FUNC blob(x AS Float, y AS Float, contours AS List OF List OF canvas::BezierCurve, rule AS canvas::FillRule, paint AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::CurvePolygon[id := "", position := at(x, y), contours := contours, rule := rule, paint := paint, transform := none()]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET ink AS color::Color = color::rgb(250, 220, 120)
+  LET s AS List OF canvas::BezierCurve = [cubic(0.0, 0.0, 70.5, 0.0 - 60.25, 10.25, 130.5, 80.75, 90.0)]
+  LET corner AS List OF canvas::BezierCurve = [quad(0.0, 90.0, 10.5, 20.25, 45.25, 0.0), quad(45.25, 0.0, 80.5, 20.0, 90.25, 90.5)]
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 60, 60)], canvas::GradientStop[offset := 1.0, color := color::rgb(60, 120, 255)]]
+  LET along AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := at(0.0, 0.0), endPoint := at(80.0, 90.0), stops := stops, spread := canvas::GradientSpread.Pad, transform := none(), focalOffset := at(0.0, 0.0), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillAndStroke]
+  LET radial AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := at(0.0 - 15.0, 0.0 - 10.0), endPoint := at(60.0, 0.0 - 10.0), stops := stops, spread := canvas::GradientSpread.Pad, transform := none(), focalOffset := at(0.0, 0.0), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillAndStroke]
+  MUT scene AS List OF canvas::DrawItem = []
+  scene = collections::append(scene, [wave(30.3, 60.6, s, WITH canvas::stroke(ink, 13.5) { cap := canvas::CapStyle.Butt })])
+  scene = collections::append(scene, [wave(140.3, 60.6, s, WITH canvas::stroke(ink, 13.5) { cap := canvas::CapStyle.Square })])
+  scene = collections::append(scene, [wave(250.3, 60.6, s, WITH canvas::stroke(ink, 13.5) { cap := canvas::CapStyle.Round })])
+  scene = collections::append(scene, [wave(360.4, 70.7, corner, WITH canvas::stroke(color::rgb(120, 230, 160), 11.25) { join := canvas::JoinStyle.Miter })])
+  scene = collections::append(scene, [wave(480.4, 70.7, corner, WITH canvas::stroke(color::rgb(120, 230, 160), 11.25) { join := canvas::JoinStyle.Bevel })])
+  scene = collections::append(scene, [wave(600.4, 70.7, corner, WITH canvas::stroke(color::rgb(120, 230, 160), 11.25) { join := canvas::JoinStyle.Round })])
+  scene = collections::append(scene, [wave(720.6, 60.3, [conic(0.0, 0.0, 110.5, 0.0, 110.5, 110.5)], WITH canvas::stroke(color::rgb(240, 120, 180), 7.25) { dashes := [22.0, 9.5] })])
+  scene = collections::append(scene, [wave(40.3, 220.6, s, WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { gradient := along, cap := canvas::CapStyle.Round })])
+  LET ring AS List OF List OF canvas::BezierCurve = [circle(0.0, 0.0, 80.25, FALSE), circle(10.5, 5.25, 40.5, FALSE)]
+  scene = collections::append(scene, [blob(110.4, 480.7, ring, canvas::FillRule.EvenOdd, canvas::fillStroke(color::rgb(90, 160, 250), color::rgb(255, 255, 255), 3.5))])
+  scene = collections::append(scene, [blob(290.4, 480.7, ring, canvas::FillRule.NonZero, canvas::fillStroke(color::rgb(90, 160, 250), color::rgb(255, 255, 255), 3.5))])
+  LET tile AS List OF canvas::BezierCurve = [line(0.0, 0.0, 90.5, 0.0), conic(90.5, 0.0, 130.5, 0.0, 130.5, 40.0), line(130.5, 40.0, 130.5, 130.25), line(130.5, 130.25, 40.0, 130.25), conic(40.0, 130.25, 0.0, 130.25, 0.0, 90.25), line(0.0, 90.25, 0.0, 0.0)]
+  scene = collections::append(scene, [blob(410.3, 410.6, [tile], canvas::FillRule.EvenOdd, WITH canvas::fillStroke(color::rgb(200, 90, 60), color::rgb(255, 240, 200), 9.5) { join := canvas::JoinStyle.Miter })])
+  LET leaf AS List OF canvas::BezierCurve = [cubic(0.0, 0.0, 60.5, 0.0 - 70.25, 120.25, 0.0 - 30.5, 140.0, 40.25), cubic(140.0, 40.25, 80.5, 90.0, 30.25, 60.5, 0.0, 0.0)]
+  scene = collections::append(scene, [blob(590.6, 470.3, [leaf], canvas::FillRule.EvenOdd, WITH canvas::fillStroke(color::rgb(60, 150, 90), color::rgb(230, 250, 200), 6.5) { dashes := [18.0, 11.25], cap := canvas::CapStyle.Square })])
+  scene = collections::append(scene, [blob(820.4, 250.7, [circle(0.0, 0.0, 60.25, TRUE)], canvas::FillRule.EvenOdd, WITH canvas::fillStroke(color::rgb(0, 0, 0), color::rgb(255, 255, 255), 8.0) { gradient := radial, transparency := 0.5 })])
+  canvas::present(scene)
+END FUNC

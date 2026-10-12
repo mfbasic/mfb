@@ -661,7 +661,8 @@ predicate (`RENDER_CAPS`), and since bug-688 they are the same numbers: 65,536 q
 262,144 polygon edges, 131,072 gradient stops, 1,048,576 dash words (plan-163-B) and 8M
 glyph/picture texels a frame, each a frame SUM, with each distinct picture block counted
 once. A stroke's join records ride the EDGE region, two edge slots each, so they count
-twice against the edge cap rather than having a cap of their own. Neither has a per-polygon edge
+twice against the edge cap rather than having a cap of their own; so do a curve shape's
+PIECES (below). Neither has a per-polygon edge
 cap: a polygon's edges are indexed by horizontal band (`emit_band_index`, bug-686 on
 Metal, ported to Vulkan's `CodeBuilder` by bug-688 — the algorithm exists twice so that
 Metal's instructions did not change), and the shader's `edgeDistance` walks only the
@@ -678,6 +679,40 @@ truncating instead would draw a *different shape*.
 The reason a frame buffer needs a per-item *index* at all is unchanged and worth
 restating: a command buffer is recorded once and executed once, so rewriting — or
 re-binding — one buffer per item would give every item the *last* one's data.
+
+**A curve shape's pieces ride the edge region; there is no curve region (plan-164-C).**
+A `PolyCurve` (kind 11) or `CurvePolygon` (kind 12) record's tail is y-monotone
+rational-quadratic pieces, seven floats each. Both emitters (`emit_edge_buffer`,
+`emit_edge_upload`) lay them down as TWO runs of `count` slots at the item's edge base:
+every piece's chord `x0, y0, x2, y2` first, then every piece's `x1, y1, bits(w1), 0`.
+The split is what made the feature cheap, and it is the thing to keep:
+
+- A chord is an edge to `emit_band_index` — a y-monotone piece's ends are its whole
+  y-range — so the band index, the item block and every region base are unchanged. Do
+  not interleave the two slots of a piece: the band index would then read control
+  points as edges.
+- Both predicates count `2 * pieces` against the edge cap. A count of one a piece lets a
+  frame through that the emitter then cannot fit; `rt_canvas_metal.rs` pins the factor
+  with a 512-ring frame that draws and a 513-ring frame that is declined.
+- The weight is fp32 BITS, not 16.16: a weight is not a coordinate and has no 32,767.
+- The shader text is ONE template, `shaders/curves.tpl`, expanded to MSL at run time and
+  into `mfb_canvas.frag` by `tools/canvas-curve-shader/generate.py`. Edit the template,
+  run the tool, then `scripts/regen-spirv.sh`; a unit test fails on a stale GLSL copy,
+  but nothing fails on a stale `.spv` except the Vulkan lanes.
+- A piece is evaluated in fp32 on coordinates taken relative to the pixel in
+  double-float (`curvePiece`). That is why curve rows are judged under
+  `Tolerance::GPU_CURVE` and every other row under `GPU_DEFAULT`; do not move a
+  non-curve row to the looser one.
+
+**Two edges that share a vertex must READ one value for it.** `dfCrossing` used to
+rebuild an edge's end as `ay + vy`, and double-float addition does not always give back
+`by`: with a vertex exactly on a pixel-centre row the two edges disagreed about which
+side of the row it was on, both counted, and that whole row of the polygon came out
+inverted. It predates the curve shapes (it reproduces with plain polygons on the commit
+before them) and was invisible until a picture was clipped to a flattened
+curve, whose points are dyadic (`t = 3/4` of a cubic with whole-number control points
+lands on a half-pixel). `DfEdge` now carries `by`, read from the buffer; anything new
+that tests a row against an edge's end uses it. `scenes/vertex_on_a_pixel_row.mfb`.
 
 ## 11. Test affordances
 
@@ -1295,6 +1330,17 @@ its arm, and an arm that copies a record is thousands of instructions: the conve
 24,744 bytes of code in every canvas program until they moved behind the gate. The
 arms that remain call a hook.
 
+**A record whose every field has a default needs the NAMED gate, not the constructed
+one.** `helper_curves.rs` (plan-164-B) is gated with
+`HelperGate::WhenCalledOrNamed(&[], &["PolyCurve", "CurvePolygon"])` and its exact
+complement `WhenNeitherCalledNorNamed`: the chunk is in when the program's source names
+either type anywhere — a constructor or any annotation. A constructor gate would be
+wrong for them: `MUT c AS canvas::PolyCurve` then `WITH c { … }` holds a curve no
+constructor expression made, and that program would get the stand-ins and draw nothing.
+(`AutoPaint` and `Picture` have a union field, so no default, so constructing is the
+only way to hold one.) Ungated, the curve chunk was 288,896 bytes of `__text` in every
+canvas program; gated, a program with no curve pays 21,652 for the arms and stand-ins.
+
 ## 17. A `Picture` is one or two draw entries (plan-172-L)
 
 `helper_picture.rs`. A `canvas::Picture` holds a shape and draws an image inside it, with
@@ -1343,6 +1389,15 @@ with no fill. The rules that keep that sound:
   picture chunk that called it built only for programs that poll the mouse. A gated
   chunk may call the unconditional source and another chunk's hooks (the names its
   `ABSENT` twin also defines) and nothing else.
+- **A picture in a `CurvePolygon` clips its image to the outline FLATTENED** (plan-164-B):
+  `__canvas_curveRings` turns each contour's pieces into a ring of straight edges within
+  the tolerance they were reduced at, because the clip machinery — the software
+  intersection, both shaders' path clip — knows only straight edges. The OUTLINE entry
+  is the `CurvePolygon` itself and is the true curve. So the one item costs clip edges
+  (one slot each; 128 for a circle of radius 50, 504 at 400) AND pieces (two each), both
+  against the edge cap. The image is fitted to the curve's true extent
+  (`__canvas_curveExtent`), not the flattened ring's box and not the control points' —
+  the previous rule, for the same reason.
 - **An `AutoPaint` for a shape** makes the picture an instance at the picture's place.
   It is then always two entries, either of which may be the empty record, so the
   frame's resolve can swap both in place; the instance's entry is the OUTLINE's, which

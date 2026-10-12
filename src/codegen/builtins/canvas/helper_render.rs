@@ -1041,12 +1041,6 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   MUT pictures AS Set OF Integer = Set OF Integer { }
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
-    ' plan-164-B: neither GPU backend draws a curve shape yet, so a frame that holds one
-    ' is the software renderer's. The record is a leaf's, so it is in this list whether
-    ' the shape is in the scene or inside a group.
-    IF kind = __CANVAS_GEO_POLYCURVE OR kind = __CANVAS_GEO_CURVEPOLYGON THEN
-      RETURN FALSE
-    END IF
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
     END IF
@@ -1086,6 +1080,11 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     ' plan-154-B: a PolyLine's segments take the same region, one edge each.
     IF kind = __CANVAS_GEO_POLYLINE THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    END IF
+    ' plan-164-C: a curve shape's pieces take the same region, TWO slots a piece -- its
+    ' chord, which the band index reads as an edge, and its control point and weight.
+    IF kind = __CANVAS_GEO_POLYCURVE OR kind = __CANVAS_GEO_CURVEPOLYGON THEN
+      total = total + 2 * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
     ' plan-163-B: a stroke's join records ride the same region, two edge slots each; its
     ' dash words a region of their own, a frame SUM like the stops'.
@@ -1207,12 +1206,6 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT pictures AS Set OF Integer = Set OF Integer { }
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
-    ' plan-164-B: neither GPU backend draws a curve shape yet, so a frame that holds one
-    ' is the software renderer's. The record is a leaf's, so it is in this list whether
-    ' the shape is in the scene or inside a group.
-    IF kind = __CANVAS_GEO_POLYCURVE OR kind = __CANVAS_GEO_CURVEPOLYGON THEN
-      RETURN FALSE
-    END IF
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
     END IF
@@ -1246,6 +1239,11 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     ' plan-154-C: a PolyLine's segments take the same region, one edge each.
     IF kind = __CANVAS_GEO_POLYLINE THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    END IF
+    ' plan-164-C: a curve shape's pieces take the same region, TWO slots a piece -- its
+    ' chord, which the band index reads as an edge, and its control point and weight.
+    IF kind = __CANVAS_GEO_POLYCURVE OR kind = __CANVAS_GEO_CURVEPOLYGON THEN
+      total = total + 2 * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
     ' plan-163-B: a stroke's join records ride the same region, two edge slots each; its
     ' dash words a region of their own, a frame SUM like the stops'.

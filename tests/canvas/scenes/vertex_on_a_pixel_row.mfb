@@ -1,0 +1,60 @@
+' Eighteen filled hexagons, each with two vertices exactly on a pixel-centre row and
+' neighbours at coordinates that are not round numbers, over black.
+'
+' The row through such a vertex is where a crossing test has to give the vertex to
+' exactly one of the two edges that share it. The shaders' double-float test used to
+' rebuild an edge's end as `a + (b - a)`, which is not always `b` in double-float, so
+' the two edges could disagree and the whole row came out inverted -- empty inside the
+' shape and filled beside it. Two of these eighteen did (found by plan-164-C through a
+' picture clipped to a flattened curve, whose points are dyadic).
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT vector
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT scene AS List OF canvas::DrawItem = []
+  LET p0 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(70.0, 110.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.07710132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.515625), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p0])
+  LET p1 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(210.0, 110.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.09080132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.522725), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p1])
+  LET p2 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(350.0, 110.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.10450132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.529825), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p2])
+  LET p3 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(490.0, 110.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.11820132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.536925), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p3])
+  LET p4 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(630.0, 110.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.13190132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.544025), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p4])
+  LET p5 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(770.0, 110.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.14560132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.551125), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p5])
+  LET p6 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(70.0, 310.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.15930132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.558225), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p6])
+  LET p7 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(210.0, 310.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.17300132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.565325), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p7])
+  LET p8 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(350.0, 310.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.18670132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.572425), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p8])
+  LET p9 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(490.0, 310.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.20040132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.579525), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p9])
+  LET p10 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(630.0, 310.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.21410132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.586625), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p10])
+  LET p11 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(770.0, 310.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.22780132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.593725), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p11])
+  LET p12 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(70.0, 510.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.24150132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.600825), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p12])
+  LET p13 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(210.0, 510.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.25520132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.607925), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p13])
+  LET p14 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(350.0, 510.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.26890132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.615025), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p14])
+  LET p15 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(490.0, 510.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.28260132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.622125), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p15])
+  LET p16 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(630.0, 510.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.29630132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.629225), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p16])
+  LET p17 AS canvas::DrawItem = canvas::Polygon[id := "", position := at(770.0, 510.0), contours := [[at(0.0, 0.0 - 60.0), at(42.4777, 0.0 - 35.31000132519357), at(45.15625, 0.0 - 22.5), at(46.73828125, 3.636325), at(0.0, 70.0), at(0.0 - 50.0, 0.0 - 22.5)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(200, 220, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  scene = collections::append(scene, [p17])
+  canvas::present(scene)
+END FUNC

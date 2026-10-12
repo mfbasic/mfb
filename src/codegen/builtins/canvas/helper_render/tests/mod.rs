@@ -290,6 +290,12 @@ fn every_cap_token_in_the_render_source_is_generated() {
 /// polygon edge region, so each predicate adds one more edge-sum read of the same slot.
 /// The polygon's own read is unchanged (`the_polygon_kind_is_spelled_once`).
 ///
+/// It went 6 → 8 in plan-164-C, another ADDITION: a `canvas::PolyCurve` and a
+/// `canvas::CurvePolygon` carry their piece count in slot 20 and their pieces ride the
+/// same edge region, two slots each, so each predicate adds one read of the slot (under
+/// a factor of two, which `rt_canvas_metal.rs`'s
+/// `curve_pieces_are_counted_two_slots_each_against_the_edge_region` pins by frames).
+///
 /// So the invariant is intact and is asserted in two places rather than one:
 /// `block_instances_keeps_the_blend_split_case` pins that
 /// `__canvas_blockInstances` reads slot 20 (and slots 26, 7 and 11 for the split),
@@ -301,7 +307,7 @@ fn the_predicates_read_the_edge_count_slot() {
     assert_eq!(HEADER_AUX0, 20);
     assert_eq!(
         source().matches(&format!("offset + {HEADER_AUX0}")).count(),
-        6,
+        8,
         "every glyph-run walk, edge sum and edge decline in both predicates should \
              read HEADER_AUX0. If this went DOWN, check where the read went before \
              changing the number: the quad counts left in plan-116-H by moving into \

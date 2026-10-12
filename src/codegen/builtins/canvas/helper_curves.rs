@@ -66,9 +66,10 @@ use crate::codegen::registry::{HelperGate, RegistryHelper, RegistryPackage};
 pub(super) const NAMED: &[&str] = &["PolyCurve", "CurvePolygon"];
 
 /// The floats one piece occupies in a list of pieces: `x0, y0, x1, y1, x2, y2, w1`.
-/// `__CANVAS_CURVE_PIECE` in [`CURVE_BASE`] is the same number.
+/// `__CANVAS_CURVE_PIECE` in [`CURVE_BASE`] is the same number, and the GPU emitters
+/// step a record's tail by it.
 #[cfg(test)]
-pub(crate) const PIECE_FLOATS: usize = 7;
+use crate::codegen::runtime::canvas::CURVE_PIECE_SLOTS as PIECE_FLOATS;
 
 /// What both gated chunks stand on: the constants, and the halving, flattening and
 /// knot insertion `canvas::flatten` and `canvas::nurbsToBeziers` are made of.

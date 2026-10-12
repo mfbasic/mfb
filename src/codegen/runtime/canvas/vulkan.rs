@@ -45,28 +45,29 @@ use crate::codegen::runtime::canvas::{
     emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
     emit_square_cap_reach, push_symbol_address, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES,
     BLEND_MODE_COUNT, CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE,
-    CANVAS_DRAW_ENTRY_SHIFT, EDGE_RESIDUAL_SCALE, EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_PICTURE,
-    GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
-    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
-    GRADIENT_STOP_WORDS, GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER,
-    GRAPHICS_OFFSET_VULKAN_COMMAND_POOL, GRAPHICS_OFFSET_VULKAN_DESC_POOL,
-    GRAPHICS_OFFSET_VULKAN_DESC_SET, GRAPHICS_OFFSET_VULKAN_DEVICE,
-    GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER, GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED,
-    GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY, GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER,
-    GRAPHICS_OFFSET_VULKAN_IMAGE, GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY,
-    GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW, GRAPHICS_OFFSET_VULKAN_INSTANCE,
-    GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER, GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED,
-    GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY, GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED,
-    GRAPHICS_OFFSET_VULKAN_PHYSICAL, GRAPHICS_OFFSET_VULKAN_PIPELINE,
-    GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT, GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES,
-    GRAPHICS_OFFSET_VULKAN_PRESENT_PASS, GRAPHICS_OFFSET_VULKAN_QUEUE,
-    GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY, GRAPHICS_OFFSET_VULKAN_READY,
-    GRAPHICS_OFFSET_VULKAN_READ_BUFFER, GRAPHICS_OFFSET_VULKAN_READ_MEMORY,
-    GRAPHICS_OFFSET_VULKAN_RENDER_PASS, GRAPHICS_OFFSET_VULKAN_SET_LAYOUT,
-    GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT, GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL,
-    HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_FILL_R,
-    HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM,
-    HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYLINE_FIRST,
+    CANVAS_DRAW_ENTRY_SHIFT, CURVE_PIECE_SLOTS, EDGE_RESIDUAL_SCALE, EDGE_SLOTS, FIXED_POINT_SCALE,
+    GEO_KIND_CURVEPOLYGON, GEO_KIND_PICTURE, GEO_KIND_POLYCURVE, GEO_KIND_POLYGON,
+    GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START,
+    GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS,
+    GRAPHICS_OFFSET_VULKAN_COMMAND_BUFFER, GRAPHICS_OFFSET_VULKAN_COMMAND_POOL,
+    GRAPHICS_OFFSET_VULKAN_DESC_POOL, GRAPHICS_OFFSET_VULKAN_DESC_SET,
+    GRAPHICS_OFFSET_VULKAN_DEVICE, GRAPHICS_OFFSET_VULKAN_EDGE_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_EDGE_MAPPED, GRAPHICS_OFFSET_VULKAN_EDGE_MEMORY,
+    GRAPHICS_OFFSET_VULKAN_FRAMEBUFFER, GRAPHICS_OFFSET_VULKAN_IMAGE,
+    GRAPHICS_OFFSET_VULKAN_IMAGE_MEMORY, GRAPHICS_OFFSET_VULKAN_IMAGE_VIEW,
+    GRAPHICS_OFFSET_VULKAN_INSTANCE, GRAPHICS_OFFSET_VULKAN_ITEM_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_ITEM_MAPPED, GRAPHICS_OFFSET_VULKAN_ITEM_MEMORY,
+    GRAPHICS_OFFSET_VULKAN_LIB, GRAPHICS_OFFSET_VULKAN_MAPPED, GRAPHICS_OFFSET_VULKAN_PHYSICAL,
+    GRAPHICS_OFFSET_VULKAN_PIPELINE, GRAPHICS_OFFSET_VULKAN_PIPELINE_LAYOUT,
+    GRAPHICS_OFFSET_VULKAN_PIPELINE_MODES, GRAPHICS_OFFSET_VULKAN_PRESENT_PASS,
+    GRAPHICS_OFFSET_VULKAN_QUEUE, GRAPHICS_OFFSET_VULKAN_QUEUE_FAMILY,
+    GRAPHICS_OFFSET_VULKAN_READY, GRAPHICS_OFFSET_VULKAN_READ_BUFFER,
+    GRAPHICS_OFFSET_VULKAN_READ_MEMORY, GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
+    GRAPHICS_OFFSET_VULKAN_SET_LAYOUT, GRAPHICS_OFFSET_VULKAN_TEX_HEIGHT,
+    GRAPHICS_OFFSET_VULKAN_TEX_WIDTH, GRAPHICS_STATE_SYMBOL, HEADER_AUX0, HEADER_AUX1,
+    HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP, HEADER_FILL_R, HEADER_GRADIENT_COUNT,
+    HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND, HEADER_HAS_TRANSFORM, HEADER_KIND,
+    HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYLINE_FIRST,
     HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R,
     HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID,
     HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP, ITEM_ARC_EDGE_BASE,
@@ -4076,6 +4077,13 @@ fn emit_edge_upload(
     let band = builder.label("vk_edge_band");
     let empty = builder.label("vk_edge_empty");
     let copy = builder.label("vk_edge_copy");
+    let polyline = builder.label("vk_edge_polyline");
+    let has_pieces = builder.label("vk_edge_pieces");
+    let advanced = builder.label("vk_edge_advanced");
+    let twice = builder.label("vk_edge_twice");
+    let chords = builder.label("vk_edge_chords");
+    let controls_init = builder.label("vk_edge_controls_init");
+    let controls = builder.label("vk_edge_controls");
 
     let count = abi::SCRATCH[2];
     let index = abi::SCRATCH[3];
@@ -4101,7 +4109,36 @@ fn emit_edge_upload(
     // and without a wrap edge, so they take the same upload and band index -- the twin of
     // Metal's `emit_edge_buffer` (plan-154-B).
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], GEO_KIND_POLYLINE));
+    builder.emit(abi::branch_eq(&polyline));
+    // plan-164-C: a curve shape's pieces take the same region, TWO slots a piece, and
+    // the same band index -- the twin of Metal's `emit_edge_buffer`.
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], GEO_KIND_POLYCURVE));
+    builder.emit(abi::branch_eq(&has_pieces));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[0],
+        GEO_KIND_CURVEPOLYGON,
+    ));
     builder.emit(abi::branch_ne(&empty));
+    builder.emit(abi::label(&has_pieces));
+    builder.emit(abi::load_u32(
+        count,
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC + 12,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_edge_cursor,
+    ));
+    builder.emit(abi::add_registers(abi::SCRATCH[1], abi::SCRATCH[0], count));
+    builder.emit(abi::add_registers(abi::SCRATCH[1], abi::SCRATCH[1], count));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[1],
+        &VULKAN_MAX_FRAME_EDGES.to_string(),
+    ));
+    builder.emit(abi::branch_le(&copy));
+    builder.emit(abi::branch(&empty));
+    builder.emit(abi::label(&polyline));
     // Its first and last live segments, as whole numbers over the 16.16 gradient axis
     // `emit_item_block` wrote: 16.16 holds a segment index only up to 32,767.
     builder.emit(abi::load_u64(
@@ -4170,8 +4207,23 @@ fn emit_edge_upload(
     );
     builder.emit(abi::add_registers(target, target, abi::SCRATCH[1]));
     // The cursor moves on now, while the pre-advance value is still the one written
-    // into the item block above.
+    // into the item block above -- by one slot an edge, and by two a curve piece.
     builder.emit(abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], count));
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[1], GEO_KIND_POLYCURVE));
+    builder.emit(abi::branch_eq(&twice));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[1],
+        GEO_KIND_CURVEPOLYGON,
+    ));
+    builder.emit(abi::branch_ne(&advanced));
+    builder.emit(abi::label(&twice));
+    builder.emit(abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], count));
+    builder.emit(abi::label(&advanced));
     builder.emit(abi::store_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -4205,6 +4257,100 @@ fn emit_edge_upload(
     builder.emit(abi::load_u64(source, abi::stack_pointer(), off_header));
     builder.emit(abi::add_immediate(source, source, HEADER_SLOTS * 8));
     builder.emit(abi::move_immediate(index, "Integer", "0"));
+
+    // plan-164-C: a curve shape's pieces (`x0, y0, x1, y1, x2, y2, w1` each) go in as
+    // two runs of `count` slots: each piece's chord `x0, y0, x2, y2` -- an edge to the
+    // band index, a piece's two ends being its whole y-range -- then each piece's
+    // control point and weight, `x1, y1, bits(w1), 0`. Metal's `emit_edge_buffer`, line for
+    // line; the layout is at `CURVE_PIECE_SLOTS`.
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_item + ITEM_OFFSET_MISC,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], GEO_KIND_POLYCURVE));
+    builder.emit(abi::branch_eq(&chords));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[0],
+        GEO_KIND_CURVEPOLYGON,
+    ));
+    builder.emit(abi::branch_ne(&head));
+
+    // One double of the record as its 16.16 word and its residual, each cursor advanced.
+    let word = |builder: &mut CodeBuilder, slot: usize| {
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
+        builder.emit(abi::add_immediate(target, target, 4));
+        builder.emit(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[2],
+            abi::SCRATCH[0],
+        ));
+        builder.emit(abi::float_subtract_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            residual_scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[0],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
+        builder.emit(abi::add_immediate(residual_target, residual_target, 4));
+    };
+    builder.emit(abi::label(&chords));
+    builder.emit(abi::compare_registers(index, count));
+    builder.emit(abi::branch_ge(&controls_init));
+    for slot in [0usize, 1, 4, 5] {
+        word(builder, slot);
+    }
+    builder.emit(abi::add_immediate(source, source, CURVE_PIECE_SLOTS * 8));
+    builder.emit(abi::add_immediate(index, index, 1));
+    builder.emit(abi::branch(&chords));
+    builder.emit(abi::label(&controls_init));
+    builder.emit(abi::load_u64(source, abi::stack_pointer(), off_header));
+    builder.emit(abi::add_immediate(source, source, HEADER_SLOTS * 8));
+    builder.emit(abi::move_immediate(index, "Integer", "0"));
+    builder.emit(abi::label(&controls));
+    builder.emit(abi::compare_registers(index, count));
+    builder.emit(abi::branch_ge(&band));
+    for slot in [2usize, 3] {
+        word(builder, slot);
+    }
+    // The weight as its fp32 BITS, not a 16.16 word: the shader's arithmetic on it is
+    // single precision either way, and a weight has no 32767 to stay under.
+    builder.emit(abi::load_double(abi::FP_SCRATCH[1], source, 6 * 8));
+    builder.emit(abi::float_convert_s_from_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::float_move_x_from_d(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
+    builder.emit(abi::store_u32(abi::SCRATCH[0], target, 0));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    builder.emit(abi::store_u32(abi::SCRATCH[0], target, 4));
+    builder.emit(abi::add_immediate(target, target, 8));
+    builder.emit(abi::store_u32(abi::SCRATCH[0], residual_target, 0));
+    builder.emit(abi::store_u32(abi::SCRATCH[0], residual_target, 4));
+    builder.emit(abi::add_immediate(residual_target, residual_target, 8));
+    builder.emit(abi::add_immediate(source, source, CURVE_PIECE_SLOTS * 8));
+    builder.emit(abi::add_immediate(index, index, 1));
+    builder.emit(abi::branch(&controls));
 
     builder.emit(abi::label(&head));
     builder.emit(abi::compare_registers(index, count));

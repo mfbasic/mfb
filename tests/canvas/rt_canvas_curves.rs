@@ -2028,21 +2028,22 @@ fn canvas_curve_polygon_closes_and_a_poly_curve_has_no_interior() {
     assert_eq!(interior, 0, "a PolyCurve fills nothing");
 }
 
-/// Neither GPU backend draws a curve shape yet, so a frame that holds one — in the
-/// scene itself or inside a group — is drawn by the software renderer, and the frames
-/// either side of it go back to the GPU.
+/// A frame that holds a curve shape -- in the scene itself or inside a group -- is drawn
+/// on the GPU, like the frames either side of it (plan-164-C; letter B had both
+/// backends hand such a frame to the software renderer, and this test pinned that).
 ///
 /// Four frames under `MFB_CANVAS_GPU=1`: a rectangle alone; the rectangle and a
 /// `CurvePolygon`; the rectangle and a use of a group that holds a `PolyCurve`; the
-/// rectangle alone again. `gpuFrames` counts the frames the GPU drew: 1, 1, 1, 2. The
-/// last frame's pixels are the rectangle's, so the fallback left nothing behind.
+/// rectangle alone again. `gpuFrames` counts the frames the GPU drew: 1, 2, 3, 4. The
+/// last frame's pixels are the rectangle's, so a curve frame leaves nothing behind.
+/// What the GPU draws for a curve is `rt_canvas_metal.rs`'s to compare.
 ///
 /// Decided from the program's own stats line, as `rt_canvas_metal.rs` decides: a host
 /// with no GPU renderer ready reports so, and the test has nothing to say there.
 #[test]
-fn canvas_curve_frames_fall_back_to_software_on_the_gpu() {
+fn canvas_curve_frames_are_drawn_on_the_gpu() {
     let run = scene_on(
-        "canvas_curve_fallback",
+        "canvas_curve_gpu_frames",
         r#"  MUT box AS canvas::Rectangle
   box = WITH box { position := at(50.0, 50.0), size := canvas::Size[width := 100.0, height := 60.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
   LET boxItem AS canvas::DrawItem = box
@@ -2071,7 +2072,7 @@ fn canvas_curve_frames_fall_back_to_software_on_the_gpu() {
     }
     assert_eq!(
         run.stats_of("gpuFrames"),
-        ["1", "1", "1", "2"],
+        ["1", "2", "3", "4"],
         "{:?}",
         run.stats
     );

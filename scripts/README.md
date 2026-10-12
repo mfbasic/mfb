@@ -111,9 +111,10 @@ a `cargo test` target, another script, or a person.
   `rgba_compare.py` at and beyond tolerance. Usage: `bash scripts/remote-common-selftest.sh`.
   Run by: `cargo test --test script_selftests`.
 - **rgba_compare.py** — Compares two raw RGBA8 frames under `Tolerance::GPU_DEFAULT`
-  (no channel off by more than 2, no more than 2% of pixels differing) and prints an
+  (no channel off by more than 2, no more than 2% of pixels differing), or under
+  `Tolerance::GPU_CURVE` (4, the same 2%) when given `curve`, and prints an
   `ok …` verdict or the first pixel beyond tolerance. Usage:
-  `python3 scripts/rgba_compare.py <reference.rgba> <candidate.rgba> [width]`.
+  `python3 scripts/rgba_compare.py <reference.rgba> <candidate.rgba> [width] [curve]`.
   Run by: `test-canvas-vulkan.sh`, `test-canvas-gpu-rows.sh`, `test-winapp.sh`.
 - **test-macapp.sh** — Runtime acceptance for macOS app mode: builds `.app` bundles and
   runs them headlessly; the GUI legs (real windows, screenshots, injected keystrokes)
