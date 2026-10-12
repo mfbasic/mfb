@@ -1727,8 +1727,10 @@ const METAL_SHADER_BODY: &str = concat!(
     //   of a composition is at most the product of the norms, which is `norm`, and
     //   `frob` widens it by 2^-8 for the float32 it is computed in.
     // * A path clip's samples walk the centre's band, which holds every edge within its
-    //   reach of the band (`emit_band_index`, `r >= 0.5 + 1.5 F`): the neighbours'
-    //   crossings and nearest edges are in it, so what is sampled is Lipschitz too.
+    //   reach of the band (`emit_band_index`, `r >= 0.5 + 1.5 F` for the ITEM's inverse):
+    //   the neighbours' crossings and nearest edges are in it, so what is sampled is
+    //   Lipschitz too. This is the shape's premise as well, and like the shape's it
+    //   does not cover a group's matrix, which the band index never sees.
     // * So with `clipReach = 0.5 * max(frob, 1)`, `|d5| > clipReach` gives
     //   `|d5 / cg| > 0.5 * max(frob, 1) / cg >= 0.5` when `cg` is the difference, and
     //   `|d5| > 0.5` when it is the fallback. Past 0.5 `dfCoverage` has clamped: 0
