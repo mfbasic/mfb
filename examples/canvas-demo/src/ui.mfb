@@ -216,6 +216,8 @@ FUNC restyleItem(d AS canvas::DrawItem, t AS canvas::Transform, fadeBy AS Float)
     CASE canvas::Picture(v) : RETURN v
     CASE canvas::AutoPaint(v) : RETURN v
     CASE canvas::PolyLine(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::PolyCurve(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
+    CASE canvas::CurvePolygon(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
   END MATCH
 END FUNC
 

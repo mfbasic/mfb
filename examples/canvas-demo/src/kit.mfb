@@ -258,6 +258,8 @@ FUNC placed(d AS canvas::DrawItem, t AS canvas::Transform) AS canvas::DrawItem
       RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
     CASE canvas::Polygon(v) : RETURN WITH v { transform := t }
     CASE canvas::PolyLine(v) : RETURN WITH v { transform := t }
+    CASE canvas::PolyCurve(v) : RETURN WITH v { transform := t }
+    CASE canvas::CurvePolygon(v) : RETURN WITH v { transform := t }
     CASE canvas::Text(v) :
       IF isZero(t) AND isZero(v.transform) THEN RETURN d
       RETURN WITH v { transform := pivoted(compose(t, v.transform), t, v.position) }
