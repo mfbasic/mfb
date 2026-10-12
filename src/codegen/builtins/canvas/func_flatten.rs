@@ -3,7 +3,9 @@
 //! The canvas does not flatten a curve to draw it; this is for a program that wants the
 //! points — to build a `Polygon` or a `PolyLine` of its own, or to measure with. The
 //! work is `helper_curves.rs:__canvas_cvFlatten`: de Casteljau halving until every
-//! control point of a span is within the tolerance of its chord.
+//! control point of a span is within the tolerance of its chord. That and this
+//! function's own body are `helper_curves.rs:CURVE_FUNCS`, a chunk only a program that
+//! calls this (or `canvas::nurbsToBeziers`) carries.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -72,27 +74,7 @@ END FUNC
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __canvas_flatten(curve AS BezierCurve, tolerance AS Float) AS List OF vector::Float2
-  MUT out AS List OF vector::Float2 = []
-  IF NOT __canvas_curveValid(curve) THEN
-    RETURN out
-  END IF
-  MUT tol AS Float = tolerance
-  IF tol < 0.001 THEN
-    tol = 0.001
-  END IF
-  LET origin AS vector::Float2 = vector::Float2[x := 0.0, y := 0.0]
-  LET n AS Integer = len(curve.points)
-  LET none AS List OF Float = []
-  LET ends AS List OF Float = __canvas_cvFlatten(none, __canvas_curveHomog(curve, 0.0, 0.0), n, tol, 0)
-  ' The two ends are the curve's own, as written: a rational curve's come back from the
-  ' halving as `(w x) / w`, which can be one place off.
-  out = collections::append(out, collections::getOr(curve.points, 0, origin))
-  MUT i AS Integer = 0
-  WHILE i + 3 < len(ends)
-    out = collections::append(out, vector::Float2[x := collections::getOr(ends, i, 0.0), y := collections::getOr(ends, i + 1, 0.0)])
-    i = i + 2
-  END WHILE
-  RETURN collections::append(out, collections::getOr(curve.points, n - 1, origin))
+  RETURN __canvas_flattenImpl(curve, tolerance)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

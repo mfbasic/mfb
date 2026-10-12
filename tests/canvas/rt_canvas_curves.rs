@@ -2,9 +2,10 @@
 //! and the chain walk (plan-164-A).
 //!
 //! The reduction is MFBASIC the compiler injects
-//! (`src/codegen/builtins/canvas/helper_curves.rs:CURVE_MATH` and `CURVE_CHAIN`). The
+//! (`src/codegen/builtins/canvas/helper_curves.rs:CURVE_BASE`, `CURVE_REDUCE`,
+//! `CURVE_VALID`, `CURVE_CHAIN` and `CURVE_NEAREST`). The
 //! compiler is a binary crate, so a test cannot link that text, and the `canvas`
-//! package cannot be imported outside app mode; this file reads the two chunks out of
+//! package cannot be imported outside app mode; this file reads the chunks out of
 //! the source file they are declared in, compiles them as a console program behind a
 //! small driver, and runs it — the way `rt_canvas_auto_step.rs` runs `AUTO_STEP`. What
 //! runs is the text the compiler injects, character for character, with the
@@ -50,6 +51,24 @@ FUNC k_absF(v AS Float) AS Float
     RETURN 0.0 - v
   END IF
   RETURN v
+END FUNC
+
+' What `CURVE_NEAREST` names beyond `CURVE_MATH`: the store a record's pieces are read
+' from, and the package's two-argument minimum and maximum.
+MUT K_GEO_DATA AS List OF Float = []
+
+FUNC k_minF(a AS Float, b AS Float) AS Float
+  IF a < b THEN
+    RETURN a
+  END IF
+  RETURN b
+END FUNC
+
+FUNC k_maxF(a AS Float, b AS Float) AS Float
+  IF a > b THEN
+    RETURN a
+  END IF
+  RETURN b
 END FUNC
 
 FUNC floats(text AS String) AS List OF Float
@@ -135,6 +154,25 @@ FUNC main() AS Nothing
     NEXT
     io::print(line)
   END IF
+  ' One piece (`PIECE`, seven floats) against points (`POINTS`, x,y pairs): for each,
+  ' the distance, the parameter of the nearest point, and the bound.
+  IF mode = "nearest" THEN
+    K_GEO_DATA = floats(os::getEnvOr("PIECE", ""))
+    LET q AS List OF Float = floats(os::getEnvOr("POINTS", ""))
+    MUT i AS Integer = 0
+    WHILE i + 1 < len(q)
+      LET d AS Float = k_pieceNearest(0, collections::getOr(q, i, 0.0), collections::getOr(q, i + 1, 0.0))
+      io::print("near " & exact(d) & " " & exact(K_PIECE_T) & " " & exact(k_pieceBound(0, collections::getOr(q, i, 0.0), collections::getOr(q, i + 1, 0.0))))
+      i = i + 2
+    END WHILE
+  END IF
+  ' One piece against rows (`ROWS`, y values): the x it crosses each at.
+  IF mode = "cross" THEN
+    K_GEO_DATA = floats(os::getEnvOr("PIECE", ""))
+    FOR EACH y IN floats(os::getEnvOr("ROWS", ""))
+      io::print("cross " & exact(k_pieceCrossX(0, y)))
+    NEXT
+  END IF
   IF mode = "eps" THEN
     LET t AS List OF Float = floats(os::getEnvOr("T", ""))
     io::print(exact(k_curveEps(Transform[a := collections::getOr(t, 0, 0.0), b := collections::getOr(t, 1, 0.0), c := collections::getOr(t, 2, 0.0), d := collections::getOr(t, 3, 0.0), tx := collections::getOr(t, 4, 0.0), ty := collections::getOr(t, 5, 0.0)])))
@@ -151,10 +189,13 @@ fn driver() -> &'static PathBuf {
             "IMPORT collections\nIMPORT io\nIMPORT math\nIMPORT os\nIMPORT strings\nIMPORT vector\n\n\
              TYPE BezierCurve\n  points AS List OF vector::Float2\n  weights AS List OF Float\nEND TYPE\n\n\
              TYPE Transform\n  a AS Float\n  b AS Float\n  c AS Float\n  d AS Float\n  tx AS Float\n  ty AS Float\nEND TYPE\n\n\
-             {}\n\n{}\n\n{}\n{DRIVER}",
+             {}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}\n{DRIVER}",
             chunk("helper_paint_defaults.rs", "const TRANSFORM_ACTIVE: &str =\nr#\""),
-            chunk("helper_curves.rs", "pub(super) const CURVE_MATH: &str =\nr#\""),
+            chunk("helper_curves.rs", "pub(super) const CURVE_BASE: &str =\nr#\""),
+            chunk("helper_curves.rs", "pub(super) const CURVE_REDUCE: &str =\nr#\""),
+            chunk("helper_curves.rs", "pub(super) const CURVE_VALID: &str =\nr#\""),
             chunk("helper_curves.rs", "pub(super) const CURVE_CHAIN: &str =\nr#\""),
+            chunk("helper_curves.rs", "pub(super) const CURVE_NEAREST: &str =\nr#\""),
         );
         let project = common::temp_project("canvas_curves", &source);
         common::build_project(&project)
@@ -179,7 +220,11 @@ fn run(env: &[(&str, String)]) -> Vec<String> {
         .lines()
         .map(str::to_string)
         .collect();
-    assert_eq!(lines.pop().as_deref(), Some("done"), "the driver ran to its end");
+    assert_eq!(
+        lines.pop().as_deref(),
+        Some("done"),
+        "the driver ran to its end"
+    );
     lines
 }
 
@@ -279,7 +324,11 @@ impl Curve {
 }
 
 fn spell(curves: &[Curve]) -> String {
-    curves.iter().map(Curve::spell).collect::<Vec<_>>().join("|")
+    curves
+        .iter()
+        .map(Curve::spell)
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 /// One curve reduced at `eps`.
@@ -455,7 +504,11 @@ fn canvas_curve_a_rational_quadratic_circle_arc_stays_exact() {
         &rational(&[(r, 0.0), (r, r), (0.0, r)], &[1.0, SQRT_HALF, 1.0]),
         EPS,
     );
-    assert_eq!(quarter.len(), 1, "a quarter circle is y-monotone: {quarter:?}");
+    assert_eq!(
+        quarter.len(),
+        1,
+        "a quarter circle is y-monotone: {quarter:?}"
+    );
     assert_eq!(quarter[0][6], SQRT_HALF);
 
     // The arc from 30° to 150°: ends (±r cos30°, r sin30°), tangents meeting at
@@ -509,9 +562,16 @@ fn canvas_curve_a_cubic_is_fitted_within_the_tolerance() {
     let last = reduced.last().expect("pieces");
     assert_eq!((last[4], last[5]), (300.0, 200.0));
     let deviation = dense_deviation(&s, &reduced);
-    println!("cubic S: {} pieces, dense max deviation {deviation:.6}", reduced.len());
+    println!(
+        "cubic S: {} pieces, dense max deviation {deviation:.6}",
+        reduced.len()
+    );
     assert!(deviation <= EPS, "the S deviates by {deviation}");
-    assert!(reduced.len() <= 16, "{} pieces for one cubic", reduced.len());
+    assert!(
+        reduced.len() <= 16,
+        "{} pieces for one cubic",
+        reduced.len()
+    );
 }
 
 /// The tolerance is in surface pixels, so a shape drawn four times larger is reduced
@@ -562,7 +622,10 @@ fn canvas_curve_high_degree_and_rational_cubics_reduce() {
     assert_connected(&reduced, "degree 16");
     assert_monotone(&reduced, "degree 16");
     let deviation = dense_deviation(&high, &reduced);
-    println!("degree 16: {} pieces, dense max deviation {deviation:.6}", reduced.len());
+    println!(
+        "degree 16: {} pieces, dense max deviation {deviation:.6}",
+        reduced.len()
+    );
     assert!(deviation <= EPS, "degree 16 deviates by {deviation}");
 
     let cubic = rational(
@@ -577,7 +640,10 @@ fn canvas_curve_high_degree_and_rational_cubics_reduce() {
         "rational cubic: {} pieces, dense max deviation {deviation:.6}",
         reduced.len()
     );
-    assert!(deviation <= EPS, "the rational cubic deviates by {deviation}");
+    assert!(
+        deviation <= EPS,
+        "the rational cubic deviates by {deviation}"
+    );
 }
 
 /// The adversarial curves the 16-sample acceptance test could be wrong about: a cusp, a
@@ -628,7 +694,10 @@ fn canvas_curve_adversarial_curves_stay_within_the_tolerance() {
         assert_connected(&reduced, what);
         assert_monotone(&reduced, what);
         let deviation = dense_deviation(&curve, &reduced);
-        println!("{what}: {} pieces, dense max deviation {deviation:.6}", reduced.len());
+        println!(
+            "{what}: {} pieces, dense max deviation {deviation:.6}",
+            reduced.len()
+        );
         assert!(deviation <= EPS, "{what} deviates by {deviation}");
     }
 }
@@ -858,6 +927,42 @@ FUNC conic(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 A
   RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2)], weights := [1.0, w, 1.0]]
 END FUNC
 
+' The four arcs of a circle of radius `r` about (cx, cy), each an exact conic, from its
+' rightmost point round by its lowest (clockwise on the screen, where y runs down).
+FUNC circle(cx AS Float, cy AS Float, r AS Float) AS List OF canvas::BezierCurve
+  LET k AS Float = 0.7071067811865476
+  RETURN [conic(cx + r, cy, cx + r, cy + r, cx, cy + r, k), conic(cx, cy + r, cx - r, cy + r, cx - r, cy, k), conic(cx - r, cy, cx - r, cy - r, cx, cy - r, k), conic(cx, cy - r, cx + r, cy - r, cx + r, cy, k)]
+END FUNC
+
+' The same circle the other way round: from its rightmost point by its highest.
+FUNC circleBack(cx AS Float, cy AS Float, r AS Float) AS List OF canvas::BezierCurve
+  LET k AS Float = 0.7071067811865476
+  RETURN [conic(cx + r, cy, cx + r, cy - r, cx, cy - r, k), conic(cx, cy - r, cx - r, cy - r, cx - r, cy, k), conic(cx - r, cy, cx - r, cy + r, cx, cy + r, k), conic(cx, cy + r, cx + r, cy + r, cx + r, cy, k)]
+END FUNC
+
+' A cubic curve through four control points.
+FUNC cubic(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2), at(x3, y3)], weights := []]
+END FUNC
+
+' A `CurvePolygon` at (x, y).
+FUNC blob(name AS String, x AS Float, y AS Float, contours AS List OF List OF canvas::BezierCurve, rule AS canvas::FillRule, paint AS canvas::Paint) AS canvas::DrawItem
+  LET item AS canvas::DrawItem = canvas::CurvePolygon[id := name, position := at(x, y), contours := contours, rule := rule, paint := paint, transform := none()]
+  RETURN item
+END FUNC
+
+' A `CurvePolygon` at (x, y) under `t`, as the shape a `Picture` is cut to.
+FUNC curved(name AS String, x AS Float, y AS Float, contours AS List OF List OF canvas::BezierCurve, rule AS canvas::FillRule, paint AS canvas::Paint, t AS canvas::Transform) AS canvas::AutoShape
+  LET shape AS canvas::AutoShape = canvas::CurvePolygon[id := name, position := at(x, y), contours := contours, rule := rule, paint := paint, transform := t]
+  RETURN shape
+END FUNC
+
+' A `PolyCurve` at (x, y).
+FUNC wave(name AS String, x AS Float, y AS Float, curves AS List OF canvas::BezierCurve, paint AS canvas::Paint) AS canvas::DrawItem
+  LET item AS canvas::DrawItem = canvas::PolyCurve[id := name, position := at(x, y), curves := curves, paint := paint, transform := none()]
+  RETURN item
+END FUNC
+
 ' A float to every bit: `v * 2^20` split at the binary point, the fraction in 2^-40ths.
 FUNC exact(v AS Float) AS String
   LET scaled AS Float = v * 1048576.0
@@ -919,6 +1024,11 @@ fn press(x: u32, y: u32) -> String {
 /// every run sets — the records a frame resolved are each rebuilt and compared, and a
 /// test may assert the count of mismatches is zero.
 fn scene(name: &str, body: &str, functions: &str, presses: &[(u32, u32)]) -> Scene {
+    scene_on(name, body, functions, presses, false)
+}
+
+/// [`scene`], asking for the GPU renderer (`MFB_CANVAS_GPU=1`) when `gpu` is set.
+fn scene_on(name: &str, body: &str, functions: &str, presses: &[(u32, u32)], gpu: bool) -> Scene {
     let source = format!(
         "{PRELUDE}\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND FUNC\n{functions}"
     );
@@ -927,7 +1037,11 @@ fn scene(name: &str, body: &str, functions: &str, presses: &[(u32, u32)]) -> Sce
     let stats = project.join("stats.txt");
     let binary = common::build_app_debug(&project, name);
     let inject: String = presses.iter().map(|(x, y)| press(*x, *y)).collect();
-    let run = Command::new(&binary)
+    let mut command = Command::new(&binary);
+    if gpu {
+        command.env("MFB_CANVAS_GPU", "1");
+    }
+    let run = command
         .current_dir(&project)
         .env("MFB_MACAPP_HEADLESS", "1")
         .env("MFB_WINAPP_HEADLESS", "1")
@@ -1011,56 +1125,6 @@ END FUNC
         "{:?}",
         run.stats
     );
-    assert_eq!(run.stat("geoVerifyMismatches"), "0");
-}
-
-/// plan-164-A: both shapes are items every walk accepts, and until plan-164-B gives
-/// them a record they draw nothing and are hit by nothing.
-///
-/// A red square with the id `under`, and over it: a filled `CurvePolygon`, a thickly
-/// stroked `PolyCurve`, an `AutoPaint` around a `CurvePolygon` and a `Picture` cut to
-/// one — each covering the square's centre, each with an `id`. The frame is the square
-/// alone, and a press on its centre reports `under`: an item with no pixels does not
-/// block what is beneath it.
-#[cfg(unix)]
-#[test]
-fn canvas_curve_shapes_draw_nothing_and_block_nothing_yet() {
-    let run = scene(
-        "canvas_curve_absent",
-        r#"  MUT under AS canvas::Rectangle
-  under = WITH under { id := "under", position := at(100.0, 100.0), size := canvas::Size[width := 200.0, height := 200.0], paint := canvas::fill(color::rgb(255, 0, 0)) }
-  LET underItem AS canvas::DrawItem = under
-  LET blobItem AS canvas::DrawItem = square("blob")
-  MUT wave AS canvas::PolyCurve
-  wave = WITH wave { id := "wave", position := at(100.0, 200.0), curves := [line(0.0, 0.0, 200.0, 0.0)], paint := canvas::stroke(color::rgb(0, 0, 255), 40.0) }
-  LET waveItem AS canvas::DrawItem = wave
-  LET lit AS canvas::Shape = square("lit")
-  LET green AS canvas::Paint = canvas::fill(color::rgb(0, 255, 0))
-  LET autoItem AS canvas::DrawItem = canvas::AutoPaint[shape := lit, useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := green, exitPaint := green, hoverPaint := green, pressedPaint := green]
-  RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(0), toByte(255), toByte(0), toByte(255)])
-  LET cut AS canvas::AutoShape = square("cut")
-  LET picItem AS canvas::DrawItem = canvas::Picture[id := "pic", shape := cut, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
-  canvas::present([underItem, blobItem, waveItem, autoItem, picItem])
-  report("over")
-"#,
-        r#"
-FUNC square(name AS String) AS canvas::CurvePolygon
-  MUT s AS canvas::CurvePolygon
-  s = WITH s { id := name, position := at(100.0, 100.0), contours := [[line(0.0, 0.0, 200.0, 0.0), line(200.0, 0.0, 200.0, 200.0), line(200.0, 200.0, 0.0, 200.0)]], paint := canvas::fillStroke(color::rgb(0, 255, 0), color::rgb(0, 0, 255), 6.0) }
-  RETURN s
-END FUNC
-"#,
-        &[(200, 200)],
-    );
-    assert_eq!(run.over(), ["under"]);
-    assert_eq!(run.pixel(200, 200), (255, 0, 0, 255), "the square's centre");
-    assert_eq!(run.pixel(100, 100), (255, 0, 0, 255), "its first pixel");
-    let other = run
-        .frame
-        .chunks(4)
-        .filter(|p| *p != [0, 0, 0, 255] && *p != [255, 0, 0, 255])
-        .count();
-    assert_eq!(other, 0, "nothing but the square and the background is drawn");
     assert_eq!(run.stat("geoVerifyMismatches"), "0");
 }
 
@@ -1528,4 +1592,1368 @@ fn canvas_flatten_points_build_a_polygon() {
     assert_eq!(run.pixel(200, 257), black, "3 px above the top");
     assert_eq!(run.pixel(200, 342), black, "3 px below the bottom");
     assert_eq!(run.pixel(95, 300), black, "left of the first point");
+}
+
+// ---- plan-164-B Phase 1: the fill and the distance -----------------------------------
+
+const BLACK: (u8, u8, u8, u8) = (0, 0, 0, 255);
+const WHITE: (u8, u8, u8, u8) = (255, 255, 255, 255);
+const BLUE: (u8, u8, u8, u8) = (0, 0, 255, 255);
+
+/// `__canvas_pieceNearest` against a brute-force search, in the standalone driver.
+///
+/// For each piece, a grid of query points round it: the distance the isolation solver
+/// answers is compared with the best of 4096 samples of the piece refined by a
+/// golden-section search (`piece_distance` with a finer start), and the bound
+/// `__canvas_pieceBound` answers is checked to be a lower bound. The three conics are
+/// the ones plan-164-B names — a quarter circle (`w1 = √2/2`), a thin conic (`w1 = 5`)
+/// and a near-parabola (`w1 = 1.01`) — plus a polynomial piece, a straight one, and a
+/// piece 2000 px long, where a search that sampled would be at its worst.
+#[test]
+fn canvas_piece_nearest_matches_a_brute_force_search() {
+    let cases: Vec<(&str, Piece)> = vec![
+        (
+            "quarter circle",
+            [100.0, 0.0, 100.0, 100.0, 0.0, 100.0, SQRT_HALF],
+        ),
+        (
+            "thin conic, w1 = 5",
+            [0.0, 0.0, 150.0, 20.0, 300.0, 200.0, 5.0],
+        ),
+        (
+            "near-parabola, w1 = 1.01",
+            [0.0, 0.0, 150.0, 20.0, 300.0, 200.0, 1.01],
+        ),
+        (
+            "flat conic, w1 = 0.05",
+            [0.0, 0.0, 150.0, 20.0, 300.0, 200.0, 0.05],
+        ),
+        ("parabola", [0.0, 0.0, 20.0, 180.0, 300.0, 200.0, 1.0]),
+        ("tight parabola", [0.0, 0.0, 400.0, 3.0, 0.0, 6.0, 1.0]),
+        ("line", [10.0, 20.0, 110.0, 70.0, 210.0, 120.0, 1.0]),
+        (
+            "2000 px conic",
+            [0.0, 0.0, 1900.0, 100.0, 2000.0, 900.0, 0.4],
+        ),
+    ];
+    for (what, piece) in cases {
+        // A grid over the piece's box, a margin round it, and points ON the piece.
+        let xs = [piece[0], piece[2], piece[4]];
+        let ys = [piece[1], piece[3], piece[5]];
+        let (x0, x1) = (
+            xs.iter().cloned().fold(f64::INFINITY, f64::min) - 60.0,
+            xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max) + 60.0,
+        );
+        let (y0, y1) = (
+            ys.iter().cloned().fold(f64::INFINITY, f64::min) - 60.0,
+            ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max) + 60.0,
+        );
+        let mut points: Vec<(f64, f64)> = vec![];
+        for i in 0..=18 {
+            for j in 0..=18 {
+                points.push((
+                    x0 + (x1 - x0) * i as f64 / 18.0 + 0.37,
+                    y0 + (y1 - y0) * j as f64 / 18.0 + 0.61,
+                ));
+            }
+        }
+        for i in 0..=40 {
+            let on = piece_at(&piece, i as f64 / 40.0);
+            points.push(on);
+            points.push((on.0 + 0.4, on.1 - 0.3));
+        }
+        let spelled: Vec<String> = points.iter().map(|(x, y)| format!("{x:?},{y:?}")).collect();
+        let lines = run(&[
+            ("MODE", "nearest".to_string()),
+            (
+                "PIECE",
+                piece
+                    .iter()
+                    .map(|v| format!("{v:?}"))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
+            ("POINTS", spelled.join(",")),
+        ]);
+        assert_eq!(lines.len(), points.len(), "{what}");
+        let mut worst: f64 = 0.0;
+        for (line, q) in lines.iter().zip(&points) {
+            let v: Vec<f64> = line.split_whitespace().skip(1).map(value).collect();
+            let (got, t, bound) = (v[0], v[1], v[2]);
+            // Brute force: 4096 samples, then the golden-section search either side.
+            let mut best = (f64::INFINITY, 0usize);
+            for i in 0..=4096 {
+                let d = distance(piece_at(&piece, i as f64 / 4096.0), *q);
+                if d < best.0 {
+                    best = (d, i);
+                }
+            }
+            let (mut lo, mut hi) = (
+                best.1.saturating_sub(1) as f64 / 4096.0,
+                (best.1 + 1).min(4096) as f64 / 4096.0,
+            );
+            for _ in 0..80 {
+                let (a, b) = (
+                    hi - (hi - lo) * 0.618_033_988_749_894_9,
+                    lo + (hi - lo) * 0.618_033_988_749_894_9,
+                );
+                if distance(piece_at(&piece, a), *q) < distance(piece_at(&piece, b), *q) {
+                    hi = b;
+                } else {
+                    lo = a;
+                }
+            }
+            let want = best.0.min(distance(piece_at(&piece, (lo + hi) / 2.0), *q));
+            worst = worst.max((got - want).abs());
+            assert!(
+                (got - want).abs() <= 1e-6,
+                "{what}: at {q:?} the solver answers {got}, a brute-force search {want}"
+            );
+            assert!((0.0..=1.0).contains(&t), "{what}: t = {t}");
+            assert!(
+                (distance(piece_at(&piece, t), *q) - got).abs() <= 1e-9,
+                "{what}: the parameter left behind is not the nearest point's"
+            );
+            assert!(
+                bound <= got + 1e-9,
+                "{what}: the bound {bound} is above {got}"
+            );
+        }
+        println!(
+            "nearest, {what}: {} points, worst error {worst:.3e} px",
+            points.len()
+        );
+    }
+}
+
+/// `__canvas_pieceCrossX`: where a piece crosses a row. For rows strictly between its
+/// ends the x answered is on the piece (the point of the piece with that y, found here
+/// by bisection on the monotone y), and at a row through an end it is that end's x.
+#[test]
+fn canvas_piece_crossing_is_on_the_piece() {
+    let cases: Vec<(&str, Piece)> = vec![
+        (
+            "quarter circle",
+            [100.0, 0.0, 100.0, 100.0, 0.0, 100.0, SQRT_HALF],
+        ),
+        ("rising conic", [0.0, 200.0, 150.0, 180.0, 300.0, 0.0, 5.0]),
+        ("parabola", [0.0, 0.0, 20.0, 180.0, 300.0, 200.0, 1.0]),
+        ("line", [10.0, 20.0, 110.0, 70.0, 210.0, 120.0, 1.0]),
+        ("vertical line", [40.0, 0.0, 40.0, 50.0, 40.0, 100.0, 1.0]),
+    ];
+    for (what, piece) in cases {
+        let (ya, yb) = (piece[1], piece[5]);
+        let rows: Vec<f64> = (1..40).map(|i| ya + (yb - ya) * i as f64 / 40.0).collect();
+        let lines = run(&[
+            ("MODE", "cross".to_string()),
+            (
+                "PIECE",
+                piece
+                    .iter()
+                    .map(|v| format!("{v:?}"))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
+            (
+                "ROWS",
+                rows.iter()
+                    .map(|v| format!("{v:?}"))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
+        ]);
+        for (line, row) in lines.iter().zip(&rows) {
+            let got = value(line.split_whitespace().nth(1).expect("an x"));
+            let (mut lo, mut hi) = (0.0_f64, 1.0_f64);
+            for _ in 0..200 {
+                let mid = (lo + hi) / 2.0;
+                if (piece_at(&piece, mid).1 < *row) == (ya < yb) {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            let want = piece_at(&piece, (lo + hi) / 2.0).0;
+            assert!(
+                (got - want).abs() <= 1e-9,
+                "{what}: row {row} is crossed at {want}, answered {got}"
+            );
+        }
+    }
+}
+
+/// A `CurvePolygon` circle is a `canvas::Circle`.
+///
+/// Four exact conic arcs of radius 80.3 about (0, 0), at `position` (600, 200), beside a
+/// `canvas::Circle` of the same radius at (200, 200), both white on black. The centre
+/// is covered; a pixel centre 2.2 px outside the radius is not; and the two 200x200
+/// blocks are compared pixel for pixel — the curve's distance is a root found to the
+/// last places of a Float where the circle's is a formula, so they may differ where a
+/// coverage lands exactly on a rounding boundary, and nowhere else.
+#[test]
+fn canvas_curve_polygon_circle_matches_a_circle() {
+    let run = scene(
+        "canvas_curve_circle",
+        r#"  LET white AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
+  LET disc AS canvas::DrawItem = canvas::Circle[id := "", position := at(200.0, 200.0), radius := 80.3, paint := white, transform := none()]
+  canvas::present([disc, blob("", 600.0, 200.0, [circle(0.0, 0.0, 80.3)], canvas::FillRule.EvenOdd, white)])
+"#,
+        "",
+        &[],
+    );
+    assert_eq!(run.pixel(600, 200), WHITE, "the centre");
+    assert_eq!(
+        run.pixel(600 + 82, 200),
+        BLACK,
+        "a pixel centre 2.2 px outside"
+    );
+    assert_eq!(
+        run.pixel(600 - 79, 200),
+        WHITE,
+        "a pixel centre 1.8 px inside"
+    );
+    let mut differing = 0;
+    let mut worst = 0;
+    for y in 100..300 {
+        for x in 100..300 {
+            let (a, b) = (run.pixel(x, y), run.pixel(x + 400, y));
+            if a != b {
+                differing += 1;
+                worst = worst.max((a.0 as i32 - b.0 as i32).abs());
+            }
+        }
+    }
+    println!("circle vs CurvePolygon circle: {differing} of 40000 pixels differ, worst channel delta {worst}");
+    assert_eq!(
+        differing, 0,
+        "the curve circle is the circle, pixel for pixel"
+    );
+    assert_eq!(run.stat("geoVerifyMismatches"), "0");
+}
+
+/// Moving a `CurvePolygon` by its `position` alone moves its pixels and changes none:
+/// an egg of two cubics and two conics at (150.5, 200.25) and again at (150.5 + 300,
+/// 200.25 + 170) — whole pixels apart, so the antialiased edge is the same edge.
+#[test]
+fn canvas_curve_polygon_moves_with_its_position() {
+    let run = scene(
+        "canvas_curve_position",
+        r#"  LET paint AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
+  canvas::present([blob("", 150.5, 200.25, [egg()], canvas::FillRule.EvenOdd, paint), blob("", 450.5, 370.25, [egg()], canvas::FillRule.EvenOdd, paint)])
+"#,
+        r#"
+FUNC egg() AS List OF canvas::BezierCurve
+  RETURN [cubic(0.0, 0.0 - 90.0, 70.0, 0.0 - 90.0, 100.0, 0.0 - 20.0, 100.0, 30.0), conic(100.0, 30.0, 100.0, 100.0, 0.0, 100.0, 0.7071067811865476), conic(0.0, 100.0, 0.0 - 100.0, 100.0, 0.0 - 100.0, 30.0, 0.7071067811865476), cubic(0.0 - 100.0, 30.0, 0.0 - 100.0, 0.0 - 20.0, 0.0 - 70.0, 0.0 - 90.0, 0.0, 0.0 - 90.0)]
+END FUNC
+"#,
+        &[],
+    );
+    assert_eq!(run.pixel(150, 200), WHITE, "inside the first");
+    assert_eq!(run.pixel(450, 370), WHITE, "inside the second");
+    let mut edge = 0;
+    for y in 100..310 {
+        for x in 40..260 {
+            let a = run.pixel(x, y);
+            assert_eq!(
+                a,
+                run.pixel(x + 300, y + 170),
+                "the pixel at ({x}, {y}), moved"
+            );
+            if a != WHITE && a != BLACK {
+                edge += 1;
+            }
+        }
+    }
+    assert!(
+        edge > 400,
+        "the comparison crossed an antialiased edge ({edge} pixels)"
+    );
+}
+
+/// The fill rule decides a region by its winding, as it does for a polygon.
+///
+/// * A figure of eight — two cubics crossing at (0, 0), one lobe wound each way — at
+///   x = 150: each lobe has winding ±1, so both lobes are filled under both rules, and
+///   the pixels left and right of the crossing are outside.
+/// * One contour that goes round twice the same way — a circle of radius 90, then one
+///   of radius 40 inside it, joined by the implied segment and closed by another along
+///   the same line — at x = 450 (EvenOdd) and x = 720 (NonZero). The ring has winding 1
+///   and is filled under both; the inner disc has winding 2, a hole under EvenOdd and
+///   filled under NonZero.
+#[test]
+fn canvas_curve_polygon_fills_by_its_rule() {
+    let run = scene(
+        "canvas_curve_rule",
+        r#"  LET paint AS canvas::Paint = canvas::fill(color::rgb(0, 0, 255))
+  LET eight AS List OF canvas::BezierCurve = [cubic(0.0, 0.0, 120.0, 0.0 - 160.0, 120.0, 160.0, 0.0, 0.0), cubic(0.0, 0.0, 0.0 - 120.0, 0.0 - 160.0, 0.0 - 120.0, 160.0, 0.0, 0.0)]
+  LET twice AS List OF canvas::BezierCurve = collections::append(circle(0.0, 0.0, 90.0), circle(0.0, 0.0, 40.0))
+  canvas::present([blob("", 150.0, 150.0, [eight], canvas::FillRule.EvenOdd, paint), blob("", 150.0, 450.0, [eight], canvas::FillRule.NonZero, paint), blob("", 450.0, 300.0, [twice], canvas::FillRule.EvenOdd, paint), blob("", 720.0, 300.0, [twice], canvas::FillRule.NonZero, paint)])
+"#,
+        "",
+        &[],
+    );
+    // Each lobe's cubic reaches x = ±90 at t = 1/2 (0.75 * 120), on y = 0.
+    for (what, cy) in [("EvenOdd", 150), ("NonZero", 450)] {
+        assert_eq!(run.pixel(150 + 60, cy), BLUE, "{what}: the right lobe");
+        assert_eq!(run.pixel(150 - 60, cy), BLUE, "{what}: the left lobe");
+        assert_eq!(
+            run.pixel(150 + 95, cy),
+            BLACK,
+            "{what}: right of the right lobe"
+        );
+        assert_eq!(run.pixel(150, cy - 40), BLACK, "{what}: above the crossing");
+        assert_eq!(run.pixel(150, cy + 40), BLACK, "{what}: below the crossing");
+    }
+    assert_eq!(
+        run.pixel(450 + 65, 300),
+        BLUE,
+        "EvenOdd: the ring, winding 1"
+    );
+    assert_eq!(
+        run.pixel(450, 300),
+        BLACK,
+        "EvenOdd: the inner disc, winding 2"
+    );
+    assert_eq!(
+        run.pixel(450 + 20, 300 + 20),
+        BLACK,
+        "EvenOdd: the inner disc again"
+    );
+    assert_eq!(run.pixel(720 + 65, 300), BLUE, "NonZero: the ring");
+    assert_eq!(
+        run.pixel(720, 300),
+        BLUE,
+        "NonZero: the inner disc, winding 2"
+    );
+    assert_eq!(run.pixel(450 + 95, 300), BLACK, "outside the outer circle");
+    assert_eq!(run.pixel(720 + 95, 300), BLACK, "outside the outer circle");
+    // The implied segments lie on y = 0 from x = 40 to 90, there and back: they add no
+    // edge to the picture. Just above and below them is ring, under both rules.
+    assert_eq!(run.pixel(450 + 65, 300 - 1), BLUE);
+    assert_eq!(run.pixel(720 + 65, 300), BLUE);
+}
+
+/// Two contours, one inside the other (plan-163-A's rule, with curves): the inner is a
+/// hole under EvenOdd whichever way it winds; under NonZero it is a hole only when it
+/// winds against the outer, and filled when it winds with it.
+#[test]
+fn canvas_curve_polygon_holes_follow_the_rule() {
+    let run = scene(
+        "canvas_curve_holes",
+        r#"  LET paint AS canvas::Paint = canvas::fill(color::rgb(0, 0, 255))
+  LET outer AS List OF canvas::BezierCurve = circle(0.0, 0.0, 90.0)
+  LET same AS List OF canvas::BezierCurve = circle(0.0, 0.0, 40.0)
+  LET against AS List OF canvas::BezierCurve = circleBack(0.0, 0.0, 40.0)
+  canvas::present([blob("", 120.0, 120.0, [outer, same], canvas::FillRule.EvenOdd, paint), blob("", 340.0, 120.0, [outer, against], canvas::FillRule.EvenOdd, paint), blob("", 560.0, 120.0, [outer, same], canvas::FillRule.NonZero, paint), blob("", 780.0, 120.0, [outer, against], canvas::FillRule.NonZero, paint)])
+"#,
+        "",
+        &[],
+    );
+    for (what, cx, hole) in [
+        ("EvenOdd, wound the same way", 120, true),
+        ("EvenOdd, wound against", 340, true),
+        ("NonZero, wound the same way", 560, false),
+        ("NonZero, wound against", 780, true),
+    ] {
+        assert_eq!(run.pixel(cx + 65, 120), BLUE, "{what}: the ring");
+        assert_eq!(run.pixel(cx, 120 - 65), BLUE, "{what}: the ring, above");
+        let want = if hole { BLACK } else { BLUE };
+        assert_eq!(run.pixel(cx, 120), want, "{what}: the middle");
+        assert_eq!(
+            run.pixel(cx - 25, 120 + 25),
+            want,
+            "{what}: inside the inner"
+        );
+        assert_eq!(run.pixel(cx + 93, 120), BLACK, "{what}: outside");
+    }
+}
+
+/// A contour whose last point is not its first is filled to the implied closing
+/// segment. A half disc: two arcs from (90, 0) over the BOTTOM to (-90, 0), and
+/// nothing else — the diameter along y = 0 is implied. At `position` (200, 200) the
+/// pixel 2 rows below the diameter is filled, the pixel 3 rows above it is not, and
+/// the row of pixel centres half a pixel below the diameter is fully covered while the
+/// one half a pixel above is not at all: the closing segment is an edge like any other.
+///
+/// Beside it, a `PolyCurve` over the same two arcs covers no interior pixel: only its
+/// stroke is drawn.
+#[test]
+fn canvas_curve_polygon_closes_and_a_poly_curve_has_no_interior() {
+    let run = scene(
+        "canvas_curve_closing",
+        r#"  LET k AS Float = 0.7071067811865476
+  LET half AS List OF canvas::BezierCurve = [conic(90.0, 0.0, 90.0, 90.0, 0.0, 90.0, k), conic(0.0, 90.0, 0.0 - 90.0, 90.0, 0.0 - 90.0, 0.0, k)]
+  canvas::present([blob("", 200.0, 200.0, [half], canvas::FillRule.EvenOdd, canvas::fill(color::rgb(0, 0, 255))), wave("", 500.0, 200.0, half, canvas::stroke(color::rgb(0, 0, 255), 4.0))])
+"#,
+        "",
+        &[],
+    );
+    assert_eq!(run.pixel(200, 202), BLUE, "2 rows below the diameter");
+    assert_eq!(run.pixel(200, 240), BLUE, "deep in the half disc");
+    assert_eq!(run.pixel(200, 197), BLACK, "3 rows above the diameter");
+    assert_eq!(
+        run.pixel(200 + 60, 200),
+        BLUE,
+        "centre 0.5 px below the diameter"
+    );
+    assert_eq!(
+        run.pixel(200 + 60, 199),
+        BLACK,
+        "centre 0.5 px above the diameter"
+    );
+    assert_eq!(run.pixel(200, 293), BLACK, "below the arc");
+
+    // The chain: its stroke is on the arc, 2 px either side of radius 90.
+    assert_eq!(
+        run.pixel(500, 200 + 89),
+        BLUE,
+        "on the arc, at its lowest point"
+    );
+    assert_eq!(
+        run.pixel(500, 240),
+        BLACK,
+        "inside what the chain would enclose"
+    );
+    assert_eq!(
+        run.pixel(500, 202),
+        BLACK,
+        "where a closing segment would be"
+    );
+    assert_eq!(run.pixel(500 + 60, 200), BLACK, "on the diameter");
+    let interior = (0..80)
+        .flat_map(|dy| (-60..60).map(move |dx: i32| (dx, dy)))
+        .filter(|(dx, dy)| ((dx * dx + dy * dy) as f64).sqrt() < 85.0 && *dy > 3)
+        .filter(|(dx, dy)| run.pixel((500 + dx) as usize, (200 + dy) as usize) != BLACK)
+        .count();
+    assert_eq!(interior, 0, "a PolyCurve fills nothing");
+}
+
+/// Neither GPU backend draws a curve shape yet, so a frame that holds one — in the
+/// scene itself or inside a group — is drawn by the software renderer, and the frames
+/// either side of it go back to the GPU.
+///
+/// Four frames under `MFB_CANVAS_GPU=1`: a rectangle alone; the rectangle and a
+/// `CurvePolygon`; the rectangle and a use of a group that holds a `PolyCurve`; the
+/// rectangle alone again. `gpuFrames` counts the frames the GPU drew: 1, 1, 1, 2. The
+/// last frame's pixels are the rectangle's, so the fallback left nothing behind.
+///
+/// Decided from the program's own stats line, as `rt_canvas_metal.rs` decides: a host
+/// with no GPU renderer ready reports so, and the test has nothing to say there.
+#[test]
+fn canvas_curve_frames_fall_back_to_software_on_the_gpu() {
+    let run = scene_on(
+        "canvas_curve_fallback",
+        r#"  MUT box AS canvas::Rectangle
+  box = WITH box { position := at(50.0, 50.0), size := canvas::Size[width := 100.0, height := 60.0], paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET boxItem AS canvas::DrawItem = box
+  LET arcs AS List OF canvas::BezierCurve = circle(0.0, 0.0, 60.0)
+  canvas::setGroup("g", [wave("", 0.0, 0.0, arcs, canvas::stroke(color::rgb(0, 0, 255), 6.0))])
+  LET use AS canvas::DrawItem = canvas::Group[id := "", position := at(400.0, 300.0), transform := none(), name := "g"]
+  canvas::present([boxItem])
+  canvas::present([boxItem, blob("", 300.0, 300.0, [arcs], canvas::FillRule.EvenOdd, canvas::fill(color::rgb(0, 0, 255)))])
+  canvas::present([boxItem, use])
+  canvas::present([boxItem])
+"#,
+        "",
+        &[],
+        true,
+    );
+    let ready = run
+        .stats
+        .first()
+        .is_some_and(|line| line.contains("metalReady=TRUE") || line.contains("vulkanReady=TRUE"));
+    if !ready {
+        eprintln!(
+            "skipped: no GPU renderer is ready on this host: {:?}",
+            run.stats.first()
+        );
+        return;
+    }
+    assert_eq!(
+        run.stats_of("gpuFrames"),
+        ["1", "1", "1", "2"],
+        "{:?}",
+        run.stats
+    );
+    assert_eq!(run.pixel(100, 80), WHITE, "the rectangle");
+    assert_eq!(
+        run.pixel(300, 300),
+        BLACK,
+        "nothing of the curve frames is left"
+    );
+}
+
+// ---- plan-164-B Phase 2: the stroke, caps, joins and dashes --------------------------
+
+/// A stroke paint as MFBASIC source: white, `width` wide, with `more` fields set.
+fn stroke_paint(width: f64, more: &str) -> String {
+    format!("WITH canvas::stroke(color::rgb(255, 255, 255), {width:?}) {{ {more} }}")
+}
+
+/// The pixel that holds the point `(x, y)`.
+fn pixel_of(x: f64, y: f64) -> (usize, usize) {
+    (x.floor() as usize, y.floor() as usize)
+}
+
+/// A stroked `CurvePolygon` circle of four arcs under `join := Miter` is the stroked
+/// circle: the four places one arc ends and the next begins are smooth, so nothing is
+/// mitered there, and a closed contour has no cap anywhere.
+///
+/// Compared with a `canvas::Circle` under the same paint, 400 px to its left. With a
+/// Miter paint the curve's stroke is built as the polygon's is — each piece's band cut
+/// square at its ends, and a disc at each joint to cover the seam — so it is not the
+/// same arithmetic as the circle's `|d| - half`, and the test states what it measures:
+/// no pixel beyond the stroke's outer edge at a joint (where a miter would point), and
+/// the whole 220x220 block within one coverage step of the circle's.
+#[test]
+fn canvas_curve_stroke_has_no_join_where_the_curve_is_smooth() {
+    let paint = stroke_paint(10.0, "join := canvas::JoinStyle.Miter");
+    let run = scene(
+        "canvas_curve_smooth",
+        &format!(
+            "  LET paint AS canvas::Paint = {paint}\n  \
+             LET ring AS canvas::DrawItem = canvas::Circle[id := \"\", position := at(200.0, 200.0), radius := 80.0, paint := paint, transform := none()]\n  \
+             canvas::present([ring, blob(\"\", 600.0, 200.0, [circle(0.0, 0.0, 80.0)], canvas::FillRule.EvenOdd, paint)])\n"
+        ),
+        "",
+        &[],
+    );
+    // The joints are at the circle's four axis points. The stroke's outer edge is at
+    // radius 85; a pixel centre 2.5 px beyond it is background on each axis.
+    for (dx, dy) in [(87, 0), (-88, 0), (0, 87), (0, -88)] {
+        let (x, y) = ((600 + dx) as usize, (200 + dy) as usize);
+        assert_eq!(run.pixel(x, y), BLACK, "beyond the joint at ({dx}, {dy})");
+    }
+    assert_eq!(run.pixel(600 + 80, 200), WHITE, "on the stroke, at a joint");
+    assert_eq!(run.pixel(600, 200), BLACK, "the unfilled middle");
+    let mut differing = 0;
+    let mut worst = 0;
+    for y in 90..310 {
+        for x in 90..310 {
+            let (a, b) = (run.pixel(x, y), run.pixel(x + 400, y));
+            if a != b {
+                differing += 1;
+                worst = worst.max((a.0 as i32 - b.0 as i32).abs());
+            }
+        }
+    }
+    println!("mitered curve circle vs circle: {differing} of 48400 pixels differ, worst channel delta {worst}");
+    assert_eq!(
+        differing, 0,
+        "the joined stroke of a smooth outline is the plain one"
+    );
+}
+
+/// A corner between two curves takes the paint's join. A cubic arriving at (100, 0)
+/// heading +x, then a line leaving it heading +y: a right turn, whose outer side is up
+/// and to the right. With a 12 px stroke the two bands' outer edges are y = -6 and
+/// x = 106, and they meet at (106, -6).
+///
+/// * `Miter`: the pixel centred (105.5, -5.5) is half a pixel inside both edges —
+///   fully covered.
+/// * `Round` (the default): that centre is 7.78 px from the corner, outside the 6 px
+///   round — background.
+/// * `Bevel`: it is beyond the chord from (100, -6) to (106, 0) — background.
+///
+/// Under all three the pixel centred (102.5, -2.5), 3.5 px from the corner, is covered.
+#[test]
+fn canvas_poly_curve_corner_takes_the_join() {
+    let shape = |name: &str, x: f64, join: &str| {
+        format!(
+            "wave(\"{name}\", {x:?}, 200.0, [cubic(0.0, 60.0, 30.0, 0.0, 70.0, 0.0, 100.0, 0.0), line(100.0, 0.0, 100.0, 80.0)], {})",
+            stroke_paint(12.0, &format!("join := canvas::JoinStyle.{join}"))
+        )
+    };
+    let run = scene(
+        "canvas_curve_corner",
+        &format!(
+            "  canvas::present([{}, {}, {}])\n",
+            shape("miter", 100.0, "Miter"),
+            shape("round", 350.0, "Round"),
+            shape("bevel", 600.0, "Bevel")
+        ),
+        "",
+        &[],
+    );
+    for (what, x, tip) in [
+        ("Miter", 100, WHITE),
+        ("Round", 350, BLACK),
+        ("Bevel", 600, BLACK),
+    ] {
+        assert_eq!(run.pixel(x + 105, 200 - 6), tip, "{what}: the miter point");
+        assert_eq!(
+            run.pixel(x + 102, 200 - 3),
+            WHITE,
+            "{what}: just outside the corner"
+        );
+        assert_eq!(run.pixel(x + 100, 200 + 40), WHITE, "{what}: on the line");
+        assert_eq!(
+            run.pixel(x + 108, 200 - 8),
+            BLACK,
+            "{what}: beyond every join"
+        );
+        // The cubic's own pieces meet smoothly: nowhere along it is there a spike. Its
+        // middle is at (50, 7.5); 9 px above that is outside a 6 px half-width.
+        assert_eq!(
+            run.pixel(x + 50, 200 - 2),
+            BLACK,
+            "{what}: above the cubic's middle"
+        );
+    }
+}
+
+/// A curve that starts away from where the one before it ended is joined to it by a
+/// straight segment, which is stroked, and which has a corner at each end. Two
+/// horizontal lines, (0, 0)-(60, 0) and (60, 40)-(120, 40): the implied segment runs
+/// down x = 60. Under `Miter` with a 12 px stroke the corner at (60, 0) is a right
+/// turn with its point at (66, -6), and the corner at (60, 40) a left turn with its
+/// point at (54, 46).
+#[test]
+fn canvas_poly_curve_strokes_its_implied_segment() {
+    let run = scene(
+        "canvas_curve_implied",
+        &format!(
+            "  canvas::present([wave(\"\", 200.0, 200.0, [line(0.0, 0.0, 60.0, 0.0), line(60.0, 40.0, 120.0, 40.0)], {})])\n",
+            stroke_paint(12.0, "join := canvas::JoinStyle.Miter")
+        ),
+        "",
+        &[],
+    );
+    assert_eq!(
+        run.pixel(200 + 60, 200 + 20),
+        WHITE,
+        "the middle of the implied segment"
+    );
+    assert_eq!(
+        run.pixel(200 + 65, 200 - 6),
+        WHITE,
+        "the miter point of the first corner"
+    );
+    assert_eq!(
+        run.pixel(200 + 54, 200 + 45),
+        WHITE,
+        "the miter point of the second"
+    );
+    assert_eq!(
+        run.pixel(200 + 67, 200 - 8),
+        BLACK,
+        "beyond the first corner's point"
+    );
+    assert_eq!(run.pixel(200 + 52, 200 + 47), BLACK, "beyond the second's");
+    assert_eq!(run.pixel(200 + 30, 200 + 20), BLACK, "left of the segment");
+    assert_eq!(run.pixel(200 + 90, 200 + 20), BLACK, "right of the segment");
+    assert_eq!(run.pixel(200 + 30, 200), WHITE, "the first line");
+    assert_eq!(run.pixel(200 + 90, 200 + 40), WHITE, "the second line");
+}
+
+/// A `PolyCurve` is never closed: one that ends where it began has two caps there and
+/// no join. A triangle of three lines, (0, 0) → (80, 0) → (40, 60) → (0, 0), 12 px wide
+/// under `Miter` with `Butt` caps.
+///
+/// * At (80, 0), a real corner, the miter is drawn. Its quad is V (80, 0), A (80, -6),
+///   M (91.2, -6), B (85, 3.3); the pixel centred (88.5, -5.5) is inside it.
+/// * At (0, 0) the path starts and ends. A join there would be the mirror image, with
+///   its point at (-11.2, -6); the pixel centred (-8.5, -5.5) is background, and so is
+///   the one centred (-3.5, -2.5), just outside both square-cut ends.
+///
+/// The same triangle as a `CurvePolygon` IS closed, and has the join at (0, 0) too.
+#[test]
+fn canvas_poly_curve_that_returns_has_two_caps_not_a_join() {
+    let tri =
+        "[line(0.0, 0.0, 80.0, 0.0), line(80.0, 0.0, 40.0, 60.0), line(40.0, 60.0, 0.0, 0.0)]";
+    let paint = stroke_paint(12.0, "join := canvas::JoinStyle.Miter");
+    let run = scene(
+        "canvas_curve_two_caps",
+        &format!(
+            "  canvas::present([wave(\"\", 200.0, 200.0, {tri}, {paint}), blob(\"\", 500.0, 200.0, [{tri}], canvas::FillRule.EvenOdd, {paint})])\n"
+        ),
+        "",
+        &[],
+    );
+    assert_eq!(
+        run.pixel(200 + 88, 200 - 6),
+        WHITE,
+        "chain: the miter at (80, 0)"
+    );
+    assert_eq!(
+        run.pixel(200 - 9, 200 - 6),
+        BLACK,
+        "chain: no miter where it began"
+    );
+    assert_eq!(run.pixel(200 - 4, 200 - 3), BLACK, "chain: nor a round");
+    assert_eq!(run.pixel(200 + 40, 200), WHITE, "chain: its first line");
+    assert_eq!(
+        run.pixel(500 + 88, 200 - 6),
+        WHITE,
+        "contour: the miter at (80, 0)"
+    );
+    assert_eq!(
+        run.pixel(500 - 9, 200 - 6),
+        WHITE,
+        "contour: and the one at (0, 0)"
+    );
+}
+
+/// Dashes run along the curve by arc length. A quarter circle of radius 100 as two
+/// 45° arcs, dashed `[10, 5]` with a 6 px stroke: the pattern is on over arc lengths
+/// [0, 10), [15, 25), [30, 40) … and off between. The point at arc length `s` is at
+/// angle `s / 100`. A pixel holding the middle of a dash is white and one holding the
+/// middle of a gap is black — and the dash [75, 85) runs unbroken across the place the
+/// first arc ends and the second begins, at 78.54.
+#[test]
+fn canvas_poly_curve_dashes_follow_arc_length() {
+    let k = (std::f64::consts::PI / 8.0).cos();
+    let c = SQRT_HALF * 100.0;
+    // Each 45° arc's control point is where its end tangents meet: at radius
+    // 100 / cos(22.5°), half-way round the arc.
+    let (m1, m2) = (
+        (100.0, 100.0 * (std::f64::consts::PI / 8.0).tan()),
+        (100.0 * (std::f64::consts::PI / 8.0).tan(), 100.0),
+    );
+    let arcs = format!(
+        "[conic(100.0, 0.0, {:?}, {:?}, {c:?}, {c:?}, {k:?}), conic({c:?}, {c:?}, {:?}, {:?}, 0.0, 100.0, {k:?})]",
+        m1.0, m1.1, m2.0, m2.1
+    );
+    let run = scene(
+        "canvas_curve_dashes",
+        &format!(
+            "  canvas::present([wave(\"\", 200.0, 100.0, {arcs}, {})])\n",
+            stroke_paint(6.0, "dashes := [10.0, 5.0]")
+        ),
+        "",
+        &[],
+    );
+    let at = |s: f64| {
+        pixel_of(
+            200.0 + 100.0 * (s / 100.0).cos(),
+            100.0 + 100.0 * (s / 100.0).sin(),
+        )
+    };
+    for dash in 0..10 {
+        let start = dash as f64 * 15.0;
+        let (x, y) = at(start + 5.0);
+        assert_eq!(
+            run.pixel(x, y),
+            WHITE,
+            "the middle of the dash from {start}"
+        );
+        let (x, y) = at(start + 12.5);
+        assert_eq!(run.pixel(x, y), BLACK, "the middle of the gap after it");
+    }
+    for s in [76.0, 77.5, 78.54, 79.5, 81.0, 84.0] {
+        let (x, y) = at(s);
+        assert_eq!(
+            run.pixel(x, y),
+            WHITE,
+            "arc length {s}, across the curve boundary"
+        );
+    }
+    // The path is 157.08 long: its last dash is [150, 157.08), cut by the end.
+    let (x, y) = at(153.0);
+    assert_eq!(run.pixel(x, y), WHITE, "the last dash");
+}
+
+/// A `CurvePolygon`'s dashes restart at each contour, as a polygon's do at each ring.
+/// Two circles of radius 60, dashed `[20, 10]`. Each starts at its rightmost point and
+/// runs down the screen. The first is 376.99 long, so a pattern carried on into the
+/// second would be 17 into its period there: at 5 px along the second it would be at
+/// 22 (off), and at 25 px along at 12 (on). Restarted, 5 is on and 25 is off.
+#[test]
+fn canvas_curve_polygon_dashes_restart_at_each_contour() {
+    let run = scene(
+        "canvas_curve_dash_restart",
+        &format!(
+            "  canvas::present([blob(\"\", 0.0, 0.0, [circle(200.0, 200.0, 60.0), circle(500.0, 200.0, 60.0)], canvas::FillRule.EvenOdd, {})])\n",
+            stroke_paint(6.0, "dashes := [20.0, 10.0]")
+        ),
+        "",
+        &[],
+    );
+    let at = |cx: f64, s: f64| {
+        pixel_of(
+            cx + 60.0 * (s / 60.0).cos(),
+            200.0 + 60.0 * (s / 60.0).sin(),
+        )
+    };
+    for (cx, what) in [(200.0, "first"), (500.0, "second")] {
+        let (x, y) = at(cx, 5.0);
+        assert_eq!(
+            run.pixel(x, y),
+            WHITE,
+            "{what} contour: 5 px along, in its first dash"
+        );
+        let (x, y) = at(cx, 25.0);
+        assert_eq!(
+            run.pixel(x, y),
+            BLACK,
+            "{what} contour: 25 px along, in its first gap"
+        );
+        let (x, y) = at(cx, 40.0);
+        assert_eq!(
+            run.pixel(x, y),
+            WHITE,
+            "{what} contour: 40 px along, in its second dash"
+        );
+    }
+}
+
+// ---- plan-164-B Phase 3: placement, the paint, and the hit region --------------------
+
+/// A bar with a round far end, as one contour: (0, -10) → (100, -10), a half circle of
+/// radius 10 about (100, 0), → (0, 10), closed by the implied segment. And an arch: one
+/// quadratic from (0, 0) through a control point at (50, -60) to (100, 0), whose
+/// highest point is (50, -30).
+const SHAPES: &str = r#"
+FUNC bar() AS List OF canvas::BezierCurve
+  LET k AS Float = 0.7071067811865476
+  RETURN [line(0.0, 0.0 - 10.0, 100.0, 0.0 - 10.0), conic(100.0, 0.0 - 10.0, 110.0, 0.0 - 10.0, 110.0, 0.0, k), conic(110.0, 0.0, 110.0, 10.0, 100.0, 10.0, k), line(100.0, 10.0, 0.0, 10.0)]
+END FUNC
+
+FUNC arch() AS List OF canvas::BezierCurve
+  RETURN [canvas::BezierCurve[points := [at(0.0, 0.0), at(50.0, 0.0 - 60.0), at(100.0, 0.0)], weights := []]]
+END FUNC
+"#;
+
+/// A shape's own `transform` turns it about its `position`. A 30° turn (cos 0.8660254,
+/// sin 0.5; `x' = a x + c y`, `y' = b x + d y`, so a = d = cos, b = sin, c = -sin).
+///
+/// * The bar at (300, 300): its round end's centre, local (100, 0), lands at
+///   (386.6, 350) and is filled; where that point was before the turn, (400, 300), is
+///   local (86.6, -50) — 40 px off the bar — and is empty.
+/// * The arch at (600, 300), 8 px wide: its highest point, local (50, -30), lands at
+///   (658.3, 299.0) and is stroked; where it was, (650, 270), is local (28.3, -51) and
+///   is empty.
+#[test]
+fn canvas_curve_shapes_turn_about_their_position() {
+    let run = scene(
+        "canvas_curve_turn",
+        r#"  LET turn AS canvas::Transform = canvas::Transform[0.8660254037844386, 0.5, 0.0 - 0.5, 0.8660254037844386, 0.0, 0.0]
+  LET a AS canvas::DrawItem = canvas::CurvePolygon[id := "", position := at(300.0, 300.0), contours := [bar()], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 0, 255)), transform := turn]
+  LET b AS canvas::DrawItem = canvas::PolyCurve[id := "", position := at(600.0, 300.0), curves := arch(), paint := canvas::stroke(color::rgb(255, 255, 255), 8.0), transform := turn]
+  canvas::present([a, b])
+"#,
+        SHAPES,
+        &[],
+    );
+    assert_eq!(run.pixel(386, 350), BLUE, "the bar's round end, turned");
+    assert_eq!(run.pixel(343, 325), BLUE, "the bar's middle, local (50, 0)");
+    assert_eq!(run.pixel(400, 300), BLACK, "where the round end was");
+    assert_eq!(
+        run.pixel(300, 300),
+        BLUE,
+        "the pivot is on the bar's near end"
+    );
+    assert_eq!(
+        run.pixel(658, 299),
+        WHITE,
+        "the arch's highest point, turned"
+    );
+    assert_eq!(run.pixel(650, 270), BLACK, "where it was");
+    assert_eq!(run.stat("geoVerifyMismatches"), "0");
+}
+
+/// A group places what it holds, and a group that turns and scales it scales its
+/// stroke with it.
+///
+/// * `plain`, used at (100, 100): the bar and the arch are drawn 100 px right and down
+///   of where the group holds them.
+/// * `big`, used at (500, 200) under `x' = -2y, y' = 2x` — a quarter turn, twice the
+///   size. It holds the arch (6 px stroke) at its origin: the arch's highest point,
+///   local (50, -30), lands at (560, 300), where the curve runs down the screen. Its
+///   stroke is 12 px wide there: 5 px either side is stroked and 8 px is not — at the
+///   6 px it has in the group, 5 px would not be.
+///   It also holds a ring, a circle of radius 30 about (0, -80) with a 6 px stroke and
+///   no fill: on the surface a circle of radius 60 about (660, 200), stroked 12 wide.
+#[test]
+fn canvas_curve_shapes_in_groups() {
+    let run = scene(
+        "canvas_curve_groups",
+        r#"  canvas::setGroup("plain", [blob("", 50.0, 50.0, [bar()], canvas::FillRule.EvenOdd, canvas::fill(color::rgb(0, 0, 255))), wave("", 50.0, 150.0, arch(), canvas::stroke(color::rgb(255, 255, 255), 8.0))])
+  canvas::setGroup("big", [wave("", 0.0, 0.0, arch(), canvas::stroke(color::rgb(255, 255, 255), 6.0)), blob("", 0.0, 0.0 - 80.0, [circle(0.0, 0.0, 30.0)], canvas::FillRule.EvenOdd, canvas::stroke(color::rgb(255, 255, 255), 6.0))])
+  LET one AS canvas::DrawItem = canvas::Group[id := "", position := at(100.0, 100.0), transform := none(), name := "plain"]
+  LET two AS canvas::DrawItem = canvas::Group[id := "", position := at(500.0, 200.0), transform := canvas::Transform[0.0, 2.0, 0.0 - 2.0, 0.0, 0.0, 0.0], name := "big"]
+  canvas::present([one, two])
+"#,
+        SHAPES,
+        &[],
+    );
+    // `plain`: the bar's middle is local (50, 0) of an item at (50, 50) of a group at
+    // (100, 100); the arch's top is local (50, -30) of an item at (50, 150).
+    assert_eq!(run.pixel(200, 150), BLUE, "the bar, moved by the group");
+    assert_eq!(
+        run.pixel(100, 50),
+        BLACK,
+        "where the bar is in the group's own space"
+    );
+    assert_eq!(run.pixel(200, 220), WHITE, "the arch, moved by the group");
+    // `big`: the arch's top.
+    assert_eq!(run.pixel(560, 300), WHITE, "the arch's highest point");
+    assert_eq!(
+        run.pixel(565, 300),
+        WHITE,
+        "5 px to one side: inside a 12 px stroke"
+    );
+    assert_eq!(run.pixel(554, 300), WHITE, "5 px to the other");
+    assert_eq!(run.pixel(568, 300), BLACK, "8 px to one side: outside it");
+    assert_eq!(run.pixel(551, 300), BLACK, "8 px to the other");
+    // `big`: the ring, radius 60 about (660, 200).
+    assert_eq!(run.pixel(660 + 60, 200), WHITE, "on the ring");
+    assert_eq!(
+        run.pixel(660 + 64, 200),
+        WHITE,
+        "4.5 px outside its centre line"
+    );
+    assert_eq!(run.pixel(660 + 55, 200), WHITE, "4.5 px inside it");
+    assert_eq!(run.pixel(660 + 68, 200), BLACK, "8.5 px outside");
+    assert_eq!(run.pixel(660 + 51, 200), BLACK, "8.5 px inside");
+    assert_eq!(run.pixel(660, 200), BLACK, "the unfilled middle");
+}
+
+/// `paint.clip` is in the shape's own space and cuts both shapes. A clip that keeps
+/// local x from 50 to 200: the bar at (100, 100) keeps its right half, and the arch at
+/// (100, 300) its right half.
+#[test]
+fn canvas_curve_shapes_are_clipped_in_their_own_space() {
+    let run = scene(
+        "canvas_curve_clip",
+        r#"  LET ring AS List OF List OF vector::Float2 = [[at(50.0, 0.0 - 100.0), at(200.0, 0.0 - 100.0), at(200.0, 100.0), at(50.0, 100.0)]]
+  canvas::present([blob("", 100.0, 100.0, [bar()], canvas::FillRule.EvenOdd, WITH canvas::fill(color::rgb(0, 0, 255)) { clip := ring }), wave("", 100.0, 300.0, arch(), WITH canvas::stroke(color::rgb(255, 255, 255), 8.0) { clip := ring })])
+"#,
+        SHAPES,
+        &[],
+    );
+    assert_eq!(
+        run.pixel(100 + 75, 100),
+        BLUE,
+        "the bar, right of the clip's edge"
+    );
+    assert_eq!(run.pixel(100 + 105, 100), BLUE, "its round end");
+    assert_eq!(run.pixel(100 + 25, 100), BLACK, "the bar, left of it");
+    assert_eq!(run.pixel(100 + 48, 100), BLACK, "1.5 px left of the edge");
+    assert_eq!(run.pixel(100 + 51, 100), BLUE, "1.5 px right of it");
+    // The arch is at height -22.5 (y = -120 t(1 - t)) at x = 25 and x = 75.
+    assert_eq!(
+        run.pixel(100 + 75, 300 - 23),
+        WHITE,
+        "the arch, right of the clip's edge"
+    );
+    assert_eq!(run.pixel(100 + 25, 300 - 23), BLACK, "the arch, left of it");
+}
+
+/// `transparency`, and a gradient on the fill and on the stroke, are the paint's own
+/// code: a curve shape under a paint draws what the shape it is the curved form of
+/// draws under the same paint.
+///
+/// * A `CurvePolygon` circle beside a `canvas::Circle`, both under a half-transparent
+///   fill and a radial gradient that also paints the stroke: the two 220x220 blocks are
+///   equal pixel for pixel.
+/// * A `PolyCurve` of one straight curve beside a `canvas::Line`, both under a linear
+///   gradient applied to the stroke: equal pixel for pixel.
+#[test]
+fn canvas_curve_shapes_take_the_whole_paint() {
+    let run = scene(
+        "canvas_curve_paint",
+        r#"  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 0, 0)], canvas::GradientStop[offset := 1.0, color := color::rgb(0, 0, 255)]]
+  LET radial AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := at(0.0 - 20.0, 0.0 - 10.0), endPoint := at(70.0, 0.0 - 10.0), stops := stops, spread := canvas::GradientSpread.Pad, transform := none(), focalOffset := at(0.0, 0.0), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillAndStroke]
+  LET disc AS canvas::Paint = WITH canvas::fillStroke(color::rgb(0, 0, 0), color::rgb(255, 255, 255), 8.0) { gradient := radial, transparency := 0.5 }
+  LET linear AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := at(0.0, 0.0), endPoint := at(160.0, 0.0), stops := stops, spread := canvas::GradientSpread.Pad, transform := none(), focalOffset := at(0.0, 0.0), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillAndStroke]
+  LET ink AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 10.0) { gradient := linear }
+  LET c AS canvas::DrawItem = canvas::Circle[id := "", position := at(150.0, 150.0), radius := 80.0, paint := disc, transform := none()]
+  LET l AS canvas::DrawItem = canvas::Line[id := "", position := at(70.0, 400.0), startAt := at(0.0, 0.0), endAt := at(160.0, 50.0), paint := ink, transform := none()]
+  canvas::present([c, blob("", 550.0, 150.0, [circle(0.0, 0.0, 80.0)], canvas::FillRule.EvenOdd, disc), l, wave("", 470.0, 400.0, [line(0.0, 0.0, 160.0, 50.0)], ink)])
+"#,
+        "",
+        &[],
+    );
+    let (r, _, b, _) = run.pixel(150, 150);
+    assert!(
+        r > 0 && b > 0,
+        "the circle's middle is in the ramp, faded: {:?}",
+        run.pixel(150, 150)
+    );
+    for (what, x0, y0, x1, y1) in [("circle", 40, 40, 260, 260), ("line", 50, 380, 250, 470)] {
+        let mut painted = 0;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let a = run.pixel(x, y);
+                assert_eq!(a, run.pixel(x + 400, y), "{what}: the pixel at ({x}, {y})");
+                if a != BLACK {
+                    painted += 1;
+                }
+            }
+        }
+        assert!(
+            painted > 1000,
+            "{what}: the block compared holds the shape ({painted})"
+        );
+    }
+}
+
+/// The hit region of both shapes (`mfb spec app canvas`, "The region of an item").
+///
+/// * `solid`, a filled `CurvePolygon` circle of radius 60 at (150, 150): inside and not
+///   outside.
+/// * `hollow`, the same at (400, 150) with a 4 px stroke and NO fill: deep in the
+///   unpainted interior is still the shape. Its stroke reaches radius 62.
+/// * `thin`, a `PolyCurve` of one cubic at (100, 400) with a 1 px stroke — the cubic
+///   from (0, 0) to (200, 0) with both control points 80 below, whose lowest point is
+///   (100, 60): hit 2 px from the curve, not 5 px from it, and not in the area between
+///   the curve and its chord, which a closed shape would count as inside.
+/// * `cut`, a filled circle at (650, 150) whose clip keeps its right half: not hit
+///   where the clip cuts it away.
+/// * `btn::face`, a `CurvePolygon` inside a group used under the id `btn`.
+/// * an unnamed `CurvePolygon` over `under`: it has no `id`, and still blocks.
+#[cfg(unix)]
+#[test]
+fn canvas_curve_shapes_are_hit_where_they_are_drawn() {
+    let expected: [((u32, u32), &str); 16] = [
+        ((150, 150), "solid"),
+        ((150 + 58, 150), "solid"),
+        ((150 + 62, 150), ""),
+        ((400, 150), "hollow"),
+        ((400 + 61, 150), "hollow"),
+        ((400 + 64, 150), ""),
+        ((100 + 100, 400 + 60), "thin"),
+        ((100 + 100, 400 + 62), "thin"),
+        ((100 + 100, 400 + 65), ""),
+        ((100 + 100, 400 + 25), ""),
+        ((650 + 30, 150), "cut"),
+        ((650 - 30, 150), ""),
+        ((600 + 20, 420), "btn::face"),
+        ((600 + 75, 420), ""),
+        ((300 + 20, 560), ""),
+        ((300 + 80, 560), "under"),
+    ];
+    let points: Vec<(u32, u32)> = expected.iter().map(|(p, _)| *p).collect();
+    let run = scene(
+        "canvas_curve_hit",
+        r#"  LET grey AS canvas::Paint = canvas::fill(color::rgb(200, 200, 200))
+  LET half AS List OF List OF vector::Float2 = [[at(0.0, 0.0 - 100.0), at(100.0, 0.0 - 100.0), at(100.0, 100.0), at(0.0, 100.0)]]
+  canvas::setGroup("button", [blob("face", 0.0, 0.0, [circle(0.0, 0.0, 40.0)], canvas::FillRule.EvenOdd, grey)])
+  LET use AS canvas::DrawItem = canvas::Group[id := "btn", position := at(600.0, 420.0), transform := none(), name := "button"]
+  MUT under AS canvas::Rectangle
+  under = WITH under { id := "under", position := at(260.0, 520.0), size := canvas::Size[width := 160.0, height := 80.0], paint := grey }
+  LET underItem AS canvas::DrawItem = under
+  canvas::present([blob("solid", 150.0, 150.0, [circle(0.0, 0.0, 60.0)], canvas::FillRule.EvenOdd, grey), blob("hollow", 400.0, 150.0, [circle(0.0, 0.0, 60.0)], canvas::FillRule.EvenOdd, canvas::stroke(color::rgb(200, 200, 200), 4.0)), wave("thin", 100.0, 400.0, [cubic(0.0, 0.0, 0.0, 80.0, 200.0, 80.0, 200.0, 0.0)], canvas::stroke(color::rgb(200, 200, 200), 1.0)), blob("cut", 650.0, 150.0, [circle(0.0, 0.0, 60.0)], canvas::FillRule.EvenOdd, WITH grey { clip := half }), use, underItem, blob("", 300.0, 560.0, [circle(0.0, 0.0, 30.0)], canvas::FillRule.EvenOdd, grey)])
+  report("over")
+"#,
+        "",
+        &points,
+    );
+    let got = run.over();
+    assert_eq!(got.len(), expected.len(), "{}", run.stdout);
+    for (answer, ((x, y), want)) in got.iter().zip(&expected) {
+        assert_eq!(answer, want, "overID at ({x}, {y})");
+    }
+}
+
+// ---- plan-164-B Phase 4: a `Picture` cut to a `CurvePolygon` -------------------------
+
+const RED: (u8, u8, u8, u8) = (255, 0, 0, 255);
+
+/// `RES name AS canvas::Image = …`: an image of `w` x `h` opaque pixels, row by row.
+fn image(name: &str, w: usize, h: usize, px: &[(u8, u8, u8)]) -> String {
+    assert_eq!(px.len(), w * h);
+    let bytes: Vec<String> = px
+        .iter()
+        .flat_map(|&(r, g, b)| [r, g, b, 255])
+        .map(|v| format!("toByte({v})"))
+        .collect();
+    format!(
+        "  RES {name} AS canvas::Image = canvas::createImage({w}, {h}, [{}])\n",
+        bytes.join(", ")
+    )
+}
+
+/// The coverage a white-on-black pixel shows, 0 to 1: the software renderer blends in
+/// linear light, so a channel `v` is the sRGB encoding of the coverage.
+fn coverage_of(v: u8) -> f64 {
+    let c = v as f64 / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// The largest distance between the edge a white picture's clip draws and the true
+/// circle of radius `r` about `(cx, cy)`, in surface pixels, read off the frame: an
+/// edge pixel's coverage is `0.5 - d` for its centre's signed distance `d` to the
+/// clip's edge, so `d` is `0.5 - coverage`, and the true circle's is the centre's
+/// distance less `r`. Only pixels between 15% and 85% covered are read — outside that
+/// a byte of the frame is a larger step of distance than the gap being measured.
+fn edge_gap(run: &Scene, cx: f64, cy: f64, r: f64) -> (f64, usize) {
+    let mut worst: f64 = 0.0;
+    let mut read = 0;
+    let reach = r as i32 + 3;
+    for dy in -reach..=reach {
+        for dx in -reach..=reach {
+            let (x, y) = ((cx as i32 + dx) as usize, (cy as i32 + dy) as usize);
+            let c = coverage_of(run.pixel(x, y).0);
+            if !(0.15..=0.85).contains(&c) {
+                continue;
+            }
+            let true_d = ((x as f64 + 0.5 - cx).powi(2) + (y as f64 + 0.5 - cy).powi(2)).sqrt() - r;
+            worst = worst.max(((0.5 - c) - true_d).abs());
+            read += 1;
+        }
+    }
+    (worst, read)
+}
+
+/// The image's clip is the curve flattened, and the gap between that clip's edge and
+/// the true curve is within the reduction's tolerance, 0.05 surface pixels — under the
+/// identity, and under a x8 `transform`, where the shape is a circle of radius 7.5 and
+/// the flattening has to be eight times finer in its own space to stay there.
+///
+/// Beside each, the same white picture on a `canvas::Circle`, whose outline is
+/// flattened by the package's own ring: the two edges are each within 0.05 px of the
+/// circle, so no pixel of one differs from the other by more than a tenth of a pixel's
+/// coverage, and none away from the edge differs at all.
+#[test]
+fn canvas_picture_curve_clip_is_within_the_tolerance_of_the_curve() {
+    let white = [(255, 255, 255)];
+    let body = image("img", 1, 1, &white)
+        + r#"  LET plain AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
+  LET big AS canvas::Transform = canvas::Transform[8.0, 0.0, 0.0, 8.0, 0.0, 0.0]
+  LET disc AS canvas::AutoShape = canvas::Circle[id := "", position := at(150.5, 150.25), radius := 60.0, paint := plain, transform := none()]
+  canvas::present([canvas::Picture[id := "", shape := disc, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img], canvas::Picture[id := "", shape := curved("", 450.5, 150.25, [circle(0.0, 0.0, 60.0)], canvas::FillRule.EvenOdd, plain, none()), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img], canvas::Picture[id := "", shape := curved("", 150.5, 450.25, [circle(0.0, 0.0, 7.5)], canvas::FillRule.EvenOdd, plain, big), clip := canvas::PictureClip.ClipAndTransform, fit := canvas::PictureFit.Stretch, image := img], canvas::Picture[id := "", shape := curved("", 450.5, 450.25, [circle(0.0, 0.0, 7.5)], canvas::FillRule.EvenOdd, plain, big), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]])
+"#;
+    let run = scene("canvas_picture_curve_gap", &body, "", &[]);
+    assert_eq!(run.pixel(450, 150), WHITE, "the middle of the picture");
+    for (what, cx, cy) in [
+        ("the identity", 450.5, 150.25),
+        ("x8, ClipAndTransform", 150.5, 450.25),
+        ("x8, ClipOnly", 450.5, 450.25),
+    ] {
+        let (gap, read) = edge_gap(&run, cx, cy, 60.0);
+        println!("picture clip vs the true circle, {what}: worst gap {gap:.4} px over {read} edge pixels");
+        assert!(read > 150, "{what}: the edge was read ({read} pixels)");
+        // 0.05 is the flattening's own bound; the rest is the frame's resolution of a
+        // distance, one byte of an sRGB channel at mid coverage.
+        assert!(
+            gap <= 0.05 + 0.006,
+            "{what}: the clip is {gap} px from the curve"
+        );
+    }
+    let mut worst: f64 = 0.0;
+    for y in 80..221 {
+        for x in 80..221 {
+            let (a, b) = (run.pixel(x, y), run.pixel(x + 300, y));
+            let delta = (coverage_of(a.0) - coverage_of(b.0)).abs();
+            worst = worst.max(delta);
+            let from_edge =
+                (((x as f64 + 0.5 - 150.5).powi(2) + (y as f64 + 0.5 - 150.25).powi(2)).sqrt()
+                    - 60.0)
+                    .abs();
+            if from_edge > 1.0 {
+                assert_eq!(a, b, "({x}, {y}) is {from_edge:.2} px from the edge");
+            }
+        }
+    }
+    println!(
+        "picture on a CurvePolygon circle vs on a Circle: worst coverage difference {worst:.4}"
+    );
+    assert!(
+        worst <= 0.1,
+        "the two outlines are {worst} of a pixel apart"
+    );
+}
+
+/// A picture on a two-contour `CurvePolygon` shows its image in the ring and not in
+/// the hole, under both rules (the inner contour is wound against the outer, which is
+/// a hole under both). And a stroked shape draws its outline over the image as the
+/// curve: at (600, 150), radius 60 with a 6 px white stroke over a red image — the
+/// outline is white on the radius, the image red 5 px inside it, nothing 5 px outside.
+#[test]
+fn canvas_picture_curve_holes_and_outline() {
+    let body = image("img", 1, 1, &[(255, 0, 0)])
+        + r#"  LET plain AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
+  LET ring AS List OF List OF canvas::BezierCurve = [circle(0.0, 0.0, 80.0), circleBack(0.0, 0.0, 35.0)]
+  LET edged AS canvas::Paint = canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(255, 255, 255), 6.0)
+  canvas::present([canvas::Picture[id := "", shape := curved("", 150.0, 150.0, ring, canvas::FillRule.EvenOdd, plain, none()), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img], canvas::Picture[id := "", shape := curved("", 380.0, 150.0, ring, canvas::FillRule.NonZero, plain, none()), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img], canvas::Picture[id := "", shape := curved("", 600.0, 150.0, [circle(0.0, 0.0, 60.0)], canvas::FillRule.EvenOdd, edged, none()), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]])
+"#;
+    let run = scene("canvas_picture_curve_holes", &body, "", &[]);
+    for (what, cx) in [("EvenOdd", 150), ("NonZero", 380)] {
+        assert_eq!(run.pixel(cx + 55, 150), RED, "{what}: the ring");
+        assert_eq!(run.pixel(cx, 150 - 55), RED, "{what}: the ring, above");
+        assert_eq!(run.pixel(cx, 150), BLACK, "{what}: the hole");
+        assert_eq!(
+            run.pixel(cx + 20, 150 + 20),
+            BLACK,
+            "{what}: the hole again"
+        );
+        assert_eq!(run.pixel(cx + 84, 150), BLACK, "{what}: outside");
+    }
+    assert_eq!(
+        run.pixel(600 + 59, 150),
+        WHITE,
+        "the outline, on the radius"
+    );
+    assert_eq!(
+        run.pixel(600 + 61, 150),
+        WHITE,
+        "the outline, just outside it"
+    );
+    assert_eq!(run.pixel(600 + 54, 150), RED, "the image, 5.5 px inside");
+    assert_eq!(run.pixel(600 + 65, 150), BLACK, "5.5 px outside");
+    assert_eq!(run.pixel(600, 150), RED, "the middle");
+}
+
+/// The box an image is fitted to is the curve's TRUE extent, not its control points'.
+///
+/// A bump: one quadratic from (0, 0) through a control point at (100, -160) to
+/// (200, 0), closed along y = 0. The curve only reaches y = -80; its control point is
+/// twice as far. The image is 1 x 2, red over blue.
+///
+/// * `Stretch` (at x = 50): the box is 200 x 80, the seam at y = -40. Local (100, -60)
+///   is red and (100, -20) blue. Fitted to the control points' box (200 x 160) the
+///   seam would be at -80 and (100, -60) blue.
+/// * `Contain` (at x = 330): the image keeps 1:2, so it is 40 x 80, centred on x = 100:
+///   (100, -60) red, (100, -20) blue, and (60, -20) — inside the bump, outside the
+///   image — nothing.
+/// * `Cover` (at x = 610): the image is 200 x 400 centred on the box, so the seam is
+///   still at -40: (100, -60) red, (100, -20) blue.
+#[test]
+fn canvas_picture_curve_fits_the_true_extent() {
+    let body = image("img", 1, 2, &[(255, 0, 0), (0, 0, 255)])
+        + r#"  LET plain AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
+  LET bump AS List OF List OF canvas::BezierCurve = [[canvas::BezierCurve[points := [at(0.0, 0.0), at(100.0, 0.0 - 160.0), at(200.0, 0.0)], weights := []]]]
+  canvas::present([canvas::Picture[id := "", shape := curved("", 50.0, 300.0, bump, canvas::FillRule.EvenOdd, plain, none()), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img], canvas::Picture[id := "", shape := curved("", 330.0, 300.0, bump, canvas::FillRule.EvenOdd, plain, none()), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Contain, image := img], canvas::Picture[id := "", shape := curved("", 610.0, 300.0, bump, canvas::FillRule.EvenOdd, plain, none()), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Cover, image := img]])
+"#;
+    let run = scene("canvas_picture_curve_fit", &body, "", &[]);
+    for (what, x) in [("Stretch", 50), ("Contain", 330), ("Cover", 610)] {
+        assert_eq!(run.pixel(x + 100, 300 - 60), RED, "{what}: above the seam");
+        assert_eq!(run.pixel(x + 100, 300 - 20), BLUE, "{what}: below it");
+        assert_eq!(
+            run.pixel(x + 100, 300 - 42),
+            RED,
+            "{what}: 1.5 px above the seam"
+        );
+        assert_eq!(
+            run.pixel(x + 100, 300 - 39),
+            BLUE,
+            "{what}: 1.5 px below it"
+        );
+        assert_eq!(
+            run.pixel(x + 100, 300 - 84),
+            BLACK,
+            "{what}: above the bump"
+        );
+        assert_eq!(
+            run.pixel(x + 100, 300 + 3),
+            BLACK,
+            "{what}: below the closing segment"
+        );
+    }
+    assert_eq!(
+        run.pixel(50 + 60, 300 - 20),
+        BLUE,
+        "Stretch: the image fills the bump"
+    );
+    assert_eq!(
+        run.pixel(330 + 60, 300 - 20),
+        BLACK,
+        "Contain: inside the bump, outside the image"
+    );
+    assert_eq!(
+        run.pixel(610 + 60, 300 - 20),
+        BLUE,
+        "Cover: the image covers the bump"
+    );
+}
+
+/// `ClipAndTransform` turns the image with the shape; `ClipOnly` turns only the outline
+/// and leaves the image upright, fitted to the box of the turned outline. The bump,
+/// turned 30° about its `position`, with a 2 x 1 image, red beside blue.
+///
+/// * `ClipAndTransform` (at (150, 200)): the seam is local x = 100. Local (90, -60)
+///   lands at (107.9, -7.0) and is red; local (110, -60) at (125.3, 3.0), blue.
+/// * `ClipOnly` (at (500, 200)): the turned outline spans x from 0 to 173.2, so the
+///   seam is the upright line x = 86.6. The same point, (107.9, -7.0), is blue; local
+///   (30, -10), at (31.0, 6.3), is red.
+///
+/// And the shape's `paint.clip`, which keeps local x from 100 on (at (150, 450)), cuts
+/// the picture as well as the outline does.
+#[test]
+fn canvas_picture_curve_clip_modes_and_the_paints_clip() {
+    let body = image("img", 2, 1, &[(255, 0, 0), (0, 0, 255)])
+        + r#"  LET plain AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
+  LET turn AS canvas::Transform = canvas::Transform[0.8660254037844386, 0.5, 0.0 - 0.5, 0.8660254037844386, 0.0, 0.0]
+  LET bump AS List OF List OF canvas::BezierCurve = [[canvas::BezierCurve[points := [at(0.0, 0.0), at(100.0, 0.0 - 160.0), at(200.0, 0.0)], weights := []]]]
+  LET cut AS canvas::Paint = WITH plain { clip := [[at(100.0, 0.0 - 200.0), at(300.0, 0.0 - 200.0), at(300.0, 200.0), at(100.0, 200.0)]] }
+  canvas::present([canvas::Picture[id := "", shape := curved("", 150.0, 200.0, bump, canvas::FillRule.EvenOdd, plain, turn), clip := canvas::PictureClip.ClipAndTransform, fit := canvas::PictureFit.Stretch, image := img], canvas::Picture[id := "", shape := curved("", 500.0, 200.0, bump, canvas::FillRule.EvenOdd, plain, turn), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img], canvas::Picture[id := "", shape := curved("", 150.0, 450.0, bump, canvas::FillRule.EvenOdd, cut, none()), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]])
+"#;
+    let run = scene("canvas_picture_curve_modes", &body, "", &[]);
+    assert_eq!(
+        run.pixel(150 + 107, 200 - 7),
+        RED,
+        "ClipAndTransform: local (90, -60)"
+    );
+    assert_eq!(
+        run.pixel(150 + 125, 200 + 3),
+        BLUE,
+        "ClipAndTransform: local (110, -60)"
+    );
+    assert_eq!(
+        run.pixel(150 + 31, 200 + 6),
+        RED,
+        "ClipAndTransform: local (30, -10)"
+    );
+    assert_eq!(
+        run.pixel(500 + 107, 200 - 7),
+        BLUE,
+        "ClipOnly: right of the upright seam"
+    );
+    assert_eq!(run.pixel(500 + 31, 200 + 6), RED, "ClipOnly: left of it");
+    // The unturned bump's top is local (100, -80), which is not on the turned one:
+    // it is turned-local (46.6, -119).
+    assert_eq!(
+        run.pixel(150 + 100, 200 - 75),
+        BLACK,
+        "the outline is turned"
+    );
+    assert_eq!(run.pixel(500 + 100, 200 - 75), BLACK, "under both modes");
+    // The paint's clip: the image is fitted to the whole bump (seam at x = 100), and
+    // only local x >= 100 is left.
+    assert_eq!(
+        run.pixel(150 + 140, 450 - 30),
+        BLUE,
+        "right of the paint's clip"
+    );
+    assert_eq!(run.pixel(150 + 60, 450 - 30), BLACK, "left of it: cut away");
+    assert_eq!(
+        run.pixel(150 + 98, 450 - 30),
+        BLACK,
+        "1.5 px left of the clip's edge"
+    );
+    assert_eq!(run.pixel(150 + 101, 450 - 30), BLUE, "1.5 px right of it");
+}
+
+/// A picture on a `PolyCurve` draws nothing and is hit by nothing: a chain has no
+/// inside to cut an image to, as a `PolyLine` has none. The frame is the square
+/// beneath it alone, and a press where the chain would be reports the square.
+#[cfg(unix)]
+#[test]
+fn canvas_picture_on_a_poly_curve_draws_nothing() {
+    let body = image("img", 1, 1, &[(0, 255, 0)])
+        + r#"  MUT under AS canvas::Rectangle
+  under = WITH under { id := "under", position := at(100.0, 100.0), size := canvas::Size[width := 200.0, height := 200.0], paint := canvas::fill(color::rgb(255, 0, 0)) }
+  LET underItem AS canvas::DrawItem = under
+  LET chain AS canvas::AutoShape = canvas::PolyCurve[id := "chain", position := at(100.0, 200.0), curves := [line(0.0, 0.0, 200.0, 0.0)], paint := canvas::stroke(color::rgb(0, 0, 255), 40.0), transform := none()]
+  canvas::present([underItem, canvas::Picture[id := "pic", shape := chain, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]])
+  report("over")
+"#;
+    let run = scene("canvas_picture_poly_curve", &body, "", &[(200, 200)]);
+    assert_eq!(run.over(), ["under"]);
+    assert_eq!(run.pixel(200, 200), RED);
+    let other = run
+        .frame
+        .chunks(4)
+        .filter(|p| *p != [0, 0, 0, 255] && *p != [255, 0, 0, 255])
+        .count();
+    assert_eq!(
+        other, 0,
+        "nothing but the square and the background is drawn"
+    );
 }

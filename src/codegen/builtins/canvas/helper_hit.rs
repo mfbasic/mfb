@@ -134,7 +134,7 @@ FUNC __canvas_hitCurrent(offset AS Integer, kind AS Integer, gdx AS Float, gdy A
     RETURN qx >= __canvas_geoAt(offset, __CANVAS_GEO_TEXT_BOX) AND qx <= __canvas_geoAt(offset, __CANVAS_GEO_TEXT_BOX + 2) AND qy >= __canvas_geoAt(offset, __CANVAS_GEO_TEXT_BOX + 1) AND qy <= __canvas_geoAt(offset, __CANVAS_GEO_TEXT_BOX + 3)
   END IF
   LET d AS Float = __canvas_hitDistance(offset, kind, qx, qy)
-  IF kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC OR kind = __CANVAS_GEO_POLYLINE THEN
+  IF kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC OR kind = __CANVAS_GEO_POLYLINE OR kind = __CANVAS_GEO_POLYCURVE THEN
     ' An open kind is its stroke: `d` is already the distance to the band's edge, the
     ' half-width (slot 6) taken off. A thin stroke is widened to 3 surface pixels either
     ' side of its centre line. `scale` is shape units per surface pixel, by the central

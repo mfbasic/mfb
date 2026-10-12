@@ -1041,6 +1041,12 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
   MUT pictures AS Set OF Integer = Set OF Integer { }
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
+    ' plan-164-B: neither GPU backend draws a curve shape yet, so a frame that holds one
+    ' is the software renderer's. The record is a leaf's, so it is in this list whether
+    ' the shape is in the scene or inside a group.
+    IF kind = __CANVAS_GEO_POLYCURVE OR kind = __CANVAS_GEO_CURVEPOLYGON THEN
+      RETURN FALSE
+    END IF
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
     END IF
@@ -1201,6 +1207,12 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
   MUT pictures AS Set OF Integer = Set OF Integer { }
   FOR EACH offset IN offsets
     LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
+    ' plan-164-B: neither GPU backend draws a curve shape yet, so a frame that holds one
+    ' is the software renderer's. The record is a leaf's, so it is in this list whether
+    ' the shape is in the scene or inside a group.
+    IF kind = __CANVAS_GEO_POLYCURVE OR kind = __CANVAS_GEO_CURVEPOLYGON THEN
+      RETURN FALSE
+    END IF
     IF kind = __CANVAS_GEO_TEXT THEN
       samples = samples + __canvas_runSamples(offset)
     END IF

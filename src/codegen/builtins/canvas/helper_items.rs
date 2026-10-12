@@ -656,7 +656,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   LET gradFR AS Float = __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_FOCALR)
   LET gradFocal AS Boolean = gradOX <> 0.0 OR gradOY <> 0.0 OR gradFR <> 0.0
   LET gradApply AS Boolean = gradCount >= 2 AND __canvas_geoAt(offset, __CANVAS_GEO_GRADIENT_APPLY) > 0.5
-  LET gradTintFill AS Boolean = gradApply AND (kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC)
+  LET gradTintFill AS Boolean = gradApply AND (kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC OR kind = __CANVAS_GEO_POLYCURVE)
   LET fillR AS Byte = __canvas_geoByte(offset, 8)
   LET fillG AS Byte = __canvas_geoByte(offset, 9)
   LET fillB AS Byte = __canvas_geoByte(offset, 10)

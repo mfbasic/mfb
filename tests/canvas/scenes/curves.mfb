@@ -1,0 +1,118 @@
+' plan-164: the two curve shapes, and the two things that hold one.
+'
+' A rounded star (`CurvePolygon`, ten quadratics, filled and stroked), a dashed spiral
+' (`PolyCurve`, fourteen cubics, round dash ends), a pill-shaped button (an `AutoPaint`
+' over a `CurvePolygon` of lines and exact arcs, drawn in its own paint when no pointer
+' is on it) and an image under `Cover` cut to a blob of four cubics, outlined. It is the
+' scene plan-164-B's runtime proof photographed in the software renderer and the one
+' plan-164-C compares on each GPU.
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT vector
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC quad(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2)], weights := []]
+END FUNC
+
+FUNC cubic(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2), at(x3, y3)], weights := []]
+END FUNC
+
+' A five-pointed star whose points and valleys are rounded: each quadratic runs from the
+' middle of one side to the middle of the next, pulled to the corner between them.
+FUNC star() AS List OF canvas::BezierCurve
+  LET xs AS List OF Float = [0.0, 22.0, 95.0, 36.0, 59.0, 0.0, 0.0 - 59.0, 0.0 - 36.0, 0.0 - 95.0, 0.0 - 22.0]
+  LET ys AS List OF Float = [0.0 - 100.0, 0.0 - 31.0, 0.0 - 31.0, 12.0, 81.0, 38.0, 81.0, 12.0, 0.0 - 31.0, 0.0 - 31.0]
+  MUT out AS List OF canvas::BezierCurve = []
+  MUT i AS Integer = 0
+  WHILE i < 10
+    LET ax AS Float = collections::getOr(xs, i, 0.0)
+    LET ay AS Float = collections::getOr(ys, i, 0.0)
+    LET bx AS Float = collections::getOr(xs, (i + 1) MOD 10, 0.0)
+    LET by AS Float = collections::getOr(ys, (i + 1) MOD 10, 0.0)
+    LET cx AS Float = collections::getOr(xs, (i + 2) MOD 10, 0.0)
+    LET cy AS Float = collections::getOr(ys, (i + 2) MOD 10, 0.0)
+    out = collections::append(out, quad((ax + bx) / 2.0, (ay + by) / 2.0, bx, by, (bx + cx) / 2.0, (by + cy) / 2.0))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' A spiral of cubic quarter turns, each a little wider than the last.
+FUNC spiral() AS List OF canvas::BezierCurve
+  LET k AS Float = 0.5522847498307936
+  MUT out AS List OF canvas::BezierCurve = []
+  MUT r AS Float = 12.0
+  MUT turn AS Integer = 0
+  WHILE turn < 14
+    LET r2 AS Float = r + 7.0
+    LET q AS Integer = turn MOD 4
+    IF q = 0 THEN
+      out = collections::append(out, cubic(r, 0.0, r, r * k, r2 * k, r2, 0.0, r2))
+    ELSEIF q = 1 THEN
+      out = collections::append(out, cubic(0.0, r, 0.0 - r * k, r, 0.0 - r2, r2 * k, 0.0 - r2, 0.0))
+    ELSEIF q = 2 THEN
+      out = collections::append(out, cubic(0.0 - r, 0.0, 0.0 - r, 0.0 - r * k, 0.0 - r2 * k, 0.0 - r2, 0.0, 0.0 - r2))
+    ELSE
+      out = collections::append(out, cubic(0.0, 0.0 - r, r * k, 0.0 - r, r2, 0.0 - r2 * k, r2, 0.0))
+    END IF
+    r = r2
+    turn = turn + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' A pill: two straight sides and two half circles of exact arcs.
+FUNC pill(w AS Float, h AS Float) AS List OF canvas::BezierCurve
+  LET k AS Float = 0.7071067811865476
+  LET r AS Float = h / 2.0
+  RETURN [canvas::BezierCurve[points := [at(r, 0.0), at(w - r, 0.0)], weights := []], canvas::BezierCurve[points := [at(w - r, 0.0), at(w, 0.0), at(w, r)], weights := [1.0, k, 1.0]], canvas::BezierCurve[points := [at(w, r), at(w, h), at(w - r, h)], weights := [1.0, k, 1.0]], canvas::BezierCurve[points := [at(w - r, h), at(r, h)], weights := []], canvas::BezierCurve[points := [at(r, h), at(0.0, h), at(0.0, r)], weights := [1.0, k, 1.0]], canvas::BezierCurve[points := [at(0.0, r), at(0.0, 0.0), at(r, 0.0)], weights := [1.0, k, 1.0]]]
+END FUNC
+
+' A blob for the photograph: four cubics round a lopsided outline.
+FUNC blob() AS List OF canvas::BezierCurve
+  RETURN [cubic(0.0, 0.0 - 90.0, 80.0, 0.0 - 120.0, 150.0, 0.0 - 40.0, 120.0, 30.0), cubic(120.0, 30.0, 100.0, 90.0, 40.0, 130.0, 0.0 - 20.0, 100.0), cubic(0.0 - 20.0, 100.0, 0.0 - 90.0, 70.0, 0.0 - 140.0, 40.0, 0.0 - 110.0, 0.0 - 30.0), cubic(0.0 - 110.0, 0.0 - 30.0, 0.0 - 90.0, 0.0 - 80.0, 0.0 - 50.0, 0.0 - 70.0, 0.0, 0.0 - 90.0)]
+END FUNC
+
+' A 64 x 64 "photograph": a sky that darkens downwards over a band of ground.
+FUNC photo() AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT y AS Integer = 0
+  WHILE y < 64
+    MUT x AS Integer = 0
+    WHILE x < 64
+      IF y > 44 THEN
+        out = collections::append(out, [toByte(40 + x), toByte(120 + x), toByte(50), toByte(255)])
+      ELSE
+        out = collections::append(out, [toByte(250 - y * 3), toByte(160 + x), toByte(255 - y), toByte(255)])
+      END IF
+      x = x + 1
+    END WHILE
+    y = y + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES img AS canvas::Image = canvas::createImage(64, 64, photo())
+  LET gold AS color::Color = color::rgb(250, 200, 40)
+  LET starItem AS canvas::DrawItem = canvas::CurvePolygon[id := "star", position := at(160.0, 170.0), contours := [star()], rule := canvas::FillRule.EvenOdd, paint := WITH canvas::fillStroke(gold, color::rgb(255, 255, 255), 4.0) { join := canvas::JoinStyle.Round }, transform := none()]
+  LET spiralItem AS canvas::DrawItem = canvas::PolyCurve[id := "spiral", position := at(450.0, 180.0), curves := spiral(), paint := WITH canvas::stroke(color::rgb(90, 200, 255), 5.0) { dashes := [18.0, 9.0], cap := canvas::CapStyle.Round }, transform := none()]
+  LET face AS canvas::Shape = canvas::CurvePolygon[id := "button", position := at(80.0, 400.0), contours := [pill(240.0, 80.0)], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(40, 90, 200), color::rgb(255, 255, 255), 3.0), transform := none()]
+  LET lit AS canvas::Paint = canvas::fillStroke(color::rgb(230, 70, 70), color::rgb(255, 255, 255), 3.0)
+  LET buttonItem AS canvas::DrawItem = canvas::AutoPaint[shape := face, useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := lit, exitPaint := lit, hoverPaint := lit, pressedPaint := lit]
+  LET frame AS canvas::AutoShape = canvas::CurvePolygon[id := "frame", position := at(680.0, 420.0), contours := [blob()], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(255, 255, 255), 5.0), transform := none()]
+  LET photoItem AS canvas::DrawItem = canvas::Picture[id := "photo", shape := frame, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Cover, image := img]
+  canvas::present([starItem, spiralItem, buttonItem, photoItem])
+END FUNC

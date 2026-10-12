@@ -729,8 +729,8 @@ FUNC __canvas_pictureImageOf(outline AS List OF List OF vector::Float2, exact AS
 END FUNC
 
 ' The image record of a picture on `shape`: each closed kind's outline, where its own
-' record puts it. A shape with no inside -- a `Line`, an `Arc`, a `PolyLine`, a `Text`
-' -- has no outline, and the picture draws nothing.
+' record puts it. A shape with no inside -- a `Line`, an `Arc`, a `PolyLine`, a
+' `PolyCurve`, a `Text` -- has no outline, and the picture draws nothing.
 FUNC __canvas_pictureImage(shape AS DrawItem, clipOnly AS Boolean, fit AS Integer, shadow AS Integer, iw AS Integer, ih AS Integer) AS List OF List OF Float
   IF shadow = 0 OR iw <= 0 OR ih <= 0 THEN
     RETURN __canvas_pictureNothing()
@@ -759,6 +759,11 @@ FUNC __canvas_pictureImage(shape AS DrawItem, clipOnly AS Boolean, fit AS Intege
       ' A polygon's box is its points', which are exact as they are.
       LET exact AS List OF Float = []
       RETURN __canvas_pictureImageOf(rings, exact, p.rule = FillRule.NonZero, p.paint, p.position, p.transform, clipOnly, fit, shadow, iw, ih)
+    ' plan-164-B: a curved outline, flattened for the image's clip, and the curve's true
+    ' extent for its box (`helper_curves.rs:__canvas_curveRings`).
+    CASE CurvePolygon(cp)
+      LET rings AS List OF List OF vector::Float2 = __canvas_curveRings(cp)
+      RETURN __canvas_pictureImageOf(rings, __canvas_curveExtent(), cp.rule = FillRule.NonZero, cp.paint, cp.position, cp.transform, clipOnly, fit, shadow, iw, ih)
     CASE ELSE
       RETURN __canvas_pictureNothing()
   END MATCH
@@ -806,6 +811,13 @@ FUNC __canvas_pictureOutlineItem(shape AS DrawItem, always AS Boolean) AS DrawIt
     CASE Polygon(p)
       IF __canvas_pictureStrokes(p.paint, always) THEN
         LET changed AS Polygon = WITH p { paint := __canvas_pictureOutlinePaint(p.paint) }
+        LET item AS DrawItem = changed
+        RETURN item
+      END IF
+    ' plan-164-B: the outline over the image is the curve itself, drawn per pixel.
+    CASE CurvePolygon(cp)
+      IF __canvas_pictureStrokes(cp.paint, always) THEN
+        LET changed AS CurvePolygon = WITH cp { paint := __canvas_pictureOutlinePaint(cp.paint) }
         LET item AS DrawItem = changed
         RETURN item
       END IF
@@ -1066,6 +1078,9 @@ FUNC __canvas_pictureClosed(shape AS DrawItem) AS Boolean
     CASE Ellipse(e)
       RETURN TRUE
     CASE Polygon(p)
+      RETURN TRUE
+    ' plan-164-B. A `PolyCurve` is the `ELSE`: a chain encloses nothing.
+    CASE CurvePolygon(cp)
       RETURN TRUE
     CASE ELSE
       RETURN FALSE

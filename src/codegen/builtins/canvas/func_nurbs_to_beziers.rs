@@ -6,6 +6,9 @@
 //! which the control points fall into runs of `degree + 1` that are each one rational
 //! Bézier segment of the same degree. Nothing is approximated, which is why the canvas
 //! needs no NURBS item of its own.
+//!
+//! The work is `helper_curves.rs:CURVE_FUNCS`, a chunk only a program that calls this
+//! (or `canvas::flatten`) carries; the body here is the one call into it.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -83,74 +86,7 @@ END FUNC
 #[rustfmt::skip]
 const BODY: &str =
 r#"FUNC __canvas_nurbsToBeziers(controlPoints AS List OF vector::Float2, weights AS List OF Float, knots AS List OF Float, degree AS Integer) AS List OF BezierCurve
-  MUT out AS List OF BezierCurve = []
-  LET n AS Integer = len(controlPoints)
-  IF degree < 1 OR degree > 16 THEN
-    RETURN out
-  END IF
-  IF n < degree + 1 OR len(knots) <> n + degree + 1 THEN
-    RETURN out
-  END IF
-  LET rational AS Boolean = len(weights) > 0
-  IF rational AND len(weights) <> n THEN
-    RETURN out
-  END IF
-  FOR EACH w IN weights
-    IF NOT (w > 0.0) THEN
-      RETURN out
-    END IF
-  NEXT
-  MUT prev AS Float = collections::getOr(knots, 0, 0.0)
-  FOR EACH knot IN knots
-    IF knot < prev THEN
-      RETURN out
-    END IF
-    prev = knot
-  NEXT
-  ' The domain: the knots the curve has a full set of control points between.
-  LET first AS Float = collections::getOr(knots, degree, 0.0)
-  LET last AS Float = collections::getOr(knots, n, 0.0)
-  IF NOT (first < last) THEN
-    RETURN out
-  END IF
-  LET origin AS vector::Float2 = vector::Float2[x := 0.0, y := 0.0]
-  MUT h AS List OF Float = []
-  MUT i AS Integer = 0
-  WHILE i < n
-    LET q AS vector::Float2 = collections::getOr(controlPoints, i, origin)
-    MUT w AS Float = 1.0
-    IF rational THEN
-      w = collections::getOr(weights, i, 1.0)
-    END IF
-    h = collections::append(h, w * q.x)
-    h = collections::append(h, w * q.y)
-    h = collections::append(h, w)
-    i = i + 1
-  END WHILE
-  LET pts AS List OF Float = __canvas_cvRefine(h, knots, degree)
-  LET u AS List OF Float = __CANVAS_CURVE_KNOTS
-  ' Every knot of the domain now has multiplicity `degree`, so the span that begins at
-  ' the last copy of one -- index k -- is the Bezier whose points are k - degree to k.
-  MUT k AS Integer = degree
-  WHILE k + 1 < len(u)
-    LET lo AS Float = collections::getOr(u, k, 0.0)
-    IF lo < collections::getOr(u, k + 1, 0.0) AND lo >= first AND lo < last THEN
-      MUT points AS List OF vector::Float2 = []
-      MUT ws AS List OF Float = []
-      MUT j AS Integer = k - degree
-      WHILE j <= k
-        LET pw AS Float = collections::getOr(pts, j * 3 + 2, 1.0)
-        points = collections::append(points, vector::Float2[x := collections::getOr(pts, j * 3, 0.0) / pw, y := collections::getOr(pts, j * 3 + 1, 0.0) / pw])
-        IF rational THEN
-          ws = collections::append(ws, pw)
-        END IF
-        j = j + 1
-      END WHILE
-      out = collections::append(out, BezierCurve[points := points, weights := ws])
-    END IF
-    k = k + 1
-  END WHILE
-  RETURN out
+  RETURN __canvas_nurbsImpl(controlPoints, weights, knots, degree)
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

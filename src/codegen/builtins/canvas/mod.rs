@@ -44,8 +44,8 @@ mod func_destroy_image;
 mod func_did_resize;
 mod func_enable_mouse;
 mod func_fill;
-mod func_flatten;
 mod func_fill_stroke;
+mod func_flatten;
 mod func_frame_nanos;
 mod func_geo_build;
 mod func_geo_cache;
@@ -61,10 +61,10 @@ mod func_item_hash;
 pub(crate) mod func_load_font;
 mod func_load_image;
 mod func_measure_text;
-mod func_nurbs_to_beziers;
 mod func_metal_draw;
 mod func_metal_present;
 mod func_new_surface;
+mod func_nurbs_to_beziers;
 mod func_pointer;
 mod func_poll_mouse;
 mod func_present;
@@ -1403,9 +1403,10 @@ pub(crate) fn register(r: &mut Registry) {
         description: "An image drawn inside a shape. The shape says where the picture \
                       is and what outline it is cut to: a `canvas::Rectangle`, with \
                       square or rounded corners, a `canvas::Circle`, a \
-                      `canvas::Ellipse` or a `canvas::Polygon`. A shape with no inside \
-                      — a `canvas::Line`, `canvas::Arc`, `canvas::PolyLine` or \
-                      `canvas::Text` — draws nothing. The image is visible only inside \
+                      `canvas::Ellipse`, a `canvas::Polygon` or a \
+                      `canvas::CurvePolygon`. A shape with no inside — a \
+                      `canvas::Line`, `canvas::Arc`, `canvas::PolyLine`, \
+                      `canvas::PolyCurve` or `canvas::Text` — draws nothing. The image is visible only inside \
                       the shape. Scaling picks the nearest image pixel, with no \
                       smoothing, so a small image drawn large shows crisp blocks. The \
                       shape's paint is the picture's: its fill colour tints the image \

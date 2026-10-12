@@ -70,7 +70,7 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
   ' plan-163-B: a dashed Line, Arc or PolyLine is its dashed stroke (`helper_dashes.rs`);
   ' `dashed` is read once per item, so an undashed one pays one test.
   IF dashed THEN
-    IF kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC OR kind = __CANVAS_GEO_POLYLINE THEN
+    IF kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC OR kind = __CANVAS_GEO_POLYLINE OR kind = __CANVAS_GEO_POLYCURVE THEN
       RETURN __canvas_dashedStroke(kind, tail - __CANVAS_GEO_HEADER, px, py, radius)
     END IF
   END IF
@@ -131,6 +131,13 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
   END IF
   IF kind = __CANVAS_GEO_POLYLINE THEN
     RETURN __canvas_polylineScan(tail, edges, px, py, radius, cap, FALSE)
+  END IF
+  ' plan-164-B: the curve shapes (`helper_curves.rs`). `edges` is their piece count.
+  IF kind = __CANVAS_GEO_POLYCURVE THEN
+    RETURN __canvas_curveScan(tail, edges, px, py, radius, cap)
+  END IF
+  IF kind = __CANVAS_GEO_CURVEPOLYGON THEN
+    RETURN __canvas_curveDistance(tail, edges, px, py)
   END IF
   RETURN __canvas_edgeDistance(tail, edges, px, py)
 END FUNC"#;
