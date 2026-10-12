@@ -273,7 +273,7 @@ Acceptance: `CurvePolygon` fill and antialiasing are correct in software, and a
   rasteriser goldens unmodified (est. 8 min, guess).
   Result (2026-10-11): `rt_canvas_curves` 24 passed; `rt_canvas_rasteriser` 106 passed,
   2 ignored; no file under `tests/canvas/` modified but `rt_canvas_curves.rs`.
-Commit: —
+Commit: 8d3fdd3a3
 
 ### Phase 2 — Stroke, caps, joins, dashes
 
@@ -312,7 +312,7 @@ Acceptance: the stroke is correct per §3 in software.
   Check: `cargo test --test rt_canvas_curves --test rt_canvas_rasteriser --test
   rt_canvas_golden` → pass, goldens unmodified (est. 10 min, guess).
   Result: see the end of Phase 4 — one run covers Phases 2 to 4.
-Commit: —
+Commit: 8d3fdd3a3
 
 ### Phase 3 — Placement, paint integration and the hit region
 
@@ -358,7 +358,7 @@ the pointer finds each where it is drawn.
   Check: `cargo test --test rt_canvas_curves --test rt_canvas_hit` → pass (est. 6 min,
   guess).
   Result: see the end of Phase 4.
-Commit: —
+Commit: 8d3fdd3a3
 
 ### Phase 4 — `AutoPaint` and `Picture`
 
@@ -436,7 +436,7 @@ eight shapes before them.
   program (`app-mouse-surface` 7, `loop-body-resource-reference-valid` 1) — the same two
   letter A moved, and for the same reason (the canvas package's source grew). Both
   re-baselined with that compiler.
-Commit: —
+Commit: 8d3fdd3a3
 
 ## Validation Plan
 

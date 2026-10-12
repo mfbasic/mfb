@@ -35,7 +35,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-164-B complete and archived | `ls planning/completed/plan-164-B-*` → match | NOT MET (2026-10-11) |
+| plan-164-B complete and archived | `ls planning/completed/plan-164-B-*` → match | MET (2026-10-11): `planning/completed/plan-164-B-curves-software.md`, landed in `8d3fdd3a3` |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 
