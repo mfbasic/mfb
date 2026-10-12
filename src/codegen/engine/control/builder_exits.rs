@@ -35,20 +35,9 @@ impl CodeBuilder<'_> {
     }
 
     /// The cleanups to run when an error is routed to this function's trap
-    /// handler. Inner-block locals being exited (`index >= floor`) are dropped
-    /// like any other exit. A function-level (trap-shared) **owned arena value**
-    /// is *not* dropped here: it stays live for the handler to read and is freed
-    /// exactly once on the handler's own exit — dropping it here would
-    /// double-free it. Trap-shared resources *are* still dropped here: their drop
-    /// is idempotent (the handler's later drop is a harmless no-op) and
-    /// propagating an error past them closes them as before. A thread view is one
-    /// of them (plan-156-C): a handler that names it reads a closed view.
-    ///
-    /// bug-1053: a function-level owned-list whose drain takes records for a later
-    /// free is trap-shared in the same sense as an owned value: the handler can
-    /// still read its container, so this route closes what the list owns and keeps
-    /// the list (`OwnedListCleanup::trap_shared`), and the handler's own exit
-    /// drains it and frees the records.
+    /// handler: those of the inner blocks the jump leaves (`index >= floor`),
+    /// dropped like any other exit. Nothing of the function-level scope is
+    /// dropped: the handler runs inside it, and its own exit runs those cleanups.
     pub(crate) fn trap_route_cleanups(&self) -> Vec<ActiveCleanup> {
         // Rule 1: the function-level scope has not exited when its own handler
         // runs, so nothing it owns is closed or freed on the route (bug-1077: a

@@ -27,8 +27,6 @@ enum OwnedListPass {
     /// Free what each record on the reclaim list in this slot points at, the
     /// record, and its node.
     Reclaim(usize),
-    /// Close each record the list's scope owns and keep the list as it is.
-    CloseInPlace,
 }
 
 impl CodeBuilder<'_> {
@@ -126,7 +124,6 @@ impl CodeBuilder<'_> {
                 drop,
                 owns_elements,
                 reclaim_slot,
-                trap_shared: false,
                 scope_depth: self.current_scope_depth(),
                 leaf,
             };
@@ -670,7 +667,11 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let depth = self.current_scope_depth();
         let token = self.emit_scope_token(depth)?;
-        self.emit(abi::store_u64(token, abi::stack_pointer(), stack_offset + 8));
+        self.emit(abi::store_u64(
+            token,
+            abi::stack_pointer(),
+            stack_offset + 8,
+        ));
         self.setup_owned_list_at(&format!("{name}$ref"), type_, Some(stack_offset + 16))
     }
 
@@ -735,7 +736,11 @@ impl CodeBuilder<'_> {
             builder.emit(abi::branch(&done));
             builder.emit(abi::label(&take));
             builder.emit(abi::store_u64(token, record, RESOURCE_OFFSET_OWNER));
-            let size = if union { OWNED_LIST_UNION_NODE_SIZE } else { 16 };
+            let size = if union {
+                OWNED_LIST_UNION_NODE_SIZE
+            } else {
+                16
+            };
             let alloc_ok = builder.label("captured_store_alloc_ok");
             builder.emit(abi::move_immediate(
                 abi::return_register(),
@@ -762,7 +767,11 @@ impl CodeBuilder<'_> {
                 builder.emit(abi::store_u64(word, node, 0));
                 builder.emit(abi::load_u64(word, value, 8));
                 builder.emit(abi::store_u64(word, node, 8));
-                builder.emit(abi::store_u64(head, node, OWNED_LIST_UNION_NODE_NEXT_OFFSET));
+                builder.emit(abi::store_u64(
+                    head,
+                    node,
+                    OWNED_LIST_UNION_NODE_NEXT_OFFSET,
+                ));
             } else {
                 builder.emit(abi::store_u64(value, node, 0));
                 builder.emit(abi::store_u64(head, node, 8));
@@ -838,7 +847,6 @@ impl CodeBuilder<'_> {
             return self.emit_dynamic_owned_list_drain(cleanup);
         }
         let pass = match cleanup.reclaim_slot {
-            Some(_) if cleanup.trap_shared => OwnedListPass::CloseInPlace,
             Some(reclaim_slot) if !cleanup.owns_elements => OwnedListPass::Take(reclaim_slot),
             _ => OwnedListPass::Drain,
         };
@@ -870,7 +878,7 @@ impl CodeBuilder<'_> {
         cleanup: &OwnedListCleanup,
     ) -> Result<(), String> {
         match cleanup.reclaim_slot {
-            Some(reclaim_slot) if !cleanup.trap_shared && !cleanup.owns_elements => {
+            Some(reclaim_slot) if !cleanup.owns_elements => {
                 self.emit_owned_list_walk(cleanup, OwnedListPass::Reclaim(reclaim_slot))
             }
             _ => Ok(()),
@@ -897,19 +905,12 @@ impl CodeBuilder<'_> {
         let cursor_slot = match pass {
             OwnedListPass::Drain | OwnedListPass::Take(_) => cleanup.head_slot,
             OwnedListPass::Reclaim(reclaim_slot) => reclaim_slot,
-            OwnedListPass::CloseInPlace => {
-                let cursor = self.allocate_stack_object("owned_list_walk_cursor", 8);
-                let head = self.temporary_vreg();
-                self.emit(abi::load_u64(head, abi::stack_pointer(), cleanup.head_slot));
-                self.emit(abi::store_u64(head, abi::stack_pointer(), cursor));
-                cursor
-            }
         };
         // Whether this walk frees what a record points at, and the record.
         let frees = match pass {
             OwnedListPass::Drain => cleanup.owns_elements,
             OwnedListPass::Reclaim(_) => true,
-            OwnedListPass::Take(_) | OwnedListPass::CloseInPlace => false,
+            OwnedListPass::Take(_) => false,
         };
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
@@ -1063,12 +1064,6 @@ impl CodeBuilder<'_> {
                 }
                 self.emit(abi::label(&node_done));
             }
-        }
-        if matches!(pass, OwnedListPass::CloseInPlace) {
-            // The list keeps its nodes: the handler's exit drains it.
-            self.emit(abi::branch(&loop_label));
-            self.emit(abi::label(&done_label));
-            return Ok(());
         }
         // The node block itself: allocated by `emit_owned_list_push`, reachable only
         // through the chain this loop has already advanced past, so this free is
@@ -1404,7 +1399,6 @@ pub(crate) fn adopts_from_call(value: &NirValue) -> bool {
 pub(crate) fn value_may_carry_statement_resources(value: &NirValue) -> bool {
     !value_produces_no_resource(value)
 }
-
 
 /// bug-842: the `Result` local a `resultValue(<local>)` reads — the inline-`TRAP`
 /// desugar's delivery `$trap_valN = resultValue($trap_resN)`.

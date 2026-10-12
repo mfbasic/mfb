@@ -2755,7 +2755,11 @@ impl CodeBuilder<'_> {
                             && !matches!(value, Some(NirValue::Capture { by_ref: true, .. }));
                         let stack_offset = self.allocate_stack_object(
                             name,
-                            if ref_cell { self.ref_cell_size(type_) } else { 8 },
+                            if ref_cell {
+                                self.ref_cell_size(type_)
+                            } else {
+                                8
+                            },
                         );
                         if ref_cell {
                             self.setup_ref_cell(name, type_, stack_offset)?;
@@ -3375,7 +3379,6 @@ impl CodeBuilder<'_> {
                                 default_record_slot,
                                 scope_depth,
                                 reclaim_slot,
-                                trap_shared: false,
                             };
                             if reclaim_slot.is_some() {
                                 self.reclaiming_resources
@@ -3747,7 +3750,6 @@ impl CodeBuilder<'_> {
                                     scope_depth: registered_depth
                                         .unwrap_or_else(|| self.current_scope_depth()),
                                     reclaim_slot: None,
-                                    trap_shared: false,
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)

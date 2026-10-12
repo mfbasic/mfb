@@ -561,7 +561,6 @@ impl CodeBuilder<'_> {
                 drop,
                 owns_elements: true,
                 reclaim_slot: None,
-                trap_shared: false,
                 scope_depth: depth,
                 leaf,
             });
@@ -578,7 +577,6 @@ impl CodeBuilder<'_> {
                 drop: OwnedListDrop::Dynamic,
                 owns_elements: false,
                 reclaim_slot: None,
-                trap_shared: false,
                 scope_depth: depth,
                 leaf: ParameterType::Unknown,
             });

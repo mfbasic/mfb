@@ -210,7 +210,6 @@ impl CodeBuilder<'_> {
                 drop: OwnedListDrop::Dynamic,
                 owns_elements: false,
                 reclaim_slot: None,
-                trap_shared: false,
                 scope_depth: self.current_scope_depth(),
                 leaf: ParameterType::Unknown,
             }));

@@ -171,8 +171,7 @@ fn collect_store_floats(
         }
 
         fn declare(&mut self, name: &str, depth: usize, type_: &ParameterType) {
-            self.bound
-                .insert(name.to_string(), (depth, type_.clone()));
+            self.bound.insert(name.to_string(), (depth, type_.clone()));
             if let Some(scope) = self.scopes.last_mut() {
                 scope.push(name.to_string());
             }
@@ -319,7 +318,7 @@ mod tests {
                 value: call("collections.append", vec![local("keep"), local("param")]),
             },
             NirOp::While {
-                kind: crate::target::shared::nir::LoopKind::While,
+                kind: crate::ast::LoopKind::While,
                 condition: NirValue::Const {
                     type_: ParameterType::Boolean,
                     value: "true".to_string(),

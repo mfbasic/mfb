@@ -60,17 +60,16 @@ The owned-list drain only fires when the `RES` elements FLOAT — produced in an
 3. **Builtin call-site resolver** (`builtins/http.rs` ready/pump/done/finish): match the BASE name — a call-site stream is spelled `Stream STATE PendingState`, so an exact match resolves to `Unknown` (FATAL when the TRAP desugar binds an intermediate `$trap_val` of that type: "no native storage class for 'Unknown'").
 4. **Default-value materializer** (`builder_value_semantics.rs:lower_default_value`): a diverging-handler union `RES x = <fallible> TRAP` had no closed default — materialize a closed `{tag@0,record-ptr@8}` (any variant tag; closed → drop is a no-op), STATE init via `emit_resource_record_ptr`.
 
-### An owned-list drain has three modes, and the free is split from the close
+### The scope that closes a resource frees its record, and the free is split from the close
 
-`OwnedListCleanup` decides per list (`setup_owned_list`): **proved** the one holder
-(`owns_elements`, `record_ownership::owning_collections`) → the drain closes and frees
-in one walk; **unproved** → the drain closes each record its scope owns, writes
-`RESOURCE_OWNER_TAKEN` into its owner word and moves the node to a reclaim list
-(`reclaim_slot`), and `emit_owned_list_reclaims` frees the taken records after the
-LAST cleanup of the exit; **close-only** → only where a reference can leave without a
-raise (`record_ownership::runtime_reclaim`, both asked of the one function: it
-creates a `LAMBDA` that assigns a by-ref captured container, or it has an outward
-assignment the store-time raise does not cover). Things that bite:
+One rule, no holder proof (`record_ownership.rs` is only the alias chains and the
+store-float scopes): a cleanup that finds its scope's token in a record closes it,
+writes `RESOURCE_OWNER_TAKEN` into the owner word and parks it (an owned-list drain
+moves the node to `reclaim_slot`; a `RES` binding stores the record, a resource-union
+binding its box, in its own `reclaim_slot`), and `emit_owned_list_reclaims` frees
+everything parked after the LAST cleanup of the exit. A statement's own lists
+(`adopt_statement_temp`) drain and free in one walk: one record has one statement
+temporary. Things that bite:
 
 - **A new exit path must emit the reclaim after its drops.** `emit_cleanups` does;
   `emit_cleanup_branch_to_depth` and the scope end in `lower_ops_inner` do it by hand;
@@ -81,11 +80,20 @@ assignment the store-time raise does not cover). Things that bite:
 - **Nothing may free a taken record but the reclaim, and nothing may read more than
   its owner word.** A cleanup that runs after the take sees a word that is not its
   token and skips; that is the whole dedup.
-- **The trap route keeps function-level lists** (`trap_shared`): the handler still
-  reads the container, so the route closes in place and the handler's exit drains.
-- **The BLOCK of a `List`/`Map OF RES T` is a separate, static verdict**
-  (`block_owning_collections`, `CollectionUses::block_kept`): a second reader of an
-  ELEMENT is no holder of the block.
+- **The trap route drops nothing of the function-level scope** (`trap_route_cleanups`,
+  bug-1077): the handler runs inside that scope and reads its bindings; the handler's
+  own exit runs those cleanups and the reclaim.
+- **A new store must float what it stores.** `StoreFloats` lists assignments by scope
+  depth and the Assign arm floats the item (`emit_stored_item_float`) or the assigned
+  container; a by-reference capture is a cell with its token and list heads
+  (`setup_ref_cell`), because the lambda's frame cannot compare scopes. A store that
+  skips the float is a use-after-free now, not a leak: nothing downstream keeps a
+  record alive on a guess.
+- **The BLOCK of a `List`/`Map OF RES T` is plain data**: a collection of aliases is
+  memcpy-copyable (`is_resource_alias_payload`), copied at every hand-off to a
+  longer-lived owner and freed by its one owner like a `List OF Integer`. A read of
+  a resource-UNION element or field is a pointer INTO that block, so a binding of
+  one copies the 16-byte box.
 - A leaf with nothing to reclaim (a `canvas` image/font: no record free, no buffers,
   no `STATE`) gets no reclaim slot, which is what keeps the canvas helpers' code
   byte-identical.

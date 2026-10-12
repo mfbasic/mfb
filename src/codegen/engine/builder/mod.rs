@@ -1046,9 +1046,6 @@ pub(crate) struct ResourceCleanup {
     /// for every binding of a record-freeing kind: the scope that closes a
     /// resource frees its record, decided by the owner word alone.
     pub(crate) reclaim_slot: Option<usize>,
-    /// On the route to the function's own `TRAP` handler the function-level
-    /// scope has not exited: the drop closes and takes nothing.
-    pub(crate) trap_shared: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -1151,11 +1148,6 @@ pub(crate) struct OwnedListCleanup {
     /// cleanup of the exit has run (`CodeBuilder::emit_owned_list_reclaims`).
     /// `None` keeps the close-only drain.
     pub(crate) reclaim_slot: Option<usize>,
-    /// bug-1053: set on the copy of a function-level list that an error routed to
-    /// the function's `TRAP` handler runs. The handler still reads the container,
-    /// so that walk closes what the list owns and frees nothing; the handler's own
-    /// exit runs the real drain.
-    pub(crate) trap_shared: bool,
 }
 
 /// bug-778: the frame representation of an inline-`TRAP` desugar temporary

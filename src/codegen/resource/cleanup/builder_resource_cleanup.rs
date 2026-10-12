@@ -1050,9 +1050,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&reclaim));
         if let Some(offset) = resource_slot {
             match cleanup.reclaim_slot {
-                // The function-level scope has not exited on the route to its own
-                // handler: closed, nothing taken, nothing freed.
-                Some(_) if cleanup.trap_shared => {}
                 // This scope closed the record, so it frees it: after every other
                 // cleanup of the exit has read the owner word. Mark it taken and
                 // park it for `emit_resource_reclaim`.
@@ -1101,7 +1098,11 @@ impl CodeBuilder<'_> {
         let done = self.label("resource_union_reclaim_done");
         let freed = self.label("resource_union_reclaim_box");
         let union_ptr = self.allocate_register();
-        self.emit(abi::load_u64(&union_ptr, abi::stack_pointer(), reclaim_slot));
+        self.emit(abi::load_u64(
+            &union_ptr,
+            abi::stack_pointer(),
+            reclaim_slot,
+        ));
         self.emit(abi::compare_immediate(&union_ptr, "0"));
         self.emit(abi::branch_eq(&done));
         self.emit_union_tag_dispatch_drop(
@@ -1118,7 +1119,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(abi::c_arg(0), &block));
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "16"));
         self.emit_arena_free_call();
-        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), reclaim_slot));
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            reclaim_slot,
+        ));
         self.emit(abi::label(&done));
         Ok(())
     }
@@ -1132,7 +1137,7 @@ impl CodeBuilder<'_> {
         &mut self,
         cleanup: &ResourceCleanup,
     ) -> Result<(), String> {
-        let Some(reclaim_slot) = cleanup.reclaim_slot.filter(|_| !cleanup.trap_shared) else {
+        let Some(reclaim_slot) = cleanup.reclaim_slot else {
             return Ok(());
         };
         let done = self.label("resource_reclaim_done");
@@ -1146,7 +1151,11 @@ impl CodeBuilder<'_> {
             cleanup.has_io_buffers,
             true,
         )?;
-        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), reclaim_slot));
+        self.emit(abi::store_u64(
+            abi::ZERO,
+            abi::stack_pointer(),
+            reclaim_slot,
+        ));
         self.emit(abi::label(&done));
         Ok(())
     }
