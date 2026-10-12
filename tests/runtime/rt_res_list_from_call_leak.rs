@@ -201,7 +201,11 @@ fn a_res_list_bound_from_a_user_function_frees_its_block() {
             counter(stats, "free_calls"),
             "every block is freed, `la`'s included"
         );
-        assert_eq!(counter(stats, "double_free_skips"), 0, "no block is freed twice");
+        assert_eq!(
+            counter(stats, "double_free_skips"),
+            0,
+            "no block is freed twice"
+        );
     }
 }
 
