@@ -14,6 +14,7 @@
 #   weather [window_secs]
 #   worker
 #   hit
+#   clips [ITEMS] [FRAMES]
 #   compare stress|poly|pics|text ARGS...
 #
 # Without --target/--box, everything runs headless (MFB_MACAPP_HEADLESS=1)
@@ -64,7 +65,7 @@ LINUX_FONT="/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"
 WIN_FONT='C:\Windows\Fonts\arial.ttf'
 
 usage() {
-  sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -674,6 +675,58 @@ cmd_hit() {
 # ---------------------------------------------------------------------------
 # compare
 # ---------------------------------------------------------------------------
+# clips (bug-995)
+# ---------------------------------------------------------------------------
+# clips_ms STATS -- ms a GPU frame after the first: the render phase timer is
+# cumulative, so (last - first) / (frames - 1) leaves out the first frame and
+# whatever pipeline it compiled.
+clips_ms() {
+  local stats=$1
+  local n; n=$(wc -l < "$stats" 2>/dev/null | tr -d ' '); n=${n:-0}
+  if [ "$n" -lt 2 ]; then echo "-"; return; fi
+  local a b; a=$(stats_field_line "$(head -1 "$stats")" phaseRenderMs); b=$(stats_field "$stats" phaseRenderMs)
+  awk -v a="$a" -v b="$b" -v n="$n" 'BEGIN{printf "%.1f", (b-a)/(n-1)}'
+}
+
+# One row: build the probe, run it on the GPU under MFB_CANVAS_SYNC, print ms/frame.
+clips_row() {
+  local items=$1 points=$2 scale=$3 frames=$4 mode=$5
+  local dir="$WORK/clips-$points-$scale-$mode"
+  bash "$GEN/clips.sh" "$dir" "$items" "$points" "$scale" "$frames" "$mode"
+  build_app "$dir" --debug
+  local stats="$dir/stats"
+  if [ -n "$LINUX_TARGET" ]; then
+    # On Windows the first run of a new program compiles its pipelines (bug-996):
+    # run it once to warm the driver's cache and read the second run.
+    if [ "$WIN" = 1 ]; then linux_run "$dir" clips "" "MFB_CANVAS_GPU=1" "MFB_CANVAS_SYNC=1" || true; fi
+    linux_run "$dir" clips "" "MFB_CANVAS_GPU=1" "MFB_CANVAS_SYNC=1" "MFB_CANVAS_STATS=$stats" || true
+  else
+    env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS="$stats" \
+      "$(bin_path "$dir" clips)" >/dev/null 2>&1 || true
+  fi
+  local rendered; rendered=$(wc -l < "$stats" 2>/dev/null | tr -d ' '); rendered=${rendered:-0}
+  local gpu; gpu=$(stats_field "$stats" gpuFrames); gpu=${gpu:-0}
+  local label="untransformed"
+  [ "$scale" != 0 ] && label="$mode scale $scale"
+  printf "clip points=%-3s %-18s | ms/frame=%-7s renderer=%-8s frames=%s\n" \
+    "$points" "$label" "$(clips_ms "$stats")" "$(renderer_of "$rendered" "$gpu")" "$rendered"
+}
+
+cmd_clips() {
+  local items=${1:-150}; local frames=${2:-40}
+  echo "# $items squares of 100 px, --debug build, MFB_CANVAS_SYNC=1; ms/frame is the render phase after the first frame"
+  local row
+  for row in "0 0 item" "64 0 item" "28 0 item" \
+             "0 4 item" "64 4 item" "28 4 item" \
+             "0 0.1 item" "64 0.1 item" "28 0.1 item" \
+             "0 4 group" "64 4 group" "28 4 group"; do
+    # shellcheck disable=SC2086
+    set -- $row
+    clips_row "$items" "$1" "$2" "$frames" "$3"
+  done
+}
+
+# ---------------------------------------------------------------------------
 compare_run() {
   # compare_run DIR BINNAME -- sw vs gpu dump on an already-generated project.
   local dir=$1 name=$2
@@ -759,6 +812,7 @@ case "$CMD" in
   weather) cmd_weather "$@" ;;
   worker) cmd_worker "$@" ;;
   hit) cmd_hit "$@" ;;
+  clips) cmd_clips "$@" ;;
   compare) cmd_compare "$@" ;;
   *) usage ;;
 esac
