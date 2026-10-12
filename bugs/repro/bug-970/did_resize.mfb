@@ -1,0 +1,15 @@
+IMPORT app
+IMPORT canvas
+IMPORT io
+IMPORT os
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET s0 AS canvas::Size = canvas::getSize()
+  io::printError("start size=" & toString(s0.width) & "x" & toString(s0.height) & " didResize=" & toString(canvas::didResize()))
+  canvas::present([])
+  os::sleep(700)
+  LET s1 AS canvas::Size = canvas::getSize()
+  io::printError("later size=" & toString(s1.width) & "x" & toString(s1.height) & " didResize=" & toString(canvas::didResize()))
+  io::printError("again didResize=" & toString(canvas::didResize()))
+END FUNC

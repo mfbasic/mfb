@@ -1,6 +1,6 @@
 # bug-970: `canvas::didResize()` answers TRUE once at startup in a real window although the surface never changed size (macOS and GTK)
 
-Last updated: 2026-10-05
+Last updated: 2026-10-12
 Effort: small (<1h)
 Severity: LOW
 Class: Correctness
@@ -26,6 +26,19 @@ References:
 
 - `src/docs/spec/app/06_canvas.md`; `mfb man canvas didResize`.
 - `.ai/canvas-threading.md` "`canvas::didResize` is a counter pair, not a flag".
+
+## Re-verified 2026-10-12: still reproduces on macOS (HEAD `555130a25`)
+
+`bugs/repro/bug-970/did_resize.mfb` (the program below, writing to stderr), `mfb build --app`:
+
+```
+real window:  start size=900.00x640.00 didResize=TRUE     later … didResize=FALSE
+headless:     start size=900.00x640.00 didResize=FALSE    later … didResize=FALSE
+```
+
+`emit_publish_surface_size_tagged` still compares the new size against the stored words,
+which start at 0, and `func_graphics.rs:lower_dimension` still answers
+`DEFAULT_SURFACE_WIDTH`/`HEIGHT` for 0. GTK and Windows were not re-run.
 
 ## Failing Reproduction
 
