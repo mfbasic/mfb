@@ -1503,6 +1503,22 @@ fn corners_match_the_software_oracle_on_metal() {
     );
 }
 
+/// bug-995: path clips on transformed items and on items inside groups with a matrix
+/// (`scenes/transformed_clips_on_black.mfb`) -- the five-sample clip path, at scales 0.1,
+/// 1 and 4, under a shear, banded and unbanded, with a rectangle clip under a group
+/// matrix. A pixel whose centre clip sample is past the clip's reach is answered from
+/// that sample alone; this row holds that shortcut to the oracle's every pixel.
+const TRANSFORMED_CLIPS: &str = include_str!("scenes/transformed_clips_on_black.mfb");
+
+#[test]
+fn transformed_path_clips_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_transformed_clips",
+        TRANSFORMED_CLIPS,
+        "path clips under item transforms and group matrices",
+    );
+}
+
 /// plan-172-L: pictures inside shapes (`scenes/picture_shapes_on_black.mfb`). Every
 /// shaped picture is a picture record with a polygonal clip and, where it strokes, the
 /// shape itself -- two entries the GPU already draws -- so this is the check that the
@@ -1516,6 +1532,21 @@ fn picture_shapes_match_the_software_oracle_on_metal() {
         "canvas_metal_picture_shapes",
         PICTURE_SHAPES,
         "pictures inside shapes over black",
+    );
+}
+
+/// bug-1079: plain pictures whose texel boundaries are pixel centres, in x and in y
+/// (`scenes/picture_texel_edge.mfb`). The texel there used to hang on the last bit of
+/// the backend's division; Apple's GPUs divide exactly, so this row passed before the
+/// index was made exact and holds Metal to the same frame after.
+const PICTURE_TEXEL_EDGE: &str = include_str!("scenes/picture_texel_edge.mfb");
+
+#[test]
+fn texel_boundaries_on_pixel_centres_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_texel_edge",
+        PICTURE_TEXEL_EDGE,
+        "pictures with texel boundaries on pixel centres",
     );
 }
 

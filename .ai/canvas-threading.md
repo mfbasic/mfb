@@ -1559,6 +1559,16 @@ box 206's Intel driver uses and lavapipe and Metal do not, so a curve's dash end
 with them passes on two backends and fails on real hardware (`dashAtan`, `dashSin`,
 `dashCos` are the oracle's series).
 
+**`/` is on that list too: never let `floor` of a quotient choose a discrete outcome
+(bug-1079).** Vulkan allows `/` 2.5 ULP and the same driver takes it (it multiplies by a
+reciprocal: `110 / 110` came out below 1), so a picture whose texel boundary was a pixel
+centre drew the neighbouring texel along that whole row. `+ - *` are correctly rounded
+everywhere, so the index is `floor(t / d)` corrected by at most one from the products
+(`pictureTexel`, and the same three steps in the oracle's picture arm). The sites left
+with the hazard are listed in bug-1079's sweep: a hard gradient stop and a `Repeat`
+seam exactly on a pixel centre. A quotient that only feeds a distance or a ramp
+position is continuous and stays inside the tolerance.
+
 ### A layout constant shared by MFBASIC source and the emitter has no compiler between them
 
 Builtin MFBASIC lives in a Rust `&'static str`, so a record width or slot index it shares

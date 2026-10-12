@@ -47,6 +47,14 @@
 # picture record with a polygonal clip and, where it strokes, the shape itself — at
 # rest, and with the pointer on the one whose shape is an `AutoPaint`, both of whose
 # entries are then swapped for the hover paint's.
+# `xformclips` is bug-995's: path clips on items under a transform (scales 0.1, 1 and 4, a
+# shear) and on untransformed items inside groups with a matrix, banded and not, with a
+# rectangle clip under a sheared group -- every pixel takes the five-sample clip path
+# unless its centre sample decides it, and that shortcut has to change no pixel. Compare
+# two builds' frames of it byte for byte with `--keep`.
+# `texeledge` is bug-1079's: plain pictures whose texel boundaries are pixel centres, in
+# x and in y, where the texel taken used to hang on the last bit of the driver's
+# division (box 206's Intel driver drew the neighbouring row).
 #
 # Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
@@ -144,6 +152,7 @@ squarecaps|square_caps_on_black|render
 joins|joins_on_black|render
 dashes|dashes_on_black|render
 pathclips|path_clips_on_black|render
+xformclips|transformed_clips_on_black|render
 gradientsblack|gradients_on_black|render
 polygonsblack|large_polygons_on_black|render
 smallpolysblack|small_polygons_on_black|render
@@ -165,6 +174,7 @@ autopaint|autopaint_on_black|render|MFB_CANVAS_POINTER=0,280,120,0,1
 autopaintgroup|autopaint_on_black|render|MFB_CANVAS_POINTER=0,150,320,0,1
 pictureshapes|picture_shapes_on_black|render
 pictureauto|picture_shapes_on_black|render|MFB_CANVAS_POINTER=0,770,470,0,1
+texeledge|picture_texel_edge|render
 hairline|blended_hairline_stroke|render
 curves|curves|curve
 curveshover|curves|curve|MFB_CANVAS_POINTER=0,200,440,0,1

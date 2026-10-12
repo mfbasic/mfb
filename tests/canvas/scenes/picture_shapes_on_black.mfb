@@ -12,9 +12,10 @@ IMPORT vector
 ' flip, a wrong fit or a texel taken from the neighbouring cell each show.
 '
 ' Every size is chosen so that no texel boundary is the CENTRE of a pixel row or
-' column: where one is, the texel a renderer takes hangs on a float32 division being
-' exact, and one real driver's is not (bug-1079). A shape's box is therefore a whole
-' number of pixels per texel, or an amount that never lands on a half.
+' column: where one is, the texel a renderer took hung on a float32 division being
+' exact, and one real driver's is not (bug-1079, since fixed; `picture_texel_edge.mfb`
+' is the scene that puts boundaries there). A shape's box is therefore a whole number
+' of pixels per texel, or an amount that never lands on a half.
 '
 ' Top row: a circle with a stroke; a rounded rectangle; a five-point star drawn as a
 ' pentagram under the even-odd rule, so its middle is a hole; then one wide image

@@ -808,7 +808,13 @@ transform, the group-relative one inside a group), **nearest**, as texel
 `(x, y, w, h)` being the rectangle in the record's slots 2 to 5. It
 is nearest for the reason a transformed glyph is: `floor` and `+ - * /` only, so every
 backend picks the same texel; a bilinear filter would change edge bytes between
-renderers unless all three shared identical fixed-point weights. Which rectangle that
+renderers unless all three shared identical fixed-point weights. The index does not
+depend on how a backend rounds the division (Vulkan allows `/` 2.5 ULP): with
+`t = (px - x) * width`, each renderer takes `u = floor(t / w)` and then `u + 1` if
+`(u + 1) * w <= t`, or `u - 1` if `u * w > t`, and likewise in `y` (`pictureTexel` in
+both shaders, the picture arm of `__canvas_drawGeometry` in the oracle). Where a texel
+boundary is a pixel centre `t` is exactly a whole number of `w`, the products are
+exact, and the pixel takes the texel that starts there. Which rectangle that
 is, and what else a `canvas::Picture` item draws, is *A picture is drawn inside a
 shape*, below.
 
@@ -893,7 +899,14 @@ nothing. The builder takes one of two paths, in header slot 51:
 against the same per-frame edge cap, and they are banded by the same index builder
 with no stroke in the reach — a clip's coverage clamps at `|d| ≥ 0.5`. Each shader
 takes the clip's five samples at the same shape-space points as the shape's and divides
-by the clip's own gradient, as the oracle does.
+by the clip's own gradient, as the oracle does. The clip's centre sample has the shape's
+early-out: asked with reach `0.5·max(F, 1)` (`F` the composed inverse's Frobenius norm,
+as for the shape, without the stroke half-width), and past it the coverage is decided by
+that sample's sign and the four neighbours are not evaluated. It is exact because the
+gradient the coverage divides by is at most `F` (a clip's distance, a path's or a
+rectangle's, is 1-Lipschitz), so the quotient is past 0.5, where the coverage has
+clamped; untransformed and outside a group matrix the reach is the 0.5 of the one sample
+there is.
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_BAND]]
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_PATH]]
 [[src/target/macos_aarch64/app/metal.rs:emit_clip_buffer]]

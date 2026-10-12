@@ -1656,7 +1656,9 @@ const METAL_SHADER_BODY: &str = concat!(
     // they are then not evaluated. `F` is widened by 2^-8 for the ellipse's bisection,
     // which is Lipschitz only to its own ~1e-4 px. An arc is not Lipschitz at all (out
     // of sweep it jumps to 1e6), so a transformed arc takes no shortcut; neither does
-    // any neighbour sample, whose exact value the gradient needs.
+    // any neighbour sample, whose exact value the gradient needs. The clip's centre
+    // sample takes the same shortcut at `0.5 * max(F, 1)` (bug-995, argued at
+    // `clipReach` in `shapeCoverage` below).
     // plan-172-H: a rectangle clip's signed distance in double-float at the item's own
     // point. `clipRect` above answers coverage and is right while the rectangle is
     // axis-aligned on the surface; under a group matrix it is not, so its distance is
@@ -1687,6 +1689,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float2 half2 = dfFixed(item.misc.z, item.miscLo.y);\n",
     "  bool stroked = dfLess(float2(0.0, 0.0), half2);\n",
     "  float reach = 0.5 + max(half2.x, 0.0);\n",
+    // bug-995: the clip's reach -- the shape's without the stroke half, and for any kind
+    // (a clip's distance is 1-Lipschitz whatever the item is, an arc's too).
+    "  float clipReach = 0.5;\n",
     "  if (mapped) {\n",
     "    float2 c0 = itemMapped ? float2(as_type<float>(item.xform0.x), as_type<float>(item.xform0.y)) : float2(1.0, 0.0);\n",
     "    float2 c1 = itemMapped ? float2(as_type<float>(item.xform0.z), as_type<float>(item.xform0.w)) : float2(0.0, 1.0);\n",
@@ -1695,6 +1700,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "    if (grouped) { norm = (itemMapped ? norm : 1.0) * length(gi); }\n",
     "    float frob = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;\n",
     "    reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);\n",
+    "    clipReach = 0.5 * max(frob, 1.0);\n",
     "  }\n",
     // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
     // distance (`joinedStroke`), which a miter can reach past `half` from the outline --
@@ -1708,6 +1714,33 @@ const METAL_SHADER_BODY: &str = concat!(
     // plan-163-C: samples 5..9 are a path clip's distance at the same five points, so the
     // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's;
     // one loop keeps one `sampleDistance` call site.
+    //
+    // bug-995: the clip's CENTRE sample (5) takes the shape's shortcut. Its coverage is
+    // `dfCoverage(d5 / cg)`, `cg` the central difference `|(d6 - d7, d8 - d9)|` of the
+    // clip's distance, or the fallback 1.0 when that is under 1e-6. The bound:
+    //
+    // * A clip's distance is 1-Lipschitz in shape space: a path's is the distance to its
+    //   edges with a sign that changes only where an edge is crossed (where it is 0), a
+    //   rectangle's the box distance. The neighbours are `q +- M (0.5, 0)` and
+    //   `q +- M (0, 0.5)`, `M` the composed inverse (the item's, after the groups'), so
+    //   `|d6 - d7| <= |M e1|` and `|d8 - d9| <= |M e2|`, hence `cg <= ||M||_F`. The norm
+    //   of a composition is at most the product of the norms, which is `norm`, and
+    //   `frob` widens it by 2^-8 for the float32 it is computed in.
+    // * A path clip's samples walk the centre's band, which holds every edge within its
+    //   reach of the band (`emit_band_index`, `r >= 0.5 + 1.5 F` for the ITEM's inverse):
+    //   the neighbours' crossings and nearest edges are in it, so what is sampled is
+    //   Lipschitz too. This is the shape's premise as well, and like the shape's it
+    //   does not cover a group's matrix, which the band index never sees.
+    // * So with `clipReach = 0.5 * max(frob, 1)`, `|d5| > clipReach` gives
+    //   `|d5 / cg| > 0.5 * max(frob, 1) / cg >= 0.5` when `cg` is the difference, and
+    //   `|d5| > 0.5` when it is the fallback. Past 0.5 `dfCoverage` has clamped: 0
+    //   outside, 255 inside, which is `dfCoverage(d5)` -- the four neighbours cannot
+    //   change it and are not evaluated (`clipMapped` goes false, as `mapped` does).
+    // * Sample 5 is therefore asked with reach `clipReach`, not an unbounded one: where
+    //   `edgeDistance`'s fp32 pass proves the distance past it, it returns that bound
+    //   with the exact sign, which is past `clipReach` and takes the same branch.
+    //
+    // Untransformed and ungrouped `clipReach` is 0.5, the one sample there always was.
     "  int clipMode = item.clipPath.z & 3;\n",
     "  bool clipMapped = itemMapped || grouped;\n",
     // plan-172-H: a rectangle clip is sampled too, under a group matrix.
@@ -1727,9 +1760,13 @@ const METAL_SHADER_BODY: &str = concat!(
     "    float2 qx = itemMapped ? dfMapX(item, sx, sy) : sx;\n",
     "    float2 qy = itemMapped ? dfMapY(item, sx, sy) : sy;\n",
     "    if (k == 0) { cqx = qx; cqy = qy; }\n",
-    "    if (clipK && clipMode == 1) { d[k] = clipRectDistance(item, qx, qy); continue; }\n",
-    "    d[k] = sampleDistance(item, edges, clipK ? cband : band, qx, qy, k == 0 ? reach : ((k == 5 && !clipMapped) ? 0.5 : 1.0e30), clipK);\n",
+    "    if (clipK && clipMode == 1) {\n",
+    "      d[k] = clipRectDistance(item, qx, qy);\n",
+    "    } else {\n",
+    "      d[k] = sampleDistance(item, edges, clipK ? cband : band, qx, qy, k == 0 ? reach : (k == 5 ? clipReach : 1.0e30), clipK);\n",
+    "    }\n",
     "    if (k == 0 && !joined && abs(d[0].x) > reach) { mapped = false; }\n",
+    "    if (k == 5 && abs(d[5].x) > clipReach) { clipMapped = false; }\n",
     "  }\n",
     "  float2 dRaw = d[0];\n",
     "  float2 g = float2(1.0, 0.0);\n",
@@ -1888,12 +1925,22 @@ const METAL_SHADER_BODY: &str = concat!(
     "  }\n",
     "  return out;\n",
     "}\n",
+    // bug-1079: which of `n` texels holds `t`, the texels `d` apart -- `floor(t / d)`
+    // corrected by at most one from the exact products, so the index does not hang on
+    // the last bit of the quotient (Vulkan allows `/` 2.5 ULP and one driver takes it;
+    // Apple's GPUs divide exactly, and this is the same rule so the copies stay one).
+    // The GLSL's `pictureTexel`, line for line, and the oracle's picture arm.
+    "static int pictureTexel(float t, float d, int n) {\n",
+    "  float u = floor(t / d);\n",
+    "  if ((u + 1.0) * d <= t) { u += 1.0; } else if (u * d > t) { u -= 1.0; }\n",
+    "  return clamp(int(u), 0, n - 1);\n",
+    "}\n",
     // bug-484: a picture's fill colour at the SHAPE-space point `q` -- its image sampled
     // NEAREST and tinted by the fill (plan-163-C: towards `texel * fill / 255` by
     // `fill.a / 255`, rounded half away from zero, and its alpha faded by the transparency
     // step in `clipPath.w` -- `__canvas_tintChannel`), the twin of the `isPicture` arm of
     // `__canvas_drawGeometry`. Same operation order as the oracle, `(q - x0) * iw / dw`,
-    // and `floor` rather than a cast, so all renderers pick the same texel; the index is
+    // through `pictureTexel`, so all renderers pick the same texel; the index is
     // CLAMPED because the antialiased pixels just outside the destination belong to the
     // border texel. The texels ride the glyph region one packed `r | g<<8 | b<<16 | a<<24`
     // word each, and the block names its slice as a glyph's does: width in `misc.w`,
@@ -1907,8 +1954,8 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float hw = fx(item.shape.z), hh = fx(item.shape.w);\n",
     "  float x0 = fx(item.shape.x) - hw, y0 = fx(item.shape.y) - hh;\n",
     "  float dw = hw * 2.0, dh = hh * 2.0;\n",
-    "  int u = clamp(int(floor((q.x - x0) * float(iw) / dw)), 0, iw - 1);\n",
-    "  int v = clamp(int(floor((q.y - y0) * float(ih) / dh)), 0, ih - 1);\n",
+    "  int u = pictureTexel((q.x - x0) * float(iw), dw, iw);\n",
+    "  int v = pictureTexel((q.y - y0) * float(ih), dh, ih);\n",
     "  uint word = as_type<uint>(edges[METAL_GLYPH_BASE + item.arc.z + v * iw + u]);\n",
     "  int4 tex = int4(int(word & 255u), int((word >> 8) & 255u),\n",
     "                  int((word >> 16) & 255u), int((word >> 24) & 255u));\n",

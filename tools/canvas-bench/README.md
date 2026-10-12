@@ -18,7 +18,10 @@ rendering code. bug-688 adds a Linux/Vulkan twin of the same instrument
   background), `text.sh` (a screen of text rows; takes an optional trailing
   font-path argument, used by Linux mode), `worker.sh` (the
   build/walk/present microbenchmark, no graphics thread involved), `hit.sh`
-  (what `canvas::pollMouse` costs to answer `overID`, with and without ids).
+  (what `canvas::pollMouse` costs to answer `overID`, with and without ids),
+  `clips.sh` (squares with a `Paint.clip` ring, untransformed, under an item
+  transform, or inside a group with a matrix), `magnified.sh` (49 small discs
+  drawn the same place through seven coordinate spaces).
 - **cmp.py** — pixel-compares two `MFB_CANVAS_DUMP` RGBA files: differing
   pixel count and max per-channel delta. What every oracle check reads.
 
@@ -227,6 +230,45 @@ too slow for that size and its `poll-again` is understated.
 
 The presses are delivered by `MFB_MOUSE_INJECT`, which is POSIX-only, so `hit`
 runs locally and on a Linux box and refuses `--target windows-x86_64`.
+
+### `clips [ITEMS] [FRAMES]`
+
+bug-995's table: ITEMS (default 150) squares of 100 px with a translucent
+fill, FRAMES (default 40) frames under `MFB_CANVAS_SYNC=1`, one row for each
+of no clip, a 64-point ring clip (banded) and a 28-point one (every edge
+walked), each untransformed, under an item transform that scales by 4 and by
+0.1, and untransformed inside a `canvas::Group` whose transform scales by 4.
+`ms/frame` is the render phase per frame after the first
+(`(phaseRenderMs last - first) / (frames - 1)`), so a first frame that
+compiles a pipeline is left out; on Windows each program is also run once
+before the measured run (bug-996).
+
+    bash tools/canvas-bench/bench.sh <mfb> clips
+    bash tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host test@192.168.1.206 clips
+
+**Healthy**: every row on the GPU, and a transformed or grouped clip row
+within about twice its no-clip row. Before bug-995 the transformed rows cost
+2x their no-clip row on Metal and 3x to 7x on box 206 (273 ms against 54 ms
+for 64 points at scale 4): every pixel took five unbounded clip samples.
+
+### `magnified-polygons [FRAMES] [--software]`
+
+bug-991's table: 49 discs of 24 points, about 27 px across, drawn the same
+place in seven modes that differ only in the coordinate space and the
+transform (`flat`: radius 0.08 under an item transform that scales by 170;
+`group`: the same items untransformed inside a `canvas::Group` scaled by 170;
+`x10`, `x100`; `pix`: surface pixels, the reference; `circle-xf`,
+`circle-pix`). FRAMES (default 40) frames under `MFB_CANVAS_SYNC=1`;
+`ms/frame` as for `clips`. `--software` runs `MFB_CANVAS_GPU=0`: give it a
+small FRAMES, a magnified software frame is seconds.
+
+    bash tools/canvas-bench/bench.sh <mfb> magnified-polygons
+    bash tools/canvas-bench/bench.sh <mfb> magnified-polygons 3 --software
+
+**Healthy**: `flat` and `group` within noise of `x100`, and software `flat`
+within about three times software `pix`. While bug-991 is open `flat` and
+`group` are about 30 ms a frame on Metal against 4 for `pix`, and 17 s
+against 34 ms in software: a magnified item's box is padded in its own units.
 
 ### `compare stress|poly|pics|text ARGS...`
 
