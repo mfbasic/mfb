@@ -1,4 +1,4 @@
-# bug-1074: on Intel's Vulkan driver a picture takes the wrong texel where a texel boundary is a pixel centre
+# bug-1079: on Intel's Vulkan driver a picture takes the wrong texel where a texel boundary is a pixel centre
 
 Last updated: 2026-10-11
 Effort: small in code (one expression in each GPU shader), medium to land (SPIR-V
@@ -38,7 +38,7 @@ References:
 
 ## Repro
 
-`bugs/repro/bug-1074/texel_edge.mfb`: one plain picture, an 8 by 4 image stretched over
+`bugs/repro/bug-1079/texel_edge.mfb`: one plain picture, an 8 by 4 image stretched over
 160 by 110 pixels at (460, 235). Rows are 27.5 px tall, so the boundary between image
 rows 0 and 1 is y = 262.5 — the centre of pixel row 262, where
 `(262.5 - 235) * 4 / 110` is exactly 1.

@@ -375,7 +375,7 @@ Commit: —
       … (ok worst=1 differing=0.9144%, 169198 lit)", `geoVerifyMismatches=0` on all
       four runs. The same two rows on box 2227 (x86_64, musl, lavapipe): the same two
       lines. On box 206 (Windows, Intel UHD 630): "worst=1 differing=1.2231%" and
-      "worst=1 differing=1.2191%" — after the scene was changed for bug-1074
+      "worst=1 differing=1.2191%" — after the scene was changed for bug-1079
       (Corrections).
 - [x] `src/docs/spec/app/06_canvas.md` "Images are named, not embedded": the two-entry
       expansion, the fit rules, the two clip modes and the clip intersection, each cited.
@@ -504,12 +504,12 @@ None beyond 172-A's Open Decision 3.
   cross the data plane (plan-116-I, `a274f147b`), which it still does, with the same
   code; `mfb spec app canvas` says "A `Picture` or a `Text` carries a resource" and
   "Move the `Image` or `Font`", either.
-- **bug-1074, found here and not this letter's.** The scene's first cut failed on box
+- **bug-1079, found here and not this letter's.** The scene's first cut failed on box
   206's real GPU alone: "worst=161 … first-beyond-tolerance=(470, 262, …)". Two of its
   shapes put a texel boundary exactly on a pixel centre, where the texel a renderer
   takes hangs on a float32 division being exact, and Intel's is not. A PLAIN picture
   does the same there with the compiler built at `88005fb60`
-  (`bugs/repro/bug-1074/texel_edge.mfb`: "worst=220 differing=0.0278%"), so it is filed
+  (`bugs/repro/bug-1079/texel_edge.mfb`: "worst=220 differing=0.0278%"), so it is filed
   and the scene's sizes were changed to keep every boundary off a pixel centre. The fix
   is one expression in each GPU shader and a SPIR-V regeneration.
 - **The `--debug` geometry check does not rebuild a picture.** A picture's records have
