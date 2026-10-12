@@ -36,11 +36,24 @@ The cleanup scope belongs to the **resource**, not to any name that refers to it
    scope is further out moves it out (§15.6). Nothing moves it in: binding a reference
    in an inner scope, passing it to a callee, or a callee handing it back leaves it
    where it is.
-3. **`RETURN` from the owning scope releases it to the caller.** A resource owned by
-   a scope of the returning function — produced there, or floated to one of its
-   scopes — is unowned between the `RETURN` and the caller's binding, and the caller's
-   binding scope takes it. A resource the function only received is still owned
-   further out, and `RETURN`ing it changes nothing.
+3. **`RETURN` hands it to the caller's current scope, immediately.** A resource
+   owned by a scope of the returning function (produced there, or floated to one
+   of its scopes) takes the caller's current scope as its cleanup scope the
+   moment the function returns: the **statement** the call is written in, when
+   nothing longer-lived takes it. There is no in-between state and no dependence
+   on which syntax the call sits in. A binding, a container some binding holds, a
+   module-level binding or a `RETURN` that the value reaches floats it further up,
+   by rule 2. A resource the function only received is still owned further out,
+   and `RETURN`ing it changes nothing.
+
+A value made of references is **plain data**. A `List OF RES T`, a
+`Map OF K TO RES T`, a record with a `RES` field or a list-of-`RES` field, a
+nested list of them: each is a block of pointers that follows the rules of a
+`List OF Integer`. Every hand-off to a longer-lived owner (a binding, an
+assignment, a store, a capture, a `RETURN`) copies or moves the block; each block
+has one owner, whose scope frees it at every exit; an unbound one is a statement
+temporary freed at the end of its statement. Freeing or copying the block never
+closes or frees a resource.
 
 So `RES y = ident(a)` inside an inner block, where `ident` returns its `RES`
 parameter, is one more reference to `a`'s resource: the inner block's exit closes
@@ -48,54 +61,39 @@ nothing, and `a`'s scope closes it once.
 
 Every scope exit — normal, `EXIT`, `CONTINUE`, `FAIL`, `PROPAGATE`, an
 auto-propagated failure, `TRAP` routing, `EXIT PROGRAM` — closes a resource it
-registered only when that scope is still the resource's owner. A call statement
-that discards a resource result closes it when nobody owns it (a resource the callee
-produced or released) and leaves a resource that still has an owner alone. The same
-rule closes a resource produced **inline** that nothing takes — a producer call
-used as a call argument (`useF(fs::open(p, "read"))`), as the target of a member
-read (`openTagged(p).state.pos`), or as an element of a list or record literal that
-is itself passed on (`useList([mk()])`): at the end of its statement, every
-resource the value reaches that is still unowned and not already closed is closed,
-on every exit from the statement. One a binding, an adopting container, a global or
-a `RETURN` took by then has an owner and is left to it, so `RES k = ident(mk())`
-and `RETURN ident(mk())` keep theirs.
-
-A call that returns an **aggregate** holding resources (a `List OF RES T`, a `Map`
-of them, a list of records with a `RES` field) is not such a producer in general:
-the aggregate may be a view of resources another owner holds, or may be kept by a
-value that outlives the statement. One position is settled, because nothing can
-keep the result there: a call to a function with a body, all of whose parameters
-are plain scalars, written directly as an argument of a call that does not keep
-that argument, does not consume it, is handed no callback that keeps it, and can
-only answer with a plain scalar — `len(mkList())`, `count(mkList())` for a `count`
-that only reads. The statement **adopts** what such a result reaches exactly as
-the binding `LET t = mkList()` would — every resource it reaches that is unowned
-is claimed at once — and at the end of the statement, on every exit from it,
-closes and reclaims each one it still owns. A resource the receiving call handed to
-a longer-lived owner (a module-level list) has that owner by then and is left
-open. A function whose every `RETURN` hands back a parameter or a module-level
-binding transfers nothing and is left alone, as is a result that reaches a resource
-union or a function value. [[src/codegen/engine/value/builder_values.rs:is_exclusive_aggregate_temp]] [[src/codegen/engine/value/builder_values.rs:adopt_exclusive_temp]] [[src/codegen/resource/cleanup/record_ownership.rs:call_takes_only_plain_scalars]] [[src/codegen/resource/cleanup/record_ownership.rs:call_returns_plain_scalar]]
-
-In every other position an aggregate-returning call is written in without being
-bound — a constructor argument (`Layer[items := mkItems()]`), the target of a
-member read (`mkLayer().items`), a `FOR EACH` iterable, an argument of a call
-that answers with anything but a plain scalar (`collections::get(mkList(), 0)`) —
-the rule is that the aggregate takes the scope of whatever takes it (the record, the
-binding, the loop) and its resources are released with that owner. The compiler does
-not implement this yet: in these positions the resources the aggregate holds are
-closed by nothing, which is a known defect and not a contract. Until it is fixed,
-binding the call first (`LET xs = mkList()`) adopts them into the binding's scope. An inline `TRAP` over a call that hands out
-resources (`LET xs = mkList() TRAP … END TRAP`) adopts them into the binding's scope
-exactly as the plain call does. [[src/codegen/engine/value/builder_values.rs:register_resource_temp]] [[src/codegen/resource/owner.rs:emit_resource_temp_close]] [[src/codegen/resource/owner.rs:emit_claim_returned_value]] [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:trap_call_result_locals]]
+registered only when that scope is still the resource's owner. A **statement** is
+such a scope for what a call hands it: a producer call's result that nothing
+binds (`useF(fs::open(p, "read"))`, `openTagged(p).state.pos`), and every resource
+that the value a function returns reaches and that the function released
+(`len(mkList())`, `Layer[items := mkItems()]`, `mkLayer().items`, a `FOR EACH`
+iterable, `collections::get(mkList(), 0)`, at any depth of nesting). At the end of
+the statement, on every exit from it, each resource the statement still owns is
+closed and its memory reclaimed. One that a binding, a container, a module-level
+binding or a `RETURN` took by then has that owner and is left to it, so
+`RES k = ident(mk())`, `RES k = collections::get(mkList(), 0)`,
+`LET t = collections::take(mkList(), 1)` and `RETURN ident(mk())` keep theirs, and
+the rest of what the call handed out closes with the statement. A call statement
+that discards its result is the same case. A value that is only a **view** (a
+function that returns its parameter, a builtin answering with references to
+resources another scope owns) hands the statement nothing: its resources already
+have a cleanup scope further out, and nothing moves or closes them. An inline
+`TRAP` over a call that hands out resources (`LET xs = mkList() TRAP … END TRAP`)
+adopts them into the binding's scope exactly as the plain call does.
+[[src/codegen/engine/value/builder_values.rs:register_resource_temp]] [[src/codegen/engine/value/builder_values.rs:adopt_statement_temp]] [[src/codegen/resource/owner.rs:emit_resource_temp_close]] [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:value_may_carry_statement_resources]] [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_assigned_container_float]] [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:trap_call_result_locals]]
 
 The owner is a word on the resource record (`./mfb spec memory heap-values`, "The
-owner word"): `0` while unowned, else the token of the owning scope. A binding
-**claims** an unowned resource, at its bind and at every assignment that stores a new
-one (for a resource union, the active variant's record); a float raises the owner to the outer collection
-scope; a `RETURN` writes `0` for every resource its value carries that a scope of
-the returning function owns; a scope-exit close runs only when the owner equals that
-scope's token. `thread::accept` produces an unowned copy that its binding claims.
+owner word"): the token of the owning scope, or `0` for a record no scope has
+taken yet (a producer's fresh record before its statement or binding takes it, a
+record a `RETURN` is handing over). Taking is one operation everywhere: the owner
+word is **raised** to the taker's token when it is below it. A binding takes at
+its bind and at every assignment that stores a new value (for a resource union,
+the active variant's record); a statement takes what a call returns to it, with
+the token of the scope depth one inside the current scope; a float raises the
+owner to the outer collection scope; a `RETURN` writes `0` for every resource its
+value carries that a scope of the returning function owns (the statement's
+included), and the caller's statement or binding takes it as the call returns; a
+scope-exit close runs only when the owner equals that scope's token.
+`thread::accept` produces an unowned copy that its binding takes.
 [[src/codegen/resource/owner.rs:emit_resource_claim]] [[src/codegen/resource/owner.rs:emit_resource_float]] [[src/codegen/resource/owner.rs:emit_release_returned_value]] [[src/codegen/resource/owner.rs:emit_skip_unless_owned]] [[src/codegen/resource/owner.rs:emit_close_discarded_value]]
 
 **Thread handles are resources too.** A parent `Thread` follows every rule here, with one difference: its registered close op (`thread.drop`) is hidden, so event 1 is not available to a program; explicit resource hand-off uses `thread::transfer` or `RETURN`, and automatic close occurs at its cleanup scope's drop — which cancels a worker still running (§16). A `ThreadWorker` is a resource as well — bound with `RES`, aliased, moved and stored by the same rules — that has no close op at all: the runtime closes it when the worker returns, so its cleanup scope's drop closes nothing. Whether a type is a resource is decided by the type, never by whether it has a close op. [[src/codegen/builtins/thread/mod.rs:DROP]] [[src/codegen/resource/mod.rs:is_builtin_resource]]

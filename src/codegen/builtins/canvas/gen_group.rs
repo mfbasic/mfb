@@ -159,14 +159,10 @@ pub(crate) fn emit_set_group(
 
     let items_type = ParameterType::list_of(ParameterType::named("DrawItem"));
 
-    // plan-116-J will have to replace this `copy_flat_block`, not add to it. It is
-    // correct today because no `DrawItem` carries a resource; plan-116-I puts a
-    // `RES canvas::Image` in `Picture` and a `RES canvas::Font` in `Text`, and
-    // `a_res_collection_does_not_diverge` in `builder_collection_layout.rs` pins that a
-    // resource-carrying collection must stay out of `copy_flat_block` — and out of
-    // `is_freeable_flat_value`, which is what `emit_free_items_block` below relies on.
-    // Recorded here as well as in that plan because this is the call site, and a reader
-    // arriving from I rather than from J would otherwise find nothing.
+    // A `DrawItem` that carries a resource (a `RES canvas::Image` in `Picture`, a
+    // `RES canvas::Font` in `Text`) holds an alias in a plain 8-byte slot, so the
+    // items list is a flat block: `copy_flat_block` copies the aliases and
+    // `emit_free_items_block` frees the block without touching a resource.
 
     // Both copies happen BEFORE the table is touched, and both are parked on the
     // stack across each other's calls: an argument register does not survive a call,

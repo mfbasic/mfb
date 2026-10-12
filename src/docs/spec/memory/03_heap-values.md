@@ -363,7 +363,9 @@ resource kind and binding ownership; the exact rule is in `./mfb spec memory are
 
 `owner` at `+32` names the one scope that closes the resource
 (`./mfb spec language resource-management` §15.1). `0` means **unowned**: freshly
-produced and not yet bound, or released by a `RETURN` and not yet taken. Every
+produced and not yet taken by its statement or binding, or released by a `RETURN`
+that is handing it to the caller, whose statement or binding takes it as the call
+returns. A taker raises the word to its own token when it is below it. Every
 producer — the built-in open/connect/spawn/start helpers, a native `LINK`
 constructor, the closed default, and the receiving copy `thread::accept` makes —
 writes `0`. [[src/codegen/resource/owner.rs:emit_resource_claim]]

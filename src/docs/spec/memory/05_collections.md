@@ -337,8 +337,13 @@ offset, `valueLength` = the block byte size. Because a collection's internal
 entry offsets are relative to its own data-region base, an inlined nested collection
 relocates correctly under the enclosing block's `memcpy`. The **only** payloads
 that remain an 8-byte pointer handle are a **resource** and a **non-flat** nested
-collection (one whose own payloads include a resource or a recursive type) — see
-`is_pointer_collection_payload_type`. [[src/codegen/collection/layout/builder_collection_layout.rs:is_pointer_collection_payload_type]]
+collection (one whose own payloads include a function value or a recursive type) — see
+`is_pointer_collection_payload_type`. A resource element is an **alias**: the slot
+holds the pointer to the one resource record (a resource union's holds its
+`{tag, record}` box inline), so a collection of them is a flat block within its
+thread. It is copied by `memcpy` at every hand-off to a longer-lived owner and
+freed by its one owner like a `List OF Integer`; copying or freeing it closes
+nothing. It is never relocated into another thread's arena. [[src/codegen/collection/layout/builder_collection_layout.rs:is_pointer_collection_payload_type]]
 
 A **function value** (`FUNC(...) AS T`, list element or map value) is packed as a
 single **8-byte pointer** to the closure object the collection owns (`./mfb spec

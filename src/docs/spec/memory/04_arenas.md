@@ -444,23 +444,27 @@ close/reclamation distinction.
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_moved_resource_record_free]]
 [[src/codegen/memory/arena/builder_arena_transfer.rs:copy_resource_to_current_arena]]
 
-An **aggregate temporary its statement owns outright** (`./mfb spec language
-resource-management`, `len(mkList())`) is the bound form shrunk to one statement.
-When the call returns, the result is spilled to a `resource_temp` slot and every
-resource it reaches is pushed, adopting, onto a list of its leaf kind headed by a
-`resource_temp_owned` slot: an unowned record takes the current scope's token and
-gets a `{record, next}` node, a record that already has an owner is skipped. The
-slots are zero-initialized with the frame, so a path that never ran the producer
-drops nothing. At the end of the statement — and on each of its other exits, an
-error exit and a `RETURN` included — the lists are drained with the owning frees
-described next (close, then the buffers, `STATE` and record), and the result's own
-block is freed when the callee built it and no pending-temporary free already
-covers it (a `List OF RES T` is not freeable-flat and has none; a record or a list
-of records is, and has one). A record the receiving call raised to a longer-lived
-owner no longer holds this scope's token and is skipped by the drain.
-[[src/codegen/engine/value/builder_values.rs:adopt_exclusive_temp]]
-[[src/codegen/engine/value/builder_values.rs:emit_exclusive_temp_drop]]
-[[src/codegen/engine/builder/mod.rs:ExclusiveTemps]]
+**What a call hands its caller's statement.** When a call to a function body
+returns a value that reaches resources, the statement the call sits in takes, at
+once, every record the callee's `RETURN` released (`./mfb spec language
+resource-management`, "The owner of a resource"). The result is spilled to a
+`resource_temp` slot and walked: a record whose owner word is below the statement's
+token takes that token and gets a `{record, next}` node (`{tag, record, next}` for
+a resource-union leaf) on a list of its leaf kind headed by a `resource_temp_owned`
+slot; a record that already has an owner at the statement or further out is
+skipped. The statement's token is the token of the scope depth one inside the
+current scope, so every binding, container or `RETURN` of this frame that keeps
+the record raises it past the statement by the ordinary float, and no callee can
+take it. The slots are zero-initialized with the frame, so a path that never ran
+the producer drops nothing. At the end of the statement, and on each of its other
+exits (an error exit and a `RETURN` included), the lists are drained: a record the
+statement still owns is closed and its buffers, `STATE` and record freed; a record
+a taker raised no longer holds the statement's token and is skipped. The result's
+own block is an ordinary flat temporary with its own free. Which expression the
+call is written in is not consulted.
+[[src/codegen/engine/value/builder_values.rs:adopt_statement_temp]]
+[[src/codegen/engine/value/builder_values.rs:emit_statement_temp_drop]]
+[[src/codegen/engine/builder/mod.rs:StatementTemps]]
 
 A resource that **floats** into an owner collection (`./mfb spec language
 resource-management` §15.6) has no binding of its own left to drop, so its memory is
@@ -479,8 +483,7 @@ below. [[src/codegen/resource/cleanup/record_ownership.rs:CollectionUses]] The d
 union box: a box is its binding's or its statement's, or a span of the collection
 block that holds the element inline (`./mfb spec memory heap-values`, "Union").
 Everything the node POINTS at — the element's `STATE` block, its per-`File`
-I/O buffers, its record for the record-freeing kinds above, and the collection
-block itself — is freed only for a
+I/O buffers and its record for the record-freeing kinds above — is freed only for a
 collection proved to be their one owner: every store into it is a collection
 literal, a self-receiving `collections::` mutator, a call audited to return a block
 nothing else holds — `collections::take`/`drop`/`chunks`/`window` (source bodies over
@@ -507,12 +510,13 @@ not keep it ends with that call, while one that is bound, returned, stored as an
 or nested in another value disqualifies the collection (a read that is a `MATCH`'s
 scrutinee ends with the `MATCH` unless a case binding leaves it); and every element that floats
 into it is a fresh producer record that does not escape and is not handed to such
-unread code. Such a collection also frees the block a copying
-reassignment replaces (`out = collections::append(out, x)` when the in-place append
-declines); the elements are references and are not touched. The intermediates a `collections` member builds for a `RES` collection (an
-element's singleton, `set`'s removed copy) are freed the same shallow way.
-[[src/codegen/collection/buffer/collection_buffer.rs:free_intermediate_collection]] A collection that fails any of those keeps a close-only drain, which leaks
-those blocks rather than risking a double free.
+unread code. A collection that fails any of those keeps a close-only drain, which leaks
+those blocks rather than risking a double free. The collection's OWN block is not
+part of this question: a collection of resource aliases is a flat block
+(`./mfb spec memory collections`), copied at every hand-off to a longer-lived owner
+and freed by its one owner through the ordinary owned-value drop, the block a
+reassignment replaces and the intermediates a `collections` member builds included.
+[[src/codegen/collection/buffer/collection_buffer.rs:free_intermediate_collection]]
 A collection that reaches a resource union is held to the same proof as any other.
 
 A **record** that reaches a resource — a record with a `RES` field, or one nesting
@@ -570,18 +574,10 @@ tag-dispatched close it frees a `File` variant's output and read buffers, then t
 owned-list drain of union elements frees the buffers under the same proof as the
 record. [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:emit_union_tag_dispatch_drop]]
 
-The same rules cover a list of such collections (`List OF List OF RES T`), which
-holds each inner list by pointer, in its own block. Two further verdicts apply to
-every `RES`-block collection. A copying reassignment frees the block it replaces
-whenever the collection's every store is fresh, no call keeps it, no element is read
-back out of it, and it is named outside a call argument only by `RETURN`: a
-`RETURN` hands on the current block, never one already replaced. A nested binding
-that is its block's sole holder and whose every store is `collections::chunks` or
-`collections::window` frees each inner block before the outer one: those bodies
-append each fresh slice exactly once. Any other nested binding frees its outer block
-only; its inner blocks may have another holder, so they leak rather than risk a
-double free. [[src/codegen/resource/cleanup/record_ownership.rs:block_collections]]
-[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_inner_block_frees]]
+A list of such collections (`List OF List OF RES T`) is a nested flat list: each
+inner list is inlined in the outer block's data region, so one copy copies the
+whole value and one free releases it.
+[[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]]
 
 Raw thread-helper results belong to the thread runtime's block arena and
 must not be freed through the caller's arena. However, `thread::waitFor`,
