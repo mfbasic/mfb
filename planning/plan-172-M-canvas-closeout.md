@@ -33,7 +33,7 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-172-L complete and archived | `ls planning/plan-172-[A-L]-*` → no matches | NOT MET |
+| plan-172-L complete and archived | `ls planning/plan-172-[A-L]-*` → no matches | MET (2026-10-11: "no matches found") |
 | Every remote box this letter names is reachable | probe each per `.ai/remote_systems.md`: 2223, 2226, 2228, `test@192.168.1.206` | UNVERIFIED — run first |
 
 If plan-172-L is not complete, this letter cannot start, full stop.
@@ -230,6 +230,28 @@ None.
 
 ## Corrections
 
+- **From 172-L as built (2026-10-11): what the closeout has to know about a `Picture`.**
+  Read `mfb spec app canvas`, "A picture is drawn inside a shape", and
+  `.ai/canvas-threading.md` section 17 first.
+  - **§2's "Canvas PNG goldens" row expects 11 and `picture_shapes` is one of them**: it
+    is there (`tests/golden/canvas/picture_shapes.png`).
+  - **Two bugs were filed, both open, neither caused by 172.** `bug-1079`: on box 206's
+    Intel GPU a picture takes the neighbouring texel where a texel boundary is exactly
+    a pixel centre — so a Windows row that draws a picture of such a size fails for
+    that reason and no other; `tests/canvas/scenes/picture_shapes_on_black.mfb` is
+    sized to avoid it. `bug-1080`: a defaulted record updated with `WITH` costs about
+    27 KB of code a statement, which is why that scene's program is large.
+  - **The rows script has two more rows** (`pictureshapes`, `pictureauto`), and they
+    pass on 2226, 2227 and 206 at `b83b09637`.
+  - **`examples/canvas-demo` has no shaped picture and no `AutoPaint`.** Its `Picture`
+    literals were ported mechanically. The Validation Plan's runtime proof asks for
+    one "with an `AutoPaint` button, a shaped picture and a rotated group visible";
+    the showcase rewrite that would put them there is the owner's to authorise and
+    has not been (their words: "Do a rewrite, not a port").
+  - **What a canvas program costs changed**: one with no picture is 16,904 bytes
+    smaller than at 172-K's end and one with pictures 226,012 larger (`__text`, macOS
+    AArch64). Phase 2's `canvas-bench` sweep compares against 172-F's figures; the
+    `pics` rows were at parity with `88005fb60` when alternated with it.
 - **From 172-I's id path (owner's decision, 2026-10-10):** one more closeout count (no
   field-naming `Group` constructor without an `id`), and the Windows `overID` proof
   covers a group path and a picture.

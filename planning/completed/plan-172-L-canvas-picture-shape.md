@@ -316,7 +316,7 @@ Acceptance: every picture test passes with no golden regenerated.
   passed; 0 failed; 2 ignored", "50 passed", and the status empty. In the closing round:
   16, 11, 17 and 52 passed, and the status is one line, `?? tests/golden/canvas/
   picture_shapes.png` — Phase 3's new reference; no existing one moved.
-Commit: —
+Commit: b83b09637
 
 ### Phase 3 — Shaped pictures (largest blast radius)
 
@@ -397,7 +397,7 @@ where both cover, with no seam.
   passed". The whole-letter round (`/tmp/plan-172-A/round_l.sh`: 39 test targets, the
   in-binary `canvas`, `spec`, wider and census subsets): every target passed, 0 FAILED
   lines.
-Commit: —
+Commit: b83b09637
 
 ## Validation Plan
 
