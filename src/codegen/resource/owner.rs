@@ -312,34 +312,65 @@ impl CodeBuilder<'_> {
         })
     }
 
-    /// bug-842: close what a resource temporary in `slot` (a producer call's result
-    /// nobody took) reaches that is still unowned at the end of its statement. A
-    /// resource already closed in that statement — `fs::close(mk())`, a transfer —
-    /// is left alone: its close was the program's.
+    /// bug-842, rule 5: close what the resource temporary in `slot` (a producer
+    /// call's result) holds when its statement still owns it at the statement's
+    /// end. `depth` is the statement's scope depth, whose token the record took
+    /// when the call returned: a record a binding, a container, a global or a
+    /// `RETURN` raised since holds another token and is left to that owner. The
+    /// statement is then the record's last holder, so the drop frees what a
+    /// binding's drop frees: the buffers, the `STATE` and, for the record-freeing
+    /// kinds, the record. A closure leaf (`depth` is `None`) closes what it
+    /// carries that nobody owns, through its environment routine.
     pub(crate) fn emit_resource_temp_close(
         &mut self,
         slot: usize,
         type_: &ParameterType,
+        depth: Option<usize>,
     ) -> Result<(), String> {
         self.emit_for_each_resource(slot, type_, &mut |builder, leaf_slot, leaf| {
-            if builder.is_closure_leaf(leaf) {
+            let Some(depth) = depth.filter(|_| !builder.is_closure_leaf(leaf)) else {
                 return builder.emit_close_unowned_at(leaf_slot, leaf);
-            }
+            };
             let done = builder.label("resource_temp_close_done");
-            let record = builder.allocate_register();
-            builder.emit(abi::load_u64(record, abi::stack_pointer(), leaf_slot));
-            builder.emit(abi::compare_immediate(record, "0"));
+            let value = builder.allocate_register();
+            builder.emit(abi::load_u64(value, abi::stack_pointer(), leaf_slot));
+            builder.emit(abi::compare_immediate(value, "0"));
             builder.emit(abi::branch_eq(&done));
-            if builder.resource_union_cleanup(leaf).is_some() {
-                builder.emit(abi::load_u64(record, record, 8));
+            if let Some(variants) = builder.resource_union_cleanup(leaf) {
+                let record = builder.allocate_register();
+                builder.emit(abi::load_u64(record, value, 8));
                 builder.emit(abi::compare_immediate(record, "0"));
                 builder.emit(abi::branch_eq(&done));
+                builder.emit_skip_unless_owned(&Reg::from(record), depth, &done)?;
+                let io_buffer_tags = builder.resource_union_io_buffer_tags(leaf);
+                let record_free_tags = builder.resource_union_record_free_tags(leaf);
+                builder.emit_union_tag_dispatch_drop(
+                    &value,
+                    &variants,
+                    leaf.state().as_ref(),
+                    &io_buffer_tags,
+                    &record_free_tags,
+                    &done,
+                )?;
+                builder.emit(abi::label(&done));
+                return Ok(());
             }
-            let flag = builder.allocate_register();
-            builder.emit(abi::load_u64(flag, record, RESOURCE_OFFSET_CLOSED));
-            builder.emit(abi::compare_immediate(flag, "0"));
-            builder.emit(abi::branch_ne(&done));
-            builder.emit_close_unowned_at(leaf_slot, leaf)?;
+            let Some(close) = builder.resource_cleanup_symbol(leaf) else {
+                builder.emit(abi::label(&done));
+                return Ok(());
+            };
+            builder.emit_skip_unless_owned(&Reg::from(value), depth, &done)?;
+            let closed = builder.label("resource_temp_close_ok");
+            builder.emit(abi::move_register(abi::return_register(), value));
+            builder.emit_symbol_call(&close);
+            builder.emit_drop_close_outcome(&closed);
+            builder.emit(abi::label(&closed));
+            builder.emit_resource_block_reclaim(
+                leaf_slot,
+                leaf.state().as_ref(),
+                Self::resource_uses_io_buffers(leaf),
+                Self::resource_record_freed_at_drop(leaf),
+            )?;
             builder.emit(abi::label(&done));
             Ok(())
         })

@@ -1246,6 +1246,10 @@ pub(crate) struct StatementTemps {
     /// Per temporary (by its `PendingTemp` slot): the owned-lists it seeded, one
     /// per resource leaf kind.
     pub(crate) drops: HashMap<usize, Vec<OwnedListCleanup>>,
+    /// Per temporary whose value IS a resource (or a resource-union box): the
+    /// statement's scope depth, whose token the record took when the call
+    /// returned.
+    pub(crate) leaf_depths: HashMap<usize, usize>,
 }
 
 /// A fresh, freeable-flat heap temporary awaiting a statement-scope free

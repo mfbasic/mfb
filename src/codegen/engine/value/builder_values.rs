@@ -437,6 +437,18 @@ impl CodeBuilder<'_> {
         // A slot a skipped producer (a short-circuited operand, an earlier loop
         // iteration's path) never wrote must read null, not stack garbage.
         self.owned_value_slots.push(slot);
+        if leaf && !self.is_closure_leaf(&result.type_) {
+            // Rule 5: the statement takes the record at once (its token is the
+            // next scope depth's), so a callee it is handed to cannot take it and
+            // a taker that outlives the statement raises it.
+            let depth = self.current_scope_depth() + 1;
+            if self.resource_union_cleanup(&result.type_).is_some() {
+                self.emit_resource_union_claim_at(slot, depth)?;
+            } else {
+                self.emit_resource_claim_at(slot, depth)?;
+            }
+            self.statement_temps.leaf_depths.insert(slot, depth);
+        }
         if !leaf {
             self.adopt_statement_temp(slot, result)?;
             // The adoption allocated list nodes, and an arena call destroys every
@@ -901,7 +913,8 @@ impl CodeBuilder<'_> {
                 return Ok(());
             }
             if !self.resource_temps_closed_on_path {
-                self.emit_resource_temp_close(temp.slot, &temp.type_)?;
+                let depth = self.statement_temps.leaf_depths.get(&temp.slot).copied();
+                self.emit_resource_temp_close(temp.slot, &temp.type_, depth)?;
             }
             self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), temp.slot));
             return Ok(());
@@ -931,7 +944,8 @@ impl CodeBuilder<'_> {
             // A statement-owned aggregate is drained whole by the interior
             // drop this path emits next, which does not consult the flag below.
             if temp.resource && !self.statement_temps.drops.contains_key(&temp.slot) {
-                self.emit_resource_temp_close(temp.slot, &temp.type_)?;
+                let depth = self.statement_temps.leaf_depths.get(&temp.slot).copied();
+                self.emit_resource_temp_close(temp.slot, &temp.type_, depth)?;
             }
         }
         // The list itself stays: an enclosing statement's temps are still its own on
