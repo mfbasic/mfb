@@ -1,6 +1,6 @@
 # plan-164-C: Metal and Vulkan draw `canvas::PolyCurve` and `canvas::CurvePolygon` per pixel
 
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 Effort: large (3h–1d)
 Depends on: plan-164-B
 
@@ -173,7 +173,7 @@ Acceptance: pieces and band tables reach the GPU buffers intact.
   arcs and a cubic a few thousandths of a unit across under a 30,000-fold transform,
   worst delta 1 on Metal, lavapipe and Intel; with the emitter's residual words zeroed,
   worst delta 127 over 3,759 pixels.
-Commit: —
+Commit: ad1daaa64
 
 ### Phase 2 — Shaders, tolerance measurement
 
@@ -263,7 +263,7 @@ row without a curve still passes `GPU_DEFAULT`.
   target/p164/mfb-c2 --target linux-aarch64 --box 2226` → `bug-688 rows passed on
   linux-aarch64`, 46 of 46 render rows `ok` — every row without a curve under
   `GPU_DEFAULT`, the six curve rows under `GPU_CURVE` (Correction 5 for the box).
-Commit: —
+Commit: ad1daaa64
 
 ### Phase 3 — Docs, spec, final gate
 
@@ -338,7 +338,7 @@ Acceptance: man and spec render and cite, and the whole tree passes.
   delta 2 of software; the same spiral at 20× through a group's transform differs from
   it in 1,131 pixels (worst 190) — the documented contrast, the fit's 0.05 px grown to
   1 px.
-Commit: —
+Commit: ad1daaa64
 
 ## Validation Plan
 
@@ -399,7 +399,9 @@ None. `GPU_CURVE` is measured, bounded above by §1's ceiling.
    byte-identical, so the two boxes' glslang agree), and the Linux Vulkan lane is 2226
    (Debian AArch64, lavapipe) through `scripts/test-canvas-gpu-rows.sh --target
    linux-aarch64 --box 2226`, the script that carries scene files, rather than
-   `test-canvas-vulkan.sh`, whose scenes are inline. The x86-64 Vulkan upload path is
+   `test-canvas-vulkan.sh`, whose scenes are inline — that one was run on 2226 as well,
+   for the shader change's sake (`bash scripts/test-canvas-vulkan.sh target/p164/mfb-c2
+   --box 2226 --target linux-aarch64` → `canvas Vulkan runtime tests passed`). The x86-64 Vulkan upload path is
    covered by the Windows box. **Not run: any Linux x86-64 Vulkan lane.**
 6. **A polygon bug, found and fixed: a vertex on a pixel-centre row inverted the row.**
    `dfCrossing` (both shaders) rebuilt an edge's end as `ay + vy`, and double-float
@@ -432,6 +434,21 @@ None. `GPU_CURVE` is measured, bounded above by §1's ceiling.
     displacement … exceeds ±128 MiB`), on the baseline compiler too. That is bug-1035
     (emitted code quadratic in a function's fallible statements). Nothing here depends
     on it.
+
+12. **The final gate moved a third fixture, and it was the plan's prediction that was
+    wrong.** `bash scripts/artifact-gate.sh target/p164/mfb-c3 all` → `1686 tests, 1865
+    build(s), 2350 golden(s) checked, 1 diff(s)`:
+    `syntax/app/app-window-surface/app_window_surface.macos-aarch64.app.ncode`, a
+    program with no canvas in it. Localized by building it with letter B's compiler and
+    this one (`mfb build --app --ncode`) and diffing the two `.ncode` files: ONE line
+    differs, the data symbol `_mfb_macapp_metal_shader` — the Metal shader's source text,
+    which a macOS window program carries whether or not it draws — 59,920 bytes before
+    and 73,360 after. No instruction moved; its `.ir`, `.nir`, `.nplan` and the three
+    other targets' checksums are unchanged. The shader text is what this letter changes,
+    so the Validation Plan's "0 diffs beyond … `app-mouse-surface`" should have named
+    this fixture too. Only that one checksum was re-baselined. (The two canvas fixtures
+    moved as predicted and were re-baselined before the gate ran, which is why they
+    show as passing in it.)
 
 ## Summary
 
