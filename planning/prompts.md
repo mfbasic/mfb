@@ -225,6 +225,30 @@ The goal of a phase is its fixes on main. Land the list, then start the next one
 4. Baseline: if there's no current one, run the full gate (step F) once on main. Record
    main's SHA and which tests already fail there. Don't chase those during the phase.
 
+## Cause before fix (once per phase, before step A)
+An agent is never handed a symptom to make go away. Before assigning anything, YOU read
+the code for every bug in the list (no agent; about 15 minutes a bug, less for the
+obvious ones) and write a "Cause" note at the top of its bug doc, five lines at most:
+- the rule the code is breaking (cite the spec section or the invariant in `.ai/`; if the
+  spec itself states the opposite of what the owner has ruled, say so);
+- the one place that rule lives in the code (function and file);
+- what following the rule changes there, and what existing special handling it makes
+  redundant and deletes.
+Then:
+- Bugs with the same cause are ONE fix: give them to one agent as one piece of work, in
+  one brief, not split across agents and not fixed bug by bug.
+- The agent's brief carries the Cause note and says: restore the rule in the place it
+  lives; a fix that decides behaviour by enumerating cases (statement shapes, positions,
+  wrapper or callee names, type spellings) is rejected at review whatever it measures.
+- You need the owner before starting ONLY for a bug where (a) its doc records an earlier
+  attempt that failed, was reverted or was narrowed, or (b) you cannot name an existing
+  rule and the fix needs a new one. Put all such bugs in ONE message (cause, proposed
+  rule, what gets deleted) and wait for the answer on those bugs only; every other bug in
+  the phase starts at once. This is the only planned stop of a phase.
+A measured experiment beats a paragraph: if the cause is one predicate or one check, try
+it in a scratch worktree (`git worktree add --detach /tmp/...`, removed afterwards) and
+put the before/after numbers in the note.
+
 ## Phase loop
 A. Assign bugs: at most 2 agents at a time (never a third, not even for a "quick"
    follow-up; queue it), at most 5 bugs each, worked one bug at a time. A phase can take
@@ -271,6 +295,26 @@ C. Review every bug yourself: read the diff, re-run the repro and the RED→GREE
    Merge accepted bugs into staging, and add a separate integration commit when parallel
    fixes clash (a retired field, a new parameter). Add debugger feedback to
    debugger-report.md (untracked, main checkout).
+   Review the APPROACH before the claims. Reject, unmerged, a fix that enumerates cases
+   instead of restoring the rule in its Cause note, even when every counter is right.
+   Three tripwires, checked here and nowhere else (an agent never stops for them, and you
+   never stop for anything that is not one of them):
+   1. the fix decides behaviour case by case (see "Cause before fix");
+   2. after a fix that was reported done, your re-run or a sibling sweep finds more
+      failing cases OF THE SAME KIND (another position, another wrapper, another type);
+   3. the fix adds more than about 300 lines to one analysis or ownership file, or more
+      than about 600 non-test lines for one bug.
+   When one fires, do NOT send the agent back for the next case and do NOT ask the owner
+   yet. Stop that bug's agent, and spend up to 30 minutes yourself on the code: find the
+   rule and the place, and test it in a scratch worktree. If that gives a general fix
+   inside what the bug doc and the owner's rulings already settle, write the new Cause
+   note, re-brief ONE agent from a clean base (not on top of the rejected work), and carry
+   on without stopping. Tell the owner only if it does not, or if the general fix changes
+   a contract or replaces a mechanism the owner has not ruled on: one message with the
+   cause, the per-case approach you rejected, the general alternative, and the agent
+   tokens the bug has used. The rest of the phase keeps running while you wait. A
+   tripwire is the ONLY reason to raise the approach; a choice the prompt, the bug doc or
+   a ruling already settles is made and noted, never asked.
 D. New bugs found during the phase: reproduce them yourself before writing a bug doc,
    file each one, and place it in a LATER phase in bugs/status.md. Filing is all that
    happens to it now: no agent starts on it, and it is never added to the running phase
@@ -321,6 +365,17 @@ I. Move on to the next phase.
 - The full suite runs in exactly one place: the coordinator's gate (step F). Agents run
   targeted checks only. Any brief the coordinator writes for agents must repeat step B's
   rules without loosening them.
+- Budget: a bug gets at most TWO agent rounds (the fix, and one follow-up for review
+  findings). There is no third round. If the second round does not pass review, treat it
+  as a tripwire (step C): find the cause yourself, and re-brief once from a clean base
+  only with a new Cause note; otherwise the bug leaves the phase with what was tried
+  written in its doc. Keep a running total of the tokens each agent's completion notice
+  reports, per bug, and put it in every status answer; a bug that passes about one
+  million agent tokens is reported to the owner in that answer, with why.
+- A status answer says, for each bug in progress, the rule being restored and where
+  (from its Cause note), before any counts.
+- Watch your own gate: when the full gate (step F) or a merge check runs detached, poll
+  its summary file and report the result when it finishes, not when asked.
 - One cargo build at a time machine-wide; check `uptime` first.
 - Perf bugs run alone, measured at load < 4 against a main build from git archive
   into /tmp.
