@@ -55,6 +55,20 @@ which value they belong to or what type it is: to read a value, find where it
 is — in a register, or in the list of a collection's elements — and use
 `show type` (`mfb man debug values`).
 
+### Watching memory being asked for
+
+Every value's memory is asked for through `_mfb_arena_alloc` and handed back
+through `_mfb_arena_free`, so a breakpoint on either sees each request.
+`bp _mfb_arena_alloc list reg x0; finish; run` prints each one: `x0` at the
+stop is the number of bytes asked for, and `x1` after the `finish` is where
+the pool put them.
+
+The pool rounds every request up to a multiple of 16 bytes, and the figures
+in the report (`mfb man debug report`) count the rounded size. A request for
+152 bytes stops with `x0` at 152 and adds 160 to the report's `live_bytes`,
+so a test must name the size asked for: `bpi x0 eq 152 at _mfb_arena_alloc`,
+not 160.
+
 ## Examples
 
 Stop in `summarize`, list the pools, and dump part of the main thread's
@@ -72,7 +86,7 @@ Set a breakpoint at 0x0000000100205ee0 in summarize.
 DBG> run
 round 1: 37 primes
 round 2: 31 primes
---[BP] T: 0 P: 0x0000000100205ee0 F: summarize
+--[BP] T: 0 P: 0x0000000100205ee0 F: (summarize) _mfb_fn_summarize
 DBG> list arena
 ID | Thread | Address            | Size (KB)
 0  | 0      | 0x000000016fbf9f50 | 12

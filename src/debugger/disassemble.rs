@@ -9,7 +9,7 @@
 //! emits and the instructions of dyld and the system libraries; a word it does
 //! not know (SVE, SME, memory tagging) shows as `.word`.
 
-use super::names::{classify_defined, Collisions};
+use super::names::{classify, classify_defined, Collisions};
 use super::{FunctionRange, FunctionSymbol, Inferior};
 use crate::arch::aarch64::decode::{decode, Flow};
 
@@ -64,10 +64,10 @@ pub(crate) enum Request {
 /// The size of an AArch64 instruction; every one starts on a multiple of it.
 const INSTRUCTION: u64 = 4;
 
-/// How a function is named in a listing: what the developer wrote for their
-/// own functions, otherwise the symbol less the leading `_` C adds (as lldb
-/// prints it), tagged when an MFBASIC and a native function share the name
-/// (`main <mfb>`, `main <native>`).
+/// How a function is named in a listing: what the developer wrote for it,
+/// otherwise its symbol (a system library's as C names it), tagged when an
+/// MFBASIC and a native function share the name (`exit <mfb>`,
+/// `exit <native>`).
 pub(crate) fn display_name(symbol: &str, collisions: &Collisions) -> String {
     at_offset(symbol, 0, collisions)
 }
@@ -225,11 +225,9 @@ fn unknown(address: u64) -> FunctionRange {
 }
 
 /// The functions `name` means: symbols spelled `name` (the executable's, its
-/// imports', the libraries'), or else functions written `name`; one listing
-/// per distinct start. A symbol spelled as its own written name — a C
-/// function's on ELF, which has no `_` to drop — is found by that name, with
-/// every other function written so (`exit` is the developer's and the C
-/// library's, as on Mach-O).
+/// imports', the libraries'), or else the one function written `name` — an
+/// error when several functions are written so; one listing per distinct
+/// start.
 pub(crate) fn resolve(
     inferior: &mut dyn Inferior,
     name: &str,
@@ -237,43 +235,47 @@ pub(crate) fn resolve(
     let functions = inferior.functions().unwrap_or_default();
     let mut starts = Vec::new();
     let mut unbound = false;
-    for pass in [true, false] {
-        for function in &functions {
-            let matches = if pass {
-                function.name == name && !spelled_as_written(function)
-            } else if function.linked {
-                super::names::linked_name(&function.name) == name
-            } else {
-                classify_defined(&function.name).1.as_deref() == Some(name)
-            };
-            if !matches {
-                continue;
-            }
+    let mut take = |matches: &[&FunctionSymbol], starts: &mut Vec<u64>| {
+        for function in matches {
             match function.address {
                 Some(address) => starts.push(address),
                 None => unbound = true,
             }
         }
-        // A library's symbols are C names: by symbol only where the format
-        // spells them otherwise.
-        let mut ranges = if pass && super::names::C_PREFIX.is_empty() {
+    };
+    let spelled = functions
+        .iter()
+        .filter(|function| function.name == name)
+        .collect::<Vec<_>>();
+    take(&spelled, &mut starts);
+    starts.extend(
+        inferior
+            .library_functions(name)?
+            .into_iter()
+            .map(|range| range.start),
+    );
+    if starts.is_empty() {
+        let written = functions
+            .iter()
+            .filter(|function| classify(function).1.as_deref() == Some(name))
+            .collect::<Vec<_>>();
+        // A library's function is written as C names it; where the format
+        // spells that as the symbol, the pass above found it.
+        let symbol = format!("{}{name}", super::names::C_PREFIX);
+        let library = if super::names::C_PREFIX.is_empty() {
             Vec::new()
         } else {
-            let symbol = if pass {
-                name.to_string()
-            } else {
-                format!("{}{name}", super::names::C_PREFIX)
-            };
-            inferior
-                .library_functions(&symbol)?
-                .into_iter()
-                .map(|range| range.start)
-                .collect::<Vec<_>>()
+            inferior.library_functions(&symbol)?
         };
-        starts.append(&mut ranges);
-        if !starts.is_empty() {
-            break;
+        let symbols = written
+            .iter()
+            .map(|function| function.name.as_str())
+            .chain((!library.is_empty()).then_some(symbol.as_str()));
+        if let Some(error) = super::names::ambiguity(name, symbols) {
+            return Err(error);
         }
+        take(&written, &mut starts);
+        starts.extend(library.into_iter().map(|range| range.start));
     }
     starts.sort_unstable();
     starts.dedup();
@@ -294,12 +296,6 @@ pub(crate) fn resolve(
         );
     }
     Ok(ranges)
-}
-
-/// Whether `function`'s symbol is its written name too: a linked C function on
-/// a format that spells C names bare.
-pub(crate) fn spelled_as_written(function: &FunctionSymbol) -> bool {
-    function.linked && super::names::linked_name(&function.name) == function.name
 }
 
 /// One listing: the header, then an instruction per line from `from`, through

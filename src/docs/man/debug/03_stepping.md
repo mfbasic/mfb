@@ -134,7 +134,7 @@ Launched examples/debug/build/debug.out as process 89969; paused before its firs
 DBG> bp isPrime
 Set a breakpoint at 0x0000000102734aa4 in isPrime.
 DBG> run
---[BP] T: 0 P: 0x0000000102734aa4 F: isPrime
+--[BP] T: 0 P: 0x0000000102734aa4 F: (isPrime) _mfb_fn_isPrime
 DBG> step 3
 Stepped 3 instructions; thread 0 is at 0x0000000102734ab0 in isPrime+0xc.
 DBG> dis 5
@@ -161,7 +161,7 @@ Launched examples/debug/build/debug.out as process 82633; paused before its firs
 DBG> bp countPrimes
 Set a breakpoint at 0x00000001006ecdc4 in countPrimes.
 DBG> run
---[BP] T: 0 P: 0x00000001006ecdc4 F: countPrimes
+--[BP] T: 0 P: 0x00000001006ecdc4 F: (countPrimes) _mfb_fn_countPrimes
 DBG> j lr x0=0 x1=7
 Moved thread 0 to 0x00000001006ed284 in runRound+0x158; set x0 = 0x0000000000000000 (0), x1 = 0x0000000000000007 (7).
 DBG> bp r countPrimes

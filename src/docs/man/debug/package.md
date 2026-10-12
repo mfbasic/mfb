@@ -108,13 +108,13 @@ Set a breakpoint at 0x00000001005c9ee0 in summarize.
 DBG> run
 round 1: 37 primes
 round 2: 31 primes
---[BP] T: 0 P: 0x00000001005c9ee0 F: summarize
+--[BP] T: 0 P: 0x00000001005c9ee0 F: (summarize) _mfb_fn_summarize
 DBG> bt
 * thread #0, task = 'MFB Main'
   * frame #0: 0x00000001005c9ee0 debug.out`summarize
     frame #1: 0x00000001005cff28 debug.out`runRounds + 23728
-    frame #2: 0x00000001005d1040 debug.out`main + 2912 <mfb>
-    frame #3: 0x00000001005c8634 debug.out`main + 348 <native>
+    frame #2: 0x00000001005d1040 debug.out`main + 2912
+    frame #3: 0x00000001005c8634 debug.out`_main + 348
 DBG> show type list x0 0..
 Index | Address            | Bytes | Value
 0     | 0x0000000100644338 | 8     | 0x0000000000000025 (37)
@@ -158,9 +158,9 @@ session's.
 | `backtrace [<count>] [<thread>]` | `bt …` | shows the calls the current thread is in |
 | `backtrace all` | `bt all` | shows the calls every thread is in |
 | `list` | `l` | shows what can be listed |
-| `list func [<filter>...]` | `l func …` | lists the program's functions, or those of a type or name |
+| `list func [<filter>...]` | `l func …`, `list function …` | lists the program's functions, or those of a type or name |
 | `list thread` | `l thread` | lists the program's threads |
-| `list reg` | `l reg` | shows how to list registers: `gpr`, `simd`, `sys`, or by name |
+| `list reg [<id>] [<what>...]` | `l reg …` | shows a thread's registers: the ones a call uses, or the groups (`gpr`, `simd`, `sys`) and names in `<what>` |
 | `list arena` | `l arena` | lists the program's memory pools |
 | `list breakpoint` | `l breakpoint` | lists the breakpoints |
 | `list watchpoint` | `l watchpoint` | lists the watchpoints |

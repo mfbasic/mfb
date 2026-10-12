@@ -41,11 +41,16 @@ A built-in package's function shows as the package and the function:
 `#`, for one the package keeps to itself. You cannot call a `#` function, but
 `breakpoint datetime::#normInstant` stops in it.
 
+A function with no written name is shown everywhere by its symbol:
+`_mfb_arena_alloc` in a breakpoint's message, in `dis` and in `bt`, and that
+is the name `breakpoint` takes.
+
 When one of your functions and a native one have the same name, the written
-name says which is which: `main <mfb>` is your `main`, and `main <native>` the
-program's native entry, which calls it. Breakpoints, stops, `dis` and `bt` tag
-the name the same way. The tag is not part of the name: `breakpoint main` stops
-in both.
+name says which is which: `exit <mfb>` is your `exit`, and `exit <native>` the
+C library's. Breakpoint messages, `dis` and `bt` tag the name the same way.
+The tag is not part of the name, and a name two functions share does not say
+which you mean: `breakpoint exit` is refused, and names their symbols to
+choose from.
 
 `Address` is where the function is in the running program. A program `mfb dbg`
 started is paused before it has loaded its system libraries, so every `SL`
@@ -53,9 +58,9 @@ function shows `-` there; attach to a running program to see where they are.
 When a program calls a system function from more than one place in the runtime,
 that function is listed once for each.
 
-`list func` lists every function; name a type or a function after it to see
-fewer. `list func MU` lists only the functions you wrote, `list func fib` the
-function named `fib`, and `list func *norm*` every function with `norm` in its
+`list func` (or `list function`) lists every function; name a type or a
+function after it to see fewer. `list func MU` lists only the functions you
+wrote, `list func fib` the function named `fib`, and `list func *norm*` every function with `norm` in its
 name, `*` standing for any characters and `?` for any one. A name is matched
 against both the `Symbol` and the `Written name`. Give several to see more:
 `list func MU MB` lists your functions and the built-in packages'.
@@ -92,10 +97,46 @@ is running your code; while it waits (in `os::sleep`, say) it shows as `Other`.
 
 ### Listing registers
 
-`list reg` on its own explains how to list registers. Name a group, or the
-registers you want, and it prints them for thread 0, one per line under the
-header `Register | Hex | Decimal`, in hex and then in decimal
-(`0x000000000000002d | (45)`):
+`list reg` on its own prints the registers a function call uses, each with
+its role, and under them how to ask for the others:
+
+```
+DBG> list reg
+Register | Hex                | Decimal           | Role
+x0       | 0x00000000000620a7 | (401575)          | MFB arg, MFB result, C arg, C result
+x1       | 0x00000000000001f4 | (500)             | MFB arg, MFB result, C arg, C result
+x2       | 0x0000cce81f01fbfb | (225297324702715) | MFB arg, MFB result, C arg
+x3       | 0x0000000fffffc088 | (68719460488)     | MFB arg, MFB result, C arg
+x4       | 0x000000000000006d | (109)             | MFB arg, C arg
+x5       | 0x0000000000000053 | (83)              | MFB arg, C arg
+x6       | 0x0000000000000000 | (0)               | MFB arg, C arg
+x7       | 0x0000000000000000 | (0)               | MFB arg, C arg
+x19      | 0x000000016b0e1fa0 | (6091055008)      | Arena
+x20      | 0x000000020455c018 | (8662663192)      | Current Thread
+x28      | 0x0000cce81f01fbfb | (225297324702715) | Closure
+
+Usage: list reg [<id>] [<what>...]
+…
+```
+
+| Role | The register holds |
+| --- | --- |
+| `MFB arg` | an argument, when an MFBASIC function is called |
+| `MFB result` | part of what an MFBASIC function returned |
+| `C arg` | an argument, when a system library's function is called |
+| `C result` | what a system library's function returned |
+| `Arena` | where the running thread's memory pool is, while the thread runs MFBASIC code |
+| `Current Thread` | the thread's own record, in a thread started with `thread::start` |
+| `Closure` | what a lambda captured, as the lambda is called |
+
+A role says what the register is for, not that it holds that now: `x4` is an
+argument only in a call that passes five, and `x28` matters only at the
+moment a lambda is called. Once the program has ended `list reg` prints only
+the usage.
+
+Name a group, or the registers you want, and it prints them for thread 0, one
+per line under the header `Register | Hex | Decimal`, in hex and then in
+decimal (`0x000000000000002d | (45)`):
 
 | Group | The registers |
 | --- | --- |
@@ -103,7 +144,8 @@ header `Register | Hex | Decimal`, in hex and then in decimal
 | `simd` | the SIMD and floating-point registers: `v0` to `v31` |
 | `sys` | the system registers: `sp`, `pc`, the condition flags `nzcv`, and `fpsr` and `fpcr` |
 
-Put a thread's `<id>` first to see that thread's instead: `list reg 2 gpr`.
+Put a thread's `<id>` first to see that thread's instead: `list reg 2`,
+`list reg 2 gpr`.
 Name registers with spaces or commas, `list reg x8, x9, sp`, and mix them with
 groups, `list reg sys x0`. A program paused before its first instruction has
 almost all of them at zero; `pc` is where it will start.
@@ -152,6 +194,17 @@ says `Thread 0 has no error in flight.` A good place to look is a breakpoint on
 `finish` the error is in the slot and the `TRAP` has not run yet. `show error`
 needs a `--debug` build.
 
+A crash is not an error. When a thread stops on a line that starts `--[XC]`,
+an instruction failed: nothing raised an error and no `TRAP` can catch it, so
+there is none to show, and `show error` says what stopped the thread:
+
+```
+DBG> run
+--[XC] T: 0 P: 0x00000001001b8b3c F: (isPrime) _mfb_fn_isPrime+0x4 X: a bad memory access at 0xffffffffffffff40
+DBG> show error
+Thread 0 has no error in flight: it stopped on a bad memory access at 0xffffffffffffff40, which is a fault, not an error a TRAP can catch. Use bt and list reg to see where.
+```
+
 ## Examples
 
 Stop in `isPrime`, run up to where it has set its first divisor, then look at
@@ -167,7 +220,7 @@ Launched examples/debug/build/debug.out as process 97664; paused before its firs
 DBG> bp isPrime
 Set a breakpoint at 0x0000000104b2caa4 in isPrime.
 DBG> run
---[BP] T: 0 P: 0x0000000104b2caa4 F: isPrime
+--[BP] T: 0 P: 0x0000000104b2caa4 F: (isPrime) _mfb_fn_isPrime
 DBG> step 7
 Stepped 7 instructions; thread 0 is at 0x0000000104b2cac0 in isPrime+0x1c.
 DBG> list reg x0, sp, pc
@@ -203,7 +256,7 @@ MU   0x0000000100989374 _mfb_fn_formatLine                                  form
 MU   0x0000000100989824 _mfb_fn_logPath                                     logPath
 MU   0x0000000100989ee0 _mfb_fn_summarize                                   summarize
 MU   0x000000010098a278 _mfb_fn_runRounds                                   runRounds
-MU   0x00000001009904e0 _mfb_fn_main                                        main <mfb>
+MU   0x00000001009904e0 _mfb_fn_main                                        main
 ```
 
 ## See also

@@ -1361,7 +1361,7 @@ mod tests {
         assert_eq!(
             show_literal(&mut read, BASE, "_mfb_str_2"),
             Ok(vec![
-                "Length: 17 Value: \"function handler \" (the literal mfb_str_2)".to_string()
+                "Length: 17 Value: \"function handler \" (the literal _mfb_str_2)".to_string()
             ])
         );
     }

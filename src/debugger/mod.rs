@@ -257,6 +257,9 @@ pub(crate) struct Register {
     pub(crate) name: String,
     pub(crate) group: RegisterGroup,
     pub(crate) value: RegisterValue,
+    /// What compiled code uses it for, when it has a set use: a bare
+    /// `list reg` shows the registers that do.
+    pub(crate) role: Option<&'static str>,
 }
 
 /// The `list reg` group a register belongs to.
