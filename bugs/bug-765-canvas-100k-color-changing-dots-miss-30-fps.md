@@ -1,6 +1,6 @@
 # bug-765: Canvas renders 100,000 color-changing dots at 3 PPS / 4 FPS instead of 30
 
-Last updated: 2026-09-28
+Last updated: 2026-10-12
 Effort: huge (>3d)
 Severity: HIGH
 Class: Other (Performance)
@@ -30,6 +30,51 @@ References:
   instrument this bug must extend rather than creating a second benchmark framework.
 - Discovered while changing `examples/fractals` from a 25,000-dot 3D cloud to a fixed
   2D dot raster.
+
+## Re-verified 2026-10-12: still fails, and the frame is drawn in SOFTWARE (HEAD `555130a25`)
+
+The program below no longer compiles (plan-172: `Circle` takes `id`, `position` and
+`transform`; `canvas::Size` holds Floats). Today's syntax: `bugs/repro/bug-765/dots.mfb`.
+
+`mfb build --app`, real window, macOS AArch64, three runs:
+
+```
+count=100000 frames=27 pps=5.00 fps=5.00
+count=100000 frames=51 pps=5.00 fps=6.00
+count=100000 frames=51 pps=5.00 fps=5.00
+```
+
+5 PPS / 5 FPS against the 3 / 4 first recorded; still far under 30.
+
+**New: Metal declines this scene, which this document never considered.** The same
+program built `--debug` and run headless with `MFB_CANVAS_GPU=1 MFB_CANVAS_STATS`, last
+stats line:
+
+| dots | `frames` | `gpuFrames` | `generations` | `phaseOffsetsMs` | `phaseRenderMs` | program's line |
+| --- | --- | --- | --- | --- | --- | --- |
+| 100,000 (400×250) | 49 | **0** | 4,900,000 | 1,127 | 8,721 | `pps=5.00 fps=5.00` |
+| 60,000 (300×200) | 376 | 376 | 22,560,000 | 4,487 | 5,087 | `pps=38.00 fps=38.00` |
+
+- 100,000 items is past `METAL_MAX_FRAME_ITEMS` (65,536,
+  `src/codegen/runtime/canvas/mod.rs`; `VULKAN_MAX_FRAME_ITEMS` is the same), so the
+  predicate declines every frame and the software renderer draws it: 178 ms of render a
+  frame (8,721 / 49) in this debug build. At 60,000 items, under the cap, every frame is a
+  GPU frame and the same loop holds 38 PPS / 38 FPS, debug build included.
+- So the first cause of the 5 FPS is the frame cap, not the publish, hash or upload slope
+  the hypotheses below rank. A fix has to raise the cap (the item buffer is sized from
+  it), or draw a frame over the cap in more than one pass, before any of Phase 2 or 3
+  can show in this reproduction.
+- **Hypothesis 2 is confirmed:** `generations` is 100,000 a frame (4,900,000 / 49) and
+  60,000 a frame (22,560,000 / 376), so a fill-only change rebuilds every item's geometry.
+- What the GPU path costs at 60,000: 11.9 ms of offsets and 13.5 ms of render a frame
+  (debug build). Scaled linearly to 100,000 that is 42 ms, over the 33.3 ms budget. That
+  figure is a guess from one point, not a measurement: nothing over the cap can be run on
+  the GPU today.
+- The Goal's "no run takes a fallback renderer" (Phase 3) already rules the software
+  frame out; Phase 1 should record `gpuFrames` for every row so a declined frame is seen.
+
+Not re-run: Windows (box 206). `planning/plan-173-canvas-atlas-tile.md` (atlas tiles and
+culling) is the only canvas plan filed since; it does not name this bug.
 
 ## Failing Reproduction
 

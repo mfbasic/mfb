@@ -1,0 +1,48 @@
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT datetime
+IMPORT io
+IMPORT math
+IMPORT vector
+
+LET COLUMNS AS Integer = 400
+LET ROWS AS Integer = 250
+LET COUNT AS Integer = COLUMNS * ROWS
+
+FUNC dot(x AS Float, y AS Float, radius AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Circle[id := "", position := vector::Float2[x := x, y := y], radius := radius, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+END FUNC
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  app::setTitle("Canvas 100k dot probe")
+  LET size AS canvas::Size = canvas::getSize()
+  LET cellW AS Float = size.width / toFloat(COLUMNS)
+  LET cellH AS Float = size.height / toFloat(ROWS)
+  LET radius AS Float = math::min(cellW, cellH) * 0.4
+  LET empty AS canvas::DrawItem = dot(0.0, 0.0, radius, color::rgb(0, 0, 0))
+  MUT sceneA AS List OF canvas::DrawItem = collections::repeat([], empty, COUNT)
+  MUT sceneB AS List OF canvas::DrawItem = collections::repeat([], empty, COUNT)
+  FOR i = 0 TO COUNT - 1
+    LET column AS Integer = i MOD COLUMNS
+    LET row AS Integer = i / COLUMNS
+    sceneA = collections::set(sceneA, i, dot((toFloat(column) + 0.5) * cellW, (toFloat(row) + 0.5) * cellH, radius, color::rgb(64, 128, 191)))
+    sceneB = collections::set(sceneB, i, dot((toFloat(column) + 0.5) * cellW, (toFloat(row) + 0.5) * cellH, radius, color::rgb(192, 128, 63)))
+  NEXT
+  LET started AS Integer = datetime::monotonicNanos()
+  MUT frame AS Integer = 0
+  DO WHILE datetime::monotonicNanos() - started < 10000000000
+    IF frame MOD 2 = 0 THEN
+      canvas::present(sceneA)
+    ELSE
+      canvas::present(sceneB)
+    END IF
+    canvas::waitFrame()
+    frame = frame + 1
+  LOOP
+  LET stats AS canvas::FrameStats = canvas::getFrameStats()
+  io::printError("count=" & toString(COUNT) & " frames=" & toString(frame) & " pps=" & toString(stats.pps) & " fps=" & toString(stats.fps))
+  RETURN 0
+END FUNC
