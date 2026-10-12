@@ -549,7 +549,7 @@ Acceptance: both functions are exact or within tolerance, as stated.
   `bash scripts/man-run-examples.sh canvas --run` → pass (est. 3 min, guess).
   Result (2026-10-11): the five Phase 2 tests pass (`5 passed; 0 failed; 12 filtered
   out`); `examples: 37   built: 37   ran: 37   not run: 0   failed: 0`.
-Commit: —
+Commit: c204f3724
 
 ## Validation Plan
 

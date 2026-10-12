@@ -34,7 +34,7 @@ stored picture" (the oracle needs hand-computed checks).
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-164-A complete and archived | `ls planning/completed/plan-164-A-*` → match | NOT MET (2026-10-11) |
+| plan-164-A complete and archived | `ls planning/completed/plan-164-A-*` → match | MET (2026-10-11: `planning/completed/plan-164-A-bezier-types-reduction.md`) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 
