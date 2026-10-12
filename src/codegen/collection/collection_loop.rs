@@ -165,6 +165,14 @@ impl CodeBuilder<'_> {
         if *result_type == ParameterType::String {
             return self.free_collection_loop_item(slot, result_type);
         }
+        // A resource-union result is a `{tag, record}` box the callee made for this
+        // call (bug-1012: a function's `RETURN` hands its caller a box nothing else
+        // holds). The collection holds its elements' boxes inline and has copied
+        // the two words, so the box is dead; the record it names is untouched.
+        if self.is_resource_union_type(result_type) {
+            self.emit_union_box_free(slot);
+            return Ok(());
+        }
         if !self.is_freeable_flat_value(result_type) {
             return Ok(());
         }
@@ -179,7 +187,9 @@ impl CodeBuilder<'_> {
 
     /// Whether [`Self::free_callback_result`] frees a `result_type` value.
     pub(crate) fn callback_result_is_block(&self, result_type: &ParameterType) -> bool {
-        *result_type == ParameterType::String || self.is_freeable_flat_value(result_type)
+        *result_type == ParameterType::String
+            || self.is_freeable_flat_value(result_type)
+            || self.is_resource_union_type(result_type)
     }
 
     /// Step a List/Map walk one element on and branch back to `loop_label`.

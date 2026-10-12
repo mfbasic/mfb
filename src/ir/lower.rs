@@ -6187,6 +6187,23 @@ fn wrap_union_value(
     union_conversion(base, &actual_type, expected, context)
 }
 
+/// The type a union's variant table knows a value by: without the `RES` alias
+/// marker and without a `STATE` clause.
+fn bare_variant(type_: &ParameterType) -> ParameterType {
+    match type_ {
+        ParameterType::Res(inner) => inner.without_state(),
+        other => other.without_state(),
+    }
+}
+
+/// The `STATE` a value of `type_` carries, looking through the `RES` marker.
+fn bare_payload_state(type_: &ParameterType) -> Option<ParameterType> {
+    match type_ {
+        ParameterType::Res(inner) => inner.state(),
+        other => other.state(),
+    }
+}
+
 /// The union form of `value` (of type `actual`) at a position expecting
 /// `expected`, or `value` unchanged when the two are not related by union-variant
 /// subsumption.
@@ -6219,9 +6236,18 @@ fn union_conversion(
         .type_index
         .variant_belongs_to_union(actual, union_type)
     {
+        // The `STATE` rides the resource record, not the tag: a wrap of a value
+        // that carries one is a union value carrying the same one (bug-1063), so
+        // the agreement checks see what the payload really has.
+        let union_type = match (union_type.state(), bare_payload_state(actual)) {
+            (None, Some(state)) => union_type.with_state(&state),
+            _ => union_type.clone(),
+        };
         return IrValue::UnionWrap {
-            union_type: union_type.clone(),
-            member_type: actual.clone(),
+            union_type,
+            // The variant the union's table knows (bug-1018): the wrap's tag is
+            // the bare variant's, whatever marker or `STATE` the value carries.
+            member_type: bare_variant(actual),
             value: Box::new(value),
         };
     }
@@ -6234,6 +6260,13 @@ fn union_conversion(
     let loc = context.current_loc;
     match (actual, expected) {
         (ParameterType::ListOf(from), ParameterType::ListOf(to)) => {
+            // bug-1018: the converter takes and answers the element itself; the
+            // `RES` marker is the slot's spelling, not part of the element's type,
+            // as a `RES h AS Handle` binding's lowered type is the bare `Handle`.
+            let (from, to) = match (from.as_ref(), to.as_ref()) {
+                (ParameterType::Res(from), ParameterType::Res(to)) => (from, to),
+                _ => (from, to),
+            };
             let converter = union_converter(from, to, context);
             IrValue::Call {
                 target: "collections.transform".to_string(),
@@ -6630,7 +6663,7 @@ impl builtins::TypeKinds for TypeIndex {
     /// bug-988: exactly the membership `wrap_union_value` wraps by, so a generic
     /// call accepts a variant only where lowering will tag it.
     fn union_accepts(&self, union: &ParameterType, actual: &ParameterType) -> bool {
-        self.variant_belongs_to_union(&actual.without_state(), &union.without_state())
+        self.variant_belongs_to_union(actual, union)
     }
 }
 
@@ -6833,9 +6866,13 @@ impl TypeIndex {
         variant: &ParameterType,
         union_type: &ParameterType,
     ) -> bool {
+        // bug-1018: which variant a value is does not depend on the `RES` alias
+        // marker a slot spells it with or on a `STATE` clause it carries (`STATE`
+        // agreement is its own check). The table is keyed on the bare types, so
+        // this is the one place the question is normalized; no caller strips.
         self.variant_unions
-            .get(variant)
-            .is_some_and(|unions| unions.contains(union_type))
+            .get(&bare_variant(variant))
+            .is_some_and(|unions| unions.contains(&bare_variant(union_type)))
     }
 
     /// bug-989: whether a collection of type `actual` converts to `expected`

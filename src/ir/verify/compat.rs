@@ -1055,7 +1055,10 @@ impl TypeEnv {
             }
         }
         if let Some(actual) = self.infer_type(value, locals) {
-            if !self.assignable(member_type, &actual, value) {
+            // bug-1018/bug-1063: the variant is the payload's BARE type. A `STATE`
+            // clause the payload carries rides the resource record, not the tag,
+            // and its agreement with the union's use site is a separate check.
+            if !self.assignable(member_type, &actual.without_state(), value) {
                 let actual = actual.name();
                 self.emit(
                     VERIFY_TYPE,
