@@ -2169,6 +2169,11 @@ pub(super) const SEL_END_ENCODING: (&str, &str) = ("_mfb_macapp_sel_endEncoding"
 pub(super) const SEL_COMMIT: (&str, &str) = ("_mfb_macapp_sel_commit", "commit");
 pub(super) const SEL_WAIT_UNTIL_COMPLETED: (&str, &str) =
     ("_mfb_macapp_sel_waitUntilCompleted", "waitUntilCompleted");
+pub(super) const SEL_STATUS: (&str, &str) = ("_mfb_macapp_sel_status", "status");
+/// `MTLCommandBufferStatusCompleted`: the one `-[MTLCommandBuffer status]` that says
+/// the GPU ran every command of the buffer. After `waitUntilCompleted` the only other
+/// value is `MTLCommandBufferStatusError` (5).
+const MTL_COMMAND_BUFFER_STATUS_COMPLETED: usize = 4;
 pub(super) const SEL_GET_BYTES: (&str, &str) = (
     "_mfb_macapp_sel_getBytes",
     "getBytes:bytesPerRow:fromRegion:mipmapLevel:",
@@ -2851,9 +2856,11 @@ const OFF_DRAW_PAIR: usize = OFF_TEXTURE + 320;
 /// passes `block + COLLECTION_HEADER_SIZE`, which is never zero.
 ///
 /// Returns 1 in `x0` when the frame is finished — presented, or read back — and 0 when
-/// it was not drawn: no pipeline, no texture, and for a direct present no window layer
-/// (headless) or no drawable. A 0 from a direct present is the caller's cue to render
-/// the frame down the readback path instead; `metalDrawScene` ignores the value.
+/// it was not drawn: no pipeline, no texture, a command buffer that did not reach
+/// `MTLCommandBufferStatusCompleted` (bug-1024), and for a direct present no window
+/// layer (headless) or no drawable. A 0 from a direct present is the caller's cue to
+/// render the frame down the readback path instead; a 0 from the readback path
+/// (`canvas::metalDrawScene` answers FALSE) is its cue to draw the frame in software.
 ///
 /// The whole body runs inside one autorelease pool. The graphics thread has none of
 /// its own, and `renderPassDescriptor`, `commandBuffer` and
@@ -3630,6 +3637,20 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
     }
+    // The wait returning is not the GPU having drawn (bug-1024): a buffer can end in
+    // `MTLCommandBufferStatusError` — the GPU was restarted under it, or it timed out —
+    // with its target written in part or not at all. Such a frame is not read back and
+    // not presented. Leaving here before either path stores `OFF_PRESENTED` is what
+    // makes the submit report 0, exactly as `direct_failed` does, so the caller draws
+    // the frame in software.
+    asm.load_selector(SEL_STATUS.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate(
+        abi::c_return(0),
+        &MTL_COMMAND_BUFFER_STATUS_COMPLETED.to_string(),
+    ));
+    asm.push(abi::branch_ne(&release_pool));
     // The frame is finished: read back, below — or, for a direct present, presented,
     // unless `direct_failed` cleared the drawable to say the copy never happened.
     asm.push(abi::load_u64(
@@ -7438,6 +7459,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_END_ENCODING,
         SEL_COMMIT,
         SEL_WAIT_UNTIL_COMPLETED,
+        SEL_STATUS,
         SEL_GET_BYTES,
         SEL_SET_FRAGMENT_BYTES,
         SEL_SET_VERTEX_BYTES,
@@ -7472,6 +7494,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arch::ops::CodeOp;
     use crate::codegen::engine::operand::Operand;
     use crate::codegen::runtime::canvas::METAL_PICTURE_TABLE_BYTES;
 
@@ -7592,6 +7615,92 @@ mod tests {
             vec![SEL_COMMIT.0, SEL_WAIT_UNTIL_COMPLETED.0],
             "the frame renderer must -commit the command buffer and then \
              -waitUntilCompleted it, once each and in that order; got {order:?}"
+        );
+    }
+
+    /// The index of the instruction that loads `selector`'s address for a send.
+    fn selector_load(func: &CodeFunction, selector: &str) -> usize {
+        let loads: Vec<usize> = func
+            .instructions
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| i.op == CodeOp::Adrp && i.get("symbol").as_deref() == Some(selector))
+            .map(|(at, _)| at)
+            .collect();
+        assert_eq!(loads.len(), 1, "{selector} is sent once, got {loads:?}");
+        loads[0]
+    }
+
+    /// bug-1024: the command buffer's `status` is read after the wait and before the
+    /// frame is used, on BOTH ways out — the readback and the direct present.
+    ///
+    /// `waitUntilCompleted` returns when the buffer has finished, not when it has
+    /// succeeded. A buffer that ended in `MTLCommandBufferStatusError` leaves its
+    /// tile-based target written in part or not at all, so reading it back, or
+    /// presenting it, shows a frame the GPU did not draw and reports it as drawn.
+    #[test]
+    fn the_buffer_status_is_read_after_the_wait_and_before_the_frame_is_used() {
+        let func = emit_metal_draw();
+        let wait = selector_load(&func, SEL_WAIT_UNTIL_COMPLETED.0);
+        let status = selector_load(&func, SEL_STATUS.0);
+        let read_back = selector_load(&func, SEL_GET_BYTES.0);
+        let present = selector_load(&func, SEL_PRESENT.0);
+        assert!(
+            wait < status && status < read_back && status < present,
+            "the order must be waitUntilCompleted ({wait}), status ({status}), then \
+             getBytes ({read_back}) or present ({present})"
+        );
+        assert!(
+            metal_data_objects().contains(&SEL_STATUS),
+            "the `status` selector's name must be among the module's data objects"
+        );
+    }
+
+    /// A buffer that did not complete makes the submit answer 0: the branch that
+    /// follows the `status` send leaves for the pool release when the answer is not
+    /// `MTLCommandBufferStatusCompleted`, and nothing has stored "presented" by then.
+    ///
+    /// That is the answer `direct_failed` gives, by the same means: the answer is the
+    /// `OFF_PRESENTED` slot, zeroed at entry and set to 1 only on the two paths below
+    /// this branch. So the caller declines the frame and software draws it.
+    #[test]
+    fn a_buffer_that_did_not_complete_reports_the_frame_not_drawn() {
+        let func = emit_metal_draw();
+        let ins = &func.instructions;
+        let status = selector_load(&func, SEL_STATUS.0);
+        let send = (status..ins.len())
+            .find(|at| ins[*at].get("target").as_deref() == Some("_objc_msgSend"))
+            .expect("the status selector is sent");
+        let answer = render_field("lhs", abi::c_return(0));
+        assert_eq!(ins[send + 1].op, CodeOp::CmpImm, "the status is compared");
+        assert_eq!(ins[send + 1].get("lhs"), Some(answer));
+        assert_eq!(
+            ins[send + 1].get("rhs"),
+            Some(MTL_COMMAND_BUFFER_STATUS_COMPLETED.to_string()),
+            "the status is compared with MTLCommandBufferStatusCompleted"
+        );
+        assert_eq!(ins[send + 2].op, CodeOp::BranchNe, "and branched on");
+        assert_eq!(
+            ins[send + 2].get("target"),
+            Some(format!("{METAL_DRAW_SYMBOL}_release_pool")),
+            "a buffer that did not complete skips the readback and the present"
+        );
+
+        // "Presented" is stored as 1 only after that branch, and as 0 only before it.
+        let presented = OFF_PRESENTED.to_string();
+        let stores: Vec<usize> = (0..ins.len())
+            .filter(|at| {
+                ins[*at].op == CodeOp::StrU64
+                    && ins[*at].get("offset").as_deref() == Some(presented.as_str())
+                    && ins[*at].get("base") == Some(render_field("base", abi::stack_pointer()))
+            })
+            .collect();
+        let after: Vec<usize> = stores.iter().copied().filter(|at| *at > send).collect();
+        assert_eq!(
+            (stores.len(), after.len()),
+            (3, 2),
+            "one store clears the answer at entry and two set it, one for the present \
+             and one for the readback, both after the status branch: {stores:?}"
         );
     }
 

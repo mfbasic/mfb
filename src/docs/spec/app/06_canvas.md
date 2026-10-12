@@ -45,10 +45,19 @@ present-diff. The consequences are the point:
   its contents rather than a call ordering. Re-presenting an unchanged item
   re-uses its cached geometry.
 
-The comparison is exact rather than hashed — the two scenes' contents, element
-for element — so there are no collisions to reason about. It is of CONTENT, not of
-whole blocks: two shrink-to-fit copies of one scene need not be equal bytes
-(`.ai/canvas-threading.md` section 3.1).
+The comparison is exact rather than hashed, so there are no collisions to reason
+about. It is of CONTENT, not of bytes: the two lists' counts, then each element,
+through every list's entries and by the scene's type — a record field by field, a
+union by its tag and then as the active variant's record, a nested list the same
+way again. A `Float` is compared by its bits, so `0.0` and `-0.0` are different
+content and a NaN equals itself. An element's bytes are tried first, since equal
+bytes are equal content, and only an element whose bytes differ is walked by its
+type. Bytes cannot stand in for content: a list embedded in an item keeps the
+capacity it was built with (`./mfb spec memory collections`), and a list entry has
+bytes no list writes, so two scenes that say the same thing are different bytes
+whenever a nested list was built another way (`.ai/canvas-threading.md` section
+3.1). [[src/codegen/builtins/canvas/gen_present.rs:emit_publish]]
+[[src/codegen/collection/compare/builder_collection_compare.rs:emit_values_content_equal_branch]]
 
 ### Flat or layered
 
@@ -314,6 +323,21 @@ is one the backend draws correctly; otherwise that frame falls back to software.
 A machine with no Vulkan loader or driver builds no pipeline and draws in software.
 [[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
 [[src/codegen/runtime/canvas/vulkan.rs:has_vulkan_backend]]
+
+**On Metal, a frame the GPU did not finish is not a GPU frame.** After `commit` and
+`waitUntilCompleted` the renderer reads the command buffer's `status`. Any value but
+`MTLCommandBufferStatusCompleted` (4) — after the wait, that is
+`MTLCommandBufferStatusError` — means the render target was written in part or not at
+all, so the frame is neither read back nor presented and the submit answers 0, the
+answer it gives when it has no texture or no drawable. `canvas::metalPresentScene` and
+`canvas::metalDrawScene` both report that as FALSE; a FALSE from the direct present
+sends the frame down the readback path, and a FALSE from the readback makes
+`__canvas_renderMetal` decline, so the frame is drawn in software and is not counted in
+`gpuFrames=`. The Vulkan readback path does not test the results of `vkQueueSubmit` and
+`vkQueueWaitIdle`. [[src/target/macos_aarch64/app/metal.rs:SEL_STATUS]]
+[[src/codegen/builtins/canvas/func_metal_draw.rs:lower_metal_draw_scene]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_renderMetal]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_draw_scene]]
 
 **What a GPU backend declines is a frame too large for its buffers, never an ordinary
 shape.** Every per-frame payload travels in buffers whose regions are fixed in size, so
@@ -1597,6 +1621,33 @@ The mouse-state reservation keys on the raw poll's symbol
 ([[src/target/shared/plan/symbols.rs:module_uses_mouse]]), and the chunk that calls it
 is gated on use, so a canvas program that never calls `canvas::pollMouse` reserves no
 mouse state and compiles none of this.
+
+## The surface size, and what counts as a resize
+
+The main thread publishes the surface's width and height into the graphics state from
+each platform's resize path — macOS `MFBCanvasView setFrameSize:`, the GTK resize
+handler, Windows `WM_SIZE` and its canvas reconcile, and the headless scripted resize
+(`MFB_CANVAS_RESIZE_W`/`_H`, GTK and Windows) — with two plain stores and no lock.
+[[src/codegen/runtime/canvas/mod.rs:emit_publish_surface_size_tagged]] Both words are 0
+until the first publish, and a zero word reads as the startup size, 900 by 640: that is
+what `canvas::getSize` answers before a window has published anything and in a headless
+run, and the size a frame is rendered at.
+[[src/codegen/runtime/canvas/mod.rs:SurfaceDimension]]
+
+`canvas::didResize` is two counters. The publisher adds one to
+`GRAPHICS_OFFSET_RESIZES` when the size it publishes differs from the size read as
+above — the size the program sees — and `didResize` answers TRUE, and records the
+counter in `GRAPHICS_OFFSET_RESIZES_SEEN`, when the two differ.
+[[src/codegen/runtime/canvas/mod.rs:emit_did_resize]] So:
+
+- a publish of the size the program already sees counts nothing. That is a repeat of
+  the current size (AppKit sends them routinely), and equally a window's FIRST publish
+  when it opens at 900 by 640;
+- a first publish of any other size counts one, as every later change does. The
+  publisher does not know which publish is the first.
+
+Each word has one writer (the main thread the counter, the worker the acknowledgement),
+so neither takes a lock.
 
 ## The pointer, as the graphics thread sees it
 

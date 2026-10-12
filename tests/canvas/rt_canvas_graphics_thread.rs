@@ -221,6 +221,69 @@ fn an_identical_re_present_draws_no_second_frame() {
     );
 }
 
+/// The frame skip compares what a scene SAYS, not how its lists were allocated
+/// (bug-968).
+///
+/// A nested list is embedded in its item with the capacity it was built with
+/// (`mfb spec memory collections`), and a list entry has bytes no list writes, so two
+/// scenes with the same content are different bytes whenever a nested list was built
+/// another way. `scenes/frame_skip_nested_lists.mfb` builds one item for every
+/// list-carrying field (a polygon's contours, a polyline's points and colours, a
+/// gradient's stops, a paint's clip and dashes, a curve's points and weights, a curve
+/// polygon's contours, and a polygon inside an `AutoPaint`) beside a group node, three
+/// ways each (a literal, `collections::append`, and `collections::set` with a
+/// `removeAt`), and presents them flat and inside layers. It prints the frame counter
+/// after every present, so each line is one row of the matrix.
+///
+/// The second half is the one a comparison that reported "same" too often would fail:
+/// one value changed deep inside each nested list, one letter of a name and one more
+/// letter, one more contour, one more point, and another variant with the same points
+/// must each draw a frame.
+#[test]
+fn content_equal_scenes_with_nested_lists_draw_one_frame() {
+    let (out, _) = run(
+        "canvas_gfx_skip_nested",
+        include_str!("scenes/frame_skip_nested_lists.mfb"),
+        true,
+    );
+    // The scene's `vary` values: one per nested list, then two string changes.
+    const VARIED: usize = 11;
+    let mut want = Vec::new();
+    let mut frame = 0;
+    for shape in ["flat", "layers"] {
+        frame += 1;
+        for how in 0..3 {
+            want.push(format!("same {shape} how={how} {frame}"));
+        }
+        for vary in 1..=VARIED {
+            frame += 1;
+            for how in 0..3 {
+                let prefix = if shape == "flat" { "" } else { "layers " };
+                want.push(format!("{prefix}vary={vary} how={how} {frame}"));
+            }
+        }
+        if shape == "flat" {
+            want.push(format!("one polygon {}", frame + 1));
+            want.push(format!("one polygon again {}", frame + 1));
+            want.push(format!("two contours {}", frame + 2));
+            want.push(format!("four points {}", frame + 3));
+            want.push(format!("another variant {}", frame + 4));
+            want.push(format!("another variant again {}", frame + 4));
+            frame += 4;
+        } else {
+            want.push(format!("one layer {}", frame + 1));
+            want.push(format!("one layer again {}", frame + 1));
+        }
+    }
+    let got: Vec<String> = out.lines().map(str::to_string).collect();
+    assert_eq!(
+        got, want,
+        "each line is `<what was presented> <frames drawn so far>`: a scene with the \
+         same content as the one installed must draw nothing, however its lists were \
+         built, and a scene that differs anywhere must draw one frame",
+    );
+}
+
 /// In sync mode every present gets its own frame, which is what makes the
 /// per-present assertions elsewhere deterministic.
 ///

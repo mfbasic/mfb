@@ -22,7 +22,14 @@ use crate::codegen::runtime::canvas::vulkan::emit_vulkan_draw_scene;
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-/// `canvas::metalDrawScene(surface, width, height, geometry, offsets) AS Nothing`.
+/// `canvas::metalDrawScene(surface, width, height, geometry, offsets) AS Boolean`:
+/// TRUE when the GPU drew the frame and `surface` holds it.
+///
+/// FALSE is "not drawn" (bug-1024): the render target could not be made, or the
+/// command buffer did not complete, and `surface` holds nothing a frame may show. The
+/// caller then draws the frame in software, as it does for a scene the predicate
+/// declines. This is the readback half of the answer `canvas::metalPresentScene` gives
+/// for a direct present; both come from the one submit in `_mfb_macapp_metal_draw`.
 pub(crate) fn lower_metal_draw_scene(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -137,11 +144,18 @@ pub(crate) fn lower_metal_draw_scene(
     builder.emit(abi::move_register(abi::mfb_arg(1), &width));
     builder.emit(abi::move_register(abi::mfb_arg(2), &height));
 
-    if let Some(result) =
-        ctx.platform
-            .emit_metal_draw(&symbol, &mut builder.instructions, &mut builder.relocations)
+    match ctx
+        .platform
+        .emit_metal_draw(&symbol, &mut builder.instructions, &mut builder.relocations)
     {
-        result?;
+        Some(result) => {
+            result?;
+            // The renderer answers 1 (drawn and read back) or 0 (not drawn) in the C
+            // return register; anything non-zero is TRUE.
+            builder.emit(abi::move_register(RESULT_VALUE_REGISTER, abi::c_return(0)));
+        }
+        // No Metal renderer on this target: nothing was drawn.
+        None => builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0")),
     }
 
     builder.emit(abi::move_immediate(
@@ -297,7 +311,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: true,
         implementations: vec![Implementation {
             params: scene_params(),
-            return_type: ParameterType::Nothing,
+            return_type: ParameterType::Boolean,
             errors: vec![],
             body: Body::abi_function(lower_metal_draw_scene),
         }],

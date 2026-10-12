@@ -3423,26 +3423,71 @@ pub(crate) fn emit_set_sync_mode(
 pub(crate) const DEFAULT_SURFACE_WIDTH: usize = 900;
 pub(crate) const DEFAULT_SURFACE_HEIGHT: usize = 640;
 
+/// One of the surface's two dimensions: where its word is in the graphics state, and
+/// what a zero there reads as.
+#[derive(Clone, Copy)]
+pub(crate) enum SurfaceDimension {
+    Width,
+    Height,
+}
+
+impl SurfaceDimension {
+    fn offset(self) -> usize {
+        match self {
+            SurfaceDimension::Width => GRAPHICS_OFFSET_WIDTH,
+            SurfaceDimension::Height => GRAPHICS_OFFSET_HEIGHT,
+        }
+    }
+
+    fn startup(self) -> usize {
+        match self {
+            SurfaceDimension::Width => DEFAULT_SURFACE_WIDTH,
+            SurfaceDimension::Height => DEFAULT_SURFACE_HEIGHT,
+        }
+    }
+
+    /// Load this dimension of the graphics state at `base` into `dst`, as the program
+    /// sees it: a zero word is the startup size.
+    ///
+    /// The ONE reading of a size word. `canvas::getSize` answers through it
+    /// ([`emit_surface_dimension`]) and the resize publisher decides "did the size
+    /// change" through it ([`emit_publish_surface_size_tagged`]), so the two cannot
+    /// give 0 different meanings (bug-970). `ready` is a label the caller owns.
+    fn emit_load(
+        self,
+        dst: abi::Reg,
+        base: abi::Reg,
+        ready: &str,
+        instructions: &mut Vec<CodeInstruction>,
+    ) {
+        instructions.push(abi::load_u64(dst, base, self.offset()));
+        instructions.push(abi::compare_immediate(dst, "0"));
+        instructions.push(abi::branch_ne(ready));
+        instructions.push(abi::move_immediate(
+            dst,
+            "Integer",
+            &self.startup().to_string(),
+        ));
+        instructions.push(abi::label(ready));
+    }
+}
+
 /// Read one published surface dimension, falling back to the startup size.
 pub(crate) fn emit_surface_dimension(
     symbol: &str,
     scratch: &GraphicsScratch,
-    offset: usize,
-    default: usize,
+    dimension: SurfaceDimension,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let ready = format!("{symbol}_dim_ready_{offset}");
+    let ready = format!("{symbol}_dim_ready_{}", dimension.offset());
     state_base(symbol, &scratch.base, instructions, relocations);
-    instructions.push(abi::load_u64(&scratch.scratch, &scratch.base, offset));
-    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
-    instructions.push(abi::branch_ne(&ready));
-    instructions.push(abi::move_immediate(
-        &scratch.scratch,
-        "Integer",
-        &default.to_string(),
-    ));
-    instructions.push(abi::label(&ready));
+    dimension.emit_load(
+        (&scratch.scratch).into(),
+        (&scratch.base).into(),
+        &ready,
+        instructions,
+    );
     instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
 }
 
@@ -3607,13 +3652,28 @@ pub(crate) fn emit_publish_surface_size_tagged(
     // already has, and the headless scripted resize does the same — and
     // `canvas::didResize` promises the program a *change*, not an event.
     //
+    // "Changed" is against the size the program SEES, which is the startup size while
+    // the words are still zero (bug-970): a window that opens at that size publishes
+    // what `canvas::getSize` already answered, and one that opens at another size
+    // publishes a change. Nothing here knows whether a publish is the first.
+    //
     // The compare reads the old values before the stores overwrite them, and uses the
     // scratch the caller already gave us rather than a fifth register: this runs in a
     // platform resize callback, where the register budget is whatever the caller had.
-    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_WIDTH));
+    SurfaceDimension::Width.emit_load(
+        SCRATCH_RESIZE,
+        base,
+        &format!("{symbol}{tag}_resize_old_width"),
+        instructions,
+    );
     instructions.push(abi::compare_registers(SCRATCH_RESIZE, width));
     instructions.push(abi::branch_ne(&changed));
-    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_HEIGHT));
+    SurfaceDimension::Height.emit_load(
+        SCRATCH_RESIZE,
+        base,
+        &format!("{symbol}{tag}_resize_old_height"),
+        instructions,
+    );
     instructions.push(abi::compare_registers(SCRATCH_RESIZE, height));
     instructions.push(abi::branch_eq(&unchanged));
     instructions.push(abi::label(&changed));
@@ -3788,7 +3848,151 @@ pub(crate) fn emit_use_gpu(
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        emit_publish_surface_size, DEFAULT_SURFACE_HEIGHT, DEFAULT_SURFACE_WIDTH,
+        GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_RESIZES, GRAPHICS_OFFSET_WIDTH,
+    };
     use super::{graphics_trampoline_frame, graphics_trampoline_saved, graphics_trampoline_shadow};
+    use crate::arch::ops::CodeOp;
+    use crate::target::shared::abi;
+    use std::collections::HashMap;
+
+    /// Run the size publisher's own instructions over a graphics state held as
+    /// `offset -> word`, publishing `width` by `height`.
+    ///
+    /// The publisher is a straight run of loads, compares, branches and stores on the
+    /// registers it was handed, the same at every platform's resize callback, so it can
+    /// be executed here rather than read: what it leaves in the state is the contract.
+    /// An instruction this does not know fails the test.
+    fn publish(state: &mut HashMap<usize, u64>, width: u64, height: u64) {
+        let mut instructions = Vec::new();
+        let mut relocations = Vec::new();
+        emit_publish_surface_size(
+            "resize_test",
+            abi::LOCAL[3],
+            abi::LOCAL[1],
+            abi::LOCAL[2],
+            &mut instructions,
+            &mut relocations,
+        );
+        let name = |reg: abi::Reg| {
+            abi::move_register(reg, reg)
+                .get("dst")
+                .expect("a register renders")
+        };
+        let base = name(abi::LOCAL[3]);
+        let mut registers: HashMap<String, u64> =
+            HashMap::from([(name(abi::LOCAL[1]), width), (name(abi::LOCAL[2]), height)]);
+        let field = |at: usize, key: &str| -> String {
+            instructions[at]
+                .get(key)
+                .unwrap_or_else(|| panic!("instruction {at} has no `{key}`"))
+        };
+        let label = |target: &str| -> usize {
+            instructions
+                .iter()
+                .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(target))
+                .unwrap_or_else(|| panic!("no label `{target}`"))
+        };
+        // The address of the state is the first thing emitted; everything after it
+        // reaches the state through `base`.
+        let mut at = instructions
+            .iter()
+            .position(|i| i.op == CodeOp::LdrU64)
+            .expect("the publisher reads the old size");
+        let mut flags = (0u64, 0u64);
+        while at < instructions.len() {
+            let op = instructions[at].op;
+            let mut next = at + 1;
+            match op {
+                CodeOp::Label => {}
+                CodeOp::LdrU64 => {
+                    assert_eq!(field(at, "base"), base, "a load not from the state");
+                    let offset: usize = field(at, "offset").parse().expect("an offset");
+                    let value = state.get(&offset).copied().unwrap_or(0);
+                    registers.insert(field(at, "dst"), value);
+                }
+                CodeOp::StrU64 => {
+                    assert_eq!(field(at, "base"), base, "a store not to the state");
+                    let offset: usize = field(at, "offset").parse().expect("an offset");
+                    state.insert(offset, registers[&field(at, "src")]);
+                }
+                CodeOp::Cmp => flags = (registers[&field(at, "lhs")], registers[&field(at, "rhs")]),
+                CodeOp::CmpImm => {
+                    flags = (
+                        registers[&field(at, "lhs")],
+                        field(at, "rhs").parse().expect("an immediate"),
+                    )
+                }
+                CodeOp::MovImm => {
+                    registers.insert(
+                        field(at, "dst"),
+                        field(at, "value").parse().expect("an immediate"),
+                    );
+                }
+                CodeOp::AddImm => {
+                    let sum = registers[&field(at, "src")]
+                        + field(at, "imm").parse::<u64>().expect("an immediate");
+                    registers.insert(field(at, "dst"), sum);
+                }
+                CodeOp::BranchEq => {
+                    if flags.0 == flags.1 {
+                        next = label(&field(at, "target"));
+                    }
+                }
+                CodeOp::BranchNe => {
+                    if flags.0 != flags.1 {
+                        next = label(&field(at, "target"));
+                    }
+                }
+                other => panic!("the size publisher emitted `{other:?}`, which this does not run"),
+            }
+            at = next;
+        }
+    }
+
+    /// bug-970. A size the program already sees is not a resize, and the first publish
+    /// is not special.
+    ///
+    /// A zero size word reads as the startup size (`canvas::getSize` answers 900 by 640
+    /// before any window exists), so a window that opens AT that size publishes no
+    /// change, and `canvas::didResize` must not answer TRUE for it. A window that opens
+    /// at another size (Windows' first client area is 384 by 261) did change what the
+    /// program sees, and counts.
+    #[test]
+    fn publishing_the_size_the_program_already_sees_counts_no_resize() {
+        let (w, h) = (DEFAULT_SURFACE_WIDTH as u64, DEFAULT_SURFACE_HEIGHT as u64);
+        let resizes =
+            |state: &HashMap<usize, u64>| state.get(&GRAPHICS_OFFSET_RESIZES).copied().unwrap_or(0);
+
+        let mut state = HashMap::new();
+        publish(&mut state, w, h);
+        assert_eq!(
+            resizes(&state),
+            0,
+            "the first publish of the startup size is the size `getSize` already reported"
+        );
+        assert_eq!(state[&GRAPHICS_OFFSET_WIDTH], w);
+        assert_eq!(state[&GRAPHICS_OFFSET_HEIGHT], h);
+        publish(&mut state, w, h);
+        assert_eq!(resizes(&state), 0, "a repeat of the size it has");
+        // Real resizes count once each, one dimension or both.
+        publish(&mut state, 640, h);
+        assert_eq!(resizes(&state), 1, "the width changed");
+        publish(&mut state, 640, 480);
+        assert_eq!(resizes(&state), 2, "the height changed");
+        publish(&mut state, 640, 480);
+        assert_eq!(resizes(&state), 2, "a repeat of the size it has");
+        publish(&mut state, w, h);
+        assert_eq!(resizes(&state), 3, "back to the startup size IS a change");
+
+        // A first publish at any other size is a change from what the program saw.
+        for (width, height) in [(384, 261), (w, 261), (384, h)] {
+            let mut state = HashMap::new();
+            publish(&mut state, width, height);
+            assert_eq!(resizes(&state), 1, "first publish of {width} by {height}");
+        }
+    }
 
     /// bug-479. The graphics thread ran eight bytes out of alignment on Windows for as
     /// long as canvas mode existed there, because this frame skipped the x86-64 realign
