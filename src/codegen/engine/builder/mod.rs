@@ -261,23 +261,9 @@ pub(crate) struct CodeBuilder<'a> {
     /// — both here (callee) and at every call site (caller) — keeping the two sides
     /// consistent. Shared verbatim across all functions in the build.
     pub(crate) callback_referenced_functions: HashSet<String>,
-    /// bug-623 B: locals that provably own the resource record they hold
-    /// (`resource::cleanup::record_ownership`). Only these free the record at drop;
-    /// any other resource binding keeps the close and leaves the record alone.
-    pub(crate) record_owning_locals: HashSet<String>,
     /// bug-623 B: locals whose single store is a bare `Local(src)` — followed by a
     /// `RETURN` to find the binding that owns a returned union's box.
     pub(crate) resource_alias_sources: HashMap<String, String>,
-    /// bug-645: owner collections whose owned-list drain provably owns every block it
-    /// reaches — each element's resource record (and a union element's `{tag,record}`
-    /// box), and the collection block itself. Any other owner collection keeps the
-    /// close-only drain and leaks those blocks
-    /// (`resource::cleanup::record_ownership::owning_collections`).
-    pub(crate) owned_list_owning_collections: HashSet<String>,
-    /// bug-1053: whether an owned-list this function cannot prove the one holder
-    /// of its records frees them at run time, by the owner word, instead of only
-    /// closing them (`record_ownership::RecordOwnership::runtime_reclaim`).
-    pub(crate) owned_list_runtime_reclaim: bool,
     /// bug-1053: every owned-list of this function whose drain takes records for a
     /// later reclaim, for the error-return exit that frees them (the last
     /// error-return pad, `CodeBuilder::append_error_return_pads`).
@@ -785,10 +771,7 @@ impl<'a> CodeBuilder<'a> {
             resource_temps_closed_on_path: false,
             statement_temps: StatementTemps::default(),
             current_returns_param_borrow: false,
-            record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
-            owned_list_owning_collections: HashSet::new(),
-            owned_list_runtime_reclaim: false,
             reclaiming_owned_lists: Vec::new(),
             reclaiming_resources: Vec::new(),
             store_floats: Default::default(),
@@ -1309,6 +1292,8 @@ pub(crate) struct StatementTemps {
     /// Set when the store floated the one item it added, so the assignment's
     /// statement-end float of the whole container is not needed.
     pub(crate) item_floated: bool,
+    /// Whether the assignment being lowered is one of `StoreFloats::stores`.
+    pub(crate) assign_floats: bool,
     /// bug-1075: the locals of this function that a `LAMBDA` captures by
     /// reference and that reach a resource. Such a binding's stack object is a
     /// three-word cell, `{value, owned-list head, scope token}`, so a store

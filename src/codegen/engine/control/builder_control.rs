@@ -919,7 +919,7 @@ impl CodeBuilder<'_> {
         let result = result?;
         // Rule 4: the item is what this store adds to its container.
         if let Some(target) = self.statement_temps.assign_target.clone() {
-            return self.emit_stored_item_float(&target, value, result);
+            return self.emit_stored_item_float(&target, result);
         }
         Ok(result)
     }
@@ -3350,8 +3350,7 @@ impl CodeBuilder<'_> {
                             // The scope that closes a resource frees its record:
                             // the drop takes the record it closed and the exit
                             // frees it after its last cleanup, by the owner word.
-                            let frees_record = Self::resource_record_freed_at_drop(type_)
-                                && self.owned_list_runtime_reclaim;
+                            let frees_record = Self::resource_record_freed_at_drop(type_);
                             let reclaim_slot = frees_record.then(|| {
                                 let slot = self
                                     .allocate_stack_object(&format!("resource_reclaim_{name}"), 8);
@@ -3429,7 +3428,7 @@ impl CodeBuilder<'_> {
                             // The scope that closes the active variant frees its
                             // record, by the owner word, after the exit's last
                             // cleanup (as the concrete arm).
-                            let reclaims = !alias_wrap && self.owned_list_runtime_reclaim;
+                            let reclaims = !alias_wrap;
                             let record_free_tags = if reclaims {
                                 self.resource_union_record_free_tags(type_)
                             } else {
@@ -3542,11 +3541,14 @@ impl CodeBuilder<'_> {
                         }
                     }
                     NirOp::Assign { name, value } => {
-                        // bug-1045: a value from an inner scope stored into a
-                        // container declared further out takes that container's
-                        // scope (15.6): raise what it reaches before the store.
-                        self.emit_store_float(name, value)?;
+                        // Rule 4: whether this store can carry a resource owned
+                        // inside the container's scope (`record_ownership::
+                        // StoreFloats`); the store raises what it stores.
                         self.statement_temps.assign_target = Some(name.clone());
+                        self.statement_temps.assign_floats = self
+                            .store_floats
+                            .stores
+                            .contains(&(value as *const NirValue as usize));
                         self.statement_temps.item_floated = false;
                         // bug-689: an element-bound binding's update, its write-back
                         // (the element already holds the value it writes), and the

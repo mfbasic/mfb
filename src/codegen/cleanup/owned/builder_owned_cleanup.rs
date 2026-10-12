@@ -79,14 +79,8 @@ impl CodeBuilder<'_> {
         // The scope that closes a record frees it: the drain takes the records
         // its scope owns and the exit frees them after every other cleanup has
         // run (bug-1053). No holder proof is asked.
-        //
-        // One store still carries an alias outward without raising its cleanup
-        // scope: an assignment inside a `LAMBDA` through a by-reference capture
-        // (bug-1075). A function that creates such a lambda keeps the plain
-        // close, because the record may be read from the captured binding after
-        // the scope that closed it.
         let owns_elements = false;
-        let reclaims = self.owned_list_runtime_reclaim;
+        let reclaims = true;
         for (index, (leaf, drop)) in drops.into_iter().enumerate() {
             let head_slot = match first_head {
                 Some(first) => {
@@ -509,45 +503,6 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    /// bug-1045: raise what an assignment to container `name` stores from an inner
-    /// scope up to the container's scope (`record_ownership::StoreFloats`). Each
-    /// operand the analysis marked is lowered (a local, or a field chain over one:
-    /// no side effect), every resource it reaches is pushed, adopting, onto
-    /// `name`'s owned-list, and the push floats a record this scope or a scope
-    /// inside the container's owns to the container's scope. Emitted before the
-    /// store, as the module-level raise is (bug-806): a store that then fails
-    /// leaves the resources owned by the container's scope, which closes them.
-    pub(crate) fn emit_store_float(&mut self, name: &str, value: &NirValue) -> Result<(), String> {
-        if !self.store_floats.containers.contains(name)
-            || !(self.owned_list_heads.keys().any(|(list, _)| list == name)
-                || self.dynamic_owned_list(name).is_some())
-        {
-            return Ok(());
-        }
-        let mut operands = Vec::new();
-        crate::codegen::resource::cleanup::record_ownership::store_operands(value, &mut operands);
-        for operand in operands {
-            let marked = self
-                .store_floats
-                .operands
-                .get(&(operand as *const NirValue as usize))
-                .is_some_and(|container| container == name);
-            if !marked {
-                continue;
-            }
-            let result = self.lower_value(operand)?;
-            if !self.type_carries_resources(&result.type_) {
-                continue;
-            }
-            let slot = self.spill_to_slot("store_float_operand", &result.location);
-            let container = name.to_string();
-            self.emit_for_each_resource(slot, &result.type_, &mut |builder, leaf_slot, leaf| {
-                builder.emit_owned_list_push_as(&container, leaf_slot, leaf, true)
-            })?;
-        }
-        Ok(())
-    }
-
     /// bug-805: the container locals this body ASSIGNS a call result that can carry
     /// resources the callee hands out (`xs = makeFiles()`). A `Bind` of a call result
     /// adopts at the bind; an assignment has nowhere to register a drain except the
@@ -573,9 +528,8 @@ impl CodeBuilder<'_> {
                         self.types.insert(name.clone(), type_.clone());
                     }
                     NirOp::Assign { name, value }
-                        if assigned_value_may_carry_inner_resources(name, value)
-                            || trapped_call_source(value)
-                                .is_some_and(|source| self.trapped.contains(source)) =>
+                        if trapped_call_source(value)
+                            .is_some_and(|source| self.trapped.contains(source)) =>
                     {
                         self.assigned.push(name.clone());
                     }
@@ -629,7 +583,11 @@ impl CodeBuilder<'_> {
             let slot = self.spill_to_slot("captured_store_value", block);
             return self.emit_captured_store_float(name, slot, &type_);
         }
-        if !assigned_value_may_carry_inner_resources(name, value) {
+        if !self
+            .store_floats
+            .stores
+            .contains(&(value as *const NirValue as usize))
+        {
             return Ok(());
         }
         let Some(local) = self.locals.get(name).filter(|local| !local.by_ref) else {
@@ -653,7 +611,6 @@ impl CodeBuilder<'_> {
     pub(crate) fn emit_stored_item_float(
         &mut self,
         name: &str,
-        value: &NirValue,
         mut item: ValueResult,
     ) -> Result<ValueResult, String> {
         if !self.type_carries_resources(&item.type_) {
@@ -661,7 +618,7 @@ impl CodeBuilder<'_> {
         }
         let by_ref = self.locals.get(name).is_some_and(|local| local.by_ref);
         if !by_ref
-            && (!value_contains_call(value)
+            && (!self.statement_temps.assign_floats
                 || !(self.owned_list_heads.keys().any(|(list, _)| list == name)
                     || self.dynamic_owned_list(name).is_some()))
         {
@@ -1473,70 +1430,6 @@ pub(crate) fn value_may_carry_statement_resources(value: &NirValue) -> bool {
     !value_produces_no_resource(value)
 }
 
-/// Whether any call is evaluated inside `value`.
-pub(crate) fn value_contains_call(value: &NirValue) -> bool {
-    struct Calls(bool);
-    impl NirVisitor for Calls {
-        fn visit_value(&mut self, value: &NirValue) {
-            if matches!(
-                value,
-                NirValue::Call { .. } | NirValue::CallResult { .. } | NirValue::RuntimeCall { .. }
-            ) {
-                self.0 = true;
-            }
-            if !self.0 {
-                walk_value(self, value);
-            }
-        }
-    }
-    let mut calls = Calls(false);
-    calls.visit_value(value);
-    calls.0
-}
-
-/// Whether a call to a function BODY is evaluated inside `value`: only such a
-/// call's `RETURN` can hand the statement a resource (rule 5).
-pub(crate) fn value_calls_a_function_body(
-    value: &NirValue,
-    functions: &std::collections::HashMap<String, &crate::target::shared::nir::NirFunction>,
-) -> bool {
-    struct Calls<'f>(
-        &'f std::collections::HashMap<String, &'f crate::target::shared::nir::NirFunction>,
-        bool,
-    );
-    impl NirVisitor for Calls<'_> {
-        fn visit_value(&mut self, value: &NirValue) {
-            if let NirValue::Call { target, .. } | NirValue::CallResult { target, .. } = value {
-                if self.0.contains_key(target) {
-                    self.1 = true;
-                }
-            }
-            if !self.1 {
-                walk_value(self, value);
-            }
-        }
-    }
-    let mut calls = Calls(functions, false);
-    calls.visit_value(value);
-    calls.1
-}
-
-/// Rule 4, for an assignment to container `name`: whether the stored value can
-/// carry a resource owned inside the container's scope that no named operand
-/// accounts for. A value a call computed can (the call's own result, or what a
-/// call read out of a shorter-lived value: `keep = collections::filter(xs, f)`).
-/// The self-update `name = member(name, items…)` stores only its items, so it
-/// is asked of those.
-pub(crate) fn assigned_value_may_carry_inner_resources(name: &str, value: &NirValue) -> bool {
-    if let NirValue::Call { target, args, .. } = value {
-        if collections_call_member(target).is_some()
-            && matches!(args.first(), Some(NirValue::Local(first)) if first == name)
-        {
-            return args[1..].iter().any(value_contains_call);
-        }
-    }
-    value_contains_call(value)
-}
 
 /// bug-842: the `Result` local a `resultValue(<local>)` reads — the inline-`TRAP`
 /// desugar's delivery `$trap_valN = resultValue($trap_resN)`.

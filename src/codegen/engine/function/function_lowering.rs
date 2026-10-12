@@ -1129,10 +1129,7 @@ pub(crate) fn lower_function(
         resource_temps_closed_on_path: false,
         statement_temps: StatementTemps::default(),
         current_returns_param_borrow: false,
-        record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
-        owned_list_owning_collections: HashSet::new(),
-        owned_list_runtime_reclaim: false,
         reclaiming_owned_lists: Vec::new(),
         reclaiming_resources: Vec::new(),
         store_floats: Default::default(),
@@ -1387,35 +1384,19 @@ pub(crate) fn lower_function(
     // whole-function pre-pass rather than an incremental map built during lowering, so
     // it does not depend on the order the builder happens to reach the ops in.
     builder.resource_containment = crate::codegen::resource_containment(&function.body);
-    // bug-623 B: which resource bindings own their record, and the alias chains a
-    // returned union follows to its owner. A whole-function pre-pass, like the above.
+    // The alias chains a returned union follows to its owner, and the assignments
+    // that must raise what they store (rule 4). A whole-function pre-pass.
     let ownership = {
-        let record_type = |type_: &ParameterType| builder.record_freeable_type(type_);
-        // bug-805: a collection whose elements reach a resource at any depth (a
-        // `List OF Holder`, a `List OF List OF Holder`) owns its adopted resources
-        // exactly as a `List OF RES` does.
-        // bug-1025: and so does a record that reaches one (a record with a `RES`
-        // field, or one nesting such a record), which adopts the resources a call
-        // hands back inside it.
-        let res_collection_type = |type_: &ParameterType| {
-            CodeBuilder::is_res_collection_block(type_)
-                || builder.is_resource_owning_container(type_)
-        };
+        let container = |type_: &ParameterType| builder.is_resource_owning_container(type_);
         crate::codegen::resource::cleanup::record_ownership::record_ownership(
-            function,
-            functions,
-            &record_type,
-            &res_collection_type,
+            function, functions, &container,
         )
     };
-    builder.record_owning_locals = ownership.owning_locals;
     builder.resource_alias_sources = ownership.alias_sources;
-    builder.owned_list_owning_collections = ownership.owning_collections;
-    builder.owned_list_runtime_reclaim = true;
     builder.statement_temps.ref_cells = builder.by_ref_resource_captures(&function.body);
-    // bug-1045: a container that a store raises an inner scope's value into lists
-    // what the store hands it, so it needs its owned-lists from its bind, like a
-    // float target.
+    // A container that a store raises an inner scope's value into lists what the
+    // store hands it, so it needs its owned-lists from its bind, like a float
+    // target.
     builder
         .owner_containers
         .extend(ownership.store_floats.containers.iter().cloned());
@@ -1806,10 +1787,7 @@ pub(crate) fn lower_abi_function_helper(
         resource_temps_closed_on_path: false,
         statement_temps: StatementTemps::default(),
         current_returns_param_borrow: false,
-        record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
-        owned_list_owning_collections: HashSet::new(),
-        owned_list_runtime_reclaim: false,
         reclaiming_owned_lists: Vec::new(),
         reclaiming_resources: Vec::new(),
         store_floats: Default::default(),
@@ -2065,10 +2043,7 @@ pub(crate) fn helper_code_builder<'a>(
         resource_temps_closed_on_path: false,
         statement_temps: StatementTemps::default(),
         current_returns_param_borrow: false,
-        record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
-        owned_list_owning_collections: HashSet::new(),
-        owned_list_runtime_reclaim: false,
         reclaiming_owned_lists: Vec::new(),
         reclaiming_resources: Vec::new(),
         store_floats: Default::default(),

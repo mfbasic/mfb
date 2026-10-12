@@ -159,13 +159,6 @@ impl CodeBuilder<'_> {
             .collect()
     }
 
-    /// bug-623 B: whether a binding of `type_` can ever have a record freed at drop —
-    /// the domain `record_ownership` resolves.
-    pub(crate) fn record_freeable_type(&self, type_: &ParameterType) -> bool {
-        Self::resource_record_freed_at_drop(type_)
-            || !self.resource_union_record_free_tags(type_).is_empty()
-    }
-
     /// bug-623 B: whether a returned resource-union value's `{tag, record}` box already
     /// belongs to this function alone, so `RETURN` may hand it to the caller uncopied.
     ///
