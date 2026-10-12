@@ -1,0 +1,77 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT datetime
+IMPORT fs
+IMPORT io
+IMPORT os
+IMPORT vector
+
+' plan-172-M Phase 4: `overID` read off a REAL window's pointer.
+'
+' One group, `tile`, holding a rectangle `face`, drawn twice under the node ids `left`
+' and `right`; and a picture `avatar` on a circle `frame`. Every press is appended to
+' the file `OVER_OUT` names, as `down x,y [overID]`.
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC node(id AS String, x AS Float) AS canvas::DrawItem
+  MUT g AS canvas::Group
+  g = WITH g { id := id, position := at(x, 20.0), name := "tile" }
+  LET item AS canvas::DrawItem = g
+  RETURN item
+END FUNC
+
+' One non-blocking look at the keyboard.
+FUNC pump() AS Nothing
+  LET k AS io::Key = io::readKey(0) TRAP(e)
+    RETURN
+  END TRAP
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET out AS String = os::getEnvOr("OVER_OUT", "over.txt")
+  RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(0), toByte(200), toByte(80), toByte(255)])
+  MUT face AS canvas::Rectangle
+  face = WITH face { id := "face", size := canvas::Size[width := 100.0, height := 60.0], paint := canvas::fill(color::rgb(60, 110, 220)) }
+  canvas::setGroup("tile", [face])
+  MUT frame AS canvas::Circle
+  frame = WITH frame { id := "frame", position := at(310.0, 60.0), radius := 40.0, paint := canvas::fillStroke(color::rgb(255, 255, 255), color::rgb(255, 255, 255), 3.0) }
+  LET avatar AS canvas::DrawItem = canvas::Picture[id := "avatar", shape := frame, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  canvas::present([node("left", 20.0), node("right", 140.0), avatar])
+  canvas::enableMouse(TRUE)
+  LET size AS canvas::Size = canvas::getSize()
+  fs::appendText(out, "started " & toString(toInt(size.width)) & "x" & toString(toInt(size.height)) & "\n") TRAP(err)
+    RETURN
+  END TRAP
+  LET started AS Integer = datetime::monotonicNanos()
+  LET total AS Integer = toInt(os::getEnvOr("SLEEP", "30000")) * 1000000
+  MUT moves AS Integer = 0
+  DO WHILE datetime::monotonicNanos() - started < total
+    IF os::getEnvOr("READ_KEYS", "") = "1" THEN
+      pump()
+    END IF
+    LET e AS canvas::MouseEvent = canvas::pollMouse()
+    IF e.kind = canvas::MouseKind.Down THEN
+      fs::appendText(out, "down " & toString(toInt(e.position.x)) & "," & toString(toInt(e.position.y)) & " [" & e.overID & "]\n") TRAP(err)
+        RETURN
+      END TRAP
+    ELSEIF e.kind = canvas::MouseKind.None THEN
+      os::sleep(5)
+    ELSEIF e.kind = canvas::MouseKind.Up THEN
+      fs::appendText(out, "up " & toString(toInt(e.position.x)) & "," & toString(toInt(e.position.y)) & " [" & e.overID & "]\n") TRAP(err)
+        RETURN
+      END TRAP
+    ELSE
+      moves = moves + 1
+      fs::appendText(out, "move " & toString(toInt(e.position.x)) & "," & toString(toInt(e.position.y)) & " [" & e.overID & "]\n") TRAP(err)
+        RETURN
+      END TRAP
+    END IF
+  LOOP
+  fs::appendText(out, "moves " & toString(moves) & "\n") TRAP(err)
+    RETURN
+  END TRAP
+END FUNC
