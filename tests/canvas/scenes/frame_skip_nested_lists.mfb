@@ -122,6 +122,43 @@ FUNC dashed(how AS Integer, last AS Float) AS canvas::DrawItem
   RETURN box(WITH canvas::stroke(color::rgb(255, 255, 255), 2.0) { dashes := floats(how, last) })
 END FUNC
 
+FUNC curve(how AS Integer, last AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := pts(how, 9.0), weights := floats(how, last)]
+END FUNC
+
+FUNC curves(how AS Integer, last AS Float) AS List OF canvas::BezierCurve
+  IF how = 0 THEN
+    RETURN [curve(0, 1.0), curve(0, last)]
+  END IF
+  MUT out AS List OF canvas::BezierCurve = []
+  out = collections::append(out, curve(how, 1.0))
+  out = collections::append(out, curve(how, last))
+  RETURN out
+END FUNC
+
+FUNC polycurve(how AS Integer, last AS Float) AS canvas::DrawItem
+  MUT c AS canvas::PolyCurve
+  c = WITH c { id := "pc", curves := curves(how, last), paint := canvas::stroke(color::rgb(255, 255, 255), 2.0) }
+  RETURN c
+END FUNC
+
+FUNC curvepolygon(how AS Integer, last AS Float) AS canvas::DrawItem
+  MUT rings AS List OF List OF canvas::BezierCurve = [curves(how, last)]
+  IF how > 0 THEN
+    rings = collections::append(rings, curves(how, 1.0))
+    rings = collections::removeAt(rings, 1)
+  END IF
+  MUT c AS canvas::CurvePolygon
+  c = WITH c { id := "cp", contours := rings, paint := red() }
+  RETURN c
+END FUNC
+
+' A shape inside an `AutoPaint`: the list is two unions and a record deep.
+FUNC auto(how AS Integer, last AS Float, name AS String) AS canvas::DrawItem
+  LET shape AS canvas::Shape = canvas::Polygon[id := name, position := at(0.0, 0.0), contours := rings(how, last), rule := canvas::FillRule.NonZero, paint := red(), transform := none()]
+  RETURN canvas::AutoPaint[shape := shape, useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := red(), exitPaint := red(), hoverPaint := WITH red() { dashes := floats(how, 3.0) }, pressedPaint := red()]
+END FUNC
+
 ' One item of every list-carrying kind, each built by history `how`; `vary` picks
 ' the one value that differs (0 = none).
 FUNC scene(how AS Integer, vary AS Integer) AS List OF canvas::DrawItem
@@ -149,9 +186,28 @@ FUNC scene(how AS Integer, vary AS Integer) AS List OF canvas::DrawItem
   IF vary = 6 THEN
     f = 3.5
   END IF
+  MUT h AS Float = 0.5
+  MUT k AS Float = 0.5
+  MUT m AS Float = 9.0
+  MUT name AS String = "auto"
+  IF vary = 7 THEN
+    h = 0.25
+  END IF
+  IF vary = 8 THEN
+    k = 0.25
+  END IF
+  IF vary = 9 THEN
+    m = 9.5
+  END IF
+  IF vary = 10 THEN
+    name = "auTo"
+  END IF
+  IF vary = 11 THEN
+    name = "auto "
+  END IF
   LET g AS canvas::DrawItem = canvas::Group[id := "g", name := "grp", position := at(1.0, 2.0), transform := none()]
   IF how = 0 THEN
-    RETURN [polygon(0, a), polyline(0, b, c), gradient(0, d), clipped(0, e), dashed(0, f), g]
+    RETURN [polygon(0, a), polyline(0, b, c), gradient(0, d), clipped(0, e), dashed(0, f), polycurve(0, h), curvepolygon(0, k), auto(0, m, name), g]
   END IF
   MUT out AS List OF canvas::DrawItem = []
   out = collections::append(out, polygon(how, a))
@@ -159,12 +215,15 @@ FUNC scene(how AS Integer, vary AS Integer) AS List OF canvas::DrawItem
   out = collections::append(out, gradient(how, d))
   out = collections::append(out, clipped(how, e))
   out = collections::append(out, dashed(how, f))
+  out = collections::append(out, polycurve(how, h))
+  out = collections::append(out, curvepolygon(how, k))
+  out = collections::append(out, auto(how, m, name))
   IF how = 1 THEN
     out = collections::append(out, g)
     RETURN out
   END IF
   out = collections::append(out, box(red()))
-  out = collections::set(out, 5, g)
+  out = collections::set(out, 8, g)
   RETURN out
 END FUNC
 
@@ -191,7 +250,7 @@ FUNC main() AS Nothing
     show("same flat how=" & toString(how))
   NEXT
   ' One value different, deep in each nested list: a frame each, by every history.
-  FOR vary = 1 TO 6
+  FOR vary = 1 TO 11
     FOR how = 0 TO 2
       canvas::present(scene(how, vary))
       show("vary=" & toString(vary) & " how=" & toString(how))
@@ -215,14 +274,14 @@ FUNC main() AS Nothing
     canvas::presentLayers(layers(how, 0))
     show("same layers how=" & toString(how))
   NEXT
-  FOR vary = 1 TO 6
+  FOR vary = 1 TO 11
     FOR how = 0 TO 2
       canvas::presentLayers(layers(how, vary))
       show("layers vary=" & toString(vary) & " how=" & toString(how))
     NEXT
   NEXT
-  canvas::presentLayers([canvas::DrawLayer[items := scene(1, 6)]])
+  canvas::presentLayers([canvas::DrawLayer[items := scene(1, 11)]])
   show("one layer")
-  canvas::presentLayers([canvas::DrawLayer[items := scene(2, 6)]])
+  canvas::presentLayers([canvas::DrawLayer[items := scene(2, 11)]])
   show("one layer again")
 END FUNC

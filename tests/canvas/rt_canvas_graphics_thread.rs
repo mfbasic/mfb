@@ -229,14 +229,16 @@ fn an_identical_re_present_draws_no_second_frame() {
 /// scenes with the same content are different bytes whenever a nested list was built
 /// another way. `scenes/frame_skip_nested_lists.mfb` builds one item for every
 /// list-carrying field (a polygon's contours, a polyline's points and colours, a
-/// gradient's stops, a paint's clip and dashes) beside a group node, three ways each
-/// (a literal, `collections::append`, and `collections::set` with a `removeAt`), and
-/// presents them flat and inside layers. It prints the frame counter after every
-/// present, so each line is one row of the matrix.
+/// gradient's stops, a paint's clip and dashes, a curve's points and weights, a curve
+/// polygon's contours, and a polygon inside an `AutoPaint`) beside a group node, three
+/// ways each (a literal, `collections::append`, and `collections::set` with a
+/// `removeAt`), and presents them flat and inside layers. It prints the frame counter
+/// after every present, so each line is one row of the matrix.
 ///
 /// The second half is the one a comparison that reported "same" too often would fail:
-/// one float changed deep inside each nested list, one more contour, one more point,
-/// and another variant with the same points must each draw a frame.
+/// one value changed deep inside each nested list, one letter of a name and one more
+/// letter, one more contour, one more point, and another variant with the same points
+/// must each draw a frame.
 #[test]
 fn content_equal_scenes_with_nested_lists_draw_one_frame() {
     let (out, _) = run(
@@ -244,6 +246,8 @@ fn content_equal_scenes_with_nested_lists_draw_one_frame() {
         include_str!("scenes/frame_skip_nested_lists.mfb"),
         true,
     );
+    // The scene's `vary` values: one per nested list, then two string changes.
+    const VARIED: usize = 11;
     let mut want = Vec::new();
     let mut frame = 0;
     for shape in ["flat", "layers"] {
@@ -251,7 +255,7 @@ fn content_equal_scenes_with_nested_lists_draw_one_frame() {
         for how in 0..3 {
             want.push(format!("same {shape} how={how} {frame}"));
         }
-        for vary in 1..=6 {
+        for vary in 1..=VARIED {
             frame += 1;
             for how in 0..3 {
                 let prefix = if shape == "flat" { "" } else { "layers " };

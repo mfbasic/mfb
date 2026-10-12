@@ -159,11 +159,33 @@ returns memory.
 
 ### 3.1 The frame skip compares CONTENT, not bytes
 
-An identical re-present must publish nothing. The comparison is `count`, then
-`dataLength`, then the data region — **not** a whole-block `memcmp`. A collection
-block is not byte-comparable even between two shrink-to-fit copies: a lookup entry is
-40 bytes of which a *list* writes only some, so `keyOffset`/`keyLength` hold whatever
-the arena handed out. The whole-block form never once reported "unchanged".
+An identical re-present must publish nothing. The comparison walks the two scenes by
+their TYPE (`emit_values_content_equal_branch`): a list's `count`, then each element
+through its entry; a record field by field; a union by tag, then as that variant's
+record. Nothing about how a block was built is read — not `capacity`, `dataLength`,
+`dataCapacity`, an inlined field's offset, or a union's `size`.
+
+Bytes cannot stand in for content at ANY level, and each shortcut has been shipped:
+
+* A whole-block `memcmp` never once reported "unchanged". A list entry is 40 bytes of
+  which a list writes `flags` (one byte), `valueOffset` and `valueLength`; the seven
+  bytes after `flags` hold whatever the arena handed out. (`keyOffset`/`keyLength` are
+  written, as 0.)
+* `count`, `dataLength` and the outer data region byte for byte reported "changed" for
+  every scene whose items hold a list built another way (bug-968). The top-level copy
+  is shrink-to-fit, but shrink-to-fit is not recursive: a list embedded in an item (a
+  polygon's contours, a paint's clip, a layer's items) keeps the capacity it was built
+  with, so its spare entries, its entries' reserved bytes and its unused data bytes
+  are all inside the outer data region.
+
+An element's bytes are still tried FIRST — equal bytes are equal content — and only an
+element whose bytes differ is walked. That keeps an unchanged scene of flat items at
+one pass over its bytes, a word at a time.
+
+The walk is emitted from the type model, one routine per type, and names no canvas
+item: a new item, field or variant is compared without touching it. A type it has no
+arm for (a `Map`, a `Set`, a function value) is a build error in `canvas::present`,
+not a wrong answer.
 
 ### Two presents before one frame
 

@@ -237,10 +237,11 @@ fn an_identical_re_present_skips_the_publish() {
     let ins = instructions(&plan, PUBLISH);
 
     // It must read the currently-installed scene to have anything to compare
-    // against, and compare it byte-wise (the loop the compare helper emits).
+    // against, and compare the two by content (the routines the content comparison
+    // emits; bug-968 replaced the byte compare of the data region this named).
     assert!(
-        label_at(ins, "canvas_present_same").is_some(),
-        "present must byte-compare the new scene against the installed one"
+        label_at(ins, "content_equal_enter").is_some(),
+        "present must compare the new scene's content against the installed one's"
     );
 
     let skip = label_at(ins, "canvas_present_skip").expect("a skip path");

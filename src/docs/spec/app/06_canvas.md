@@ -45,10 +45,19 @@ present-diff. The consequences are the point:
   its contents rather than a call ordering. Re-presenting an unchanged item
   re-uses its cached geometry.
 
-The comparison is exact rather than hashed — the two scenes' contents, element
-for element — so there are no collisions to reason about. It is of CONTENT, not of
-whole blocks: two shrink-to-fit copies of one scene need not be equal bytes
-(`.ai/canvas-threading.md` section 3.1).
+The comparison is exact rather than hashed, so there are no collisions to reason
+about. It is of CONTENT, not of bytes: the two lists' counts, then each element,
+through every list's entries and by the scene's type — a record field by field, a
+union by its tag and then as the active variant's record, a nested list the same
+way again. A `Float` is compared by its bits, so `0.0` and `-0.0` are different
+content and a NaN equals itself. An element's bytes are tried first, since equal
+bytes are equal content, and only an element whose bytes differ is walked by its
+type. Bytes cannot stand in for content: a list embedded in an item keeps the
+capacity it was built with (`./mfb spec memory collections`), and a list entry has
+bytes no list writes, so two scenes that say the same thing are different bytes
+whenever a nested list was built another way (`.ai/canvas-threading.md` section
+3.1). [[src/codegen/builtins/canvas/gen_present.rs:emit_publish]]
+[[src/codegen/collection/compare/builder_collection_compare.rs:emit_values_content_equal_branch]]
 
 ### Flat or layered
 
