@@ -1,12 +1,54 @@
 # bug-688: The Vulkan canvas backend is still at pre-bug-686 Metal: ordinary scenes fall to software, large polygons are O(edges × pixels), pictures copy per occurrence, every frame is read back
 
-Last updated: 2026-09-27
+Last updated: 2026-10-12
 Effort: huge (>3d)
 Severity: HIGH
 Class: Correctness / Performance
 
 Status: V1-V4 FIXED; V5 MEASURED on real hardware (box 206) with two fixes landed; V6 FIXED on Windows (swapchain present), Linux present BLOCKED (no real-GPU Linux box); the 10k-quad shader cost OPEN
 Regression Test: `scripts/test-canvas-gpu-rows.sh` (the bug-686 rows and the geo-verify rows, per target); `scripts/test-canvas-vulkan.sh --target`; the `vulkan.rs` unit tests `the_pipeline_specializes_every_region_base` and `the_shared_buffer_holds_every_region`; `both_predicates_count_each_picture_block_once`; `rt_canvas_metal` rows for the shared scenes; V6: `present_layout_tables_are_self_consistent`, `the_present_path_is_windows_only_and_fully_named`, `the_canvas_child_window_is_shown_by_one_arm_and_hidden_by_the_others`, and the real-window run on box 206 with `tools/win-screen-capture` (manual: needs the interactive session)
+
+## Re-verified 2026-10-12: two items remain, both as recorded (HEAD `555130a25`)
+
+What is still open is only this, and the title's four complaints are no longer the state
+of the code (V1 to V4 are fixed, and V6 is fixed on Windows):
+
+1. **The 10,000-quad row is still renderer-limited on box 206 (V5 acceptance not met).**
+   `bash tools/canvas-bench/bench.sh target/debug/mfb --target windows-x86_64 --host
+   test@192.168.1.206 sweep` (debug build, headless, 900×640):
+
+   | row | fps | render ms/frame | 2026-09-27 |
+   |---|---|---|---|
+   | 1,000 × 8-pt moving | 32.6 | 29.5 | 24.8 / 26.3 |
+   | 1,000 × 8-pt static | 33.2 | 29.8 | 34.8 / 26.3 |
+   | 2,000 × 8-pt moving | 18.2 | 52.4 | 12.0 / 40.5 |
+   | 2,500 × 8-pt moving | 15.6 | 60.9 | 9.0 / 47.6 |
+   | 5,000 triangles moving | 13.2 | 70.7 | 6.6 / 51.5 |
+   | **10,000 quads moving** | **8.6** | **103.8** | 3.6 / 115.5 |
+   | 10 × 300-pt moving | 104.6 | 9.4 | 67.0 / 13.6 |
+   | 100 × 300-pt moving | 24.6 | 23.9 | 6.4 / 27.5 |
+   | 10 × 4,000-pt moving | 31.0 | 30.9 | 9.8 / 35.1 |
+
+   The frame rates rose (the program side got cheaper), but the render phase did not: the
+   8-pt rows now render slower than on 2026-09-27 (2,000 items: 52.4 ms against 40.5), and
+   10,000 quads still take 104 ms of render a frame. The fragment shader is larger than it
+   was then (`mfb_canvas.frag.spv` 298,680 bytes against 248,628 on 2026-10-06, `ls -l`);
+   whether that is the cause was not measured. The sweep's first row (95 × 8-pt) is not in
+   the table: it reported `fps=0.4 phaseRenderMs=18500` because it was the first launch
+   of that exe name and paid bug-996's pipeline compile. The bench does not discard a
+   first run.
+2. **Linux present is still readback-only.** `vulkan_present.rs:has_present_path` is
+   `matches!(platform.family(), PlatformFamily::Windows)`. Still blocked on a real-GPU
+   Linux box (`.ai/remote_systems.md`: every Linux Vulkan driver is lavapipe) and on the
+   GTK4 design decision below.
+
+Not re-run: the correctness rows as a set (`scripts/test-canvas-gpu-rows.sh`; two rows ran
+on box 206 for bug-1079 and `pictureshapes` passed), and the real-window present on box
+206 (bug-1045's probe did run there: 120 of 120 frames `directFrames`).
+
+Stale below, left as history: box 2230 is retired (owner, 2026-10-06); every Windows row
+runs on box 206. The frame caps are also what stops bug-765's 100,000-dot scene on both
+GPU backends (65,536 items a frame).
 
 ## STATUS (2026-09-27): V1-V4 FIXED; V5 measured, two fixes landed; V6 FIXED on Windows
 
