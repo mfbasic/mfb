@@ -1,6 +1,6 @@
 # bug-1024: a Metal text frame is dumped with unwritten tiles (seen on a loaded machine)
 
-Last updated: 2026-10-10
+Last updated: 2026-10-12
 Effort: unknown — not yet root-caused
 Severity: MEDIUM
 Class: Concurrency (suspected)
@@ -22,6 +22,25 @@ References:
   `a_transformed_text_run_reaches_the_gpu_and_matches_the_oracle`.
 - `.ai/canvas-threading.md` — the three-thread model and the frame handshake.
 - Found while closing plan-172-F.
+
+## Re-verified 2026-10-12: not reproduced, 5 of 5 passes (HEAD `555130a25`)
+
+```
+cargo test --no-fail-fast --test rt_canvas_font gpu     # five times
+```
+
+`2 passed; 0 failed` each time. The first run finished at a load average of 23.61
+(`uptime`, with a `cargo build` beside it; each test ran for over 60 s and the pair took
+233 s), the last at 10.00. So it passed again under load heavier than the load it first
+failed under. No source change since 2026-10-10 is known to address it; plan-172-G to N
+and plan-164 landed in between. It stays open as intermittent with the cause unknown.
+
+**bug-1059 is the same two tests** failing 6 of 6 times on 2026-10-11 with a different
+picture: opaque black where the oracle has text (`[0, 0, 0, 255]`), where this bug has
+unwritten tiles (`[0, 0, 0, 0]`). Neither document cited the other. Whoever takes one
+should take both: whether they are one defect is not known, and 1059's guesses (display
+asleep, another session using the GPU) were not tested here. The display was awake for
+these five runs (`ioreg -n IODisplayWrangler`: `CurrentPowerState=4`).
 
 ## Failing Reproduction
 

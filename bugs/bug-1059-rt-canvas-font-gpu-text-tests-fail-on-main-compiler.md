@@ -1,6 +1,6 @@
 # bug-1059: two GPU text tests in `rt_canvas_font` fail with main's compiler on the development Mac
 
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Test (failing on main; cause not traced)
@@ -50,3 +50,10 @@ In both, the GPU frame is black where the oracle has text.
   message that names it) rather than report a pixel mismatch.
 
 Found during batch 21.
+
+## 2026-10-12: passed 5 of 5; see bug-1024
+
+`cargo test --no-fail-fast --test rt_canvas_font gpu`, five runs at HEAD `555130a25`:
+`2 passed` each, with the display awake (`ioreg -n IODisplayWrangler`:
+`CurrentPowerState=4`) and load averages between 10 and 24. bug-1024 is the same two tests
+failing with a different picture (unwritten `[0, 0, 0, 0]` tiles); take the two together.
