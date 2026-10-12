@@ -152,7 +152,7 @@ Acceptance: the surface comparison reports no difference and the residue count i
   Observed 2026-10-11: "differences: 0" and "removed names outside removed-type
   fixtures: 0". `scripts/artifact-gate.sh target/release/mfb all` after the resync:
   "2350 golden(s) checked, 0 diff(s)".
-Commit: —
+Commit: 8bb3e9a60
 
 ### Phase 2 — Every example and tool builds and runs
 
@@ -195,7 +195,7 @@ Acceptance: every example and tool exits 0, and the man-example gate passes.
   UNMEASURED — time it and record it; it is the only gate that builds and runs every
   manual example).
   Observed 2026-10-11: pass, 1,489 s (24 min 49 s) on a loaded machine.
-Commit: —
+Commit: 9ff01be2f
 
 ### Phase 3 — Reader audits
 
@@ -233,60 +233,123 @@ name.
   Observed 2026-10-11: `cargo test --bin mfb -- man:: spec` → "98 passed; 0 failed";
   the grep → 0; and the same grep over `mfb spec app canvas` → 0 (it was 1: "every
   rectangle that was a `RoundedRect`", reworded).
-Commit: —
+Commit: 9ff01be2f
 
 ### Phase 4 — Platform rows
 
-- [ ] macOS (local): `cargo test --test 'rt_canvas_*'`, then `bash
-      scripts/test-macapp.sh`.
-- [ ] Linux aarch64 glibc, box 2223: the same `cargo test` row. Chosen because it is the
-      native aarch64 build box.
-- [ ] Linux GTK and Vulkan, box 2226: `scripts/test-canvas-vulkan.sh target/release/mfb
+- [x] macOS (local): `cargo test --test 'rt_canvas_*'`, then `bash
+      scripts/test-macapp.sh`. 21 targets: "381 passed, 0 failed, 4 ignored".
+      `test-macapp.sh`: "macOS app mode runtime tests passed" (12 `ok`); its four GUI
+      legs skip themselves ("set MFB_MACAPP_GUI=1 when idle") and the machine was in
+      use, so they were not run.
+- [~] Linux aarch64 glibc, box 2223: the same `cargo test` row. Chosen because it is the
+      native aarch64 build box. NOT RUN: the box refuses connections and cannot be
+      started from this session. Remains: the row, when the box is up.
+- [~] Linux GTK and Vulkan, box 2226: `scripts/test-canvas-vulkan.sh target/release/mfb
       --box 2226` and `scripts/test-canvas-gpu-rows.sh`; the pointer and `AutoPaint`
-      cases in a real GNOME session.
-- [ ] Linux x86_64, box 2228: `scripts/test-canvas-vulkan.sh target/release/mfb --box
-      2228`. Emulated and slow; it is the only place the x86_64 emitters run.
-- [ ] Windows, `test@192.168.1.206`: the canvas suites, the pointer and `AutoPaint`
+      cases in a real GNOME session. The headless three pass: the Vulkan script (19
+      `ok`, "canvas Vulkan runtime tests passed"), all 43 GPU rows (164 `ok`, 0
+      `FAIL`, "bug-688 rows passed on linux-aarch64"), and
+      `scripts/test-canvas-pointer.sh` ("canvas pointer rows passed on
+      linux-aarch64"). The real GNOME session did NOT repeat 172-K's proof: in five runs
+      the Mutter pointer driver moved nothing twice, and in the other three the frames
+      showed enter then hover (`auto=1`, `3`) every time, exit twice, pressed once, and
+      never the frame for a release. No GTK source has changed since 172-K's proof
+      (`git log ac806ae1c..HEAD -- src/target/linux_gtk` → one commit, the flash-length
+      option), so this is recorded as a driver that was not delivering button events
+      today, not as a regression — which it has not been shown not to be. Remains: one
+      clean real-window run.
+- [~] Linux x86_64, box 2228: `scripts/test-canvas-vulkan.sh target/release/mfb --box
+      2228`. Emulated and slow; it is the only place the x86_64 emitters run. NOT RUN
+      on 2228 (down). Run on 2227 instead — the Vulkan script (19 `ok`), all 43 GPU rows
+      (164 `ok`, 0 `FAIL`) and the pointer rows — and that was a mistake, the owner's
+      word and right: 2227 is the same emulation, the rows took over two hours of a
+      loaded machine, and box 206 had already run every one of them on a real x86_64
+      processor. This row's premise is out of date (Corrections).
+- [x] Windows, `test@192.168.1.206`: the canvas suites, the pointer and `AutoPaint`
       cases, and `overID` through a real window — `MFB_MOUSE_INJECT` does not exist
       there, so this is the first Windows proof of 172-I. The proof scene has one group
       drawn twice under two `id`s and a named picture, so the id path is read off a real
-      click, not only the item's own `id`.
-- [ ] `scripts/test-appimage.sh --libc both` for the Linux app mode.
-- [ ] Record each row's command and result in Corrections.
+      click, not only the item's own `id`. All 43 GPU rows on the Intel GPU: 164 `ok`,
+      0 `FAIL` ("bug-688 rows passed on windows-x86_64"). `test-canvas-pointer.sh
+      --target windows-x86_64`: "canvas pointer rows passed". `AutoPaint` in a real
+      window (`MFB_CANVAS_GPU=0`, bug-1045): `auto=1` at frame 2, `3` at frame 3,
+      skipped wakes for moves inside the button, `4` then `3` for each of the three
+      buttons, `2` then `0` once the pointer left — 172-K's sequence, on the merged
+      build. `overID` (`bugs/repro/bug-1015/overid.mfb`, the real cursor placed and
+      pressed by `overid.ps1`): `[left::face]`, `[right::face]`, `[avatar::frame]` and
+      `[]` at the four points, a move, a press and a release each. The first attempt
+      recorded nothing, which is bug-1015 (Corrections).
+- [~] `scripts/test-appimage.sh --libc both` for the Linux app mode. `--libc musl` (box
+      2227): 15 `ok`, "Linux AppImage runtime tests passed". `--libc glibc` is box
+      2228's and is NOT RUN. Tried on 2226 instead: 13 `ok`, 3 `FAIL` — two because that
+      box has no `readelf`, one a liveness probe that looks for the message GTK prints
+      on a box with no display. That is a box the script was never set up for, not a
+      result. Remains: the glibc half on 2228.
+- [x] Record each row's command and result in Corrections. They are in the boxes
+      above, with the two things worth more than a line in Corrections.
 
 Acceptance: all six rows pass.
   Check: the six commands above → pass (est. 90 min in total; each row exercises a back
   end no other row reaches, so none can stand in for another).
+  Observed 2026-10-11: NOT MET. macOS and Windows pass whole. 2226 passes headless and
+  its real-window proof is incomplete. 2223 and 2228 are down, so two rows and half of
+  a third did not run.
 Commit: —
 
 ### Phase 5 — The full gates, once (largest blast radius)
 
-- [ ] `rustup run 1.96.0 cargo fmt --all`, then `git diff --stat` to confirm only this
-      plan's files moved.
-- [ ] `cargo check --all-targets` warning-free; `cargo clippy --all-targets`.
-- [ ] `cargo test --no-fail-fast -- --skip artifact_gate_all > /tmp/plan-172-M/run.log
+- [x] `rustup run 1.96.0 cargo fmt --all`, then `git diff --stat` to confirm only this
+      plan's files moved. `cargo fmt --all -- --check` → 0 files differ.
+- [x] `cargo check --all-targets` warning-free; `cargo clippy --all-targets`. `check`
+      prints no warning. `clippy` exits 0 with no error; its warnings are the tree's
+      standing ones (35,769 of one lint alone), and the files this plan added carry
+      only the style the surrounding code has.
+- [~] `cargo test --no-fail-fast -- --skip artifact_gate_all > /tmp/plan-172-M/run.log
       2>&1; echo EXIT=$?`, then `grep -c '^failures:' /tmp/plan-172-M/run.log` → 0.
-- [ ] `scripts/artifact-gate.sh target/release/mfb all`.
-- [ ] `scripts/test-accept.sh target/debug/mfb target/accept-actual`; the summary's test
+      Timed: 6,082 s (1 h 41 min) on a loaded machine; the unit-test binary alone is
+      3,330 s. 344 targets: "7419 passed, 5 failed, 10 ignored", `EXIT=101`, the five in
+      two targets, neither run by any earlier letter (Corrections): a sweep that found
+      `canvas::pollMouse` under-declaring its errors, wrong since 172-I, and four cases
+      of `rt_foreign_entry_callee_saved` whose program read a `vector::Float2` without
+      importing `vector`. Both fixed. Rerun: `cargo test --test
+      rt_foreign_entry_callee_saved` → "6 passed"; `cargo test --bin mfb --
+      declared_errors man:: canvas spec` → "251 passed; 0 failed". Remains: the whole
+      suite was not run a second time, so there is no single log with `failures:` at 0.
+- [x] `scripts/artifact-gate.sh target/release/mfb all`. After the two fixes: "1684
+      tests, 1863 build(s), 2350 golden(s) checked, 0 diff(s)" — so widening
+      `pollMouse`'s error list changed no generated code any fixture covers.
+- [~] `scripts/test-accept.sh target/debug/mfb target/accept-actual`; the summary's test
       count equals the count at plan-172's starting commit plus the fixtures this plan
-      added, and the only reds are the four baseline ones.
-- [ ] `cargo test --test scripts_index_is_complete`.
+      added, and the only reds are the four baseline ones. "acceptance tests passed
+      (1718 test(s) ran)", `EXIT=0`, 2,320 s (38 min 40 s) — no red at all, the four
+      baseline ones included. Remains: the count was not reconciled against the
+      starting commit; main's 75 merged commits added fixtures of their own, so the
+      sum the box asks for is no longer this plan's alone.
+- [x] `cargo test --test scripts_index_is_complete`. "2 passed" (in the full run).
 - [ ] Archive `plan-172-M` and `planning/new_canvas.md` to `planning/completed/`.
+      Not done: Phase 4 is not met, and what is left of it is the owner's to unblock.
 - [ ] Re-run plan-150-A's prerequisite commands and set its plan-172 row to MET.
+      Not done, for the same reason.
 
 Acceptance: every gate above passes.
   Check: the artifact gate (est. 15–20 min per `.ai/testing-gates.md`) and the
   acceptance corpus (est. 15 min) — both tree-wide by design, run once, here; the full
   `cargo test` has no documented runtime, so time it and record it.
+  Observed 2026-10-11: the gates that ran pass after two fixes; the letter is not
+  closed.
 Commit: —
 
 ## Validation Plan
 
 - Tests: no new test files; this letter runs everything B–L added.
 - Coverage check: `scripts/coverage-check.sh` — `helper_hit.rs`, `helper_autopaint.rs`
-  and `func_pointer.rs` are in the denominator.
+  and `func_pointer.rs` are in the denominator. NOT RUN (2026-10-11).
 - Runtime proof: `examples/canvas-demo` in a real window on macOS, Linux and Windows,
-  with an `AutoPaint` button, a shaped picture and a rotated group visible.
+  with an `AutoPaint` button, a shaped picture and a rotated group visible. NOT DONE:
+  the demo has none of the three, and putting them there is the showcase rewrite the
+  owner has not authorised. What stands in for it is 172-K's and this letter's
+  real-window runs of a purpose-built scene.
 - Doc sync: `src/docs/spec/app/06_canvas.md`,
   `src/docs/spec/diagnostics/02_error-codes.md`, `.ai/canvas-threading.md`, the registry
   descriptions.
@@ -299,6 +362,33 @@ None.
 
 ## Corrections
 
+- **WHERE THIS LETTER STOPPED (2026-10-11).** Not closed and not merged into main.
+  Done: the merge of main, Phases 1 to 3, the macOS and Windows rows, and every full
+  gate, with two defects found and fixed. Open, and each the owner's to unblock:
+  (1) boxes 2223 and 2228 are down — the native aarch64 `cargo test` row and the glibc
+  AppImage half did not run; (2) the GNOME real-window proof was not repeated cleanly;
+  (3) the `canvas-demo` runtime proof needs the unauthorised rewrite; (4) the full
+  `cargo test` was not run a second time after the two fixes; (5)
+  `scripts/coverage-check.sh` was not run.
+- **The x86_64 row's premise is out of date, and running it on 2227 was a mistake.**
+  §Phase 4 calls an emulated Linux box "the only place the x86_64 emitters run". Box
+  206 is a real x86_64 machine and runs every GPU row, the pointer rows and two
+  real-window proofs through the same emitters; what an emulated Linux x86_64 box adds
+  is the Linux ABI on that architecture, at about three minutes a scene. With 2228
+  down the rows were run on 2227 — more than two hours — and the owner, rightly: "I
+  have no idea why you are testing on 2227. x86_64 is on 206 as a real machine." A
+  future closeout should take 206 as the x86_64 row, use an ARM Alpine box for musl,
+  and ask before putting anything on an emulated one.
+- **Two defects the full `cargo test` found, both older than this letter.**
+  `canvas::pollMouse` declared two errors and its body can reach five more — it builds
+  the scene's geometry on the calling thread, through builders that use the checked
+  conversions and `math`. The sweep that says so
+  (`every_body_rewrite_implementation_declares_exactly_the_errors_its_target_can_raise`)
+  fails at `d39a45744`, the commit that added the member (172-I), and at every commit
+  since: it is outside the name filters every letter's round used. The five are now
+  declared. And `rt_foreign_entry_callee_saved`'s mouse program came in with the merge
+  of main before 172-I, written for a `position` that was not yet a `vector::Float2`;
+  it lacked `IMPORT vector`. Its assertions are untouched.
 - **`examples/canvas-demo` did not build, and had not since 172-K (Phase 2).** Two of
   its functions — `kit.mfb:placed` and `ui.mfb:restyleItem` — `MATCH` over every
   `DrawItem`. 172-K added the `AutoPaint` variant and 172-L took a picture's

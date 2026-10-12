@@ -393,7 +393,20 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::named(super::MOUSE_EVENT_TYPE),
-            errors: vec!["ErrWrongMode", "ErrOutOfMemory"],
+            // Beyond the raw poll's two: `overID` builds the scene's geometry on this
+            // thread (`helper_hit.rs:__canvas_hitBuild`), and those builders call the
+            // checked conversions and the `math` members the renderer's do. The
+            // sweep in `tests/mfb_body_declared_errors.rs` reads the set off the
+            // source; nothing here was chosen by hand.
+            errors: vec![
+                "ErrWrongMode",
+                "ErrOutOfMemory",
+                "ErrOverflow",
+                "ErrFloatDomain",
+                "ErrInvalidArgument",
+                "ErrIndexOutOfRange",
+                "ErrInvalidFormat",
+            ],
             body: Body::Rewrite("__canvas_pollMouse"),
         }],
     });
