@@ -1083,12 +1083,24 @@ name = "rt_resource_aggregate_temporary"
 path = "tests/runtime/rt_resource_aggregate_temporary.rs"
 
 [[test]]
+name = "rt_resource_store_float"
+path = "tests/runtime/rt_resource_store_float.rs"
+
+[[test]]
 name = "rt_resource_temporary_close"
 path = "tests/runtime/rt_resource_temporary_close.rs"
 
 [[test]]
+name = "rt_resource_trap_state_free"
+path = "tests/runtime/rt_resource_trap_state_free.rs"
+
+[[test]]
 name = "rt_resource_union_box_owner"
 path = "tests/runtime/rt_resource_union_box_owner.rs"
+
+[[test]]
+name = "rt_resource_union_member_float"
+path = "tests/runtime/rt_resource_union_member_float.rs"
 
 [[test]]
 name = "rt_resource_union_reclaim"

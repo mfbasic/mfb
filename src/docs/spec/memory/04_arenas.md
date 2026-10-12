@@ -412,6 +412,14 @@ A **resource** is scope-dropped, but on its own terms: drop and close do differe
 jobs. *Close* releases the OS handle and sets the closed flag; *drop* reclaims the
 memory — the drop path `arena_free`s the resource's output buffer,
 read buffer, and `STATE` payload, nulling each pointer word as it goes.
+The `STATE` payload is freed by whichever cleanup owns the record, whoever attached
+it: a binding that names another binding's record and declares the `STATE` (`RES b
+AS fs::File STATE Cur = a`) records the state type on that owner's cleanup. The
+inline-`TRAP` form depends on it — `RES v AS fs::File STATE Cur = open() TRAP …`
+binds `v` from a delivery temporary typed by the producer, with no `STATE`, and the
+temporary's cleanup is the one that runs. A resource union's binding does the same.
+[[src/codegen/engine/control/builder_control.rs:live_resource_aliases]]
+[[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_alias_root]]
 The assigned scope's eligible cleanup also frees the resource record for `fs.File`,
 `tcp.Socket`, `tcp.Listener`, `udp.Socket`, `tls.Socket`, `tls.Listener`,
 `audio.AudioInput`, `audio.AudioOutput`, and the parent `Thread` view. It frees
@@ -459,7 +467,15 @@ resource-management` §15.6) has no binding of its own left to drop, so its memo
 reclaimed by that collection's owned-list drain instead. The drain always frees the
 node it allocated for the element, which nothing but the drain can name: a 16-byte
 `{record, next}` node, or for a resource-union element a 24-byte
-`{tag, record, next}` node holding a copy of the element's box. The drain frees no
+`{tag, record, next}` node holding a copy of the element's box. A concrete resource
+that floats into a container of a union it is a member of (`RES s AS fs::File`, then
+`hs = collections::append(hs, s)` on a `List OF RES Handle`) is listed at its
+binding, before the store wraps it, so it has no box yet: its node takes the record
+itself and the member's own variant tag, the node a box of the member would have
+given. [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_push_as]]
+A local wrapped for a union-typed argument names that local in the argument
+position, as the bare local would, so the wrap is no second holder in the proof
+below. [[src/codegen/resource/cleanup/record_ownership.rs:CollectionUses]] The drain frees no
 union box: a box is its binding's or its statement's, or a span of the collection
 block that holds the element inline (`./mfb spec memory heap-values`, "Union").
 Everything the node POINTS at — the element's `STATE` block, its per-`File`
@@ -523,6 +539,30 @@ further out — a handle the caller passed in and got back, or one the container
 already lists — keeps its owner and is not listed again, so the owner alone closes
 and frees it.
 [[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_owned_list_push_node]]
+
+A **store** that puts a value from an inner scope into a container declared in an
+enclosing one raises what the value reaches (`./mfb spec language
+resource-management` §15.6). The escape analysis raises a `RES` binding named as the
+element at its bind; every other named operand of an assignment to a container (a
+local bound in a scope inside the container's, a field chain or union extract over
+one, through a constructor, a list or map literal, a `WITH` and
+`collections::append`/`prepend`/`insert`/`set`; a `FOR EACH` variable counts by its
+iterable's scope) is lowered before the store and each resource it reaches is
+pushed, adopting, onto the container's owned-list, which the container has from its
+bind. The adopting push takes a record only when it is unowned or owned by a scope
+inside the container's and gives it the container's scope token; the inner binding's
+drain then finds the record owned by another scope and skips it.
+[[src/codegen/resource/cleanup/record_ownership.rs:StoreFloats]]
+[[src/codegen/cleanup/owned/builder_owned_cleanup.rs:emit_store_float]]
+In the ownership proof such an operand is the hand-over itself, not a second holder,
+when it is rooted at a record (copied by value where it is stored) or at a `RES`
+binding; one rooted at a collection is stored by pointer and stays a holder. The
+container frees the records it took only when each source leaves no other holder: a
+record source is itself an owning container by the rules above, a `RES` binding is a
+fresh record that does not escape, and a `FOR EACH` variable's iterable is an owning
+container (proved in turn when it took records the same way). Otherwise the
+container closes what it took and frees none of it; its own block is unaffected.
+[[src/codegen/resource/cleanup/record_ownership.rs:StoreFloatProof]]
 
 A resource union's drop reclaims what the concrete drop reclaims. After the
 tag-dispatched close it frees a `File` variant's output and read buffers, then the

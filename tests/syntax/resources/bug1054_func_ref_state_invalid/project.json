@@ -1,0 +1,10 @@
+{
+  "name": "bug1054_func_ref_state_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "bug-1054: a first-class reference to a FUNC whose parameter carries STATE keeps the clause in its callable type: a bare or differently-stated argument to a call through it, and every use of it as a bare FUNC(fs::File), is refused.",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -561,11 +561,15 @@ END FUNC
     assert_eq!(out.trim(), "hx");
 }
 
-/// An element stored into a longer-lived list through `get` is not floated there
-/// (§15.6), so it closes with the inner list — but the outer list still names the
-/// record, so it must stay readable as a closed handle, never freed under it.
+/// An element stored into a longer-lived list takes that list's scope (§15.6; the
+/// owner ruling of 2026-10-11 recorded in bug-1045): `keep` outlives `xs`, so the
+/// handles the loop appends stay open until `body` returns and the inner list's
+/// drain leaves them alone. Until bug-1045 nothing raised them, they closed with
+/// the inner list, and this test pinned `closedclosed`: the outer list read a
+/// closed handle. What it guards is unchanged: nothing is freed under the outer
+/// list, and nothing is freed twice.
 #[test]
-fn an_element_copied_into_an_outer_list_is_closed_not_freed() {
+fn an_element_copied_into_an_outer_list_takes_its_scope() {
     let exe = build_debug(
         "b1000_copied_out",
         &list_program(
@@ -596,8 +600,8 @@ END FUNC
     assert_eq!(run.double_free_skips, 0);
     assert_eq!(
         run.stdout.trim(),
-        "closedclosed closedclosed closedclosed closedclosed closedclosed",
-        "the outer list reads a closed handle, not freed memory"
+        "openopen openopen openopen openopen openopen",
+        "the outer list reads handles its own scope keeps open, not freed memory"
     );
 }
 

@@ -16,13 +16,21 @@ Check that every open bug has exactly one row:
 python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.glob('bugs/bug-*.md')];b=re.findall(r'^\|\s*\[.\]\s*\|\s*(\d+)\s',open('bugs/status.md').read(),re.M);print(len(a),sorted(set(a)^set(b))+[n for n in set(b) if b.count(n)>1])"
 ```
 
+## Running phase: batch 22 (`bug-staging-22`)
+
+The list is fixed: the seventeen documents that were open in "Resources and STATE" with
+priority HIGH or MED when the phase started. Nothing is added to it; a bug found while it
+runs gets a row in its area table and waits (1060 to 1071 so far). Each bug is fixed to the
+full extent of its document (999: all seven of its "Remaining" positions), never narrowed.
+
+Merged into staging: 1045, 1046, 1050, 1054, 1055. Still to do: 999, 1018, 1043, 1044, 1047,
+1048, 1049, 1051, 1052, 1053, 1056, 1057. Order: 999 before 1018, 1018 before 1057.
+
 ## Resources and STATE
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 1045   | HIGH     | a loop-scoped record's resource moved into a list declared outside the loop is closed when the loop body ends, so reading it afterwards fails with `Resource handle is already closed.` |
-| [ ]  | 1046   | HIGH     | a loop-scoped concrete `RES fs::File` appended to a `List OF RES Handle` builds and then crashes with SIGSEGV (near 1018, 1027) |
-| [ ]  | 1054   | HIGH     | a first-class reference to a FUNC with a `STATE` parameter (`LET j = p`) loses the clause from its callable type: a bare call builds and crashes with SIGSEGV, a stateful call fails to build |
+| [ ]  | 1063   | HIGH     | a concrete resource carrying `STATE` given where its resource union with the same `STATE` is expected is not wrapped: a binding from a call and an argument crash with SIGSEGV, an append fails to build with an unlocated internal error |
 | [ ]  | 999    | MED      | a `List OF RES` (or record of resources) returned by a call and taken unbound by a constructor argument, a member read, a `FOR EACH` or a call that answers with more than a plain scalar is never closed (`len(mkList())` is fixed; the owner's rule is settled: the aggregate takes the scope of whatever takes it) |
 | [ ]  | 1018   | MED      | a `List OF RES fs::File` given where a `List OF RES Handle` (a resource union) is expected is accepted unconverted, so `MATCH` takes no arm, and one form crashes; the conversion is written and right but keeps 272 bytes per conversion (needs `transform` to free a resource-union box, and the rest of 999) |
 | [ ]  | 1043   | MED      | a single resource returned by a call and used unbound (`len(fs::readAll(openOne()))`) is closed but keeps its 112-byte record on every call |
@@ -30,15 +38,21 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | [ ]  | 1047   | MED      | `collections::get` on a `List OF RES fs::File` under an inline `TRAP` written into an argument keeps 96 bytes per call |
 | [ ]  | 1048   | MED      | `FOR EACH` over a `Map OF String TO RES fs::File` read through `e.value` keeps 192 bytes per call |
 | [ ]  | 1049   | MED      | a `List OF RES` held in a record field, iterated or read with `get(b.hs, 0)`, keeps 112 bytes per call |
-| [ ]  | 1050   | MED      | `RES v AS fs::File STATE Cur = openOne() TRAP …` keeps the 32-byte `STATE` block on every evaluation |
 | [ ]  | 1051   | MED      | a trapped call that returns its own argument (`RES v AS fs::File = sameF(a) TRAP`) keeps the 112-byte default record |
 | [ ]  | 1052   | MED      | a callee that returns an unfolded copy of a record holding a resource keeps 112 bytes per call (only at `-O0` once 1025 is fixed) |
 | [ ]  | 1053   | MED      | a record holding a resource that has a second holder (own `RES f = k.h`, returned copy, `LAMBDA` capture, `MATCH` binding stored in a list, copy appended to a list) is closed but its record is kept |
-| [ ]  | 1055   | MED      | a bare top-level `RES g AS fs::File = openTagged()` whose initializer carries `STATE` is accepted (the local form is refused) |
 | [ ]  | 1056   | MED      | a `List OF List OF RES fs::File` returned by a call and bound (`LET t = mkNested()`) keeps the inner list blocks, 240 bytes per call |
 | [ ]  | 1057   | MED      | `hs = files` on a `MUT hs AS List OF RES Handle` keeps 48 bytes per assignment (near 1018) |
+| [ ]  | 1064   | MED      | `LET k AS HB = mk() TRAP …` (a record holding a resource, bound from a call under an inline `TRAP`) keeps 112 bytes per evaluation (near 1051) |
+| [ ]  | 1065   | MED      | a `List OF RES fs::File STATE Cur` that a loop floats stateful files into keeps every record and `STATE` block, 672 bytes per call |
+| [ ]  | 1066   | MED      | `FOR EACH e` over a `Map OF String TO RES Handle` with `MATCH e.value` keeps 1408 bytes per call (1048's shape over a union map; re-measure after 1048) |
+| [ ]  | 1067   | MED      | `hs = [s, u]` in a loop on an outer `MUT List OF RES Handle` keeps 832 bytes per call (near 1057; re-measure after 1057) |
+| [ ]  | 1069   | MED      | a `RES f` put in a constructed record whose field is appended to an outer list keeps 112 bytes per file (the close-only drain class of 1053) |
+| [ ]  | 1070   | MED      | a list a loop raises resources into and a callee then copies keeps 112 bytes per file (the close-only drain class of 1053) |
+| [ ]  | 1071   | MED      | a loop-scoped `List OF RES fs::File` appended to an outer `List OF List OF RES fs::File` keeps 1168 bytes per call (near 1056; re-measure after 1056) |
 | [ ]  | 1029   | LOW      | a call through a function value that returns a resource union leaks the 16-byte union box |
 | [ ]  | 1031   | LOW      | `RES` on a non-resource type is not refused at the top level, on a return type, or on a record field that also carries `STATE` |
+| [ ]  | 1068   | LOW      | a module-level `RES g AS fs::File STATE Cur` leaves a constant 128 bytes live at exit (OWNER QUESTION: does the no-leak rule cover a constant amount held until exit?) |
 
 ## Canvas and graphics
 
@@ -175,6 +189,8 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | [ ]  | 1022   | MED      | a template call (`collections::merge`, any user `FUNC f OF T`) rejects a union variant where its `T` is the union, though the builtin collection members now accept it |
 | [ ]  | 1038   | MED      | an imported return-type overload set cannot be selected by the expected type (`TYPE_OVERLOAD_AMBIGUOUS`) |
 | [ ]  | 1039   | MED      | a template call whose argument is a direct imported-package call infers `T` as `Unknown` |
+| [ ]  | 1060   | MED      | a direct call of an overloaded FUNC whose matching overload takes a `STATE` parameter fails with `SYMBOL_UNKNOWN_IDENTIFIER: Callable `p` is not a top-level function` |
+| [ ]  | 1061   | MED      | a generic `FUNC bump OF T(x AS fs::File STATE Cur, v AS T)` cannot be called: `cannot infer template arguments from fs.File STATE Cur` (near 1032) |
 | [ ]  | 836    | LOW      | a call that matches no user overload reports `SYMBOL_UNKNOWN_IDENTIFIER: Callable `f` is not a top-level function` |
 | [ ]  | 870    | LOW      | a return-type overload (`encoding::utf8Encode`) loses its expected type under an inline TRAP |
 | [ ]  | 1032   | LOW      | a generic `FUNC gen OF T(x AS T STATE Cur)` called with a `fs::File STATE Cur` argument is rejected; the instantiation carries the clause twice (NEEDS AN OWNER DECISION: is `T STATE S` on a generic parameter legal at all?) |
@@ -224,6 +240,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | [ ]  | 937    | LOW      | one unknown record field produces cascading `TYPE_CALL_ARGUMENT_MISMATCH` (overloaded builtin) and a duplicated `TYPE_UNKNOWN_VALUE` |
 | [ ]  | 1041   | LOW      | a no-match call on a file's `PRIVATE`+`PUBLIC` overload set prints `#<hash>$r`, and `PRIVATE_SHADOWS_PUBLIC` fires on that legal overload (item 2 NEEDS AN OWNER DECISION; with 836 and 881) |
 | [ ]  | 1058   | LOW      | `wantsCur(1)` (an Integer to an `fs::File STATE Cur` parameter) reports a second, misleading `TYPE_STATE_MISMATCH` after the argument mismatch |
+| [ ]  | 1062   | LOW      | `TYPE_STATE_MISMATCH` for a bare file given to an imported FUNC value (`LET j = pkg::bump`) has no file and line |
 
 ## Codegen internals
 

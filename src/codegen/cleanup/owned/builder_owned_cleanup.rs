@@ -47,7 +47,12 @@ impl CodeBuilder<'_> {
             .iter()
             .map(|leaf| Ok((leaf.clone(), self.resource_leaf_drop(leaf)?)))
             .collect::<Result<Vec<_>, String>>()?;
-        let owns_elements = self.owned_list_owning_collections.contains(name);
+        let owns_block = self.owned_list_owning_collections.contains(name);
+        // bug-1045: a container that took a record from an inner scope's binding
+        // frees it only when that binding is proved to leave no other holder
+        // (`record_ownership::StoreFloatProof`); its own block is its own
+        // either way.
+        let owns_elements = owns_block && !self.store_floats.close_only.contains(name);
         // bug-645: the collection BLOCK itself. A `List OF RES X` is not
         // `is_freeable_flat_value` — `collection_payload_types` strips the `RES`
         // marker, so the walk sees a bare resource nominal and answers "not flat"
@@ -74,7 +79,7 @@ impl CodeBuilder<'_> {
         // this whole file guards against.
         // A collection of function values owns its block through its own drop, like
         // any graph-owning value; the RES-collection block free is not for it.
-        if owns_elements
+        if owns_block
             && typed_is_collection_type(type_)
             && !self.is_freeable_flat_value(type_)
             && !dynamic
@@ -330,7 +335,40 @@ impl CodeBuilder<'_> {
                 _ => None,
             });
         let union_leaf = self.resource_union_cleanup(&kind).is_some();
-        self.emit_owned_list_push_node(head_slot, list, union_leaf, resource_slot, adopting)
+        // bug-1046: a concrete resource floating into a container of its resource
+        // UNION (`RES f AS fs::File`, then `hs = append(hs, f)` on a `List OF RES
+        // Handle`). The float is decided at the binding, before the store wraps
+        // the value, so the slot holds the member's RECORD, not a `{tag, record}`
+        // box. The list's nodes are union nodes: the record is the value and the
+        // tag is the member's, both known here (as `module_leaf_kind` does for a
+        // module-level container, bug-1027). Reading the record as a box took its
+        // handle word for the record pointer.
+        let member_tag = if union_leaf && self.resource_union_cleanup(&leaf).is_none() {
+            let member = leaf.without_state();
+            let is_member = self
+                .type_model
+                .variants_for_union(&kind.without_state())
+                .any(|variant| *variant == member);
+            match (is_member, self.type_model.union_variant_tags.get(&member)) {
+                (true, Some(tag)) => Some(*tag),
+                _ => {
+                    return Err(format!(
+                        "resource of type '{leaf}' floats to '{collection}', whose owned-list \
+                         holds '{kind}', which '{leaf}' is not a member of"
+                    ));
+                }
+            }
+        } else {
+            None
+        };
+        self.emit_owned_list_push_node(
+            head_slot,
+            list,
+            union_leaf,
+            resource_slot,
+            adopting,
+            member_tag,
+        )
     }
 
     /// The push itself: float (or, `adopting`, take) the record for the list's
@@ -347,6 +385,10 @@ impl CodeBuilder<'_> {
     /// block had the drain free 16 bytes out of the middle of that block. The first
     /// two words of the node are laid out as a box, so the drain hands the node's
     /// own address to the tag-dispatched close.
+    ///
+    /// `member_tag` is `Some` when a union leaf's `resource_slot` holds a MEMBER's
+    /// concrete record instead of a box (bug-1046): the node takes that record and
+    /// this tag, so it is the node a box of the member would have produced.
     pub(crate) fn emit_owned_list_push_node(
         &mut self,
         head_slot: usize,
@@ -354,13 +396,14 @@ impl CodeBuilder<'_> {
         union_leaf: bool,
         resource_slot: usize,
         adopting: bool,
+        member_tag: Option<usize>,
     ) -> Result<(), String> {
         // Only an adopting push can skip, so only it gets the label to skip to.
         let listed = adopting.then(|| self.label("owned_list_adopt_listed"));
         if let Some((depth, union)) = list {
             let value = self.allocate_register();
             self.emit(abi::load_u64(&value, abi::stack_pointer(), resource_slot));
-            let record = if union {
+            let record = if union && member_tag.is_none() {
                 let skip = self.label("owned_list_float_union_null");
                 let record = self.allocate_register();
                 self.emit(abi::move_immediate(&record, "Integer", "0"));
@@ -413,8 +456,17 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(source, abi::stack_pointer(), resource_slot));
             self.emit(abi::compare_immediate(source, "0"));
             self.emit(abi::branch_eq(&copied));
-            self.emit(abi::load_u64(tag, source, 0));
-            self.emit(abi::load_u64(record, source, 8));
+            match member_tag {
+                // The slot holds the member's record: the node is its box.
+                Some(member_tag) => {
+                    self.emit(abi::move_immediate(tag, "Integer", &member_tag.to_string()));
+                    self.emit(abi::move_register(record, source));
+                }
+                None => {
+                    self.emit(abi::load_u64(tag, source, 0));
+                    self.emit(abi::load_u64(record, source, 8));
+                }
+            }
             self.emit(abi::label(&copied));
             self.emit(abi::store_u64(tag, node, 0));
             self.emit(abi::store_u64(record, node, 8));
@@ -454,6 +506,45 @@ impl CodeBuilder<'_> {
         }
         if let Some(listed) = &listed {
             self.emit(abi::label(listed));
+        }
+        Ok(())
+    }
+
+    /// bug-1045: raise what an assignment to container `name` stores from an inner
+    /// scope up to the container's scope (`record_ownership::StoreFloats`). Each
+    /// operand the analysis marked is lowered (a local, or a field chain over one:
+    /// no side effect), every resource it reaches is pushed, adopting, onto
+    /// `name`'s owned-list, and the push floats a record this scope or a scope
+    /// inside the container's owns to the container's scope. Emitted before the
+    /// store, as the module-level raise is (bug-806): a store that then fails
+    /// leaves the resources owned by the container's scope, which closes them.
+    pub(crate) fn emit_store_float(&mut self, name: &str, value: &NirValue) -> Result<(), String> {
+        if !self.store_floats.containers.contains(name)
+            || !(self.owned_list_heads.keys().any(|(list, _)| list == name)
+                || self.dynamic_owned_list(name).is_some())
+        {
+            return Ok(());
+        }
+        let mut operands = Vec::new();
+        crate::codegen::resource::cleanup::record_ownership::store_operands(value, &mut operands);
+        for operand in operands {
+            let marked = self
+                .store_floats
+                .operands
+                .get(&(operand as *const NirValue as usize))
+                .is_some_and(|container| container == name);
+            if !marked {
+                continue;
+            }
+            let result = self.lower_value(operand)?;
+            if !self.type_carries_resources(&result.type_) {
+                continue;
+            }
+            let slot = self.spill_to_slot("store_float_operand", &result.location);
+            let container = name.to_string();
+            self.emit_for_each_resource(slot, &result.type_, &mut |builder, leaf_slot, leaf| {
+                builder.emit_owned_list_push_as(&container, leaf_slot, leaf, true)
+            })?;
         }
         Ok(())
     }

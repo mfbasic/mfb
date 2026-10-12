@@ -1,0 +1,56 @@
+$ mfb build -ast -ir tests/syntax/resources/bug1054_func_ref_state_invalid
+  48 |   LET b = j(bare)                                           ' BAD: carries no STATE
+  49 |   LET c = j(other)                                          ' BAD: carries another STATE
+  50 |   LET d = apply(p, bare)                                    ' BAD: `apply` may pass any state or none
+     | ^
+tests/syntax/resources/bug1054_func_ref_state_invalid/src/main.mfb:50 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `apply` has type FUNC(fs.File STATE Cur) AS Integer, expected FUNC(fs.File) AS Integer.
+  49 |   LET c = j(other)                                          ' BAD: carries another STATE
+  50 |   LET d = apply(p, bare)                                    ' BAD: `apply` may pass any state or none
+  51 |   LET e = apply(j, bare)                                    ' BAD: the same, through the binding
+     | ^
+tests/syntax/resources/bug1054_func_ref_state_invalid/src/main.mfb:51 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `apply` has type FUNC(fs.File STATE Cur) AS Integer, expected FUNC(fs.File) AS Integer.
+  33 | 
+  34 | FUNC give() AS FUNC(fs::File) AS Integer
+  35 |   RETURN p                                                  ' BAD: not a FUNC(fs::File)
+     | ^
+tests/syntax/resources/bug1054_func_ref_state_invalid/src/main.mfb:35 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
+               RETURN value has type FUNC(fs.File STATE Cur) AS Integer, expected FUNC(fs.File) AS Integer.
+  46 |   LET j = p
+  47 |   LET a = j(cur)                                            ' OK
+  48 |   LET b = j(bare)                                           ' BAD: carries no STATE
+     | ^
+tests/syntax/resources/bug1054_func_ref_state_invalid/src/main.mfb:48 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               Argument 1 for `j` is declared `STATE Cur` but carries no STATE; a parameter cannot attach one — declare `STATE Cur` on the owning binding.
+  47 |   LET a = j(cur)                                            ' OK
+  48 |   LET b = j(bare)                                           ' BAD: carries no STATE
+  49 |   LET c = j(other)                                          ' BAD: carries another STATE
+     | ^
+tests/syntax/resources/bug1054_func_ref_state_invalid/src/main.mfb:49 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
+               Argument 1 for `j` is declared `STATE Cur` but carries STATE `Other`; a parameter observes a resource's state, it cannot re-type it.
+  51 |   LET e = apply(j, bare)                                    ' BAD: the same, through the binding
+  52 |   LET g = apply(opaque, cur)                                ' OK: a bare parameter is opaque
+  53 |   LET k AS FUNC(fs::File) AS Integer = p                    ' BAD: the same, at a binding
+     | ^
+tests/syntax/resources/bug1054_func_ref_state_invalid/src/main.mfb:53 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `k` has initializer type FUNC(fs.File STATE Cur) AS Integer, expected FUNC(fs.File) AS Integer.
+  52 |   LET g = apply(opaque, cur)                                ' OK: a bare parameter is opaque
+  53 |   LET k AS FUNC(fs::File) AS Integer = p                    ' BAD: the same, at a binding
+  54 |   LET h = Holder[p]                                         ' BAD: the same, in a record field
+     | ^
+tests/syntax/resources/bug1054_func_ref_state_invalid/src/main.mfb:54 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 1 for `Holder` has type FUNC(fs.File STATE Cur) AS Integer, expected FUNC(fs.File) AS Integer for field `fn`.
+  53 |   LET k AS FUNC(fs::File) AS Integer = p                    ' BAD: the same, at a binding
+  54 |   LET h = Holder[p]                                         ' BAD: the same, in a record field
+  55 |   LET l AS List OF FUNC(fs::File) AS Integer = [opaque, p]  ' BAD: the same, in a list
+     | ^
+tests/syntax/resources/bug1054_func_ref_state_invalid/src/main.mfb:55 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type FUNC(fs.File STATE Cur) AS Integer, expected FUNC(fs.File) AS Integer.
+  54 |   LET h = Holder[p]                                         ' BAD: the same, in a record field
+  55 |   LET l AS List OF FUNC(fs::File) AS Integer = [opaque, p]  ' BAD: the same, in a list
+  56 |   LET m = [opaque, p]                                       ' BAD: two callable types in one list
+     | ^
+tests/syntax/resources/bug1054_func_ref_state_invalid/src/main.mfb:56 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type FUNC(fs.File STATE Cur) AS Integer, expected FUNC(fs.File) AS Integer.
+[exit 1]

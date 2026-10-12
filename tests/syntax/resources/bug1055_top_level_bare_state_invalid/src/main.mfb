@@ -1,0 +1,47 @@
+' bug-1055: a binding that wants only the handle must still restate the STATE
+' its initializer carries (`mfb spec language resource-management` §15.5). The
+' top-level binding is held to that exactly as a local one is: a bare owner
+' asserts "no state", and a later `STATE T` attach relies on that promise.
+'
+' Every line marked BAD is refused; the lines marked OK are the contrast.
+IMPORT fs
+IMPORT tcp
+
+TYPE Cur
+  n AS Integer
+  s AS String
+END TYPE
+
+UNION Handle
+  fs::File
+  tcp::Socket
+END UNION
+
+FUNC openTagged() AS RES fs::File STATE Cur
+  RES f AS fs::File STATE Cur = fs::createTempFile()
+  f.state.n = 42
+  f.state.s = "tag"
+  RETURN f
+END FUNC
+
+FUNC openHandle() AS RES Handle STATE Cur
+  RES h AS Handle STATE Cur = fs::createTempFile()
+  RETURN h
+END FUNC
+
+FUNC openBare() AS RES fs::File
+  RES f AS fs::File = fs::createTempFile()
+  RETURN f
+END FUNC
+
+RES g AS fs::File = openTagged()                            ' BAD: bare, the initializer carries a Cur
+RES gu AS Handle = openHandle()                             ' BAD: the same, a resource union
+RES ok AS fs::File STATE Cur = openTagged()                 ' OK: adopts the Cur
+RES plain AS fs::File = openBare()                          ' OK: nothing to restate
+RES attach AS fs::File STATE Cur = openBare()               ' OK: the one attach point
+RES inferred = openTagged()                                 ' OK: the inferred type carries the Cur
+
+FUNC main AS Integer
+  RES l AS fs::File = openTagged()                          ' BAD: the local form, the contrast
+  RETURN 0
+END FUNC
