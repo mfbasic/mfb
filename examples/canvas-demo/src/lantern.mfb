@@ -14,6 +14,7 @@
 ' mouse moves.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -39,10 +40,10 @@ TYPE LanternState
 END TYPE
 
 FUNC lanternNew AS LanternState
-  LET hides AS List OF canvas::Point = [pt(0.12, 0.8), pt(0.27, 0.62), pt(0.44, 0.86), pt(0.58, 0.68), pt(0.7, 0.9), pt(0.83, 0.6), pt(0.93, 0.82)]
+  LET hides AS List OF vector::Float2 = [pt(0.12, 0.8), pt(0.27, 0.62), pt(0.44, 0.86), pt(0.58, 0.68), pt(0.7, 0.9), pt(0.83, 0.6), pt(0.93, 0.82)]
   MUT spirits AS List OF Spirit = []
   FOR i = 0 TO len(hides) - 1
-    LET h AS canvas::Point = collections::get(hides, i)
+    LET h AS vector::Float2 = collections::get(hides, i)
     ' The stars they become trace the Lantern constellation: a handle and a
     ' little cage.
     LET a AS Float = toFloat(i) / 7.0 * TAU
@@ -125,13 +126,13 @@ END FUNC
 
 ' The spirit stag: an outline of light, drawn as a few PolyLines.
 FUNC stag(x AS Float, y AS Float, s AS Float, p AS canvas::Paint) AS List OF canvas::DrawItem
-  LET body AS List OF canvas::Point = [pt(-0.9, 0.0), pt(-0.6, -0.25), pt(0.2, -0.28), pt(0.55, -0.45), pt(0.75, -0.95), pt(0.95, -0.98), pt(1.0, -0.85), pt(0.82, -0.75), pt(0.7, -0.3), pt(0.45, 0.0), pt(0.5, 0.75), pt(0.4, 0.75), pt(0.3, 0.08), pt(-0.5, 0.08), pt(-0.6, 0.75), pt(-0.7, 0.75), pt(-0.75, 0.05), pt(-0.9, 0.0)]
-  LET antler1 AS List OF canvas::Point = [pt(0.8, -0.98), pt(0.7, -1.4), pt(0.55, -1.6), pt(0.6, -1.85)]
-  LET antler2 AS List OF canvas::Point = [pt(0.7, -1.4), pt(0.9, -1.6), pt(1.0, -1.8)]
-  LET antler3 AS List OF canvas::Point = [pt(0.9, -0.98), pt(1.05, -1.3), pt(1.25, -1.45)]
+  LET body AS List OF vector::Float2 = [pt(-0.9, 0.0), pt(-0.6, -0.25), pt(0.2, -0.28), pt(0.55, -0.45), pt(0.75, -0.95), pt(0.95, -0.98), pt(1.0, -0.85), pt(0.82, -0.75), pt(0.7, -0.3), pt(0.45, 0.0), pt(0.5, 0.75), pt(0.4, 0.75), pt(0.3, 0.08), pt(-0.5, 0.08), pt(-0.6, 0.75), pt(-0.7, 0.75), pt(-0.75, 0.05), pt(-0.9, 0.0)]
+  LET antler1 AS List OF vector::Float2 = [pt(0.8, -0.98), pt(0.7, -1.4), pt(0.55, -1.6), pt(0.6, -1.85)]
+  LET antler2 AS List OF vector::Float2 = [pt(0.7, -1.4), pt(0.9, -1.6), pt(1.0, -1.8)]
+  LET antler3 AS List OF vector::Float2 = [pt(0.9, -0.98), pt(1.05, -1.3), pt(1.25, -1.45)]
   MUT out AS List OF canvas::DrawItem = []
   FOR EACH line_ IN [body, antler1, antler2, antler3]
-    LET pts AS List OF canvas::Point = collections::transform(line_, LAMBDA(q AS canvas::Point) -> pt(x + q.x * s, y + q.y * s))
+    LET pts AS List OF vector::Float2 = collections::transform(line_, LAMBDA(q AS vector::Float2) -> pt(x + q.x * s, y + q.y * s))
     out = collections::append(out, path(pts, WITH p { stroke := rgba(140, 255, 230, 70), strokeWidth := s * 0.09, blend := canvas::BlendMode.Add, cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Round }))
     out = collections::append(out, path(pts, WITH p { stroke := rgba(220, 255, 250, 230), strokeWidth := s * 0.025, blend := canvas::BlendMode.Add, cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Round }))
   NEXT
@@ -144,7 +145,7 @@ FUNC lanternDraw(s AS LanternState, f AS Fonts, w AS Float, h AS Float) AS List 
   LET ly AS Float = s.ly
   LET r AS Float = math::max(s.radius, h * 0.1)
   ' The light's circle, as a clip: the spirit world is drawn only inside it.
-  LET light AS List OF List OF canvas::Point = [ovalRing(lx, ly, r, r, 48, 0.0)]
+  LET light AS List OF List OF vector::Float2 = [ovalRing(lx, ly, r, r, 48, 0.0)]
   LET seen AS canvas::Paint = WITH canvas::fill(color::white) { clip := light }
 
   ' The ordinary wood at night.
@@ -155,7 +156,7 @@ FUNC lanternDraw(s AS LanternState, f AS Fonts, w AS Float, h AS Float) AS List 
   out = collections::append(out, pineRow(w, h * 0.62, h * 0.3, 22, 81, fillP(hex("#16243a"))))
   out = collections::append(out, poly(ridge(w, h + 10.0, h * 0.7, h * 0.03, 83, 0.4, 40), fillP(hex("#122018"))))
   ' A stream crossing the clearing.
-  MUT stream AS List OF canvas::Point = []
+  MUT stream AS List OF vector::Float2 = []
   FOR i = 0 TO 30
     LET u AS Float = toFloat(i) / 30.0
     stream = collections::append(stream, pt(-20.0 + (w + 40.0) * u, h * 0.78 + math::sin(u * 7.0) * h * 0.03))
@@ -234,7 +235,7 @@ FUNC lanternDraw(s AS LanternState, f AS Fonts, w AS Float, h AS Float) AS List 
   NEXT
   IF s.done >= 0.0 THEN
     LET a AS Float = clamp01((s.done - 2.2) / 1.5)
-    MUT ring AS List OF canvas::Point = []
+    MUT ring AS List OF vector::Float2 = []
     FOR EACH sp IN s.spirits
       ring = collections::append(ring, pt(sp.starX * w, sp.starY * h))
     NEXT
@@ -246,11 +247,11 @@ FUNC lanternDraw(s AS LanternState, f AS Fonts, w AS Float, h AS Float) AS List 
 
   ' The lantern, swinging on its handle under the mouse.
   LET tr AS canvas::Transform = place(lx, ly - r * 0.02, s.swing, h * 0.05)
-  out = collections::append(out, arc(0.0, -1.1, 0.35, math::pi, TAU, WITH strokeP(hex("#2a2018"), 0.08) { transform := tr }))
-  out = collections::append(out, rrect(-0.45, -0.85, 0.9, 0.18, 0.06, WITH fillP(hex("#3a2a1c")) { transform := tr }))
-  out = collections::append(out, poly([pt(-0.38, -0.67), pt(0.38, -0.67), pt(0.32, 0.5), pt(-0.32, 0.5)], WITH gradP(radial(0.0, 0.0, 0.6, [gstop(0.0, hex("#fff6d0")), gstop(0.5, hex("#ffc060")), gstop(1.0, hex("#c06a20"))])) { transform := tr, stroke := hex("#2a2018"), strokeWidth := 0.06, join := canvas::JoinStyle.Miter }))
-  out = collections::append(out, line(0.0, -0.67, 0.0, 0.5, WITH strokeP(hex("#2a2018"), 0.05) { transform := tr }))
-  out = collections::append(out, rrect(-0.45, 0.5, 0.9, 0.18, 0.06, WITH fillP(hex("#3a2a1c")) { transform := tr }))
+  out = collections::append(out, placed(arc(0.0, -1.1, 0.35, math::pi, TAU, strokeP(hex("#2a2018"), 0.08)), tr))
+  out = collections::append(out, placed(rrect(-0.45, -0.85, 0.9, 0.18, 0.06, fillP(hex("#3a2a1c"))), tr))
+  out = collections::append(out, placed(poly([pt(-0.38, -0.67), pt(0.38, -0.67), pt(0.32, 0.5), pt(-0.32, 0.5)], WITH gradP(radial(0.0, 0.0, 0.6, [gstop(0.0, hex("#fff6d0")), gstop(0.5, hex("#ffc060")), gstop(1.0, hex("#c06a20"))])) { stroke := hex("#2a2018"), strokeWidth := 0.06, join := canvas::JoinStyle.Miter }), tr))
+  out = collections::append(out, placed(line(0.0, -0.67, 0.0, 0.5, strokeP(hex("#2a2018"), 0.05)), tr))
+  out = collections::append(out, placed(rrect(-0.45, 0.5, 0.9, 0.18, 0.06, fillP(hex("#3a2a1c"))), tr))
   out = collections::append(out, glow(lx, ly, h * 0.07, rgba(255, 220, 150, 200)))
 
   ' The tally.

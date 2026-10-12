@@ -16,7 +16,7 @@
 ' shapeAt) against the REAL shapes.mfb/toolbar.mfb (run.sh stages both fresh
 ' on every run - not a copy committed here), before and after a simulated
 ' shrink with clampShapes applied. onToolbar/buttonAt take a real
-' canvas::Point, exactly as examples/water/src/main.mfb calls them - no
+' vector::Float2, exactly as examples/water/src/main.mfb calls them - no
 ' signature substitute is needed since this probe is an --app build (like
 ' wind-map-probe), run headless.
 '
@@ -24,6 +24,7 @@
 ' PASS/FAIL to stdout)
 
 IMPORT canvas
+IMPORT vector
 IMPORT io
 
 FUNC main AS Integer
@@ -34,7 +35,7 @@ FUNC main AS Integer
   io::print("old width=" & toString(oldWidth) & " oldPlay=" & toString(oldPlay))
   io::print("placed shape " & toString(i) & " at x=" & toString(shapeX(i)) & " y=" & toString(shapeY(i)))
 
-  IF onToolbar(oldWidth, canvas::Point[x := shapeX(i), y := shapeY(i)]) THEN
+  IF onToolbar(oldWidth, vector::Float2[x := shapeX(i), y := shapeY(i)]) THEN
     io::print("FAIL: the shape starts out already under the toolbar - test setup is wrong")
     RETURN 1
   END IF
@@ -68,7 +69,7 @@ FUNC main AS Integer
   ' click lands somewhere on the object's visible body, most of which is now
   ' inside the play area. This probes a point on the body, a few pixels left
   ' of centre - representative of an actual click - not the centroid itself.
-  LET click AS canvas::Point = canvas::Point[x := shapeXAfter - 20.0, y := shapeYAfter]
+  LET click AS vector::Float2 = vector::Float2[x := shapeXAfter - 20.0, y := shapeYAfter]
 
   IF onToolbar(newWidth, click) THEN
     io::print("FAIL: onToolbar(newWidth, a point on the shape's body) is still TRUE after clampShapes - a click there would still be swallowed by the toolbar")

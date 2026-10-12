@@ -12,7 +12,8 @@
 //! * `-1` otherwise, meaning "hash this one". A real hash is two non-negative 31-bit lanes
 //!   (`__canvas_hashStep`), so `-1` is never one.
 //!
-//! **Two kinds are never carried: `Text` and `Picture`.** Their hash folds in a resource's
+//! **Three kinds are never carried: `Text`, `Picture`, and `AutoPaint`** (plan-172-K: it
+//! may wrap a `Text`). A `Text`'s or a `Picture`'s hash folds in a resource's
 //! backend id (`canvas::fontHandle` / `canvas::imageHandle`), which answers `0` once the
 //! resource is closed — so an item whose bytes are unchanged can still need a new hash
 //! (a text whose font was destroyed must stop drawing). Everything else in a `DrawItem` is
@@ -65,6 +66,8 @@ pub(crate) fn lower_carried_hashes(
         .clone();
     let text_tag = variant_tag(builder, "Text")?;
     let picture_tag = variant_tag(builder, "Picture")?;
+    // plan-172-K: an `AutoPaint` may wrap a `Text`, whose hash folds its font's id.
+    let auto_tag = variant_tag(builder, "AutoPaint")?;
 
     let items_slot = builder.allocate_stack_object("canvas_carry_items", 8);
     builder.emit(abi::store_u64(&incoming, abi::stack_pointer(), items_slot));
@@ -235,6 +238,8 @@ pub(crate) fn lower_carried_hashes(
     builder.emit(abi::compare_immediate(&lw, &text_tag.to_string()));
     builder.emit(abi::branch_eq(&store));
     builder.emit(abi::compare_immediate(&lw, &picture_tag.to_string()));
+    builder.emit(abi::branch_eq(&store));
+    builder.emit(abi::compare_immediate(&lw, &auto_tag.to_string()));
     builder.emit(abi::branch_eq(&store));
     // Word compare while at least eight bytes remain, then bytes. `np`/`op`/`nlen`
     // are this iteration's own and are consumed here.

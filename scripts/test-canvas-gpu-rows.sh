@@ -26,7 +26,18 @@
 # bug-735's: the same bar for every other shape kind, a non-grid stroke half-width, a
 # non-grid group offset, transformed and clipped shapes, and rectangle and clip edges
 # placed beside a coverage step; and `hairline`, a blended item stroked under the 16.16
-# step, which the draw list and the emitters used to split differently.
+# step, which the draw list and the emitters used to split differently. `groupaffine` is
+# plan-172-H's: groups turned, scaled unevenly and nested, carrying a gradient, a
+# rectangle clip, a stroke and a run of text (the fixture font is shipped with it).
+# `autopaint` and `autopaintgroup` are plan-172-K's: one scene of `canvas::AutoPaint`
+# buttons rendered HOVERED, the pointer put on a button by the row's fourth field — an
+# environment assignment the row's runs are given (`MFB_CANVAS_POINTER`, the `--debug`
+# pointer script). The first hovers a button of the scene itself, the second one use of
+# a group that is drawn twice, which is the case that needs a group run of its own.
+# `pictureshapes` and `pictureauto` are plan-172-L's: pictures inside shapes — each a
+# picture record with a polygonal clip and, where it strokes, the shape itself — at
+# rest, and with the pointer on the one whose shape is an `AutoPaint`, both of whose
+# entries are then swapped for the hover paint's.
 #
 # Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
@@ -38,7 +49,7 @@
 #
 # Usage: scripts/test-canvas-gpu-rows.sh <mfb-exe> [--target <t>] [--box <port>]
 #                                        [--libc glibc|musl] [--icd auto|<manifest>]
-#                                        [--rows <name,name,...>]
+#                                        [--rows <name,name,...>] [--keep <dir>]
 #
 #   --target  linux-x86_64 (default, box 2228), linux-aarch64 (box 2226) or
 #             windows-x86_64 (box 206, `test@192.168.1.206`: real hardware, an Intel
@@ -54,6 +65,9 @@
 #   --icd     a Linux Vulkan driver manifest, or `auto` to provision Mesa's software
 #             driver on an Alpine box — as `test-canvas-vulkan.sh --icd`.
 #   --rows    run only these rows (names as listed below).
+#   --keep    copy each render row's two frames there as `<row>-sw.rgba` and
+#             `<row>-gpu.rgba` (raw RGBA8, 900 wide), to compare a GPU frame across two
+#             builds byte for byte.
 #
 # A box whose Vulkan device does not build (`vulkanReady=FALSE`) FAILS the render rows
 # rather than skipping them: a row that cannot reach the GPU proves nothing about it. Run
@@ -68,6 +82,7 @@ PORT=""
 LIBC=glibc
 ICD=""
 ONLY=""
+KEEP=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --target) TARGET="$2"; shift 2 ;;
@@ -75,6 +90,7 @@ while [ $# -gt 0 ]; do
     --libc) LIBC="$2"; shift 2 ;;
     --icd) ICD="$2"; shift 2 ;;
     --rows) ONLY="$2"; shift 2 ;;
+    --keep) KEEP="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -94,10 +110,11 @@ host="test@127.0.0.1"
 # Port 22 is box 206 on the LAN; every other port is a box forwarded to localhost.
 [ "$PORT" = 22 ] && host="test@192.168.1.206"
 
-# name | scene file | kind
+# name | scene file | kind [| NAME=value]
 #   render   sw + gpu, compared; the gpu frame must be a GPU frame
 #   geo      one GPU run with MFB_CANVAS_SYNC; geometry verification only
 #   race     one GPU run WITHOUT MFB_CANVAS_SYNC; geometry verification only
+# The optional fourth field is one environment assignment every run of the row gets.
 ROWS="
 quads|five_thousand_quads|render
 edges|forty_thousand_opaque_edges|render
@@ -131,6 +148,12 @@ strokedblack|stroked_shapes_on_black|render
 rectstepblack|rectangles_at_a_step_on_black|render
 clipstepblack|clips_at_a_step_on_black|render
 xformblack|transformed_shapes_on_black|render
+cornersblack|rect_corners_on_black|render
+groupaffine|group_affine_on_black|render
+autopaint|autopaint_on_black|render|MFB_CANVAS_POINTER=0,280,120,0,1
+autopaintgroup|autopaint_on_black|render|MFB_CANVAS_POINTER=0,150,320,0,1
+pictureshapes|picture_shapes_on_black|render
+pictureauto|picture_shapes_on_black|render|MFB_CANVAS_POINTER=0,770,470,0,1
 hairline|blended_hairline_stroke|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
@@ -180,6 +203,7 @@ run_remote() {
       echo "set MFB_CANVAS_GEO_VERIFY=1"
       [ "$sync" = 1 ] && echo "set MFB_CANVAS_SYNC=1"
       [ "$gpu" = 1 ] && echo "set MFB_CANVAS_GPU=1"
+      [ -z "$ROW_ENV" ] || echo "set $ROW_ENV"
       echo "set MFB_CANVAS_STATS=$dir\\$tag.txt"
       echo "set MFB_CANVAS_DUMP=$dir\\$tag.rgba"
       echo "cd /d $dir"
@@ -195,6 +219,7 @@ run_remote() {
     local dir="/tmp/mfb-rows-$$/$row" env="MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_GEO_VERIFY=1"
     [ "$sync" = 1 ] && env="$env MFB_CANVAS_SYNC=1"
     [ "$gpu" = 1 ] && env="$env MFB_CANVAS_GPU=1"
+    [ -z "$ROW_ENV" ] || env="$env $ROW_ENV"
     remote_ssh "$PORT" "$host" "
       cd $dir
       $icd_env $env MFB_CANVAS_STATS=$dir/$tag.txt MFB_CANVAS_DUMP=$dir/$tag.rgba \
@@ -213,12 +238,21 @@ ship() {
   scaffold_project "$proj" "$row"
   cp "$SCENES/$scene.mfb" "$proj/src/main.mfb"
   "$MFB_EXE" build --app --debug --target "$TARGET" "$proj" >/dev/null
+  # A scene that draws text loads the fixture font from beside the program, which is the
+  # directory the row runs in.
+  local font=""
+  if grep -q 'fixture\.ttf' "$proj/src/main.mfb"; then
+    font="$proj/fixture.ttf"
+    rc_fixture_font "$font"
+  fi
   if [ "$TARGET" = windows-x86_64 ]; then
     win_ship "$PORT" "$host" "C:\\mfbrows-$$\\$row" "$proj/build/$row.exe"
+    [ -z "$font" ] || remote_scp "$PORT" "$font" "$host:C:/mfbrows-$$/$row/fixture.ttf" >/dev/null
   else
     local dir="/tmp/mfb-rows-$$/$row"
     remote_ssh "$PORT" "$host" "rm -rf $dir && mkdir -p $dir"
     remote_scp "$PORT" "$proj/build/$row-$LIBC.AppImage" "$host:$dir/app.AppImage" >/dev/null
+    [ -z "$font" ] || remote_scp "$PORT" "$font" "$host:$dir/fixture.ttf" >/dev/null
     remote_ssh "$PORT" "$host" "cd $dir && ./app.AppImage --appimage-extract >/dev/null 2>&1"
   fi
 }
@@ -244,7 +278,8 @@ if [ "$TARGET" != windows-x86_64 ]; then
   remote_ssh "$PORT" "$host" "rm -rf /tmp/mfb-rows-$$"
 fi
 # fd 3, not stdin: every ssh in the loop reads stdin and would swallow the rest of the list.
-while IFS='|' read -r row scene kind <&3; do
+ROW_ENV=""
+while IFS='|' read -r row scene kind ROW_ENV <&3; do
   [ -n "$row" ] || continue
   if [ -n "$ONLY" ] && ! echo ",$ONLY," | grep -q ",$row,"; then
     continue
@@ -278,6 +313,11 @@ while IFS='|' read -r row scene kind <&3; do
       if [ "$lit" -eq 0 ]; then
         fail "$row: the software frame is empty, so a comparison would prove nothing"
         continue
+      fi
+      if [ -n "$KEEP" ]; then
+        mkdir -p "$KEEP"
+        cp "$work/$row/sw.rgba" "$KEEP/$row-sw.rgba"
+        cp "$work/$row/gpu.rgba" "$KEEP/$row-gpu.rgba"
       fi
       verdict="$(python3 scripts/rgba_compare.py "$work/$row/sw.rgba" "$work/$row/gpu.rgba" 900 2>&1 || true)"
       case "$verdict" in

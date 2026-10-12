@@ -27,6 +27,10 @@ program can lay a `canvas::Picture` out proportionally without tracking the numb
 drawing area a scene is presented into, in the same pixel coordinates every
 `canvas::DrawItem` uses. That is what a program centres on.
 
+The two numbers are `Float`s, because `canvas::Size` is also a shape's extent and a
+shape may be a fraction of a pixel wide. A surface's and an image's are always whole
+numbers; use `toInt` where you need them as `Integer`s.
+
 It reads the runtime's own record — no backend round trip — so it costs a load.
 
 Raises `ErrResourceClosed` if the image has been destroyed."#;
@@ -36,6 +40,7 @@ const EX: &str = r#"Draw an image at its natural size:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -43,7 +48,7 @@ FUNC main() AS Nothing
   LET px AS List OF Byte = [toByte(255), toByte(0), toByte(0), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, px)
   LET size AS canvas::Size = canvas::getSize(img)
-  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := toFloat(size.width), h := toFloat(size.height), image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET tile AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := size, radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   canvas::present([tile])
 END FUNC
 ```"#;
@@ -69,7 +74,8 @@ pub(crate) fn lower_get_size(
     builder.emit(abi::store_u64(&record, abi::stack_pointer(), record_slot));
     emit_closed_guard(builder, &record, &closed);
 
-    // `Size` is two `Integer`s.
+    // `Size` is two `Float`s (plan-172-E); an image's dimensions are whole numbers,
+    // converted exactly.
     builder.emit(abi::move_immediate(abi::c_arg(0), "Integer", "16"));
     builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
     builder.emit_arena_alloc_call();
@@ -83,10 +89,13 @@ pub(crate) fn lower_get_size(
     let source = builder.temporary_vreg();
     let value = builder.temporary_vreg();
     builder.emit(abi::load_u64(&source, abi::stack_pointer(), record_slot));
+    let as_float = builder.temporary_fp_vreg();
     builder.emit(abi::load_u64(&value, &source, IMAGE_WIDTH));
-    builder.emit(abi::store_u64(&value, &size, 0));
+    builder.emit(abi::signed_convert_to_float_d(&as_float, &value));
+    builder.emit(abi::store_double(&as_float, &size, 0));
     builder.emit(abi::load_u64(&value, &source, IMAGE_HEIGHT));
-    builder.emit(abi::store_u64(&value, &size, 8));
+    builder.emit(abi::signed_convert_to_float_d(&as_float, &value));
+    builder.emit(abi::store_double(&as_float, &size, 8));
 
     builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &size));
     builder.emit(abi::move_immediate(

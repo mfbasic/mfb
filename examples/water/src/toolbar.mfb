@@ -6,6 +6,7 @@
 ' same layout answers the clicks.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -30,12 +31,12 @@ FUNC buttonTop(k AS Integer) AS Float
   RETURN BUTTON_GAP + toFloat(k) * (BUTTON_SIZE + BUTTON_GAP)
 END FUNC
 
-FUNC onToolbar(width AS Float, at AS canvas::Point) AS Boolean
+FUNC onToolbar(width AS Float, at AS vector::Float2) AS Boolean
   RETURN at.x >= playWidth(width)
 END FUNC
 
 ' The button under a point, or -1 when it is between buttons or off the toolbar.
-FUNC buttonAt(width AS Float, at AS canvas::Point) AS Integer
+FUNC buttonAt(width AS Float, at AS vector::Float2) AS Integer
   LET left AS Float = buttonLeft(width)
   IF at.x < left OR at.x > left + BUTTON_SIZE THEN RETURN -1
   FOR k = 0 TO len(TOOL_KINDS) - 1
@@ -52,14 +53,14 @@ END FUNC
 ' The panel, the buttons, and an icon in each.
 FUNC toolbarItems(width AS Float, height AS Float) AS List OF canvas::DrawItem
   LET left AS Float = playWidth(width)
-  LET panel AS canvas::DrawItem = canvas::Rectangle[x := left, y := 0.0, w := TOOLBAR_WIDTH, h := height, paint := canvas::fill(color::rgb(26, 30, 38))]
-  LET divider AS canvas::DrawItem = canvas::Line[x1 := left, y1 := 0.0, x2 := left, y2 := height, paint := WITH canvas::stroke(color::rgba(255, 255, 255, 40), 1.0) { cap := canvas::CapStyle.Butt }]
+  LET panel AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := left, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := TOOLBAR_WIDTH, height := height], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(26, 30, 38)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET divider AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := left, y := 0.0], endAt := vector::Float2[x := left, y := height], paint := WITH canvas::stroke(color::rgba(255, 255, 255, 40), 1.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   MUT items AS List OF canvas::DrawItem = [panel, divider]
 
   LET x AS Float = buttonLeft(width)
   FOR k = 0 TO len(TOOL_KINDS) - 1
     LET top AS Float = buttonTop(k)
-    LET button AS canvas::DrawItem = canvas::RoundedRect[x := x, y := top, w := BUTTON_SIZE, h := BUTTON_SIZE, cornerRadius := 8.0, paint := canvas::fillStroke(color::rgb(44, 50, 62), color::rgba(255, 255, 255, 50), 1.0)]
+    LET button AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := x, y := top], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := BUTTON_SIZE, height := BUTTON_SIZE], radiusTL := 8.0, radiusTR := 8.0, radiusBL := 8.0, radiusBR := 8.0, paint := canvas::fillStroke(color::rgb(44, 50, 62), color::rgba(255, 255, 255, 50), 1.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, button)
     LET kind AS ShapeKind = toolKind(k)
     LET scale AS Float = (BUTTON_SIZE - 20.0) / widestOf(kind)

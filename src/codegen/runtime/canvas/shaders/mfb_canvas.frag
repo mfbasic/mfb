@@ -63,9 +63,19 @@ layout(location = 0) flat in int vItem;
 // plan-116-H: the group translation for THIS draw, in 16.16 — the same push constant
 // the vertex stage declares. Both stages consume it, which is what makes the range
 // valid (H4). bug-735: `zw` are the residual words of `xy` (units of 2^-47 px).
+//
+// plan-172-H: `inverse` is the linear part of the INVERSE of the enclosing groups'
+// composed affine, as four float32 bit patterns (`ia`, `ib`, `ic`, `id`), all-zero bits
+// when the groups only translate. See the vertex stage.
 layout(push_constant) uniform Draw {
     ivec4 offset;
+    ivec4 inverse;
 } draw;
+
+// Whether this draw has a group matrix, and it. Private globals `main` fills on its
+// first lines, as `item` is, because `shapeCoverage` reads them.
+bool grouped;
+vec4 gi;
 
 // A private global rather than a local in `main`, because the distance and coverage
 // helpers below read `item` directly. Making it a local would mean threading
@@ -1679,6 +1689,23 @@ int clipRect(vec2 x, vec2 y) {
     return dfCoverage(dfRectDistance(dx, dy, dfMulF(dfSub(x1, x0), 0.5), dfMulF(dfSub(y1, y0), 0.5)));
 }
 
+// plan-172-H: a rectangle clip's signed distance in double-float at the item's own
+// point. `clipRect` above answers coverage and is right while the rectangle is
+// axis-aligned on the surface; under a group matrix it is not, so its distance is sampled
+// like a path clip's and divided by its own gradient (`__canvas_clipRectSurface`). A
+// rectangle with no area encloses nothing. Metal's `clipRectDistance`, line for line.
+vec2 clipRectDistance(vec2 x, vec2 y) {
+    if (!fixedLess(item.clip.x, item.clipLo.x, item.clip.z, item.clipLo.z)
+        || !fixedLess(item.clip.y, item.clipLo.y, item.clip.w, item.clipLo.w)) { return vec2(1.0e6, 0.0); }
+    vec2 x0 = dfFixed(item.clip.x, item.clipLo.x);
+    vec2 y0 = dfFixed(item.clip.y, item.clipLo.y);
+    vec2 x1 = dfFixed(item.clip.z, item.clipLo.z);
+    vec2 y1 = dfFixed(item.clip.w, item.clipLo.w);
+    vec2 dx = dfSub(x, dfMulF(dfAdd(x0, x1), 0.5));
+    vec2 dy = dfSub(y, dfMulF(dfAdd(y0, y1), 0.5));
+    return dfRectDistance(dx, dy, dfMulF(dfSub(x1, x0), 0.5), dfMulF(dfSub(y1, y0), 0.5));
+}
+
 // The inverse map in double-float, with the float32 terms the oracle maps with.
 vec2 dfMapX(vec2 x, vec2 y) {
     return dfAdd(dfAdd(dfMulF(x, intBitsToFloat(item.xform0.x)), dfMulF(y, intBitsToFloat(item.xform0.z))),
@@ -1699,16 +1726,26 @@ vec2 dfMapY(vec2 x, vec2 y) {
 // Frobenius norm, which bounds the gradient) decides the coverage by its sign and the four
 // neighbours are skipped; never for an arc, whose distance jumps. Metal's `shapeCoverage`,
 // line for line, where the bound is argued.
+//
+// plan-172-H: (`x`, `y`) arrives already through the groups' inverse linear part when
+// `grouped`, and `gi` is that part: the four neighbour samples are half a SURFACE pixel
+// away, which in the group's space is `gi` times that. An item inside a group with a
+// matrix takes the transformed path whether or not it has a transform of its own —
+// `mapped` — while `itemMapped` alone says whether its own inverse applies.
 ivec4 shapeCoverage(vec2 x, vec2 y) {
-    bool mapped = hasTransform();
-    ivec2 band = polygonBand(mapped ? dfMapY(x, y).x : y.x);
+    bool itemMapped = hasTransform();
+    bool mapped = itemMapped || grouped;
+    ivec2 band = polygonBand(itemMapped ? dfMapY(x, y).x : y.x);
     vec2 half2 = dfFixed(item.misc.z, item.miscLo.y);
     bool stroked = dfLess(vec2(0.0), half2);
     float reach = 0.5 + max(half2.x, 0.0);
     if (mapped) {
-        vec2 c0 = vec2(intBitsToFloat(item.xform0.x), intBitsToFloat(item.xform0.y));
-        vec2 c1 = vec2(intBitsToFloat(item.xform0.z), intBitsToFloat(item.xform0.w));
-        float frob = sqrt(dot(c0, c0) + dot(c1, c1)) * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;
+        vec2 c0 = itemMapped ? vec2(intBitsToFloat(item.xform0.x), intBitsToFloat(item.xform0.y)) : vec2(1.0, 0.0);
+        vec2 c1 = itemMapped ? vec2(intBitsToFloat(item.xform0.z), intBitsToFloat(item.xform0.w)) : vec2(0.0, 1.0);
+        // The composed inverse's norm is at most the product of the two norms.
+        float norm = sqrt(dot(c0, c0) + dot(c1, c1));
+        if (grouped) { norm = (itemMapped ? norm : 1.0) * length(gi); }
+        float frob = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;
         reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);
     }
     // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
@@ -1722,21 +1759,25 @@ ivec4 shapeCoverage(vec2 x, vec2 y) {
     // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's;
     // one loop keeps one `sampleDistance` call site. Metal's, line for line.
     int clipMode = item.clipPath.z & 3;
-    bool clipMapped = hasTransform();
-    ivec2 cband = clipMode == 2 ? clipBandAt(clipMapped ? dfMapY(x, y).x : y.x) : ivec2(-1, 0);
+    bool clipMapped = itemMapped || grouped;
+    // plan-172-H: a rectangle clip is sampled too, under a group matrix.
+    bool clipSampled = clipMode == 2 || (clipMode == 1 && grouped);
+    ivec2 cband = clipMode == 2 ? clipBandAt(itemMapped ? dfMapY(x, y).x : y.x) : ivec2(-1, 0);
     vec2 d[10];
     vec2 cqx = x;
     vec2 cqy = y;
     for (int k = 0; k < 10; ++k) {
         bool clipK = k >= 5;
         int j = clipK ? k - 5 : k;
-        if (clipK ? (clipMode != 2 || j >= (clipMapped ? 5 : 1)) : j >= (mapped ? 5 : 1)) { continue; }
-        bool mapK = clipK ? clipMapped : mapped;
-        vec2 sx = dfAdd(x, vec2(j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0), 0.0));
-        vec2 sy = dfAdd(y, vec2(j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0), 0.0));
-        vec2 qx = mapK ? dfMapX(sx, sy) : sx;
-        vec2 qy = mapK ? dfMapY(sx, sy) : sy;
+        if (clipK ? (!clipSampled || j >= (clipMapped ? 5 : 1)) : j >= (mapped ? 5 : 1)) { continue; }
+        float ox = j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0);
+        float oy = j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0);
+        vec2 sx = dfAdd(x, vec2(grouped ? gi.x * ox + gi.z * oy : ox, 0.0));
+        vec2 sy = dfAdd(y, vec2(grouped ? gi.y * ox + gi.w * oy : oy, 0.0));
+        vec2 qx = itemMapped ? dfMapX(sx, sy) : sx;
+        vec2 qy = itemMapped ? dfMapY(sx, sy) : sy;
         if (k == 0) { cqx = qx; cqy = qy; }
+        if (clipK && clipMode == 1) { d[k] = clipRectDistance(qx, qy); continue; }
         d[k] = sampleDistance(clipK ? cband : band, qx, qy, k == 0 ? reach : ((k == 5 && !clipMapped) ? 0.5 : 1.0e30), clipK);
         if (k == 0 && !joined && abs(d[0].x) > reach) { mapped = false; }
     }
@@ -1756,8 +1797,8 @@ ivec4 shapeCoverage(vec2 x, vec2 y) {
         stroke = dfCoverage(mapped ? dfDiv(s, g) : s);
     }
     int clipCov = 255;
-    if (clipMode == 1) { clipCov = clipRect(x, y); }
-    if (clipMode == 2) {
+    if (clipMode == 1 && !grouped) { clipCov = clipRect(x, y); }
+    if (clipSampled) {
         vec2 cg = vec2(1.0, 0.0);
         if (clipMapped) {
             cg = dfLength(dfSub(d[6], d[7]), dfSub(d[8], d[9]));
@@ -1781,10 +1822,24 @@ void main() {
     // rule plan-116-C established for `Paint.transform` and plan-116-G §4.5 restated for
     // groups. One rule, three renderers.
     vec2 p = gl_FragCoord.xy - vec2(fx(draw.offset.x), fx(draw.offset.y));
+    // plan-172-H: and, under a group matrix, through the groups' inverse linear part — so
+    // `p` is the point in the GROUP's space, where an item's own placement lives, and
+    // every consumer below (the item's own inverse map included) is unchanged.
+    grouped = (draw.inverse.x | draw.inverse.y | draw.inverse.z | draw.inverse.w) != 0;
+    gi = vec4(intBitsToFloat(draw.inverse.x), intBitsToFloat(draw.inverse.y),
+              intBitsToFloat(draw.inverse.z), intBitsToFloat(draw.inverse.w));
+    if (grouped) { p = vec2(gi.x * p.x + gi.z * p.y, gi.y * p.x + gi.w * p.y); }
     // plan-163-C: the clip is evaluated in `shapeCoverage` at the SHAPE-space point -- it
     // travels with the item's transform and its group -- for every kind, glyphs included.
-    ivec4 cov = shapeCoverage(dfSub(vec2(gl_FragCoord.x, 0.0), dfFixed(draw.offset.x, draw.offset.z)),
-                              dfSub(vec2(gl_FragCoord.y, 0.0), dfFixed(draw.offset.y, draw.offset.w)));
+    vec2 ptx = dfSub(vec2(gl_FragCoord.x, 0.0), dfFixed(draw.offset.x, draw.offset.z));
+    vec2 pty = dfSub(vec2(gl_FragCoord.y, 0.0), dfFixed(draw.offset.y, draw.offset.w));
+    if (grouped) {
+        vec2 gx = dfAdd(dfMulF(ptx, gi.x), dfMulF(pty, gi.z));
+        vec2 gy = dfAdd(dfMulF(ptx, gi.y), dfMulF(pty, gi.w));
+        ptx = gx;
+        pty = gy;
+    }
+    ivec4 cov = shapeCoverage(ptx, pty);
     int clipCov = cov.w;
     if (item.misc.x == 6) {
         // A glyph is fill-only: a text item's stroke was turned into an outline

@@ -55,6 +55,7 @@
 
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT errorCode
@@ -218,18 +219,18 @@ FUNC captionSize(v AS View) AS Float
 END FUNC
 
 FUNC textItem(face AS canvas::Font, x AS Float, y AS Float, size AS Float, tint AS color::Color, text AS String) AS canvas::DrawItem
-  RETURN canvas::Text[x := x, y := y, text := text, font := face, size := size, paint := canvas::fill(tint)]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := text, font := face, fontSize := size, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' A full-window message on the void colour - the loading screen, and the one
 ' that says why there is nothing to show.
 FUNC noticeScene(size AS canvas::Size, face AS canvas::Font, headline AS String, detail AS String) AS List OF canvas::DrawItem
-  LET width AS Float = toFloat(size.width)
-  LET height AS Float = toFloat(size.height)
+  LET width AS Float = size.width
+  LET height AS Float = size.height
   LET big AS Float = math::clamp(height * 0.030, 14.0, 24.0)
   LET small AS Float = big * 0.75
 
-  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := width, h := height, paint := canvas::fill(VOID_COLOR)]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := width, height := height], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(VOID_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
 
   LET headlineWidth AS Float = canvas::measureText(face, big, headline).width
   items = collections::append(items, textItem(face, (width - headlineWidth) / 2.0, height / 2.0, big, CAPTION_COLOR, headline))
@@ -263,7 +264,7 @@ FUNC modeButtonFor(v AS View) AS ModeButton
   RETURN ModeButton[x := v.width - margin - radius, y := margin + radius, radius := radius]
 END FUNC
 
-FUNC onModeButton(button AS ModeButton, at AS canvas::Point) AS Boolean
+FUNC onModeButton(button AS ModeButton, at AS vector::Float2) AS Boolean
   LET dx AS Float = at.x - button.x
   LET dy AS Float = at.y - button.y
   LET reach AS Float = button.radius * 1.25
@@ -274,27 +275,30 @@ FUNC modeButtonItems(button AS ModeButton, layer AS Layer) AS List OF canvas::Dr
   LET cx AS Float = button.x
   LET cy AS Float = button.y
   LET r AS Float = button.radius
-  MUT items AS List OF canvas::DrawItem = [canvas::Circle[x := cx, y := cy, radius := r, paint := canvas::fillStroke(color::rgba(12, 28, 42, 150), color::rgba(255, 255, 255, 100), 1.2)]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Circle[id := "", position := vector::Float2[x := cx, y := cy], radius := r, paint := canvas::fillStroke(color::rgba(12, 28, 42, 150), color::rgba(255, 255, 255, 100), 1.2), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
 
   IF layer = Layer.Precipitation THEN
     ' A disc with a point on top, the two sides of the point running into the
     ' disc along its tangents so the outline has no corner.
     LET drop AS color::Color = color::rgb(96, 158, 250)
-    LET body AS canvas::DrawItem = canvas::Circle[x := cx, y := cy + r * 0.18, radius := r * 0.34, paint := canvas::fill(drop)]
-    LET tip AS canvas::DrawItem = canvas::Polygon[contours := [[canvas::Point[x := cx, y := cy - r * 0.58], canvas::Point[x := cx + r * 0.304, y := cy + r * 0.028], canvas::Point[x := cx - r * 0.304, y := cy + r * 0.028]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(drop)]
+    LET body AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := cx, y := cy + r * 0.18], radius := r * 0.34, paint := canvas::fill(drop), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET tip AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[x := cx, y := cy - r * 0.58], vector::Float2[x := cx + r * 0.304, y := cy + r * 0.028], vector::Float2[x := cx - r * 0.304, y := cy + r * 0.028]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(drop), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, [body, tip])
   ELSEIF layer = Layer.Temperature THEN
     LET stemWidth AS Float = r * 0.26
     LET stemHeight AS Float = r * 0.92
-    LET stem AS canvas::DrawItem = canvas::RoundedRect[x := cx - stemWidth / 2.0, y := cy - r * 0.62, w := stemWidth, h := stemHeight, cornerRadius := stemWidth / 2.0, paint := canvas::fill(color::rgb(230, 238, 244))]
-    LET mercury AS canvas::DrawItem = canvas::RoundedRect[x := cx - stemWidth * 0.18, y := cy - r * 0.32, w := stemWidth * 0.36, h := r * 0.66, cornerRadius := stemWidth * 0.18, paint := canvas::fill(color::rgb(235, 65, 45))]
-    LET bulb AS canvas::DrawItem = canvas::Circle[x := cx, y := cy + r * 0.38, radius := r * 0.28, paint := canvas::fill(color::rgb(235, 65, 45))]
+    LET stem AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := cx - stemWidth / 2.0, y := cy - r * 0.62], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := stemWidth, height := stemHeight], radiusTL := stemWidth / 2.0, radiusTR := stemWidth / 2.0, radiusBL := stemWidth / 2.0, radiusBR := stemWidth / 2.0, paint := canvas::fill(color::rgb(230, 238, 244)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    ' A radius of 1 or less would read as a fraction of the half size, not
+    ' pixels; the corner is clamped to half the width anyway.
+    LET mercuryRadius AS Float = math::max(stemWidth * 0.18, 1.01)
+    LET mercury AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := cx - stemWidth * 0.18, y := cy - r * 0.32], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := stemWidth * 0.36, height := r * 0.66], radiusTL := mercuryRadius, radiusTR := mercuryRadius, radiusBL := mercuryRadius, radiusBR := mercuryRadius, paint := canvas::fill(color::rgb(235, 65, 45)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET bulb AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := cx, y := cy + r * 0.38], radius := r * 0.28, paint := canvas::fill(color::rgb(235, 65, 45)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, [stem, mercury, bulb])
   ELSE
     LET tint AS color::Color = color::rgb(225, 238, 246)
-    LET north AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy - r * 0.34, x2 := cx + r * 0.42, y2 := cy - r * 0.34, paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }]
-    LET middle AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.38, y1 := cy, x2 := cx + r * 0.58, y2 := cy, paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }]
-    LET south AS canvas::DrawItem = canvas::Line[x1 := cx - r * 0.55, y1 := cy + r * 0.34, x2 := cx + r * 0.25, y2 := cy + r * 0.34, paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }]
+    LET north AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := cx - r * 0.55, y := cy - r * 0.34], endAt := vector::Float2[x := cx + r * 0.42, y := cy - r * 0.34], paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET middle AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := cx - r * 0.38, y := cy], endAt := vector::Float2[x := cx + r * 0.58, y := cy], paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET south AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := cx - r * 0.55, y := cy + r * 0.34], endAt := vector::Float2[x := cx + r * 0.25, y := cy + r * 0.34], paint := WITH canvas::stroke(tint, 2.1) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, [north, middle, south])
   END IF
 
@@ -590,7 +594,7 @@ FUNC main AS Integer
     MUT rasterItems AS List OF canvas::DrawItem = []
     IF layer <> Layer.Wind THEN
       canvas::setBytes(layerImage, rasterPixels(layer, earlierWinds, laterWinds, mix, view))
-      rasterItems = [canvas::Picture[x := 0.0, y := 0.0, w := view.width, h := view.height, image := layerImage, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { transparency := 1.0 - toFloat(rasterOpacity(layer)) / 255.0 }]]
+      rasterItems = [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := view.width, height := view.height], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { transparency := 1.0 - toFloat(rasterOpacity(layer)) / 255.0 }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := layerImage]]
     END IF
     MUT scene AS List OF canvas::DrawItem = frameScene(world, view, rasterItems, layer, face, size, captions)
     FOR EACH item IN timelineItems(track, playback, days, face)

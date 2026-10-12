@@ -1,0 +1,72 @@
+' plan-172-G: groups under a transform, over the surface's own black.
+'
+' Every group here is drawn through a `canvas::Group` node whose `transform` is more
+' than a translation, so a renderer that applied only the node's `position` would still
+' draw a complete, plausible picture -- every panel upright. What a transform has to
+' carry, beyond the outline, is in the panel on purpose: a gradient ramp, a clip, a
+' stroke and a run of text.
+'
+'   top left      the panel turned 20 degrees about its position
+'   top middle    a stroked circle in a group scaled 3 across and a half down: the
+'                 stroke is scaled with it, wide at the sides and thin top and bottom
+'   top right     a nested group: the panel turned 15 degrees inside a group that is
+'                 only moved
+'   bottom left   a nested group both of whose nodes turn: 15 degrees inside 30
+'   bottom middle the panel at six tenths of its size
+'   bottom right  one translucent leaf drawn through two nodes -- a diamond -- one
+'                 turned 45 degrees, one sheared, overlapping
+'
+' The font is the test harness's fixture, beside the program.
+
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+' A turn by the angle whose cosine and sine are given.
+FUNC turn(co AS Float, si AS Float) AS canvas::Transform
+  RETURN canvas::Transform[a := co, b := si, c := 0.0 - si, d := co, tx := 0.0, ty := 0.0]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    RETURN
+  END TRAP
+
+  ' The panel, in its own coordinates: a gradient bar, a band clipped to its middle, a
+  ' stroked disc and two letters.
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.55, color := color::rgb(250, 230, 90)], canvas::GradientStop[offset := 1.0, color := color::rgb(40, 120, 255)]]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := at(0.0, 0.0), endPoint := at(160.0, 70.0), stops := stops, spread := canvas::GradientSpread.Pad, transform := none(), focalOffset := at(0.0, 0.0), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", position := at(0.0, 0.0), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 160.0, height := 70.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := ramp }, transform := none()]
+  LET band AS canvas::DrawItem = canvas::Rectangle[id := "", position := at(0.0, 80.0), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 160.0, height := 30.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[at(40.0, 0.0), at(120.0, 0.0), at(120.0, 30.0), at(40.0, 30.0)]] }, transform := none()]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := at(30.0, 140.0), radius := 22.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 5.0), transform := none()]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := at(70.0, 155.0), text := "AA", font := face, fontSize := 46.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := none()]
+  canvas::setGroup("panel", [bar, band, dot, tag])
+
+  ' A ring around its own origin, to be scaled unevenly.
+  canvas::setGroup("ring", [canvas::Circle[id := "", position := at(0.0, 0.0), radius := 30.0, paint := canvas::stroke(color::rgb(120, 255, 160), 8.0), transform := none()]])
+
+  ' The panel turned 15 degrees, as a group of its own: the inner half of both nests.
+  canvas::setGroup("tilted", [canvas::Group[id := "", position := at(0.0, 0.0), transform := turn(0.9659258262890683, 0.25881904510252074), name := "panel"]])
+
+  ' One translucent leaf, named by two nodes of the scene.
+  canvas::setGroup("leaf", [canvas::Rectangle[id := "", position := at(0.0 - 50.0, 0.0 - 30.0), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fillStroke(color::rgba(255, 200, 40, 128), color::rgb(255, 255, 255), 3.0), transform := none()]])
+
+  LET turned AS canvas::DrawItem = canvas::Group[id := "", position := at(90.0, 30.0), transform := turn(0.9396926207859084, 0.3420201433256687), name := "panel"]
+  LET squashed AS canvas::DrawItem = canvas::Group[id := "", position := at(450.0, 110.0), transform := canvas::Transform[a := 3.0, b := 0.0, c := 0.0, d := 0.5, tx := 0.0, ty := 0.0], name := "ring"]
+  LET moved AS canvas::DrawItem = canvas::Group[id := "", position := at(660.0, 30.0), transform := none(), name := "tilted"]
+  LET twice AS canvas::DrawItem = canvas::Group[id := "", position := at(170.0, 330.0), transform := turn(0.8660254037844387, 0.5), name := "tilted"]
+  LET small AS canvas::DrawItem = canvas::Group[id := "", position := at(400.0, 380.0), transform := canvas::Transform[a := 0.6, b := 0.0, c := 0.0, d := 0.6, tx := 0.0, ty := 0.0], name := "panel"]
+  LET diamondA AS canvas::DrawItem = canvas::Group[id := "", position := at(700.0, 470.0), transform := turn(0.7071067811865476, 0.7071067811865476), name := "leaf"]
+  LET diamondB AS canvas::DrawItem = canvas::Group[id := "", position := at(740.0, 490.0), transform := canvas::Transform[a := 1.0, b := 0.0, c := 0.6, d := 1.0, tx := 0.0, ty := 0.0], name := "leaf"]
+  canvas::present([turned, squashed, moved, twice, small, diamondA, diamondB])
+END FUNC

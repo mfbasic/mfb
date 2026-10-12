@@ -42,6 +42,23 @@ rc_workdir() {
   trap 'rm -rf "$work"' EXIT
 }
 
+# usage: rc_fixture_font <file>  — write the canvas tests' fixture font there.
+#
+# The twelve-glyph file `tests/canvas/rt_canvas_font.rs` builds: `unitsPerEm` 1000, one
+# square glyph at (100,0)-(400,300), so a `Text` item is a row of squares. A scene that
+# calls `canvas::loadFont("fixture.ttf")` needs it beside the program, and a system font
+# would make a backend comparison depend on which fonts the box has.
+rc_fixture_font() {
+  base64 -d > "$1" <<'TTF'
+AAEAAAAGAAAAAAAAY21hcAAAAAAAAABsAAAANGdseWYAAAAAAAAAoAAAACJoZWFkAAAAAAAAAMIA
+AAA2aGhlYQAAAAAAAAD4AAAAJGhtdHgAAAAAAAABHAAAAAxsb2NhAAAAAAAAASgAAAAIAAAAAQAD
+AAoAAAAMAAwAAAAAACgAAAAAAAAAAgAAAEEAAABBAAAAAQAAAEIAAABCAAAAAgABAGQAAAGQASwA
+AwAAAQEBAQBkASwAAP7UAAAAAAEsAAAAAAAAAAAAAAAAAAAAAAAAAAAD6AAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAyD/OABkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMB
+9AAAAPoAAAEsAAAAAAAAABEAEQ==
+TTF
+}
+
 # usage: rc_parse_box <script-name> "$@"  — sets PORT from `--box <port>`.
 rc_parse_box() {
   local name=$1

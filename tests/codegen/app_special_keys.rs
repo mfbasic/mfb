@@ -65,13 +65,14 @@ use std::sync::{Mutex, OnceLock};
 const PROGRAM: &str = "\
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT io
 IMPORT term
 
 FUNC main AS Integer
   app::setMode(app::Mode.Canvas)
-  canvas::present([canvas::Rectangle[x := 0.0, y := 0.0, w := 200.0, h := 200.0, paint := canvas::fill(color::rgb(20, 40, 80))]])
+  canvas::present([canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 200.0, height := 200.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(20, 40, 80)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
   LET b AS Byte = io::readRaw()
   app::setMode(app::Mode.Console)
   term::on()

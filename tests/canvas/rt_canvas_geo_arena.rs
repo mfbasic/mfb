@@ -100,7 +100,7 @@ fn field(line: &str, name: &str) -> i64 {
 /// `ITEMS` lines whose endpoints move every frame, presented `FRAMES` times.
 fn animating() -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 1.0) {{ cap := canvas::CapStyle.Butt }}\n  \
@@ -110,7 +110,7 @@ fn animating() -> String {
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
          LET t AS Float = toFloat(frame * {ITEMS} + i)\n      \
-         LET seg AS canvas::DrawItem = canvas::Line[x1 := t, y1 := toFloat(i), x2 := t + 10.0, y2 := toFloat(i) + 10.0, paint := paint]\n      \
+         LET seg AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := t, y := toFloat(i)], endAt := vector::Float2[x := t + 10.0, y := toFloat(i) + 10.0], paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, seg)\n      \
          i = i + 1\n    \
          END WHILE\n    \
@@ -182,7 +182,7 @@ fn a_changing_scene_holds_a_bounded_geometry_arena() {
 #[test]
 fn an_all_hit_scene_never_pays_for_reclamation() {
     let source = format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = WITH canvas::stroke(color::rgb(255, 255, 255), 1.0) {{ cap := canvas::CapStyle.Butt }}\n  \
@@ -191,11 +191,11 @@ fn an_all_hit_scene_never_pays_for_reclamation() {
          MUT items AS List OF canvas::DrawItem = []\n    \
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
-         LET seg AS canvas::DrawItem = canvas::Line[x1 := toFloat(i), y1 := 0.0, x2 := toFloat(i), y2 := 100.0, paint := paint]\n      \
+         LET seg AS canvas::DrawItem = canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := toFloat(i), y := 0.0], endAt := vector::Float2[x := toFloat(i), y := 100.0], paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, seg)\n      \
          i = i + 1\n    \
          END WHILE\n    \
-         LET dot AS canvas::DrawItem = canvas::Circle[x := toFloat(frame) * 4.0, y := 300.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n    \
+         LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := toFloat(frame) * 4.0, y := 300.0], radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
          items = collections::append(items, dot)\n    \
          canvas::present(items)\n    \
          frame = frame + 1\n  \
@@ -219,21 +219,21 @@ fn an_all_hit_scene_never_pays_for_reclamation() {
 /// every one renders, while only one item's geometry actually changed.
 fn static_bulk(count: usize, frames: usize) -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::fill(color::rgb(0, 200, 255))\n  \
          MUT bulk AS List OF canvas::DrawItem = []\n  \
          MUT i AS Integer = 0\n  \
          WHILE i < {count}\n    \
-         LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat((i * 37) MOD 880), y := toFloat((i * 53) MOD 620), w := 6.0, h := 6.0, paint := paint]\n    \
+         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := toFloat((i * 37) MOD 880), y := toFloat((i * 53) MOD 620)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 6.0, height := 6.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
          bulk = collections::append(bulk, r)\n    \
          i = i + 1\n  \
          END WHILE\n  \
          MUT frame AS Integer = 0\n  \
          WHILE frame < {frames}\n    \
          MUT items AS List OF canvas::DrawItem = bulk\n    \
-         LET dot AS canvas::DrawItem = canvas::Circle[x := toFloat(frame) * 4.0 + 10.0, y := 630.0, radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0))]\n    \
+         LET dot AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := toFloat(frame) * 4.0 + 10.0, y := 630.0], radius := 5.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
          items = collections::append(items, dot)\n    \
          canvas::present(items)\n    \
          frame = frame + 1\n  \

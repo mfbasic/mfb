@@ -133,7 +133,10 @@ FUNC __canvas_damageFor(hashes AS List OF Integer, offsets AS List OF Integer, w
       ' group -- measured as `damage=0,0,603,403` for a group drawn at (500,300).
       LET cgdx AS Float = collections::getOr(__CANVAS_DRAW_DX, i, 0.0)
       LET cgdy AS Float = collections::getOr(__CANVAS_DRAW_DY, i, 0.0)
-      FOR EACH box IN [[__canvas_geoAt(offset, 16) + cgdx, __canvas_geoAt(offset, 17) + cgdy, __canvas_geoAt(offset, 18) + cgdx, __canvas_geoAt(offset, 19) + cgdy], [collections::getOr(__CANVAS_LAST_BOUNDS, i * 4, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 1, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 2, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 3, 0.0)]]
+      ' plan-172-G: through the entry's group matrix too, when it has one -- the hull
+      ' `__canvas_drawBound` answers, which is what `__canvas_rememberScene` stored.
+      __canvas_enterGroupMatrix(collections::getOr(__CANVAS_DRAW_MAT, i, 0))
+      FOR EACH box IN [[__canvas_drawBound(offset, 0, cgdx, cgdy), __canvas_drawBound(offset, 1, cgdx, cgdy), __canvas_drawBound(offset, 2, cgdx, cgdy), __canvas_drawBound(offset, 3, cgdx, cgdy)], [collections::getOr(__CANVAS_LAST_BOUNDS, i * 4, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 1, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 2, 0.0), collections::getOr(__CANVAS_LAST_BOUNDS, i * 4 + 3, 0.0)]]
       LET bx0 AS Float = collections::getOr(box, 0, 0.0)
       LET by0 AS Float = collections::getOr(box, 1, 0.0)
       LET bx1 AS Float = collections::getOr(box, 2, 0.0)
@@ -156,6 +159,7 @@ FUNC __canvas_damageFor(hashes AS List OF Integer, offsets AS List OF Integer, w
     END IF
     i = i + 1
   END WHILE
+  __canvas_enterGroupMatrix(0)
 
   IF NOT any THEN
     RETURN []
@@ -205,11 +209,14 @@ END FUNC
 ' rectangle test rather than two that could disagree -- a partial redraw that used the
 ' UNTRANSLATED bounds here would skip exactly the items a translated group moved, and
 ' the screen would appear to update only on full redraws.
+'
+' plan-172-G: the bounds are `__canvas_drawBound`'s, so an entry with a group matrix is
+' tested by its hull. The caller has made the entry's matrix current.
 FUNC __canvas_boundsMeetOffset(offset AS Integer, damage AS List OF Integer, gdx AS Float, gdy AS Float) AS Boolean
-  LET x0 AS Float = __canvas_geoAt(offset, 16) + gdx
-  LET y0 AS Float = __canvas_geoAt(offset, 17) + gdy
-  LET x1 AS Float = __canvas_geoAt(offset, 18) + gdx
-  LET y1 AS Float = __canvas_geoAt(offset, 19) + gdy
+  LET x0 AS Float = __canvas_drawBound(offset, 0, gdx, gdy)
+  LET y0 AS Float = __canvas_drawBound(offset, 1, gdx, gdy)
+  LET x1 AS Float = __canvas_drawBound(offset, 2, gdx, gdy)
+  LET y1 AS Float = __canvas_drawBound(offset, 3, gdx, gdy)
   IF x1 <= x0 OR y1 <= y0 THEN
     RETURN FALSE
   END IF
@@ -255,12 +262,14 @@ FUNC __canvas_rememberScene(hashes AS List OF Integer, offsets AS List OF Intege
     LET offset AS Integer = collections::getOr(offsets, bi, 0)
     LET gdx AS Float = collections::getOr(__CANVAS_DRAW_DX, bi, 0.0)
     LET gdy AS Float = collections::getOr(__CANVAS_DRAW_DY, bi, 0.0)
-    bounds = collections::append(bounds, __canvas_geoAt(offset, 16) + gdx)
-    bounds = collections::append(bounds, __canvas_geoAt(offset, 17) + gdy)
-    bounds = collections::append(bounds, __canvas_geoAt(offset, 18) + gdx)
-    bounds = collections::append(bounds, __canvas_geoAt(offset, 19) + gdy)
+    __canvas_enterGroupMatrix(collections::getOr(__CANVAS_DRAW_MAT, bi, 0))
+    bounds = collections::append(bounds, __canvas_drawBound(offset, 0, gdx, gdy))
+    bounds = collections::append(bounds, __canvas_drawBound(offset, 1, gdx, gdy))
+    bounds = collections::append(bounds, __canvas_drawBound(offset, 2, gdx, gdy))
+    bounds = collections::append(bounds, __canvas_drawBound(offset, 3, gdx, gdy))
     bi = bi + 1
   END WHILE
+  __canvas_enterGroupMatrix(0)
   __CANVAS_LAST_BOUNDS = bounds
   MUT kept AS List OF Integer = []
   FOR EACH h IN hashes

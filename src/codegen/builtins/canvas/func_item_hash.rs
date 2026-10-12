@@ -22,6 +22,15 @@
 //! The walk is generated from the type model's record layouts, so it cannot miss a
 //! field a variant gains; a field of a type it does not know how to fold fails the BUILD.
 //!
+//! **A `Picture`'s `shape` is a union, and it is folded by going round again**
+//! (plan-172-L). The picture's other fields are folded first; then the shape's tag is
+//! folded and the walk branches back to the variant dispatch with the shape's record in
+//! place of the item's, which folds that record and finishes. So a picture on a
+//! rectangle — a tilemap is thousands of them — is hashed here, in one pass and with no
+//! second copy of any variant's fold; and a picture on a shape this walk does not hash
+//! (a `Text`, an `AutoPaint`) falls out of the dispatch as `-1`, like that shape would,
+//! and takes `__canvas_hashItem`'s MFBASIC arm.
+//!
 //! **`Text` and `Group` answer `-1`** — "not hashed here" — and keep `__canvas_hashItem`'s
 //! MFBASIC arms: their `String`s fold a codepoint at a time and a `Text` also folds its
 //! font. A real hash is 62 bits and non-negative (the final mix shifts two bits out), so
@@ -51,11 +60,12 @@ const FINAL: u64 = 0x2545_F491_4F6C_DD1D;
 /// The seed every item hash starts from.
 const SEED: u64 = 0x1B87_3593_CC9E_2D51;
 
-/// The variants this walk hashes. `Text` and `Group` are the MFBASIC path's; a variant
-/// in neither list fails the build rather than falling to a default nobody chose.
-const HASHED: [&str; 9] = [
+/// The variants this walk hashes. `Text` and `Group` are the MFBASIC path's, and
+/// `AutoPaint` (plan-172-K), whose `shape` is a union field the walk does not fold; a
+/// variant in neither list fails the build rather than falling to a default nobody
+/// chose.
+const HASHED: [&str; 8] = [
     "Rectangle",
-    "RoundedRect",
     "Circle",
     "Line",
     "Arc",
@@ -64,7 +74,7 @@ const HASHED: [&str; 9] = [
     "Ellipse",
     "PolyLine",
 ];
-const NOT_HASHED: [&str; 2] = ["Text", "Group"];
+const NOT_HASHED: [&str; 3] = ["Text", "Group", "AutoPaint"];
 
 struct Mixer {
     hash: VirtualRegister,
@@ -78,6 +88,11 @@ fn fold(builder: &mut CodeBuilder, m: &Mixer, value: &VirtualRegister) {
     builder.emit(abi::multiply_registers(&m.hash, &m.hash, &m.mix));
     builder.emit(abi::shift_right_immediate(&t, &m.hash, 29));
     builder.emit(abi::exclusive_or_registers(&m.hash, &m.hash, &t));
+}
+
+/// The one union a hashed record may hold: a `Picture`'s `shape`.
+fn is_shape_union(ty: &ParameterType) -> bool {
+    ty.is_named("AutoShape") || ty.is_named("canvas.AutoShape")
 }
 
 /// Fold every field of the record at `base`, in slot order.
@@ -118,6 +133,34 @@ fn fold_field(
         ParameterType::Res(_) => {
             fold_resource_handle(builder, &value, base, 8 * index);
             fold(builder, m, &value);
+        }
+        // plan-172-C: every drawn item has an `id`. A `String` is a block of its byte
+        // length at +0 and its bytes from +8; a record holds it inlined (its slot is a
+        // block-relative offset) or by pointer. Folded as the length, then each byte —
+        // so `"ab"` + `"c"` in two fields cannot hash as `"a"` + `"bc"`.
+        ParameterType::String => {
+            let text = builder.temporary_vreg();
+            builder.emit(abi::load_u64(&text, base, 8 * index));
+            if builder.record_field_is_inlined(ty) {
+                builder.emit(abi::add_registers(&text, base, &text));
+            }
+            let length = builder.temporary_vreg();
+            builder.emit(abi::load_u64(&length, &text, 0));
+            fold(builder, m, &length);
+            let i = builder.temporary_vreg();
+            let at = builder.temporary_vreg();
+            let head = builder.label("canvas_hash_text");
+            let done = builder.label("canvas_hash_text_done");
+            builder.emit(abi::move_immediate(&i, "Integer", "0"));
+            builder.emit(abi::label(&head));
+            builder.emit(abi::compare_registers(&i, &length));
+            builder.emit(abi::branch_ge(&done));
+            builder.emit(abi::add_registers(&at, &text, &i));
+            builder.emit(abi::load_u8(&value, &at, 8));
+            fold(builder, m, &value);
+            builder.emit(abi::add_immediate(&i, &i, 1));
+            builder.emit(abi::branch(&head));
+            builder.emit(abi::label(&done));
         }
         ParameterType::ListOf(_) => {
             let list = builder.temporary_vreg();
@@ -253,18 +296,53 @@ pub(super) fn emit_item_hash(
         .collect();
     let finish = builder.label("canvas_hash_finish");
     let done = builder.label("canvas_hash_done");
+    let dispatch = builder.label("canvas_hash_dispatch");
+    builder.emit(abi::label(&dispatch));
     for ((variant_tag, _), label) in hashed.iter().zip(&labels) {
         builder.emit(abi::compare_immediate(&tag, &variant_tag.to_string()));
         builder.emit(abi::branch_eq(label));
     }
-    // Text, Group: the MFBASIC path's. -1, built as 0 - 1.
+    // Text, Group, AutoPaint -- as the item, or as a picture's shape: the MFBASIC
+    // path's. -1, built as 0 - 1.
     builder.emit(abi::move_immediate(out, "Integer", "0"));
     builder.emit(abi::subtract_immediate(out, out, 1));
     builder.emit(abi::branch(&done));
     for ((_, record), label) in hashed.iter().zip(&labels) {
         builder.emit(abi::label(label));
-        fold_record(builder, &m, &rec, record)?;
-        builder.emit(abi::branch(&finish));
+        // A union field is folded LAST, by going round the dispatch again with its
+        // record (see the module note); every other field in slot order.
+        let mut shape = None;
+        for (index, (name, ty)) in record_fields(builder, record)?.into_iter().enumerate() {
+            if is_shape_union(&ty) {
+                if shape.replace((index, ty)).is_some() {
+                    return Err(format!(
+                        "canvas::itemHash: '{record}' holds two shape unions; the walk \
+                         goes round once"
+                    ));
+                }
+                continue;
+            }
+            fold_field(builder, &m, &rec, record, index, &name, &ty)?;
+        }
+        let Some((index, ty)) = shape else {
+            builder.emit(abi::branch(&finish));
+            continue;
+        };
+        let sub = builder.temporary_vreg();
+        builder.emit(abi::load_u64(&sub, &rec, 8 * index));
+        if builder.record_field_is_inlined(&ty) {
+            builder.emit(abi::add_registers(&sub, &rec, &sub));
+        } else if !builder.record_field_is_pointer(&ty) {
+            return Err(format!(
+                "canvas::itemHash: the union '{ty}' in '{record}' is neither inlined nor \
+                 a pointer"
+            ));
+        }
+        // A data union is its tag at +0 and the variant's record at +16.
+        builder.emit(abi::load_u64(&tag, &sub, 0));
+        builder.emit(abi::add_immediate(&rec, &sub, 16));
+        fold(builder, &m, &tag);
+        builder.emit(abi::branch(&dispatch));
     }
     builder.emit(abi::label(&finish));
     let t = builder.temporary_vreg();
@@ -419,6 +497,169 @@ pub(crate) fn lower_scene_hashes(
     Ok(finish_integer(builder, &reg, "canvas.sceneHashes"))
 }
 
+/// The one variant whose `id` this pass cannot read from its first field: an
+/// `AutoPaint` reports its wrapped shape's (plan-172-K).
+const UNSEEN_DECORATOR: &str = "AutoPaint";
+
+/// `canvas::sceneIdBits(items)`: what `canvas::pollMouse` needs to know about a scene
+/// before it builds anything for it (plan-172-I) — bit 0 when some item of the list has a
+/// non-empty `id`, a `Group` node's included; bit 1 when the list holds something this
+/// pass does not see into: a `Group` node, whose own items are elsewhere, or an
+/// `AutoPaint`, whose `id` is its shape's -- as an item, or as the shape of a `Picture`.
+/// `helper_hit.rs:__canvas_reachesId` looks.
+///
+/// A `Picture` (plan-172-L) has two: its own, and its shape's, which `overID` reports
+/// behind it. Both are read here -- the shape is one more load away -- so a scene of
+/// pictures with no `id` anywhere, a tilemap, still answers 0 and builds nothing.
+///
+/// One pass, two loads an item, no allocation. It leans on the one thing every
+/// `DrawItem` variant but `AutoPaint` has in common: `id` is its record's FIRST field, a
+/// `String`. That is checked here against the type model for each of them, so a variant
+/// that ever broke it fails the build instead of answering from the wrong slot.
+pub(crate) fn lower_scene_id_bits(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let incoming = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the scene list argument"))?
+        .location
+        .clone();
+    for name in HASHED.iter().chain(NOT_HASHED.iter()) {
+        // plan-172-K: an `AutoPaint` has no `id` -- it reports its shape's -- and its
+        // first field is the shape, a union. This pass does not look inside it: like a
+        // group node, it is counted as "holds something this pass does not see".
+        if *name == UNSEEN_DECORATOR {
+            continue;
+        }
+        let (_, record) = variant(builder, name)?;
+        match record_fields(builder, &record)?.first() {
+            Some((field, ParameterType::String)) if field == "id" => {}
+            _ => {
+                return Err(format!(
+                    "canvas::sceneIdBits: '{record}' does not start with `id AS String`"
+                ))
+            }
+        }
+    }
+    let (group_tag, _) = variant(builder, "Group")?;
+    let (picture_tag, picture) = variant(builder, "Picture")?;
+    let (auto_tag, _) = variant(builder, UNSEEN_DECORATOR)?;
+    let inlined = builder.record_field_is_inlined(&ParameterType::String);
+    // A picture's `shape`: a data union, held inlined or by pointer.
+    let (shape_index, shape_type) = record_fields(builder, &picture)?
+        .into_iter()
+        .enumerate()
+        .find(|(_, (name, _))| name == "shape")
+        .map(|(index, (_, ty))| (index, ty))
+        .ok_or_else(|| format!("canvas::sceneIdBits: '{picture}' has no `shape`"))?;
+    if !is_shape_union(&shape_type) {
+        return Err(format!(
+            "canvas::sceneIdBits: '{picture}.shape' is '{shape_type}', not the shape union"
+        ));
+    }
+    let shape_inlined = builder.record_field_is_inlined(&shape_type);
+    if !shape_inlined && !builder.record_field_is_pointer(&shape_type) {
+        return Err(format!(
+            "canvas::sceneIdBits: '{picture}.shape' is neither inlined nor a pointer"
+        ));
+    }
+
+    let items = builder.temporary_vreg();
+    let n = builder.temporary_vreg();
+    builder.emit(abi::move_register(&items, &incoming));
+    builder.emit(abi::load_u64(&n, &items, COLLECTION_OFFSET_COUNT));
+    let view = emit_list_view(
+        builder,
+        &items,
+        &ParameterType::list_of(ParameterType::named("DrawItem")),
+    )?;
+
+    let bits = builder.temporary_vreg();
+    let one = builder.temporary_vreg();
+    let two = builder.temporary_vreg();
+    let i = builder.temporary_vreg();
+    let item = builder.temporary_vreg();
+    let word = builder.temporary_vreg();
+    let text = builder.temporary_vreg();
+    let head = builder.label("canvas_id_bits_head");
+    let leaf = builder.label("canvas_id_bits_leaf");
+    let next = builder.label("canvas_id_bits_next");
+    let done = builder.label("canvas_id_bits_done");
+    builder.emit(abi::move_immediate(&bits, "Integer", "0"));
+    builder.emit(abi::move_immediate(&one, "Integer", "1"));
+    builder.emit(abi::move_immediate(&two, "Integer", "2"));
+    builder.emit(abi::move_immediate(&i, "Integer", "0"));
+    builder.emit(abi::label(&head));
+    builder.emit(abi::compare_registers(&i, &n));
+    builder.emit(abi::branch_ge(&done));
+    emit_list_element(builder, &item, &view, &i);
+    // A data union's tag is its first word; the variant's record follows at +16.
+    builder.emit(abi::load_u64(&word, &item, 0));
+    // An `AutoPaint`: unseen, and its first slot is not an `id` -- skip the read.
+    let not_auto = builder.label("canvas_id_bits_not_auto");
+    builder.emit(abi::compare_immediate(&word, &auto_tag.to_string()));
+    builder.emit(abi::branch_ne(&not_auto));
+    builder.emit(abi::or_registers(&bits, &bits, &two));
+    builder.emit(abi::branch(&next));
+    builder.emit(abi::label(&not_auto));
+    let not_group = builder.label("canvas_id_bits_not_group");
+    builder.emit(abi::compare_immediate(&word, &group_tag.to_string()));
+    builder.emit(abi::branch_ne(&not_group));
+    builder.emit(abi::or_registers(&bits, &bits, &two));
+    builder.emit(abi::branch(&leaf));
+    builder.emit(abi::label(&not_group));
+    builder.emit(abi::compare_immediate(&word, &picture_tag.to_string()));
+    builder.emit(abi::branch_ne(&leaf));
+    // A picture's shape: an `AutoPaint` is unseen, as it is on its own; any other
+    // shape's record starts with its `id`, like every item's.
+    let shape = builder.temporary_vreg();
+    let shape_word = builder.temporary_vreg();
+    let shape_text = builder.temporary_vreg();
+    let shape_id = builder.label("canvas_id_bits_shape_id");
+    builder.emit(abi::add_immediate(&shape, &item, 16));
+    builder.emit(abi::load_u64(&shape_word, &shape, 8 * shape_index));
+    if shape_inlined {
+        builder.emit(abi::add_registers(&shape, &shape, &shape_word));
+    } else {
+        builder.emit(abi::move_register(&shape, &shape_word));
+    }
+    builder.emit(abi::load_u64(&shape_word, &shape, 0));
+    builder.emit(abi::compare_immediate(&shape_word, &auto_tag.to_string()));
+    builder.emit(abi::branch_ne(&shape_id));
+    builder.emit(abi::or_registers(&bits, &bits, &two));
+    builder.emit(abi::branch(&leaf));
+    builder.emit(abi::label(&shape_id));
+    builder.emit(abi::add_immediate(&shape, &shape, 16));
+    builder.emit(abi::load_u64(&shape_text, &shape, 0));
+    if inlined {
+        builder.emit(abi::add_registers(&shape_text, &shape, &shape_text));
+    }
+    builder.emit(abi::load_u64(&shape_word, &shape_text, 0));
+    builder.emit(abi::compare_immediate(&shape_word, "0"));
+    builder.emit(abi::branch_eq(&leaf));
+    builder.emit(abi::or_registers(&bits, &bits, &one));
+    builder.emit(abi::label(&leaf));
+    // A `String` is its byte length at +0; a record holds it inlined (the slot is a
+    // record-relative offset) or by pointer (`fold_field`).
+    builder.emit(abi::add_immediate(&item, &item, 16));
+    builder.emit(abi::load_u64(&text, &item, 0));
+    if inlined {
+        builder.emit(abi::add_registers(&text, &item, &text));
+    }
+    builder.emit(abi::load_u64(&word, &text, 0));
+    builder.emit(abi::compare_immediate(&word, "0"));
+    builder.emit(abi::branch_eq(&next));
+    builder.emit(abi::or_registers(&bits, &bits, &one));
+    builder.emit(abi::label(&next));
+    builder.emit(abi::add_immediate(&i, &i, 1));
+    builder.emit(abi::branch(&head));
+    builder.emit(abi::label(&done));
+    Ok(finish_integer(builder, &bits, "canvas.sceneIdBits"))
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     let item_param = || Parameter {
         name: "item",
@@ -468,6 +709,26 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::list_of(ParameterType::Integer),
             errors: vec!["ErrOutOfMemory"],
             body: Body::abi_function(lower_scene_hashes),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "sceneIdBits",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "items",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::list_of(ParameterType::named("DrawItem")),
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::abi_function(lower_scene_id_bits),
         }],
     });
 }

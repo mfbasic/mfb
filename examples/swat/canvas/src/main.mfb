@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT datetime
@@ -173,8 +174,8 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 FUNC layoutFor(surface AS canvas::Size) AS Layout
-  LET w AS Float = toFloat(surface.width)
-  LET h AS Float = toFloat(surface.height)
+  LET w AS Float = surface.width
+  LET h AS Float = surface.height
   LET margin AS Float = 14.0
   LET bar AS Float = 48.0
   LET fx AS Float = margin
@@ -258,41 +259,46 @@ END FUNC
 ' lists of them, drawn in order.
 ' ---------------------------------------------------------------------------
 
-FUNC pt(px AS Float, py AS Float) AS canvas::Point
-  RETURN canvas::Point[x := px, y := py]
+FUNC pt(px AS Float, py AS Float) AS vector::Float2
+  RETURN vector::Float2[x := px, y := py]
 END FUNC
 
 FUNC circ(px AS Float, py AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Circle[x := px, y := py, radius := r, paint := canvas::fill(c)]
+  RETURN canvas::Circle[id := "", position := vector::Float2[x := px, y := py], radius := r, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC oval(px AS Float, py AS Float, rx AS Float, ry AS Float, turn AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Ellipse[x := px, y := py, radiusX := rx, radiusY := ry, angle := turn, paint := canvas::fill(c)]
+  RETURN canvas::Ellipse[id := "", position := vector::Float2[x := px, y := py], radiusX := rx, radiusY := ry, paint := canvas::fill(c), transform := canvas::Transform[a := math::cos(turn), b := math::sin(turn), c := 0.0 - math::sin(turn), d := math::cos(turn), tx := 0.0, ty := 0.0]]
 END FUNC
 
 FUNC seg(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, w AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Line[x1 := x1, y1 := y1, x2 := x2, y2 := y2, paint := WITH canvas::stroke(c, w) { cap := canvas::CapStyle.Round }]
+  RETURN canvas::Line[id := "", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := x1, y := y1], endAt := vector::Float2[x := x2, y := y2], paint := WITH canvas::stroke(c, w) { cap := canvas::CapStyle.Round }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
-FUNC poly(points AS List OF canvas::Point, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c)]
+FUNC poly(points AS List OF vector::Float2, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
+' A radius of a pixel or less would read as a fraction of the half size, so
+' it is drawn square: a corner that small is not visible.
 FUNC slab(px AS Float, py AS Float, w AS Float, h AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::RoundedRect[x := px, y := py, w := w, h := h, cornerRadius := r, paint := canvas::fill(c)]
+  MUT corner AS Float = r
+  IF r <= 1.0 THEN corner = 0.0
+  RETURN canvas::Rectangle[id := "", position := vector::Float2[x := px, y := py], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := corner, radiusTR := corner, radiusBL := corner, radiusBR := corner, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' A star of `points` spikes: alternating outer and inner radii, the first spike
 ' pointing along `turn`.
 FUNC star(cx AS Float, cy AS Float, outer AS Float, inner AS Float, points AS Integer, turn AS Float, c AS color::Color) AS canvas::DrawItem
-  MUT corners AS List OF canvas::Point = []
+  MUT corners AS List OF vector::Float2 = []
   FOR i = 0 TO points * 2 - 1
     LET a AS Float = turn + toFloat(i) * math::pi / toFloat(points)
     MUT r AS Float = outer
     IF i MOD 2 = 1 THEN r = inner
-    corners = collections::append(corners, pt(cx + r * math::cos(a), cy + r * math::sin(a)))
+    corners = collections::append(corners, pt(r * math::cos(a), r * math::sin(a)))
   NEXT
-  RETURN poly(corners, c)
+  ' The corners are measured from the star's centre, and `position` puts it there.
+  RETURN canvas::Polygon[id := "", position := pt(cx, cy), contours := [corners], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' Three pairs of legs out of a body centred at (cx, cy), wiggling with `t`.
@@ -387,7 +393,9 @@ FUNC drawPlant(kind AS Integer, cx AS Float, cy AS Float, s AS Float) AS List OF
     FOR i = 0 TO 2
       LET top AS Float = cy - 0.85 * s + toFloat(i) * 0.36 * s
       LET half AS Float = 0.3 * s + toFloat(i) * 0.13 * s
-      out = collections::append(out, poly([pt(cx, top), pt(cx + half, top + 0.58 * s), pt(cx - half, top + 0.58 * s)], color::rgb(34, 110, 62)))
+      ' Each tier hangs from its tip, so the tip is its position.
+      LET tier AS canvas::DrawItem = canvas::Polygon[id := "", position := pt(cx, top), contours := [[pt(0.0, 0.0), pt(half, 0.58 * s), pt(-half, 0.58 * s)]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(34, 110, 62)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+      out = collections::append(out, tier)
     NEXT
     RETURN out
   END IF
@@ -399,7 +407,7 @@ FUNC drawPlant(kind AS Integer, cx AS Float, cy AS Float, s AS Float) AS List OF
 
   IF kind = 8 THEN
     ' log: bark, a cut end with rings, and a knot
-    RETURN [slab(cx - 0.8 * s, cy - 0.28 * s, 1.4 * s, 0.56 * s, 0.22 * s, bark), seg(cx - 0.6 * s, cy - 0.1 * s, cx + 0.3 * s, cy - 0.1 * s, 0.04 * s, color::rgb(92, 60, 34)), seg(cx - 0.5 * s, cy + 0.12 * s, cx + 0.35 * s, cy + 0.12 * s, 0.04 * s, color::rgb(92, 60, 34)), oval(cx + 0.6 * s, cy, 0.18 * s, 0.28 * s, 0.0, color::rgb(214, 172, 118)), canvas::Ellipse[x := cx + 0.6 * s, y := cy, radiusX := 0.1 * s, radiusY := 0.16 * s, angle := 0.0, paint := canvas::stroke(color::rgb(150, 110, 70), 0.03 * s)], circ(cx - 0.3 * s, cy + 0.02 * s, 0.06 * s, color::rgb(80, 52, 30))]
+    RETURN [slab(cx - 0.8 * s, cy - 0.28 * s, 1.4 * s, 0.56 * s, 0.22 * s, bark), seg(cx - 0.6 * s, cy - 0.1 * s, cx + 0.3 * s, cy - 0.1 * s, 0.04 * s, color::rgb(92, 60, 34)), seg(cx - 0.5 * s, cy + 0.12 * s, cx + 0.35 * s, cy + 0.12 * s, 0.04 * s, color::rgb(92, 60, 34)), oval(cx + 0.6 * s, cy, 0.18 * s, 0.28 * s, 0.0, color::rgb(214, 172, 118)), canvas::Ellipse[id := "", position := vector::Float2[x := cx + 0.6 * s, y := cy], radiusX := 0.1 * s, radiusY := 0.16 * s, paint := canvas::stroke(color::rgb(150, 110, 70), 0.03 * s), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], circ(cx - 0.3 * s, cy + 0.02 * s, 0.06 * s, color::rgb(80, 52, 30))]
   END IF
 
   IF kind = 9 THEN
@@ -568,7 +576,7 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 FUNC edgeRect(px AS Float, py AS Float, w AS Float, h AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Rectangle[x := px, y := py, w := w, h := h, paint := canvas::fill(c)]
+  RETURN canvas::Rectangle[id := "", position := vector::Float2[x := px, y := py], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC padNumber(n AS Integer, width AS Integer) AS String
@@ -577,7 +585,7 @@ FUNC padNumber(n AS Integer, width AS Integer) AS String
 END FUNC
 
 FUNC label(face AS canvas::Font, size AS Float, text AS String, px AS Float, baseline AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Text[x := px, y := baseline, text := text, font := face, size := size, paint := canvas::fill(c)]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := px, y := baseline], text := text, font := face, fontSize := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' A centred panel over a dimmed field: a title and a line of key hints.
@@ -590,7 +598,7 @@ FUNC banner(lay AS Layout, face AS canvas::Font, title AS String, hint AS String
   LET hintSize AS Float = 18.0
   LET tm AS canvas::TextMetrics = canvas::measureText(face, titleSize, title)
   LET hm AS canvas::TextMetrics = canvas::measureText(face, hintSize, hint)
-  RETURN [canvas::Rectangle[x := lay.fieldX, y := lay.fieldY, w := lay.fieldW, h := lay.fieldH, paint := canvas::fill(color::rgba(0, 0, 0, 120))], canvas::RoundedRect[x := x, y := y, w := w, h := h, cornerRadius := 16.0, paint := canvas::fillStroke(fill, color::rgba(255, 255, 255, 180), 2.0)], label(face, titleSize, title, x + (w - tm.width) / 2.0, y + 62.0, color::rgb(255, 255, 255)), label(face, hintSize, hint, x + (w - hm.width) / 2.0, y + 112.0, color::rgb(235, 240, 255))]
+  RETURN [canvas::Rectangle[id := "", position := vector::Float2[x := lay.fieldX, y := lay.fieldY], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := lay.fieldW, height := lay.fieldH], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(0, 0, 0, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := 16.0, radiusTR := 16.0, radiusBL := 16.0, radiusBR := 16.0, paint := canvas::fillStroke(fill, color::rgba(255, 255, 255, 180), 2.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], label(face, titleSize, title, x + (w - tm.width) / 2.0, y + 62.0, color::rgb(255, 255, 255)), label(face, hintSize, hint, x + (w - hm.width) / 2.0, y + 112.0, color::rgb(235, 240, 255))]
 END FUNC
 
 FUNC sceneFor(lay AS Layout, face AS canvas::Font, level AS Integer, score AS Integer, grass AS List OF Plant, bug AS Slot, bugTheme AS Integer, bugVisible AS Boolean, effects AS List OF Effect, now AS Integer, gameOver AS Boolean, paused AS Boolean) AS List OF canvas::DrawItem
@@ -603,8 +611,8 @@ FUNC sceneFor(lay AS Layout, face AS canvas::Font, level AS Integer, score AS In
   ' everything else. (A full-window backdrop under a separate field, or the field
   ' as a gradient-filled or stroked rounded rectangle, each cost a whole-surface
   ' pass per frame; together they held the game to about two frames a second.)
-  LET barStrip AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := lay.width, h := lay.barHeight, paint := canvas::fill(color::rgb(20, 24, 30))]
-  LET field AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := lay.barHeight, w := lay.width, h := lay.height - lay.barHeight, paint := canvas::fill(ground)]
+  LET barStrip AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := lay.width, height := lay.barHeight], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(20, 24, 30)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET field AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := lay.barHeight], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := lay.width, height := lay.height - lay.barHeight], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(ground), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   MUT scene AS List OF canvas::DrawItem = [barStrip, field]
   ' A faint grid, then the frame as four thin edges.
   LET line AS color::Color = color::rgba(255, 255, 255, 12)

@@ -178,14 +178,14 @@ fn assert_flat(name: &str, source: &str, sync: bool, per_present: u64, why: &str
 /// equal and takes the frame skip.
 fn unchanged() -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
          MUT items AS List OF canvas::DrawItem = []\n  \
          MUT i AS Integer = 0\n  \
          WHILE i < {ITEMS}\n    \
-         LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat(i), y := 0.0, w := 10.0, h := 10.0, paint := paint]\n    \
+         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := toFloat(i), y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 10.0, height := 10.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    \
          items = collections::append(items, r)\n    \
          i = i + 1\n  \
          END WHILE\n  \
@@ -212,7 +212,7 @@ fn unchanged() -> String {
 /// no such assumption about how fast anything is.
 fn changing() -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
@@ -221,12 +221,12 @@ fn changing() -> String {
          MUT items AS List OF canvas::DrawItem = []\n    \
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
-         LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame * {ITEMS} + i), y := 0.0, w := 10.0, h := 10.0, paint := paint]\n      \
+         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := toFloat(frame * {ITEMS} + i), y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 10.0, height := 10.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, r)\n      \
          i = i + 1\n    \
          END WHILE\n    \
          canvas::present(items)\n    \
-         LET extra AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame), y := 20.0, w := 4.0, h := 4.0, paint := paint]\n    items = collections::append(items, extra)\n    \
+         LET extra AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := toFloat(frame), y := 20.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    items = collections::append(items, extra)\n    \
          canvas::present(items)\n    os::sleep({FRAME_MS})\n    \
          frame = frame + 1\n  \
          END WHILE\n  \
@@ -239,7 +239,7 @@ fn changing() -> String {
 /// `canvas::presentLayers`.
 fn changing_layers() -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
@@ -248,13 +248,13 @@ fn changing_layers() -> String {
          MUT items AS List OF canvas::DrawItem = []\n    \
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
-         LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame * {ITEMS} + i), y := 0.0, w := 10.0, h := 10.0, paint := paint]\n      \
+         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := toFloat(frame * {ITEMS} + i), y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 10.0, height := 10.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, r)\n      \
          i = i + 1\n    \
          END WHILE\n    \
          LET layer AS canvas::DrawLayer = canvas::DrawLayer[items := items]\n    \
          canvas::presentLayers([layer])\n    \
-         LET extra AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame), y := 20.0, w := 4.0, h := 4.0, paint := paint]\n    items = collections::append(items, extra)\n    \
+         LET extra AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := toFloat(frame), y := 20.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n    items = collections::append(items, extra)\n    \
          canvas::presentLayers([canvas::DrawLayer[items := items]])\n    os::sleep({FRAME_MS})\n    \
          frame = frame + 1\n  \
          END WHILE\n  \
@@ -345,7 +345,7 @@ const SCENE_ITEMS: usize = 150;
 
 fn group_animated(vary: usize) -> String {
     format!(
-        "IMPORT app\nIMPORT canvas\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
          FUNC main() AS Nothing\n  \
          app::setMode(app::Mode.Canvas)\n  \
          LET paint AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
@@ -354,7 +354,7 @@ fn group_animated(vary: usize) -> String {
          MUT items AS List OF canvas::DrawItem = []\n    \
          MUT i AS Integer = 0\n    \
          WHILE i < {ITEMS}\n      \
-         LET r AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame * {ITEMS} + i), y := 0.0, w := 10.0, h := 10.0, paint := paint]\n      \
+         LET r AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := toFloat(frame * {ITEMS} + i), y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 10.0, height := 10.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          items = collections::append(items, r)\n      \
          i = i + 1\n    \
          END WHILE\n    \
@@ -362,11 +362,11 @@ fn group_animated(vary: usize) -> String {
          MUT scene AS List OF canvas::DrawItem = []\n    \
          MUT k AS Integer = 0\n    \
          WHILE k < {SCENE_ITEMS}\n      \
-         LET st AS canvas::DrawItem = canvas::Rectangle[x := toFloat(k), y := 50.0, w := 4.0, h := 4.0, paint := paint]\n      \
+         LET st AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := toFloat(k), y := 50.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
          scene = collections::append(scene, st)\n      \
          k = k + 1\n    \
          END WHILE\n    \
-         LET g AS canvas::DrawItem = canvas::Group[name := \"panel\", dx := toFloat(frame * {vary}), dy := 0.0]\n    \
+         LET g AS canvas::DrawItem = canvas::Group[id := \"\", position := vector::Float2[x := toFloat(frame * {vary}), y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]\n    \
          scene = collections::append(scene, g)\n    \
          canvas::present(scene)\n    \
          os::sleep({FRAME_MS})\n    \

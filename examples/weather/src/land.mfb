@@ -29,6 +29,7 @@
 ' appended to flat lists.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT errorCode
 IMPORT color
@@ -583,11 +584,11 @@ FUNC planeItems(plane AS List OF Plane, v AS View, clip AS Box, paint AS canvas:
   IF len(plane) < 3 THEN RETURN []
   LET cut AS List OF Plane = clipToBox(plane, clip)
   IF len(cut) < 3 THEN RETURN []
-  MUT points AS List OF canvas::Point = []
+  MUT points AS List OF vector::Float2 = []
   FOR EACH p IN cut
     points = collections::append(points, toScreen(v, p))
   NEXT
-  RETURN [canvas::Polygon[contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint]]
+  RETURN [canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
 END FUNC
 
 ' Closed ring r at one level of detail, as the copy `shift` degrees round the
@@ -719,7 +720,7 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
     threshold = tiltedDetailLevel(viewBox(v, 0.0), v)
   END IF
 
-  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[x := 0.0, y := 0.0, w := v.width, h := v.height, paint := canvas::fill(VOID_COLOR)]]
+  MUT items AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := v.width, height := v.height], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(VOID_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
   IF overlaps(world.bounds, clip) THEN
     items = collections::append(items, planeItems(world.points, v, clip, canvas::fill(OCEAN_COLOR)))
   END IF
@@ -750,7 +751,7 @@ FUNC mapItems(world AS Ring, v AS View) AS List OF canvas::DrawItem
 
   canvas::setGroup(LAND_GROUP, items)
   drawnView = v
-  drawnMap = [canvas::Group[dx := 0.0, dy := 0.0, name := LAND_GROUP]]
+  drawnMap = [canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := LAND_GROUP]]
   RETURN drawnMap
 END FUNC
 

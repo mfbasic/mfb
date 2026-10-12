@@ -13,7 +13,7 @@ list of items. Layers composite in order — later layers paint over earlier one
 and within a layer the items draw in list order, exactly as `canvas::present`
 draws them.
 
-Everything `canvas::present` guarantees holds here: the scene is deep-copied, so
+Everything `canvas::present` guarantees holds here: the scene is copied, so
 after the call the installed scene is entirely its own; installing an
 identical scene republishes nothing; and the runtime keeps rendering what was
 installed until the next call replaces it.
@@ -40,6 +40,7 @@ backdrop's geometry untouched:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
@@ -47,8 +48,8 @@ FUNC main() AS Nothing
   LET sky AS color::Color = color::rgb(20, 30, 60)
   LET dot AS color::Color = color::rgb(255, 200, 0)
 
-  LET backdrop AS canvas::DrawItem = canvas::Rectangle[x := 0.0, y := 0.0, w := 400.0, h := 300.0, paint := canvas::fill(sky)]
-  LET marker AS canvas::DrawItem = canvas::Circle[x := 100.0, y := 150.0, radius := 12.0, paint := canvas::fill(dot)]
+  LET backdrop AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 400.0, height := 300.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(sky), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET marker AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 100.0, y := 150.0], radius := 12.0, paint := canvas::fill(dot), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 
   LET back AS canvas::DrawLayer = canvas::DrawLayer[items := [backdrop]]
   LET front AS canvas::DrawLayer = canvas::DrawLayer[items := [marker]]
@@ -67,8 +68,23 @@ r#"FUNC __canvas_presentLayers(layers AS List OF DrawLayer) AS Nothing
   __canvas_ensureGraphics()
   canvas::notePresent(canvas::frameNanos())
   IF installed THEN
+    ' plan-172-I: the revision and the id bits `canvas::pollMouse` reads, as `present`
+    ' records them -- the bits of every layer's items together.
+    __CANVAS_SCENE_REV = __CANVAS_SCENE_REV + 1
+    MUT named AS Integer = 0
+    MUT grouped AS Integer = 0
+    FOR EACH layer IN layers
+      LET bits AS Integer = canvas::sceneIdBits(layer.items)
+      IF bits = 1 OR bits = 3 THEN
+        named = 1
+      END IF
+      IF bits >= 2 THEN
+        grouped = 2
+      END IF
+    NEXT
+    __CANVAS_SCENE_IDS = named + grouped
     canvas::publishHashes(__canvas_hashLayers(layers))
-    canvas::signalRedraw()
+    canvas::signalRedraw(FALSE)
     canvas::syncFrame()
   END IF
 END FUNC"#;

@@ -1,16 +1,17 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT math
 
-FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
-  MUT points AS List OF canvas::Point = []
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   WHILE i < n
     LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat(n)
     LET rr AS Float = r + 3.0 * math::sin(a * 5.0)
-    points = collections::append(points, canvas::Point[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
+    points = collections::append(points, vector::Float2[x := cx + rr * math::cos(a), y := cy + rr * math::sin(a)])
     i = i + 1
   END WHILE
   RETURN points
@@ -31,7 +32,7 @@ FUNC main() AS Nothing
     LET y AS Float = 32.0 + toFloat((k / 14) * 60) + math::cos(fx) * 0.41
     LET r AS Float = 8.0 + toFloat(k MOD 13) * 1.513
     LET c AS color::Color = color::rgb(250, 250, 120)
-    LET d AS canvas::DrawItem = canvas::Arc[x := x, y := y, radius := r, startAngle := 0.3, endAngle := 4.1, paint := WITH canvas::stroke(c, 2.0) { cap := canvas::CapStyle.Butt }]
+    LET d AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := x, y := y], radius := r, startAngle := 0.3, endAngle := 4.1, paint := WITH canvas::stroke(c, 2.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::append(scene, d)
     k = k + 1
   END WHILE

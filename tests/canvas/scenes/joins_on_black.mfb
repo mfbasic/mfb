@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 ' plan-163-B: Miter and Bevel joins over the default opaque-black surface, at fractional
@@ -11,12 +12,12 @@ IMPORT color
 '
 ' rt_canvas_metal.rs compares the Metal frame against the software oracle, and
 ' scripts/test-canvas-gpu-rows.sh (row `joins`) the Vulkan one.
-FUNC star(cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
-  RETURN [canvas::Point[x := cx, y := cy - r], canvas::Point[x := cx + 0.587785 * r, y := cy + 0.809017 * r], canvas::Point[x := cx - 0.951057 * r, y := cy - 0.309017 * r], canvas::Point[x := cx + 0.951057 * r, y := cy - 0.309017 * r], canvas::Point[x := cx - 0.587785 * r, y := cy + 0.809017 * r]]
+FUNC star(cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  RETURN [vector::Float2[x := cx, y := cy - r], vector::Float2[x := cx + 0.587785 * r, y := cy + 0.809017 * r], vector::Float2[x := cx - 0.951057 * r, y := cy - 0.309017 * r], vector::Float2[x := cx + 0.951057 * r, y := cy - 0.309017 * r], vector::Float2[x := cx - 0.587785 * r, y := cy + 0.809017 * r]]
 END FUNC
 
-FUNC pt(x AS Float, y AS Float) AS canvas::Point
-  RETURN canvas::Point[x := x, y := y]
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
 END FUNC
 
 FUNC main() AS Nothing
@@ -25,17 +26,17 @@ FUNC main() AS Nothing
   LET miter AS canvas::Paint = WITH ink { join := canvas::JoinStyle.Miter }
   LET bevel AS canvas::Paint = WITH ink { join := canvas::JoinStyle.Bevel }
   LET sharp AS canvas::Paint = WITH miter { miterLimit := 10.0 }
-  LET a AS canvas::DrawItem = canvas::Polygon[contours := [star(110.3, 120.6, 80.2)], rule := canvas::FillRule.EvenOdd, paint := miter]
-  LET b AS canvas::DrawItem = canvas::Polygon[contours := [star(300.7, 120.2, 80.2)], rule := canvas::FillRule.EvenOdd, paint := sharp]
-  LET c AS canvas::DrawItem = canvas::Polygon[contours := [star(490.1, 120.9, 80.2)], rule := canvas::FillRule.EvenOdd, paint := bevel]
-  LET d AS canvas::DrawItem = canvas::Polygon[contours := [[pt(600.4, 60.3), pt(700.2, 60.3), pt(700.2, 30.6), pt(780.9, 110.1), pt(700.2, 189.7), pt(700.2, 160.3), pt(600.4, 160.3)]], rule := canvas::FillRule.EvenOdd, paint := WITH sharp { fill := color::rgb(40, 90, 200) }]
-  LET e AS canvas::DrawItem = canvas::Polygon[contours := [[pt(60.5, 260.5), pt(220.5, 260.5), pt(220.5, 400.5), pt(60.5, 400.5)], [pt(100.25, 300.75), pt(100.25, 360.25), pt(180.75, 360.25), pt(180.75, 300.75)]], rule := canvas::FillRule.EvenOdd, paint := miter]
-  LET f AS canvas::DrawItem = canvas::PolyLine[points := [pt(270.2, 300.4), pt(340.6, 250.1), pt(345.3, 400.8), pt(345.3, 400.8), pt(420.9, 270.2), pt(500.4, 280.6)], colors := [], paint := sharp]
-  LET g AS canvas::DrawItem = canvas::PolyLine[points := [pt(270.2, 450.4), pt(340.6, 420.1), pt(380.3, 520.8), pt(460.9, 430.2)], colors := [color::rgb(255, 80, 80), color::rgb(80, 255, 120), color::rgb(80, 120, 255), color::rgb(255, 255, 255)], paint := WITH bevel { cap := canvas::CapStyle.Square }]
-  LET h AS canvas::DrawItem = canvas::Rectangle[x := 560.3, y := 250.7, w := 120.2, h := 90.4, paint := miter]
-  LET k AS canvas::DrawItem = canvas::Rectangle[x := 720.6, y := 250.2, w := 120.7, h := 90.9, paint := WITH bevel { fill := color::rgba(200, 60, 120, 200) }]
+  LET a AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [star(110.3, 120.6, 80.2)], rule := canvas::FillRule.EvenOdd, paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET b AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [star(300.7, 120.2, 80.2)], rule := canvas::FillRule.EvenOdd, paint := sharp, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET c AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [star(490.1, 120.9, 80.2)], rule := canvas::FillRule.EvenOdd, paint := bevel, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET d AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[pt(600.4, 60.3), pt(700.2, 60.3), pt(700.2, 30.6), pt(780.9, 110.1), pt(700.2, 189.7), pt(700.2, 160.3), pt(600.4, 160.3)]], rule := canvas::FillRule.EvenOdd, paint := WITH sharp { fill := color::rgb(40, 90, 200) }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET e AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[pt(60.5, 260.5), pt(220.5, 260.5), pt(220.5, 400.5), pt(60.5, 400.5)], [pt(100.25, 300.75), pt(100.25, 360.25), pt(180.75, 360.25), pt(180.75, 300.75)]], rule := canvas::FillRule.EvenOdd, paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET f AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(270.2, 300.4), pt(340.6, 250.1), pt(345.3, 400.8), pt(345.3, 400.8), pt(420.9, 270.2), pt(500.4, 280.6)], colors := [], paint := sharp, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET g AS canvas::DrawItem = canvas::PolyLine[id := "", position := vector::Float2[x := 0.0, y := 0.0], points := [pt(270.2, 450.4), pt(340.6, 420.1), pt(380.3, 520.8), pt(460.9, 430.2)], colors := [color::rgb(255, 80, 80), color::rgb(80, 255, 120), color::rgb(80, 120, 255), color::rgb(255, 255, 255)], paint := WITH bevel { cap := canvas::CapStyle.Square }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET h AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 560.3, y := 250.7], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.2, height := 90.4], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := miter, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET k AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 720.6, y := 250.2], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.7, height := 90.9], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH bevel { fill := color::rgba(200, 60, 120, 200) }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET t AS canvas::Transform = canvas::Transform[a := 0.8, b := 0.6, c := 0.0 - 0.6, d := 0.8, tx := 640.0, ty := 480.0]
-  LET m AS canvas::DrawItem = canvas::Polygon[contours := [[pt(0.0 - 60.0, 0.0 - 40.0), pt(60.0, 0.0 - 40.0), pt(0.0, 70.0)]], rule := canvas::FillRule.EvenOdd, paint := WITH sharp { transform := t }]
-  LET n AS canvas::DrawItem = canvas::Polygon[contours := [star(800.2, 500.6, 70.4)], rule := canvas::FillRule.NonZero, paint := WITH canvas::fillStroke(color::rgb(60, 140, 90), color::rgba(255, 255, 255, 140), 6.5) { join := canvas::JoinStyle.Miter, miterLimit := 10.0 }]
+  LET m AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [[pt(0.0 - 60.0, 0.0 - 40.0), pt(60.0, 0.0 - 40.0), pt(0.0, 70.0)]], rule := canvas::FillRule.EvenOdd, paint := sharp, transform := t]
+  LET n AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [star(800.2, 500.6, 70.4)], rule := canvas::FillRule.NonZero, paint := WITH canvas::fillStroke(color::rgb(60, 140, 90), color::rgba(255, 255, 255, 140), 6.5) { join := canvas::JoinStyle.Miter, miterLimit := 10.0 }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([a, b, c, d, e, f, g, h, k, m, n])
 END FUNC

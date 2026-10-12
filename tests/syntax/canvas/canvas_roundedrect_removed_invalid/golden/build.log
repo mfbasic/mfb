@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/canvas/canvas_roundedrect_removed_invalid
+  22 | FUNC main AS Integer
+  23 |   app::setMode(app::Mode.Canvas)
+  24 |   LET pill AS canvas::RoundedRect = canvas::RoundedRect[x := 8.0, y := 8.0, w := 40.0, h := 20.0, cornerRadius := 10.0, paint := canvas::fill(color::rgb(1, 2, 3))]
+     | ^
+tests/syntax/canvas/canvas_roundedrect_removed_invalid/src/main.mfb:24 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `canvas` does not export `canvas.RoundedRect`.
+  22 | FUNC main AS Integer
+  23 |   app::setMode(app::Mode.Canvas)
+  24 |   LET pill AS canvas::RoundedRect = canvas::RoundedRect[x := 8.0, y := 8.0, w := 40.0, h := 20.0, cornerRadius := 10.0, paint := canvas::fill(color::rgb(1, 2, 3))]
+     | ^
+tests/syntax/canvas/canvas_roundedrect_removed_invalid/src/main.mfb:24 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Built-in package `canvas` does not export `canvas.RoundedRect`.
+[exit 1]

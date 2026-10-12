@@ -20,9 +20,9 @@ an image cannot be resized, only re-filled.
 
 **This does not go through `canvas::present`.** Changing an image's pixels does not
 change the scene: the same items are in the same places, and only the content
-behind one of their ids is different. So there is no scene to re-install, and the
-new pixels appear on the next rendered frame. That is the whole reason images are
-identified by handle rather than embedded in items — a video frame, a plot, or a
+of an image one of them names is different. So there is no scene to re-install, and
+the new pixels appear on the next rendered frame. That is the whole reason an item
+names its image rather than holding a copy of its pixels — a video frame, a plot, or a
 progress bar can update without rebuilding the scene at all.
 
 The pixels are copied, so you may reuse or discard the list immediately.
@@ -34,16 +34,17 @@ const EX: &str = r#"Update a tile's contents without re-presenting:
 ```
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET black AS List OF Byte = [toByte(0), toByte(0), toByte(0), toByte(255)]
   RES img AS canvas::Image = canvas::createImage(1, 1, black)
-  LET tile AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 16.0, h := 16.0, image := img, paint := canvas::fill(color::rgb(255, 255, 255))]
+  LET tile AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 16.0, height := 16.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
   canvas::present([tile])
 
-  ' The scene is unchanged; only the pixels behind the id are.
+  ' The scene is unchanged; only the image's pixels are.
   LET white AS List OF Byte = [toByte(255), toByte(255), toByte(255), toByte(255)]
   canvas::setBytes(img, white)
 END FUNC
@@ -165,7 +166,7 @@ r#"FUNC __canvas_setBytes(image AS Image, pixels AS List OF Byte) AS Nothing
   NEXT
   IF live THEN
     __canvas_ensureGraphics()
-    canvas::signalRedraw()
+    canvas::signalRedraw(FALSE)
     canvas::syncFrame()
   END IF
 END FUNC"#;

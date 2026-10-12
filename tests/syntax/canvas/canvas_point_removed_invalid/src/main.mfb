@@ -1,0 +1,28 @@
+' plan-172-B: the TYPE `canvas::Point` was REMOVED, and its removal is a tested
+' contract rather than an absence, on the `canvas_color_type_removed_invalid`
+' precedent. Every canvas coordinate pair is a `vector::Float2`.
+'
+' The failure mode worth naming: a stale `Point` entry left in canvas's type table
+' would make the annotation below resolve to a record no canvas field holds any
+' more. The program would typecheck here and fail later, where the value meets a
+' `vector::Float2` field, with a mismatch between two types of the same shape.
+' Both lines are refused BY NAME instead -- the golden reports the error twice,
+' once for the annotation and once for the constructor.
+'
+' THE MIGRATION: add `IMPORT vector` and write `vector::Float2`. It has the same
+' two `Float` fields, `x` and `y`, in the same order.
+'
+' `vector` is imported because the circle below needs a real `vector::Float2` for
+' its `position`. The point is that the OLD spelling is still refused beside it.
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT vector
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET corner AS canvas::Point = canvas::Point[x := 1.0, y := 2.0]
+  LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 1.0, y := 2.0], radius := 4.0, paint := canvas::fill(color::rgb(1, 2, 3)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  canvas::present([dot])
+  RETURN 0
+END FUNC

@@ -9,7 +9,7 @@
 # probe/main.mfb (the only committed file here) is probe-only glue: it
 # reproduces the exact decision order examples/water/src/main.mfb's
 # mouse-down handler uses (onToolbar before shapeAt), calling the real
-# onToolbar/buttonAt with a real canvas::Point, exactly as main.mfb does.
+# onToolbar/buttonAt with a real vector::Float2, exactly as main.mfb does.
 #
 # Usage: run.sh <path-to-mfb-binary>
 

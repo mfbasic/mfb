@@ -215,6 +215,21 @@ const METAL_SHADER_BODY: &str = concat!(
     // picture drawn from the wrong blocks rather than a failure.
     "struct VOut { float4 pos [[position]]; uint item [[flat]]; };\n",
     "static float fx(int v) { return float(v) / FIXED; }\n",
+    // plan-172-H: what one draw binds, to both stages -- 32 bytes. `offset` is the
+    // translation of the enclosing groups' composed affine: two 16.16 words, then
+    // (bug-735) their residual words. `inverse` is the linear part of that affine's
+    // INVERSE as four float32 bit patterns -- `ia`, `ib`, `ic`, `id`, so a point maps as
+    // `(ia * x + ic * y, ib * x + id * y)` -- and all-zero bits when the groups only
+    // translate, the convention every `canvas::Transform` has. An inverse is never all
+    // zero, so the test cannot mistake one.
+    "struct MfbDraw { int4 offset; int4 inverse; };\n",
+    "static bool drawGrouped(constant MfbDraw &draw) {\n",
+    "  return (draw.inverse.x | draw.inverse.y | draw.inverse.z | draw.inverse.w) != 0;\n",
+    "}\n",
+    "static float4 drawInverse(constant MfbDraw &draw) {\n",
+    "  return float4(as_type<float>(draw.inverse.x), as_type<float>(draw.inverse.y),\n",
+    "                as_type<float>(draw.inverse.z), as_type<float>(draw.inverse.w));\n",
+    "}\n",
     // `[[instance_id]]` **already includes `baseInstance`**, so a run that begins partway
     // through the item buffer indexes it directly and needs no other arithmetic — the
     // same property Vulkan's `gl_InstanceIndex` has. That is measured, not assumed, and
@@ -241,12 +256,30 @@ const METAL_SHADER_BODY: &str = concat!(
     "vertex VOut mfbVertex(uint vid [[vertex_id]],\n",
     "                      uint iid [[instance_id]],\n",
     "                      constant MfbItem *items [[buffer(0)]],\n",
-    "                      constant int4 &drawOffset [[buffer(1)]]) {\n",
+    "                      constant MfbDraw &draw [[buffer(1)]]) {\n",
     "  uint index = iid;\n",
     "  constant MfbItem &item = items[index];\n",
     "  float2 corner = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z),\n",
     "                         fx((vid & 2) == 0 ? item.quad.y : item.quad.w))\n",
-    "                + float2(fx(drawOffset.x), fx(drawOffset.y));\n",
+    "                + float2(fx(draw.offset.x), fx(draw.offset.y));\n",
+    // plan-172-H: under a group matrix the quad is the item's box carried through the
+    // FORWARD linear part -- the inverse of the 2x2 the draw carries -- which makes it
+    // a parallelogram, and four mapped corners of a triangle strip are exactly that.
+    // The box is first grown by the inverse's Frobenius norm on every side: its own
+    // antialiasing rim is in the group's space, and a group that scales down would
+    // shrink it under the pixel it has to cover. Growing by `|M|` in the group's space
+    // is at least one pixel on the surface, because the forward map shrinks nothing by
+    // more than `1 / |M|`. The fragment stage decides coverage; a quad can only be too
+    // small.
+    "  if (drawGrouped(draw)) {\n",
+    "    float4 gi = drawInverse(draw);\n",
+    "    float pad = length(gi);\n",
+    "    float2 local = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z) + ((vid & 1) == 0 ? -pad : pad),\n",
+    "                          fx((vid & 2) == 0 ? item.quad.y : item.quad.w) + ((vid & 2) == 0 ? -pad : pad));\n",
+    "    float det = gi.x * gi.w - gi.y * gi.z;\n",
+    "    corner = float2((gi.w * local.x - gi.z * local.y) / det, (gi.x * local.y - gi.y * local.x) / det)\n",
+    "             + float2(fx(draw.offset.x), fx(draw.offset.y));\n",
+    "  }\n",
     "  VOut o;\n",
     "  o.item = index;\n",
     "  o.pos = float4(corner.x / float(item.surface.x) * 2.0 - 1.0,\n",
@@ -1602,18 +1635,43 @@ const METAL_SHADER_BODY: &str = concat!(
     // which is Lipschitz only to its own ~1e-4 px. An arc is not Lipschitz at all (out
     // of sweep it jumps to 1e6), so a transformed arc takes no shortcut; neither does
     // any neighbour sample, whose exact value the gradient needs.
-    "static int4 shapeCoverage(constant MfbItem &item, constant int *edges, float4 pt) {\n",
+    // plan-172-H: a rectangle clip's signed distance in double-float at the item's own
+    // point. `clipRect` above answers coverage and is right while the rectangle is
+    // axis-aligned on the surface; under a group matrix it is not, so its distance is
+    // sampled like a path clip's and divided by its own gradient
+    // (`__canvas_clipRectSurface`). A rectangle with no area encloses nothing.
+    "static float2 clipRectDistance(constant MfbItem &item, float2 x, float2 y) {\n",
+    "  if (!fixedLess(item.clip.x, item.clipLo.x, item.clip.z, item.clipLo.z)\n",
+    "      || !fixedLess(item.clip.y, item.clipLo.y, item.clip.w, item.clipLo.w)) { return float2(1.0e6, 0.0); }\n",
+    "  float2 x0 = dfFixed(item.clip.x, item.clipLo.x);\n",
+    "  float2 y0 = dfFixed(item.clip.y, item.clipLo.y);\n",
+    "  float2 x1 = dfFixed(item.clip.z, item.clipLo.z);\n",
+    "  float2 y1 = dfFixed(item.clip.w, item.clipLo.w);\n",
+    "  float2 dx = dfSub(x, dfMulF(dfAdd(x0, x1), 0.5));\n",
+    "  float2 dy = dfSub(y, dfMulF(dfAdd(y0, y1), 0.5));\n",
+    "  return dfRectDistance(dx, dy, dfMulF(dfSub(x1, x0), 0.5), dfMulF(dfSub(y1, y0), 0.5));\n",
+    "}\n",
+    // plan-172-H: `pt` arrives already through the groups' inverse linear part when
+    // `grouped`, and `gi` is that part: the four neighbour samples are half a SURFACE
+    // pixel away, which in the group's space is `gi` times that. An item inside a group
+    // with a matrix takes the transformed path whether or not it has a transform of its
+    // own -- `mapped` -- while `itemMapped` alone says whether its own inverse applies.
+    "static int4 shapeCoverage(constant MfbItem &item, constant int *edges, float4 pt, float4 gi, bool grouped) {\n",
     "  float2 x = pt.xy;\n",
     "  float2 y = pt.zw;\n",
-    "  bool mapped = hasTransform(item);\n",
-    "  int2 band = polygonBand(item, edges, mapped ? dfMapY(item, x, y).x : y.x);\n",
+    "  bool itemMapped = hasTransform(item);\n",
+    "  bool mapped = itemMapped || grouped;\n",
+    "  int2 band = polygonBand(item, edges, itemMapped ? dfMapY(item, x, y).x : y.x);\n",
     "  float2 half2 = dfFixed(item.misc.z, item.miscLo.y);\n",
     "  bool stroked = dfLess(float2(0.0, 0.0), half2);\n",
     "  float reach = 0.5 + max(half2.x, 0.0);\n",
     "  if (mapped) {\n",
-    "    float2 c0 = float2(as_type<float>(item.xform0.x), as_type<float>(item.xform0.y));\n",
-    "    float2 c1 = float2(as_type<float>(item.xform0.z), as_type<float>(item.xform0.w));\n",
-    "    float frob = sqrt(dot(c0, c0) + dot(c1, c1)) * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;\n",
+    "    float2 c0 = itemMapped ? float2(as_type<float>(item.xform0.x), as_type<float>(item.xform0.y)) : float2(1.0, 0.0);\n",
+    "    float2 c1 = itemMapped ? float2(as_type<float>(item.xform0.z), as_type<float>(item.xform0.w)) : float2(0.0, 1.0);\n",
+    // The composed inverse's norm is at most the product of the two norms.
+    "    float norm = sqrt(dot(c0, c0) + dot(c1, c1));\n",
+    "    if (grouped) { norm = (itemMapped ? norm : 1.0) * length(gi); }\n",
+    "    float frob = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;\n",
     "    reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);\n",
     "  }\n",
     // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
@@ -1627,21 +1685,25 @@ const METAL_SHADER_BODY: &str = concat!(
     // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's;
     // one loop keeps one `sampleDistance` call site.
     "  int clipMode = item.clipPath.z & 3;\n",
-    "  bool clipMapped = hasTransform(item);\n",
-    "  int2 cband = clipMode == 2 ? clipBandAt(item, edges, clipMapped ? dfMapY(item, x, y).x : y.x) : int2(-1, 0);\n",
+    "  bool clipMapped = itemMapped || grouped;\n",
+    // plan-172-H: a rectangle clip is sampled too, under a group matrix.
+    "  bool clipSampled = clipMode == 2 || (clipMode == 1 && grouped);\n",
+    "  int2 cband = clipMode == 2 ? clipBandAt(item, edges, itemMapped ? dfMapY(item, x, y).x : y.x) : int2(-1, 0);\n",
     "  float2 d[10];\n",
     "  float2 cqx = x;\n",
     "  float2 cqy = y;\n",
     "  for (int k = 0; k < 10; ++k) {\n",
     "    bool clipK = k >= 5;\n",
     "    int j = clipK ? k - 5 : k;\n",
-    "    if (clipK ? (clipMode != 2 || j >= (clipMapped ? 5 : 1)) : j >= (mapped ? 5 : 1)) { continue; }\n",
-    "    bool mapK = clipK ? clipMapped : mapped;\n",
-    "    float2 sx = dfAdd(x, float2(j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0), 0.0));\n",
-    "    float2 sy = dfAdd(y, float2(j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0), 0.0));\n",
-    "    float2 qx = mapK ? dfMapX(item, sx, sy) : sx;\n",
-    "    float2 qy = mapK ? dfMapY(item, sx, sy) : sy;\n",
+    "    if (clipK ? (!clipSampled || j >= (clipMapped ? 5 : 1)) : j >= (mapped ? 5 : 1)) { continue; }\n",
+    "    float ox = j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0);\n",
+    "    float oy = j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0);\n",
+    "    float2 sx = dfAdd(x, float2(grouped ? gi.x * ox + gi.z * oy : ox, 0.0));\n",
+    "    float2 sy = dfAdd(y, float2(grouped ? gi.y * ox + gi.w * oy : oy, 0.0));\n",
+    "    float2 qx = itemMapped ? dfMapX(item, sx, sy) : sx;\n",
+    "    float2 qy = itemMapped ? dfMapY(item, sx, sy) : sy;\n",
     "    if (k == 0) { cqx = qx; cqy = qy; }\n",
+    "    if (clipK && clipMode == 1) { d[k] = clipRectDistance(item, qx, qy); continue; }\n",
     "    d[k] = sampleDistance(item, edges, clipK ? cband : band, qx, qy, k == 0 ? reach : ((k == 5 && !clipMapped) ? 0.5 : 1.0e30), clipK);\n",
     "    if (k == 0 && !joined && abs(d[0].x) > reach) { mapped = false; }\n",
     "  }\n",
@@ -1661,8 +1723,8 @@ const METAL_SHADER_BODY: &str = concat!(
     "    stroke = dfCoverage(mapped ? dfDiv(s, g) : s);\n",
     "  }\n",
     "  int clipCov = 255;\n",
-    "  if (clipMode == 1) { clipCov = clipRect(item, x, y); }\n",
-    "  if (clipMode == 2) {\n",
+    "  if (clipMode == 1 && !grouped) { clipCov = clipRect(item, x, y); }\n",
+    "  if (clipSampled) {\n",
     "    float2 cg = float2(1.0, 0.0);\n",
     "    if (clipMapped) {\n",
     "      cg = dfLength(dfSub(d[6], d[7]), dfSub(d[8], d[9]));\n",
@@ -1857,12 +1919,18 @@ const METAL_SHADER_BODY: &str = concat!(
     "fragment float4 mfbFragment(VOut in [[stage_in]],\n",
     "                            constant MfbItem *items [[buffer(0)]],\n",
     "                            constant int *edges [[buffer(1)]],\n",
-    "                            constant int4 &drawOffset [[buffer(3)]]) {\n",
+    "                            constant MfbDraw &draw [[buffer(3)]]) {\n",
     "  constant MfbItem &item = items[in.item];\n",
     // plan-116-H: `p` is the SHAPE-space point -- the surface point with the group's
     // offset taken back off -- and every distance, gradient, glyph lookup and (since
     // plan-163-C) the clip below uses it.
-    "  float2 p = in.pos.xy - float2(fx(drawOffset.x), fx(drawOffset.y));\n",
+    "  float2 p = in.pos.xy - float2(fx(draw.offset.x), fx(draw.offset.y));\n",
+    // plan-172-H: and, under a group matrix, through the groups' inverse linear part --
+    // so `p` is the point in the GROUP's space, where an item's own placement lives, and
+    // every consumer below (the item's own inverse map included) is unchanged.
+    "  bool grouped = drawGrouped(draw);\n",
+    "  float4 gi = drawInverse(draw);\n",
+    "  if (grouped) { p = float2(gi.x * p.x + gi.z * p.y, gi.y * p.x + gi.w * p.y); }\n",
     // A glyph has coverage, not a distance: the CPU rasterised its outline once and
     // cached the bitmap (plan-98-G Phase 2), so the GPU's job here is a lookup. It
     // returns before `geoDistance` for that reason, and it is fill-only — a stroked
@@ -1876,7 +1944,11 @@ const METAL_SHADER_BODY: &str = concat!(
     // boundary pixels, which are the only ones a clip can affect.
     // plan-163-C: the clip is evaluated in `shapeCoverage` at the SHAPE-space point -- it
     // travels with the item's transform and its group -- for every kind, glyphs included.
-    "  int4 cov = shapeCoverage(item, edges, dfShapePoint(in.pos.xy, drawOffset));\n",
+    "  float4 pt = dfShapePoint(in.pos.xy, draw.offset);\n",
+    "  if (grouped) {\n",
+    "    pt = float4(dfAdd(dfMulF(pt.xy, gi.x), dfMulF(pt.zw, gi.z)), dfAdd(dfMulF(pt.xy, gi.y), dfMulF(pt.zw, gi.w)));\n",
+    "  }\n",
+    "  int4 cov = shapeCoverage(item, edges, pt, gi, grouped);\n",
     "  int clipCov = cov.w;\n",
     // plan-116-C section 4.5: a transformed glyph samples its bitmap at the
     // inverse-mapped point, nearest. The index arithmetic is already whole-pixel, so
@@ -2601,7 +2673,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = OFF_DRAW_PAIR + 16;
+const DRAW_FRAME: usize = OFF_DRAW_PAIR + 32;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -2703,10 +2775,12 @@ const OFF_PRESENTED: usize = OFF_TEXTURE + 312;
 /// two arguments, because the argument bank is eight wide and the eighth is the draw
 /// list itself (`func_metal_draw.rs`).
 ///
-/// `OFF_DRAW_PAIR` is the group offset laid out contiguously -- the two 16.16 words, then
-/// (bug-735) their two residual words -- so `setVertexBytes:` and `setFragmentBytes:`
-/// can point at sixteen bytes of frame rather than at a collection another thread may
-/// be writing.
+/// `OFF_DRAW_PAIR` is the per-draw payload laid out contiguously -- the two 16.16 offset
+/// words, then (bug-735) their two residual words, then (plan-172-H) the four float32
+/// bit patterns of the groups' inverse linear part, which are zero for a draw its groups
+/// only translate -- so `setVertexBytes:` and `setFragmentBytes:` can point at
+/// thirty-two bytes of frame rather than at a collection another thread may be writing.
+/// It is the MSL's `MfbDraw`.
 /// Where the group offset is bound in each stage, matching the `[[buffer(N)]]`
 /// attributes in `METAL_SHADER_SOURCE`.
 ///
@@ -2725,9 +2799,9 @@ const OFF_DRAW_ENTRIES: usize = OFF_TEXTURE + 176;
 const OFF_DRAW_INDEX: usize = OFF_TEXTURE + 184;
 const OFF_DRAW_BASE: usize = OFF_TEXTURE + 192;
 const OFF_DRAW_COUNT: usize = OFF_TEXTURE + 200;
-/// Past `OFF_PRESENTED`: sixteen bytes since bug-735 (below), so it outgrew the eight-byte
-/// slot at `OFF_TEXTURE + 208` it had between `OFF_DRAW_COUNT` and `OFF_GLYPH_CURSOR`,
-/// which is free.
+/// Past `OFF_PRESENTED`: sixteen bytes since bug-735 and thirty-two since plan-172-H, so
+/// it outgrew the eight-byte slot at `OFF_TEXTURE + 208` it had between `OFF_DRAW_COUNT`
+/// and `OFF_GLYPH_CURSOR`, which is free. It is the frame's last slot.
 const OFF_DRAW_PAIR: usize = OFF_TEXTURE + 320;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
@@ -5134,10 +5208,21 @@ fn emit_draw_list_pass(asm: &mut Asm) {
         abi::stack_pointer(),
         OFF_DRAW_COUNT,
     ));
-    // The two 16.16 offsets and (bug-735) their residual words, written as 32-bit words
-    // side by side so the sixteen bytes at `OFF_DRAW_PAIR` are exactly the `int4` both
-    // shader stages declare. Entry words 2, 3, 5, 6 (`__canvas_pushOneDraw`).
-    for (word, at) in [(2usize, 0usize), (3, 4), (5, 8), (6, 12)] {
+    // The two 16.16 offsets and (bug-735) their residual words, then (plan-172-H) the
+    // inverse linear part, written as 32-bit words side by side so the thirty-two bytes
+    // at `OFF_DRAW_PAIR` are exactly the `MfbDraw` both shader stages declare. Entry
+    // words 2, 3, 5, 6 and 8-11 (`__canvas_pushOneDraw`); the last four are zero in an
+    // entry with no matrix, which is how the shader knows.
+    for (word, at) in [
+        (2usize, 0usize),
+        (3, 4),
+        (5, 8),
+        (6, 12),
+        (8, 16),
+        (9, 20),
+        (10, 24),
+        (11, 28),
+    ] {
         asm.push(abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], word * 8));
         asm.push(abi::store_u32(
             abi::SCRATCH[1],
@@ -5197,7 +5282,7 @@ fn emit_draw_list_pass(asm: &mut Asm) {
             abi::stack_pointer(),
             OFF_DRAW_PAIR,
         ));
-        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "16"));
+        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "32"));
         asm.push(abi::move_immediate(abi::c_arg(4), "Integer", index));
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[6]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
@@ -7443,7 +7528,7 @@ mod tests {
             (OFF_DRAW_INDEX, 8, "drawIndex"),
             (OFF_DRAW_BASE, 8, "drawBase"),
             (OFF_DRAW_COUNT, 8, "drawCount"),
-            (OFF_DRAW_PAIR, 16, "drawPair"),
+            (OFF_DRAW_PAIR, 32, "drawPair"),
             (OFF_GLYPH_CURSOR, 8, "glyphCursor"),
             (OFF_DASH_CURSOR, 8, "dashCursor"),
             (OFF_PIC_COUNT, 8, "picCount"),
@@ -7497,8 +7582,9 @@ mod tests {
             (METAL_DRAW_OFFSET_VERTEX_INDEX, "vertex"),
             (METAL_DRAW_OFFSET_FRAGMENT_INDEX, "fragment"),
         ] {
-            // `int4` since bug-735: the two 16.16 words, then their residual words.
-            let declaration = format!("constant int4 &drawOffset [[buffer({index})]]");
+            // `MfbDraw` since plan-172-H: the offset's two 16.16 words and their residual
+            // words (an `int4` since bug-735), then the inverse linear part.
+            let declaration = format!("constant MfbDraw &draw [[buffer({index})]]");
             assert!(
                 METAL_SHADER_SOURCE.contains(&declaration),
                 "the emitter sends the draw offset to buffer index {index} for the \
@@ -7508,7 +7594,9 @@ mod tests {
         // And exactly one declaration per stage: a second one at another index would
         // satisfy the loop above while the emitter still fed only one of them.
         assert_eq!(
-            METAL_SHADER_SOURCE.matches("&drawOffset [[buffer(").count(),
+            METAL_SHADER_SOURCE
+                .matches("MfbDraw &draw [[buffer(")
+                .count(),
             2,
             "expected exactly one draw-offset binding in each of the two stages",
         );
@@ -7556,7 +7644,7 @@ mod tests {
         // and it is held to the same rule: the group offset -- word and residual -- comes
         // off.
         assert!(
-            body.contains("dfShapePoint(in.pos.xy, drawOffset)"),
+            body.contains("dfShapePoint(in.pos.xy, draw.offset)"),
             "the shape's double-float point must be the surface point minus the draw \
              offset, like `p`",
         );

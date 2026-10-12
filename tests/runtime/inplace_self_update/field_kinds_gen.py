@@ -121,6 +121,20 @@ def cls(t, seen=()):
     sys.exit(f"unclassified field type {t}")
 
 
+def defaultable(t, seen=()):
+    """Whether `MUT x AS t` has a default, by the compiler's rule
+    (`src/ir/verify/resources.rs:is_defaultable`): a scalar, an enum (its first
+    variant), a `String`, a collection, or a record all of whose fields are. A
+    function value, a data union, a resource handle and `json::Json` have none."""
+    if t in PRINTABLE or t in enums or t in ("Nothing", "String"):
+        return True
+    if t.split()[0] in ("List", "Map", "Set"):
+        return True
+    if t in records and t not in seen:
+        return all(defaultable(ft, seen + (t,)) for _, ft in records[t])
+    return False
+
+
 def check_expr(t, path="before"):
     """A String rendering of one field reachable from `path` (of type `t`): a
     printable scalar or `String` first, then a collection's length, then a nested
@@ -155,16 +169,17 @@ LITERALS = {
     # The canvas records that hold an enum or a `canvas::Paint` (`canvas::fill`).
     "canvas::Paint": "canvas::fill(color::fromName(\"red\"))",
     "canvas::FrameStats": "canvas::FrameStats[dt := 0.0, pps := 0.0, fps := 0.0, displayHz := 0.0, frameSeconds := 0.0, presents := 0, frames := 0, renderer := canvas::Renderer.Software]",
-    "canvas::MouseEvent": "canvas::MouseEvent[kind := canvas::MouseKind.None, button := canvas::MouseButton.None, position := canvas::Point[0.0, 0.0], shift := FALSE, ctrl := FALSE, alt := FALSE]",
-    "canvas::Gradient": "canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := canvas::Point[0.0, 0.0], endPoint := canvas::Point[1.0, 1.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := canvas::Point[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]",
-    "canvas::Rectangle": "canvas::Rectangle[x := 1.0, y := 1.0, w := 2.0, h := 2.0, paint := canvas::fill(color::fromName(\"red\"))]",
-    "canvas::RoundedRect": "canvas::RoundedRect[x := 1.0, y := 1.0, w := 2.0, h := 2.0, cornerRadius := 0.5, paint := canvas::fill(color::fromName(\"red\"))]",
-    "canvas::Circle": "canvas::Circle[x := 1.0, y := 1.0, radius := 2.0, paint := canvas::fill(color::fromName(\"red\"))]",
-    "canvas::Ellipse": "canvas::Ellipse[x := 1.0, y := 1.0, radiusX := 2.0, radiusY := 1.0, angle := 0.0, paint := canvas::fill(color::fromName(\"red\"))]",
-    "canvas::Line": "canvas::Line[x1 := 0.0, y1 := 0.0, x2 := 1.0, y2 := 1.0, paint := WITH canvas::fill(color::fromName(\"red\")) { cap := canvas::CapStyle.Butt }]",
-    "canvas::Arc": "canvas::Arc[x := 1.0, y := 1.0, radius := 2.0, startAngle := 0.0, endAngle := 1.0, paint := WITH canvas::fill(color::fromName(\"red\")) { cap := canvas::CapStyle.Butt }]",
-    "canvas::Polygon": "canvas::Polygon[contours := [[canvas::Point[0.0, 0.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::fromName(\"red\"))]",
-    "canvas::PolyLine": "canvas::PolyLine[points := [canvas::Point[0.0, 0.0]], colors := [], paint := WITH canvas::fill(color::fromName(\"red\")) { cap := canvas::CapStyle.Butt }]",
+    "canvas::MouseEvent": "canvas::MouseEvent[kind := canvas::MouseKind.None, button := canvas::MouseButton.None, position := vector::Float2[0.0, 0.0], shift := FALSE, ctrl := FALSE, alt := FALSE, overID := \"\"]",
+    "canvas::Gradient": "canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[0.0, 0.0], endPoint := vector::Float2[1.0, 1.0], stops := [], spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]",
+    "canvas::Rectangle": "canvas::Rectangle[id := \"\", position := vector::Float2[x := 1.0, y := 1.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 2.0, height := 2.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::fromName(\"red\")), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]",
+    "canvas::Circle": "canvas::Circle[id := \"\", position := vector::Float2[x := 1.0, y := 1.0], radius := 2.0, paint := canvas::fill(color::fromName(\"red\")), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]",
+    "canvas::Ellipse": "canvas::Ellipse[id := \"\", position := vector::Float2[x := 1.0, y := 1.0], radiusX := 2.0, radiusY := 1.0, paint := canvas::fill(color::fromName(\"red\")), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]",
+    "canvas::Line": "canvas::Line[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], startAt := vector::Float2[x := 0.0, y := 0.0], endAt := vector::Float2[x := 1.0, y := 1.0], paint := WITH canvas::fill(color::fromName(\"red\")) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]",
+    "canvas::Arc": "canvas::Arc[id := \"\", position := vector::Float2[x := 1.0, y := 1.0], radius := 2.0, startAngle := 0.0, endAngle := 1.0, paint := WITH canvas::fill(color::fromName(\"red\")) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]",
+    "canvas::Polygon": "canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [[vector::Float2[0.0, 0.0]]], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::fromName(\"red\")), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]",
+    "canvas::PolyLine": "canvas::PolyLine[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], points := [vector::Float2[0.0, 0.0]], colors := [], paint := WITH canvas::fill(color::fromName(\"red\")) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]",
+    # plan-172-K: holds a `canvas::Shape` (a data union, so no default) and no resource.
+    "canvas::AutoPaint": "canvas::AutoPaint[shape := canvas::Circle[id := \"\", position := vector::Float2[x := 1.0, y := 1.0], radius := 2.0, paint := canvas::fill(color::fromName(\"red\")), transform := canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 0.0, ty := 0.0]], useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := canvas::fill(color::fromName(\"red\")), exitPaint := canvas::fill(color::fromName(\"red\")), hoverPaint := canvas::fill(color::fromName(\"red\")), pressedPaint := canvas::fill(color::fromName(\"red\"))]",
     "KFix": "KFix[p := 1, q := 2.5]",
     "KVar": 'KVar[s := "v"]',
 }
@@ -236,8 +251,9 @@ for kind in order + ["KFix", "KVar"]:
         statement = "x = kindSame(x)"
     check = check_expr(kind) or '"-"'
     bound = "arm+value" if klass in ("InlinedFixed", "Pointer") else "arm"
-    # A type with no default (it needed a literal) cannot be a `STATE` payload
-    # field; the user records are defaultable and use a literal only for a value.
-    state_ok = kind not in LITERALS or kind in ("KFix", "KVar")
+    # A type with no default cannot be a `STATE` payload field. `LITERALS` is not
+    # that test: an enum has had a default (its first variant) since plan-172-N, so
+    # most kinds that take a literal for a VALUE are defaultable all the same.
+    state_ok = defaultable(kind)
     emit(kind, build, setup, statement, check, bound, klass, state_ok, kind not in UNBUILDABLE)
 print("\n".join(lines))

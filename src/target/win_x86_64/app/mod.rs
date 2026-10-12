@@ -23,6 +23,7 @@
 
 mod keys;
 mod mouse;
+mod pointer;
 mod window;
 pub(crate) use window::{emit_window_sync_seam, window_data_objects};
 
@@ -485,6 +486,10 @@ pub(super) fn emit_app_program_entry(
     // canvas graphics state, which only such a program emits.
     if spec.uses_canvas {
         functions.push(emit_display_rate());
+        // plan-172-J: what the `WndProc`'s pointer block and the headless scripted
+        // pointer call. Gated the same way, for the same reason.
+        functions.push(pointer::emit_pointer_move());
+        functions.push(pointer::emit_pointer_leave());
     }
     // The `app` window members' UI-thread sync. Gated: it names the process-global
     // window data, emitted only for such a program.
@@ -953,7 +958,7 @@ fn emit_main(
             &mut rel,
         );
         ins.push(abi::compare_immediate(abi::LOCAL[0], "0"));
-        ins.push(abi::branch_le(after_canvas_resize));
+        ins.push(abi::branch_le("headless_pointer"));
         emit_parse_wide_env(
             RESIZE_H_ENV_SYM,
             abi::LOCAL[1],
@@ -963,7 +968,7 @@ fn emit_main(
             &mut rel,
         );
         ins.push(abi::compare_immediate(abi::LOCAL[1], "0"));
-        ins.push(abi::branch_le(after_canvas_resize));
+        ins.push(abi::branch_le("headless_pointer"));
         // Poll until the render loop has completed a frame at the original size.
         ins.push(abi::label("headless_resize_wait"));
         crate::codegen::runtime::canvas::state_base(from, abi::LOCAL[2], &mut ins, &mut rel);
@@ -997,7 +1002,63 @@ fn emit_main(
             &mut ins,
             &mut rel,
         );
+        // 0: a redraw that is owed, not a pointer change (plan-172-K).
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
         call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
+
+        // ---- plan-172-J: one scripted pointer position, when the env says so ----
+        //
+        // A pointer move is a *window* event and headless has no window, so without
+        // this `_mfb_winapp_pointer_move` could be written and never executed. It is
+        // the function the `WndProc`'s pointer block calls for a `WM_MOUSEMOVE`, with
+        // the same arguments -- the client point and the `MK_*` flags, here none.
+        //
+        // After the scripted resize, on purpose: "inside" is asked of the PUBLISHED
+        // surface size, and a headless run has none until something publishes one. A
+        // test that wants "inside" scripts the size too, as a window would have
+        // published it before any pointer reached it.
+        //
+        // It waits for a first completed frame, so the program under test has a frame
+        // from before the move to compare the next against. The registers are the
+        // resize block's, for its reason: `SCRATCH[7]` is clear of `LOCAL[0..2]`.
+        ins.push(abi::label("headless_pointer"));
+        emit_parse_wide_env(
+            pointer::POINTER_X_ENV_SYM,
+            abi::LOCAL[0],
+            "hl_px",
+            from,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+        ins.push(abi::branch_le(after_canvas_resize));
+        emit_parse_wide_env(
+            pointer::POINTER_Y_ENV_SYM,
+            abi::LOCAL[1],
+            "hl_py",
+            from,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+        ins.push(abi::branch_le(after_canvas_resize));
+        ins.push(abi::label("headless_pointer_wait"));
+        crate::codegen::runtime::canvas::state_base(from, abi::LOCAL[2], &mut ins, &mut rel);
+        ins.push(abi::load_u64(
+            abi::SCRATCH[7],
+            abi::LOCAL[2],
+            crate::codegen::runtime::canvas::GRAPHICS_OFFSET_FRAMES,
+        ));
+        ins.push(abi::compare_immediate(abi::SCRATCH[7], "0"));
+        ins.push(abi::branch_ne("headless_pointer_ready"));
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "20"));
+        call_external(from, "Sleep", KERNEL32, &mut ins, &mut rel);
+        ins.push(abi::branch("headless_pointer_wait"));
+        ins.push(abi::label("headless_pointer_ready"));
+        ins.push(abi::move_register(abi::mfb_arg(0), abi::LOCAL[0]));
+        ins.push(abi::move_register(abi::mfb_arg(1), abi::LOCAL[1]));
+        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0"));
+        call_internal(from, pointer::POINTER_MOVE_SYMBOL, &mut ins, &mut rel);
     }
 
     // ---- bug-540 WIN-02: one scripted `term::` resize, when the env says so ----
@@ -1250,6 +1311,9 @@ fn emit_parse_wide_env(
 /// `WndProc(hwnd, msg, wParam, lParam)`: quit on `WM_DESTROY`, else default.
 /// bug-758: the label the WndProc's mouse arms start at.
 const WND_CHECK_MOUSE: &str = "wnd_check_mouse";
+/// plan-172-J: where the dispatch chain goes first in a canvas program -- the block
+/// that publishes the pointer and falls through to the mouse arms or the default.
+const WND_CHECK_POINTER: &str = "wnd_check_pointer";
 
 fn emit_wndproc(
     uses_canvas: bool,
@@ -1284,10 +1348,17 @@ fn emit_wndproc(
     // decimal scratch, a POINT for `ScreenToClient` and a handful of values. They
     // are APPENDED past the base frame, so every offset above is unchanged and a
     // `WndProc` without mouse keeps its exact frame and goldens.
-    let arms_frame = if uses_mouse {
+    let mouse_frame = if uses_mouse {
         FRAME + mouse::MOUSE_FRAME_EXTRA
     } else {
         FRAME
+    };
+    // plan-172-J: the pointer block's `TRACKMOUSEEVENT`, appended past the mouse
+    // arms' slots for the same reason theirs are appended: no existing offset moves.
+    let arms_frame = if uses_canvas {
+        mouse_frame + pointer::POINTER_FRAME_EXTRA
+    } else {
+        mouse_frame
     };
     // bug-698: the nonvolatile save area sits at the TOP of the frame, past every arm's
     // slots, so no existing offset moves. 64 bytes keeps the frame ≡ 8 (mod 16).
@@ -1663,6 +1734,8 @@ fn emit_wndproc(
         // scene kept its old-size frame until something else presented. A no-op before
         // the graphics thread exists. Safe to call from here: the frame preserves the
         // nonvolatile bank, and `wnd_default` reloads the four arguments.
+        // 0: a redraw that is owed, not a pointer change (plan-172-K).
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
         call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
         ins.push(abi::branch("wnd_default"));
 
@@ -1839,7 +1912,12 @@ fn emit_wndproc(
     ins.push(abi::compare_immediate(abi::mfb_arg(1), WM_APP_RECONCILE));
     // bug-758: the last test of the dispatch chain, so a message it does not match
     // goes on to the mouse arms when there are any — not straight to the default.
-    ins.push(abi::branch_ne(if uses_mouse {
+    //
+    // plan-172-J: and to the pointer block first, in a canvas program -- it publishes
+    // the pointer and passes every message on.
+    ins.push(abi::branch_ne(if uses_canvas {
+        WND_CHECK_POINTER
+    } else if uses_mouse {
         WND_CHECK_MOUSE
     } else {
         "wnd_default"
@@ -1964,6 +2042,8 @@ fn emit_wndproc(
             &mut ins,
             &mut rel,
         );
+        // 0: a redraw that is owed, not a pointer change (plan-172-K).
+        ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
         call_internal(from, CANVAS_SIGNAL_REDRAW_SYMBOL, &mut ins, &mut rel);
         ins.push(abi::label("wnd_canvas_entry_sized"));
     }
@@ -2014,6 +2094,24 @@ fn emit_wndproc(
     // `wnd_default`, so no mouse message ever reached them: on Windows neither
     // `canvas::pollMouse` nor `term::pollMouse` ever reported an event (box 206,
     // injected moves and clicks, at the plan-94-E code unchanged).
+    if uses_canvas {
+        ins.push(abi::label(WND_CHECK_POINTER));
+        pointer::emit_pointer_arms(
+            from,
+            mouse_frame,
+            H1,
+            H2,
+            H3,
+            H0,
+            if uses_mouse {
+                WND_CHECK_MOUSE
+            } else {
+                "wnd_default"
+            },
+            &mut ins,
+            &mut rel,
+        );
+    }
     if uses_mouse {
         ins.push(abi::label(WND_CHECK_MOUSE));
         mouse::emit_mouse_arms(
@@ -5675,8 +5773,32 @@ fn emit_display_rate() -> CodeFunction {
 ///
 /// The `MFB_WINAPP_DUMP` name and its readback buffer are a `--debug` build's only
 /// (plan-130-E), beside the reader `emit_main` emits then.
-pub(super) fn app_mode_data_objects(project_name: &str, debug_hooks: bool) -> Vec<CodeDataObject> {
+pub(super) fn app_mode_data_objects(
+    project_name: &str,
+    debug_hooks: bool,
+    uses_canvas: bool,
+) -> Vec<CodeDataObject> {
     let mut objects = bootstrap_data_objects(project_name);
+    // plan-172-J: the pointer block's "a WM_MOUSELEAVE is armed" word and the scripted
+    // pointer's two variable names. A canvas program's only: nothing else names them.
+    if uses_canvas {
+        objects.push(CodeDataObject {
+            symbol: pointer::POINTER_TRACKING_SYM.to_string(),
+            kind: "raw".to_string(),
+            layout: "u64 leave-tracking flag".to_string(),
+            align: 8,
+            size: 8,
+            value: "0000000000000000".to_string(),
+        });
+        objects.push(utf16z_data_object(
+            pointer::POINTER_X_ENV_SYM,
+            "MFB_CANVAS_POINTER_X",
+        ));
+        objects.push(utf16z_data_object(
+            pointer::POINTER_Y_ENV_SYM,
+            "MFB_CANVAS_POINTER_Y",
+        ));
+    }
     if debug_hooks {
         objects.push(utf16z_data_object(DUMP_ENV_SYM, "MFB_WINAPP_DUMP"));
         objects.push(CodeDataObject {
@@ -5925,7 +6047,7 @@ mod tests {
     #[test]
     fn the_dump_readback_exists_only_in_a_debug_build() {
         for debug in [false, true] {
-            let objects = app_mode_data_objects("P", debug);
+            let objects = app_mode_data_objects("P", debug, false);
             let has = |symbol: &str| objects.iter().any(|o| o.symbol == symbol);
             assert_eq!(has(DUMP_ENV_SYM), debug, "dump name, debug={debug}");
             assert_eq!(
@@ -5941,7 +6063,7 @@ mod tests {
 
     #[test]
     fn data_objects_are_utf16() {
-        let objs = app_mode_data_objects("MyProj", false);
+        let objs = app_mode_data_objects("MyProj", false, false);
         let title = objs.iter().find(|o| o.symbol == TITLE_SYM).unwrap();
         // "MyProj" → 6 UTF-16 code units × 2 bytes + 2-byte NUL = 14.
         assert_eq!(title.size, 14);
@@ -6093,7 +6215,7 @@ mod tests {
 
     #[test]
     fn input_data_objects_present() {
-        let objs = app_mode_data_objects("P", false);
+        let objs = app_mode_data_objects("P", false, false);
         // The injection env-var name (UTF-16) and the two input-state writable globals.
         assert!(objs.iter().any(|o| o.symbol == INPUT_ENV_SYM));
         let w = objs.iter().find(|o| o.symbol == STDIN_WRITE_SYM).unwrap();
@@ -6447,12 +6569,13 @@ mod canvas_reconcile_tests {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
         assert_eq!(
             externals(&wndproc, CANVAS_HWND_SYM),
-            14,
-            "7 address loads — Canvas publishes, Console and None clear, WM_PAINT \
+            18,
+            "9 address loads — Canvas publishes, Console and None clear, WM_PAINT \
              gates on it, WM_SIZE gates on it (plan-98-F Phase 3), \
-             WM_MOVE/WM_DISPLAYCHANGE gate on it (plan-155-A), and \
-             WM_APP_CANVAS_SHOW gates on it (bug-688 V6) — each an adrp/add \
-             pair = 2 relocations"
+             WM_MOVE/WM_DISPLAYCHANGE gate on it (plan-155-A), \
+             WM_APP_CANVAS_SHOW gates on it (bug-688 V6), and the pointer block \
+             gates on it twice, once for a mouse message and once for \
+             WM_MOUSELEAVE (plan-172-J) — each an adrp/add pair = 2 relocations"
         );
     }
 
@@ -6668,7 +6791,7 @@ mod canvas_reconcile_tests {
     /// Every global the arm addresses must be emitted, or the relocations dangle.
     #[test]
     fn canvas_globals_are_emitted() {
-        let objects = app_mode_data_objects("proj", false);
+        let objects = app_mode_data_objects("proj", false, false);
         for symbol in [CANVAS_HWND_SYM, EDIT_HWND_SAVED_SYM] {
             assert!(
                 objects.iter().any(|d| d.symbol == symbol),
@@ -6727,10 +6850,16 @@ mod canvas_reconcile_tests {
             assert!(fns.iter().any(|f| f.symbol == TERM_RESIZE_SYMBOL));
             // The canvas half of WM_SIZE still runs after the term half. (The second
             // call is the canvas reconcile's publish of the client size, bug-688 V6.)
-            assert_eq!(
-                externals(find(WNDPROC_SYMBOL), CANVAS_SIGNAL_REDRAW_SYMBOL),
-                2 * usize::from(uses_canvas)
-            );
+            // plan-172-K: counted by ARGUMENT, because the pointer block now calls the
+            // same symbol twice to say the pointer changed — 0 is a redraw, and those
+            // are still exactly the two this test is about.
+            let redraws = crate::codegen::runtime::canvas::signal_redraw_arguments(
+                &find(WNDPROC_SYMBOL).instructions,
+            )
+            .into_iter()
+            .filter(|argument| argument == "0")
+            .count();
+            assert_eq!(redraws, 2 * usize::from(uses_canvas));
         }
         let plain = emit_app_program_entry(&spec(PresentationMode::Console), &HashMap::new())
             .expect("app entry");
@@ -6806,7 +6935,7 @@ mod canvas_reconcile_tests {
     /// no window (and no scripted resize) reports 80x25 rather than 0x0.
     #[test]
     fn the_surface_size_globals_start_at_the_headless_default() {
-        let objects = app_mode_data_objects("P", false);
+        let objects = app_mode_data_objects("P", false, false);
         let value = |symbol: &str| {
             objects
                 .iter()
@@ -6954,14 +7083,29 @@ mod canvas_reconcile_tests {
     /// resize signal) signal after publishing; Windows' WM_SIZE published the size and
     /// stopped, so a static scene was never re-rendered at the new size — WM_PAINT kept
     /// blitting the old-size frame.
+    ///
+    /// plan-172-K: the calls are told apart by their argument. `canvas::signalRedraw`
+    /// now takes one — 0, a redraw is owed; 1, the pointer changed — and the pointer
+    /// block calls it too. This test is about the two that owe a redraw, so it counts
+    /// those, and the two pointer calls are pinned beside them: a resize that passed 1
+    /// would wake the render loop for a frame it is then free not to draw.
     #[test]
     fn wm_size_signals_a_redraw() {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
+        let arguments =
+            crate::codegen::runtime::canvas::signal_redraw_arguments(&wndproc.instructions);
         assert_eq!(
-            externals(&wndproc, CANVAS_SIGNAL_REDRAW_SYMBOL),
+            arguments.iter().filter(|a| *a == "0").count(),
             2,
             "the WM_SIZE arm and the canvas reconcile (bug-688 V6) must each call \
              canvas::signalRedraw after publishing the size"
         );
+        assert_eq!(
+            arguments.iter().filter(|a| *a == "1").count(),
+            2,
+            "a pointer move and a pointer leave each say the pointer changed"
+        );
+        assert_eq!(arguments.len(), 4);
+        assert_eq!(externals(&wndproc, CANVAS_SIGNAL_REDRAW_SYMBOL), 4);
     }
 }

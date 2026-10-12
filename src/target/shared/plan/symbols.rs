@@ -12,9 +12,11 @@ use crate::types::ParameterType;
 /// already true of any `term::` program, so a prefix test would make a program
 /// that only draws a box pay for the mouse handlers.
 pub(super) fn module_uses_mouse(module: &NirModule) -> bool {
-    runtime_symbols(module)
-        .iter()
-        .any(|symbol| symbol.ends_with("_enableMouse") || symbol.ends_with("_pollMouse"))
+    runtime_symbols(module).iter().any(|symbol| {
+        symbol.ends_with("_enableMouse")
+            || symbol.ends_with("_pollMouse")
+            || symbol.ends_with("_pollMouseRaw")
+    })
 }
 
 pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
@@ -360,7 +362,10 @@ pub(super) fn platform_imports(
         // runtime/AppKit/Foundation on macOS (plan-04-macos-app.md §6.5) or
         // GTK4/GObject/GLib/GIO on Linux (plan-05-linux-app.md §6.4). The platform
         // chooses; shared lowering just pulls in whatever it declares.
-        for import in platform.app_mode_imports(module_uses_mouse(module)) {
+        for import in platform.app_mode_imports(
+            module_uses_mouse(module),
+            crate::codegen::engine::analysis::module_analysis::module_uses_canvas(module),
+        ) {
             push_platform_import(&mut imports, import);
         }
         if crate::codegen::builtins::app::module_uses_app_window(module) {

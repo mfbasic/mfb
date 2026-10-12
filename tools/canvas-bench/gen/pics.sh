@@ -14,6 +14,7 @@ J
 cat > "$DIR/src/main.mfb" <<M
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT datetime
@@ -46,7 +47,7 @@ FUNC main() AS Nothing
   DO WHILE again
     MUT scene AS List OF canvas::DrawItem = []
     IF $BW > 0 THEN
-      LET b AS canvas::DrawItem = canvas::Picture[x := 0.0, y := 0.0, w := 900.0, h := 640.0, image := bg, paint := white]
+      LET b AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 900.0, height := 640.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := bg]
       scene = collections::append(scene, b)
     END IF
     MUT k AS Integer = 0
@@ -55,10 +56,10 @@ FUNC main() AS Nothing
       LET y AS Float = toFloat((k * 7) MOD 620)
       ' Two distinct tile images alternate, as a real tilemap's would.
       IF k MOD 2 = 0 THEN
-        LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := toFloat($T), h := toFloat($T), image := tile, paint := white]
+        LET p AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := toFloat($T), height := toFloat($T)], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := tile]
         scene = collections::append(scene, p)
       ELSE
-        LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := toFloat($T), h := toFloat($T), image := tile2, paint := white]
+        LET p AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := toFloat($T), height := toFloat($T)], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := tile2]
         scene = collections::append(scene, p)
       END IF
       k = k + 1

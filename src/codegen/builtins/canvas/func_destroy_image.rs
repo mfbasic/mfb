@@ -18,8 +18,8 @@ go out of scope does the same thing, so this is for the case where an image is l
 and the scope is long.
 
 **It is safe at any time, including while a presented scene still names the
-image.** A scene carries the id, not the image, so destroying the image leaves
-the scene intact — the runtime simply stops drawing that item.
+image.** A scene names the image and keeps no copy of it, so destroying the image
+leaves the scene intact — the runtime simply stops drawing that item.
 
 Calling `destroyImage` again on an image it already closed raises
 `ErrResourceClosed`, exactly as a second `fs::close` does, and so does any other use

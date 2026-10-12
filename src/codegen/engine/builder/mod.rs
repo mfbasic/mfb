@@ -1650,7 +1650,9 @@ pub(crate) fn lower_module_for_platform(
     // documentation and `.ai/canvas-threading.md` §2. Emitted only for a module that
     // uses `canvas::`, so every other program keeps its exact data-object set.
     if module_uses_canvas(module) {
-        data_objects.push(crate::codegen::runtime::canvas::graphics_state_data_object());
+        data_objects.push(crate::codegen::runtime::canvas::graphics_state_data_object(
+            module.canvas_auto_paint_ms,
+        ));
         data_objects.push(CodeDataObject {
             symbol: CANVAS_SCENE_SYMBOL.to_string(),
             kind: "raw".to_string(),
@@ -1800,11 +1802,11 @@ pub(crate) fn lower_module_for_platform(
     // only draws a box carries neither — the same reason the escape table above was
     // trimmed to two entries (bug-326-A21), and the same key that reserves the
     // mouse arena region.
-    if native_plan
-        .runtime_symbols
-        .iter()
-        .any(|symbol| symbol.ends_with("_enableMouse") || symbol.ends_with("_pollMouse"))
-    {
+    if native_plan.runtime_symbols.iter().any(|symbol| {
+        symbol.ends_with("_enableMouse")
+            || symbol.ends_with("_pollMouse")
+            || symbol.ends_with("_pollMouseRaw")
+    }) {
         data_objects.extend(term::mouse_data_objects());
     }
     // TLS helpers reference read-only C strings (library names + symbol names)
@@ -2030,11 +2032,14 @@ pub(crate) fn lower_module_for_platform(
     // `_mfb_rt_term_` is already true for any `term::` program: a program that draws
     // a box and never touches the mouse must not pay for a ring. Matching the
     // suffix covers both packages' spellings (`_mfb_rt_term_term_pollMouse`,
-    // `_mfb_rt_canvas_canvas_pollMouse`) without enumerating four symbols that would
-    // then have to be kept in step with the registry.
-    let uses_mouse = runtime_symbols
-        .iter()
-        .any(|symbol| symbol.ends_with("_enableMouse") || symbol.ends_with("_pollMouse"));
+    // `_mfb_rt_canvas_canvas_pollMouseRaw` -- plan-172-I: the canvas native is the raw
+    // half of an MFBASIC `canvas::pollMouse`) without enumerating four symbols that
+    // would then have to be kept in step with the registry.
+    let uses_mouse = runtime_symbols.iter().any(|symbol| {
+        symbol.ends_with("_enableMouse")
+            || symbol.ends_with("_pollMouse")
+            || symbol.ends_with("_pollMouseRaw")
+    });
     let mouse_state_offset = if uses_mouse {
         Some(
             ENTRY_GLOBALS_OFFSET
@@ -2272,10 +2277,15 @@ pub(crate) fn lower_module_for_platform(
                 &platform_imports,
             )?);
             code_functions.extend(app_entry);
+            // plan-172-J: a canvas program's window has pointer handlers whether or
+            // not it uses the mouse members -- they publish the pointer to the graphics
+            // state -- so a platform is told both facts, and emits the strings its
+            // handlers name for whichever handlers it installs.
             data_objects.extend(platform.app_mode_data_objects(
                 &module.project,
                 module.debug.enabled,
                 uses_mouse,
+                app_spec.uses_canvas,
             ));
             // plan-62-C Phase 2: the reconcile's selector/key data objects, for a
             // program that can change mode (static default `None`) — matching where

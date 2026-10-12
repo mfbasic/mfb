@@ -17,7 +17,8 @@ rendering code. bug-688 adds a Linux/Vulkan twin of the same instrument
   (a tilemap of two alternating images plus an optional full-screen
   background), `text.sh` (a screen of text rows; takes an optional trailing
   font-path argument, used by Linux mode), `worker.sh` (the
-  build/walk/present microbenchmark, no graphics thread involved).
+  build/walk/present microbenchmark, no graphics thread involved), `hit.sh`
+  (what `canvas::pollMouse` costs to answer `overID`, with and without ids).
 - **cmp.py** — pixel-compares two `MFB_CANVAS_DUMP` RGBA files: differing
   pixel count and max per-channel delta. What every oracle check reads.
 
@@ -200,6 +201,32 @@ this isolates the worker's own cost (section F). Prints the program's own
 
 **Healthy** (bug doc's **G2**): `canvas::present` at ≤0.5 µs per item. At
 HEAD it costs about 2.9 µs/item for rectangles and 3.6 µs/item for polygons.
+
+### `hit`
+
+Builds and runs the release-build hit-test microbenchmark (`gen/hit.sh`) four
+times — 1,000 and 10,000 rectangles, each with every item given an `id` and
+with none — and prints one row per run:
+
+    items   ids  present(med/min)   poll-first(med/min)  poll-again(med/min)  overID    events
+
+All times are nanoseconds, the median and the minimum over 40 frames. Each
+frame moves one item and presents, then polls sixty injected presses:
+`poll-first` is the first `canvas::pollMouse` after a present that changed the
+scene, which rebuilds the worker's draw list and walks it; `poll-again` is each
+of the other fifty-nine against the same scene, the walk alone, timed together
+and divided because the clock ticks in microseconds. The presses are at pixel
+(444, 54), inside item 484, so the walk — last item first — covers nearly the
+whole list.
+
+**Healthy**: the two `ids = 0` rows poll in tens of nanoseconds at either size —
+a scene with no `id` builds nothing — and their `overID` is `[]`; the `ids = 1`
+rows report `[i484]`; `events` is 60 on every row. An event not collected
+within a tenth of a second is dropped, so `events` under 60 means the box was
+too slow for that size and its `poll-again` is understated.
+
+The presses are delivered by `MFB_MOUSE_INJECT`, which is POSIX-only, so `hit`
+runs locally and on a Linux box and refuses `--target windows-x86_64`.
 
 ### `compare stress|poly|pics|text ARGS...`
 

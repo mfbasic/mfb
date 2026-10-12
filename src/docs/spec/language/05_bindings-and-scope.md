@@ -47,7 +47,9 @@ Rules:
   by the semantic verifier). [[src/ir/verify/resources.rs:is_defaultable]] Every
   collection type (`List`, `Set`, `Map`) is defaultable to its empty form
   regardless of its element/key/value type (§4.10), so a `MUT` binding of a
-  collection never needs an initializer. `RES` resources are not defaultable and
+  collection never needs an initializer. An `ENUM` defaults to its first declared
+  variant, so a record of scalars, strings, collections and enums can be declared
+  with no initializer and refined with `WITH`. `RES` resources are not defaultable and
   must be bound to a producing expression.
 - **Lexical, hierarchical scope.** Inner blocks may read and use bindings from
   enclosing scopes, but may **not** re-declare (shadow) a name already in scope —

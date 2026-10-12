@@ -79,7 +79,7 @@ impl plan::NativePlanPlatform for Platform {
         })
     }
 
-    fn app_mode_imports(&self, uses_mouse: bool) -> Vec<PlatformImport> {
+    fn app_mode_imports(&self, uses_mouse: bool, uses_canvas: bool) -> Vec<PlatformImport> {
         // Shared with the sibling Linux backend
         // (src/target/linux_gtk/mod.rs::app_mode_imports). The C-library
         // sonames are this Platform's, so a musl app build declares musl
@@ -91,6 +91,7 @@ impl plan::NativePlanPlatform for Platform {
                 libpthread: common.libpthread(),
             },
             uses_mouse,
+            uses_canvas,
         )
     }
 }

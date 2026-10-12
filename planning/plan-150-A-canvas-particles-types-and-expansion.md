@@ -54,8 +54,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-172 (the canvas shape model) is complete and archived, every letter A–M | `ls planning/plan-172-*` → no matches, and `ls planning/completed/plan-172-M-*` → present | NOT MET |
-| The `DrawItem` union is plan-172's eleven variants, ending `AutoPaint`, `Picture`, `Group` | `cargo test --bin mfb draw_item_variant_set_is_frozen` → pass against that list | NOT MET |
+| plan-172 (the canvas shape model) is complete and archived, every letter A–M | `ls planning/plan-172-*` → no matches, and `ls planning/completed/plan-172-M-*` → present | MET (2026-10-11) |
+| The `DrawItem` union is plan-172's eleven variants, ending `AutoPaint`, `Picture`, `Group` | `cargo test --bin mfb draw_item_variant_set_is_frozen` → pass against that list | MET (2026-10-11: "1 passed") |
 | Every shape carries its own `transform`, and `Paint` has none | `grep -c 'transform_prop()' src/codegen/builtins/canvas/mod.rs` → ≥ 8, and `mfb man canvas types` shows no `transform` under `Paint` | NOT MET |
 | `canvas::Shape` exists, for `emitter AS canvas::Shape` | `grep -c 'name: "Shape"' src/codegen/builtins/canvas/mod.rs` → 1 | NOT MET |
 | The canvas suite is green before any edit | `cargo test --test rt_canvas_golden --test rt_canvas_rasteriser` → pass | UNVERIFIED — run first |

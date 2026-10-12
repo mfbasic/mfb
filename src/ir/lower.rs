@@ -206,6 +206,9 @@ pub fn lower_project_with_external_functions(
     // (plan-137-C).
     let augmented = crate::codegen::builtins::compress::augmented_project(&augmented)
         .expect("built-in compress package source must parse");
+    // `vector` after it: canvas's injected companion imports it (plan-172-B).
+    let augmented = crate::codegen::builtins::vector::augmented_project(&augmented)
+        .expect("built-in vector package source must parse");
     let mut ir = lower_augmented_project(
         &crate::hir::elaborate(&augmented),
         entry,
@@ -328,6 +331,7 @@ pub fn lower_augmented_project(
         // Overwritten from project.json by `assemble_max_buffer` on the build
         // path; this default is what a synthesized or test-built project gets.
         max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
+        canvas_auto_paint_ms: crate::manifest::DEFAULT_CANVAS_AUTO_PAINT_MS,
         selected_config: Default::default(),
     }
 }

@@ -1,6 +1,6 @@
 # bug-1015: on GTK, `term::pollMouse` sees no mouse events unless the program also reads stdin
 
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (platform parity)
@@ -39,6 +39,36 @@ bs18-agent-i measured the same program with one `io::readKey(0)` added per loop:
 (The coordinator has not re-run that variant.)
 
 Expected: at least one `event` line per action.
+
+## Windows does the same (measured 2026-10-11, plan-172-M)
+
+The owner decision above takes Windows as the model GTK should match. In a real canvas
+window on box 206 (Windows 11) it behaves as GTK does: `canvas::pollMouse` reports
+nothing until the program also reads the keyboard.
+
+`bugs/repro/bug-1015/overid.mfb` presents a small scene, calls `canvas::enableMouse(TRUE)`
+and polls `canvas::pollMouse` for 14 s, appending every event to a file; with
+`READ_KEYS=1` it also calls `io::readKey(0)` once a loop. `overid.ps1` starts it, puts
+the REAL cursor on four client points with `SetCursorPos` and presses and releases the
+left button at each. Cross-built `--app --target windows-x86_64` at `8bb3e9a60` and run
+inside the logged-in desktop session (a scheduled task with `/it`):
+
+| `READ_KEYS` | what the program recorded |
+|---|---|
+| unset | `started 384x261`, then `moves 0` — no move, no press, no release in 14 s |
+| `1` | twelve events, a `move`, a `down` and an `up` at each of the four points |
+
+The window received every message both times: the pointer words the graphics thread
+reads (plan-172-J) are written by the same `WndProc` and were moving. The cause is the
+one above — `src/target/win_x86_64/app/mouse.rs` writes SGR reports to the worker's
+input pipe, and the only decoder is in the `io` read family
+(`src/codegen/builtins/io/gen_read_family.rs`, the pump around
+`mouse_decode::emit_drain_pending`); `canvas::pollMouse` only takes from the ring
+(`src/codegen/io/mouse/ring.rs:emit_dequeue`). So the fix that makes `pollMouse` drain
+and decode pending input itself fixes every platform at once, and "make GTK match
+Windows" is not a fix.
+
+`mfb man canvas pollMouse` and `enableMouse` say nothing about needing a key read.
 
 ## Related
 

@@ -413,9 +413,76 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_VIEWS: usize =
     GRAPHICS_OFFSET_VULKAN_SC_IMAGES + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS: usize =
     GRAPHICS_OFFSET_VULKAN_SC_VIEWS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
-/// Total block size.
-pub(crate) const GRAPHICS_STATE_SIZE: usize =
+/// plan-172-J: where the pointer is, published by each platform's MAIN thread and read
+/// by the graphics thread — the worker never touches these.
+///
+/// * `POINTER_X` / `POINTER_Y` — surface pixels, the units an SGR mouse report carries.
+///   Meaningless while `POINTER_INSIDE` is 0.
+/// * `POINTER_BUTTONS` — bit 0 left, bit 1 middle, bit 2 right, set while held.
+/// * `POINTER_INSIDE` — 1 while the pointer is over the surface.
+/// * `POINTER_SEQ` — the sequence word of a sequence lock over the other four: odd
+///   while a publish is writing them, bumped to even when it is done
+///   ([`emit_publish_pointer`]). A reader takes the four only between two equal, even
+///   reads of it (`canvas::pointerSnapshot`).
+///
+/// A sequence word rather than the render mutex, for the reason
+/// [`emit_publish_surface_size`] takes no lock: a pointer move is a main-thread
+/// callback, and it must not wait behind a frame. Unlike the size, a torn read here is
+/// not harmless — an `x` from one move with an `inside` from another is a position the
+/// pointer never had — so the four are read as one.
+pub(crate) const GRAPHICS_OFFSET_POINTER_SEQ: usize =
     GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
+pub(crate) const GRAPHICS_OFFSET_POINTER_X: usize = GRAPHICS_OFFSET_POINTER_SEQ + 8;
+pub(crate) const GRAPHICS_OFFSET_POINTER_Y: usize = GRAPHICS_OFFSET_POINTER_X + 8;
+pub(crate) const GRAPHICS_OFFSET_POINTER_BUTTONS: usize = GRAPHICS_OFFSET_POINTER_Y + 8;
+pub(crate) const GRAPHICS_OFFSET_POINTER_INSIDE: usize = GRAPHICS_OFFSET_POINTER_BUTTONS + 8;
+/// The four published words, in the order `canvas::pointerSnapshot` returns them.
+pub(crate) const GRAPHICS_POINTER_WORDS: [usize; 4] = [
+    GRAPHICS_OFFSET_POINTER_X,
+    GRAPHICS_OFFSET_POINTER_Y,
+    GRAPHICS_OFFSET_POINTER_BUTTONS,
+    GRAPHICS_OFFSET_POINTER_INSIDE,
+];
+/// plan-172-K: 1 while the scene the graphics thread last drew holds a
+/// `canvas::AutoPaint`. Written by the graphics thread at the end of each frame's
+/// resolve (`canvas::autoPublish`), read by each platform's MAIN thread after it
+/// publishes the pointer: only then is a pointer change a redraw
+/// ([`emit_skip_unless_autopaint_live`]), so a scene with no `AutoPaint` costs no frame
+/// however the pointer moves.
+///
+/// One plain word, no lock and no sequence: it is a hint in both directions. Read
+/// stale as 1, main signals a frame that resolves nothing and is skipped. Read stale
+/// as 0 across the frame that first sets it, main skips a signal — which is why the
+/// resolve re-reads the pointer after setting it (`helper_autopaint.rs`).
+pub(crate) const GRAPHICS_OFFSET_AUTOPAINT_LIVE: usize = GRAPHICS_OFFSET_POINTER_INSIDE + 8;
+/// plan-172-K: 1 while a pointer change is waiting to be looked at — the pointer's own
+/// `PENDING`. Set by `canvas::signalRedraw(TRUE)` and cleared by the render loop's wait,
+/// both under the graphics mutex.
+///
+/// Its own word, and not `PENDING`, because the two ask for different things. `PENDING`
+/// is a redraw that is OWED: the scene, the size or an image's pixels changed, and the
+/// frame is drawn whatever it finds. This one is a question — "does any `AutoPaint` show
+/// a different paint now?" — and a frame woken by it alone that answers no is not
+/// drawn. Folding the two together would either draw a frame for every pointer move
+/// over nothing, or let a pointer move swallow a `present`.
+pub(crate) const GRAPHICS_OFFSET_AUTO_WAKE: usize = GRAPHICS_OFFSET_AUTOPAINT_LIVE + 8;
+/// plan-172-K: how long a `canvas::AutoPaint` holds its enter and exit paints, in
+/// milliseconds — the project's `options.canvasAutoPaintMS`. The one word of the block
+/// that does not start as zero: [`graphics_state_data_object`] writes it into the
+/// executable, nothing writes it afterwards, and `canvas::autoWindowMs` reads it.
+///
+/// In the block because it is the one piece of canvas data every thread can already
+/// find, and a constant baked into the data is a value the companion source can read
+/// without the build having to rewrite that source per project.
+pub(crate) const GRAPHICS_OFFSET_AUTO_WINDOW_MS: usize = GRAPHICS_OFFSET_AUTO_WAKE + 8;
+/// Total block size.
+pub(crate) const GRAPHICS_STATE_SIZE: usize = GRAPHICS_OFFSET_AUTO_WINDOW_MS + 8;
+
+/// What `canvas::waitForRedraw` answers: the loop is stopping; a redraw is owed; or
+/// (plan-172-K) nothing is owed but the pointer changed or an `AutoPaint` window ended.
+pub(crate) const WAKE_STOP: &str = "0";
+pub(crate) const WAKE_REDRAW: &str = "1";
+pub(crate) const WAKE_AUTO_ONLY: &str = "2";
 
 /// The per-item parameter block both GPU backends push to their shaders.
 ///
@@ -1218,7 +1285,14 @@ pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 /// which indexes the pipeline table out of range and hands Vulkan a junk `VkPipeline`.
 /// That does not fail as a wrong picture: it SIGSEGVs inside the driver's JIT-compiled
 /// code, with no MFBASIC frame anywhere in the backtrace.
-pub(crate) const CANVAS_DRAW_ENTRY_WORDS: usize = 8;
+///
+/// plan-172-G: sixteen words. The first seven are what an entry always was — block base
+/// and count, the translation as 16.16, the blend mode, the translation's residuals —
+/// so a translate-only entry is its old eight words followed by zeros. Word 7 says
+/// whether the entry carries a matrix, and words 8–11 are that matrix: the linear part
+/// of the INVERSE of the enclosing groups' composed affine, as float32 bit patterns.
+/// Words 12–15 are reserved and zero.
+pub(crate) const CANVAS_DRAW_ENTRY_WORDS: usize = 16;
 
 /// `log2(CANVAS_DRAW_ENTRY_WORDS * 8)` -- entry index to byte offset.
 pub(crate) const CANVAS_DRAW_ENTRY_SHIFT: u32 = CANVAS_DRAW_ENTRY_WORDS.trailing_zeros() + 3;
@@ -1585,8 +1659,13 @@ pub(crate) fn graphics_trampoline_saved(_arch: &str, windows: bool) -> Vec<abi::
 /// The trampoline `pthread_create` starts: establishes the MFB context, then loops.
 pub(crate) const GRAPHICS_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_canvas_graphics_entry";
 
-/// The graphics thread's shared-state data object.
-pub(crate) fn graphics_state_data_object() -> CodeDataObject {
+/// The graphics thread's shared-state data object: all zero but
+/// [`GRAPHICS_OFFSET_AUTO_WINDOW_MS`], which holds `auto_paint_ms` little-endian.
+pub(crate) fn graphics_state_data_object(auto_paint_ms: u64) -> CodeDataObject {
+    let mut bytes = vec![0u8; GRAPHICS_STATE_SIZE];
+    bytes[GRAPHICS_OFFSET_AUTO_WINDOW_MS..GRAPHICS_OFFSET_AUTO_WINDOW_MS + 8]
+        .copy_from_slice(&auto_paint_ms.to_le_bytes());
+    let value: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
     CodeDataObject {
         symbol: GRAPHICS_STATE_SYMBOL.to_string(),
         kind: "raw".to_string(),
@@ -1595,7 +1674,7 @@ pub(crate) fn graphics_state_data_object() -> CodeDataObject {
             .to_string(),
         align: 8,
         size: GRAPHICS_STATE_SIZE,
-        value: "00".repeat(GRAPHICS_STATE_SIZE),
+        value,
     }
 }
 
@@ -1813,14 +1892,21 @@ pub(crate) fn state_base(
     push_symbol_address(from, GRAPHICS_STATE_SYMBOL, dst, ins, rel);
 }
 
-/// `canvas::signalRedraw()` — a redraw is owed.
+/// `canvas::signalRedraw(pointerOnly)` — a redraw is owed, or the pointer changed.
 ///
 /// Sets the flag and wakes the loop. A **flag**, not a counter: two presents before a
 /// frame must produce one frame, not two (`.ai/canvas-threading.md` §3), and a
 /// counter would make the renderer draw the same scene twice.
+///
+/// **plan-172-K: `pointer_only`.** Exactly 1 is a platform's pointer handler saying
+/// the pointer changed under a scene that holds an `AutoPaint`: it sets
+/// [`GRAPHICS_OFFSET_AUTO_WAKE`] and nothing else — not `PENDING`, and not `WANTED`,
+/// which is a `present`'s. Any other value is a redraw, so a caller that has to be
+/// wrong is wrong in the direction that draws a frame.
 pub(crate) fn emit_signal_redraw(
     symbol: &str,
     scratch: &GraphicsScratch,
+    pointer_only: &VirtualRegister,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
@@ -1852,8 +1938,19 @@ pub(crate) fn emit_signal_redraw(
     };
     emit_thread_external_call(&mut ctx, "pthread_mutex_lock")?;
 
+    let redraw = format!("{symbol}_redraw");
+    let wake = format!("{symbol}_wake");
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::move_immediate(&scratch.scratch, "Integer", "1"));
+    instructions.push(abi::compare_immediate(pointer_only, "1"));
+    instructions.push(abi::branch_ne(&redraw));
+    instructions.push(abi::store_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_AUTO_WAKE,
+    ));
+    instructions.push(abi::branch(&wake));
+    instructions.push(abi::label(&redraw));
     instructions.push(abi::store_u64(
         &scratch.scratch,
         &scratch.base,
@@ -1872,6 +1969,7 @@ pub(crate) fn emit_signal_redraw(
         &scratch.base,
         GRAPHICS_OFFSET_WANTED,
     ));
+    instructions.push(abi::label(&wake));
     instructions.push(abi::add_immediate(
         abi::c_arg(0),
         &scratch.base,
@@ -1904,25 +2002,64 @@ pub(crate) fn emit_signal_redraw(
     Ok(())
 }
 
-/// `canvas::waitForRedraw()` — block until a redraw is owed, then take it.
+/// `canvas::waitForRedraw(timeoutNanos)` — block until a redraw is owed, then take it.
 ///
 /// The wait is a `while`, not an `if`: a condition variable may wake spuriously, and
 /// a spurious wake that fell through would render a frame nobody asked for — which is
 /// not a correctness bug but is exactly the "a static scene costs nothing" guarantee
 /// (`.ai/canvas-threading.md` §4) quietly failing.
+///
+/// **plan-172-K: the one wait that can run out, and the answer says why it ended.**
+/// [`WAKE_STOP`], [`WAKE_REDRAW`] — `PENDING` was set and has been taken — or
+/// [`WAKE_AUTO_ONLY`]: nothing is owed, but the pointer changed
+/// ([`GRAPHICS_OFFSET_AUTO_WAKE`]) or `timeoutNanos` ran out. With `timeoutNanos`
+/// above zero the wait is timed — the frame a `canvas::AutoPaint`'s enter or exit
+/// window asks for when it ends, with the pointer still. Zero is the untimed wait this
+/// always was, and it is what every scene with no window running passes.
+///
+/// A redraw wins: a pointer change that arrives with one is answered by the same
+/// frame, so `AUTO_WAKE` is cleared with `PENDING`.
+///
+/// An auto-only wake takes nothing else: `PENDING` was clear and stays clear, `WANTED`
+/// is not touched, and nothing is broadcast, so a `present` and a `waitFrame` see
+/// exactly what they would have seen had the wait gone on. The deadline is an absolute
+/// `CLOCK_REALTIME` reading taken once, before the lock — the clock
+/// `pthread_cond_timedwait` takes — and is compared again after every wake, so a
+/// spurious wake neither returns early nor restarts the timeout.
 pub(crate) fn emit_wait_for_redraw(
-    symbol: &str,
-    scratch: &GraphicsScratch,
+    builder: &mut CodeBuilder,
+    timeout: &Operand,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    let symbol_owned = builder.current_symbol.clone();
+    let symbol = symbol_owned.as_str();
     let retry = format!("{symbol}_wait");
     let have = format!("{symbol}_have");
     let stop = format!("{symbol}_stop");
     let done = format!("{symbol}_wait_done");
+    let untimed = format!("{symbol}_untimed");
+    let plain = format!("{symbol}_plain_wait");
+    let expired = format!("{symbol}_expired");
 
+    // The argument leaves its register before the first call, and the deadline is
+    // worked out before the lock is taken.
+    let timeout_value = builder.temporary_vreg();
+    builder.emit(abi::move_register(&timeout_value, timeout));
+    let ts = builder.allocate_stack_object("canvas_wait_ts", 16);
+    let scratch_owned = GraphicsScratch::new(&mut || builder.temporary_vreg());
+    let scratch = &scratch_owned;
+    let now = builder.temporary_vreg();
+    let deadline = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(&deadline, "Integer", "0"));
+    builder.emit(abi::compare_immediate(&timeout_value, "0"));
+    builder.emit(abi::branch_le(&untimed));
+    emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
+    builder.emit(abi::add_registers(&deadline, &now, &timeout_value));
+    builder.emit(abi::label(&untimed));
+
+    let instructions = &mut builder.instructions;
+    let relocations = &mut builder.relocations;
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::add_immediate(
         abi::c_arg(0),
@@ -1964,6 +2101,57 @@ pub(crate) fn emit_wait_for_redraw(
     ));
     instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
     instructions.push(abi::branch_ne(&stop));
+    instructions.push(abi::load_u64(
+        &scratch.scratch,
+        &scratch.base,
+        GRAPHICS_OFFSET_AUTO_WAKE,
+    ));
+    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
+    instructions.push(abi::branch_ne(&expired));
+    instructions.push(abi::compare_immediate(&deadline, "0"));
+    instructions.push(abi::branch_eq(&plain));
+    // Timed: out of time is a redraw; otherwise wait until the deadline, as an
+    // absolute timespec.
+    emit_realtime_nanos(builder, ts, &now, platform_imports, platform)?;
+    builder.emit(abi::compare_registers(&now, &deadline));
+    builder.emit(abi::branch_ge(&expired));
+    {
+        let scale = builder.temporary_vreg();
+        let seconds = builder.temporary_vreg();
+        let rest = builder.temporary_vreg();
+        builder.emit(abi::move_immediate(&scale, "Integer", NANOS_PER_SECOND));
+        builder.emit(abi::unsigned_divide_registers(&seconds, &deadline, &scale));
+        builder.emit(abi::multiply_subtract_registers(
+            &rest, &seconds, &scale, &deadline,
+        ));
+        builder.emit(abi::store_u64(&seconds, abi::stack_pointer(), ts));
+        builder.emit(abi::store_u64(&rest, abi::stack_pointer(), ts + 8));
+    }
+    let instructions = &mut builder.instructions;
+    let relocations = &mut builder.relocations;
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::add_immediate(
+        abi::c_arg(0),
+        &scratch.base,
+        GRAPHICS_OFFSET_COND,
+    ));
+    instructions.push(abi::add_immediate(
+        abi::c_arg(1),
+        &scratch.base,
+        GRAPHICS_OFFSET_MUTEX,
+    ));
+    instructions.push(abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), ts));
+    let mut ctx = EmitCtx {
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    };
+    emit_thread_external_call(&mut ctx, "pthread_cond_timedwait")?;
+    instructions.push(abi::branch(&retry));
+
+    instructions.push(abi::label(&plain));
     instructions.push(abi::add_immediate(
         abi::c_arg(0),
         &scratch.base,
@@ -1984,12 +2172,33 @@ pub(crate) fn emit_wait_for_redraw(
     emit_thread_external_call(&mut ctx, "pthread_cond_wait")?;
     instructions.push(abi::branch(&retry));
 
+    // The pointer changed, or the deadline passed, with nothing owed: the pointer's
+    // flag is taken and nothing else is.
+    instructions.push(abi::label(&expired));
+    state_base(symbol, &scratch.base, instructions, relocations);
+    instructions.push(abi::store_u64(
+        abi::ZERO,
+        &scratch.base,
+        GRAPHICS_OFFSET_AUTO_WAKE,
+    ));
+    instructions.push(abi::move_immediate(
+        &scratch.verdict,
+        "Integer",
+        WAKE_AUTO_ONLY,
+    ));
+    instructions.push(abi::branch(&done));
+
     instructions.push(abi::label(&have));
     state_base(symbol, &scratch.base, instructions, relocations);
     instructions.push(abi::store_u64(
         abi::ZERO,
         &scratch.base,
         GRAPHICS_OFFSET_PENDING,
+    ));
+    instructions.push(abi::store_u64(
+        abi::ZERO,
+        &scratch.base,
+        GRAPHICS_OFFSET_AUTO_WAKE,
     ));
     // plan-155-C: the redraw has been picked up — the moment `canvas::waitFrame`
     // waits for. Broadcast while the mutex is still held, so the waiter reads the
@@ -2002,11 +2211,15 @@ pub(crate) fn emit_wait_for_redraw(
         instructions,
         relocations,
     )?;
-    instructions.push(abi::move_immediate(&scratch.verdict, "Integer", "1"));
+    instructions.push(abi::move_immediate(
+        &scratch.verdict,
+        "Integer",
+        WAKE_REDRAW,
+    ));
     instructions.push(abi::branch(&done));
 
     instructions.push(abi::label(&stop));
-    instructions.push(abi::move_immediate(&scratch.verdict, "Integer", "0"));
+    instructions.push(abi::move_immediate(&scratch.verdict, "Integer", WAKE_STOP));
 
     instructions.push(abi::label(&done));
     state_base(symbol, &scratch.base, instructions, relocations);
@@ -3207,6 +3420,123 @@ pub(crate) fn emit_surface_dimension(
     ));
     instructions.push(abi::label(&ready));
     instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
+}
+
+/// plan-172-K, trigger 6: branch to `skip` unless the scene the graphics thread last
+/// drew holds a `canvas::AutoPaint` ([`GRAPHICS_OFFSET_AUTOPAINT_LIVE`]).
+///
+/// Every platform's pointer handler emits this after its publish and then calls
+/// `canvas::signalRedraw` with 1 in the first argument register — "the pointer
+/// changed", not "a redraw is owed" ([`emit_signal_redraw`]) — so a pointer change
+/// wakes the render loop exactly when something in the scene could change its paint
+/// for it. `base` is overwritten. It is not part of
+/// [`emit_publish_pointer`] because the signal is a call — it takes the graphics mutex
+/// — and that writer is emitted into leaf functions with no frame.
+pub(crate) fn emit_skip_unless_autopaint_live(
+    symbol: &str,
+    base: impl Into<abi::Reg>,
+    skip: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let base: abi::Reg = base.into();
+    state_base(symbol, base, instructions, relocations);
+    instructions.push(abi::load_u64(base, base, GRAPHICS_OFFSET_AUTOPAINT_LIVE));
+    instructions.push(abi::compare_immediate(base, "0"));
+    instructions.push(abi::branch_eq(skip));
+}
+
+/// The argument each call to `canvas::signalRedraw` in `instructions` is made with, in
+/// order: the immediate moved into the first argument register by the instruction
+/// right before the call. A call with anything else in front of it is a panic — a
+/// platform handler that signals without saying which kind of signal it is.
+#[cfg(test)]
+pub(crate) fn signal_redraw_arguments(instructions: &[CodeInstruction]) -> Vec<String> {
+    let first_argument = abi::Reg::from(abi::mfb_arg(0)).to_string();
+    let mut out = Vec::new();
+    for (index, instruction) in instructions.iter().enumerate() {
+        if instruction.get("target").as_deref() != Some("_mfb_rt_canvas_canvas_signalRedraw") {
+            continue;
+        }
+        let before = index
+            .checked_sub(1)
+            .map(|at| &instructions[at])
+            .expect("a signal is never a function's first instruction");
+        assert_eq!(
+            before.get("dst").as_deref(),
+            Some(first_argument.as_str()),
+            "canvas::signalRedraw is called with its argument register unset"
+        );
+        out.push(before.get("value").expect("an immediate argument"));
+    }
+    out
+}
+
+/// The registers [`emit_publish_pointer`] is given: the four values to publish, and
+/// three it may overwrite. A struct because every caller is a hand-written platform
+/// handler that spells its own registers, and seven positional registers of one type
+/// is seven chances to swap two.
+pub(crate) struct PointerRegs {
+    pub(crate) x: abi::Reg,
+    pub(crate) y: abi::Reg,
+    pub(crate) buttons: abi::Reg,
+    pub(crate) inside: abi::Reg,
+    /// Overwritten: the graphics-state base.
+    pub(crate) base: abi::Reg,
+    /// Overwritten: the sequence word's value.
+    pub(crate) seq: abi::Reg,
+    /// Overwritten: an address, where the stores are store-releases.
+    pub(crate) addr: abi::Reg,
+}
+
+/// Publish the pointer from a platform's pointer event (plan-172-J).
+///
+/// Called on the **main** thread — or, for the debug script, on the graphics thread
+/// through `canvas::publishPointer`; never both at once in a run that means anything —
+/// with the four values in registers. One writer at a time, so the sequence word is a
+/// plain increment, not a compare-and-swap: odd, the four stores, even.
+///
+/// `ordered` is whether the target needs the accesses ordered explicitly
+/// (`scene_base::orders_scene_accesses`: AArch64). There every store is a
+/// store-release, which is visible only after every earlier access of this thread —
+/// so no data word can be seen before the odd mark, nor the even mark before the data
+/// — and the reader's loads are load-acquires. x86-64 keeps stores in order and loads
+/// in order by itself.
+///
+/// Makes no call and touches no register outside [`PointerRegs`]. Signals nothing: a
+/// pointer change is a redraw only while the scene holds a `canvas::AutoPaint`, and the
+/// caller decides that ([`emit_skip_unless_autopaint_live`]).
+pub(crate) fn emit_publish_pointer(
+    symbol: &str,
+    ordered: bool,
+    regs: &PointerRegs,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let store = |value: abi::Reg, offset: usize, ins: &mut Vec<CodeInstruction>| {
+        if ordered {
+            ins.push(abi::add_immediate(regs.addr, regs.base, offset));
+            ins.push(abi::store_release_u64(value, regs.addr));
+        } else {
+            ins.push(abi::store_u64(value, regs.base, offset));
+        }
+    };
+    state_base(symbol, regs.base, instructions, relocations);
+    instructions.push(abi::load_u64(
+        regs.seq,
+        regs.base,
+        GRAPHICS_OFFSET_POINTER_SEQ,
+    ));
+    instructions.push(abi::add_immediate(regs.seq, regs.seq, 1));
+    store(regs.seq, GRAPHICS_OFFSET_POINTER_SEQ, instructions);
+    for (value, offset) in [regs.x, regs.y, regs.buttons, regs.inside]
+        .into_iter()
+        .zip(GRAPHICS_POINTER_WORDS)
+    {
+        store(value, offset, instructions);
+    }
+    instructions.push(abi::add_immediate(regs.seq, regs.seq, 1));
+    store(regs.seq, GRAPHICS_OFFSET_POINTER_SEQ, instructions);
 }
 
 /// Publish a new surface size from the platform's resize event.

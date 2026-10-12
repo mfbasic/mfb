@@ -21,18 +21,19 @@ J
 cat > "$DIR/src/main.mfb" <<M
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT datetime
 IMPORT io
 IMPORT math
 
-FUNC ring(cx AS Float, cy AS Float, r AS Float) AS List OF canvas::Point
-  MUT points AS List OF canvas::Point = []
+FUNC ring(cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   WHILE i < $POINTS
     LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat($POINTS)
-    points = collections::append(points, canvas::Point[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
+    points = collections::append(points, vector::Float2[x := cx + r * math::cos(a), y := cy + r * math::sin(a)])
     i = i + 1
   END WHILE
   RETURN points
@@ -44,7 +45,7 @@ FUNC bulk(shift AS Float) AS List OF canvas::DrawItem
   WHILE k < $ITEMS
     LET cx AS Float = toFloat((k * 37) MOD 880) + ${CX:-10.0} + shift
     LET cy AS Float = toFloat((k * 53) MOD 620) + ${CY:-10.0}
-    LET it AS canvas::DrawItem = canvas::Polygon[contours := [ring(cx, cy, ${R:-8.0})], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160))]
+    LET it AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [ring(cx, cy, ${R:-8.0})], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, it)
     k = k + 1
   END WHILE
@@ -67,7 +68,7 @@ FUNC main() AS Nothing
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT scene AS List OF canvas::DrawItem = still
     IF $MOVING = 1 THEN scene = bulk(toFloat(frame MOD 7))
-    LET mover AS canvas::DrawItem = canvas::Rectangle[x := toFloat(frame MOD 800), y := 600.0, w := 20.0, h := 20.0, paint := canvas::fill(color::rgb(255, 0, 0))]
+    LET mover AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(frame MOD 800), y := 600.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 20.0, height := 20.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     scene = collections::append(scene, mover)
     buildNanos = buildNanos + (datetime::monotonicNanos() - t0)
     LET t1 AS Integer = datetime::monotonicNanos()

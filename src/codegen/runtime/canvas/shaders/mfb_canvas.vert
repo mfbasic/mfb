@@ -70,8 +70,14 @@ layout(location = 0) flat out int vItem;
 // plan-116-A deleted the range rather than leaving it empty (H4).
 //
 // bug-735: `zw` are the residual words of `xy`; only the fragment stage reads them.
+//
+// plan-172-H: `inverse` is the linear part of the INVERSE of the enclosing groups'
+// composed affine, as four float32 bit patterns — `ia`, `ib`, `ic`, `id`, so a point
+// maps as `(ia * x + ic * y, ib * x + id * y)` — and all-zero bits when the groups only
+// translate, the convention every `canvas::Transform` has. 32 bytes, both stages.
 layout(push_constant) uniform Draw {
     ivec4 offset;
+    ivec4 inverse;
 } draw;
 
 const float FIXED = 65536.0;
@@ -101,6 +107,24 @@ void main() {
     vec2 corner = vec2(fx((gl_VertexIndex & 1) == 0 ? item.quad.x : item.quad.z),
                        fx((gl_VertexIndex & 2) == 0 ? item.quad.y : item.quad.w))
                 + vec2(fx(draw.offset.x), fx(draw.offset.y));
+    // plan-172-H: under a group matrix the quad is the item's box carried through the
+    // FORWARD linear part — the inverse of the 2x2 the draw carries — which makes it a
+    // parallelogram, and four mapped corners of a triangle strip are exactly that. The
+    // box is first grown by the inverse's Frobenius norm on every side: its own
+    // antialiasing rim is in the group's space, and a group that scales down would
+    // shrink it under the pixel it has to cover. Growing by `|M|` in the group's space
+    // is at least one pixel on the surface, because the forward map shrinks nothing by
+    // more than `1 / |M|`. Metal's `mfbVertex`, line for line.
+    if ((draw.inverse.x | draw.inverse.y | draw.inverse.z | draw.inverse.w) != 0) {
+        vec4 gi = vec4(intBitsToFloat(draw.inverse.x), intBitsToFloat(draw.inverse.y),
+                       intBitsToFloat(draw.inverse.z), intBitsToFloat(draw.inverse.w));
+        float pad = length(gi);
+        vec2 local = vec2(fx((gl_VertexIndex & 1) == 0 ? item.quad.x : item.quad.z) + ((gl_VertexIndex & 1) == 0 ? -pad : pad),
+                          fx((gl_VertexIndex & 2) == 0 ? item.quad.y : item.quad.w) + ((gl_VertexIndex & 2) == 0 ? -pad : pad));
+        float det = gi.x * gi.w - gi.y * gi.z;
+        corner = vec2((gi.w * local.x - gi.z * local.y) / det, (gi.x * local.y - gi.y * local.x) / det)
+                 + vec2(fx(draw.offset.x), fx(draw.offset.y));
+    }
     // Vulkan clip space is Y-down already, unlike Metal's Y-up — so this is the one
     // line that differs between the two shaders, and it differs by *not* flipping.
     gl_Position = vec4(corner.x / float(item.surface.x) * 2.0 - 1.0,

@@ -15,12 +15,13 @@
 ' marching dash pattern.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
 
 TYPE Carving
-  points AS List OF canvas::Point
+  points AS List OF vector::Float2
   length AS Float
   cap AS canvas::CapStyle
   join AS canvas::JoinStyle
@@ -33,9 +34,9 @@ TYPE ScribeState
   w AS Float
   h AS Float
   carvings AS List OF Carving
-  queue AS List OF List OF canvas::Point    ' the name's strokes still to carve
+  queue AS List OF List OF vector::Float2    ' the name's strokes still to carve
   nextAt AS Float
-  drawing AS List OF canvas::Point          ' the stroke being drawn, in window pixels
+  drawing AS List OF vector::Float2          ' the stroke being drawn, in window pixels
   cap AS canvas::CapStyle
   join AS canvas::JoinStyle
   dashed AS Boolean
@@ -51,7 +52,7 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 ' A rune's strokes in a box 0.6 wide and 1 tall, top-left at (0, 0).
-FUNC rune(letter AS String) AS List OF List OF canvas::Point
+FUNC rune(letter AS String) AS List OF List OF vector::Float2
   MATCH letter
     CASE "M" : RETURN [[pt(0.1, 1.0), pt(0.1, 0.0), pt(0.5, 0.45)], [pt(0.5, 1.0), pt(0.5, 0.0), pt(0.1, 0.45)]]
     CASE "F" : RETURN [[pt(0.12, 1.0), pt(0.12, 0.0)], [pt(0.12, 0.3), pt(0.5, 0.05)], [pt(0.12, 0.58), pt(0.5, 0.33)]]
@@ -65,26 +66,26 @@ FUNC rune(letter AS String) AS List OF List OF canvas::Point
 END FUNC
 
 ' The name's strokes laid out across the stone, in window pixels.
-FUNC nameStrokes(stone AS StoneBox) AS List OF List OF canvas::Point
+FUNC nameStrokes(stone AS StoneBox) AS List OF List OF vector::Float2
   LET letters AS List OF String = ["M", "F", "B", "A", "S", "I", "C"]
   LET size AS Float = stone.h * 0.2
   LET pitch AS Float = size * 0.62
   LET x0 AS Float = stone.cx - pitch * 3.5 + size * 0.02
   LET y0 AS Float = stone.y + stone.h * 0.12
-  MUT out AS List OF List OF canvas::Point = []
+  MUT out AS List OF List OF vector::Float2 = []
   FOR i = 0 TO 6
     FOR EACH stroke IN rune(collections::get(letters, i))
-      out = collections::append(out, [collections::transform(stroke, LAMBDA(p AS canvas::Point) -> pt(x0 + toFloat(i) * pitch + p.x * size, y0 + p.y * size))])
+      out = collections::append(out, [collections::transform(stroke, LAMBDA(p AS vector::Float2) -> pt(x0 + toFloat(i) * pitch + p.x * size, y0 + p.y * size))])
     NEXT
   NEXT
   RETURN out
 END FUNC
 
-FUNC pathLength(points AS List OF canvas::Point) AS Float
+FUNC pathLength(points AS List OF vector::Float2) AS Float
   MUT total AS Float = 0.0
   FOR i = 1 TO len(points) - 1
-    LET a AS canvas::Point = collections::get(points, i - 1)
-    LET b AS canvas::Point = collections::get(points, i)
+    LET a AS vector::Float2 = collections::get(points, i - 1)
+    LET b AS vector::Float2 = collections::get(points, i)
     total = total + dist(a.x, a.y, b.x, b.y)
   NEXT
   RETURN total
@@ -92,18 +93,18 @@ END FUNC
 
 ' Ramer-Douglas-Peucker: keep only the points that matter to the shape of a
 ' hand-drawn line, so a jittery stroke carves clean.
-FUNC simplify(points AS List OF canvas::Point, epsilon AS Float) AS List OF canvas::Point
+FUNC simplify(points AS List OF vector::Float2, epsilon AS Float) AS List OF vector::Float2
   LET n AS Integer = len(points)
   IF n < 3 THEN RETURN points
-  LET a AS canvas::Point = collections::get(points, 0)
-  LET b AS canvas::Point = collections::get(points, n - 1)
+  LET a AS vector::Float2 = collections::get(points, 0)
+  LET b AS vector::Float2 = collections::get(points, n - 1)
   LET dx AS Float = b.x - a.x
   LET dy AS Float = b.y - a.y
   LET lenAB AS Float = math::sqrt(dx * dx + dy * dy) + 0.0001
   MUT far AS Integer = 0
   MUT farD AS Float = 0.0
   FOR i = 1 TO n - 2
-    LET p AS canvas::Point = collections::get(points, i)
+    LET p AS vector::Float2 = collections::get(points, i)
     LET d AS Float = math::abs((p.x - a.x) * dy - (p.y - a.y) * dx) / lenAB
     IF d > farD THEN
       farD = d
@@ -111,8 +112,8 @@ FUNC simplify(points AS List OF canvas::Point, epsilon AS Float) AS List OF canv
     END IF
   NEXT
   IF farD <= epsilon THEN RETURN [a, b]
-  LET left AS List OF canvas::Point = simplify(collections::take(points, far + 1), epsilon)
-  LET right AS List OF canvas::Point = simplify(collections::drop(points, far), epsilon)
+  LET left AS List OF vector::Float2 = simplify(collections::take(points, far + 1), epsilon)
+  LET right AS List OF vector::Float2 = simplify(collections::drop(points, far), epsilon)
   RETURN collections::append(left, collections::drop(right, 1))
 END FUNC
 
@@ -135,7 +136,7 @@ FUNC stoneAt(w AS Float, h AS Float) AS StoneBox
   RETURN StoneBox[x := sx, y := h * 0.1, w := sw, h := sh, cx := sx + sw / 2.0]
 END FUNC
 
-FUNC stoneRing(s AS StoneBox) AS List OF canvas::Point
+FUNC stoneRing(s AS StoneBox) AS List OF vector::Float2
   RETURN [pt(s.x + s.w * 0.06, s.y + s.h), pt(s.x, s.y + s.h * 0.3), pt(s.x + s.w * 0.1, s.y + s.h * 0.06), pt(s.x + s.w * 0.4, s.y), pt(s.x + s.w * 0.72, s.y + s.h * 0.02), pt(s.x + s.w * 0.95, s.y + s.h * 0.12), pt(s.x + s.w, s.y + s.h * 0.45), pt(s.x + s.w * 0.95, s.y + s.h)]
 END FUNC
 
@@ -172,7 +173,7 @@ FUNC scribeStep(s AS ScribeState, inp AS Input, dt AS Float) AS ScribeState
   LET stone AS StoneBox = stoneAt(w, h)
   LET t AS Float = s.t + dt
   MUT carvings AS List OF Carving = collections::transform(s.carvings, LAMBDA(c AS Carving) -> WITH c { age := c.age + dt })
-  MUT queue AS List OF List OF canvas::Point = s.queue
+  MUT queue AS List OF List OF vector::Float2 = s.queue
   MUT nextAt AS Float = s.nextAt
   ' On arrival, and after a resize, the name is queued to carve.
   IF s.w <> w OR s.h <> h THEN
@@ -181,7 +182,7 @@ FUNC scribeStep(s AS ScribeState, inp AS Input, dt AS Float) AS ScribeState
     nextAt = t + 0.6
   END IF
   IF len(queue) > 0 AND t >= nextAt THEN
-    LET stroke AS List OF canvas::Point = collections::get(queue, 0)
+    LET stroke AS List OF vector::Float2 = collections::get(queue, 0)
     LET l AS Float = pathLength(stroke)
     carvings = collections::append(carvings, Carving[points := stroke, length := l, cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Miter, dashed := FALSE, age := 0.0])
     queue = collections::drop(queue, 1)
@@ -205,15 +206,15 @@ FUNC scribeStep(s AS ScribeState, inp AS Input, dt AS Float) AS ScribeState
   IF keyPressed(inp, "c") THEN carvings = []
 
   ' Drawing on the stone.
-  MUT drawing AS List OF canvas::Point = s.drawing
+  MUT drawing AS List OF vector::Float2 = s.drawing
   LET onStone AS Boolean = inp.mx > stone.x AND inp.mx < stone.x + stone.w AND inp.my > stone.y AND inp.my < stone.y + stone.h
   IF inp.pressed AND hover < 0 AND onStone THEN drawing = [pt(inp.mx, inp.my)]
   IF inp.down AND len(drawing) > 0 THEN
-    LET last AS canvas::Point = collections::get(drawing, len(drawing) - 1)
+    LET last AS vector::Float2 = collections::get(drawing, len(drawing) - 1)
     IF dist(last.x, last.y, inp.mx, inp.my) > 3.0 THEN drawing = collections::append(drawing, pt(clampF(inp.mx, stone.x, stone.x + stone.w), clampF(inp.my, stone.y, stone.y + stone.h)))
   END IF
   IF NOT inp.down AND len(drawing) > 0 THEN
-    LET clean AS List OF canvas::Point = simplify(drawing, 2.5)
+    LET clean AS List OF vector::Float2 = simplify(drawing, 2.5)
     IF len(clean) >= 2 THEN carvings = collections::append(carvings, Carving[points := clean, length := pathLength(clean), cap := cap, join := join, dashed := dashed, age := 0.0])
     drawing = []
   END IF
@@ -253,7 +254,7 @@ FUNC carve(c AS Carving, width AS Float, t AS Float) AS List OF canvas::DrawItem
     out = collections::append(out, trail(c.points, [], WITH base { stroke := fade(hex("#ffd27a"), heat), strokeWidth := width * 0.45, blend := canvas::BlendMode.Add }))
   END IF
   IF cut < 1.0 THEN
-    LET tip AS canvas::Point = pointAlong(c.points, shown)
+    LET tip AS vector::Float2 = pointAlong(c.points, shown)
     out = collections::append(out, glow(tip.x, tip.y, width * 5.0, hex("#ffc86a")))
     out = collections::append(out, circle(tip.x, tip.y, width * 0.5, fillP(color::white)))
   END IF
@@ -261,11 +262,11 @@ FUNC carve(c AS Carving, width AS Float, t AS Float) AS List OF canvas::DrawItem
 END FUNC
 
 ' The point `d` pixels along a path.
-FUNC pointAlong(points AS List OF canvas::Point, d AS Float) AS canvas::Point
+FUNC pointAlong(points AS List OF vector::Float2, d AS Float) AS vector::Float2
   MUT left AS Float = d
   FOR i = 1 TO len(points) - 1
-    LET a AS canvas::Point = collections::get(points, i - 1)
-    LET b AS canvas::Point = collections::get(points, i)
+    LET a AS vector::Float2 = collections::get(points, i - 1)
+    LET b AS vector::Float2 = collections::get(points, i)
     LET seg AS Float = dist(a.x, a.y, b.x, b.y)
     IF left <= seg THEN RETURN pt(lerp(a.x, b.x, left / math::max(seg, 0.0001)), lerp(a.y, b.y, left / math::max(seg, 0.0001)))
     left = left - seg
@@ -320,7 +321,7 @@ FUNC scribeDraw(s AS ScribeState, f AS Fonts, w AS Float, h AS Float) AS List OF
   NEXT
   out = collections::append(out, rect(0.0, h * 0.86, w, 1.0, fillP(rgba(255, 220, 180, 30))))
   ' The stone, its face lit from the left, its edge picked out.
-  LET ring AS List OF canvas::Point = stoneRing(stone)
+  LET ring AS List OF vector::Float2 = stoneRing(stone)
   out = collections::append(out, poly(shiftPts(ring, 10.0, 14.0), fillP(rgba(0, 0, 0, 120))))
   out = collections::append(out, poly(ring, WITH gradP(focal(stone.x + stone.w * 0.3, stone.y + stone.h * 0.4, stone.w, -stone.w * 0.2, -stone.h * 0.1, [gstop(0.0, hex("#6a6660")), gstop(0.6, hex("#45423f")), gstop(1.0, hex("#26252a"))])) { stroke := hex("#8a847a"), strokeWidth := 2.0, join := canvas::JoinStyle.Bevel }))
   ' Lichen and grain on the stone, clipped to it.

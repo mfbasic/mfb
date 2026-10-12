@@ -86,9 +86,10 @@ const CANVAS: &str = "\
 IMPORT app\n\
 IMPORT canvas\n\
 IMPORT color\n\
+IMPORT vector\n\
 FUNC main() AS Nothing\n\
   app::setMode(app::Mode.Canvas)\n\
-  canvas::present([canvas::Circle[x := 60.0, y := 40.0, radius := 6.0, paint := canvas::fill(color::rgb(40, 200, 120))]])\n\
+  canvas::present([canvas::Circle[id := \"\", position := vector::Float2[x := 60.0, y := 40.0], radius := 6.0, paint := canvas::fill(color::rgb(40, 200, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n\
 END FUNC\n";
 
 fn win64_allocatable_callee_saved_xmm() -> BTreeSet<String> {

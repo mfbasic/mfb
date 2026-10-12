@@ -20,6 +20,7 @@
 ' reader never re-scans a string.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -63,12 +64,12 @@ END TYPE
 ' is filled as if closed (as SVG fills it) but stroked without its closing
 ' edge.
 TYPE Rings
-  rings AS List OF List OF canvas::Point
+  rings AS List OF List OF vector::Float2
   closed AS List OF Boolean
 END TYPE
 
 TYPE SvgShape
-  contours AS List OF List OF canvas::Point
+  contours AS List OF List OF vector::Float2
   closed AS List OF Boolean
   paint AS SvgPaintSpec
   transform AS canvas::Transform
@@ -264,7 +265,7 @@ FUNC parseTransform(text AS String) AS canvas::Transform
   RETURN result
 END FUNC
 
-FUNC applyT(t AS canvas::Transform, p AS canvas::Point) AS canvas::Point
+FUNC applyT(t AS canvas::Transform, p AS vector::Float2) AS vector::Float2
   RETURN pt(t.a * p.x + t.c * p.y + t.tx, t.b * p.x + t.d * p.y + t.ty)
 END FUNC
 
@@ -360,7 +361,7 @@ END FUNC
 
 ' The points of an elliptical arc from (x1, y1) to (x2, y2), by the
 ' endpoint-to-centre conversion of SVG 1.1 appendix F.6.5, excluding the start.
-FUNC arcPts(x1 AS Float, y1 AS Float, rx0 AS Float, ry0 AS Float, angleDeg AS Float, large AS Boolean, sweep AS Boolean, x2 AS Float, y2 AS Float) AS List OF canvas::Point
+FUNC arcPts(x1 AS Float, y1 AS Float, rx0 AS Float, ry0 AS Float, angleDeg AS Float, large AS Boolean, sweep AS Boolean, x2 AS Float, y2 AS Float) AS List OF vector::Float2
   IF rx0 = 0.0 OR ry0 = 0.0 THEN RETURN [pt(x2, y2)]
   MUT rx AS Float = math::abs(rx0)
   MUT ry AS Float = math::abs(ry0)
@@ -391,7 +392,7 @@ FUNC arcPts(x1 AS Float, y1 AS Float, rx0 AS Float, ry0 AS Float, angleDeg AS Fl
   IF sweep AND da < 0.0 THEN da = da + TAU
   IF NOT sweep AND da > 0.0 THEN da = da - TAU
   LET steps AS Integer = math::max(4, math::min(48, (math::round(math::abs(da) * math::max(rx, ry) * 0.5))))
-  MUT out AS List OF canvas::Point = []
+  MUT out AS List OF vector::Float2 = []
   FOR i = 1 TO steps
     LET a AS Float = a1 + da * toFloat(i) / toFloat(steps)
     out = collections::append(out, pt(cx + co * rx * math::cos(a) - si * ry * math::sin(a), cy + si * rx * math::cos(a) + co * ry * math::sin(a)))
@@ -403,9 +404,9 @@ END FUNC
 FUNC parsePath(d AS String) AS Rings
   LET cs AS List OF Integer = codes(d)
   LET n AS Integer = len(cs)
-  MUT rings AS List OF List OF canvas::Point = []
+  MUT rings AS List OF List OF vector::Float2 = []
   MUT closed AS List OF Boolean = []
-  MUT ring AS List OF canvas::Point = []
+  MUT ring AS List OF vector::Float2 = []
   MUT i AS Integer = 0
   MUT cmd AS Integer = 0
   MUT x AS Float = 0.0
@@ -680,7 +681,7 @@ FUNC shapeRings(t AS Tag) AS Rings
       RETURN Rings[rings := [[pt(attrNum(t, "x1", 0.0), attrNum(t, "y1", 0.0)), pt(attrNum(t, "x2", 0.0), attrNum(t, "y2", 0.0))]], closed := [FALSE]]
     CASE "polygon", "polyline"
       LET ns AS List OF Float = numbers(attr(t, "points"))
-      MUT ring AS List OF canvas::Point = []
+      MUT ring AS List OF vector::Float2 = []
       FOR k = 0 TO len(ns) / 2 - 1
         ring = collections::append(ring, pt(collections::get(ns, k * 2), collections::get(ns, k * 2 + 1)))
       NEXT
@@ -836,7 +837,7 @@ FUNC findGradient(img AS SvgImage, id AS String) AS SvgGradient
   RETURN gradientFrom(Tag[name := "", attrs := Map OF String TO String {}, closing := FALSE, selfClosing := FALSE, after := 0])
 END FUNC
 
-FUNC bounds(rings AS List OF List OF canvas::Point) AS Box
+FUNC bounds(rings AS List OF List OF vector::Float2) AS Box
   MUT x0 AS Float = 1.0e9
   MUT y0 AS Float = 1.0e9
   MUT x1 AS Float = -1.0e9
@@ -854,7 +855,7 @@ END FUNC
 
 ' The canvas gradient for an SVG gradient used by a shape: in the shape's own
 ' user space, or its bounding box for objectBoundingBox units.
-FUNC canvasGradient(g AS SvgGradient, rings AS List OF List OF canvas::Point, opacity AS Float) AS canvas::Gradient
+FUNC canvasGradient(g AS SvgGradient, rings AS List OF List OF vector::Float2, opacity AS Float) AS canvas::Gradient
   MUT tr AS canvas::Transform = g.transform
   IF g.boundingBox THEN
     LET b AS Box = bounds(rings)
@@ -879,22 +880,22 @@ FUNC svgItems(img AS SvgImage, view AS canvas::Transform, outline AS Boolean, t 
   FOR EACH s IN img.shapes
     LET tr AS canvas::Transform = compose(view, s.transform)
     IF outline THEN
-      out = collections::append(out, shape(s.contours, s.paint.rule, WITH canvas::stroke(rgba(120, 220, 255, 200), 0.35) { transform := tr, join := canvas::JoinStyle.Round }))
+      out = collections::append(out, placed(shape(s.contours, s.paint.rule, WITH canvas::stroke(rgba(120, 220, 255, 200), 0.35) { join := canvas::JoinStyle.Round }), tr))
     ELSE
-      IF s.hasFill THEN out = collections::append(out, shape(s.contours, s.paint.rule, WITH s.fill { transform := tr }))
+      IF s.hasFill THEN out = collections::append(out, placed(shape(s.contours, s.paint.rule, s.fill), tr))
       IF s.hasStroke THEN
         ' The outline: closed rings as one stroked, unfilled Polygon; each open
         ' subpath as a PolyLine, so it is not closed back to its start.
-        LET sp AS canvas::Paint = WITH s.stroke { transform := tr }
-        MUT shut AS List OF List OF canvas::Point = []
+        LET sp AS canvas::Paint = s.stroke
+        MUT shut AS List OF List OF vector::Float2 = []
         FOR k = 0 TO len(s.contours) - 1
           IF collections::get(s.closed, k) THEN
             shut = collections::append(shut, [collections::get(s.contours, k)])
           ELSE
-            out = collections::append(out, path(collections::get(s.contours, k), sp))
+            out = collections::append(out, placed(path(collections::get(s.contours, k), sp), tr))
           END IF
         NEXT
-        IF len(shut) > 0 THEN out = collections::append(out, shape(shut, s.paint.rule, sp))
+        IF len(shut) > 0 THEN out = collections::append(out, placed(shape(shut, s.paint.rule, sp), tr))
       END IF
     END IF
   NEXT

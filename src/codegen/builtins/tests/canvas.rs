@@ -29,11 +29,12 @@ use crate::testutil::{app_code_cached, code_function, CodeTarget};
 const PRESENT_SRC: &str = "\
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 
 FUNC scene(r AS Float) AS List OF canvas::DrawItem
   LET c AS color::Color = color::rgb(10, 20, 30)
-  LET a AS canvas::DrawItem = canvas::Circle[x := 1.0, y := 2.0, radius := r, paint := canvas::fill(c)]
+  LET a AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 1.0, y := 2.0], radius := r, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   RETURN [a]
 END FUNC
 
@@ -44,7 +45,7 @@ END FUNC
 FUNC main() AS Integer
   app::setMode(app::Mode.Canvas)
   canvas::setGroup(\"light\", scene(3.0))
-  canvas::present([canvas::Group[dx := 4.0, dy := 5.0, name := \"light\"]])
+  canvas::present([canvas::Group[id := \"\", position := vector::Float2[x := 4.0, y := 5.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"light\"]])
   canvas::removeGroup(\"light\")
   canvas::present(scene(5.0))
   canvas::presentLayers(layered(5.0))
@@ -572,6 +573,7 @@ const USER_TYPES_NAMED_LIKE_CANVAS_SRC: &str = "\
 IMPORT app
 IMPORT canvas
 IMPORT color
+IMPORT vector
 
 TYPE Circle
   r AS Float
@@ -589,7 +591,7 @@ END UNION
 FUNC main() AS Integer
   app::setMode(app::Mode.Canvas)
   LET s AS Shape = Circle[1.0]
-  canvas::present([canvas::Circle[x := 1.0, y := 2.0, radius := 3.0, paint := canvas::fill(color::black)], canvas::Rectangle[x := 0.0, y := 0.0, w := 1.0, h := 1.0, paint := canvas::fill(color::black)]])
+  canvas::present([canvas::Circle[id := \"\", position := vector::Float2[x := 1.0, y := 2.0], radius := 3.0, paint := canvas::fill(color::black), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], canvas::Rectangle[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 1.0, height := 1.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::black), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
   RETURN 0
 END FUNC
 ";

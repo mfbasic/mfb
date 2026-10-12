@@ -1,5 +1,6 @@
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 
@@ -27,10 +28,10 @@ FUNC main() AS Nothing
     LET x AS Float = toFloat((k * 11) MOD 870)
     LET y AS Float = toFloat((k * 7) MOD 610)
     IF k MOD 2 = 0 THEN
-      LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := 32.0, h := 32.0, image := a, paint := white]
+      LET p AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := a]
       scene = collections::append(scene, p)
     ELSE
-      LET p AS canvas::DrawItem = canvas::Picture[x := x, y := y, w := 32.0, h := 32.0, image := b, paint := white]
+      LET p AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 32.0, height := 32.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := b]
       scene = collections::append(scene, p)
     END IF
     k = k + 1

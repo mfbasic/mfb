@@ -21,7 +21,7 @@ shape's x), calls `clampShapes` (the fix), and checks: the shape's centre is
 no longer past the new play area; a click on a point on the shape's visible
 body (not its exact mathematical centre — see "A boundary note, not a bug"
 below) is decided by `shapeAt`, not swallowed by `onToolbar`. It calls the
-real `onToolbar`/`buttonAt` with a real `canvas::Point`, exactly as
+real `onToolbar`/`buttonAt` with a real `vector::Float2`, exactly as
 `examples/water/src/main.mfb` does — this probe is an `--app` build, run
 headless via `MFB_MACAPP_HEADLESS=1` (the same technique `wind-map-probe`
 uses), so no signature substitute is needed.

@@ -1,0 +1,57 @@
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT vector
+
+' plan-172-K: `canvas::AutoPaint` on the GPU, over the default black surface.
+'
+' Three buttons, each an `AutoPaint` that shows its hover paint the moment the pointer
+' is on it (`useEnter` is off, so there is no flash to wait out): one in the scene
+' itself at (100, 100), and one in a group that is drawn twice, at (100, 300) and
+' (500, 300). A filled label and a stroked one lie on the first button.
+'
+' The pointer is put on a button by `MFB_CANVAS_POINTER`, so the frame the program
+' leaves behind is a HOVERED one, and which button says which GPU path is under test:
+'
+'   * `0,280,120,0,1` -- the scene's own button. Its entry in the frame is swapped for
+'     the hover paint's record, and the GPU draw list reads the swapped offset.
+'   * `0,150,320,0,1` -- the group's first use. The group's run is laid out once and
+'     shared by its uses, so the hovered use needs a run of its own
+'     (`__canvas_autoVariant`) and the other must keep the shared one.
+'
+' The hover paints are a gradient with a stroke, so the swapped record is not one the
+' shape's own paint could have produced, and the labels are there because a program
+' with an `AutoPaint` writes a text's layout box into its record
+' (`__canvas_autoTextBox`) -- which the GPU must draw exactly as it drew it before.
+
+FUNC lit() AS canvas::Paint
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 120, 0)], canvas::GradientStop[offset := 1.0, color := color::rgb(255, 230, 60)]]
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 200.0, y := 80.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  RETURN WITH canvas::fillStroke(color::rgb(255, 120, 0), color::rgb(255, 255, 255), 6.0) { gradient := ramp }
+END FUNC
+
+FUNC button(x AS Float, y AS Float, id AS String) AS canvas::DrawItem
+  MUT r AS canvas::Rectangle
+  r = WITH r { id := id, position := vector::Float2[x := x, y := y], size := canvas::Size[width := 200.0, height := 80.0], radiusTL := 14.0, radiusTR := 14.0, radiusBL := 14.0, radiusBR := 14.0, paint := canvas::fillStroke(color::rgb(40, 90, 200), color::rgb(150, 190, 255), 2.0) }
+  LET off AS canvas::Paint = canvas::fill(color::rgb(0, 0, 0))
+  LET a AS canvas::AutoPaint = canvas::AutoPaint[shape := r, useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := off, exitPaint := off, hoverPaint := lit(), pressedPaint := off]
+  LET item AS canvas::DrawItem = a
+  RETURN item
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    RETURN
+  END TRAP
+  LET filled AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 120.0, y := 165.0], text := "AB", font := face, fontSize := 40.0, paint := canvas::fill(color::rgb(240, 240, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET outlined AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 190.0, y := 165.0], text := "AB", font := face, fontSize := 40.0, paint := canvas::stroke(color::rgb(240, 240, 120), 2.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  canvas::setGroup("face", [button(0.0, 0.0, "face")])
+  MUT first AS canvas::Group
+  first = WITH first { id := "one", position := vector::Float2[x := 100.0, y := 300.0], name := "face" }
+  MUT second AS canvas::Group
+  second = WITH second { id := "two", position := vector::Float2[x := 500.0, y := 300.0], name := "face" }
+  LET one AS canvas::DrawItem = first
+  LET two AS canvas::DrawItem = second
+  canvas::present([button(100.0, 100.0, "top"), filled, outlined, one, two])
+END FUNC

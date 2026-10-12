@@ -13,6 +13,7 @@ J
 cat > "$DIR/src/main.mfb" <<M
 IMPORT app
 IMPORT canvas
+IMPORT vector
 IMPORT color
 IMPORT collections
 IMPORT datetime
@@ -26,14 +27,14 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   LET n AS Integer = 10000
   LET paint AS canvas::Paint = canvas::fill(color::rgba(0, 200, 255, 160))
-  LET quad AS List OF canvas::Point = [canvas::Point[x := 0.0, y := 0.0], canvas::Point[x := 8.0, y := 0.0], canvas::Point[x := 8.0, y := 8.0], canvas::Point[x := 0.0, y := 8.0]]
+  LET quad AS List OF vector::Float2 = [vector::Float2[x := 0.0, y := 0.0], vector::Float2[x := 8.0, y := 0.0], vector::Float2[x := 8.0, y := 8.0], vector::Float2[x := 0.0, y := 8.0]]
   MUT rep AS Integer = 0
   WHILE rep < 3
     MUT t AS Integer = datetime::monotonicNanos()
     MUT rects AS List OF canvas::DrawItem = []
     MUT k AS Integer = 0
     WHILE k < n
-      LET it AS canvas::DrawItem = canvas::Rectangle[x := toFloat(k MOD 880), y := toFloat(k MOD 620), w := 8.0, h := 8.0, paint := paint]
+      LET it AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(k MOD 880), y := toFloat(k MOD 620)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 8.0, height := 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       rects = collections::append(rects, it)
       k = k + 1
     END WHILE
@@ -42,16 +43,16 @@ FUNC main() AS Nothing
     MUT polys AS List OF canvas::DrawItem = []
     k = 0
     WHILE k < n
-      LET it AS canvas::DrawItem = canvas::Polygon[contours := [quad], rule := canvas::FillRule.EvenOdd, paint := paint]
+      LET it AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [quad], rule := canvas::FillRule.EvenOdd, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
       polys = collections::append(polys, it)
       k = k + 1
     END WHILE
     io::print("build 10k 4-pt polygons (shared points): " & ms(t))
     t = datetime::monotonicNanos()
-    MUT pts AS List OF canvas::Point = []
+    MUT pts AS List OF vector::Float2 = []
     k = 0
     WHILE k < 40000
-      pts = collections::append(pts, canvas::Point[x := toFloat(k MOD 880), y := 1.0])
+      pts = collections::append(pts, vector::Float2[x := toFloat(k MOD 880), y := 1.0])
       k = k + 1
     END WHILE
     io::print("build 40k points: " & ms(t))

@@ -353,7 +353,7 @@ fn emit_coordinates(
     ins.push(abi::branch(&converted));
 
     // Pixels (mode 2): the client point already is the surface point, and Win32's
-    // client origin is top-left like `canvas::Point`'s — so no flip, unlike macOS.
+    // client origin is top-left like `vector::Float2`'s — so no flip, unlike macOS.
     ins.push(abi::label(&pixels));
     // The pixel surface's extent lives in the canvas graphics state, a data object
     // only a program that uses `canvas::` has. Without it there is no pixel surface

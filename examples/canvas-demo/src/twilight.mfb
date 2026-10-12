@@ -13,6 +13,7 @@
 ' GradientSpread.Repeat, its rings pulsing outward as its radius is animated.
 
 IMPORT canvas
+IMPORT vector
 IMPORT collections
 IMPORT color
 IMPORT math
@@ -52,7 +53,7 @@ END FUNC
 
 ' The things the flock keeps clear of, as circles: the fountain and the cliff
 ' tree's crown.
-FUNC fountainSpot(w AS Float, h AS Float) AS canvas::Point
+FUNC fountainSpot(w AS Float, h AS Float) AS vector::Float2
   RETURN pt(w * 0.56, h * 0.56)
 END FUNC
 
@@ -71,7 +72,7 @@ FUNC twilightStep(s AS TwilightState, inp AS Input, dt AS Float) AS TwilightStat
   END IF
   LET mouseIn AS Boolean = inp.mx >= 0.0
   LET lure AS Boolean = inp.down AND mouseIn
-  LET fs AS canvas::Point = fountainSpot(w, h)
+  LET fs AS vector::Float2 = fountainSpot(w, h)
   LET n AS Integer = len(boids)
   LET view AS Float = 70.0
   LET sepR AS Float = 18.0
@@ -210,7 +211,7 @@ FUNC runeFountain(x AS Float, baseY AS Float, s AS Float, t AS Float) AS List OF
     FOR side = -1 TO 1 STEP 2
       LET sx AS Float = x + toFloat(side) * br
       LET drop AS Float = s * (0.36 - 0.02)
-      MUT sheet AS List OF canvas::Point = []
+      MUT sheet AS List OF vector::Float2 = []
       FOR j = 0 TO 8
         LET u AS Float = toFloat(j) / 8.0
         sheet = collections::append(sheet, pt(sx + toFloat(side) * s * 0.08 * math::sqrt(u), by + drop * u))
@@ -264,7 +265,7 @@ FUNC twilightDraw(s AS TwilightState, w AS Float, h AS Float) AS List OF canvas:
   LET my AS Float = h * 0.17
   LET mr AS Float = h * 0.06
   out = collections::append(out, glow(mx, my, mr * 6.0, rgba(255, 200, 220, 45)))
-  LET bite AS List OF List OF canvas::Point = [rectRing(mx - mr * 2.0, my - mr * 2.0, mr * 4.0, mr * 4.0), ovalRing(mx + mr * 0.42, my - mr * 0.18, mr * 0.9, mr * 0.9, 40, 0.0)]
+  LET bite AS List OF List OF vector::Float2 = [rectRing(mx - mr * 2.0, my - mr * 2.0, mr * 4.0, mr * 4.0), ovalRing(mx + mr * 0.42, my - mr * 0.18, mr * 0.9, mr * 0.9, 40, 0.0)]
   out = collections::append(out, circle(mx, my, mr, WITH gradP(focal(mx, my, mr, -mr * 0.4, mr * 0.2, [gstop(0.0, hex("#fff8ea")), gstop(1.0, hex("#f6d8c0"))])) { clip := bite, clipRule := canvas::FillRule.EvenOdd }))
 
   ' Mountains, and their reflection: the same items under a transform that
@@ -297,7 +298,7 @@ FUNC twilightDraw(s AS TwilightState, w AS Float, h AS Float) AS List OF canvas:
   NEXT
 
   ' The fountain on its island, and its reflection.
-  LET fs AS canvas::Point = fountainSpot(w, h)
+  LET fs AS vector::Float2 = fountainSpot(w, h)
   LET fountain AS List OF canvas::DrawItem = runeFountain(fs.x, horizon + h * 0.03, h * 0.2, t)
   out = collections::append(out, restyle(fountain, canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := -0.7, tx := 0.0, ty := (horizon + h * 0.03) * 1.7], 0.6))
   out = collections::append(out, fountain)
