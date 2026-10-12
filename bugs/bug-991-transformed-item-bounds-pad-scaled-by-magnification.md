@@ -5,8 +5,124 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other (Performance)
 
-Status: Open
+Status: Open (stopped by bs23-agent-b, 2026-10-12: the Cause note's premises do not hold in the code; see "Stopped")
 Regression Test: planned `tests/canvas/rt_canvas_rasteriser.rs` (transformed-bounds case) + `tools/canvas-bench/bench.sh <mfb> magnified-polygons` (new scene)
+
+## Stopped (bs23-agent-b, 2026-10-12, bug-staging-23)
+
+No rendering code was changed for this bug. The audit below found two things the Cause
+note assumes that the code does not do, and one it does not mention. Each is enough to
+stop on by the brief's rules (a changed pixel; a mapper that would have to know how wide a
+header's rim is).
+
+**1. The removed pixels do not all have coverage 0.** Under a transform the coverage is
+`clamp(0.5 - d / g, 0, 1)`, `d` the distance in the item's own space and `g` the length of
+its central differences at half a surface pixel (`__canvas_drawGeometry`,
+`shapeCoverage`). `d / g` is the surface distance only where the map is a similarity. All
+that bounds it is `g <= F` (`F` the inverse's Frobenius norm), so coverage can be nonzero
+as far as `0.5 * F` shape units from the outline, and through an uneven transform that is
+more than a surface pixel. Measured at main, `bugs/repro/bug-991/anisotropic_halo.mfb` (a
+`Circle` of radius 0.05 under `Transform[a := 100, d := 1, tx := 300, ty := 200.3]`: on
+the surface an ellipse from x = 295 to 305):
+
+```
+mfb build --app --debug <dir>
+MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=0 MFB_CANVAS_DUMP=sw.rgba <binary>
+lit pixels (red channel non-zero): 26, x 287..312, y 200
+  (287, 200) 38   (288, 200) 53   (289, 200) 64  ...  (311, 200) 53   (312, 200) 38
+```
+
+`MFB_CANVAS_GPU=1` (Metal) draws the same 26 pixels with the same values. The mapped hull
+plus one pixel is x 294..306, so the Cause note's box drops 13 lit pixels, 7 on the left
+and 6 on the right. Today they are drawn because the shape-unit rim is 100 px wide there.
+They are an artefact of the first-order estimate (a pixel 7 px past the end of the
+ellipse is not "within half a pixel" of it), and the same on-surface ellipse written as a
+radius-5 circle under `Transform[a := 1, d := 0.01]` already has them cut by today's
+2 px rim, so the picture today depends on how the transform is factored. But "every
+rendered pixel stays identical" is not true of the fix as assigned, and which pixels a
+thin shape under an uneven transform shows is a contract question the doc does not
+settle. A rim that IS pixel-exact follows from the same bound: map
+`extent +- reach +- 0.5 * F` and add the pixel after. Under a uniform scale `S` that is
+0.71 px plus the pixel, whatever `S` is, so it meets the Goal; under an uneven transform
+it keeps the halo. It was not built or measured here.
+
+**2. Not every caller of the mapper passes a 1.0 rim.** `__canvas_boundsHeader` has
+twelve callers (`grep -n "__canvas_boundsHeader(" src/codegen/builtins/canvas/helper_*.rs`). Nine pass `extent +- reach +- 1.0`. Three do not:
+
+| caller | box it passes | what "take 1.0 off, map, add a pixel" does |
+|---|---|---|
+| `helper_geometry.rs:__canvas_glyphRunHeader` | x: the pens' range `+- 2 * fontSize`; y: ascent and descent `+- 2.0`. A metrics box, not ink plus a rim | x keeps `2 * fontSize - 1`, which is negative for a font under half a unit (text drawn in unit space and magnified, this bug's own case): the box inverts. The run's box is the damage rectangle (`helper_damage.rs`, through `__canvas_drawBound`) and the quad each glyph's own quad is narrowed to on the GPUs (`metal.rs`, "The per-glyph quad narrows the item's quad") |
+| `helper_hit.rs:__canvas_textBoxHeader` | the layout box exactly, no rim (worker-only record) | shrinks it by a unit a side. Nothing reads slots 16-19 of a text box today (`__canvas_hitCurrent` skips the bounds reject for one and tests the `TEXT_BOX` slots), so it is wrong and unobserved |
+| `helper_picture.rs:__canvas_pictureHeader` | the destination `+- 2.0` | correct, by accident of the numbers: a `grown` picture's rectangle edge really is one unit outside the destination (radius slot 1, box whole), so `+- 1.0` is its extent; a picture that is not `grown` keeps one surplus unit |
+
+So the mapper cannot take a fixed 1.0 off without knowing which header it has, and it may
+not name kinds. The header would have to say how wide its rim is (a slot), or the
+builders would have to hand the mapper the rim separately (the doc's original Fix Design
+step 1, which the Cause note rules out: "the nine header builders are not touched").
+Either is the coordinator's call.
+
+**3. The GPU group stage adds its own pad on top.** `mfb_canvas.vert` and Metal's
+`mfbVertex` grow the header's box by `length(gi)` (the group inverse's Frobenius norm, in
+the group's space) before the forward map. That is the at-least-one-pixel pad
+`__canvas_drawBound` adds after its map; the header's own 1.0 rim is still inside the
+box both carry. The software and GPU sites are therefore not the same expression today,
+and a fix has three group sites (`__canvas_drawBound`, the two vertex stages), not one.
+
+### Audit: each builder's reach without the 1.0
+
+"Full" means the box without the 1.0 contains everything the item can draw at coverage
+above zero in its own space, before the antialiasing rim.
+
+| site | box before the 1.0 | verdict |
+|---|---|---|
+| `helper_joins.rs:__canvas_strokePad` (polygon, rectangle, stroked text outlines, `PolyCurve`, `CurvePolygon`) | `half`; `half * sqrt(2)` for a dashed Square paint (`__canvas_dashCapReach`); `max(that, half * max(miterLimit, 1))` for a Miter join | full: a miter point is at most `half * miterLimit` from its vertex, a bevel or round corner within `half`, a dash end within the cap reach |
+| `__canvas_rectHeader` | the rectangle `+- strokePad` | full |
+| `__canvas_circleHeader` | `radius + dashCapReach(half)` | full |
+| `__canvas_ellipseHeader` | the hull `hx`, `hy` `+ dashCapReach(half)` | full |
+| `__canvas_segmentHeader` (Line) | the two ends `+- capReach(half, cap)` (`half * sqrt(2)` for Square) | full |
+| `__canvas_arcHeader` | `radius + capReach(half, cap)` about the centre | full (the whole circle's box, conservative) |
+| `__canvas_polygonHeader` | the points' box `+- strokePad` | full |
+| `__canvas_polylineHeader` | the points' box `+- max(capReach, joinReach)` | full |
+| `__canvas_textHeader` (stroked run, outlines) | the outlines' box `+- strokePad` | full |
+| `helper_curves.rs` `PolyCurve` / `CurvePolygon` header | the pieces' extent `+- strokePad`, and for an open path `max(strokePad, capReach + 1.0)` | full; a plain 1.0 rim |
+| `__canvas_glyphRunHeader` | see 2 | NOT a 1.0 rim |
+| `__canvas_pictureHeader` | see 2 | 1.0 after the grown edge; conservative otherwise |
+| `helper_hit.rs:__canvas_textBoxHeader` | see 2 | no rim at all |
+| `__canvas_clipHeader` (slots 22-25) | maps first, then a pixel | already the rule; untouched |
+| `func_geo_build.rs` (native, identity transform only) | `+ 1.0` in surface pixels | untouched; an untransformed header stays as it is |
+
+Consumers of slots 16-19, all through `__canvas_drawBound` except the GPU quad:
+`__canvas_drawGeometry`'s pixel loop (truncates each bound to a pixel index),
+`helper_damage.rs` (the changed-item rectangles and the remembered scene; both sides use
+the same function, so smaller bounds shrink damage consistently), `helper_hit.rs`
+(`__canvas_hitCurrent` rejects outside the bounds `+- 3.0`; a smaller box narrows the
+reject and never the hit, which the item's own distance decides), and the item block's
+`quad` on both GPUs.
+
+### What was added
+
+- `tools/canvas-bench/bench.sh <mfb> magnified-polygons [FRAMES] [--software]`
+  (`gen/magnified.sh`, this bug's repro with the mode written in). At this commit, load
+  average 12 to 17 (indicative):
+
+| mode | Metal ms/frame (40 frames) | software ms/frame (3 frames) |
+|---|---|---|
+| `flat` | 30.1 | 17,576 |
+| `group` | 29.9 | 18,261 |
+| `x10` | 9.1 | 556 |
+| `x100` | 5.8 | 164 |
+| `pix` | 3.8 | 34 |
+| `circle-xf` | 12.7 | 5,070 |
+| `circle-pix` | 3.0 | 14 |
+
+  These are headless render-phase times, not the real-window `frameMs` of the table
+  above; the ratios are the same.
+- `bugs/repro/bug-991/anisotropic_halo.mfb`, the scene of finding 1.
+
+Not done, because they need the fix: the bounds assertion test (it fails today by
+construction and cannot be committed red), byte-identity against pre-transformed
+coordinates, and secondary 1 (the `0.5 * max(F, 1)` early-out radius), which the doc says
+to measure after the pad is fixed.
 
 ## Cause (coordinator, 2026-10-12, bug-staging-23)
 

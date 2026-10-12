@@ -1,0 +1,12 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+' A circle of radius 0.05 under a transform that scales x by 100 and y by 1: on the
+' surface an ellipse 5 px either side of x = 300 and 0.05 px either side of y = 200.3.
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET t AS canvas::Transform = canvas::Transform[a := 100.0, b := 0.0, c := 0.0, d := 1.0, tx := 300.0, ty := 200.3]
+  canvas::present([canvas::Circle[id := "", position := vector::Float2[x := 0.0, y := 0.0], radius := 0.05, paint := canvas::fill(color::rgb(255, 255, 255)), transform := t]])
+END FUNC

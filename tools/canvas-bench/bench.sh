@@ -15,6 +15,7 @@
 #   worker
 #   hit
 #   clips [ITEMS] [FRAMES]
+#   magnified-polygons [FRAMES] [--software]
 #   compare stress|poly|pics|text ARGS...
 #
 # Without --target/--box, everything runs headless (MFB_MACAPP_HEADLESS=1)
@@ -65,7 +66,7 @@ LINUX_FONT="/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"
 WIN_FONT='C:\Windows\Fonts\arial.ttf'
 
 usage() {
-  sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -727,6 +728,37 @@ cmd_clips() {
 }
 
 # ---------------------------------------------------------------------------
+# magnified-polygons (bug-991)
+# ---------------------------------------------------------------------------
+cmd_magnified() {
+  local frames=40 gpu=1
+  local a
+  for a in "$@"; do
+    case "$a" in --software) gpu=0 ;; *) frames=$a ;; esac
+  done
+  local what="GPU"; [ "$gpu" = 0 ] && what="software"
+  echo "# 49 discs about 27 px across, --debug build, $what, MFB_CANVAS_SYNC=1; ms/frame is the render phase after the first frame"
+  local mode
+  for mode in flat group x10 x100 pix circle-xf circle-pix; do
+    local dir="$WORK/magnified-$mode"
+    bash "$GEN/magnified.sh" "$dir" "$mode" "$frames"
+    build_app "$dir" --debug
+    local stats="$dir/stats"
+    if [ -n "$LINUX_TARGET" ]; then
+      if [ "$WIN" = 1 ] && [ "$gpu" = 1 ]; then linux_run "$dir" magnified "" "MFB_CANVAS_GPU=1" "MFB_CANVAS_SYNC=1" || true; fi
+      linux_run "$dir" magnified "" "MFB_CANVAS_GPU=$gpu" "MFB_CANVAS_SYNC=1" "MFB_CANVAS_STATS=$stats" || true
+    else
+      env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=$gpu MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS="$stats" \
+        "$(bin_path "$dir" magnified)" >/dev/null 2>&1 || true
+    fi
+    local rendered; rendered=$(wc -l < "$stats" 2>/dev/null | tr -d ' '); rendered=${rendered:-0}
+    local gp; gp=$(stats_field "$stats" gpuFrames); gp=${gp:-0}
+    printf "mode=%-10s | ms/frame=%-8s renderer=%-8s frames=%s\n" \
+      "$mode" "$(clips_ms "$stats")" "$(renderer_of "$rendered" "$gp")" "$rendered"
+  done
+}
+
+# ---------------------------------------------------------------------------
 compare_run() {
   # compare_run DIR BINNAME -- sw vs gpu dump on an already-generated project.
   local dir=$1 name=$2
@@ -813,6 +845,7 @@ case "$CMD" in
   worker) cmd_worker "$@" ;;
   hit) cmd_hit "$@" ;;
   clips) cmd_clips "$@" ;;
+  magnified-polygons) cmd_magnified "$@" ;;
   compare) cmd_compare "$@" ;;
   *) usage ;;
 esac
