@@ -264,6 +264,37 @@ FUNC __canvas_invY(offset AS Integer, px AS Float, py AS Float) AS Float
   RETURN __canvas_f32FromBits(__canvas_geoAt(offset, 28)) * px + __canvas_f32FromBits(__canvas_geoAt(offset, 30)) * py + __canvas_f32FromBits(__canvas_geoAt(offset, 32))
 END FUNC
 
+' bug-995: how far a transformed clip's CENTRE distance must be from its edge for the
+' pixel's clip coverage to be decided by that one sample: `0.5 * max(F, 1)`, `F` the
+' Frobenius norm of the composed inverse (the item's own, after the groups'), taken as
+' the product of the two norms, which bounds it, and widened by 2^-8 as both shaders
+' widen theirs (`clipReach` in `shapeCoverage`).
+'
+' Why one sample is enough there: the surface distance is `d / g`, `g` the length of the
+' central differences of the clip's distance at the four inverse-mapped neighbours (or
+' `d` itself when `g` is under 1e-6). A clip's distance is 1-Lipschitz in its own space
+' and the neighbours are the inverse's columns halved either side of the centre, so
+' `g <= F`. Past the reach `|d / g| > 0.5 * max(F, 1) / g >= 0.5`, and `|d| > 0.5`:
+' `__canvas_coverage` answers 0 or 255 by the sign for the quotient and for `d` alike.
+FUNC __canvas_clipReach(offset AS Integer) AS Float
+  MUT norm AS Float = 1.0
+  IF __canvas_geoAt(offset, 33) > 0.5 THEN
+    LET ia AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, 27))
+    LET ib AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, 28))
+    LET ic AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, 29))
+    LET id AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, 30))
+    norm = math::sqrt(ia * ia + ib * ib + ic * ic + id * id)
+  END IF
+  IF __CANVAS_GM THEN
+    norm = norm * math::sqrt(__CANVAS_GM_IA * __CANVAS_GM_IA + __CANVAS_GM_IB * __CANVAS_GM_IB + __CANVAS_GM_IC * __CANVAS_GM_IC + __CANVAS_GM_ID * __CANVAS_GM_ID)
+  END IF
+  LET frob AS Float = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0
+  IF frob > 1.0 THEN
+    RETURN 0.5 * frob
+  END IF
+  RETURN 0.5
+END FUNC
+
 ' The clip's own antialiased coverage at a pixel centre, 0..255.
 '
 ' The same `clamp(0.5 - d, 0, 1)` form every shape edge uses, with `d` the signed
@@ -280,9 +311,17 @@ END FUNC
 ' inverse-mapped neighbours the shape uses -- not by the SHAPE's gradient, which near the
 ' clip's edge belongs to whichever shape edge is nearest, so a sheared clip would
 ' antialias by the wrong slope (measured, plan-163-C Corrections 4).
+'
+' bug-995: a centre distance past `__canvas_clipReach` is returned as it is and the four
+' neighbours are not evaluated -- both shaders' `clipReach` shortcut. The coverage is
+' the same: see `__canvas_clipReach`.
 FUNC __canvas_clipPathSurface(offset AS Integer, px AS Float, py AS Float, qx AS Float, qy AS Float, transformed AS Boolean) AS Float
   LET d AS Float = __canvas_clipPathDistance(offset, qx, qy)
   IF NOT transformed THEN
+    RETURN d
+  END IF
+  LET reach AS Float = __canvas_clipReach(offset)
+  IF d > reach OR d < 0.0 - reach THEN
     RETURN d
   END IF
   LET dxp AS Float = __canvas_clipPathDistance(offset, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py))
@@ -331,6 +370,10 @@ END FUNC
 
 FUNC __canvas_clipRectSurface(offset AS Integer, px AS Float, py AS Float, qx AS Float, qy AS Float) AS Float
   LET d AS Float = __canvas_clipRectDistance(offset, qx, qy)
+  LET reach AS Float = __canvas_clipReach(offset)
+  IF d > reach OR d < 0.0 - reach THEN
+    RETURN d
+  END IF
   LET dxp AS Float = __canvas_clipRectDistance(offset, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py))
   LET dxm AS Float = __canvas_clipRectDistance(offset, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py))
   LET dyp AS Float = __canvas_clipRectDistance(offset, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5))
