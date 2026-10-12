@@ -1132,12 +1132,16 @@ pub(crate) fn lower_function(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        owned_list_block_collections: HashSet::new(),
+        owned_list_runtime_reclaim: false,
+        reclaiming_owned_lists: Vec::new(),
         store_floats: Default::default(),
         reassign_free_collections: HashSet::new(),
         inner_owning_collections: HashSet::new(),
         inner_block_slots: HashSet::new(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
+        trap_default_records: HashMap::new(),
         live_resource_aliases: HashMap::new(),
         live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
@@ -1410,6 +1414,8 @@ pub(crate) fn lower_function(
     builder.record_owning_locals = ownership.owning_locals;
     builder.resource_alias_sources = ownership.alias_sources;
     builder.owned_list_owning_collections = ownership.owning_collections;
+    builder.owned_list_block_collections = ownership.block_owning_collections;
+    builder.owned_list_runtime_reclaim = ownership.runtime_reclaim;
     builder.reassign_free_collections = ownership.reassign_free_collections;
     builder.inner_owning_collections = ownership.inner_owning_collections;
     builder.exclusive_temps.calls = ownership.exclusive_temps;
@@ -1809,12 +1815,16 @@ pub(crate) fn lower_abi_function_helper(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        owned_list_block_collections: HashSet::new(),
+        owned_list_runtime_reclaim: false,
+        reclaiming_owned_lists: Vec::new(),
         store_floats: Default::default(),
         reassign_free_collections: HashSet::new(),
         inner_owning_collections: HashSet::new(),
         inner_block_slots: HashSet::new(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
+        trap_default_records: HashMap::new(),
         live_resource_aliases: HashMap::new(),
         live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,
@@ -2067,12 +2077,16 @@ pub(crate) fn helper_code_builder<'a>(
         record_owning_locals: HashSet::new(),
         resource_alias_sources: HashMap::new(),
         owned_list_owning_collections: HashSet::new(),
+        owned_list_block_collections: HashSet::new(),
+        owned_list_runtime_reclaim: false,
+        reclaiming_owned_lists: Vec::new(),
         store_floats: Default::default(),
         reassign_free_collections: HashSet::new(),
         inner_owning_collections: HashSet::new(),
         inner_block_slots: HashSet::new(),
         trap_ownership: Default::default(),
         trap_owner_flags: HashMap::new(),
+        trap_default_records: HashMap::new(),
         live_resource_aliases: HashMap::new(),
         live_union_wraps: HashMap::new(),
         current_returns_fresh_string: false,

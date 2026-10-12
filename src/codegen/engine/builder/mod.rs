@@ -274,6 +274,19 @@ pub(crate) struct CodeBuilder<'a> {
     /// close-only drain and leaks those blocks
     /// (`resource::cleanup::record_ownership::owning_collections`).
     pub(crate) owned_list_owning_collections: HashSet<String>,
+    /// bug-1053: the `RES` collections whose own block this binding frees at its
+    /// scope's end: the proved owners above, and the collections that are their
+    /// block's one holder though their elements have other readers
+    /// (`record_ownership::RecordOwnership::block_owning_collections`).
+    pub(crate) owned_list_block_collections: HashSet<String>,
+    /// bug-1053: whether an owned-list this function cannot prove the one holder
+    /// of its records frees them at run time, by the owner word, instead of only
+    /// closing them (`record_ownership::RecordOwnership::runtime_reclaim`).
+    pub(crate) owned_list_runtime_reclaim: bool,
+    /// bug-1053: every owned-list of this function whose drain takes records for a
+    /// later reclaim, for the error-return exit that frees them (the last
+    /// error-return pad, `CodeBuilder::append_error_return_pads`).
+    pub(crate) reclaiming_owned_lists: Vec<OwnedListCleanup>,
     /// bug-1045: the stores that raise an inner scope's value into a container
     /// declared further out, and the containers whose drain may only close what
     /// such a store handed them (`record_ownership::StoreFloats`).
@@ -293,6 +306,9 @@ pub(crate) struct CodeBuilder<'a> {
     /// store with whether that store handed the temp an owned value. The temp's drop
     /// closes only when it is set.
     pub(crate) trap_owner_flags: HashMap<String, usize>,
+    /// bug-1051: per inline-`TRAP` temp, the slot holding the closed default record
+    /// its bind materialized (`ResourceCleanup::default_record_slot`).
+    pub(crate) trap_default_records: HashMap<String, usize>,
     /// Resource-union alias class: bind-time `name -> src` for a resource bind that is a
     /// bare-local alias (`RES v = u`, `RES d AS Union = c`), in lowering order. Unlike
     /// `resource_alias_sources` it follows the binding actually live at a `RETURN`.
@@ -782,12 +798,16 @@ impl<'a> CodeBuilder<'a> {
             record_owning_locals: HashSet::new(),
             resource_alias_sources: HashMap::new(),
             owned_list_owning_collections: HashSet::new(),
+            owned_list_block_collections: HashSet::new(),
+            owned_list_runtime_reclaim: false,
+            reclaiming_owned_lists: Vec::new(),
             store_floats: Default::default(),
             reassign_free_collections: HashSet::new(),
             inner_owning_collections: HashSet::new(),
             inner_block_slots: HashSet::new(),
             trap_ownership: Default::default(),
             trap_owner_flags: HashMap::new(),
+            trap_default_records: HashMap::new(),
             live_resource_aliases: HashMap::new(),
             live_union_wraps: HashMap::new(),
             current_returns_fresh_string: false,
@@ -1040,6 +1060,13 @@ pub(crate) struct ResourceCleanup {
     /// and reclaims nothing while it reads 0. `None` for every binding that owns
     /// unconditionally.
     pub(crate) owner_flag_slot: Option<usize>,
+    /// bug-1051: for an inline-`TRAP` temp that is not proved to own every record
+    /// stored into it, the stack slot holding the closed default record its bind
+    /// materialized (0 once that record is freed). The default is the temp's own
+    /// whatever the stores are, so a drop that finds it still in the binding's
+    /// slot frees it (`CodeBuilder::emit_free_trap_default_record`). `None` for
+    /// every other binding.
+    pub(crate) default_record_slot: Option<usize>,
     /// bug-755: the nesting depth of the scope the binding belongs to. The drop
     /// closes the record only when its owner word holds that scope's token.
     pub(crate) scope_depth: usize,
@@ -1069,6 +1096,9 @@ pub(crate) struct ResourceUnionCleanup {
     pub(crate) closes_variant: bool,
     /// bug-648: the same run-time ownership flag as `ResourceCleanup.owner_flag_slot`.
     pub(crate) owner_flag_slot: Option<usize>,
+    /// bug-1051: as `ResourceCleanup.default_record_slot`, for the closed default
+    /// record the temp's default box names.
+    pub(crate) default_record_slot: Option<usize>,
     /// bug-755: as `ResourceCleanup.scope_depth`, for the active variant's record.
     pub(crate) scope_depth: usize,
 }
@@ -1131,6 +1161,17 @@ pub(crate) struct OwnedListCleanup {
     /// bug-805: the resource leaf type (`RES` stripped, `STATE` kept) this list
     /// holds; `drop` is that leaf's descriptor.
     pub(crate) leaf: ParameterType,
+    /// bug-1053: for a list whose container is not proved the one holder of what
+    /// it lists (`owns_elements` false), the stack slot heading the nodes whose
+    /// records its drain has closed and taken, and that are freed once every
+    /// cleanup of the exit has run (`CodeBuilder::emit_owned_list_reclaims`).
+    /// `None` keeps the close-only drain.
+    pub(crate) reclaim_slot: Option<usize>,
+    /// bug-1053: set on the copy of a function-level list that an error routed to
+    /// the function's `TRAP` handler runs. The handler still reads the container,
+    /// so that walk closes what the list owns and frees nothing; the handler's own
+    /// exit runs the real drain.
+    pub(crate) trap_shared: bool,
 }
 
 /// bug-778: the frame representation of an inline-`TRAP` desugar temporary

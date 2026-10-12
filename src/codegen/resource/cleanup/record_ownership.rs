@@ -70,6 +70,14 @@ pub(crate) struct RecordOwnership {
     /// bug-1045: the stores that put a value from an inner scope into a container
     /// declared further out — see [`StoreFloats`].
     pub(crate) store_floats: StoreFloats,
+    /// bug-1053: the `RES` collections whose own block the binding frees at its
+    /// scope's end: `owning_collections`, and every collection that is its block's
+    /// one holder whoever reads its elements — see [`block_owning_collections`].
+    pub(crate) block_owning_collections: HashSet<String>,
+    /// bug-1053: whether a container of this function that is NOT proved the one
+    /// holder of the records it lists may still free them at run time, by the
+    /// owner word — see [`runtime_reclaim`].
+    pub(crate) runtime_reclaim: bool,
 }
 
 /// bug-1045: the stores that carry a resource from an inner scope into a container
@@ -113,6 +121,13 @@ pub(crate) struct StoreFloats {
     /// The containers whose drain may only CLOSE what such a store handed it — see
     /// [`StoreFloatProof`].
     pub(crate) close_only: HashSet<String>,
+    /// bug-1053: whether some assignment to a binding that reaches a resource
+    /// names, anywhere this pre-pass does not raise, a binding of an inner scope
+    /// that reaches one too (`keep = collections::filter(xs, …)` with `xs` bound
+    /// in a nested block). What such a store carries outward keeps the inner
+    /// scope's token, so the outer binding reads it after that scope has exited —
+    /// see [`runtime_reclaim`].
+    unraised_outward_store: bool,
 }
 
 /// One root local a [`StoreFloats`] store raises out of.
@@ -235,6 +250,7 @@ fn collect_store_floats(
                     }
                 }
                 NirOp::Assign { name, value } => {
+                    self.note_unraised_outward_store(name, value);
                     let target = self
                         .bound
                         .get(name)
@@ -331,6 +347,85 @@ fn collect_store_floats(
                 _ => {}
             }
             walk_op(self, op);
+        }
+    }
+    impl Scan<'_> {
+        /// bug-1053: record an assignment that carries a reference outward without
+        /// raising it (`StoreFloats::unraised_outward_store`). The target is any
+        /// binding of this body that reaches a resource (a container, or a `RES`
+        /// binding); the carried names are the locals bound in a scope inside the
+        /// target's that reach one, named anywhere in the value except as an
+        /// operand the store raises or that the escape analysis floated. A call
+        /// whose result the assignment adopts raises everything the result
+        /// reaches, whatever its arguments were.
+        fn note_unraised_outward_store(&mut self, name: &str, value: &NirValue) {
+            if self.out.unraised_outward_store {
+                return;
+            }
+            let reaches = |scan: &Self, name: &str, type_: &ParameterType| {
+                (scan.container)(type_) || scan.function.resource_owners.contains_key(name)
+            };
+            let Some((target_depth, raises)) = self
+                .bound
+                .get(name)
+                .filter(|(_, type_, _, _)| reaches(self, name, type_))
+                .map(|(depth, type_, _, _)| (*depth, (self.container)(type_)))
+            else {
+                return;
+            };
+            if crate::codegen::cleanup::owned::builder_owned_cleanup::adopts_from_call(value) {
+                return;
+            }
+            struct Names<'v> {
+                raised: Vec<&'v NirValue>,
+                found: Vec<String>,
+            }
+            impl NirVisitor for Names<'_> {
+                fn visit_value(&mut self, value: &NirValue) {
+                    if self
+                        .raised
+                        .iter()
+                        .any(|operand| std::ptr::eq(*operand, value))
+                    {
+                        return;
+                    }
+                    if let NirValue::Local(name) = value {
+                        self.found.push(name.clone());
+                    }
+                    walk_value(self, value);
+                }
+            }
+            let mut names = Names {
+                raised: Vec::new(),
+                found: Vec::new(),
+            };
+            // Only an assignment to a container raises its operands (the `Assign`
+            // arm above); into a `RES` binding nothing is raised.
+            if raises {
+                store_operands(value, &mut names.raised);
+            }
+            names.visit_value(value);
+            let unraised = names.found.iter().any(|root| {
+                if root == name {
+                    return false;
+                }
+                let Some((depth, type_, _, iterates)) = self.bound.get(root) else {
+                    return false;
+                };
+                if *depth <= target_depth {
+                    return false;
+                }
+                if matches!(
+                    self.function.resource_owners.get(root),
+                    Some(crate::ir::resource_escape::ResOwner::Float(_))
+                ) {
+                    return false;
+                }
+                iterates.is_some() || reaches(self, root, type_)
+            });
+            if unraised {
+                self.out.unraised_outward_store = true;
+            }
         }
     }
     let mut scan = Scan {
@@ -680,7 +775,7 @@ pub(crate) fn record_ownership(
     // bug-1045: the stores that raise an inner scope's value into an outer container.
     let container_type = |type_: &ParameterType| res_collection_type(type_) && !record_type(type_);
     let mut store_floats = collect_store_floats(function, &container_type, &record_container);
-    let (owning_collections, exclusive_temps) = owning_collections(
+    let (owning_collections, exclusive_temps, block_owning_collections) = owning_collections(
         function,
         functions,
         record_type,
@@ -688,6 +783,13 @@ pub(crate) fn record_ownership(
         &stores,
         &params,
         &mut store_floats,
+    );
+    let runtime_reclaim = runtime_reclaim(
+        function,
+        functions,
+        record_type,
+        res_collection_type,
+        &store_floats,
     );
     let (reassign_free_collections, inner_owning_collections) = block_collections(
         function,
@@ -705,7 +807,151 @@ pub(crate) fn record_ownership(
         inner_owning_collections,
         exclusive_temps,
         store_floats,
+        block_owning_collections,
+        runtime_reclaim,
     }
+}
+
+/// bug-1053: whether a container this function cannot PROVE the one holder of the
+/// records it lists may free them anyway, at run time.
+///
+/// The proof ([`owning_collections`]) reads the function's text and fails for any
+/// reading it cannot follow, most of which leave no holder behind at all: a handle
+/// bound on its own (`RES f = k.h`), a copy that is stored in the same scope, a
+/// `LAMBDA` that only reads its capture, a callee that keeps an element in a list
+/// it returns. A close-only drain then kept every such record (112 bytes for a
+/// file, on every call).
+///
+/// What actually decides the question is already in the record: its owner word
+/// names the ONE scope that closes it (`codegen::resource::owner`). Every store
+/// that lets a reference outlive that scope raises the word first — the float of
+/// a `RES` binding into an outer container, the store-time raise of anything
+/// else ([`StoreFloats`]), the adoption of a call's result, the module-level
+/// raise, a `RETURN`'s release and the caller's claim. So when the scope that
+/// holds the token exits, every remaining reference is in that scope or inside
+/// it, and is gone with it. The drain may free what it closes, provided the free
+/// waits for the other cleanups of the same exit that may still read the owner
+/// word: `CodeBuilder::emit_owned_list_drain` takes the record and
+/// `emit_owned_list_reclaims` frees it after the last of them.
+///
+/// Two stores carry a reference outward WITHOUT raising it, and a function that
+/// contains either keeps its close-only drains (the records are closed; reading
+/// one afterwards is `ErrResourceClosed`, not a read of freed memory):
+///
+/// * **A store through a captured reference.** A `LAMBDA` that assigns a `MUT`
+///   container of its enclosing function (`collections::forEach(xs, LAMBDA(h) ->
+///   keep = collections::append(keep, h))`) writes a longer-lived list from code
+///   this function's own pre-pass never sees as a store
+///   ([`stores_through_a_captured_reference`]). Only this function can be on the
+///   giving side of it: a by-reference capture is licensed for one position, a
+///   lambda written directly as a non-escaping callback argument of a builtin
+///   (`builtins::is_nonescaping_callback_arg`; every other `MUT` capture is
+///   `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`), and that builtin calls it only during
+///   the call, with what the call's other arguments and the lambda's own
+///   captures reach — all of them this function's.
+/// * **An assignment this pre-pass does not raise** (`keep =
+///   collections::filter(xs, …)` with `xs` bound in a nested block)
+///   (`StoreFloats::unraised_outward_store`).
+fn runtime_reclaim(
+    function: &NirFunction,
+    functions: &HashMap<String, &NirFunction>,
+    record_type: &dyn Fn(&ParameterType) -> bool,
+    res_collection_type: &dyn Fn(&ParameterType) -> bool,
+    store_floats: &StoreFloats,
+) -> bool {
+    let reaches = |type_: &ParameterType| res_collection_type(type_) || record_type(type_);
+    !store_floats.unraised_outward_store
+        && !stores_through_a_captured_reference(function, functions, &reaches, 0)
+}
+
+/// bug-1053: whether `function` creates a closure that assigns, through a
+/// by-reference capture, a binding that reaches a resource (`reaches` answers for
+/// a type), itself or through a closure nested in it.
+///
+/// The capture is a `LocalRef` in the `Closure`'s capture list; in the lambda's
+/// body it is bound at the top as `Bind name = Capture { by_ref: true }`, and a
+/// write through it is an `Assign` to that name. A lambda whose body is not in the
+/// program, or nested past any sensible depth, answers "stores".
+fn stores_through_a_captured_reference(
+    function: &NirFunction,
+    functions: &HashMap<String, &NirFunction>,
+    reaches: &dyn Fn(&ParameterType) -> bool,
+    depth: usize,
+) -> bool {
+    struct Closures<'r> {
+        reaches: &'r dyn Fn(&ParameterType) -> bool,
+        /// The lambdas created here with a by-reference capture that reaches a
+        /// resource.
+        capturing: Vec<String>,
+        /// Every lambda created here: a nested one may capture by reference a
+        /// binding its parent holds by reference.
+        created: Vec<String>,
+    }
+    impl NirVisitor for Closures<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::Closure { name, captures, .. } = value {
+                self.created.push(name.clone());
+                if captures.iter().any(|capture| {
+                    matches!(capture, NirValue::LocalRef { type_, .. } if (self.reaches)(type_))
+                }) {
+                    self.capturing.push(name.clone());
+                }
+            }
+            walk_value(self, value);
+        }
+    }
+    struct Writes<'n> {
+        captured: &'n HashSet<&'n str>,
+        found: bool,
+    }
+    impl NirVisitor for Writes<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::Assign { name, .. } = op {
+                if self.captured.contains(name.as_str()) {
+                    self.found = true;
+                }
+            }
+            if !self.found {
+                walk_op(self, op);
+            }
+        }
+    }
+    let mut closures = Closures {
+        reaches,
+        capturing: Vec::new(),
+        created: Vec::new(),
+    };
+    closures.visit_ops(&function.body);
+    if closures.capturing.is_empty() {
+        return false;
+    }
+    if depth > 16 {
+        return true;
+    }
+    closures.capturing.iter().any(|name| {
+        let Some(lambda) = functions.get(name).copied() else {
+            return true;
+        };
+        let captured: HashSet<&str> = lambda
+            .body
+            .iter()
+            .filter_map(|op| match op {
+                NirOp::Bind {
+                    name,
+                    type_,
+                    value: Some(NirValue::Capture { by_ref: true, .. }),
+                    ..
+                } if reaches(type_) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        let mut writes = Writes {
+            captured: &captured,
+            found: false,
+        };
+        writes.visit_ops(&lambda.body);
+        writes.found || stores_through_a_captured_reference(lambda, functions, reaches, depth + 1)
+    })
 }
 
 /// bug-753: the two block-free verdicts beyond [`owning_collections`].
@@ -816,7 +1062,7 @@ fn owning_collections(
     stores: &Stores,
     params: &HashSet<String>,
     store_floats: &mut StoreFloats,
-) -> (HashSet<String>, HashMap<usize, bool>) {
+) -> (HashSet<String>, HashMap<usize, bool>, HashSet<String>) {
     // bug-1025: a record that reaches a resource, as opposed to a collection that
     // does (`record_ownership`'s own `record_container`).
     let record_container = &|type_: &ParameterType| {
@@ -922,7 +1168,54 @@ fn owning_collections(
         visiting: HashSet::new(),
     }
     .close_only();
-    (owning, exclusive_temps)
+    let block_owning = block_owning_collections(stores, &uses, &owning);
+    (owning, exclusive_temps, block_owning)
+}
+
+/// bug-1053: the `RES` collections whose own block the binding frees at its
+/// scope's end.
+///
+/// [`owning_collections`] asks one question for two things: whether the drain may
+/// free the RECORDS the collection lists, and whether the binding may free the
+/// collection's own BLOCK. A second reader of an element answers "no" to both,
+/// and it is no holder of the block: `pick(hs)` that appends a `MATCH` case
+/// binding of each element to the list it returns keeps `hs`'s elements, and
+/// `hs`'s block (160 bytes for two handles) was kept with them on every call.
+///
+/// The block of a `List OF RES T` or `Map OF K TO RES T` is held by whatever
+/// holds its pointer, and nothing else: an element read out of it is a record
+/// pointer (or a copy of a union box), never a pointer into a block that outlives
+/// the read. So the binding is its block's one holder when
+///
+/// * every store into it installs a fresh block (the same rule as
+///   [`owning_collections`]);
+/// * it is named, outside a call's argument list, only as a `FOR EACH` iterable:
+///   a bind (`MUT d = c` shares the block), a `RETURN`, a constructor, literal
+///   or capture each hold the pointer;
+/// * no call keeps the block: it is not a `collections` member's non-receiver
+///   argument, not handed to code the walk cannot read, and not an argument a
+///   callee's body names anywhere but in such positions
+///   (`CollectionUses::block_kept`).
+///
+/// Asked only of a collection whose elements are resources. One whose elements
+/// are themselves collections is held to the whole of [`owning_collections`]:
+/// what a `FOR EACH` over it yields IS a block.
+fn block_owning_collections(
+    stores: &Stores,
+    uses: &CollectionUses,
+    owning: &HashSet<String>,
+) -> HashSet<String> {
+    let mut block_owning = owning.clone();
+    for (name, type_) in &stores.types {
+        if CodeBuilder::is_res_marked_resource_collection(type_)
+            && uses.block_is_fresh(name)
+            && !uses.escaping_beyond_iteration.contains(name)
+            && !uses.block_kept.contains(name)
+        {
+            block_owning.insert(name.clone());
+        }
+    }
+    block_owning
 }
 
 /// bug-1045: the containers whose drain may only CLOSE the records a
@@ -1127,6 +1420,11 @@ struct CollectionUses<'m, 'f, 'p> {
     store_operands: HashSet<usize>,
     /// bug-1045: the raised roots that are records (copied by value where stored).
     store_record_roots: HashSet<String>,
+    /// bug-1053: the locals whose own BLOCK a call can keep: the subset of `kept`
+    /// that leaves out a callee that keeps only what it reads out of the argument
+    /// (an element, a `MATCH` case binding, a field), which is a second reader of
+    /// the elements and no holder of the block. See [`block_owning_collections`].
+    block_kept: HashSet<String>,
 }
 
 /// Per callee, per parameter position: whether the callee keeps that argument's block
@@ -1139,6 +1437,9 @@ struct CalleeParamUses<'p> {
     /// such type, which answers "held" for every copy.
     record_container: Option<&'p dyn Fn(&ParameterType) -> bool>,
     known: HashMap<String, Vec<bool>>,
+    /// bug-1053: per callee, per parameter: whether the callee keeps the
+    /// argument's own block (`CollectionUses::block_kept`).
+    known_block: HashMap<String, Vec<bool>>,
     visiting: HashSet<String>,
     /// bug-753: per function, whether every `RETURN` hands back a block it built.
     fresh_returns: HashMap<String, bool>,
@@ -1189,6 +1490,7 @@ impl<'m, 'f, 'p> CollectionUses<'m, 'f, 'p> {
                 .collect(),
             store_operands: store_floats.handed_over.clone(),
             store_record_roots: store_floats.record_roots.clone(),
+            block_kept: HashSet::new(),
         };
         collector.visit_ops(&function.body);
         collector
@@ -1222,9 +1524,34 @@ impl<'m, 'f, 'p> CollectionUses<'m, 'f, 'p> {
                     || inner.iterated_reference_leaves(&p.name, 64)
             })
             .collect();
+        // bug-1053: the block alone. What the callee reads out of the parameter
+        // and keeps is not the parameter's block.
+        let block_keeps: Vec<bool> = callee
+            .params
+            .iter()
+            .map(|p| {
+                inner.escaping_beyond_iteration.contains(&p.name)
+                    || inner.block_kept.contains(&p.name)
+            })
+            .collect();
         self.callees.visiting.remove(target);
         self.callees.known.insert(target.to_string(), keeps.clone());
+        self.callees
+            .known_block
+            .insert(target.to_string(), block_keeps);
         Some(keeps)
+    }
+
+    /// bug-1053: [`Self::callee_keeps`] for the argument's own block. Call it
+    /// after `callee_keeps(target)`, which fills both answers; a callee still
+    /// being resolved (recursion) answers "keeps".
+    fn callee_block_keeps(&self, target: &str) -> Option<Vec<bool>> {
+        if let Some(known) = self.callees.known_block.get(target) {
+            return Some(known.clone());
+        }
+        self.functions
+            .get(target)
+            .map(|callee| vec![true; callee.params.len()])
     }
 
     /// bug-1000: whether a call to `target` with `args` can hand its arguments to
@@ -1771,6 +2098,7 @@ impl NirVisitor for CollectionUses<'_, '_, '_> {
                 // append would.
                 let stores_elements = target.starts_with("collections.");
                 let callee = self.callee_keeps(target);
+                let callee_block = self.callee_block_keeps(target);
                 // bug-1000: a consuming parameter takes over what its argument
                 // reaches (`deactivate_consumed_cleanups`), which is keeping it.
                 let consumes = crate::codegen::resource::builtin_consuming_parameter_index(target);
@@ -1780,6 +2108,11 @@ impl NirVisitor for CollectionUses<'_, '_, '_> {
                     let keeps = unread
                         || (stores_elements && index > 0)
                         || callee
+                            .as_ref()
+                            .is_some_and(|keeps| keeps.get(index).copied().unwrap_or(true));
+                    let block_keeps = unread
+                        || (stores_elements && index > 0)
+                        || callee_block
                             .as_ref()
                             .is_some_and(|keeps| keeps.get(index).copied().unwrap_or(true));
                     // bug-1046: a local wrapped for a union-typed position
@@ -1812,6 +2145,7 @@ impl NirVisitor for CollectionUses<'_, '_, '_> {
                         {
                             if keeps || consumes == Some(index) {
                                 self.kept.insert(root.to_string());
+                                self.block_kept.insert(root.to_string());
                             }
                             if unread {
                                 self.kept_by_unread_code.insert(root.to_string());
@@ -1856,6 +2190,9 @@ impl NirVisitor for CollectionUses<'_, '_, '_> {
                     };
                     if keeps {
                         self.kept.insert(name.clone());
+                    }
+                    if block_keeps {
+                        self.block_kept.insert(name.clone());
                     }
                     if unread {
                         self.kept_by_unread_code.insert(name.clone());
@@ -2904,5 +3241,253 @@ mod owned_list_ownership_tests {
                 assert!(!uses.block_is_fresh("other"));
             },
         );
+    }
+
+    /// bug-1053: a callee that keeps what it reads OUT of its parameter (an element
+    /// appended to the list it returns) is a second reader of the elements and no
+    /// holder of the parameter's block; one that returns the parameter is.
+    #[test]
+    fn a_callee_that_keeps_an_element_does_not_keep_the_block() {
+        let pick = function(
+            &["hs"],
+            vec![
+                for_each(
+                    "h",
+                    "hs",
+                    vec![NirOp::Assign {
+                        name: "out".to_string(),
+                        value: call("collections.append", vec![local("out"), local("h")]),
+                    }],
+                ),
+                NirOp::Return {
+                    value: Some(local("out")),
+                },
+            ],
+        );
+        let same = function(
+            &["xs"],
+            vec![NirOp::Return {
+                value: Some(local("xs")),
+            }],
+        );
+        let functions: HashMap<String, &NirFunction> =
+            HashMap::from([("pick".to_string(), &pick), ("same".to_string(), &same)]);
+        let literal = || NirValue::ListLiteral {
+            type_: ParameterType::parse("List OF RES fs.File"),
+            values: Vec::new(),
+        };
+        let caller = function(
+            &[],
+            vec![
+                bind("read", "List OF RES fs.File", literal()),
+                bind("returned", "List OF RES fs.File", literal()),
+                bind("aliased", "List OF RES fs.File", literal()),
+                bind("alias", "List OF RES fs.File", local("aliased")),
+                eval(call("pick", vec![local("read")])),
+                eval(call("same", vec![local("returned")])),
+            ],
+        );
+        let stores = collect(&caller, &functions);
+        let mut callees = CalleeParamUses::default();
+        let uses = CollectionUses::of(&caller, &functions, &mut callees);
+        // The whole proof still refuses `read`: its elements have a second reader.
+        assert!(uses.block_held_elsewhere("read"));
+        let blocks = block_owning_collections(&stores, &uses, &HashSet::new());
+        assert!(blocks.contains("read"));
+        assert!(!blocks.contains("returned"));
+        assert!(!blocks.contains("aliased"));
+        assert!(!blocks.contains("alias"));
+    }
+
+    /// bug-1053: a list of lists is not judged by the block rule: what a `FOR EACH`
+    /// over it yields is itself a block.
+    #[test]
+    fn a_nested_collection_is_not_judged_by_the_block_rule() {
+        let no_functions = HashMap::new();
+        let caller = function(
+            &[],
+            vec![bind(
+                "nested",
+                "List OF List OF RES fs.File",
+                NirValue::ListLiteral {
+                    type_: ParameterType::parse("List OF List OF RES fs.File"),
+                    values: Vec::new(),
+                },
+            )],
+        );
+        let stores = collect(&caller, &no_functions);
+        let mut callees = CalleeParamUses::default();
+        let uses = CollectionUses::of(&caller, &no_functions, &mut callees);
+        assert!(block_owning_collections(&stores, &uses, &HashSet::new()).is_empty());
+    }
+
+    fn capture(by_ref: bool) -> NirValue {
+        NirValue::Capture {
+            index: 0,
+            type_: ParameterType::parse("List OF RES fs.File"),
+            by_ref,
+        }
+    }
+
+    /// A function whose body hands `lambda` to `collections::forEach`, capturing
+    /// `keep` (of `type_`) by reference.
+    fn for_each_into(lambda: &str, type_: &str) -> NirFunction {
+        function(
+            &[],
+            vec![eval(call(
+                "collections.forEach",
+                vec![
+                    local("xs"),
+                    NirValue::Closure {
+                        name: lambda.to_string(),
+                        type_: ParameterType::parse("FUNC(fs.File) AS Nothing"),
+                        captures: vec![NirValue::LocalRef {
+                            name: "keep".to_string(),
+                            type_: ParameterType::parse(type_),
+                        }],
+                    },
+                ],
+            ))],
+        )
+    }
+
+    /// bug-1053: the one store that carries a reference to a longer-lived binding
+    /// from code the storing function never sees as a store is an assignment
+    /// through a by-reference capture of a binding that reaches a resource. It is
+    /// found in the function that creates the lambda, and nowhere else.
+    #[test]
+    fn a_lambda_that_assigns_a_captured_container_is_found() {
+        let list = "List OF RES fs.File";
+        let reaches = |type_: &ParameterType| *type_ == ParameterType::parse(list);
+        let append = || NirOp::Assign {
+            name: "keep".to_string(),
+            value: call("collections.append", vec![local("keep"), local("h")]),
+        };
+        let writes = function(&["h"], vec![bind("keep", list, capture(true)), append()]);
+        // A by-reference capture that is only read stores nothing.
+        let reads = function(
+            &["h"],
+            vec![
+                bind("keep", list, capture(true)),
+                eval(call("len", vec![local("keep")])),
+            ],
+        );
+        // A lambda that hands its captured reference on to one that writes it.
+        let forwards = function(
+            &["h"],
+            vec![
+                bind("keep", list, capture(true)),
+                eval(call(
+                    "collections.forEach",
+                    vec![
+                        local("ys"),
+                        NirValue::Closure {
+                            name: "writes".to_string(),
+                            type_: ParameterType::parse("FUNC(fs.File) AS Nothing"),
+                            captures: vec![NirValue::LocalRef {
+                                name: "keep".to_string(),
+                                type_: ParameterType::parse(list),
+                            }],
+                        },
+                    ],
+                )),
+            ],
+        );
+        // A captured binding that reaches no resource is no concern here.
+        let counts = function(
+            &["h"],
+            vec![
+                bind("keep", "List OF Integer", capture(true)),
+                NirOp::Assign {
+                    name: "keep".to_string(),
+                    value: call("collections.append", vec![local("keep"), local("h")]),
+                },
+            ],
+        );
+        let functions: HashMap<String, &NirFunction> = HashMap::from([
+            ("writes".to_string(), &writes),
+            ("reads".to_string(), &reads),
+            ("forwards".to_string(), &forwards),
+            ("counts".to_string(), &counts),
+        ]);
+        let stores = |function: &NirFunction| {
+            stores_through_a_captured_reference(function, &functions, &reaches, 0)
+        };
+        assert!(stores(&for_each_into("writes", list)));
+        assert!(stores(&for_each_into("forwards", list)));
+        assert!(!stores(&for_each_into("reads", list)));
+        assert!(!stores(&for_each_into("counts", "List OF Integer")));
+        // A lambda whose body is not in the program answers "stores".
+        assert!(stores(&for_each_into("missing", list)));
+        // A function that creates no such lambda is not on the giving side of
+        // one, whatever the rest of the program does.
+        assert!(!stores(&function(
+            &[],
+            vec![eval(call("len", vec![local("xs")]))]
+        )));
+    }
+
+    /// bug-1053: an assignment that carries an inner scope's binding outward in a
+    /// position the store-time raise does not cover is recorded; the stores it
+    /// does cover, a same-scope store and an adopted call result are not.
+    #[test]
+    fn an_assignment_the_raise_does_not_cover_is_recorded() {
+        let list = "List OF RES fs.File";
+        let container = |type_: &ParameterType| *type_ == ParameterType::parse(list);
+        let record = |_: &ParameterType| false;
+        let literal = || NirValue::ListLiteral {
+            type_: ParameterType::parse(list),
+            values: Vec::new(),
+        };
+        let nested = |store: NirValue| {
+            function(
+                &[],
+                vec![
+                    bind("keep", list, literal()),
+                    NirOp::If {
+                        condition: NirValue::Const {
+                            type_: ParameterType::Boolean,
+                            value: "true".to_string(),
+                        },
+                        then_body: vec![
+                            bind("xs", list, literal()),
+                            NirOp::Assign {
+                                name: "keep".to_string(),
+                                value: store,
+                            },
+                        ],
+                        else_body: Vec::new(),
+                    },
+                ],
+            )
+        };
+        let unraised = |function: &NirFunction| {
+            collect_store_floats(function, &container, &record).unraised_outward_store
+        };
+        // A member that re-packages its argument's handles: nothing raises them.
+        assert!(unraised(&nested(call(
+            "collections.filter",
+            vec![local("xs")]
+        ))));
+        // The inserting members are the store-time raise's own.
+        assert!(!unraised(&nested(call(
+            "collections.append",
+            vec![local("keep"), local("xs")]
+        ))));
+        // A call to a function with a body: the assignment adopts its result.
+        assert!(!unraised(&nested(call("build", vec![local("xs")]))));
+        // The same scope: ownership is unchanged.
+        let same_scope = function(
+            &[],
+            vec![
+                bind("keep", list, literal()),
+                bind("xs", list, literal()),
+                NirOp::Assign {
+                    name: "keep".to_string(),
+                    value: call("collections.filter", vec![local("xs")]),
+                },
+            ],
+        );
+        assert!(!unraised(&same_scope));
     }
 }

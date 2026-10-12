@@ -3225,7 +3225,7 @@ impl CodeBuilder<'_> {
                                 )?;
                             }
                         } else if Self::is_res_collection_block(&type_)
-                            && self.owned_list_owning_collections.contains(name)
+                            && self.owned_list_block_collections.contains(name)
                         {
                             // bug-651: a `RES`-marked collection neither floated into nor
                             // bound from a call — `MUT xs AS List OF RES X = []` — reaches
@@ -3334,16 +3334,25 @@ impl CodeBuilder<'_> {
                             // the drop registered here closes nothing.
                             let scope_depth = self.current_scope_depth();
                             self.emit_resource_claim_at(stack_offset, scope_depth)?;
+                            let frees_record = Self::resource_record_freed_at_drop(type_)
+                                && self.record_owning_locals.contains(name);
+                            // bug-1051: a value-less bind is the inline-`TRAP`
+                            // desugar's temp, and the closed default it has just
+                            // stored is its own even when its stores are not.
+                            let default_record_slot = (value.is_none()
+                                && !frees_record
+                                && Self::resource_record_freed_at_drop(type_))
+                            .then(|| self.remember_trap_default_record(name, stack_offset, 0));
                             self.active_cleanups
                                 .push(ActiveCleanup::Resource(ResourceCleanup {
                                     name: name.clone(),
                                     symbol,
                                     state_type: type_.state(),
                                     has_io_buffers: Self::resource_uses_io_buffers(type_),
-                                    frees_record: Self::resource_record_freed_at_drop(type_)
-                                        && self.record_owning_locals.contains(name),
+                                    frees_record,
                                     moved_record_only: false,
                                     owner_flag_slot,
+                                    default_record_slot,
                                     scope_depth,
                                 }));
                         } else if let Some(variants) = self.resource_union_cleanup(type_) {
@@ -3389,21 +3398,28 @@ impl CodeBuilder<'_> {
                             if !alias_wrap {
                                 self.emit_resource_union_claim_at(stack_offset, scope_depth)?;
                             }
+                            let record_free_tags =
+                                if !alias_wrap && self.record_owning_locals.contains(name) {
+                                    self.resource_union_record_free_tags(type_)
+                                } else {
+                                    Vec::new()
+                                };
+                            // bug-1051: as the concrete arm, for the closed default
+                            // record the temp's default box names.
+                            let default_record_slot = (value.is_none()
+                                && record_free_tags.is_empty()
+                                && !self.resource_union_record_free_tags(type_).is_empty())
+                            .then(|| self.remember_trap_default_record(name, stack_offset, 8));
                             self.active_cleanups.push(ActiveCleanup::ResourceUnion(
                                 ResourceUnionCleanup {
                                     name: name.clone(),
                                     variants,
                                     state_type: type_.state(),
                                     io_buffer_tags: self.resource_union_io_buffer_tags(type_),
-                                    record_free_tags: if !alias_wrap
-                                        && self.record_owning_locals.contains(name)
-                                    {
-                                        self.resource_union_record_free_tags(type_)
-                                    } else {
-                                        Vec::new()
-                                    },
+                                    record_free_tags,
                                     closes_variant: !alias_wrap,
                                     owner_flag_slot,
+                                    default_record_slot,
                                     scope_depth,
                                 },
                             ));
@@ -3669,6 +3685,10 @@ impl CodeBuilder<'_> {
                                     ) && self.record_owning_locals.contains(name),
                                     moved_record_only: false,
                                     owner_flag_slot: self.trap_owner_flags.get(name).copied(),
+                                    default_record_slot: self
+                                        .trap_default_records
+                                        .get(name)
+                                        .copied(),
                                     scope_depth: registered_depth
                                         .unwrap_or_else(|| self.current_scope_depth()),
                                 };
@@ -4479,6 +4499,9 @@ impl CodeBuilder<'_> {
             self.reset_temporary_registers();
         }
         let scope_returns = self.current_block_returns();
+        // bug-1053: the lists of this scope whose drain takes records, in the order
+        // their drains ran; the records are freed after the scope's last cleanup.
+        let mut reclaiming = Vec::new();
         while self.active_cleanups.len() > cleanup_scope_start {
             let cleanup = self
                 .active_cleanups
@@ -4492,10 +4515,18 @@ impl CodeBuilder<'_> {
                     ActiveCleanup::ResourceUnion(cleanup) => {
                         self.emit_resource_union_cleanup_call(&cleanup)?
                     }
-                    ActiveCleanup::OwnedList(cleanup) => self.emit_owned_list_drain(&cleanup)?,
+                    ActiveCleanup::OwnedList(cleanup) => {
+                        self.emit_owned_list_drain(&cleanup)?;
+                        if cleanup.reclaim_slot.is_some() {
+                            reclaiming.push(cleanup);
+                        }
+                    }
                     ActiveCleanup::OwnedValue(cleanup) => self.emit_owned_value_drop(&cleanup)?,
                 }
             }
+        }
+        for cleanup in &reclaiming {
+            self.emit_owned_list_reclaim(cleanup)?;
         }
         Ok(())
     }

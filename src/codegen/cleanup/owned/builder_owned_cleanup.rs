@@ -15,6 +15,22 @@ const OWNED_LIST_UNION_NODE_SIZE: usize = 24;
 /// Where such a node keeps its link.
 const OWNED_LIST_UNION_NODE_NEXT_OFFSET: usize = 16;
 
+/// bug-1053: what one walk over an owned-list does with each node.
+#[derive(Clone, Copy)]
+enum OwnedListPass {
+    /// Close each record the list's scope owns, free what it points at when the
+    /// list is proved its one holder, and free the node.
+    Drain,
+    /// Close each record the list's scope owns, mark it taken and move its node to
+    /// the reclaim list in this slot; free the node of any other record.
+    Take(usize),
+    /// Free what each record on the reclaim list in this slot points at, the
+    /// record, and its node.
+    Reclaim(usize),
+    /// Close each record the list's scope owns and keep the list as it is.
+    CloseInPlace,
+}
+
 impl CodeBuilder<'_> {
     /// Allocate and register the runtime owned-lists for an owner container binding
     /// (§15.6): one head-pointer stack slot (initialized empty) plus one
@@ -47,12 +63,18 @@ impl CodeBuilder<'_> {
             .iter()
             .map(|leaf| Ok((leaf.clone(), self.resource_leaf_drop(leaf)?)))
             .collect::<Result<Vec<_>, String>>()?;
-        let owns_block = self.owned_list_owning_collections.contains(name);
+        // bug-1053: the block is the binding's when the binding is its one holder,
+        // whoever else reads its elements.
+        let owns_block = self.owned_list_block_collections.contains(name);
         // bug-1045: a container that took a record from an inner scope's binding
         // frees it only when that binding is proved to leave no other holder
         // (`record_ownership::StoreFloatProof`); its own block is its own
         // either way.
-        let owns_elements = owns_block && !self.store_floats.close_only.contains(name);
+        let owns_elements = self.owned_list_owning_collections.contains(name)
+            && !self.store_floats.close_only.contains(name);
+        // bug-1053: unproved, the drain takes the records its scope owns and the
+        // exit frees them after every other cleanup has run.
+        let reclaims = !owns_elements && self.owned_list_runtime_reclaim;
         // bug-645: the collection BLOCK itself. A `List OF RES X` is not
         // `is_freeable_flat_value` — `collection_payload_types` strips the `RES`
         // marker, so the walk sees a bare resource nominal and answers "not flat"
@@ -95,15 +117,46 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), head_slot));
             self.owned_list_heads
                 .insert((name.to_string(), leaf.clone()), head_slot);
-            self.active_cleanups
-                .push(ActiveCleanup::OwnedList(OwnedListCleanup {
-                    name: name.to_string(),
-                    head_slot,
-                    drop,
-                    owns_elements,
-                    scope_depth: self.current_scope_depth(),
-                    leaf,
-                }));
+            // A leaf whose record stays as the closed tombstone and that has no
+            // buffer or `STATE` of its own (a `canvas` image or font) leaves the
+            // reclaim nothing to free: its drain stays as it was.
+            let reclaimable = match &drop {
+                OwnedListDrop::Concrete {
+                    state_type,
+                    has_io_buffers,
+                    frees_record,
+                    ..
+                } => *frees_record || *has_io_buffers || state_type.is_some(),
+                // The first walk's dispatch already frees a union leaf's `STATE`.
+                OwnedListDrop::Union {
+                    io_buffer_tags,
+                    record_free_tags,
+                    ..
+                } => !io_buffer_tags.is_empty() || !record_free_tags.is_empty(),
+                OwnedListDrop::Dynamic => false,
+            };
+            let reclaim_slot = (reclaims && reclaimable).then(|| {
+                // Zeroed with the frame, never here: a walk that an exit path
+                // emitted before this point reads it empty, and a reclaim always
+                // leaves it empty.
+                let slot = self.allocate_stack_object(&format!("owned_list_reclaim_{name}"), 8);
+                self.owned_value_slots.push(slot);
+                slot
+            });
+            let cleanup = OwnedListCleanup {
+                name: name.to_string(),
+                head_slot,
+                drop,
+                owns_elements,
+                reclaim_slot,
+                trap_shared: false,
+                scope_depth: self.current_scope_depth(),
+                leaf,
+            };
+            if reclaim_slot.is_some() {
+                self.reclaiming_owned_lists.push(cleanup.clone());
+            }
+            self.active_cleanups.push(ActiveCleanup::OwnedList(cleanup));
         }
         if dynamic {
             self.setup_dynamic_owned_list(name);
@@ -641,8 +694,20 @@ impl CodeBuilder<'_> {
     /// answered by `cleanup.owns_elements` (`record_ownership::owning_collections`):
     /// with the collection proved the one owner, the concrete arm runs the same
     /// `emit_resource_block_reclaim` an `ActiveCleanup::Resource` drop runs, and the
-    /// union arm passes its real `record_free_tags`. Unproved, both fall back to
-    /// close-only — the leak this fix narrows, never a double free.
+    /// union arm passes its real `record_free_tags`.
+    ///
+    /// **bug-1053: unproved, the record is still freed, by its last holder.** The
+    /// proof fails for readings that are no danger at all (a handle bound on its
+    /// own, a copy that stays in the scope, a `LAMBDA` that only reads), and a
+    /// close-only drain then kept every record. The record's owner word already
+    /// names the one scope that closes it; what a drain cannot know is whether
+    /// another cleanup of the same exit still reads that word. So a list with a
+    /// `reclaim_slot` splits its drain in two ([`OwnedListPass`]): this walk
+    /// closes each record its scope owns, marks it taken (an owner word no claim,
+    /// float, release or drain matches) and moves its node to the reclaim list; [`Self::emit_owned_list_reclaims`] frees the taken records
+    /// after every cleanup of the exit has run. A second list or binding that
+    /// names the same record reads a live owner word that is not its token, and
+    /// skips. A list with neither proof nor `reclaim_slot` is close-only.
     ///
     /// bug-1012: the drain frees no resource-union box. A node holds a copy of the
     /// box's two words, so the box stays with whoever made it (a binding, a
@@ -654,6 +719,49 @@ impl CodeBuilder<'_> {
         if matches!(cleanup.drop, OwnedListDrop::Dynamic) {
             return self.emit_dynamic_owned_list_drain(cleanup);
         }
+        let pass = match cleanup.reclaim_slot {
+            Some(_) if cleanup.trap_shared => OwnedListPass::CloseInPlace,
+            Some(reclaim_slot) if !cleanup.owns_elements => OwnedListPass::Take(reclaim_slot),
+            _ => OwnedListPass::Drain,
+        };
+        self.emit_owned_list_walk(cleanup, pass)
+    }
+
+    /// bug-1053: free what the drains of `cleanups` took. Emitted once after the
+    /// whole cleanup sequence of an exit, so every cleanup that could still read a
+    /// taken record's owner word has run. A list that took nothing has an empty
+    /// reclaim list (its slot is zeroed with the frame and emptied by each walk).
+    pub(crate) fn emit_owned_list_reclaims(
+        &mut self,
+        cleanups: &[ActiveCleanup],
+    ) -> Result<(), String> {
+        for cleanup in cleanups.iter().rev() {
+            if let ActiveCleanup::OwnedList(list) = cleanup {
+                self.emit_owned_list_reclaim(list)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// [`Self::emit_owned_list_reclaims`] for one list.
+    pub(crate) fn emit_owned_list_reclaim(
+        &mut self,
+        cleanup: &OwnedListCleanup,
+    ) -> Result<(), String> {
+        match cleanup.reclaim_slot {
+            Some(reclaim_slot) if !cleanup.trap_shared && !cleanup.owns_elements => {
+                self.emit_owned_list_walk(cleanup, OwnedListPass::Reclaim(reclaim_slot))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// One walk over an owned-list, as `pass` says.
+    fn emit_owned_list_walk(
+        &mut self,
+        cleanup: &OwnedListCleanup,
+        pass: OwnedListPass,
+    ) -> Result<(), String> {
         let loop_label = self.label("owned_list_drain_loop");
         let done_label = self.label("owned_list_drain_done");
         let close_ok = self.label("owned_list_close_ok");
@@ -662,19 +770,35 @@ impl CodeBuilder<'_> {
         // slot from here on.
         let node_slot = self.allocate_stack_object("owned_list_drain_node", 8);
         let payload_slot = self.allocate_stack_object("owned_list_drain_payload", 8);
+        // The slot the walk reads its next node from. A drain pops the list's own
+        // head; the reclaim pops the reclaim list; a walk in place keeps the list
+        // and advances a cursor of its own.
+        let cursor_slot = match pass {
+            OwnedListPass::Drain | OwnedListPass::Take(_) => cleanup.head_slot,
+            OwnedListPass::Reclaim(reclaim_slot) => reclaim_slot,
+            OwnedListPass::CloseInPlace => {
+                let cursor = self.allocate_stack_object("owned_list_walk_cursor", 8);
+                let head = self.temporary_vreg();
+                self.emit(abi::load_u64(head, abi::stack_pointer(), cleanup.head_slot));
+                self.emit(abi::store_u64(head, abi::stack_pointer(), cursor));
+                cursor
+            }
+        };
+        // Whether this walk frees what a record points at, and the record.
+        let frees = match pass {
+            OwnedListPass::Drain => cleanup.owns_elements,
+            OwnedListPass::Reclaim(_) => true,
+            OwnedListPass::Take(_) | OwnedListPass::CloseInPlace => false,
+        };
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
         self.emit(abi::label(&loop_label));
-        self.emit(abi::load_u64(
-            &scratch9,
-            abi::stack_pointer(),
-            cleanup.head_slot,
-        ));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), cursor_slot));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&done_label));
         self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), node_slot));
-        // Advance the head past this node before the call(s) below, which clobber
-        // caller-saved registers; the loop reloads the head from memory. A
+        // Advance past this node before the call(s) below, which clobber
+        // caller-saved registers; the loop reloads the cursor from memory. A
         // concrete node's field 0 is the record pointer to close; a union node
         // begins with its own `{tag@0, record-ptr@8}` copy of the box.
         match &cleanup.drop {
@@ -704,7 +828,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(
                     &scratch10,
                     abi::stack_pointer(),
-                    cleanup.head_slot,
+                    cursor_slot,
                 ));
                 let node_done = self.label("owned_list_node_done");
                 // A node's record is never null in a well-formed list, but the close
@@ -712,21 +836,24 @@ impl CodeBuilder<'_> {
                 // resource drop (bug-246).
                 self.emit(abi::compare_immediate(abi::return_register(), "0"));
                 self.emit(abi::branch_eq(&node_done));
-                // bug-755: close only a record this list's scope still owns. A record
-                // that was a reference here (owned further out) or that a `RETURN`
-                // released to the caller is someone else's to close.
-                let record = self.allocate_register();
-                self.emit(abi::move_register(&record, abi::return_register()));
-                self.emit_skip_unless_owned(
-                    &abi::Reg::from(record.clone()),
-                    cleanup.scope_depth,
-                    &node_done,
-                )?;
-                self.emit(abi::move_register(abi::return_register(), &record));
-                self.emit_symbol_call(&close);
-                self.emit_drop_close_outcome(&close_ok);
-                self.emit(abi::label(&close_ok));
-                if cleanup.owns_elements {
+                if !matches!(pass, OwnedListPass::Reclaim(_)) {
+                    // bug-755: close only a record this list's scope still owns. A
+                    // record that was a reference here (owned further out) or that a
+                    // `RETURN` released to the caller is someone else's to close.
+                    // (The reclaim list holds only records this list took.)
+                    let record = self.allocate_register();
+                    self.emit(abi::move_register(&record, abi::return_register()));
+                    self.emit_skip_unless_owned(
+                        &abi::Reg::from(record.clone()),
+                        cleanup.scope_depth,
+                        &node_done,
+                    )?;
+                    self.emit(abi::move_register(abi::return_register(), &record));
+                    self.emit_symbol_call(&close);
+                    self.emit_drop_close_outcome(&close_ok);
+                    self.emit(abi::label(&close_ok));
+                }
+                if frees {
                     // Ordered after the close, exactly as `emit_resource_cleanup_call`
                     // orders it: a `File`'s mandatory flush-on-close drains the output
                     // buffer this then frees. The helper skips a `moved` record (a
@@ -738,6 +865,10 @@ impl CodeBuilder<'_> {
                         has_io_buffers,
                         frees_record,
                     )?;
+                }
+                if let OwnedListPass::Take(reclaim_slot) = pass {
+                    self.emit_owned_list_take(payload_slot, node_slot, 8, reclaim_slot);
+                    self.emit(abi::branch(&loop_label));
                 }
                 self.emit(abi::label(&node_done));
             }
@@ -764,7 +895,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(
                     &scratch10,
                     abi::stack_pointer(),
-                    cleanup.head_slot,
+                    cursor_slot,
                 ));
                 let node_done = self.label("owned_list_union_node_done");
                 let dropped = self.label("owned_list_union_drop_box");
@@ -772,28 +903,27 @@ impl CodeBuilder<'_> {
                 // owned by this list's scope.
                 let record = self.allocate_register();
                 self.emit(abi::load_u64(&record, &union_ptr, 8));
+                if matches!(pass, OwnedListPass::Take(_)) {
+                    self.emit(abi::store_u64(record, abi::stack_pointer(), payload_slot));
+                }
                 self.emit(abi::compare_immediate(&record, "0"));
                 self.emit(abi::branch_eq(&node_done));
-                self.emit_skip_unless_owned(
-                    &abi::Reg::from(record),
-                    cleanup.scope_depth,
-                    &node_done,
-                )?;
+                if !matches!(pass, OwnedListPass::Reclaim(_)) {
+                    self.emit_skip_unless_owned(
+                        &abi::Reg::from(record),
+                        cleanup.scope_depth,
+                        &node_done,
+                    )?;
+                }
+                // The reclaim's dispatch closes again, which a closed record answers
+                // with the defined no-op, and then frees what the first walk left.
                 self.emit_union_tag_dispatch_drop(
                     &union_ptr,
                     &variants,
                     state_type.as_ref(),
                     // bug-1001: the buffers go with the same proof as the record.
-                    if cleanup.owns_elements {
-                        &io_buffer_tags
-                    } else {
-                        &[]
-                    },
-                    if cleanup.owns_elements {
-                        &record_free_tags
-                    } else {
-                        &[]
-                    },
+                    if frees { &io_buffer_tags } else { &[] },
+                    if frees { &record_free_tags } else { &[] },
                     &dropped,
                 )?;
                 // Both a matched variant (which branches here) and an unrecognised tag
@@ -801,8 +931,23 @@ impl CodeBuilder<'_> {
                 // the list never held one (bug-1012), only the copy in its node,
                 // which goes with the node below.
                 self.emit(abi::label(&dropped));
+                if let OwnedListPass::Take(reclaim_slot) = pass {
+                    self.emit_owned_list_take(
+                        payload_slot,
+                        node_slot,
+                        OWNED_LIST_UNION_NODE_NEXT_OFFSET,
+                        reclaim_slot,
+                    );
+                    self.emit(abi::branch(&loop_label));
+                }
                 self.emit(abi::label(&node_done));
             }
+        }
+        if matches!(pass, OwnedListPass::CloseInPlace) {
+            // The list keeps its nodes: the handler's exit drains it.
+            self.emit(abi::branch(&loop_label));
+            self.emit(abi::label(&done_label));
+            return Ok(());
         }
         // The node block itself: allocated by `emit_owned_list_push`, reachable only
         // through the chain this loop has already advanced past, so this free is
@@ -825,6 +970,35 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&done_label));
         Ok(())
+    }
+
+    /// bug-1053: the record in `payload_slot` is closed and this list's scope owns
+    /// it. Mark it taken (`resource::owner::RESOURCE_OWNER_TAKEN`, which every
+    /// other cleanup that still names the record reads and skips on) and move its
+    /// node (in `node_slot`, link at `next_offset`) to the reclaim list. The word
+    /// stays readable until the reclaim frees the record.
+    fn emit_owned_list_take(
+        &mut self,
+        payload_slot: usize,
+        node_slot: usize,
+        next_offset: usize,
+        reclaim_slot: usize,
+    ) {
+        let record = self.allocate_register();
+        self.emit(abi::load_u64(record, abi::stack_pointer(), payload_slot));
+        let taken = self.allocate_register();
+        // Built as `0 - 2`: an immediate cannot be negative.
+        const _: () =
+            assert!(crate::codegen::resource::owner::RESOURCE_OWNER_TAKEN == 0u64.wrapping_sub(2));
+        self.emit(abi::move_immediate(taken, "Integer", "0"));
+        self.emit(abi::subtract_immediate(taken, taken, 2));
+        self.emit(abi::store_u64(taken, record, RESOURCE_OFFSET_OWNER));
+        let node = self.allocate_register();
+        self.emit(abi::load_u64(node, abi::stack_pointer(), node_slot));
+        let previous = self.allocate_register();
+        self.emit(abi::load_u64(previous, abi::stack_pointer(), reclaim_slot));
+        self.emit(abi::store_u64(previous, node, next_offset));
+        self.emit(abi::store_u64(node, abi::stack_pointer(), reclaim_slot));
     }
 
     /// Free an owned, non-escaping flat value at scope-drop (plan-01 Phase 5 /
