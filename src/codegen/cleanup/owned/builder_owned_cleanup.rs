@@ -161,31 +161,6 @@ impl CodeBuilder<'_> {
             .retain(|cleanup| !matches!(cleanup, ActiveCleanup::OwnedList(o) if o.name == name));
     }
 
-    /// Whether a type is a `RES`-marked resource collection
-    /// (`List OF RES File`, `Map OF K TO RES File`): its scope-ownership transfers
-    /// across a function boundary (§15.6).
-    ///
-    /// plan-106-E: the `RES` marker is a [`ParameterType::Res`] variant, so this is
-    /// the element/value shape, not a prefix on its spelling.
-    /// bug-753: a collection whose BLOCK a sole-holder binding may free without
-    /// closing anything: a `RES`-marked collection, or a list of such collections
-    /// (`collections::chunks`/`window` over a `List OF RES T`). A nested list holds
-    /// its inner lists inline in its own data region, so freeing the outer block
-    /// releases them all; their elements are references with their own owners.
-    pub(crate) fn is_res_collection_block(type_: &ParameterType) -> bool {
-        Self::is_res_marked_resource_collection(type_)
-            || matches!(type_, ParameterType::ListOf(element) if Self::is_res_collection_block(element))
-    }
-
-    pub(crate) fn is_res_marked_resource_collection(type_: &ParameterType) -> bool {
-        let marked = |type_: &ParameterType| matches!(type_, ParameterType::Res(_));
-        match type_ {
-            ParameterType::ListOf(element) => marked(element),
-            ParameterType::MapOf(_, value) => marked(value),
-            _ => false,
-        }
-    }
-
     /// `RETURN` of owner container `name`: the returned block is the caller's now,
     /// so retire the block free `setup_owned_list` registered — but keep its
     /// owned-list drains. bug-805: removing them (as [`Self::deactivate_owned_list`]

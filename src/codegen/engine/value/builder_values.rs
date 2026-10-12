@@ -429,7 +429,7 @@ impl CodeBuilder<'_> {
             return Ok(());
         }
         let leaf = self.is_resource_leaf(&result.type_);
-        if !leaf && !self.call_releases_into_statement(target, &result.type_) {
+        if !leaf && !self.call_releases_into_statement(value, target, &result.type_) {
             return Ok(());
         }
         let slot = self.allocate_stack_object("resource_temp", 8);
@@ -472,20 +472,44 @@ impl CodeBuilder<'_> {
     }
 
     /// Rule 5 (`mfb spec language resource-management`, "The owner of a resource"):
-    /// whether a call to `target` answering `type_` can hand the caller's
-    /// statement resources its `RETURN` released: a call to a function body whose
-    /// result is an aggregate reaching a resource. Which expression the call sits
-    /// in is not asked.
+    /// whether the call `value` (to `target`, answering `type_`) can hand the
+    /// caller's statement resources a `RETURN` released: its result is an
+    /// aggregate reaching a resource, and a function body ran to produce it. That
+    /// is a call to a function with a body, a call through a function value, and
+    /// a natively lowered builtin handed a function value (it runs the callback
+    /// in this statement, and the callback's `RETURN` releases into the result:
+    /// `collections::transform(xs, open)`). How the function was reached, and
+    /// which expression the call sits in, is not asked.
     ///
-    /// A natively lowered builtin has no `RETURN`: what its result reaches already
-    /// has a cleanup scope (a view, `canvas::groupItems`; the caller's own
-    /// handles, `collections::take`), or was taken by this statement when the
-    /// call that produced it returned.
-    fn call_releases_into_statement(&self, target: &str, type_: &ParameterType) -> bool {
-        !self.locals.contains_key(target)
-            && self.functions.contains_key(target)
-            && self.type_carries_resources(type_)
-            && !self.type_reaches_closure_leaf(type_)
+    /// A natively lowered builtin that runs no function has no `RETURN`: what
+    /// its result reaches already has a cleanup scope (a view,
+    /// `canvas::groupItems`; the caller's own handles, `collections::take`).
+    fn call_releases_into_statement(
+        &self,
+        value: &NirValue,
+        target: &str,
+        type_: &ParameterType,
+    ) -> bool {
+        if !self.type_carries_resources(type_) {
+            return false;
+        }
+        if self.locals.contains_key(target) || self.functions.contains_key(target) {
+            return true;
+        }
+        let (NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. }) = value
+        else {
+            return false;
+        };
+        args.iter().any(|arg| match arg {
+            NirValue::Closure { .. } | NirValue::FunctionRef { .. } => true,
+            NirValue::Local(name) => self
+                .locals
+                .get(name)
+                .is_some_and(|local| matches!(local.type_, ParameterType::Func(..))),
+            _ => false,
+        })
     }
 
     /// Rule 5: the statement takes, at once, every resource the call result in
@@ -517,8 +541,32 @@ impl CodeBuilder<'_> {
                 leaf,
             });
         }
+        // A function value the result reaches carries its resources in its
+        // environment: they are taken through its routine, onto a dynamic list.
+        let dynamic = if self.type_reaches_closure_leaf(type_) {
+            let head_slot = self.allocate_stack_object("resource_temp_dynamic", 8);
+            self.owned_value_slots.push(head_slot);
+            self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), head_slot));
+            lists.push(OwnedListCleanup {
+                name: String::new(),
+                head_slot,
+                drop: OwnedListDrop::Dynamic,
+                owns_elements: false,
+                reclaim_slot: None,
+                trap_shared: false,
+                scope_depth: depth,
+                leaf: ParameterType::Unknown,
+            });
+            Some(crate::codegen::resource::closure_carry::DynamicList {
+                head_slot,
+                scope_depth: depth,
+            })
+        } else {
+            None
+        };
         let heads: Vec<(ParameterType, usize, bool)> = lists
             .iter()
+            .filter(|list| !matches!(list.drop, OwnedListDrop::Dynamic))
             .map(|list| {
                 (
                     list.leaf.clone(),
@@ -529,6 +577,17 @@ impl CodeBuilder<'_> {
             .collect();
         self.emit_for_each_resource(slot, type_, &mut |builder, leaf_slot, leaf| {
             let leaf = crate::codegen::engine::types::typed_strip_res_marker(leaf);
+            if builder.is_closure_leaf(leaf) {
+                let Some(list) = dynamic else {
+                    return Ok(());
+                };
+                let (address_slot, token_slot) = builder.emit_dynamic_list_arguments(list)?;
+                return builder.emit_closure_resource_op(
+                    leaf_slot,
+                    CLOSURE_ENV_OP_ADOPT,
+                    &[address_slot, token_slot],
+                );
+            }
             let Some((_, head_slot, union)) =
                 heads.iter().find(|(kind, _, _)| kind == leaf).or_else(|| {
                     heads
@@ -1052,7 +1111,13 @@ impl CodeBuilder<'_> {
             .rev()
             .chain(enclosing.into_iter().rev())
         {
-            let kept = match parked {
+            // A resource temporary's slot is no block of its own to compare: what
+            // it drops is decided by the owner word of each record (a record the
+            // returned value carries was raised past the statement), and a
+            // statement list's nodes are freed either way. Comparing its slot let
+            // a returned block that reused a freed argument block's address skip
+            // the drain.
+            let kept = match parked.filter(|_| !temp.resource) {
                 Some(escaping_slot) => {
                     let kept = self.label("return_temp_escaped");
                     let block = self.temporary_vreg();

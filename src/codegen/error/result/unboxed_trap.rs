@@ -89,8 +89,6 @@ impl CodeBuilder<'_> {
             && self.is_freeable_flat_value(payload)
             && !self.owns_graph(payload)
             && !matches!(payload, ParameterType::ResultOf(_))
-            && !Self::is_res_collection_block(payload)
-            && !Self::is_res_marked_resource_collection(payload)
             && self.resource_cleanup_symbol(payload).is_none()
             && self.resource_union_cleanup(payload).is_none();
         ownable_block.then_some(true)
