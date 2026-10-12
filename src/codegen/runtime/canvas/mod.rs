@@ -31,6 +31,7 @@
 //! zeroed), so the mutex and condition code below is written once and works on all
 //! three families.
 
+pub(crate) mod curve_shader;
 pub(crate) mod metal;
 pub(crate) mod vulkan;
 
@@ -923,8 +924,8 @@ pub(crate) fn emit_square_cap_reach(
     ]
 }
 
-/// plan-163-A: a polygon's `FillRule` ordinal (`HEADER_POLYGON_RULE`, 0 EvenOdd, 1
-/// NonZero) into `arc.y` (`ITEM_ARC_REFLEX`) of the item block at `block_at` from the
+/// plan-163-A: a polygon's or a curve polygon's `FillRule` ordinal
+/// (`HEADER_POLYGON_RULE`, 0 EvenOdd, 1 NonZero) into `arc.y` (`ITEM_ARC_REFLEX`) of the item block at `block_at` from the
 /// stack pointer. Only an arc reads `arc.y` as its reflex flag, so a polygon's copy of
 /// the word is free; call this AFTER [`emit_item_arc_flags`], which writes the flag for
 /// every kind. Any other kind is skipped and keeps the flag. Stroked text is a polygon
@@ -935,11 +936,17 @@ pub(crate) fn emit_item_polygon_rule(
     block_at: usize,
     skip: &str,
 ) -> Vec<CodeInstruction> {
+    // plan-164-C: a `CurvePolygon` keeps its rule in the same slot and reads it from the
+    // same word (`curveWalk`).
+    let has_rule = format!("{skip}_has");
     vec![
         abi::load_double(abi::FP_SCRATCH[1], header, HEADER_KIND * 8),
         abi::float_convert_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]),
         abi::compare_immediate(abi::SCRATCH[1], GEO_KIND_POLYGON),
+        abi::branch_eq(&has_rule),
+        abi::compare_immediate(abi::SCRATCH[1], GEO_KIND_CURVEPOLYGON),
         abi::branch_ne(skip),
+        abi::label(&has_rule),
         abi::load_double(abi::FP_SCRATCH[1], header, HEADER_POLYGON_RULE * 8),
         abi::float_convert_to_signed_x(abi::SCRATCH[1], abi::FP_SCRATCH[1]),
         abi::store_u32(
@@ -1045,6 +1052,23 @@ pub(crate) const GEO_KIND_PICTURE: &str = "9";
 /// Spelled here and once in MFBASIC; `the_geo_layout_constants_match_their_rust_counterparts`
 /// holds the two equal.
 pub(crate) const GEO_KIND_POLYLINE: &str = "10";
+/// `__CANVAS_GEO_POLYCURVE` and `__CANVAS_GEO_CURVEPOLYGON` — a `canvas::PolyCurve` and
+/// a `canvas::CurvePolygon` (plan-164-A). Two kinds over one tail of rational-quadratic
+/// pieces, as `POLYLINE` and `POLYGON` are two kinds over one edge layout: the kind says
+/// whether there is an interior.
+///
+/// Spelled here and once in MFBASIC;
+/// `the_geo_layout_constants_match_their_rust_counterparts` holds the two equal.
+pub(crate) const GEO_KIND_POLYCURVE: &str = "11";
+pub(crate) const GEO_KIND_CURVEPOLYGON: &str = "12";
+/// The doubles one piece of a curve record's tail occupies: `x0, y0, x1, y1, x2, y2,
+/// w1` (`__CANVAS_CURVE_PIECE` in `builtins/canvas/helper_curves.rs`, which
+/// `canvas_curve_piece_width_is_pinned` holds equal to this).
+///
+/// On both GPUs a piece is TWO slots of the frame's edge region (plan-164-C): its
+/// chord `x0, y0, x2, y2` among the item's first `count` slots, where the band index
+/// reads it as the edge it is in y; and `x1, y1, w1, 0` in the `count` slots after.
+pub(crate) const CURVE_PIECE_SLOTS: usize = 7;
 /// A polyline's first and last segments with length, in the header's gradient axis
 /// slots (`__CANVAS_GEO_POLYLINE_FIRST` / `_LAST`), which a polyline does not otherwise
 /// use.

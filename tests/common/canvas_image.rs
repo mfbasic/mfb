@@ -140,6 +140,27 @@ impl Tolerance {
         max_channel_delta: 2,
         max_differing_fraction: 0.02,
     };
+
+    /// A frame that draws a `canvas::PolyCurve` or a `canvas::CurvePolygon` (plan-164-C).
+    ///
+    /// The other shapes' distances are taken in double-float where single precision
+    /// cannot decide a coverage step, so a GPU frame of them lands on the oracle's step.
+    /// A curve piece's nearest point is found by a root search in single precision, on
+    /// coordinates taken relative to the pixel, so its distance is good to about 1e-4 of
+    /// a pixel and now and then rounds to the coverage step beside the oracle's. Over
+    /// black one step of low coverage is several sRGB levels, which is what the looser
+    /// per-channel bound is for; the population budget is `GPU_DEFAULT`'s.
+    ///
+    /// Measured, not chosen: the worst pixel over the curve scenes of
+    /// `tests/canvas/scenes/` is 4 levels, the same pixel (a round dash end of the
+    /// turned spiral in `curves_placed_on_black.mfb`, coverage 4 where the oracle has 5)
+    /// on Metal, on Mesa's lavapipe and on Intel's Windows driver; the largest differing
+    /// population is 0.89% (`curve_strokes_on_black.mfb` on Intel). The ceiling the plan
+    /// allowed was 8 levels and 4%; past it the answer is more precision, not this.
+    pub const GPU_CURVE: Tolerance = Tolerance {
+        max_channel_delta: 4,
+        max_differing_fraction: 0.02,
+    };
 }
 
 /// Compare two frames pixel for pixel.

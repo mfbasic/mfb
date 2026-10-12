@@ -1081,6 +1081,11 @@ FUNC __canvas_metalRenderable(offsets AS List OF Integer) AS Boolean
     IF kind = __CANVAS_GEO_POLYLINE THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
+    ' plan-164-C: a curve shape's pieces take the same region, TWO slots a piece -- its
+    ' chord, which the band index reads as an edge, and its control point and weight.
+    IF kind = __CANVAS_GEO_POLYCURVE OR kind = __CANVAS_GEO_CURVEPOLYGON THEN
+      total = total + 2 * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    END IF
     ' plan-163-B: a stroke's join records ride the same region, two edge slots each; its
     ' dash words a region of their own, a frame SUM like the stops'.
     total = total + 2 * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_JOIN_COUNT, 0.0))
@@ -1234,6 +1239,11 @@ FUNC __canvas_vulkanRenderable(offsets AS List OF Integer) AS Boolean
     ' plan-154-C: a PolyLine's segments take the same region, one edge each.
     IF kind = __CANVAS_GEO_POLYLINE THEN
       total = total + toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
+    END IF
+    ' plan-164-C: a curve shape's pieces take the same region, TWO slots a piece -- its
+    ' chord, which the band index reads as an edge, and its control point and weight.
+    IF kind = __CANVAS_GEO_POLYCURVE OR kind = __CANVAS_GEO_CURVEPOLYGON THEN
+      total = total + 2 * toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 20, 0.0))
     END IF
     ' plan-163-B: a stroke's join records ride the same region, two edge slots each; its
     ' dash words a region of their own, a frame SUM like the stops'.

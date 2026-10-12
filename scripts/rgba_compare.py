@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """rgba_compare.py — compare two raw RGBA8 frames under Tolerance::GPU_DEFAULT (plan-131-D).
 
-    python3 scripts/rgba_compare.py <reference.rgba> <candidate.rgba> [width]
+    python3 scripts/rgba_compare.py <reference.rgba> <candidate.rgba> [width] [curve]
 
 Tolerance::GPU_DEFAULT: no pixel may differ by more than 2 steps in any channel, and no more
-than 2% of pixels may differ at all. Prints one line:
+than 2% of pixels may differ at all. A fourth argument `curve` judges under
+Tolerance::GPU_CURVE instead — 4 steps, the same 2% — which is for a frame that draws a
+`canvas::PolyCurve` or a `canvas::CurvePolygon` (`tests/common/canvas_image.rs`). Prints one
+line:
 
     ok worst=<n> differing=<pct>%                           within tolerance
     worst=<n> differing=<pct>% first-beyond-tolerance=...   outside it (x, y, a, b)
@@ -23,6 +26,7 @@ def main():
     reference = open(sys.argv[1], "rb").read()
     candidate = open(sys.argv[2], "rb").read()
     width = int(sys.argv[3]) if len(sys.argv) > 3 else 900
+    limit = 4 if len(sys.argv) > 4 and sys.argv[4] == "curve" else 2
     if len(reference) != len(candidate) or not reference:
         print(f"frame sizes differ ({len(reference)} vs {len(candidate)}) — a harness bug")
         return 0
@@ -39,11 +43,11 @@ def main():
         delta = max(abs(x - y) for x, y in zip(a, b))
         if delta > worst:
             worst = delta
-        if first is None and delta > 2:
+        if first is None and delta > limit:
             pixel = i // 4
             first = (pixel % width, pixel // width, a.hex(), b.hex())
     fraction = differing / total
-    if worst <= 2 and fraction <= 0.02:
+    if worst <= limit and fraction <= 0.02:
         print(f"ok worst={worst} differing={fraction * 100:.4f}%")
     else:
         print(f"worst={worst} differing={fraction * 100:.4f}% first-beyond-tolerance={first}")

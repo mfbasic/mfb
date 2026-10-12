@@ -357,6 +357,10 @@ END FUNC
 ' butt bands -- a polygon's from its edge tail, a rectangle's four sides from its centre
 ' and half-extents as `__canvas_rectSides` built them -- unioned with its join records.
 FUNC __canvas_joinedStroke(kind AS Integer, offset AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, half AS Float) AS Float
+  ' plan-164-B: a `CurvePolygon`'s pieces, cut square, with its records.
+  IF kind = __CANVAS_GEO_CURVEPOLYGON THEN
+    RETURN __canvas_curveJoined(offset, tail, edges, px, py, half)
+  END IF
   MUT d AS Float = __canvas_joinsDistance(offset, px, py)
   IF kind = __CANVAS_GEO_POLYGON THEN
     MUT e AS Integer = 0

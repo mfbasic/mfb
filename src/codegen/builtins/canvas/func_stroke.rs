@@ -9,8 +9,8 @@ const INTRO: &str =
     r#"Build a `canvas::Paint` that outlines an item and leaves its interior empty."#;
 
 const DESC: &str = r#"`stroke` is the outline-only case — an unfilled shape, and the only sensible
-`canvas::Paint` for the three items that have no interior at all, `canvas::Line`,
-`canvas::Arc` and `canvas::PolyLine`. Every
+`canvas::Paint` for the four items that have no interior at all, `canvas::Line`,
+`canvas::Arc`, `canvas::PolyLine` and `canvas::PolyCurve`. Every
 other field is left at its no-op value: a transparent fill, `Normal` blend,
 no clip, no gradient, `Butt` ends, `Round` corners, no dashes and opaque —
 with a `miterLimit` of `4.0`. A `canvas::Line` that should end round says so with

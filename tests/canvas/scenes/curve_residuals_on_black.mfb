@@ -1,0 +1,65 @@
+' plan-164-C: curve shapes a few thousandths of a unit across, each enlarged 30,000 times
+' by its OWN transform, over black.
+'
+' A piece is uploaded as 16.16 words with a residual word for what 2^-16 leaves over. At
+' this size the 16.16 word alone places a point to within about half a pixel, so these
+' draw like the software renderer only if every residual of every piece -- chord,
+' control point -- reaches the buffer in its own slot: the picture is the readback.
+' A circle of four exact arcs (filled, stroked), a cubic S with square caps, and a
+' dashed ring.
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT vector
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC line(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1)], weights := []]
+END FUNC
+
+FUNC quad(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2)], weights := []]
+END FUNC
+
+' A quarter of a circle, exactly: the corner between its ends weighted by cos 45.
+FUNC conic(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2)], weights := [1.0, 0.7071067811865476, 1.0]]
+END FUNC
+
+FUNC cubic(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2), at(x3, y3)], weights := []]
+END FUNC
+
+' A circle of four exact arcs about (cx, cy); `back` winds it the other way.
+FUNC circle(cx AS Float, cy AS Float, r AS Float, back AS Boolean) AS List OF canvas::BezierCurve
+  IF back THEN
+    RETURN [conic(cx + r, cy, cx + r, cy - r, cx, cy - r), conic(cx, cy - r, cx - r, cy - r, cx - r, cy), conic(cx - r, cy, cx - r, cy + r, cx, cy + r), conic(cx, cy + r, cx + r, cy + r, cx + r, cy)]
+  END IF
+  RETURN [conic(cx + r, cy, cx + r, cy + r, cx, cy + r), conic(cx, cy + r, cx - r, cy + r, cx - r, cy), conic(cx - r, cy, cx - r, cy - r, cx, cy - r), conic(cx, cy - r, cx + r, cy - r, cx + r, cy)]
+END FUNC
+
+FUNC wave(x AS Float, y AS Float, curves AS List OF canvas::BezierCurve, paint AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::PolyCurve[id := "", position := at(x, y), curves := curves, paint := paint, transform := none()]
+END FUNC
+
+FUNC blob(x AS Float, y AS Float, contours AS List OF List OF canvas::BezierCurve, rule AS canvas::FillRule, paint AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::CurvePolygon[id := "", position := at(x, y), contours := contours, rule := rule, paint := paint, transform := none()]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET huge AS canvas::Transform = canvas::Transform[a := 30000.0, b := 0.0, c := 0.0, d := 30000.0, tx := 0.0, ty := 0.0]
+  LET turned AS canvas::Transform = canvas::Transform[a := 25980.762, b := 15000.0, c := 0.0 - 15000.0, d := 25980.762, tx := 0.0, ty := 0.0]
+  LET disc AS canvas::DrawItem = canvas::CurvePolygon[id := "", position := at(170.3, 170.6), contours := [circle(0.0, 0.0, 0.0041037, FALSE)], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(color::rgb(90, 160, 250), color::rgb(255, 255, 255), 0.0001537), transform := huge]
+  LET s AS canvas::DrawItem = canvas::PolyCurve[id := "", position := at(420.4, 120.7), curves := [cubic(0.0, 0.0, 0.0023517, 0.0 - 0.0020083, 0.0003417, 0.0043503, 0.0026917, 0.0030013)], paint := WITH canvas::stroke(color::rgb(250, 220, 120), 0.0004037) { cap := canvas::CapStyle.Square }, transform := turned]
+  LET ring AS canvas::DrawItem = canvas::CurvePolygon[id := "", position := at(680.6, 420.3), contours := [circle(0.0, 0.0, 0.0050123, TRUE)], rule := canvas::FillRule.EvenOdd, paint := WITH canvas::fillStroke(color::rgb(60, 150, 90), color::rgb(230, 250, 200), 0.0002167) { dashes := [0.0006037, 0.0003513] }, transform := huge]
+  canvas::present([disc, s, ring])
+END FUNC

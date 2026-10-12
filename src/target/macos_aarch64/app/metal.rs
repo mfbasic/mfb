@@ -51,6 +51,9 @@ use crate::codegen::error::constants::error_constants::{
     COLLECTION_HEADER_SIZE, COLLECTION_OFFSET_COUNT,
 };
 // plan-163-B: the stroke-style words and the join-record header slots.
+use crate::codegen::runtime::canvas::curve_shader::{
+    curve_shader, ShaderLanguage, CURVE_SHADER_MARK,
+};
 use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
     emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
@@ -68,9 +71,10 @@ use crate::codegen::runtime::canvas::{
     METAL_MAX_FRAME_ITEMS,
 };
 use crate::codegen::runtime::canvas::{
-    CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT, EDGE_SLOTS,
-    FIXED_POINT_SCALE, GEO_KIND_PICTURE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT,
-    GLYPH_META_H, GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
+    CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
+    CURVE_PIECE_SLOTS, EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_CURVEPOLYGON, GEO_KIND_PICTURE,
+    GEO_KIND_POLYCURVE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H,
+    GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
     GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS,
     HEADER_CAP, HEADER_FILL_R, HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND,
     HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
@@ -167,6 +171,7 @@ pub(super) static METAL_SHADER_SOURCE: LazyLock<String> = LazyLock::new(|| {
          constant int METAL_GLYPH_BASE = {METAL_GLYPH_BASE_WORDS};\n\
          {METAL_SHADER_BODY}"
     )
+    .replace(CURVE_SHADER_MARK, &curve_shader(ShaderLanguage::Msl))
 });
 
 /// Everything in the MSL after the region bases — the part with no layout number in it.
@@ -499,13 +504,16 @@ const METAL_SHADER_BODY: &str = concat!(
     "  s.d = dfLength(dfSub(wx, dfMul(vx, c)), dfSub(wy, dfMul(vy, c)));\n",
     "  return s;\n",
     "}\n",
-    "struct DfEdge { float2 ax; float2 ay; float2 vx; float2 vy; };\n",
+    "struct DfEdge { float2 ax; float2 ay; float2 vx; float2 vy; float2 by; };\n",
     "static DfEdge dfEdge(constant int *edges, int base, int e) {\n",
     "  int i = (base + e) * 4 + METAL_EDGE_BASE;\n",
     "  int r = (base + e) * 4 + METAL_EDGE_RESIDUAL_BASE;\n",
     "  DfEdge g;\n",
     "  g.ax = edgeCoord(edges, i, r);\n",
     "  g.ay = edgeCoord(edges, i + 1, r + 1);\n",
+    // The end itself, not `ay + vy`: two edges that share a vertex must read ONE value
+    // for it, or a pixel row through that vertex counts the corner twice (`dfCrossing`).
+    "  g.by = edgeCoord(edges, i + 3, r + 3);\n",
     "  g.vx = dfAdd(dfWord(edges[i + 2] - edges[i]),\n",
     "               dfTwoSum(residualPx(edges[r + 2]), -residualPx(edges[r])));\n",
     "  g.vy = dfAdd(dfWord(edges[i + 3] - edges[i + 1]),\n",
@@ -516,7 +524,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "  return dfSegment(dfSub(x, g.ax), dfSub(y, g.ay), g.vx, g.vy).d;\n",
     "}\n",
     "static int dfCrossing(DfEdge g, float2 x, float2 y) {\n",
-    "  if (dfLess(y, g.ay) == dfLess(y, dfAdd(g.ay, g.vy))) { return 0; }\n",
+    "  if (dfLess(y, g.ay) == dfLess(y, g.by)) { return 0; }\n",
     "  float2 lhs = dfMul(dfSub(x, g.ax), g.vy);\n",
     "  float2 rhs = dfMul(dfSub(y, g.ay), g.vx);\n",
     "  if (g.vy.x > 0.0) { return dfLess(lhs, rhs) ? 1 : 0; }\n",
@@ -723,11 +731,13 @@ const METAL_SHADER_BODY: &str = concat!(
     "        g.ay = ay;\n",
     "        g.vx = dfSub(bx, ax);\n",
     "        g.vy = dfSub(by, ay);\n",
+    "        g.by = by;\n",
     "      } else {\n",
     "        g.ax = joinCoord(item, edges, e, (k - 1) * 2);\n",
     "        g.ay = joinCoord(item, edges, e, (k - 1) * 2 + 1);\n",
     "        g.vx = dfSub(joinCoord(item, edges, e, (k & 3) * 2), g.ax);\n",
-    "        g.vy = dfSub(joinCoord(item, edges, e, (k & 3) * 2 + 1), g.ay);\n",
+    "        g.by = joinCoord(item, edges, e, (k & 3) * 2 + 1);\n",
+    "        g.vy = dfSub(g.by, g.ay);\n",
     "      }\n",
     "      DfSegment s = dfSegment(dfSub(x, g.ax), dfSub(y, g.ay), g.vx, g.vy);\n",
     "      if (k == 0) {\n",
@@ -764,7 +774,9 @@ const METAL_SHADER_BODY: &str = concat!(
     // emitter built to hold every edge that can matter there.
     "static int2 polygonBand(constant MfbItem &item, constant int *edges, float y) {\n",
     "  int nb = item.arcCaps.z;\n",
-    "  if ((item.misc.x != 4 && item.misc.x != 10) || nb <= 0) { return int2(-1, item.misc.w); }\n",
+    // plan-164-C: kinds 11 and 12 too -- their pieces are banded as edges.
+    "  int bk = item.misc.x;\n",
+    "  if ((bk != 4 && bk != 10 && bk != 11 && bk != 12) || nb <= 0) { return int2(-1, item.misc.w); }\n",
     "  float k = floor((y - fx(item.arcCaps.x)) / fx(item.arcCaps.y));\n",
     "  int band = int(clamp(k, 0.0, float(nb - 1)));\n",
     "  int t = METAL_BAND_BASE + item.arcCaps.w;\n",
@@ -1100,7 +1112,8 @@ const METAL_SHADER_BODY: &str = concat!(
     "      g.ax = joinCoord(item, edges, e, (k - 1) * 2);\n",
     "      g.ay = joinCoord(item, edges, e, (k - 1) * 2 + 1);\n",
     "      g.vx = dfSub(joinCoord(item, edges, e, (k & 3) * 2), g.ax);\n",
-    "      g.vy = dfSub(joinCoord(item, edges, e, (k & 3) * 2 + 1), g.ay);\n",
+    "      g.by = joinCoord(item, edges, e, (k & 3) * 2 + 1);\n",
+    "      g.vy = dfSub(g.by, g.ay);\n",
     "    }\n",
     "    float2 wx = dfSub(x, g.ax);\n",
     "    float2 wy = dfSub(y, g.ay);\n",
@@ -1308,6 +1321,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "  }\n",
     "  return min(disc, inside ? -d : d);\n",
     "}\n",
+    // plan-164-C: the curve shapes' functions, generated from `shaders/curves.tpl`
+    // (`runtime/canvas/curve_shader.rs`) and spliced in here when the source is built.
+    "@CURVE_SHADER@\n",
     // `__canvas_dashedEdges`: a polygon's or polyline's band edges, a line's one edge, or a
     // rectangle's or picture's four sides, each band cut by the dashes on its own [s0, s1],
     // with the corner piece wherever a dash runs through a vertex. An open path with no
@@ -1565,6 +1581,12 @@ const METAL_SHADER_BODY: &str = concat!(
     "    return edgeDistance(edges, clip ? item.clipPath.x : item.arc.z, band.y, band.x, x, y, reach,\n",
     "                        clip ? (item.clipPath.z >> 2) : item.arc.y);\n",
     "  }\n",
+    // plan-164-C: a CurvePolygon's signed distance, or a PolyCurve's stroke -- dashed or
+    // not -- from its pieces. A PolyCurve is stroke-as-fill, its half-width the radius.
+    "  if (kind == 11 || kind == 12) {\n",
+    "    return float2(curveWalk(item, edges, band, x, y, kind == 12 ? 0 : (item.strokeStyle.w > 0 ? 3 : 1),\n",
+    "                            dfF(dfFixed(item.misc.y, item.miscLo.x)), item.arc.w), 0.0);\n",
+    "  }\n",
     // plan-163-B: a dashed Line, Arc or PolyLine is its dashed stroke.
     "  if (item.strokeStyle.w > 0 && (kind == 2 || kind == 3 || kind == 10)) {\n",
     "    return dashedStroke(item, edges, band, x, y, dfF(dfFixed(item.misc.y, item.miscLo.x)));\n",
@@ -1679,7 +1701,9 @@ const METAL_SHADER_BODY: &str = concat!(
     // so the centre's shape distance cannot decide the neighbours there.
     // plan-163-B: so can a dashed one, which strokes from `dashedStroke`.
     "  bool dashed = item.strokeStyle.w > 0;\n",
-    "  bool joined = (item.strokeStyle.y > 0 || dashed) && item.misc.x != 10;\n",
+    // plan-164-C: nor a PolyCurve, stroke-as-fill like a PolyLine: `sampleDistance` is
+    // its whole stroke.
+    "  bool joined = (item.strokeStyle.y > 0 || dashed) && item.misc.x != 10 && item.misc.x != 11;\n",
     "  float strokeReach = mapped ? reach - max(half2.x, 0.0) : 0.5;\n",
     // plan-163-C: samples 5..9 are a path clip's distance at the same five points, so the
     // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's;
@@ -1718,8 +1742,11 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int fill = dfCoverage(mapped ? dfDiv(dRaw, g) : dRaw);\n",
     "  int stroke = 0;\n",
     "  if (stroked) {\n",
-    "    float2 s = dashed ? dashedStroke(item, edges, band, cqx, cqy, dfF(half2))\n",
-    "        : (joined ? joinedStroke(item, edges, band, cqx, cqy, half2, strokeReach) : dfSub(dfAbs(dRaw), half2));\n",
+    // plan-164-C: a CurvePolygon's joined or dashed stroke is its pieces' (`curveWalk`).
+    "    float2 s = (item.misc.x == 12 && joined)\n",
+    "        ? float2(curveWalk(item, edges, band, cqx, cqy, dashed ? 3 : 2, dfF(half2), item.arc.w), 0.0)\n",
+    "        : (dashed ? dashedStroke(item, edges, band, cqx, cqy, dfF(half2))\n",
+    "        : (joined ? joinedStroke(item, edges, band, cqx, cqy, half2, strokeReach) : dfSub(dfAbs(dRaw), half2)));\n",
     "    stroke = dfCoverage(mapped ? dfDiv(s, g) : s);\n",
     "  }\n",
     "  int clipCov = 255;\n",
@@ -1979,7 +2006,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int4 ramp = item.ellipse.z >= 2 ? gradientColour(q, edges, item) : item.fill;\n",
     "  bool rampStroke = item.ellipse.z >= 2 && (item.gradientKind & 8) != 0;\n",
     "  int4 fillRgba = ramp;\n",
-    "  if (rampStroke && (item.misc.x == 2 || item.misc.x == 3)) { fillRgba = tintRamp(ramp, item.fill); }\n",
+    "  if (rampStroke && (item.misc.x == 2 || item.misc.x == 3 || item.misc.x == 11)) { fillRgba = tintRamp(ramp, item.fill); }\n",
     // plan-154-B: a PolyLine's stops are its per-point colours, and its ramp runs along
     // the path -- the parameter of the nearest point, in shape space, from the same band
     // the distance used.
@@ -6492,6 +6519,11 @@ fn emit_edge_buffer(asm: &mut Asm) {
     let empty = format!("{METAL_DRAW_SYMBOL}_edge_empty");
     let convert = format!("{METAL_DRAW_SYMBOL}_edge_convert");
     let band = format!("{METAL_DRAW_SYMBOL}_edge_band");
+    let polyline = format!("{METAL_DRAW_SYMBOL}_edge_polyline");
+    let has_pieces = format!("{METAL_DRAW_SYMBOL}_edge_pieces");
+    let chords = format!("{METAL_DRAW_SYMBOL}_edge_chords");
+    let controls_init = format!("{METAL_DRAW_SYMBOL}_edge_controls_init");
+    let controls = format!("{METAL_DRAW_SYMBOL}_edge_controls");
     let header = abi::SCRATCH[0];
     let count = abi::SCRATCH[2];
     let index = abi::SCRATCH[3];
@@ -6521,7 +6553,37 @@ fn emit_edge_buffer(asm: &mut Asm) {
     // plan-154-B: a PolyLine's segments are edges in the polygon layout, one per
     // segment and without a wrap edge, so they take the same upload and band index.
     asm.push(abi::compare_immediate(abi::SCRATCH[5], GEO_KIND_POLYLINE));
+    asm.push(abi::branch_eq(&polyline));
+    // plan-164-C: a curve shape's pieces take the same region, TWO slots a piece, and
+    // the same band index (below).
+    asm.push(abi::compare_immediate(abi::SCRATCH[5], GEO_KIND_POLYCURVE));
+    asm.push(abi::branch_eq(&has_pieces));
+    asm.push(abi::compare_immediate(
+        abi::SCRATCH[5],
+        GEO_KIND_CURVEPOLYGON,
+    ));
     asm.push(abi::branch_ne(&empty));
+    asm.push(abi::label(&has_pieces));
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_AUX0 * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(count, abi::FP_SCRATCH[1]));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[5],
+        abi::stack_pointer(),
+        OFF_EDGE_CURSOR,
+    ));
+    asm.push(abi::add_registers(abi::SCRATCH[6], abi::SCRATCH[5], count));
+    asm.push(abi::add_registers(abi::SCRATCH[6], abi::SCRATCH[6], count));
+    asm.push(abi::compare_immediate(
+        abi::SCRATCH[6],
+        &METAL_MAX_FRAME_EDGES.to_string(),
+    ));
+    asm.push(abi::branch_le(&convert));
+    asm.push(abi::branch(&empty));
+    asm.push(abi::label(&polyline));
     // Its first and last live segments, as whole numbers over the 16.16 axis
     // `emit_item_block` wrote into `gradient` (`HEADER_POLYLINE_FIRST`). Here rather than
     // in `emit_item_block` because that runs for glyphs too and this does not; a
@@ -6649,6 +6711,108 @@ fn emit_edge_buffer(asm: &mut Asm) {
     asm.push(abi::signed_convert_to_float_d(scale, abi::SCRATCH[5]));
     asm.push(abi::add_immediate(source, header, HEADER_SLOTS * 8));
     asm.push(abi::move_immediate(index, "Integer", "0"));
+
+    // plan-164-C: a curve shape's pieces (`x0, y0, x1, y1, x2, y2, w1` each, seven
+    // doubles) go in as two runs of `count` slots. First each piece's CHORD, `x0, y0, x2,
+    // y2` -- an edge in every respect the band index cares about, since a piece is
+    // y-monotone and its two ends are its whole y-range, so `emit_band_index` indexes
+    // pieces exactly as it indexes edges. Then each piece's control point and weight,
+    // `x1, y1, w1, 0`, in the `count` slots after: piece `e`'s is slot `base + count +
+    // e`. The weight takes the same 16.16 word and residual a coordinate does.
+    //
+    // The kind is read again here because every scratch register the dispatch above
+    // held it in has been used since.
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        header,
+        HEADER_KIND * 8,
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[5],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[5], GEO_KIND_POLYCURVE));
+    asm.push(abi::branch_eq(&chords));
+    asm.push(abi::compare_immediate(
+        abi::SCRATCH[5],
+        GEO_KIND_CURVEPOLYGON,
+    ));
+    asm.push(abi::branch_ne(&head));
+
+    // One double of the record as its 16.16 word and its residual, each cursor advanced.
+    let word = |asm: &mut Asm, slot: usize| {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], source, slot * 8));
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        asm.push(abi::float_round_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
+        asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 4));
+        asm.push(abi::signed_convert_to_float_d(
+            abi::FP_SCRATCH[2],
+            abi::SCRATCH[5],
+        ));
+        asm.push(abi::float_subtract_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[2],
+        ));
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            residual_scale,
+        ));
+        asm.push(abi::float_round_to_signed_x(
+            abi::SCRATCH[5],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
+        asm.push(abi::add_immediate(residual_target, residual_target, 4));
+    };
+    asm.push(abi::label(&chords));
+    asm.push(abi::compare_registers(index, count));
+    asm.push(abi::branch_ge(&controls_init));
+    for slot in [0usize, 1, 4, 5] {
+        word(asm, slot);
+    }
+    asm.push(abi::add_immediate(source, source, CURVE_PIECE_SLOTS * 8));
+    asm.push(abi::add_immediate(index, index, 1));
+    asm.push(abi::branch(&chords));
+    asm.push(abi::label(&controls_init));
+    asm.push(abi::add_immediate(source, header, HEADER_SLOTS * 8));
+    asm.push(abi::move_immediate(index, "Integer", "0"));
+    asm.push(abi::label(&controls));
+    asm.push(abi::compare_registers(index, count));
+    asm.push(abi::branch_ge(&band));
+    for slot in [2usize, 3] {
+        word(asm, slot);
+    }
+    // The weight as its fp32 BITS, not a 16.16 word: the shader's arithmetic on it is
+    // single precision either way, and a weight has no 32767 to stay under.
+    asm.push(abi::load_double(abi::FP_SCRATCH[1], source, 6 * 8));
+    asm.push(abi::float_convert_s_from_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::float_move_x_from_d(
+        abi::SCRATCH[5],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 0));
+    asm.push(abi::move_immediate(abi::SCRATCH[5], "Integer", "0"));
+    asm.push(abi::store_u32(abi::SCRATCH[5], abi::SCRATCH[6], 4));
+    asm.push(abi::add_immediate(abi::SCRATCH[6], abi::SCRATCH[6], 8));
+    asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 0));
+    asm.push(abi::store_u32(abi::SCRATCH[5], residual_target, 4));
+    asm.push(abi::add_immediate(residual_target, residual_target, 8));
+    asm.push(abi::add_immediate(source, source, CURVE_PIECE_SLOTS * 8));
+    asm.push(abi::add_immediate(index, index, 1));
+    asm.push(abi::branch(&controls));
 
     asm.push(abi::label(&head));
     asm.push(abi::compare_registers(index, count));
@@ -7655,6 +7819,31 @@ mod tests {
             ),
             "`dfShapePoint` must subtract the draw offset from the surface point",
         );
+        // plan-164-C: the curve shapes are drawn from `curveWalk`, which takes the
+        // double-float shape point `sampleDistance` was given and a piece's coordinates
+        // RELATIVE to it (`curvePiece`). The generated block is spliced in ahead of the
+        // fragment entry point, so it is checked on its own: nothing in it may name the
+        // surface position.
+        let curves = curve_shader(ShaderLanguage::Msl);
+        assert!(
+            !curves.contains("in.pos") && !curves.contains("gl_FragCoord"),
+            "a curve function reads the surface position; it must take the shape-space \
+             point it is handed",
+        );
+        assert!(
+            curves.contains("k.p0 = float2(dfF(dfSub(curveCoord(item, edges, s, 0), x)), dfF(dfSub(curveCoord(item, edges, s, 1), y)));"),
+            "a piece's points must be taken relative to the shape-space point, in \
+             double-float, before anything is done in single precision",
+        );
+        for call in [
+            "curveWalk(item, edges, band, x, y, kind == 12 ? 0 : (item.strokeStyle.w > 0 ? 3 : 1),",
+            "curveWalk(item, edges, band, cqx, cqy, dashed ? 3 : 2, dfF(half2), item.arc.w)",
+        ] {
+            assert!(
+                METAL_SHADER_SOURCE.contains(call),
+                "a curve shape's distance must be asked for at the shape-space point: {call}",
+            );
+        }
         assert_eq!(
             body.matches("in.pos.xy").count(),
             2,

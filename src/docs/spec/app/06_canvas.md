@@ -72,14 +72,29 @@ one before it (`./mfb spec language types`):
 
 | Union | Members | What it is for |
 |---|---|---|
-| `canvas::Shape` | `Rectangle`, `Line`, `Polygon`, `Circle`, `Arc`, `Text`, `Ellipse`, `PolyLine` | the eight things drawn with a paint of their own; what an `AutoPaint` wraps |
-| `canvas::AutoShape` | `Shape`'s eight, then `AutoPaint` | a shape, plain or decorated |
-| `canvas::DrawItem` | `AutoShape`'s nine, then `Picture`, `Group` | what `present` takes |
+| `canvas::Shape` | `Rectangle`, `Line`, `Polygon`, `Circle`, `Arc`, `Text`, `Ellipse`, `PolyLine`, `PolyCurve`, `CurvePolygon` | the ten things drawn with a paint of their own; what an `AutoPaint` wraps |
+| `canvas::AutoShape` | `Shape`'s ten, then `AutoPaint` | a shape, plain or decorated |
+| `canvas::DrawItem` | `AutoShape`'s eleven, then `Picture`, `Group` | what `present` takes |
 
-An included union's members come first, in its own order, so the three share tags: a
-`Rectangle` is tag 0 in all of them, an `AutoPaint` tag 8 in the two that have it. The
-order is pinned by three tests, one per union.
+An included union's members come first, in its own order, so the three share tags:
+
+| Tag | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Variant | `Rectangle` | `Line` | `Polygon` | `Circle` | `Arc` | `Text` | `Ellipse` | `PolyLine` | `PolyCurve` | `CurvePolygon` | `AutoPaint` | `Picture` | `Group` |
+
+A `Rectangle` is tag 0 in all three unions and an `AutoPaint` tag 10 in the two that
+have it. The order is pinned by three tests, one per union.
 [[src/codegen/builtins/canvas/mod.rs:draw_item_variant_set_is_frozen]]
+A new shape is appended to `Shape`, never to `DrawItem` alone, because being a member of
+`Shape` is what lets an `AutoPaint` wrap it and a `Picture` be cut to it; that moves the
+tag of every variant after `Shape`'s last. `PolyCurve` and `CurvePolygon` did exactly
+that to `AutoPaint`, `Picture` and `Group`.
+
+`canvas::PolyCurve` and `canvas::CurvePolygon` are the curved counterparts of `PolyLine`
+and `Polygon`: a chain, and closed contours, of `canvas::BezierCurve` — a record of
+control points and optional weights that is not itself a `DrawItem`. What they are, how
+they are reduced and how each renderer draws them is *Curves*, below.
+
 `INCLUDES` is not subtyping: a `Shape` value is not a `DrawItem`, but each member record
 is a member of every union that reaches it, which is why `canvas::Rectangle[...]` is
 accepted where either is expected.
@@ -339,7 +354,9 @@ words as whole numbers rather than 16.16, because 16.16 holds an index only up t
 [[src/codegen/runtime/canvas/mod.rs:HEADER_POLYLINE_FIRST]]
 
 **Every shape's coverage on either GPU is computed in double-float from inputs at nearly
-the oracle's precision.** fp32 is not enough: where the oracle's f64 distance lies within
+the oracle's precision** — every shape but the two curve shapes, whose pieces are
+evaluated in fp32 on double-float differences and held to a looser tolerance (*Curves*
+→ *On the GPUs*). fp32 is not enough: where the oracle's f64 distance lies within
 ~1e-5 px of a coverage quantisation boundary, fp32 rounds to the neighbouring step, and
 over a dark background one step is 3-12 sRGB levels. Rounding an input to 16.16 alone
 moves a distance by up to ~1.5e-5 px, so every value a distance reads travels as its
@@ -724,7 +741,7 @@ still comes from the round walk, so it stays continuous round a corner.
 * **Fill is ignored**, as for `Line`: the stroke is carried in the fill slots and slot 7
   is negative. So `Paint.fill` and `Paint.gradient` never reach a polyline.
 
-**An item's `transform` maps its coordinates onto the surface.** Each of the eight shapes carries one as its last field, and a `Group` carries one before its `name`; `Paint` has none, and an `AutoPaint` and a `Picture` have their shape's. Every `DrawItem` variant but `AutoPaint` has an `id` as its first field. The item is
+**An item's `transform` maps its coordinates onto the surface.** Each of the ten shapes carries one as its last field, and a `Group` carries one before its `name`; `Paint` has none, and an `AutoPaint` and a `Picture` have their shape's. Every `DrawItem` variant but `AutoPaint` has an `id` as its first field. The item is
 drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,
 b*x + d*y + ty)`. The all-zero transform is the identity (above), so an item that
 never sets one is unaffected.
@@ -1038,6 +1055,216 @@ measured from the return, so a loop that fell behind gets no burst of catch-up r
 [[src/codegen/runtime/canvas/mod.rs:emit_await_pickup]]
 [[src/codegen/runtime/canvas/mod.rs:emit_wait_for_redraw]]
 
+## Curves
+
+Three records. A `canvas::BezierCurve` is control points and weights and is not drawn:
+`points` holds `degree + 1` of them, `weights` is empty (a polynomial curve) or one a
+point (a rational one). A `canvas::PolyCurve` is a chain of them, stroked and never
+filled or closed; a `canvas::CurvePolygon` is a list of contours, each a chain that is
+closed, filled under its `rule` and stroked. Both carry the `id`, `position`, `paint`
+and `transform` every shape has, and a curve's points are local to `position` like a
+polygon's (*Placement*).
+
+**Validity.** A curve is valid with 2 to 17 points (degree 1 to 16) and weights that are
+absent or one a point, each above zero. An invalid curve is absent, not an error: it
+contributes no piece and its neighbours are joined across it. A shape with no valid
+curve builds the empty record, draws nothing and is not hit.
+[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_VALID]]
+
+**Joining.** The curves of a chain are taken in list order. Where a valid curve does not
+begin on the point the one before it ended on, a straight segment joins the two; a
+contour whose last point is not its first is closed by one. Those segments are part of
+the shape — filled against, stroked, joined and dashed like the curves they connect. A
+`PolyCurve` is never closed, even when its last point is its first: its two ends take
+the paint's cap. [[src/codegen/builtins/canvas/helper_curves.rs:CURVE_CHAIN]]
+
+### The reduction
+
+No renderer draws a `BezierCurve`. When an item's geometry is built, every curve is
+reduced to pieces of one type, a rational quadratic with its end weights normalised to 1,
+
+```text
+P(t) = (P0·(1−t)² + 2·w1·P1·t(1−t) + P2·t²) / ((1−t)² + 2·w1·t(1−t) + t²)
+```
+
+stored as seven floats `x0, y0, x1, y1, x2, y2, w1`, and every piece is **y-monotone**:
+a curve is cut where its `y` turns. That is what lets the fill test be a polygon edge's.
+[[src/codegen/runtime/canvas/mod.rs:CURVE_PIECE_SLOTS]]
+
+* Degree 1 is one piece, its `P1` the midpoint.
+* Degree 2, polynomial or rational, is exact: the piece is the curve with its weights
+  normalised (`w1 / sqrt(w0·w2)`, a reparametrisation), cut at its turn. A rational
+  quadratic is a conic, so a circle or an ellipse arc stays exact.
+* Degree 3 and above is fitted. The curve is halved by de Casteljau, in homogeneous
+  coordinates, until each span is within `ε` of the polynomial quadratic through its ends
+  whose control point is where the end tangents meet — measured at
+  `__CANVAS_CURVE_FIT_SAMPLES` (16) points — to a depth of `__CANVAS_CURVE_MAX_DEPTH`
+  (16), where the better of the fit and the chord is taken.
+
+`ε` is 0.05 surface pixels **in the shape's own space**: `__CANVAS_CURVE_EPS` divided by
+the larger singular value of the shape's `transform`, so a shape enlarged by its own
+transform is reduced more finely and stays within 0.05 px on the surface. A group's
+transform is not in it. A group's records are built once and shared by every use, so a
+group that scales a curve by `k` scales the fit's error to `0.05·k` px; only degree 3 and
+above has any error to scale.
+[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_REDUCE]]
+[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_BASE]]
+
+### The record
+
+Two geometry kinds over one tail, as `POLYLINE` and `POLYGON` are: 11
+(`__CANVAS_GEO_POLYCURVE`) and 12 (`__CANVAS_GEO_CURVEPOLYGON`); the kind says whether
+there is an interior. [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_LAYOUT]]
+The record is the 67-float header and then **pieces | join records | dash tail | clip
+edges | gradient stops**: a polygon's order with pieces for edges. Header slot 20 counts
+the pieces, slot 21 is a `CurvePolygon`'s rule, and a `PolyCurve` is stroke-as-fill as
+a `PolyLine` is (its half-width in slot 6, slot 7 at −1). There is one join record and
+one dash row a PIECE, so nothing has to know where a contour starts: a join record is
+the corner at its piece's start, and a dash row is `__CANVAS_CURVE_DASH_ROW` (18) floats
+— the outline position at each sixteenth of the piece, by Simpson's rule over 8
+sub-steps of the piece's speed, then its contour's length, negative for an open chain.
+[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_BUILD]]
+
+Both shapes are hashed natively; the structural walk folds a list's count and then its
+elements at any depth, so a `CurvePolygon`'s list of lists of records that themselves
+hold lists needs no arm of its own.
+[[src/codegen/builtins/canvas/func_item_hash.rs:fold_list]]
+Neither is built by the native geometry builder: `canvas::sceneResolve` leaves both to
+the MFBASIC walk.
+
+### The fill
+
+A piece crosses a pixel's row when its two ends straddle it, `(y0 > py) <> (y2 > py)` —
+the half-open test a polygon edge takes — and counts when it passes left of the pixel:
+flipping the parity under `EvenOdd`, adding +1 running down the screen and −1 running up
+under `NonZero`. Its `x` on the row is the root of `(a − 2b + c)t² + 2(b − a)t + a` taken
+as `a / (a − b + s)`, with `a = y0 − py`, `b = w1(y1 − py)`, `c = y2 − py` and
+`s = sqrt(b² − ac)` signed as `a − c`: the form that divides by the larger candidate, so
+there is no cancellation and a straight piece needs no case of its own.
+
+### The distance
+
+One function for every piece, `__canvas_pieceNearest`. Measured from the pixel, the
+piece is `Q(t) / W(t)` with `Q` a quadratic and `W = 1 + b·t(1 − t)`; the squared
+distance's slope has the sign of `g = (Q·Q′)W − (Q·Q)W′`, a quartic (a cubic for a
+polynomial piece, `b = 0`). `g″` is a quadratic — fitted through its values at 0, ½ and
+1 — so its roots are closed form; between them `g′` is monotone and holds at most one
+root; between those `g` is monotone, and each stretch that goes from negative to
+positive holds exactly one minimum. Each root is a bracketed Newton of
+`__CANVAS_PIECE_STEPS` (12) steps: the Newton step when it lands in the bracket, ends
+included, and the midpoint when not. Nothing is sampled, so no minimum falls between
+samples and the error does not grow with a piece's length, and only `+ − × ÷ sqrt` are
+used, so the software answer is the same on every platform. A piece whose control box
+is further from the pixel than the best distance so far is skipped (`__canvas_pieceBound`).
+[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_NEAREST]]
+
+A `CurvePolygon`'s distance is the least over its pieces, negative inside
+(`__canvas_curveDistance`). There is no second distance for a rational piece: the
+polynomial piece is the same function with `b = 0`.
+
+### The stroke
+
+A `CurvePolygon`'s stroke is the band `|d| − half` of its distance; a `PolyCurve`'s is
+the union of its pieces' bands (`__canvas_curveScan`).
+
+* **Joins.** A Round join is that union and builds nothing. A Miter or Bevel paint is
+  the polygon's construction: every piece's band cut square at both ends, and a join
+  record at every piece's start. The record is the paint's join only at a **real
+  corner** — where two INPUT segments (a curve, an implied join, the closing segment)
+  meet with end tangents more than 1e-6 rad apart, the tangents being the input curves'
+  own — and a disc everywhere else, so the reduction's cuts, which are smooth, are never
+  mitered. A closed contour's first piece joins its last; an open chain's first piece
+  has no record.
+* **Caps.** Only a `PolyCurve` has ends. Butt is the round band cut by the plane through
+  the end, perpendicular to the tangent there; Square moves that plane out by the
+  half-width; Round is the band itself. The plane is also applied to a pixel within
+  1 px inside the end and near it, so a butt-capped straight `PolyCurve` is a
+  `canvas::Line`, pixel for pixel (`__canvas_pieceCut`).
+* **Dashes.** Each piece's band is cut by the dashes that lie on it, at the outline
+  position of the pixel's nearest point — read from the piece's dash row, or for a pixel
+  past one of the piece's ends measured on along the tangent there. The pattern
+  restarts at each contour of a `CurvePolygon` and wraps round it; along a `PolyCurve`
+  it runs once from the first point. A dashed stroke always carries join records,
+  drawn where a dash runs through the corner.
+
+[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_DRAW]]
+
+### The chunk is gated on a curve shape being named
+
+Everything above is injected only into a program whose source names `PolyCurve` or
+`CurvePolygon` as a type — in a constructor or in any annotation
+(`HelperGate::WhenCalledOrNamed`); every other canvas program gets ten one-line
+stand-ins ([[src/codegen/builtins/canvas/helper_curves.rs:ABSENT]]). Named, not
+constructed as `AutoPaint`'s gate is: every field of the curve records has a default, so
+`MUT c AS canvas::PolyCurve` followed by `WITH` holds a curve no constructor expression
+made. On macOS AArch64 a canvas program with no curve carries 21,652 more bytes of
+`__text` than it did before the two shapes existed; ungated it was 288,896.
+[[src/codegen/registry/mod.rs:HelperGate]]
+
+### On the GPUs
+
+Both GPUs draw both shapes from the same pieces. **There is no curve region**: a piece
+rides the frame's edge region, two slots a piece. Piece `e` of an item whose first slot
+is `arc.z` and whose piece count is `misc.w` is
+
+| Slot | Words |
+|---|---|
+| `arc.z + e` | the chord: `x0, y0, x2, y2`, each a 16.16 word with its residual |
+| `arc.z + misc.w + e` | `x1, y1` as 16.16 words with residuals, then the fp32 bits of `w1`, then 0 |
+
+The chords come first, as one run, because a chord IS an edge to the band index: a
+y-monotone piece's two ends are its whole y-range, so `emit_band_index` bands a curve
+shape as it bands a polygon and neither it nor the item block changed. The weight is
+fp32 bits because the shader's arithmetic on it is fp32 either way and a weight has no
+32,767 to stay under. Join records and dash words go where a polygon's go. Both
+predicates count `2 × pieces` against the frame's edge cap, with every other item's
+edges; a frame past it is the software renderer's.
+[[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
+[[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL_TEMPLATE]]
+
+The shader functions are the software renderer's, one for one — `pieceCrossing`,
+`pieceNearest` with the same twelve steps, `pieceCut`, `pieceArc`/`pieceAtArc` — and one
+walk over the band's pieces, `curveWalk`, whose `mode` says which distance is wanted
+(fill, chain stroke, joined contour stroke, dashed). They are written once, in
+`shaders/curves.tpl`, and expanded into MSL when Metal's source is built and into the
+GLSL file by `tools/canvas-curve-shader`; a test holds the GLSL copy equal to the
+expansion. [[src/codegen/runtime/canvas/curve_shader.rs:curve_shader]]
+[[src/codegen/runtime/canvas/shaders/curves.tpl:curveWalk]]
+
+Unlike every other kind, a piece is evaluated in **fp32**: its three points are taken
+relative to the pixel in double-float first (`curvePiece`), so what single precision
+holds is no larger than the piece, and the root search runs on that. The distance is
+good to about 1e-4 px, which now and then rounds to the coverage step beside the
+oracle's. A frame that draws a curve is therefore compared under `Tolerance::GPU_CURVE`
+— 4 levels a channel, 2% of pixels — not `GPU_DEFAULT`'s 2. That is the measured worst
+case: one pixel at 4 levels, the same pixel on Metal, on Mesa's lavapipe and on Intel's
+Windows driver, over scenes covering every cap, join, dash, fill rule and placement.
+[[tests/common/canvas_image.rs:GPU_CURVE]]
+
+A `Picture` inside a `CurvePolygon` spends both kinds of slot: its image's clip is the
+outline flattened to straight edges, one slot each, and its outline is the curve, two a
+piece. A circle of four arcs flattens to 128, 256 and 504 edges at radius 50, 150 and
+400; the fourteen-piece rounded star of `tests/canvas/scenes/curves.mfb` to 182, 304 and
+564 at half, full and three times its size — against a cap of 262,144.
+
+### The two functions
+
+`canvas::nurbsToBeziers` converts a NURBS curve exactly, by Boehm's knot insertion: every
+knot of the domain `knots[degree] .. knots[len(controlPoints)]` is raised to
+multiplicity `degree`, after which each run of `degree + 1` control points is one
+rational Bézier of the same degree. Input that is not a curve — a degree outside 1 to
+16, fewer than `degree + 1` points, a knot count other than points + degree + 1, a
+decreasing knot, a weight list that is neither empty nor one per point, a weight of zero
+or less, an empty domain — returns `[]` and does not raise.
+[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_FUNCS]]
+`canvas::flatten` returns points along one curve by de Casteljau halving: a span is
+taken as its chord once every inner control point is within `tolerance` (at least
+0.001) of the chord segment, which bounds the curve because a curve with positive
+weights lies in the hull of its control points. The first and last points returned are
+the curve's own. Both bodies are one call into a chunk only a program that calls either
+function carries.
+
 ## Named groups
 
 `canvas::setGroup(name, items)` installs a list of items under a name;
@@ -1216,8 +1443,8 @@ the record at `offset`, drawn under group matrix `mat` at group translation
 
 | Kind | Hit when |
 |---|---|
-| `RECT`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `PICTURE` | `d ≤ max(strokeHalf, 0)`, or the record has join records and `__canvas_joinedStroke ≤ 0` |
-| `SEGMENT`, `ARC`, `POLYLINE` | `d ≤ 0`, or `d ≤ 3·scale − halfWidth` |
+| `RECT`, `CIRCLE`, `ELLIPSE`, `POLYGON`, `CURVEPOLYGON`, `PICTURE` | `d ≤ max(strokeHalf, 0)`, or the record has join records and `__canvas_joinedStroke ≤ 0` |
+| `SEGMENT`, `ARC`, `POLYLINE`, `POLYCURVE` | `d ≤ 0`, or `d ≤ 3·scale − halfWidth` |
 | `TEXT`, and a `POLYGON` carrying the text-box mark | the item's own point is inside its layout box |
 | `NONE` | never |
 
@@ -1237,8 +1464,16 @@ so the slack is `3·scale − halfWidth`, which is negative — no slack — onc
 length of `d`'s gradient by central differences at ±0.5 px, the quantity
 `__canvas_drawGeometry` divides a transformed distance by. The 3 px are therefore
 surface pixels under any transform. An open kind whose paint has no stroke builds no
-record (`__canvas_segmentHeader`, `__canvas_arcHeader`, `__canvas_polylineHeader`) and
-is not hit.
+record (`__canvas_segmentHeader`, `__canvas_arcHeader`, `__canvas_polylineHeader`,
+`__canvas_curveBuild`) and is not hit.
+
+**The two curve shapes need no rule of their own.** A `CurvePolygon` is a closed kind:
+its `d` is `__canvas_curveDistance`, negative inside under its `rule`, so it is hit on
+its interior and its stroke, filled or not. A `PolyCurve` is an open kind: its `d` is
+`__canvas_curveScan`, the distance to its stroke's edge, so it is hit on its stroke and
+the 3 px either side — and never in the area between a chain and its own ends, which
+only a closed shape would count as inside. Both are measured by the functions that draw
+them. [[src/codegen/builtins/canvas/helper_curves.rs:CURVE_DRAW]]
 
 **A `Text` is its layout box**: from the baseline origin to where the pen stops, the
 font's ascent above the baseline and its descent below. The box is four floats in
@@ -1718,15 +1953,32 @@ the item, so it is the one cached kind a hash cannot vouch for.
 **The outline** is rings and a fill rule: a `Rectangle`'s `__canvas_rrectRing`; a
 `Circle`'s or an `Ellipse`'s flattened so no chord is more than 0.05 px from the curve,
 up to 512 points (`__canvas_ellipseRing`); a `Polygon`'s own contours and rule. A
-`Line`, an `Arc`, a `PolyLine` and a `Text` have none, and a picture on one draws
-nothing. [[src/codegen/builtins/canvas/helper_picture.rs:PICTURE_GEOMETRY]]
+`Line`, an `Arc`, a `PolyLine`, a `PolyCurve` and a `Text` have none, and a picture on
+one draws nothing. [[src/codegen/builtins/canvas/helper_picture.rs:PICTURE_GEOMETRY]]
+
+**A `CurvePolygon`'s outline is its curves, flattened — for the image's clip only.** An
+image record's clip is straight edges, so each contour's pieces (the y-monotone
+rational quadratics the shape is drawn from) are flattened into one ring by
+`__canvas_cvFlatten`, each piece to within the tolerance it was reduced at: 0.05
+surface pixels over the larger singular value of the shape's own `transform`, which is
+what keeps the clip within 0.05 px on the surface under either `PictureClip` mode. The
+rings go to `__canvas_pictureImageOf` with the shape's `rule`, and `paint.clip` is
+intersected with them by `__canvas_clipIntersect`, which knows nothing of curves. The
+OUTLINE stroked over the image is not flattened: it is the `CurvePolygon` itself with a
+transparent fill, drawn per pixel like any other, so the visible edge of a stroked
+picture is the curve and the flattening is only where the image stops beneath it.
+[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_BUILD]]
 
 **Fit.** With the shape's box `B` and the image's size `I`, `__canvas_pictureFit`
 answers the destination rectangle: `B` itself for `Stretch`; the largest rectangle of
 `I`'s proportions inside `B`, centred, for `Contain`; the smallest one that covers `B`,
 centred, for `Cover`. `B` is the shape's exact box where it has one — a rectangle's, a
-circle's centre ± its radius, an ellipse's — and the box of the outline's points
-otherwise. Not the flattened outline's box for a curve: that is the true one only to
+circle's centre ± its radius, an ellipse's, a `CurvePolygon`'s true extent — and the box
+of the outline's points otherwise. A `CurvePolygon`'s extent is the CURVE's, not its
+control points': each piece is y-monotone, so its two ends are as far as it reaches in
+y, and in x it reaches as far as its ends or its one turn (`__canvas_cvTurn`); a control
+point pulls a curve towards it without the curve arriving, and an image placed by the
+control points' box would stop short of the outline it is cut to. Not the flattened outline's box for a curve: that is the true one only to
 the accuracy of this package's sine (4.6e-7), and a destination a hair off a whole
 number moves a texel boundary off a pixel centre it should sit exactly on, where a
 renderer working in float32 and one working in float64 pick different texels.

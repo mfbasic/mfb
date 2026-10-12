@@ -270,6 +270,12 @@ FUNC __canvas_autoItem(a AS AutoPaint) AS DrawItem
     CASE PolyLine(pl)
       LET item AS DrawItem = pl
       RETURN item
+    CASE PolyCurve(pc)
+      LET item AS DrawItem = pc
+      RETURN item
+    CASE CurvePolygon(cp)
+      LET item AS DrawItem = cp
+      RETURN item
   END MATCH
   RETURN __canvas_noItem()
 END FUNC
@@ -365,6 +371,14 @@ FUNC __canvas_autoItemWith(a AS AutoPaint, p AS Paint) AS DrawItem
       RETURN item
     CASE PolyLine(pl)
       LET changed AS PolyLine = WITH pl { paint := p }
+      LET item AS DrawItem = changed
+      RETURN item
+    CASE PolyCurve(pc)
+      LET changed AS PolyCurve = WITH pc { paint := p }
+      LET item AS DrawItem = changed
+      RETURN item
+    CASE CurvePolygon(cp)
+      LET changed AS CurvePolygon = WITH cp { paint := p }
       LET item AS DrawItem = changed
       RETURN item
   END MATCH

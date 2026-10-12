@@ -369,6 +369,27 @@ pub(crate) enum HelperGate {
     /// the function for a program that has nothing for it to do. Exactly one of the
     /// pair is injected into any program that imports the package.
     WhenNotConstructed(&'static [&'static str]),
+    /// Inject only when the owning package is imported and the program calls one of
+    /// the first names **or NAMES one of the second, as a type** — in a constructor
+    /// or in any annotation: a binding's, a parameter's, a return type's, a field's
+    /// (plan-164-B).
+    ///
+    /// Wider than [`WhenUsedOrConstructed`](Self::WhenUsedOrConstructed), for a record
+    /// every field of which has a default: `MUT c AS canvas::PolyCurve` followed by
+    /// `WITH c { … }` holds a value no constructor expression made, and a gate keyed on
+    /// constructors alone would leave such a program the stand-in. A value of a record
+    /// type cannot come to be in a program whose source never names the type, so "the
+    /// program names it" is "the program can hold one". Names are matched by their
+    /// final segment, anywhere in the annotation (`List OF canvas::PolyCurve` names
+    /// it), and over-matching only injects the chunk unnecessarily.
+    WhenCalledOrNamed(&'static [&'static str], &'static [&'static str]),
+    /// The exact complement of a [`WhenCalledOrNamed`](Self::WhenCalledOrNamed) gate
+    /// with the same two lists: the owning package is imported, none of the first
+    /// names is called and none of the second is named. Exactly one of the pair is
+    /// injected into any program that imports the package, so — unlike the
+    /// constructed pair, whose complement ignores the calls — the two chunks may
+    /// define the same functions.
+    WhenNeitherCalledNorNamed(&'static [&'static str], &'static [&'static str]),
 }
 
 /// A source chunk (or ordering edge) the owning package contributes to an injected
@@ -1287,7 +1308,9 @@ impl RegistryPackage {
                 | HelperGate::WhenImported(_)
                 | HelperGate::WhenBothImported(..)
                 | HelperGate::WhenUsedOrConstructed(..)
-                | HelperGate::WhenNotConstructed(_) => false,
+                | HelperGate::WhenNotConstructed(_)
+                | HelperGate::WhenCalledOrNamed(..)
+                | HelperGate::WhenNeitherCalledNorNamed(..) => false,
             })
             .filter_map(|h| h.body)
             .collect()
@@ -1792,6 +1815,13 @@ impl Registry {
                     }
                     HelperGate::WhenNotConstructed(types) => {
                         package_imported && !view.constructs_any(types)
+                    }
+                    // plan-164-B: the pair keyed on a type being NAMED at all.
+                    HelperGate::WhenCalledOrNamed(names, types) => {
+                        package_imported && (view.references_any(names) || view.names_any(types))
+                    }
+                    HelperGate::WhenNeitherCalledNorNamed(names, types) => {
+                        package_imported && !view.references_any(names) && !view.names_any(types)
                     }
                 };
                 if !gate_open || !injected_helpers.insert(helper.name) {
@@ -4276,6 +4306,20 @@ pub(crate) struct ProjectView {
     /// [`HelperGate::WhenUsedOrConstructed`] gate matches. Kept apart from `callees`
     /// so a record that happens to share a gated function's name opens nothing.
     constructed: std::collections::HashSet<String>,
+    /// Every identifier a type ANNOTATION spells (plan-164-B) — a binding's, a
+    /// parameter's, a return type's, a record field's — one entry a word, so
+    /// `List OF canvas::PolyCurve` contributes `List`, `OF`, `canvas` and `PolyCurve`.
+    /// With `constructed`, what a [`HelperGate::WhenCalledOrNamed`] gate matches.
+    annotated: std::collections::HashSet<String>,
+}
+
+/// The identifiers in a type spelling, each added to `out`.
+fn note_type(spelling: &str, out: &mut std::collections::HashSet<String>) {
+    for word in spelling.split(|c: char| !(c.is_alphanumeric() || c == '_')) {
+        if !word.is_empty() && !out.contains(word) {
+            out.insert(word.to_string());
+        }
+    }
 }
 
 impl ProjectView {
@@ -4293,6 +4337,7 @@ impl ProjectView {
             view.absorb_imports(&file.imports);
             for item in &file.items {
                 hir_item_callees(item, &mut view.callees, &mut view.constructed);
+                hir_item_types(item, &mut view.annotated);
             }
         }
         view
@@ -4309,6 +4354,7 @@ impl ProjectView {
         self.absorb_imports(&file.imports);
         for item in &file.items {
             item_callees(item, &mut self.callees, &mut self.constructed);
+            item_types(item, &mut self.annotated);
         }
     }
 
@@ -4332,6 +4378,14 @@ impl ProjectView {
     /// [`HelperGate::WhenUsedOrConstructed`] gate).
     pub(crate) fn constructs_any(&self, types: &[&'static str]) -> bool {
         types.iter().any(|name| self.constructed.contains(*name))
+    }
+
+    /// Whether the program names any of `types` as a type — constructs one, or spells
+    /// one in an annotation (a [`HelperGate::WhenCalledOrNamed`] gate).
+    pub(crate) fn names_any(&self, types: &[&'static str]) -> bool {
+        types
+            .iter()
+            .any(|name| self.constructed.contains(*name) || self.annotated.contains(*name))
     }
 }
 
@@ -4441,6 +4495,199 @@ fn short_callee(callee: &str) -> &str {
         .rsplit('.')
         .next()
         .unwrap_or(callee)
+}
+
+/// The type annotations of one item, at any depth: its own, its parameters', its
+/// fields', and those of every binding and lambda parameter in its body.
+fn item_types(item: &crate::ast::Item, out: &mut std::collections::HashSet<String>) {
+    use crate::ast::Item;
+    match item {
+        Item::Function(f) => {
+            params_types(&f.params, out);
+            if let Some(returns) = &f.return_type {
+                note_type(returns, out);
+            }
+            f.body.iter().for_each(|s| stmt_types(s, out));
+            if let Some(trap) = &f.trap {
+                trap.body.iter().for_each(|s| stmt_types(s, out));
+            }
+        }
+        Item::Binding(b) => {
+            if let Some(name) = &b.type_name {
+                note_type(name, out);
+            }
+            if let Some(value) = &b.value {
+                expr_types(value, out);
+            }
+        }
+        Item::Type(decl) => {
+            decl.fields
+                .iter()
+                .for_each(|f| note_type(&f.type_name, out));
+            decl.variants.iter().for_each(|v| note_type(&v.name, out));
+            decl.includes.iter().for_each(|i| note_type(i, out));
+        }
+        Item::Testing(block) => block.groups.iter().for_each(|g| group_types(g, out)),
+        _ => {}
+    }
+}
+
+fn params_types(params: &[crate::ast::Param], out: &mut std::collections::HashSet<String>) {
+    for param in params {
+        if let Some(name) = &param.type_name {
+            note_type(name, out);
+        }
+        if let Some(default) = &param.default {
+            expr_types(default, out);
+        }
+    }
+}
+
+fn group_types(group: &crate::ast::TestGroup, out: &mut std::collections::HashSet<String>) {
+    use crate::ast::TestGroupMember;
+    for member in &group.members {
+        match member {
+            TestGroupMember::Case(case) => case.body.iter().for_each(|s| stmt_types(s, out)),
+            TestGroupMember::Group(nested) => group_types(nested, out),
+        }
+    }
+}
+
+fn stmt_types(stmt: &crate::ast::Statement, out: &mut std::collections::HashSet<String>) {
+    use crate::ast::{MatchPattern, Statement};
+    match stmt {
+        Statement::Let {
+            type_name, value, ..
+        } => {
+            if let Some(name) = type_name {
+                note_type(name, out);
+            }
+            if let Some(value) = value {
+                expr_types(value, out);
+            }
+        }
+        Statement::Return { value, .. }
+        | Statement::Recover { value, .. }
+        | Statement::Exit { code: value, .. } => {
+            if let Some(value) = value {
+                expr_types(value, out);
+            }
+        }
+        Statement::Fail { error, .. } => expr_types(error, out),
+        Statement::Assign { value, .. } | Statement::StateAssign { value, .. } => {
+            expr_types(value, out)
+        }
+        Statement::Expression { expression, .. } => expr_types(expression, out),
+        Statement::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } => {
+            expr_types(condition, out);
+            then_body.iter().for_each(|s| stmt_types(s, out));
+            else_body.iter().for_each(|s| stmt_types(s, out));
+        }
+        Statement::Match {
+            expression, cases, ..
+        } => {
+            expr_types(expression, out);
+            for case in cases {
+                // A `CASE T(x)` names `T`, and binds a value of it.
+                if let MatchPattern::Union { type_name, .. } = &case.pattern {
+                    note_type(type_name, out);
+                }
+                case.body.iter().for_each(|s| stmt_types(s, out));
+            }
+        }
+        Statement::For {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            expr_types(start, out);
+            expr_types(end, out);
+            if let Some(step) = step {
+                expr_types(step, out);
+            }
+            body.iter().for_each(|s| stmt_types(s, out));
+        }
+        Statement::ForEach { iterable, body, .. } => {
+            expr_types(iterable, out);
+            body.iter().for_each(|s| stmt_types(s, out));
+        }
+        Statement::While {
+            condition, body, ..
+        }
+        | Statement::DoUntil {
+            condition, body, ..
+        } => {
+            expr_types(condition, out);
+            body.iter().for_each(|s| stmt_types(s, out));
+        }
+        Statement::Continue { .. } | Statement::Propagate { .. } => {}
+    }
+}
+
+/// The annotations inside an expression: a lambda's parameters, and the statements of
+/// an inline `TRAP` handler.
+fn expr_types(expr: &crate::ast::Expression, out: &mut std::collections::HashSet<String>) {
+    use crate::ast::{CallArg, ConstructorArg, Expression};
+    match expr {
+        Expression::Call { arguments, .. } => {
+            for argument in arguments {
+                match argument {
+                    CallArg::Positional(v) | CallArg::Named { value: v, .. } => expr_types(v, out),
+                }
+            }
+        }
+        Expression::Binary { left, right, .. } => {
+            expr_types(left, out);
+            expr_types(right, out);
+        }
+        Expression::Unary { operand, .. } => expr_types(operand, out),
+        Expression::Lambda { params, body, .. } => {
+            params_types(params, out);
+            expr_types(body, out);
+        }
+        Expression::Constructor { arguments, .. } => {
+            for argument in arguments {
+                match argument {
+                    ConstructorArg::Positional(v) | ConstructorArg::Named { value: v, .. } => {
+                        expr_types(v, out)
+                    }
+                }
+            }
+        }
+        Expression::WithUpdate { target, updates } => {
+            expr_types(target, out);
+            updates.iter().for_each(|u| expr_types(&u.value, out));
+        }
+        Expression::ListLiteral(values) => values.iter().for_each(|v| expr_types(v, out)),
+        Expression::SetLiteral { elements, .. } => elements.iter().for_each(|v| expr_types(v, out)),
+        Expression::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                expr_types(key, out);
+                expr_types(value, out);
+            }
+        }
+        Expression::MemberAccess { target, .. } => expr_types(target, out),
+        Expression::Trapped {
+            expression,
+            handler,
+            ..
+        } => {
+            expr_types(expression, out);
+            handler.iter().for_each(|s| stmt_types(s, out));
+        }
+        Expression::String(_)
+        | Expression::Number(_)
+        | Expression::Scalar(_)
+        | Expression::Boolean(_)
+        | Expression::Identifier(_) => {}
+    }
 }
 
 fn item_callees(
@@ -4618,6 +4865,177 @@ fn expr_callees(
         | Expression::Scalar(_)
         | Expression::Boolean(_)
         | Expression::Identifier(_) => {}
+    }
+}
+
+/// [`item_types`] over HIR, where an annotation is a [`ParameterType`] and is noted by
+/// its spelling.
+fn hir_item_types(item: &crate::hir::HirItem, out: &mut std::collections::HashSet<String>) {
+    use crate::hir::HirItem;
+    match item {
+        HirItem::Function(f) => {
+            hir_params_types(&f.params, out);
+            note_type(&f.returns.to_string(), out);
+            f.body.iter().for_each(|s| hir_stmt_types(s, out));
+            if let Some(trap) = &f.trap {
+                trap.body.iter().for_each(|s| hir_stmt_types(s, out));
+            }
+        }
+        HirItem::Binding(b) => {
+            note_type(&b.type_.to_string(), out);
+            if let Some(value) = &b.value {
+                hir_expr_types(value, out);
+            }
+        }
+        HirItem::Type(decl) => {
+            decl.fields
+                .iter()
+                .for_each(|f| note_type(&f.type_.to_string(), out));
+            decl.variants
+                .iter()
+                .for_each(|v| note_type(&v.type_.to_string(), out));
+            decl.includes
+                .iter()
+                .for_each(|i| note_type(&i.to_string(), out));
+        }
+        // HIR reuses the AST `TestingBlock` verbatim.
+        HirItem::Testing(block) => block.groups.iter().for_each(|g| group_types(g, out)),
+        _ => {}
+    }
+}
+
+fn hir_params_types(params: &[crate::hir::HirParam], out: &mut std::collections::HashSet<String>) {
+    for param in params {
+        note_type(&param.type_.to_string(), out);
+    }
+}
+
+fn hir_stmt_types(stmt: &crate::hir::HirStatement, out: &mut std::collections::HashSet<String>) {
+    use crate::hir::{HirMatchPattern, HirStatement};
+    match stmt {
+        HirStatement::Let { type_, value, .. } => {
+            note_type(&type_.to_string(), out);
+            if let Some(value) = value {
+                hir_expr_types(value, out);
+            }
+        }
+        HirStatement::Return { value, .. }
+        | HirStatement::Recover { value, .. }
+        | HirStatement::Exit { code: value, .. } => {
+            if let Some(value) = value {
+                hir_expr_types(value, out);
+            }
+        }
+        HirStatement::Fail { error, .. } => hir_expr_types(error, out),
+        HirStatement::Assign { value, .. } | HirStatement::StateAssign { value, .. } => {
+            hir_expr_types(value, out)
+        }
+        HirStatement::Expression { expression, .. } => hir_expr_types(expression, out),
+        HirStatement::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } => {
+            hir_expr_types(condition, out);
+            then_body.iter().for_each(|s| hir_stmt_types(s, out));
+            else_body.iter().for_each(|s| hir_stmt_types(s, out));
+        }
+        HirStatement::Match {
+            expression, cases, ..
+        } => {
+            hir_expr_types(expression, out);
+            for case in cases {
+                if let HirMatchPattern::Union { type_, .. } = &case.pattern {
+                    note_type(&type_.to_string(), out);
+                }
+                case.body.iter().for_each(|s| hir_stmt_types(s, out));
+            }
+        }
+        HirStatement::For {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            hir_expr_types(start, out);
+            hir_expr_types(end, out);
+            if let Some(step) = step {
+                hir_expr_types(step, out);
+            }
+            body.iter().for_each(|s| hir_stmt_types(s, out));
+        }
+        HirStatement::ForEach { iterable, body, .. } => {
+            hir_expr_types(iterable, out);
+            body.iter().for_each(|s| hir_stmt_types(s, out));
+        }
+        HirStatement::While {
+            condition, body, ..
+        }
+        | HirStatement::DoUntil {
+            condition, body, ..
+        } => {
+            hir_expr_types(condition, out);
+            body.iter().for_each(|s| hir_stmt_types(s, out));
+        }
+        HirStatement::Continue { .. } | HirStatement::Propagate { .. } => {}
+    }
+}
+
+fn hir_expr_types(expr: &crate::hir::HirExpression, out: &mut std::collections::HashSet<String>) {
+    use crate::hir::{HirCallArg, HirConstructorArg, HirExpression};
+    match expr {
+        HirExpression::Call { arguments, .. } => {
+            for argument in arguments {
+                match argument {
+                    HirCallArg::Positional(v) | HirCallArg::Named { value: v, .. } => {
+                        hir_expr_types(v, out)
+                    }
+                }
+            }
+        }
+        HirExpression::Binary { left, right, .. } => {
+            hir_expr_types(left, out);
+            hir_expr_types(right, out);
+        }
+        HirExpression::Unary { operand, .. } => hir_expr_types(operand, out),
+        HirExpression::Lambda { params, body, .. } => {
+            hir_params_types(params, out);
+            hir_expr_types(body, out);
+        }
+        HirExpression::Constructor { arguments, .. } => {
+            for argument in arguments {
+                match argument {
+                    HirConstructorArg::Positional(v)
+                    | HirConstructorArg::Named { value: v, .. } => hir_expr_types(v, out),
+                }
+            }
+        }
+        HirExpression::WithUpdate { target, updates } => {
+            hir_expr_types(target, out);
+            updates.iter().for_each(|u| hir_expr_types(&u.value, out));
+        }
+        HirExpression::ListLiteral(values) => values.iter().for_each(|v| hir_expr_types(v, out)),
+        HirExpression::SetLiteral { elements, .. } => {
+            elements.iter().for_each(|v| hir_expr_types(v, out))
+        }
+        HirExpression::MapLiteral { entries, .. } => {
+            for (key, value) in entries {
+                hir_expr_types(key, out);
+                hir_expr_types(value, out);
+            }
+        }
+        HirExpression::MemberAccess { target, .. } => hir_expr_types(target, out),
+        HirExpression::Trapped {
+            expression,
+            handler,
+            ..
+        } => {
+            hir_expr_types(expression, out);
+            handler.iter().for_each(|s| hir_stmt_types(s, out));
+        }
+        _ => {}
     }
 }
 
@@ -7259,6 +7677,120 @@ mod tests {
         assert!(!csv.is_imported_by(&ProjectView::of_ast(&parse(
             "FUNC main AS Nothing\nEND FUNC\n"
         ))));
+    }
+
+    /// plan-164-B: a `WhenCalledOrNamed` chunk and its `WhenNeitherCalledNorNamed`
+    /// complement. Exactly one of the pair is injected into a program that imports the
+    /// package — which is what lets the two define the same functions — and the real
+    /// one opens on the type being NAMED anywhere: constructed, or spelled in a
+    /// binding's, a parameter's, a return type's or a field's annotation, however
+    /// deep in the spelling. That is the case a constructor gate misses: a record
+    /// declared for its default and filled in with `WITH`.
+    #[test]
+    fn a_named_type_opens_its_gate_and_closes_the_exact_complement() {
+        let mut pkg = RegistryPackage::new("demo", "i", "d");
+        pkg.add_helper(RegistryHelper {
+            name: "demo_real",
+            gate: HelperGate::WhenCalledOrNamed(&["poke"], &["Widget"]),
+            body: Some("FUNC __demo_step() AS Integer\n  RETURN 1\nEND FUNC"),
+            import_name: None,
+            natively_called: false,
+        });
+        pkg.add_helper(RegistryHelper {
+            name: "demo_absent",
+            gate: HelperGate::WhenNeitherCalledNorNamed(&["poke"], &["Widget"]),
+            body: Some("FUNC __demo_step() AS Integer\n  RETURN 0\nEND FUNC"),
+            import_name: None,
+            natively_called: false,
+        });
+        let mut r = Registry::new();
+        r.add_package(pkg);
+
+        let injected = |src: &str| -> Vec<String> {
+            let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
+                .expect("parse");
+            let ast = crate::ast::AstProject {
+                name: "test".to_string(),
+                files: vec![file],
+            };
+            let from_ast: Vec<String> = r
+                .synthetic_files(&ProjectView::of_ast(&ast), false)
+                .expect("synthetic files")
+                .into_iter()
+                .map(|f| f.path)
+                .filter(|path| path.contains("demo_"))
+                .collect();
+            // The HIR view must decide the same way.
+            let hir = crate::hir::elaborate(&ast);
+            let from_hir: Vec<String> = r
+                .synthetic_files(&ProjectView::of_hir(&hir), false)
+                .expect("synthetic files")
+                .into_iter()
+                .map(|f| f.path)
+                .filter(|path| path.contains("demo_"))
+                .collect();
+            assert_eq!(
+                from_ast, from_hir,
+                "the AST and HIR views disagree for:\n{src}"
+            );
+            from_ast
+        };
+        let real = vec!["builtins/demo_real.mfb".to_string()];
+        let absent = vec!["builtins/demo_absent.mfb".to_string()];
+
+        // Nothing names a Widget and nothing calls `poke`: the complement, alone.
+        assert_eq!(
+            injected("IMPORT demo\nFUNC main AS Nothing\nEND FUNC\n"),
+            absent
+        );
+        // A default-declared binding, never constructed -- the case this gate is for.
+        assert_eq!(
+            injected("IMPORT demo\nFUNC main AS Nothing\n  MUT w AS demo::Widget\nEND FUNC\n"),
+            real
+        );
+        // Inside a longer spelling, in a nested block.
+        assert_eq!(
+            injected(
+                "IMPORT demo\nFUNC main AS Nothing\n  IF TRUE THEN\n    LET ws AS List OF Widget = []\n  END IF\nEND FUNC\n"
+            ),
+            real
+        );
+        // A parameter, a return type, a record field, a module-level binding.
+        assert_eq!(
+            injected("IMPORT demo\nFUNC show(w AS demo::Widget) AS Nothing\nEND FUNC\nFUNC main AS Nothing\nEND FUNC\n"),
+            real
+        );
+        assert_eq!(
+            injected("IMPORT demo\nFUNC make() AS List OF demo::Widget\n  RETURN []\nEND FUNC\nFUNC main AS Nothing\nEND FUNC\n"),
+            real
+        );
+        assert_eq!(
+            injected("IMPORT demo\nTYPE Box\n  held AS demo::Widget\nEND TYPE\nFUNC main AS Nothing\nEND FUNC\n"),
+            real
+        );
+        assert_eq!(
+            injected("IMPORT demo\nMUT spare AS demo::Widget\nFUNC main AS Nothing\nEND FUNC\n"),
+            real
+        );
+        // A constructor names it too.
+        assert_eq!(
+            injected(
+                "IMPORT demo\nFUNC main AS Nothing\n  show([demo::Widget[size := 1]])\nEND FUNC\n"
+            ),
+            real
+        );
+        // The gated CALL opens the real chunk AND closes the complement.
+        assert_eq!(
+            injected("IMPORT demo\nFUNC main AS Nothing\n  demo::poke()\nEND FUNC\n"),
+            real
+        );
+        // A type that merely contains the name as part of a longer word opens nothing.
+        assert_eq!(
+            injected("IMPORT demo\nFUNC main AS Nothing\n  MUT w AS WidgetBox\nEND FUNC\n"),
+            absent
+        );
+        // A program that does not import the package gets neither.
+        assert!(injected("FUNC main AS Nothing\n  MUT w AS Widget\nEND FUNC\n").is_empty());
     }
 
     /// plan-172-K: a `WhenUsedOrConstructed` chunk and its `WhenNotConstructed`

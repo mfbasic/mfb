@@ -126,7 +126,12 @@ LET __CANVAS_GEO_PICTURE_SPLIT AS Integer = 16777216
 ' not otherwise use: its colours are parameterised by the path, not by an axis.
 LET __CANVAS_GEO_POLYLINE AS Integer = 10
 LET __CANVAS_GEO_POLYLINE_FIRST AS Integer = 43
-LET __CANVAS_GEO_POLYLINE_LAST AS Integer = 44"#;
+LET __CANVAS_GEO_POLYLINE_LAST AS Integer = 44
+' plan-164-A. The two curve shapes, as POLYLINE and POLYGON are two kinds: both carry
+' the same tail of rational-quadratic pieces (`helper_curves.rs`), and the kind says
+' whether there is an interior.
+LET __CANVAS_GEO_POLYCURVE AS Integer = 11
+LET __CANVAS_GEO_CURVEPOLYGON AS Integer = 12"#;
 
 /// The cache, as flat lists rather than a list of records.
 ///
@@ -362,12 +367,14 @@ FUNC __canvas_paintHeader(h AS List OF Float, rawPaint AS Paint, transform AS Tr
   IF kind = __CANVAS_GEO_NONE THEN
     stopCount = 0
   END IF
-  IF kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC THEN
+  ' plan-164-B: a `PolyCurve` is the third kind drawn entirely from its stroke.
+  LET strokeOnly AS Boolean = kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC OR kind = __CANVAS_GEO_POLYCURVE
+  IF strokeOnly THEN
     stopCount = 0
   END IF
   ' plan-163-D: unless the ramp paints the stroke (`FillAndStroke`): a Line or Arc is
   ' then drawn in it, so it keeps the stops -- `__canvas_strokeRampTail` appends them.
-  IF (kind = __CANVAS_KIND_SEGMENT OR kind = __CANVAS_GEO_ARC) AND paint.gradient.strokeApply = GradientApply.FillAndStroke THEN
+  IF strokeOnly AND paint.gradient.strokeApply = GradientApply.FillAndStroke THEN
     stopCount = len(paint.gradient.stops)
   END IF
   ' plan-154-A: a PolyLine is stroke-as-fill too. Its tail does carry stops -- its
@@ -676,6 +683,10 @@ FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
       RETURN __canvas_placedClip(t.paint.clip, __canvas_buildX(t.position, t.transform), __canvas_buildY(t.position, t.transform))
     CASE PolyLine(pl)
       RETURN __canvas_placedClip(pl.paint.clip, __canvas_buildX(pl.position, pl.transform), __canvas_buildY(pl.position, pl.transform))
+    CASE PolyCurve(pc)
+      RETURN __canvas_placedClip(pc.paint.clip, __canvas_buildX(pc.position, pc.transform), __canvas_buildY(pc.position, pc.transform))
+    CASE CurvePolygon(cp)
+      RETURN __canvas_placedClip(cp.paint.clip, __canvas_buildX(cp.position, cp.transform), __canvas_buildY(cp.position, cp.transform))
     CASE Group(g)
       RETURN []
     CASE AutoPaint(a)
@@ -1601,6 +1612,16 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
         tail = __canvas_polylineTail(moved)
         header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(moved), __canvas_joinReach(__canvas_polylineHalf(moved), moved.paint)), __canvas_polylineDashes(moved), moved.paint)
       END IF
+    ' plan-164-B: the two curve shapes, one builder (`helper_curves.rs`): a chain is
+    ' one open contour.
+    CASE PolyCurve(pc)
+      LET built AS List OF List OF Float = __canvas_polyCurveRecord(pc)
+      header = collections::getOr(built, 0, header)
+      tail = collections::getOr(built, 1, tail)
+    CASE CurvePolygon(cp)
+      LET built AS List OF List OF Float = __canvas_curvePolygonRecord(cp)
+      header = collections::getOr(built, 0, header)
+      tail = collections::getOr(built, 1, tail)
   END MATCH
   ' plan-163-C: a path clip's edges, right before the stops.
   LET clipped AS List OF List OF Float = __canvas_withClipEdges(header, tail, item)
@@ -1897,6 +1918,12 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
         h = __canvas_hashStep(h, ((toInt(c.red) * 256 + toInt(c.green)) * 256 + toInt(c.blue)) * 256 + toInt(c.alpha))
       NEXT
       RETURN __canvas_hashPaint(h, pl.paint, pl.transform)
+    ' plan-164-A. Both hashed natively, like a PolyLine; the arms fold the same fields,
+    ' in the chunk a program that names either shape carries (`helper_curves.rs`).
+    CASE PolyCurve(pc)
+      RETURN __canvas_polyCurveHash(pc)
+    CASE CurvePolygon(cp)
+      RETURN __canvas_curvePolygonHash(cp)
   END MATCH
 END FUNC"#;
 
@@ -2040,6 +2067,16 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
         tail = __canvas_polylineTail(moved)
         header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(moved), __canvas_joinReach(__canvas_polylineHalf(moved), moved.paint)), __canvas_polylineDashes(moved), moved.paint)
       END IF
+    ' plan-164-B: the two curve shapes, one builder (`helper_curves.rs`): a chain is
+    ' one open contour.
+    CASE PolyCurve(pc)
+      LET built AS List OF List OF Float = __canvas_polyCurveRecord(pc)
+      header = collections::getOr(built, 0, header)
+      tail = collections::getOr(built, 1, tail)
+    CASE CurvePolygon(cp)
+      LET built AS List OF List OF Float = __canvas_curvePolygonRecord(cp)
+      header = collections::getOr(built, 0, header)
+      tail = collections::getOr(built, 1, tail)
   END MATCH
   LET clipped AS List OF List OF Float = __canvas_withClipEdges(header, tail, item)
   MUT out AS List OF Float = collections::getOr(clipped, 0, header)

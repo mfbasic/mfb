@@ -923,6 +923,10 @@ FUNC __canvas_dashedStroke(kind AS Integer, offset AS Integer, px AS Float, py A
   IF kind = __CANVAS_KIND_RECT AND __canvas_geoAt(offset, 6) <> 0.0 THEN
     RETURN __canvas_dashedCurve(kind, offset, px, py, half, cap)
   END IF
+  ' plan-164-B: a curve shape's pieces (`helper_curves.rs`).
+  IF kind = __CANVAS_GEO_POLYCURVE OR kind = __CANVAS_GEO_CURVEPOLYGON THEN
+    RETURN __canvas_dashedCurves(kind, offset, px, py, half, cap)
+  END IF
   RETURN __canvas_dashedEdges(kind, offset, px, py, half, cap)
 END FUNC"#;
 

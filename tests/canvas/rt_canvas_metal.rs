@@ -1184,12 +1184,25 @@ fn a_space_in_a_text_run_does_not_shift_the_draws_after_it() {
 /// Build `source`, render it on both backends, and require that Metal drew it and
 /// agrees with software. `what` names the scene in the failure message.
 fn assert_metal_draws_like_software(name: &str, source: &str, what: &str) {
+    assert_metal_draws_within(name, source, what, Tolerance::GPU_DEFAULT, &[]);
+}
+
+/// [`assert_metal_draws_like_software`] under a named tolerance and with more of the
+/// environment set, for the rows that are not judged under `GPU_DEFAULT` or that script
+/// the pointer.
+fn assert_metal_draws_within(
+    name: &str,
+    source: &str,
+    what: &str,
+    tolerance: Tolerance,
+    envs: &[(&str, &str)],
+) {
     if !cfg!(target_os = "macos") {
         return;
     }
     let program = build(name, source);
-    let (software, _) = render(&program, false, "sw");
-    let (gpu, stats) = render(&program, true, "gpu");
+    let (software, _) = render_env(&program, false, "sw", envs);
+    let (gpu, stats) = render_env(&program, true, "gpu", envs);
     if !metal_built(&stats) {
         return; // no Metal device on this host (§metal_built)
     }
@@ -1202,7 +1215,7 @@ fn assert_metal_draws_like_software(name: &str, source: &str, what: &str) {
         "{what} fell back to the software renderer instead of drawing on Metal (bug-686): \
          {stats}"
     );
-    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, tolerance) {
         panic!("Metal draws {what} differently from the software oracle: {diff}");
     }
 }
@@ -1854,5 +1867,204 @@ fn a_hovered_autopaint_matches_the_software_oracle_on_metal() {
             assert!(lit(on), "{what}: the hovered button is {on:?} on {name}");
             assert!(unlit(off), "{what}: the other button is {off:?} on {name}");
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// plan-164-C: the curve shapes on Metal. Each row requires that the frame was drawn on
+// the GPU and agrees with the software oracle within `Tolerance::GPU_CURVE`, the
+// tolerance measured for a frame that draws a curve (`tests/common/canvas_image.rs`).
+// The same scene files are `scripts/test-canvas-gpu-rows.sh`'s `curve*` rows on Vulkan.
+// ---------------------------------------------------------------------------------------
+
+/// A rounded star, a dashed spiral, an `AutoPaint` pill and a picture cut to a blob.
+const CURVES: &str = include_str!("scenes/curves.mfb");
+
+#[test]
+fn the_curve_shapes_match_the_software_oracle_on_metal() {
+    assert_metal_draws_within(
+        "canvas_metal_curves",
+        CURVES,
+        "a CurvePolygon, a dashed PolyCurve, an AutoPaint over one and a Picture in one",
+        Tolerance::GPU_CURVE,
+        &[],
+    );
+}
+
+/// The same scene with the pointer on the pill: an `AutoPaint` over a `CurvePolygon`
+/// in its hover paint. The pointer is answered on the worker, in software, and what
+/// reaches the GPU is the curve record under another paint.
+#[test]
+fn a_hovered_autopaint_over_a_curve_matches_the_software_oracle_on_metal() {
+    assert_metal_draws_within(
+        "canvas_metal_curves_hover",
+        CURVES,
+        "an AutoPaint over a CurvePolygon, hovered",
+        Tolerance::GPU_CURVE,
+        &[("MFB_CANVAS_POINTER", "0,200,440,0,1")],
+    );
+}
+
+/// Every cap, join, dash and fill rule, a stroke a gradient runs along and a
+/// half-transparent fill under a radial one.
+const CURVE_STROKES: &str = include_str!("scenes/curve_strokes_on_black.mfb");
+
+#[test]
+fn every_curve_stroke_and_fill_matches_the_software_oracle_on_metal() {
+    assert_metal_draws_within(
+        "canvas_metal_curve_strokes",
+        CURVE_STROKES,
+        "curve shapes under every cap, join, dash, fill rule and gradient",
+        Tolerance::GPU_CURVE,
+        &[],
+    );
+}
+
+/// Each shape under its own transform, and both inside a group drawn twice, turned and
+/// scaled unevenly: the pieces are read at a point that has been through the draw
+/// entry's inverse and the item's, and an arm that skipped one shows here.
+const CURVES_PLACED: &str = include_str!("scenes/curves_placed_on_black.mfb");
+
+#[test]
+fn turned_and_grouped_curves_match_the_software_oracle_on_metal() {
+    assert_metal_draws_within(
+        "canvas_metal_curves_placed",
+        CURVES_PLACED,
+        "curve shapes under their own transforms and inside turned, scaled groups",
+        Tolerance::GPU_CURVE,
+        &[],
+    );
+}
+
+/// Pictures in curved shapes, in both `PictureClip` modes and three fits, stroked,
+/// dashed and unstroked, and one inside a turned group. The image is clipped to the
+/// flattened outline (edge slots); the outline is the curve (piece slots).
+const CURVE_PICTURES: &str = include_str!("scenes/curve_pictures_on_black.mfb");
+
+#[test]
+fn pictures_in_curved_shapes_match_the_software_oracle_on_metal() {
+    assert_metal_draws_within(
+        "canvas_metal_curve_pictures",
+        CURVE_PICTURES,
+        "pictures inside CurvePolygons",
+        Tolerance::GPU_CURVE,
+        &[],
+    );
+}
+
+/// Shapes a few thousandths of a unit across under a 30,000-fold transform: the 16.16
+/// word of a piece's coordinate places it to about half a pixel there, so the frame
+/// agrees with the oracle only if every piece's residual words -- chords and control
+/// points alike -- reached the buffer in their own slots. With the residuals zeroed in
+/// the emitter this row measured a worst delta of 127 over 3,759 pixels; as shipped, 1.
+const CURVE_RESIDUALS: &str = include_str!("scenes/curve_residuals_on_black.mfb");
+
+#[test]
+fn the_pieces_reach_the_gpu_buffer_with_their_residuals() {
+    assert_metal_draws_within(
+        "canvas_metal_curve_residuals",
+        CURVE_RESIDUALS,
+        "tiny curve shapes under a 30,000-fold transform",
+        Tolerance::GPU_CURVE,
+        &[],
+    );
+}
+
+/// Polygons with a vertex exactly on a pixel-centre row. The double-float crossing test
+/// rebuilt an edge's end as `a + (b - a)`, so the two edges sharing such a vertex could
+/// disagree about which side of the row it is on, and the row came out inverted: before
+/// the fix this scene differed from the oracle by a whole row of two of its eighteen
+/// polygons (384 pixels, delta 255). A POLYGON bug, older than the curve shapes that
+/// found it, so it is held to `GPU_DEFAULT`.
+const VERTEX_ON_A_ROW: &str = include_str!("scenes/vertex_on_a_pixel_row.mfb");
+
+#[test]
+fn a_polygon_vertex_on_a_pixel_row_is_counted_once_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_vertex_row",
+        VERTEX_ON_A_ROW,
+        "polygons with a vertex on a pixel-centre row",
+    );
+}
+
+/// `@RINGS@` rings, each a `CurvePolygon` whose one contour is 256 straight curves --
+/// 256 pieces, so 512 slots of the frame's edge region: a piece takes TWO, its chord
+/// and its control point with the weight.
+const PIECE_RINGS: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+IMPORT math
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := none]]
+  MUT ring AS Integer = 0
+  WHILE ring < @RINGS@
+    LET cx AS Float = 20.0 + toFloat((ring MOD 70) * 12)
+    LET cy AS Float = 80.0 + toFloat((ring / 70) * 12)
+    MUT sides AS List OF canvas::BezierCurve = []
+    MUT i AS Integer = 0
+    WHILE i < 256
+      LET a AS Float = toFloat(i) * 6.283185307179586 / 256.0
+      LET b AS Float = toFloat(i + 1) * 6.283185307179586 / 256.0
+      sides = collections::append(sides, canvas::BezierCurve[points := [vector::Float2[x := 4.0 * math::cos(a), y := 4.0 * math::sin(a)], vector::Float2[x := 4.0 * math::cos(b), y := 4.0 * math::sin(b)]], weights := []])
+      i = i + 1
+    END WHILE
+    LET item AS canvas::DrawItem = canvas::CurvePolygon[id := "", position := vector::Float2[x := cx, y := cy], contours := [sides], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgb(0, 200, 255)), transform := none]
+    scene = collections::append(scene, item)
+    ring = ring + 1
+  END WHILE
+  canvas::present(scene)
+END FUNC
+"#;
+
+/// A frame's curve pieces are counted against the edge region, two slots a piece, and a
+/// frame past it is the software renderer's (plan-164-C).
+///
+/// 512 rings is 262,144 slots, the region exactly: Metal draws it. 513 is 262,656: the
+/// whole frame is declined and the two renders are byte-identical. The pair is what
+/// pins the factor -- a predicate that counted ONE slot a piece would let 513 rings
+/// through, and the emitter would then leave the rings past the region undrawn.
+#[test]
+fn curve_pieces_are_counted_two_slots_each_against_the_edge_region() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let fits = build(
+        "canvas_metal_piece_cap_fits",
+        &PIECE_RINGS.replace("@RINGS@", "512"),
+    );
+    let (software, _) = render(&fits, false, "sw");
+    let (gpu, stats) = render(&fits, true, "gpu");
+    if !metal_built(&stats) {
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "131,072 pieces is exactly METAL_MAX_FRAME_EDGES slots, but Metal declined: {stats}"
+    );
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_CURVE) {
+        panic!("Metal draws 512 rings of 256 pieces differently from the oracle: {diff}");
+    }
+    let past = build(
+        "canvas_metal_piece_cap_past",
+        &PIECE_RINGS.replace("@RINGS@", "513"),
+    );
+    let (software, _) = render(&past, false, "sw");
+    let (gpu, stats) = render(&past, true, "gpu");
+    assert!(
+        software.pixels.iter().any(|&b| b != 0),
+        "the software render drew nothing, so the comparison would be vacuous",
+    );
+    assert!(
+        stats.contains("gpuFrames=0"),
+        "131,328 pieces is 262,656 slots, past METAL_MAX_FRAME_EDGES, but Metal drew \
+         the frame: {stats}"
+    );
+    if let Err(diff) = compare_exact(&gpu, &software) {
+        panic!("a declined frame is the software renderer's, byte for byte, but {diff}");
     }
 }

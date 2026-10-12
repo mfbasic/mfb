@@ -62,9 +62,9 @@ event over it reports that `id`; an event over nothing, or over an item with no
 `id`, reports `""`. It is always the **topmost** item at that pixel, so an unnamed
 item lying on a named one reports `""` — name the upper one, or draw it first.
 
-- A closed shape — a rectangle, circle, ellipse or polygon — is over on its inside and on its outline, whether or not it is filled.
-- A picture is over wherever its shape is, whatever part of the shape its image covers. A picture that draws nothing — its image is closed, or its shape is a line, arc, polyline or text — is never over.
-- A `canvas::Line`, `canvas::Arc` or `canvas::PolyLine` is over on its stroke, and on at least three pixels either side of its centre line, so a thin line can still be pointed at. A gap in a dashed one counts as the line.
+- A closed shape — a rectangle, circle, ellipse, polygon or `canvas::CurvePolygon` — is over on its inside and on its outline, whether or not it is filled.
+- A picture is over wherever its shape is, whatever part of the shape its image covers. A picture that draws nothing — its image is closed, or its shape is a line, arc, polyline, `canvas::PolyCurve` or text — is never over.
+- A `canvas::Line`, `canvas::Arc`, `canvas::PolyLine` or `canvas::PolyCurve` is over on its stroke, and on at least three pixels either side of its centre line, so a thin line can still be pointed at. A gap in a dashed one counts as the line. A `canvas::PolyCurve` that curls round does not enclose anything: the space between it and its own ends is not over.
 - A `canvas::Text` is over anywhere in its box — the width of the string by the font's ascent and descent — not only on the ink of its letters.
 - A `paint.clip` cuts the item for the mouse as it does for the eye, and a `transform`, the item's or any group's, moves and turns what is tested with what is drawn.
 

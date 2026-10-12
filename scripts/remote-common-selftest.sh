@@ -68,6 +68,9 @@ case "$v_at" in ok*) true ;; *) false ;; esac
 check "rgba_compare: delta 2 on 2% → ok ($v_at)" $?
 case "$v_beyond" in ok*) false ;; *) true ;; esac
 check "rgba_compare: delta 3 → beyond ($v_beyond)" $?
+v_curve=$(python3 "$DIR/rgba_compare.py" "$work/ref.rgba" "$work/beyond.rgba" 100 curve)
+case "$v_curve" in ok*) true ;; *) false ;; esac
+check "rgba_compare: delta 3 under the curve tolerance → ok ($v_curve)" $?
 
 echo
 if [ "$bad" -ne 0 ]; then

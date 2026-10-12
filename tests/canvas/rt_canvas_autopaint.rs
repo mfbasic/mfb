@@ -846,3 +846,155 @@ fn a_picture_on_an_autopaint_shows_the_state_paint_as_its_tint_and_outline() {
     let outside = run(&built, true, &[("MFB_CANVAS_POINTER", "0,237,237,0,1")]);
     assert_eq!(outside.autos(), vec!["000"]);
 }
+
+// ---- plan-164-B: an `AutoPaint` over a curve shape -----------------------------------
+
+/// Two `AutoPaint`s, each with only its hover paint in use: one over a `CurvePolygon`
+/// circle of radius 60 about (200, 200), filled [`BASE`]; one over a `PolyCurve` arch
+/// at (500, 300) — a quadratic from (0, 0) through a control point at (50, -60) to
+/// (100, 0), whose highest point is (550, 270) — stroked 8 px wide in [`BASE`].
+/// `WIDE` gives the circle's hover paint a 40 px white outline.
+const CURVES: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT os
+IMPORT vector
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC arc(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [at(x0, y0), at(x1, y1), at(x2, y2)], weights := [1.0, 0.7071067811865476, 1.0]]
+END FUNC
+
+FUNC hovering(s AS canvas::Shape, hover AS canvas::Paint) AS canvas::DrawItem
+  LET off AS canvas::Paint = canvas::fill(color::rgb(0, 255, 0))
+  LET a AS canvas::AutoPaint = canvas::AutoPaint[shape := s, useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := off, exitPaint := off, hoverPaint := hover, pressedPaint := off]
+  LET item AS canvas::DrawItem = a
+  RETURN item
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET base AS color::Color = color::rgb(40, 90, 200)
+  LET red AS color::Color = color::rgb(255, 0, 0)
+  MUT disc AS canvas::CurvePolygon
+  disc = WITH disc { id := "disc", position := at(200.0, 200.0), contours := [[arc(60.0, 0.0, 60.0, 60.0, 0.0, 60.0), arc(0.0, 60.0, 0.0 - 60.0, 60.0, 0.0 - 60.0, 0.0), arc(0.0 - 60.0, 0.0, 0.0 - 60.0, 0.0 - 60.0, 0.0, 0.0 - 60.0), arc(0.0, 0.0 - 60.0, 60.0, 0.0 - 60.0, 60.0, 0.0)]], paint := canvas::fill(base) }
+  MUT arch AS canvas::PolyCurve
+  arch = WITH arch { id := "arch", position := at(500.0, 300.0), curves := [canvas::BezierCurve[points := [at(0.0, 0.0), at(50.0, 0.0 - 60.0), at(100.0, 0.0)], weights := []]], paint := canvas::stroke(base, 8.0) }
+  MUT discHover AS canvas::Paint = canvas::fill(red)
+  IF os::getEnvOr("WIDE", "") = "1" THEN
+    discHover = canvas::fillStroke(red, color::rgb(255, 255, 255), 40.0)
+  END IF
+  LET discShape AS canvas::Shape = disc
+  LET archShape AS canvas::Shape = arch
+  IF os::getEnvOr("PICTURE", "") = "1" THEN
+    ' A white image cut to the disc, whose own fill (white) leaves it white and whose
+    ' hover fill (red) tints it red.
+    RES img AS canvas::Image = canvas::createImage(1, 1, [toByte(255), toByte(255), toByte(255), toByte(255)])
+    LET off AS canvas::Paint = canvas::fill(color::rgb(0, 255, 0))
+    LET lit AS canvas::AutoShape = canvas::AutoPaint[shape := WITH disc { paint := canvas::fill(color::rgb(255, 255, 255)) }, useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := off, exitPaint := off, hoverPaint := canvas::fill(red), pressedPaint := off]
+    LET pic AS canvas::DrawItem = canvas::Picture[id := "pic", shape := lit, clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+    canvas::present([pic])
+    os::sleep(toInt(os::getEnvOr("SLEEP", "1000")))
+    RETURN
+  END IF
+  canvas::present([hovering(discShape, discHover), hovering(archShape, canvas::stroke(red, 8.0))])
+  os::sleep(toInt(os::getEnvOr("SLEEP", "1000")))
+END FUNC
+"#;
+
+fn curves() -> &'static Built {
+    static BUILT: OnceLock<Built> = OnceLock::new();
+    BUILT.get_or_init(|| build("canvas_autopaint_curves", CURVES))
+}
+
+fn curve_scene(pointer: &str, sleep_ms: u32, envs: &[(&str, &str)]) -> Ran {
+    let sleep = sleep_ms.to_string();
+    let mut all = vec![("MFB_CANVAS_POINTER", pointer), ("SLEEP", sleep.as_str())];
+    all.extend_from_slice(envs);
+    run(curves(), true, &all)
+}
+
+/// An `AutoPaint` over a `CurvePolygon` is hovered inside the curved outline and not in
+/// the corners of its bounding box. The circle is radius 60 about (200, 200): the
+/// pointer at its centre shows the hover paint (`auto=30`: the disc on hover, the arch
+/// on its own); at (250, 250) it is inside the box and 70.7 px from the centre —
+/// outside the curve — and the disc shows its own paint.
+#[test]
+fn an_autopaint_over_a_curve_polygon_follows_the_curve_not_its_box() {
+    let inside = curve_scene("0,200,200,0,1", 1500, &[]);
+    assert_eq!(inside.autos(), vec!["30"]);
+    assert_eq!(inside.pixel(200, 200), HOVER_RGB);
+    assert_eq!(
+        inside.pixel(230, 230),
+        HOVER_RGB,
+        "inside the curve, 42 px out"
+    );
+
+    let corner = curve_scene("0,250,250,0,1", 1500, &[]);
+    assert_eq!(corner.autos(), vec!["00"]);
+    assert_eq!(corner.pixel(200, 200), BASE);
+}
+
+/// An `AutoPaint` over a `PolyCurve` is hovered on its stroke and not in the area the
+/// chain would enclose. The arch's highest point is (550, 270): the pointer there
+/// shows the hover paint; at (550, 292), 22 px below it and 8 px above the chord, it
+/// is between the curve and its ends and on neither, and the arch shows its own paint.
+#[test]
+fn an_autopaint_over_a_poly_curve_follows_its_stroke() {
+    let on = curve_scene("0,550,270,0,1", 1500, &[]);
+    assert_eq!(on.autos(), vec!["03"]);
+    assert_eq!(on.pixel(550, 270), HOVER_RGB);
+
+    let under = curve_scene("0,550,292,0,1", 1500, &[]);
+    assert_eq!(under.autos(), vec!["00"]);
+    assert_eq!(under.pixel(550, 270), BASE);
+}
+
+/// A hover paint with a wider stroke does not make a curve shape easier to hit: the
+/// disc's hover paint has a 40 px outline, drawn 20 px either side of radius 60. The
+/// pointer goes to the centre (hover) and then to (270, 200), 10 px outside the disc
+/// and on that outline — and the disc goes back to its own paint.
+#[test]
+fn a_curve_shapes_hover_stroke_does_not_widen_its_hit_region() {
+    let hovered = curve_scene("0,200,200,0,1", 1500, &[("WIDE", "1")]);
+    assert_eq!(hovered.autos(), vec!["30"]);
+    assert_eq!(
+        hovered.pixel(270, 200),
+        [255, 255, 255],
+        "the hover paint's outline is not where this test assumes it is"
+    );
+
+    let moved = curve_scene("0,200,200,0,1;2000,270,200,0,1", 4000, &[("WIDE", "1")]);
+    assert_eq!(moved.autos(), vec!["30", "00"]);
+    assert_eq!(moved.pixel(200, 200), BASE);
+    assert_eq!(moved.pixel(270, 200), [0, 0, 0]);
+}
+
+/// A `Picture` on an `AutoPaint` over a `CurvePolygon` changes its tint on hover: the
+/// paint the pointer selects is the picture's. A white image cut to the disc, white
+/// under the shape's own fill and red under its hover fill. The pointer on the disc
+/// turns the picture red inside the curved outline; in the corner of its box, outside
+/// the curve, it does not.
+#[test]
+fn a_picture_on_an_autopaint_over_a_curve_polygon_tints_on_hover() {
+    let hovered = curve_scene("0,200,200,0,1", 1500, &[("PICTURE", "1")]);
+    assert_eq!(hovered.autos(), vec!["3"]);
+    assert_eq!(hovered.pixel(200, 200), HOVER_RGB);
+    assert_eq!(
+        hovered.pixel(240, 230),
+        HOVER_RGB,
+        "inside the curve, 50 px out"
+    );
+    assert_eq!(
+        hovered.pixel(250, 250),
+        [0, 0, 0],
+        "the box's corner is outside it"
+    );
+
+    let corner = curve_scene("0,250,250,0,1", 1500, &[("PICTURE", "1")]);
+    assert_eq!(corner.autos(), vec!["0"]);
+    assert_eq!(corner.pixel(200, 200), [255, 255, 255]);
+}

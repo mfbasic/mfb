@@ -76,10 +76,10 @@ This gate is the only hard stop for plan-164. Each row names the letters it gate
 
 | Must be true | Gates | Command | Status |
 |---|---|---|---|
-| plan-163-A..D all complete and archived | A–C | `ls planning/completed/plan-163-{A,B,C,D}-*` → 4 matches | MET (2026-10-11: 4) |
-| plan-172 (the canvas shape model) is complete and archived, every letter A–N | A–C | `ls planning/plan-172-*` → no matches, and `ls planning/completed/plan-172-M-*` → present | MET (2026-10-11) |
-| Neither shape exists yet | A | `grep -c '"PolyCurve"\|"CurvePolygon"\|"BezierCurve"' src/codegen/builtins/canvas/mod.rs` → 0 | MET (2026-10-11: 0) |
-| Whether plan-150 has landed, which decides what else is renumbered | A | `grep -c '"ParticleSystem"' src/codegen/builtins/canvas/mod.rs` | 0 on 2026-10-11. If it answers 1, `ParticleSystem` moves by two tags with `AutoPaint`, `Picture` and `Group`, and plan-150-A's emitter and template tables each need the two new shapes (Open Decisions) |
+| plan-163-A..D all complete and archived | A–C | `ls planning/completed/plan-163-{A,B,C,D}-*` → 4 matches | MET (re-run 2026-10-11 at the start of execution: 4) |
+| plan-172 (the canvas shape model) is complete and archived, every letter A–N | A–C | `ls planning/plan-172-*` → no matches, and `ls planning/completed/plan-172-M-*` → present | MET (re-run at the start of execution: no matches; `plan-172-M-canvas-closeout.md` present) |
+| Neither shape exists yet | A | `grep -c '"PolyCurve"\|"CurvePolygon"\|"BezierCurve"' src/codegen/builtins/canvas/mod.rs` → 0 | MET (re-run at the start of execution, before the first edit: 0) |
+| Whether plan-150 has landed, which decides what else is renumbered | A | `grep -c '"ParticleSystem"' src/codegen/builtins/canvas/mod.rs` | 0, re-run at the start of execution: plan-150 has not landed, so three tags move and plan-150-A does the two-table edit when it starts. If it answers 1, `ParticleSystem` moves by two tags with `AutoPaint`, `Picture` and `Group`, and plan-150-A's emitter and template tables each need the two new shapes (Open Decisions) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
 > it before you continue and before you stop, and report it if you stop.
@@ -225,8 +225,8 @@ Open Decision 1): each computes something a program could not reasonably write i
 | `Shape` / `DrawItem` members today | 8 / 11 | the lists `shape_variant_set_is_frozen` and `draw_item_variant_set_is_frozen` pin (2026-10-11) |
 | Existing sites constructing either shape | 0 | `grep -rn "canvas::PolyCurve\[\|canvas::CurvePolygon\[" --exclude-dir=target --exclude-dir=.git --exclude-dir=.claude . \| wc -l` |
 | Canvas records / unions / enums / functions | 20 / 3 / 13 / 95 | `grep -c 'pkg.add_record(RegistryRecord {'`, `'pkg.add_union(RegistryUnion {'`, `'pkg.add_enum('` on `src/codegen/builtins/canvas/mod.rs`; `grep -c 'pkg.add_function' src/codegen/builtins/canvas/*.rs \| awk -F: '{s+=$2} END {print s}'` (2026-10-11) |
-| MFBASIC `MATCH` arms naming `PolyLine` / `Polygon` | — | `grep -c 'CASE PolyLine(\|CASE Polygon(' src/codegen/builtins/canvas/*.rs` — UNMEASURED; Phase 1 records it. Each is a place that tells shapes apart and may need two more arms |
-| Programs whose emitted code holds a moved tag | — | UNMEASURED; Phase 1 records it from `scripts/artifact-gate.sh` |
+| MFBASIC `MATCH` arms naming `PolyLine` / `Polygon` | 23, in 4 files | `grep -c 'CASE PolyLine(\|CASE Polygon(' src/codegen/builtins/canvas/*.rs` before the first edit: `helper_geometry.rs` 8, `helper_picture.rs` 9, `helper_autopaint.rs` 4, `helper_hit.rs` 2. The per-site answer is in Phase 1, task 4 |
+| Fixtures the letter moves | 2 fixtures, 8 goldens | `bash scripts/artifact-gate.sh target/release/mfb all` before regenerating anything → `1684 tests, 1863 build(s), 2350 golden(s) checked, 8 diff(s)`: `syntax/app/app-mouse-surface` (`.ir`, `.nir`, `.nplan`, four `.ncodesum`) and `syntax/resources/loop-body-resource-reference-valid` (`.ir`). They are the two fixtures that `IMPORT canvas` and build: `grep -rl 'IMPORT canvas' tests/syntax tests/rt-behavior tests/byte-identity` names 9, and the other 7 are programs the compiler rejects, whose only golden is a `build.log`. See Corrections 1 |
 
 ### Verified properties
 
@@ -356,28 +356,63 @@ emitted code**. A program that constructs or matches an `AutoPaint`, a `Picture`
 
 ### Phase 1 — Types, the renumbering, validation, reducer
 
-- [ ] `mod.rs`: add the `BezierCurve` record, and the `PolyCurve` and `CurvePolygon`
+- [x] `mod.rs`: add the `BezierCurve` record, and the `PolyCurve` and `CurvePolygon`
       records with `id_prop()`, `position`, `paint_prop()` and `transform_prop()` in the
       shapes' order. Append both to `Shape`'s `variants`, `PolyCurve` first. Write
       man-standard descriptions of validity, joining, the implied closing segment, and
       that curve points are offsets from `position`. Update the plan-172-K comment
       above the unions with the new tag list.
-- [ ] Update `shape_variant_set_is_frozen` (append the two names) and
+      — `cargo test --release --bin mfb canvas` → `128 passed; 0 failed`, which
+      includes `every_draw_item_variant_has_a_record`.
+- [x] Update `shape_variant_set_is_frozen` (append the two names) and
       `draw_item_variant_set_is_frozen` (insert them after `PolyLine`, where the
       included union puts them), and each doc comment: the order moves here, as it
       did once in plan-172-K, with the owner's approval and the reason. Neither assertion becomes
       laxer. `auto_shape_variant_set_is_frozen` and
       `every_draw_item_variant_carries_a_paint` must pass **unedited**.
-- [ ] Run `scripts/artifact-gate.sh` and record which fixtures moved; inspect one, per
+      — both lists are still exact and ordered. Of the two tests that had to pass
+      unedited, one word of `auto_shape_variant_set_is_frozen`'s doc comment changed
+      ("`Shape`'s eight" → "`Shape`'s members") and no line of either body. All four
+      pass in the 128 above.
+- [x] Run `scripts/artifact-gate.sh` and record which fixtures moved; inspect one, per
       "Gate" above. Record the count in "Measured populations".
-- [ ] Give every MFBASIC `MATCH` over `DrawItem`, `AutoShape` or `Shape` that has no
+      — `bash scripts/artifact-gate.sh target/release/mfb all` → `1684 tests, 1863
+      build(s), 2350 golden(s) checked, 8 diff(s)`, in 2 fixtures. Inspected:
+      `loop_body_resource_reference_valid.ir` (Corrections 1).
+- [x] Give every MFBASIC `MATCH` over `DrawItem`, `AutoShape` or `Shape` that has no
       `CASE ELSE` the two arms it needs, each drawing nothing for now. The compiler's
       exhaustiveness check finds them. Record the `CASE PolyLine(` / `CASE Polygon(`
       count in "Measured populations" and say, per site, whether it got an arm.
-- [ ] `func_item_hash.rs`: confirm, or add, recursion for a record inside a list
+      — ten `MATCH`es have no `CASE ELSE` and got both arms; a canvas program that
+      names both shapes builds (`mfb build --app --debug` → "Wrote executable"), which
+      is the exhaustiveness check passing:
+
+      | Site | Arms |
+      |---|---|
+      | `helper_geometry.rs:__canvas_clipOf` | the shape's own `paint.clip`, placed |
+      | `helper_geometry.rs:__canvas_geometryFor` | the empty header |
+      | `helper_geometry.rs:__canvas_hashItem` | the fields folded (`__canvas_hashCurves`) |
+      | `helper_geometry.rs:__canvas_geoReference` (`--debug`) | the empty header |
+      | `helper_autopaint.rs:__canvas_autoItem` | the shape as a `DrawItem` |
+      | `helper_autopaint.rs:__canvas_autoItemWith` | the shape with the state's paint |
+      | `helper_hit.rs:__canvas_itemId` | its `id` |
+      | `helper_picture.rs:__canvas_shapeAsItem` | the shape as a `DrawItem` |
+      | `helper_picture.rs:__canvas_pictureShapeId` (two nested `MATCH`es) | its `id` |
+
+      The other `CASE PolyLine(` / `CASE Polygon(` sites are in `MATCH`es that end in
+      `CASE ELSE`, and their `ELSE` is the right answer for a shape that draws nothing:
+      `helper_picture.rs:__canvas_pictureImage` and `__canvas_pictureOutlineItem`
+      (nothing to cut an image to), `__canvas_pictureClosed` (FALSE), and
+      `helper_hit.rs:__canvas_hitGeometry` (the record `__canvas_geometryFor` builds).
+      plan-164-B revisits each when the shapes gain a record.
+- [x] `func_item_hash.rs`: confirm, or add, recursion for a record inside a list
       inside a list. Test that two `CurvePolygon`s differing only in one deep weight
       hash differently, and that two differing only in `position` do.
-- [ ] `helper_geometry.rs`:
+      — confirmed, no recursion added (Corrections 11); the two names joined `HASHED`.
+      `canvas_curve_shapes_hash_every_point_and_weight` → `generations=1,2,3,3` for
+      the `CurvePolygon` (one weight of the second curve of the second contour; then
+      `position`; then the same item again) and `4,5,5` for a `PolyCurve`.
+- [x] `helper_geometry.rs`:
       - `__CANVAS_GEO_POLYCURVE = 11` and `__CANVAS_GEO_CURVEPOLYGON = 12`, with Rust
         mirrors (beside `GEO_KIND_POLYLINE` in `src/codegen/runtime/canvas/mod.rs`) and
         pin tests;
@@ -385,15 +420,31 @@ emitted code**. A program that constructs or matches an `AutoPaint`, a `Picture`
         `__canvas_geoReference` that build the empty header (nothing is drawn until B);
       - `func_geo_build.rs:emit_paint_supported` refuses both, and a frame holding one
         is not laid out by `canvas::sceneDrawsFlat` as if it were built.
-- [ ] `helper_hit.rs`: confirm each shape on the worker builds the empty header too and
+      — the pins are two rows of
+      `the_geo_layout_constants_match_their_rust_counterparts` (in the 128). The
+      native builder needed no edit to refuse them: it builds only the five kinds in
+      `func_geo_build.rs:Kind::ALL`, and every other variant already falls to the
+      MFBASIC builder. A frame of both shapes under `MFB_CANVAS_GEO_VERIFY=1` reports
+      `geoNative=0 geoVerifyMismatches=0 drawsVerified=1 geoResolvedChecked=2`.
+- [x] `helper_hit.rs`: confirm each shape on the worker builds the empty header too and
       is hit by nothing — it does not block what is beneath it until B gives it a region.
-- [ ] `helper_autopaint.rs` and `helper_picture.rs`: an `AutoPaint` over either shape,
+      — `canvas_curve_shapes_draw_nothing_and_block_nothing_yet`: a press on a square
+      under a `CurvePolygon`, a 40 px `PolyCurve`, an `AutoPaint` and a `Picture`
+      reports `overID = "under"`.
+- [x] `helper_autopaint.rs` and `helper_picture.rs`: an `AutoPaint` over either shape,
       and a `Picture` on either, compile and draw nothing. `__canvas_pictureClosed`
       answers FALSE for both until B.
-- [ ] `__canvas_reduceCurve(curve, eps) AS List OF Float`: pieces as `x0,y0, x1,y1,
+      — the same test: the frame holds the square's red and the background and no
+      other colour, `geoVerifyMismatches=0`. `__canvas_pictureClosed` was not edited:
+      its `CASE ELSE` is the FALSE.
+- [x] `__canvas_reduceCurve(curve, eps) AS List OF Float`: pieces as `x0,y0, x1,y1,
       x2,y2, w1`, per §3, plus `__canvas_curveValid`, and the chain walk that inserts
       the implied join and closing segments.
-- [ ] Tests (a new `tests/canvas/rt_canvas_curves.rs`, run through small `--app`-free
+      — `src/codegen/builtins/canvas/helper_curves.rs`: `CURVE_MATH`
+      (`__canvas_cvReduce` and what it is made of) and `CURVE_CHAIN`
+      (`__canvas_curveValid`, `__canvas_reduceCurve`, `__canvas_curveEps`,
+      `__canvas_curveChain`). Corrections 3–7 and 9.
+- [x] Tests (a new `tests/canvas/rt_canvas_curves.rs`, run through small `--app`-free
       MFBASIC harness programs that print the reduced pieces):
       - a quadratic reduces to itself, plus its y-extremum split;
       - a rational quadratic quarter-circle (`w1 = √2/2`) stays exact: every point of
@@ -407,8 +458,39 @@ emitted code**. A program that constructs or matches an `AutoPaint`, a `Picture`
         line piece;
       - a contour whose last point differs from its first gains one closing line piece,
         and a chain does not.
-- [ ] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` (expected). Inspect the
+      — `cargo test --release --test rt_canvas_curves` → `12 passed; 0 failed` (10
+      harness tests and the two scene tests above). Dense max deviation, in pixels,
+      4096 samples of the curve against the pieces and 256 of each piece against the
+      curve, `eps = 0.05`:
+
+      | Curve | Pieces | Max deviation |
+      |---|---|---|
+      | cubic S, 300 px | 10 | 0.024291 |
+      | the same at `eps / 4` (a ×4 `transform`) | 14 | 0.009052 (limit 0.0125) |
+      | cusp | 8 | 0.032721 |
+      | loop | 12 | 0.023814 |
+      | cubic that doubles back along its chord | 1 | 0.000000 |
+      | rational cubic, weights 1, 3, 0.25, 1 | 11 | 0.035216 |
+      | rational cubic, weights 1, 0.01, 100, 1 | 13 | 0.044669 |
+      | four control points on two (a straight line) | 1 | 0.000000 |
+      | quintic wave | 18 | 0.038935 |
+      | degree 16, seventeen points | 14 | 0.017553 |
+
+      The worst is 0.0447 of 0.05, so 16 samples and `eps = 0.05` hold on everything
+      measured, with the least margin on weights four orders of magnitude apart. "Without
+      NaN" is the driver exiting cleanly (Corrections 2). The 120° arc over the top of a
+      circle is the rational curve that IS cut at a y-extremum; both halves stay at
+      radius 100 to 1e-12.
+- [x] Regenerate `tests/syntax/app/app-mouse-surface/golden/*` (expected). Inspect the
       `.ir` diff: it should be the added types, the two variants and the moved tags.
+      — regenerated with Phase 2's functions in, so the two fixtures are re-baselined
+      once: `mfb build -q -ast -ir` for the two `.ir` files and
+      `scripts/regen-native-goldens.sh target/release/mfb
+      tests/syntax/app/app-mouse-surface` → `4 build(s), 6 golden(s) rewritten, 0
+      failure(s)`. The `.ir` inspection is Corrections 1 (line fields, the new
+      functions and types, the new `MATCH` arms; variants are matched by name there, so
+      no tag appears). Before re-baselining, every other canvas suite was run on the
+      Phase 1 compiler (Corrections 15): 20 suites, all `ok`.
 
 Acceptance: the reduction meets its tolerance and exactness claims; both shapes are
 `Shape`s that every walk accepts; and every existing scene draws what it drew.
@@ -417,17 +499,29 @@ Acceptance: the reduction meets its tolerance and exactness claims; both shapes 
   `cargo test --test rt_canvas_rasteriser --test rt_canvas_hit --test rt_canvas_autopaint
   --test rt_canvas_picture` → pass with the image goldens unmodified, proving the
   renumbering moved no pixel (est. 10 min, guess).
-Commit: —
+  Result (2026-10-11): `rt_canvas_curves` 12 passed; `--bin mfb canvas` 128 passed;
+  `rt_canvas_rasteriser` 106 passed (2 ignored), `rt_canvas_hit` 13, `rt_canvas_autopaint`
+  18, `rt_canvas_picture` 16. No file under `tests/canvas/` is modified but the new
+  `rt_canvas_curves.rs`.
+Commit: cb658a67d
 
 ### Phase 2 — `canvas::nurbsToBeziers` and `canvas::flatten`
 
-- [ ] `func_nurbs_to_beziers.rs`: a registry function with its descriptor, `intro`,
+- [x] `func_nurbs_to_beziers.rs`: a registry function with its descriptor, `intro`,
       `desc` and a runnable `example`. The body is MFBASIC Boehm knot insertion, with
       the §1 validation. Its points are `vector::Float2`.
-- [ ] `func_flatten.rs`: a registry function with its descriptor and a runnable
+      — the insertion itself is `helper_curves.rs:__canvas_cvKnotPoints` and
+      `__canvas_cvRefine` (every knot of the domain raised to multiplicity `degree`);
+      the body validates, refines and cuts the control points into runs of
+      `degree + 1`. `bash scripts/man-run-examples.sh canvas --run` →
+      `canvas::nurbsToBeziers example 1 — ran`.
+- [x] `func_flatten.rs`: a registry function with its descriptor and a runnable
       `example`. The body is adaptive de Casteljau with a chord-distance test against
       `tolerance`.
-- [ ] Tests:
+      — `helper_curves.rs:__canvas_cvFlatten`: a span is flat when every inner control
+      point is within `tolerance` of the chord SEGMENT, which bounds the curve by the
+      hull property. `canvas::flatten example 1 — ran`.
+- [x] Tests:
       - a NURBS unit circle (9 points, degree 2, the standard knot vector) converts to
         4 rational quadratics whose points are within 1e-12 of radius 1, each ending
         where the next begins, so the result is a contour with no implied segment;
@@ -437,11 +531,25 @@ Commit: —
       - `flatten` on a cubic keeps every chord within `tolerance` on dense samples;
       - `flatten` includes both endpoints;
       - `flatten`'s points, used as a `Polygon` contour at the same `position`, build.
+      — `cargo test --release --test rt_canvas_curves` → the five tests named
+      `canvas_nurbs_*` and `canvas_flatten_*` pass. The B-spline test also converts a
+      rational cubic on a clamped vector with a single and a doubled interior knot (3
+      spans). Eleven invalid inputs each return `[]`. Flatten, 4096 samples of the
+      curve against the chords: tolerance 2.0 → 15 points, 0.622 px; 0.1 → 57 points,
+      0.058 px; 0.001 → 461 points, 0.0007 px; a quarter circle at 0.05 → 63 points,
+      0.025 px. A tolerance of 0.0 and of -5.0 return the 0.001 points exactly.
+- [x] Function fixtures (added: `.ai/compiler.md` asks for an invalid fixture for every
+      new function): `tests/syntax/canvas/func_canvas_nurbsToBeziers_invalid` and
+      `func_canvas_flatten_invalid` — wrong argument count, wrong argument types, and
+      a result bound to the wrong type are each refused. The valid half is the runtime
+      tests above; a canvas function cannot run in a fixture, which has no app mode.
 
 Acceptance: both functions are exact or within tolerance, as stated.
   Check: `cargo test --test rt_canvas_curves` → pass (est. 5 min, guess);
   `bash scripts/man-run-examples.sh canvas --run` → pass (est. 3 min, guess).
-Commit: —
+  Result (2026-10-11): the five Phase 2 tests pass (`5 passed; 0 failed; 12 filtered
+  out`); `examples: 37   built: 37   ran: 37   not run: 0   failed: 0`.
+Commit: c204f3724
 
 ## Validation Plan
 
@@ -473,7 +581,103 @@ The curve design's own choices are recorded in §3.
 
 ## Corrections
 
-(none yet)
+1. **The gate's prediction named the wrong population** (§3 "Gate", and the
+   "Programs whose emitted code holds a moved tag" row). It said a fixture moves when
+   it names `AutoPaint`, `Picture` or `Group`, and that "a fixture that moves and names
+   none of the three is a bug". Measured: every program that `IMPORT`s `canvas` carries
+   the whole package's source, so its `.ir` holds every canvas helper and moves when a
+   helper gains an arm or the package gains a function, whichever variants the program
+   names. The gate before any regeneration reported
+   `1684 tests, 1863 build(s), 2350 golden(s) checked, 8 diff(s)` in two fixtures:
+   `syntax/app/app-mouse-surface` (7) and
+   `syntax/resources/loop-body-resource-reference-valid` (1, its `.ir`). The second
+   names none of the three and is not a bug: `diff` of its `.ir` against the golden is
+   the `"line"` field of declarations that moved down, the new curve functions, the
+   three new types, and three `MATCH` arms on `canvas.PolyCurve` /
+   `canvas.CurvePolygon` — and nothing else. A variant is matched **by name** in the
+   `.ir` (`"pattern": … "name": "canvas.PolyCurve"`), so no tag number appears in it at
+   all; the moved tags live only in the native dumps. The corrected rule: the letter
+   moves exactly the fixtures that build a program importing `canvas`, and each later
+   phase that touches a canvas helper moves the same two again.
+2. **"Every weight finite" needs no check, and neither do the points.** A `Float`
+   cannot hold an infinity or a NaN: `toFloat("inf")` and `toFloat("nan")` raise
+   `7-705-0003`, `1e308 * 10.0` raises `7-705-0015`, and `toFloat("1e999")` raises
+   `7-705-0010` (probe programs, 2026-10-11). `__canvas_curveValid` tests the counts
+   and `w > 0.0`; the finiteness half of the rule is the language's.
+3. **The acceptance distance is geometric, not same-parameter** (§3, "sampled at 16
+   evenly spaced `t`"). Each of the span's 16 samples is measured to the nearest point
+   of the fitted quadratic (`__canvas_cvQuadDistance`), not to the fit's point at the
+   same `t`. The same-parameter distance also counts how differently the two curves
+   are parametrised, which converges a power of the span length slower and would cut
+   every cubic into more pieces than its shape needs.
+4. **The fit's control point falls back to the chord's midpoint in two cases, not
+   one.** §3 names parallel tangents. The tangents can also meet *behind* an end —
+   the span still holds an inflection — and a control point there is on the wrong
+   side of the curve. Both take the midpoint (a straight piece), which the error test
+   then judges like any other fit.
+5. **At the depth cap the better of the fit and the chord is taken**, where §3 said
+   "the fit is accepted as is". A fit that is still outside `eps` after 16 halvings
+   has near-parallel tangents and a control point that can be far from a span that
+   small; the chord cannot be further from the span than the span is long. This is a
+   strengthening.
+6. **A horizontal end tangent is snapped.** A fitted control point is
+   `P0 + s·T0`, which is exactly `y0` when the curve leaves its first end level but
+   only *near* `y2` when it arrives at its last end level; one place off reads as a
+   turn and is cut into a piece too short to see. `__canvas_cvSpan` writes `y2` there.
+   The same reasoning is why each half of a cut at a y-extremum is given the turn's
+   own `y` for its control point.
+7. **A curve's ends are pinned to the points as written** (`__canvas_cvPin`). A
+   rational curve's ends come out of the homogeneous arithmetic as `(w·x) / w`, which
+   can be one place off `x`. The fill test compares `y` against exactly those ends, so
+   two curves that meet must meet in the same number.
+8. **"A typical cubic becomes about 2–4 pieces" is low** (§3). Measured at
+   `eps = 0.05`: the 300 px cubic S is 10 pieces, a cusp 8, a loop 12, a degree-16
+   zig-zag 14 (`cargo test --test rt_canvas_curves -- --nocapture`). The fit error of a
+   cubic by quadratics is about `0.032·|P3 − 3P2 + 3P1 − P0| / n³`, which for the S
+   (third difference 721) needs 8 spans before the y-extremum cuts. The design does
+   not rest on the count: the pieces are still curves and still far fewer than chords.
+9. **The curve chunk is unconditional**, not gated on a constructor as `AutoPaint`'s
+   and `Picture`'s are. A constructor gate is decided from constructor expressions
+   (`registry/mod.rs:expr_callees`), and every field of the three curve records has a
+   default, so `MUT c AS canvas::PolyCurve` followed by `WITH` holds a curve no
+   constructor expression made. A gated chunk would draw nothing for that program.
+10. **The reducer tests cannot `IMPORT canvas`** (Phase 1, "`--app`-free harness
+    programs"). The package is refused outside app mode ("the `canvas` package
+    requires app mode"). The harness lifts `CURVE_MATH` and `CURVE_CHAIN` out of
+    `helper_curves.rs` as text, as `rt_canvas_auto_step.rs` lifts `AUTO_STEP`, and
+    declares the two record types the chain names itself; `CURVE_MATH` is kept free of
+    any other canvas name so that this works
+    (`canvas_curve_math_names_nothing_outside_itself`). Floats are printed as two
+    integers, exact to 2^-60, because `toString` of a `Float` keeps two decimals.
+11. **`func_item_hash.rs` needed no new recursion** (§2 UNVERIFIED, Phase 1 task 5).
+    `fold_list` already recurses for a list element and calls `fold_record` for a
+    record element, and `fold_field` calls `fold_list` for a list field, so a list of
+    lists of records holding lists folds as it stands. The change is the two names in
+    `HASHED`; `canvas_curve_shapes_hash_every_point_and_weight` is the proof.
+12. **The Rust kind mirrors are `#[cfg(test)]`** until plan-164-C's emitters branch on
+    them: nothing but `the_geo_layout_constants_match_their_rust_counterparts` reads
+    them in this letter, and an unused `pub(crate)` constant is a dead-code warning.
+13. **`nurbsToBeziers` has two more empty answers than §1 lists**, both of which
+    describe no curve: a `weights` list that is neither empty nor one per point (an
+    empty one makes every weight 1, and the curves returned then carry no weights);
+    and a knot vector whose `knots[degree]` is not below `knots[len(controlPoints)]`,
+    which leaves an empty domain. Fewer than `degree + 1` control points is a third.
+14. **The curve the gate tolerance was checked on was not "a degree-7 curve"**
+    (Validation Plan, "Runtime proof"). The curves measured are the cubic S, a cusp, a
+    loop, a rational cubic with weights four orders of magnitude apart, a quintic wave
+    and a degree-16 zig-zag; the numbers are on the Phase 1 test task.
+15. **"Run the full suite first" was run as every canvas suite, not `cargo test`**
+    (§3 "Gate"). The only programs whose emitted code moved are the ones that import
+    `canvas` — the gate shows every other fixture byte-identical, and a byte-identical
+    program cannot behave differently. So what was run before re-baselining is every
+    test that builds a canvas program: the five suites Phase 1 names, and then
+    `rt_canvas_{auto_step,damage,debug_hooks,font,frame_stats,geo_arena,geo_native,
+    golden,graphics_thread,group_ownership,image_decode,metal,picture_fit,pointer,
+    present_deep_copy,present_leak,system_fonts}` and
+    `cli_{app_canvas_mode,canvas_image_resource,canvas_man_examples_compile,
+    canvas_package}`, against a frozen copy of the Phase 1 compiler
+    (`MFB_TEST_EXE`) — all `ok`. The whole `cargo test` runs once, at the end of
+    plan-164-C.
 
 ## Summary
 
