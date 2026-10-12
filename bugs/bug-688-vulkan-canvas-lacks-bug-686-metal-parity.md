@@ -11,6 +11,7 @@ Regression Test: `scripts/test-canvas-gpu-rows.sh` (the bug-686 rows and the geo
 ## Cause (coordinator, 2026-10-12, bug-staging-23)
 
 - Two items remain and neither has a cause a fix can restore. (1) Linux present: blocked on hardware (no real-GPU Linux box) and on the GTK4 surface decision. (2) 10,000 quads at 104 ms of render on box 206: measured as fragment cost (~20 ns a covered pixel), cause not found; "the shader grew" is a guess. Earlier attempts are recorded below (two memory-type fixes landed; the acceptance was not met). Waiting on the owner.
+- OWNER RULING 2026-10-12: this bug is worked on macOS (Metal, this machine) and on Windows box 206 (Intel UHD 630). Linux present is split out as bug-1082. 10,000 moving items is a GOAL, not a hard limit (the aim is 2D games at that scale). The coordinator measures the quad cost on box 206 before any agent is assigned.
 
 ## Re-verified 2026-10-12: two items remain, both as recorded (HEAD `555130a25`)
 

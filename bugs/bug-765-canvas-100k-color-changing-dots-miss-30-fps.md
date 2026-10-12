@@ -11,6 +11,7 @@ Regression Test: planned `tools/canvas-bench/bench.sh <mfb> dots 100000`
 ## Cause (coordinator, 2026-10-12, bug-staging-23)
 
 - Two causes, both measured below, and neither has an existing rule to restore. (1) 100,000 items is past `METAL_MAX_FRAME_ITEMS`/`VULKAN_MAX_FRAME_ITEMS` (65,536), which size the item buffer, so the honesty gate correctly declines the frame: drawing it needs a larger cap or a multi-pass frame. (2) `func_item_hash.rs:emit_item_hash` is by design both the geometry-cache key and the damage identity (`.ai/canvas-threading.md` 14), so a fill-only change rebuilds every item's geometry (`generations` = items a frame): fixing it needs a new split of geometry identity from appearance. Waiting on the owner.
+- OWNER RULING 2026-10-12: (cap) no hard-coded scene limit is wanted; the mechanism is the coordinator's choice from the code ("memory based" was an idea, not a requirement). Chosen: a frame over a buffer's capacity is drawn as several in-order passes of at most one buffer each into the same target, so the constant becomes a batch size; a pipeline rebuild to grow the buffer is ruled out by bug-996's compile time. (hash) the split of geometry identity from appearance is NOT fixed here: this bug is the spike for it and its deliverable is a verified, workable plan document.
 
 Two prebuilt scenes of 100,000 fixed `canvas::Circle` items, differing only in fill
 color, sustain a median 3 presents/s and 4 frames/s on macOS Metal. Scene construction

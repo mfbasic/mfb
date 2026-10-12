@@ -11,6 +11,7 @@ Regression Test: none
 ## Cause (coordinator, 2026-10-12, bug-staging-23)
 
 - Same cause as bug-996 (measured 2026-10-12, below): no frame completes while `vkCreateGraphicsPipelines` runs, so no stats line is written. One fix with 996; nothing here is this bug's own. Waiting on the owner with 996.
+- OWNER RULING 2026-10-12: closes with bug-996's fix (software frames until the pipeline exists, so a frame completes and a stats line is written during the compile).
 
 A `--debug` canvas program run in a REAL window on box 206 (Windows 11, Intel UHD 630)
 with the default renderer leaves no `MFB_CANVAS_STATS` file at all — not one line in

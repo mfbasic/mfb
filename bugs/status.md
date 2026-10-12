@@ -28,9 +28,9 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 Phase `bug-staging-23` (list fixed 2026-10-12, before any agent started; nothing is added
 to it): 688, 765, 968, 970, 991, 995, 996, 1024, 1045, 1079. Each document opens with its
-Cause note. Being fixed: 968, 970, 991, 995, 1024, 1079. Waiting on the owner, and moved
-to a later phase if not answered before the rest is ready: 688, 765, 996 and 1045 (1045 is
-996's first frame).
+Cause note and the owner's rulings of 2026-10-12. 688 is worked on macOS and box 206 only
+(its Linux remainder is 1082, a later phase); 996 is software frames until the pipeline
+exists, and 1045 closes with it; 765 is batched frames plus a plan for the hash split.
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
@@ -44,6 +44,7 @@ to a later phase if not answered before the rest is ready: 688, 765, 996 and 104
 | [ ]  | 970    | LOW      | `canvas::didResize()` answers TRUE once at startup in a real window although the surface never changed size (macOS and GTK). Re-verified on macOS 2026-10-12 |
 | [ ]  | 1045   | LOW      | on Windows, a real canvas window drawn on the GPU writes no `MFB_CANVAS_STATS` line: root-caused 2026-10-12 as 996's pipeline compile (lines appear, one a frame, once it ends); owner to decide whether to close as a duplicate of 996 (the number 1045 was also used by a Resources bug that is fixed and in `bugs/completed/`) |
 | [ ]  | 1079   | LOW      | on Intel's Vulkan driver a picture takes the wrong texel where a texel boundary is a pixel centre (one row or column, one texel off). Re-verified 2026-10-12 |
+| [ ]  | 1082   | MED      | on Linux a windowed Vulkan canvas frame is read back and blitted, never presented through a swapchain (split from 688; blocked on a real-GPU Linux box and the GTK4 surface decision; a later phase than `bug-staging-23`) |
 
 ## App windows and GTK
 

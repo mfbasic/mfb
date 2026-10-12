@@ -12,6 +12,7 @@ Regression Test: planned `tools/canvas-bench/bench.sh <mfb> --target windows-x86
 
 - No existing rule: the spec states the opposite of the fix. `mfb spec app canvas`: "Which renderer draws is chosen once, at the first present", and `helper_render.rs` `render_loop_tail!` makes the first frame wait for `canvas::vulkanReady()`, which builds device and pipeline (`vulkan.rs:emit_vulkan_ready`, `emit_vulkan_pipeline`, no `VkPipelineCache`).
 - A fix needs a NEW rule (the pipeline is never on a frame's critical path: software until it exists) and a new mechanism (a build off the graphics thread; a persisted cache in an MFBASIC-wide directory). Both Open Decisions below are unanswered. Waiting on the owner; bug-1045 is this bug's first frame and closes with it.
+- OWNER RULING 2026-10-12: the new rule is approved — the pipeline is never on a frame's critical path; frames draw in software until it exists; `MFB_CANVAS_GPU=1` keeps blocking so tests stay deterministic. The window is cleared to the canvas background on creation. The persisted `VkPipelineCache` is NOT this bug: it is `planning/cache.md` (an idea, not a plan). The shader split (piece 3) is not this bug either. bug-1045 closes with this fix.
 
 On box 206 (Intel UHD 630, real Vulkan driver), the first `canvas::present` of a
 program that has never run under that executable name takes **~25 s**. The second launch
