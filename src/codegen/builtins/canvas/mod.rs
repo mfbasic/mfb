@@ -87,6 +87,7 @@ mod gen_system_fonts_windows;
 mod helper_autopaint;
 mod helper_clamp_byte;
 mod helper_color;
+mod helper_curves;
 mod helper_damage;
 mod helper_dashes;
 mod helper_draw;
@@ -1462,7 +1463,11 @@ pub(crate) fn register(r: &mut Registry) {
     // shape; `DrawItem` adds the two things that are not shapes at all. An included
     // union's members come first, in its own order, so the three agree on every tag
     // they share: Rectangle 0, Line 1, Polygon 2, Circle 3, Arc 4, Text 5, Ellipse 6,
-    // PolyLine 7, AutoPaint 8, Picture 9, Group 10.
+    // PolyLine 7, PolyCurve 8, CurvePolygon 9, AutoPaint 10, Picture 11, Group 12.
+    //
+    // plan-164-A appended the two curve shapes to `Shape`, which moved `AutoPaint`,
+    // `Picture` and `Group` by two (owner-approved, 2026-10-11): a shape has to be a
+    // member of `Shape` for an `AutoPaint` to wrap it and a `Picture` to be cut to it.
     //
     // The order is `planning/new_canvas.md`'s and it is load-bearing once, here: a
     // variant's tag is its position, and the native walks ask the type model for a tag
@@ -1503,6 +1508,14 @@ pub(crate) fn register(r: &mut Registry) {
             UnionVariant {
                 name: "PolyLine",
                 description: "An open path, stroked, with a colour per point.",
+            },
+            UnionVariant {
+                name: "PolyCurve",
+                description: "An open path of curves, stroked.",
+            },
+            UnionVariant {
+                name: "CurvePolygon",
+                description: "A closed shape with a curved outline.",
             },
         ],
     });
@@ -1773,6 +1786,148 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
+    // plan-164-A. One curve segment: a record, never a `DrawItem`. The two shapes
+    // below hold lists of them.
+    pkg.add_record(RegistryRecord {
+        name: "BezierCurve",
+        export: true,
+        description: "One Bézier curve segment: a list of control points, and \
+                      optionally a weight for each. It is not drawn by itself — a \
+                      `canvas::PolyCurve` strokes a chain of them and a \
+                      `canvas::CurvePolygon` fills closed contours of them. The \
+                      number of points sets the kind: two is a straight line, three \
+                      a quadratic curve, four a cubic, and so on up to seventeen. \
+                      The curve starts at its first point and ends at its last; the \
+                      points between pull it towards them without being touched. \
+                      With no weights it is an ordinary polynomial curve. With one \
+                      weight per point it is a rational curve, which is what draws \
+                      an exact circle or ellipse arc: a quarter circle is three \
+                      points — start, corner, end — with weights `1.0`, `0.7071067811865476` \
+                      and `1.0`. A curve that breaks a rule here is skipped: it \
+                      draws nothing and the curves either side of it are joined by \
+                      a straight segment. `canvas::nurbsToBeziers` makes a list of \
+                      these from a NURBS curve, and `canvas::flatten` turns one \
+                      into points.",
+        props: vec![
+            RecordProp {
+                name: "points",
+                ty: ParameterType::list_of(ParameterType::named(
+                    crate::codegen::builtins::vector::FLOAT2_TYPE_ID,
+                )),
+                description: "The control points in order, each an offset from the \
+                              `position` of the shape that holds the curve. Two to \
+                              seventeen of them; fewer or more and the curve is \
+                              skipped.",
+            },
+            RecordProp {
+                name: "weights",
+                ty: ParameterType::list_of(ParameterType::Float),
+                description: "Empty for a polynomial curve. Otherwise exactly one \
+                              weight per point, in the same order, each greater than \
+                              `0.0`: a larger weight pulls the curve harder towards \
+                              its point. A list of any other length, or one holding \
+                              a weight of `0.0` or less, makes the curve skipped.",
+            },
+        ],
+    });
+
+    // plan-164-A. The curved `PolyLine`. Appended to `Shape` below, after `PolyLine`.
+    pkg.add_record(RegistryRecord {
+        name: "PolyCurve",
+        export: true,
+        description: "An open path made of curves joined end to end, stroked as one \
+                      item: the curved counterpart of `canvas::PolyLine`. Each \
+                      `canvas::BezierCurve` in `curves` starts where the one before \
+                      it ended; when it does not, a straight segment joins the two \
+                      and is stroked with the rest. `paint.join` shapes each corner \
+                      where two curves meet at an angle, `paint.cap` the two ends, \
+                      and `paint.dashes` run along the whole path without restarting \
+                      at a curve. A path has no interior, so it is drawn from \
+                      `paint.strokeWidth` and ignores `paint.fill`. It is never \
+                      closed: a path that ends where it began has two caps there, \
+                      not a corner — use `canvas::CurvePolygon` for a closed \
+                      outline. A curve that breaks a `canvas::BezierCurve` rule is \
+                      skipped, and a path with no usable curve draws nothing. The \
+                      curves stay smooth however far the shape's own `transform` \
+                      enlarges them. Enlarging a `canvas::Group` the path is in \
+                      does not redraw the curves at the new size, so a cubic or \
+                      higher curve can show slight flats there; scale the shape's \
+                      own `transform` to zoom in. Every field has a usable default, \
+                      so the short way to make one is to declare it and set what \
+                      you need: `MUT wave AS canvas::PolyCurve`, then `WITH wave { \
+                      curves := […], paint := canvas::stroke(ink, 3.0) }`.",
+        props: vec![
+            id_prop(),
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The point every curve point is measured from, in \
+                              pixels. The transform turns the path about it.",
+            },
+            RecordProp {
+                name: "curves",
+                ty: ParameterType::list_of(ParameterType::named("BezierCurve")),
+                description: "The curves in order, joined end to end. An empty list \
+                              draws nothing.",
+            },
+            paint_prop(),
+            transform_prop(),
+        ],
+    });
+
+    // plan-164-A. The curved `Polygon`: its `contours` and `rule` are `Polygon`'s
+    // fields with curves where it has points, on purpose.
+    pkg.add_record(RegistryRecord {
+        name: "CurvePolygon",
+        export: true,
+        description: "A closed shape whose outline is made of curves, filled and \
+                      stroked as one item: the curved counterpart of \
+                      `canvas::Polygon`. Each entry of `contours` is one closed \
+                      outline, a list of `canvas::BezierCurve` joined end to end. \
+                      Where a curve does not start at the end of the one before, a \
+                      straight segment joins them, and a contour whose last curve \
+                      does not end at its first curve's start is closed by a \
+                      straight segment too; those segments are part of the outline, \
+                      filled to and stroked. Several contours make holes and \
+                      islands, decided by `rule` exactly as for a polygon. \
+                      `paint.join` shapes each corner where two curves meet at an \
+                      angle, and `paint.dashes` restart at each contour. A curve \
+                      that breaks a `canvas::BezierCurve` rule is skipped, and a \
+                      contour with no usable curve adds nothing. The curves stay \
+                      smooth however far the shape's own `transform` enlarges \
+                      them; enlarging a `canvas::Group` the shape is in does not \
+                      redraw them at the new size, so scale the shape's own \
+                      `transform` to zoom in. Every field has a usable default, so \
+                      the short way to make one is to declare it and set what you \
+                      need: `MUT blob AS canvas::CurvePolygon`, then `WITH blob { \
+                      contours := [[…]], paint := canvas::fill(ink) }`.",
+        props: vec![
+            id_prop(),
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The point every curve point is measured from, in \
+                              pixels. The transform turns the shape about it.",
+            },
+            RecordProp {
+                name: "contours",
+                ty: ParameterType::list_of(ParameterType::list_of(ParameterType::named(
+                    "BezierCurve",
+                ))),
+                description: "The closed outlines, each a list of curves in order. \
+                              An empty list draws nothing.",
+            },
+            RecordProp {
+                name: "rule",
+                ty: ParameterType::named("FillRule"),
+                description: "Which regions count as inside when contours overlap \
+                              or nest, as for `canvas::Polygon`.",
+            },
+            paint_prop(),
+            transform_prop(),
+        ],
+    });
+
     pkg.add_record(RegistryRecord {
         name: "DrawLayer",
         export: true,
@@ -1900,6 +2055,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_damage::register(&mut pkg);
     helper_glyph_cache::register(&mut pkg);
     helper_png::register(&mut pkg);
+    helper_curves::register(&mut pkg);
     helper_geometry::register(&mut pkg);
     helper_dashes::register(&mut pkg);
     helper_joins::register(&mut pkg);
@@ -1999,6 +2155,13 @@ mod tests {
     ///
     /// The assertion did not become laxer: the list is still exact and still ordered,
     /// and two sibling tests pin the two inner unions the same way.
+    ///
+    /// **plan-164-A moved three tags, with the owner's approval (2026-10-11).**
+    /// `PolyCurve` and `CurvePolygon` are shapes — an `AutoPaint` wraps either and a
+    /// `Picture` is cut to the second — so they are members of `Shape`, and an included
+    /// union's members come first: they sit after `PolyLine`, and `AutoPaint`,
+    /// `Picture` and `Group` each moved by two. Appending them to `DrawItem` alone
+    /// would have moved nothing and made them things no decorator could hold.
     #[test]
     fn draw_item_variant_set_is_frozen() {
         assert_eq!(
@@ -2012,6 +2175,8 @@ mod tests {
                 "Text",
                 "Ellipse",
                 "PolyLine",
+                "PolyCurve",
+                "CurvePolygon",
                 "AutoPaint",
                 "Picture",
                 "Group",
@@ -2021,9 +2186,13 @@ mod tests {
     }
 
     /// plan-172-K: `Shape` is what an `AutoPaint` may wrap and (plan-172-L) what a
-    /// `Picture` is cut to — exactly the eight things drawn with a paint of their own.
+    /// `Picture` is cut to — exactly the things drawn with a paint of their own.
     /// `AutoPaint` is not in it, which is what makes an `AutoPaint` of an `AutoPaint`
     /// a type error rather than a rule.
+    ///
+    /// plan-164-A appended `PolyCurve` and `CurvePolygon` (owner-approved,
+    /// 2026-10-11): the eight became ten, in the order their straight counterparts
+    /// were added.
     #[test]
     fn shape_variant_set_is_frozen() {
         assert_eq!(
@@ -2037,12 +2206,14 @@ mod tests {
                 "Text",
                 "Ellipse",
                 "PolyLine",
+                "PolyCurve",
+                "CurvePolygon",
             ],
             "the Shape variant set is frozen; extending it is a breaking change"
         );
     }
 
-    /// plan-172-K: `AutoShape` is every shape, plain or decorated — `Shape`'s eight and
+    /// plan-172-K: `AutoShape` is every shape, plain or decorated — `Shape`'s members and
     /// `AutoPaint`. It shares every tag with `Shape`, and `DrawItem` every tag with it.
     #[test]
     fn auto_shape_variant_set_is_frozen() {

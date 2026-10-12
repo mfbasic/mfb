@@ -841,6 +841,12 @@ FUNC __canvas_shapeAsItem(s AS AutoShape) AS DrawItem
     CASE PolyLine(pl)
       LET item AS DrawItem = pl
       RETURN item
+    CASE PolyCurve(pc)
+      LET item AS DrawItem = pc
+      RETURN item
+    CASE CurvePolygon(cp)
+      LET item AS DrawItem = cp
+      RETURN item
     CASE AutoPaint(a)
       LET item AS DrawItem = a
       RETURN item
@@ -1112,6 +1118,10 @@ FUNC __canvas_pictureShapeId(pic AS Picture) AS String
           RETURN e.id
         CASE PolyLine(pl)
           RETURN pl.id
+        CASE PolyCurve(pc)
+          RETURN pc.id
+        CASE CurvePolygon(cp)
+          RETURN cp.id
       END MATCH
     CASE Rectangle(r)
       RETURN r.id
@@ -1129,6 +1139,10 @@ FUNC __canvas_pictureShapeId(pic AS Picture) AS String
       RETURN e.id
     CASE PolyLine(pl)
       RETURN pl.id
+    CASE PolyCurve(pc)
+      RETURN pc.id
+    CASE CurvePolygon(cp)
+      RETURN cp.id
   END MATCH
   RETURN ""
 END FUNC

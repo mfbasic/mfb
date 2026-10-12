@@ -232,6 +232,10 @@ FUNC __canvas_itemId(item AS DrawItem) AS String
       RETURN pic.id
     CASE PolyLine(pl)
       RETURN pl.id
+    CASE PolyCurve(pc)
+      RETURN pc.id
+    CASE CurvePolygon(cp)
+      RETURN cp.id
     ' An `AutoPaint` has no `id` of its own: it reports its shape's.
     CASE AutoPaint(a)
       RETURN __canvas_itemId(__canvas_autoItem(a))

@@ -1045,6 +1045,18 @@ pub(crate) const GEO_KIND_PICTURE: &str = "9";
 /// Spelled here and once in MFBASIC; `the_geo_layout_constants_match_their_rust_counterparts`
 /// holds the two equal.
 pub(crate) const GEO_KIND_POLYLINE: &str = "10";
+/// `__CANVAS_GEO_POLYCURVE` and `__CANVAS_GEO_CURVEPOLYGON` — a `canvas::PolyCurve` and
+/// a `canvas::CurvePolygon` (plan-164-A). Two kinds over one tail of rational-quadratic
+/// pieces, as `POLYLINE` and `POLYGON` are two kinds over one edge layout: the kind says
+/// whether there is an interior.
+///
+/// Test-only until an emitter branches on them: neither GPU backend draws a curve yet,
+/// and what holds the two spellings equal is
+/// `the_geo_layout_constants_match_their_rust_counterparts`.
+#[cfg(test)]
+pub(crate) const GEO_KIND_POLYCURVE: &str = "11";
+#[cfg(test)]
+pub(crate) const GEO_KIND_CURVEPOLYGON: &str = "12";
 /// A polyline's first and last segments with length, in the header's gradient axis
 /// slots (`__CANVAS_GEO_POLYLINE_FIRST` / `_LAST`), which a polyline does not otherwise
 /// use.

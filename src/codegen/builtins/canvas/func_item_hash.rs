@@ -64,7 +64,7 @@ const SEED: u64 = 0x1B87_3593_CC9E_2D51;
 /// `AutoPaint` (plan-172-K), whose `shape` is a union field the walk does not fold; a
 /// variant in neither list fails the build rather than falling to a default nobody
 /// chose.
-const HASHED: [&str; 8] = [
+const HASHED: [&str; 10] = [
     "Rectangle",
     "Circle",
     "Line",
@@ -73,6 +73,8 @@ const HASHED: [&str; 8] = [
     "Picture",
     "Ellipse",
     "PolyLine",
+    "PolyCurve",
+    "CurvePolygon",
 ];
 const NOT_HASHED: [&str; 3] = ["Text", "Group", "AutoPaint"];
 

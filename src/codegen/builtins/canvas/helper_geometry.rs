@@ -126,7 +126,12 @@ LET __CANVAS_GEO_PICTURE_SPLIT AS Integer = 16777216
 ' not otherwise use: its colours are parameterised by the path, not by an axis.
 LET __CANVAS_GEO_POLYLINE AS Integer = 10
 LET __CANVAS_GEO_POLYLINE_FIRST AS Integer = 43
-LET __CANVAS_GEO_POLYLINE_LAST AS Integer = 44"#;
+LET __CANVAS_GEO_POLYLINE_LAST AS Integer = 44
+' plan-164-A. The two curve shapes, as POLYLINE and POLYGON are two kinds: both carry
+' the same tail of rational-quadratic pieces (`helper_curves.rs`), and the kind says
+' whether there is an interior.
+LET __CANVAS_GEO_POLYCURVE AS Integer = 11
+LET __CANVAS_GEO_CURVEPOLYGON AS Integer = 12"#;
 
 /// The cache, as flat lists rather than a list of records.
 ///
@@ -676,6 +681,10 @@ FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
       RETURN __canvas_placedClip(t.paint.clip, __canvas_buildX(t.position, t.transform), __canvas_buildY(t.position, t.transform))
     CASE PolyLine(pl)
       RETURN __canvas_placedClip(pl.paint.clip, __canvas_buildX(pl.position, pl.transform), __canvas_buildY(pl.position, pl.transform))
+    CASE PolyCurve(pc)
+      RETURN __canvas_placedClip(pc.paint.clip, __canvas_buildX(pc.position, pc.transform), __canvas_buildY(pc.position, pc.transform))
+    CASE CurvePolygon(cp)
+      RETURN __canvas_placedClip(cp.paint.clip, __canvas_buildX(cp.position, cp.transform), __canvas_buildY(cp.position, cp.transform))
     CASE Group(g)
       RETURN []
     CASE AutoPaint(a)
@@ -1601,6 +1610,12 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
         tail = __canvas_polylineTail(moved)
         header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(moved), __canvas_joinReach(__canvas_polylineHalf(moved), moved.paint)), __canvas_polylineDashes(moved), moved.paint)
       END IF
+    ' plan-164-A: the two curve shapes build the empty header until plan-164-B gives
+    ' them a record -- nothing is drawn, and nothing is hit.
+    CASE PolyCurve(pc)
+      header = __canvas_emptyHeader()
+    CASE CurvePolygon(cp)
+      header = __canvas_emptyHeader()
   END MATCH
   ' plan-163-C: a path clip's edges, right before the stops.
   LET clipped AS List OF List OF Float = __canvas_withClipEdges(header, tail, item)
@@ -1806,6 +1821,23 @@ FUNC __canvas_hashText(acc AS Integer, text AS String) AS Integer
   RETURN h
 END FUNC
 
+' plan-164-A: a chain of curves -- its count, then each curve's points and weights
+' after their counts, so a point moved from one curve to the next changes the key.
+FUNC __canvas_hashCurves(acc AS Integer, curves AS List OF BezierCurve) AS Integer
+  MUT h AS Integer = __canvas_hashStep(acc, len(curves))
+  FOR EACH curve IN curves
+    h = __canvas_hashStep(h, len(curve.points))
+    FOR EACH q IN curve.points
+      h = __canvas_hashPoint(h, q)
+    NEXT
+    h = __canvas_hashStep(h, len(curve.weights))
+    FOR EACH w IN curve.weights
+      h = __canvas_hashFloat(h, w)
+    NEXT
+  NEXT
+  RETURN h
+END FUNC
+
 FUNC __canvas_hashItem(item AS DrawItem) AS Integer
   ' bug-686: every kind but `Text` and `Group` is hashed natively and structurally
   ' (`func_item_hash.rs`) -- the arms below are only reached for those two. A kind is
@@ -1897,6 +1929,25 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
         h = __canvas_hashStep(h, ((toInt(c.red) * 256 + toInt(c.green)) * 256 + toInt(c.blue)) * 256 + toInt(c.alpha))
       NEXT
       RETURN __canvas_hashPaint(h, pl.paint, pl.transform)
+    ' plan-164-A. Both hashed natively, like a PolyLine; the arms fold the same fields.
+    CASE PolyCurve(pc)
+      MUT h AS Integer = __canvas_hashStart(12)
+      h = __canvas_hashPoint(h, pc.position)
+      h = __canvas_hashCurves(h, pc.curves)
+      RETURN __canvas_hashPaint(h, pc.paint, pc.transform)
+    CASE CurvePolygon(cp)
+      MUT h AS Integer = __canvas_hashStart(13)
+      h = __canvas_hashPoint(h, cp.position)
+      h = __canvas_hashStep(h, len(cp.contours))
+      FOR EACH contour IN cp.contours
+        h = __canvas_hashCurves(h, contour)
+      NEXT
+      IF cp.rule = FillRule.NonZero THEN
+        h = __canvas_hashStep(h, 1)
+      ELSE
+        h = __canvas_hashStep(h, 0)
+      END IF
+      RETURN __canvas_hashPaint(h, cp.paint, cp.transform)
   END MATCH
 END FUNC"#;
 
@@ -2040,6 +2091,12 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
         tail = __canvas_polylineTail(moved)
         header = __canvas_withDashes(__canvas_withJoins(header, __canvas_polylineJoins(moved), __canvas_joinReach(__canvas_polylineHalf(moved), moved.paint)), __canvas_polylineDashes(moved), moved.paint)
       END IF
+    ' plan-164-A: the two curve shapes build the empty header until plan-164-B gives
+    ' them a record -- nothing is drawn, and nothing is hit.
+    CASE PolyCurve(pc)
+      header = __canvas_emptyHeader()
+    CASE CurvePolygon(cp)
+      header = __canvas_emptyHeader()
   END MATCH
   LET clipped AS List OF List OF Float = __canvas_withClipEdges(header, tail, item)
   MUT out AS List OF Float = collections::getOr(clipped, 0, header)

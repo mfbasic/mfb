@@ -72,14 +72,40 @@ one before it (`./mfb spec language types`):
 
 | Union | Members | What it is for |
 |---|---|---|
-| `canvas::Shape` | `Rectangle`, `Line`, `Polygon`, `Circle`, `Arc`, `Text`, `Ellipse`, `PolyLine` | the eight things drawn with a paint of their own; what an `AutoPaint` wraps |
-| `canvas::AutoShape` | `Shape`'s eight, then `AutoPaint` | a shape, plain or decorated |
-| `canvas::DrawItem` | `AutoShape`'s nine, then `Picture`, `Group` | what `present` takes |
+| `canvas::Shape` | `Rectangle`, `Line`, `Polygon`, `Circle`, `Arc`, `Text`, `Ellipse`, `PolyLine`, `PolyCurve`, `CurvePolygon` | the ten things drawn with a paint of their own; what an `AutoPaint` wraps |
+| `canvas::AutoShape` | `Shape`'s ten, then `AutoPaint` | a shape, plain or decorated |
+| `canvas::DrawItem` | `AutoShape`'s eleven, then `Picture`, `Group` | what `present` takes |
 
-An included union's members come first, in its own order, so the three share tags: a
-`Rectangle` is tag 0 in all of them, an `AutoPaint` tag 8 in the two that have it. The
-order is pinned by three tests, one per union.
+An included union's members come first, in its own order, so the three share tags:
+
+| Tag | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Variant | `Rectangle` | `Line` | `Polygon` | `Circle` | `Arc` | `Text` | `Ellipse` | `PolyLine` | `PolyCurve` | `CurvePolygon` | `AutoPaint` | `Picture` | `Group` |
+
+A `Rectangle` is tag 0 in all three unions and an `AutoPaint` tag 10 in the two that
+have it. The order is pinned by three tests, one per union.
 [[src/codegen/builtins/canvas/mod.rs:draw_item_variant_set_is_frozen]]
+A new shape is appended to `Shape`, never to `DrawItem` alone, because being a member of
+`Shape` is what lets an `AutoPaint` wrap it and a `Picture` be cut to it; that moves the
+tag of every variant after `Shape`'s last. `PolyCurve` and `CurvePolygon` did exactly
+that to `AutoPaint`, `Picture` and `Group`.
+
+`canvas::PolyCurve` and `canvas::CurvePolygon` are the curved counterparts of `PolyLine`
+and `Polygon`: a chain, and closed contours, of `canvas::BezierCurve` — a record of
+control points and optional weights that is not itself a `DrawItem`. Both are hashed
+natively; the structural walk folds a list's count and then its elements at any depth,
+so a `CurvePolygon`'s list of lists of records that themselves hold lists needs no arm
+of its own. [[src/codegen/builtins/canvas/func_item_hash.rs:fold_list]]
+Neither is built by the native geometry builder. Their geometry kinds are 11 and 12
+(`__CANVAS_GEO_POLYCURVE`, `__CANVAS_GEO_CURVEPOLYGON`), and until a renderer draws
+them each builds the empty record: it draws nothing and is hit by nothing.
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_LAYOUT]]
+What they are built FROM exists already: every curve is reduced to y-monotone
+rational-quadratic pieces, seven floats each (`x0, y0, x1, y1, x2, y2, w1`, end weights
+normalised to 1), exactly for degrees 1 and 2 and within 0.05 surface pixels — divided by
+the larger singular value of the shape's own `transform` — for degree 3 and above.
+[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_MATH]]
+[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_CHAIN]]
 `INCLUDES` is not subtyping: a `Shape` value is not a `DrawItem`, but each member record
 is a member of every union that reaches it, which is why `canvas::Rectangle[...]` is
 accepted where either is expected.
@@ -724,7 +750,7 @@ still comes from the round walk, so it stays continuous round a corner.
 * **Fill is ignored**, as for `Line`: the stroke is carried in the fill slots and slot 7
   is negative. So `Paint.fill` and `Paint.gradient` never reach a polyline.
 
-**An item's `transform` maps its coordinates onto the surface.** Each of the eight shapes carries one as its last field, and a `Group` carries one before its `name`; `Paint` has none, and an `AutoPaint` and a `Picture` have their shape's. Every `DrawItem` variant but `AutoPaint` has an `id` as its first field. The item is
+**An item's `transform` maps its coordinates onto the surface.** Each of the ten shapes carries one as its last field, and a `Group` carries one before its `name`; `Paint` has none, and an `AutoPaint` and a `Picture` have their shape's. Every `DrawItem` variant but `AutoPaint` has an `id` as its first field. The item is
 drawn as though every point `(x, y)` of it stood at `(a*x + c*y + tx,
 b*x + d*y + ty)`. The all-zero transform is the identity (above), so an item that
 never sets one is unaffected.
