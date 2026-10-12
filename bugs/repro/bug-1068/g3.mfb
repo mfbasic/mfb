@@ -1,0 +1,9 @@
+IMPORT io
+IMPORT fs
+IMPORT collections
+MUT gS AS String = "a"
+FUNC main AS Integer
+  gS = gS & toString(len(gS))
+  io::print(gS)
+  RETURN 0
+END FUNC
