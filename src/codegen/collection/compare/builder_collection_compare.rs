@@ -316,26 +316,26 @@ impl CodeBuilder<'_> {
         let rval = self.temporary_vreg();
         let words = self.label(&format!("{prefix}_words"));
         let tail = self.label(&format!("{prefix}_tail"));
-        self.emit(abi::move_register(&remaining, len));
-        self.emit(abi::move_register(&lptr, left));
-        self.emit(abi::move_register(&rptr, right));
+        self.emit(abi::move_register(remaining, len));
+        self.emit(abi::move_register(lptr, left));
+        self.emit(abi::move_register(rptr, right));
         self.emit(abi::label(&words));
-        self.emit(abi::compare_immediate(&remaining, "8"));
+        self.emit(abi::compare_immediate(remaining, "8"));
         self.emit(abi::branch_lo(&tail));
-        self.emit(abi::load_u64(&lval, &lptr, 0));
-        self.emit(abi::load_u64(&rval, &rptr, 0));
-        self.emit(abi::compare_registers(&lval, &rval));
+        self.emit(abi::load_u64(lval, lptr, 0));
+        self.emit(abi::load_u64(rval, rptr, 0));
+        self.emit(abi::compare_registers(lval, rval));
         self.emit(abi::branch_ne(not_equal_label));
-        self.emit(abi::add_immediate(&lptr, &lptr, 8));
-        self.emit(abi::add_immediate(&rptr, &rptr, 8));
-        self.emit(abi::subtract_immediate(&remaining, &remaining, 8));
+        self.emit(abi::add_immediate(lptr, lptr, 8));
+        self.emit(abi::add_immediate(rptr, rptr, 8));
+        self.emit(abi::subtract_immediate(remaining, remaining, 8));
         self.emit(abi::branch(&words));
         self.emit_byte_compare_loop(
-            &lptr,
-            &rptr,
-            &remaining,
-            &lval,
-            &rval,
+            lptr,
+            rptr,
+            remaining,
+            lval,
+            rval,
             &tail,
             equal_label,
             not_equal_label,
@@ -396,12 +396,12 @@ impl CodeBuilder<'_> {
             if !others.is_empty() {
                 let index = self.temporary_vreg();
                 self.emit(abi::load_u64(
-                    &index,
+                    index,
                     abi::stack_pointer(),
                     routine.return_slot,
                 ));
                 for (number, target) in others.iter().enumerate() {
-                    self.emit(abi::compare_immediate(&index, &number.to_string()));
+                    self.emit(abi::compare_immediate(index, &number.to_string()));
                     self.emit(abi::branch_eq(target));
                 }
             }
@@ -536,8 +536,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(left, abi::stack_pointer(), left_slot));
         self.emit(abi::store_u64(right, abi::stack_pointer(), right_slot));
         let place = self.temporary_vreg();
-        self.emit(abi::move_immediate(&place, "Integer", &index.to_string()));
-        self.emit(abi::store_u64(&place, abi::stack_pointer(), return_slot));
+        self.emit(abi::move_immediate(place, "Integer", &index.to_string()));
+        self.emit(abi::store_u64(place, abi::stack_pointer(), return_slot));
         self.emit(abi::branch(&entry));
         self.emit(abi::label(&back));
         Ok(())
@@ -597,11 +597,11 @@ impl CodeBuilder<'_> {
         let right = self.temporary_vreg();
         let left_count = self.temporary_vreg();
         let right_count = self.temporary_vreg();
-        self.emit(abi::load_u64(&left, abi::stack_pointer(), left_slot));
-        self.emit(abi::load_u64(&right, abi::stack_pointer(), right_slot));
-        self.emit(abi::load_u64(&left_count, &left, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&right_count, &right, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::compare_registers(&left_count, &right_count));
+        self.emit(abi::load_u64(left, abi::stack_pointer(), left_slot));
+        self.emit(abi::load_u64(right, abi::stack_pointer(), right_slot));
+        self.emit(abi::load_u64(left_count, left, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(right_count, right, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::compare_registers(left_count, right_count));
         self.emit(abi::branch_ne(&not_equal));
         if matches!(shape, ContentShape::Unit) {
             self.emit(abi::branch(exit));
@@ -617,15 +617,15 @@ impl CodeBuilder<'_> {
             }
             if width != 1 {
                 let scale = self.temporary_vreg();
-                self.emit(abi::move_immediate(&scale, "Integer", &width.to_string()));
-                self.emit(abi::multiply_registers(&left_count, &left_count, &scale));
+                self.emit(abi::move_immediate(scale, "Integer", &width.to_string()));
+                self.emit(abi::multiply_registers(left_count, left_count, scale));
             }
-            self.emit(abi::add_immediate(&left, &left, COLLECTION_HEADER_SIZE));
-            self.emit(abi::add_immediate(&right, &right, COLLECTION_HEADER_SIZE));
+            self.emit(abi::add_immediate(left, left, COLLECTION_HEADER_SIZE));
+            self.emit(abi::add_immediate(right, right, COLLECTION_HEADER_SIZE));
             self.emit_compare_aligned_bytes_branch(
-                &left,
-                &right,
-                &left_count,
+                left,
+                right,
+                left_count,
                 exit,
                 &not_equal,
                 "content_equal_range",
@@ -644,18 +644,14 @@ impl CodeBuilder<'_> {
         let index_slot = self.allocate_stack_object("content_equal_index", 8);
         let left_data_slot = self.allocate_stack_object("content_equal_left_data", 8);
         let right_data_slot = self.allocate_stack_object("content_equal_right_data", 8);
-        self.emit(abi::store_u64(
-            &left_count,
-            abi::stack_pointer(),
-            count_slot,
-        ));
+        self.emit(abi::store_u64(left_count, abi::stack_pointer(), count_slot));
         self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), index_slot));
         // The data base is past `capacity` entries, never `count` (`.ai/collections.md`).
         let data = self.temporary_vreg();
-        self.emit_collection_data_pointer_for(&data, &left, element);
-        self.emit(abi::store_u64(&data, abi::stack_pointer(), left_data_slot));
-        self.emit_collection_data_pointer_for(&data, &right, element);
-        self.emit(abi::store_u64(&data, abi::stack_pointer(), right_data_slot));
+        self.emit_collection_data_pointer_for(data, left, element);
+        self.emit(abi::store_u64(data, abi::stack_pointer(), left_data_slot));
+        self.emit_collection_data_pointer_for(data, right, element);
+        self.emit(abi::store_u64(data, abi::stack_pointer(), right_data_slot));
 
         let top = self.label("content_equal_element");
         let next = self.label("content_equal_element_next");
@@ -667,39 +663,39 @@ impl CodeBuilder<'_> {
         let left_length = self.temporary_vreg();
         let right_length = self.temporary_vreg();
         self.emit(abi::label(&top));
-        self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
-        self.emit(abi::load_u64(&limit, abi::stack_pointer(), count_slot));
-        self.emit(abi::compare_registers(&index, &limit));
+        self.emit(abi::load_u64(index, abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64(limit, abi::stack_pointer(), count_slot));
+        self.emit(abi::compare_registers(index, limit));
         self.emit(abi::branch_eq(exit));
         self.emit(abi::move_immediate(
-            &entry,
+            entry,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&entry, &index, &entry));
+        self.emit(abi::multiply_registers(entry, index, entry));
         for (block_slot, data_slot, at, length) in [
             (left_slot, left_data_slot, &left_at, &left_length),
             (right_slot, right_data_slot, &right_at, &right_length),
         ] {
             let block = self.temporary_vreg();
             let base = self.temporary_vreg();
-            self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
-            self.emit(abi::add_registers(&block, &block, &entry));
+            self.emit(abi::load_u64(block, abi::stack_pointer(), block_slot));
+            self.emit(abi::add_registers(block, block, entry));
             self.emit(abi::load_u64(
                 at,
-                &block,
+                block,
                 COLLECTION_HEADER_SIZE + COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
             ));
             self.emit(abi::load_u64(
                 length,
-                &block,
+                block,
                 COLLECTION_HEADER_SIZE + COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             ));
-            self.emit(abi::load_u64(&base, abi::stack_pointer(), data_slot));
-            self.emit(abi::add_registers(at, at, &base));
+            self.emit(abi::load_u64(base, abi::stack_pointer(), data_slot));
+            self.emit(abi::add_registers(at, at, base));
         }
         if bytes_decide {
-            self.emit(abi::compare_registers(&left_length, &right_length));
+            self.emit(abi::compare_registers(left_length, right_length));
             self.emit(abi::branch_ne(&not_equal));
             self.emit_content_bytes(
                 aligned,
@@ -715,28 +711,28 @@ impl CodeBuilder<'_> {
             let left_element_slot = self.allocate_stack_object("content_equal_left_element", 8);
             let right_element_slot = self.allocate_stack_object("content_equal_right_element", 8);
             self.emit(abi::store_u64(
-                &left_at,
+                left_at,
                 abi::stack_pointer(),
                 left_element_slot,
             ));
             self.emit(abi::store_u64(
-                &right_at,
+                right_at,
                 abi::stack_pointer(),
                 right_element_slot,
             ));
-            self.emit(abi::compare_registers(&left_length, &right_length));
+            self.emit(abi::compare_registers(left_length, right_length));
             self.emit(abi::branch_ne(&typed));
             self.emit_content_bytes(aligned, &left_at, &right_at, &left_length, &next, &typed);
             self.emit(abi::label(&typed));
             let left_element = self.temporary_vreg();
             let right_element = self.temporary_vreg();
             self.emit(abi::load_u64(
-                &left_element,
+                left_element,
                 abi::stack_pointer(),
                 left_element_slot,
             ));
             self.emit(abi::load_u64(
-                &right_element,
+                right_element,
                 abi::stack_pointer(),
                 right_element_slot,
             ));
@@ -750,9 +746,9 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::label(&next));
         let bumped = self.temporary_vreg();
-        self.emit(abi::load_u64(&bumped, abi::stack_pointer(), index_slot));
-        self.emit(abi::add_immediate(&bumped, &bumped, 1));
-        self.emit(abi::store_u64(&bumped, abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64(bumped, abi::stack_pointer(), index_slot));
+        self.emit(abi::add_immediate(bumped, bumped, 1));
+        self.emit(abi::store_u64(bumped, abi::stack_pointer(), index_slot));
         self.emit(abi::branch(&top));
         Ok(())
     }
@@ -814,19 +810,19 @@ impl CodeBuilder<'_> {
                 continue;
             }
             if !bases_held {
-                self.emit(abi::load_u64(&left, abi::stack_pointer(), left_slot));
-                self.emit(abi::load_u64(&right, abi::stack_pointer(), right_slot));
+                self.emit(abi::load_u64(left, abi::stack_pointer(), left_slot));
+                self.emit(abi::load_u64(right, abi::stack_pointer(), right_slot));
                 bases_held = true;
             }
-            self.emit(abi::load_u64(&left_word, &left, index * 8));
-            self.emit(abi::load_u64(&right_word, &right, index * 8));
+            self.emit(abi::load_u64(left_word, left, index * 8));
+            self.emit(abi::load_u64(right_word, right, index * 8));
             if !self.record_field_is_inlined(field) {
                 if !matches!(shape, ContentShape::Word) {
                     return Err(format!(
                         "native content comparison does not support a field of type '{field}'"
                     ));
                 }
-                self.emit(abi::compare_registers(&left_word, &right_word));
+                self.emit(abi::compare_registers(left_word, right_word));
                 self.emit(abi::branch_ne(&not_equal));
                 continue;
             }
@@ -834,12 +830,12 @@ impl CodeBuilder<'_> {
             // record's own slots, so it is never a real block's.
             let absent = self.label("content_equal_field_absent");
             let next = self.label("content_equal_field_next");
-            self.emit(abi::compare_immediate(&left_word, "0"));
+            self.emit(abi::compare_immediate(left_word, "0"));
             self.emit(abi::branch_eq(&absent));
-            self.emit(abi::compare_immediate(&right_word, "0"));
+            self.emit(abi::compare_immediate(right_word, "0"));
             self.emit(abi::branch_eq(&not_equal));
-            self.emit(abi::add_registers(&left_block, &left, &left_word));
-            self.emit(abi::add_registers(&right_block, &right, &right_word));
+            self.emit(abi::add_registers(left_block, left, left_word));
+            self.emit(abi::add_registers(right_block, right, right_word));
             match self.content_inline_words(&shape) {
                 // A block that is a few words and nothing else is compared here: a
                 // routine costs more than it does.
@@ -847,9 +843,9 @@ impl CodeBuilder<'_> {
                     let left_value = self.temporary_vreg();
                     let right_value = self.temporary_vreg();
                     for word in 0..words {
-                        self.emit(abi::load_u64(&left_value, &left_block, word * 8));
-                        self.emit(abi::load_u64(&right_value, &right_block, word * 8));
-                        self.emit(abi::compare_registers(&left_value, &right_value));
+                        self.emit(abi::load_u64(left_value, left_block, word * 8));
+                        self.emit(abi::load_u64(right_value, right_block, word * 8));
+                        self.emit(abi::compare_registers(left_value, right_value));
                         self.emit(abi::branch_ne(&not_equal));
                     }
                 }
@@ -866,7 +862,7 @@ impl CodeBuilder<'_> {
             }
             self.emit(abi::branch(&next));
             self.emit(abi::label(&absent));
-            self.emit(abi::compare_immediate(&right_word, "0"));
+            self.emit(abi::compare_immediate(right_word, "0"));
             self.emit(abi::branch_ne(&not_equal));
             self.emit(abi::label(&next));
         }
@@ -907,18 +903,18 @@ impl CodeBuilder<'_> {
         let right = self.temporary_vreg();
         let left_length = self.temporary_vreg();
         let right_length = self.temporary_vreg();
-        self.emit(abi::load_u64(&left, abi::stack_pointer(), left_slot));
-        self.emit(abi::load_u64(&right, abi::stack_pointer(), right_slot));
-        self.emit(abi::load_u64(&left_length, &left, 0));
-        self.emit(abi::load_u64(&right_length, &right, 0));
-        self.emit(abi::compare_registers(&left_length, &right_length));
+        self.emit(abi::load_u64(left, abi::stack_pointer(), left_slot));
+        self.emit(abi::load_u64(right, abi::stack_pointer(), right_slot));
+        self.emit(abi::load_u64(left_length, left, 0));
+        self.emit(abi::load_u64(right_length, right, 0));
+        self.emit(abi::compare_registers(left_length, right_length));
         self.emit(abi::branch_ne(not_equal));
-        self.emit(abi::add_immediate(&left, &left, 8));
-        self.emit(abi::add_immediate(&right, &right, 8));
+        self.emit(abi::add_immediate(left, left, 8));
+        self.emit(abi::add_immediate(right, right, 8));
         self.emit_compare_aligned_bytes_branch(
-            &left,
-            &right,
-            &left_length,
+            left,
+            right,
+            left_length,
             exit,
             not_equal,
             "content_equal_string",
@@ -940,16 +936,16 @@ impl CodeBuilder<'_> {
         let right = self.temporary_vreg();
         let left_tag = self.temporary_vreg();
         let right_tag = self.temporary_vreg();
-        self.emit(abi::load_u64(&left, abi::stack_pointer(), left_slot));
-        self.emit(abi::load_u64(&right, abi::stack_pointer(), right_slot));
-        self.emit(abi::load_u64(&left_tag, &left, 0));
-        self.emit(abi::load_u64(&right_tag, &right, 0));
-        self.emit(abi::compare_registers(&left_tag, &right_tag));
+        self.emit(abi::load_u64(left, abi::stack_pointer(), left_slot));
+        self.emit(abi::load_u64(right, abi::stack_pointer(), right_slot));
+        self.emit(abi::load_u64(left_tag, left, 0));
+        self.emit(abi::load_u64(right_tag, right, 0));
+        self.emit(abi::compare_registers(left_tag, right_tag));
         self.emit(abi::branch_ne(&not_equal));
         let mut arms = Vec::new();
         for (tag, variant) in variants {
             let fields = self.content_variant_fields(variant)?;
-            self.emit(abi::compare_immediate(&left_tag, &tag.to_string()));
+            self.emit(abi::compare_immediate(left_tag, &tag.to_string()));
             if fields.is_empty() {
                 self.emit(abi::branch_eq(exit));
                 continue;
@@ -964,14 +960,14 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&arm));
             let left_record = self.temporary_vreg();
             let right_record = self.temporary_vreg();
-            self.emit(abi::load_u64(&left_record, abi::stack_pointer(), left_slot));
+            self.emit(abi::load_u64(left_record, abi::stack_pointer(), left_slot));
             self.emit(abi::load_u64(
-                &right_record,
+                right_record,
                 abi::stack_pointer(),
                 right_slot,
             ));
-            self.emit(abi::add_immediate(&left_record, &left_record, 16));
-            self.emit(abi::add_immediate(&right_record, &right_record, 16));
+            self.emit(abi::add_immediate(left_record, left_record, 16));
+            self.emit(abi::add_immediate(right_record, right_record, 16));
             self.emit_content_call_shaped(
                 walk,
                 &variant,
@@ -1423,8 +1419,8 @@ mod tests {
         let right = builder.temporary_vreg();
         builder.emit_values_content_equal_branch(
             &ParameterType::parse(type_),
-            &left,
-            &right,
+            left,
+            right,
             "same",
             "different",
         )?;
