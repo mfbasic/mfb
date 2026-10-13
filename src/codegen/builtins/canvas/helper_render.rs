@@ -1480,6 +1480,30 @@ macro_rules! render_loop_head {
 ' the pointer changed or an `AutoPaint` window ended (`canvas::waitForRedraw`).
 MUT __CANVAS_WAKE AS Integer = 1
 
+' bug-996: the Vulkan pipeline is never on a frame's critical path. Building it can take
+' tens of seconds on a driver that has not seen this executable, so the first frame that
+' wants the GPU only STARTS the build -- on a thread of its own (`canvas::vulkanBuild(0)`)
+' -- and every frame asks `canvas::vulkanReady()`, which is one load. Frames are drawn in
+' software until it answers TRUE, and by Vulkan from the first frame after.
+'
+' A program that asked for the GPU by name (`MFB_CANVAS_GPU`) builds here and now instead
+' (`canvas::vulkanBuild(1)`): its first frame waits for the pipeline, once, so a test's
+' every frame is a GPU frame. This is only reached with the GPU selected, so a set
+' variable here is one that selected it.
+MUT __CANVAS_VULKAN_ASKED AS Boolean = FALSE
+
+FUNC __canvas_vulkanReady() AS Boolean
+  IF NOT __CANVAS_VULKAN_ASKED THEN
+    __CANVAS_VULKAN_ASKED = TRUE
+    IF len(os::getEnvOr("MFB_CANVAS_GPU", "")) > 0 THEN
+      canvas::vulkanBuild(1)
+    ELSE
+      canvas::vulkanBuild(0)
+    END IF
+  END IF
+  RETURN canvas::vulkanReady()
+END FUNC
+
 FUNC __canvas_renderLoop() AS Nothing
   ' plan-172-K: the wait is timed while an `AutoPaint` is inside an enter or exit window
   ' -- the one time-based redraw there is -- and untimed (0) otherwise. It answers 0
@@ -1601,7 +1625,8 @@ macro_rules! render_loop_tail {
       RETURN
     END IF
   END IF
-  IF canvas::useGpu() AND canvas::vulkanReady() THEN
+  ' bug-996: FALSE while the pipeline is still being built, so this frame is software.
+  IF canvas::useGpu() AND __canvas_vulkanReady() THEN
     IF __canvas_renderVulkan(offsets, surfaceW, surfaceH) THEN
       __CANVAS_LAST_DREW = TRUE
       __CANVAS_LAST_RENDERER = 2
@@ -1624,14 +1649,22 @@ END FUNC"#
 /// choice is a runtime fact: whether a Metal device exists, and whether the program
 /// asked for it (`canvas::metalAvailable` and `canvas::useGpu` answer those).
 ///
-/// There are two GPU arms — Metal on macOS, Vulkan on Linux — and each is taken only
-/// when all three of its conditions hold: the program asked for a GPU
+/// There are two GPU arms — Metal on macOS, Vulkan on Linux and Windows — and each is
+/// taken only when all three of its conditions hold: the program asked for a GPU
 /// (`canvas::useGpu`, which despite its name is the one renderer-selection flag and
 /// is set by `__canvas_wantGpu`), a pipeline exists (`canvas::metalReady` /
 /// `canvas::vulkanReady`), and the *scene* is one that renderer draws correctly.
 ///
+/// The second condition is asked every frame and is not the same kind of question on
+/// the two backends. `canvas::metalReady` builds the Metal pipeline the first time it
+/// is asked and remembers the answer. `canvas::vulkanReady` only reads whether the
+/// pipeline exists yet (bug-996): `__canvas_vulkanReady` starts the build on its own
+/// thread the first time and the frames before it finishes are software frames. So on
+/// Vulkan the renderer of a run can change once, from software to the GPU, at the
+/// first frame after the pipeline is ready.
+///
 /// The two are mutually exclusive in practice — `metalReady` is FALSE off macOS and
-/// `vulkanReady` FALSE off Linux — so the order between them never decides anything;
+/// `vulkanReady` FALSE on it — so the order between them never decides anything;
 /// they are written as separate `IF`s rather than an `ELSE` so a future platform with
 /// both is a matter of which is listed first, not a restructure.
 ///

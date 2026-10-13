@@ -84,6 +84,7 @@ use crate::codegen::runtime::canvas::{
     VULKAN_PICTURE_INDEX_SLOTS, VULKAN_PICTURE_RECORDS, VULKAN_PICTURE_RECORDS_OFFSET,
     VULKAN_SPEC_CONSTANTS,
 };
+use crate::codegen::runtime::canvas::{vulkan_handoff, GRAPHICS_OFFSET_ATTR};
 use crate::codegen::runtime::canvas::{
     HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_DASH_COUNT,
     HEADER_DASH_PHASE, HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV,
@@ -683,32 +684,50 @@ const PIPELINE_DYNAMIC: usize = 96;
 const PIPELINE_LAYOUT: usize = 104;
 const PIPELINE_RENDER_PASS: usize = 112;
 
-/// `canvas::vulkanReady() AS Boolean` — build the device and queue, once.
+/// `canvas::vulkanBuild(where)` — build the device, the queue and the pipeline, once.
 ///
-/// The Vulkan twin of `canvas::metalReady`, and the second half of the renderer
-/// branch's condition. Tri-state memo in `GRAPHICS_OFFSET_VULKAN_READY`: a machine
-/// with a loader but no ICD pays the enumeration once, not per frame.
+/// bug-996: this is the slow half of what `canvas::vulkanReady` used to be, and it is
+/// never on a frame's critical path. `where` says which thread runs it
+/// ([`vulkan_handoff`]'s `BUILD_*`): a thread of its own, started here and never
+/// waited for; or the caller, when the program asked for the GPU by name; or, for the
+/// builder thread's own entry, the caller with the claim already made. The state it
+/// leaves in `GRAPHICS_OFFSET_VULKAN_READY`, and why the graphics thread can trust
+/// it, are that module's.
+///
+/// The body touches no arena state (it runs on a thread that has none): its own
+/// stack, the process-global graphics state, and the loader.
 ///
 /// Picks the **first** physical device and its first graphics-capable queue family.
 /// A machine with a discrete and an integrated GPU gets whichever the loader lists
 /// first, which is the loader's own preference order — and for a renderer whose
 /// output is checked against a software oracle within a tolerance, "which GPU" is not
 /// a question this letter needs an opinion on.
-pub(crate) fn emit_vulkan_ready(
+pub(crate) fn emit_vulkan_build(
     builder: &mut CodeBuilder,
     platform: &dyn CodegenPlatform,
     platform_imports: &std::collections::HashMap<String, String>,
+    place: &Operand,
 ) -> Result<(), String> {
     if !has_vulkan_backend(platform) {
-        builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
         return Ok(());
     }
+    let ordered = vulkan_handoff::orders_ready_word(platform);
     let unavailable = builder.label("vk_ready_unavailable");
     let done = builder.label("vk_ready_done");
     let build = builder.label("vk_ready_build");
-    let already_built = builder.label("vk_ready_already_built");
     let family_head = builder.label("vk_family_head");
     let family_found = builder.label("vk_family_found");
+
+    // **Parked before any scratch register is written.** `place` is a vreg, and the
+    // allocator does not see the hand-assigned `SCRATCH` values this file keeps live,
+    // so it may colour a vreg onto one of them (`emit_state_load`'s doc has the case
+    // that did).
+    let off_place = builder.allocate_stack_object("vk_place", 8);
+    builder.emit(abi::store_u64(
+        place.clone(),
+        abi::stack_pointer(),
+        off_place,
+    ));
 
     let off_app_info = builder.allocate_stack_object("vk_app_info", APP_INFO_SIZE);
     let off_instance_info = builder.allocate_stack_object("vk_instance_info", INSTANCE_INFO_SIZE);
@@ -727,40 +746,41 @@ pub(crate) fn emit_vulkan_ready(
     let off_state = builder.allocate_stack_object("vk_state", 8);
     let off_index = builder.allocate_stack_object("vk_index", 8);
 
-    // Already tried? Report what happened last time.
-    //
-    // **Both compares happen before the answer is written, and the state rides a fresh
-    // vreg.** `RESULT_VALUE_REGISTER` is `mfb_return(1)`, which on x86-64 SysV realizes
-    // to `rsi` — and so does `SCRATCH[1]` (`map_scratch_register(10)`). Writing the
-    // answer between the two compares therefore *overwrote the value being compared*,
-    // and the second compare tested the answer against itself: every call after the
-    // first returned TRUE, whatever the tri-state actually said. On AArch64 the two are
-    // `x1` and `x10`, so the sequence is correct there and the fault is invisible on
-    // the development host.
-    //
-    // Measured on box 2227, which has no Vulkan driver at all: the build failed and
-    // stored 2, the renderer correctly fell back to software — and then
-    // `__canvas_writeStats` asked the same question and was told TRUE.
-    let ready = builder.temporary_vreg();
     state_base_into(builder, off_state);
+
+    // The builder thread's own entry: the claim was made for it.
     builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
+        abi::SCRATCH[1],
         abi::stack_pointer(),
-        off_state,
+        off_place,
     ));
-    builder.emit(abi::load_u64(
-        &ready,
-        abi::SCRATCH[0],
-        GRAPHICS_OFFSET_VULKAN_READY,
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[1],
+        vulkan_handoff::BUILD_CLAIMED,
     ));
-    builder.emit(abi::compare_immediate(&ready, "0"));
     builder.emit(abi::branch_eq(&build));
-    builder.emit(abi::compare_immediate(&ready, "1"));
-    builder.emit(abi::branch_eq(&already_built));
-    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
-    builder.emit(abi::branch(&done));
-    builder.emit(abi::label(&already_built));
-    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"));
+
+    // Anyone else claims it first, and leaves if it is already claimed: running, built
+    // or failed. `SCRATCH[0]` still holds the state's address.
+    vulkan_handoff::emit_claim(
+        ordered,
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[2],
+        &done,
+        &mut builder.instructions,
+    );
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_place,
+    ));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[1],
+        vulkan_handoff::BUILD_ON_THIS_THREAD,
+    ));
+    builder.emit(abi::branch_eq(&build));
+    emit_spawn_builder(builder, platform, platform_imports, off_state, &unavailable)?;
     builder.emit(abi::branch(&done));
 
     builder.emit(abi::label(&build));
@@ -1165,7 +1185,8 @@ pub(crate) fn emit_vulkan_ready(
         &unavailable,
     )?;
 
-    // Remember the library handle, mark ready, answer yes.
+    // Remember the library handle, then publish: the ready word is the last thing
+    // this thread writes (`vulkan_handoff`).
     builder.emit(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -1177,28 +1198,154 @@ pub(crate) fn emit_vulkan_ready(
         GRAPHICS_OFFSET_VULKAN_LIB,
         abi::SCRATCH[0],
     );
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
-    emit_state_store(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_READY,
-        abi::SCRATCH[0],
-    );
-    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"));
+    emit_publish_state(builder, ordered, off_state, vulkan_handoff::VULKAN_BUILT);
     builder.emit(abi::branch(&done));
 
     builder.emit(abi::label(&unavailable));
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "2"));
-    emit_state_store(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_READY,
-        abi::SCRATCH[0],
-    );
-    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+    emit_publish_state(builder, ordered, off_state, vulkan_handoff::VULKAN_FAILED);
 
     builder.emit(abi::label(&done));
     Ok(())
+}
+
+/// Publish the build's answer: `state[READY] = value`, after every earlier store.
+fn emit_publish_state(builder: &mut CodeBuilder, ordered: bool, off_state: usize, value: &str) {
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[3],
+        abi::stack_pointer(),
+        off_state,
+    ));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", value));
+    vulkan_handoff::emit_publish_ready(
+        ordered,
+        abi::SCRATCH[3],
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+        &mut builder.instructions,
+    );
+}
+
+/// Start the builder thread and hand it back to the system; branch to `failed` if the
+/// thread library will not start one.
+///
+/// The thread is given the stack the graphics thread has (8 MiB, reserved lazily),
+/// because until bug-996 the graphics thread is where this build ran: a driver's shader
+/// compiler is not a small-stack kind of code. On POSIX that is the attribute object
+/// `canvas::startGraphics` initialised, which is read-only from then on.
+///
+/// Nobody joins it. `pthread_detach` / `CloseHandle` gives up the only reference the
+/// program holds, so the thread's bookkeeping goes when it returns.
+fn emit_spawn_builder(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+    off_state: usize,
+    failed: &str,
+) -> Result<(), String> {
+    let symbol = builder.current_symbol.clone();
+    const STACK_BYTES: &str = "8388608";
+    if matches!(platform.family(), PlatformFamily::Windows) {
+        // CreateThread(NULL, 8 MiB, entry, NULL, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL)
+        builder.emit(abi::move_immediate(abi::c_arg(0), "Integer", "0"));
+        builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", STACK_BYTES));
+        push_symbol_address(
+            &symbol,
+            vulkan_handoff::VULKAN_BUILDER_SYMBOL,
+            abi::c_arg(2),
+            &mut builder.instructions,
+            &mut builder.relocations,
+        );
+        builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+        emit_int_arg(builder, platform, 4, "65536");
+        emit_int_arg(builder, platform, 5, "0");
+        platform.emit_external_call(
+            "CreateThread",
+            &symbol,
+            platform_imports,
+            &mut builder.instructions,
+            &mut builder.relocations,
+        )?;
+        builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+        builder.emit(abi::branch_eq(failed));
+        builder.emit(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+        return platform.emit_external_call(
+            "CloseHandle",
+            &symbol,
+            platform_imports,
+            &mut builder.instructions,
+            &mut builder.relocations,
+        );
+    }
+    // pthread_create(&thread, &attr, entry, NULL)
+    let off_thread = builder.allocate_stack_object("vk_builder_thread", 8);
+    builder.emit(abi::load_u64(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        off_state,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        abi::c_arg(1),
+        GRAPHICS_OFFSET_ATTR,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_thread,
+    ));
+    push_symbol_address(
+        &symbol,
+        vulkan_handoff::VULKAN_BUILDER_SYMBOL,
+        abi::c_arg(2),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    platform.emit_external_call(
+        "pthread_create",
+        &symbol,
+        platform_imports,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+    builder.emit(abi::branch_ne(failed));
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_thread,
+    ));
+    platform.emit_external_call(
+        "pthread_detach",
+        &symbol,
+        platform_imports,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )
+}
+
+/// `canvas::vulkanReady() AS Boolean` — is the pipeline built, now?
+///
+/// The Vulkan twin of `canvas::metalReady` as far as the renderer branch reads it, and
+/// unlike it a question only: it builds nothing and waits for nothing (bug-996,
+/// [`vulkan_handoff::emit_vulkan_is_ready`]). A target with no Vulkan backend answers
+/// FALSE.
+pub(crate) fn emit_vulkan_ready(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform) {
+    if !has_vulkan_backend(platform) {
+        builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+        return;
+    }
+    let symbol = builder.current_symbol.clone();
+    let state = builder.temporary_vreg();
+    let value = builder.temporary_vreg();
+    vulkan_handoff::emit_vulkan_is_ready(
+        &symbol,
+        vulkan_handoff::orders_ready_word(platform),
+        abi::Reg::from(&state),
+        abi::Reg::from(&value),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
 }
 
 /// Create the descriptor set that binds the polygon edge buffer, and the buffer.

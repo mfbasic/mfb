@@ -231,7 +231,10 @@ fn asked_for_by_name_the_build_runs_on_the_calling_thread() {
         let mut machine = Machine::new(ncode_for(target));
         let mut platform = Platform::default();
         machine.call(BUILD, &[ON_THIS_THREAD], &mut platform);
-        assert!(platform.created.is_empty(), "{target}: a thread was started");
+        assert!(
+            platform.created.is_empty(),
+            "{target}: a thread was started"
+        );
         assert_eq!(platform.opens, 1, "{target}");
         assert_eq!(ready_word(&mut machine), FAILED, "{target}");
     }
@@ -297,9 +300,10 @@ fn the_ready_word_is_published_with_a_release_and_read_with_an_acquire_on_aarch6
         releases >= 2,
         "canvas::vulkanBuild publishes built and failed with a store-release each; found {releases}"
     );
+    let ready_offset = READY.to_string();
     let plain = build
         .iter()
-        .filter(|i| i["op"] == "str_u64" && i["offset"] == READY.to_string())
+        .filter(|i| i["op"] == "str_u64" && i["offset"] == ready_offset.as_str())
         .filter(|i| i["base"] != "sp")
         .count();
     assert_eq!(

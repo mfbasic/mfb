@@ -34,6 +34,7 @@
 pub(crate) mod curve_shader;
 pub(crate) mod metal;
 pub(crate) mod vulkan;
+pub(crate) mod vulkan_handoff;
 
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::{Operand, VirtualRegister};
@@ -173,9 +174,10 @@ pub(crate) const GRAPHICS_OFFSET_MTL_TEX_HEIGHT: usize = 416;
 /// them, and is the only thread that may — and the arena is per-thread, so a
 /// process-global word is the only place they survive.
 ///
-/// `VULKAN_READY` is tri-state (0 untried, 1 built, 2 failed) rather than "is the
-/// device non-zero", so a machine with no ICD pays the `dlopen` and the enumeration
-/// once instead of per frame.
+/// `VULKAN_READY` is a state, not "is the device non-null", for the same reason
+/// `MTL_READY` is: a machine with a loader but no ICD must pay the failed enumeration
+/// once, not on every frame. Its four values, who writes each and the order that makes
+/// it the build's hand-off are [`vulkan_handoff`]'s (bug-996).
 pub(crate) const GRAPHICS_OFFSET_VULKAN_READY: usize = 424;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_LIB: usize = 432;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_INSTANCE: usize = 440;
@@ -1630,8 +1632,9 @@ pub(crate) fn graphics_trampoline_shadow(windows: bool) -> usize {
     usize::from(windows) * 32
 }
 
-/// The graphics trampoline's frame size, split out from the emitter so the alignment
-/// invariant it exists to satisfy can be asserted directly (bug-479).
+/// A canvas thread entry's frame size for `saved` saved registers, split out from the
+/// emitter so the alignment invariant it exists to satisfy can be asserted directly
+/// (bug-479).
 ///
 /// **Every x86-64 thread entry is reached by a `call`** — `_pthread_start` on Unix and
 /// `BaseThreadInitThunk` on Windows alike — so the routine begins at `rsp % 16 == 8`.
@@ -1641,10 +1644,10 @@ pub(crate) fn graphics_trampoline_shadow(windows: bool) -> usize {
 ///
 /// AArch64 needs no such thing — the entry `sp` is 16-aligned and the return address
 /// arrives in `lr` rather than on the stack.
-pub(crate) fn graphics_trampoline_frame(arch: &str, windows: bool) -> usize {
+pub(crate) fn thread_entry_frame(arch: &str, windows: bool, saved: usize) -> usize {
     let realign = usize::from(arch == "x86_64") * 8;
     // `lr`, then one slot per saved register, rounded to the 16 every frame keeps.
-    let saves = 8 * (1 + graphics_trampoline_saved(arch, windows).len());
+    let saves = 8 * (1 + saved);
     saves.div_ceil(16) * 16 + realign + graphics_trampoline_shadow(windows)
 }
 
@@ -1731,6 +1734,56 @@ pub(crate) fn emit_graphics_trampoline(
     arena_init: ArenaInitSymbols,
 ) -> Result<CodeFunction, String> {
     let from = GRAPHICS_TRAMPOLINE_SYMBOL;
+    let _ = platform_imports;
+    let windows = platform.family() == PlatformFamily::Windows;
+    Ok(emit_thread_entry(
+        from,
+        "canvas.graphics_entry",
+        platform,
+        graphics_trampoline_saved(platform.arch(), windows),
+        |instructions, relocations| {
+            // Pin the child arena state. Every MFB global access on this thread — including
+            // the geometry cache and the sRGB table — is addressed off it.
+            instructions.push(abi::move_register(ARENA_STATE_REGISTER, abi::c_arg(0)));
+
+            // The two initializers, in the order the entry runs them (bug-369): `LINK` first,
+            // because a global's initializer may call a `LINK` symbol.
+            for symbol in [arena_init.link_init, arena_init.global_init]
+                .into_iter()
+                .flatten()
+            {
+                instructions.push(abi::branch_link(symbol));
+                relocations.push(internal_branch(from, symbol));
+            }
+
+            let render_loop = render_loop_symbol();
+            instructions.push(abi::branch_link(&render_loop));
+            relocations.push(internal_branch(from, &render_loop));
+            // bug-806: this thread ran the module's global initializer into its own
+            // instance; close what that instance's module-level bindings own.
+            if let Some(symbol) = arena_init.teardown {
+                instructions.push(abi::branch_link(symbol));
+                relocations.push(internal_branch(from, symbol));
+            }
+        },
+    ))
+}
+
+/// A thread start routine: the frame every canvas thread entry needs, around `body`.
+///
+/// The graphics thread's entry and (bug-996) the Vulkan builder's are both called by
+/// the thread library, so they owe it the same things: the stack alignment a `call`
+/// leaves, Windows' shadow space, and every register in `saved` handed back as it
+/// arrived. Which registers that is depends on what the body runs, so the caller says
+/// ([`graphics_trampoline_saved`], `vulkan_handoff::builder_entry_saved`). `body` runs
+/// with the thread argument still in `c_arg(0)`; the routine returns 0.
+pub(crate) fn emit_thread_entry(
+    from: &str,
+    name: &str,
+    platform: &dyn CodegenPlatform,
+    saved: Vec<abi::Reg>,
+    body: impl FnOnce(&mut Vec<CodeInstruction>, &mut Vec<CodeRelocation>),
+) -> CodeFunction {
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     // **The x86-64 stack realign.** Every x86-64 thread library reaches a
@@ -1782,7 +1835,7 @@ pub(crate) fn emit_graphics_trampoline(
     // so without it the saves below sit exactly where a callee is entitled to write.
     let windows = platform.family() == PlatformFamily::Windows;
     let shadow = graphics_trampoline_shadow(windows);
-    let frame = graphics_trampoline_frame(platform.arch(), windows);
+    let frame = thread_entry_frame(platform.arch(), windows, saved.len());
     instructions.push(abi::label("entry"));
     instructions.push(abi::subtract_stack(frame));
     instructions.push(abi::store_u64(
@@ -1835,7 +1888,6 @@ pub(crate) fn emit_graphics_trampoline(
     // ubuntu:24.04 container with the same GTK run the same binaries clean, dozens
     // of times — because whether a clobbered `rbp` is ever *dereferenced* depends on
     // the libc's own code path after the start routine returns.
-    let saved = graphics_trampoline_saved(platform.arch(), windows);
     for (index, register) in saved.iter().enumerate() {
         instructions.push(abi::store_u64(
             *register,
@@ -1843,29 +1895,7 @@ pub(crate) fn emit_graphics_trampoline(
             shadow + 8 + 8 * index,
         ));
     }
-    // Pin the child arena state. Every MFB global access on this thread — including
-    // the geometry cache and the sRGB table — is addressed off it.
-    instructions.push(abi::move_register(ARENA_STATE_REGISTER, abi::c_arg(0)));
-
-    // The two initializers, in the order the entry runs them (bug-369): `LINK` first,
-    // because a global's initializer may call a `LINK` symbol.
-    for symbol in [arena_init.link_init, arena_init.global_init]
-        .into_iter()
-        .flatten()
-    {
-        instructions.push(abi::branch_link(symbol));
-        relocations.push(internal_branch(from, symbol));
-    }
-
-    let render_loop = render_loop_symbol();
-    instructions.push(abi::branch_link(&render_loop));
-    relocations.push(internal_branch(from, &render_loop));
-    // bug-806: this thread ran the module's global initializer into its own
-    // instance; close what that instance's module-level bindings own.
-    if let Some(symbol) = arena_init.teardown {
-        instructions.push(abi::branch_link(symbol));
-        relocations.push(internal_branch(from, symbol));
-    }
+    body(&mut instructions, &mut relocations);
 
     // Return, which is how a pthread entry exits. It used to park here on the
     // theory that a render loop returning was a bug — but shutdown asks it to
@@ -1889,9 +1919,8 @@ pub(crate) fn emit_graphics_trampoline(
     instructions.push(abi::add_stack(frame));
     instructions.push(abi::return_());
 
-    let _ = (platform_imports, platform);
-    Ok(CodeFunction {
-        name: "canvas.graphics_entry".to_string(),
+    CodeFunction {
+        name: name.to_string(),
         symbol: from.to_string(),
         params: Vec::new(),
         returns: "Pointer".to_string(),
@@ -1902,7 +1931,7 @@ pub(crate) fn emit_graphics_trampoline(
         stack_slots: Vec::new(),
         instructions,
         relocations,
-    })
+    }
 }
 
 /// Load the graphics-state block's address into `dst`.
@@ -3852,7 +3881,16 @@ mod tests {
         emit_publish_surface_size, DEFAULT_SURFACE_HEIGHT, DEFAULT_SURFACE_WIDTH,
         GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_RESIZES, GRAPHICS_OFFSET_WIDTH,
     };
-    use super::{graphics_trampoline_frame, graphics_trampoline_saved, graphics_trampoline_shadow};
+    use super::{graphics_trampoline_saved, graphics_trampoline_shadow, thread_entry_frame};
+
+    /// The graphics entry's frame: the shared frame arithmetic at its own save count.
+    fn graphics_trampoline_frame(arch: &str, windows: bool) -> usize {
+        thread_entry_frame(
+            arch,
+            windows,
+            graphics_trampoline_saved(arch, windows).len(),
+        )
+    }
     use crate::arch::ops::CodeOp;
     use crate::target::shared::abi;
     use std::collections::HashMap;

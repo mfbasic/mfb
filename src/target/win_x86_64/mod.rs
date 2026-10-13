@@ -153,6 +153,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.useGpu",
     "canvas.metalAvailable",
     "canvas.vulkanReady",
+    "canvas.vulkanBuild",
     "canvas.vulkanDrawScene",
     "canvas.metalReady",
     "canvas.metalDrawScene",

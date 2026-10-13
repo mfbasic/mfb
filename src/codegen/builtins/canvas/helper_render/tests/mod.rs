@@ -335,3 +335,46 @@ fn the_polygon_kind_is_spelled_once() {
     assert_eq!(GEO_KIND_POLYGON, "4");
     assert!(source().contains("= __CANVAS_GEO_POLYGON THEN"));
 }
+
+/// bug-996: `canvas::vulkanBuild`'s argument is written in MFBASIC source and read by
+/// the native member, with no compiler between them. A set `MFB_CANVAS_GPU` builds on
+/// the render thread (the first frame waits, as a test needs); anything else starts
+/// the build on its own thread and waits for nothing.
+#[test]
+fn the_render_loop_starts_the_vulkan_build_where_the_handoff_says() {
+    use crate::codegen::runtime::canvas::vulkan_handoff::{
+        BUILD_ON_ITS_OWN_THREAD, BUILD_ON_THIS_THREAD,
+    };
+    for loop_source in [RENDER_LOOP, RENDER_LOOP_DEBUG] {
+        let start = loop_source
+            .find("FUNC __canvas_vulkanReady()")
+            .expect("the render loop has __canvas_vulkanReady");
+        let wrapper = &loop_source[start..];
+        let wrapper = &wrapper[..wrapper.find("\nEND FUNC").expect("an END FUNC")];
+        let named = wrapper
+            .find("IF len(os::getEnvOr(\"MFB_CANVAS_GPU\", \"\")) > 0 THEN")
+            .expect("the wrapper asks whether the GPU was named");
+        let here = wrapper
+            .find(&format!("canvas::vulkanBuild({BUILD_ON_THIS_THREAD})"))
+            .expect("a named GPU builds on this thread");
+        let elsewhere = wrapper
+            .find(&format!("canvas::vulkanBuild({BUILD_ON_ITS_OWN_THREAD})"))
+            .expect("the default builds on a thread of its own");
+        let otherwise = wrapper.find("\n    ELSE\n").expect("an ELSE");
+        assert!(named < here && here < otherwise && otherwise < elsewhere);
+        assert!(
+            wrapper.trim_end().ends_with("RETURN canvas::vulkanReady()"),
+            "the wrapper answers the question, it does not wait"
+        );
+    }
+}
+
+/// bug-996: the frame path reaches the Vulkan pipeline's state through the wrapper,
+/// which is what starts the build; nothing in the render loop builds it by asking.
+#[test]
+fn the_vulkan_arm_asks_through_the_wrapper() {
+    for loop_source in [RENDER_LOOP, RENDER_LOOP_DEBUG] {
+        assert!(loop_source.contains("IF canvas::useGpu() AND __canvas_vulkanReady() THEN"));
+        assert!(!loop_source.contains("IF canvas::useGpu() AND canvas::vulkanReady() THEN"));
+    }
+}
