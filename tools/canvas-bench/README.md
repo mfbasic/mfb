@@ -284,12 +284,12 @@ the shader is new to the box.
     bash tools/canvas-bench/bench.sh <mfb> shapes
     bash tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host test@192.168.1.206 shapes
 
-**Healthy**: the three kinds within noise of each other, and the 10,000-item
-`phaseRenderMs` under the program's own time a frame, so the renderer is not
-the limit. On box 206 before bug-688's shader restructure a 10,000-square
-frame rendered in about 106 ms, against 14 ms for the same quads with a
-constant-colour shader: every pixel paid for ten distance samples it had
-already skipped in the source.
+**Healthy**: the 10,000-item `phaseRenderMs` under the program's own time a
+frame, so the renderer is not the limit. On box 206 that is not yet so
+(bug-688): squares and circles render in about 58 and 54 ms and 4-point
+polygons in about 89, against 8 for one item. Before bug-688's shader
+restructure all three took 100 to 110 ms: every pixel paid for ten distance
+samples the source had already skipped.
 
 ### `compare stress|poly|pics|text ARGS...`
 
