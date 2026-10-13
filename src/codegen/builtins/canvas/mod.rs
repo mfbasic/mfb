@@ -1594,7 +1594,23 @@ pub(crate) fn register(r: &mut Registry) {
                       with its shape's own paint. A system has no `id`, no `paint` \
                       and no `transform` of its own. A group the system is in moves \
                       and turns all of it. A `ParticleSystem` has no default value — \
-                      it holds a shape — so every field is written out.",
+                      it holds a shape — so every field is written out. What a system \
+                      costs is its live particles, every frame it is presented: each \
+                      is placed afresh and drawn as an item of its own. Measured on an \
+                      Apple M2 Max drawing on the GPU, a system of small discs that \
+                      are moved and tinted but not turned or scaled takes 3.5 \
+                      milliseconds a frame at 1,000 particles, 21 at 10,000 and 95 at \
+                      50,000, so it holds 60 frames a second to about 8,000. A \
+                      particle that is turned or scaled costs about twice as much: 44 \
+                      milliseconds at 10,000, and 60 frames a second to about 3,000. \
+                      There is no number of particles at which a system stops being \
+                      drawn or is drawn differently — 140,000 are drawn, at 275 \
+                      milliseconds a frame. A `canvas::Polygon` emitter adds about a \
+                      tenth to the time. A `canvas::Text` shape costs far more than \
+                      any other, and by the size of its font file rather than the \
+                      length of its text: 0.4 milliseconds a particle with a 770 KB \
+                      font, so keep text particles to a few dozen. Polling the mouse \
+                      costs nothing extra however many particles there are.",
         props: vec![
             RecordProp {
                 name: "position",

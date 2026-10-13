@@ -1,7 +1,7 @@
 # plan-150-B: Particle systems — geometry records, damage, and the cost model
 
-Last updated: 2026-10-11 (re-derived against the completed plan-172 and the bug-686
-geometry cache; see "Re-derivation record")
+Last updated: 2026-10-13 (executed; see Measured and Corrections. Re-derived 2026-10-11
+against the completed plan-172 and the bug-686 geometry cache; see "Re-derivation record")
 Effort: medium (1h–2h)
 Depends on: plan-150-A
 
@@ -249,7 +249,7 @@ records; and that polling the mouse adds no per-particle cost.
   to about 7,000 plain particles (about 8,000 after Phase 2); no count at which a frame
   declines; the records 28% of the expansion for a plain particle and 65% for a turned
   one; polling the mouse free.
-Commit: —
+Commit: 8a3a0557b
 
 ## Measured
 
@@ -434,7 +434,7 @@ moved in the direction the choice predicted, and no particle golden moved.
   The record's share of a plain particle's expansion: 7.25 of 26.23 ms (28%) before,
   22.32 − 18.98 = 3.34 of 22.32 (15%) after — the direction the choice predicted, and
   4.2 of the 5.38 ms ceiling.
-Commit: —
+Commit: 37c783297
 
 ### Phase 3 — Bound a particle system's damage (conditional on Phase 1)
 
@@ -467,24 +467,40 @@ surface, over a static background, reports partial damage rather than a full red
   Check: `cargo test --test rt_canvas_particles damage` → pass (est. 5 min, guess).
   Result (2026-10-13): "2 passed; 0 failed" in 101.31 s; and the suite that holds the
   entry diff, `cargo test --test rt_canvas_damage` → "11 passed; 0 failed", unedited.
-Commit: —
+Commit: 37c783297 (with Phase 2: Corrections 4)
 
 ### Phase 4 — Write the cost model down
 
-- [ ] Fold Phase 1's numbers into `mfb man canvas` prose for `ParticleSystem`: the
+- [x] Fold Phase 1's numbers into `mfb man canvas` prose for `ParticleSystem`: the
       sustainable count, the decline threshold, the fact that a `Text` template costs
       one quad per glyph per particle, and what a `Polygon` emitter costs over a
-      `Circle` one. Developer vocabulary only (`.ai/man-content.md`).
-- [ ] Record in this plan whether the measured numbers argue for a later letter raising
-      a frame cap, and if so with what number.
-- [ ] Record plan-150-A's Open Decision 1 as settled, with the measurement that settled
-      it.
-- [ ] Give plan-152's item C6 the numbers it asks for.
+      `Circle` one. Developer vocabulary only (`.ai/man-content.md`). — in
+      `ParticleSystem`'s description: the times at 1,000 / 10,000 / 50,000, 60 fps to
+      about 8,000 (3,000 turned or scaled), that there is NO threshold (Corrections 1),
+      a `Polygon` emitter's tenth, and a `Text` shape's real cost, which is the font
+      file's size and not its glyphs (Corrections 5).
+- [x] Record in this plan whether the measured numbers argue for a later letter raising
+      a frame cap, and if so with what number. — they do not: Corrections 1. The cap is
+      the size of a pass, a frame past it is drawn in passes (`gpuFrames=120` of 120 at
+      140,000), and at 65,536 particles the frame is already about 125 ms of expansion —
+      the buffer is not what limits a system.
+- [x] Record plan-150-A's Open Decision 1 as settled, with the measurement that settled
+      it. — settled as recommended, composed into the item: a draw entry per particle
+      costs about 1.9 µs on Metal (10,000 single-block draws: 19 ms render and 5.7 ms of
+      draw list, against 4.9 and 0.6 as blocks of one draw), which is what the entry
+      would have saved a plain particle. Written into
+      `planning/completed/plan-150-A-…md`'s Open Decisions.
+- [x] Give plan-152's item C6 the numbers it asks for. — a line under C6 in
+      `planning/plan-152-canvas-program-side-cost-spike.md`: 10,000 at 20.6 ms and
+      50,000 at 94.8 ms a frame on Metal. The box is that plan's to tick.
 
 Acceptance: `mfb man canvas types` prose for `ParticleSystem` states a measured
 particle count, not an adjective.
   Check: `cargo run -- man canvas types | grep -A5 ParticleSystem` → contains a numeral
   (est. 2 min, guess).
+  Result (2026-10-13): `target/debug/mfb man canvas types | grep -A5 ParticleSystem |
+  grep -c '[0-9]'` → 3, and the rendered page reads "3.5 milliseconds a frame at 1,000
+  particles, 21 at 10,000 and 95 at 50,000 … 60 frames a second to about 8,000".
 Commit: —
 
 ## Validation Plan

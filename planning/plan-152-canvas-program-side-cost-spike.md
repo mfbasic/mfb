@@ -172,6 +172,12 @@ The user's rule: keep the API "simple enough for anyone". Existing features come
 - [ ] **C4 Bulk append.** Replace wind's `FOR EACH … append` merge with `collections::append(items, trailItems(v))` (the bulk arm). Measure. If it's material, document it on `mfb man collections append` as the pattern to use.
 - [ ] **C5 Fixed-width items.** Where a shape is a quad or a segment, compare `Rectangle`/`Line` (no nested list) with `Polygon` (nested list) end to end. If row 9 shows the nested list is most of the cost, the advice "use `Line` for segments, `Polygon` only for real outlines" is free.
 - [ ] **C6 Particle systems** (plan-150, `canvas::ParticleSystem`, if merged): smoke, fire, fog, sparks as one item expanded on the graphics thread. Measure 10k and 50k particles. This is the batch primitive for effects that is already designed, so it's the answer for "smoke simulation" before any new mesh type.
+  - Measured by plan-150-B (2026-10-13, Apple M2 Max, Metal, headless, least of 120
+    frames; `bash tools/particle-bench/bench.sh target/debug/mfb row COUNT`): **10,000
+    particles 20.6 ms a frame, 50,000 particles 94.8 ms**, plain discs moved and tinted;
+    10,000 turned rectangles 43.8 ms. About 83% of a frame is the expansion on the
+    graphics thread (the model 0.7 µs a particle, its item built and hashed 1.2 µs, its
+    record 0.3 µs), the rest everything Metal does. 60 fps holds to about 8,000.
 - [ ] **C7 A batched primitive for simulations** (API addition, only if B/C1–C6 leave a gap). Candidates:
       - a `canvas::Lines` (or `Points`) item carrying one flat `List OF Float` plus one paint;
       - a per-vertex colour list.
