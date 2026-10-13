@@ -529,6 +529,8 @@ Commit: —
 4. **Should bug-765's goal keep "every supported real GPU"?** At 1.4 µs a circle the
    UHD 630 needs 140 ms to draw 100,000. **Recommendation: keep the goal for Metal, and
    set box 206's from what §8.2 can reach** once that is measured.
+   **DECIDED by the owner, 2026-10-12: as recommended.** The goal stays for Metal; box
+   206's is set from what the Intel draw cost can reach.
 
 ## 8. What this plan does NOT do, and what each needs
 
