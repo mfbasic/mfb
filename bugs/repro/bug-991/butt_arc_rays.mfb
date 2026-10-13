@@ -1,0 +1,13 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+' A butt-capped arc of radius 0.5 under a transform that scales by 100: on the surface a
+' quarter-ring of radius 50 about (300.3, 300.7). It also draws two dotted rays from the
+' centre along the ends of its sweep, out to the edge of its bounds box.
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET a AS canvas::DrawItem = canvas::Arc[id := "", position := vector::Float2[x := 300.3, y := 300.7], radius := 0.5, startAngle := 0.4, endAngle := 2.3, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 0.1) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[a := 100.0, b := 0.0, c := 0.0, d := 100.0, tx := 0.0, ty := 0.0]]
+  canvas::present([a])
+END FUNC
