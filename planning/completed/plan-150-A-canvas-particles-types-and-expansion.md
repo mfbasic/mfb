@@ -1000,7 +1000,7 @@ by plan-172's transform rule.
 **As executed (2026-10-13):** 1 — composed into the item, as recommended, and settled
 by letter B's measurement: a draw entry per particle costs about 1.9 µs on Metal, which
 is what it would have saved a plain particle, and it would make every system a frame of
-N draws (`planning/plan-150-B-*.md`, "What a draw entry per particle would cost"). 2 and 3 — no longer arise: a `Picture` or a `Group` is not an `AutoShape`
+N draws (`planning/completed/plan-150-B-*.md`, "What a draw entry per particle would cost"). 2 and 3 — no longer arise: a `Picture` or a `Group` is not an `AutoShape`
 (Corrections 3). 4 — ignored. 5 — bounded rejection, 32 tries, and a `CurvePolygon` the
 same over its flattened outline. 6 — the layout box. 7 — one new code,
 `ErrCanvasParticleLifetime` 77050028; the second raise became a type error. 8 — the tint

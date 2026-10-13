@@ -501,7 +501,7 @@ particle count, not an adjective.
   Result (2026-10-13): `target/debug/mfb man canvas types | grep -A5 ParticleSystem |
   grep -c '[0-9]'` → 3, and the rendered page reads "3.5 milliseconds a frame at 1,000
   particles, 21 at 10,000 and 95 at 50,000 … 60 frames a second to about 8,000".
-Commit: —
+Commit: a4ccd3bd9
 
 ## Validation Plan
 
@@ -562,6 +562,14 @@ Commit: —
    largest part** — 44% of a plain particle's expansion. Neither candidate of §3 reaches
    it without a draw entry per particle. Recorded for whoever comes next: the per-
    particle `WITH` of the template record and its paint is where a further gain is.
+7. **The final gate and the coverage check** (2026-10-13). `scripts/test-accept.sh` runs
+   once for the whole split plan, after letter C (plan-150-A Corrections 12).
+   `scripts/coverage-check.sh` needs the whole instrumented suite; the scoped answer to
+   its question is that this letter's new branches are all MFBASIC source inside
+   `helper_particles.rs`'s raw strings (and two hook calls each in `helper_damage.rs`
+   and `helper_render.rs`'s), which are not Rust lines and are in no denominator; the
+   Rust that registers them is run by every registry test. What covers the MFBASIC is
+   `rt_canvas_particles` — the damage, uncached-record and mixed-scene cases.
 
 ## Summary
 

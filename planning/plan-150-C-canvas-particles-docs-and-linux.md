@@ -19,7 +19,7 @@ References:
 
 - `planning/completed/plan-150-A-canvas-particles-types-and-expansion.md` — the type set the
   manual documents.
-- `planning/plan-150-B-canvas-particles-cost-and-damage.md` — the measured cost model
+- `planning/completed/plan-150-B-canvas-particles-cost-and-damage.md` — the measured cost model
   the manual must quote instead of adjectives.
 - `planning/new_canvas.md` — the shape model every example is written in: `position`
   and `transform` on each shape, `vector::Float2` coordinates, no `Paint.transform`.
