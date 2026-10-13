@@ -84,9 +84,8 @@ FUNC __canvas_joinReach(half AS Float, paint AS Paint) AS Float
 END FUNC
 
 ' The bounds pad of a cornered kind's stroke (a polygon, a rectangle, stroked text):
-' the half-width, or the miter reach, plus the rim (`__CANVAS_BOUNDS_RIM`, which
-' `__canvas_boundsHeader` is handed beside this pad and replaces under a transform). A
-' Round or Bevel paint pads exactly as before joins existed.
+' the half-width, or the miter reach, plus the one-pixel guard. A Round or Bevel paint
+' pads exactly as before joins existed.
 ' A dashed Square paint reaches `half * sqrt(2)` at a dash end (`__canvas_dashCapReach`).
 FUNC __canvas_strokePad(paint AS Paint) AS Float
   LET half AS Float = __canvas_maxF(__canvas_strokeHalf(paint), 0.0)
