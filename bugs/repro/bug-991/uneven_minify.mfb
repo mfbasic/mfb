@@ -1,0 +1,12 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+' A circle of radius 0.5 under ONE transform that scales x by 3 and y by 0.03: the
+' composition halo_in_shrinking_group.mfb reaches with a group scale of 0.03, ungrouped.
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET t AS canvas::Transform = canvas::Transform[a := 3.0, b := 0.0, c := 0.0, d := 0.03, tx := 300.0, ty := 200.3]
+  canvas::present([canvas::Circle[id := "", position := vector::Float2[x := 0.0, y := 0.0], radius := 0.5, paint := canvas::fill(color::rgb(255, 255, 255)), transform := t]])
+END FUNC
