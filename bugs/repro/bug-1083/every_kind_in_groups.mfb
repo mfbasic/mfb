@@ -1,0 +1,115 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+IMPORT math
+
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC tf(a AS Float, b AS Float, c AS Float, d AS Float, tx AS Float, ty AS Float) AS canvas::Transform
+  RETURN canvas::Transform[a := a, b := b, c := c, d := d, tx := tx, ty := ty]
+END FUNC
+
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat(n)
+    points = collections::append(points, pt(cx + r * math::cos(a), cy + r * math::sin(a)))
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+FUNC texels(w AS Integer, h AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT y AS Integer = 0
+  WHILE y < h
+    MUT x AS Integer = 0
+    WHILE x < w
+      out = collections::append(out, toByte(40 + (x * 215) / (w - 1)))
+      out = collections::append(out, toByte(40 + (y * 215) / (h - 1)))
+      out = collections::append(out, toByte(160))
+      out = collections::append(out, toByte(255))
+      x = x + 1
+    END WHILE
+    y = y + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC node(name AS String, x AS Float, y AS Float, m AS canvas::Transform) AS canvas::DrawItem
+  RETURN canvas::Group[id := "", position := pt(x, y), transform := m, name := name]
+END FUNC
+
+' Every shape kind with NO transform of its own, in a space `u` units to the unit: a
+' 24-point disc, a stroked circle, a mitered triangle, a rounded rectangle, a
+' square-capped line, an ellipse, three arcs (square, butt and round caps), a dashed
+' mitered polyline, a dashed circle and a 40-point even-odd ring.
+FUNC kinds(u AS Float) AS List OF canvas::DrawItem
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  LET origin AS vector::Float2 = pt(0.0, 0.0)
+  LET ink AS color::Color = color::rgb(250, 250, 120)
+  LET edge AS color::Color = color::rgba(250, 120, 250, 200)
+  MUT s AS List OF canvas::DrawItem = []
+  s = collections::append(s, canvas::Polygon[id := "", position := origin, contours := [ring(24, 0.31 * u, 0.29 * u, 0.08 * u)], rule := canvas::FillRule.NonZero, paint := canvas::fill(ink), transform := none])
+  s = collections::append(s, canvas::Circle[id := "", position := pt(0.62 * u, 0.3 * u), radius := 0.08 * u, paint := canvas::fillStroke(ink, edge, 0.02 * u), transform := none])
+  s = collections::append(s, canvas::Polygon[id := "", position := origin, contours := [[pt(0.8 * u, 0.1 * u), pt(1.1 * u, 0.12 * u), pt(0.95 * u, 0.4 * u)]], rule := canvas::FillRule.NonZero, paint := WITH canvas::fillStroke(ink, edge, 0.03 * u) { join := canvas::JoinStyle.Miter, miterLimit := 8.0 }, transform := none])
+  s = collections::append(s, canvas::Rectangle[id := "", position := pt(1.3 * u, 0.1 * u), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 0.5 * u, height := 0.3 * u], radiusTL := 0.07 * u, radiusTR := 0.07 * u, radiusBL := 0.07 * u, radiusBR := 0.07 * u, paint := WITH canvas::fillStroke(ink, edge, 0.03 * u) { join := canvas::JoinStyle.Miter }, transform := none])
+  s = collections::append(s, canvas::Line[id := "", position := origin, startAt := pt(0.1 * u, 0.6 * u), endAt := pt(0.6 * u, 0.7 * u), paint := WITH canvas::stroke(edge, 0.08 * u) { cap := canvas::CapStyle.Square }, transform := none])
+  s = collections::append(s, canvas::Ellipse[id := "", position := pt(0.95 * u, 0.7 * u), radiusX := 0.2 * u, radiusY := 0.09 * u, paint := canvas::fillStroke(ink, edge, 0.02 * u), transform := none])
+  s = collections::append(s, canvas::Arc[id := "", position := pt(1.4 * u, 0.7 * u), radius := 0.15 * u, startAngle := 0.4, endAngle := 4.3, paint := WITH canvas::stroke(edge, 0.04 * u) { cap := canvas::CapStyle.Square }, transform := none])
+  s = collections::append(s, canvas::Arc[id := "", position := pt(1.8 * u, 0.7 * u), radius := 0.15 * u, startAngle := 0.4, endAngle := 4.3, paint := WITH canvas::stroke(edge, 0.04 * u) { cap := canvas::CapStyle.Butt }, transform := none])
+  s = collections::append(s, canvas::Arc[id := "", position := pt(2.2 * u, 0.7 * u), radius := 0.15 * u, startAngle := 0.4, endAngle := 4.3, paint := WITH canvas::stroke(edge, 0.04 * u) { cap := canvas::CapStyle.Round }, transform := none])
+  s = collections::append(s, canvas::PolyLine[id := "", position := origin, points := [pt(0.1 * u, 0.95 * u), pt(0.3 * u, 1.2 * u), pt(0.5 * u, 0.95 * u), pt(0.7 * u, 1.2 * u)], colors := [ink, edge, ink, edge], paint := WITH canvas::stroke(edge, 0.03 * u) { join := canvas::JoinStyle.Miter, miterLimit := 6.0, cap := canvas::CapStyle.Square, dashes := [0.1 * u, 0.04 * u] }, transform := none])
+  s = collections::append(s, canvas::Circle[id := "", position := pt(1.0 * u, 1.05 * u), radius := 0.12 * u, paint := WITH canvas::stroke(edge, 0.03 * u) { cap := canvas::CapStyle.Square, dashes := [0.08 * u, 0.05 * u] }, transform := none])
+  s = collections::append(s, canvas::Polygon[id := "", position := origin, contours := [ring(40, 1.5 * u, 1.05 * u, 0.14 * u), ring(40, 1.5 * u, 1.05 * u, 0.07 * u)], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(ink, edge, 0.01 * u), transform := none])
+  RETURN s
+END FUNC
+
+' bug-1083: every kind inside groups -- one that magnifies 170 times, one that turns,
+' one that shears unevenly, one that shrinks to a twentieth, a group in a group (one
+' magnifying, one shrinking and turned), items with their own transforms inside a
+' shrinking and a magnifying group, and text and pictures inside groups. The box each
+' item is rasterised over depends on the group's matrix; none of its pixels may.
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    RETURN
+  END TRAP
+  RES image AS canvas::Image = canvas::createImage(8, 4, texels(8, 4))
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  LET origin AS vector::Float2 = pt(0.0, 0.0)
+  LET ink AS color::Color = color::rgb(250, 250, 120)
+  LET edge AS color::Color = color::rgba(250, 120, 250, 200)
+  LET co AS Float = 0.7986355100472928
+  LET si AS Float = 0.6018150231520483
+  canvas::setGroup("unit", kinds(1.0))
+  canvas::setGroup("big", kinds(2000.0))
+  canvas::setGroup("mid", kinds(10.0))
+  ' Items with transforms of their own: the uneven halo, a magnified disc, a sheared ring.
+  canvas::setGroup("own", [canvas::Circle[id := "", position := pt(0.0, 0.0), radius := 0.5, paint := canvas::fill(color::rgb(255, 255, 255)), transform := tf(100.0, 0.0, 0.0, 1.0, 0.0, 0.0)], canvas::Polygon[id := "", position := origin, contours := [ring(24, 0.0, 0.0, 0.5)], rule := canvas::FillRule.NonZero, paint := canvas::fillStroke(ink, edge, 0.1), transform := tf(40.0, 0.0, 0.0, 40.0, 300.0, 100.0)], canvas::Polygon[id := "", position := origin, contours := [ring(40, 0.0, 0.0, 0.5)], rule := canvas::FillRule.EvenOdd, paint := canvas::fillStroke(ink, edge, 0.04), transform := tf(90.0, 0.0, 55.0, 70.0, 600.0, 150.0)], canvas::Line[id := "", position := origin, startAt := pt(0.0, 0.0), endAt := pt(1.6, 0.3), paint := WITH canvas::stroke(edge, 0.25) { cap := canvas::CapStyle.Square }, transform := tf(60.0 * co, 60.0 * si, 0.0 - 60.0 * si, 60.0 * co, 900.0, 60.0)]])
+  ' Text and pictures with no transform of their own.
+  canvas::setGroup("words", [canvas::Text[id := "", position := pt(0.0, 0.0), text := "AB", font := face, fontSize := 14.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := none], canvas::Text[id := "", position := pt(30.0, 0.0), text := "AB", font := face, fontSize := 9.0, paint := canvas::fillStroke(color::rgb(230, 60, 170), ink, 0.6), transform := none], canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := pt(0.0, 6.0), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 16.0, height := 10.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := none], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := image], canvas::Picture[id := "", shape := canvas::Circle[id := "", position := pt(30.0, 12.0), radius := 6.0, paint := canvas::fillStroke(ink, edge, 1.0), transform := none], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := image]])
+  ' A group in a group: the inner one shrinks and turns, the outer one magnifies.
+  canvas::setGroup("inner", [node("mid", 0.0, 0.0, tf(0.5 * co, 0.5 * si, 0.0 - 0.5 * si, 0.5 * co, 0.0, 0.0)), node("words", 2.0, 9.0, tf(0.2, 0.0, 0.0, 0.2, 0.0, 0.0))])
+  MUT s AS List OF canvas::DrawItem = []
+  s = collections::append(s, node("unit", 5.3, 3.7, tf(170.0, 0.0, 0.0, 170.0, 0.0, 0.0)))
+  s = collections::append(s, node("unit", 560.6, 20.2, tf(110.0 * co, 110.0 * si, 0.0 - 110.0 * si, 110.0 * co, 0.0, 0.0)))
+  s = collections::append(s, node("unit", 20.4, 240.6, tf(90.0, 0.0, 55.0, 70.0, 0.0, 0.0)))
+  s = collections::append(s, node("unit", 330.7, 250.3, tf(100.0, 30.0, 0.0 - 20.0, 140.0, 0.0, 0.0)))
+  s = collections::append(s, node("big", 600.3, 330.7, tf(0.05, 0.0, 0.0, 0.05, 0.0, 0.0)))
+  s = collections::append(s, node("big", 620.2, 470.6, tf(0.05, 0.01, 0.0 - 0.01, 0.05, 0.0, 0.0)))
+  s = collections::append(s, node("inner", 20.3, 430.7, tf(12.0, 0.0, 0.0, 12.0, 0.0, 0.0)))
+  s = collections::append(s, node("inner", 330.6, 600.2, tf(0.0, 0.0 - 6.0, 6.0, 0.0, 0.0, 0.0)))
+  s = collections::append(s, node("own", 300.0, 420.3, tf(0.1, 0.0, 0.0, 0.1, 0.0, 0.0)))
+  s = collections::append(s, node("own", 480.0, 520.3, tf(0.25, 0.0, 0.0, 0.25, 0.0, 0.0)))
+  s = collections::append(s, node("own", 0.0 - 250.0, 300.5, tf(1.5, 0.0, 0.0, 1.5, 0.0, 0.0)))
+  s = collections::append(s, node("words", 700.4, 180.6, tf(4.0, 0.0, 0.0, 4.0, 0.0, 0.0)))
+  s = collections::append(s, node("words", 760.2, 560.8, tf(3.0 * co, 3.0 * si, 0.0 - 3.0 * si, 3.0 * co, 0.0, 0.0)))
+  s = collections::append(s, node("words", 520.6, 600.3, tf(0.5, 0.0, 0.0, 0.5, 0.0, 0.0)))
+  canvas::present(s)
+END FUNC
