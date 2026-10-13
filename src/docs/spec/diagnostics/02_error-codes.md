@@ -124,6 +124,7 @@ emitting operations or a guarantee of identical message text at every emitter.
 | `7-705-0025` | `77050025` | `ErrInvalidSurrogate`        | A `\u` escape encodes an unpaired surrogate. Strings are Unicode text, so a high surrogate must be followed by a `\u` low surrogate, and a lone low surrogate is never valid. Distinct from `ErrInvalidFormat`, which is a grammar mistake. |
 | `7-705-0026` | `77050026` | `ErrCanvasGroupLimit`        | The canvas named-group table is full: `canvas::setGroup` holds at most 256 groups at once. Remove one with `canvas::removeGroup`, or install fewer — installing again under a name you already used replaces it and needs no new slot. Distinct from `ErrOutOfMemory`: the arena has room, the fixed table does not.  |
 | `7-705-0027` | `77050027` | `ErrTooLarge`                | The result would be larger than the size limit the caller set. Distinct from `ErrOutOfMemory`: the input can be perfectly valid and memory can be available — raise the limit (for example `maxBytes` on `compress::inflate`) when the size is expected, or reject the input. |
+| `7-705-0028` | `77050028` | `ErrCanvasParticleLifetime`  | A `canvas::ParticleSystem` has a `lifetime` of zero or less. A particle's colour and size are worked out from how far it is through its life, and there is no such point in a life with no length — give `emission.lifetime` a value above zero. A system that should draw nothing wants `maxParticles` of zero instead. |
 
 ## Resolution API
 

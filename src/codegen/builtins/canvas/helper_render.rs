@@ -307,6 +307,11 @@ FUNC __canvas_appendDraw(offsets AS List OF Integer, item AS DrawItem, hash AS I
     ' none (`helper_picture.rs`).
     CASE Picture(pic)
       RETURN __canvas_pictureAppend(out, pic, hash, gdx, gdy, mat, depth, path, index)
+    ' plan-150-A: a `ParticleSystem` is the entries its live particles make -- any
+    ' number, each an ordinary shape that comes back through this function
+    ' (`helper_particles.rs`).
+    CASE ParticleSystem(ps)
+      RETURN __canvas_particleAppend(out, ps, gdx, gdy, mat, depth, path, index)
     CASE ELSE
       LET offset AS Integer = __canvas_geometryFor(item, hash)
       out = collections::append(out, offset)
@@ -376,6 +381,20 @@ FUNC __canvas_groupSignature(items AS List OF DrawItem, depth AS Integer) AS Lis
         FOR EACH inner IN __canvas_groupSignature(canvas::groupItems(slot), depth + 1)
           sig = collections::append(sig, inner)
         NEXT
+      ' plan-150-A: a particle system adds nothing to the signature -- it names no
+      ' group -- but this is the walk with a user call to fail back to, so it is where
+      ' the one system that cannot be drawn is refused: a particle's place in its life
+      ' is `age / lifetime`, and there is no such number for a lifetime of zero or less.
+      ' One inside a group is reached by the recursion above.
+      '
+      ' 77050028 is errorCode.ErrCanvasParticleLifetime. The literal rather than the
+      ' name because package source does not import `errorCode`. Written here and not
+      ' behind a hook of the particle chunk because this is the unconditional source's
+      ' own raise: `present` declares it for every program.
+      CASE ParticleSystem(ps)
+        IF NOT (ps.emission.lifetime > 0.0) THEN
+          FAIL error(77050028, "canvas particle system lifetime must be above zero")
+        END IF
       CASE ELSE
         sig = sig
     END MATCH
@@ -718,6 +737,9 @@ FUNC __canvas_memoGroup(slot AS Integer, hashes AS List OF Integer, depth AS Int
           count = count + 1
           b = b + 2
         END WHILE
+      ' plan-150-A: a `ParticleSystem` child is a block per live particle.
+      CASE ParticleSystem(ps)
+        count = count + __canvas_particleBlocks(ps)
       CASE ELSE
         LET childOffset AS Integer = __canvas_geometryFor(child, __canvas_hashItem(child))
         __CANVAS_DRAW_BLOCKS = collections::append(__CANVAS_DRAW_BLOCKS, childOffset)
@@ -941,6 +963,13 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
         MATCH item
           CASE Group(g)
             __CANVAS_TOP_OFFSETS = collections::set(__CANVAS_TOP_OFFSETS, i, 0 - 1)
+          ' plan-150-A: a particle system is never "that entry", even on a frame where
+          ' exactly one of its particles is alive: the entry is a particle's record,
+          ' not the item's, and an index that names a record is held to be the item's
+          ' (`__canvas_geoVerifyFrame`). Always the several-entries path.
+          CASE ParticleSystem(ps)
+            __CANVAS_TOP_OFFSETS = collections::set(__CANVAS_TOP_OFFSETS, i, 0 - 2)
+            several = TRUE
           CASE ELSE
             ' plan-172-L: an item that became one entry is that entry. A `Picture` may
             ' be two, or none: -2, which sends the frame to the draw walk
@@ -2220,6 +2249,10 @@ const CLOSE_RETIRED: &str = r#"FUNC __canvas_closeRetired(gone AS List OF DrawIt
             END IF
           CASE ELSE
         END MATCH
+      ' plan-150-A: a particle system names the font of a `Text` it has for a template
+      ' or for an emitter.
+      CASE ParticleSystem(ps)
+        __canvas_particleCloseFonts(ps, scene)
       CASE ELSE
     END MATCH
   NEXT
@@ -2297,6 +2330,11 @@ FUNC __canvas_listNamesFont(live AS List OF DrawItem, handle AS Integer) AS Bool
       ' plan-172-L: and a `Picture` whose shape is one.
       CASE Picture(p)
         IF __canvas_pictureNamesFont(p, handle) THEN
+          RETURN TRUE
+        END IF
+      ' plan-150-A: and a particle system whose template or emitter is one.
+      CASE ParticleSystem(ps)
+        IF __canvas_particleNamesFont(ps, handle) THEN
           RETURN TRUE
         END IF
       CASE ELSE

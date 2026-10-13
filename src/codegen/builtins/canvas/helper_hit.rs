@@ -365,6 +365,11 @@ FUNC __canvas_hitAppend(item AS DrawItem, gdx AS Float, gdy AS Float, mat AS Int
     ' nothing answers a group that names nothing, and appends nothing.
     CASE Picture(pic)
       __canvas_hitAppend(__canvas_pictureHitItem(pic), gdx, gdy, mat, depth, __canvas_joinId(path, pic.id))
+    ' plan-150-A: a particle is never under the mouse. A system appends nothing, so it
+    ' is not reported by `overID` and hides nothing beneath it -- and this thread never
+    ' runs the particle model.
+    CASE ParticleSystem(ps)
+      RETURN
     CASE ELSE
       LET offset AS Integer = __canvas_hitGeometry(item, __canvas_hashItem(item))
       LET id AS String = __canvas_joinId(path, __canvas_itemId(item))

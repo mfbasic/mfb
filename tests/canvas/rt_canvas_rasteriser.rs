@@ -6170,3 +6170,49 @@ fn degenerate_gradient_fields_draw_as_their_no_op_forms() {
         &focal((200.5, 150.5), 100.0, (0.0, 0.0), 99.90234375, NO_T),
     );
 }
+
+/// A `setGroup` under a name a LAYERED scene already draws is seen by the next
+/// `presentLayers`, as `present` has always seen it for a flat one — and a group cycle
+/// under a layer raises, as it does under `present`.
+///
+/// Found by plan-150-A: `presentLayers` published the layers and never took the
+/// resolved-groups signature. The layers themselves are identical before and after the
+/// `setGroup` — a `Group` node is a name — so the second call reported "unchanged" and
+/// the new group was never drawn: one frame where there should be two, and the old
+/// 20 px box still on screen. The same missing walk is the one that refuses a group
+/// nested past the depth limit, which a layered scene therefore never raised for.
+#[test]
+fn present_layers_sees_a_group_replaced_under_the_same_name() {
+    const BOX: &str = "canvas::Rectangle[id := \"\", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := WIDTH, height := 20.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]";
+    const NODE: &str = "canvas::Group[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"NAME\"]";
+    let node = NODE.replace("NAME", "g");
+    let (frame, stats) = render(
+        "canvas_layers_group_replaced",
+        &scene(&format!(
+            "  canvas::setGroup(\"g\", [{}])\n  canvas::presentLayers([canvas::DrawLayer[items := [{node}]]])\n  canvas::setGroup(\"g\", [{}])\n  canvas::presentLayers([canvas::DrawLayer[items := [{node}]]])\n",
+            BOX.replace("WIDTH", "20.0"),
+            BOX.replace("WIDTH", "200.0"),
+        )),
+    );
+    assert_eq!(
+        stats.len(),
+        2,
+        "the second presentLayers, after setGroup replaced the group, drew no frame"
+    );
+    // (150, 20) is inside the 200 px box and outside the 20 px one.
+    let at = ((20 * 900 + 150) * 4) as usize;
+    assert_eq!(&frame[at..at + 4], &[255, 0, 0, 255]);
+
+    let cycle = NODE.replace("NAME", "self");
+    let (stdout, _) = render_stdout(
+        "canvas_layers_group_cycle",
+        &scene(&format!(
+            "  canvas::setGroup(\"self\", [{cycle}])\n  canvas::presentLayers([canvas::DrawLayer[items := [{cycle}]]]) TRAP(e)\n    io::print(\"raised \" & toString(e.code))\n    RETURN\n  END TRAP\n  io::print(\"NO RAISE\")\n"
+        )),
+    );
+    assert!(
+        stdout.contains("raised 77050024"),
+        "a group cycle under a layer must raise ErrDepthExceeded from `presentLayers`; \
+         got: {stdout}"
+    );
+}

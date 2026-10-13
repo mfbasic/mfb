@@ -83,13 +83,13 @@ one before it (`./mfb spec language types`):
 |---|---|---|
 | `canvas::Shape` | `Rectangle`, `Line`, `Polygon`, `Circle`, `Arc`, `Text`, `Ellipse`, `PolyLine`, `PolyCurve`, `CurvePolygon` | the ten things drawn with a paint of their own; what an `AutoPaint` wraps |
 | `canvas::AutoShape` | `Shape`'s ten, then `AutoPaint` | a shape, plain or decorated |
-| `canvas::DrawItem` | `AutoShape`'s eleven, then `Picture`, `Group` | what `present` takes |
+| `canvas::DrawItem` | `AutoShape`'s eleven, then `Picture`, `Group`, `ParticleSystem` | what `present` takes |
 
 An included union's members come first, in its own order, so the three share tags:
 
-| Tag | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Variant | `Rectangle` | `Line` | `Polygon` | `Circle` | `Arc` | `Text` | `Ellipse` | `PolyLine` | `PolyCurve` | `CurvePolygon` | `AutoPaint` | `Picture` | `Group` |
+| Tag | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Variant | `Rectangle` | `Line` | `Polygon` | `Circle` | `Arc` | `Text` | `Ellipse` | `PolyLine` | `PolyCurve` | `CurvePolygon` | `AutoPaint` | `Picture` | `Group` | `ParticleSystem` |
 
 A `Rectangle` is tag 0 in all three unions and an `AutoPaint` tag 10 in the two that
 have it. The order is pinned by three tests, one per union.
@@ -98,6 +98,11 @@ A new shape is appended to `Shape`, never to `DrawItem` alone, because being a m
 `Shape` is what lets an `AutoPaint` wrap it and a `Picture` be cut to it; that moves the
 tag of every variant after `Shape`'s last. `PolyCurve` and `CurvePolygon` did exactly
 that to `AutoPaint`, `Picture` and `Group`.
+
+`canvas::ParticleSystem` is the other kind of addition: it is not a shape, so it is
+appended to `DrawItem`'s own variants, takes the next tag and moves none. It holds an
+`AutoShape` — never a `DrawItem`, which would be a type cycle — and is expanded into
+ordinary items before anything draws (*Particle systems*, below).
 
 `canvas::PolyCurve` and `canvas::CurvePolygon` are the curved counterparts of `PolyLine`
 and `Polygon`: a chain, and closed contours, of `canvas::BezierCurve` — a record of
@@ -1582,6 +1587,221 @@ itself — a cycle is unbounded depth, and the two need the same fix.
 same name replaces what that name draws. The items are copied, so the list passed to
 `setGroup` is the caller's to change afterwards; the installed group does not follow it.
 
+## Particle systems
+
+A `canvas::ParticleSystem` is one scene item that is drawn as many: a template shape
+placed, turned, scaled and tinted once for each live particle. It is `DrawItem`'s
+fourteenth variant and the third that is not a shape.
+
+```
+canvas::ParticleSystem
+    position    AS vector::Float2     ' the emitter's position is measured from here
+    item        AS canvas::AutoShape  ' the template, drawn once per live particle
+    emitter     AS canvas::Shape      ' where particles are born; never drawn
+    emission    AS canvas::Emission   ' mode, maxParticles, rate, burst, burstPeriod, lifetime, lifetimeVar
+    motion      AS canvas::Motion     ' speed, angle, spread, gravity, drag, rotation, spin, turbulence
+    appearance  AS canvas::Appearance ' startColor, endColor, startScale, endScale, scaleVar
+    seed        AS Integer
+    time        AS Float              ' seconds; the program advances it
+```
+
+It has no `id`, no `paint` and no `transform`. `canvas::EmissionMode` is `Continuous`
+(the zero value) or `Burst`.
+
+### The template is a shape, and why
+
+`item` is a `canvas::AutoShape`: one of the ten shapes, or an `AutoPaint` around one. It
+is not a `canvas::DrawItem`, and cannot be. A `DrawItem` variant holding a `DrawItem`
+is a type cycle, and a type that reaches a cycle is not laid out as one flat block
+[[src/codegen/collection/layout/builder_collection_layout.rs:flatness_walk]] — for
+every value of the type, in every program. A scene is one flat block by construction:
+`present` copies it with one block copy, compares it to the installed scene by content,
+and the native walks step through it by offset (*A published scene points at nothing
+caller-owned*). So a `Picture`, a `Group` or another `ParticleSystem` as a template is
+refused by the type checker, and a test holds that no canvas type reaches itself.
+[[src/codegen/builtins/canvas/mod.rs:no_canvas_type_reaches_itself]]
+
+### It holds no state, and nothing advances it
+
+Every particle is a closed form in its slot and the system's `time`: nothing is
+integrated and nothing is remembered between frames. The same `(seed, time)` therefore
+draws the same picture on every run, backend and platform, and a system is animated by
+the program presenting it again with a new `time`. That is redraw trigger 1 — `time` is
+folded into the item's hash, so the scene differs — and there is no eighth trigger: no
+clock in the renderer belongs to a particle system.
+[[src/codegen/builtins/canvas/helper_particles.rs:HOOKS_BODY]]
+
+### The model
+
+The model is MFBASIC source with no record of the type set in it — numbers and points
+only — so it is compiled and run by itself in the test suite.
+[[src/codegen/builtins/canvas/helper_particles.rs:MODEL]]
+
+**Draws.** `__canvas_particleHash(seed, slot, cycle, stream)` is a value in `[0, 1)`
+from a 31-bit xor-shift-multiply mix. `cycle` is which life of the slot this is, so a
+slot born again does not repeat itself; `stream` separates a particle's draws: 0
+lifetime, 1 and 2 the emitter sample, 3 direction, 4 speed, 5 rotation, 6 spin, 7 size,
+8 and 9 the wander's phase on each axis, 16 upward a polygon emitter's candidates. It is
+not the item hash's step, whose lanes are affine in their input: two streams of that
+differ by a constant for every slot.
+
+**Birth and age.** `__canvas_particleAge` answers the seconds since the particle a slot
+holds was born, or −1 when it holds none.
+
+| Mode | Slot `i` is born | Its age at `time` |
+|---|---|---|
+| `Continuous` | at `i / rate`, and every `maxParticles / rate` after | `(time − i / rate)` modulo that period |
+| `Burst`, `burstPeriod > 0` | at every multiple of `burstPeriod`, for `i < burst` | `time` modulo `burstPeriod` |
+| `Burst`, `burstPeriod ≤ 0` | at 0, for `i < burst` | `time` |
+
+A particle lives `lifetime × (1 + lifetimeVar × (2r − 1))` and is drawn while its age is
+below that; `u` is its age over its life. A slot outside the pool, a `Continuous`
+system with no `rate`, a negative `time` and a `time` that is not a number all hold no
+particle. Each `…Var` fraction is taken into `[0, 1]`.
+
+**Spawn.** The emitter is read once per system per frame into graphics-thread globals
+(`__canvas_particlePrepare`) and every slot samples from those. The sample is taken in
+the emitter's local geometry and carried to the surface as a point of that shape is:
+`system.position + emitter.position + emitter.transform(sample)`, the transform applied
+when `__canvas_transformActive` says it is in effect.
+[[src/codegen/builtins/canvas/helper_particles.rs:EXPAND]]
+
+| Emitter | The sample |
+|---|---|
+| `Circle`, `Ellipse` | uniform over the area: radius scaled by `sqrt(r1)`, angle `2π r2` |
+| `Rectangle` | uniform over the box, from its `bind` point; the corner radii are not read |
+| `Line` | uniform between `startAt` and `endAt` |
+| `Arc` | uniform in angle between `startAngle` and `endAngle` |
+| `PolyLine` | uniform along its length; `colors` is not read |
+| `Polygon` | uniform over what `rule` fills: up to 32 candidates in the contours' bounding box, the first inside kept; none inside leaves the slot empty for that life |
+| `PolyCurve` | uniform along the chain flattened to straight edges |
+| `CurvePolygon` | as `Polygon`, over the outline flattened to straight edges |
+| `Text` | uniform over the layout box — the advance wide, ascent above the baseline to descent below; a closed font or a run with no glyph emits nothing |
+
+A curve emitter is flattened by the reduction a `Picture` is cut to
+(`__canvas_curveRings`, *Curves*). The emitter's `id` and `paint` are never read.
+
+**Motion.** The direction is `angle + spread × (2r − 1)` and the speed
+`speed × (1 + speedVar × (2r − 1))`, in surface axes whatever the emitter's transform.
+One axis of the path is the exact solution of linear drag,
+
+```
+p = p0 + (v0 − g/k)(1 − e^(−kt)) / k + (g/k) t
+```
+
+computed as `p0 + v0 t φ(kt) + g t² ψ(kt)` with `φ(x) = (1 − e^(−x)) / x` and
+`ψ(x) = (x − 1 + e^(−x)) / x²`, both from their series below `x = 0.25`. The first form
+divides by `k` twice and cancels catastrophically as `k` goes to zero; `φ` and `ψ` go to
+1 and ½ there, which is the parabola, so drag has no threshold. Turbulence adds
+`turbulence × sin(2π(turbulenceHz × t + r))` to each axis with its own phase. The turn
+is `rotation + rotationVar × (2r − 1) + spin × (1 + spinVar × (2r − 1)) × t`, clockwise;
+the size is `lerp(startScale, endScale, u) × (1 + scaleVar × (2r − 1))`.
+
+**Not the platform's `libm`.** Sine and cosine are the package's own
+[[src/codegen/builtins/canvas/helper_shapes.rs:TRIG]], reached through one-step angle
+wrapping (the package's wraps by repeated subtraction) and normalised to a unit vector;
+the exponential is written out in the model. A test holds that the particle source
+calls no `math::` transcendental.
+[[src/codegen/builtins/canvas/helper_particles.rs:MODEL]]
+
+**Nothing in it raises.** It runs on the graphics thread, where a `FAIL` has no user
+frame to unwind to. Every conversion to an integer is guarded, and a value too large to
+mean anything makes the slot empty or the angle zero.
+
+### A particle is an ordinary item
+
+A particle is its template drawn as if it sat alone in a group node at the particle's
+point `P` with `M = turn(θ) · scale(s)`. With the template's transform `A | t` (the
+identity and nothing when it is not in effect) and position `q`, a local point `p`
+reaches the surface at
+
+```
+P + M(q + A p + t)  =  P + (M A) p + M(q + t)
+```
+
+so `__canvas_particleItem` emits the same shape with `position := P` and
+`transform := [ M A | M(q + t) ]`: the template's own `position` and `transform` are
+offsets inside the particle, turned and scaled with it. A particle that is neither
+turned nor scaled is the template with `P` added to its `position` and its transform
+untouched, which keeps it on the path every untransformed item takes, native geometry
+builder included. [[src/codegen/builtins/canvas/helper_particles.rs:DRAW]]
+
+| Consequence | Rule it comes from |
+|---|---|
+| `M A` with `|det| < 1e-12` — a scale that reached zero — draws nothing | the shape rule reads a transform with no area as the identity, which would draw the particle at full size |
+| a stroke is scaled with its particle | a stroke is transformed with its shape |
+| the tint does not reach a gradient's stops | the tint is written into `paint.fill` and `paint.stroke` |
+
+The tint is `lerp(startColor, endColor, u)`, its red, green and blue interpolated in
+linear light (`color::toLinear` / `color::fromLinear`) and its alpha as stored, then
+multiplied channel by channel into the template's fill and stroke —
+`(c × tint + 127) / 255` — and into a `PolyLine`'s `colors`. White leaves a paint
+untouched.
+
+An `AutoPaint` template is unwrapped to its shape (`__canvas_autoItem`) before the
+expansion, so it is drawn with the shape's own paint and no instance is noted
+(*AutoPaint*).
+
+A particle, placed, is exactly the ordinary item its fields say, and for a scaled
+particle and for one at a point that is not a whole pixel that is exactly the template
+in a group node. It is not always the group node to the last level, and the difference
+is the renderer's own: a transformed shape is placed through an inverse held in single
+precision (*Placement*), which carries a shape's whole position when the shape is
+placed directly and only its offset when a group's translation is subtracted first.
+The two are about 1e-5 px apart, which shows only where coverage sits on a rounding
+tie.
+
+### The walks
+
+`__canvas_appendDraw`'s `ParticleSystem` arm (`__canvas_particleAppend`) loops the
+slots — the pool, or the burst when that is smaller — and sends each live particle back
+through `__canvas_appendDraw` as the shape it is. Every particle is therefore an entry
+of `__CANVAS_DRAW_HASHES`, `_DX`, `_DY` and `_MAT` like any other, resolved through the
+geometry cache under its own hash; the enclosing groups' offset and matrix pass
+through. Nothing that reads those lists changes, and no shader, pipeline, binding or
+buffer layout knows a particle from any other item. The depth stop is silent, as
+`Group`'s is.
+
+| Walk | What a system is to it |
+|---|---|
+| `__canvas_sceneOffsets` | always an index of several entries (−2), even on a frame with exactly one live particle: an index that names a record is held to be that item's record |
+| `__canvas_sceneDrawsWalk` | its blocks are its entries in the frame, as a two-entry `Picture`'s are |
+| `__canvas_memoGroup` | as a group's child, one block per live particle in that group's shared run (`__canvas_particleBlocks`) |
+| `__canvas_hitAppend` | nothing: a particle is never hit (*Hit-testing*) |
+| `__canvas_groupSignature` | adds nothing; raises for a lifetime of zero or less |
+| `canvas::itemHash`, `canvas::carriedHashes` | not hashed natively (its `item` is a union field) and never carried; `__canvas_particleSystemHash` folds every field, the template's and the emitter's hashes and `time` |
+| `canvas::sceneIdBits` | sets no bit: it has no `id` and nothing in it is reported |
+| `__canvas_listNamesFont`, `__canvas_closeRetired` | a `Text` template or emitter names its font |
+
+### What `present` refuses
+
+One thing: `emission.lifetime ≤ 0`, as `ErrCanvasParticleLifetime` (`77050028`), raised
+on the worker by the group-signature walk (`__canvas_groupSignature`) of
+`canvas::present` and `canvas::presentLayers`, so it reaches a system in a group. `u`
+is `age / lifetime`, and there is none.
+[[src/codegen/builtins/canvas/func_present_layers.rs:BODY]]
+
+Everything else that leaves a system with nothing to draw is a picture of nothing, not
+an error: `maxParticles ≤ 0`, a `Continuous` system with `rate ≤ 0`, a `Burst` one with
+`burst ≤ 0`, a negative `time`, a scale of zero. A `burst` above `maxParticles` is
+`maxParticles`.
+
+### The chunk is gated on constructing one
+
+The model, the expansion and the hooks are one chunk injected when the program
+constructs a `ParticleSystem` (`HelperGate::WhenUsedOrConstructed`); a program that
+constructs none gets `ABSENT`, the same five names with bodies that are a constant or
+the argument handed back, and a test holds the two declare them alike. The record holds
+a union field, so it has no default value and constructing one is the only way to hold
+one. [[src/codegen/builtins/canvas/helper_particles.rs:ABSENT]]
+
+In code, a canvas program with no `ParticleSystem` is 29,072 bytes larger than it was
+before the type existed (`__text`, macOS AArch64, a scene of one circle). Little of it
+is the arms and `ABSENT`: most is the code every site that copies, compares or matches
+a `DrawItem` carries per variant, and this variant holds two shape unions. A scene's
+items are no larger — an item is stored at its own variant's size, and a group of 100
+circles is 63,250 bytes with the variant and without it.
+
 ## Hit-testing
 
 One question — which drawn item is topmost under a surface point — answered by the
@@ -1697,6 +1917,11 @@ area — with one more thing carried down: the path. A group node passes its chi
 | a `Picture` `avatar` on a shape with no `id` | `avatar` |
 | a `Picture` with no `id` on a shape `frame` | `frame` |
 | the first of those, in a group drawn by node `card` | `card::avatar::frame` |
+
+A `canvas::ParticleSystem` appends nothing. A particle is never hit: a system is not
+reported, hides nothing beneath it, and costs the worker nothing — its arm returns
+before the model is touched, and `canvas::sceneIdBits` sets no bit for one, so a scene
+of systems and nothing with an `id` builds no list at all.
 
 The path belongs to the draw ENTRY. A group's stored items are not renamed, and one item
 reached through two nodes is two entries with two paths. Two nodes with the same `id`,

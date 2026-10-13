@@ -680,6 +680,223 @@ FUNC __canvas_particleState(ps AS ParticleSystem, slot AS Integer) AS Boolean
   RETURN TRUE
 END FUNC"#;
 
+/// The expansion (plan-150-A section 6): a system's live particles as ordinary items.
+///
+/// **A particle is its template drawn as if it sat alone in a group node at the
+/// particle's point, turned and scaled there.** `__canvas_particleItem` flattens that
+/// node into the shape's own `position` and `transform` and multiplies the tint into its
+/// paint, so what the walk appends is one ordinary shape — one geometry record, one
+/// item block — and nothing downstream of the walk knows a particle from any other
+/// item. No shader, pipeline, binding or buffer layout is involved.
+#[rustfmt::skip]
+const DRAW: &str =
+r#"' The tint of the particle being built: each channel 0 to 255, multiplied into the
+' template's fill and stroke.
+MUT __CANVAS_PARTICLE_TINT_R AS Integer = 255
+MUT __CANVAS_PARTICLE_TINT_G AS Integer = 255
+MUT __CANVAS_PARTICLE_TINT_B AS Integer = 255
+MUT __CANVAS_PARTICLE_TINT_A AS Integer = 255
+
+' One colour channel `u` of the way from `s` to `e`, in LINEAR light -- the space the
+' rasteriser and both shaders composite in. Interpolating the stored sRGB values would
+' pass a fade through a midpoint that is visibly too dark.
+FUNC __canvas_particleChannel(s AS Byte, e AS Byte, u AS Float) AS Integer
+  LET lo AS Float = toFloat(color::toLinear(s))
+  LET hi AS Float = toFloat(color::toLinear(e))
+  RETURN toInt(color::fromLinear(toInt(lo + (hi - lo) * u + 0.5)))
+END FUNC
+
+' The tint at `u` of the way through a particle's life. Alpha is not a light level and
+' is interpolated as it is stored.
+FUNC __canvas_particleTint(look AS Appearance, u AS Float) AS Nothing
+  LET s AS color::Color = look.startColor
+  LET e AS color::Color = look.endColor
+  __CANVAS_PARTICLE_TINT_R = __canvas_particleChannel(s.red, e.red, u)
+  __CANVAS_PARTICLE_TINT_G = __canvas_particleChannel(s.green, e.green, u)
+  __CANVAS_PARTICLE_TINT_B = __canvas_particleChannel(s.blue, e.blue, u)
+  LET lo AS Float = toFloat(toInt(s.alpha))
+  __CANVAS_PARTICLE_TINT_A = toInt(lo + (toFloat(toInt(e.alpha)) - lo) * u + 0.5)
+END FUNC
+
+' A colour under the tint: each channel multiplied, alpha included, so white leaves it
+' as it was and a transparent tint hides it. The rule a `Picture`'s fill follows.
+FUNC __canvas_particleTinted(c AS color::Color) AS color::Color
+  RETURN color::rgba((toInt(c.red) * __CANVAS_PARTICLE_TINT_R + 127) / 255, (toInt(c.green) * __CANVAS_PARTICLE_TINT_G + 127) / 255, (toInt(c.blue) * __CANVAS_PARTICLE_TINT_B + 127) / 255, (toInt(c.alpha) * __CANVAS_PARTICLE_TINT_A + 127) / 255)
+END FUNC
+
+' A paint under the tint: its fill and its stroke. A gradient's stops are not reached.
+FUNC __canvas_particlePaint(p AS Paint) AS Paint
+  IF __CANVAS_PARTICLE_TINT_R = 255 AND __CANVAS_PARTICLE_TINT_G = 255 AND __CANVAS_PARTICLE_TINT_B = 255 AND __CANVAS_PARTICLE_TINT_A = 255 THEN
+    RETURN p
+  END IF
+  RETURN WITH p { fill := __canvas_particleTinted(p.fill), stroke := __canvas_particleTinted(p.stroke) }
+END FUNC
+
+' `__canvas_particleCompose`'s answers: the position and transform of the shape that IS
+' the particle, and whether there is one.
+MUT __CANVAS_PARTICLE_AT AS vector::Float2 = vector::Float2[x := 0.0, y := 0.0]
+MUT __CANVAS_PARTICLE_T AS Transform = Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0]
+MUT __CANVAS_PARTICLE_DRAWN AS Boolean = FALSE
+
+' The particle's node -- at the particle's point P, with M = turn(ROT) . scale(SIZE) --
+' flattened into a template shape's own fields. With the template's transform A | t (the
+' identity and nothing when it is not in effect) and its position q, a local point p
+' reaches the surface at
+'
+'     P + M(q + A p + t)  =  P + (M A) p + M(q + t)
+'
+' so the particle is the same shape at `position := P` with
+' `transform := [ M A | M(q + t) ]`. The template's own `position` and `transform` are
+' therefore offsets INSIDE the particle, turned and scaled with it.
+'
+' A particle that is neither turned nor scaled needs none of it: it is the template
+' moved, `position := P + q`, with its transform as it was -- which keeps an unturned
+' particle on the path every untransformed item takes.
+'
+' FALSE when M A has no area -- a scale that reached zero. That particle is not drawn:
+' the shape rule treats a transform with no area as the identity, so it would otherwise
+' be drawn at FULL size at the moment it was meant to vanish.
+FUNC __canvas_particleCompose(q AS vector::Float2, t AS Transform) AS Boolean
+  LET size AS Float = __CANVAS_PARTICLE_SIZE
+  IF __CANVAS_PARTICLE_ROT = 0.0 AND size = 1.0 THEN
+    __CANVAS_PARTICLE_AT = vector::Float2[x := __CANVAS_PARTICLE_PX + q.x, y := __CANVAS_PARTICLE_PY + q.y]
+    __CANVAS_PARTICLE_T = t
+    RETURN TRUE
+  END IF
+  __canvas_particleUnit(__CANVAS_PARTICLE_ROT)
+  LET ma AS Float = size * __CANVAS_PARTICLE_UX
+  LET mb AS Float = size * __CANVAS_PARTICLE_UY
+  LET mc AS Float = 0.0 - mb
+  LET md AS Float = ma
+  MUT aa AS Float = 1.0
+  MUT ab AS Float = 0.0
+  MUT ac AS Float = 0.0
+  MUT ad AS Float = 1.0
+  MUT ox AS Float = q.x
+  MUT oy AS Float = q.y
+  IF __canvas_transformActive(t) THEN
+    aa = t.a
+    ab = t.b
+    ac = t.c
+    ad = t.d
+    ox = q.x + t.tx
+    oy = q.y + t.ty
+  END IF
+  LET na AS Float = ma * aa + mc * ab
+  LET nb AS Float = mb * aa + md * ab
+  LET nc AS Float = ma * ac + mc * ad
+  LET nd AS Float = mb * ac + md * ad
+  IF NOT (__canvas_absF(na * nd - nb * nc) >= 0.000000000001) THEN
+    RETURN FALSE
+  END IF
+  __CANVAS_PARTICLE_AT = vector::Float2[x := __CANVAS_PARTICLE_PX, y := __CANVAS_PARTICLE_PY]
+  __CANVAS_PARTICLE_T = Transform[a := na, b := nb, c := nc, d := nd, tx := ma * ox + mc * oy, ty := mb * ox + md * oy]
+  RETURN TRUE
+END FUNC
+
+' A `PolyLine`'s per-point colours under the tint: they are what it is stroked with.
+FUNC __canvas_particleColors(colors AS List OF color::Color) AS List OF color::Color
+  IF len(colors) = 0 OR (__CANVAS_PARTICLE_TINT_R = 255 AND __CANVAS_PARTICLE_TINT_G = 255 AND __CANVAS_PARTICLE_TINT_B = 255 AND __CANVAS_PARTICLE_TINT_A = 255) THEN
+    RETURN colors
+  END IF
+  MUT out AS List OF color::Color = []
+  FOR EACH c IN colors
+    out = collections::append(out, __canvas_particleTinted(c))
+  NEXT
+  RETURN out
+END FUNC
+
+' The item one particle is: the template, placed, turned, scaled and tinted from the
+' state `__canvas_particleState` and `__canvas_particleTint` left. `__CANVAS_PARTICLE_DRAWN`
+' says whether there is one; when there is not, the answer is the item that draws
+' nothing.
+FUNC __canvas_particleItem(template AS DrawItem) AS DrawItem
+  __CANVAS_PARTICLE_DRAWN = FALSE
+  MATCH template
+    CASE Rectangle(r)
+      IF __canvas_particleCompose(r.position, r.transform) THEN
+        __CANVAS_PARTICLE_DRAWN = TRUE
+        LET changed AS Rectangle = WITH r { position := __CANVAS_PARTICLE_AT, transform := __CANVAS_PARTICLE_T, paint := __canvas_particlePaint(r.paint) }
+        LET item AS DrawItem = changed
+        RETURN item
+      END IF
+    CASE Line(l)
+      IF __canvas_particleCompose(l.position, l.transform) THEN
+        __CANVAS_PARTICLE_DRAWN = TRUE
+        LET changed AS Line = WITH l { position := __CANVAS_PARTICLE_AT, transform := __CANVAS_PARTICLE_T, paint := __canvas_particlePaint(l.paint) }
+        LET item AS DrawItem = changed
+        RETURN item
+      END IF
+    CASE Polygon(p)
+      IF __canvas_particleCompose(p.position, p.transform) THEN
+        __CANVAS_PARTICLE_DRAWN = TRUE
+        LET changed AS Polygon = WITH p { position := __CANVAS_PARTICLE_AT, transform := __CANVAS_PARTICLE_T, paint := __canvas_particlePaint(p.paint) }
+        LET item AS DrawItem = changed
+        RETURN item
+      END IF
+    CASE Circle(c)
+      IF __canvas_particleCompose(c.position, c.transform) THEN
+        __CANVAS_PARTICLE_DRAWN = TRUE
+        LET changed AS Circle = WITH c { position := __CANVAS_PARTICLE_AT, transform := __CANVAS_PARTICLE_T, paint := __canvas_particlePaint(c.paint) }
+        LET item AS DrawItem = changed
+        RETURN item
+      END IF
+    CASE Arc(arc)
+      IF __canvas_particleCompose(arc.position, arc.transform) THEN
+        __CANVAS_PARTICLE_DRAWN = TRUE
+        LET changed AS Arc = WITH arc { position := __CANVAS_PARTICLE_AT, transform := __CANVAS_PARTICLE_T, paint := __canvas_particlePaint(arc.paint) }
+        LET item AS DrawItem = changed
+        RETURN item
+      END IF
+    CASE Text(tx)
+      IF __canvas_particleCompose(tx.position, tx.transform) THEN
+        __CANVAS_PARTICLE_DRAWN = TRUE
+        LET changed AS Text = WITH tx { position := __CANVAS_PARTICLE_AT, transform := __CANVAS_PARTICLE_T, paint := __canvas_particlePaint(tx.paint) }
+        LET item AS DrawItem = changed
+        RETURN item
+      END IF
+    CASE Ellipse(e)
+      IF __canvas_particleCompose(e.position, e.transform) THEN
+        __CANVAS_PARTICLE_DRAWN = TRUE
+        LET changed AS Ellipse = WITH e { position := __CANVAS_PARTICLE_AT, transform := __CANVAS_PARTICLE_T, paint := __canvas_particlePaint(e.paint) }
+        LET item AS DrawItem = changed
+        RETURN item
+      END IF
+    CASE PolyLine(pl)
+      IF __canvas_particleCompose(pl.position, pl.transform) THEN
+        __CANVAS_PARTICLE_DRAWN = TRUE
+        LET changed AS PolyLine = WITH pl { position := __CANVAS_PARTICLE_AT, transform := __CANVAS_PARTICLE_T, paint := __canvas_particlePaint(pl.paint), colors := __canvas_particleColors(pl.colors) }
+        LET item AS DrawItem = changed
+        RETURN item
+      END IF
+    CASE PolyCurve(pc)
+      IF __canvas_particleCompose(pc.position, pc.transform) THEN
+        __CANVAS_PARTICLE_DRAWN = TRUE
+        LET changed AS PolyCurve = WITH pc { position := __CANVAS_PARTICLE_AT, transform := __CANVAS_PARTICLE_T, paint := __canvas_particlePaint(pc.paint) }
+        LET item AS DrawItem = changed
+        RETURN item
+      END IF
+    CASE CurvePolygon(cp)
+      IF __canvas_particleCompose(cp.position, cp.transform) THEN
+        __CANVAS_PARTICLE_DRAWN = TRUE
+        LET changed AS CurvePolygon = WITH cp { position := __CANVAS_PARTICLE_AT, transform := __CANVAS_PARTICLE_T, paint := __canvas_particlePaint(cp.paint) }
+        LET item AS DrawItem = changed
+        RETURN item
+      END IF
+    CASE ELSE
+  END MATCH
+  RETURN __canvas_noItem()
+END FUNC
+
+' How many slots of a system can hold a particle: the pool, or in `Burst` mode the
+' burst when that is smaller.
+FUNC __canvas_particleSlots(e AS Emission) AS Integer
+  IF e.mode = EmissionMode.Burst AND e.burst < e.maxParticles THEN
+    RETURN e.burst
+  END IF
+  RETURN e.maxParticles
+END FUNC"#;
+
 /// What a `ParticleSystem` is to the walks over a scene.
 #[rustfmt::skip]
 const HOOKS_BODY: &str =
@@ -797,6 +1014,126 @@ FUNC __canvas_particleSystemHash(ps AS ParticleSystem) AS Integer
   h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, a.startScale), a.endScale), a.scaleVar)
   h = __canvas_hashStep(h, ps.seed)
   RETURN __canvas_hashFloat(h, ps.time)
+END FUNC
+
+' A system's template as the item its particles are copies of: the shape, and for an
+' `AutoPaint` the shape it wraps, with that shape's own paint. A particle is never under
+' the mouse, so there is no state to show and no instance to note
+' (`__canvas_autoAppend` is never reached from here).
+FUNC __canvas_particleDrawn(t AS AutoShape) AS DrawItem
+  MATCH t
+    CASE AutoPaint(a)
+      RETURN __canvas_autoItem(a)
+    CASE ELSE
+      RETURN __canvas_particleTemplate(t)
+  END MATCH
+END FUNC
+
+' `__canvas_appendDraw`'s `ParticleSystem` arm: one draw entry per live particle.
+'
+' Each particle goes back through `__canvas_appendDraw` as the ordinary shape it is, so
+' it is resolved through the geometry cache and noted in `__CANVAS_DRAW_HASHES`, `_DX`,
+' `_DY` and `_MAT` like any entry -- and everything that reads those lists (the render
+' walk, the damage diff, both GPU predicates and emitters, `canvas::sceneLayout`, the
+' `AutoPaint` resolve) needs no change, because none of them can tell. The enclosing
+' groups' offset and matrix pass straight through: a system in a turned group is turned
+' with it.
+'
+' The depth stop is SILENT, as `Group`'s is, and for the same reason: this runs on the
+' graphics thread, where a raise has nowhere to go. A system's one raise is the
+' worker's, in `__canvas_groupSignature`.
+FUNC __canvas_particleAppend(offsets AS List OF Integer, ps AS ParticleSystem, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
+  MUT out AS List OF Integer = offsets
+  IF depth >= __CANVAS_GROUP_MAX_DEPTH THEN
+    RETURN out
+  END IF
+  LET count AS Integer = __canvas_particleSlots(ps.emission)
+  IF count <= 0 THEN
+    RETURN out
+  END IF
+  __canvas_particlePrepare(ps)
+  LET template AS DrawItem = __canvas_particleDrawn(ps.item)
+  LET look AS Appearance = ps.appearance
+  MUT slot AS Integer = 0
+  WHILE slot < count
+    IF __canvas_particleState(ps, slot) THEN
+      __canvas_particleTint(look, __CANVAS_PARTICLE_U)
+      LET child AS DrawItem = __canvas_particleItem(template)
+      IF __CANVAS_PARTICLE_DRAWN THEN
+        out = __canvas_appendDraw(out, child, __canvas_hashItem(child), gdx, gdy, mat, depth + 1, path, index)
+      END IF
+    END IF
+    slot = slot + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' `__canvas_memoGroup`'s `ParticleSystem` arm: a system that is a group's child is one
+' block per live particle in that group's run, and the answer is how many. The records
+' are the ones `__canvas_particleAppend` made the frame's entries of -- the same items,
+' so the same hashes, found in the cache.
+FUNC __canvas_particleBlocks(ps AS ParticleSystem) AS Integer
+  LET count AS Integer = __canvas_particleSlots(ps.emission)
+  IF count <= 0 THEN
+    RETURN 0
+  END IF
+  __canvas_particlePrepare(ps)
+  LET template AS DrawItem = __canvas_particleDrawn(ps.item)
+  LET look AS Appearance = ps.appearance
+  MUT blocks AS Integer = 0
+  MUT slot AS Integer = 0
+  WHILE slot < count
+    IF __canvas_particleState(ps, slot) THEN
+      __canvas_particleTint(look, __CANVAS_PARTICLE_U)
+      LET child AS DrawItem = __canvas_particleItem(template)
+      IF __CANVAS_PARTICLE_DRAWN THEN
+        __canvas_pushBlock(__canvas_geometryFor(child, __canvas_hashItem(child)))
+        blocks = blocks + 1
+      END IF
+    END IF
+    slot = slot + 1
+  END WHILE
+  RETURN blocks
+END FUNC
+
+' The font a shape names, or 0: a `Text`'s.
+FUNC __canvas_particleFont(item AS DrawItem) AS Integer
+  MATCH item
+    CASE Text(t)
+      RETURN canvas::fontHandle(t.font)
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+
+' Whether a system names a font: as its template (a `Text`, or an `AutoPaint` around
+' one) or as its emitter. The group ownership rules count it (`__canvas_closeRetired`).
+FUNC __canvas_particleNamesFont(ps AS ParticleSystem, handle AS Integer) AS Boolean
+  IF handle = 0 THEN
+    RETURN FALSE
+  END IF
+  IF __canvas_particleFont(__canvas_particleDrawn(ps.item)) = handle THEN
+    RETURN TRUE
+  END IF
+  RETURN __canvas_particleFont(__canvas_particleEmitterItem(ps.emitter)) = handle
+END FUNC
+
+' Close the font of a `Text` in a retired group buffer's system, when nothing live
+' names it -- the rule `__canvas_closeRetired` applies to a `Text` item.
+FUNC __canvas_particleCloseText(item AS DrawItem, scene AS List OF DrawItem) AS Nothing
+  MATCH item
+    CASE Text(t)
+      LET fh AS Integer = canvas::fontHandle(t.font)
+      IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
+        canvas::destroyFont(t.font)
+      END IF
+    CASE ELSE
+  END MATCH
+END FUNC
+
+FUNC __canvas_particleCloseFonts(ps AS ParticleSystem, scene AS List OF DrawItem) AS Nothing
+  __canvas_particleCloseText(__canvas_particleDrawn(ps.item), scene)
+  __canvas_particleCloseText(__canvas_particleEmitterItem(ps.emitter), scene)
 END FUNC"#;
 
 /// The hooks, for a program that constructs no `ParticleSystem`: it holds none, so none
@@ -808,16 +1145,37 @@ IMPORT collections
 
 FUNC __canvas_particleSystemHash(ps AS ParticleSystem) AS Integer
   RETURN 0
+END FUNC
+
+FUNC __canvas_particleAppend(offsets AS List OF Integer, ps AS ParticleSystem, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
+  RETURN offsets
+END FUNC
+
+FUNC __canvas_particleBlocks(ps AS ParticleSystem) AS Integer
+  RETURN 0
+END FUNC
+
+FUNC __canvas_particleNamesFont(ps AS ParticleSystem, handle AS Integer) AS Boolean
+  RETURN FALSE
+END FUNC
+
+FUNC __canvas_particleCloseFonts(ps AS ParticleSystem, scene AS List OF DrawItem) AS Nothing
 END FUNC"#;
 
 /// The names the unconditional source calls: each is defined once in [`HOOKS_BODY`] and
 /// once in [`ABSENT`], and exactly one of the two chunks is in any canvas program.
 #[cfg(test)]
-const HOOKS: [&str; 1] = ["__canvas_particleSystemHash"];
+const HOOKS: [&str; 5] = [
+    "__canvas_particleSystemHash",
+    "__canvas_particleAppend",
+    "__canvas_particleBlocks",
+    "__canvas_particleNamesFont",
+    "__canvas_particleCloseFonts",
+];
 
 static BODY: std::sync::LazyLock<String> =
     std::sync::LazyLock::new(|| format!(
-        "IMPORT bits\nIMPORT canvas\nIMPORT collections\nIMPORT color\nIMPORT math\nIMPORT vector\n\n{MODEL}\n\n{EXPAND}\n\n{HOOKS_BODY}"
+        "IMPORT bits\nIMPORT canvas\nIMPORT collections\nIMPORT color\nIMPORT math\nIMPORT vector\n\n{MODEL}\n\n{EXPAND}\n\n{DRAW}\n\n{HOOKS_BODY}"
     ));
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

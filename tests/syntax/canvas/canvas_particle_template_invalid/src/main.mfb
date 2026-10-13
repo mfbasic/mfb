@@ -1,0 +1,42 @@
+' plan-150-A: a particle is a SHAPE. `canvas::ParticleSystem.item` is a
+' `canvas::AutoShape` -- one of the shapes, or a `canvas::AutoPaint` around one -- and
+' not a `canvas::DrawItem`, so the three `DrawItem` variants that are not shapes are
+' refused as a template by the type checker, each on its own line below:
+'
+'   * a `canvas::Group` node,
+'   * another `canvas::ParticleSystem` (a system of systems), and
+'   * a value already typed `canvas::DrawItem`, even one that holds a shape -- a union
+'     that INCLUDES another is not that union.
+'
+' The failure mode worth naming: a template typed `DrawItem` would make `DrawItem` hold
+' itself. That is a type cycle, and a value whose type reaches a cycle is no longer one
+' block -- which is what every scene has to be for `canvas::present` to copy it. So this
+' is refused where the program is written, not where it is drawn.
+'
+' THE VALID FORM is the last system: the same circle, bound as a `canvas::AutoShape`.
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT vector
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  MUT dot AS canvas::Circle
+  MUT node AS canvas::Group
+  MUT emission AS canvas::Emission
+  MUT motion AS canvas::Motion
+  MUT appearance AS canvas::Appearance
+  LET origin AS vector::Float2 = vector::Float2[x := 0.0, y := 0.0]
+  LET emitter AS canvas::Shape = dot
+  LET shape AS canvas::AutoShape = WITH dot { radius := 4.0, paint := canvas::fill(color::rgb(1, 2, 3)) }
+  LET asItem AS canvas::DrawItem = dot
+
+  LET good AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := shape, emitter := emitter, emission := WITH emission { lifetime := 1.0 }, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+  LET ofGroup AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := node, emitter := emitter, emission := emission, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+  LET ofSystem AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := good, emitter := emitter, emission := emission, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+  LET ofItem AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := asItem, emitter := emitter, emission := emission, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+
+  LET scene AS canvas::DrawItem = good
+  canvas::present([scene])
+  RETURN 0
+END FUNC

@@ -225,6 +225,16 @@ that went down the ordinary path would draw the whole surface for every mouse mo
 plan that added them assumed an unchanged frame was skipped by the damage diff; it is
 not, by default.
 
+**A `canvas::ParticleSystem` is advanced by trigger 1 and is NOT an eighth trigger**
+(plan-150-A). It holds no state and reads no clock: every particle is a closed form in
+its slot and the system's `time`, a field the program sets. A program animates one by
+presenting it again with a new `time`, which changes the item's hash and so the scene.
+A renderer-side timer that repainted a system would be an eighth trigger and a second
+clock; trigger 7 is the only one, and it is `AutoPaint`'s. The whole expansion — the
+model, the template flattened into an ordinary shape per live particle — runs on the
+graphics thread inside `__canvas_appendDraw`, so it must never raise; the one raise a
+system has (`ErrCanvasParticleLifetime`) is the worker's, in the group-signature walk.
+
 Trigger 5 is conditional on purpose: mutating an image no scene draws changes nothing
 visible, and repainting for it would turn an off-screen buffer update into a frame.
 It is implemented by bug-484: the public `canvas::setBytes` is an MFBASIC wrapper

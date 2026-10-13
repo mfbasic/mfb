@@ -737,6 +737,75 @@ fn corners_match_their_reference_exactly() {
     }
 }
 
+/// plan-150-A: two particle systems at one fixed `(seed, time)` each — a firework burst
+/// of fading, shrinking discs and a fountain of spinning outlined rectangles.
+const PARTICLES: &str = include_str!("scenes/particles_on_black.mfb");
+
+/// The particle reference renders exactly, and renders the same twice.
+///
+/// Rendered twice because that is the feature's first claim: a system holds no state
+/// between frames and reads no clock, so the picture is a function of its fields alone.
+/// Every particle here is placed by the package's own sine and cosine and its own
+/// exponential, and nothing in it may depend on what else the process has drawn.
+#[test]
+fn particles_match_their_reference_exactly() {
+    let rendered = render("canvas_golden_particles", PARTICLES);
+    let again = render("canvas_golden_particles_again", PARTICLES);
+    assert!(
+        compare_exact(&rendered, &again).is_ok(),
+        "the particle scene does not render identically on two consecutive runs"
+    );
+    let reference = golden_path("particles");
+
+    if std::env::var_os("MFB_UPDATE_CANVAS_GOLDEN").is_some() {
+        rendered.save_png(&reference);
+        panic!(
+            "regenerated {} — rerun without MFB_UPDATE_CANVAS_GOLDEN, and record in \
+             the commit what proved the previous reference wrong",
+            reference.display(),
+        );
+    }
+
+    assert!(
+        reference.exists(),
+        "missing reference {}; generate it with MFB_UPDATE_CANVAS_GOLDEN=1",
+        reference.display(),
+    );
+    let want = Frame::load_png(&reference);
+    if let Err(diff) = compare_exact(&rendered, &want) {
+        panic!(
+            "the particle scene no longer renders to its reference image: {diff}\n\
+             Localize by side: the left is the firework (a burst from a point; discs \
+             that are scaled and tinted but never turned), the right is the fountain \
+             (a stream from a line; rectangles that are turned, scaled and stroked)."
+        );
+    }
+}
+
+/// The GPU draws the particle scene the reference shows, and draws it ON the GPU.
+///
+/// This is the design's central claim, measured: a particle is an ordinary item by the
+/// time any backend sees it, so no shader, pipeline or buffer layout knows particles
+/// exist. Skips where no GPU backend selects itself.
+#[test]
+fn the_gpu_draws_the_particle_scene_the_reference_shows() {
+    let (rendered, stats) = render_gpu("canvas_golden_particles_gpu", PARTICLES);
+    if !stats.contains("metalReady=TRUE") && !stats.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{stats}");
+        return;
+    }
+    assert!(
+        !stats.contains("gpuFrames=0"),
+        "the GPU pipeline built but no frame was rendered on it — a `*Renderable` \
+         predicate declined the particle scene, and every pixel below would then be \
+         the software renderer marking its own work: {stats}"
+    );
+    let want = Frame::load_png(&golden_path("particles"));
+    if let Err(diff) = compare_within_tolerance(&rendered, &want, Tolerance::GPU_DEFAULT) {
+        panic!("the GPU's particle scene is outside tolerance of the reference: {diff}");
+    }
+}
+
 /// plan-172-L: pictures inside shapes — a circle, a rounded rectangle and a star; the
 /// three fits; a turned shape under each clip mode; a translucent picture; one in a
 /// scaled group; a shape's outline intersected with its paint's clip; a tint; and a

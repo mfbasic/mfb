@@ -135,7 +135,8 @@ pub(crate) fn register(r: &mut Registry) {
         .add_constant(constant("ErrDepthExceeded", "77050024", "Structural nesting exceeds the implementation depth limit. Distinct from `ErrInvalidFormat`: the text is well-formed, it is just nested deeper than the reader will descend (`json::parse` stops at 256).", "_mfb_str_error_depth_exceeded"))
         .add_constant(constant("ErrInvalidSurrogate", "77050025", "A `\\u` escape encodes an unpaired surrogate. Strings are Unicode text, so a high surrogate must be followed by a `\\u` low surrogate and a lone low surrogate is never valid.", "_mfb_str_error_invalid_surrogate"))
         .add_constant(constant("ErrCanvasGroupLimit", "77050026", "The canvas named-group table is full: `canvas::setGroup` holds at most 256 groups at once. Remove one with `canvas::removeGroup`, or install fewer — installing again under a name you already used replaces it and needs no new slot.", "_mfb_str_error_canvas_group_limit"))
-        .add_constant(constant("ErrTooLarge", "77050027", "The result would be larger than the size limit the caller set. Distinct from `ErrOutOfMemory`: the input can be perfectly valid and memory can be available — raise the limit (for example `maxBytes` on `compress::inflate`) when the size is expected, or reject the input.", "_mfb_str_error_too_large"));
+        .add_constant(constant("ErrTooLarge", "77050027", "The result would be larger than the size limit the caller set. Distinct from `ErrOutOfMemory`: the input can be perfectly valid and memory can be available — raise the limit (for example `maxBytes` on `compress::inflate`) when the size is expected, or reject the input.", "_mfb_str_error_too_large"))
+        .add_constant(constant("ErrCanvasParticleLifetime", "77050028", "A `canvas::ParticleSystem` has a `lifetime` of zero or less. A particle's colour and size are worked out from how far it is through its life, and there is no such point in a life with no length — give `emission.lifetime` a value above zero. A system that should draw nothing wants `maxParticles` of zero instead.", "_mfb_str_error_canvas_particle_lifetime"));
 
     r.add_package(pkg);
 }
@@ -307,6 +308,11 @@ mod tests {
         //       not a malformed stream — the data may be perfectly valid — so it is not
         //       `ErrInvalidFormat`; and it is not `ErrOutOfMemory`, whose remedy is to
         //       free memory. The caller's fix is to raise the bound or reject the input.
+        //   +1  ErrCanvasParticleLifetime (plan-150-A): a particle system whose
+        //       particles live for no time. Not `ErrInvalidArgument`: the value is a
+        //       field of a record handed to `present` among a whole scene, and a
+        //       handler that catches it wants to know WHICH rule of which item, not
+        //       that some argument somewhere was wrong.
         //   +1  ErrStackOverflow (bug-789, owner decision 2026-10-03): unbounded
         //       recursion used to die by SIGSEGV on the stack guard. Not
         //       `ErrOutOfMemory`: the arena may have room, and the fix is to bound
@@ -320,6 +326,7 @@ mod tests {
             "ErrInvalidSurrogate",
             "ErrCanvasGroupLimit",
             "ErrTooLarge",
+            "ErrCanvasParticleLifetime",
             "ErrStackOverflow",
         ];
         for added in ADDED_SINCE_MIGRATION {

@@ -717,3 +717,37 @@ fn id_path_a_picture_goes_in_front_of_its_shape() {
     assert_over(&reports[0], &expected);
     assert_over(&reports[1], &swapped);
 }
+
+/// plan-150-A: a particle is never under the mouse. A `canvas::ParticleSystem` drawn
+/// OVER a named rectangle leaves `overID` naming the rectangle, and one drawn over
+/// nothing reports nothing — even when its template has an `id` of its own.
+///
+/// * `under`, a rectangle (100, 100)-(300, 200), presented FIRST.
+/// * a system of one particle, a disc of radius 60 named `spark` at (200, 150),
+///   presented after it and so drawn on top: (200, 150) is the centre of both, and the
+///   answer is the rectangle the disc covers.
+/// * a second such system at (600, 400), over the bare surface: (600, 400) is on the
+///   disc, and nothing is reported.
+#[test]
+fn hit_region_a_particle_system_is_never_hit() {
+    let expected = [((200, 150), "under"), ((600, 400), ""), ((50, 50), "")];
+    let reports = over(
+        "canvas_hit_particles",
+        r#"  MUT dot AS canvas::Circle
+  LET spark AS canvas::AutoShape = WITH dot { id := "spark", radius := 60.0, paint := grey() }
+  MUT origin AS canvas::Circle
+  LET emitter AS canvas::Shape = origin
+  MUT motion AS canvas::Motion
+  MUT emission AS canvas::Emission
+  LET white AS color::Color = color::rgb(255, 255, 255)
+  LET look AS canvas::Appearance = canvas::Appearance[startColor := white, endColor := white, startScale := 1.0, endScale := 1.0, scaleVar := 0.0]
+  LET once AS canvas::Emission = WITH emission { mode := canvas::EmissionMode.Burst, maxParticles := 1, burst := 1, lifetime := 10.0 }
+  LET over AS canvas::DrawItem = canvas::ParticleSystem[position := at(200.0, 150.0), item := spark, emitter := emitter, emission := once, motion := motion, appearance := look, seed := 1, time := 1.0]
+  LET alone AS canvas::DrawItem = canvas::ParticleSystem[position := at(600.0, 400.0), item := spark, emitter := emitter, emission := once, motion := motion, appearance := look, seed := 1, time := 1.0]
+  canvas::present([rect("under", 100.0, 100.0, 200.0, 100.0), over, alone])
+  report("over")
+"#,
+        &points(&expected),
+    );
+    assert_over(&reports[0], &expected);
+}

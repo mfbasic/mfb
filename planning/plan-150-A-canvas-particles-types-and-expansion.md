@@ -786,49 +786,85 @@ failure, and restoring it.
   Result (2026-10-13): "11 passed; 0 failed" in 80.83 s. With `math::sqrt(r1)` replaced
   by `r1` in `__canvas_particleDisc`, `a_disc_is_sampled_evenly_over_its_area` FAILED
   with "5079 of 10000 samples fell inside half the radius"; restored, it passes.
-Commit: —
+Commit: 32ccde589
 
 ### Phase 4 — Expansion and rendering (largest blast radius)
 
 Touches the draw walk every scene goes through, so it lands last and behind Phase 3's
 tests.
 
-- [ ] Add the `CASE ParticleSystem(ps)` arm to `__canvas_appendDraw` per §6, including
-      the silent depth guard.
-- [ ] Add `__canvas_particleItem`: the flattened affine and the tint for each template
-      kind in §6's table, and the no-area rule.
-- [ ] Measure the `several` path in `__canvas_sceneOffsets` with one index of 1,000
+- [x] Add the `CASE ParticleSystem(ps)` arm to `__canvas_appendDraw` per §6, including
+      the silent depth guard. — the arm calls the hook `__canvas_particleAppend`.
+- [x] Add `__canvas_particleItem`: the flattened affine and the tint for each template
+      kind in §6's table, and the no-area rule. — the ten shapes (an `AutoPaint` is
+      unwrapped first; Corrections 3 removed the other rows). A particle neither turned
+      nor scaled is the template moved, with no transform composed.
+- [x] Measure the `several` path in `__canvas_sceneOffsets` with one index of 1,000
       entries, software and GPU. Fix what it finds; record the result in Corrections.
-- [ ] The GPU walk: a system at the top level, a system as a group's child
-      (`__canvas_memoGroup`), and a system whose template is a `Group`
-      (`__canvas_drawGroup` per live particle).
-- [ ] `__canvas_hitAppend`: the arm that appends nothing.
-- [ ] `AutoPaint` inside a `Group` template: no instance is noted and the default paint
-      is drawn.
-- [ ] `__canvas_groupSignature`: recurse into `ps.item`; add the two raises per §7, with
-      their `errorcode` constants and spec rows. Confirm `presentLayers` takes the same
-      walk.
-- [ ] The resource walks: a `Picture` or `Text` template's image or font is seen through
+      — `a_thousand_particles_are_one_scene_index` → ok: `entries=1002`, `blocks=1002`
+      and `gpuFrames` non-zero on Metal, within `GPU_DEFAULT`. One fix (Corrections 5).
+- [x] The GPU walk: a system at the top level, a system as a group's child
+      (`__canvas_memoGroup`), and ~~a system whose template is a `Group`
+      (`__canvas_drawGroup` per live particle)~~ — the third is moot: a `Group` is not
+      an `AutoShape` (Corrections 3; `canvas_particle_template_invalid` pins the type
+      error). Top level: the test above. Group's child:
+      `a_system_in_a_group_reaches_the_gpu` → ok, `blocks=152` for one group drawn
+      twice.
+- [x] `__canvas_hitAppend`: the arm that appends nothing.
+- [x] ~~`AutoPaint` inside a `Group` template: no instance is noted and the default paint
+      is drawn.~~ — moot: there is no `Group` template (Corrections 3). The case that
+      remains, an `AutoPaint` AS the template, is tested:
+      `an_autopaint_template_draws_its_own_paint` → ok, `auto=-` with the pointer
+      pressed on the particle.
+- [x] `__canvas_groupSignature`: ~~recurse into `ps.item`~~; add the ~~two raises~~ one
+      raise per §7, with ~~their~~ its `errorcode` constant and spec row. Confirm
+      `presentLayers` takes the same walk. — the recursion and raise 77050029 are moot:
+      an `AutoShape` names no group and cannot be a system (Corrections 3).
+      `ErrCanvasParticleLifetime` = 77050028. `presentLayers` did NOT take the walk;
+      it does now (Corrections 6).
+- [x] The resource walks: a ~~`Picture` or~~ `Text` template's ~~image or~~ font is seen through
       `item` wherever a scene's resources are collected. Find the sites with
       `grep -n 'CASE Picture(\|CASE Text(' src/codegen/builtins/canvas/*.rs`, and read
-      `func_set_bytes.rs` and `gen_group.rs`; list them in Corrections.
-- [ ] Confirm the consumers of the per-entry arrays need no change, because a particle
+      `func_set_bytes.rs` and `gen_group.rs`; list them in Corrections. — Corrections 7.
+- [x] Confirm the consumers of the per-entry arrays need no change, because a particle
       is an ordinary entry (`grep -n '__CANVAS_DRAW_DX\|__CANVAS_DRAW_MAT'
       src/codegen/builtins/canvas/*.rs` — `helper_render.rs`, `helper_damage.rs`,
       `helper_hit.rs`, `helper_autopaint.rs`, `func_geo_cache.rs`) — and say so in a
-      comment at the expansion site so the next reader does not re-derive it.
-- [ ] Tests: a software golden `tests/golden/canvas/particles.png` via the existing
+      comment at the expansion site so the next reader does not re-derive it. — `git
+      diff main --stat` touches none of `helper_damage.rs`, `helper_autopaint.rs`,
+      `func_geo_cache.rs`; the comment is on `__canvas_particleAppend`.
+- [x] Tests: a software golden `tests/golden/canvas/particles.png` via the existing
       `render()` harness in `tests/canvas/rt_canvas_golden.rs`, from a fixed
       `(seed, time)` fireworks scene — a `Burst` system with a `Circle[radius := 0.0]`
-      emitter, gravity, a colour ramp and a `Circle` template.
-- [ ] Tests, in `rt_canvas_particles.rs`: a particle equals its definition — a system of
+      emitter, gravity, a colour ramp and a `Circle` template. — and beside it a
+      `Continuous` fountain of turned, scaled, stroked rectangles from a `Line`, so the
+      one reference holds a particle through every kind of transform. The scene is
+      `tests/canvas/scenes/particles_on_black.mfb`.
+- [x] Tests, in `rt_canvas_particles.rs`: a particle equals its definition — a system of
       one live particle renders pixel-identically to the same template inside a `Group`
       at `(P, M)`; a scale that reaches zero draws nothing rather than a full-size
-      shape; a system inside a turned group; a `Picture` template; a `Group` template; a
-      `Text` template.
-- [ ] Tests, in `tests/canvas/rt_canvas_hit.rs`: a system drawn over a named rectangle
-      leaves `overID` naming the rectangle.
-- [ ] Tests: a negative case per raise, matching how the group-depth raise is tested.
+      shape; a system inside a turned group; ~~a `Picture` template; a `Group` template;~~ a
+      `Text` template. — the two struck are moot (Corrections 3). Added: the tint and
+      its linear fade, an `AutoPaint` template, and a `PolyCurve` and a `CurvePolygon`
+      emitter drawn. The equivalence is exact, with one measured exception that is the
+      renderer's own (Corrections 8).
+- [x] Tests, in `tests/canvas/rt_canvas_hit.rs`: a system drawn over a named rectangle
+      leaves `overID` naming the rectangle. — `hit_region_a_particle_system_is_never_hit`.
+- [x] Tests: a negative case per raise, matching how the group-depth raise is tested.
+      — `a_lifetime_of_zero_raises_from_present`: "raised 77050028" from the scene, a
+      group, a layer and a negative lifetime, and three quiet cases that draw nothing.
+- [x] (added) The compile-time half of §7: `tests/syntax/canvas/canvas_particle_template_invalid`
+      — a `Group`, a `ParticleSystem` and a `DrawItem`-typed value as `item` are three
+      `2-203-0023` errors.
+- [x] (added) Spec, in the same change (Hard Completion Gate): "The item unions", a new
+      "Particle systems" section and a "Hit-testing" paragraph in
+      `src/docs/spec/app/06_canvas.md`; the `7-705-0028` row; `.ai/canvas-threading.md`
+      §4's "not an eighth trigger". `cargo test --bin mfb -- spec canvas errorcode
+      declared_errors` → "230 passed; 0 failed".
+- [x] (added) Fix `presentLayers` (Corrections 6), with
+      `present_layers_sees_a_group_replaced_under_the_same_name`.
+- [x] (added) Measure what a program with no system pays: 29,072 bytes of `__text`, and
+      no bytes per item (Corrections 9).
 
 Acceptance: the fireworks golden renders identically on two consecutive runs; one live
 particle is pixel-identical to its group-node definition; a template that is itself a
@@ -837,6 +873,13 @@ thread; and a system blocks no hit.
   Check: `cargo test --test rt_canvas_golden --test rt_canvas_particles --test
   rt_canvas_hit` → pass, and run the golden twice comparing with `compare_exact`
   (est. 8 min, guess).
+  Result (2026-10-13), with `--test rt_canvas_rasteriser` for Corrections 6: golden "28
+  passed", particles "23 passed", hit "14 passed", rasteriser "107 passed; 2 ignored",
+  0 failed. `particles_match_their_reference_exactly` renders the scene twice and
+  `compare_exact`s the two before it looks at the reference. "Pixel-identical to its
+  group-node definition" is met as Corrections 8 restates it; 77050029 is a type error
+  (Corrections 3) and 77050028 is the raise, caught by a `TRAP` around `present`, which
+  only a raise on the worker can reach.
 Commit: —
 
 ### Phase 5 — Prove the GPU backends need no change
@@ -1016,6 +1059,51 @@ by plan-172's transform rule.
      thread.
    Also: `toString` of a `Float` keeps two decimals, so the model tests print billionths
    as integers — a first version of the drag test passed on "0.00".
+5. **The `several` path took 1,000 entries; one thing had to change** (2026-10-13).
+   `__canvas_sceneOffsets` writes an item that became exactly ONE entry as that entry's
+   offset in `__CANVAS_TOP_OFFSETS`. A system on a frame with one live particle would
+   do that, and the index would then name a particle's record where the `--debug`
+   verifier (`__canvas_geoVerifyFrame`) holds an index's record to be its item's. A
+   `ParticleSystem` is always −2, whatever its live count.
+6. **`presentLayers` never took the group-signature walk — a bug older than this plan**
+   (2026-10-13). Repro at `29f5500cb`'s source for the function (`git diff main --
+   func_present_layers.rs` was empty): `setGroup("g", small)`,
+   `presentLayers([[Group g]])`, `setGroup("g", large)`, `presentLayers` of the same
+   layers → 1 line in `MFB_CANVAS_STATS`, where `present` draws 2. The layers are
+   byte-identical — a `Group` node is a name — so the second call was skipped and the
+   new group never drawn; and a group cycle under a layer never raised. Fixed: the
+   signature of every layer is taken and compared, as `present` does it; both raises
+   are declared. This is also what carries the lifetime raise to a layered scene.
+7. **The resource walks, listed** (`grep -n 'CASE Picture(\|CASE Text('
+   src/codegen/builtins/canvas/*.rs`, read with `func_set_bytes.rs`):
+   `__canvas_listNamesFont` and `__canvas_closeRetired` (`helper_render.rs`) each gain a
+   `ParticleSystem` arm — a `Text` template (or an `AutoPaint` around one) and a `Text`
+   EMITTER both name a font. `__canvas_listNamesImage` and `canvas::setBytes`'s
+   trigger 5 need nothing: no `AutoShape` holds an image. `gen_group.rs` holds no item
+   walk of its own; its close goes through `__canvas_closeRetired`.
+8. **"Pixel-identical to its group-node definition" is true with one exception, and
+   the exception is not the expansion's** (2026-10-13). Measured, six variants of one
+   live particle against the same template in a group node: identical for an
+   untransformed template moved or scaled, and for a turned template scaled or moved to
+   a point off the pixel grid; **97 of 576,000 pixels, max 2 levels**, for a turned
+   template moved to a whole-pixel point. The same 97 pixels differ between an ORDINARY
+   turned rectangle at (306, 204) and that rectangle at (6, 4) in a group moved by
+   (300, 200), with no particle in the scene, and the particle is pixel-identical to
+   the ordinary item. So it is how the renderer places a transformed shape (an inverse
+   in single precision, which carries the whole position unless a group's translation
+   is subtracted first — about 1e-5 px) meeting a test shape whose edges cross pixel
+   centres on exact tenths. The criterion is restated as three checks, none looser than
+   what was measured: exact against the group node off the pixel grid and when scaled;
+   exact against the ordinary item it is; and the renderer's own two placements within
+   2 levels on under 0.02% of pixels. A turned particle is compared to a group turned
+   with `math::`'s sine (the model's own is not callable): within 1 level on under
+   0.01%.
+9. **What the variant costs a program that uses none** (2026-10-13): `size -m` of a
+   one-circle `--app` build, `__text` 2,791,624 at `29f5500cb` → 2,820,696, **+29,072
+   bytes**. Per function (`-ncode` instruction counts), most is not the new arms but
+   the code every `DrawItem` copy and match carries per variant — `_sceneOffsets`
+   +1,194, the user's own `main` +1,077, `_hashScene` +549. Items are no larger: a
+   100-circle group is `groupBytes=63250` on both compilers.
 
 ## Summary
 

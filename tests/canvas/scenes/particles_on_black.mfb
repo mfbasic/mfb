@@ -1,0 +1,55 @@
+' plan-150-A: two particle systems, over the surface's own black, at one fixed moment.
+'
+' Everything here is a function of `seed` and `time`, so the picture is the same on
+' every run: there is no clock in the program and none in the renderer.
+'
+'   left    a firework: one burst of 200 discs from a single point, thrown in every
+'           direction, pulled down by gravity and slowed by drag, 0.9 s after the
+'           burst -- each fading from pale yellow towards a transparent red and
+'           shrinking as it ages
+'   right   a fountain: a steady stream of small outlined rectangles from a line,
+'           thrown upward and falling back, each turned at its own angle and spinning,
+'           wandering a little, 2.4 s in -- so the pool has come round once and some
+'           slots are on their second life
+'
+' The firework's particles are scaled (never turned) and the fountain's are both, so
+' between them the scene draws a particle through a transform of every kind; the
+' fountain's stroke shows the outline scaling with its particle.
+
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC firework(time AS Float) AS canvas::DrawItem
+  LET spark AS canvas::AutoShape = canvas::Circle[id := "", position := at(0.0, 0.0), radius := 5.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := none()]
+  LET point AS canvas::Shape = canvas::Circle[id := "", position := at(0.0, 0.0), radius := 0.0, paint := canvas::fill(color::rgb(0, 0, 0)), transform := none()]
+  LET emission AS canvas::Emission = canvas::Emission[mode := canvas::EmissionMode.Burst, maxParticles := 200, rate := 0.0, burst := 200, burstPeriod := 0.0, lifetime := 2.0, lifetimeVar := 0.3]
+  LET motion AS canvas::Motion = canvas::Motion[speed := 180.0, speedVar := 0.5, angle := 0.0, spread := 3.141592653589793, gravityX := 0.0, gravityY := 120.0, drag := 0.6, rotation := 0.0, rotationVar := 0.0, spin := 0.0, spinVar := 0.0, turbulence := 0.0, turbulenceHz := 0.0]
+  LET appearance AS canvas::Appearance = canvas::Appearance[startColor := color::rgb(255, 240, 120), endColor := color::rgba(255, 40, 0, 0), startScale := 1.0, endScale := 0.3, scaleVar := 0.0]
+  LET system AS canvas::DrawItem = canvas::ParticleSystem[position := at(280.0, 250.0), item := spark, emitter := point, emission := emission, motion := motion, appearance := appearance, seed := 20261013, time := time]
+  RETURN system
+END FUNC
+
+FUNC fountain(time AS Float) AS canvas::DrawItem
+  LET chip AS canvas::AutoShape = canvas::Rectangle[id := "", position := at(0.0, 0.0), bind := canvas::BindTo.Center, size := canvas::Size[width := 14.0, height := 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fillStroke(color::rgb(60, 140, 255), color::rgb(255, 255, 255), 1.5), transform := none()]
+  LET lip AS canvas::Shape = canvas::Line[id := "", position := at(0.0, 0.0), startAt := at(0.0 - 60.0, 0.0), endAt := at(60.0, 0.0), paint := canvas::stroke(color::rgb(0, 0, 0), 1.0), transform := none()]
+  LET emission AS canvas::Emission = canvas::Emission[mode := canvas::EmissionMode.Continuous, maxParticles := 120, rate := 60.0, burst := 0, burstPeriod := 0.0, lifetime := 1.8, lifetimeVar := 0.2]
+  LET motion AS canvas::Motion = canvas::Motion[speed := 220.0, speedVar := 0.2, angle := 0.0 - 1.5707963267948966, spread := 0.35, gravityX := 0.0, gravityY := 260.0, drag := 0.0, rotation := 0.0, rotationVar := 3.141592653589793, spin := 4.0, spinVar := 0.5, turbulence := 6.0, turbulenceHz := 2.0]
+  LET appearance AS canvas::Appearance = canvas::Appearance[startColor := color::rgb(255, 255, 255), endColor := color::rgba(255, 255, 255, 60), startScale := 1.2, endScale := 0.4, scaleVar := 0.3]
+  LET system AS canvas::DrawItem = canvas::ParticleSystem[position := at(650.0, 520.0), item := chip, emitter := lip, emission := emission, motion := motion, appearance := appearance, seed := 7, time := time]
+  RETURN system
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  canvas::present([firework(0.9), fountain(2.4)])
+END FUNC

@@ -30,6 +30,11 @@ other. Use `canvas::present` when there is nothing to separate; a single-layer
 
 Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`.
 
+Groups nested more than 64 deep — which is also how a group that draws itself
+reports — raise `ErrDepthExceeded`, and a `canvas::ParticleSystem` whose
+`emission.lifetime` is zero or less raises `ErrCanvasParticleLifetime`, in a layer
+or in a group a layer draws.
+
 A reading of the clock `presentLayers` times itself against whose nanosecond
 count does not fit an `Integer` raises `ErrOverflow`. `ErrOutOfMemory` means the
 program ran out of memory."#;
@@ -65,9 +70,25 @@ r#"FUNC __canvas_presentLayers(layers AS List OF DrawLayer) AS Nothing
   ' anything starts a graphics thread. Then, as in `present` (plan-155-B), start the
   ' thread and count the present whether or not the layers changed.
   LET installed AS Boolean = canvas::publishLayers(layers)
+  ' The resolved-groups signature of every layer's items, as `present` takes it of its
+  ' one list -- and for both of its reasons. A `setGroup` under a name these layers
+  ' already draw leaves the layers themselves identical, so without it the publish
+  ' above reports "unchanged" and the new group is never drawn; and it is the walk that
+  ' refuses a scene the graphics thread could only stop on silently: a group nested
+  ' past the depth limit, a particle system with no lifetime (plan-150-A).
+  MUT sig AS List OF Integer = []
+  FOR EACH layer IN layers
+    ' A layer boundary, so two layerings of the same groups do not read alike.
+    sig = collections::append(sig, 0 - 2)
+    FOR EACH part IN __canvas_groupSignature(layer.items, 0)
+      sig = collections::append(sig, part)
+    NEXT
+  NEXT
+  LET moved AS Boolean = NOT __canvas_intListEquals(sig, __CANVAS_LAST_GROUP_SIG)
+  __CANVAS_LAST_GROUP_SIG = sig
   __canvas_ensureGraphics()
   canvas::notePresent(canvas::frameNanos())
-  IF installed THEN
+  IF installed OR moved THEN
     ' plan-172-I: the revision and the id bits `canvas::pollMouse` reads, as `present`
     ' records them -- the bits of every layer's items together.
     __CANVAS_SCENE_REV = __CANVAS_SCENE_REV + 1
@@ -107,7 +128,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,
-            errors: vec!["ErrWrongMode", "ErrOutOfMemory", "ErrOverflow"],
+            errors: vec![
+                "ErrWrongMode",
+                // Raised by the group walk, as `canvas::present` raises them.
+                "ErrDepthExceeded",
+                "ErrCanvasParticleLifetime",
+                "ErrOutOfMemory",
+                "ErrOverflow",
+            ],
             body: Body::mfb(BODY, "__canvas_presentLayers"),
         }],
     });

@@ -12,6 +12,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+use common::canvas_image::{compare_exact, compare_within_tolerance, Frame, Tolerance};
 use std::process::Command;
 
 /// What one headless, synchronous run of a `--debug --app` program left behind.
@@ -670,4 +671,538 @@ fn a_polygon_emitter_samples_only_its_inside() {
     assert!(number(&out, "found") >= 1999.0, "{out}");
     assert_eq!(answer(&out, "hole"), "FALSE TRUE TRUE");
     assert_eq!(answer(&out, "norings"), "FALSE");
+}
+
+// ---- Drawing (plan-150-A Phase 4) ------------------------------------------------------
+
+const WIDTH: u32 = 900;
+const HEIGHT: u32 = 640;
+
+/// Render a scene headless and synchronously, returning the last frame and the stats
+/// line of every frame. `env` adds to the run — `MFB_CANVAS_GPU`, a scripted pointer.
+fn draw(name: &str, source: &str, env: &[(&str, &str)]) -> (Frame, Vec<String>) {
+    let project = common::temp_project(name, source);
+    std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
+        .expect("write the font fixture");
+    let binary = common::build_app_debug(&project, name);
+    let frame = project.join("frame.rgba");
+    let stats = project.join("stats.txt");
+    let mut command = Command::new(&binary);
+    command
+        .current_dir(&project)
+        .env("MFB_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .env("MFB_CANVAS_STATS", &stats)
+        .env("MFB_CANVAS_DUMP", &frame);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let out = command
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    assert!(
+        out.status.success(),
+        "program {}:\n{}\n{}",
+        common::exit_description(&out.status),
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let pixels = std::fs::read(&frame).expect("canvas dump written");
+    let lines = std::fs::read_to_string(&stats)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let _ = std::fs::remove_dir_all(&project);
+    (Frame::from_rgba(WIDTH, HEIGHT, pixels), lines)
+}
+
+fn pixel(frame: &Frame, x: u32, y: u32) -> [u8; 4] {
+    let at = ((y * frame.width + x) * 4) as usize;
+    [
+        frame.pixels[at],
+        frame.pixels[at + 1],
+        frame.pixels[at + 2],
+        frame.pixels[at + 3],
+    ]
+}
+
+/// The pixels that are not the surface's own opaque black, as (count, min x, min y,
+/// max x, max y).
+fn lit(frame: &Frame) -> (usize, u32, u32, u32, u32) {
+    let (mut count, mut x0, mut y0, mut x1, mut y1) = (0, u32::MAX, u32::MAX, 0, 0);
+    for y in 0..frame.height {
+        for x in 0..frame.width {
+            if pixel(frame, x, y) != [0, 0, 0, 255] {
+                count += 1;
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+        }
+    }
+    (count, x0, y0, x1, y1)
+}
+
+fn stat(line: &str, key: &str) -> String {
+    line.split_whitespace()
+        .find_map(|field| field.strip_prefix(key))
+        .unwrap_or_else(|| panic!("no `{key}` in `{line}`"))
+        .to_string()
+}
+
+/// What every drawing scene below is written with. `single` is a system of exactly one
+/// particle that never moves: one burst of one, from a point, at no speed — so the
+/// particle's point is the system's `position`, its turn is `rotation`, its size is
+/// `scale` and its tint is `tint`, all known without running the model by hand.
+const SCENE_PRELUDE: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT io
+IMPORT math
+IMPORT vector
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC white() AS color::Color
+  RETURN color::rgb(255, 255, 255)
+END FUNC
+
+FUNC point() AS canvas::Shape
+  MUT c AS canvas::Circle
+  LET s AS canvas::Shape = c
+  RETURN s
+END FUNC
+
+FUNC still(lifetime AS Float) AS canvas::Emission
+  RETURN canvas::Emission[mode := canvas::EmissionMode.Burst, maxParticles := 1, rate := 0.0, burst := 1, burstPeriod := 0.0, lifetime := lifetime, lifetimeVar := 0.0]
+END FUNC
+
+FUNC look(first AS color::Color, last AS color::Color, scale AS Float) AS canvas::Appearance
+  RETURN canvas::Appearance[startColor := first, endColor := last, startScale := scale, endScale := scale, scaleVar := 0.0]
+END FUNC
+
+FUNC single(item AS canvas::AutoShape, x AS Float, y AS Float, rotation AS Float, scale AS Float, tint AS color::Color) AS canvas::DrawItem
+  MUT motion AS canvas::Motion
+  LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(x, y), item := item, emitter := point(), emission := still(10.0), motion := WITH motion { rotation := rotation }, appearance := look(tint, tint, scale), seed := 1, time := 1.0]
+  RETURN ps
+END FUNC
+
+FUNC box(x AS Float, y AS Float, w AS Float, h AS Float, paint AS canvas::Paint, t AS canvas::Transform) AS canvas::Rectangle
+  MUT r AS canvas::Rectangle
+  RETURN WITH r { position := at(x, y), size := canvas::Size[width := w, height := h], paint := paint, transform := t }
+END FUNC
+
+FUNC disc(radius AS Float, paint AS canvas::Paint) AS canvas::Circle
+  MUT c AS canvas::Circle
+  RETURN WITH c { radius := radius, paint := paint }
+END FUNC
+
+FUNC node(name AS String, x AS Float, y AS Float, t AS canvas::Transform) AS canvas::DrawItem
+  MUT g AS canvas::Group
+  LET item AS canvas::DrawItem = WITH g { name := name, position := at(x, y), transform := t }
+  RETURN item
+END FUNC
+
+FUNC scaled(by AS Float) AS canvas::Transform
+  RETURN canvas::Transform[a := by, b := 0.0, c := 0.0, d := by, tx := 0.0, ty := 0.0]
+END FUNC
+"#;
+
+fn scene(body: &str) -> String {
+    format!(
+        "{SCENE_PRELUDE}\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n{body}  io::print(\"rendered\")\nEND FUNC\n"
+    )
+}
+
+/// A template that tests the composition: a stroked rectangle that is not at the
+/// particle's point and has a transform of its own — a turn of 36.87 degrees (0.8, 0.6)
+/// and an offset.
+const TILTED: &str = "box(6.0, 4.0, 60.0, 30.0, canvas::fillStroke(color::rgb(40, 110, 255), white(), 3.0), canvas::Transform[a := 0.8, b := 0.6, c := 0.0 - 0.6, d := 0.8, tx := 5.0, ty := 0.0 - 3.0])";
+
+/// **A particle equals its definition.** One live particle renders pixel for pixel as
+/// its template inside a group node at the particle's point, with the particle's
+/// transform — for a particle that is only moved, and for one that is scaled, with a
+/// template that carries a position and a transform of its own.
+///
+/// The moved particle is at a point that is not a whole pixel on purpose: see
+/// `a_moved_particle_is_the_template_moved` for what a whole one shows.
+#[test]
+fn a_particle_is_its_template_in_a_group_node() {
+    for (name, at, rotation_scale, group_transform) in [
+        ("moved", "300.25, 200.5", "0.0, 1.0", "none()"),
+        ("scaled", "300.0, 200.0", "0.0, 1.5", "scaled(1.5)"),
+    ] {
+        let (particle, _) = draw(
+            &format!("canvas_particle_is_{name}"),
+            &scene(&format!(
+                "  canvas::present([single({TILTED}, {at}, {rotation_scale}, white())])\n"
+            )),
+            &[],
+        );
+        let (grouped, _) = draw(
+            &format!("canvas_particle_group_{name}"),
+            &scene(&format!(
+                "  LET shape AS canvas::DrawItem = {TILTED}\n  canvas::setGroup(\"p\", [shape])\n  canvas::present([node(\"p\", {at}, {group_transform})])\n"
+            )),
+            &[],
+        );
+        assert!(lit(&grouped).0 > 1000, "{name}: the reference drew nothing");
+        if let Err(diff) = compare_exact(&particle, &grouped) {
+            panic!("{name}: a particle is not its template in a group node: {diff}");
+        }
+    }
+}
+
+/// A particle that is neither turned nor scaled IS the template moved: the item the
+/// expansion appends is the template with the particle's point added to its
+/// `position`, and it renders exactly as that ordinary item does.
+///
+/// It is NOT always exactly the template in a group moved to that point, and that is
+/// the renderer's own property, not the expansion's — the comparison below has no
+/// particle in it. A shape with a transform is placed through an inverse held in single
+/// precision; at (306, 204) that inverse carries the whole position, inside a group it
+/// carries only (6, 4) and the group's (300, 200) is subtracted exactly. The two differ
+/// by about 1e-5 px. This template is turned by (0.8, 0.6) on whole coordinates, so its
+/// edges cross pixel centres at exact tenths and many coverages sit on a rounding tie:
+/// 97 of 576,000 pixels land a level or two apart. Measured, and bounded here so that a
+/// real difference between the two paths would not hide behind it.
+#[test]
+fn a_moved_particle_is_the_template_moved() {
+    let (particle, _) = draw(
+        "canvas_particle_moved",
+        &scene(&format!(
+            "  canvas::present([single({TILTED}, 300.0, 200.0, 0.0, 1.0, white())])\n"
+        )),
+        &[],
+    );
+    let ordinary_item = TILTED.replacen("box(6.0, 4.0,", "box(306.0, 204.0,", 1);
+    let (ordinary, _) = draw(
+        "canvas_particle_moved_ordinary",
+        &scene(&format!(
+            "  LET shape AS canvas::DrawItem = {ordinary_item}\n  canvas::present([shape])\n"
+        )),
+        &[],
+    );
+    assert!(lit(&ordinary).0 > 1000);
+    if let Err(diff) = compare_exact(&particle, &ordinary) {
+        panic!("a moved particle is not the template moved: {diff}");
+    }
+    let (grouped, _) = draw(
+        "canvas_particle_moved_group",
+        &scene(&format!(
+            "  LET shape AS canvas::DrawItem = {TILTED}\n  canvas::setGroup(\"p\", [shape])\n  canvas::present([node(\"p\", 300.0, 200.0, none())])\n"
+        )),
+        &[],
+    );
+    let placement = Tolerance {
+        max_channel_delta: 2,
+        max_differing_fraction: 0.0002,
+    };
+    if let Err(diff) = compare_within_tolerance(&ordinary, &grouped, placement) {
+        panic!("a placed shape and the same shape in a moved group are further apart than single-precision placement explains: {diff}");
+    }
+}
+
+/// The same for a particle that is TURNED. The model turns it with the package's own
+/// sine and cosine, which a program cannot call, so the reference group is turned with
+/// `math::`'s — the same angle to a few parts in ten million. That is far below a
+/// coverage step, so the two frames may differ only in the last level of a handful of
+/// edge pixels.
+#[test]
+fn a_turned_particle_is_its_template_in_a_turned_group_node() {
+    let (particle, _) = draw(
+        "canvas_particle_is_turned",
+        &scene(&format!(
+            "  canvas::present([single({TILTED}, 300.0, 200.0, 0.5, 1.5, white())])\n"
+        )),
+        &[],
+    );
+    let (grouped, _) = draw(
+        "canvas_particle_group_turned",
+        &scene(&format!(
+            "  LET shape AS canvas::DrawItem = {TILTED}\n  canvas::setGroup(\"p\", [shape])\n  LET co AS Float = 1.5 * math::cos(0.5)\n  LET si AS Float = 1.5 * math::sin(0.5)\n  canvas::present([node(\"p\", 300.0, 200.0, canvas::Transform[a := co, b := si, c := 0.0 - si, d := co, tx := 0.0, ty := 0.0])])\n"
+        )),
+        &[],
+    );
+    assert!(lit(&grouped).0 > 1000);
+    let close = Tolerance {
+        max_channel_delta: 1,
+        max_differing_fraction: 0.0001,
+    };
+    if let Err(diff) = compare_within_tolerance(&particle, &grouped, close) {
+        panic!("a turned particle is not its template in a turned group node: {diff}");
+    }
+}
+
+/// **A scale that reaches zero draws nothing** — not the shape at full size, which is
+/// what the shape rule would make of a transform with no area.
+#[test]
+fn a_particle_scaled_to_nothing_is_not_drawn() {
+    let (frame, _) = draw(
+        "canvas_particle_zero_scale",
+        &scene(
+            "  canvas::present([single(disc(60.0, canvas::fill(white())), 300.0, 200.0, 0.0, 0.0, white())])\n",
+        ),
+        &[],
+    );
+    assert_eq!(lit(&frame).0, 0, "a particle of no size was drawn");
+    // The same system at a size draws: the frame above is black because of the scale.
+    let (frame, _) = draw(
+        "canvas_particle_small_scale",
+        &scene(
+            "  canvas::present([single(disc(60.0, canvas::fill(white())), 300.0, 200.0, 0.0, 0.5, white())])\n",
+        ),
+        &[],
+    );
+    assert_eq!(pixel(&frame, 300, 200), [255, 255, 255, 255]);
+    assert_eq!(pixel(&frame, 300, 240), [0, 0, 0, 255], "half of 60 is 30");
+}
+
+/// **A system inside a turned, scaled group** is turned and scaled with it, like any
+/// item: it renders as the nested groups its definition makes of it.
+#[test]
+fn a_system_in_a_turned_group_is_turned_with_it() {
+    let outer = "canvas::Transform[a := 0.96, b := 0.56, c := 0.0 - 0.56, d := 0.96, tx := 0.0, ty := 0.0]";
+    let (system, _) = draw(
+        "canvas_particle_in_group",
+        &scene(&format!(
+            "  canvas::setGroup(\"g\", [single({TILTED}, 50.25, 20.5, 0.0, 1.5, white())])\n  canvas::present([node(\"g\", 300.0, 200.0, {outer})])\n"
+        )),
+        &[],
+    );
+    let (nested, _) = draw(
+        "canvas_particle_in_group_reference",
+        &scene(&format!(
+            "  LET shape AS canvas::DrawItem = {TILTED}\n  canvas::setGroup(\"p\", [shape])\n  canvas::setGroup(\"g\", [node(\"p\", 50.25, 20.5, scaled(1.5))])\n  canvas::present([node(\"g\", 300.0, 200.0, {outer})])\n"
+        )),
+        &[],
+    );
+    assert!(lit(&nested).0 > 1000);
+    if let Err(diff) = compare_exact(&system, &nested) {
+        panic!("a system in a turned group is not its definition there: {diff}");
+    }
+}
+
+/// **The tint multiplies.** Each channel of the template's fill is multiplied by the
+/// particle's, so white leaves it alone, and the change from `startColor` to `endColor`
+/// is even in linear light: halfway from white to black is sRGB 188, not 128.
+#[test]
+fn the_tint_multiplies_and_fades_in_linear_light() {
+    let (frame, _) = draw(
+        "canvas_particle_tint",
+        &scene(
+            "  canvas::present([single(disc(40.0, canvas::fill(color::rgb(200, 100, 50))), 300.0, 200.0, 0.0, 1.0, color::rgb(128, 255, 0))])\n",
+        ),
+        &[],
+    );
+    // (200 * 128 + 127) / 255, 100 * 255 / 255, 50 * 0.
+    assert_eq!(pixel(&frame, 300, 200), [100, 100, 0, 255]);
+
+    let (frame, _) = draw(
+        "canvas_particle_fade",
+        &scene(
+            "  MUT motion AS canvas::Motion\n  LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(300.0, 200.0), item := disc(40.0, canvas::fill(white())), emitter := point(), emission := still(2.0), motion := motion, appearance := look(white(), color::rgb(0, 0, 0), 1.0), seed := 1, time := 1.0]\n  canvas::present([ps])\n",
+        ),
+        &[],
+    );
+    assert_eq!(pixel(&frame, 300, 200), [188, 188, 188, 255]);
+}
+
+/// **A `Text` template.** A run of text is a particle like any shape: placed, scaled
+/// about the particle's point and tinted. The fixture font's one glyph inks the square
+/// (100, 0)-(400, 300) of a 1000-unit em, so at size 40 and twice the size `A` is a
+/// 24 px square from 8 px right of the point, standing on it.
+#[test]
+fn a_text_template_is_placed_scaled_and_tinted() {
+    let (frame, _) = draw(
+        "canvas_particle_text",
+        &scene(
+            "  RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    RETURN\n  END TRAP\n  LET label AS canvas::AutoShape = canvas::Text[id := \"\", position := at(0.0, 0.0), text := \"A\", font := face, fontSize := 40.0, paint := canvas::fill(white()), transform := none()]\n  canvas::present([single(label, 300.0, 200.0, 0.0, 2.0, color::rgb(255, 128, 0))])\n",
+        ),
+        &[],
+    );
+    assert_eq!(pixel(&frame, 320, 188), [255, 128, 0, 255], "inside the glyph");
+    let (count, x0, y0, x1, y1) = lit(&frame);
+    assert!(count > 400, "the glyph is 24 px square");
+    assert!(
+        x0 >= 307 && x1 <= 332 && y0 >= 175 && y1 <= 200,
+        "the glyph is outside its scaled box: ({x0}, {y0})-({x1}, {y1})"
+    );
+}
+
+/// **An `AutoPaint` template draws its shape's own paint**, whatever the mouse is
+/// doing: with the pointer resting on the particle and a hover paint in use, the
+/// particle is still the shape's own green, and the frame notes no `AutoPaint`.
+#[test]
+fn an_autopaint_template_draws_its_own_paint() {
+    let (frame, stats) = draw(
+        "canvas_particle_autopaint",
+        &scene(
+            "  LET red AS canvas::Paint = canvas::fill(color::rgb(255, 0, 0))\n  LET button AS canvas::AutoShape = canvas::AutoPaint[shape := disc(40.0, canvas::fill(color::rgb(0, 255, 0))), useEnter := TRUE, useExit := TRUE, useHover := TRUE, usePressed := TRUE, enterPaint := red, exitPaint := red, hoverPaint := red, pressedPaint := red]\n  canvas::present([single(button, 300.0, 200.0, 0.0, 1.0, white())])\n  canvas::present([single(button, 300.0, 200.0, 0.0, 1.0, white()), single(button, 600.0, 200.0, 0.0, 1.0, white())])\n",
+        ),
+        &[("MFB_CANVAS_POINTER", "0,300,200,1,1")],
+    );
+    assert_eq!(pixel(&frame, 300, 200), [0, 255, 0, 255]);
+    assert_eq!(pixel(&frame, 600, 200), [0, 255, 0, 255]);
+    let last = stats.last().expect("a frame");
+    // `auto=` lists the frame's `AutoPaint` instances; `-` is none.
+    assert_eq!(
+        stat(last, "auto="),
+        "-",
+        "a particle was noted as an AutoPaint instance: {last}"
+    );
+}
+
+/// **Curve emitters.** A `PolyCurve` emits along its curve and a `CurvePolygon` over
+/// its inside: every particle of each lands within the curve's own extent (the arch
+/// from (0, 0) over (20, 30) to (40, 0) peaks at y = 15), and they are spread across
+/// it, not piled on a point.
+#[test]
+fn curve_shapes_are_emitters() {
+    for (name, emitter, y_from, y_to) in [
+        ("polycurve", "WITH pc { curves := [bend] }", 0, 15),
+        ("curvepolygon", "WITH cp { contours := [[bend, back]] }", -15, 15),
+    ] {
+        let (frame, _) = draw(
+            &format!("canvas_particle_emit_{name}"),
+            &scene(&format!(
+                "  LET bend AS canvas::BezierCurve = canvas::BezierCurve[points := [at(0.0, 0.0), at(20.0, 30.0), at(40.0, 0.0)], weights := []]\n  LET back AS canvas::BezierCurve = canvas::BezierCurve[points := [at(40.0, 0.0), at(20.0, 0.0 - 30.0), at(0.0, 0.0)], weights := []]\n  MUT pc AS canvas::PolyCurve\n  MUT cp AS canvas::CurvePolygon\n  LET emitter AS canvas::Shape = {emitter}\n  MUT motion AS canvas::Motion\n  MUT emission AS canvas::Emission\n  LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(300.0, 200.0), item := disc(1.0, canvas::fill(white())), emitter := emitter, emission := WITH emission {{ mode := canvas::EmissionMode.Burst, maxParticles := 300, burst := 300, lifetime := 10.0 }}, motion := motion, appearance := look(white(), white(), 1.0), seed := 4, time := 1.0]\n  canvas::present([ps])\n"
+            )),
+            &[],
+        );
+        let (count, x0, y0, x1, y1) = lit(&frame);
+        // 300 dots: along a 50 px arch they overlap, over the lens they mostly do not.
+        assert!(count > 100, "{name}: {count} lit pixels");
+        // The emitter's extent, a pixel of slack and the particle's own radius.
+        assert!(
+            x0 >= 298 && x1 <= 342 && y0 as i64 >= 198 + y_from && y1 as i64 <= 202 + y_to,
+            "{name}: particles outside the emitter: ({x0}, {y0})-({x1}, {y1})"
+        );
+        assert!(x1 - x0 >= 30, "{name}: particles span only {x0}..{x1}");
+    }
+}
+
+/// A thousand particles between two ordinary items, as one scene index: every one is
+/// drawn, the items either side of the system are where they were, and the GPU draws
+/// the same picture ON the GPU. This is the path an item of several entries takes
+/// (`__canvas_sceneOffsets`), built for a `Picture`'s two and measured here at a
+/// thousand.
+const THOUSAND: &str = "  LET before AS canvas::DrawItem = box(20.0, 20.0, 60.0, 40.0, canvas::fill(color::rgb(255, 0, 0)), none())\n  LET after AS canvas::DrawItem = box(820.0, 580.0, 60.0, 40.0, canvas::fill(color::rgb(0, 0, 255)), none())\n  MUT ring AS canvas::Circle\n  LET emitter AS canvas::Shape = WITH ring { radius := 250.0 }\n  MUT motion AS canvas::Motion\n  MUT emission AS canvas::Emission\n  LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(450.0, 320.0), item := disc(2.0, canvas::fill(color::rgb(0, 255, 0))), emitter := emitter, emission := WITH emission { mode := canvas::EmissionMode.Burst, maxParticles := 1000, burst := 1000, lifetime := 10.0 }, motion := WITH motion { rotation := 0.3 }, appearance := look(white(), white(), 1.5), seed := 2, time := 1.0]\n  canvas::present([before, ps, after])\n";
+
+#[test]
+fn a_thousand_particles_are_one_scene_index() {
+    let (software, stats) = draw("canvas_particle_thousand", &scene(THOUSAND), &[]);
+    let last = stats.last().expect("a frame");
+    // The two rectangles and a record per particle.
+    assert_eq!(stat(last, "entries="), "1002", "{last}");
+    assert_eq!(pixel(&software, 50, 40), [255, 0, 0, 255]);
+    assert_eq!(pixel(&software, 850, 600), [0, 0, 255, 255]);
+    // 1000 discs of radius 3 over a disc of radius 250: most of ~28,000 px, less overlap.
+    let green = (0..HEIGHT)
+        .flat_map(|y| (0..WIDTH).map(move |x| (x, y)))
+        .filter(|(x, y)| pixel(&software, *x, *y) == [0, 255, 0, 255])
+        .count();
+    assert!(green > 12_000, "{green} wholly green pixels");
+
+    let (gpu, stats) = draw(
+        "canvas_particle_thousand_gpu",
+        &scene(THOUSAND),
+        &[("MFB_CANVAS_GPU", "1")],
+    );
+    let last = stats.last().expect("a frame");
+    if !last.contains("metalReady=TRUE") && !last.contains("vulkanReady=TRUE") {
+        eprintln!("skip the GPU half: this host built no GPU pipeline\n{last}");
+        return;
+    }
+    assert_ne!(stat(last, "gpuFrames="), "0", "the GPU declined: {last}");
+    assert_eq!(stat(last, "blocks="), "1002", "{last}");
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!("the GPU's thousand particles disagree with the oracle: {diff}");
+    }
+}
+
+/// A system that is a GROUP's child reaches the GPU as blocks of that group's run
+/// (`__canvas_memoGroup`), one per live particle, drawn under the group's matrix — and
+/// the group's other items are still either side of them.
+#[test]
+fn a_system_in_a_group_reaches_the_gpu() {
+    let body = "  LET under AS canvas::DrawItem = box(0.0 - 40.0, 0.0 - 40.0, 80.0, 80.0, canvas::fill(color::rgb(90, 0, 0)), none())\n  LET over AS canvas::DrawItem = box(60.0, 0.0 - 10.0, 30.0, 20.0, canvas::fill(color::rgb(0, 0, 200)), none())\n  MUT ring AS canvas::Circle\n  LET emitter AS canvas::Shape = WITH ring { radius := 70.0 }\n  MUT motion AS canvas::Motion\n  MUT emission AS canvas::Emission\n  LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(0.0, 0.0), item := box(0.0 - 3.0, 0.0 - 2.0, 6.0, 4.0, canvas::fillStroke(color::rgb(0, 220, 0), white(), 1.0), none()), emitter := emitter, emission := WITH emission { mode := canvas::EmissionMode.Burst, maxParticles := 150, burst := 150, lifetime := 10.0 }, motion := WITH motion { rotationVar := 3.0 }, appearance := look(white(), white(), 1.0), seed := 9, time := 1.0]\n  canvas::setGroup(\"g\", [under, ps, over])\n  LET turn AS canvas::Transform = canvas::Transform[a := 1.2, b := 0.9, c := 0.0 - 0.9, d := 1.2, tx := 0.0, ty := 0.0]\n  canvas::present([node(\"g\", 250.0, 250.0, turn), node(\"g\", 650.0, 400.0, none())])\n";
+    let (software, _) = draw("canvas_particle_grouped", &scene(body), &[]);
+    assert!(lit(&software).0 > 10_000);
+    let (gpu, stats) = draw(
+        "canvas_particle_grouped_gpu",
+        &scene(body),
+        &[("MFB_CANVAS_GPU", "1")],
+    );
+    let last = stats.last().expect("a frame");
+    if !last.contains("metalReady=TRUE") && !last.contains("vulkanReady=TRUE") {
+        eprintln!("skip: this host built no GPU pipeline\n{last}");
+        return;
+    }
+    assert_ne!(stat(last, "gpuFrames="), "0", "the GPU declined: {last}");
+    // One shared run for both uses of the group: two rectangles and 150 particles.
+    assert_eq!(stat(last, "blocks="), "152", "{last}");
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+        panic!("a grouped system on the GPU disagrees with the oracle: {diff}");
+    }
+}
+
+/// **The raise.** A system whose `lifetime` is zero or less is refused by `present`, on
+/// the worker, as `ErrCanvasParticleLifetime` (7-705-0028) — in the scene, in a group
+/// the scene draws, and in a layer — and a `TRAP` catches it. Everything else that makes
+/// a system draw nothing is not an error.
+#[test]
+fn a_lifetime_of_zero_raises_from_present() {
+    let system = "  MUT motion AS canvas::Motion\n  MUT emission AS canvas::Emission\n  LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(300.0, 200.0), item := disc(4.0, canvas::fill(white())), emitter := point(), emission := WITH emission { maxParticles := 10, rate := 5.0, lifetime := LIFETIME }, motion := motion, appearance := look(white(), white(), 1.0), seed := 1, time := TIME]\n";
+    let trap = " TRAP(e)\n    io::print(\"raised \" & toString(e.code))\n    RETURN\n  END TRAP\n  io::print(\"NO RAISE\")\n";
+    for (name, lifetime, present) in [
+        ("scene", "0.0", "  canvas::present([ps])"),
+        ("negative", "0.0 - 1.0", "  canvas::present([ps])"),
+        (
+            "group",
+            "0.0",
+            "  canvas::setGroup(\"g\", [ps])\n  canvas::present([node(\"g\", 0.0, 0.0, none())])",
+        ),
+        (
+            "layer",
+            "0.0",
+            "  canvas::presentLayers([canvas::DrawLayer[items := [ps]]])",
+        ),
+    ] {
+        let body = format!(
+            "{}{present}{trap}",
+            system.replace("LIFETIME", lifetime).replace("TIME", "1.0")
+        );
+        let run = run(&format!("canvas_particle_raise_{name}"), &scene(&body), &[]);
+        assert!(
+            run.stdout.contains("raised 77050028"),
+            "{name}: expected ErrCanvasParticleLifetime from present, got: {}",
+            run.stdout
+        );
+    }
+    // Not errors: an empty pool, no rate, and a time before the first birth.
+    for (name, edit, time) in [
+        ("empty_pool", ("maxParticles := 10", "maxParticles := 0"), "1.0"),
+        ("no_rate", ("rate := 5.0", "rate := 0.0"), "1.0"),
+        ("negative_time", ("rate := 5.0", "rate := 5.0"), "0.0 - 1.0"),
+    ] {
+        let body = format!(
+            "{}  canvas::present([ps]){trap}",
+            system
+                .replace("LIFETIME", "1.0")
+                .replace("TIME", time)
+                .replace(edit.0, edit.1)
+        );
+        let (frame, _) = draw(&format!("canvas_particle_quiet_{name}"), &scene(&body), &[]);
+        assert_eq!(lit(&frame).0, 0, "{name} drew something");
+    }
 }

@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/canvas/canvas_particle_template_invalid
+  33 | 
+  34 |   LET good AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := shape, emitter := emitter, emission := WITH emission { lifetime := 1.0 }, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+  35 |   LET ofGroup AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := node, emitter := emitter, emission := emission, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+     | ^
+tests/syntax/canvas/canvas_particle_template_invalid/src/main.mfb:35 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 2 for `canvas.ParticleSystem` has type canvas.Group, expected canvas.AutoShape for field `item`.
+  34 |   LET good AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := shape, emitter := emitter, emission := WITH emission { lifetime := 1.0 }, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+  35 |   LET ofGroup AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := node, emitter := emitter, emission := emission, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+  36 |   LET ofSystem AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := good, emitter := emitter, emission := emission, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+     | ^
+tests/syntax/canvas/canvas_particle_template_invalid/src/main.mfb:36 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 2 for `canvas.ParticleSystem` has type canvas.ParticleSystem, expected canvas.AutoShape for field `item`.
+  35 |   LET ofGroup AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := node, emitter := emitter, emission := emission, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+  36 |   LET ofSystem AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := good, emitter := emitter, emission := emission, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+  37 |   LET ofItem AS canvas::ParticleSystem = canvas::ParticleSystem[position := origin, item := asItem, emitter := emitter, emission := emission, motion := motion, appearance := appearance, seed := 1, time := 0.0]
+     | ^
+tests/syntax/canvas/canvas_particle_template_invalid/src/main.mfb:37 error[2-203-0023 TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH]: constructor argument type does not match field type
+               Argument 2 for `canvas.ParticleSystem` has type canvas.DrawItem, expected canvas.AutoShape for field `item`.
+[exit 1]

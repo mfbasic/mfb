@@ -37,6 +37,10 @@ still takes effect immediately.
 
 Requires `app::Mode.Canvas`; elsewhere it raises the trappable `ErrWrongMode`.
 
+A scene holding a `canvas::ParticleSystem` whose `emission.lifetime` is zero or less
+raises `ErrCanvasParticleLifetime`, wherever the system is — in the list itself or in a
+group it draws.
+
 A reading of the clock `present` times itself against whose nanosecond count does
 not fit an `Integer` raises `ErrOverflow`."#;
 
@@ -236,6 +240,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             errors: vec![
                 "ErrWrongMode",
                 "ErrDepthExceeded",
+                // plan-150-A: a `canvas::ParticleSystem` whose `lifetime` is zero or
+                // less (`__canvas_groupSignature`).
+                "ErrCanvasParticleLifetime",
                 "ErrOutOfMemory",
                 "ErrOverflow",
             ],
