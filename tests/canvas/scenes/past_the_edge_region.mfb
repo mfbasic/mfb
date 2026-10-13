@@ -1,0 +1,27 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+IMPORT math
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
+  MUT ring AS Integer = 0
+  WHILE ring < 1025
+    LET cx AS Float = 20.0 + toFloat((ring MOD 70) * 12)
+    LET cy AS Float = 80.0 + toFloat((ring / 70) * 12)
+    MUT points AS List OF vector::Float2 = []
+    MUT i AS Integer = 0
+    WHILE i < 256
+      LET a AS Float = toFloat(i) * 6.283185307179586 / 256.0
+      points = collections::append(points, vector::Float2[x := cx + 4.0 * math::cos(a), y := cy + 4.0 * math::sin(a)])
+      i = i + 1
+    END WHILE
+    LET poly AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    scene = collections::append(scene, poly)
+    ring = ring + 1
+  END WHILE
+  canvas::present(scene)
+END FUNC

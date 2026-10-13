@@ -416,6 +416,27 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_VIEWS: usize =
     GRAPHICS_OFFSET_VULKAN_SC_IMAGES + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS: usize =
     GRAPHICS_OFFSET_VULKAN_SC_VIEWS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
+/// bug-765: what a Vulkan frame of several passes keeps between them, **graphics
+/// thread only** like the swapchain words above. A frame of one pass reads none of them.
+///
+/// * `LOAD_PASS` — the offscreen render pass with `loadOp = LOAD`, entered and left in
+///   `TRANSFER_SRC_OPTIMAL` (where `RENDER_PASS` leaves the image): what every pass
+///   after a frame's first records into. Made on the first frame that needs it.
+/// * `PRESENT_LOAD_PASS` — its swapchain twin, entered and left in `PRESENT_SRC_KHR`
+///   (where `PRESENT_PASS` leaves the image).
+/// * `SC_HELD` — one more than the index of the swapchain image a frame's first pass
+///   acquired, while a later pass of that frame is still to come; 0 otherwise. The
+///   image is acquired once a frame and handed to the queue once, by the last pass.
+///
+/// Both passes differ from the ones the pipelines were built against only in load
+/// operation and layouts, which render pass compatibility does not look at, so no
+/// pipeline is rebuilt.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_LOAD_PASS: usize =
+    GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PRESENT_LOAD_PASS: usize =
+    GRAPHICS_OFFSET_VULKAN_LOAD_PASS + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_HELD: usize =
+    GRAPHICS_OFFSET_VULKAN_PRESENT_LOAD_PASS + 8;
 /// plan-172-J: where the pointer is, published by each platform's MAIN thread and read
 /// by the graphics thread — the worker never touches these.
 ///
@@ -433,8 +454,7 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS: usize =
 /// callback, and it must not wait behind a frame. Unlike the size, a torn read here is
 /// not harmless — an `x` from one move with an `inside` from another is a position the
 /// pointer never had — so the four are read as one.
-pub(crate) const GRAPHICS_OFFSET_POINTER_SEQ: usize =
-    GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
+pub(crate) const GRAPHICS_OFFSET_POINTER_SEQ: usize = GRAPHICS_OFFSET_VULKAN_SC_HELD + 8;
 pub(crate) const GRAPHICS_OFFSET_POINTER_X: usize = GRAPHICS_OFFSET_POINTER_SEQ + 8;
 pub(crate) const GRAPHICS_OFFSET_POINTER_Y: usize = GRAPHICS_OFFSET_POINTER_X + 8;
 pub(crate) const GRAPHICS_OFFSET_POINTER_BUTTONS: usize = GRAPHICS_OFFSET_POINTER_Y + 8;
@@ -1246,13 +1266,15 @@ pub(crate) const HEADER_CLIP_RULE: usize = 53;
 pub(crate) const HEADER_PICTURE_TRANSPARENCY: usize = 54;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
-/// The most edges one **frame** may carry on the Vulkan path.
+/// The most edges one **pass** may carry on the Vulkan path — the size of the frame
+/// buffer's edge region (bug-765: a frame past it is drawn as several passes).
 ///
 /// Vulkan has no per-item limit — the edges live in a storage buffer, not in the
-/// push constants — so the real constraint is the buffer, and it is a whole-frame
-/// one: every polygon in the scene takes a slice. `__canvas_vulkanRenderable` sums
-/// the scene's polygon edges against this and declines the frame to software if the
-/// total does not fit, so the emitter's own bound check is unreachable.
+/// push constants — so the real constraint is the buffer, and it is a whole-buffer
+/// one: every polygon of a pass takes a slice. `__canvas_passNext` sums the blocks'
+/// edges (`__canvas_blockCost`) against this and ends the pass before the total
+/// passes it, and a block past it alone sends the frame to software, so the emitter's
+/// own bound check is unreachable.
 ///
 /// 262,144 since bug-688 (it was 16,384, which `examples/weather`'s coastline alone
 /// exceeds): Metal's number since bug-686, and 4 MiB of region. A large polygon no
@@ -1273,10 +1295,12 @@ pub(crate) const VULKAN_EDGE_RESIDUAL_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16
 /// (`GEO_KIND_TEXT`). So the count both predicates sum is "quads", and that is the
 /// number this bounds.
 ///
-/// `__canvas_vulkanRenderable` sums a frame's quads against this and declines the
-/// whole frame to software past it, the same honesty gate `VULKAN_MAX_FRAME_EDGES`
-/// already has and for the same reason: a truncated scene is a *different scene*, and
-/// software is the oracle, so declining is never worse than drawing.
+/// It is the size of the frame BUFFER's item region, and so of one PASS (bug-765):
+/// `__canvas_passNext` sums a frame's quads against it and ends a pass before the
+/// total passes it. Only a block of more quads than this by itself (a `Text` of more
+/// glyphs) sends the whole frame to software, for the reason `VULKAN_MAX_FRAME_EDGES`
+/// gives: a truncated scene is a *different scene*, and software is the oracle, so
+/// declining is never worse than drawing.
 ///
 /// 65,536 since bug-688, Metal's `METAL_MAX_FRAME_ITEMS`: 4,096 (the old shared
 /// `CANVAS_MAX_FRAME_ITEMS`) sent `examples/weather` (about 5,700 blocks), a 5,000-quad
@@ -1294,7 +1318,7 @@ pub(crate) const VULKAN_MAX_FRAME_ITEMS: usize = 65536;
 /// with it — which is why the shader's region bases are generated from these constants
 /// rather than spelled in the MSL (`metal_shader_source`).
 ///
-/// `__canvas_metalRenderable` declines a frame past it, exactly as before; the
+/// A frame past it is drawn as several passes (bug-765, `__canvas_passNext`); the
 /// MFBASIC copy is generated from this constant (`helper_render.rs`).
 pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 
@@ -1317,8 +1341,33 @@ pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 /// so a translate-only entry is its old eight words followed by zeros. Word 7 says
 /// whether the entry carries a matrix, and words 8–11 are that matrix: the linear part
 /// of the INVERSE of the enclosing groups' composed affine, as float32 bit patterns.
-/// Words 12–15 are reserved and zero.
+/// Word 12 is the pass word ([`CANVAS_DRAW_PASS_WORD`]); words 13–15 are reserved and
+/// zero.
 pub(crate) const CANVAS_DRAW_ENTRY_WORDS: usize = 16;
+
+/// bug-765: the word of a draw list's FIRST entry that says where the list stands in
+/// its frame, for a frame drawn as several passes (`__canvas_passNext`). An emitter is
+/// handed one pass's blocks and entries exactly as it is handed a whole frame's, and
+/// this word is the only thing that tells the two apart:
+///
+/// * [`CANVAS_DRAW_PASS_CONTINUES`] — a pass of this frame was drawn before this one.
+///   The target holds it, so it is LOADED, not cleared, and the image a direct present
+///   draws into is the one the first pass acquired.
+/// * [`CANVAS_DRAW_PASS_MORE`] — a pass follows. This one is submitted and waited for
+///   (the frame buffer is single-buffered, and the next pass refills it), but the frame
+///   is neither presented nor read back.
+///
+/// Zero is a frame of one pass, which is every list `__canvas_pushOneDraw` and
+/// `canvas::sceneDrawsFlat` lay out: they write 0 here, so such a frame is drawn by the
+/// instructions that drew it before there were passes.
+///
+/// It rides the list because the list is what makes a pass a pass, and because the
+/// seam's argument bank is full (`func_metal_draw.rs`). It is its own word for the
+/// reason the blend mode is: a flag packed into the high bits of `count` survives
+/// exactly until someone draws that many instances.
+pub(crate) const CANVAS_DRAW_PASS_WORD: usize = 12;
+pub(crate) const CANVAS_DRAW_PASS_CONTINUES: usize = 1;
+pub(crate) const CANVAS_DRAW_PASS_MORE: usize = 2;
 
 /// `log2(CANVAS_DRAW_ENTRY_WORDS * 8)` -- entry index to byte offset.
 pub(crate) const CANVAS_DRAW_ENTRY_SHIFT: u32 = CANVAS_DRAW_ENTRY_WORDS.trailing_zeros() + 3;
@@ -1486,8 +1535,9 @@ pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
 /// `emit_picture_buffer` used to copy a picture's texels for every `Picture` item, so a
 /// tilemap of 2,000 tiles drawn from two images copied 2,000 images and counted them
 /// against the glyph region's cap. It now looks the image's block up here first and, on
-/// a hit, points the item at the texels already uploaded; `__canvas_metalRenderable`
-/// counts each distinct block once to match.
+/// a hit, points the item at the texels already uploaded; the pass walk
+/// (`__canvas_passNext`) counts each distinct block once a pass to match. The table is
+/// a PASS's: each pass is one call of the renderer, which starts it empty.
 ///
 /// Two parts, a record array and an open-addressed index over it:
 ///

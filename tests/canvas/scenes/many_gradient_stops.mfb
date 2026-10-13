@@ -1,0 +1,24 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+
+' bug-765: 44,000 rectangles, each filled with a three-stop gradient: 132,000 stops,
+' past the 131,072 one frame buffer's gradient region holds, in fewer items (44,000)
+' than its item region holds (65,536). So the frame is two passes long, and only the
+' gradient region decides where the first one ends.
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET stops AS List OF canvas::GradientStop = [canvas::GradientStop[offset := 0.0, color := color::rgb(255, 64, 32)], canvas::GradientStop[offset := 0.5, color := color::rgb(240, 240, 64)], canvas::GradientStop[offset := 1.0, color := color::rgb(32, 96, 255)]]
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  MUT scene AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < 44000
+    LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := vector::Float2[x := 0.0, y := 0.0], endPoint := vector::Float2[x := 4.0, y := 3.0], stops := stops, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+    LET r AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := toFloat((k MOD 220) * 4), y := toFloat((k / 220) * 3)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 3.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := ramp }, transform := none]
+    scene = collections::append(scene, r)
+    k = k + 1
+  END WHILE
+  canvas::present(scene)
+END FUNC

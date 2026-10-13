@@ -386,29 +386,81 @@ sends the frame down the readback path, and a FALSE from the readback makes
 [[src/codegen/builtins/canvas/helper_render.rs:__canvas_renderMetal]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_draw_scene]]
 
-**What a GPU backend declines is a frame too large for its buffers, never an ordinary
-shape.** Every per-frame payload travels in buffers whose regions are fixed in size, so
-each backend's predicate declines a frame that would overflow one of them. Metal and
-Vulkan have the same caps: more than 65,536
-item quads (a glyph is a quad of its own), more than 262,144 polygon edges summed over
-the frame, more than 131,072 gradient stops summed over the frame, more than 1,048,576
-dash words summed over the frame (a dashed item's dash tail plus one), or more than 8M
-picture-and-glyph texels (each distinct image counted once). A `PolyLine`'s segments
-count against the edge cap, one edge each, and a stroke's join records two each. There is no per-polygon
-edge limit: a polygon's edges are indexed by horizontal band when the frame is built,
-so a pixel tests only the edges that can reach it, and the result is identical to
-testing them all. The caps are defined once, in Rust, and generated into the MFBASIC
-predicates. So are the region bases the shaders read: Metal formats them into its
-shader source when it compiles it, and Vulkan's checked-in SPIR-V declares them as
-specialization constants that the pipeline sets from the same constants.
+**No scene size is a limit on a GPU backend: a frame that does not fit the frame buffer
+is drawn in passes.** Every per-item payload travels in one frame buffer whose regions
+are fixed in size, the same sizes on Metal and Vulkan: 65,536 item quads (a glyph is a
+quad of its own, and a blended item that both fills and strokes is two), 262,144
+polygon edges, 131,072 gradient stops, 1,048,576 dash words (a dashed item's dash tail
+plus one) and 8M picture-and-glyph texels (each distinct image counted once). A
+`PolyLine`'s segments take the edge region, one edge each, a curve shape's pieces two
+each, a stroke's join records two each and a path clip's edges one each. Those are the
+size of one PASS. A frame whose blocks fit is one pass, drawn as it always was. A
+frame whose blocks do not is drawn as consecutive runs of its draw list, each the
+longest run that fits every region, in paint order, into the same render target: the
+first pass clears the target and every later one loads it, each pass is submitted and
+waited for before the buffer is refilled for the next, and the frame is presented or
+read back once, after the last. A run ends between two blocks, never inside one, so an
+item's records are never in different passes; the rest of a draw entry cut by the end
+of a pass is an entry of the next pass with the same offset, matrix and blend mode. The
+tables an emitter keeps while it fills the buffer (the edge, gradient, dash and texel
+cursors, the band index, the table that points a second picture of one image at the
+texels already copied) start empty in each pass, so an image is copied once a pass,
+and a group's blocks that an earlier pass held are laid out again for a later use.
 [[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_metalRenderable]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_vulkanRenderable]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_blockCost]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_framePasses]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_passNext]]
 [[src/codegen/runtime/canvas/mod.rs:METAL_MAX_FRAME_ITEMS]]
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_MAX_FRAME_ITEMS]]
+
+**What a GPU backend declines is an item that does not fit a region by itself, never a
+frame for its size and never an ordinary shape.** A polygon of more edges than the edge
+region holds, one gradient of more stops than the gradient region, one image of more
+texels than the texel region or a `Text` of more glyphs than the item region fits no
+pass, and drawing it cut short would draw a different shape; the whole frame is then
+the software renderer's, and `gpuFrames=` does not count it. Each backend's gate
+(`__canvas_metalRenderable`, `__canvas_vulkanRenderable`) answers that question and
+whether the frame is one pass or several, from one sum of what each block takes of each
+region; the pass walk makes the same sum to find where a pass ends. There is no
+per-polygon edge limit below the region: a polygon's edges are indexed by horizontal
+band when the pass is built, so a pixel tests only the edges that can reach it, and the
+result is identical to testing them all. The region sizes are defined once, in Rust,
+and generated into the MFBASIC source. So are the region bases the shaders read: Metal
+formats them into its shader source when it compiles it, and Vulkan's checked-in SPIR-V
+declares them as specialization constants that the pipeline sets from the same
+constants, so drawing in passes rebuilds no pipeline.
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_metalRenderable]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_vulkanRenderable]]
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_SPEC_CONSTANTS]]
 [[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_band_index]]
+
+**A pass is told from a whole frame by one word of its draw list.** The emitters are
+handed a pass's blocks and draw entries as they are handed a frame's. Word 12 of the
+list's first entry says where it stands: bit 0, a pass of this frame was drawn before
+it; bit 1, a pass follows. A frame of one pass has 0 there. With bit 0 the target is
+loaded (`MTLLoadActionLoad`; on Vulkan a render pass with `loadOp = LOAD` entered in
+the layout the first pass left the image in, compatible with the pass the pipelines
+were built against) and, in a window on Windows, the swapchain image is the one the
+first pass acquired, which is held in the graphics state between passes. With bit 1
+the pass ends after the queue has finished it: nothing is read back, no drawable is
+taken, nothing is presented. So an intermediate pass never reaches the screen: on
+Metal every pass renders into the offscreen target and only the last takes the
+window's drawable, copies the target into it and presents; on Vulkan the acquired
+image is drawn into by every pass and reaches the window only through the one
+`vkQueuePresentKHR` of the last. A pass that fails (on Metal, a command buffer that
+did not complete; on Vulkan's present path, a submit or present the driver refused,
+which also gives up the held image) fails the frame: a direct present then draws the
+frame again down the readback path from its first pass, and a failed readback pass on
+Metal makes the frame a software frame. `blocks=`, `draws=` and `gpuFrames=` on the
+stats line describe the frame, not its passes.
+[[src/codegen/runtime/canvas/mod.rs:CANVAS_DRAW_PASS_WORD]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_renderMetal]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_renderVulkan]]
+[[src/target/macos_aarch64/app/metal.rs:emit_branch_if_more]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_load_render_pass]]
+[[src/codegen/runtime/canvas/vulkan_present.rs:emit_present_resume]]
+[[src/codegen/runtime/canvas/vulkan_present.rs:emit_submit_and_present]]
 
 **A `PolyLine` on either GPU reuses the polygon's edges and the gradient's stops.** Its
 segments upload through the polygon edge path and are banded the same way. The band
@@ -884,15 +936,16 @@ named, not embedded*).
 [[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
 
-On the GPU a picture's texels travel in the same per-frame buffer region as glyph
-coverage, one packed word per texel, and each item's block names its slice — so a
-frame's pictures and glyphs together are bounded by that region, and a frame that
-would overflow it is drawn in software instead. There is no texture object and nothing
-to free: the pixels are copied from the image's own storage while the frame is built.
-Both GPU backends copy each distinct image **once per frame**, however many `Picture`
-items name it — a tilemap of thousands of tiles drawn from a few images costs those few
-images — and their predicates count each distinct image once against the region's 8M
-texels.
+On the GPU a picture's texels travel in the same region of the frame buffer as glyph
+coverage, one packed word per texel, and each item's block names its slice — so the
+pictures and glyphs of one pass together are bounded by that region; a frame with more
+is drawn in more passes, and only an image of more texels than the region holds by
+itself sends its frame to software. There is no texture object and nothing to free: the
+pixels are copied from the image's own storage while the pass is built. Both GPU
+backends copy each distinct image **once per pass** (once per frame, for a frame of one
+pass), however many `Picture` items name it — a tilemap of thousands of tiles drawn
+from a few images costs those few images — and a block's cost counts each distinct
+image once a pass against the region's 8M texels.
 [[src/target/macos_aarch64/app/metal.rs:emit_picture_lookup]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_picture_lookup]]
 
@@ -942,8 +995,8 @@ nothing. The builder takes one of two paths, in header slot 51:
 **On the GPUs** the item block carries two `ivec4`s for it: `clipBand` at byte
 288 is a path clip's band header, the same shape as a polygon's in `arcCaps`, and
 `clipPath` at 304 is (first clip edge, clip edge count, mode | rule << 2, a picture's
-`T`). The clip's edges go into the frame's edge region after the item's own and count
-against the same per-frame edge cap, and they are banded by the same index builder
+`T`). The clip's edges go into the frame buffer's edge region after the item's own and count
+against the same region, one pass's, and they are banded by the same index builder
 with no stroke in the reach — a clip's coverage clamps at `|d| ≥ 0.5`. Each shader
 takes the clip's five samples at the same shape-space points as the shape's and divides
 by the clip's own gradient, as the oracle does. The clip's centre sample has the shape's
@@ -1300,9 +1353,10 @@ The chords come first, as one run, because a chord IS an edge to the band index:
 y-monotone piece's two ends are its whole y-range, so `emit_band_index` bands a curve
 shape as it bands a polygon and neither it nor the item block changed. The weight is
 fp32 bits because the shader's arithmetic on it is fp32 either way and a weight has no
-32,767 to stay under. Join records and dash words go where a polygon's go. Both
-predicates count `2 × pieces` against the frame's edge cap, with every other item's
-edges; a frame past it is the software renderer's.
+32,767 to stay under. Join records and dash words go where a polygon's go. A
+block's cost counts `2 × pieces` against the edge region, with every other item's
+edges; a pass ends before the region is passed, and a shape of more pieces than half
+the region is the software renderer's, with its frame.
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
 [[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL_TEMPLATE]]
@@ -1330,7 +1384,7 @@ A `Picture` inside a `CurvePolygon` spends both kinds of slot: its image's clip 
 outline flattened to straight edges, one slot each, and its outline is the curve, two a
 piece. A circle of four arcs flattens to 128, 256 and 504 edges at radius 50, 150 and
 400; the fourteen-piece rounded star of `tests/canvas/scenes/curves.mfb` to 182, 304 and
-564 at half, full and three times its size — against a cap of 262,144.
+564 at half, full and three times its size — against a region of 262,144 a pass.
 
 ### The two functions
 

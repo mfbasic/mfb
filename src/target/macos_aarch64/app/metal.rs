@@ -72,11 +72,12 @@ use crate::codegen::runtime::canvas::{
 };
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
-    CURVE_PIECE_SLOTS, EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_CURVEPOLYGON, GEO_KIND_PICTURE,
-    GEO_KIND_POLYCURVE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H,
-    GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
-    GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS,
-    HEADER_CAP, HEADER_FILL_R, HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND,
+    CANVAS_DRAW_PASS_CONTINUES, CANVAS_DRAW_PASS_MORE, CANVAS_DRAW_PASS_WORD, CURVE_PIECE_SLOTS,
+    EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_CURVEPOLYGON, GEO_KIND_PICTURE, GEO_KIND_POLYCURVE,
+    GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
+    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
+    GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP,
+    HEADER_FILL_R, HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND,
     HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
     HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SLOTS, HEADER_STROKE_HALF,
     HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC,
@@ -2732,6 +2733,9 @@ const MTL_GPU_OPTIMIZED_CONTENTS: &str = "0";
 /// exactly `(0, 0, 0, 1)` — so the two backends start from the same pixels without
 /// this having to name the colour twice.
 const MTL_LOAD_ACTION_CLEAR: &str = "2";
+/// `MTLLoadActionLoad`: keep what the target holds. bug-765: what every pass of a frame
+/// after its first asks for — the target holds the passes before it.
+const MTL_LOAD_ACTION_LOAD: &str = "1";
 /// `setClearColor:` — the colour `MTLLoadActionClear` clears the attachment to.
 ///
 /// Set explicitly rather than left to the default. `MTLRenderPassAttachmentDescriptor`
@@ -2764,7 +2768,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = OFF_DRAW_PAIR + 32;
+const DRAW_FRAME: usize = OFF_DRAW_PAIR + 48;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -2894,6 +2898,9 @@ const OFF_DRAW_COUNT: usize = OFF_TEXTURE + 200;
 /// it outgrew the eight-byte slot at `OFF_TEXTURE + 208` it had between `OFF_DRAW_COUNT`
 /// and `OFF_GLYPH_CURSOR`, which is free. It is the frame's last slot.
 const OFF_DRAW_PAIR: usize = OFF_TEXTURE + 320;
+/// bug-765: the list's pass word (`CANVAS_DRAW_PASS_WORD`), 0 for a frame of one pass.
+/// Past `OFF_DRAW_PAIR`; the eight bytes after it keep the frame a multiple of sixteen.
+const OFF_PASS: usize = OFF_DRAW_PAIR + 32;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -3017,6 +3024,25 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         abi::stack_pointer(),
         OFF_DRAW_ENTRIES,
     ));
+    // bug-765: the pass word, off the list's first entry. A list with no entry is a
+    // frame of one pass that draws nothing: the entry count `SCRATCH[0]` holds is the 0
+    // it stores. One scratch register, as everywhere before the arguments are parked.
+    {
+        let no_entry = format!("{METAL_DRAW_SYMBOL}_no_pass_word");
+        asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+        asm.push(abi::branch_eq(&no_entry));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::mfb_arg(7),
+            COLLECTION_HEADER_SIZE + CANVAS_DRAW_PASS_WORD * 8,
+        ));
+        asm.push(abi::label(&no_entry));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_PASS,
+        ));
+    }
     asm.push(abi::add_immediate(
         abi::SCRATCH[0],
         abi::mfb_arg(7),
@@ -3203,6 +3229,11 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_ne(&render_pass));
+    // bug-765: and only by the frame's LAST pass. A pass with more to come renders
+    // into the offscreen target and stops there, so the drawable is taken, copied into
+    // and presented by one pass, once the whole frame is in the target: no pass of a
+    // frame but its last ever names it.
+    emit_branch_if_more(&mut asm, &render_pass);
     // The layer must be configured (device, format, `framebufferOnly = NO`) and its
     // drawable must be this frame's size, or the whole-texture copy below — which
     // requires identical dimensions — is invalid. Both are layer PROPERTY changes, so
@@ -3296,15 +3327,51 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     ));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    for (setter, value) in [
-        (SEL_SET_LOAD_ACTION.0, MTL_LOAD_ACTION_CLEAR),
-        (SEL_SET_STORE_ACTION.0, MTL_STORE_ACTION_STORE),
-    ] {
-        asm.load_selector(setter);
-        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", value));
+    // bug-765: a frame's first pass clears the target; a later one loads it, because
+    // it holds the passes before. The selector lookup clobbers the scratch bank, so the
+    // action is chosen after it.
+    {
+        let cleared = format!("{METAL_DRAW_SYMBOL}_load_action");
+        asm.load_selector(SEL_SET_LOAD_ACTION.0);
+        asm.push(abi::move_immediate(
+            abi::c_arg(2),
+            "Integer",
+            MTL_LOAD_ACTION_CLEAR,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_PASS,
+        ));
+        asm.push(abi::move_immediate(
+            abi::SCRATCH[1],
+            "Integer",
+            &CANVAS_DRAW_PASS_CONTINUES.to_string(),
+        ));
+        asm.push(abi::and_registers(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            abi::SCRATCH[1],
+        ));
+        asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+        asm.push(abi::branch_eq(&cleared));
+        asm.push(abi::move_immediate(
+            abi::c_arg(2),
+            "Integer",
+            MTL_LOAD_ACTION_LOAD,
+        ));
+        asm.push(abi::label(&cleared));
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
     }
+    asm.load_selector(SEL_SET_STORE_ACTION.0);
+    asm.push(abi::move_immediate(
+        abi::c_arg(2),
+        "Integer",
+        MTL_STORE_ACTION_STORE,
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
 
     // [attachment setClearColor:MTLClearColorMake(0, 0, 0, 1)] — opaque black, the
     // colour `canvas::newSurface` fills and the colour the Vulkan clear value carries.
@@ -3640,6 +3707,8 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_ne(&submit));
+    // bug-765: a pass with more to come has no drawable and copies nothing.
+    emit_branch_if_more(&mut asm, &submit);
     // target = [drawable texture]
     asm.load_selector(SEL_TEXTURE.0);
     asm.push(abi::load_u64(
@@ -3710,6 +3779,40 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         &MTL_COMMAND_BUFFER_STATUS_COMPLETED.to_string(),
     ));
     asm.push(abi::branch_ne(&release_pool));
+    // bug-765: a pass with more to come is done here, and says so: its part of the
+    // frame is in the target, and the frame buffer may be refilled for the next pass.
+    // It answers 1 only past the status check above, so a pass the GPU did not finish
+    // answers 0 like a frame it did not finish (bug-1024), and the caller stops the
+    // frame there: nothing is read back or presented from a target that holds some of
+    // a frame's passes and not the rest.
+    {
+        let last = format!("{METAL_DRAW_SYMBOL}_last_pass");
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_PASS,
+        ));
+        asm.push(abi::move_immediate(
+            abi::SCRATCH[1],
+            "Integer",
+            &CANVAS_DRAW_PASS_MORE.to_string(),
+        ));
+        asm.push(abi::and_registers(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            abi::SCRATCH[1],
+        ));
+        asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+        asm.push(abi::branch_eq(&last));
+        asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_PRESENTED,
+        ));
+        asm.push(abi::branch(&release_pool));
+        asm.push(abi::label(&last));
+    }
     // The frame is finished: read back, below — or, for a direct present, presented,
     // unless `direct_failed` cleared the drawable to say the copy never happened.
     asm.push(abi::load_u64(
@@ -3869,6 +3972,8 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_ne(&show_done));
+    // bug-765: a pass with more to come presented nothing, so it shows nothing.
+    emit_branch_if_more(&mut asm, &show_done);
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -3922,6 +4027,29 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         instructions: asm.ins,
         relocations: asm.rel,
     }
+}
+
+/// bug-765: branch to `target` when the list being drawn is a pass with more of its
+/// frame to come (`CANVAS_DRAW_PASS_MORE` in `OFF_PASS`). Clobbers `SCRATCH[0]` and
+/// `SCRATCH[1]`.
+fn emit_branch_if_more(asm: &mut Asm, target: &str) {
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_PASS,
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        &CANVAS_DRAW_PASS_MORE.to_string(),
+    ));
+    asm.push(abi::and_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(target));
 }
 
 /// bug-686 Phase 4 (graphics thread): `int _mfb_macapp_metal_layer_sync(int show)`.
@@ -5007,12 +5135,13 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
 /// through `[[instance_id]]`, which includes the draw's `baseInstance:`.
 ///
 /// **The cursor counts quads, not scene items.** A shape is one, a glyph run is one per
-/// glyph. That is the same number `__canvas_metalRenderable` sums against
+/// glyph. That is the same number `__canvas_blockCost` sums against
 /// `METAL_MAX_FRAME_ITEMS`, so the two cannot disagree about what "full" means.
 ///
-/// Branches to `full` without writing or advancing when the frame is at capacity —
-/// unreachable, because the predicate already declined such a scene to software, and
-/// kept because the alternative is a write past the buffer.
+/// Branches to `full` without writing or advancing when the buffer is at capacity —
+/// unreachable, because the pass walk ends a pass before it (`__canvas_passNext`,
+/// bug-765) and a block that fits no pass sends the frame to software, and kept because
+/// the alternative is a write past the buffer.
 ///
 /// No `objc_msgSend` happens here, so the scratch bank is safe across it.
 fn emit_item_publish(asm: &mut Asm, full: &str) {
@@ -6430,9 +6559,10 @@ fn emit_join_buffer(asm: &mut Asm) {
         &METAL_MAX_FRAME_EDGES.to_string(),
     ));
     asm.push(abi::branch_le(&copy));
-    // Unreachable: `__canvas_metalRenderable` counts two edges per record and declines
-    // a frame whose total does not fit. Kept because the alternative is a write past the
-    // buffer; dropping the records draws the corners round, not a wrong shape.
+    // Unreachable: `__canvas_blockCost` counts two edges per record, and the pass walk
+    // ends a pass before its total passes the region (bug-765). Kept because the
+    // alternative is a write past the buffer; dropping the records draws the corners
+    // round, not a wrong shape.
     asm.push(abi::branch(&none));
 
     asm.push(abi::label(&copy));
@@ -6691,10 +6821,10 @@ fn emit_edge_buffer(asm: &mut Asm) {
     // longer polygon, so it drew nothing; nothing in the transport needs it since
     // plan-116-A moved the edges into this region.
     //
-    // Would this polygon's edges fit the frame's region? Unreachable —
-    // `__canvas_metalRenderable` declines a frame whose polygons sum past
-    // `METAL_MAX_FRAME_EDGES`, so the whole scene went to software. Kept because the
-    // alternative to declining is a write past the buffer.
+    // Would this polygon's edges fit the buffer's region? Unreachable — the pass walk
+    // (`__canvas_passNext`, bug-765) ends a pass before its polygons sum past
+    // `METAL_MAX_FRAME_EDGES`, and a polygon past it alone sends the whole frame to
+    // software. Kept because the alternative is a write past the buffer.
     asm.push(abi::load_u64(
         abi::SCRATCH[5],
         abi::stack_pointer(),
@@ -7720,8 +7850,9 @@ mod tests {
     /// `MTLCommandBufferStatusCompleted`, and nothing has stored "presented" by then.
     ///
     /// That is the answer `direct_failed` gives, by the same means: the answer is the
-    /// `OFF_PRESENTED` slot, zeroed at entry and set to 1 only on the two paths below
-    /// this branch. So the caller declines the frame and software draws it.
+    /// `OFF_PRESENTED` slot, zeroed at entry and set to 1 only on the three paths below
+    /// this branch (a pass with more to come, the present, the readback). So the caller
+    /// declines the frame and software draws it.
     #[test]
     fn a_buffer_that_did_not_complete_reports_the_frame_not_drawn() {
         let func = emit_metal_draw();
@@ -7755,11 +7886,15 @@ mod tests {
             })
             .collect();
         let after: Vec<usize> = stores.iter().copied().filter(|at| *at > send).collect();
+        // bug-765: three since a frame can be several passes. A pass with more of its
+        // frame to come also answers 1, and it too only below the status branch, so a
+        // pass the GPU did not finish stops the frame as an unfinished frame does.
         assert_eq!(
             (stores.len(), after.len()),
-            (3, 2),
-            "one store clears the answer at entry and two set it, one for the present \
-             and one for the readback, both after the status branch: {stores:?}"
+            (4, 3),
+            "one store clears the answer at entry and three set it, one for a pass \
+             with more to come, one for the present and one for the readback, all \
+             after the status branch: {stores:?}"
         );
     }
 
@@ -7861,6 +7996,7 @@ mod tests {
             (OFF_DRAW_BASE, 8, "drawBase"),
             (OFF_DRAW_COUNT, 8, "drawCount"),
             (OFF_DRAW_PAIR, 32, "drawPair"),
+            (OFF_PASS, 8, "pass"),
             (OFF_GLYPH_CURSOR, 8, "glyphCursor"),
             (OFF_DASH_CURSOR, 8, "dashCursor"),
             (OFF_PIC_COUNT, 8, "picCount"),
