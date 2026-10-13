@@ -157,6 +157,46 @@ fn example_containing(member: &str, needle: &str) -> String {
     format!("{}\n", code.join("\n").trim())
 }
 
+/// plan-150-C: the two `canvas::ParticleSystem` examples, which between them build every
+/// one of the five particle types by name -- `ParticleSystem`, `Emission`, `Motion`,
+/// `Appearance`, and both variants of `EmissionMode`. Like the `AutoPaint` example they
+/// are on `canvas::present`, and are found by what they contain.
+#[test]
+fn the_particle_system_examples_compile() {
+    for (name, needle, types) in [
+        (
+            "fountain",
+            "canvas::EmissionMode.Continuous",
+            &["canvas::ParticleSystem[", "canvas::Emission[", "canvas::Motion", "canvas::Appearance["][..],
+        ),
+        (
+            "firework",
+            "canvas::EmissionMode.Burst",
+            &["canvas::ParticleSystem[", "canvas::Emission", "canvas::Motion", "canvas::Appearance["][..],
+        ),
+    ] {
+        let source = example_containing("present", needle);
+        assert!(source.contains("FUNC main() AS Nothing"), "{source}");
+        for ty in types {
+            assert!(source.contains(ty), "the {name} example does not name {ty}:\n{source}");
+        }
+        let project = common::temp_project(&format!("canvas_ex_particles_{name}"), &source);
+        let output = Command::new(common::mfb_exe())
+            .arg("build")
+            .arg("-app")
+            .arg(&project)
+            .output()
+            .expect("run mfb build -app");
+        let _ = fs::remove_dir_all(&project);
+        assert!(
+            output.status.success(),
+            "the canvas::ParticleSystem {name} example does not compile:\n{source}\n{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
 /// plan-172-K: the `canvas::AutoPaint` example. A record has no man page of its own to
 /// carry one, so it is on `canvas::present` — the call an `AutoPaint` is handed to —
 /// and it is not that page's FIRST example, which is the only one the test above

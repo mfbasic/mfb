@@ -128,6 +128,72 @@ FUNC main() AS Nothing
   canvas::present([item])
 END FUNC
 ```
+
+A fountain of sparks: one `canvas::ParticleSystem`, drawn as up to 200 particles. The
+system is the shape to copy (`item`), the shape to scatter the copies over (`emitter`,
+here a short line), and three records saying how many there are (`canvas::Emission`),
+how they move (`canvas::Motion`) and how they look as they age (`canvas::Appearance`).
+Nothing moves by itself. The loop is what animates it: each frame it adds the time since
+the last one to a clock and presents the system again with that clock as its `time`:
+
+```
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT math
+IMPORT vector
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT dot AS canvas::Circle
+  LET spark AS canvas::AutoShape = WITH dot { radius := 3.0, paint := canvas::fill(color::rgb(255, 255, 255)) }
+  MUT spout AS canvas::Line
+  LET emitter AS canvas::Shape = WITH spout { startAt := vector::Float2[x := 0.0 - 20.0, y := 0.0], endAt := vector::Float2[x := 20.0, y := 0.0] }
+  LET emission AS canvas::Emission = canvas::Emission[mode := canvas::EmissionMode.Continuous, maxParticles := 200, rate := 100.0, burst := 0, burstPeriod := 0.0, lifetime := 2.0, lifetimeVar := 0.2]
+  MUT still AS canvas::Motion
+  LET motion AS canvas::Motion = WITH still { speed := 260.0, speedVar := 0.2, angle := 0.0 - math::pi / 2.0, spread := 0.3, gravityY := 300.0 }
+  LET look AS canvas::Appearance = canvas::Appearance[startColor := color::rgb(255, 230, 120), endColor := color::rgba(255, 60, 0, 0), startScale := 1.0, endScale := 0.4, scaleVar := 0.2]
+
+  MUT clock AS Float = 0.0
+  MUT frame AS Integer = 0
+  WHILE frame < 120
+    LET stats AS canvas::FrameStats = canvas::getFrameStats()
+    clock = clock + math::min(stats.dt, 0.1)
+    LET fountain AS canvas::DrawItem = canvas::ParticleSystem[position := vector::Float2[x := 450.0, y := 500.0], item := spark, emitter := emitter, emission := emission, motion := motion, appearance := look, seed := 1, time := clock]
+    canvas::present([fountain])
+    canvas::waitFrame()
+    frame = frame + 1
+  END WHILE
+END FUNC
+```
+
+A firework: the other `canvas::EmissionMode`. `Burst` releases `burst` particles
+together, here from a single point — a `canvas::Circle` of radius `0.0` — in every
+direction (`spread := math::pi`). This draws the burst as it is 0.8 seconds after it
+went off; the same `seed` and `time` always draw the same picture, so this is a still:
+
+```
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT math
+IMPORT vector
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT dot AS canvas::Circle
+  LET spark AS canvas::AutoShape = WITH dot { radius := 3.0, paint := canvas::fill(color::rgb(255, 255, 255)) }
+  LET point AS canvas::Shape = dot
+  MUT none AS canvas::Emission
+  LET emission AS canvas::Emission = WITH none { mode := canvas::EmissionMode.Burst, maxParticles := 150, burst := 150, lifetime := 2.0, lifetimeVar := 0.3 }
+  MUT still AS canvas::Motion
+  LET motion AS canvas::Motion = WITH still { speed := 180.0, speedVar := 0.5, spread := math::pi, gravityY := 120.0, drag := 0.8 }
+  LET look AS canvas::Appearance = canvas::Appearance[startColor := color::rgb(255, 255, 255), endColor := color::rgba(120, 220, 255, 0), startScale := 1.0, endScale := 0.3, scaleVar := 0.0]
+  LET firework AS canvas::DrawItem = canvas::ParticleSystem[position := vector::Float2[x := 450.0, y := 300.0], item := spark, emitter := point, emission := emission, motion := motion, appearance := look, seed := 7, time := 0.8]
+
+  canvas::present([firework])
+END FUNC
+```
 "#;
 
 /// Publish, then render only if the publish actually changed anything.

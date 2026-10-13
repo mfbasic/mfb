@@ -247,7 +247,7 @@ row below preserves the developer-visible fact.
 | "Consumed by the call — the handle is moved and unusable afterward." | "Closed by this call; the handle cannot be used again." |
 | "The value is consumed by the call." | "This call closes the handle." |
 
-### 4.4 The three carve-outs
+### 4.4 The carve-outs
 
 1. **Arithmetic borrow.** `datetime` normalization legitimately borrows a
    second ("a negative nanos value borrows a second") — 15 rendered lines, and
@@ -260,7 +260,18 @@ row below preserves the developer-visible fact.
    `ErrOutOfMemory`'s is "Allocation failed.", so the banned word appears in a
    cell no page author can edit; changing it changes program output. This is
    carve-out 2 in `--memory-scope`, reported separately.
-3. **`mfb spec` and `.ai/**` are untouched.** The spec's §14 memory model is
+3. **A particle's lifetime** (carve-out 6 in `--memory-scope`; owner's decision,
+   2026-10-13). `canvas::Emission.lifetime` and `lifetimeVar` are fields — the seconds a
+   particle of a `canvas::ParticleSystem` lives — and `ErrCanvasParticleLifetime` is
+   the error for a bad one. The banned word is an API name the canvas pages cannot
+   avoid, and it is no more a memory claim than datetime's `borrow`. Only the word is
+   carved, and only on the `canvas` pages and the `errorCode` overview (which prints
+   that error's message): a line that still trips the ban with every `lifetime` taken
+   out of it is a hit. When this was added no canvas page used the word any other way
+   (0 unclassified hits before the fields existed); **do not use it for how long an
+   image, a font or a scene stays valid** — say "until you close it" — because on
+   these pages the census can no longer catch that.
+4. **`mfb spec` and `.ai/**` are untouched.** The spec's §14 memory model is
    the precise language contract and needs its precise words. The ban covers
    the `mfb man` surface only. **If a man page needs that much precision, that
    is the signal it is saying too much** — cut it and link `mfb man variable`.

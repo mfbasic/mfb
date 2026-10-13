@@ -403,7 +403,7 @@ mode_topics() {
 # Both are classified and counted separately, never silently dropped.
 mode_memory_scope() {
 	local pkgs=("$@")
-	local pkg fn hits carve=0 carve2=0 carve3=0 carve4=0 unclassified=0
+	local pkg fn hits carve=0 carve2=0 carve3=0 carve4=0 carve6=0 unclassified=0
 
 	# Carve-out 3 applies here too: the generated optimizer-catalog rows trip the
 	# memory ban ("lifetimes", "frees", "allocation") exactly as they trip the
@@ -441,6 +441,18 @@ mode_memory_scope() {
 				printf '%s' "$body" | grep -qE '^│ *(CString|CPtr) *│'; then
 				carve4=$((carve4 + 1))
 				printf 'CARVE-4  %-28s %5s  %s\n' "$label" "$n" "$body"
+			# Carve-out 6 (plan-150-C, owner's decision 2026-10-13): a PARTICLE's
+			# lifetime. `canvas::Emission.lifetime` and `lifetimeVar` are fields -- the
+			# seconds a particle of a `canvas::ParticleSystem` lives -- and
+			# `ErrCanvasParticleLifetime` is the error for a bad one, so the banned
+			# word is an API name the canvas pages cannot avoid, and the `errorCode`
+			# overview prints that error's message. Not a memory claim, in the way
+			# datetime's `borrow` is not. Only the word itself is carved: a line that
+			# still trips the ban with every `lifetime` taken out of it is a hit.
+			elif { [ "$pkg" = canvas ] || [ "$pkg" = errorCode ]; } &&
+				! printf '%s' "$body" | sed -E 's/[Ll]ifetimes?//g' | grep -qiE "$(banned_regex)"; then
+				carve6=$((carve6 + 1))
+				printf 'CARVE-6  %-28s %5s  %s\n' "$label" "$n" "$body"
 			else
 				unclassified=$((unclassified + 1))
 				printf 'HIT      %-28s %5s  %s\n' "$label" "$n" "$body"
@@ -472,6 +484,7 @@ mode_memory_scope() {
 	printf 'carve-out 2 (derived Errors-table row): %d\n' "$carve2"
 	printf 'carve-out 3 (generated optimizer-catalog row): %d\n' "$carve3"
 	printf 'carve-out 4 (link C-ABI type row): %d\n' "$carve4"
+	printf 'carve-out 6 (canvas particle lifetime): %d\n' "$carve6"
 	[ "$unclassified" -eq 0 ]
 }
 

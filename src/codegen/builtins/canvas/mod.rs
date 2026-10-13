@@ -1591,7 +1591,10 @@ pub(crate) fn register(r: &mut Registry) {
                       A particle is never under the mouse: it is not reported by \
                       `canvas::MouseEvent.overID` and hides nothing beneath it from \
                       the mouse, and a `canvas::AutoPaint` used as `item` is drawn \
-                      with its shape's own paint. A system has no `id`, no `paint` \
+                      with its shape's own paint. A particle is a shape: a \
+                      `canvas::Picture`, a `canvas::Group` or another \
+                      `ParticleSystem` cannot be `item`, and is refused when the \
+                      program is built. A system has no `id`, no `paint` \
                       and no `transform` of its own. A group the system is in moves \
                       and turns all of it. A `ParticleSystem` has no default value — \
                       it holds a shape — so every field is written out. What a system \
@@ -1798,15 +1801,15 @@ pub(crate) fn register(r: &mut Registry) {
                 ty: ParameterType::Float,
                 description: "The direction a particle starts in, in radians, \
                               measured clockwise from +X as a `canvas::Arc`'s angles \
-                              are: `0.0` is right, `math::PI / 2.0` is down, \
-                              `0.0 - math::PI / 2.0` is up.",
+                              are: `0.0` is right, `math::pi / 2.0` is down, \
+                              `0.0 - math::pi / 2.0` is up.",
             },
             RecordProp {
                 name: "spread",
                 ty: ParameterType::Float,
                 description: "How far either side of `angle` a particle may start, in \
                               radians. `0.0` sends every particle the same way; \
-                              `math::PI` sends them in every direction.",
+                              `math::pi` sends them in every direction.",
             },
             RecordProp {
                 name: "gravityX",
