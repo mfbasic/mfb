@@ -519,6 +519,7 @@ Commit: —
    maps entries to ids by scene index: `__canvas_hitAppend`). **Recommendation: leave
    `id` out of `G` and out of `A`, and fold it into `D` only**, so renaming an item
    costs no geometry and still counts as a change for damage.
+   **DECIDED by the owner, 2026-10-12:** no. `id` is only meant for mouse feedback; it is in neither `G` nor `A`.
 2. **A `refreshes=` stats field.** Without it a test cannot tell "refreshed" from "hit".
    **Recommendation: yes**, cumulative like `generations=`.
 3. **The order of the remaining work.** §8 lists three costs larger than the one this
@@ -526,6 +527,7 @@ Commit: —
    because it is the largest cost on the Mac and no part of this plan touches it; and
    treat §8.2 (the Intel draw) as its own bug, because the 30 fps goal on box 206 is
    out of reach until it moves.
+   **DECIDED by the owner, 2026-10-12:** yes, as recommended: the worker's copy and compare (§8.1) comes before this plan's Phase 2.
 4. **Should bug-765's goal keep "every supported real GPU"?** At 1.4 µs a circle the
    UHD 630 needs 140 ms to draw 100,000. **Recommendation: keep the goal for Metal, and
    set box 206's from what §8.2 can reach** once that is measured.
