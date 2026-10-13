@@ -271,9 +271,12 @@ ordering is never exercised at all.
 ### A reference captured without `MFB_CANVAS_SYNC` silently loses its TEXT
 
 A canvas harness that sets `MFB_CANVAS_DUMP` must also set `MFB_CANVAS_SYNC=1`, and must
-build the program with `--debug` (`common::build_app_debug`): since plan-130-E the dump
-and `MFB_CANVAS_STATS` readers exist only in a `--debug` build, so a normal build writes no
-file and the harness reads nothing.
+build the program with `--debug` (`common::build_app_debug`): the dump and
+`MFB_CANVAS_STATS` readers exist only in a `--debug` build (so do `MFB_CANVAS_DAMAGE`,
+`MFB_CANVAS_DISPLAY_HZ`, `MFB_CANVAS_FRAME_HOLD_MS` and `MFB_CANVAS_GLYPH_BUDGET`), so a
+normal build writes no file and the harness reads nothing.
+A normal build reads only `MFB_HEADLESS`, `MFB_CANVAS_GPU`, `MFB_CANVAS_SYNC` and
+`MFB_MOUSE_INJECT` (`mfb spec tooling debug-report`).
 Without it the process tears down while the graphics thread is still reading the
 scene: the geometry survives (the ring holds a published copy) but a `canvas::Font`'s
 outlines do not, because they live in the worker's per-thread arena

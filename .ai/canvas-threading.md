@@ -170,7 +170,7 @@ the arena handed out. The whole-block form never once reported "unchanged".
 The intermediate scene is **skipped**, and that is correct — it was never on screen
 and nothing observed it. The redraw signal is a flag, not a counter, so two presents
 between frames produce one frame. A test that needs one frame per present must set
-`MFB_CANVAS_SYNC` (§10).
+`MFB_CANVAS_SYNC` (§11).
 
 ## 4. Redraw triggers
 
@@ -716,8 +716,13 @@ that tests a row against an edge's end uses it. `scenes/vertex_on_a_pixel_row.mf
 
 ## 11. Test affordances
 
-A set of environment variables, all off by default and none on the production
-path:
+A set of environment variables. A normal build reads only `MFB_HEADLESS` and
+`MFB_CANVAS_GPU`; every other variable below is read by a `--debug` build only —
+the name and the reader are both absent from a normal build's binary, so a test that
+sets one builds with `--debug`. The canonical list is `mfb spec tooling debug-report`.
+The canvas ones are `RegistryHelper::debug_split` pairs (`TEST_SWITCHES` /
+`TEST_SWITCHES_DEBUG` in `helper_render.rs`, `DAMAGE_SWITCH` / `DAMAGE_SWITCH_DEBUG` in
+`helper_damage.rs`, `GLYPH_BUDGET` / `GLYPH_BUDGET_DEBUG` in `helper_glyph_cache.rs`).
 
 * `MFB_CANVAS_AUTO_WINDOW_MS` — **a `--debug` build only**: the length of an
   `AutoPaint`'s enter and exit windows, in place of the project's
@@ -727,7 +732,7 @@ path:
   and reads the sequence off the stats lines' `auto=` field — the paint each instance
   of the frame shows, one digit each: 0 own, 1 enter, 2 exit, 3 hover, 4 pressed.
 
-* `MFB_CANVAS_POINTER_X` / `MFB_CANVAS_POINTER_Y` — GTK and Windows, headless: after the
+* `MFB_CANVAS_POINTER_X` / `MFB_CANVAS_POINTER_Y` — **a `--debug` build only**; GTK and Windows, headless: after the
   first completed frame, call the platform's own pointer callback once with that
   position. It runs AFTER the scripted resize, and that order matters: "inside" is
   asked of the published surface size, and a headless run has none (0 by 0, everything
@@ -758,7 +763,7 @@ path:
   And with an `AutoPaint` live the render loop wakes for each script entry by itself
   (`__canvas_pointerNextDue`), so a script needs no `present` to be applied.
 
-* `MFB_CANVAS_RESIZE_W` / `MFB_CANVAS_RESIZE_H` — in a headless run, wait for the
+* `MFB_CANVAS_RESIZE_W` / `MFB_CANVAS_RESIZE_H` — **a `--debug` build only**; in a headless run, wait for the
   first completed frame and then resize the surface to these dimensions, by calling
   the same handler the platform's resize signal calls. A resize is a *window* event,
   and until box 2226's GNOME Wayland session no reachable Linux box had a display
@@ -770,7 +775,8 @@ path:
   Two variables rather than one `WxH` string because parsing a separator in
   hand-written assembly buys nothing over `atoi`.
 
-  `term::` has the Windows twin, `MFB_WINAPP_TERM_RESIZE_W`/`_H` (bug-540): client
+  `term::` has the Windows twin, `MFB_WINAPP_TERM_RESIZE_W`/`_H` (bug-540, also
+  `--debug` only): client
   pixels handed to the `WM_SIZE` handler once `term::on` has built the surface —
   see `mfb spec app term-backend`, "Windows: GDI memDC". Note that the program under test has
   to still be alive — with `MFB_CANVAS_SYNC=1` the worker returns from `main` the
@@ -812,7 +818,8 @@ path:
   the delta between frames. It is also the **only** window onto either cache: both live
   in globals owned by the graphics thread, so a program asking from `main` asks the
   worker, whose copies are its own and always empty (§1).
-* `MFB_CANVAS_GLYPH_BUDGET` — shrink the glyph coverage cache's byte budget (default
+* `MFB_CANVAS_GLYPH_BUDGET` — **a `--debug` build only**; a normal build's budget is
+  always 1 MiB. Shrink the glyph coverage cache's byte budget (default
   1 MiB), so a test can force eviction with a scene small enough to also check pixel by
   pixel. Resolved once and cached, so the ordinary path is a compare against a global
   rather than a `getenv` per glyph.
@@ -845,9 +852,9 @@ counter, the worker only ever writes the acknowledgement. A single read-and-clea
 would need one, because a resize landing between a reader's load and its store would be
 lost — on the one path whose entire job is to report edges.
 
-* `MFB_CANVAS_DAMAGE` — repaint only what changed: keep the previous frame's pixels,
+* `MFB_CANVAS_DAMAGE` — **a `--debug` build only**; repaint only what changed: keep the previous frame's pixels,
   clear the union of the changed items' bounds, and redraw only the items that meet it.
-  Off by default. It changes no pixels — that is what `tests/canvas/rt_canvas_damage.rs`
+  Off by default, and always off in a normal build. It changes no pixels — that is what `tests/canvas/rt_canvas_damage.rs`
   asserts, byte for byte — but it does change *when* the renderer runs at all, and a
   frame counter that silently stops advancing is the kind of thing a stale test reads as
   a pass.
@@ -857,14 +864,15 @@ lost — on the one path whose entire job is to report edges.
   (§3.1's frame skip), so the *empty* damage union only fires on a platform wake — a resize
   or an OS damage repaint. And the GPU backends always render full-frame: they draw into
   their own texture and read it back, so there is no kept surface for them to preserve.
-* `MFB_CANVAS_SYNC` — make `present` wait for the frame it asked for. Frames coalesce
+* `MFB_CANVAS_SYNC` — **read by every build** (so is `MFB_MOUSE_INJECT`; `tools/canvas-bench`
+  measures release builds with both); make `present` wait for the frame it asked for. Frames coalesce
   by design (§3), so frame counts are otherwise a scheduling detail — the same
   three-present program was observed producing one, two and three frames. Any
   frame-level assertion needs this. **Any non-empty value enables it** —
   `MFB_CANVAS_SYNC=0` is ON (`__canvas_ensureGraphics` tests the length), which is how a
   "pipelined" measurement in bug-686 silently ran serialized. Leave it unset to pipeline.
 
-* `MFB_CANVAS_DISPLAY_HZ` — pin the display refresh rate the runtime reports
+* `MFB_CANVAS_DISPLAY_HZ` — **a `--debug` build only**; pin the display refresh rate the runtime reports
   (plan-155-A), in whole hertz. Stored ×1000 into `GRAPHICS_OFFSET_DISPLAY_OVERRIDE`
   by `__canvas_ensureGraphics`, and it wins over the rate the main thread publishes,
   which it never overwrites (a separate word). It exists because a headless run has no
@@ -884,10 +892,10 @@ A fourth selects the renderer rather than observing it:
 And a fifth is not about the renderer at all, but is what makes any of this
 observable on Linux:
 
-* `MFB_GTKAPP_HEADLESS` — run the app without GTK. The twin of
-  `MFB_MACAPP_HEADLESS` / `MFB_WINAPP_HEADLESS`, and structurally different from
-  both: macOS builds its window and merely skips showing it, keeping the AppKit run
-  loop, whereas `gtk_init` fails outright with "Failed to open display", so
+* `MFB_HEADLESS` — run the app without a window; read in every build, by the macOS,
+  GTK and Windows bootstraps alike. On Linux it means running without GTK, and it is
+  structurally different from the macOS path: macOS builds its window and merely skips
+  showing it, keeping the AppKit run loop, whereas `gtk_init` fails outright with "Failed to open display", so
   `activate` never fires and the worker — spawned from `activate` — never starts.
   The Linux gate therefore skips GTK entirely, spawns the worker from the
   bootstrap, and parks.
@@ -901,8 +909,8 @@ observable on Linux:
 ### `MFB_CANVAS_FRAME_HOLD_MS` — hold the graphics thread inside a frame
 
 Milliseconds to sleep in `__canvas_renderFrame`, immediately after
-`__canvas_sceneOffsets` has built the draw list. Unset or `0` is off, and it is off the
-production path like the four above.
+`__canvas_sceneOffsets` has built the draw list. Unset or `0` is off, and it is a
+`--debug` build only like the others.
 
 **It exists because nothing else here produces "graphics mid-frame."** The two proven
 mid-render rows (R5, R7) reach it through `MFB_CANVAS_RESIZE_W`/`_H` firing while the
