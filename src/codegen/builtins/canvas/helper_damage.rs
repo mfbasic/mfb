@@ -96,7 +96,9 @@ END FUNC"#;
 /// **Every case it cannot compare is a full frame**, and the list is short because each
 /// entry is a place where a partial redraw would be *wrong* rather than merely
 /// suboptimal: no kept surface, a different surface size, a different item count, and
-/// damage switched off. That asymmetry is deliberate — a wrong full frame does not
+/// damage switched off. (plan-150-B: a frame holding a `canvas::ParticleSystem` is
+/// compared by unit instead — a system is one unit — because its item count is its live
+/// particles and changes every frame; `helper_particles.rs:DAMAGE`.) That asymmetry is deliberate — a wrong full frame does not
 /// exist, and a wrong partial frame is a stale rectangle nobody will notice until it is
 /// on screen.
 #[rustfmt::skip]
@@ -114,6 +116,13 @@ FUNC __canvas_damageFor(hashes AS List OF Integer, offsets AS List OF Integer, w
   END IF
   IF __CANVAS_KEPT_W <> width OR __CANVAS_KEPT_H <> height THEN
     RETURN __canvas_damageFull(width, height)
+  END IF
+  ' plan-150-B: a frame that expanded a particle system is diffed by UNIT -- the system
+  ' one unit, whatever its live count -- or the count test below would make it a full
+  ' frame nearly every time (`helper_particles.rs`). Never taken by a frame without
+  ' one, which is diffed entry by entry exactly as it always was.
+  IF __canvas_particleFramed() THEN
+    RETURN __canvas_particleDamage(hashes, offsets, width, height)
   END IF
   LET count AS Integer = len(offsets)
   IF len(__CANVAS_LAST_HASHES) <> count THEN
@@ -252,6 +261,11 @@ FUNC __canvas_rememberScene(hashes AS List OF Integer, offsets AS List OF Intege
   ' of a 10,000-item Metal frame (bug-686). The mode is resolved once, so a frame cannot
   ' find the lists stale because an earlier one skipped them.
   IF NOT __canvas_damageEnabled() THEN
+    RETURN
+  END IF
+  ' plan-150-B: by unit, for a frame that expanded a particle system.
+  IF __canvas_particleFramed() THEN
+    __canvas_particleRemember(hashes, offsets)
     RETURN
   END IF
   ' plan-116-G section 4.6: the bounds recorded are the ones the item was DRAWN at, so

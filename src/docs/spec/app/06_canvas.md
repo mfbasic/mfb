@@ -1755,10 +1755,9 @@ tie.
 
 `__canvas_appendDraw`'s `ParticleSystem` arm (`__canvas_particleAppend`) loops the
 slots — the pool, or the burst when that is smaller — and sends each live particle back
-through `__canvas_appendDraw` as the shape it is. Every particle is therefore an entry
-of `__CANVAS_DRAW_HASHES`, `_DX`, `_DY` and `_MAT` like any other, resolved through the
-geometry cache under its own hash; the enclosing groups' offset and matrix pass
-through. Nothing that reads those lists changes, and no shader, pipeline, binding or
+through the walk as the shape it is. Every particle is therefore an entry of
+`__CANVAS_DRAW_HASHES`, `_DX`, `_DY` and `_MAT` like any other, its record built by the
+builders every item's is; the enclosing groups' offset and matrix pass through. Nothing that reads those lists changes, and no shader, pipeline, binding or
 buffer layout knows a particle from any other item. The depth stop is silent, as
 `Group`'s is.
 
@@ -1768,10 +1767,63 @@ buffer layout knows a particle from any other item. The depth stop is silent, as
 | `__canvas_sceneDrawsWalk` | its blocks are its entries in the frame, as a two-entry `Picture`'s are |
 | `__canvas_memoGroup` | as a group's child, one block per live particle in that group's shared run (`__canvas_particleBlocks`) |
 | `__canvas_hitAppend` | nothing: a particle is never hit (*Hit-testing*) |
+| the damage diff (`--debug`, `MFB_CANVAS_DAMAGE`) | one unit, whatever its live count — below |
 | `__canvas_groupSignature` | adds nothing; raises for a lifetime of zero or less |
 | `canvas::itemHash`, `canvas::carriedHashes` | not hashed natively (its `item` is a union field) and never carried; `__canvas_particleSystemHash` folds every field, the template's and the emitter's hashes and `time` |
 | `canvas::sceneIdBits` | sets no bit: it has no `id` and nothing in it is reported |
 | `__canvas_listNamesFont`, `__canvas_closeRetired` | a `Text` template or emitter names its font |
+
+### A plain particle's record is not cached
+
+The geometry cache earns nothing from a particle: each has a hash of its own and a new
+one next frame, so every one was a lookup that missed, a slot, an index entry, and a
+slot dropped at the next frame boundary, for a record read once. A particle the native
+builder takes (`canvas::geoBuild`: no transform in effect, no gradient — every particle
+that is neither turned nor scaled) is therefore built and appended straight to
+`__CANVAS_GEO_DATA`, and its offset used, with no slot and no index entry
+(`__canvas_particleRecord`). [[src/codegen/builtins/canvas/helper_particles.rs:DRAW]]
+
+The offset is good for the frame by the rule every offset is: no float of that list
+moves or is dropped inside a frame. `canvas::geoBeginFrame` is the one place that does,
+at the top of the next; it counts as stale every float no slot used, and the pass that
+keeps the used slots drops those with the rest.
+[[src/codegen/builtins/canvas/func_geo_cache.rs:lower_geo_begin_frame]] So the stats
+line's `entries=` does not count such particles and `floats=` does until the boundary.
+
+A particle the native builder declines — turned, scaled, a gradient fill, a `Text` —
+goes through the cache as any item does, a slot a particle. A system that is a group's
+child builds its uncached records a second time for the group's GPU run
+(`__canvas_particleBlocks`).
+
+Measured (Apple M2 Max, Metal, headless, the least of 120 frames): 10,000 plain
+particles 23.1 ms a frame before and 20.6 after; 50,000, 112 and 95. What is left of a
+plain particle's frame is the model (about 0.7 µs), the item built and hashed (1.2 µs)
+and the record's own build (0.2 µs). A draw entry per particle — the template's one
+record under a per-particle matrix — was measured instead and not taken: about 1.9 µs a
+draw on Metal against 0.5 for a block of an instanced draw, which is what it would have
+saved.
+
+### Damage takes a system as one unit
+
+The damage diff pairs a frame's draw entries with the last frame's by index and answers
+a full frame when the two counts differ. A system's entries are its live particles, so
+a stream filling its pool changes the count on nearly every frame: measured on a static
+background and one system, 28 of 30 frames were full redraws. A frame that expanded a
+system is therefore diffed by unit instead. Each system is one unit — its hash folded
+from its entries' hashes after their count, its rectangle the union of their
+`__canvas_drawBound`, each through its own group offset and matrix — and every other
+entry is a unit by itself, with the hash and the rectangle it always had. The number of
+units is the scene's structure, so the frames line up, and a system that changed
+damages where its particles were and where they are. The same scene then redraws
+partially on 29 of 30 frames, and the picture those leave is the full redraw's exactly.
+[[src/codegen/builtins/canvas/helper_particles.rs:DAMAGE]]
+
+The walk notes each system's span of entries as it expands it (a system with nothing
+alive is a span of none, so it is still a unit), `__canvas_sceneOffsets` assigns the
+spans to the scene index being walked, and after `canvas::sceneLayout` they are carried
+to the frame's final entries. None of it runs unless damage is on, which only a
+`--debug` build can be, and a frame that expanded no system takes the entry diff
+untouched. [[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_FOR]]
 
 ### What `present` refuses
 
@@ -1790,7 +1842,7 @@ an error: `maxParticles ≤ 0`, a `Continuous` system with `rate ≤ 0`, a `Burs
 
 The model, the expansion and the hooks are one chunk injected when the program
 constructs a `ParticleSystem` (`HelperGate::WhenUsedOrConstructed`); a program that
-constructs none gets `ABSENT`, the same five names with bodies that are a constant or
+constructs none gets `ABSENT`, the same eleven names with bodies that are a constant or
 the argument handed back, and a test holds the two declare them alike. The record holds
 a union field, so it has no default value and constructing one is the only way to hold
 one. [[src/codegen/builtins/canvas/helper_particles.rs:ABSENT]]

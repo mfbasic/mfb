@@ -1248,3 +1248,182 @@ fn sixty_frames_follow_the_programs_clock() {
     let entries: u32 = stat(last, "entries=").parse().expect("entries=");
     assert!(entries <= 100, "the cache kept dead particles: {last}");
 }
+
+// ---- Damage (plan-150-B Phase 3) -------------------------------------------------------
+
+/// A steady stream in the lower right quarter of the surface, over a background that
+/// never changes, presented thirty times with `time` advanced. The number of live
+/// particles differs on nearly every frame — the pool fills over the first 0.9 s — which
+/// is what used to make every frame a full redraw.
+const STREAM_OVER_BACKGROUND: &str = "  LET background AS canvas::DrawItem = box(0.0, 0.0, 900.0, 640.0, canvas::fill(color::rgb(20, 30, 60)), none())\n  MUT lip AS canvas::Line\n  LET emitter AS canvas::Shape = WITH lip { startAt := at(0.0 - 40.0, 0.0), endAt := at(40.0, 0.0) }\n  MUT emission AS canvas::Emission\n  MUT motion AS canvas::Motion\n  MUT frame AS Integer = 0\n  WHILE frame < 30\n    LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(700.0, 520.0), item := disc(3.0, canvas::fill(color::rgb(255, 200, 80))), emitter := emitter, emission := WITH emission { maxParticles := 60, rate := 40.0, lifetime := 0.9 }, motion := WITH motion { speed := 120.0, angle := 0.0 - 1.5707963267948966, spread := 0.5, gravityY := 200.0 }, appearance := look(white(), color::rgba(255, 255, 255, 60), 1.0), seed := 3, time := toFloat(frame) / 30.0]\n    canvas::present([background, ps])\n    frame = frame + 1\n  END WHILE\n";
+
+/// The damage rectangle of a stats line, as (x, y, width, height); `None` for `none`.
+fn damage(line: &str) -> Option<(u32, u32, u32, u32)> {
+    let text = stat(line, "damage=");
+    if text == "none" {
+        return None;
+    }
+    let parts: Vec<u32> = text.split(',').map(|p| p.parse().expect("damage")).collect();
+    Some((parts[0], parts[1], parts[2], parts[3]))
+}
+
+/// **Under `MFB_CANVAS_DAMAGE`, a moving particle system repaints where it moved.** A
+/// system is one unit of the damage diff, whatever its live count, so after the first
+/// frame every frame is a partial redraw whose rectangle lies inside the quarter of the
+/// surface the particles are in — and the picture it leaves is, pixel for pixel, the
+/// picture a full redraw of the same scene makes.
+#[test]
+fn damage_of_a_system_is_bounded_by_its_particles() {
+    let (partial, stats) = draw(
+        "canvas_particle_damage",
+        &scene(STREAM_OVER_BACKGROUND),
+        &[("MFB_CANVAS_DAMAGE", "1")],
+    );
+    assert_eq!(stats.len(), 30, "one frame per present");
+    let entries: Vec<String> = stats.iter().map(|l| stat(l, "blocks=")).collect();
+    let mut distinct = entries.clone();
+    distinct.sort();
+    distinct.dedup();
+    assert!(
+        distinct.len() > 10,
+        "the live count was meant to change from frame to frame: {entries:?}"
+    );
+    assert_eq!(damage(&stats[0]), Some((0, 0, 900, 640)), "the first frame is full");
+    for (frame, line) in stats.iter().enumerate().skip(1) {
+        // A frame where nothing is alive yet and nothing was has no damage at all.
+        let Some((x, y, w, h)) = damage(line) else {
+            continue;
+        };
+        assert!(
+            x >= 450 && y >= 320 && x + w <= 900 && y + h <= 640 && (w < 450 && h < 320),
+            "frame {frame} damaged ({x}, {y}) {w}x{h}, outside the particles' quarter: {line}"
+        );
+    }
+    assert_eq!(stat(stats.last().expect("a frame"), "partial="), "29");
+
+    let (full, _) = draw("canvas_particle_damage_off", &scene(STREAM_OVER_BACKGROUND), &[]);
+    assert!(lit(&full).0 > 500_000, "the background fills the surface");
+    if let Err(diff) = compare_exact(&partial, &full) {
+        panic!("thirty partial redraws left a different picture from a full one: {diff}");
+    }
+}
+
+/// A scene of ordinary items beside a system still diffs item by item: moving one small
+/// rectangle far from the system damages that rectangle's two places and nothing of the
+/// system, whose particles did not move.
+#[test]
+fn damage_of_an_item_beside_a_system_is_the_items() {
+    let body = "  MUT ring AS canvas::Circle\n  LET emitter AS canvas::Shape = WITH ring { radius := 40.0 }\n  MUT motion AS canvas::Motion\n  MUT emission AS canvas::Emission\n  LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(700.0, 500.0), item := disc(3.0, canvas::fill(white())), emitter := emitter, emission := WITH emission { mode := canvas::EmissionMode.Burst, maxParticles := 50, burst := 50, lifetime := 10.0 }, motion := motion, appearance := look(white(), white(), 1.0), seed := 8, time := 1.0]\n  LET first AS canvas::DrawItem = box(40.0, 40.0, 30.0, 20.0, canvas::fill(color::rgb(255, 0, 0)), none())\n  LET moved AS canvas::DrawItem = box(100.0, 60.0, 30.0, 20.0, canvas::fill(color::rgb(255, 0, 0)), none())\n  LET after AS canvas::DrawItem = box(300.0, 300.0, 10.0, 10.0, canvas::fill(color::rgb(0, 0, 255)), none())\n  canvas::present([first, ps, after])\n  canvas::present([moved, ps, after])\n";
+    let (_, stats) = draw(
+        "canvas_particle_damage_beside",
+        &scene(body),
+        &[("MFB_CANVAS_DAMAGE", "1")],
+    );
+    assert_eq!(stats.len(), 2);
+    let (x, y, w, h) = damage(&stats[1]).expect("the rectangle moved");
+    assert!(
+        x >= 38 && y >= 38 && x + w <= 133 && y + h <= 83,
+        "moving a rectangle damaged ({x}, {y}) {w}x{h}: {}",
+        stats[1]
+    );
+}
+
+// ---- The uncached record (plan-150-B Phase 2) ------------------------------------------
+
+/// Ten ordinary items in the left half of the surface and, in the right half, a system of
+/// 1,000 particles that are neither turned nor scaled, presented `FRAMES` times with
+/// `time` advanced. `WITH_SYSTEM` is replaced by TRUE or FALSE.
+const MIXED: &str = "  MUT items AS List OF canvas::DrawItem = []\n  MUT i AS Integer = 0\n  WHILE i < 10\n    LET item AS canvas::DrawItem = box(20.0 + toFloat(i) * 40.0, 60.0 + toFloat(i) * 50.0, 30.0, 30.0, canvas::fillStroke(color::rgb(200, 40 + i * 20, 90), white(), 2.0), none())\n    items = collections::append(items, item)\n    i = i + 1\n  END WHILE\n  MUT ring AS canvas::Circle\n  LET emitter AS canvas::Shape = WITH ring { radius := 150.0 }\n  MUT motion AS canvas::Motion\n  MUT emission AS canvas::Emission\n  MUT frame AS Integer = 0\n  WHILE frame < FRAMES\n    MUT scene AS List OF canvas::DrawItem = items\n    IF WITH_SYSTEM THEN\n      LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(680.0, 320.0), item := disc(2.0, canvas::fill(color::rgb(90, 220, 255))), emitter := emitter, emission := WITH emission { mode := canvas::EmissionMode.Burst, maxParticles := 1000, burst := 1000, lifetime := 100.0 }, motion := WITH motion { speed := 15.0, spread := 3.2 }, appearance := look(white(), white(), 1.0), seed := 12, time := toFloat(frame) / 30.0]\n      scene = collections::append(scene, ps)\n    END IF\n    canvas::present(scene)\n    frame = frame + 1\n  END WHILE\n";
+
+/// **A plain particle's record is not cached.** A thousand particles that are neither
+/// turned nor scaled are a thousand blocks of the frame and not one entry of the
+/// geometry cache — which holds the ten ordinary items and nothing else — and the
+/// floats the cache's arena holds do not grow with the frames: what one frame's
+/// particles took is dropped at the next frame boundary with everything else unused.
+#[test]
+fn a_plain_particles_record_is_not_cached() {
+    let body = MIXED.replace("FRAMES", "12").replace("WITH_SYSTEM", "TRUE");
+    let (_, stats) = draw(
+        "canvas_particle_uncached",
+        &scene(&body),
+        &[("MFB_CANVAS_GPU", "1")],
+    );
+    assert_eq!(stats.len(), 12);
+    let last = stats.last().expect("a frame");
+    assert_eq!(stat(last, "entries="), "10", "{last}");
+    if last.contains("metalReady=TRUE") || last.contains("vulkanReady=TRUE") {
+        assert_eq!(stat(last, "blocks="), "1010", "{last}");
+        assert_eq!(stat(last, "gpuFrames="), "12", "{last}");
+    }
+    let floats: Vec<u64> = stats
+        .iter()
+        .map(|line| stat(line, "floats=").parse().expect("floats="))
+        .collect();
+    // One frame's particles are about 70,000 floats. The arena may hold two frames'
+    // worth before a boundary drops the older; it may not hold twelve.
+    let most = *floats.iter().max().expect("frames");
+    assert!(most < 250_000, "the arena grew with the frames: {floats:?}");
+    assert!(
+        floats[11] <= floats[5] + 1000,
+        "the arena is still growing at the twelfth frame: {floats:?}"
+    );
+}
+
+/// **The ordinary items are untouched by the system beside them.** The ten items draw
+/// the same pixels with a thousand particles in the scene as without: the left half of
+/// the surface, where the items are, is identical, and the right half is where every
+/// particle is.
+#[test]
+fn ordinary_items_draw_the_same_beside_a_system() {
+    let (with, _) = draw(
+        "canvas_particle_mixed_with",
+        &scene(&MIXED.replace("FRAMES", "3").replace("WITH_SYSTEM", "TRUE")),
+        &[],
+    );
+    let (without, _) = draw(
+        "canvas_particle_mixed_without",
+        &scene(&MIXED.replace("FRAMES", "3").replace("WITH_SYSTEM", "FALSE")),
+        &[],
+    );
+    let mut items = 0;
+    let mut particles = 0;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let a = pixel(&with, x, y);
+            let b = pixel(&without, x, y);
+            if x < 450 {
+                assert_eq!(a, b, "an ordinary item's pixel moved at ({x}, {y})");
+                if b != [0, 0, 0, 255] {
+                    items += 1;
+                }
+            } else {
+                assert_eq!(b, [0, 0, 0, 255], "an item reached the right half");
+                if a != [0, 0, 0, 255] {
+                    particles += 1;
+                }
+            }
+        }
+    }
+    assert!(items > 8_000, "{items} item pixels");
+    assert!(particles > 5_000, "{particles} particle pixels");
+}
+
+/// A `Text` particle is still a cached record: the native builder does not take text,
+/// so a text particle goes the way every text item does — through the glyph run, with
+/// its glyphs pinned by the slot the cache stamps for this frame. Forty text particles
+/// are forty entries, every one drawn.
+#[test]
+fn a_text_particles_record_is_still_cached_and_its_glyphs_drawn() {
+    let (frame, stats) = draw(
+        "canvas_particle_text_cached",
+        &scene(
+            "  RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    RETURN\n  END TRAP\n  LET label AS canvas::AutoShape = canvas::Text[id := \"\", position := at(0.0, 0.0), text := \"AB\", font := face, fontSize := 30.0, paint := canvas::fill(white()), transform := none()]\n  MUT lip AS canvas::Line\n  LET emitter AS canvas::Shape = WITH lip { startAt := at(0.0 - 400.0, 0.0), endAt := at(360.0, 0.0) }\n  MUT motion AS canvas::Motion\n  MUT emission AS canvas::Emission\n  LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(450.0, 320.0), item := label, emitter := emitter, emission := WITH emission { mode := canvas::EmissionMode.Burst, maxParticles := 40, burst := 40, lifetime := 10.0 }, motion := WITH motion { speed := 200.0, spread := 3.2 }, appearance := look(white(), white(), 1.0), seed := 5, time := 1.0]\n  canvas::present([ps])\n",
+        ),
+        &[],
+    );
+    let last = stats.last().expect("a frame");
+    assert_eq!(stat(last, "entries="), "40", "{last}");
+    // Two 9 px squares a particle; they overlap, but forty particles are far more ink
+    // than a few.
+    assert!(lit(&frame).0 > 2_500, "{} lit pixels", lit(&frame).0);
+}

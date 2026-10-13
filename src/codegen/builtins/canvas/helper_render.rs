@@ -938,6 +938,9 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
   __CANVAS_DRAW_HASHES = []
   __CANVAS_DRAW_MAT = []
   __CANVAS_GROUP_ROWS = []
+  ' plan-150-B: and the particle systems the last frame's walk noted for the damage
+  ' diff (`helper_particles.rs`; nothing in a program that constructs none).
+  __canvas_particleBegin()
   MUT side AS List OF Integer = []
   MUT spans AS List OF Integer = []
   MUT several AS Boolean = FALSE
@@ -957,6 +960,8 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
         LET item AS DrawItem = collections::getOr(__CANVAS_FRAME_ITEMS, i, none)
         LET before AS Integer = len(side)
         side = __canvas_appendDraw(side, item, collections::getOr(__CANVAS_FRAME_HASHES, i, 0), 0.0, 0.0, 0, 0, 0, i)
+        ' plan-150-B: any particle system that walk expanded belongs to this index.
+        __canvas_particleOwned(i, before)
         spans = collections::append(spans, i)
         spans = collections::append(spans, before)
         spans = collections::append(spans, len(side) - before)
@@ -989,6 +994,8 @@ FUNC __canvas_sceneOffsets() AS List OF Integer
   ' Pass 3, native: the frame's draw entries in scene order -- one per resolved index,
   ' the span for each other -- replacing the `__CANVAS_DRAW_*` globals.
   LET offsets AS List OF Integer = canvas::sceneLayout(spans, side)
+  ' plan-150-B: where each of those systems' entries landed in the laid-out frame.
+  __canvas_particleLayout(spans)
   __canvas_geoVerifyFrame(pending)
   ' plan-172-K: every `AutoPaint` the walk noted is given its state for this frame, and
   ' an entry showing a state paint is swapped for that paint's record -- in the list

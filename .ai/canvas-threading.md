@@ -1367,6 +1367,18 @@ Lifetime rules, and why:
   hit to the MFBASIC walk, whose `__canvas_pictureCached` confirms the record against
   the image's current pixel block (§17).
 
+* **A record may be in the arena without a slot** (plan-150-B). A particle that is
+  neither turned nor scaled is built by `canvas::geoBuild` and appended straight to
+  `__CANVAS_GEO_DATA` — no lookup, no slot, no index entry
+  (`helper_particles.rs:__canvas_particleRecord`) — because a particle's hash is its own
+  and new every frame, so the cache only ever missed on it. Nothing new protects that
+  offset: it is the first rule above. `canvas::geoBeginFrame` computes stale as "every
+  float no slot used", so an unslotted record is stale at the next boundary and is
+  dropped by the pass that keeps the used slots. Two things follow for whoever touches
+  the arena next: **a float is not necessarily owned by a slot**, so nothing may walk
+  the arena by slots and assume it saw every float; and `entries=` on the stats line
+  undercounts a particle scene's records while `floats=` does not.
+
 The worker computes the hashes in `canvas::present`: `canvas::carriedHashes` (native,
 taken BEFORE `publishScene` replaces the installed scene) carries the installed hash of
 every item whose payload bytes are unchanged, and only the rest are hashed. Byte equality
