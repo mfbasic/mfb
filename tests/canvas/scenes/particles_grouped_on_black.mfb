@@ -10,9 +10,15 @@
 '   right   the same group, only moved
 '
 ' The group holds a dark panel, then a ring of 240 small outlined rectangles -- each
-' turned at its own angle, growing and brightening with age, 0.75 s into a steady
-' stream -- then a bar drawn over them. The panel and the bar are what show that the
-' particles sit between the group's other items, in order, in both uses.
+' turned at its own angle, growing and paling from pink to its own orange with age,
+' 0.75 s into a steady stream -- then a bar drawn over them. The panel and the bar are
+' what show that the particles sit between the group's other items, in order, in both
+' uses.
+'
+' The particles are opaque on purpose. A scene of translucent ones is mostly blended
+' pixels, each free to land a level from the oracle's: with a fade from alpha 110 this
+' scene measured 1.97% of the surface differing on two Vulkan drivers, against a budget
+' of 2%.
 
 IMPORT app
 IMPORT canvas
@@ -36,7 +42,7 @@ FUNC swarm(time AS Float) AS canvas::DrawItem
   LET ring AS canvas::Shape = canvas::Circle[id := "", position := at(0.0, 0.0), radius := 90.0, paint := canvas::fill(color::rgb(0, 0, 0)), transform := none()]
   LET emission AS canvas::Emission = canvas::Emission[mode := canvas::EmissionMode.Continuous, maxParticles := 240, rate := 400.0, burst := 0, burstPeriod := 0.0, lifetime := 0.6, lifetimeVar := 0.0]
   LET motion AS canvas::Motion = canvas::Motion[speed := 12.0, speedVar := 0.5, angle := 0.0, spread := 3.141592653589793, gravityX := 0.0, gravityY := 0.0, drag := 0.0, rotation := 0.0, rotationVar := 3.141592653589793, spin := 1.5, spinVar := 0.0, turbulence := 0.0, turbulenceHz := 0.0]
-  LET appearance AS canvas::Appearance = canvas::Appearance[startColor := color::rgba(255, 255, 255, 110), endColor := color::rgb(255, 255, 255), startScale := 0.6, endScale := 1.6, scaleVar := 0.2]
+  LET appearance AS canvas::Appearance = canvas::Appearance[startColor := color::rgb(255, 120, 200), endColor := color::rgb(255, 255, 255), startScale := 0.6, endScale := 1.6, scaleVar := 0.2]
   LET system AS canvas::DrawItem = canvas::ParticleSystem[position := at(0.0, 0.0), item := chip, emitter := ring, emission := emission, motion := motion, appearance := appearance, seed := 150, time := time]
   RETURN system
 END FUNC

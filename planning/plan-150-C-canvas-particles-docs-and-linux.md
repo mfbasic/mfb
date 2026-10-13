@@ -35,10 +35,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-150-B complete and archived | `ls planning/plan-150-B-*` → no matches, and `ls planning/completed/plan-150-B-*` → present | NOT MET (2026-10-11) |
-| The measured cost table exists in letter B | `grep -c 'particles/frame' planning/completed/plan-150-B-*.md` → ≥1 | NOT MET (2026-10-11) |
-| A Linux box with a Vulkan device is reachable | `scripts/test-canvas-vulkan.sh` defaults to `--box 2228` (Ubuntu x86_64 glibc); probe per `.ai/remote_systems.md` | UNVERIFIED — check first |
-| The Windows box is reachable | `.ai/remote_systems.md`: 192.168.1.206, the only Windows box and the only real GPU | UNVERIFIED — check first |
+| plan-150-B complete and archived | `ls planning/plan-150-B-*` → no matches, and `ls planning/completed/plan-150-B-*` → present | MET (2026-10-13: no matches; `planning/completed/plan-150-B-canvas-particles-cost-and-damage.md`) |
+| The measured cost table exists in letter B | `grep -c 'particles/frame' planning/completed/plan-150-B-*.md` → ≥1 | MET (2026-10-13: 4) |
+| A Linux box with a Vulkan device is reachable | `scripts/test-canvas-vulkan.sh` defaults to `--box 2228` (Ubuntu x86_64 glibc); probe per `.ai/remote_systems.md` | MET, on a different box (2026-10-13): 2228 is not running (`ssh -p 2228 test@127.0.0.1` → "Connection refused", as are 2227 and 2225). **Box 2226** (Debian 12 aarch64, glibc) is up and reports one device: `ssh -p 2226 … vulkaninfo --summary` → `deviceName = llvmpipe (LLVM 15.0.6, 128 bits)`, `driverInfo = Mesa 22.3.6`, `apiVersion = 1.3.230`, `deviceType = PHYSICAL_DEVICE_TYPE_CPU`. The script takes `--box 2226 --target linux-aarch64`. Corrections 1 |
+| The Windows box is reachable | `.ai/remote_systems.md`: 192.168.1.206, the only Windows box and the only real GPU | MET (2026-10-13: `ssh test@192.168.1.206 ver` → "Microsoft Windows [Version 10.0.26200.9457]") |
 
 If plan-150-B is not complete, this letter cannot start, full stop.
 
@@ -150,23 +150,44 @@ compile-gated examples.
 
 ### Phase 1 — Vulkan parity (the phase that can fail)
 
-- [ ] Extend `scripts/test-canvas-vulkan.sh` with the fireworks scene letter A
+- [x] Extend `scripts/test-canvas-vulkan.sh` with the fireworks scene letter A
       goldened, rendered twice — `MFB_CANVAS_GPU=1` and software — and compared with
       the existing tolerance comparator. Add the same scene inside a turned, scaled
-      group: the draw-entry matrix is the newest thing either backend reads.
-- [ ] Run it on a real Linux host with a Vulkan device. The script ships an AppImage
+      group: the draw-entry matrix is the newest thing either backend reads. —
+      `particle_scene`, run for `particles_on_black` and `particles_grouped_on_black`
+      (the scene files the Rust suites include). It also holds the software render to
+      `tests/golden/canvas/particles.png` EXACTLY, which no plan asked for and is the
+      determinism claim measured on a second platform.
+- [x] Run it on a real Linux host with a Vulkan device. The script ships an AppImage
       and takes `<mfb-exe> [--box <port>] [--target …] [--libc glibc|musl] [--icd …]`,
       defaulting to box 2228 (Ubuntu x86_64 glibc). The `--libc` must match the box —
       musl's loader absorbs the glibc compat sonames, so shipping the wrong one does not
       fail cleanly. `.ai/remote_systems.md` says **re-probe, do not assume**. Confirm the
-      box reports a Vulkan device before reading a pass as meaningful.
-- [ ] Run `scripts/test-canvas-gpu-rows.sh <mfb-exe> --target windows-x86_64` against
+      box reports a Vulkan device before reading a pass as meaningful. — on box 2226
+      (the prerequisite row: llvmpipe, a conformant Vulkan 1.3 driver on the CPU, not a
+      hardware GPU). `bash scripts/test-canvas-vulkan.sh target/debug/mfb --box 2226
+      --target linux-aarch64` → "canvas Vulkan runtime tests passed", with
+      `ok: particles: the scene reached the GPU (gpuFrames non-zero)`,
+      `ok: particles: the software render reproduces tests/golden/canvas/particles.png exactly`,
+      `ok: particles: the Vulkan render matches the software oracle (ok worst=2 differing=0.7295%)`
+      and the same three for the grouped scene (no reference; `differing=1.9771%`
+      before Corrections 2, 0.8363% after).
+- [x] Run `scripts/test-canvas-gpu-rows.sh <mfb-exe> --target windows-x86_64` against
       the Windows box and confirm the particle scene's row reports `gpuFrames` non-zero.
-- [ ] Confirm `git status --porcelain src/codegen/runtime/canvas/shaders/` is empty —
-      no `.frag`, `.vert`, or `.spv` diff.
-- [ ] If a comparison fails: **root-cause it, do not re-baseline.** A mismatch means
+      — `… --target windows-x86_64 --rows particles,particlesgroup` on box 206 (Intel
+      UHD 630): `ok: particles: drawn on Vulkan (gpuFrames=1)`, `Vulkan matches the
+      software oracle (ok worst=2 differing=0.7510%, 18953 lit)`; `particlesgroup`
+      `gpuFrames=1`, `differing=0.8698%`; `geoVerifyMismatches=0` on all four runs. The
+      two rows only: the other 58 rows are not this plan's, and the full table runs in
+      the final gate's company, not here.
+- [x] Confirm `git status --porcelain src/codegen/runtime/canvas/shaders/` is empty —
+      no `.frag`, `.vert`, or `.spv` diff. — empty; and `git diff main --stat --
+      src/codegen/runtime/ src/target/` is empty: no file of the runtime emitters or of
+      any target differs from `main`.
+- [x] ~~If a comparison fails: **root-cause it, do not re-baseline.** A mismatch means
       the item composition in letter A Phase 4 is wrong on one backend; localize from
-      the reported coordinate, fix, and record it in letter A's Corrections section.
+      the reported coordinate, fix, and record it in letter A's Corrections section.~~
+      — moot: no comparison failed, on either lane (the six `ok:` lines above).
 
 Acceptance: the particle scene renders on Vulkan within `Tolerance::GPU_DEFAULT` of the
 software oracle on a Linux host reporting a Vulkan device and on the Windows box, and
@@ -175,6 +196,9 @@ both `.spv` blobs are unchanged.
   guess — longer than 10 because it builds on a remote box; no smaller check exists,
   since the whole question is whether a real Vulkan driver agrees with the oracle), and
   the Windows row above (est. 15 min, guess).
+  Result (2026-10-13): met on box 2226 and box 206, as recorded on the task lines; both
+  `.spv` blobs unchanged. Metal re-run after Corrections 2: `cargo test --test
+  rt_canvas_metal particle` → "2 passed; 0 failed".
 Commit: —
 
 ### Phase 2 — Manual entries
@@ -265,7 +289,20 @@ Commit: —
 
 ## Corrections
 
-<Filled in DURING execution.>
+1. **The Linux lane ran on box 2226, not 2228** (2026-10-13). 2228 (Ubuntu x86_64) was
+   not running; 2226 (Debian 12 aarch64) was, and is a box both scripts already name.
+   Its Vulkan device is Mesa's llvmpipe — a real driver and a real `.spv` consumer, on
+   a CPU. So the claim "the particle scene renders on Vulkan" rests on two independent
+   drivers, llvmpipe and Intel's, and on one hardware GPU, the Windows box's. An x86_64
+   Linux run is not part of the evidence.
+2. **The grouped scene was at the edge of the budget, and was changed before it was
+   relied on** (2026-10-13). With particles fading in from alpha 110 it measured
+   1.9771% of pixels differing on llvmpipe and 1.9668% on Intel, against
+   `Tolerance::GPU_DEFAULT`'s 2% — passing, on two drivers, by a hair. Nothing was
+   wrong: no pixel was more than 2 levels off; the scene was simply almost all blended
+   pixels. A row that close fails on the next driver for no reason, so the particles
+   were made opaque (the tint is now a colour ramp): 0.8363% and 0.8698%, Metal still
+   within tolerance. The scene has no stored reference, so nothing was re-baselined.
 
 ## Summary
 

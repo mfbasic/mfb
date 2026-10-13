@@ -738,6 +738,91 @@ case "$verdict" in
     edge upload or the band reach (the radius slot)." ;;
 esac
 
+# ---------------------------------------------------------------------------------
+# plan-150-C: `canvas::ParticleSystem` on the GPU.
+#
+# The design's claim is that a particle is an ordinary item by the time a backend sees
+# it, so Vulkan draws a particle scene with the shaders it already had -- neither `.spv`
+# is touched by plan-150. plan-150-A proved that on Metal; this is the same proof on a
+# Vulkan driver. Two scenes, both read from `tests/canvas/scenes/` (the files the Rust
+# suites include):
+#
+#   particles          a burst of scaled, tinted discs and a stream of turned, stroked
+#                      rectangles in the scene itself -- `tests/golden/canvas/particles.png`
+#   particles_grouped  a system that is a GROUP's child, the group drawn through a
+#                      turned, scaled node and through a moved one: its particles are
+#                      blocks of the group's shared run, placed per use by the matrix in
+#                      the draw entry, the newest thing either backend reads
+#
+# The first is also held to its checked-in reference EXACTLY in software. That is the
+# feature's other claim, measured on a second platform: every particle is a closed form
+# of `(seed, time)` computed with the package's own sine, cosine and exponential, so the
+# picture made on macOS is the picture made here, to the bit.
+particle_scene() { # particle_scene <tag> <scene file> <reference png or ''>
+  local tag="$1" scene="$2" reference="$3"
+  local projs="$work/$tag" remotes="$remote/$tag"
+  echo "--- $tag: building for $TARGET ---"
+  mkdir -p "$projs/src"
+  sed "s/\"name\": \"vkcanvas\"/\"name\": \"vk$tag\"/" "$proj/project.json" > "$projs/project.json"
+  cp "tests/canvas/scenes/$scene.mfb" "$projs/src/main.mfb"
+  if ! grep -q "canvas::ParticleSystem" "$projs/src/main.mfb"; then
+    fail "$tag: tests/canvas/scenes/$scene.mfb holds no canvas::ParticleSystem"
+    return
+  fi
+  "$MFB_EXE" build --app --debug --target "$TARGET" "$projs" >/dev/null
+
+  remote_ssh "$PORT" "$host" "mkdir -p $remotes"
+  remote_scp "$PORT" "$projs/build/vk$tag-$LIBC.AppImage" "$host:$remotes/app.AppImage" >/dev/null
+  echo "--- $tag: running on box $PORT ---"
+  remote_ssh "$PORT" "$host" "
+    set -e
+    cd $remotes
+    ./app.AppImage --appimage-extract >/dev/null 2>&1
+    cd squashfs-root
+    bin=./usr/bin/vk$tag
+    $icd_env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remotes/sw.txt \
+      MFB_CANVAS_DUMP=$remotes/sw.rgba timeout 180 \$bin >/dev/null 2>&1
+    $icd_env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remotes/gpu.txt \
+      MFB_CANVAS_DUMP=$remotes/gpu.rgba timeout 180 \$bin >/dev/null 2>&1
+  "
+  remote_scp "$PORT" "$host:$remotes/sw.rgba" "$work/$tag-sw.rgba" >/dev/null
+  remote_scp "$PORT" "$host:$remotes/gpu.rgba" "$work/$tag-gpu.rgba" >/dev/null
+  remote_scp "$PORT" "$host:$remotes/gpu.txt" "$work/$tag-gpu.txt" >/dev/null
+
+  local stats verdict
+  stats="$(tail -1 "$work/$tag-gpu.txt")"
+  echo "    $stats"
+  # A declined frame is the software renderer against itself: the frame count first.
+  case "$stats" in
+    *gpuFrames=0*) fail "$tag: the scene produced no GPU frame -- __canvas_vulkanRenderable declined it" ;;
+    *) pass "$tag: the scene reached the GPU (gpuFrames non-zero)" ;;
+  esac
+
+  if [ -n "$reference" ]; then
+    png_to_rgba "$reference" "$work/$tag-ref.rgba"
+    verdict="$(compare "$work/$tag-ref.rgba" "$work/$tag-sw.rgba" 900)"
+    if [ "$verdict" = "ok worst=0 differing=0.0000%" ]; then
+      pass "$tag: the software render reproduces $reference exactly"
+    else
+      fail "$tag: the software render is not $reference to the bit ($verdict) -- a particle's place is a closed form of (seed, time) and must not depend on the platform; look for a libm call in the model"
+    fi
+  fi
+
+  verdict="$(compare "$work/$tag-sw.rgba" "$work/$tag-gpu.rgba" 900)"
+  case "$verdict" in
+    ok*) pass "$tag: the Vulkan render matches the software oracle ($verdict)" ;;
+    *)   fail "$tag: the Vulkan render disagrees with the software oracle: $verdict
+    Do NOT regenerate the SPIR-V: the blobs being untouched is the evidence that the
+    design held. A particle is a shape with a position, a transform and a paint, so a
+    wrong picture here is the composition of those in
+    src/codegen/builtins/canvas/helper_particles.rs (__canvas_particleCompose,
+    __canvas_particleItem) and will be wrong on Metal too under some scene." ;;
+  esac
+}
+
+particle_scene particles particles_on_black "tests/golden/canvas/particles.png"
+particle_scene particlesgroup particles_grouped_on_black ""
+
 if [ "$rc_failures" -eq 0 ]; then
   echo "canvas Vulkan runtime tests passed"
 else
