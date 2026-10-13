@@ -45,10 +45,19 @@ present-diff. The consequences are the point:
   its contents rather than a call ordering. Re-presenting an unchanged item
   re-uses its cached geometry.
 
-The comparison is exact rather than hashed — the two scenes' contents, element
-for element — so there are no collisions to reason about. It is of CONTENT, not of
-whole blocks: two shrink-to-fit copies of one scene need not be equal bytes
-(`.ai/canvas-threading.md` section 3.1).
+The comparison is exact rather than hashed, so there are no collisions to reason
+about. It is of CONTENT, not of bytes: the two lists' counts, then each element,
+through every list's entries and by the scene's type — a record field by field, a
+union by its tag and then as the active variant's record, a nested list the same
+way again. A `Float` is compared by its bits, so `0.0` and `-0.0` are different
+content and a NaN equals itself. An element's bytes are tried first, since equal
+bytes are equal content, and only an element whose bytes differ is walked by its
+type. Bytes cannot stand in for content: a list embedded in an item keeps the
+capacity it was built with (`./mfb spec memory collections`), and a list entry has
+bytes no list writes, so two scenes that say the same thing are different bytes
+whenever a nested list was built another way (`.ai/canvas-threading.md` section
+3.1). [[src/codegen/builtins/canvas/gen_present.rs:emit_publish]]
+[[src/codegen/collection/compare/builder_collection_compare.rs:emit_values_content_equal_branch]]
 
 ### Flat or layered
 
@@ -303,11 +312,11 @@ The software rasteriser fixes them; the GPU backends match them within a
 documented tolerance rather than exactly, because rasterisation rules and blend
 precision differ legitimately between drivers.
 
-**Which renderer draws is chosen once, at the first present.** A program in a
-real window draws on the GPU (Metal on macOS, Vulkan on Linux and Windows); a headless run
-(`MFB_HEADLESS` set), draws in software. `MFB_CANVAS_GPU` overrides both ways:
-`0` forces software, any other value forces the GPU. `MFB_HEADLESS` and `MFB_CANVAS_GPU`
-are the only environment variables a normal canvas build reads; the others are
+**Which renderer a program asks for is settled once, at the first present.** A program in a
+real window asks for the GPU (Metal on macOS, Vulkan on Linux and Windows); a headless run
+(`MFB_HEADLESS` set) draws in software. `MFB_CANVAS_GPU` overrides both ways:
+`0` forces software, any other value asks for the GPU. Beyond those two, a normal canvas
+build reads only `MFB_CANVAS_SYNC` and `MFB_MOUSE_INJECT`; every other variable is
 `--debug` only (`./mfb spec tooling debug-report`). The software rasteriser is
 the exact-match oracle, and every test that renders runs headless, so the goldens
 keep measuring it. A GPU frame is used only when a pipeline exists and the scene
@@ -316,29 +325,143 @@ A machine with no Vulkan loader or driver builds no pipeline and draws in softwa
 [[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
 [[src/codegen/runtime/canvas/vulkan.rs:has_vulkan_backend]]
 
-**What a GPU backend declines is a frame too large for its buffers, never an ordinary
-shape.** Every per-frame payload travels in buffers whose regions are fixed in size, so
-each backend's predicate declines a frame that would overflow one of them. Metal and
-Vulkan have the same caps: more than 65,536
-item quads (a glyph is a quad of its own), more than 262,144 polygon edges summed over
-the frame, more than 131,072 gradient stops summed over the frame, more than 1,048,576
-dash words summed over the frame (a dashed item's dash tail plus one), or more than 8M
-picture-and-glyph texels (each distinct image counted once). A `PolyLine`'s segments
-count against the edge cap, one edge each, and a stroke's join records two each. There is no per-polygon
-edge limit: a polygon's edges are indexed by horizontal band when the frame is built,
-so a pixel tests only the edges that can reach it, and the result is identical to
-testing them all. The caps are defined once, in Rust, and generated into the MFBASIC
-predicates. So are the region bases the shaders read: Metal formats them into its
-shader source when it compiles it, and Vulkan's checked-in SPIR-V declares them as
-specialization constants that the pipeline sets from the same constants.
+**The Vulkan pipeline is never on a frame's critical path.** Creating it compiles the
+fragment shader, which a driver that has not seen the executable before can take tens
+of seconds over (38 s measured on an Intel UHD 630). So the first frame that asks for
+the GPU starts the build on a thread of its own and is drawn in software, as is every
+frame until the build has finished; the first frame after that is a Vulkan frame, and
+the software and Vulkan frames of one scene agree within the GPU tolerance. A run's
+renderer therefore changes at most once on that account, from software to Vulkan, and
+`canvas::getFrameStats().renderer` reports which drew the last frame. A build that
+fails (no loader, no device, a thread that cannot be started) leaves every frame
+software. Nothing waits for the build: a program that ends while it is running ends
+at once. A set `MFB_CANVAS_GPU` is the exception, for tests: the build then runs on
+the graphics thread before the first frame is drawn, so that run's first frame (and an
+exit during it) waits for the pipeline and every frame the backend accepts is a GPU frame. Metal builds its
+pipeline on the graphics thread at the first GPU frame in every case.
+[[src/codegen/builtins/canvas/helper_render.rs:render_loop_head]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_build]]
+[[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_vulkan_builder_entry]]
+
+The hand-off between the building thread and the graphics thread is one word of the
+graphics state: untried (0), built (1), failed (2), building (3). The graphics thread
+alone takes it from 0 to 3, before the builder thread exists. The builder fills the
+words of the objects it creates (instance, device, queue, descriptors, layout, render
+pass, pipelines) with plain stores and writes 1 or 2 last, a store-release on AArch64.
+The graphics thread reads the word first, a load-acquire on AArch64, and reads an
+object word only after reading 1; it creates its own objects (the render target, the
+command pool, a window's surface and swapchain) on a GPU frame, so only after 1. The
+builder thread has no arena state and allocates from none.
+[[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_claim]]
+[[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_publish_ready]]
+[[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_load_ready]]
+
+In a `--debug` build's `MFB_CANVAS_STATS` line, `vulkanReady=` is whether the pipeline
+exists when the line is written. It starts no build and waits for none: it is `FALSE`
+on every line of a software run, `FALSE` on the software frames drawn while a window's
+pipeline is being built and `TRUE` from the first Vulkan frame, and `TRUE` from the
+first line of a run with `MFB_CANVAS_GPU` set. `gpuSelected=` is whether the program
+asked for the GPU, and `gpuFrames=` counts the frames a GPU backend drew.
+[[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_vulkan_is_ready]]
+[[src/codegen/builtins/canvas/helper_surface.rs:PRESENT_SURFACE_DEBUG]]
+
+**On Windows and macOS a canvas window is black before its first frame.** An unpainted
+canvas pixel is opaque black on every backend, and on these two the window shows that
+from its first paint rather than its unpainted client: on Windows, `WM_PAINT` in canvas mode with no frame committed fills the
+invalid region with `PatBlt(BLACKNESS)` (skipped while the swapchain's child window is
+visible, which covers the client); on macOS the canvas layer's `backgroundColor` is
+opaque black. [[src/target/win_x86_64/app/mod.rs:BLACKNESS]]
+
+**On Metal, a frame the GPU did not finish is not a GPU frame.** After `commit` and
+`waitUntilCompleted` the renderer reads the command buffer's `status`. Any value but
+`MTLCommandBufferStatusCompleted` (4) — after the wait, that is
+`MTLCommandBufferStatusError` — means the render target was written in part or not at
+all, so the frame is neither read back nor presented and the submit answers 0, the
+answer it gives when it has no texture or no drawable. `canvas::metalPresentScene` and
+`canvas::metalDrawScene` both report that as FALSE; a FALSE from the direct present
+sends the frame down the readback path, and a FALSE from the readback makes
+`__canvas_renderMetal` decline, so the frame is drawn in software and is not counted in
+`gpuFrames=`. The Vulkan readback path does not test the results of `vkQueueSubmit` and
+`vkQueueWaitIdle`. [[src/target/macos_aarch64/app/metal.rs:SEL_STATUS]]
+[[src/codegen/builtins/canvas/func_metal_draw.rs:lower_metal_draw_scene]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_renderMetal]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_draw_scene]]
+
+**No scene size is a limit on a GPU backend: a frame that does not fit the frame buffer
+is drawn in passes.** Every per-item payload travels in one frame buffer whose regions
+are fixed in size, the same sizes on Metal and Vulkan: 65,536 item quads (a glyph is a
+quad of its own, and a blended item that both fills and strokes is two), 262,144
+polygon edges, 131,072 gradient stops, 1,048,576 dash words (a dashed item's dash tail
+plus one) and 8M picture-and-glyph texels (each distinct image counted once). A
+`PolyLine`'s segments take the edge region, one edge each, a curve shape's pieces two
+each, a stroke's join records two each and a path clip's edges one each. Those are the
+size of one PASS. A frame whose blocks fit is one pass, drawn as it always was. A
+frame whose blocks do not is drawn as consecutive runs of its draw list, each the
+longest run that fits every region, in paint order, into the same render target: the
+first pass clears the target and every later one loads it, each pass is submitted and
+waited for before the buffer is refilled for the next, and the frame is presented or
+read back once, after the last. A run ends between two blocks, never inside one, so an
+item's records are never in different passes; the rest of a draw entry cut by the end
+of a pass is an entry of the next pass with the same offset, matrix and blend mode. The
+tables an emitter keeps while it fills the buffer (the edge, gradient, dash and texel
+cursors, the band index, the table that points a second picture of one image at the
+texels already copied) start empty in each pass, so an image is copied once a pass,
+and a group's blocks that an earlier pass held are laid out again for a later use.
 [[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_metalRenderable]]
-[[src/codegen/builtins/canvas/helper_render.rs:__canvas_vulkanRenderable]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_blockCost]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_framePasses]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_passNext]]
 [[src/codegen/runtime/canvas/mod.rs:METAL_MAX_FRAME_ITEMS]]
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_MAX_FRAME_ITEMS]]
+
+**What a GPU backend declines is an item that does not fit a region by itself, never a
+frame for its size and never an ordinary shape.** A polygon of more edges than the edge
+region holds, one gradient of more stops than the gradient region, one image of more
+texels than the texel region or a `Text` of more glyphs than the item region fits no
+pass, and drawing it cut short would draw a different shape; the whole frame is then
+the software renderer's, and `gpuFrames=` does not count it. Each backend's gate
+(`__canvas_metalRenderable`, `__canvas_vulkanRenderable`) answers that question and
+whether the frame is one pass or several, from one sum of what each block takes of each
+region; the pass walk makes the same sum to find where a pass ends. There is no
+per-polygon edge limit below the region: a polygon's edges are indexed by horizontal
+band when the pass is built, so a pixel tests only the edges that can reach it, and the
+result is identical to testing them all. The region sizes are defined once, in Rust,
+and generated into the MFBASIC source. So are the region bases the shaders read: Metal
+formats them into its shader source when it compiles it, and Vulkan's checked-in SPIR-V
+declares them as specialization constants that the pipeline sets from the same
+constants, so drawing in passes rebuilds no pipeline.
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_metalRenderable]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_vulkanRenderable]]
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_SPEC_CONSTANTS]]
 [[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_band_index]]
+
+**A pass is told from a whole frame by one word of its draw list.** The emitters are
+handed a pass's blocks and draw entries as they are handed a frame's. Word 12 of the
+list's first entry says where it stands: bit 0, a pass of this frame was drawn before
+it; bit 1, a pass follows. A frame of one pass has 0 there. With bit 0 the target is
+loaded (`MTLLoadActionLoad`; on Vulkan a render pass with `loadOp = LOAD` entered in
+the layout the first pass left the image in, compatible with the pass the pipelines
+were built against) and, in a window on Windows, the swapchain image is the one the
+first pass acquired, which is held in the graphics state between passes. With bit 1
+the pass ends after the queue has finished it: nothing is read back, no drawable is
+taken, nothing is presented. So an intermediate pass never reaches the screen: on
+Metal every pass renders into the offscreen target and only the last takes the
+window's drawable, copies the target into it and presents; on Vulkan the acquired
+image is drawn into by every pass and reaches the window only through the one
+`vkQueuePresentKHR` of the last. A pass that fails (on Metal, a command buffer that
+did not complete; on Vulkan's present path, a submit or present the driver refused,
+which also gives up the held image) fails the frame: a direct present then draws the
+frame again down the readback path from its first pass, and a failed readback pass on
+Metal makes the frame a software frame. `blocks=`, `draws=` and `gpuFrames=` on the
+stats line describe the frame, not its passes.
+[[src/codegen/runtime/canvas/mod.rs:CANVAS_DRAW_PASS_WORD]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_renderMetal]]
+[[src/codegen/builtins/canvas/helper_render.rs:__canvas_renderVulkan]]
+[[src/target/macos_aarch64/app/metal.rs:emit_branch_if_more]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_load_render_pass]]
+[[src/codegen/runtime/canvas/vulkan_present.rs:emit_present_resume]]
+[[src/codegen/runtime/canvas/vulkan_present.rs:emit_submit_and_present]]
 
 **A `PolyLine` on either GPU reuses the polygon's edges and the gradient's stops.** Its
 segments upload through the polygon edge path and are banded the same way. The band
@@ -770,6 +893,27 @@ Two consequences follow, both specified rather than left to the backend:
   untransformed item; the second is specified because it is the one a program can
   see and diagnose.
 
+The pixels a transformed item is evaluated over are its box: the hull, on the surface,
+of its extent grown by its stroke, cap or join reach and by a rim, padded by one pixel.
+Untransformed the rim is one unit, which is a pixel. Under a transform it is `0.5·F` of
+the item's own units, `F` the inverse matrix's Frobenius norm widened by `F/256 + 1/256`
+as the GPU shaders widen it: coverage is `0.5 − d/g`, and the gradient `g` the distance
+is divided by is at most `F`, so no pixel further than that from the stroked shape takes
+coverage. Under a uniform scale the rim is 0.71 px whatever the scale. Three boxes are
+mapped whole instead, with no rim to replace: a `Text` run's (its font metrics), a
+`Picture`'s (two units about its destination), and an `Arc`'s, whose distance is not
+Lipschitz. The untransformed box is unchanged, and `canvas::geoBuild` builds it bit for
+bit. [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+
+The record says how much of its box is rim: header slots 67 (the x sides) and 68 (the y
+sides), in the units the box is in. Untransformed both are the one unit. Under a
+transform they are what the rim adds to the hull, `(|a| + |c|)·0.5·F` and
+`(|b| + |d|)·0.5·F` for a forward matrix `a b c d`, and the pixel. A box mapped whole
+has none, and both are 0. An item drawn through no group matrix is evaluated over its
+box as it stands; the sites that carry a box through a group's matrix replace the rim
+(see "How the composed affine is carried").
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_LAYOUT]]
+
 A `Text` item is not a distance field — it is a run of coverage bitmaps — so it is
 specified separately: each pixel of the run's transformed bounds samples the glyph
 coverage at its inverse-mapped point. The result is the same rule stated for shapes,
@@ -785,7 +929,13 @@ transform, the group-relative one inside a group), **nearest**, as texel
 `(x, y, w, h)` being the rectangle in the record's slots 2 to 5. It
 is nearest for the reason a transformed glyph is: `floor` and `+ - * /` only, so every
 backend picks the same texel; a bilinear filter would change edge bytes between
-renderers unless all three shared identical fixed-point weights. Which rectangle that
+renderers unless all three shared identical fixed-point weights. The index does not
+depend on how a backend rounds the division (Vulkan allows `/` 2.5 ULP): with
+`t = (px - x) * width`, each renderer takes `u = floor(t / w)` and then `u + 1` if
+`(u + 1) * w <= t`, or `u - 1` if `u * w > t`, and likewise in `y` (`pictureTexel` in
+both shaders, the picture arm of `__canvas_drawGeometry` in the oracle). Where a texel
+boundary is a pixel centre `t` is exactly a whole number of `w`, the products are
+exact, and the pixel takes the texel that starts there. Which rectangle that
 is, and what else a `canvas::Picture` item draws, is *A picture is drawn inside a
 shape*, below.
 
@@ -808,15 +958,16 @@ named, not embedded*).
 [[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
 
-On the GPU a picture's texels travel in the same per-frame buffer region as glyph
-coverage, one packed word per texel, and each item's block names its slice — so a
-frame's pictures and glyphs together are bounded by that region, and a frame that
-would overflow it is drawn in software instead. There is no texture object and nothing
-to free: the pixels are copied from the image's own storage while the frame is built.
-Both GPU backends copy each distinct image **once per frame**, however many `Picture`
-items name it — a tilemap of thousands of tiles drawn from a few images costs those few
-images — and their predicates count each distinct image once against the region's 8M
-texels.
+On the GPU a picture's texels travel in the same region of the frame buffer as glyph
+coverage, one packed word per texel, and each item's block names its slice — so the
+pictures and glyphs of one pass together are bounded by that region; a frame with more
+is drawn in more passes, and only an image of more texels than the region holds by
+itself sends its frame to software. There is no texture object and nothing to free: the
+pixels are copied from the image's own storage while the pass is built. Both GPU
+backends copy each distinct image **once per pass** (once per frame, for a frame of one
+pass), however many `Picture` items name it — a tilemap of thousands of tiles drawn
+from a few images costs those few images — and a block's cost counts each distinct
+image once a pass against the region's 8M texels.
 [[src/target/macos_aarch64/app/metal.rs:emit_picture_lookup]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_picture_lookup]]
 
@@ -866,11 +1017,18 @@ nothing. The builder takes one of two paths, in header slot 51:
 **On the GPUs** the item block carries two `ivec4`s for it: `clipBand` at byte
 288 is a path clip's band header, the same shape as a polygon's in `arcCaps`, and
 `clipPath` at 304 is (first clip edge, clip edge count, mode | rule << 2, a picture's
-`T`). The clip's edges go into the frame's edge region after the item's own and count
-against the same per-frame edge cap, and they are banded by the same index builder
+`T`). The clip's edges go into the frame buffer's edge region after the item's own and count
+against the same region, one pass's, and they are banded by the same index builder
 with no stroke in the reach — a clip's coverage clamps at `|d| ≥ 0.5`. Each shader
 takes the clip's five samples at the same shape-space points as the shape's and divides
-by the clip's own gradient, as the oracle does.
+by the clip's own gradient, as the oracle does. The clip's centre sample has the shape's
+early-out: asked with reach `0.5·max(F, 1)` (`F` the composed inverse's Frobenius norm,
+as for the shape, without the stroke half-width), and past it the coverage is decided by
+that sample's sign and the four neighbours are not evaluated. It is exact because the
+gradient the coverage divides by is at most `F` (a clip's distance, a path's or a
+rectangle's, is 1-Lipschitz), so the quotient is past 0.5, where the coverage has
+clamped; untransformed and outside a group matrix the reach is the 0.5 of the one sample
+there is.
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_BAND]]
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_PATH]]
 [[src/target/macos_aarch64/app/metal.rs:emit_clip_buffer]]
@@ -1116,7 +1274,7 @@ above has any error to scale.
 Two geometry kinds over one tail, as `POLYLINE` and `POLYGON` are: 11
 (`__CANVAS_GEO_POLYCURVE`) and 12 (`__CANVAS_GEO_CURVEPOLYGON`); the kind says whether
 there is an interior. [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_LAYOUT]]
-The record is the 67-float header and then **pieces | join records | dash tail | clip
+The record is the 69-float header and then **pieces | join records | dash tail | clip
 edges | gradient stops**: a polygon's order with pieces for edges. Header slot 20 counts
 the pieces, slot 21 is a `CurvePolygon`'s rule, and a `PolyCurve` is stroke-as-fill as
 a `PolyLine` is (its half-width in slot 6, slot 7 at −1). There is one join record and
@@ -1217,9 +1375,10 @@ The chords come first, as one run, because a chord IS an edge to the band index:
 y-monotone piece's two ends are its whole y-range, so `emit_band_index` bands a curve
 shape as it bands a polygon and neither it nor the item block changed. The weight is
 fp32 bits because the shader's arithmetic on it is fp32 either way and a weight has no
-32,767 to stay under. Join records and dash words go where a polygon's go. Both
-predicates count `2 × pieces` against the frame's edge cap, with every other item's
-edges; a frame past it is the software renderer's.
+32,767 to stay under. Join records and dash words go where a polygon's go. A
+block's cost counts `2 × pieces` against the edge region, with every other item's
+edges; a pass ends before the region is passed, and a shape of more pieces than half
+the region is the software renderer's, with its frame.
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
 [[src/codegen/builtins/canvas/helper_render.rs:RENDER_METAL_TEMPLATE]]
@@ -1247,7 +1406,7 @@ A `Picture` inside a `CurvePolygon` spends both kinds of slot: its image's clip 
 outline flattened to straight edges, one slot each, and its outline is the curve, two a
 piece. A circle of four arcs flattens to 128, 256 and 504 edges at radius 50, 150 and
 400; the fourteen-piece rounded star of `tests/canvas/scenes/curves.mfb` to 182, 304 and
-564 at half, full and three times its size — against a cap of 262,144.
+564 at half, full and three times its size — against a region of 262,144 a pass.
 
 ### The two functions
 
@@ -1347,10 +1506,19 @@ kept as a translation and, only when some node on the path has a transform in ef
   entry with a matrix takes the transformed-item path whatever the item is, so the
   distance is rescaled by its gradient and the stroke scales
   ([[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]);
-* an item's bounds under a matrix are the hull of its header box through the linear
-  part, padded by a pixel — the header's own antialiasing rim is in the group's space
-  and a group that scales down would shrink it. The damage diff remembers and compares
-  that hull ([[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_FOR]]);
+* an item's bounds under a matrix are the hull, through the linear part, of its header
+  box with the rim replaced, padded by a pixel. The header's rim (slots 67 and 68) was
+  sized for the item drawn with no group. A pixel takes coverage only within half the
+  composed inverse's norm of the item, and that norm is at most the product of the
+  item's and the groups', so each side's rim `r` becomes `r·N`, `N` the Frobenius norm
+  of the groups' inverse linear part: a lower bound `b` is carried as `(b + r) − r·N`
+  and an upper one as `(b − r) + r·N`. An item with no transform needs `0.5·N` and has
+  `1.0·N`. A group that magnifies has `N < 1` and the box comes in (under a scale of
+  170 the rim is 1.41 px, not 170); a group that shrinks has `N > 1` and it goes out,
+  which an unevenly transformed item needs. A box with no rim is carried as it stands.
+  The damage diff remembers and compares that hull
+  ([[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]],
+  [[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_FOR]]);
 * a rectangle clip, which is axis-aligned only in the item's space, is evaluated under a
   matrix as a path clip is: its distance at the item's point, divided by its own
   gradient;
@@ -1383,9 +1551,14 @@ With a matrix:
 
 * the **vertex** stage carries the item's box through the forward linear part — the
   inverse of the 2×2 it was given, taken in the shader — so the quad is a parallelogram.
-  The box is first grown on every side by the inverse's Frobenius norm, which is at
-  least one surface pixel, because the box's own antialiasing rim is in the group's
-  space and a group that scales down would shrink it;
+  The box's rim is first replaced as the software bounds replace it, by the same two
+  expressions; the rim reaches the stage as two 16.16 words of the item block, the
+  fourth words of `xform1` (x sides) and `gradInv1` (y sides), which nothing else
+  reads. The box is then grown on every side by the inverse's Frobenius norm, which is
+  at least one surface pixel: the stage's pixel is added before the map, where the
+  software bounds add theirs to the hull after it, because the quad is the mapped
+  parallelogram and not its hull
+  ([[src/codegen/runtime/canvas/mod.rs:ITEM_RIM_WORDS]]);
 * the **fragment** stage subtracts the translation from the pixel, as it always has,
   then applies the inverse linear part, and only then the item's own inverse if it has
   one. Every consumer reads that point: the distance (whose four neighbour samples are
@@ -1598,6 +1771,33 @@ The mouse-state reservation keys on the raw poll's symbol
 ([[src/target/shared/plan/symbols.rs:module_uses_mouse]]), and the chunk that calls it
 is gated on use, so a canvas program that never calls `canvas::pollMouse` reserves no
 mouse state and compiles none of this.
+
+## The surface size, and what counts as a resize
+
+The main thread publishes the surface's width and height into the graphics state from
+each platform's resize path — macOS `MFBCanvasView setFrameSize:`, the GTK resize
+handler, Windows `WM_SIZE` and its canvas reconcile, and the headless scripted resize
+(`MFB_CANVAS_RESIZE_W`/`_H`, GTK and Windows) — with two plain stores and no lock.
+[[src/codegen/runtime/canvas/mod.rs:emit_publish_surface_size_tagged]] Both words are 0
+until the first publish, and a zero word reads as the startup size, 900 by 640: that is
+what `canvas::getSize` answers before a window has published anything and in a headless
+run, and the size a frame is rendered at.
+[[src/codegen/runtime/canvas/mod.rs:SurfaceDimension]]
+
+`canvas::didResize` is two counters. The publisher adds one to
+`GRAPHICS_OFFSET_RESIZES` when the size it publishes differs from the size read as
+above — the size the program sees — and `didResize` answers TRUE, and records the
+counter in `GRAPHICS_OFFSET_RESIZES_SEEN`, when the two differ.
+[[src/codegen/runtime/canvas/mod.rs:emit_did_resize]] So:
+
+- a publish of the size the program already sees counts nothing. That is a repeat of
+  the current size (AppKit sends them routinely), and equally a window's FIRST publish
+  when it opens at 900 by 640;
+- a first publish of any other size counts one, as every later change does. The
+  publisher does not know which publish is the first.
+
+Each word has one writer (the main thread the counter, the worker the acknowledgement),
+so neither takes a lock.
 
 ## The pointer, as the graphics thread sees it
 

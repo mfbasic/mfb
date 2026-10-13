@@ -1,0 +1,116 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT collections
+IMPORT color
+IMPORT math
+
+' bug-995: path clips whose boundary runs through many pixels, on items that take the
+' TRANSFORMED clip path -- five clip samples a pixel, divided by the clip's own gradient
+' -- over the default opaque-black surface. A renderer may answer a pixel from its centre
+' sample alone only where the clamp makes that exact, so every pixel here has to come out
+' as it does with all five: the scene is compared against the software oracle, and
+' between two builds byte for byte.
+'
+'   top row     a 40-edge star clip (past the band index's 32-edge threshold) on a square
+'               under a transform that scales by 0.1, one that only turns (30 degrees,
+'               scale 1), one that scales by 4, and a shear
+'   middle row  a 24-edge ring clip (under the threshold: every edge is walked) on a
+'               stroked square under the same four transforms -- the clip cuts the
+'               stroke too
+'   bottom row  groups with a matrix: an UNTRANSFORMED star-clipped square in a group
+'               turned 20 degrees and scaled by 1.5; the same in a group at half size;
+'               an untransformed square with a RECTANGLE clip in a sheared group (a
+'               rectangle clip is sampled like a path under a group matrix); and a
+'               square with its own scale-4 transform and a star clip inside a turned
+'               group, so both inverses compose
+'
+' Every centre and offset is fractional, so no clip edge lies along a pixel boundary.
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC box(x AS Float, y AS Float, w AS Float, h AS Float) AS List OF vector::Float2
+  RETURN [pt(x, y), pt(x + w, y), pt(x + w, y + h), pt(x, y + h)]
+END FUNC
+
+' A star of `n` points (2n edges) about (cx, cy), alternating radii `r` and `r / 2`.
+FUNC star(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
+  MUT i AS Integer = 0
+  WHILE i < n * 2
+    LET a AS Float = toFloat(i) * 3.141592653589793 / toFloat(n) + 0.1
+    MUT rr AS Float = r
+    IF i MOD 2 = 1 THEN
+      rr = r * 0.5
+    END IF
+    points = collections::append(points, pt(cx + rr * math::cos(a), cy + rr * math::sin(a)))
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+' A ring of `n` edges about (cx, cy).
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat(n) + 0.2
+    points = collections::append(points, pt(cx + r * math::cos(a), cy + r * math::sin(a)))
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+' A square of side `w` centred on the item's origin, clipped to `clip`.
+FUNC tile(w AS Float, clip AS List OF vector::Float2, paint AS canvas::Paint, t AS canvas::Transform) AS canvas::DrawItem
+  RETURN canvas::Polygon[id := "", position := pt(0.0, 0.0), contours := [box(0.0 - w / 2.0, 0.0 - w / 2.0, w, w)], rule := canvas::FillRule.NonZero, paint := WITH paint { clip := [clip] }, transform := t]
+END FUNC
+
+' The four item transforms, each placing the item's origin at (x, y) on the surface.
+FUNC scaled(s AS Float, x AS Float, y AS Float) AS canvas::Transform
+  RETURN canvas::Transform[a := s, b := 0.0, c := 0.0, d := s, tx := x, ty := y]
+END FUNC
+
+FUNC turned(co AS Float, si AS Float, s AS Float, x AS Float, y AS Float) AS canvas::Transform
+  RETURN canvas::Transform[a := co * s, b := si * s, c := (0.0 - si) * s, d := co * s, tx := x, ty := y]
+END FUNC
+
+FUNC sheared(k AS Float, x AS Float, y AS Float) AS canvas::Transform
+  RETURN canvas::Transform[a := 1.0, b := 0.0, c := k, d := 1.0, tx := x, ty := y]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET flat AS canvas::Paint = canvas::fill(color::rgb(250, 200, 90))
+  LET warm AS canvas::Paint = canvas::fillStroke(color::rgb(90, 220, 160), color::rgb(90, 160, 250), 7.5)
+  MUT items AS List OF canvas::DrawItem = []
+
+  ' Top row: the banded star clip. On the surface each square is 180 px and the star
+  ' reaches 85.5 px from a centre a quarter and a half pixel off the square's.
+  items = collections::append(items, tile(1800.0, star(20, 2.5, 5.0, 855.0), flat, scaled(0.1, 110.3, 110.6)))
+  items = collections::append(items, tile(180.0, star(20, 0.25, 0.5, 85.5), flat, turned(0.8660254037844387, 0.5, 1.0, 330.3, 110.6)))
+  items = collections::append(items, tile(45.0, star(20, 0.0625, 0.125, 21.375), flat, scaled(4.0, 550.3, 110.6)))
+  items = collections::append(items, tile(150.0, star(20, 0.25, 0.5, 72.5), flat, sheared(0.5, 770.3, 110.6)))
+
+  ' Middle row: the unbanded ring clip, on a stroked square.
+  items = collections::append(items, tile(1600.0, ring(24, 2.5, 5.0, 835.0), WITH warm { strokeWidth := 75.0 }, scaled(0.1, 110.3, 320.6)))
+  items = collections::append(items, tile(160.0, ring(24, 0.25, 0.5, 83.5), warm, turned(0.8660254037844387, 0.5, 1.0, 330.3, 320.6)))
+  items = collections::append(items, tile(40.0, ring(24, 0.0625, 0.125, 20.875), WITH warm { strokeWidth := 1.875 }, scaled(4.0, 550.3, 320.6)))
+  items = collections::append(items, tile(140.0, ring(24, 0.25, 0.5, 73.5), warm, sheared(0.5, 770.3, 320.6)))
+
+  ' Bottom row: groups with a matrix.
+  canvas::setGroup("starred", [tile(110.0, star(20, 0.25, 0.5, 52.5), flat, none())])
+  canvas::setGroup("large", [tile(330.0, star(20, 0.75, 1.5, 157.5), warm, none())])
+  canvas::setGroup("boxed", [tile(140.0, box(0.0 - 49.75, 0.0 - 60.5, 100.5, 110.25), warm, none())])
+  canvas::setGroup("magnified", [tile(40.0, star(20, 0.0625, 0.125, 19.375), flat, scaled(4.0, 0.3, 0.6))])
+  items = collections::append(items, canvas::Group[id := "", position := pt(110.3, 530.6), transform := turned(0.9396926207859084, 0.3420201433256687, 1.5, 0.0, 0.0), name := "starred"])
+  items = collections::append(items, canvas::Group[id := "", position := pt(330.3, 530.6), transform := scaled(0.5, 0.0, 0.0), name := "large"])
+  items = collections::append(items, canvas::Group[id := "", position := pt(550.3, 530.6), transform := sheared(0.6, 0.0, 0.0), name := "boxed"])
+  items = collections::append(items, canvas::Group[id := "", position := pt(770.3, 530.6), transform := turned(0.9659258262890683, 0.25881904510252074, 1.0, 0.0, 0.0), name := "magnified"])
+  canvas::present(items)
+END FUNC

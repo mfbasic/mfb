@@ -1,0 +1,8 @@
+IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  io::print("renderer " & toString(canvas::getFrameStats().renderer))
+END FUNC

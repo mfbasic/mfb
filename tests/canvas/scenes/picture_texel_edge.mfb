@@ -1,0 +1,68 @@
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT io
+IMPORT vector
+
+' bug-1079: plain pictures whose texel boundaries are pixel CENTRES, over the default
+' black surface. There `(q - x0) * iw` is exactly a whole number of destination sizes,
+' so the texel a renderer takes hangs on the last bit of its division -- unless the
+' index is corrected from the exact products, which is what this scene holds every
+' backend to.
+'
+' The image is made here, texel by texel: red grows with the column, green with the
+' row, and every other cell has blue, so a texel taken from the neighbouring cell shows
+' as a whole wrong row or column.
+'
+' Middle: an 8 by 4 image over 160 by 110 pixels at (460, 235). Rows are 27.5 px tall,
+' so the boundary between rows 0 and 1 is y = 262.5, the centre of pixel row 262 (the
+' row Intel's Vulkan driver got wrong). Beside it the same picture on its side, a 4 by 8
+' image over 110 by 160 at (100, 235): the boundary between columns 0 and 1 is the
+' centre of pixel column 127.
+'
+' Top: 4 by 4 images over squares 14, 22, 26, 38, 46 and 58 pixels wide, so a texel is
+' 3.5, 5.5, 6.5, 9.5, 11.5 and 14.5 pixels and every odd boundary, in x and in y, is a
+' pixel centre -- six more divisors, each with its own reciprocal.
+FUNC texels(w AS Integer, h AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT y AS Integer = 0
+  WHILE y < h
+    MUT x AS Integer = 0
+    WHILE x < w
+      out = collections::append(out, toByte(40 + (x * 215) / (w - 1)))
+      out = collections::append(out, toByte(40 + (y * 215) / (h - 1)))
+      IF (x + y) MOD 2 = 0 THEN
+        out = collections::append(out, toByte(220))
+      ELSE
+        out = collections::append(out, toByte(0))
+      END IF
+      out = collections::append(out, toByte(255))
+      x = x + 1
+    END WHILE
+    y = y + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC plain(image AS canvas::Image, x AS Float, y AS Float, w AS Float, h AS Float) AS canvas::DrawItem
+  RETURN canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := image]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES wide AS canvas::Image = canvas::createImage(8, 4, texels(8, 4))
+  RES tall AS canvas::Image = canvas::createImage(4, 8, texels(4, 8))
+  RES square AS canvas::Image = canvas::createImage(4, 4, texels(4, 4))
+  MUT items AS List OF canvas::DrawItem = []
+  items = collections::append(items, plain(wide, 460.0, 235.0, 160.0, 110.0))
+  items = collections::append(items, plain(tall, 100.0, 235.0, 110.0, 160.0))
+  items = collections::append(items, plain(square, 40.0, 40.0, 14.0, 14.0))
+  items = collections::append(items, plain(square, 110.0, 40.0, 22.0, 22.0))
+  items = collections::append(items, plain(square, 180.0, 40.0, 26.0, 26.0))
+  items = collections::append(items, plain(square, 250.0, 40.0, 38.0, 38.0))
+  items = collections::append(items, plain(square, 320.0, 40.0, 46.0, 46.0))
+  items = collections::append(items, plain(square, 390.0, 40.0, 58.0, 58.0))
+  canvas::present(items)
+  io::print("rendered")
+END FUNC

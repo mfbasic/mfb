@@ -72,11 +72,12 @@ use crate::codegen::runtime::canvas::{
 };
 use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
-    CURVE_PIECE_SLOTS, EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_CURVEPOLYGON, GEO_KIND_PICTURE,
-    GEO_KIND_POLYCURVE, GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H,
-    GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
-    GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS,
-    HEADER_CAP, HEADER_FILL_R, HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND,
+    CANVAS_DRAW_PASS_CONTINUES, CANVAS_DRAW_PASS_MORE, CANVAS_DRAW_PASS_WORD, CURVE_PIECE_SLOTS,
+    EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_CURVEPOLYGON, GEO_KIND_PICTURE, GEO_KIND_POLYCURVE,
+    GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
+    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
+    GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP,
+    HEADER_FILL_R, HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND,
     HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
     HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SLOTS, HEADER_STROKE_HALF,
     HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC,
@@ -192,7 +193,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int gradientKind;\n",
     "  int4 clip;\n",   // clip x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     "  int4 xform0;\n", // inverse transform ia,ib,ic,id as float32 BITS
-    "  int4 xform1;\n", // itx, ity (float32 bits), hasTransform (0 or 1), unused
+    // itx, ity (float32 bits), hasTransform (0 or 1); then (bug-1083) how much of the
+    // quad's x sides is rim, 16.16, which only the vertex stage reads
+    "  int4 xform1;\n",
     "  int4 arcCaps;\n", // an arc's two sweep endpoints startX,startY,endX,endY (16.16)
     "  int4 ellipse;\n", // ellipse cos, sin (16.16); gradient stop count and base
     "  int4 gradient;\n", // a gradient's axis startX,startY,endX,endY (16.16)
@@ -209,7 +212,8 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int4 clipBand;\n",
     "  int4 clipPath;\n",
     // plan-163-D: a radial gradient's own inverse transform (float32 bits) and flag, then
-    // its focal offset and focal radius (16.16).
+    // its focal offset and focal radius (16.16). bug-1083: `gradInv1.w` is how much of
+    // the quad's y sides is rim, 16.16 (`xform1.w` has the x sides').
     "  int4 gradInv0;\n",
     "  int4 gradInv1;\n",
     "  int4 gradFocal;\n",
@@ -270,17 +274,28 @@ const METAL_SHADER_BODY: &str = concat!(
     // plan-172-H: under a group matrix the quad is the item's box carried through the
     // FORWARD linear part -- the inverse of the 2x2 the draw carries -- which makes it
     // a parallelogram, and four mapped corners of a triangle strip are exactly that.
-    // The box is first grown by the inverse's Frobenius norm on every side: its own
-    // antialiasing rim is in the group's space, and a group that scales down would
-    // shrink it under the pixel it has to cover. Growing by `|M|` in the group's space
-    // is at least one pixel on the surface, because the forward map shrinks nothing by
-    // more than `1 / |M|`. The fragment stage decides coverage; a quad can only be too
-    // small.
+    //
+    // bug-1083: the box carried is not the block's as it stands. Its rim -- `xform1.w`
+    // on the x sides, `gradInv1.w` on the y sides, zero for a box that is not an extent
+    // and a rim -- was sized for the item drawn with no group, and a pixel takes
+    // coverage only within half the COMPOSED inverse's norm of the item, which is at
+    // most the product of the item's norm and the groups'. So the rim is replaced by
+    // itself scaled by the groups' norm `|M|`: the lower sides are `(bound + rim) - rim
+    // * |M|`, the upper `(bound - rim) + rim * |M|`. `__canvas_drawBound` has the
+    // derivation, kind of rim by kind of rim, and takes the same two lines.
+    //
+    // Then the pixel: the box is grown by `|M|` once more on every side. That is at
+    // least one pixel on the surface, because the forward map shrinks nothing by more
+    // than `1 / |M|`, and it is added here, before the map, because the quad is the
+    // mapped parallelogram and not its hull (the oracle pads its hull by a pixel
+    // instead). The fragment stage decides coverage; a quad can only be too small.
     "  if (drawGrouped(draw)) {\n",
     "    float4 gi = drawInverse(draw);\n",
     "    float pad = length(gi);\n",
-    "    float2 local = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z) + ((vid & 1) == 0 ? -pad : pad),\n",
-    "                          fx((vid & 2) == 0 ? item.quad.y : item.quad.w) + ((vid & 2) == 0 ? -pad : pad));\n",
+    "    float2 rim = float2(fx(item.xform1.w), fx(item.gradInv1.w));\n",
+    "    float2 grow = rim * pad - rim + pad;\n",
+    "    float2 local = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z) + ((vid & 1) == 0 ? -grow.x : grow.x),\n",
+    "                          fx((vid & 2) == 0 ? item.quad.y : item.quad.w) + ((vid & 2) == 0 ? -grow.y : grow.y));\n",
     "    float det = gi.x * gi.w - gi.y * gi.z;\n",
     "    corner = float2((gi.w * local.x - gi.z * local.y) / det, (gi.x * local.y - gi.y * local.x) / det)\n",
     "             + float2(fx(draw.offset.x), fx(draw.offset.y));\n",
@@ -1162,7 +1177,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "}\n",
     // bug-735: one sample's distance at the double-float shape-space point, for every kind a
     // distance draws: the polygon's edge walk (bug-687), the polyline's, or the pre-pass and
-    // then `dfShapeDistance`. One call site each.
+    // then `dfShapeDistance`. One call site each; `shapeCoverage` calls this from two.
     // plan-163-B: dashes (`helper_dashes.rs`). An item's dash words ride the dash region from
     // `strokeStyle.z`, `strokeStyle.w` of them (0 for a solid stroke), as float32 bit
     // patterns: the phase, the entry count, the period, each entry's END along the period,
@@ -1644,8 +1659,9 @@ const METAL_SHADER_BODY: &str = concat!(
     // `__canvas_drawGeometry`, operation for operation: the inverse map with the float32
     // terms, the central differences at 0.5 (all five on the centre's band), `d / ||grad
     // d||`, and the stroke's half-width -- its word plus its residual, stroking exactly when
-    // the oracle's `half > 0` -- taken off in shape space before the scale. The five samples
-    // are one loop so each distance helper is inlined once.
+    // the oracle's `half > 0` -- taken off in shape space before the scale. The CENTRE
+    // sample is straight-line code and every other sample sits behind one branch
+    // (bug-688, at the samples below), so `sampleDistance` has two call sites.
     //
     // A sample past `reach` has its coverage decided by its sign (the pre-passes return a
     // bound there, not the distance). Untransformed that is `0.5 + half`. Transformed,
@@ -1656,7 +1672,9 @@ const METAL_SHADER_BODY: &str = concat!(
     // they are then not evaluated. `F` is widened by 2^-8 for the ellipse's bisection,
     // which is Lipschitz only to its own ~1e-4 px. An arc is not Lipschitz at all (out
     // of sweep it jumps to 1e6), so a transformed arc takes no shortcut; neither does
-    // any neighbour sample, whose exact value the gradient needs.
+    // any neighbour sample, whose exact value the gradient needs. The clip's centre
+    // sample takes the same shortcut at `0.5 * max(F, 1)` (bug-995, argued at
+    // `clipReach` in `shapeCoverage` below).
     // plan-172-H: a rectangle clip's signed distance in double-float at the item's own
     // point. `clipRect` above answers coverage and is right while the rectangle is
     // axis-aligned on the surface; under a group matrix it is not, so its distance is
@@ -1687,6 +1705,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float2 half2 = dfFixed(item.misc.z, item.miscLo.y);\n",
     "  bool stroked = dfLess(float2(0.0, 0.0), half2);\n",
     "  float reach = 0.5 + max(half2.x, 0.0);\n",
+    // bug-995: the clip's reach -- the shape's without the stroke half, and for any kind
+    // (a clip's distance is 1-Lipschitz whatever the item is, an arc's too).
+    "  float clipReach = 0.5;\n",
     "  if (mapped) {\n",
     "    float2 c0 = itemMapped ? float2(as_type<float>(item.xform0.x), as_type<float>(item.xform0.y)) : float2(1.0, 0.0);\n",
     "    float2 c1 = itemMapped ? float2(as_type<float>(item.xform0.z), as_type<float>(item.xform0.w)) : float2(0.0, 1.0);\n",
@@ -1695,6 +1716,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "    if (grouped) { norm = (itemMapped ? norm : 1.0) * length(gi); }\n",
     "    float frob = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;\n",
     "    reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);\n",
+    "    clipReach = 0.5 * max(frob, 1.0);\n",
     "  }\n",
     // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
     // distance (`joinedStroke`), which a miter can reach past `half` from the outline --
@@ -1706,30 +1728,72 @@ const METAL_SHADER_BODY: &str = concat!(
     "  bool joined = (item.strokeStyle.y > 0 || dashed) && item.misc.x != 10 && item.misc.x != 11;\n",
     "  float strokeReach = mapped ? reach - max(half2.x, 0.0) : 0.5;\n",
     // plan-163-C: samples 5..9 are a path clip's distance at the same five points, so the
-    // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's;
-    // one loop keeps one `sampleDistance` call site.
+    // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's.
+    //
+    // bug-995: the clip's CENTRE sample (5) takes the shape's shortcut. Its coverage is
+    // `dfCoverage(d5 / cg)`, `cg` the central difference `|(d6 - d7, d8 - d9)|` of the
+    // clip's distance, or the fallback 1.0 when that is under 1e-6. The bound:
+    //
+    // * A clip's distance is 1-Lipschitz in shape space: a path's is the distance to its
+    //   edges with a sign that changes only where an edge is crossed (where it is 0), a
+    //   rectangle's the box distance. The neighbours are `q +- M (0.5, 0)` and
+    //   `q +- M (0, 0.5)`, `M` the composed inverse (the item's, after the groups'), so
+    //   `|d6 - d7| <= |M e1|` and `|d8 - d9| <= |M e2|`, hence `cg <= ||M||_F`. The norm
+    //   of a composition is at most the product of the norms, which is `norm`, and
+    //   `frob` widens it by 2^-8 for the float32 it is computed in.
+    // * A path clip's samples walk the centre's band, which holds every edge within its
+    //   reach of the band (`emit_band_index`, `r >= 0.5 + 1.5 F` for the ITEM's inverse):
+    //   the neighbours' crossings and nearest edges are in it, so what is sampled is
+    //   Lipschitz too. This is the shape's premise as well, and like the shape's it
+    //   does not cover a group's matrix, which the band index never sees.
+    // * So with `clipReach = 0.5 * max(frob, 1)`, `|d5| > clipReach` gives
+    //   `|d5 / cg| > 0.5 * max(frob, 1) / cg >= 0.5` when `cg` is the difference, and
+    //   `|d5| > 0.5` when it is the fallback. Past 0.5 `dfCoverage` has clamped: 0
+    //   outside, 255 inside, which is `dfCoverage(d5)` -- the four neighbours cannot
+    //   change it and are not evaluated (`clipMapped` goes false, as `mapped` does).
+    // * Sample 5 is therefore asked with reach `clipReach`, not an unbounded one: where
+    //   `edgeDistance`'s fp32 pass proves the distance past it, it returns that bound
+    //   with the exact sign, which is past `clipReach` and takes the same branch.
+    //
+    // Untransformed and ungrouped `clipReach` is 0.5, the one sample there always was.
     "  int clipMode = item.clipPath.z & 3;\n",
     "  bool clipMapped = itemMapped || grouped;\n",
     // plan-172-H: a rectangle clip is sampled too, under a group matrix.
     "  bool clipSampled = clipMode == 2 || (clipMode == 1 && grouped);\n",
     "  int2 cband = clipMode == 2 ? clipBandAt(item, edges, itemMapped ? dfMapY(item, x, y).x : y.x) : int2(-1, 0);\n",
     "  float2 d[10];\n",
-    "  float2 cqx = x;\n",
-    "  float2 cqy = y;\n",
-    "  for (int k = 0; k < 10; ++k) {\n",
-    "    bool clipK = k >= 5;\n",
-    "    int j = clipK ? k - 5 : k;\n",
-    "    if (clipK ? (!clipSampled || j >= (clipMapped ? 5 : 1)) : j >= (mapped ? 5 : 1)) { continue; }\n",
-    "    float ox = j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0);\n",
-    "    float oy = j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0);\n",
-    "    float2 sx = dfAdd(x, float2(grouped ? gi.x * ox + gi.z * oy : ox, 0.0));\n",
-    "    float2 sy = dfAdd(y, float2(grouped ? gi.y * ox + gi.w * oy : oy, 0.0));\n",
-    "    float2 qx = itemMapped ? dfMapX(item, sx, sy) : sx;\n",
-    "    float2 qy = itemMapped ? dfMapY(item, sx, sy) : sy;\n",
-    "    if (k == 0) { cqx = qx; cqy = qy; }\n",
-    "    if (clipK && clipMode == 1) { d[k] = clipRectDistance(item, qx, qy); continue; }\n",
-    "    d[k] = sampleDistance(item, edges, clipK ? cband : band, qx, qy, k == 0 ? reach : ((k == 5 && !clipMapped) ? 0.5 : 1.0e30), clipK);\n",
-    "    if (k == 0 && !joined && abs(d[0].x) > reach) { mapped = false; }\n",
+    // bug-688: the shape's centre sample is taken here, outside the loop, and the loop is
+    // entered only by a pixel that needs another sample -- the shape's four neighbours
+    // (`mapped`, once the centre has not decided it) or the clip's (`clipSampled`). An
+    // untransformed, unclipped pixel therefore runs one sample and no loop. It did in the
+    // one ten-pass loop this replaces too, as nine `continue`s, and a driver that does
+    // not turn a skipped pass into skipped work charged it for all ten (box 206's Intel
+    // Vulkan driver, on the GLSL twin: 10,000 16 px squares rendered in 106 ms a frame,
+    // and in 58 this way). The samples and their order are unchanged; the centre point
+    // is `x`, `y` itself where the loop added a zero offset to it, which a double-float
+    // sum returns unchanged.
+    "  float2 cqx = itemMapped ? dfMapX(item, x, y) : x;\n",
+    "  float2 cqy = itemMapped ? dfMapY(item, x, y) : y;\n",
+    "  d[0] = sampleDistance(item, edges, band, cqx, cqy, reach, false);\n",
+    "  if (!joined && abs(d[0].x) > reach) { mapped = false; }\n",
+    "  if (mapped || clipSampled) {\n",
+    "    for (int k = 1; k < 10; ++k) {\n",
+    "      bool clipK = k >= 5;\n",
+    "      int j = clipK ? k - 5 : k;\n",
+    "      if (clipK ? (!clipSampled || j >= (clipMapped ? 5 : 1)) : !mapped) { continue; }\n",
+    "      float ox = j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0);\n",
+    "      float oy = j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0);\n",
+    "      float2 sx = dfAdd(x, float2(grouped ? gi.x * ox + gi.z * oy : ox, 0.0));\n",
+    "      float2 sy = dfAdd(y, float2(grouped ? gi.y * ox + gi.w * oy : oy, 0.0));\n",
+    "      float2 qx = itemMapped ? dfMapX(item, sx, sy) : sx;\n",
+    "      float2 qy = itemMapped ? dfMapY(item, sx, sy) : sy;\n",
+    "      if (clipK && clipMode == 1) {\n",
+    "        d[k] = clipRectDistance(item, qx, qy);\n",
+    "      } else {\n",
+    "        d[k] = sampleDistance(item, edges, clipK ? cband : band, qx, qy, k == 5 ? clipReach : 1.0e30, clipK);\n",
+    "      }\n",
+    "      if (k == 5 && abs(d[5].x) > clipReach) { clipMapped = false; }\n",
+    "    }\n",
     "  }\n",
     "  float2 dRaw = d[0];\n",
     "  float2 g = float2(1.0, 0.0);\n",
@@ -1888,12 +1952,22 @@ const METAL_SHADER_BODY: &str = concat!(
     "  }\n",
     "  return out;\n",
     "}\n",
+    // bug-1079: which of `n` texels holds `t`, the texels `d` apart -- `floor(t / d)`
+    // corrected by at most one from the exact products, so the index does not hang on
+    // the last bit of the quotient (Vulkan allows `/` 2.5 ULP and one driver takes it;
+    // Apple's GPUs divide exactly, and this is the same rule so the copies stay one).
+    // The GLSL's `pictureTexel`, line for line, and the oracle's picture arm.
+    "static int pictureTexel(float t, float d, int n) {\n",
+    "  float u = floor(t / d);\n",
+    "  if ((u + 1.0) * d <= t) { u += 1.0; } else if (u * d > t) { u -= 1.0; }\n",
+    "  return clamp(int(u), 0, n - 1);\n",
+    "}\n",
     // bug-484: a picture's fill colour at the SHAPE-space point `q` -- its image sampled
     // NEAREST and tinted by the fill (plan-163-C: towards `texel * fill / 255` by
     // `fill.a / 255`, rounded half away from zero, and its alpha faded by the transparency
     // step in `clipPath.w` -- `__canvas_tintChannel`), the twin of the `isPicture` arm of
     // `__canvas_drawGeometry`. Same operation order as the oracle, `(q - x0) * iw / dw`,
-    // and `floor` rather than a cast, so all renderers pick the same texel; the index is
+    // through `pictureTexel`, so all renderers pick the same texel; the index is
     // CLAMPED because the antialiased pixels just outside the destination belong to the
     // border texel. The texels ride the glyph region one packed `r | g<<8 | b<<16 | a<<24`
     // word each, and the block names its slice as a glyph's does: width in `misc.w`,
@@ -1907,8 +1981,8 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float hw = fx(item.shape.z), hh = fx(item.shape.w);\n",
     "  float x0 = fx(item.shape.x) - hw, y0 = fx(item.shape.y) - hh;\n",
     "  float dw = hw * 2.0, dh = hh * 2.0;\n",
-    "  int u = clamp(int(floor((q.x - x0) * float(iw) / dw)), 0, iw - 1);\n",
-    "  int v = clamp(int(floor((q.y - y0) * float(ih) / dh)), 0, ih - 1);\n",
+    "  int u = pictureTexel((q.x - x0) * float(iw), dw, iw);\n",
+    "  int v = pictureTexel((q.y - y0) * float(ih), dh, ih);\n",
     "  uint word = as_type<uint>(edges[METAL_GLYPH_BASE + item.arc.z + v * iw + u]);\n",
     "  int4 tex = int4(int(word & 255u), int((word >> 8) & 255u),\n",
     "                  int((word >> 16) & 255u), int((word >> 24) & 255u));\n",
@@ -2169,6 +2243,11 @@ pub(super) const SEL_END_ENCODING: (&str, &str) = ("_mfb_macapp_sel_endEncoding"
 pub(super) const SEL_COMMIT: (&str, &str) = ("_mfb_macapp_sel_commit", "commit");
 pub(super) const SEL_WAIT_UNTIL_COMPLETED: (&str, &str) =
     ("_mfb_macapp_sel_waitUntilCompleted", "waitUntilCompleted");
+pub(super) const SEL_STATUS: (&str, &str) = ("_mfb_macapp_sel_status", "status");
+/// `MTLCommandBufferStatusCompleted`: the one `-[MTLCommandBuffer status]` that says
+/// the GPU ran every command of the buffer. After `waitUntilCompleted` the only other
+/// value is `MTLCommandBufferStatusError` (5).
+const MTL_COMMAND_BUFFER_STATUS_COMPLETED: usize = 4;
 pub(super) const SEL_GET_BYTES: (&str, &str) = (
     "_mfb_macapp_sel_getBytes",
     "getBytes:bytesPerRow:fromRegion:mipmapLevel:",
@@ -2668,6 +2747,9 @@ const MTL_GPU_OPTIMIZED_CONTENTS: &str = "0";
 /// exactly `(0, 0, 0, 1)` — so the two backends start from the same pixels without
 /// this having to name the colour twice.
 const MTL_LOAD_ACTION_CLEAR: &str = "2";
+/// `MTLLoadActionLoad`: keep what the target holds. bug-765: what every pass of a frame
+/// after its first asks for — the target holds the passes before it.
+const MTL_LOAD_ACTION_LOAD: &str = "1";
 /// `setClearColor:` — the colour `MTLLoadActionClear` clears the attachment to.
 ///
 /// Set explicitly rather than left to the default. `MTLRenderPassAttachmentDescriptor`
@@ -2700,7 +2782,7 @@ const MTL_PRIMITIVE_TRIANGLE_STRIP: &str = "4";
 // are written straight into the frame buffer's edge region, so the stack shrinks by
 // 4 KiB and the per-item `setFragmentBytes:` that copied that area into the command
 // buffer is gone with it.
-const DRAW_FRAME: usize = OFF_DRAW_PAIR + 32;
+const DRAW_FRAME: usize = OFF_DRAW_PAIR + 48;
 const OFF_REGION: usize = 0;
 const OFF_LR: usize = 64;
 const OFF_SAVES: usize = 72;
@@ -2830,6 +2912,9 @@ const OFF_DRAW_COUNT: usize = OFF_TEXTURE + 200;
 /// it outgrew the eight-byte slot at `OFF_TEXTURE + 208` it had between `OFF_DRAW_COUNT`
 /// and `OFF_GLYPH_CURSOR`, which is free. It is the frame's last slot.
 const OFF_DRAW_PAIR: usize = OFF_TEXTURE + 320;
+/// bug-765: the list's pass word (`CANVAS_DRAW_PASS_WORD`), 0 for a frame of one pass.
+/// Past `OFF_DRAW_PAIR`; the eight bytes after it keep the frame a multiple of sixteen.
+const OFF_PASS: usize = OFF_DRAW_PAIR + 32;
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
@@ -2851,9 +2936,11 @@ const OFF_DRAW_PAIR: usize = OFF_TEXTURE + 320;
 /// passes `block + COLLECTION_HEADER_SIZE`, which is never zero.
 ///
 /// Returns 1 in `x0` when the frame is finished — presented, or read back — and 0 when
-/// it was not drawn: no pipeline, no texture, and for a direct present no window layer
-/// (headless) or no drawable. A 0 from a direct present is the caller's cue to render
-/// the frame down the readback path instead; `metalDrawScene` ignores the value.
+/// it was not drawn: no pipeline, no texture, a command buffer that did not reach
+/// `MTLCommandBufferStatusCompleted` (bug-1024), and for a direct present no window
+/// layer (headless) or no drawable. A 0 from a direct present is the caller's cue to
+/// render the frame down the readback path instead; a 0 from the readback path
+/// (`canvas::metalDrawScene` answers FALSE) is its cue to draw the frame in software.
 ///
 /// The whole body runs inside one autorelease pool. The graphics thread has none of
 /// its own, and `renderPassDescriptor`, `commandBuffer` and
@@ -2951,6 +3038,25 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         abi::stack_pointer(),
         OFF_DRAW_ENTRIES,
     ));
+    // bug-765: the pass word, off the list's first entry. A list with no entry is a
+    // frame of one pass that draws nothing: the entry count `SCRATCH[0]` holds is the 0
+    // it stores. One scratch register, as everywhere before the arguments are parked.
+    {
+        let no_entry = format!("{METAL_DRAW_SYMBOL}_no_pass_word");
+        asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+        asm.push(abi::branch_eq(&no_entry));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::mfb_arg(7),
+            COLLECTION_HEADER_SIZE + CANVAS_DRAW_PASS_WORD * 8,
+        ));
+        asm.push(abi::label(&no_entry));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_PASS,
+        ));
+    }
     asm.push(abi::add_immediate(
         abi::SCRATCH[0],
         abi::mfb_arg(7),
@@ -3137,6 +3243,11 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_ne(&render_pass));
+    // bug-765: and only by the frame's LAST pass. A pass with more to come renders
+    // into the offscreen target and stops there, so the drawable is taken, copied into
+    // and presented by one pass, once the whole frame is in the target: no pass of a
+    // frame but its last ever names it.
+    emit_branch_if_more(&mut asm, &render_pass);
     // The layer must be configured (device, format, `framebufferOnly = NO`) and its
     // drawable must be this frame's size, or the whole-texture copy below — which
     // requires identical dimensions — is invalid. Both are layer PROPERTY changes, so
@@ -3230,15 +3341,51 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     ));
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    for (setter, value) in [
-        (SEL_SET_LOAD_ACTION.0, MTL_LOAD_ACTION_CLEAR),
-        (SEL_SET_STORE_ACTION.0, MTL_STORE_ACTION_STORE),
-    ] {
-        asm.load_selector(setter);
-        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", value));
+    // bug-765: a frame's first pass clears the target; a later one loads it, because
+    // it holds the passes before. The selector lookup clobbers the scratch bank, so the
+    // action is chosen after it.
+    {
+        let cleared = format!("{METAL_DRAW_SYMBOL}_load_action");
+        asm.load_selector(SEL_SET_LOAD_ACTION.0);
+        asm.push(abi::move_immediate(
+            abi::c_arg(2),
+            "Integer",
+            MTL_LOAD_ACTION_CLEAR,
+        ));
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_PASS,
+        ));
+        asm.push(abi::move_immediate(
+            abi::SCRATCH[1],
+            "Integer",
+            &CANVAS_DRAW_PASS_CONTINUES.to_string(),
+        ));
+        asm.push(abi::and_registers(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            abi::SCRATCH[1],
+        ));
+        asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+        asm.push(abi::branch_eq(&cleared));
+        asm.push(abi::move_immediate(
+            abi::c_arg(2),
+            "Integer",
+            MTL_LOAD_ACTION_LOAD,
+        ));
+        asm.push(abi::label(&cleared));
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
     }
+    asm.load_selector(SEL_SET_STORE_ACTION.0);
+    asm.push(abi::move_immediate(
+        abi::c_arg(2),
+        "Integer",
+        MTL_STORE_ACTION_STORE,
+    ));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
 
     // [attachment setClearColor:MTLClearColorMake(0, 0, 0, 1)] — opaque black, the
     // colour `canvas::newSurface` fills and the colour the Vulkan clear value carries.
@@ -3574,6 +3721,8 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_ne(&submit));
+    // bug-765: a pass with more to come has no drawable and copies nothing.
+    emit_branch_if_more(&mut asm, &submit);
     // target = [drawable texture]
     asm.load_selector(SEL_TEXTURE.0);
     asm.push(abi::load_u64(
@@ -3629,6 +3778,54 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         asm.load_selector(selector);
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
+    }
+    // The wait returning is not the GPU having drawn (bug-1024): a buffer can end in
+    // `MTLCommandBufferStatusError` — the GPU was restarted under it, or it timed out —
+    // with its target written in part or not at all. Such a frame is not read back and
+    // not presented. Leaving here before either path stores `OFF_PRESENTED` is what
+    // makes the submit report 0, exactly as `direct_failed` does, so the caller draws
+    // the frame in software.
+    asm.load_selector(SEL_STATUS.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate(
+        abi::c_return(0),
+        &MTL_COMMAND_BUFFER_STATUS_COMPLETED.to_string(),
+    ));
+    asm.push(abi::branch_ne(&release_pool));
+    // bug-765: a pass with more to come is done here, and says so: its part of the
+    // frame is in the target, and the frame buffer may be refilled for the next pass.
+    // It answers 1 only past the status check above, so a pass the GPU did not finish
+    // answers 0 like a frame it did not finish (bug-1024), and the caller stops the
+    // frame there: nothing is read back or presented from a target that holds some of
+    // a frame's passes and not the rest.
+    {
+        let last = format!("{METAL_DRAW_SYMBOL}_last_pass");
+        asm.push(abi::load_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_PASS,
+        ));
+        asm.push(abi::move_immediate(
+            abi::SCRATCH[1],
+            "Integer",
+            &CANVAS_DRAW_PASS_MORE.to_string(),
+        ));
+        asm.push(abi::and_registers(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            abi::SCRATCH[1],
+        ));
+        asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+        asm.push(abi::branch_eq(&last));
+        asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+        asm.push(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_PRESENTED,
+        ));
+        asm.push(abi::branch(&release_pool));
+        asm.push(abi::label(&last));
     }
     // The frame is finished: read back, below — or, for a direct present, presented,
     // unless `direct_failed` cleared the drawable to say the copy never happened.
@@ -3789,6 +3986,8 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_ne(&show_done));
+    // bug-765: a pass with more to come presented nothing, so it shows nothing.
+    emit_branch_if_more(&mut asm, &show_done);
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -3842,6 +4041,29 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         instructions: asm.ins,
         relocations: asm.rel,
     }
+}
+
+/// bug-765: branch to `target` when the list being drawn is a pass with more of its
+/// frame to come (`CANVAS_DRAW_PASS_MORE` in `OFF_PASS`). Clobbers `SCRATCH[0]` and
+/// `SCRATCH[1]`.
+fn emit_branch_if_more(asm: &mut Asm, target: &str) {
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_PASS,
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        &CANVAS_DRAW_PASS_MORE.to_string(),
+    ));
+    asm.push(abi::and_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_ne(target));
 }
 
 /// bug-686 Phase 4 (graphics thread): `int _mfb_macapp_metal_layer_sync(int show)`.
@@ -4127,8 +4349,13 @@ pub(super) fn emit_transaction_commit(asm: &mut Asm) {
 /// address is in `SCRATCH[0]`, and the edge buffer at `sp + OFF_EDGES` from its tail.
 ///
 /// The quad is the header's **bounds**, not the shape's own extent: the bounds carry
-/// the `strokeHalf + 1` pad the software rasteriser gives itself so its coverage ramp
-/// has pixels to run over, and the SDF fragment stage needs exactly the same margin.
+/// the stroke's reach and the rim the software rasteriser gives itself so its coverage
+/// ramp has pixels to run over -- a unit, which untransformed is a pixel, or half the
+/// inverse's Frobenius norm of the item's units and a pixel under a transform
+/// (`__canvas_boundsHeader`, bug-991) -- and the SDF fragment stage needs exactly the
+/// same margin. The block also says how much of the quad is that rim (`ITEM_RIM_WORDS`,
+/// bug-1083): under a group matrix the vertex stage replaces it, as the software bounds
+/// do (`__canvas_drawBound`), and with no group it reads the quad as it stands.
 /// (Phase 1 used the exact extent because a flat fill has no ramp to make room for.)
 ///
 /// Positions narrow to 16.16 fixed point, colours cross as the whole 0–255 values the
@@ -4662,6 +4889,29 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
             ));
         }
     }
+    // bug-1083: how much of that box is rim, 16.16 like the box, in the two words the
+    // vertex stage reads it from under a group matrix (`ITEM_RIM_WORDS`).
+    for (index, word) in crate::codegen::runtime::canvas::ITEM_RIM_WORDS
+        .into_iter()
+        .enumerate()
+    {
+        let slot = crate::codegen::runtime::canvas::HEADER_RIM + index;
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        asm.push(abi::float_round_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            OFF_ITEM + word,
+        ));
+    }
 
     // bug-735: every field a distance reads -- the shape parameters, the radius and
     // stroke half-width, an arc's sweep endpoints, an ellipse's rotation and the clip --
@@ -4927,12 +5177,13 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
 /// through `[[instance_id]]`, which includes the draw's `baseInstance:`.
 ///
 /// **The cursor counts quads, not scene items.** A shape is one, a glyph run is one per
-/// glyph. That is the same number `__canvas_metalRenderable` sums against
+/// glyph. That is the same number `__canvas_blockCost` sums against
 /// `METAL_MAX_FRAME_ITEMS`, so the two cannot disagree about what "full" means.
 ///
-/// Branches to `full` without writing or advancing when the frame is at capacity —
-/// unreachable, because the predicate already declined such a scene to software, and
-/// kept because the alternative is a write past the buffer.
+/// Branches to `full` without writing or advancing when the buffer is at capacity —
+/// unreachable, because the pass walk ends a pass before it (`__canvas_passNext`,
+/// bug-765) and a block that fits no pass sends the frame to software, and kept because
+/// the alternative is a write past the buffer.
 ///
 /// No `objc_msgSend` happens here, so the scratch bank is safe across it.
 fn emit_item_publish(asm: &mut Asm, full: &str) {
@@ -6350,9 +6601,10 @@ fn emit_join_buffer(asm: &mut Asm) {
         &METAL_MAX_FRAME_EDGES.to_string(),
     ));
     asm.push(abi::branch_le(&copy));
-    // Unreachable: `__canvas_metalRenderable` counts two edges per record and declines
-    // a frame whose total does not fit. Kept because the alternative is a write past the
-    // buffer; dropping the records draws the corners round, not a wrong shape.
+    // Unreachable: `__canvas_blockCost` counts two edges per record, and the pass walk
+    // ends a pass before its total passes the region (bug-765). Kept because the
+    // alternative is a write past the buffer; dropping the records draws the corners
+    // round, not a wrong shape.
     asm.push(abi::branch(&none));
 
     asm.push(abi::label(&copy));
@@ -6611,10 +6863,10 @@ fn emit_edge_buffer(asm: &mut Asm) {
     // longer polygon, so it drew nothing; nothing in the transport needs it since
     // plan-116-A moved the edges into this region.
     //
-    // Would this polygon's edges fit the frame's region? Unreachable —
-    // `__canvas_metalRenderable` declines a frame whose polygons sum past
-    // `METAL_MAX_FRAME_EDGES`, so the whole scene went to software. Kept because the
-    // alternative to declining is a write past the buffer.
+    // Would this polygon's edges fit the buffer's region? Unreachable — the pass walk
+    // (`__canvas_passNext`, bug-765) ends a pass before its polygons sum past
+    // `METAL_MAX_FRAME_EDGES`, and a polygon past it alone sends the whole frame to
+    // software. Kept because the alternative is a write past the buffer.
     asm.push(abi::load_u64(
         abi::SCRATCH[5],
         abi::stack_pointer(),
@@ -7438,6 +7690,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
         SEL_END_ENCODING,
         SEL_COMMIT,
         SEL_WAIT_UNTIL_COMPLETED,
+        SEL_STATUS,
         SEL_GET_BYTES,
         SEL_SET_FRAGMENT_BYTES,
         SEL_SET_VERTEX_BYTES,
@@ -7472,6 +7725,7 @@ pub(super) fn metal_data_objects() -> Vec<(&'static str, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arch::ops::CodeOp;
     use crate::codegen::engine::operand::Operand;
     use crate::codegen::runtime::canvas::METAL_PICTURE_TABLE_BYTES;
 
@@ -7595,6 +7849,97 @@ mod tests {
         );
     }
 
+    /// The index of the instruction that loads `selector`'s address for a send.
+    fn selector_load(func: &CodeFunction, selector: &str) -> usize {
+        let loads: Vec<usize> = func
+            .instructions
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| i.op == CodeOp::Adrp && i.get("symbol").as_deref() == Some(selector))
+            .map(|(at, _)| at)
+            .collect();
+        assert_eq!(loads.len(), 1, "{selector} is sent once, got {loads:?}");
+        loads[0]
+    }
+
+    /// bug-1024: the command buffer's `status` is read after the wait and before the
+    /// frame is used, on BOTH ways out — the readback and the direct present.
+    ///
+    /// `waitUntilCompleted` returns when the buffer has finished, not when it has
+    /// succeeded. A buffer that ended in `MTLCommandBufferStatusError` leaves its
+    /// tile-based target written in part or not at all, so reading it back, or
+    /// presenting it, shows a frame the GPU did not draw and reports it as drawn.
+    #[test]
+    fn the_buffer_status_is_read_after_the_wait_and_before_the_frame_is_used() {
+        let func = emit_metal_draw();
+        let wait = selector_load(&func, SEL_WAIT_UNTIL_COMPLETED.0);
+        let status = selector_load(&func, SEL_STATUS.0);
+        let read_back = selector_load(&func, SEL_GET_BYTES.0);
+        let present = selector_load(&func, SEL_PRESENT.0);
+        assert!(
+            wait < status && status < read_back && status < present,
+            "the order must be waitUntilCompleted ({wait}), status ({status}), then \
+             getBytes ({read_back}) or present ({present})"
+        );
+        assert!(
+            metal_data_objects().contains(&SEL_STATUS),
+            "the `status` selector's name must be among the module's data objects"
+        );
+    }
+
+    /// A buffer that did not complete makes the submit answer 0: the branch that
+    /// follows the `status` send leaves for the pool release when the answer is not
+    /// `MTLCommandBufferStatusCompleted`, and nothing has stored "presented" by then.
+    ///
+    /// That is the answer `direct_failed` gives, by the same means: the answer is the
+    /// `OFF_PRESENTED` slot, zeroed at entry and set to 1 only on the three paths below
+    /// this branch (a pass with more to come, the present, the readback). So the caller
+    /// declines the frame and software draws it.
+    #[test]
+    fn a_buffer_that_did_not_complete_reports_the_frame_not_drawn() {
+        let func = emit_metal_draw();
+        let ins = &func.instructions;
+        let status = selector_load(&func, SEL_STATUS.0);
+        let send = (status..ins.len())
+            .find(|at| ins[*at].get("target").as_deref() == Some("_objc_msgSend"))
+            .expect("the status selector is sent");
+        let answer = render_field("lhs", abi::c_return(0));
+        assert_eq!(ins[send + 1].op, CodeOp::CmpImm, "the status is compared");
+        assert_eq!(ins[send + 1].get("lhs"), Some(answer));
+        assert_eq!(
+            ins[send + 1].get("rhs"),
+            Some(MTL_COMMAND_BUFFER_STATUS_COMPLETED.to_string()),
+            "the status is compared with MTLCommandBufferStatusCompleted"
+        );
+        assert_eq!(ins[send + 2].op, CodeOp::BranchNe, "and branched on");
+        assert_eq!(
+            ins[send + 2].get("target"),
+            Some(format!("{METAL_DRAW_SYMBOL}_release_pool")),
+            "a buffer that did not complete skips the readback and the present"
+        );
+
+        // "Presented" is stored as 1 only after that branch, and as 0 only before it.
+        let presented = OFF_PRESENTED.to_string();
+        let stores: Vec<usize> = (0..ins.len())
+            .filter(|at| {
+                ins[*at].op == CodeOp::StrU64
+                    && ins[*at].get("offset").as_deref() == Some(presented.as_str())
+                    && ins[*at].get("base") == Some(render_field("base", abi::stack_pointer()))
+            })
+            .collect();
+        let after: Vec<usize> = stores.iter().copied().filter(|at| *at > send).collect();
+        // bug-765: three since a frame can be several passes. A pass with more of its
+        // frame to come also answers 1, and it too only below the status branch, so a
+        // pass the GPU did not finish stops the frame as an unfinished frame does.
+        assert_eq!(
+            (stores.len(), after.len()),
+            (4, 3),
+            "one store clears the answer at entry and three set it, one for a pass \
+             with more to come, one for the present and one for the readback, all \
+             after the status branch: {stores:?}"
+        );
+    }
+
     /// A resize releases the outgoing texture before allocating its replacement.
     ///
     /// A leak here is a whole surface's worth of pixels per resize step — several
@@ -7693,6 +8038,7 @@ mod tests {
             (OFF_DRAW_BASE, 8, "drawBase"),
             (OFF_DRAW_COUNT, 8, "drawCount"),
             (OFF_DRAW_PAIR, 32, "drawPair"),
+            (OFF_PASS, 8, "pass"),
             (OFF_GLYPH_CURSOR, 8, "glyphCursor"),
             (OFF_DASH_CURSOR, 8, "dashCursor"),
             (OFF_PIC_COUNT, 8, "picCount"),

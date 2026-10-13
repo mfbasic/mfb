@@ -1,0 +1,31 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+IMPORT os
+
+' bug-765: MFB_TEST_ITEMS pixel-aligned squares on a 3 px grid of 300 by 213 cells, so
+' the scene wraps past 63,900 items and later squares cover earlier ones. Most are 2 px
+' and opaque; every ninety-seventh is 5 px at half alpha and lies over its neighbours. Every
+' colour comes from the item's index, so a frame that dropped a square, drew one twice
+' or drew two out of order has other pixels than the oracle's.
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET count AS Integer = toInt(os::getEnvOr("MFB_TEST_ITEMS", "1000"))
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  MUT scene AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < count
+    MUT side AS Float = 2.0
+    MUT alpha AS Integer = 255
+    IF k MOD 97 = 0 THEN
+      side = 5.0
+      alpha = 128
+    END IF
+    LET r AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := toFloat((k MOD 300) * 3), y := toFloat(((k / 300) MOD 213) * 3)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := side, height := side], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba((k * 7) MOD 256, (k * 13) MOD 256, (k / 256) MOD 256, alpha)), transform := none]
+    scene = collections::append(scene, r)
+    k = k + 1
+  END WHILE
+  canvas::present(scene)
+END FUNC

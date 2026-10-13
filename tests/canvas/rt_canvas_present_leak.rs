@@ -196,6 +196,41 @@ fn unchanged() -> String {
     )
 }
 
+/// A scene REBUILT every frame with the same content: each polygon's points are
+/// appended one at a time, so the copy carries spare capacity the installed scene's
+/// first build does not have in the same bytes. Every present after the first is equal
+/// in content and different in bytes (bug-968), so it takes the frame skip through the
+/// comparison's typed walk, not through its byte comparison.
+fn rebuilt_unchanged() -> String {
+    format!(
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\nIMPORT io\nIMPORT os\n\n\
+         FUNC ring(i AS Integer) AS List OF vector::Float2\n  \
+         MUT pts AS List OF vector::Float2 = []\n  \
+         pts = collections::append(pts, vector::Float2[x := toFloat(i), y := 0.0])\n  \
+         pts = collections::append(pts, vector::Float2[x := toFloat(i) + 8.0, y := 0.0])\n  \
+         pts = collections::append(pts, vector::Float2[x := toFloat(i) + 4.0, y := 8.0])\n  \
+         RETURN pts\n\
+         END FUNC\n\n\
+         FUNC main() AS Nothing\n  \
+         app::setMode(app::Mode.Canvas)\n  \
+         LET paint AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))\n  \
+         MUT frame AS Integer = 0\n  \
+         WHILE frame < {{N}}\n    \
+         MUT items AS List OF canvas::DrawItem = []\n    \
+         MUT i AS Integer = 0\n    \
+         WHILE i < {ITEMS}\n      \
+         LET p AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [ring(i)], rule := canvas::FillRule.NonZero, paint := paint, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n      \
+         items = collections::append(items, p)\n      \
+         i = i + 1\n    \
+         END WHILE\n    \
+         canvas::present(items)\n    os::sleep({FRAME_MS})\n    \
+         frame = frame + 1\n  \
+         END WHILE\n  \
+         io::print(\"frames \" & toString(canvas::getFrameStats().frames))\n\
+         END FUNC\n"
+    )
+}
+
 /// A scene whose coordinates move every frame, presented **twice** per frame with
 /// different content each time — back to back, with the frame's sleep after the pair.
 ///
@@ -276,6 +311,21 @@ fn re_presenting_an_unchanged_scene_holds_steady_memory() {
         "The frame skip deep-copies the scene to compare it, then returns from the \
          `skip` label without freeing the copy, so every no-op re-present leaks a \
          whole scene.",
+    );
+}
+
+/// The same exit, reached the other way (bug-968): a scene rebuilt with the same
+/// content is different bytes, so the comparison walks it by type before it answers
+/// "same". The copy made to compare with is freed on that path too.
+#[test]
+fn re_presenting_a_rebuilt_unchanged_scene_holds_steady_memory() {
+    assert_flat(
+        "canvas_present_leak_rebuilt",
+        &rebuilt_unchanged(),
+        true,
+        TIGHT,
+        "A scene rebuilt with the same content takes the frame skip after a typed walk \
+         of its nested lists; that exit must free the copy as the byte-equal exit does.",
     );
 }
 

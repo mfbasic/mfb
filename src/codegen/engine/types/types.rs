@@ -1377,7 +1377,7 @@ pub(crate) trait CodegenPlatform {
     /// MFB argument registers point at.
     ///
     /// `None` — the default — means no GPU renderer, which `canvas::metalDrawScene`
-    /// turns into a no-op. It is never reached on such a target: the renderer branch
+    /// answers FALSE ("not drawn") for. It is never reached on such a target: the renderer branch
     /// gates on `canvas::metalReady`, which is `FALSE` wherever this is `None`.
     fn emit_metal_draw(
         &self,

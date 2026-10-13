@@ -26,7 +26,8 @@ struct ItemBlock {
     ivec4 surface; // width, height, blendMode, gradient kind (0 linear, 1 radial)
     ivec4 clip;    // the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     ivec4 xform0;  // inverse transform ia,ib,ic,id as float32 BITS
-    ivec4 xform1;  // itx, ity (float32 bits), hasTransform (0 or 1), unused
+    ivec4 xform1;  // itx, ity (float32 bits), hasTransform (0 or 1); `.w` is the vertex
+                   // stage's (bug-1083: the rim of the quad's x sides)
     ivec4 arcCaps; // an arc's two sweep endpoints startX,startY,endX,endY (16.16 px);
                    //   for a polygon, its band header (bug-688, `polygonBand`)
     ivec4 ellipse; // an ellipse's rotation cos, sin (16.16); then a gradient's
@@ -1697,7 +1698,7 @@ vec2 dashedStroke(ivec2 band, vec2 x, vec2 y, float halfW) {
 
 // bug-735: one sample's distance at the double-float shape-space point, for every kind a
 // distance draws: the polygon's edge walk (bug-687), the polyline's, or the pre-pass and
-// then `dfShapeDistance`. One call site each.
+// then `dfShapeDistance`. One call site each; `shapeCoverage` calls this from two.
 vec2 sampleDistance(ivec2 band, vec2 x, vec2 y, float reach, bool clip) {
     int kind = item.misc.x;
     // plan-163-C: a path clip's edges under its own rule, through the polygon's walk -- one
@@ -1743,11 +1744,26 @@ int glyphCoverage(vec2 p) {
     return edges.values[GLYPH_BASE + item.arc.z + iy * item.misc.w + ix];
 }
 
+// bug-1079: which of `n` texels holds `t`, the texels `d` apart: `floor(t / d)`, made
+// independent of how the driver rounds `/`. Vulkan allows a quotient 2.5 ULP of error,
+// and one real driver takes it (it multiplies by a reciprocal), so where `t` is exactly a
+// whole number of `d` -- a texel boundary on a pixel centre -- `floor` of the quotient
+// alone is the texel on either side. The quotient is within one of the answer whatever
+// its last bits are, so it is corrected by at most one from the products, which every
+// backend rounds correctly and which are exact wherever the quotient is a whole number.
+// The oracle's picture arm (`helper_items.rs`) and the MSL take the same three steps.
+int pictureTexel(float t, float d, int n) {
+    float u = floor(t / d);
+    if ((u + 1.0) * d <= t) { u += 1.0; } else if (u * d > t) { u -= 1.0; }
+    return clamp(int(u), 0, n - 1);
+}
+
 // A picture's fill colour at the SHAPE-space point `q`, as an `ivec4` of 0..255
 // (bug-484) — the oracle's picture arm in `helper_items.rs`, operation for operation.
 //
 // Sampled NEAREST, the plan-116-C §4.5 rule glyphs follow: `floor` and `+ - * /` only,
-// in the oracle's order `(q - x0) * iw / dw`, so every renderer picks the same texel.
+// in the oracle's order `(q - x0) * iw / dw`, with the index taken by `pictureTexel`
+// so it does not hang on the division's last bit; every renderer picks the same texel.
 // The index is clamped rather than rejected, because the antialiased edge pixels just
 // outside the destination still take coverage and belong to the border texel.
 //
@@ -1765,8 +1781,8 @@ ivec4 pictureColour(vec2 q) {
     float y0 = fx(item.shape.y) - fx(item.shape.w);
     float dw = fx(item.shape.z) * 2.0;
     float dh = fx(item.shape.w) * 2.0;
-    int u = clamp(int(floor((q.x - x0) * float(iw) / dw)), 0, iw - 1);
-    int v = clamp(int(floor((q.y - y0) * float(ih) / dh)), 0, ih - 1);
+    int u = pictureTexel((q.x - x0) * float(iw), dw, iw);
+    int v = pictureTexel((q.y - y0) * float(ih), dh, ih);
     int word = edges.values[GLYPH_BASE + item.arc.z + v * iw + u];
     ivec4 tex = ivec4(word & 255, (word >> 8) & 255, (word >> 16) & 255, (word >> 24) & 255);
     // plan-163-C: towards `texel * fill / 255` by `fill.a / 255`, rounded half away from
@@ -2024,11 +2040,13 @@ vec2 dfMapY(vec2 x, vec2 y) {
 // operation: the inverse map with the float32 terms, the central differences at 0.5 (all
 // five on the centre's band), `d / ||grad d||`, and the stroke's half-width -- its word
 // plus its residual, stroking exactly when the oracle's `half > 0` -- taken off in shape
-// space before the scale. The five samples are one loop so each distance helper is inlined
-// once. A transformed CENTRE sample past `half + 0.5 * max(F, 1)` (F the inverse matrix's
+// space before the scale. The CENTRE sample is straight-line code and every other sample
+// sits behind one branch (bug-688, below), so `sampleDistance` has two call sites. A
+// transformed CENTRE sample past `half + 0.5 * max(F, 1)` (F the inverse matrix's
 // Frobenius norm, which bounds the gradient) decides the coverage by its sign and the four
-// neighbours are skipped; never for an arc, whose distance jumps. Metal's `shapeCoverage`,
-// line for line, where the bound is argued.
+// neighbours are skipped; never for an arc, whose distance jumps. A clip's centre sample
+// past `0.5 * max(F, 1)` decides the clip's coverage the same way (bug-995). Metal's
+// `shapeCoverage`, line for line, where both bounds are argued.
 //
 // plan-172-H: (`x`, `y`) arrives already through the groups' inverse linear part when
 // `grouped`, and `gi` is that part: the four neighbour samples are half a SURFACE pixel
@@ -2042,6 +2060,9 @@ ivec4 shapeCoverage(vec2 x, vec2 y) {
     vec2 half2 = dfFixed(item.misc.z, item.miscLo.y);
     bool stroked = dfLess(vec2(0.0), half2);
     float reach = 0.5 + max(half2.x, 0.0);
+    // bug-995: the clip's reach -- the shape's without the stroke half, and for any kind
+    // (a clip's distance is 1-Lipschitz whatever the item is, an arc's too).
+    float clipReach = 0.5;
     if (mapped) {
         vec2 c0 = itemMapped ? vec2(intBitsToFloat(item.xform0.x), intBitsToFloat(item.xform0.y)) : vec2(1.0, 0.0);
         vec2 c1 = itemMapped ? vec2(intBitsToFloat(item.xform0.z), intBitsToFloat(item.xform0.w)) : vec2(0.0, 1.0);
@@ -2050,6 +2071,7 @@ ivec4 shapeCoverage(vec2 x, vec2 y) {
         if (grouped) { norm = (itemMapped ? norm : 1.0) * length(gi); }
         float frob = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;
         reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);
+        clipReach = 0.5 * max(frob, 1.0);
     }
     // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
     // distance (`joinedStroke`), which a miter can reach past `half` from the outline --
@@ -2061,30 +2083,51 @@ ivec4 shapeCoverage(vec2 x, vec2 y) {
     bool joined = (item.strokeStyle.y > 0 || dashed) && item.misc.x != 10 && item.misc.x != 11;
     float strokeReach = mapped ? reach - max(half2.x, 0.0) : 0.5;
     // plan-163-C: samples 5..9 are a path clip's distance at the same five points, so the
-    // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's;
-    // one loop keeps one `sampleDistance` call site. Metal's, line for line.
+    // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's.
+    // bug-995: the clip's CENTRE sample (5) past `clipReach` decides its coverage by its
+    // sign, exactly as the shape's does, and its four neighbours are skipped: their
+    // central difference `cg` is at most `frob` (or the fallback 1.0), so
+    // `|d5| > 0.5 * max(frob, 1)` puts `|d5 / cg|` past 0.5, where `dfCoverage` has
+    // clamped. Sample 5 therefore takes `clipReach`, not an unbounded reach, and
+    // `edgeDistance`'s fp32 pass may answer it. The bound is argued in Metal's twin.
     int clipMode = item.clipPath.z & 3;
     bool clipMapped = itemMapped || grouped;
     // plan-172-H: a rectangle clip is sampled too, under a group matrix.
     bool clipSampled = clipMode == 2 || (clipMode == 1 && grouped);
     ivec2 cband = clipMode == 2 ? clipBandAt(itemMapped ? dfMapY(x, y).x : y.x) : ivec2(-1, 0);
     vec2 d[10];
-    vec2 cqx = x;
-    vec2 cqy = y;
-    for (int k = 0; k < 10; ++k) {
-        bool clipK = k >= 5;
-        int j = clipK ? k - 5 : k;
-        if (clipK ? (!clipSampled || j >= (clipMapped ? 5 : 1)) : j >= (mapped ? 5 : 1)) { continue; }
-        float ox = j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0);
-        float oy = j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0);
-        vec2 sx = dfAdd(x, vec2(grouped ? gi.x * ox + gi.z * oy : ox, 0.0));
-        vec2 sy = dfAdd(y, vec2(grouped ? gi.y * ox + gi.w * oy : oy, 0.0));
-        vec2 qx = itemMapped ? dfMapX(sx, sy) : sx;
-        vec2 qy = itemMapped ? dfMapY(sx, sy) : sy;
-        if (k == 0) { cqx = qx; cqy = qy; }
-        if (clipK && clipMode == 1) { d[k] = clipRectDistance(qx, qy); continue; }
-        d[k] = sampleDistance(clipK ? cband : band, qx, qy, k == 0 ? reach : ((k == 5 && !clipMapped) ? 0.5 : 1.0e30), clipK);
-        if (k == 0 && !joined && abs(d[0].x) > reach) { mapped = false; }
+    // bug-688: the shape's centre sample is taken here, outside the loop, and the loop is
+    // entered only by a pixel that needs another sample -- the shape's four neighbours
+    // (`mapped`, once the centre has not decided it) or the clip's (`clipSampled`). An
+    // untransformed, unclipped pixel therefore runs one sample and no loop. It did in the
+    // one ten-pass loop this replaces too, as nine `continue`s, and a driver that does
+    // not turn a skipped pass into skipped work charged it for all ten (box 206's Intel
+    // driver: 10,000 16 px squares rendered in 106 ms a frame, and in 58 this way). The
+    // samples and their order are unchanged; the centre point is `x`, `y` itself where
+    // the loop added a zero offset to it, which a double-float sum returns unchanged.
+    // Metal's, line for line.
+    vec2 cqx = itemMapped ? dfMapX(x, y) : x;
+    vec2 cqy = itemMapped ? dfMapY(x, y) : y;
+    d[0] = sampleDistance(band, cqx, cqy, reach, false);
+    if (!joined && abs(d[0].x) > reach) { mapped = false; }
+    if (mapped || clipSampled) {
+        for (int k = 1; k < 10; ++k) {
+            bool clipK = k >= 5;
+            int j = clipK ? k - 5 : k;
+            if (clipK ? (!clipSampled || j >= (clipMapped ? 5 : 1)) : !mapped) { continue; }
+            float ox = j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0);
+            float oy = j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0);
+            vec2 sx = dfAdd(x, vec2(grouped ? gi.x * ox + gi.z * oy : ox, 0.0));
+            vec2 sy = dfAdd(y, vec2(grouped ? gi.y * ox + gi.w * oy : oy, 0.0));
+            vec2 qx = itemMapped ? dfMapX(sx, sy) : sx;
+            vec2 qy = itemMapped ? dfMapY(sx, sy) : sy;
+            if (clipK && clipMode == 1) {
+                d[k] = clipRectDistance(qx, qy);
+            } else {
+                d[k] = sampleDistance(clipK ? cband : band, qx, qy, k == 5 ? clipReach : 1.0e30, clipK);
+            }
+            if (k == 5 && abs(d[5].x) > clipReach) { clipMapped = false; }
+        }
     }
     vec2 dRaw = d[0];
     vec2 g = vec2(1.0, 0.0);

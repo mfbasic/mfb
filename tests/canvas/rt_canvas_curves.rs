@@ -1085,7 +1085,9 @@ fn scene_on(name: &str, body: &str, functions: &str, presses: &[(u32, u32)], gpu
 ///
 /// Four presents of one `CurvePolygon`: as it is; with ONE weight of the second
 /// curve of its second contour changed; with only its `position` changed; and that
-/// last one again, rebuilt. Each of the first three is a different item and costs one
+/// last one again, rebuilt and presented twice over (a scene equal to the installed one
+/// publishes nothing and draws no frame, bug-968, so the rebuilt item is shown in a
+/// scene that differs). Each of the first three is a different item and costs one
 /// generation; the fourth is the third and costs none (`generations=1,2,3,3`). A hash
 /// that stopped short of the inner lists would hit on the second present.
 ///
@@ -1097,10 +1099,10 @@ fn canvas_curve_shapes_hash_every_point_and_weight() {
         r#"  canvas::present([blob(50.0, 0.7)])
   canvas::present([blob(50.0, 0.8)])
   canvas::present([blob(60.0, 0.8)])
-  canvas::present([blob(60.0, 0.8)])
+  canvas::present([blob(60.0, 0.8), blob(60.0, 0.8)])
   canvas::present([wave(40.0)])
   canvas::present([wave(41.0)])
-  canvas::present([wave(41.0)])
+  canvas::present([wave(41.0), wave(41.0)])
 "#,
         r#"
 FUNC blob(x AS Float, w AS Float) AS canvas::DrawItem

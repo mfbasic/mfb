@@ -34,6 +34,7 @@
 pub(crate) mod curve_shader;
 pub(crate) mod metal;
 pub(crate) mod vulkan;
+pub(crate) mod vulkan_handoff;
 
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::{Operand, VirtualRegister};
@@ -173,9 +174,10 @@ pub(crate) const GRAPHICS_OFFSET_MTL_TEX_HEIGHT: usize = 416;
 /// them, and is the only thread that may — and the arena is per-thread, so a
 /// process-global word is the only place they survive.
 ///
-/// `VULKAN_READY` is tri-state (0 untried, 1 built, 2 failed) rather than "is the
-/// device non-zero", so a machine with no ICD pays the `dlopen` and the enumeration
-/// once instead of per frame.
+/// `VULKAN_READY` is a state, not "is the device non-null", for the same reason
+/// `MTL_READY` is: a machine with a loader but no ICD must pay the failed enumeration
+/// once, not on every frame. Its four values, who writes each and the order that makes
+/// it the build's hand-off are [`vulkan_handoff`]'s (bug-996).
 pub(crate) const GRAPHICS_OFFSET_VULKAN_READY: usize = 424;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_LIB: usize = 432;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_INSTANCE: usize = 440;
@@ -414,6 +416,27 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_VIEWS: usize =
     GRAPHICS_OFFSET_VULKAN_SC_IMAGES + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
 pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS: usize =
     GRAPHICS_OFFSET_VULKAN_SC_VIEWS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
+/// bug-765: what a Vulkan frame of several passes keeps between them, **graphics
+/// thread only** like the swapchain words above. A frame of one pass reads none of them.
+///
+/// * `LOAD_PASS` — the offscreen render pass with `loadOp = LOAD`, entered and left in
+///   `TRANSFER_SRC_OPTIMAL` (where `RENDER_PASS` leaves the image): what every pass
+///   after a frame's first records into. Made on the first frame that needs it.
+/// * `PRESENT_LOAD_PASS` — its swapchain twin, entered and left in `PRESENT_SRC_KHR`
+///   (where `PRESENT_PASS` leaves the image).
+/// * `SC_HELD` — one more than the index of the swapchain image a frame's first pass
+///   acquired, while a later pass of that frame is still to come; 0 otherwise. The
+///   image is acquired once a frame and handed to the queue once, by the last pass.
+///
+/// Both passes differ from the ones the pipelines were built against only in load
+/// operation and layouts, which render pass compatibility does not look at, so no
+/// pipeline is rebuilt.
+pub(crate) const GRAPHICS_OFFSET_VULKAN_LOAD_PASS: usize =
+    GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_PRESENT_LOAD_PASS: usize =
+    GRAPHICS_OFFSET_VULKAN_LOAD_PASS + 8;
+pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_HELD: usize =
+    GRAPHICS_OFFSET_VULKAN_PRESENT_LOAD_PASS + 8;
 /// plan-172-J: where the pointer is, published by each platform's MAIN thread and read
 /// by the graphics thread — the worker never touches these.
 ///
@@ -431,8 +454,7 @@ pub(crate) const GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS: usize =
 /// callback, and it must not wait behind a frame. Unlike the size, a torn read here is
 /// not harmless — an `x` from one move with an `inside` from another is a position the
 /// pointer never had — so the four are read as one.
-pub(crate) const GRAPHICS_OFFSET_POINTER_SEQ: usize =
-    GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS + VULKAN_MAX_SWAPCHAIN_IMAGES * 8;
+pub(crate) const GRAPHICS_OFFSET_POINTER_SEQ: usize = GRAPHICS_OFFSET_VULKAN_SC_HELD + 8;
 pub(crate) const GRAPHICS_OFFSET_POINTER_X: usize = GRAPHICS_OFFSET_POINTER_SEQ + 8;
 pub(crate) const GRAPHICS_OFFSET_POINTER_Y: usize = GRAPHICS_OFFSET_POINTER_X + 8;
 pub(crate) const GRAPHICS_OFFSET_POINTER_BUTTONS: usize = GRAPHICS_OFFSET_POINTER_Y + 8;
@@ -994,6 +1016,17 @@ pub(crate) const ITEM_ELLIPSE_GRADIENT_COUNT: usize = 8;
 pub(crate) const ITEM_ELLIPSE_GRADIENT_BASE: usize = 12;
 pub(crate) const HEADER_ELLIPSE_COS: usize = 39;
 pub(crate) const HEADER_ELLIPSE_SIN: usize = 40;
+/// bug-1083: the two words of the item block that carry the box's rim (`HEADER_RIM`),
+/// 16.16 like the box itself: the x sides' in `xform1.w` and the y sides' in
+/// `gradInv1.w`. Only the vertex stage reads them, and only under a group matrix.
+///
+/// They are the fourth word of each inverse's second `ivec4`, which nothing wrote: an
+/// inverse is six floats and a flag. Taking them is what keeps `ITEM_BLOCK_SIZE` where
+/// it is, and with it the fragment stage's SPIR-V and both backends' frame layouts: the
+/// vertex stage is the only shader text this bug changes. A fifth pair of the per-kind
+/// kind of sharing `ITEM_OFFSET_ARC` does would not do, since every kind has a box.
+pub(crate) const ITEM_RIM_WORDS: [usize; 2] =
+    [ITEM_OFFSET_TRANSFORM + 28, ITEM_OFFSET_GRADIENT_INV + 28];
 // The `hasTransform` flag is the seventh word from `ITEM_OFFSET_TRANSFORM`, written
 // positionally by the same loop that writes the six terms — a named offset for it
 // would be a second way to say where it lives, and one of the two would eventually be
@@ -1223,7 +1256,11 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
-pub(crate) const HEADER_SLOTS: usize = 67;
+pub(crate) const HEADER_SLOTS: usize = 69;
+/// bug-1083: `__CANVAS_GEO_RIM` -- how much of the box in `HEADER_BOUNDS` is rim, on its
+/// x sides and (the slot after) on its y sides, in the units the box is in. Zero for a
+/// box that is not an extent and a rim (a glyph run, a picture, an arc).
+pub(crate) const HEADER_RIM: usize = 67;
 /// plan-163-B: `__CANVAS_GEO_JOIN_COUNT` -- a stroke's join records in the tail, one
 /// per outline edge -- and `__CANVAS_GEO_JOIN_REACH`, how far a record reaches from its
 /// vertex, which a polygon's or polyline's band index widens to.
@@ -1244,13 +1281,15 @@ pub(crate) const HEADER_CLIP_RULE: usize = 53;
 pub(crate) const HEADER_PICTURE_TRANSPARENCY: usize = 54;
 /// Doubles per cached polygon edge: `x0, y0, dx, dy, invLenSq`.
 pub(crate) const EDGE_SLOTS: usize = 5;
-/// The most edges one **frame** may carry on the Vulkan path.
+/// The most edges one **pass** may carry on the Vulkan path — the size of the frame
+/// buffer's edge region (bug-765: a frame past it is drawn as several passes).
 ///
 /// Vulkan has no per-item limit — the edges live in a storage buffer, not in the
-/// push constants — so the real constraint is the buffer, and it is a whole-frame
-/// one: every polygon in the scene takes a slice. `__canvas_vulkanRenderable` sums
-/// the scene's polygon edges against this and declines the frame to software if the
-/// total does not fit, so the emitter's own bound check is unreachable.
+/// push constants — so the real constraint is the buffer, and it is a whole-buffer
+/// one: every polygon of a pass takes a slice. `__canvas_passNext` sums the blocks'
+/// edges (`__canvas_blockCost`) against this and ends the pass before the total
+/// passes it, and a block past it alone sends the frame to software, so the emitter's
+/// own bound check is unreachable.
 ///
 /// 262,144 since bug-688 (it was 16,384, which `examples/weather`'s coastline alone
 /// exceeds): Metal's number since bug-686, and 4 MiB of region. A large polygon no
@@ -1271,10 +1310,12 @@ pub(crate) const VULKAN_EDGE_RESIDUAL_BYTES: usize = VULKAN_MAX_FRAME_EDGES * 16
 /// (`GEO_KIND_TEXT`). So the count both predicates sum is "quads", and that is the
 /// number this bounds.
 ///
-/// `__canvas_vulkanRenderable` sums a frame's quads against this and declines the
-/// whole frame to software past it, the same honesty gate `VULKAN_MAX_FRAME_EDGES`
-/// already has and for the same reason: a truncated scene is a *different scene*, and
-/// software is the oracle, so declining is never worse than drawing.
+/// It is the size of the frame BUFFER's item region, and so of one PASS (bug-765):
+/// `__canvas_passNext` sums a frame's quads against it and ends a pass before the
+/// total passes it. Only a block of more quads than this by itself (a `Text` of more
+/// glyphs) sends the whole frame to software, for the reason `VULKAN_MAX_FRAME_EDGES`
+/// gives: a truncated scene is a *different scene*, and software is the oracle, so
+/// declining is never worse than drawing.
 ///
 /// 65,536 since bug-688, Metal's `METAL_MAX_FRAME_ITEMS`: 4,096 (the old shared
 /// `CANVAS_MAX_FRAME_ITEMS`) sent `examples/weather` (about 5,700 blocks), a 5,000-quad
@@ -1292,7 +1333,7 @@ pub(crate) const VULKAN_MAX_FRAME_ITEMS: usize = 65536;
 /// with it — which is why the shader's region bases are generated from these constants
 /// rather than spelled in the MSL (`metal_shader_source`).
 ///
-/// `__canvas_metalRenderable` declines a frame past it, exactly as before; the
+/// A frame past it is drawn as several passes (bug-765, `__canvas_passNext`); the
 /// MFBASIC copy is generated from this constant (`helper_render.rs`).
 pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 
@@ -1315,8 +1356,33 @@ pub(crate) const METAL_MAX_FRAME_ITEMS: usize = 65536;
 /// so a translate-only entry is its old eight words followed by zeros. Word 7 says
 /// whether the entry carries a matrix, and words 8–11 are that matrix: the linear part
 /// of the INVERSE of the enclosing groups' composed affine, as float32 bit patterns.
-/// Words 12–15 are reserved and zero.
+/// Word 12 is the pass word ([`CANVAS_DRAW_PASS_WORD`]); words 13–15 are reserved and
+/// zero.
 pub(crate) const CANVAS_DRAW_ENTRY_WORDS: usize = 16;
+
+/// bug-765: the word of a draw list's FIRST entry that says where the list stands in
+/// its frame, for a frame drawn as several passes (`__canvas_passNext`). An emitter is
+/// handed one pass's blocks and entries exactly as it is handed a whole frame's, and
+/// this word is the only thing that tells the two apart:
+///
+/// * [`CANVAS_DRAW_PASS_CONTINUES`] — a pass of this frame was drawn before this one.
+///   The target holds it, so it is LOADED, not cleared, and the image a direct present
+///   draws into is the one the first pass acquired.
+/// * [`CANVAS_DRAW_PASS_MORE`] — a pass follows. This one is submitted and waited for
+///   (the frame buffer is single-buffered, and the next pass refills it), but the frame
+///   is neither presented nor read back.
+///
+/// Zero is a frame of one pass, which is every list `__canvas_pushOneDraw` and
+/// `canvas::sceneDrawsFlat` lay out: they write 0 here, so such a frame is drawn by the
+/// instructions that drew it before there were passes.
+///
+/// It rides the list because the list is what makes a pass a pass, and because the
+/// seam's argument bank is full (`func_metal_draw.rs`). It is its own word for the
+/// reason the blend mode is: a flag packed into the high bits of `count` survives
+/// exactly until someone draws that many instances.
+pub(crate) const CANVAS_DRAW_PASS_WORD: usize = 12;
+pub(crate) const CANVAS_DRAW_PASS_CONTINUES: usize = 1;
+pub(crate) const CANVAS_DRAW_PASS_MORE: usize = 2;
 
 /// `log2(CANVAS_DRAW_ENTRY_WORDS * 8)` -- entry index to byte offset.
 pub(crate) const CANVAS_DRAW_ENTRY_SHIFT: u32 = CANVAS_DRAW_ENTRY_WORDS.trailing_zeros() + 3;
@@ -1484,8 +1550,9 @@ pub(crate) const METAL_BUFFER_BYTES: usize = METAL_ITEM_BUFFER_BYTES
 /// `emit_picture_buffer` used to copy a picture's texels for every `Picture` item, so a
 /// tilemap of 2,000 tiles drawn from two images copied 2,000 images and counted them
 /// against the glyph region's cap. It now looks the image's block up here first and, on
-/// a hit, points the item at the texels already uploaded; `__canvas_metalRenderable`
-/// counts each distinct block once to match.
+/// a hit, points the item at the texels already uploaded; the pass walk
+/// (`__canvas_passNext`) counts each distinct block once a pass to match. The table is
+/// a PASS's: each pass is one call of the renderer, which starts it empty.
 ///
 /// Two parts, a record array and an open-addressed index over it:
 ///
@@ -1630,8 +1697,9 @@ pub(crate) fn graphics_trampoline_shadow(windows: bool) -> usize {
     usize::from(windows) * 32
 }
 
-/// The graphics trampoline's frame size, split out from the emitter so the alignment
-/// invariant it exists to satisfy can be asserted directly (bug-479).
+/// A canvas thread entry's frame size for `saved` saved registers, split out from the
+/// emitter so the alignment invariant it exists to satisfy can be asserted directly
+/// (bug-479).
 ///
 /// **Every x86-64 thread entry is reached by a `call`** — `_pthread_start` on Unix and
 /// `BaseThreadInitThunk` on Windows alike — so the routine begins at `rsp % 16 == 8`.
@@ -1641,10 +1709,10 @@ pub(crate) fn graphics_trampoline_shadow(windows: bool) -> usize {
 ///
 /// AArch64 needs no such thing — the entry `sp` is 16-aligned and the return address
 /// arrives in `lr` rather than on the stack.
-pub(crate) fn graphics_trampoline_frame(arch: &str, windows: bool) -> usize {
+pub(crate) fn thread_entry_frame(arch: &str, windows: bool, saved: usize) -> usize {
     let realign = usize::from(arch == "x86_64") * 8;
     // `lr`, then one slot per saved register, rounded to the 16 every frame keeps.
-    let saves = 8 * (1 + graphics_trampoline_saved(arch, windows).len());
+    let saves = 8 * (1 + saved);
     saves.div_ceil(16) * 16 + realign + graphics_trampoline_shadow(windows)
 }
 
@@ -1731,6 +1799,56 @@ pub(crate) fn emit_graphics_trampoline(
     arena_init: ArenaInitSymbols,
 ) -> Result<CodeFunction, String> {
     let from = GRAPHICS_TRAMPOLINE_SYMBOL;
+    let _ = platform_imports;
+    let windows = platform.family() == PlatformFamily::Windows;
+    Ok(emit_thread_entry(
+        from,
+        "canvas.graphics_entry",
+        platform,
+        graphics_trampoline_saved(platform.arch(), windows),
+        |instructions, relocations| {
+            // Pin the child arena state. Every MFB global access on this thread — including
+            // the geometry cache and the sRGB table — is addressed off it.
+            instructions.push(abi::move_register(ARENA_STATE_REGISTER, abi::c_arg(0)));
+
+            // The two initializers, in the order the entry runs them (bug-369): `LINK` first,
+            // because a global's initializer may call a `LINK` symbol.
+            for symbol in [arena_init.link_init, arena_init.global_init]
+                .into_iter()
+                .flatten()
+            {
+                instructions.push(abi::branch_link(symbol));
+                relocations.push(internal_branch(from, symbol));
+            }
+
+            let render_loop = render_loop_symbol();
+            instructions.push(abi::branch_link(&render_loop));
+            relocations.push(internal_branch(from, &render_loop));
+            // bug-806: this thread ran the module's global initializer into its own
+            // instance; close what that instance's module-level bindings own.
+            if let Some(symbol) = arena_init.teardown {
+                instructions.push(abi::branch_link(symbol));
+                relocations.push(internal_branch(from, symbol));
+            }
+        },
+    ))
+}
+
+/// A thread start routine: the frame every canvas thread entry needs, around `body`.
+///
+/// The graphics thread's entry and (bug-996) the Vulkan builder's are both called by
+/// the thread library, so they owe it the same things: the stack alignment a `call`
+/// leaves, Windows' shadow space, and every register in `saved` handed back as it
+/// arrived. Which registers that is depends on what the body runs, so the caller says
+/// ([`graphics_trampoline_saved`], `vulkan_handoff::builder_entry_saved`). `body` runs
+/// with the thread argument still in `c_arg(0)`; the routine returns 0.
+pub(crate) fn emit_thread_entry(
+    from: &str,
+    name: &str,
+    platform: &dyn CodegenPlatform,
+    saved: Vec<abi::Reg>,
+    body: impl FnOnce(&mut Vec<CodeInstruction>, &mut Vec<CodeRelocation>),
+) -> CodeFunction {
     let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     // **The x86-64 stack realign.** Every x86-64 thread library reaches a
@@ -1782,7 +1900,7 @@ pub(crate) fn emit_graphics_trampoline(
     // so without it the saves below sit exactly where a callee is entitled to write.
     let windows = platform.family() == PlatformFamily::Windows;
     let shadow = graphics_trampoline_shadow(windows);
-    let frame = graphics_trampoline_frame(platform.arch(), windows);
+    let frame = thread_entry_frame(platform.arch(), windows, saved.len());
     instructions.push(abi::label("entry"));
     instructions.push(abi::subtract_stack(frame));
     instructions.push(abi::store_u64(
@@ -1835,7 +1953,6 @@ pub(crate) fn emit_graphics_trampoline(
     // ubuntu:24.04 container with the same GTK run the same binaries clean, dozens
     // of times — because whether a clobbered `rbp` is ever *dereferenced* depends on
     // the libc's own code path after the start routine returns.
-    let saved = graphics_trampoline_saved(platform.arch(), windows);
     for (index, register) in saved.iter().enumerate() {
         instructions.push(abi::store_u64(
             *register,
@@ -1843,29 +1960,7 @@ pub(crate) fn emit_graphics_trampoline(
             shadow + 8 + 8 * index,
         ));
     }
-    // Pin the child arena state. Every MFB global access on this thread — including
-    // the geometry cache and the sRGB table — is addressed off it.
-    instructions.push(abi::move_register(ARENA_STATE_REGISTER, abi::c_arg(0)));
-
-    // The two initializers, in the order the entry runs them (bug-369): `LINK` first,
-    // because a global's initializer may call a `LINK` symbol.
-    for symbol in [arena_init.link_init, arena_init.global_init]
-        .into_iter()
-        .flatten()
-    {
-        instructions.push(abi::branch_link(symbol));
-        relocations.push(internal_branch(from, symbol));
-    }
-
-    let render_loop = render_loop_symbol();
-    instructions.push(abi::branch_link(&render_loop));
-    relocations.push(internal_branch(from, &render_loop));
-    // bug-806: this thread ran the module's global initializer into its own
-    // instance; close what that instance's module-level bindings own.
-    if let Some(symbol) = arena_init.teardown {
-        instructions.push(abi::branch_link(symbol));
-        relocations.push(internal_branch(from, symbol));
-    }
+    body(&mut instructions, &mut relocations);
 
     // Return, which is how a pthread entry exits. It used to park here on the
     // theory that a render loop returning was a bug — but shutdown asks it to
@@ -1889,9 +1984,8 @@ pub(crate) fn emit_graphics_trampoline(
     instructions.push(abi::add_stack(frame));
     instructions.push(abi::return_());
 
-    let _ = (platform_imports, platform);
-    Ok(CodeFunction {
-        name: "canvas.graphics_entry".to_string(),
+    CodeFunction {
+        name: name.to_string(),
         symbol: from.to_string(),
         params: Vec::new(),
         returns: "Pointer".to_string(),
@@ -1902,7 +1996,7 @@ pub(crate) fn emit_graphics_trampoline(
         stack_slots: Vec::new(),
         instructions,
         relocations,
-    })
+    }
 }
 
 /// Load the graphics-state block's address into `dst`.
@@ -3423,26 +3517,71 @@ pub(crate) fn emit_set_sync_mode(
 pub(crate) const DEFAULT_SURFACE_WIDTH: usize = 900;
 pub(crate) const DEFAULT_SURFACE_HEIGHT: usize = 640;
 
+/// One of the surface's two dimensions: where its word is in the graphics state, and
+/// what a zero there reads as.
+#[derive(Clone, Copy)]
+pub(crate) enum SurfaceDimension {
+    Width,
+    Height,
+}
+
+impl SurfaceDimension {
+    fn offset(self) -> usize {
+        match self {
+            SurfaceDimension::Width => GRAPHICS_OFFSET_WIDTH,
+            SurfaceDimension::Height => GRAPHICS_OFFSET_HEIGHT,
+        }
+    }
+
+    fn startup(self) -> usize {
+        match self {
+            SurfaceDimension::Width => DEFAULT_SURFACE_WIDTH,
+            SurfaceDimension::Height => DEFAULT_SURFACE_HEIGHT,
+        }
+    }
+
+    /// Load this dimension of the graphics state at `base` into `dst`, as the program
+    /// sees it: a zero word is the startup size.
+    ///
+    /// The ONE reading of a size word. `canvas::getSize` answers through it
+    /// ([`emit_surface_dimension`]) and the resize publisher decides "did the size
+    /// change" through it ([`emit_publish_surface_size_tagged`]), so the two cannot
+    /// give 0 different meanings (bug-970). `ready` is a label the caller owns.
+    fn emit_load(
+        self,
+        dst: abi::Reg,
+        base: abi::Reg,
+        ready: &str,
+        instructions: &mut Vec<CodeInstruction>,
+    ) {
+        instructions.push(abi::load_u64(dst, base, self.offset()));
+        instructions.push(abi::compare_immediate(dst, "0"));
+        instructions.push(abi::branch_ne(ready));
+        instructions.push(abi::move_immediate(
+            dst,
+            "Integer",
+            &self.startup().to_string(),
+        ));
+        instructions.push(abi::label(ready));
+    }
+}
+
 /// Read one published surface dimension, falling back to the startup size.
 pub(crate) fn emit_surface_dimension(
     symbol: &str,
     scratch: &GraphicsScratch,
-    offset: usize,
-    default: usize,
+    dimension: SurfaceDimension,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let ready = format!("{symbol}_dim_ready_{offset}");
+    let ready = format!("{symbol}_dim_ready_{}", dimension.offset());
     state_base(symbol, &scratch.base, instructions, relocations);
-    instructions.push(abi::load_u64(&scratch.scratch, &scratch.base, offset));
-    instructions.push(abi::compare_immediate(&scratch.scratch, "0"));
-    instructions.push(abi::branch_ne(&ready));
-    instructions.push(abi::move_immediate(
-        &scratch.scratch,
-        "Integer",
-        &default.to_string(),
-    ));
-    instructions.push(abi::label(&ready));
+    dimension.emit_load(
+        (&scratch.scratch).into(),
+        (&scratch.base).into(),
+        &ready,
+        instructions,
+    );
     instructions.push(abi::move_register(RESULT_VALUE_REGISTER, &scratch.scratch));
 }
 
@@ -3607,13 +3746,28 @@ pub(crate) fn emit_publish_surface_size_tagged(
     // already has, and the headless scripted resize does the same — and
     // `canvas::didResize` promises the program a *change*, not an event.
     //
+    // "Changed" is against the size the program SEES, which is the startup size while
+    // the words are still zero (bug-970): a window that opens at that size publishes
+    // what `canvas::getSize` already answered, and one that opens at another size
+    // publishes a change. Nothing here knows whether a publish is the first.
+    //
     // The compare reads the old values before the stores overwrite them, and uses the
     // scratch the caller already gave us rather than a fifth register: this runs in a
     // platform resize callback, where the register budget is whatever the caller had.
-    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_WIDTH));
+    SurfaceDimension::Width.emit_load(
+        SCRATCH_RESIZE,
+        base,
+        &format!("{symbol}{tag}_resize_old_width"),
+        instructions,
+    );
     instructions.push(abi::compare_registers(SCRATCH_RESIZE, width));
     instructions.push(abi::branch_ne(&changed));
-    instructions.push(abi::load_u64(SCRATCH_RESIZE, base, GRAPHICS_OFFSET_HEIGHT));
+    SurfaceDimension::Height.emit_load(
+        SCRATCH_RESIZE,
+        base,
+        &format!("{symbol}{tag}_resize_old_height"),
+        instructions,
+    );
     instructions.push(abi::compare_registers(SCRATCH_RESIZE, height));
     instructions.push(abi::branch_eq(&unchanged));
     instructions.push(abi::label(&changed));
@@ -3788,7 +3942,160 @@ pub(crate) fn emit_use_gpu(
 
 #[cfg(test)]
 mod tests {
-    use super::{graphics_trampoline_frame, graphics_trampoline_saved, graphics_trampoline_shadow};
+    use super::{
+        emit_publish_surface_size, DEFAULT_SURFACE_HEIGHT, DEFAULT_SURFACE_WIDTH,
+        GRAPHICS_OFFSET_HEIGHT, GRAPHICS_OFFSET_RESIZES, GRAPHICS_OFFSET_WIDTH,
+    };
+    use super::{graphics_trampoline_saved, graphics_trampoline_shadow, thread_entry_frame};
+
+    /// The graphics entry's frame: the shared frame arithmetic at its own save count.
+    fn graphics_trampoline_frame(arch: &str, windows: bool) -> usize {
+        thread_entry_frame(
+            arch,
+            windows,
+            graphics_trampoline_saved(arch, windows).len(),
+        )
+    }
+    use crate::arch::ops::CodeOp;
+    use crate::target::shared::abi;
+    use std::collections::HashMap;
+
+    /// Run the size publisher's own instructions over a graphics state held as
+    /// `offset -> word`, publishing `width` by `height`.
+    ///
+    /// The publisher is a straight run of loads, compares, branches and stores on the
+    /// registers it was handed, the same at every platform's resize callback, so it can
+    /// be executed here rather than read: what it leaves in the state is the contract.
+    /// An instruction this does not know fails the test.
+    fn publish(state: &mut HashMap<usize, u64>, width: u64, height: u64) {
+        let mut instructions = Vec::new();
+        let mut relocations = Vec::new();
+        emit_publish_surface_size(
+            "resize_test",
+            abi::LOCAL[3],
+            abi::LOCAL[1],
+            abi::LOCAL[2],
+            &mut instructions,
+            &mut relocations,
+        );
+        let name = |reg: abi::Reg| {
+            abi::move_register(reg, reg)
+                .get("dst")
+                .expect("a register renders")
+        };
+        let base = name(abi::LOCAL[3]);
+        let mut registers: HashMap<String, u64> =
+            HashMap::from([(name(abi::LOCAL[1]), width), (name(abi::LOCAL[2]), height)]);
+        let field = |at: usize, key: &str| -> String {
+            instructions[at]
+                .get(key)
+                .unwrap_or_else(|| panic!("instruction {at} has no `{key}`"))
+        };
+        let label = |target: &str| -> usize {
+            instructions
+                .iter()
+                .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(target))
+                .unwrap_or_else(|| panic!("no label `{target}`"))
+        };
+        // The address of the state is the first thing emitted; everything after it
+        // reaches the state through `base`.
+        let mut at = instructions
+            .iter()
+            .position(|i| i.op == CodeOp::LdrU64)
+            .expect("the publisher reads the old size");
+        let mut flags = (0u64, 0u64);
+        while at < instructions.len() {
+            let op = instructions[at].op;
+            let mut next = at + 1;
+            match op {
+                CodeOp::Label => {}
+                CodeOp::LdrU64 => {
+                    assert_eq!(field(at, "base"), base, "a load not from the state");
+                    let offset: usize = field(at, "offset").parse().expect("an offset");
+                    let value = state.get(&offset).copied().unwrap_or(0);
+                    registers.insert(field(at, "dst"), value);
+                }
+                CodeOp::StrU64 => {
+                    assert_eq!(field(at, "base"), base, "a store not to the state");
+                    let offset: usize = field(at, "offset").parse().expect("an offset");
+                    state.insert(offset, registers[&field(at, "src")]);
+                }
+                CodeOp::Cmp => flags = (registers[&field(at, "lhs")], registers[&field(at, "rhs")]),
+                CodeOp::CmpImm => {
+                    flags = (
+                        registers[&field(at, "lhs")],
+                        field(at, "rhs").parse().expect("an immediate"),
+                    )
+                }
+                CodeOp::MovImm => {
+                    registers.insert(
+                        field(at, "dst"),
+                        field(at, "value").parse().expect("an immediate"),
+                    );
+                }
+                CodeOp::AddImm => {
+                    let sum = registers[&field(at, "src")]
+                        + field(at, "imm").parse::<u64>().expect("an immediate");
+                    registers.insert(field(at, "dst"), sum);
+                }
+                CodeOp::BranchEq => {
+                    if flags.0 == flags.1 {
+                        next = label(&field(at, "target"));
+                    }
+                }
+                CodeOp::BranchNe => {
+                    if flags.0 != flags.1 {
+                        next = label(&field(at, "target"));
+                    }
+                }
+                other => panic!("the size publisher emitted `{other:?}`, which this does not run"),
+            }
+            at = next;
+        }
+    }
+
+    /// bug-970. A size the program already sees is not a resize, and the first publish
+    /// is not special.
+    ///
+    /// A zero size word reads as the startup size (`canvas::getSize` answers 900 by 640
+    /// before any window exists), so a window that opens AT that size publishes no
+    /// change, and `canvas::didResize` must not answer TRUE for it. A window that opens
+    /// at another size (Windows' first client area is 384 by 261) did change what the
+    /// program sees, and counts.
+    #[test]
+    fn publishing_the_size_the_program_already_sees_counts_no_resize() {
+        let (w, h) = (DEFAULT_SURFACE_WIDTH as u64, DEFAULT_SURFACE_HEIGHT as u64);
+        let resizes =
+            |state: &HashMap<usize, u64>| state.get(&GRAPHICS_OFFSET_RESIZES).copied().unwrap_or(0);
+
+        let mut state = HashMap::new();
+        publish(&mut state, w, h);
+        assert_eq!(
+            resizes(&state),
+            0,
+            "the first publish of the startup size is the size `getSize` already reported"
+        );
+        assert_eq!(state[&GRAPHICS_OFFSET_WIDTH], w);
+        assert_eq!(state[&GRAPHICS_OFFSET_HEIGHT], h);
+        publish(&mut state, w, h);
+        assert_eq!(resizes(&state), 0, "a repeat of the size it has");
+        // Real resizes count once each, one dimension or both.
+        publish(&mut state, 640, h);
+        assert_eq!(resizes(&state), 1, "the width changed");
+        publish(&mut state, 640, 480);
+        assert_eq!(resizes(&state), 2, "the height changed");
+        publish(&mut state, 640, 480);
+        assert_eq!(resizes(&state), 2, "a repeat of the size it has");
+        publish(&mut state, w, h);
+        assert_eq!(resizes(&state), 3, "back to the startup size IS a change");
+
+        // A first publish at any other size is a change from what the program saw.
+        for (width, height) in [(384, 261), (w, 261), (384, h)] {
+            let mut state = HashMap::new();
+            publish(&mut state, width, height);
+            assert_eq!(resizes(&state), 1, "first publish of {width} by {height}");
+        }
+    }
 
     /// bug-479. The graphics thread ran eight bytes out of alignment on Windows for as
     /// long as canvas mode existed there, because this frame skipped the x86-64 realign

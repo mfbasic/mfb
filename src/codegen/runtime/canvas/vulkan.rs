@@ -84,6 +84,11 @@ use crate::codegen::runtime::canvas::{
     VULKAN_PICTURE_INDEX_SLOTS, VULKAN_PICTURE_RECORDS, VULKAN_PICTURE_RECORDS_OFFSET,
     VULKAN_SPEC_CONSTANTS,
 };
+use crate::codegen::runtime::canvas::{vulkan_handoff, GRAPHICS_OFFSET_ATTR};
+use crate::codegen::runtime::canvas::{
+    CANVAS_DRAW_PASS_CONTINUES, CANVAS_DRAW_PASS_MORE, CANVAS_DRAW_PASS_WORD,
+    GRAPHICS_OFFSET_VULKAN_LOAD_PASS, GRAPHICS_OFFSET_VULKAN_PRESENT_LOAD_PASS,
+};
 use crate::codegen::runtime::canvas::{
     HEADER_CLIP_EDGE_COUNT, HEADER_CLIP_MODE, HEADER_CLIP_RULE, HEADER_DASH_COUNT,
     HEADER_DASH_PHASE, HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV,
@@ -275,6 +280,9 @@ const FORMAT_B8G8R8A8_SRGB: &str = "50";
 const SAMPLE_COUNT_1: &str = "1";
 /// `VK_ATTACHMENT_LOAD_OP_CLEAR` / `VK_ATTACHMENT_STORE_OP_STORE`.
 const ATTACHMENT_LOAD_OP_CLEAR: &str = "1";
+/// `VK_ATTACHMENT_LOAD_OP_LOAD`: keep what the attachment holds (bug-765, a frame's
+/// passes after its first).
+const ATTACHMENT_LOAD_OP_LOAD: &str = "0";
 const ATTACHMENT_STORE_OP_STORE: &str = "0";
 /// `VK_IMAGE_LAYOUT_UNDEFINED` / `..._COLOR_ATTACHMENT_OPTIMAL` /
 /// `..._TRANSFER_SRC_OPTIMAL` — the render pass ends in TRANSFER_SRC so the frame
@@ -683,32 +691,50 @@ const PIPELINE_DYNAMIC: usize = 96;
 const PIPELINE_LAYOUT: usize = 104;
 const PIPELINE_RENDER_PASS: usize = 112;
 
-/// `canvas::vulkanReady() AS Boolean` — build the device and queue, once.
+/// `canvas::vulkanBuild(where)` — build the device, the queue and the pipeline, once.
 ///
-/// The Vulkan twin of `canvas::metalReady`, and the second half of the renderer
-/// branch's condition. Tri-state memo in `GRAPHICS_OFFSET_VULKAN_READY`: a machine
-/// with a loader but no ICD pays the enumeration once, not per frame.
+/// bug-996: this is the slow half of what `canvas::vulkanReady` used to be, and it is
+/// never on a frame's critical path. `where` says which thread runs it
+/// ([`vulkan_handoff`]'s `BUILD_*`): a thread of its own, started here and never
+/// waited for; or the caller, when the program asked for the GPU by name; or, for the
+/// builder thread's own entry, the caller with the claim already made. The state it
+/// leaves in `GRAPHICS_OFFSET_VULKAN_READY`, and why the graphics thread can trust
+/// it, are that module's.
+///
+/// The body touches no arena state (it runs on a thread that has none): its own
+/// stack, the process-global graphics state, and the loader.
 ///
 /// Picks the **first** physical device and its first graphics-capable queue family.
 /// A machine with a discrete and an integrated GPU gets whichever the loader lists
 /// first, which is the loader's own preference order — and for a renderer whose
 /// output is checked against a software oracle within a tolerance, "which GPU" is not
 /// a question this letter needs an opinion on.
-pub(crate) fn emit_vulkan_ready(
+pub(crate) fn emit_vulkan_build(
     builder: &mut CodeBuilder,
     platform: &dyn CodegenPlatform,
     platform_imports: &std::collections::HashMap<String, String>,
+    place: &Operand,
 ) -> Result<(), String> {
     if !has_vulkan_backend(platform) {
-        builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
         return Ok(());
     }
+    let ordered = vulkan_handoff::orders_ready_word(platform);
     let unavailable = builder.label("vk_ready_unavailable");
     let done = builder.label("vk_ready_done");
     let build = builder.label("vk_ready_build");
-    let already_built = builder.label("vk_ready_already_built");
     let family_head = builder.label("vk_family_head");
     let family_found = builder.label("vk_family_found");
+
+    // **Parked before any scratch register is written.** `place` is a vreg, and the
+    // allocator does not see the hand-assigned `SCRATCH` values this file keeps live,
+    // so it may colour a vreg onto one of them (`emit_state_load`'s doc has the case
+    // that did).
+    let off_place = builder.allocate_stack_object("vk_place", 8);
+    builder.emit(abi::store_u64(
+        place.clone(),
+        abi::stack_pointer(),
+        off_place,
+    ));
 
     let off_app_info = builder.allocate_stack_object("vk_app_info", APP_INFO_SIZE);
     let off_instance_info = builder.allocate_stack_object("vk_instance_info", INSTANCE_INFO_SIZE);
@@ -727,40 +753,41 @@ pub(crate) fn emit_vulkan_ready(
     let off_state = builder.allocate_stack_object("vk_state", 8);
     let off_index = builder.allocate_stack_object("vk_index", 8);
 
-    // Already tried? Report what happened last time.
-    //
-    // **Both compares happen before the answer is written, and the state rides a fresh
-    // vreg.** `RESULT_VALUE_REGISTER` is `mfb_return(1)`, which on x86-64 SysV realizes
-    // to `rsi` — and so does `SCRATCH[1]` (`map_scratch_register(10)`). Writing the
-    // answer between the two compares therefore *overwrote the value being compared*,
-    // and the second compare tested the answer against itself: every call after the
-    // first returned TRUE, whatever the tri-state actually said. On AArch64 the two are
-    // `x1` and `x10`, so the sequence is correct there and the fault is invisible on
-    // the development host.
-    //
-    // Measured on box 2227, which has no Vulkan driver at all: the build failed and
-    // stored 2, the renderer correctly fell back to software — and then
-    // `__canvas_writeStats` asked the same question and was told TRUE.
-    let ready = builder.temporary_vreg();
     state_base_into(builder, off_state);
+
+    // The builder thread's own entry: the claim was made for it.
     builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
+        abi::SCRATCH[1],
         abi::stack_pointer(),
-        off_state,
+        off_place,
     ));
-    builder.emit(abi::load_u64(
-        &ready,
-        abi::SCRATCH[0],
-        GRAPHICS_OFFSET_VULKAN_READY,
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[1],
+        vulkan_handoff::BUILD_CLAIMED,
     ));
-    builder.emit(abi::compare_immediate(&ready, "0"));
     builder.emit(abi::branch_eq(&build));
-    builder.emit(abi::compare_immediate(&ready, "1"));
-    builder.emit(abi::branch_eq(&already_built));
-    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
-    builder.emit(abi::branch(&done));
-    builder.emit(abi::label(&already_built));
-    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"));
+
+    // Anyone else claims it first, and leaves if it is already claimed: running, built
+    // or failed. `SCRATCH[0]` still holds the state's address.
+    vulkan_handoff::emit_claim(
+        ordered,
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[2],
+        &done,
+        &mut builder.instructions,
+    );
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        off_place,
+    ));
+    builder.emit(abi::compare_immediate(
+        abi::SCRATCH[1],
+        vulkan_handoff::BUILD_ON_THIS_THREAD,
+    ));
+    builder.emit(abi::branch_eq(&build));
+    emit_spawn_builder(builder, platform, platform_imports, off_state, &unavailable)?;
     builder.emit(abi::branch(&done));
 
     builder.emit(abi::label(&build));
@@ -1165,7 +1192,8 @@ pub(crate) fn emit_vulkan_ready(
         &unavailable,
     )?;
 
-    // Remember the library handle, mark ready, answer yes.
+    // Remember the library handle, then publish: the ready word is the last thing
+    // this thread writes (`vulkan_handoff`).
     builder.emit(abi::load_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -1177,28 +1205,154 @@ pub(crate) fn emit_vulkan_ready(
         GRAPHICS_OFFSET_VULKAN_LIB,
         abi::SCRATCH[0],
     );
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
-    emit_state_store(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_READY,
-        abi::SCRATCH[0],
-    );
-    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"));
+    emit_publish_state(builder, ordered, off_state, vulkan_handoff::VULKAN_BUILT);
     builder.emit(abi::branch(&done));
 
     builder.emit(abi::label(&unavailable));
-    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "2"));
-    emit_state_store(
-        builder,
-        off_state,
-        GRAPHICS_OFFSET_VULKAN_READY,
-        abi::SCRATCH[0],
-    );
-    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+    emit_publish_state(builder, ordered, off_state, vulkan_handoff::VULKAN_FAILED);
 
     builder.emit(abi::label(&done));
     Ok(())
+}
+
+/// Publish the build's answer: `state[READY] = value`, after every earlier store.
+fn emit_publish_state(builder: &mut CodeBuilder, ordered: bool, off_state: usize, value: &str) {
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[3],
+        abi::stack_pointer(),
+        off_state,
+    ));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", value));
+    vulkan_handoff::emit_publish_ready(
+        ordered,
+        abi::SCRATCH[3],
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+        &mut builder.instructions,
+    );
+}
+
+/// Start the builder thread and hand it back to the system; branch to `failed` if the
+/// thread library will not start one.
+///
+/// The thread is given the stack the graphics thread has (8 MiB, reserved lazily),
+/// because until bug-996 the graphics thread is where this build ran: a driver's shader
+/// compiler is not a small-stack kind of code. On POSIX that is the attribute object
+/// `canvas::startGraphics` initialised, which is read-only from then on.
+///
+/// Nobody joins it. `pthread_detach` / `CloseHandle` gives up the only reference the
+/// program holds, so the thread's bookkeeping goes when it returns.
+fn emit_spawn_builder(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+    off_state: usize,
+    failed: &str,
+) -> Result<(), String> {
+    let symbol = builder.current_symbol.clone();
+    const STACK_BYTES: &str = "8388608";
+    if matches!(platform.family(), PlatformFamily::Windows) {
+        // CreateThread(NULL, 8 MiB, entry, NULL, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL)
+        builder.emit(abi::move_immediate(abi::c_arg(0), "Integer", "0"));
+        builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", STACK_BYTES));
+        push_symbol_address(
+            &symbol,
+            vulkan_handoff::VULKAN_BUILDER_SYMBOL,
+            abi::c_arg(2),
+            &mut builder.instructions,
+            &mut builder.relocations,
+        );
+        builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+        emit_int_arg(builder, platform, 4, "65536");
+        emit_int_arg(builder, platform, 5, "0");
+        platform.emit_external_call(
+            "CreateThread",
+            &symbol,
+            platform_imports,
+            &mut builder.instructions,
+            &mut builder.relocations,
+        )?;
+        builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+        builder.emit(abi::branch_eq(failed));
+        builder.emit(abi::move_register(abi::c_arg(0), abi::c_return(0)));
+        return platform.emit_external_call(
+            "CloseHandle",
+            &symbol,
+            platform_imports,
+            &mut builder.instructions,
+            &mut builder.relocations,
+        );
+    }
+    // pthread_create(&thread, &attr, entry, NULL)
+    let off_thread = builder.allocate_stack_object("vk_builder_thread", 8);
+    builder.emit(abi::load_u64(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        off_state,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(1),
+        abi::c_arg(1),
+        GRAPHICS_OFFSET_ATTR,
+    ));
+    builder.emit(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_thread,
+    ));
+    push_symbol_address(
+        &symbol,
+        vulkan_handoff::VULKAN_BUILDER_SYMBOL,
+        abi::c_arg(2),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    builder.emit(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    platform.emit_external_call(
+        "pthread_create",
+        &symbol,
+        platform_imports,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
+    builder.emit(abi::branch_ne(failed));
+    builder.emit(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        off_thread,
+    ));
+    platform.emit_external_call(
+        "pthread_detach",
+        &symbol,
+        platform_imports,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )
+}
+
+/// `canvas::vulkanReady() AS Boolean` — is the pipeline built, now?
+///
+/// The Vulkan twin of `canvas::metalReady` as far as the renderer branch reads it, and
+/// unlike it a question only: it builds nothing and waits for nothing (bug-996,
+/// [`vulkan_handoff::emit_vulkan_is_ready`]). A target with no Vulkan backend answers
+/// FALSE.
+pub(crate) fn emit_vulkan_ready(builder: &mut CodeBuilder, platform: &dyn CodegenPlatform) {
+    if !has_vulkan_backend(platform) {
+        builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+        return;
+    }
+    let symbol = builder.current_symbol.clone();
+    let state = builder.temporary_vreg();
+    let value = builder.temporary_vreg();
+    vulkan_handoff::emit_vulkan_is_ready(
+        &symbol,
+        vulkan_handoff::orders_ready_word(platform),
+        abi::Reg::from(&state),
+        abi::Reg::from(&value),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
 }
 
 /// Create the descriptor set that binds the polygon edge buffer, and the buffer.
@@ -3606,6 +3760,29 @@ fn emit_item_block(
             ));
         }
     }
+    // bug-1083: how much of that box is rim, 16.16 like the box, in the two words the
+    // vertex stage reads it from under a group matrix (`ITEM_RIM_WORDS`).
+    for (index, word) in crate::codegen::runtime::canvas::ITEM_RIM_WORDS
+        .into_iter()
+        .enumerate()
+    {
+        let slot = crate::codegen::runtime::canvas::HEADER_RIM + index;
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_item + word,
+        ));
+    }
 
     // bug-735: every field a distance reads -- the shape parameters, the radius and
     // stroke half-width, an arc's sweep endpoints, an ellipse's rotation and the clip --
@@ -4180,8 +4357,9 @@ fn emit_edge_upload(
         &VULKAN_MAX_FRAME_EDGES.to_string(),
     ));
     builder.emit(abi::branch_le(&copy));
-    // Unreachable: `__canvas_vulkanRenderable` already declined any scene whose
-    // polygon edges do not fit, so the whole frame went to the software rasteriser.
+    // Unreachable: the pass walk (`__canvas_passNext`, bug-765) ends a pass before its
+    // polygon edges pass the region, and a polygon past it alone sends the whole frame
+    // to the software rasteriser.
     // Kept because the alternative to declining is writing past the buffer, and
     // truncating the polygon would draw a *different shape* — the same reason Metal's
     // `emit_edge_buffer` refuses rather than clamps.
@@ -4891,9 +5069,10 @@ fn emit_join_upload(
         &VULKAN_MAX_FRAME_EDGES.to_string(),
     ));
     builder.emit(abi::branch_le(&copy));
-    // Unreachable: `__canvas_vulkanRenderable` counts two edges per record and declines
-    // a frame whose total does not fit. Kept because the alternative is a write past the
-    // buffer; dropping the records draws the corners round, not a wrong shape.
+    // Unreachable: `__canvas_blockCost` counts two edges per record, and the pass walk
+    // ends a pass before its total passes the region (bug-765). Kept because the
+    // alternative is a write past the buffer; dropping the records draws the corners
+    // round, not a wrong shape.
     builder.emit(abi::branch(&none));
 
     builder.emit(abi::label(&copy));
@@ -5626,8 +5805,9 @@ fn emit_band_range(builder: &mut CodeBuilder, at: &BandSlots) {
 /// looked up in this frame's picture table first (`emit_picture_lookup`), and a hit
 /// points the item at the texels already uploaded and copies nothing. A tilemap of 2,000
 /// tiles drawn from two images copied 2,000 images and counted 2M texels against the
-/// frame cap; it now copies two. `__canvas_vulkanRenderable` counts each distinct block
-/// once to match.
+/// frame cap; it now copies two. The pass walk (`__canvas_passNext`) counts each
+/// distinct block once a pass to match, and the table is a pass's: each pass is one
+/// call of this renderer, which starts it empty.
 ///
 /// **Must run after `emit_edge_upload`**, which zeroes `misc.w` and `arc.z` for every
 /// kind that is not a polygon, and **before `emit_split_or_publish`**, so both records
@@ -6031,13 +6211,13 @@ fn emit_picture_record(builder: &mut CodeBuilder, at: &PictureSlots) {
 ///
 /// **The cursor counts quads, not scene items.** A shape is one, and a glyph run is
 /// one per glyph, because each glyph is its own quad with its own block. That is the
-/// same number `__canvas_vulkanRenderable` sums against `VULKAN_MAX_FRAME_ITEMS`, so
+/// same number `__canvas_blockCost` sums against `VULKAN_MAX_FRAME_ITEMS`, so
 /// the two cannot disagree about what "full" means.
 ///
-/// Branches to `full` without writing or advancing if the frame is already at
-/// capacity. Unreachable in the same way `emit_edge_upload`'s bound is: the predicate
-/// declined any frame with too many quads, so the whole scene went to software. Kept
-/// because the alternative to declining is a write past the mapping.
+/// Branches to `full` without writing or advancing if the buffer is already at
+/// capacity. Unreachable in the same way `emit_edge_upload`'s bound is: the pass walk
+/// ends a pass before its quads pass the region (bug-765). Kept because the
+/// alternative is a write past the mapping.
 fn emit_item_publish(
     builder: &mut CodeBuilder,
     off_state: usize,
@@ -7249,6 +7429,31 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::stack_pointer(),
         off_draw_entries,
     ));
+    // bug-765: the pass word, off the list's first entry (`CANVAS_DRAW_PASS_WORD`): 0
+    // for a frame of one pass, which is also what a list with no entry is -- and the
+    // entry count is what `SCRATCH[0]` holds here, so a list with none stores it.
+    //
+    // `SCRATCH[0]` and nothing else: the arguments below are not parked yet, and on
+    // x86-64 the other scratch registers ARE argument registers (`.ai/arch-abi.md`). A
+    // first cut used `SCRATCH[1]` and overwrote the glyph metadata pointer, so every
+    // frame with a `Text` faulted on Windows and only there.
+    let off_pass = builder.allocate_stack_object("vk_pass_word", 8);
+    {
+        let no_entry = builder.label("vk_no_pass_word");
+        builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
+        builder.emit(abi::branch_eq(&no_entry));
+        builder.emit(abi::load_u64(
+            abi::SCRATCH[0],
+            draws.clone(),
+            COLLECTION_HEADER_SIZE + CANVAS_DRAW_PASS_WORD * 8,
+        ));
+        builder.emit(abi::label(&no_entry));
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_pass,
+        ));
+    }
 
     builder.emit(abi::load_u64(
         abi::SCRATCH[0],
@@ -7301,6 +7506,15 @@ pub(crate) fn emit_vulkan_draw_scene(
     // fallback: a frame that got here without a pipeline renders nothing and leaves
     // the cleared surface the software path would have produced.
     state_base_into(builder, off_state);
+    // bug-765: a later pass of a frame takes up the swapchain image its first pass
+    // acquired, before anything below can leave: every exit that gives the frame up
+    // must find the image to give up with it (`emit_present_abandon`).
+    if let Some(at) = &swapchain {
+        let first = builder.label("vk_sc_not_resumed");
+        emit_branch_on_pass(builder, off_pass, CANVAS_DRAW_PASS_CONTINUES, false, &first);
+        present::emit_present_resume(builder, off_state, at);
+        builder.emit(abi::label(&first));
+    }
     emit_state_load(
         builder,
         off_state,
@@ -7308,7 +7522,7 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::SCRATCH[0],
     );
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], "1"));
-    builder.emit(abi::branch_ne(&done));
+    builder.emit(abi::branch_ne(&unavailable));
     emit_state_load(
         builder,
         off_state,
@@ -7333,8 +7547,33 @@ pub(crate) fn emit_vulkan_draw_scene(
         off_height,
         &unavailable,
     )?;
-    if let Some(at) = &swapchain {
-        present::emit_ensure_swapchain(
+    // bug-765: the render pass this list is recorded under. A frame's first pass (and a
+    // frame of one) clears the target: `RENDER_PASS`, or `PRESENT_PASS` on a swapchain
+    // image. A later pass loads it, under the twin that differs only in its load
+    // operation and layouts, made here the first time a frame needs it.
+    let off_render_pass = builder.allocate_stack_object("vk_render_pass", 8);
+    let (clear_slot, load_slot, load_layout) = if present_mode {
+        (
+            GRAPHICS_OFFSET_VULKAN_PRESENT_PASS,
+            GRAPHICS_OFFSET_VULKAN_PRESENT_LOAD_PASS,
+            present::IMAGE_LAYOUT_PRESENT_SRC,
+        )
+    } else {
+        (
+            GRAPHICS_OFFSET_VULKAN_RENDER_PASS,
+            GRAPHICS_OFFSET_VULKAN_LOAD_PASS,
+            IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        )
+    };
+    {
+        let first = builder.label("vk_first_pass");
+        let chosen = builder.label("vk_pass_chosen");
+        emit_branch_on_pass(builder, off_pass, CANVAS_DRAW_PASS_CONTINUES, false, &first);
+        if let Some(at) = &swapchain {
+            // Nothing held is a frame whose first pass did not acquire: give it up.
+            present::emit_require_acquired(builder, at, &unavailable);
+        }
+        emit_load_render_pass(
             builder,
             platform,
             platform_imports,
@@ -7342,11 +7581,40 @@ pub(crate) fn emit_vulkan_draw_scene(
             off_fn,
             off_state,
             off_out,
-            off_width,
-            off_height,
-            at,
+            load_slot,
+            load_layout,
             &unavailable,
         )?;
+        emit_state_load(builder, off_state, load_slot, abi::SCRATCH[0]);
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_render_pass,
+        ));
+        builder.emit(abi::branch(&chosen));
+        builder.emit(abi::label(&first));
+        if let Some(at) = &swapchain {
+            present::emit_ensure_swapchain(
+                builder,
+                platform,
+                platform_imports,
+                off_handle,
+                off_fn,
+                off_state,
+                off_out,
+                off_width,
+                off_height,
+                at,
+                &unavailable,
+            )?;
+        }
+        emit_state_load(builder, off_state, clear_slot, abi::SCRATCH[0]);
+        builder.emit(abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            off_render_pass,
+        ));
+        builder.emit(abi::label(&chosen));
     }
 
     // --- record ------------------------------------------------------------------
@@ -7409,14 +7677,14 @@ pub(crate) fn emit_vulkan_draw_scene(
             (PASS_BEGIN_CLEARS, Field::Addr(off_clear)),
         ],
     );
-    // The swapchain image's pass differs only in its final layout, so it is
-    // compatible with the offscreen pass every pipeline was built against.
-    let pass_slot = if present_mode {
-        GRAPHICS_OFFSET_VULKAN_PRESENT_PASS
-    } else {
-        GRAPHICS_OFFSET_VULKAN_RENDER_PASS
-    };
-    emit_state_load(builder, off_state, pass_slot, abi::SCRATCH[0]);
+    // The swapchain image's pass differs only in its final layout, and a later pass's
+    // only in its load operation and layouts, so each is compatible with the offscreen
+    // pass every pipeline was built against.
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_render_pass,
+    ));
     builder.emit(abi::store_u64(
         abi::SCRATCH[0],
         abi::stack_pointer(),
@@ -8010,6 +8278,7 @@ pub(crate) fn emit_vulkan_draw_scene(
             off_fn,
             off_state,
             off_cmd_handle,
+            off_pass,
             at,
             &unavailable,
         )?;
@@ -8034,6 +8303,17 @@ pub(crate) fn emit_vulkan_draw_scene(
     }
 
     // --- copy the image out -------------------------------------------------------
+    // bug-765: by the frame's LAST pass only. A pass with more to come leaves the image
+    // where it is; it is still submitted and waited for below, because the next pass
+    // refills the buffer this one's draws read.
+    let end_recording = builder.label("vk_end_recording");
+    emit_branch_on_pass(
+        builder,
+        off_pass,
+        CANVAS_DRAW_PASS_MORE,
+        true,
+        &end_recording,
+    );
     emit_struct(
         builder,
         off_copy,
@@ -8090,6 +8370,7 @@ pub(crate) fn emit_vulkan_draw_scene(
     emit_addr_arg(builder, platform, 5, off_copy);
     emit_call_fn(builder, off_fn);
 
+    builder.emit(abi::label(&end_recording));
     emit_dlsym(
         builder,
         platform,
@@ -8157,6 +8438,8 @@ pub(crate) fn emit_vulkan_draw_scene(
         abi::c_arg(0),
     );
     emit_call_fn(builder, off_fn);
+    // bug-765: nothing was copied out of a pass with more to come.
+    emit_branch_on_pass(builder, off_pass, CANVAS_DRAW_PASS_MORE, true, &done);
 
     // --- BGRA -> RGBA into the surface ---------------------------------------------
     // The attachment is the layer-compatible format, so the readback is B,G,R,A while
@@ -8211,6 +8494,129 @@ pub(crate) fn emit_vulkan_draw_scene(
     // made it — the cleared frame, not garbage.
     builder.emit(abi::label(&unavailable));
     builder.emit(abi::label(&done));
+    Ok(())
+}
+
+/// bug-765: branch to `target` when `bit` of the pass word parked at `off_pass` is set
+/// (`when_set`) or clear. Clobbers `SCRATCH[0]` and `SCRATCH[1]`.
+pub(super) fn emit_branch_on_pass(
+    builder: &mut CodeBuilder,
+    off_pass: usize,
+    bit: usize,
+    when_set: bool,
+    target: &str,
+) {
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_pass,
+    ));
+    builder.emit(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        &bit.to_string(),
+    ));
+    builder.emit(abi::and_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    if when_set {
+        builder.emit(abi::branch_ne(target));
+    } else {
+        builder.emit(abi::branch_eq(target));
+    }
+}
+
+/// bug-765: make sure the render pass a frame's LATER passes record under exists, in
+/// the state word `state_slot`: the one colour attachment of every other pass here,
+/// LOADED and stored, entered and left in `layout` — the layout the frame's first pass
+/// left the image in. It differs from the pass the pipelines were built against only
+/// in load operation and layouts, which compatibility does not look at, so nothing is
+/// rebuilt. Built once, on the graphics thread, by the first frame of several passes.
+#[allow(clippy::too_many_arguments)]
+fn emit_load_render_pass(
+    builder: &mut CodeBuilder,
+    platform: &dyn CodegenPlatform,
+    platform_imports: &std::collections::HashMap<String, String>,
+    off_handle: usize,
+    off_fn: usize,
+    off_state: usize,
+    off_out: usize,
+    state_slot: usize,
+    layout: &str,
+    unavailable: &str,
+) -> Result<(), String> {
+    let have = builder.label("vk_load_pass_have");
+    emit_state_load(builder, off_state, state_slot, abi::SCRATCH[0]);
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    builder.emit(abi::branch_ne(&have));
+    let off_attachment = builder.allocate_stack_object("vk_load_attachment", ATTACHMENT_SIZE + 4);
+    let off_ref = builder.allocate_stack_object("vk_load_attachment_ref", ATTACHMENT_REF_SIZE);
+    let off_subpass = builder.allocate_stack_object("vk_load_subpass", SUBPASS_SIZE);
+    let off_info = builder.allocate_stack_object("vk_load_pass_info", RENDER_PASS_INFO_SIZE);
+    emit_struct(
+        builder,
+        off_attachment,
+        ATTACHMENT_SIZE + 4,
+        &[
+            (ATTACHMENT_FORMAT, Field::U32(FORMAT_B8G8R8A8_SRGB)),
+            (ATTACHMENT_SAMPLES, Field::U32(SAMPLE_COUNT_1)),
+            (ATTACHMENT_LOAD_OP, Field::U32(ATTACHMENT_LOAD_OP_LOAD)),
+            (ATTACHMENT_STORE_OP, Field::U32(ATTACHMENT_STORE_OP_STORE)),
+            (ATTACHMENT_INITIAL_LAYOUT, Field::U32(layout)),
+            (ATTACHMENT_FINAL_LAYOUT, Field::U32(layout)),
+        ],
+    );
+    emit_struct(
+        builder,
+        off_ref,
+        ATTACHMENT_REF_SIZE,
+        &[
+            (ATTACHMENT_REF_INDEX, Field::U32("0")),
+            (
+                ATTACHMENT_REF_LAYOUT,
+                Field::U32(IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL),
+            ),
+        ],
+    );
+    emit_struct(
+        builder,
+        off_subpass,
+        SUBPASS_SIZE,
+        &[
+            (SUBPASS_BIND_POINT, Field::U32(PIPELINE_BIND_POINT_GRAPHICS)),
+            (SUBPASS_COLOR_COUNT, Field::U32("1")),
+            (SUBPASS_COLOR_ATTACHMENTS, Field::Addr(off_ref)),
+        ],
+    );
+    emit_struct(
+        builder,
+        off_info,
+        RENDER_PASS_INFO_SIZE,
+        &[
+            (RENDER_PASS_STYPE, Field::U32(ST_RENDER_PASS_CREATE_INFO)),
+            (RENDER_PASS_ATTACHMENT_COUNT, Field::U32("1")),
+            (RENDER_PASS_ATTACHMENTS, Field::Addr(off_attachment)),
+            (RENDER_PASS_SUBPASS_COUNT, Field::U32("1")),
+            (RENDER_PASS_SUBPASSES, Field::Addr(off_subpass)),
+        ],
+    );
+    emit_create_call(
+        builder,
+        platform,
+        platform_imports,
+        "vkCreateRenderPass",
+        off_handle,
+        off_fn,
+        off_state,
+        off_info,
+        off_out,
+        state_slot,
+        unavailable,
+    )?;
+    builder.emit(abi::label(&have));
     Ok(())
 }
 

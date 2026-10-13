@@ -50,7 +50,13 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 67
+r#"LET __CANVAS_GEO_HEADER AS Integer = 69
+' bug-1083: how much of the item's box (slots 16-19) is rim, on the x sides (67) and
+' on the y sides (68), in the units the box is in. The box less this is the item's
+' extent and stroke reach under its own transform and nothing more; the sites that
+' carry a box through a group's matrix replace the rim there (`__canvas_drawBound`).
+' Zero for a box that is not an extent and a rim (`__canvas_boundsHeader`).
+LET __CANVAS_GEO_RIM AS Integer = 67
 ' plan-163-D: the gradient's per-pixel words, after plan-163-C's. 55 is the spread
 ' (0 Pad, 1 Reflect, 2 Repeat), 56 whether the ramp also paints the stroke (1 for
 ' FillAndStroke on a kind that has a stroke to paint), 57-62 a RADIAL gradient's inverse
@@ -731,17 +737,53 @@ FUNC __canvas_strokeAsFill(h AS List OF Float) AS List OF Float
   RETURN out
 END FUNC
 
-' The bounds are computed in SHAPE space by every generator. Under a transform the item
-' covers the FORWARD-mapped rectangle, so the header has to carry that rectangle's
-' axis-aligned hull instead -- a rotated square whose bounds were left untransformed
-' would be clipped to its own unrotated box, losing its corners.
+' The rim every builder's untransformed box carries past its extent and its stroke, cap
+' or join reach: one unit, and untransformed a unit is a surface pixel. It is the `1.0`
+' each builder's pad ends in, handed to `__canvas_boundsHeader` beside the pad.
+LET __CANVAS_BOUNDS_RIM AS Float = 1.0
+
+' An item's box: slots 16 to 19. A builder hands over its extent, how far its pad reaches
+' past the extent on each axis (the reach of its stroke, caps and joins, in its own
+' units, with the rim), and how much of that pad is the rim.
+'
+' Untransformed the box is the extent grown by the pad: a unit is a pixel, so the rim is
+' the one pixel of antialiasing room. `canvas::geoBuild` writes the same four values, bit
+' for bit (`MFB_CANVAS_GEO_VERIFY`).
+'
+' Under a transform the item covers the FORWARD-mapped rectangle, so the header carries
+' that rectangle's axis-aligned hull -- a rotated square whose bounds were left
+' untransformed would be clipped to its own unrotated box, losing its corners. The rim
+' is not a unit there (bug-991: under a scale of 170 a unit is 170 pixels, on every
+' side of every item). A pixel takes coverage only where `d < 0.5 * g`, `d` the distance
+' in the item's space and `g` the length of its central differences half a surface
+' pixel apart; a distance is 1-Lipschitz, so `g` is at most the inverse's Frobenius norm
+' `F`, the bound `shapeCoverage` skips its neighbour samples by. So the rim is `0.5 * F`
+' of the item's units -- `F` widened as the shaders widen it -- in place of the rim the
+' builder handed over, and the hull is then padded by a pixel. Under a uniform scale
+' that is 0.71 of a pixel and the pixel, whatever the scale.
+'
+' A builder whose pad is not such a rim hands over its box whole, with no pad and no rim,
+' and it is mapped as it is: a metrics box (a glyph run, a text box), a picture's two
+' units, and an arc, whose distance is not Lipschitz (out of its sweep it jumps to 1e6,
+' so `g` has no bound and `shapeCoverage` never skips for one).
+'
+' `pad - rim` is exact for a pad that ends in `+ rim`, to half a unit in the pad's last
+' place, which `F`'s widening covers many times over.
+'
+' bug-1083: the box says how much of itself is rim, in slots `__CANVAS_GEO_RIM` (x
+' sides) and the one after (y sides), because a group's matrix changes the rim a pixel
+' needs and only the site that has that matrix can size it (`__canvas_drawBound`).
+' Untransformed that is the builder's rim. Under a transform it is what the mapped rim
+' adds to the hull -- `0.5 * F` through the forward matrix is `(|a| + |c|) * 0.5 * F`
+' on the x sides and `(|b| + |d|) * 0.5 * F` on the y sides -- and the pixel. A box
+' handed over whole has none: nothing may be taken off it.
 '
 ' The forward matrix is recovered by inverting the stored inverse rather than carried in
 ' six more slots. Two reasons that is safe: a bounding box only has to be CONSERVATIVE,
 ' so the float32 round-trip's last-bit error cannot matter, and the result is padded by
 ' a pixel anyway. Extra pixels cost a coverage evaluation that returns 0; missing ones
 ' cut the shape.
-FUNC __canvas_boundsHeader(h AS List OF Float, minX AS Float, minY AS Float, maxX AS Float, maxY AS Float) AS List OF Float
+FUNC __canvas_boundsHeader(h AS List OF Float, minX AS Float, minY AS Float, maxX AS Float, maxY AS Float, padX AS Float, padY AS Float, rim AS Float) AS List OF Float
   MUT out AS List OF Float = h
   IF collections::getOr(h, 33, 0.0) > 0.5 THEN
     LET ia AS Float = __canvas_f32FromBits(collections::getOr(h, 27, 0.0))
@@ -757,15 +799,33 @@ FUNC __canvas_boundsHeader(h AS List OF Float, minX AS Float, minY AS Float, max
     LET fd AS Float = collections::getOr(fwd, 3, 1.0)
     LET ftx AS Float = collections::getOr(fwd, 4, 0.0)
     LET fty AS Float = collections::getOr(fwd, 5, 0.0)
+    MUT growX AS Float = padX
+    MUT growY AS Float = padY
+    ' Written either way: a picture's header arrives here already built as a rectangle's.
+    MUT rimX AS Float = 0.0
+    MUT rimY AS Float = 0.0
+    IF rim > 0.0 THEN
+      LET frob AS Float = math::sqrt(ia * ia + ib * ib + ic * ic + id * id) * (1.0 + 1.0 / 256.0) + 1.0 / 256.0
+      growX = (padX - rim) + 0.5 * frob
+      growY = (padY - rim) + 0.5 * frob
+      rimX = (__canvas_absF(fa) + __canvas_absF(fc)) * (0.5 * frob) + 1.0
+      rimY = (__canvas_absF(fb) + __canvas_absF(fd)) * (0.5 * frob) + 1.0
+    END IF
+    out = collections::set(out, __CANVAS_GEO_RIM, rimX)
+    out = collections::set(out, __CANVAS_GEO_RIM + 1, rimY)
+    LET lowX AS Float = minX - growX
+    LET lowY AS Float = minY - growY
+    LET highX AS Float = maxX + growX
+    LET highY AS Float = maxY + growY
     IF TRUE THEN
-      LET x0 AS Float = fa * minX + fc * minY + ftx
-      LET y0 AS Float = fb * minX + fd * minY + fty
-      LET x1 AS Float = fa * maxX + fc * minY + ftx
-      LET y1 AS Float = fb * maxX + fd * minY + fty
-      LET x2 AS Float = fa * minX + fc * maxY + ftx
-      LET y2 AS Float = fb * minX + fd * maxY + fty
-      LET x3 AS Float = fa * maxX + fc * maxY + ftx
-      LET y3 AS Float = fb * maxX + fd * maxY + fty
+      LET x0 AS Float = fa * lowX + fc * lowY + ftx
+      LET y0 AS Float = fb * lowX + fd * lowY + fty
+      LET x1 AS Float = fa * highX + fc * lowY + ftx
+      LET y1 AS Float = fb * highX + fd * lowY + fty
+      LET x2 AS Float = fa * lowX + fc * highY + ftx
+      LET y2 AS Float = fb * lowX + fd * highY + fty
+      LET x3 AS Float = fa * highX + fc * highY + ftx
+      LET y3 AS Float = fb * highX + fd * highY + fty
       out = collections::set(out, 16, __canvas_minF(__canvas_minF(x0, x1), __canvas_minF(x2, x3)) - 1.0)
       out = collections::set(out, 17, __canvas_minF(__canvas_minF(y0, y1), __canvas_minF(y2, y3)) - 1.0)
       out = collections::set(out, 18, __canvas_maxF(__canvas_maxF(x0, x1), __canvas_maxF(x2, x3)) + 1.0)
@@ -773,10 +833,12 @@ FUNC __canvas_boundsHeader(h AS List OF Float, minX AS Float, minY AS Float, max
       RETURN out
     END IF
   END IF
-  out = collections::set(out, 16, minX)
-  out = collections::set(out, 17, minY)
-  out = collections::set(out, 18, maxX)
-  out = collections::set(out, 19, maxY)
+  out = collections::set(out, 16, minX - padX)
+  out = collections::set(out, 17, minY - padY)
+  out = collections::set(out, 18, maxX + padX)
+  out = collections::set(out, 19, maxY + padY)
+  out = collections::set(out, __CANVAS_GEO_RIM, rim)
+  out = collections::set(out, __CANVAS_GEO_RIM + 1, rim)
   RETURN out
 END FUNC
 
@@ -799,7 +861,7 @@ FUNC __canvas_rectHeader(x AS Float, y AS Float, w AS Float, h AS Float, corner 
   out = collections::set(out, 6, radius)
   out = __canvas_paintHeader(out, paint, transform, ox, oy)
   LET pad AS Float = __canvas_strokePad(paint)
-  RETURN __canvas_boundsHeader(out, x - pad, y - pad, x + w + pad, y + h + pad)
+  RETURN __canvas_boundsHeader(out, x, y, x + w, y + h, pad, pad, __CANVAS_BOUNDS_RIM)
 END FUNC
 
 ' plan-172-E: a rectangle's corners as ONE circular radius, or -1.0 when they are not
@@ -844,7 +906,7 @@ FUNC __canvas_circleHeader(x AS Float, y AS Float, radius AS Float, paint AS Pai
   out = collections::set(out, 4, radius)
   out = __canvas_paintHeader(out, paint, transform, x, y)
   LET reach AS Float = radius + __canvas_dashCapReach(__canvas_maxF(__canvas_strokeHalf(paint), 0.0), paint) + 1.0
-  RETURN __canvas_boundsHeader(out, x - reach, y - reach, x + reach, y + reach)
+  RETURN __canvas_boundsHeader(out, x, y, x, y, reach, reach, __CANVAS_BOUNDS_RIM)
 END FUNC
 
 ' plan-116-E: an ellipse's header.
@@ -913,7 +975,7 @@ FUNC __canvas_ellipseHeader(e AS Ellipse) AS List OF Float
   LET fy AS Float = e.radiusY * ca
   LET hx AS Float = math::sqrt(ex * ex + ey * ey) + pad
   LET hy AS Float = math::sqrt(fx * fx + fy * fy) + pad
-  RETURN __canvas_boundsHeader(out, bx - hx, by - hy, bx + hx, by + hy)
+  RETURN __canvas_boundsHeader(out, bx, by, bx, by, hx, hy, __CANVAS_BOUNDS_RIM)
 END FUNC
 
 FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, cap AS Integer, paint AS Paint, transform AS Transform, ox AS Float, oy AS Float) AS List OF Float
@@ -933,7 +995,7 @@ FUNC __canvas_segmentHeader(x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, 
   out = __canvas_paintHeader(out, paint, transform, ox, oy)
   out = __canvas_strokeAsFill(out)
   LET pad AS Float = __canvas_capReach(half, cap) + 1.0
-  RETURN __canvas_boundsHeader(out, __canvas_minF(x1, x2) - pad, __canvas_minF(y1, y2) - pad, __canvas_maxF(x1, x2) + pad, __canvas_maxF(y1, y2) + pad)
+  RETURN __canvas_boundsHeader(out, __canvas_minF(x1, x2), __canvas_minF(y1, y2), __canvas_maxF(x1, x2), __canvas_maxF(y1, y2), pad, pad, __CANVAS_BOUNDS_RIM)
 END FUNC
 
 ' plan-172-F: a line's header. `startAt` and `endAt` are offsets from `position`, so
@@ -980,7 +1042,9 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   out = collections::set(out, __CANVAS_GEO_CAPENDX, bx + a.radius * __canvas_cos(a.endAngle))
   out = collections::set(out, __CANVAS_GEO_CAPENDY, by + a.radius * __canvas_sin(a.endAngle))
   LET reach AS Float = a.radius + __canvas_capReach(half, __canvas_capTag(placed.cap)) + 1.0
-  RETURN __canvas_boundsHeader(out, bx - reach, by - reach, bx + reach, by + reach)
+  ' An arc's box goes over whole: its distance jumps at the ends of its sweep, so no rim
+  ' bounds where it takes coverage under a transform (`__canvas_boundsHeader`).
+  RETURN __canvas_boundsHeader(out, bx - reach, by - reach, bx + reach, by + reach, 0.0, 0.0, 0.0)
 END FUNC
 
 ' plan-163-A: a polygon's rings. A ring of fewer than 2 points contributes no edge and
@@ -1031,7 +1095,7 @@ FUNC __canvas_polygonHeader(rings AS List OF List OF vector::Float2, rule AS Fil
     out = collections::set(out, __CANVAS_GEO_POLYGON_RULE, 1.0)
   END IF
   LET pad AS Float = __canvas_strokePad(paint)
-  RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
+  RETURN __canvas_boundsHeader(out, minX, minY, maxX, maxY, pad, pad, __CANVAS_BOUNDS_RIM)
 END FUNC
 
 ' plan-154-A: a PolyLine's stroke half-width, or a negative number when it draws nothing.
@@ -1128,7 +1192,7 @@ FUNC __canvas_polylineHeader(p AS PolyLine) AS List OF Float
   out = collections::set(out, __CANVAS_GEO_GRADIENT_TOX, 0.0)
   out = collections::set(out, __CANVAS_GEO_GRADIENT_TOY, 0.0)
   LET pad AS Float = __canvas_maxF(__canvas_capReach(half, cap), __canvas_joinReach(half, p.paint)) + 1.0
-  RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
+  RETURN __canvas_boundsHeader(out, minX, minY, maxX, maxY, pad, pad, __CANVAS_BOUNDS_RIM)
 END FUNC"#;
 
 /// The per-kind tail: the work the cache exists to skip.
@@ -1455,7 +1519,7 @@ FUNC __canvas_textHeader(t AS Text, tail AS List OF Float) AS List OF Float
     i = i + 5
   END WHILE
   LET pad AS Float = __canvas_strokePad(t.paint)
-  RETURN __canvas_boundsHeader(out, minX - pad, minY - pad, maxX + pad, maxY + pad)
+  RETURN __canvas_boundsHeader(out, minX, minY, maxX, maxY, pad, pad, __CANVAS_BOUNDS_RIM)
 END FUNC"#;
 
 /// Probe by hash, and on a miss generate and insert.
@@ -1678,7 +1742,7 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
     i = i + 3
   END WHILE
   LET advance AS Float = t.fontSize * 2.0
-  RETURN __canvas_boundsHeader(out, minX - advance, __canvas_textY(t) - ascent - 2.0, maxX + advance, __canvas_textY(t) + descent + 2.0)
+  RETURN __canvas_boundsHeader(out, minX - advance, __canvas_textY(t) - ascent - 2.0, maxX + advance, __canvas_textY(t) + descent + 2.0, 0.0, 0.0, 0.0)
 END FUNC
 
 ' bug-686: every item's hash is folded from its own FIELDS, kind by kind. It used to be

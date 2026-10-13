@@ -5,8 +5,45 @@ Effort: unknown — not root-caused
 Severity: LOW (2026-10-12: no frame and no report is lost once the pipeline exists; the wait is bug-996)
 Class: Other
 
-Status: Open — root-caused 2026-10-12 as bug-996's cold pipeline compile; nothing left that is this bug's own (owner to decide: close as a duplicate of 996)
-Regression Test: none
+Status: Fixed 2026-10-12 by bug-996's fix (owner ruling below): software frames complete while the pipeline is built, so a stats line is written from the first frame
+Regression Test: bug-996's (`cargo test --test codegen_canvas_vulkan_off_frame_path`: the question the stats line asks calls nothing); the real-window run below is box 206's to repeat
+
+## Cause (coordinator, 2026-10-12, bug-staging-23)
+
+- Same cause as bug-996 (measured 2026-10-12, below): no frame completes while `vkCreateGraphicsPipelines` runs, so no stats line is written. One fix with 996; nothing here is this bug's own. Waiting on the owner with 996.
+- OWNER RULING 2026-10-12: closes with bug-996's fix (software frames until the pipeline exists, so a frame completes and a stats line is written during the compile).
+
+## Resolution (2026-10-12)
+
+Nothing here was this bug's own. bug-996 took the Vulkan pipeline build off the frame
+path: the first frame that wants the GPU starts the build on its own thread and is drawn
+in software, and the stats line's `vulkanReady=` no longer builds anything. So frames
+complete during the compile, and each writes its line.
+
+Box 206 (Intel UHD 630), a real window (`schtasks /it`), `--debug`, `MFB_CANVAS_STATS` set
+and nothing else, an exe name the driver had never seen each time:
+
+| Program | The program's own line | Stats file |
+|---|---|---|
+| `bugs/repro/bug-1045/window_stats.mfb` (120 presents, 12 s), before | `presents=120 frames=0` | 2 lines, written after the loop, `phaseRenderMs=37427` |
+| the same, after, two runs | `presents=120 frames=120` | 120 lines; line 1 is `frames=1 gpuSelected=TRUE gpuFrames=0 vulkanReady=FALSE`, line 120 `frames=120 gpuFrames=0 vulkanReady=FALSE` (the compile outlasts the program) |
+| `window_stats_long.mfb` (600 presents, 60 s), after, three runs | `presents=600 frames=600` twice, `presents=600 frames=595` once | one line a frame, `frames=` rising by one a line; software to line 406, 354 and 334; `gpuFrames=1 directFrames=1 vulkanReady=TRUE` on line 407, 355 and 335; `gpuFrames=194`, `246` and `261` on the last line |
+
+So `gpuFrames` starts at 0 and rises by one a frame once the pipeline exists, and every
+frame drawn writes its line on either side of the change. The long program is this bug's
+repro with its loop count raised, because 12 s ends before a 35 to 40 s compile does.
+
+The third run drew 595 frames for 600 presents: five presents found the previous frame
+still undrawn and were coalesced, which a present without `MFB_CANVAS_SYNC` is allowed
+(`.ai/canvas-threading.md` §3, "Two presents before one frame"). Where in the run is not
+known; its last second reported `fps=8.00`. It is not the change of renderer: the same
+loop logging every iteration that fell behind or ran long (a release build twice, a
+`--debug` build with stats twice) reported `presents=600 frames=600` four times, nothing
+behind, and the change at iteration 334, 331, 337 and 337 with that iteration 111 or
+112 ms long like the rest.
+
+With `MFB_CANVAS_GPU=1` the run waits for the pipeline before its first frame, as the
+owner ruled for tests, and its first line is `vulkanReady=TRUE`.
 
 A `--debug` canvas program run in a REAL window on box 206 (Windows 11, Intel UHD 630)
 with the default renderer leaves no `MFB_CANVAS_STATS` file at all — not one line in

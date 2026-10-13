@@ -217,6 +217,9 @@ impl NativePlanPlatform for Platform {
         // plan-172-J: the `WndProc`'s pointer block arms `WM_MOUSELEAVE` with it, in
         // every canvas program, mouse members or not.
         .chain(uses_canvas.then(|| import("TrackMouseEvent", USER32, "_main")))
+        // bug-996: a canvas window's paint with no frame yet asks whether the
+        // swapchain's child window is up before filling the client black.
+        .chain(uses_canvas.then(|| import("IsWindowVisible", USER32, "_main")))
         // bug-699: the key translator reads every modifier with `GetKeyState` and a
         // key's unshifted character with `MapVirtualKeyW`, in every app program.
         .chain([
@@ -628,6 +631,7 @@ impl NativePlanPlatform for Platform {
             | "canvas.setGpuMode"
             | "canvas.metalAvailable"
             | "canvas.vulkanReady"
+            | "canvas.vulkanBuild"
             | "canvas.vulkanDrawScene"
             | "canvas.vulkanPresentScene"
             | "canvas.metalReady"
@@ -637,6 +641,8 @@ impl NativePlanPlatform for Platform {
             | "canvas.surfaceHeight" => vec![
                 import("CreateThread", KERNEL32, required_by),
                 import("WaitForSingleObject", KERNEL32, required_by),
+                // bug-996: the Vulkan builder thread's handle is given back, not waited on.
+                import("CloseHandle", KERNEL32, required_by),
                 import("InitializeSRWLock", KERNEL32, required_by),
                 import("AcquireSRWLockExclusive", KERNEL32, required_by),
                 import("ReleaseSRWLockExclusive", KERNEL32, required_by),

@@ -13,12 +13,15 @@ rendering code. bug-688 adds a Linux/Vulkan twin of the same instrument
   exit.
 - **gen/*.sh** — the MFBASIC scene templates `bench.sh` instantiates:
   `stress.sh` (polygons, tiled, moving or static, or one big polygon via
-  `R=`/`CX=`/`CY=`), `poly.sh` (one N-point wavy ring plus a box), `pics.sh`
+  `R=`/`CX=`/`CY=`; squares or circles instead with `KIND=rect|circle`), `poly.sh` (one N-point wavy ring plus a box), `pics.sh`
   (a tilemap of two alternating images plus an optional full-screen
   background), `text.sh` (a screen of text rows; takes an optional trailing
   font-path argument, used by Linux mode), `worker.sh` (the
   build/walk/present microbenchmark, no graphics thread involved), `hit.sh`
-  (what `canvas::pollMouse` costs to answer `overID`, with and without ids).
+  (what `canvas::pollMouse` costs to answer `overID`, with and without ids),
+  `clips.sh` (squares with a `Paint.clip` ring, untransformed, under an item
+  transform, or inside a group with a matrix), `magnified.sh` (49 small discs
+  drawn the same place through seven coordinate spaces).
 - **cmp.py** — pixel-compares two `MFB_CANVAS_DUMP` RGBA files: differing
   pixel count and max per-channel delta. What every oracle check reads.
 
@@ -106,6 +109,22 @@ Vulkan code path drew the frame and drew it correctly), but the `fps`
 numbers measure a CPU rasteriser's throughput, not a GPU's, and are **not**
 comparable to the macOS/Metal fps numbers or to a real GPU's Vulkan
 performance.
+
+## Warm-up, and the cold start it hides (bug-996)
+
+A GPU driver compiles the canvas pipeline the first time it sees an executable
+**name**, and keeps the result per name. On box 206's Intel driver that is 38 s,
+and a run that asks for the GPU with `MFB_CANVAS_GPU` waits for it before its
+first frame. Every scene here is built under a fixed name (`stress`, `poly`,
+…), so without care the first row of a session on a fresh box measures the
+compile: `fps=0.4 phaseRenderMs=18500` for 95 items is what that looked like.
+
+On a remote target `bench.sh` therefore runs each scene name once, unmeasured,
+with `MFB_CANVAS_GPU=1`, before the first measured run of that name
+(`warm_up`, called from `build_app`). It costs one extra run per name per
+invocation. Local macOS runs are not warmed.
+
+`coldstart` is the subcommand that measures the first run instead.
 
 ## Subcommands
 
@@ -228,6 +247,66 @@ too slow for that size and its `poll-again` is understated.
 The presses are delivered by `MFB_MOUSE_INJECT`, which is POSIX-only, so `hit`
 runs locally and on a Linux box and refuses `--target windows-x86_64`.
 
+### `clips [ITEMS] [FRAMES]`
+
+bug-995's table: ITEMS (default 150) squares of 100 px with a translucent
+fill, FRAMES (default 40) frames under `MFB_CANVAS_SYNC=1`, one row for each
+of no clip, a 64-point ring clip (banded) and a 28-point one (every edge
+walked), each untransformed, under an item transform that scales by 4 and by
+0.1, and untransformed inside a `canvas::Group` whose transform scales by 4.
+`ms/frame` is the render phase per frame after the first
+(`(phaseRenderMs last - first) / (frames - 1)`), so a first frame that
+compiles a pipeline is left out; on Windows each program is also run once
+before the measured run (bug-996).
+
+    bash tools/canvas-bench/bench.sh <mfb> clips
+    bash tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host test@192.168.1.206 clips
+
+**Healthy**: every row on the GPU, and a transformed or grouped clip row
+within about twice its no-clip row. Before bug-995 the transformed rows cost
+2x their no-clip row on Metal and 3x to 7x on box 206 (273 ms against 54 ms
+for 64 points at scale 4): every pixel took five unbounded clip samples.
+
+### `magnified-polygons [FRAMES] [--software]`
+
+bug-991's table: 49 discs of 24 points, about 27 px across, drawn the same
+place in seven modes that differ only in the coordinate space and the
+transform (`flat`: radius 0.08 under an item transform that scales by 170;
+`group`: the same items untransformed inside a `canvas::Group` scaled by 170;
+`x10`, `x100`; `pix`: surface pixels, the reference; `circle-xf`,
+`circle-pix`). FRAMES (default 40) frames under `MFB_CANVAS_SYNC=1`;
+`ms/frame` as for `clips`. `--software` runs `MFB_CANVAS_GPU=0`: give it a
+small FRAMES, a magnified software frame is seconds.
+
+    bash tools/canvas-bench/bench.sh <mfb> magnified-polygons
+    bash tools/canvas-bench/bench.sh <mfb> magnified-polygons 3 --software
+
+**Healthy**: `flat` and `group` within noise of `x100`, and software `flat`
+within about three times software `pix`. While bug-991 is open `flat` and
+`group` are about 30 ms a frame on Metal against 4 for `pix`, and 17 s
+against 34 ms in software: a magnified item's box is padded in its own units.
+
+### `shapes [ITEMS] [RADIUS] [KIND...]`
+
+bug-688's fragment-cost table: ITEMS (default 10,000) static items of RADIUS
+(default 8) px, once as squares (`rect`), once as circles (`circle`) and once
+as 4-point polygons (`poly`), or only the KINDs named, with one small
+rectangle moving so every frame is drawn, and each kind also as one item
+alone (the frame's fixed cost). Each row runs twice for 5 s; the columns are
+`sweep`'s. On Windows one unmeasured run goes first and its whole
+render phase is printed: nearly all of it is bug-996's pipeline compile when
+the shader is new to the box.
+
+    bash tools/canvas-bench/bench.sh <mfb> shapes
+    bash tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host test@192.168.1.206 shapes
+
+**Healthy**: the 10,000-item `phaseRenderMs` under the program's own time a
+frame, so the renderer is not the limit. On box 206 that is not yet so
+(bug-688): squares and circles render in about 58 and 54 ms and 4-point
+polygons in about 89, against 8 for one item. Before bug-688's shader
+restructure all three took 100 to 110 ms: every pixel paid for ten distance
+samples the source had already skipped.
+
 ### `compare stress|poly|pics|text ARGS...`
 
 The general oracle check: render any of the four scene kinds once on
@@ -247,6 +326,84 @@ HEAD's accepted scenes, not a regression. A large, unexplained pixel count
 or a max delta near 255 means one renderer drew something the other didn't
 (a decline, a missing item, or a real bug) — cross-check with the matching
 `poly`/`pics`/`text` subcommand's status fields to see which.
+
+### `coldstart`
+
+How long a program's first frame takes on a machine that has never run it.
+Builds `gen/coldstart.sh` (one rectangle, presented twice, release), copies the
+executable to names the driver has never seen, and launches each name twice
+with `MFB_CANVAS_SYNC=1`, so `firstPresentMs` is the time from the program's
+start to its first drawn frame.
+
+```
+tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host test@192.168.1.206 coldstart
+```
+
+On Windows there are two rows per name pair:
+
+- **window, default renderer**: a real window (a scheduled task in the console
+  session, so the user must be logged in there). This is what a user sees. The
+  first frame is a software frame while the pipeline is built on its own thread,
+  so both launches read tens of milliseconds. Before bug-996 the first launch
+  read the whole compile.
+- **headless, `MFB_CANVAS_GPU=1`**: the forced-GPU run a test makes, which waits
+  for the pipeline. Its first launch IS the driver's compile time for the canvas
+  shader, and its second the cached cost. Watch this number when the shader
+  grows.
+
+Linux has the forced-GPU row and a software row (a GTK window needs the box's
+desktop session). Without `--target` it builds the macOS bundle under two
+never-used names and launches each twice with `MFB_CANVAS_GPU=1` (Metal's
+compiled pipeline is kept per application too), then once with `0`. The window
+row does not exist there: a macOS window cannot be opened headless. On this
+Mac the first launch of a new name read 5.6 s, 7.6 s and 13.2 s (the last two
+under load) and the second 24 to 37 ms; Metal still builds on the frame path.
+
+Box 206, 2026-10-12:
+
+```
+window, default renderer    first launch   firstPresentMs=38246   (before bug-996)
+window, default renderer    first launch   firstPresentMs=23      (after)
+```
+
+### `dots N [SECONDS] [--window] [--move|--same]`
+
+bug-765's scene and its regression row: N fixed circles on a grid, built twice
+with two fill colours (`gen/dots.sh`), and the two scenes presented in turn
+with `canvas::present` + `canvas::waitFrame` for SECONDS (default 10). Nothing
+moves, so every frame changes every item's paint and no item's geometry. Both
+scenes exist before the clock starts.
+
+It builds the scene twice and prints one row:
+
+- **release** gives the rates the bug is about, `pps` and `fps` from
+  `canvas::getFrameStats` at the end of the run, and the renderer of the last
+  frame (a release build has no stats line).
+- **`--debug`** gives what the rates cannot say: `frames` and `gpuFrames` (equal
+  when no frame was drawn by the software renderer), `directFrames` (frames
+  presented straight to a window), `builds/frame` (geometry records built per
+  frame; N means a paint change rebuilt every record) and the per-frame phase
+  times. A `--debug` build is slower; its own rates are not printed.
+
+The row FAILS, and the command exits 1, unless the release run holds 30.0 pps
+and 30.0 fps and every frame of the debug run is a GPU frame.
+
+`--window` runs in a real window on this Mac instead of headless: the direct
+present path, which is what a program's user gets. Headless runs (the default,
+and the only mode on a remote box) take the readback path. `--move` also moves
+every dot between the two scenes (the geometry-changing contrast) and `--same`
+presents one scene every time (the frame skip refuses it after the first, so it
+draws one frame); neither is held to 30/30.
+
+```
+tools/canvas-bench/bench.sh target/release/mfb dots 100000
+tools/canvas-bench/bench.sh target/release/mfb dots 100000 10 --window
+tools/canvas-bench/bench.sh target/release/mfb --target windows-x86_64 --host test@192.168.1.206 dots 100000
+```
+
+Past 65,536 dots the frame does not fit one frame buffer and is drawn in passes
+(`mfb spec app canvas`); before bug-765 such a frame was a software frame and
+this row read `gpuFrames=0`.
 
 ## 60 fps target rows (bug-686's Goal)
 

@@ -1169,7 +1169,7 @@ FUNC __canvas_curveBuild(kind AS Integer, contours AS List OF List OF BezierCurv
     pad = __canvas_maxF(pad, __canvas_capReach(half, cap) + 1.0)
   END IF
   header = __canvas_withDashes(__canvas_withJoins(header, joins, __canvas_joinReach(half, paint)), dashes, paint)
-  RETURN [__canvas_boundsHeader(header, minX - pad, minY - pad, maxX + pad, maxY + pad), tail]
+  RETURN [__canvas_boundsHeader(header, minX, minY, maxX, maxY, pad, pad, __CANVAS_BOUNDS_RIM), tail]
 END FUNC
 
 ' plan-164-A: a chain of curves -- its count, then each curve's points and weights

@@ -123,6 +123,10 @@ MUT __CANVAS_GM_IA AS Float = 1.0
 MUT __CANVAS_GM_IB AS Float = 0.0
 MUT __CANVAS_GM_IC AS Float = 0.0
 MUT __CANVAS_GM_ID AS Float = 1.0
+' bug-1083: the Frobenius norm of that inverse, which `__canvas_drawBound` scales an
+' item's rim by. Kept beside the matrix so it is one square root an entry and not four
+' an item.
+MUT __CANVAS_GM_INORM AS Float = 1.0
 
 ' Make draw entry matrix `mat` current: a row of `__CANVAS_GROUP_ROWS` plus one, or 0
 ' for an entry that is only translated.
@@ -140,6 +144,7 @@ FUNC __canvas_enterGroupMatrix(mat AS Integer) AS Nothing
   __CANVAS_GM_IB = collections::getOr(__CANVAS_GROUP_ROWS, row + 5, 0.0)
   __CANVAS_GM_IC = collections::getOr(__CANVAS_GROUP_ROWS, row + 6, 0.0)
   __CANVAS_GM_ID = collections::getOr(__CANVAS_GROUP_ROWS, row + 7, 1.0)
+  __CANVAS_GM_INORM = math::sqrt(__CANVAS_GM_IA * __CANVAS_GM_IA + __CANVAS_GM_IB * __CANVAS_GM_IB + __CANVAS_GM_IC * __CANVAS_GM_IC + __CANVAS_GM_ID * __CANVAS_GM_ID)
   __CANVAS_GM = TRUE
 END FUNC
 
@@ -147,11 +152,44 @@ END FUNC
 ' places it: `k` is 0, 1, 2, 3 for x0, y0, x1, y1.
 '
 ' Translate-only, it is the header's bound plus the offset -- the expression every
-' consumer used to write out. Under a group matrix the header's box (already the hull
-' of the item under its OWN transform) is carried through the groups' linear part, and
-' the hull of its four corners is padded by a pixel: the header's antialiasing rim is
-' in the group's space, so a group that scales down would shrink it under the pixel it
-' has to cover. A bound only has to be conservative.
+' consumer used to write out.
+'
+' Under a group matrix the box is carried through the groups' linear part and the hull
+' of its four corners is padded by a pixel. The box carried is not the header's as it
+' stands (bug-1083). The header's box is the item's extent and stroke reach under its
+' own transform, and a rim past that (`__CANVAS_GEO_RIM`) sized for the item drawn with
+' no group: a unit untransformed, half the item's inverse's Frobenius norm of its own
+' units and a pixel under a transform. A group changes the rim a pixel needs. A pixel
+' takes coverage only where `d < 0.5 * g`, `d` the distance in the item's space and `g`
+' the length of its central differences half a SURFACE pixel apart; a distance is
+' 1-Lipschitz, so `g` is at most the norm of the COMPOSED inverse, the item's after the
+' groups', and that is at most the product of the two norms. So the rim here is the
+' header's rim scaled by the norm of the groups' inverse, `N`:
+'
+'   lower = (bound + rim) - rim * N        upper = (bound - rim) + rim * N
+'
+' That covers every pixel that can take coverage, for each kind of rim:
+'
+' * No transform of its own. The composed inverse IS the groups', so the pixel needs
+'   `0.5 * N` of the group's units and gets `1.0 * N`, the builder's rim being a unit
+'   (`__CANVAS_BOUNDS_RIM`), which is more than `0.5 * sqrt(2)`: what the bound would
+'   ask if the item's identity were counted in the product.
+' * Its own transform, inverse norm `F`. The pixel needs `0.5 * F * N` of the ITEM's
+'   units around its extent; the item's forward matrix makes that `(|a| + |c|) * 0.5 *
+'   F * N` on the x sides of the hull, and the header's rim there is `(|a| + |c|) * 0.5
+'   * F`, widened, and a pixel -- so `rim * N` is that and `N` to spare. A transform
+'   that shrinks the item only makes `F` large; nothing above assumes it is small.
+' * A group that magnifies has `N` under 1 and the box comes in from the header's: the
+'   unit that was 170 pixels a side under a scale of 170 is 1.41 pixels. A group that
+'   shrinks has `N` over 1 and the box goes out past it, which is what an unevenly
+'   transformed item needs there and a finished box could not give.
+'
+' A box with no rim (a glyph run, a text box, a picture, an arc: `__canvas_boundsHeader`)
+' is carried as it stands, both lines above being `bound` then. The Vulkan and Metal
+' vertex stages take the same two lines (`mfb_canvas.vert`, `mfbVertex`) and differ
+' only in the pixel: theirs is `N` of the group's units before the map, because their
+' quad is the mapped parallelogram and not its hull, and a parallelogram has no "one
+' pixel out" to add afterwards.
 FUNC __canvas_drawBound(offset AS Integer, k AS Integer, gdx AS Float, gdy AS Float) AS Float
   IF NOT __CANVAS_GM THEN
     IF k = 0 OR k = 2 THEN
@@ -159,10 +197,12 @@ FUNC __canvas_drawBound(offset AS Integer, k AS Integer, gdx AS Float, gdy AS Fl
     END IF
     RETURN __canvas_geoAt(offset, 16 + k) + gdy
   END IF
-  LET x0 AS Float = __canvas_geoAt(offset, 16)
-  LET y0 AS Float = __canvas_geoAt(offset, 17)
-  LET x1 AS Float = __canvas_geoAt(offset, 18)
-  LET y1 AS Float = __canvas_geoAt(offset, 19)
+  LET rimX AS Float = __canvas_geoAt(offset, __CANVAS_GEO_RIM)
+  LET rimY AS Float = __canvas_geoAt(offset, __CANVAS_GEO_RIM + 1)
+  LET x0 AS Float = (__canvas_geoAt(offset, 16) + rimX) - rimX * __CANVAS_GM_INORM
+  LET y0 AS Float = (__canvas_geoAt(offset, 17) + rimY) - rimY * __CANVAS_GM_INORM
+  LET x1 AS Float = (__canvas_geoAt(offset, 18) - rimX) + rimX * __CANVAS_GM_INORM
+  LET y1 AS Float = (__canvas_geoAt(offset, 19) - rimY) + rimY * __CANVAS_GM_INORM
   IF k = 0 OR k = 2 THEN
     LET a AS Float = __CANVAS_GM_FA * x0 + __CANVAS_GM_FC * y0
     LET b AS Float = __CANVAS_GM_FA * x1 + __CANVAS_GM_FC * y0
@@ -264,6 +304,37 @@ FUNC __canvas_invY(offset AS Integer, px AS Float, py AS Float) AS Float
   RETURN __canvas_f32FromBits(__canvas_geoAt(offset, 28)) * px + __canvas_f32FromBits(__canvas_geoAt(offset, 30)) * py + __canvas_f32FromBits(__canvas_geoAt(offset, 32))
 END FUNC
 
+' bug-995: how far a transformed clip's CENTRE distance must be from its edge for the
+' pixel's clip coverage to be decided by that one sample: `0.5 * max(F, 1)`, `F` the
+' Frobenius norm of the composed inverse (the item's own, after the groups'), taken as
+' the product of the two norms, which bounds it, and widened by 2^-8 as both shaders
+' widen theirs (`clipReach` in `shapeCoverage`).
+'
+' Why one sample is enough there: the surface distance is `d / g`, `g` the length of the
+' central differences of the clip's distance at the four inverse-mapped neighbours (or
+' `d` itself when `g` is under 1e-6). A clip's distance is 1-Lipschitz in its own space
+' and the neighbours are the inverse's columns halved either side of the centre, so
+' `g <= F`. Past the reach `|d / g| > 0.5 * max(F, 1) / g >= 0.5`, and `|d| > 0.5`:
+' `__canvas_coverage` answers 0 or 255 by the sign for the quotient and for `d` alike.
+FUNC __canvas_clipReach(offset AS Integer) AS Float
+  MUT norm AS Float = 1.0
+  IF __canvas_geoAt(offset, 33) > 0.5 THEN
+    LET ia AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, 27))
+    LET ib AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, 28))
+    LET ic AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, 29))
+    LET id AS Float = __canvas_f32FromBits(__canvas_geoAt(offset, 30))
+    norm = math::sqrt(ia * ia + ib * ib + ic * ic + id * id)
+  END IF
+  IF __CANVAS_GM THEN
+    norm = norm * math::sqrt(__CANVAS_GM_IA * __CANVAS_GM_IA + __CANVAS_GM_IB * __CANVAS_GM_IB + __CANVAS_GM_IC * __CANVAS_GM_IC + __CANVAS_GM_ID * __CANVAS_GM_ID)
+  END IF
+  LET frob AS Float = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0
+  IF frob > 1.0 THEN
+    RETURN 0.5 * frob
+  END IF
+  RETURN 0.5
+END FUNC
+
 ' The clip's own antialiased coverage at a pixel centre, 0..255.
 '
 ' The same `clamp(0.5 - d, 0, 1)` form every shape edge uses, with `d` the signed
@@ -280,9 +351,17 @@ END FUNC
 ' inverse-mapped neighbours the shape uses -- not by the SHAPE's gradient, which near the
 ' clip's edge belongs to whichever shape edge is nearest, so a sheared clip would
 ' antialias by the wrong slope (measured, plan-163-C Corrections 4).
+'
+' bug-995: a centre distance past `__canvas_clipReach` is returned as it is and the four
+' neighbours are not evaluated -- both shaders' `clipReach` shortcut. The coverage is
+' the same: see `__canvas_clipReach`.
 FUNC __canvas_clipPathSurface(offset AS Integer, px AS Float, py AS Float, qx AS Float, qy AS Float, transformed AS Boolean) AS Float
   LET d AS Float = __canvas_clipPathDistance(offset, qx, qy)
   IF NOT transformed THEN
+    RETURN d
+  END IF
+  LET reach AS Float = __canvas_clipReach(offset)
+  IF d > reach OR d < 0.0 - reach THEN
     RETURN d
   END IF
   LET dxp AS Float = __canvas_clipPathDistance(offset, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py))
@@ -331,6 +410,10 @@ END FUNC
 
 FUNC __canvas_clipRectSurface(offset AS Integer, px AS Float, py AS Float, qx AS Float, qy AS Float) AS Float
   LET d AS Float = __canvas_clipRectDistance(offset, qx, qy)
+  LET reach AS Float = __canvas_clipReach(offset)
+  IF d > reach OR d < 0.0 - reach THEN
+    RETURN d
+  END IF
   LET dxp AS Float = __canvas_clipRectDistance(offset, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py))
   LET dxm AS Float = __canvas_clipRectDistance(offset, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py))
   LET dyp AS Float = __canvas_clipRectDistance(offset, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5))
@@ -922,8 +1005,28 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       ' destination (centre within half a pixel of it) still take coverage, and they
       ' belong to the border texel -- exactly as a rectangle's edge pixels take its fill.
       IF isPicture THEN
-        LET tu AS Integer = __canvas_maxI(__canvas_minI(math::floor((qx - picX0) * toFloat(picW) / picDW), picW - 1), 0)
-        LET tv AS Integer = __canvas_maxI(__canvas_minI(math::floor((qy - picY0) * toFloat(picH) / picDH), picH - 1), 0)
+        '
+        ' bug-1079: the index is `floor(t / d)` corrected by at most one from the exact
+        ' products, so it does not hang on the last bit of the quotient. A GPU driver may
+        ' round `/` either way (Vulkan allows 2.5 ULP), and where a texel boundary is a
+        ' pixel centre -- `t` exactly a whole number of `d` -- that bit chose the texel.
+        ' Both shaders' `pictureTexel` take these same three steps.
+        LET picTX AS Float = (qx - picX0) * toFloat(picW)
+        LET picTY AS Float = (qy - picY0) * toFloat(picH)
+        MUT tu AS Integer = math::floor(picTX / picDW)
+        MUT tv AS Integer = math::floor(picTY / picDH)
+        IF toFloat(tu + 1) * picDW <= picTX THEN
+          tu = tu + 1
+        ELSEIF toFloat(tu) * picDW > picTX THEN
+          tu = tu - 1
+        END IF
+        IF toFloat(tv + 1) * picDH <= picTY THEN
+          tv = tv + 1
+        ELSEIF toFloat(tv) * picDH > picTY THEN
+          tv = tv - 1
+        END IF
+        tu = __canvas_maxI(__canvas_minI(tu, picW - 1), 0)
+        tv = __canvas_maxI(__canvas_minI(tv, picH - 1), 0)
         LET texel AS Integer = canvas::shadowTexel(picShadow, tv * picW + tu)
         gR = __canvas_tintChannel(texel MOD 256, toInt(fillR), fillA)
         gG = __canvas_tintChannel((texel / 256) MOD 256, toInt(fillG), fillA)

@@ -214,6 +214,8 @@ const STATIC_CLASS_SYM: &str = "_mfb_winapp_static_class";
 const WS_CHILD: &str = "1073741824"; // 0x40000000
 /// `SW_SHOWNA`: show without activating, so focus stays with the top-level window.
 const SW_SHOWNA: &str = "8";
+/// `BLACKNESS` (`0x00000042`): the `PatBlt` raster operation that fills with black.
+const BLACKNESS: &str = "66";
 /// plan-155-A: the `HMONITOR` the display rate was last published for. A platform
 /// static rather than a graphics-state word: only the UI thread reads or writes it,
 /// and it exists so `WM_MOVE` — sent on every move — costs one `MonitorFromWindow`
@@ -1533,7 +1535,7 @@ fn emit_wndproc(
     load_addr(abi::mfb_arg(0), CANVAS_FRAME_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
-    ins.push(abi::branch_eq("wnd_default")); // nothing presented yet
+    ins.push(abi::branch_eq("wnd_canvas_clear")); // nothing presented yet
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), BLOCK));
     // BeginPaint(hwnd, &ps) → hdc
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
@@ -1611,6 +1613,65 @@ fn emit_wndproc(
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0")); // yDest
     ins.push(abi::load_u64(abi::mfb_arg(3), abi::mfb_arg(3), 0)); // width (4th)
     call_external(from, "SetDIBitsToDevice", GDI32, &mut ins, &mut rel);
+    // EndPaint(hwnd, &ps)
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        PS,
+    ));
+    call_external(from, "EndPaint", USER32, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
+    ins.push(abi::add_stack(frame));
+    ins.push(abi::return_());
+
+    // ---- bug-996: WM_PAINT in canvas mode before any frame has been committed ----
+    //
+    // The canvas background is opaque black on every backend (`.ai/canvas-threading.md`,
+    // "The surface is opaque black on every backend, at four layers"); this is the
+    // Windows window's layer of it, the twin of the macOS canvas layer's black
+    // `backgroundColor`. The window class has no background brush, so until this arm
+    // existed a canvas window showed its unpainted client for as long as the first
+    // frame took.
+    //
+    // `PatBlt(…, BLACKNESS)` needs no brush, and the paint DC clips it to the invalid
+    // region, so the extent is simply larger than any client area.
+    //
+    // Not while the swapchain's child window is up: a direct present commits no frame
+    // here, the child covers the client area, and this window has no
+    // `WS_CLIPCHILDREN`, so a fill would land on the child. That case keeps the
+    // default paint it always had.
+    ins.push(abi::label("wnd_canvas_clear"));
+    // A program that never calls `canvas::` has no child window to ask about.
+    if uses_canvas {
+        load_addr(abi::mfb_arg(0), CANVAS_CHILD_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+        ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
+        ins.push(abi::branch_eq("wnd_canvas_clear_fill"));
+        call_external(from, "IsWindowVisible", USER32, &mut ins, &mut rel);
+        ins.push(abi::compare_immediate(abi::c_return(0), "0"));
+        ins.push(abi::branch_ne("wnd_default"));
+        ins.push(abi::label("wnd_canvas_clear_fill"));
+    }
+    // BeginPaint(hwnd, &ps) → hdc
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
+    ins.push(abi::add_immediate(
+        abi::mfb_arg(1),
+        abi::stack_pointer(),
+        PS,
+    ));
+    call_external(from, "BeginPaint", USER32, &mut ins, &mut rel);
+    // PatBlt(hdc, 0, 0, 32767, 32767, BLACKNESS)
+    // The stack arguments go first, staged through the 4th argument register, which
+    // is written last: the scratch pool aliases the argument bank on x86-64.
+    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", BLACKNESS));
+    ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), 0x28)); // rop (6th)
+    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "32767"));
+    ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), 0x20)); // height (5th)
+    ins.push(abi::move_register(abi::mfb_arg(0), abi::c_return(0)));
+    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
+    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0"));
+    call_external(from, "PatBlt", GDI32, &mut ins, &mut rel);
     // EndPaint(hwnd, &ps)
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), H0));
     ins.push(abi::add_immediate(
@@ -6741,8 +6802,8 @@ mod canvas_reconcile_tests {
     /// Before this phase the canvas gate branched to `wnd_default`, which is correct
     /// only while there is nothing to paint. The frame symbol must be consulted
     /// after the canvas gate and before `SetDIBitsToDevice`, so a canvas program that
-    /// has not presented yet still takes the default path rather than drawing a null
-    /// block.
+    /// has not presented yet does not draw a null block (bug-996: it fills the client
+    /// black instead, `a_canvas_paint_with_no_frame_fills_the_client_black`).
     #[test]
     fn wm_paint_draws_the_frame_only_once_one_is_committed() {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
@@ -6772,6 +6833,85 @@ mod canvas_reconcile_tests {
             canvas < frame && frame < draw,
             "canvas gate, then the committed-frame test, then the draw; got {order:?}"
         );
+    }
+
+    /// bug-996: a canvas window is the canvas background (black) from its first paint,
+    /// not its unpainted client, however long the first frame takes. The fill is
+    /// skipped while the swapchain's child window is visible, which covers the client.
+    #[test]
+    fn a_canvas_paint_with_no_frame_fills_the_client_black() {
+        let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
+        let ins = &wndproc.instructions;
+        let at = |name: &str| {
+            ins.iter()
+                .position(|i| i.op == CodeOp::Label && i.get("name").as_deref() == Some(name))
+                .unwrap_or_else(|| panic!("no label {name}"))
+        };
+        // The no-frame branch of the canvas paint goes to the clear, not the default.
+        let paint = at("wnd_canvas_paint");
+        let branch = ins[paint..]
+            .iter()
+            .find(|i| i.op == CodeOp::BranchEq)
+            .expect("the canvas paint tests the committed frame");
+        assert_eq!(branch.get("target").as_deref(), Some("wnd_canvas_clear"));
+
+        let clear = at("wnd_canvas_clear");
+        let end = clear
+            + ins[clear..]
+                .iter()
+                .position(|i| i.op == CodeOp::Ret)
+                .expect("the clear arm returns");
+        let calls: Vec<String> = ins[clear..end]
+            .iter()
+            .filter(|i| i.op == CodeOp::BranchLink)
+            .filter_map(|i| i.get("target"))
+            .collect();
+        assert_eq!(
+            calls,
+            ["IsWindowVisible", "BeginPaint", "PatBlt", "EndPaint"],
+            "ask about the child, then paint black inside a BeginPaint/EndPaint pair"
+        );
+        // A visible child leaves for the default paint before anything is drawn.
+        let visible = ins[clear..end]
+            .iter()
+            .position(|i| i.get("target").as_deref() == Some("IsWindowVisible"))
+            .expect("the visibility call");
+        let leave = &ins[clear + visible + 2];
+        assert_eq!(leave.op, CodeOp::BranchNe);
+        assert_eq!(leave.get("target").as_deref(), Some("wnd_default"));
+        // The raster operation is BLACKNESS, the sixth argument.
+        let rop = ins[clear..end]
+            .iter()
+            .position(|i| i.op == CodeOp::MovImm && i.get("value").as_deref() == Some(BLACKNESS))
+            .expect("the fill is BLACKNESS");
+        let stored = &ins[clear + rop + 1];
+        assert_eq!(stored.op, CodeOp::StrU64);
+        assert_eq!(stored.get("offset").as_deref(), Some("40"));
+
+        // A program that never calls `canvas::` can still be put in canvas mode. Its
+        // window is black too, and it has no child window to ask about.
+        let mut plain = spec(PresentationMode::Console);
+        plain.uses_canvas = false;
+        let fns = emit_app_program_entry(&plain, &HashMap::new()).expect("app entry");
+        let wndproc = fns.iter().find(|f| f.symbol == WNDPROC_SYMBOL).unwrap();
+        let ins = &wndproc.instructions;
+        let clear = ins
+            .iter()
+            .position(|i| {
+                i.op == CodeOp::Label && i.get("name").as_deref() == Some("wnd_canvas_clear")
+            })
+            .expect("the clear arm exists without canvas");
+        let end = clear
+            + ins[clear..]
+                .iter()
+                .position(|i| i.op == CodeOp::Ret)
+                .expect("the clear arm returns");
+        let calls: Vec<String> = ins[clear..end]
+            .iter()
+            .filter(|i| i.op == CodeOp::BranchLink)
+            .filter_map(|i| i.get("target"))
+            .collect();
+        assert_eq!(calls, ["BeginPaint", "PatBlt", "EndPaint"]);
     }
 
     /// plan-98-A Phase 4: canvas keyboard input. `Console` mode's keys reach the
@@ -7129,17 +7269,19 @@ mod canvas_reconcile_tests {
 
     /// bug-688 V6: the Vulkan swapchain's child window is touched by exactly these
     /// arms: the readback blit hides it, `WM_APP_CANVAS_SHOW` shows it, the Console and
-    /// None reconciles hide it, `WM_SIZE` moves it, and the canvas reconcile loads it
-    /// and stores it once created. A program without canvas emits none of them — its
+    /// None reconciles hide it, `WM_SIZE` moves it, the canvas reconcile loads it
+    /// and stores it once created, and (bug-996) the canvas paint that has no frame asks
+    /// whether it is visible before filling the client. A program without canvas emits none of them — its
     /// swapchain can never exist, and a stray `ShowWindow` would be dead weight.
     #[test]
     fn the_canvas_child_window_is_shown_by_one_arm_and_hidden_by_the_others() {
         let wndproc = func(WNDPROC_SYMBOL, PresentationMode::Console);
         assert_eq!(
             externals(&wndproc, CANVAS_CHILD_SYM),
-            14,
-            "7 address loads — blit hides, show shows, Console and None hide, \
-             WM_SIZE moves, the canvas reconcile loads and stores — 2 relocations each"
+            16,
+            "8 address loads — blit hides, show shows, Console and None hide, \
+             WM_SIZE moves, the canvas reconcile loads and stores, and (bug-996) the \
+             paint with no frame asks whether it is visible — 2 relocations each"
         );
         let mut plain = spec(PresentationMode::Console);
         plain.uses_canvas = false;

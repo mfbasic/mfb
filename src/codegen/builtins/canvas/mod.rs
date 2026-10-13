@@ -590,7 +590,7 @@ pub(crate) fn register(r: &mut Registry) {
         variants: vec![
             EnumVariant {
                 name: "Software",
-                description: "Drawn on the CPU. The default for a program with no window, and what a canvas reports before its first frame.",
+                description: "Drawn on the CPU. The default for a program with no window, and what a canvas reports before its first frame. On Linux and Windows it also draws a window's first frames, while the GPU is being made ready.",
                 advisory: None,
             },
             EnumVariant {
@@ -600,7 +600,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             EnumVariant {
                 name: "Vulkan",
-                description: "Drawn on the GPU through Vulkan (Linux and Windows).",
+                description: "Drawn on the GPU through Vulkan (Linux and Windows). A window's frames change from `Software` to `Vulkan` once the GPU is ready, which can be many seconds into the first run of a program on a machine.",
                 advisory: None,
             },
         ],

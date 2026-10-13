@@ -9,7 +9,6 @@
 // --- codegen tier imports (migration) ---
 use super::scene_base::{emit_mark_pending, emit_scene_barrier, orders_scene_accesses, scene_base};
 use crate::codegen::app::hook::app::{prepend_wrong_mode_gate, ModeRequirement};
-use crate::codegen::collection::layout::list_entry_stride;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::{Operand, VirtualRegister};
 use crate::codegen::error::constants::*;
@@ -40,6 +39,30 @@ impl SceneShape {
             SceneShape::Flat => ParameterType::list_of(ParameterType::named("DrawItem")),
             SceneShape::Layered => ParameterType::list_of(ParameterType::named("DrawLayer")),
         }
+    }
+
+    /// The list type as the program's type model keys it, which is what a walk of the
+    /// scene's content reads its layout from. The model registers the package's
+    /// nominals qualified; a bare spelling there is a user's own type
+    /// (`func_geo_build::record_type`).
+    fn content_type(self, builder: &CodeBuilder) -> Result<ParameterType, String> {
+        let element = self.list_type();
+        let ParameterType::ListOf(element) = element else {
+            return Err("canvas: a scene is a list".into());
+        };
+        let name = element.name().into_owned();
+        for spelling in [format!("canvas.{name}"), name.clone()] {
+            let candidate = ParameterType::named(&spelling);
+            let model = &builder.type_model;
+            if model.record_fields.contains_key(&candidate)
+                || model.union_names.contains(&candidate)
+            {
+                return Ok(ParameterType::list_of(candidate));
+            }
+        }
+        Err(format!(
+            "canvas: the scene element type '{name}' has no layout in the type model"
+        ))
     }
 
     /// `(pointer, count)` offsets this shape publishes into, then the pair it clears.
@@ -119,29 +142,23 @@ pub(crate) fn emit_publish(
 
     // ---- Frame skip: an identical re-present publishes nothing ----------------
     //
-    // Compares the **data region**, not the whole block, plus `count` and
-    // `dataLength`. Those three together are the scene's content: the data region
-    // holds every element's bytes, and for a tight copy the entry offsets are
-    // sequential over it.
+    // The two scenes are compared by what they SAY: the counts, then each element,
+    // through the entries and by the scene's type
+    // (`emit_values_content_equal_branch`). Their bytes cannot stand in for that. Both
+    // sides are shrink-to-fit copies, but only at the top: a list embedded in an item
+    // (a polygon's contours, a layer's items) keeps the capacity it was built with,
+    // and its spare entries, the seven reserved bytes after each entry's `flags` and
+    // any unused data bytes hold whatever the arena handed out. A whole-block compare
+    // never reported "same", and a compare of the data region reported "changed" for
+    // every scene holding a list built another way (bug-968).
     //
-    // The whole-block compare this replaced never once reported "same" (measured:
-    // three identical presents produced three frames, on the pre-graphics-thread
-    // build too). Both sides *are* shrink-to-fit — `copy_flat_block` dispatches to
-    // `copy_collection_tight` for a collection — so that was not the problem. The
-    // problem is that a lookup entry is 40 bytes of which a **list** writes only
-    // some: `keyOffset` and `keyLength` are meaningless without keys and are never
-    // written, so they hold whatever the arena handed out. Two allocations, two
-    // different values, one spurious "changed".
-    //
-    // Still no hash, so still no collisions.
+    // No hash, so no collisions.
     //
     // The copy still happens on a skipped frame. That is the design (plan-98-A
     // invariant 2 charges the deep copy to the caller's frame budget); what the skip
     // buys is not re-publishing, which is what would make the renderer redraw.
     let skip = builder.label(&format!("{tag}_skip"));
     let publish = builder.label(&format!("{tag}_publish"));
-    let size_slot = builder.allocate_stack_object("canvas_publish_size", 8);
-    let installed_size_slot = builder.allocate_stack_object("canvas_publish_prev_size", 8);
     let installed_slot = builder.allocate_stack_object("canvas_publish_prev", 8);
 
     let installed = builder.temporary_vreg();
@@ -158,73 +175,14 @@ pub(crate) fn emit_publish(
 
     let fresh = builder.temporary_vreg();
     let previous = builder.temporary_vreg();
-    let new_count = builder.temporary_vreg();
-    let old_count = builder.temporary_vreg();
     builder.emit(abi::load_u64(&fresh, abi::stack_pointer(), copy_slot));
     builder.emit(abi::load_u64(
         &previous,
         abi::stack_pointer(),
         installed_slot,
     ));
-    builder.emit(abi::load_u64(&new_count, &fresh, COLLECTION_OFFSET_COUNT));
-    builder.emit(abi::load_u64(
-        &old_count,
-        &previous,
-        COLLECTION_OFFSET_COUNT,
-    ));
-    builder.emit(abi::compare_registers(&new_count, &old_count));
-    builder.emit(abi::branch_ne(&publish));
-
-    let new_size = builder.temporary_vreg();
-    let old_size = builder.temporary_vreg();
-    builder.emit(abi::load_u64(
-        &new_size,
-        &fresh,
-        COLLECTION_OFFSET_DATA_LENGTH,
-    ));
-    builder.emit(abi::load_u64(
-        &old_size,
-        &previous,
-        COLLECTION_OFFSET_DATA_LENGTH,
-    ));
-    builder.emit(abi::compare_registers(&new_size, &old_size));
-    builder.emit(abi::branch_ne(&publish));
-    builder.emit(abi::store_u64(&new_size, abi::stack_pointer(), size_slot));
-    builder.emit(abi::store_u64(
-        &old_size,
-        abi::stack_pointer(),
-        installed_size_slot,
-    ));
-
-    // Data base = block + HEADER + capacity * entryStride. Both sides are tight, so
-    // `capacity == count`; deriving it from each block's own capacity rather than
-    // assuming that keeps this correct if a future copy stops being tight.
-    let element = ParameterType::named(match shape {
-        SceneShape::Flat => "DrawItem",
-        SceneShape::Layered => "DrawLayer",
-    });
-    let stride = list_entry_stride(&element);
-    let left = builder.temporary_vreg();
-    let right = builder.temporary_vreg();
-    for (block, out) in [(&fresh, &left), (&previous, &right)] {
-        let capacity = builder.temporary_vreg();
-        builder.emit(abi::load_u64(&capacity, block, COLLECTION_OFFSET_CAPACITY));
-        let bytes = builder.temporary_vreg();
-        builder.emit(abi::move_immediate(&bytes, "Integer", &stride.to_string()));
-        builder.emit(abi::multiply_registers(&capacity, &capacity, &bytes));
-        builder.emit(abi::add_registers(out, block, &capacity));
-        builder.emit(abi::add_immediate(out, out, COLLECTION_HEADER_SIZE));
-    }
-    let length = builder.temporary_vreg();
-    builder.emit(abi::load_u64(&length, abi::stack_pointer(), size_slot));
-    builder.emit_compare_bytes_branch(
-        &left,
-        &right,
-        &length,
-        &skip,
-        &publish,
-        &format!("{tag}_same"),
-    );
+    let content_type = shape.content_type(builder)?;
+    builder.emit_values_content_equal_branch(&content_type, &fresh, &previous, &skip, &publish)?;
 
     // Skipped: report FALSE so the caller does not re-render. That is what makes the
     // skip worth anything — the publish itself is cheap, the render is not.

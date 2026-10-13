@@ -382,3 +382,235 @@ I. Move on to the next phase.
 - macOS has no `timeout` command. In zsh, split SHA lists with ${=L}.
 - Status questions: answer from `git log main`, never from plans.
 - Memory edits only through a sub-agent (AGENTS.md).
+
+---
+
+## canvas-demo rewrite
+
+### What this is
+
+`examples/canvas-demo` is the project's canvas showcase: a menu ("The Enchanted Grove",
+ten scenes, a QUIT button) and ten scenes, about 6,900 lines across 18 files in
+`examples/canvas-demo/src/`. It was written against the canvas API as it was before
+plan-172 (the shape model) and plan-164 (Bézier curves), and has only been kept
+compiling since. It uses none of what those two plans added.
+
+I want it **rewritten, not ported**. The owner's words: "Do a rewrite, not a port… the
+canvas-demo is a showcase so it should be done right." A port keeps the old structure
+and swaps field names. A rewrite asks, for each scene and each helper, how it would be
+written today if the current model had always existed, and writes that.
+
+**This prompt is your go-ahead to edit files under `examples/canvas-demo/`.** It is not
+a go-ahead to change the compiler, the canvas package, tests or goldens. If the rewrite
+exposes a compiler or canvas bug, follow `AGENTS.md`: reproduce it, then fix it or file
+it with `/write-bug`. Do not work around it silently in the demo.
+
+### Read first
+
+1. `AGENTS.md` (repo root). Its rules apply throughout.
+2. `planning/new_canvas.md`, everything above `## Future`. This is plan-172's type
+   surface. It predates the curve shapes, so the manual is the authority for those.
+3. `./target/release/mfb man canvas --all`, then the `types`, `pollMouse`, `setGroup`,
+   `present`, `flatten` and `nurbsToBeziers` pages individually. Build the compiler
+   first if needed (`cargo build --release`).
+4. `./target/release/mfb spec app canvas`. Read "The item unions", "Placement",
+   "AutoPaint", "Hit-testing", "A picture is drawn inside a shape", and whatever it
+   says of curves.
+5. `planning/completed/plan-164-A-bezier-types-reduction.md`, `-B-curves-software.md`
+   and `-C-curves-gpu.md`, for what the curve shapes are and where their limits are.
+6. The demo itself. Start with `main.mfb`, `demos.mfb`, `menu.mfb`, `kit.mfb`, `ui.mfb`
+   and `svg.mfb`, then the ten scenes: `dawn`, `spring`, `twilight`, `alchemist`,
+   `canopy`, `wanderer`, `scribe`, `bestiary`, `cathedral`, `lantern`.
+7. Small, correct examples of the new features, under `tests/canvas/scenes/`:
+   `picture_shapes_on_black.mfb`, `autopaint_on_black.mfb`, `curves.mfb`,
+   `curve_strokes_on_black.mfb`, `curves_placed_on_black.mfb`,
+   `curve_pictures_on_black.mfb`.
+
+### What changed in the canvas model
+
+Verify each of these against the man pages; do not take them from this list alone.
+
+- **Every shape carries `id`, `position`, `paint`, `transform`.** The transform is on
+  the shape, not on `Paint`, and pivots about the shape's `position`. A `Rectangle`
+  pivots about the point its `bind` names (`TopLeft` or `Center`). Points of a `Line`,
+  `Polygon`, `PolyLine`, `PolyCurve` and `CurvePolygon` are offsets from `position`, so
+  moving a shape is changing `position` alone.
+- **`Rectangle`** has four radii (`radiusTL/TR/BL/BR`) and `bind`. **`Polygon`** has
+  `contours` (a list of rings, so holes are possible) and `rule`.
+- **Bézier curves are shapes now (plan-164).**
+  - `canvas::BezierCurve` is one segment: `points` (two for a line, three for a
+    quadratic, four for a cubic, up to seventeen) and optional `weights`, one per
+    point, which make it rational. A quarter circle is three points with weights 1.0,
+    0.7071067811865476, 1.0. It is not drawn on its own.
+  - `canvas::PolyCurve` is an open path of curves joined end to end, stroked: the
+    curved counterpart of `PolyLine`. Joins, caps and dashes apply along the whole
+    path. It has no interior and ignores `paint.fill`.
+  - `canvas::CurvePolygon` is a closed shape with a curved outline, filled and
+    stroked: the curved counterpart of `Polygon`, with `contours` (each a list of
+    `BezierCurve`) and `rule` for holes.
+  - Curves stay smooth however far the **shape's own** transform enlarges them.
+    Enlarging a `Group` they are in does not redraw them at the new size, so a cubic
+    can show slight flats there. Zoom with the shape's transform, not the group's.
+  - `canvas::flatten` turns a curve into points and `canvas::nurbsToBeziers` makes
+    curves from a NURBS curve, for the cases that still need points.
+- **`Group` nodes take a full affine transform** (`id`, `position`, `transform`,
+  `name`). A group inside a group composes. A figure built once with
+  `canvas::setGroup` can be placed, turned and scaled many times for the cost of one
+  node each.
+- **`canvas::AutoPaint`** wraps a shape and swaps its paint on enter, hover, press and
+  exit. The graphics thread does this with no program code running. Fields: `shape`,
+  `useEnter/useExit/useHover/usePressed`, `enterPaint/exitPaint/hoverPaint/pressedPaint`.
+  It has no `id` of its own; it reports its shape's.
+- **`canvas::Picture`** is an image drawn inside a shape: `id`, `shape`, `clip`
+  (`PictureClip.ClipOnly` or `ClipAndTransform`), `fit` (`PictureFit.Stretch`,
+  `Contain` or `Cover`), `image`. The shape's paint tints, fades, blends and outlines
+  it. The shape may be a circle, ellipse, polygon, rounded rectangle or
+  `CurvePolygon`, and may itself be an `AutoPaint`. A shape with no inside (a line,
+  arc, `PolyLine`, `PolyCurve`, text) draws nothing.
+- **The unions.** `Shape` has ten members (the eight original shapes, `PolyCurve`,
+  `CurvePolygon`); `AutoShape` adds `AutoPaint`; `DrawItem` adds `Picture` and `Group`.
+  An exhaustive `MATCH` over `DrawItem` breaks every time a variant is added — it has
+  broken this demo three times.
+- **`MouseEvent.overID`** reports which item the mouse is over as an id path joined by
+  `::` (group id, then picture id, then shape id, empty parts left out). One group
+  drawn twice under two node ids is told apart by its path.
+- **Defaults.** `MUT r AS canvas::Rectangle` then `r = WITH r { … }` works for records
+  that hold no union or resource. `AutoPaint`, `Text` and `Picture` need full literals.
+  There are no constructor functions; do not add any.
+
+### What "done right" means here
+
+These are the places the old demo does by hand what the model now does for it. Treat
+them as the minimum, and look for more.
+
+1. **Curves.** The demo flattens every curve to points itself: `kit.mfb` has
+   `quadPts` and `cubicPts`, `svg.mfb` flattens every SVG path (`cubicPts`,
+   `curveSteps`, `arcPts`) into polygon rings, and several scenes build curved outlines
+   as long point lists. Draw curves as curves. An SVG cubic or quadratic segment is a
+   `BezierCurve`; an SVG arc is a rational one; a closed path is a `CurvePolygon`
+   contour and an open stroked one a `PolyCurve`. Hand-flattening should remain only
+   where points are genuinely what is needed, and then through `canvas::flatten`.
+   Because curves are redrawn smooth under the shape's own transform, a scene that
+   zooms is where this shows best — make sure at least one does, and that it zooms the
+   shape and not an enclosing group.
+2. **Hit testing.** `ui.mfb` and `menu.mfb` test the mouse against rectangles by hand
+   (`inside(px, py, x, y, w, h)`). Replace this with `id`s and `overID`. Clickable
+   things get an `id`; the menu's ten tiles should be one group drawn ten times, told
+   apart by node id.
+3. **Hover and press feedback.** Buttons animate hover in program code today. Use
+   `AutoPaint` where a paint swap is the effect wanted. Keep hand animation only where
+   the effect is something `AutoPaint` cannot express (a growing or eased transition),
+   and say so in a comment.
+4. **Placement.** `kit.mfb:placed` and `ui.mfb:restyleItem` are `MATCH`es over every
+   `DrawItem` that rewrite each shape's transform so a figure built at the origin can
+   be moved as a whole. That is what a `Group` node with a transform is for. Build
+   figures as groups and place the node. These two functions are the ones that keep
+   breaking; they should not survive the rewrite, and nothing that replaces them
+   should `MATCH` exhaustively over `DrawItem`.
+5. **Pictures.** `wanderer.mfb` draws every image as a plain rectangle. Find places
+   where a shaped picture is the natural thing (the menu's ten circular thumbnails are
+   the obvious one; a framed portrait or a clipped scene window is another) and use it.
+   Show `Contain` or `Cover` at least once where the proportions matter, and a picture
+   inside a curved outline (`CurvePolygon`) at least once.
+6. **Local geometry.** Anywhere the demo adds an offset to every point of a polygon,
+   line or curve to move it, set `position` instead.
+7. **Rounded corners.** Anything faking a rounded or pill shape with extra items
+   should use the four radii.
+
+The demo must visibly contain at least: an `AutoPaint` button, a shaped picture, a
+rotated or scaled group, a filled `CurvePolygon` and a stroked `PolyCurve` — each
+reachable from the menu without special setup.
+
+### Constraints
+
+- **Keep what the demo is.** Ten scenes, the same art direction, the same menu, the
+  same keys (number keys, `F` for full screen, `Q` to quit), the same assets under
+  `resources/`, and `CREDITS.md`. This is a rewrite of the code, not a redesign of the
+  content. If you think a scene should change materially, ask first.
+- **Keep reading the keyboard every loop.** `canvas::pollMouse` reports nothing unless
+  the program also calls a key reader such as `io::readKey(0)` (open bug-1015). The
+  demo already does; do not lose it.
+- **Mind code size.** A defaulted record updated with `WITH` costs about 27 KB of
+  machine code per statement (open bug-1080). Prefer small builder functions called
+  many times over long runs of inline `MUT`/`WITH` pairs. Measure the binary before
+  and after, and report both numbers.
+- **Mind frame cost.** The demo animates from wall-clock time. Things that do not
+  change between frames belong in a group installed once, not rebuilt per frame.
+  Compare frame cost before and after on the scenes whose curves you converted: a
+  curve is not free, and "fewer points" is not automatically "faster".
+- **Do not touch** `src/`, `tests/`, goldens, or other examples, except to fix a bug
+  you can reproduce outside the demo.
+- Update `examples/canvas-demo/README.md` to describe the demo as rewritten. The repo
+  has guards for example READMEs and project names:
+  `cargo test --test example_readmes --test example_project_names`.
+
+### How to work
+
+1. **Baseline first, before changing anything.** Build the demo and capture a frame of
+   the menu and of each of the ten scenes, so you have something to compare against:
+
+   ```sh
+   cargo build --release
+   ./target/release/mfb build --debug examples/canvas-demo
+   ```
+
+   Run headless with a frame dump and stats. Hold stdin open, because the demo quits
+   on end-of-input:
+
+   ```sh
+   sleep 6 | MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 \
+     MFB_CANVAS_DUMP=/tmp/demo/frame.rgba MFB_CANVAS_STATS=/tmp/demo/stats.txt \
+     examples/canvas-demo/build/canvas-demo.app/Contents/MacOS/canvas-demo
+   ```
+
+   The dump is raw RGBA8, 900 pixels wide. `MFB_CANVAS_DUMP` and `MFB_CANVAS_STATS`
+   need a `--debug` build. That command shows the menu; work out how to reach each
+   scene headless (read `main.mfb`; add a small, documented environment switch if
+   there is no way). Keep scratch files in `/tmp`, never in `scripts/`.
+
+2. **Tell me the plan before the bulk of the work.** After reading, send a short
+   outline: the new file layout, what replaces `kit.mfb`, `ui.mfb` and the flattening
+   in `svg.mfb`, which scenes get which new features, and anything you want to change
+   about content. Then carry on unless I object; do not wait for a reply.
+
+3. **Rewrite scene by scene**, building and looking at a dumped frame after each one.
+   The scene should look like its baseline except where a new feature is deliberately
+   on show — and where a flattened curve became a real one, which should look the
+   same or smoother, never different in shape. Convert a frame to PNG and actually
+   look at it; a build that compiles proves nothing about a picture.
+
+4. **Verify at the end:**
+   - `./target/release/mfb build examples/canvas-demo` and the `--debug` build both
+     succeed with no warnings.
+   - Every scene and the menu render headless on the software renderer and with
+     `MFB_CANVAS_GPU=1`. On the GPU run the stats line shows `gpuFrames` equal to
+     `frames`; a scene that silently falls back to software is a finding, not a pass.
+   - Hover and click work. Use the `--debug` pointer script, for example
+     `MFB_CANVAS_POINTER="0,x,y,0,1"` (milliseconds, x, y, buttons, inside), and check
+     the `auto=` field of the stats line changes for an `AutoPaint` button. For clicks,
+     `MFB_MOUSE_INJECT` feeds SGR mouse reports to `pollMouse`; see
+     `tests/canvas/rt_canvas_hit.rs` for the format.
+   - `cargo test --test example_readmes --test example_project_names` passes.
+   - A real-window run on this Mac if I am not using the machine. Ask before taking
+     over the pointer.
+
+5. **Commit** on the current branch, itemised, only the files you changed. Do not
+   create or switch branches.
+
+### Machines
+
+Use this Mac for everything. If you want a second platform, box 206
+(`test@192.168.1.206`, Windows, real GPU, x86_64) is the only remote worth using; read
+`.ai/remote_systems.md` first. Do not run anything on an emulated x86_64 box, and ask
+before using any other remote machine.
+
+### Report back
+
+- What each scene now uses from the current model, one line per scene.
+- What you removed (helpers that no longer exist) and what replaced them.
+- Line count and binary size before and after, with the commands that produced them.
+- Frame cost before and after on the scenes whose curves changed.
+- Anything in the canvas API that made the rewrite awkward. That is useful feedback on
+  the model itself.
+- Any bug found, with its repro.
+- What you did not verify, said plainly.

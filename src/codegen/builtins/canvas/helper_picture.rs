@@ -673,7 +673,7 @@ FUNC __canvas_pictureImageOf(outline AS List OF List OF vector::Float2, exact AS
   IF toInt(collections::getOr(stamped, 0, 0.0)) <> __CANVAS_GEO_PICTURE THEN
     RETURN __canvas_pictureNothing()
   END IF
-  MUT header AS List OF Float = __canvas_boundsHeader(stamped, dx - 2.0, dy - 2.0, dx + dw + 2.0, dy + dh + 2.0)
+  MUT header AS List OF Float = __canvas_boundsHeader(stamped, dx - 2.0, dy - 2.0, dx + dw + 2.0, dy + dh + 2.0, 0.0, 0.0, 0.0)
   header = collections::set(header, 7, 0.0 - 1.0)
   ' `grown`: a rectangle's distance is its box's less its radius slot, and the image is
   ' sampled from the box alone (slots 2 to 5) -- on all three renderers -- so a radius

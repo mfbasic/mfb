@@ -581,6 +581,18 @@ impl<'a> Machine<'a> {
                     let value = self.reg(field(instruction, "src"));
                     self.write_uint(address, width, value);
                 }
+                // AArch64's ordered pair (bug-564): a store-release and a load-acquire
+                // are a store and a load to one thread, which is all this models.
+                "stlr_u64" => {
+                    let address = self.reg(field(instruction, "base"));
+                    let value = self.reg(field(instruction, "src"));
+                    self.write_uint(address, 8, value);
+                }
+                "ldar_u64" => {
+                    let address = self.reg(field(instruction, "base"));
+                    let value = self.read_uint(address, 8);
+                    self.set_reg(field(instruction, "dst"), value);
+                }
                 "bl" => {
                     let target = field(instruction, "target").to_string();
                     if self.functions.contains_key(&target) && !externals.intercepts(&target) {

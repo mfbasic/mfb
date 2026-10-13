@@ -61,11 +61,15 @@ END FUNC"#;
 /// them here makes the seam's discriminants observable without adding public surface
 /// for a test to poke.
 ///
-/// `vulkanReady=` is what proves the whole Vulkan path end to end: it is FALSE
-/// unless `dlopen("libvulkan.so.1")` succeeded, the entry points resolved, an
-/// instance was created from hand-written structs, a physical device with a graphics
-/// queue was found, a logical device and queue were made, and the shader modules,
-/// layout, render pass and pipeline all built.
+/// `vulkanReady=` is whether the Vulkan pipeline exists when the line is written
+/// (bug-996): TRUE only once `dlopen("libvulkan.so.1")` succeeded, the entry points
+/// resolved, an instance was created from hand-written structs, a physical device with
+/// a graphics queue was found, a logical device and queue were made, and the shader
+/// modules, layout, render pass and pipeline all built. The line asks
+/// `canvas::vulkanReady`, which starts no build and waits for none, so the field is
+/// FALSE throughout a software run and while a window's pipeline is still being built
+/// on its own thread; a run with `MFB_CANVAS_GPU` set builds before its first frame and
+/// reports TRUE from its first line.
 ///
 /// There was briefly a second, narrower `vulkan=` probe reporting only "a device
 /// exists". It is gone: it disagreed with this one on box 2227 — reporting FALSE on a
@@ -81,6 +85,8 @@ END FUNC"#;
 /// time it is asked — the same call the renderer branch makes — so a stats line
 /// reporting `metalReady=TRUE` is evidence the whole setup ran on the graphics
 /// thread, not merely that a device was found.
+/// That asymmetry with `vulkanReady` is deliberate for now: Metal's first-use build
+/// is still on the frame path (bug-996 audited it and left it).
 #[rustfmt::skip]
 const PRESENT_SURFACE_DEBUG: &str =
 r#"FUNC __canvas_presentSurface(buffer AS List OF Byte, width AS Integer, height AS Integer) AS Nothing

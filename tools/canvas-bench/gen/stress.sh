@@ -9,6 +9,10 @@
 # Optional env vars R=/CX=/CY= draw ITEMS as one big polygon of radius R
 # centred at (CX,CY) when ITEMS=1 (section E's large-polygon probe).
 #
+# Optional env var KIND=poly|rect|circle (default poly) draws each item as a
+# POINTS-point polygon, a square of side 2R or a circle of radius R: the same
+# pixels covered three ways (bug-688's `shapes` rows).
+#
 # ONESHOT=1: present the static bulk once and exit (the `compare` oracle mode)
 # instead of looping for SECONDS.
 set -euo pipefail
@@ -45,7 +49,23 @@ FUNC bulk(shift AS Float) AS List OF canvas::DrawItem
   WHILE k < $ITEMS
     LET cx AS Float = toFloat((k * 37) MOD 880) + ${CX:-10.0} + shift
     LET cy AS Float = toFloat((k * 53) MOD 620) + ${CY:-10.0}
+M
+case "${KIND:-poly}" in
+  rect) cat >> "$DIR/src/main.mfb" <<M
+    LET it AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := cx - ${R:-8.0}, y := cy - ${R:-8.0}], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := ${R:-8.0} * 2.0, height := ${R:-8.0} * 2.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(0, 200, 255, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+M
+  ;;
+  circle) cat >> "$DIR/src/main.mfb" <<M
+    LET it AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := cx, y := cy], radius := ${R:-8.0}, paint := canvas::fill(color::rgba(0, 200, 255, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+M
+  ;;
+  poly) cat >> "$DIR/src/main.mfb" <<M
     LET it AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [ring(cx, cy, ${R:-8.0})], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+M
+  ;;
+  *) echo "gen/stress.sh: KIND must be poly, rect or circle" >&2; exit 1 ;;
+esac
+cat >> "$DIR/src/main.mfb" <<M
     items = collections::append(items, it)
     k = k + 1
   END WHILE

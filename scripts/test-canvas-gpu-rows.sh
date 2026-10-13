@@ -47,6 +47,21 @@
 # picture record with a polygonal clip and, where it strokes, the shape itself — at
 # rest, and with the pointer on the one whose shape is an `AutoPaint`, both of whose
 # entries are then swapped for the hover paint's.
+# `xformclips` is bug-995's: path clips on items under a transform (scales 0.1, 1 and 4, a
+# shear) and on untransformed items inside groups with a matrix, banded and not, with a
+# rectangle clip under a sheared group -- every pixel takes the five-sample clip path
+# unless its centre sample decides it, and that shortcut has to change no pixel. Compare
+# two builds' frames of it byte for byte with `--keep`.
+# `texeledge` is bug-1079's: plain pictures whose texel boundaries are pixel centres, in
+# x and in y, where the texel taken used to hang on the last bit of the driver's
+# division (box 206's Intel driver drew the neighbouring row).
+# The `items*` and `pass*` rows are bug-765's: a frame that does not fit one frame buffer
+# is drawn in passes. `many_items.mfb` at 65,535, 65,536 (one buffer's item region),
+# 65,537 (a second pass of one item) and 140,000 items (three passes), its translucent
+# squares lying over their neighbours and over the lap before; and one frame each that is
+# two passes long for its polygon edges, its gradient stops and its picture texels alone;
+# and `passes_grouped.mfb`, where a group is drawn in both passes of a frame and a run of
+# the scene's own items is cut by the end of the first.
 #
 # Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
@@ -144,6 +159,7 @@ squarecaps|square_caps_on_black|render
 joins|joins_on_black|render
 dashes|dashes_on_black|render
 pathclips|path_clips_on_black|render
+xformclips|transformed_clips_on_black|render
 gradientsblack|gradients_on_black|render
 polygonsblack|large_polygons_on_black|render
 smallpolysblack|small_polygons_on_black|render
@@ -165,6 +181,7 @@ autopaint|autopaint_on_black|render|MFB_CANVAS_POINTER=0,280,120,0,1
 autopaintgroup|autopaint_on_black|render|MFB_CANVAS_POINTER=0,150,320,0,1
 pictureshapes|picture_shapes_on_black|render
 pictureauto|picture_shapes_on_black|render|MFB_CANVAS_POINTER=0,770,470,0,1
+texeledge|picture_texel_edge|render
 hairline|blended_hairline_stroke|render
 curves|curves|curve
 curveshover|curves|curve|MFB_CANVAS_POINTER=0,200,440,0,1
@@ -173,6 +190,14 @@ curvesplaced|curves_placed_on_black|curve
 curvepictures|curve_pictures_on_black|curve
 curveresiduals|curve_residuals_on_black|curve
 vertexrow|vertex_on_a_pixel_row|render
+items65535|many_items|render|MFB_TEST_ITEMS=65535
+items65536|many_items|render|MFB_TEST_ITEMS=65536
+items65537|many_items|render|MFB_TEST_ITEMS=65537
+items140000|many_items|render|MFB_TEST_ITEMS=140000
+passedges|past_the_edge_region_opaque|render
+passstops|many_gradient_stops|render
+passtexels|many_texels|render
+passgroups|passes_grouped|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
 framepass|canvas_geo_native_frame_pass|geo

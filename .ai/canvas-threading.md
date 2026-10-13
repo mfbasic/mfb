@@ -19,6 +19,10 @@ Main and worker already exist (`WORKER_SYMBOL` spawned from the UI-thread
 surface-ready callback on all three platforms). Graphics is the third, spawned the
 same way and from the same place, after the surface exists.
 
+**There is a fourth thread on Vulkan targets, and it is not part of the model**
+(bug-996, §10.1): the pipeline builder. It lives for one build, owns no arena, reads
+no scene and draws nothing. It shares exactly one word with the graphics thread.
+
 ## 2. Arena state is PER-THREAD — the fact everything below is shaped by
 
 Each thread pins `ARENA_STATE_REGISTER` (`x19`) to **its own** block:
@@ -159,11 +163,33 @@ returns memory.
 
 ### 3.1 The frame skip compares CONTENT, not bytes
 
-An identical re-present must publish nothing. The comparison is `count`, then
-`dataLength`, then the data region — **not** a whole-block `memcmp`. A collection
-block is not byte-comparable even between two shrink-to-fit copies: a lookup entry is
-40 bytes of which a *list* writes only some, so `keyOffset`/`keyLength` hold whatever
-the arena handed out. The whole-block form never once reported "unchanged".
+An identical re-present must publish nothing. The comparison walks the two scenes by
+their TYPE (`emit_values_content_equal_branch`): a list's `count`, then each element
+through its entry; a record field by field; a union by tag, then as that variant's
+record. Nothing about how a block was built is read — not `capacity`, `dataLength`,
+`dataCapacity`, an inlined field's offset, or a union's `size`.
+
+Bytes cannot stand in for content at ANY level, and each shortcut has been shipped:
+
+* A whole-block `memcmp` never once reported "unchanged". A list entry is 40 bytes of
+  which a list writes `flags` (one byte), `valueOffset` and `valueLength`; the seven
+  bytes after `flags` hold whatever the arena handed out. (`keyOffset`/`keyLength` are
+  written, as 0.)
+* `count`, `dataLength` and the outer data region byte for byte reported "changed" for
+  every scene whose items hold a list built another way (bug-968). The top-level copy
+  is shrink-to-fit, but shrink-to-fit is not recursive: a list embedded in an item (a
+  polygon's contours, a paint's clip, a layer's items) keeps the capacity it was built
+  with, so its spare entries, its entries' reserved bytes and its unused data bytes
+  are all inside the outer data region.
+
+An element's bytes are still tried FIRST — equal bytes are equal content — and only an
+element whose bytes differ is walked. That keeps an unchanged scene of flat items at
+one pass over its bytes, a word at a time.
+
+The walk is emitted from the type model, one routine per type, and names no canvas
+item: a new item, field or variant is compared without touching it. A type it has no
+arm for (a `Map`, a `Set`, a function value) is a build error in `canvas::present`,
+not a wrong answer.
 
 ### Two presents before one frame
 
@@ -302,9 +328,10 @@ now describe:
    block address current at that moment (`__canvas_pictureStamp`). The software
    renderer samples that block per pixel (`canvas::shadowTexel`); both GPU emitters
    copy its texels, one packed word each, into the frame buffer's glyph region. Each
-   emitter copies a distinct block ONCE per frame and points every later picture of it
-   at those texels (`emit_picture_lookup` — Metal's since bug-686, Vulkan's since
-   bug-688, the same table layout), and each predicate counts each distinct block once.
+   emitter copies a distinct block ONCE per pass (a frame is one pass unless it does
+   not fit the buffer, §10) and points every later picture of it at those texels
+   (`emit_picture_lookup` — Metal's since bug-686, Vulkan's since bug-688, the same
+   table layout), and the pass walk counts each distinct block once a pass.
 
 Why this holds up where the texture design needed care:
 
@@ -321,8 +348,9 @@ Why this holds up where the texture design needed care:
   draw hash, because the worker's published hash predates the swap).
 
 The cost is the per-frame copy of every drawn picture's texels on the GPU paths, and
-that those texels share the glyph region's frame cap — a frame whose pictures and
-glyphs together overflow it is declined to software by both predicates. A texture
+that those texels share the glyph region — a frame whose pictures and glyphs together
+overflow it is drawn in more than one pass (§10, bug-765), each pass copying the blocks
+it draws, and only an image larger than the region by itself is declined to software. A texture
 cache would trade that for exactly the protocol above; do it only with a measured scene
 that needs it. The superseded `dirty` and last-drawn-frame record words were removed.
 
@@ -415,6 +443,14 @@ row names the rule from above that protects it.
 | R27 | a `present` lands during an enter window | the window is not restarted: it ends when it would have | §16: an instance is its place in the scene, and its deadline is part of its state |
 | R28 | the graphics thread stops while a deadline is pending | shutdown completes at once | §16: the stop signals the condition variable the timed wait is on, and the wait checks `STOPPING` before its deadline |
 | R29 | `waitFrame` is in progress when a deadline expires | `waitFrame` returns when it would have | §15/§16: an auto-only wake takes `AUTO_WAKE` and nothing else — not `PENDING`, not `WANTED`, no `FRAME_COND` broadcast |
+| R30 | the program ends, or the window is closed, while the Vulkan pipeline is being built | the process ends at once; nothing waits for the builder and nothing it uses is freed | §10.1: shutdown joins only the graphics thread, which is never inside the build |
+| R31 | the build fails, or its thread cannot be started | every frame is software, for the life of the process | §10.1: `READY = 2`, which `canvas::vulkanReady` answers FALSE for |
+| R32 | the program leaves canvas mode while the pipeline is being built, and comes back | the build finishes meanwhile; the frames after the return are Vulkan frames | §10.1: the build depends on no mode, window or surface, and nothing stops the graphics thread at a mode change |
+
+**R30–R32 are bug-996's.** R30 and R32 are proven in a real window on box 206 (the bug
+document has the runs), because no headless run starts the builder thread (§10.1); R31
+by `tests/codegen/codegen_canvas_vulkan_off_frame_path.rs`, which runs the emitted
+build against a loader with no Vulkan and a thread library that refuses.
 
 **R26–R29 are plan-172-K's**, pinned by the four `auto_…` tests at the end of
 `tests/canvas/rt_canvas_graphics_thread.rs`. R26 is the row a headless test can only
@@ -481,9 +517,12 @@ END IF
 __canvas_renderScene()
 ```
 
-* `canvas::useGpu` — did the program ask? (`MFB_CANVAS_GPU=1`, read once at
-  spawn.) **Software is the default and must stay so**: it is the oracle the GPU
-  backends are measured against, so it cannot become the thing being measured.
+* `canvas::useGpu` — did the program ask? Settled once, before the graphics thread
+  is spawned (`__canvas_wantGpu`): a real window asks, a headless run does not, and
+  `MFB_CANVAS_GPU` overrides both ways. **Software is the default for a headless run
+  and must stay so**: it is the oracle the GPU backends are measured against, so it
+  cannot become the thing being measured. What is settled once is the ASKING; which
+  renderer draws a given frame is decided per frame by the other two conditions.
 * `canvas::metalReady` — did a pipeline build? It runs `_mfb_macapp_metal_init` on
   first call and remembers the answer in `GRAPHICS_OFFSET_MTL_READY` as a tri-state
   (untried / built / failed), so a host with no Metal device pays the device probe and
@@ -492,6 +531,15 @@ __canvas_renderScene()
   reproduces? It declines rather than draws wrongly. A backend that rendered a circle
   as its bounding box would still report success, and that is the failure mode this
   third condition exists to prevent.
+
+  It is also FALSE for a frame the GPU did not FINISH (bug-1024). `waitUntilCompleted`
+  returning is not the buffer having succeeded: the renderer reads the command
+  buffer's `status` after the wait, and anything but Completed leaves before the
+  readback and before the present, with the submit's answer still 0 — the same answer
+  and the same slot (`OFF_PRESENTED`) as "no texture" and `direct_failed`. Both
+  `canvas::metalPresentScene` and `canvas::metalDrawScene` return that answer; do not
+  make either ignore it again (`metalDrawScene` was `AS Nothing` until this bug, so a
+  failed readback frame was shown and counted as a GPU frame).
 
 Three consequences for anything added here later:
 
@@ -518,13 +566,91 @@ Three consequences for anything added here later:
 
 The Vulkan backend (plan-98-F) sits behind the same branch, gated on the single
 `canvas::vulkanReady` — there is deliberately no second "is Vulkan present" probe, because
-two probes of overlapping facts can disagree and one of them did. It has the same offscreen
+two probes of overlapping facts can disagree and one of them did. **Unlike `metalReady` it
+builds nothing** (§10.1). It has the same offscreen
 shape: it renders into an image and reads it back so the frame leaves through
 `canvas::blitSurface` like every other — always, in a window too: there is no Vulkan twin
 of Metal's direct present (bug-688 left it to be measured on real GPU hardware, which no
 reachable box has). It needs no `VkSurfaceKHR` and no swapchain, which is what lets it be
 tested headless; box 2226 now has a GNOME Wayland session, but its Vulkan driver, like
 every reachable one, is Mesa's CPU lavapipe.
+
+### 10.1 The Vulkan pipeline is never on a frame's critical path (bug-996)
+
+`vkCreateGraphicsPipelines` compiles the fragment shader, and a real driver that has not
+seen the executable NAME before takes tens of seconds over it (38 s on box 206's Intel
+UHD 630; its cache is per application). `canvas::vulkanReady` used to BE that build, asked
+inside the first frame, so a new program showed a blank window for the whole compile, a
+`--debug` run wrote no stats line (bug-1045), and a program that ended meanwhile hung in
+shutdown's join for the rest of it (45 s measured).
+
+The rule now, and where each half lives:
+
+* **`canvas::vulkanReady()` is one load.** It starts nothing and waits for nothing, so
+  the render branch asks it every frame and the stats line asks it too.
+* **`canvas::vulkanBuild(place)` is the build.** `__canvas_vulkanReady` (the render
+  loop's wrapper) calls it once, the first time a frame wants the GPU: `0`, on a thread
+  of its own, unless `MFB_CANVAS_GPU` is set, then `1`, on the graphics thread, to its
+  end. The first is what a window gets; the second keeps a test's first frame a GPU
+  frame, and is why every GPU test and box script still sees `vulkanReady=TRUE` on its
+  first stats line.
+* **Frames are software until the word says built**, then Vulkan. Software to GPU and
+  back was already an ordinary per-frame event (a declined scene), so the window code
+  needed nothing: a blit hides the swapchain's child, a direct present shows it.
+
+**The hand-off is `GRAPHICS_OFFSET_VULKAN_READY`, and the order is the whole proof**
+(`runtime/canvas/vulkan_handoff.rs`): untried 0, built 1, failed 2, building 3.
+
+* Only the graphics thread takes it off 0, and it does so BEFORE the builder thread
+  exists. One builder at most, with no compare-and-swap.
+* The builder fills its object words with plain stores and writes the ready word LAST
+  (a store-release on AArch64). Then it returns.
+* The graphics thread reads the ready word FIRST (a load-acquire on AArch64) and an
+  object word only after reading 1. It writes none of the builder's words.
+
+Who owns which word:
+
+| Builder thread (before `READY = 1`), graphics thread reads after | Graphics thread only, made on a GPU frame |
+|---|---|
+| `LIB`, `INSTANCE`, `PHYSICAL`, `DEVICE`, `QUEUE`, `QUEUE_FAMILY`, `WSI` | `IMAGE`, `IMAGE_MEMORY`, `IMAGE_VIEW`, `FRAMEBUFFER`, `READ_BUFFER`, `READ_MEMORY`, `MAPPED`, `TEX_WIDTH/HEIGHT` |
+| `SET_LAYOUT`, `DESC_POOL`, `DESC_SET`, `EDGE_*`, `ITEM_*` | `COMMAND_POOL`, `COMMAND_BUFFER` |
+| `PIPELINE_LAYOUT`, `RENDER_PASS`, `PIPELINE`, `PIPELINE_MODES` | `SURFACE`, `SURFACE_HWND`, `SWAPCHAIN`, `SC_*`, `SEM_*`, `PRESENT_PASS`, `LOAD_PASS`, `PRESENT_LOAD_PASS` |
+
+No main-thread code touches any `GRAPHICS_OFFSET_VULKAN_*` word
+(`grep -rn GRAPHICS_OFFSET_VULKAN src/target` finds nothing).
+
+What to remember when touching it:
+
+* **The builder has no arena, on purpose** (§2's corollary). Its entry pins nothing into
+  the arena-state register; the build uses its own stack, the process-global state and
+  the loader. Anything added to `emit_vulkan_build` that allocates from the arena
+  allocates from whatever the thread library left in that register.
+* **Its entry owes the thread library every register MFB code may change**
+  (`emit_thread_entry`, shared with the graphics entry). The build is MFB-convention
+  code: on Win64 it writes `rdi`/`rsi`/`rbx`/`r12` freely.
+* **Nobody joins it and nobody stops it.** It is detached at birth
+  (`pthread_detach`, `CloseHandle`). Shutdown joins the graphics thread, which is not
+  inside the build (with `MFB_CANVAS_GPU` set it is, and an exit then waits as it always
+  did), and the process then ends with the builder wherever it is: nothing
+  it uses is freed (static state, its own stack, the driver's memory), and no Vulkan
+  object is destroyed at exit, built or not. Do not add a device teardown to shutdown
+  without first deciding what it does while the word is 3.
+* **A new reader of a builder word must be behind the ready word.** Reading `DEVICE`
+  "to see if there is one" is reading a half-built pipeline.
+* **The swapchain is not part of the build and stays on the graphics thread.** It needs
+  the window and the client size current at that frame, it is torn down and rebuilt on
+  every resize, and it compiles nothing: on box 206 the first GPU frame of a window,
+  which creates the render target, the surface and the swapchain, took 24 to 29 ms
+  against 2 to 3 ms for the frames around it.
+* **Metal has the same shape and is not fixed.** `canvas::metalReady` still builds the
+  pipeline on the graphics thread at the first GPU frame, and macOS keeps the compiled
+  form per application: 5.6 to 13 s on the first launch of an app name never run before
+  on this Mac, 24 to 83 ms on the second (`tools/canvas-bench/bench.sh <mfb> coldstart`).
+* **A headless run cannot reach the on-a-thread build.** Headless is software unless
+  `MFB_CANVAS_GPU` is set, and a set variable builds on the graphics thread. The
+  software-then-GPU switch is a real window's to prove (box 206, `schtasks /it`); the
+  cargo suites cover the seam by running the emitted members in the `-ncode` interpreter
+  (`tests/codegen/codegen_canvas_vulkan_off_frame_path.rs`).
 
 ### A group is one instanced draw per node, with an offset bound to BOTH stages
 
@@ -534,13 +660,14 @@ per contiguous run of blocks at a given offset:
 
 ```
 (itemBase, itemCount, dx, dy, blendMode, dxLo, dyLo,        sixteen 64-bit words
- hasMatrix, ia, ib, ic, id, 0, 0, 0, 0)
+ hasMatrix, ia, ib, ic, id, pass, 0, 0, 0)
 ```
 
 It was eight words until plan-172-G, and a translate-only entry is still those eight
 followed by zeros. `hasMatrix` is 1 when the entry's groups compose to more than a
 translation, and `ia`..`id` are then the INVERSE linear part of that composition, as
-float32 bit patterns.
+float32 bit patterns. `pass` is 0 in every entry the frame's layout writes; only a
+pass's own list sets it, in its first entry (bug-765, below).
 
 **The per-draw payload is 32 bytes, bound to both stages** (plan-172-H): the four offset
 words, then `ia`..`id` — `MfbDraw` in the MSL, `uniform Draw { ivec4 offset; ivec4
@@ -548,8 +675,27 @@ inverse; }` in the GLSL. `hasMatrix` itself is not sent: an inverse is never all
 all-zero bits mean "no matrix" and the shaders take the branch they always took, which is
 what keeps a translate-only frame byte-identical on each backend. With a matrix the
 vertex stage carries the item's box through the FORWARD linear part (it inverts the 2×2
-itself) after growing it by the inverse's Frobenius norm, and the fragment stage puts the
-query point through the inverse before anything else reads it.
+itself), and the fragment stage puts the query point through the inverse before anything
+else reads it.
+
+**The box a group's matrix carries is not the header's as it stands (bug-1083).** The
+header's box (slots 16-19) ends in a rim sized for the item drawn with no group, and the
+record says how much: slots 67 and 68 (`__CANVAS_GEO_RIM`, `HEADER_RIM`), the x sides'
+and the y sides', zero for a box that is not an extent and a rim (a glyph run, a text
+box, a picture, an arc). Three sites carry a box through a group's matrix,
+`helper_items.rs:__canvas_drawBound`, `mfb_canvas.vert` and Metal's `mfbVertex`, and all
+three replace the rim by itself times the Frobenius norm `N` of the groups' inverse:
+lower `(bound + rim) - rim * N`, upper `(bound - rim) + rim * N`. The derivation is in
+`__canvas_drawBound`'s comment. Keep the three in step, and note what they do NOT share:
+the software site pads the mapped HULL by one pixel, and the vertex stages grow the box
+by `N` before the map, because their quad is the parallelogram and has no hull to pad.
+With rim 0 each site is exactly what it was before the bug, which is what keeps text,
+pictures and arcs inside a group byte-identical on each device.
+
+The rim reaches the vertex stage in two words of the item block that nothing else
+wrote, the fourth words of `xform1` and `gradInv1` (`ITEM_RIM_WORDS`), 16.16. That is
+why this did not grow `ITEM_BLOCK_SIZE` and the fragment stage's SPIR-V did not change:
+do not hand those two words to anything else.
 
 `dx`/`dy` are 16.16 words (`toInt(d * 65536)`, truncated) and `dxLo`/`dyLo` their residual
 words in units of 2^-47 px (bug-735): both backends bind all four as the stage offset
@@ -599,18 +745,18 @@ and the staging slot all read); Metal uses `setVertexBytes:` at buffer index **1
 `setFragmentBytes:` at index **3**, 32 bytes each, because its fragment stage already has
 items, edges and the glyph bitmap at 0..2.
 
-**A predicate cannot decline a group scene by looking for a `Group` item.** By the time
-`__canvas_vulkanRenderable` or `__canvas_metalRenderable` sees the offsets list, the walk
+**A gate cannot decline a group scene by looking for a `Group` item.** By the time
+`__canvas_vulkanRenderable` or `__canvas_metalRenderable` sees the block list, the walk
 has expanded every group away — a search finds nothing, the frame is accepted, and every
 group's child draws at the origin. plan-116-G solved that with a flag the *walk* set; with
 both backends taught the flag has no reader and was deleted, so a future backend that
 needs to decline has to set one again rather than search.
 
-**Count published records, not items, in the frame caps.** `__canvas_blockInstances` is
-the one answer to "how many instances does this block become", and both the draw list and
-the caps ask it. An item that both strokes and fills under a non-Normal blend mode
-publishes **two** records; counting it as one under-fills the cap, which is the direction
-that lets a scene write past the mapping. The emitters' own split test reads `strokeHalf`
+**Count published records, not items, against the item region.** `__canvas_blockInstances`
+is the one answer to "how many instances does this block become", and both the draw list
+and a block's cost (`__canvas_blockCost`) ask it. An item that both strokes and fills
+under a non-Normal blend mode publishes **two** records; counting it as one under-fills
+the region, which is the direction that lets a pass write past the mapping. The emitters' own split test reads `strokeHalf`
 **signed** for the same reason — a paint that does not stroke reports `-1.0`, and a
 zero-extending load makes that a very large positive number.
 
@@ -655,14 +801,14 @@ must therefore be a region of a frame buffer reached by an index carried in the 
 not a payload. That is what forced Metal's polygon edges to move (below), and it is the
 shape any future per-item payload has to take.
 
-**The two predicates are two functions with the same caps.** Each backend has its own
-constants — `METAL_MAX_FRAME_*` and `VULKAN_MAX_FRAME_*` — generated into its own
-predicate (`RENDER_CAPS`), and since bug-688 they are the same numbers: 65,536 quads,
+**The region sizes are one PASS's, not a frame's (bug-765).** Each backend has its own
+constants — `METAL_MAX_FRAME_*` and `VULKAN_MAX_FRAME_*` — generated into the MFBASIC
+source (`RENDER_CAPS`), and since bug-688 they are the same numbers: 65,536 quads,
 262,144 polygon edges, 131,072 gradient stops, 1,048,576 dash words (plan-163-B) and 8M
-glyph/picture texels a frame, each a frame SUM, with each distinct picture block counted
-once. A stroke's join records ride the EDGE region, two edge slots each, so they count
-twice against the edge cap rather than having a cap of their own; so do a curve shape's
-PIECES (below). Neither has a per-polygon edge
+glyph/picture texels, each a SUM over the blocks of one pass, with each distinct picture
+block counted once a pass. A stroke's join records ride the EDGE region, two edge slots
+each, so they count twice against it rather than having a region of their own; so do a
+curve shape's PIECES (below). Neither backend has a per-polygon edge
 cap: a polygon's edges are indexed by horizontal band (`emit_band_index`, bug-686 on
 Metal, ported to Vulkan's `CodeBuilder` by bug-688 — the algorithm exists twice so that
 Metal's instructions did not change), and the shader's `edgeDistance` walks only the
@@ -670,11 +816,69 @@ edges within reach of the pixel's band, which is bit-identical to walking them a
 bug-688 measured that on Vulkan too: the same scenes rendered with and without the index
 gave byte-identical GPU frames on lavapipe, stars and spikes included.
 
-Before bug-688 Vulkan kept plan-116-A's 4,096 quads and stops, 16,384 edges and 1M
-texels, so `examples/weather`, a 5,000-quad scene, a tilemap and a 1080p background all
-fell back to software there. A cap past which a frame is declined is still a real
-limit: software is the oracle, so a declined frame is at least as correct, and
-truncating instead would draw a *different shape*.
+Until bug-765 those sums were FRAME caps and a frame past one was declined to software:
+100,000 dots were a software frame for good. The owner ruled that no scene size is a
+limit. What is left to decline is a block that does not fit a region BY ITSELF — one
+polygon, one gradient, one image, one `Text` larger than the region. Software is the
+oracle, so a declined frame is at least as correct, and truncating instead would draw a
+*different shape*.
+
+### A frame that does not fit the frame buffer is drawn in passes (bug-765)
+
+`helper_render.rs`. `__canvas_metalRenderable` / `__canvas_vulkanRenderable` answer 0
+(a block fits no pass: software), 1 (the frame fits one buffer) or 2 (it does not).
+For 1 the renderer is handed `__CANVAS_DRAW_BLOCKS` and `__CANVAS_DRAWS` exactly as
+before. For 2 `__canvas_passNext` lays out one pass at a time into
+`__CANVAS_PASS_BLOCKS` / `__CANVAS_PASS_DRAWS`, the same two layouts, and the same
+member is called once per pass. What to keep true:
+
+* **One definition of a block's cost.** `__canvas_blockCost` is what the frame sum
+  (`__canvas_framePasses`) and the pass walk both add up. They were two predicates'
+  own loops; a count that differs between the sum and an emitter writes past a region.
+* **A pass is a run of DRAW ENTRIES, cut between two BLOCKS.** The entries are the
+  frame in paint order, so a pass must be a prefix of what is left of them; the block
+  list is in first-recorded order, and a group drawn again later names blocks recorded
+  long before. Walking the block list instead draws a group's second use under the
+  items that should be beneath it. The cut is between blocks and never inside one, so
+  the two records of a split blended item and the glyphs of a `Text` stay together
+  without the walk asking what kind a block is.
+* **Nothing else has to stay together.** An entry is one instanced draw at one offset
+  under one pipeline; cut in two it is two entries with the same words 2 to 11, and N
+  instances composite as their two halves do, in order, into the same target. That is
+  why translucent items composite across a pass boundary exactly as inside a pass.
+* **Every table an emitter keeps while filling the buffer is a pass's**, with no code:
+  each pass is one call of the renderer, which zeroes its cursors, its band region and
+  its picture-table count at entry. So the walk's own bookkeeping is per pass too: a
+  picture block is charged once a pass, and an entry whose blocks this pass already
+  holds (the same group again) is drawn from them, while one whose blocks an EARLIER
+  pass held is laid out again.
+* **The pass word, `CANVAS_DRAW_PASS_WORD`** (word 12 of the list's first entry), is all
+  an emitter knows of passes: `CONTINUES` (load the target, do not clear it; on a
+  swapchain, take the image the first pass acquired, `GRAPHICS_OFFSET_VULKAN_SC_HELD`)
+  and `MORE` (finish the pass, but neither present nor read back). It rides the list
+  because the seam's argument bank is full, and it is 0 in every list the frame layout
+  writes, so a frame of one pass runs the instructions it ran before.
+* **Each pass is submitted and waited for before the next is laid out.** The frame
+  buffer is single-buffered and a command buffer reads it when it EXECUTES, so two
+  passes recorded into one command buffer would both draw the last one's blocks.
+* **Nothing but the last pass touches what the window shows.** Metal: every pass
+  renders into the offscreen target; the drawable is taken, copied into and presented
+  by the last (`emit_branch_if_more`). Vulkan in a window: the first pass acquires the
+  image and every pass records into it, but it reaches the screen only through the
+  last pass's `vkQueuePresentKHR`; the first pass alone waits on the acquire semaphore
+  and the last alone signals the render one.
+* **A failed pass fails the frame** (bug-1024's rule, per pass). FALSE from a direct
+  present at any pass sends the WHOLE frame down the readback path from its first
+  pass; FALSE from a Metal readback pass makes it a software frame. Nothing is read
+  back or presented from a target holding some of a frame's passes. On Vulkan a
+  failing pass that holds the swapchain image gives it up (`emit_present_abandon`
+  clears `SC_HELD`, and the swapchain is rebuilt before the next frame).
+* **The later passes' render passes are made lazily on the graphics thread**
+  (`LOAD_PASS`, `PRESENT_LOAD_PASS`: `loadOp = LOAD`, entered and left in the layout the
+  first pass leaves the image in). They differ from the pass the pipelines were built
+  against in load operation and layouts only, so no pipeline is rebuilt (bug-996).
+* **The stats line describes the frame.** `blocks=` and `draws=` are the frame's lists
+  and `gpuFrames` counts the frame once, however many passes drew it.
 
 The reason a frame buffer needs a per-item *index* at all is unchanged and worth
 restating: a command buffer is recorded once and executed once, so rewriting — or
@@ -691,9 +895,10 @@ The split is what made the feature cheap, and it is the thing to keep:
   y-range — so the band index, the item block and every region base are unchanged. Do
   not interleave the two slots of a piece: the band index would then read control
   points as edges.
-- Both predicates count `2 * pieces` against the edge cap. A count of one a piece lets a
-  frame through that the emitter then cannot fit; `rt_canvas_metal.rs` pins the factor
-  with a 512-ring frame that draws and a 513-ring frame that is declined.
+- A block's cost counts `2 * pieces` against the edge region. A count of one a piece
+  puts more in a pass than the emitter can fit; `rt_canvas_metal.rs` pins the factor
+  with a 512-ring frame that is one pass and a 513-ring frame that is two, both of which
+  must match the oracle.
 - The weight is fp32 BITS, not 16.16: a weight is not a coordinate and has no 32,767.
 - The shader text is ONE template, `shaders/curves.tpl`, expanded to MSL at run time and
   into `mfb_canvas.frag` by `tools/canvas-curve-shader/generate.py`. Edit the template,
@@ -847,6 +1052,16 @@ headless scripted resize does too. `canvas::didResize` compares it against
 `GRAPHICS_OFFSET_RESIZES_SEEN`, which the worker owns, and records the new value when it
 answers TRUE.
 
+**"Changed" is against the size the program SEES, not against the stored words.** The
+two words start at 0 and a zero word reads as the startup size (`SurfaceDimension`,
+900 by 640 — what `canvas::getSize` answers before any publish). The publisher reads the
+old size through that same reading, so a window that opens at 900 by 640 publishes no
+change, and one that opens at another size (Windows' first client area) publishes one.
+Comparing against the raw words made every real window answer `didResize` TRUE once at
+startup (bug-970); a headless run never showed it, because nothing publishes there
+unless a resize is scripted. Do not add a second reading of a size word, and do not
+special-case "the first publish".
+
 Two words with one writer each, so no lock: the main thread only ever writes the
 counter, the worker only ever writes the acknowledgement. A single read-and-clear flag
 would need one, because a resize landing between a reader's load and its store would be
@@ -881,13 +1096,18 @@ lost — on the one path whose entire job is to report edges.
 
 A fourth selects the renderer rather than observing it:
 
-* `MFB_CANVAS_GPU` — ask for the Metal backend (§10). The stats line reports all
-  of the branch's discriminants — `metal=`, `gpuSelected=`, `metalReady=` and, on
-  Linux, `vulkan=` and `vulkanReady=` — which is how a test tells "the GPU agreed
-  with the oracle" from "there was no GPU and both runs were the oracle". The
-  Vulkan pair distinguishes a third case the Metal pair cannot: a machine with a
-  *loader* but no ICD reports `vulkan=FALSE`, which is a real configuration (box
-  2227) and not a failure.
+* `MFB_CANVAS_GPU` — ask for the GPU backend, or (`0`) refuse it (§10). The stats
+  line reports the branch's discriminants — `metal=`, `gpuSelected=`, `metalReady=`
+  and `vulkanReady=` — which is how a test tells "the GPU agreed with the oracle" from
+  "there was no GPU and both runs were the oracle".
+
+  **`vulkanReady=` is "built by now", not "can be built"** (bug-996). The stats line
+  starts no build and waits for none, so the field is FALSE on every line of a software
+  run, FALSE while a window's pipeline is still being built, and TRUE from the first
+  line of a run with `MFB_CANVAS_GPU` set (which builds before its first frame). Until
+  bug-996 the stats line's own question built the device, so a software `--debug` run
+  on a new executable name paid the whole compile; it no longer touches Vulkan at all.
+  `metalReady=` still builds on being asked.
 
 And a fifth is not about the renderer at all, but is what makes any of this
 observable on Linux:
@@ -1479,7 +1699,7 @@ and found it that way.
 
 ### A geometry record's tail is read back from its END
 
-A record is the 67-float header, then its tail in a fixed order: **edges | join records |
+A record is the 69-float header, then its tail in a fixed order: **edges | join records |
 dash tail | clip edges | gradient stops** (plan-163-B, plan-163-C). Only the edge count is
 known from the front; every other part is found by counting back from slot 1 (the
 record's length) — the stops are `slot1 - stops * 5`, a path clip's edges
@@ -1494,9 +1714,9 @@ parts after it the same way.
 
 A path clip's edges share the frame's EDGE region with the polygons' — copied after the
 item's own edges and join records, 16.16 words plus residuals like any edge, and counted
-against the same per-frame edge cap by `__canvas_metalRenderable` and `__canvas_vulkanRenderable` — and are banded by the same
+against the same edge region, one pass's, by `__canvas_blockCost` — and are banded by the same
 `emit_band_index`, parameterised by a `BandSet` (which count, base and header words; a
-clip's reach has no stroke, cap or join term). A clip that would pass the cap is left at
+clip's reach has no stroke, cap or join term). A clip that would pass the region is left at
 edge count 0, which the shader reads as a clip enclosing nothing: hidden, never drawn
 unclipped.
 
@@ -1525,6 +1745,16 @@ then the dash tail. The shaders evaluate them in fp32 and must not use the drive
 box 206's Intel driver uses and lavapipe and Metal do not, so a curve's dash end drawn
 with them passes on two backends and fails on real hardware (`dashAtan`, `dashSin`,
 `dashCos` are the oracle's series).
+
+**`/` is on that list too: never let `floor` of a quotient choose a discrete outcome
+(bug-1079).** Vulkan allows `/` 2.5 ULP and the same driver takes it (it multiplies by a
+reciprocal: `110 / 110` came out below 1), so a picture whose texel boundary was a pixel
+centre drew the neighbouring texel along that whole row. `+ - *` are correctly rounded
+everywhere, so the index is `floor(t / d)` corrected by at most one from the products
+(`pictureTexel`, and the same three steps in the oracle's picture arm). The sites left
+with the hazard are listed in bug-1079's sweep: a hard gradient stop and a `Repeat`
+seam exactly on a pixel centre. A quotient that only feeds a distance or a ramp
+position is continuous and stays inside the tolerance.
 
 ### A layout constant shared by MFBASIC source and the emitter has no compiler between them
 

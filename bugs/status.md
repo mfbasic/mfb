@@ -28,16 +28,18 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 688    | HIGH     | Vulkan canvas parity with Metal: V1 to V4 fixed and Windows presents through a swapchain; what remains is 10,000 quads at 104 ms of render a frame on the Intel GPU, and Linux present, still readback-only (blocked on a real-GPU Linux box). Re-measured 2026-10-12 |
-| [ ]  | 765    | HIGH     | Canvas renders 100,000 color-changing dots at 5 PPS / 5 FPS instead of 30: the scene is past the 65,536-item frame cap, so Metal declines it and software draws it (60,000 dots hold 38 FPS on the GPU); a fill-only change also rebuilds every item's geometry (after 688). Re-verified 2026-10-12 |
-| [ ]  | 968    | MED      | canvas frame skip republishes an identical scene when it contains a nested list (Polygon contours, DrawLayer items) built by a different allocation history. Re-verified 2026-10-12 |
-| [ ]  | 991    | MED      | A magnified transformed item's bounds pad scales with the transform, so a 27 px polygon covers 369 px; a scaled `canvas::Group` costs the same. Re-verified 2026-10-12 |
-| [ ]  | 995    | MED      | A `Paint.clip` on a transformed item, or on an item inside a group that has a matrix, evaluates the whole clip five times on every pixel, with no early-out (2× on Metal, 3 to 8× on Intel Vulkan). Re-verified on Metal 2026-10-12 |
-| [ ]  | 996    | MED      | On Intel Vulkan the first canvas frame of every newly built program waits for the pipeline compile behind a blank window: 37 s on 2026-10-12, 25 s when filed |
-| [ ]  | 1024   | MED      | a Metal text frame is dumped with unwritten tiles (intermittent, cause unknown; not reproduced in 5 runs on 2026-10-12; the same two tests as 1059 in "Test tooling") |
-| [ ]  | 970    | LOW      | `canvas::didResize()` answers TRUE once at startup in a real window although the surface never changed size (macOS and GTK). Re-verified on macOS 2026-10-12 |
-| [ ]  | 1045   | LOW      | on Windows, a real canvas window drawn on the GPU writes no `MFB_CANVAS_STATS` line: root-caused 2026-10-12 as 996's pipeline compile (lines appear, one a frame, once it ends); owner to decide whether to close as a duplicate of 996 (the number 1045 was also used by a Resources bug that is fixed and in `bugs/completed/`) |
-| [ ]  | 1079   | LOW      | on Intel's Vulkan driver a picture takes the wrong texel where a texel boundary is a pixel centre (one row or column, one texel off). Re-verified 2026-10-12 |
+| [*]  | 688    | HIGH     | Vulkan canvas parity with Metal: V1 to V4 fixed and Windows presents through a swapchain. The 10,000-item render on the Intel GPU (box 206) is down from 106 to 58 ms a frame for squares and circles and from 108 to 92 for the sweep's polygon quads (bug-staging-23: the coverage shader's centre sample is straight-line code), still as large as the program's own 94 ms a present, so not closed; what is left is the size of the one live shader and the polygon edge walk. The cold pipeline compile went from 35 s to 67 s (bug-996 takes it off the first frame). Linux present is bug-1082 |
+| [*]  | 765    | HIGH     | Canvas renders 100,000 color-changing dots under 30 PPS / 30 FPS. The frame cap is gone (2026-10-12: a frame past one frame buffer is drawn in passes, every frame a GPU frame on Metal and Vulkan): 15 to 19 FPS on Metal, 4 to 5 on box 206. Left: the worker's copy and compare, geometry rebuilt on a fill-only change (planning/plan-175), the per-frame block upload, and the Intel GPU's own draw time |
+| [ ]  | 1082   | MED      | on Linux a windowed Vulkan canvas frame is read back and blitted, never presented through a swapchain (split from 688; blocked on a real-GPU Linux box and the GTK4 surface decision) |
+| [ ]  | 1085   | MED      | a banded shape or path clip (32 or more edges) inside a `canvas::Group` whose matrix shrinks disagrees with the software oracle on Metal |
+| [ ]  | 1087   | MED      | on macOS the first canvas frame of a newly built app waits about 5 s for the Metal pipeline (4,745 ms against 18 ms on a second launch); bug-996's shape on Metal |
+| [ ]  | 1088   | MED      | a butt-capped `canvas::Arc` under a magnifying transform draws dotted rays from its centre along the ends of its sweep (lit pixels at x 161..455 for a radius-50 ring), software and Metal |
+| [ ]  | 1089   | MED      | with `MFB_CANVAS_DAMAGE=1` an unchanged item overlapping a changed one is blended twice along its edge (worst=32, 0.0762% of the frame) |
+| [ ]  | 1086   | LOW      | the Vulkan canvas path reads a frame back without testing `vkQueueSubmit`'s or `vkQueueWaitIdle`'s result (Metal's twin fixed under 1024) |
+| [ ]  | 1090   | LOW      | under a huge magnification the zero-gradient coverage fallback lights a stray column of pixels far from the shape (191 pixels at x = 450 for two off-surface squares at a 14,000 times transform); software and Metal |
+
+* Partial fix landed: 10,000 squares 110 → 58 ms on box 206. Render is still about 93 ms at 10,000 moving quads.
+* Frames draw in passes, so 100,000 dots run on the GPU: 20 FPS on Metal, 4 to 5 on box 206. `planning/plan-175-canvas-geometry-identity-split.md` has all four decisions recorded.
 
 ## App windows and GTK
 
@@ -224,6 +226,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | [ ]  | 946    | MED      | `Operand::Raw` keeps operands as untyped strings — remove the arm and give every operand kind a typed variant (together with 930; do after the behaviour fixes so its diffs are measured on a stable tree) |
 | [ ]  | 930    | LOW      | the `.mir` dump documented as "target-neutral" contains the runtime helpers, which are hand-written per architecture with physical register names |
 | [ ]  | 1080   | LOW      | a defaulted record updated with `WITH` costs about 27 KB of machine code a statement (the program is right; the executable is large and slower to build) |
+| [ ]  | 1084   | LOW      | `toString` of a package enum read straight off a call result fails to build ("native code string literal has no data object"); binding the record first works |
 
 ## Packages and registry
 

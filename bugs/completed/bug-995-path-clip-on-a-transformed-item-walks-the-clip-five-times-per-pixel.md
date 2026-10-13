@@ -5,8 +5,14 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other (Performance)
 
-Status: Open
-Regression Test: planned `tools/canvas-bench/bench.sh <mfb> clips` (new scene: N clipped rectangles, with and without a `Paint.transform`); pixel guards stay `scripts/test-canvas-gpu-rows.sh` row `pathclips` and `rt_canvas_metal` (`path_clips_on_black.mfb`)
+Status: Fixed (bs23-agent-b)
+Regression Test: `tools/canvas-bench/bench.sh <mfb> clips` (cost); the `xformclips` row of `scripts/test-canvas-gpu-rows.sh` and `rt_canvas_metal::transformed_path_clips_match_the_software_oracle_on_metal` (`tests/canvas/scenes/transformed_clips_on_black.mfb`, exactness), beside `pathclips` and `groupaffine`
+
+## Cause (coordinator, 2026-10-12, bug-staging-23)
+
+- Rule: the shape's own early-out in `shapeCoverage` (bound argued in `metal.rs:METAL_SHADER_BODY`): a centre sample farther than `0.5 * max(frob, 1)` from the outline decides the pixel, so the four neighbours are skipped and the sample may answer from `edgeDistance`'s fp32 pass. A path clip is a second distance field through the same composed inverse, so the same bound holds for it.
+- Place: the one sampling loop in `mfb_canvas.frag:shapeCoverage` and its line-for-line Metal twin exempt the clip: `k == 5` gets reach `1.0e30` when `clipMapped`, and nothing clears `clipMapped` after it.
+- Fix: sample 5 takes the clip's reach (the composed norm the shape uses, without the stroke half) and, past it, `clipMapped` goes false exactly as `mapped` does. The `(k == 5 && !clipMapped) ? 0.5 : 1.0e30` special case goes. Exactness: `|d5| > 0.5 * max(frob, 1)` and `cg <= frob` give `|d5 / cg| > 0.5`, where `dfCoverage` clamps; prove it in the comment and pin it with pixel rows at scales 0.1, 1 and 4.
 
 When an item has a path clip (`Paint.clip`) **and** a `Paint.transform`, every GPU pixel of
 the item computes the clip's signed distance at five points (the pixel centre and its four
@@ -250,3 +256,107 @@ Commit: —
 
 The risk is the reach bound. With it proven, the change is two mirrored shader edits and an
 optional oracle shortcut. The band index, the upload, and every pixel stay as they are.
+
+## Resolution (bs23-agent-b, 2026-10-12)
+
+`shapeCoverage` (`mfb_canvas.frag` and the MSL in `metal.rs`, line for line): `clipReach`
+is `0.5` untransformed and `0.5 * max(frob, 1)` when `mapped`, `frob` being the composed
+norm the shape's `reach` is built from (`norm * length(gi)` when `grouped`). Sample 5 is
+asked with `clipReach`; `if (k == 5 && abs(d[5].x) > clipReach) { clipMapped = false; }`
+then skips samples 6..9 and the final `dfCoverage(d[5])` clamps by the sign. The
+`(k == 5 && !clipMapped) ? 0.5 : 1.0e30` special case is gone. A rectangle clip under a
+group matrix (`clipMode == 1 && grouped`) goes through the same line. The bound is argued
+in the comment at `clipReach` in `metal.rs`.
+
+The oracle takes the same shortcut in its own commit: `__canvas_clipReach` and the early
+return in `__canvas_clipPathSurface` and `__canvas_clipRectSurface` (`helper_items.rs`).
+
+### Phase 1 verdicts
+
+- **Glyph clip arm.** No separate arm on the GPUs: `main` calls `shapeCoverage` for every
+  kind and a glyph (kind 6) multiplies `glyphCoverage` by its `.w`, so a glyph's clip is
+  samples 5..9 of the one loop and takes the early-out with it. In the oracle
+  `__canvas_glyphClip` calls `__canvas_clipPathSurface` (or `__canvas_clipRectSurface` under
+  a group matrix) with `__canvas_hasTransform`, which is TRUE under a group matrix too, so
+  it takes the oracle shortcut the same way. Nothing glyph-specific to change.
+- **Pixel scene.** `tests/canvas/scenes/transformed_clips_on_black.mfb`: a 40-edge star
+  clip (banded) and a 24-edge ring clip (unbanded) on squares under transforms that scale
+  by 0.1, turn 30 degrees at scale 1, scale by 4, and shear; an untransformed star-clipped
+  square in a group turned and scaled by 1.5, and in a group at half size; an untransformed
+  square with a rectangle clip in a sheared group; a scale-4 clipped square in a turned
+  group.
+
+### Exactness
+
+Frames before the change (the commit before it) and after, same device, `cmp`:
+
+| device | scenes | result |
+|---|---|---|
+| Metal, local (`MFB_CANVAS_GPU=1` dump) | `transformed_clips_on_black`, `path_clips_on_black`, `group_affine_on_black` | byte-identical, 3 of 3 |
+| lavapipe, box 2226 (`scripts/test-canvas-gpu-rows.sh <mfb> --target linux-aarch64 --rows xformclips,pathclips,groupaffine --keep <dir>`) | the three GPU frames | byte-identical, 3 of 3 |
+| Intel UHD 630, box 206 (`--target windows-x86_64`, same rows) | the three GPU frames | byte-identical, 3 of 3 |
+| software (oracle shortcut), local (`MFB_CANVAS_GPU=0` dump) | those three, `picture_shapes_on_black`, `curve_pictures_on_black` | byte-identical, 5 of 5 |
+
+Each row also passes against the software oracle: `xformclips` `worst=1 differing=0.5429%`
+on box 206 and `worst=1 differing=0.6068%` on lavapipe, before and after.
+`cargo test --test rt_canvas_metal` 62 passed; `rt_canvas_golden` 26 passed;
+`rt_canvas_rasteriser` 106 passed, 2 ignored; `rt_canvas_curves` 40 passed;
+`rt_canvas_picture` 16 passed; `rt_canvas_damage` 7 passed.
+
+### Timings (indicative: other builds ran beside these)
+
+`bash tools/canvas-bench/bench.sh <mfb> clips` (150 squares, 40 frames, `--debug`,
+ms a frame after the first). Box 206 is
+`bash tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host test@192.168.1.206 clips`.
+
+| row | Metal before | Metal after | box 206 before | box 206 after |
+|---|---|---|---|---|
+| no clip, untransformed | 7.0 | 6.5 | 55.3 | 51.0 |
+| 64-pt clip, untransformed | 6.3 | 10.5 | 72.4 | 74.3 |
+| 28-pt clip, untransformed | 9.0 | 8.1 | 95.2 | 99.0 |
+| no clip, item scale 4 | 9.1 | 8.8 | 53.9 | 55.1 |
+| **64-pt clip, item scale 4** | **18.5** | **12.1** | **273.1** | **109.3** |
+| **28-pt clip, item scale 4** | **24.4** | **12.9** | **387.8** | **133.1** |
+| no clip, item scale 0.1 | 16.2 | 10.4 | 50.1 | 48.4 |
+| **64-pt clip, item scale 0.1** | **21.4** | **12.8** | **163.7** | **102.4** |
+| **28-pt clip, item scale 0.1** | **25.0** | **13.7** | **335.8** | **105.6** |
+| no clip, group scale 4 | 9.1 | 10.3 | 53.5 | 53.9 |
+| **64-pt clip, group scale 4** | **18.7** | **11.3** | **274.4** | **106.2** |
+| **28-pt clip, group scale 4** | **26.2** | **19.1** | **383.2** | **130.5** |
+
+Local load average (`uptime`) was 21 to 28 during "Metal before" and 9 to 25 during "Metal
+after"; the box 206 columns ran at local load 7 to 13 (the box itself is shared with other
+agents). Before is the compiler at main, after is this fix.
+
+Goal 1 (box 206, 64-pt at scale 4 at most twice its no-clip row): 109.3 against 55.1, a
+ratio of 1.98. It is met, narrowly, on indicative numbers; the coordinator re-measures.
+What is left is the five-sample band itself: at scale 4, `frob` is 0.36, so `clipReach`
+is the fallback's 0.5 shape units, which is 2 surface pixels either side of the clip's
+edge (bug-991's secondary 1, the `max(F, 1)` term, is the same bound).
+
+Goal 2 (the canvas-demo menu within 15% of its "sigil unclipped" variant): not measured as
+written. `examples/canvas-demo/src/menu.mfb` no longer has the variants the table names
+(`grep -n localRing examples/canvas-demo/src/menu.mfb` finds nothing). The unmodified menu
+in a real window on Metal, `--debug`, 20 s, frames 30 to the end: 9.8 ms a frame before
+(658 frames, load 54) and 8.6 after (1,766 frames, load 26). The load difference is
+larger than the effect, so this says only that nothing got slower. Box 206 windowed:
+not run.
+
+Software (the oracle shortcut), `tools/canvas-bench/gen/clips.sh` with `MFB_CANVAS_GPU=0`,
+150 squares, 6 frames, load 17 to 22: 64-pt at scale 4 11,070 to 4,338 ms a frame; 28-pt
+at scale 4 4,759 to 3,297; 64-pt at scale 0.1 10,303 to 3,011; 64-pt in a group at scale
+4 10,603 to 4,980.
+
+## Golden impact
+
+No pixel golden moves. `scripts/artifact-gate.sh target/release/mfb all` reports the same
+9 diffs in the same 3 fixtures as after bug-1079 (the goldens are still main's):
+
+- `syntax/app/app-mouse-surface`: the MSL string (`shapeCoverage`) in the macOS code, the
+  regenerated `mfb_canvas.frag.spv` in the Linux and Windows code, and from the oracle
+  commit the new `__canvas_clipReach` and the grown `__canvas_clipPathSurface` and
+  `__canvas_clipRectSurface` (`.ir`, `.nir`, `.nplan`, all four `.ncode`), with every
+  later builtin source line number.
+- `syntax/app/app-window-surface` (`.macos-aarch64.app.ncode`): the embedded MSL.
+- `syntax/resources/loop-body-resource-reference-valid` (`.ir`): the `"line"` of the canvas
+  globals after `helper_items.rs`, which grew by 43 lines in the oracle commit.
