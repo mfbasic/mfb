@@ -3662,7 +3662,9 @@ mod tests {
         assert_eq!(value("__CANVAS_GEO_HEADER"), GEO_HEADER as f64);
         assert_eq!(value("__CANVAS_GEO_RIM"), SLOT_RIM as f64);
         assert!(
-            source.contains(&format!("LET __CANVAS_BOUNDS_RIM AS Float = {BOUNDS_RIM:?}\n")),
+            source.contains(&format!(
+                "LET __CANVAS_BOUNDS_RIM AS Float = {BOUNDS_RIM:?}\n"
+            )),
             "__CANVAS_BOUNDS_RIM is not the rim the native builder stores"
         );
         assert_eq!(value("__CANVAS_KIND_RECT"), KIND_RECT);
