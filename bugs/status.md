@@ -41,7 +41,6 @@ exists, and 1045 closes with it; 765 is batched frames plus a plan for the hash 
 | [ ]  | 1082   | MED      | on Linux a windowed Vulkan canvas frame is read back and blitted, never presented through a swapchain (split from 688; blocked on a real-GPU Linux box and the GTK4 surface decision; a later phase than `bug-staging-23`) |
 | [ ]  | 1083   | MED      | an item inside a magnifying `canvas::Group` is rasterised over a box that scales with the group (49 small polygons: 40 ms a frame against 4.5); split from 991, needs the geometry record to carry its rim (a later phase than `bug-staging-23`) |
 | [ ]  | 1085   | MED      | a banded shape or path clip (32 or more edges) inside a `canvas::Group` whose matrix shrinks disagrees with the software oracle on Metal (a later phase than `bug-staging-23`) |
-| [ ]  | 1045   | LOW      | on Windows, a real canvas window drawn on the GPU writes no `MFB_CANVAS_STATS` line: root-caused 2026-10-12 as 996's pipeline compile (lines appear, one a frame, once it ends); owner to decide whether to close as a duplicate of 996 (the number 1045 was also used by a Resources bug that is fixed and in `bugs/completed/`) |
 | [ ]  | 1086   | LOW      | the Vulkan canvas path reads a frame back without testing `vkQueueSubmit`'s or `vkQueueWaitIdle`'s result (Metal's twin fixed under 1024; a later phase than `bug-staging-23`) |
 
 ## App windows and GTK
