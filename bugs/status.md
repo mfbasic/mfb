@@ -47,6 +47,7 @@ are one fix, the geometry record carrying its rim-free box.
 | [ ]  | 1088   | MED      | a butt-capped `canvas::Arc` under a magnifying transform draws dotted rays from its centre along the ends of its sweep (lit pixels at x 161..455 for a radius-50 ring), software and Metal (a later phase than `bug-staging-23`) |
 | [ ]  | 1089   | MED      | with `MFB_CANVAS_DAMAGE=1` an unchanged item overlapping a changed one is blended twice along its edge (worst=32, 0.0762% of the frame) (a later phase than `bug-staging-23`) |
 | [ ]  | 1086   | LOW      | the Vulkan canvas path reads a frame back without testing `vkQueueSubmit`'s or `vkQueueWaitIdle`'s result (Metal's twin fixed under 1024; a later phase than `bug-staging-23`) |
+| [ ]  | 1090   | LOW      | under a huge magnification the zero-gradient coverage fallback lights a stray column of pixels far from the shape (191 pixels at x = 450 for two off-surface squares at a 14,000 times transform); software and Metal (a later phase than `bug-staging-23`) |
 
 ## App windows and GTK
 
