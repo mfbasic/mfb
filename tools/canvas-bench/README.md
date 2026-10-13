@@ -110,6 +110,22 @@ numbers measure a CPU rasteriser's throughput, not a GPU's, and are **not**
 comparable to the macOS/Metal fps numbers or to a real GPU's Vulkan
 performance.
 
+## Warm-up, and the cold start it hides (bug-996)
+
+A GPU driver compiles the canvas pipeline the first time it sees an executable
+**name**, and keeps the result per name. On box 206's Intel driver that is 38 s,
+and a run that asks for the GPU with `MFB_CANVAS_GPU` waits for it before its
+first frame. Every scene here is built under a fixed name (`stress`, `poly`,
+…), so without care the first row of a session on a fresh box measures the
+compile: `fps=0.4 phaseRenderMs=18500` for 95 items is what that looked like.
+
+On a remote target `bench.sh` therefore runs each scene name once, unmeasured,
+with `MFB_CANVAS_GPU=1`, before the first measured run of that name
+(`warm_up`, called from `build_app`). It costs one extra run per name per
+invocation. Local macOS runs are not warmed.
+
+`coldstart` is the subcommand that measures the first run instead.
+
 ## Subcommands
 
 ### `sweep [--release]`
@@ -289,6 +305,45 @@ HEAD's accepted scenes, not a regression. A large, unexplained pixel count
 or a max delta near 255 means one renderer drew something the other didn't
 (a decline, a missing item, or a real bug) — cross-check with the matching
 `poly`/`pics`/`text` subcommand's status fields to see which.
+
+### `coldstart`
+
+How long a program's first frame takes on a machine that has never run it.
+Builds `gen/coldstart.sh` (one rectangle, presented twice, release), copies the
+executable to names the driver has never seen, and launches each name twice
+with `MFB_CANVAS_SYNC=1`, so `firstPresentMs` is the time from the program's
+start to its first drawn frame.
+
+```
+tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host test@192.168.1.206 coldstart
+```
+
+On Windows there are two rows per name pair:
+
+- **window, default renderer**: a real window (a scheduled task in the console
+  session, so the user must be logged in there). This is what a user sees. The
+  first frame is a software frame while the pipeline is built on its own thread,
+  so both launches read tens of milliseconds. Before bug-996 the first launch
+  read the whole compile.
+- **headless, `MFB_CANVAS_GPU=1`**: the forced-GPU run a test makes, which waits
+  for the pipeline. Its first launch IS the driver's compile time for the canvas
+  shader, and its second the cached cost. Watch this number when the shader
+  grows.
+
+Linux has the forced-GPU row and a software row (a GTK window needs the box's
+desktop session). Without `--target` it builds the macOS bundle under two
+never-used names and launches each twice with `MFB_CANVAS_GPU=1` (Metal's
+compiled pipeline is kept per application too), then once with `0`. The window
+row does not exist there: a macOS window cannot be opened headless. On this
+Mac the first launch of a new name read 5.6 s, 7.6 s and 13.2 s (the last two
+under load) and the second 24 to 37 ms; Metal still builds on the frame path.
+
+Box 206, 2026-10-12:
+
+```
+window, default renderer    first launch   firstPresentMs=38246   (before bug-996)
+window, default renderer    first launch   firstPresentMs=23      (after)
+```
 
 ## 60 fps target rows (bug-686's Goal)
 

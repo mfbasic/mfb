@@ -17,6 +17,7 @@
 #   clips [ITEMS] [FRAMES]
 #   magnified-polygons [FRAMES] [--software]
 #   compare stress|poly|pics|text ARGS...
+#   coldstart
 #
 # Without --target/--box, everything runs headless (MFB_MACAPP_HEADLESS=1)
 # and *locally* as a macOS `.app` bundle (`mfb build -app`), exactly as
@@ -46,6 +47,13 @@
 # software, pixel-compare) are meaningful; the fps numbers are not -- they
 # measure a CPU rasteriser's throughput, not a GPU's.
 #
+# WARM-UP (bug-996): a GPU driver compiles the canvas pipeline the first time
+# it sees an executable NAME -- 38 s on box 206's Intel driver, and a run that
+# asks for the GPU by name (MFB_CANVAS_GPU) waits for it. So on a remote
+# target every scene name is run once, unmeasured, before its first measured
+# run (`build_app`). `coldstart` is the subcommand that measures that first
+# run instead of discarding it.
+#
 # See tools/canvas-bench/README.md for what each subcommand probes and how
 # to read the numbers. Everything runs headless with its projects under
 # $TMPDIR, cleaned up on exit (and, in Linux mode, under a
@@ -66,7 +74,7 @@ LINUX_FONT="/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"
 WIN_FONT='C:\Windows\Fonts\arial.ttf'
 
 usage() {
-  sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,35p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -276,6 +284,7 @@ build_app() {
       "$MFB" build --app --target "$LINUX_TARGET" "$dir" >/dev/null 2>"$dir/build.err" || { cat "$dir/build.err" >&2; die "build failed: $dir"; }
     fi
     ship_app "$dir" "$(project_name "$dir")"
+    warm_up "$dir" "$(project_name "$dir")"
   else
     if [ -n "$dbg" ]; then
       "$MFB" build -app --debug "$dir" >/dev/null 2>"$dir/build.err" || { cat "$dir/build.err" >&2; die "build failed: $dir"; }
@@ -283,6 +292,20 @@ build_app() {
       "$MFB" build -app "$dir" >/dev/null 2>"$dir/build.err" || { cat "$dir/build.err" >&2; die "build failed: $dir"; }
     fi
   fi
+}
+
+# warm_up DIR NAME -- run DIR's shipped NAME once with the GPU asked for by
+# name and throw the run away, the first time NAME is seen (see WARM-UP at
+# the top). A set MFB_CANVAS_GPU makes the first frame wait for the pipeline,
+# so when this returns the driver has compiled it for NAME and every measured
+# run after it starts warm. ONESHOT scenes exit after their one frame; the
+# time-boxed ones run their few seconds.
+WARMED=" "
+warm_up() {
+  local dir=$1 name=$2
+  case "$WARMED" in *" $name "*) return 0 ;; esac
+  WARMED="$WARMED$name "
+  linux_run "$dir" "$name" "" "MFB_CANVAS_GPU=1" "MFB_CANVAS_SYNC=1" || true
 }
 
 # bin_path DIR NAME -- path to the headless app binary `mfb build -app` makes
@@ -836,7 +859,127 @@ cmd_compare() {
   esac
 }
 
+# ---------------------------------------------------------------------------
+# coldstart (bug-996)
+# ---------------------------------------------------------------------------
+
+# cs_line FILE -- the program's `firstPresentMs=… secondPresentMs=…` line, or
+# a note that it wrote none.
+cs_line() {
+  local line; line=$(tail -1 "$1" 2>/dev/null | tr -d '\r')
+  echo "${line:-(no line: the program did not finish its two presents)}"
+}
+
+# cs_win RDIR NAME MODE ENV... -- one launch of NAME.exe on the Windows host,
+# MODE `window` (a real window, through a scheduled task in the console
+# session: an ssh session has no desktop) or `headless`. Prints the line.
+cs_win() {
+  local rdir=$1 name=$2 mode=$3; shift 3
+  local wdir; wdir=$(win_path "$rdir")
+  local bat="$WORK/$name-$mode.bat" e
+  ssh_box "del /q $wdir\\$name.out $wdir\\$name.done" >/dev/null 2>&1 || true
+  {
+    printf '@echo off\r\ncd /d %s\r\n' "$wdir"
+    for e in "$@"; do printf 'set %s\r\n' "$e"; done
+    if [ "$mode" = window ]; then
+      # A windowed program stays up after `main` returns, so wait for its
+      # line (two minutes at most), then end it.
+      printf 'start "" %s.exe %s.out\r\n' "$name" "$name"
+      printf 'set /a n=0\r\n:wait\r\nif exist %s.out goto got\r\nset /a n+=1\r\nif %%n%% geq 120 goto got\r\nping -n 2 127.0.0.1 >nul\r\ngoto wait\r\n:got\r\n' "$name"
+      printf 'ping -n 2 127.0.0.1 >nul\r\ntaskkill /im %s.exe /f >nul 2>&1\r\n' "$name"
+    else
+      printf 'set MFB_WINAPP_HEADLESS=1\r\n%s.exe %s.out\r\n' "$name" "$name"
+    fi
+    printf 'echo done> %s.done\r\n' "$name"
+  } > "$bat"
+  scp_to_box "$bat" "$rdir/$name-$mode.bat"
+  if [ "$mode" = window ]; then
+    local task="canvas_bench_$name" i
+    ssh_box "schtasks /create /f /tn $task /tr $wdir\\$name-$mode.bat /sc once /st 23:59 /it" >/dev/null 2>&1 \
+      || die "coldstart: could not create the scheduled task (is the user logged in at the console?)"
+    ssh_box "schtasks /run /tn $task" >/dev/null 2>&1 || true
+    for ((i = 0; i < 150; i++)); do
+      ssh_box "if exist $wdir\\$name.done echo yes" 2>/dev/null | grep -q yes && break
+      sleep 1
+    done
+    ssh_box "schtasks /delete /f /tn $task" >/dev/null 2>&1 || true
+  else
+    ssh_box "$wdir\\$name-$mode.bat" >/dev/null 2>&1 || true
+  fi
+  scp_from_box "$rdir/$name.out" "$WORK/$name.out" 2>/dev/null || true
+  cs_line "$WORK/$name.out"
+  rm -f "$WORK/$name.out"
+}
+
+# cs_linux RDIR NAME ENV... -- one headless launch of the binary NAME on the box.
+cs_linux() {
+  local rdir=$1 name=$2; shift 2
+  ssh_box "cd '$rdir' && rm -f $name.out && timeout 180 env MFB_GTKAPP_HEADLESS=1 $* ./squashfs-root/usr/bin/$name $rdir/$name.out" >/dev/null 2>&1 || true
+  scp_from_box "$rdir/$name.out" "$WORK/$name.out" 2>/dev/null || true
+  cs_line "$WORK/$name.out"
+  rm -f "$WORK/$name.out"
+}
+
+cmd_coldstart() {
+  local dir="$WORK/coldstart"
+  bash "$GEN/coldstart.sh" "$dir"
+  echo "# release build, MFB_CANVAS_SYNC=1: firstPresentMs is the time from the program's start to its first drawn frame"
+  if [ -z "$LINUX_TARGET" ]; then
+    # macOS: Metal compiles its pipeline from MSL on the first GPU frame and the
+    # system keeps the result per application, so a cold start is a bundle
+    # under a name never run before. Two such names, two launches each, then
+    # the software row for scale.
+    local stamp; stamp="$(date +%s)$$"
+    local n name bin out launch
+    for n in 1 2; do
+      name="cs${stamp}n$n"
+      local mdir="$WORK/$name"
+      bash "$GEN/coldstart.sh" "$mdir" "$name"
+      "$MFB" build -app "$mdir" >/dev/null 2>"$mdir/build.err" || { cat "$mdir/build.err" >&2; die "build failed: $mdir"; }
+      bin=$(bin_path "$mdir" "$name"); out="$mdir/line.out"
+      for launch in first second; do
+        rm -f "$out"
+        env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 "$bin" "$out" >/dev/null 2>&1 || true
+        printf "%s  headless, MFB_CANVAS_GPU=1  %-6s launch | %s\n" "$name" "$launch" "$(cs_line "$out")"
+      done
+      rm -f "$out"
+      env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=0 "$bin" "$out" >/dev/null 2>&1 || true
+      printf "%s  headless, MFB_CANVAS_GPU=0                | %s\n" "$name" "$(cs_line "$out")"
+    done
+    return 0
+  fi
+  # Build and ship WITHOUT `build_app`: its warm-up is the run this measures.
+  "$MFB" build --app --target "$LINUX_TARGET" "$dir" >/dev/null 2>"$dir/build.err" || { cat "$dir/build.err" >&2; die "build failed: $dir"; }
+  ship_app "$dir" coldstart
+  local rdir; rdir=$(remote_dir_of "$dir")
+  # Two names the driver has never seen: a driver's shader cache is per
+  # executable name, so a copy under a new name is a cold start.
+  local stamp; stamp="$(date +%s)$$"
+  local n name
+  for n in 1 2; do
+    name="cs${stamp}n$n"
+    if [ "$WIN" = 1 ]; then
+      ssh_box "copy /y $(win_path "$rdir")\\coldstart.exe $(win_path "$rdir")\\$name.exe" >/dev/null 2>&1
+      printf "%s  window, default renderer    first launch  | %s\n" "$name" "$(cs_win "$rdir" "$name" window MFB_CANVAS_SYNC=1)"
+      printf "%s  window, default renderer    second launch | %s\n" "$name" "$(cs_win "$rdir" "$name" window MFB_CANVAS_SYNC=1)"
+      name="cg${stamp}n$n"
+      ssh_box "copy /y $(win_path "$rdir")\\coldstart.exe $(win_path "$rdir")\\$name.exe" >/dev/null 2>&1
+      printf "%s  headless, MFB_CANVAS_GPU=1  first launch  | %s\n" "$name" "$(cs_win "$rdir" "$name" headless MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1)"
+      printf "%s  headless, MFB_CANVAS_GPU=1  second launch | %s\n" "$name" "$(cs_win "$rdir" "$name" headless MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1)"
+    else
+      # No window row on Linux: a GTK window needs the box's desktop session,
+      # which an ssh command is not in. The forced-GPU row is the pipeline
+      # build on that driver; software is the same program with no build.
+      ssh_box "cp '$rdir/squashfs-root/usr/bin/coldstart' '$rdir/squashfs-root/usr/bin/$name'"
+      printf "%s  headless, MFB_CANVAS_GPU=1  first launch  | %s\n" "$name" "$(cs_linux "$rdir" "$name" MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1)"
+      printf "%s  headless, MFB_CANVAS_GPU=1  second launch | %s\n" "$name" "$(cs_linux "$rdir" "$name" MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1)"
+      printf "%s  headless, MFB_CANVAS_GPU=0  first launch  | %s\n" "$name" "$(cs_linux "$rdir" "$name" MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=0)"
+    fi
+  done
+}
+
 case "$CMD" in
+  coldstart) cmd_coldstart "$@" ;;
   sweep) cmd_sweep "$@" ;;
   poly) cmd_poly "$@" ;;
   pics) cmd_pics "$@" ;;

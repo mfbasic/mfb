@@ -172,6 +172,22 @@ the background even windowed. GDI grabs are fine for GDI-only windows (the trans
 readback blit). Also: `schtasks /end` leaves the task's PowerShell child running, and an ssh
 `taskkill` of it is access-denied — kill it from another `/it` task (`taskkill /pid N /f`).
 
+**The first run of a new executable NAME compiles the canvas pipeline: 38 s** (bug-996).
+Intel's shader cache is per application, so a copy under a new name is cold again and a
+second launch of the same name takes about 100 ms. Who waits for it:
+
+- A run with `MFB_CANVAS_GPU` set (every GPU row and test) builds before its first frame,
+  so its first launch under a new name is 38 s long. Run it twice and read the second, or
+  let `tools/canvas-bench/bench.sh`'s warm-up do it.
+- A real window with no `MFB_CANVAS_GPU` does not wait: it draws software frames from the
+  first and changes to Vulkan about 40 s in. A probe of GPU behaviour in a window has to
+  run longer than that, or under a name already warm.
+- A software run (`MFB_CANVAS_GPU=0`, or headless with nothing set) never touches Vulkan,
+  `--debug` or not.
+
+`tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host test@192.168.1.206
+coldstart` measures all of it under fresh names.
+
 ## Box 206 (Windows): ssh quirks and crash diagnosis without a debugger
 
 `cmd.exe` over ssh produces several things that look like a broken box but aren't:
