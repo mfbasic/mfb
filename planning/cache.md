@@ -42,11 +42,15 @@ executable.
 - The blob's key when the shader changes (the SPIR-V's hash in the file name, or trust the
   driver's own validation).
 - Whether lavapipe and other drivers gain or lose anything.
-- Metal has the same shape (the pipeline is compiled from MSL at first use) and is not
-  measured slow; `MTLBinaryArchive` would be its counterpart if it ever is.
+- Metal has the same shape (the pipeline is compiled from MSL at first use).
+  `MTLBinaryArchive` would be its counterpart. Measured 2026-10-12 while closing bug-996
+  (`tools/canvas-bench/bench.sh <mfb> coldstart`): the first launch of an app name never
+  run before takes 5.6 to 13 s to its first GPU frame on the development Mac, the second
+  24 to 83 ms.
 
 ## Related
 
 - `bugs/completed/bug-996-vulkan-first-frame-waits-25s-for-a-cold-uber-shader-pipeline-compile.md`
   (its Fix Design piece 2 is this idea; piece 3, a smaller shader, is a separate question).
-- `mfb spec app canvas`, "Which renderer draws is chosen once, at the first present".
+- `mfb spec app canvas`, "The Vulkan pipeline is never on a frame's critical path"
+  (bug-996 replaced "Which renderer draws is chosen once, at the first present").
