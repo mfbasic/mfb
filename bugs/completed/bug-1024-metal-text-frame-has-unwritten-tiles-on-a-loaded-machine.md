@@ -8,6 +8,9 @@ Class: Concurrency (suspected)
 Status: Open
 Regression Test: `cargo test --test rt_canvas_font gpu` (exists; red when this happens)
 
+## Not reproducable (coordinator, 2026-10-13)
+The command-buffer status check landed; the failure never reproduced, so the link is unproven.
+
 ## Cause (coordinator, 2026-10-12, bug-staging-23)
 
 - UNPROVEN link (the failure has not been reproduced since 2026-10-10); the cause below is a defect found by reading, and it produces this picture.
