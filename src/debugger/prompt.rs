@@ -11,7 +11,7 @@
 use std::io::{BufRead, Write};
 
 use super::backtrace;
-use super::breakpoints::{self, Breakpoints, Ended, ErrorCodes, Finish, Target};
+use super::breakpoints::{self, Breakpoints, Ended, ErrorCodes, Finish, Target, REPORT_HINT};
 use super::disassemble::{self, Request, Window};
 use super::location::{self, is_register, Condition, Location};
 use super::names::{classify, stop_name, Collisions, Origin};
@@ -39,6 +39,8 @@ Commands:
                   Dump a block: show arena <id> <block> [<offset>] [<size>]
                   An arena value as a type: show type <type> <where> (as show mem)
                   ('show type' alone for the types and their forms)
+                  The performance and memory report a --debug build writes as
+                  it exits, kept from the terminal: show report
   breakpoint, bp  Set a breakpoint: bp <address|function[+offset]> [<commands>]
                   Remove every one there: bp r <address|function[+offset]>
   breakpointif, bpi
@@ -89,6 +91,8 @@ Each stop prints one line per thread it stopped, starting --[<kind>]:
   --[XC] T: <thread> P: <pc> F: <function> X: <what>   another exception
   --[CC] User Break                                     Ctrl-C
   --[EX] Program exit (<status>)                        the end
+A --debug build's exit line ends: - type \"show report\" to see the
+performance and memory report
 <function> is (<written name>) <symbol>, the symbol alone when the function
 has no written name; breakpoint takes either, the symbol when several
 functions share the written name.";
@@ -164,6 +168,8 @@ enum Command {
     },
     /// `show error [<thread>]`: the error parked in a thread's arena.
     ShowError(Option<usize>),
+    /// `show report`: the debug report the program wrote as it exited.
+    ShowReport,
     /// `breakerror <code>|any [<commands>]`: stop when a thread raises it.
     BreakError(ErrorCodes, Vec<String>),
     /// `breakerror clear`.
@@ -682,18 +688,20 @@ fn parse(line: &str) -> Result<Command, String> {
                 view,
             })
         }
+        ("show", ["report"]) => Ok(Command::ShowReport),
+        ("show", ["report", ..]) => Err("'show report' takes no arguments".to_string()),
         ("show", ["type"]) => Ok(Command::TypeUsage),
         ("show", ["type", type_word]) => Err(format!(
             "'show type {type_word}' needs an address or a register: show type {type_word} <where>"
         )),
         ("show", []) => Err(
             "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
-             show arena [<id>], or show error [<thread>]"
+             show arena [<id>], show error [<thread>], or show report"
                 .to_string(),
         ),
         ("show", [other, ..]) => Err(format!(
-            "cannot show '{other}'; 'show mem', 'show type', 'show arena' and 'show error' are \
-             what can be shown"
+            "cannot show '{other}'; 'show mem', 'show type', 'show arena', 'show error' and \
+             'show report' are what can be shown"
         )),
         ("disassemble" | "dis", []) => Ok(Command::Disassemble(Disassembly::Current)),
         ("disassemble" | "dis", [word]) if is_count(word) => Ok(Command::Disassemble(
@@ -862,6 +870,7 @@ fn stop_commands(words: &[&str]) -> Result<Vec<String>, String> {
             | Command::ShowType { .. }
             | Command::ShowArena { .. }
             | Command::ShowError(_)
+            | Command::ShowReport
             | Command::Backtrace(_)
             | Command::Disassemble(_)
             | Command::Jump { .. }
@@ -1265,6 +1274,17 @@ fn step(
     Ok((vec![line], exited))
 }
 
+/// A step's `lines`, with where the debug report is after them when the step
+/// `ended` the program and the session kept one.
+fn ended_lines(mut lines: Vec<String>, ended: bool, breakpoints: &Breakpoints) -> Vec<String> {
+    if ended && breakpoints.has_report() {
+        let mut hint = REPORT_HINT.to_string();
+        hint[..1].make_ascii_uppercase();
+        lines.push(format!("{hint}."));
+    }
+    lines
+}
+
 /// Step every thread together `count` rounds and describe where each stopped;
 /// the flag is set when the program ended.
 fn step_all(
@@ -1558,8 +1578,14 @@ fn error_shown(code: i64) -> String {
     }
 }
 
-/// The lines a stop prints, one per thread it stopped.
-fn stop_lines(inferior: &mut dyn Inferior, stop: &RunStop) -> Vec<String> {
+/// The lines a stop prints, one per thread it stopped; `report` when the
+/// session kept the program's debug report, which the end's line then says.
+fn stop_lines(inferior: &mut dyn Inferior, stop: &RunStop, report: bool) -> Vec<String> {
+    let hint = if report {
+        format!(" - {REPORT_HINT}")
+    } else {
+        String::new()
+    };
     match stop {
         RunStop::Breakpoints(hits) => hits
             .iter()
@@ -1593,11 +1619,13 @@ fn stop_lines(inferior: &mut dyn Inferior, stop: &RunStop) -> Vec<String> {
             stop_place(inferior, *thread, None)
         )],
         RunStop::Interrupted => vec!["--[CC] User Break".to_string()],
-        RunStop::Exited(Exit::Status(status)) => vec![format!("--[EX] Program exit ({status})")],
-        RunStop::Exited(Exit::Signal(signal)) => {
-            vec![format!("--[EX] Program ended by signal ({signal})")]
+        RunStop::Exited(Exit::Status(status)) => {
+            vec![format!("--[EX] Program exit ({status}){hint}")]
         }
-        RunStop::Exited(Exit::Unknown) => vec!["--[EX] Program exit".to_string()],
+        RunStop::Exited(Exit::Signal(signal)) => {
+            vec![format!("--[EX] Program ended by signal ({signal}){hint}")]
+        }
+        RunStop::Exited(Exit::Unknown) => vec![format!("--[EX] Program exit{hint}")],
     }
 }
 
@@ -1653,7 +1681,7 @@ fn hear_stop(
     }
     let stopped = *current;
     let mut lines = notes;
-    lines.extend(stop_lines(inferior, stop));
+    lines.extend(stop_lines(inferior, stop, breakpoints.has_report()));
     emit(out, err, Ok(lines))?;
     let (commands, every) = breakpoints.stop_commands(stop);
     let on = every
@@ -1713,6 +1741,8 @@ fn inspect(
         Command::ErrorWatch => Ok(vec![breakpoints
             .watch_line()
             .unwrap_or_else(|| "No errors are being watched for.".to_string())]),
+        // A stop is not the end: only the prompt asks once the program has.
+        Command::ShowReport => Ok(breakpoints.report_lines(false)),
         Command::Disassemble(request) => disassemble_at(inferior, current, &request),
         Command::Backtrace(request) => backtrace(inferior, program, current, request),
         Command::ShowType { location, view } => {
@@ -2124,10 +2154,11 @@ pub(crate) fn run(
     let written = |result: std::io::Result<()>| result.map_err(|e| format!("cannot write: {e}"));
     let mut line = String::new();
     let mut breakpoints = Breakpoints::default();
+    breakpoints.watch_report(inferior, &mut Vec::new())?;
     // The thread `dis` shows: the last one a `run` or `step` stopped.
     let mut current = MAIN_THREAD;
     // Once the program has ended only `help`, `list`, `list breakpoint`, a bare
-    // `list reg` and `quit` mean anything.
+    // `list reg`, `show report`, `restart` and `quit` mean anything.
     let mut exited = false;
     // The commands of a stop that wait to run: they come before the next line.
     let mut queue = Queue::new();
@@ -2173,6 +2204,7 @@ pub(crate) fn run(
                 current = MAIN_THREAD;
                 faults.clear();
             }),
+            Ok(Command::ShowReport) => Ok(breakpoints.report_lines(exited)),
             Ok(_) if exited => {
                 Err("the program has exited; type 'quit' to end the session".to_string())
             }
@@ -2180,13 +2212,13 @@ pub(crate) fn run(
                 step(inferior, thread, count, &mut faults).map(|(lines, ended)| {
                     exited = ended;
                     current = thread;
-                    lines
+                    ended_lines(lines, ended, &breakpoints)
                 })
             }
             Ok(Command::StepAll(count)) => {
                 step_all(inferior, count, &mut faults).map(|(lines, ended)| {
                     exited = ended;
-                    lines
+                    ended_lines(lines, ended, &breakpoints)
                 })
             }
             Ok(Command::SetBreakpoint {
@@ -2243,7 +2275,11 @@ pub(crate) fn run(
                     // Breakpoints only a `finish` places: none are left.
                     Ended::Own(hits) => {
                         let mut lines = breakpoints.take_notes();
-                        lines.extend(stop_lines(inferior, &RunStop::Breakpoints(hits)));
+                        lines.extend(stop_lines(
+                            inferior,
+                            &RunStop::Breakpoints(hits),
+                            breakpoints.has_report(),
+                        ));
                         lines
                     }
                 })
@@ -3937,13 +3973,14 @@ Address            | Count | Symbol              | Written name | Commands
             (
                 "show",
                 "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
-                 show arena [<id>], or show error [<thread>]",
+                 show arena [<id>], show error [<thread>], or show report",
             ),
             (
                 "show it",
-                "cannot show 'it'; 'show mem', 'show type', 'show arena' and 'show error' are \
-                 what can be shown",
+                "cannot show 'it'; 'show mem', 'show type', 'show arena', 'show error' and \
+                 'show report' are what can be shown",
             ),
+            ("show report now", "'show report' takes no arguments"),
             (
                 "show arena x",
                 "'x' is not an arena id; type 'list arena' for the arenas",

@@ -47,7 +47,7 @@ Stop in `isPrime` and see how the program got there:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp isPrime\nrun\nbt\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp isPrime\nrun\nbt\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 The output is the backtrace above. With each round on its own thread, every

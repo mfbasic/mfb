@@ -27,6 +27,13 @@
 //! a stop at one runs them, and the program stays stopped unless they end in
 //! `run`. `run` hands each stop to the session as it happens. Each breakpoint
 //! and watchpoint counts the stops it made.
+//!
+//! The session also keeps the debug report a `--debug` build writes as it
+//! exits ([`report`]), with breakpoints of its own that no stop shows.
+
+mod report;
+
+pub(crate) use report::REPORT_HINT;
 
 use super::disassemble::returns;
 use super::location::Condition;
@@ -227,6 +234,8 @@ pub(crate) struct Breakpoints {
     finishing: Vec<u64>,
     /// The breakpoints each hit of the last stop stopped for, by id.
     matched: Vec<((usize, u64), Vec<u64>)>,
+    /// The program's debug report, and the breakpoints that keep it.
+    report: report::Report,
 }
 
 /// The runtime function every newly raised error goes through: it parks the
@@ -259,6 +268,14 @@ struct Raise {
     origin: Option<String>,
     /// Where the park returns to: in the function that raised the error.
     back: u64,
+}
+
+/// The hits of `hits` that stopped for none of the user's breakpoints.
+fn unseen(hits: &[(usize, u64)], user: &[(usize, u64)]) -> Vec<(usize, u64)> {
+    hits.iter()
+        .copied()
+        .filter(|hit| !user.contains(hit))
+        .collect()
 }
 
 /// The live address of [`PARK_ERROR`].
@@ -546,10 +563,14 @@ impl Breakpoints {
     }
 
     /// Whether a breakpoint the session holds is at `address`: one of the
-    /// user's, `breakerror`'s on the park, or one on a `ret` a `finish` waits
-    /// on. One instruction there serves them all.
+    /// user's, `breakerror`'s on the park, one on a `ret` a `finish` waits
+    /// on, or one that keeps the debug report. One instruction there serves
+    /// them all.
     fn armed(&self, address: u64) -> bool {
-        self.user_at(address) || self.is_park(address) || self.finishing.contains(&address)
+        self.user_at(address)
+            || self.is_park(address)
+            || self.finishing.contains(&address)
+            || self.report.holds(address)
     }
 
     /// Whether one of the user's breakpoints is at `address`.
@@ -931,10 +952,16 @@ impl Breakpoints {
                 if own.is_empty() {
                     continue;
                 }
+                self.close_report(inferior, false)?;
                 return Ok(Ended::Own(own));
             };
             let exited = matches!(stop, RunStop::Exited(_));
-            if !exited {
+            // The program is the user's again: no `step` runs the report's
+            // breakpoints, so a report half written is the program's to end.
+            if exited {
+                self.report_ended();
+            } else {
+                self.close_report(inferior, false)?;
                 self.place_pending(inferior)?;
             }
             let notes = self.take_notes();
@@ -984,8 +1011,9 @@ impl Breakpoints {
 
     /// Sort what the program stopped for: the user's breakpoints are a stop
     /// when one there stops the thread; the debugger's own — the entry point,
-    /// the error park — are not, though a watched raise at the park runs on to
-    /// the raiser; a watched write is a stop only when it changed something.
+    /// the error park, the debug report's — are not, though a watched raise at
+    /// the park runs on to the raiser; a watched write is a stop only when it
+    /// changed something.
     #[allow(clippy::type_complexity)]
     fn settle(
         &mut self,
@@ -1004,6 +1032,7 @@ impl Breakpoints {
                     .filter(|(_, address)| Some(*address) != temporary)
                     .collect::<Vec<_>>();
                 let (user, own) = self.sort_hits(inferior, &hits);
+                self.report_hits(inferior, &unseen(&hits, &user))?;
                 if !user.is_empty() {
                     return Ok((Some(RunStop::Breakpoints(user)), own));
                 }
@@ -1040,7 +1069,8 @@ impl Breakpoints {
     /// the thread (it has no test, or its test holds for that thread), each
     /// remembered for its commands — and the caller's own: a `ret` a `finish`
     /// waits on, or a breakpoint the session does not hold. A hit only at
-    /// breakpoints whose tests fail is neither, and neither is the park's.
+    /// breakpoints whose tests fail is neither, and neither is the park's or
+    /// the debug report's.
     #[allow(clippy::type_complexity)]
     fn sort_hits(
         &mut self,
@@ -1071,7 +1101,9 @@ impl Breakpoints {
                 user.push((thread, address));
                 self.matched.push(((thread, address), stopping));
             }
-            if self.finishing.contains(&address) || (!held && !self.is_park(address)) {
+            if self.finishing.contains(&address)
+                || (!held && !self.is_park(address) && !self.report.holds(address))
+            {
                 own.push((thread, address));
             }
         }
@@ -1210,6 +1242,7 @@ impl Breakpoints {
                 .filter(|(_, address)| !(ours && *address == raise.back))
                 .collect::<Vec<_>>();
             let (user, own) = self.sort_hits(inferior, &hits);
+            self.report_hits(inferior, &unseen(&hits, &user))?;
             if !user.is_empty() || !own.is_empty() {
                 break RunStop::Breakpoints(
                     hits.into_iter()
@@ -1313,6 +1346,7 @@ impl Breakpoints {
             inferior.insert_breakpoint(watch.park)?;
             placed.push(watch.park);
         }
+        self.watch_report(inferior, &mut placed)?;
         let functions = inferior.functions().unwrap_or_default();
         let mut kept = Vec::new();
         for mut breakpoint in std::mem::take(&mut self.list) {

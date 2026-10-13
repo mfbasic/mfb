@@ -76,7 +76,7 @@ first block:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp summarize\nrun\nlist arena\nshow arena 0 0 0x340 48\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp summarize\nrun\nlist arena\nshow arena 0 0 0x340 48\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```

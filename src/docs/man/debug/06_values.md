@@ -116,7 +116,7 @@ them with `show mem`.
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp summarize\nrun\nshow type list x0\nshow type map x1 keys\nshow type set x2 0..\nshow type list x3 0..\nshow type list x4 1\nshow type list x5 0\nshow type resource x6\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp summarize\nrun\nshow type list x0\nshow type map x1 keys\nshow type set x2 0..\nshow type list x3 0..\nshow type list x4 1\nshow type list x5 0\nshow type resource x6\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```

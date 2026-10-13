@@ -239,8 +239,8 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   when `waitpid(WNOHANG)` reaps it (exit status or signal); an attached one
   when `pid_for_task` fails or `kill(pid, 0)` finds no process
   (`Exit::Unknown`). After that the session refuses every command but `help`,
-  `list`, `list breakpoint`, a bare `list reg` and `quit`, and `quit` reports
-  `AlreadyExited`.
+  `list`, `list breakpoint`, a bare `list reg`, `show report`, `restart` and
+  `quit`, and `quit` reports `AlreadyExited`.
 - **Libraries.** `function_at` and `library_functions` read the loader's image
   list (`task_info(TASK_DYLD_INFO)` → `dyld_all_image_infos.infoArray`), and
   for each image but the executable its Mach-O header in memory: `__TEXT`'s
@@ -421,6 +421,7 @@ Then, repeatedly:
 | `show type <type> <where> [...]` | prints the arena value at `<where>` read as `<type>` |
 | `show arena [<id>]` | prints arena `<id>`'s state and block headers (default 0) |
 | `show error [<thread>]` | prints the error thread `<thread>` (default the current thread) has raised and not yet caught |
+| `show report` | prints the debug report the program wrote as it exited, or why there is none |
 | `show arena <id> <block> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of a block from `<offset>` (default 0) |
 | `step [<count>] [<thread>]`, `s …` | runs thread `<thread>` (default 0) `<count>` instructions (default 1) |
 | `step-all [<count>]`, `sa …` | runs every thread `<count>` rounds of one instruction (default 1) |
@@ -535,14 +536,15 @@ Then, repeatedly:
 | an address `0x<hex>±<offset>` below 0 or past `u64::MAX` | `'<word>' is below address 0` / `'<word>' is past the last address` |
 | `dis <function>` naming nothing | `no function is named '<function>'; type 'list func' for the functions` |
 | `dis <function>` naming only an unbound import | `'<function>' is not loaded yet; run the program until it has loaded its libraries` |
-| `show` alone | `'show' needs what to show: show mem <where> [<size>], show type <type> <where>, show arena [<id>], or show error [<thread>]` |
+| `show` alone | `'show' needs what to show: show mem <where> [<size>], show type <type> <where>, show arena [<id>], show error [<thread>], or show report` |
 | `show error` with more than a thread | `too many arguments to 'show error'` |
-| `show <what>` but `mem`, `type`, `arena` or `error` | `cannot show '<what>'; 'show mem', 'show type', 'show arena' and 'show error' are what can be shown` |
+| `show report` with an argument | `'show report' takes no arguments` |
+| `show <what>` but `mem`, `type`, `arena`, `error` or `report` | `cannot show '<what>'; 'show mem', 'show type', 'show arena', 'show error' and 'show report' are what can be shown` |
 | `show arena` with more than four arguments | `too many arguments to 'show arena'` |
 | an arena id not a `usize` | `'<id>' is not an arena id; type 'list arena' for the arenas` |
 | a block number not a `usize` | `'<block>' is not a block number` |
 | an offset or size not a `u64` (decimal, or hex after `0x`) | `'<word>' is not a number` |
-| any command but `help`, `list`, `list breakpoint`, a bare `list reg`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
+| any command but `help`, `list`, `list breakpoint`, a bare `list reg`, `show report`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
 
 Every listing below — and `show type`'s element table — is laid out by
 `prompt::table`: a header line naming its columns, then one line per row; the
@@ -755,6 +757,10 @@ function the executable defines, ` in <function>` as `list thread` spells it:
 | a system call that waits | `Stopped after <n> instruction(s): thread <t> is waiting in a system call at <place>.` |
 | the program ended | `The program exited after <n> instruction(s).` |
 
+When the step ended the program and the session holds its debug report (`show
+report`), a second line follows: `Type "show report" to see the performance and
+memory report.` [[src/debugger/prompt.rs:ended_lines]]
+
 ### `step-all`
 
 Runs every thread `list thread` shows in `<count>` rounds through one
@@ -770,7 +776,8 @@ Runs every thread `list thread` shows in `<count>` rounds through one
 | the thread is gone afterwards | `Thread <t> ended during the step.` |
 
 A program that ended prints only `The program exited after <r> round(s) of
-stepping.`, `<r>` being the most instructions any thread took. A thread the
+stepping.`, `<r>` being the most instructions any thread took, and then `step`'s
+second line when the session holds its debug report. A thread the
 program starts during the step is not stepped and runs until the round ends.
 
 `<exception>` is `a bad memory access at 0x<address>`, `an illegal
@@ -983,6 +990,65 @@ The block is read as `./mfb spec memory heap-values` lays out `Error` and
 `errorCode` package constant whose value is the code and is left out for any
 other code [[src/debugger/runtime.rs:error_code_name]]; an error with no origin
 (a zero `ErrorLoc` offset) prints `Location: - (the error has no origin)`.
+
+### `show report`
+
+[[src/debugger/breakpoints/report.rs:Report]] A `--debug` build writes its
+debug report to stderr as its last act, one `write` to fd 2 per line
+(`./mfb spec tooling debug-report`). Under `mfb dbg` those lines do not reach
+stderr: the session takes them from the program as it writes them, and `show
+report` prints them.
+
+From its start, and again after each `restart`, the session keeps a breakpoint
+of its own at the entry of `_mfb_debug_shutdown` (`DEBUG_SHUTDOWN_SYMBOL`), when
+the executable defines that symbol.
+[[src/debugger/breakpoints/report.rs:watch_report]] A thread that stops there —
+at no breakpoint of the user's that stops it — opens a window: the session
+writes a breakpoint at the thread's `lr`, where the function returns to, and at
+the live address of every linked function whose C name is `write`; a program
+that links none opens no window. While the window is open, a stop at `write` by
+the thread that opened it (the system's thread id, not its index), with `2` in
+`x0` and at most 4096 (`LINE_LIMIT`) in `x2`, is one report line: the session
+reads `x2` bytes at `x1`, appends them to the report, and sets `x0` to `x2` and
+`pc` to `lr`, so the call does not run. A `write` by another thread, to another
+descriptor, or longer than that runs as the program wrote it. That thread's stop
+at the return address closes the window: both kinds of breakpoint are taken
+away, and the bytes taken become the session's report with it marked complete.
+None of these stops is printed, and `list breakpoint` does not show the
+breakpoints; one of the user's at the same address shares the instruction, and
+removing it keeps the session's. [[src/debugger/breakpoints/report.rs:report_hits]]
+
+The session holds one report per run of the program: the first window to take
+any bytes. A window that took none — a second pass through
+`_mfb_debug_shutdown`, which its once-guard makes write nothing — replaces
+nothing. `restart` forgets the report.
+[[src/debugger/breakpoints/report.rs:close_report]]
+
+Only `run` and `finish` see the session's breakpoints; `step` and `step-all`
+run the instructions they replaced. So the window is also closed, its bytes
+kept as an incomplete report, whenever `run` returns with the program still
+alive — a stop the user sees, or a `finish`'s own breakpoint — and the program
+writes the rest of the report to stderr itself. A program that ends with the
+window open likewise leaves an incomplete report. A breakpoint of the user's
+that stops the thread at `_mfb_debug_shutdown` or at one of its `write`s opens
+no window and takes no line there. A program stepped into
+`_mfb_debug_shutdown` writes the whole report itself.
+[[src/debugger/breakpoints.rs:run]]
+
+`show report` prints the report's lines as the program wrote them, each made
+safe for a terminal (`terminal_safe::safe`), followed for an incomplete report by
+`The report is incomplete: the program stopped or ended while writing it.` With
+no report it prints one line: [[src/debugger/breakpoints/report.rs:report_lines]]
+
+| State | Line |
+| --- | --- |
+| the executable defines no `_mfb_debug_shutdown` (a build without `--debug`) | `No performance and memory report: the program was not built with --debug.` |
+| the program has not ended | `No performance and memory report yet: the program writes it as it exits.` |
+| the program has ended | `No performance and memory report: the program ended without one being kept.` |
+
+It is one of the commands a stop may run, where it answers as before the
+program's end, and one the prompt still takes after it. The cost is one stop of
+the process per report line.
 
 ### Breakpoints
 
@@ -1223,6 +1289,10 @@ the notes made since the last, as one line per thread it stopped: [[src/debugger
 | a launched program ended by a signal | `--[EX] Program ended by signal (<n>)` |
 | an attached program ended | `--[EX] Program exit` |
 
+When the session holds the program's debug report (`show report`), each `--[EX]`
+line ends ` - type "show report" to see the performance and memory report`
+(`REPORT_HINT`).
+
 `<t>` is the thread's index; `<pc>` is `0x` and 16 hex digits — the
 breakpoint's address, the instruction that wrote a watched change, else the
 thread's `pc`; `<function>` is the function holding it as
@@ -1403,7 +1473,8 @@ address no function held is dropped with `Dropped the breakpoint at <place>:
 no function holds it.`, and one whose function the program no longer has with
 `Dropped the breakpoint on <symbol>: the program no longer has it.` A
 breakpoint keeps its test, and one `brk` is written per address, the park's
-included. A number in a test (`[0x…]`) is not moved to the new process's
+and the debug report's (`show report`) included; the report the session held is
+forgotten. A number in a test (`[0x…]`) is not moved to the new process's
 layout. Every watchpoint is dropped first, as Watchpoints says. The
 current thread is 0 again, and the session runs on even after the program had
 ended.

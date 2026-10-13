@@ -126,7 +126,7 @@ Stop in `isPrime`, run three of its instructions, and show the next five:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp isPrime\nrun\nstep 3\ndis 5\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp isPrime\nrun\nstep 3\ndis 5\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
@@ -153,7 +153,7 @@ let the rest of the program run:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp countPrimes\nrun\nj lr x0=0 x1=7\nbp r countPrimes\nrun\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp countPrimes\nrun\nj lr x0=0 x1=7\nbp r countPrimes\nrun\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
@@ -170,7 +170,7 @@ DBG> run
 round 1: 7 primes
 round 2: 31 primes
 total: 38 primes
---[EX] Program exit (0)
+--[EX] Program exit (0) - type "show report" to see the performance and memory report
 DBG> q
 Process 82633 had already exited.
 ```

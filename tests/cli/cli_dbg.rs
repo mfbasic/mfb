@@ -714,9 +714,7 @@ mod native {
         let end = body(&session.until_prompt());
         assert!(
             end.iter().any(|line| line == "caught 77050010")
-                && end
-                    .last()
-                    .is_some_and(|line| line == "--[EX] Program exit (0)"),
+                && end.last().is_some_and(|line| line == EXITED),
             "{end:?}"
         );
         session.send("q\n");
@@ -756,6 +754,11 @@ mod native {
         }
         build_debug(&project, "debug")
     }
+
+    /// How a `--debug` build that exits with status 0 ends: its report is
+    /// kept for `show report`.
+    const EXITED: &str =
+        "--[EX] Program exit (0) - type \"show report\" to see the performance and memory report";
 
     /// The lines between a command's echo and the next prompt.
     fn body(reply: &str) -> Vec<String> {
@@ -1128,7 +1131,7 @@ mod native {
         session.send("run\n");
         assert_eq!(
             body(&session.until_prompt()).last().map(String::as_str),
-            Some("--[EX] Program exit (0)")
+            Some(EXITED)
         );
         session.send("q\n");
         let (code, _) = session.finish();
@@ -1179,10 +1182,7 @@ mod native {
                 "{run:?}"
             );
         }
-        assert_eq!(
-            run.last().map(String::as_str),
-            Some("--[EX] Program exit (0)")
-        );
+        assert_eq!(run.last().map(String::as_str), Some(EXITED));
         session.send("q\n");
         let (code, _) = session.finish();
         assert_eq!(code, Some(0));
@@ -1313,15 +1313,59 @@ mod native {
         session.send("run\n");
         assert_eq!(
             body(&session.until_prompt()),
-            [
-                "round 2: 7 primes",
-                "total: 44 primes",
-                "--[EX] Program exit (0)"
-            ]
+            ["round 2: 7 primes", "total: 44 primes", EXITED]
         );
         session.send("q\n");
         let (code, _) = session.finish();
         assert_eq!(code, Some(0));
+    }
+
+    /// The report a `--debug` build writes as it exits never reaches stderr:
+    /// the debugger keeps it, and `show report` prints it.
+    #[test]
+    fn show_report_prints_the_report_the_program_wrote_as_it_exited() {
+        let mfb = signed_mfb();
+        let binary = debug_example();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
+        session.until_prompt();
+
+        session.send("show report\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["No performance and memory report yet: the program writes it as it exits."]
+        );
+        session.send("run\n");
+        let end = body(&session.until_prompt());
+        assert_eq!(end.last().map(String::as_str), Some(EXITED), "{end:?}");
+        assert!(
+            !end.iter().any(|line| line.starts_with("mfb.debug.")),
+            "{end:?}"
+        );
+        session.send("show report\n");
+        let report = body(&session.until_prompt());
+        assert!(
+            report
+                .first()
+                .is_some_and(|line| line == "mfb.debug.begin 1")
+                && report.last().is_some_and(|line| line == "mfb.debug.end 1")
+                && report.iter().any(|line| line == "arena.0.kind main"),
+            "{report:?}"
+        );
+        // A restart starts over: the next run's report is not written yet.
+        session.send("restart\n");
+        session.until_prompt();
+        session.send("show report\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["No performance and memory report yet: the program writes it as it exits."]
+        );
+        session.send("q\n");
+        let mut stderr = session.child.stderr.take().unwrap();
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+        let mut errors = String::new();
+        stderr.read_to_string(&mut errors).unwrap();
+        assert!(!errors.contains("mfb.debug."), "{errors}");
     }
 
     #[test]
@@ -1467,7 +1511,7 @@ mod native {
         );
 
         session.send("run\n");
-        assert_eq!(body(&session.until_prompt()), ["--[EX] Program exit (0)"]);
+        assert_eq!(body(&session.until_prompt()), [EXITED]);
         // After the end, restart: a new process, the breakpoint on exit
         // pending again until the libraries load.
         session.send("restart\n");

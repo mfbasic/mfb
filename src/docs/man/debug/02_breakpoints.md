@@ -73,6 +73,14 @@ Each stop prints one line for each thread it stopped. Every line starts with
 | `--[CC] User Break` | you pressed Ctrl-C |
 | `--[EX] Program exit (0)` | the program ended, with its exit status |
 
+A program built with `--debug` writes a report as it ends
+(`mfb man debug report`). `mfb dbg` keeps it off the screen, and the line says
+how to read it:
+
+```
+--[EX] Program exit (0) - type "show report" to see the performance and memory report
+```
+
 `T:` is the thread, `P:` the address of the instruction, and `F:` the function
 it is in: the name you wrote in parentheses, then the function's symbol, with
 how far in (`-` when no function is known). The symbol tells apart functions
@@ -82,8 +90,8 @@ by a signal shows `--[EX] Program ended by signal (9)`, and one you attached
 to shows `--[EX] Program exit`, since only its own parent learns its status.
 
 Once the program has ended, only `help`, `list`, `list breakpoint`,
-`list watchpoint`, `list reg` and `show type` on their own, `restart` and
-`quit` still work.
+`list watchpoint`, `list reg` and `show type` on their own, `show report`,
+`restart` and `quit` still work.
 
 ### Stopping only when a test holds
 
@@ -272,7 +280,7 @@ x1       | 0x00000000000001f4 | (500)
     frame #2: 0x00000001027538f8 debug.out`runRounds + 5780
 round 2: 31 primes
 total: 68 primes
---[EX] Program exit (0)
+--[EX] Program exit (0) - type "show report" to see the performance and memory report
 ```
 
 The commands run with the stopped thread as the current one. They can be
@@ -332,7 +340,7 @@ Stop in `isPrime`, and in the system's `exit` once every round is done:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp isPrime\nbp _exit\nrun\nbp r isPrime\nrun\nrun\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp isPrime\nbp _exit\nrun\nbp r isPrime\nrun\nrun\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
@@ -352,7 +360,7 @@ round 2: 31 primes
 total: 68 primes
 --[BP] T: 0 P: 0x00000001966eaf8c F: (exit) _exit
 DBG> run
---[EX] Program exit (0)
+--[EX] Program exit (0) - type "show report" to see the performance and memory report
 DBG> q
 Process 89957 had already exited.
 ```
@@ -362,7 +370,7 @@ is 824084:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bpi x0 eq 824084 at countPrimes\nrun\nlist breakpoint\nlist reg x0, x1\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bpi x0 eq 824084 at countPrimes\nrun\nlist breakpoint\nlist reg x0, x1\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
@@ -388,7 +396,7 @@ breakpoint still set:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp formatLine\nrun\nfinish\nshow type string x1\nrestart\nlist breakpoint\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp formatLine\nrun\nfinish\nshow type string x1\nrestart\nlist breakpoint\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```

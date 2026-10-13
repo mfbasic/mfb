@@ -27,6 +27,23 @@ everything on stderr before the block are what they would be without
 `--debug`. To keep the report apart from the program's own output, send stderr
 to a file (the examples below do).
 
+Run under `mfb dbg`, the report does not print: the debugger keeps it, so it
+does not run into the session, and its `show report` command prints it. The
+program's last line says so:
+
+```
+--[EX] Program exit (0) - type "show report" to see the performance and memory report
+```
+
+`show report` works once the program has ended, and until you `restart` it or
+`quit`. Before the end it answers `No performance and memory report yet: the
+program writes it as it exits.`, and for a program built without `--debug`
+that there is none. Two cases leave the report to the program, which then
+prints it on stderr as usual: you stepped into the report with `step`, or the
+program stopped while writing it (at a breakpoint of yours, or on Ctrl-C).
+When it stopped part way, `show report` prints the lines kept until then and
+says the report is incomplete.
+
 Numbers are whole numbers. Times are in nanoseconds, sizes in bytes. Each
 section of keys below appears in the order it prints.
 
@@ -250,9 +267,42 @@ Start-Process -FilePath examples\debug\build\debug.exe -ArgumentList 2, 1000, 1 
 Select-String -Path report.txt -Pattern '^(arena\.\d+\.(kind|peak_live_bytes|live_bytes)|process\.peak_rss_bytes) '
 ```
 
+To read the report in `mfb dbg` (macOS, and Linux on AArch64), run the program
+to its end and ask for it:
+
+```sh macos
+mfb build --debug examples/debug
+printf 'show report\nrun\nshow report\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 1000 1
+```
+
+The lines of the report between its third and its last three are left out
+here:
+
+```
+Launched examples/debug/build/debug.out as process 7247; paused before its first instruction.
+DBG> show report
+No performance and memory report yet: the program writes it as it exits.
+DBG> run
+round 1: 75 primes
+round 2: 73 primes
+total: 148 primes
+--[EX] Program exit (0) - type "show report" to see the performance and memory report
+DBG> show report
+mfb.debug.begin 1
+mfb.debug.target macos-aarch64
+mfb.debug.build console
+...
+thread.table_high 1
+thread.table_live 0
+mfb.debug.end 1
+DBG> q
+Process 7247 had already exited.
+```
+
 ## See also
 
 - `mfb man debug`
+- `mfb man debug breakpoints` — the line a program's end prints in `mfb dbg`
 - `mfb man debug pools` — the pools these figures describe, live in `mfb dbg`
 - `mfb man debug-external profiler` — where the time goes, function by function
 - `mfb man variable` — how values are copied and when they go away

@@ -212,7 +212,7 @@ its argument and its stack:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp isPrime\nrun\nstep 7\nlist reg x0, sp, pc\nshow mem sp+0x10 24\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp isPrime\nrun\nstep 7\nlist reg x0, sp, pc\nshow mem sp+0x10 24\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```

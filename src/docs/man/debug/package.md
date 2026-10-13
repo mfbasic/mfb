@@ -50,7 +50,7 @@ mfb build --debug -O0 examples/debug
 - `--debug` keeps the name of every function you wrote in the executable, so
   `mfb dbg` can show it and you can stop in it by name. It also makes the
   program print a report of its memory use when it exits
-  (`mfb man debug report`).
+  (`mfb man debug report`); in `mfb dbg`, `show report` prints it.
 - `-O0` keeps every function a call of its own. The default optimization level
   merges small functions into their callers, and a function that was merged
   away cannot be stopped in.
@@ -98,7 +98,7 @@ handed, and where `summarize` returns to:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp summarize\nrun\nbt\nshow type list x0 0..\nshow type map x1 get round 2\nfinish\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp summarize\nrun\nbt\nshow type list x0 0..\nshow type map x1 get round 2\nfinish\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
@@ -132,8 +132,9 @@ Killed process 89822.
 The addresses change from run to run. `x0` and `x1` are the first two values
 `summarize` was handed, `counts` and `byRound`: a function receives its first
 eight in `x0` to `x7`, in order. `mfb man debug values` explains reading them.
-The program's own output, and the debug report on stderr, mix in with the
-session's.
+The program's own output mixes in with the session's. The debug report does
+not: `mfb dbg` keeps it, and `show report` prints it once the program has ended
+(`mfb man debug report`).
 
 ### Commands
 
@@ -166,6 +167,7 @@ session's.
 | `list watchpoint` | `l watchpoint` | lists the watchpoints |
 | `show mem <where> [<size>]` | | shows the raw bytes of memory |
 | `show error [<thread>]` | | shows the error a thread has raised and not yet handled |
+| `show report` | | shows the report the program wrote as it ended |
 | `show type <type> <where> …` | | shows a value in memory as a type |
 | `show arena [<id>]` | | shows one memory pool in detail |
 | `show arena <id> <block> …` | | shows the raw bytes of part of a pool |
