@@ -5,10 +5,47 @@ Effort: medium (a geometry-record change)
 Severity: MEDIUM
 Class: Other (Performance)
 
-Status: Open (built, measured and reverted in bug-staging-23 round 3, 2026-10-12: the Cause note's expression is not a bound for the coverage rule's fallback gradient, and one scene gains two lit pixels the base's box cut off; see "Built, round 3". The build is commits `963750802`, `82b2f6bc3`, `ff1dfecd3`, `b109fd4bc` on bug-991's `094ae5056` and `94b259391`)
+Status: FIXED (bug-staging-23, 2026-10-12)
 Regression Test: written and reverted with the build (commit `963750802`): `an_items_box_inside_a_scaling_group_is_its_mapped_extent_and_a_rim_of_pixels` in `tests/canvas/rt_canvas_damage.rs` and `an_unevenly_transformed_item_in_a_shrinking_group_keeps_every_covered_pixel` in `tests/canvas/rt_canvas_metal.rs`; `tools/canvas-bench/bench.sh <mfb> magnified-polygons` (`group`)
 
 Found during `bug-staging-23` (2026-10-12). Added to that phase by the owner on 2026-10-12.
+
+## Resolution (bug-staging-23, 2026-10-12): FIXED, one fix for bug-991 and bug-1083
+
+OWNER RULING 2026-10-12: "Land 991 with 1083 - approved", accepting the two pixel changes
+below. The six commits bs23-agent-f built and reverted were restored on staging by the
+coordinator (cherry-picks of `094ae5056 94b259391 963750802 82b2f6bc3 ff1dfecd3 b109fd4bc`).
+
+What landed: `__canvas_boundsHeader` takes each builder's extent, pad and rim; under an item
+transform the rim is half the inverse's norm in shape units. The geometry record says how
+much of its box is rim (header slots 67 and 68, carried to the vertex stages in two unused
+item-block words), and the three group sites (`__canvas_drawBound`, `mfb_canvas.vert`,
+Metal's `mfbVertex`) scale that rim by the group inverse's norm. `ITEM_BLOCK_SIZE` did not grow.
+
+Accepted pixel changes (every other compared frame is byte-identical to base: 108 of 112 on
+each of software, Metal, box 2226 and box 206, the agent's runs):
+
+1. A shape minified along one axis only. Base's box cut lit pixels and its renderers
+   disagreed; the fix lights the pixels the coverage rule gives, the same on every renderer.
+   `bugs/repro/bug-991/uneven_minify.mfb`: 12 (software) and 11 (Metal) lit at base, 14 and 14
+   with the fix.
+2. The zero-gradient fallback column under a huge magnification is cut by the tighter box.
+   `bugs/repro/bug-991/fallback_column.mfb`: 191 lit at base, 73 with the fix, software and
+   Metal alike. What remains of the column is bug-1090.
+
+Coordinator's re-runs on staging (`MFB_CANVAS_DUMP`, lit pixels counted, main's compiler at
+`471aaff16` against staging's): `halo_in_shrinking_group.mfb` 26/26 against 26/26;
+`anisotropic_halo.mfb` 26/26 against 26/26; `uneven_minify.mfb` 12/11 against 14/14;
+`fallback_column.mfb` 191/191 against 73/73 (software/Metal each).
+`bash tools/canvas-bench/bench.sh <mfb> magnified-polygons`, Metal, two runs each, load
+average 8 to 21 (indicative): `flat` 37.9, 35.9 -> 9.3, 7.5; `group` 37.8, 35.5 -> 10.9, 7.9;
+`circle-xf` 12.5, 10.9 -> 4.4, 4.4; `x100` 6.9, 6.6 -> 7.2, 6.9; `pix` 4.2, 3.8 -> 3.5, 3.9.
+All 22 `tests/canvas` targets pass on staging with the fix (`/tmp/bs23/merge-check3-summary.txt`).
+
+Not met, and why it is not chased: software `flat` is 2.9 to 4.1 times software `pix`
+against the doc's Goal of 3; the Goal assumed three distance samples a transformed pixel and
+the oracle takes five. Secondary 1 (the `0.5 * max(F, 1)` early-out radius) was measured and
+left alone. An arc keeps its whole box (its distance jumps at the sweep ends, bug-1088).
 
 ## Cause (coordinator, 2026-10-12, bug-staging-23)
 
