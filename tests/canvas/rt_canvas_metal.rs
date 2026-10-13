@@ -2099,3 +2099,84 @@ fn curve_pieces_are_counted_two_slots_each_against_the_edge_region() {
         panic!("a declined frame is the software renderer's, byte for byte, but {diff}");
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// bug-765: no scene size is a limit. A frame whose draw list does not fit one frame
+// buffer is drawn in passes -- consecutive runs of the list, each the longest that fits
+// every region of the buffer, into one target -- and presented or read back once.
+// ---------------------------------------------------------------------------------------
+
+/// `MFB_TEST_ITEMS` squares, most opaque, every forty-first translucent over its
+/// neighbours, wrapping over the squares before them past 63,900.
+const MANY_ITEMS: &str = include_str!("scenes/many_items.mfb");
+
+/// A frame just under one buffer's item region, exactly at it, one item over it and
+/// several passes long draws on Metal and matches the oracle.
+///
+/// 65,536 items is the region (`METAL_MAX_FRAME_ITEMS`). 65,537 is two passes, the
+/// second of ONE item: a pass that cleared the target instead of loading it would leave
+/// that square alone on black, and one that drew before the first had finished would
+/// read the first pass's blocks. 140,000 is three passes. The translucent squares lie
+/// over their neighbours and over the squares of the lap before, so a square drawn out
+/// of order, or twice, is another colour.
+#[test]
+fn a_frame_past_one_buffers_items_draws_in_passes_on_metal() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_many_items", MANY_ITEMS);
+    for count in ["65535", "65536", "65537", "140000"] {
+        let envs = [("MFB_TEST_ITEMS", count)];
+        let (software, _) = render_env(&program, false, &format!("sw{count}"), &envs);
+        let (gpu, stats) = render_env(&program, true, &format!("gpu{count}"), &envs);
+        if !metal_built(&stats) {
+            return;
+        }
+        assert!(
+            software.pixels.chunks(4).any(|p| p != [0, 0, 0, 255]),
+            "the software render of {count} items drew nothing",
+        );
+        assert!(
+            stats.contains(&format!("blocks={count} ")),
+            "the frame must hold {count} blocks: {stats}"
+        );
+        assert!(
+            !stats.contains("gpuFrames=0"),
+            "a frame of {count} items was drawn by the software renderer, not Metal: {stats}"
+        );
+        if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
+            panic!("Metal draws {count} items differently from the software oracle: {diff}");
+        }
+    }
+}
+
+/// 44,000 three-stop gradients: 132,000 stops, past the gradient region, in fewer
+/// items than the item region holds.
+const MANY_GRADIENT_STOPS: &str = include_str!("scenes/many_gradient_stops.mfb");
+
+/// A frame that fits every region but the gradient stops' is split where THAT region
+/// fills. A boundary found from the item count alone would put all 132,000 stops in one
+/// pass, and the stops past the region would be another item's.
+#[test]
+fn a_frame_past_one_buffers_gradient_stops_draws_in_passes_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_many_stops",
+        MANY_GRADIENT_STOPS,
+        "44,000 three-stop gradients (132,000 stops)",
+    );
+}
+
+/// Four distinct 1,920 by 1,200 images: 9,216,000 texels, past the texel region.
+const MANY_TEXELS: &str = include_str!("scenes/many_texels.mfb");
+
+/// A frame whose pictures' texels pass one buffer's glyph and picture region is split
+/// on texels, and the table that points a second picture of one block at the texels
+/// already copied starts empty in each pass.
+#[test]
+fn a_frame_past_one_buffers_texels_draws_in_passes_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_many_texels",
+        MANY_TEXELS,
+        "four translucent 1,920 by 1,200 pictures (9,216,000 texels)",
+    );
+}
