@@ -123,6 +123,10 @@ MUT __CANVAS_GM_IA AS Float = 1.0
 MUT __CANVAS_GM_IB AS Float = 0.0
 MUT __CANVAS_GM_IC AS Float = 0.0
 MUT __CANVAS_GM_ID AS Float = 1.0
+' bug-1083: the Frobenius norm of that inverse, which `__canvas_drawBound` scales an
+' item's rim by. Kept beside the matrix so it is one square root an entry and not four
+' an item.
+MUT __CANVAS_GM_INORM AS Float = 1.0
 
 ' Make draw entry matrix `mat` current: a row of `__CANVAS_GROUP_ROWS` plus one, or 0
 ' for an entry that is only translated.
@@ -140,6 +144,7 @@ FUNC __canvas_enterGroupMatrix(mat AS Integer) AS Nothing
   __CANVAS_GM_IB = collections::getOr(__CANVAS_GROUP_ROWS, row + 5, 0.0)
   __CANVAS_GM_IC = collections::getOr(__CANVAS_GROUP_ROWS, row + 6, 0.0)
   __CANVAS_GM_ID = collections::getOr(__CANVAS_GROUP_ROWS, row + 7, 1.0)
+  __CANVAS_GM_INORM = math::sqrt(__CANVAS_GM_IA * __CANVAS_GM_IA + __CANVAS_GM_IB * __CANVAS_GM_IB + __CANVAS_GM_IC * __CANVAS_GM_IC + __CANVAS_GM_ID * __CANVAS_GM_ID)
   __CANVAS_GM = TRUE
 END FUNC
 
@@ -147,11 +152,44 @@ END FUNC
 ' places it: `k` is 0, 1, 2, 3 for x0, y0, x1, y1.
 '
 ' Translate-only, it is the header's bound plus the offset -- the expression every
-' consumer used to write out. Under a group matrix the header's box (already the hull
-' of the item under its OWN transform) is carried through the groups' linear part, and
-' the hull of its four corners is padded by a pixel: the header's antialiasing rim is
-' in the group's space, so a group that scales down would shrink it under the pixel it
-' has to cover. A bound only has to be conservative.
+' consumer used to write out.
+'
+' Under a group matrix the box is carried through the groups' linear part and the hull
+' of its four corners is padded by a pixel. The box carried is not the header's as it
+' stands (bug-1083). The header's box is the item's extent and stroke reach under its
+' own transform, and a rim past that (`__CANVAS_GEO_RIM`) sized for the item drawn with
+' no group: a unit untransformed, half the item's inverse's Frobenius norm of its own
+' units and a pixel under a transform. A group changes the rim a pixel needs. A pixel
+' takes coverage only where `d < 0.5 * g`, `d` the distance in the item's space and `g`
+' the length of its central differences half a SURFACE pixel apart; a distance is
+' 1-Lipschitz, so `g` is at most the norm of the COMPOSED inverse, the item's after the
+' groups', and that is at most the product of the two norms. So the rim here is the
+' header's rim scaled by the norm of the groups' inverse, `N`:
+'
+'   lower = (bound + rim) - rim * N        upper = (bound - rim) + rim * N
+'
+' That covers every pixel that can take coverage, for each kind of rim:
+'
+' * No transform of its own. The composed inverse IS the groups', so the pixel needs
+'   `0.5 * N` of the group's units and gets `1.0 * N`, the builder's rim being a unit
+'   (`__CANVAS_BOUNDS_RIM`), which is more than `0.5 * sqrt(2)`: what the bound would
+'   ask if the item's identity were counted in the product.
+' * Its own transform, inverse norm `F`. The pixel needs `0.5 * F * N` of the ITEM's
+'   units around its extent; the item's forward matrix makes that `(|a| + |c|) * 0.5 *
+'   F * N` on the x sides of the hull, and the header's rim there is `(|a| + |c|) * 0.5
+'   * F`, widened, and a pixel -- so `rim * N` is that and `N` to spare. A transform
+'   that shrinks the item only makes `F` large; nothing above assumes it is small.
+' * A group that magnifies has `N` under 1 and the box comes in from the header's: the
+'   unit that was 170 pixels a side under a scale of 170 is 1.41 pixels. A group that
+'   shrinks has `N` over 1 and the box goes out past it, which is what an unevenly
+'   transformed item needs there and a finished box could not give.
+'
+' A box with no rim (a glyph run, a text box, a picture, an arc: `__canvas_boundsHeader`)
+' is carried as it stands, both lines above being `bound` then. The Vulkan and Metal
+' vertex stages take the same two lines (`mfb_canvas.vert`, `mfbVertex`) and differ
+' only in the pixel: theirs is `N` of the group's units before the map, because their
+' quad is the mapped parallelogram and not its hull, and a parallelogram has no "one
+' pixel out" to add afterwards.
 FUNC __canvas_drawBound(offset AS Integer, k AS Integer, gdx AS Float, gdy AS Float) AS Float
   IF NOT __CANVAS_GM THEN
     IF k = 0 OR k = 2 THEN
@@ -159,10 +197,12 @@ FUNC __canvas_drawBound(offset AS Integer, k AS Integer, gdx AS Float, gdy AS Fl
     END IF
     RETURN __canvas_geoAt(offset, 16 + k) + gdy
   END IF
-  LET x0 AS Float = __canvas_geoAt(offset, 16)
-  LET y0 AS Float = __canvas_geoAt(offset, 17)
-  LET x1 AS Float = __canvas_geoAt(offset, 18)
-  LET y1 AS Float = __canvas_geoAt(offset, 19)
+  LET rimX AS Float = __canvas_geoAt(offset, __CANVAS_GEO_RIM)
+  LET rimY AS Float = __canvas_geoAt(offset, __CANVAS_GEO_RIM + 1)
+  LET x0 AS Float = (__canvas_geoAt(offset, 16) + rimX) - rimX * __CANVAS_GM_INORM
+  LET y0 AS Float = (__canvas_geoAt(offset, 17) + rimY) - rimY * __CANVAS_GM_INORM
+  LET x1 AS Float = (__canvas_geoAt(offset, 18) - rimX) + rimX * __CANVAS_GM_INORM
+  LET y1 AS Float = (__canvas_geoAt(offset, 19) - rimY) + rimY * __CANVAS_GM_INORM
   IF k = 0 OR k = 2 THEN
     LET a AS Float = __CANVAS_GM_FA * x0 + __CANVAS_GM_FC * y0
     LET b AS Float = __CANVAS_GM_FA * x1 + __CANVAS_GM_FC * y0

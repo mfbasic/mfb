@@ -3760,6 +3760,29 @@ fn emit_item_block(
             ));
         }
     }
+    // bug-1083: how much of that box is rim, 16.16 like the box, in the two words the
+    // vertex stage reads it from under a group matrix (`ITEM_RIM_WORDS`).
+    for (index, word) in crate::codegen::runtime::canvas::ITEM_RIM_WORDS
+        .into_iter()
+        .enumerate()
+    {
+        let slot = crate::codegen::runtime::canvas::HEADER_RIM + index;
+        builder.emit(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        builder.emit(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        builder.emit(abi::float_round_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            off_item + word,
+        ));
+    }
 
     // bug-735: every field a distance reads -- the shape parameters, the radius and
     // stroke half-width, an arc's sweep endpoints, an ellipse's rotation and the clip --
