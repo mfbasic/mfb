@@ -601,6 +601,7 @@ impl LinuxPlan<'_> {
             | "canvas.setGpuMode"
             | "canvas.metalAvailable"
             | "canvas.vulkanReady"
+            | "canvas.vulkanBuild"
             | "canvas.vulkanDrawScene"
             | "canvas.metalReady"
             | "canvas.metalDrawScene"
@@ -620,6 +621,8 @@ impl LinuxPlan<'_> {
                 "pthread_cond_broadcast",
                 // plan-155-C: `canvas::awaitPickup`'s display floor is a timed wait.
                 "pthread_cond_timedwait",
+                // bug-996: the Vulkan builder thread is never joined.
+                "pthread_detach",
             ]
             .into_iter()
             .map(|symbol| PlatformImport {

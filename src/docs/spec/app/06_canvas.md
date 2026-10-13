@@ -312,17 +312,64 @@ The software rasteriser fixes them; the GPU backends match them within a
 documented tolerance rather than exactly, because rasterisation rules and blend
 precision differ legitimately between drivers.
 
-**Which renderer draws is chosen once, at the first present.** A program in a
-real window draws on the GPU (Metal on macOS, Vulkan on Linux and Windows); a headless run,
+**Which renderer a program asks for is settled once, at the first present.** A program in a
+real window asks for the GPU (Metal on macOS, Vulkan on Linux and Windows); a headless run,
 meaning any of `MFB_MACAPP_HEADLESS`, `MFB_GTKAPP_HEADLESS` or
 `MFB_WINAPP_HEADLESS`, draws in software. `MFB_CANVAS_GPU` overrides both ways:
-`0` forces software, any other value forces the GPU. The software rasteriser is
+`0` forces software, any other value asks for the GPU. The software rasteriser is
 the exact-match oracle, and every test that renders runs headless, so the goldens
 keep measuring it. A GPU frame is used only when a pipeline exists and the scene
 is one the backend draws correctly; otherwise that frame falls back to software.
 A machine with no Vulkan loader or driver builds no pipeline and draws in software.
 [[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
 [[src/codegen/runtime/canvas/vulkan.rs:has_vulkan_backend]]
+
+**The Vulkan pipeline is never on a frame's critical path.** Creating it compiles the
+fragment shader, which a driver that has not seen the executable before can take tens
+of seconds over (38 s measured on an Intel UHD 630). So the first frame that asks for
+the GPU starts the build on a thread of its own and is drawn in software, as is every
+frame until the build has finished; the first frame after that is a Vulkan frame, and
+the software and Vulkan frames of one scene agree within the GPU tolerance. A run's
+renderer therefore changes at most once on that account, from software to Vulkan, and
+`canvas::getFrameStats().renderer` reports which drew the last frame. A build that
+fails (no loader, no device, a thread that cannot be started) leaves every frame
+software. Nothing waits for the build: a program that ends while it is running ends
+at once. A set `MFB_CANVAS_GPU` is the exception, for tests: the build then runs on
+the graphics thread before the first frame is drawn, so that run's first frame (and an
+exit during it) waits for the pipeline and every frame the backend accepts is a GPU frame. Metal builds its
+pipeline on the graphics thread at the first GPU frame in every case.
+[[src/codegen/builtins/canvas/helper_render.rs:render_loop_head]]
+[[src/codegen/runtime/canvas/vulkan.rs:emit_vulkan_build]]
+[[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_vulkan_builder_entry]]
+
+The hand-off between the building thread and the graphics thread is one word of the
+graphics state: untried (0), built (1), failed (2), building (3). The graphics thread
+alone takes it from 0 to 3, before the builder thread exists. The builder fills the
+words of the objects it creates (instance, device, queue, descriptors, layout, render
+pass, pipelines) with plain stores and writes 1 or 2 last, a store-release on AArch64.
+The graphics thread reads the word first, a load-acquire on AArch64, and reads an
+object word only after reading 1; it creates its own objects (the render target, the
+command pool, a window's surface and swapchain) on a GPU frame, so only after 1. The
+builder thread has no arena state and allocates from none.
+[[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_claim]]
+[[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_publish_ready]]
+[[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_load_ready]]
+
+In a `--debug` build's `MFB_CANVAS_STATS` line, `vulkanReady=` is whether the pipeline
+exists when the line is written. It starts no build and waits for none: it is `FALSE`
+on every line of a software run, `FALSE` on the software frames drawn while a window's
+pipeline is being built and `TRUE` from the first Vulkan frame, and `TRUE` from the
+first line of a run with `MFB_CANVAS_GPU` set. `gpuSelected=` is whether the program
+asked for the GPU, and `gpuFrames=` counts the frames a GPU backend drew.
+[[src/codegen/runtime/canvas/vulkan_handoff.rs:emit_vulkan_is_ready]]
+[[src/codegen/builtins/canvas/helper_surface.rs:PRESENT_SURFACE_DEBUG]]
+
+**On Windows and macOS a canvas window is black before its first frame.** An unpainted
+canvas pixel is opaque black on every backend, and on these two the window shows that
+from its first paint rather than its unpainted client: on Windows, `WM_PAINT` in canvas mode with no frame committed fills the
+invalid region with `PatBlt(BLACKNESS)` (skipped while the swapchain's child window is
+visible, which covers the client); on macOS the canvas layer's `backgroundColor` is
+opaque black. [[src/target/win_x86_64/app/mod.rs:BLACKNESS]]
 
 **On Metal, a frame the GPU did not finish is not a GPU frame.** After `commit` and
 `waitUntilCompleted` the renderer reads the command buffer's `status`. Any value but

@@ -3712,6 +3712,16 @@ pub(crate) fn lower_module_for_platform(
         )?);
     }
 
+    // bug-996: the Vulkan builder thread's entry, which `canvas::vulkanBuild` starts
+    // and which calls it back. A target with no Vulkan backend starts no such thread.
+    if module_uses_call(module, "canvas.vulkanBuild")
+        && crate::codegen::runtime::canvas::vulkan::has_vulkan_backend(platform)
+    {
+        code_functions.push(
+            crate::codegen::runtime::canvas::vulkan_handoff::emit_vulkan_builder_entry(platform),
+        );
+    }
+
     // Native `LINK` marshaling thunks + load-time initializer (plan-linker.md §12).
     if link_count > 0 {
         let support = link_thunk::emit_link_support(

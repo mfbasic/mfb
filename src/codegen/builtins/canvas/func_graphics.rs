@@ -15,7 +15,7 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::codegen::runtime::canvas::metal::emit_metal_available;
-use crate::codegen::runtime::canvas::vulkan::emit_vulkan_ready;
+use crate::codegen::runtime::canvas::vulkan::{emit_vulkan_build, emit_vulkan_ready};
 use crate::codegen::runtime::canvas::{
     emit_await_pickup, emit_display_milli_hz, emit_frame_counters, emit_frame_done,
     emit_note_present, emit_set_display_override, emit_set_gpu_mode, emit_set_sync_mode,
@@ -562,30 +562,40 @@ pub(crate) fn lower_metal_ready(
     })
 }
 
-/// `canvas::vulkanReady() AS Boolean` — is the Vulkan device built and usable?
+/// `canvas::vulkanReady() AS Boolean` — is the Vulkan pipeline built, now?
 ///
-/// The Vulkan twin of `canvas::metalReady`. Builds the instance, physical device,
-/// logical device and graphics queue on the first call and reports whether they
-/// exist; every later call reports the remembered answer.
+/// The Vulkan twin of `canvas::metalReady` in the renderer branch, and (bug-996) a
+/// question only: it builds nothing and waits for nothing, so it is TRUE from the
+/// first frame after `canvas::vulkanBuild` has finished and FALSE until then.
 pub(crate) fn lower_vulkan_ready(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    emit_vulkan_ready(builder, ctx.platform, ctx.platform_imports)?;
-    builder.emit(abi::move_immediate(
-        RESULT_TAG_REGISTER,
-        "Integer",
-        RESULT_OK_TAG,
-    ));
-    builder.emit(abi::return_());
-    Ok(ValueResult {
-        origin: None,
-        type_: ParameterType::Nothing,
-        location: Operand::from("void"),
-        text: symbol,
-    })
+    emit_vulkan_ready(builder, ctx.platform);
+    Ok(ok_return(builder, symbol))
+}
+
+/// `canvas::vulkanBuild(place)` — see that the Vulkan device and pipeline are being
+/// built: on a thread of its own (`place` 0), or here and now (1).
+///
+/// The render loop calls it once, before it first asks `canvas::vulkanReady`
+/// (`__canvas_vulkanReady`). The builder thread's entry calls it by its symbol with 2
+/// in the first argument register (`runtime::canvas::vulkan_handoff`).
+pub(crate) fn lower_vulkan_build(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let place = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the place argument"))?
+        .location
+        .clone();
+    emit_vulkan_build(builder, ctx.platform, ctx.platform_imports, &place)?;
+    Ok(ok_return(builder, symbol))
 }
 
 fn internal(name: &'static str, body: Body) -> RegistryFunction {
@@ -728,6 +738,26 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Boolean,
             errors: vec![],
             body: Body::abi_function(lower_vulkan_ready),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "vulkanBuild",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "place",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::Integer,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            body: Body::abi_function(lower_vulkan_build),
         }],
     });
     pkg.add_function(RegistryFunction {

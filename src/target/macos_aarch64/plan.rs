@@ -962,6 +962,7 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.setGpuMode"
             | "canvas.metalAvailable"
             | "canvas.vulkanReady"
+            | "canvas.vulkanBuild"
             | "canvas.vulkanDrawScene"
             | "canvas.metalReady"
             | "canvas.metalDrawScene"

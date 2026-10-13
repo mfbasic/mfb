@@ -19,6 +19,10 @@ Main and worker already exist (`WORKER_SYMBOL` spawned from the UI-thread
 surface-ready callback on all three platforms). Graphics is the third, spawned the
 same way and from the same place, after the surface exists.
 
+**There is a fourth thread on Vulkan targets, and it is not part of the model**
+(bug-996, §10.1): the pipeline builder. It lives for one build, owns no arena, reads
+no scene and draws nothing. It shares exactly one word with the graphics thread.
+
 ## 2. Arena state is PER-THREAD — the fact everything below is shaped by
 
 Each thread pins `ARENA_STATE_REGISTER` (`x19`) to **its own** block:
@@ -437,6 +441,14 @@ row names the rule from above that protects it.
 | R27 | a `present` lands during an enter window | the window is not restarted: it ends when it would have | §16: an instance is its place in the scene, and its deadline is part of its state |
 | R28 | the graphics thread stops while a deadline is pending | shutdown completes at once | §16: the stop signals the condition variable the timed wait is on, and the wait checks `STOPPING` before its deadline |
 | R29 | `waitFrame` is in progress when a deadline expires | `waitFrame` returns when it would have | §15/§16: an auto-only wake takes `AUTO_WAKE` and nothing else — not `PENDING`, not `WANTED`, no `FRAME_COND` broadcast |
+| R30 | the program ends, or the window is closed, while the Vulkan pipeline is being built | the process ends at once; nothing waits for the builder and nothing it uses is freed | §10.1: shutdown joins only the graphics thread, which is never inside the build |
+| R31 | the build fails, or its thread cannot be started | every frame is software, for the life of the process | §10.1: `READY = 2`, which `canvas::vulkanReady` answers FALSE for |
+| R32 | the program leaves canvas mode while the pipeline is being built, and comes back | the build finishes meanwhile; the frames after the return are Vulkan frames | §10.1: the build depends on no mode, window or surface, and nothing stops the graphics thread at a mode change |
+
+**R30–R32 are bug-996's.** R30 and R32 are proven in a real window on box 206 (the bug
+document has the runs), because no headless run starts the builder thread (§10.1); R31
+by `tests/codegen/codegen_canvas_vulkan_off_frame_path.rs`, which runs the emitted
+build against a loader with no Vulkan and a thread library that refuses.
 
 **R26–R29 are plan-172-K's**, pinned by the four `auto_…` tests at the end of
 `tests/canvas/rt_canvas_graphics_thread.rs`. R26 is the row a headless test can only
@@ -503,9 +515,12 @@ END IF
 __canvas_renderScene()
 ```
 
-* `canvas::useGpu` — did the program ask? (`MFB_CANVAS_GPU=1`, read once at
-  spawn.) **Software is the default and must stay so**: it is the oracle the GPU
-  backends are measured against, so it cannot become the thing being measured.
+* `canvas::useGpu` — did the program ask? Settled once, before the graphics thread
+  is spawned (`__canvas_wantGpu`): a real window asks, a headless run does not, and
+  `MFB_CANVAS_GPU` overrides both ways. **Software is the default for a headless run
+  and must stay so**: it is the oracle the GPU backends are measured against, so it
+  cannot become the thing being measured. What is settled once is the ASKING; which
+  renderer draws a given frame is decided per frame by the other two conditions.
 * `canvas::metalReady` — did a pipeline build? It runs `_mfb_macapp_metal_init` on
   first call and remembers the answer in `GRAPHICS_OFFSET_MTL_READY` as a tri-state
   (untried / built / failed), so a host with no Metal device pays the device probe and
@@ -549,13 +564,91 @@ Three consequences for anything added here later:
 
 The Vulkan backend (plan-98-F) sits behind the same branch, gated on the single
 `canvas::vulkanReady` — there is deliberately no second "is Vulkan present" probe, because
-two probes of overlapping facts can disagree and one of them did. It has the same offscreen
+two probes of overlapping facts can disagree and one of them did. **Unlike `metalReady` it
+builds nothing** (§10.1). It has the same offscreen
 shape: it renders into an image and reads it back so the frame leaves through
 `canvas::blitSurface` like every other — always, in a window too: there is no Vulkan twin
 of Metal's direct present (bug-688 left it to be measured on real GPU hardware, which no
 reachable box has). It needs no `VkSurfaceKHR` and no swapchain, which is what lets it be
 tested headless; box 2226 now has a GNOME Wayland session, but its Vulkan driver, like
 every reachable one, is Mesa's CPU lavapipe.
+
+### 10.1 The Vulkan pipeline is never on a frame's critical path (bug-996)
+
+`vkCreateGraphicsPipelines` compiles the fragment shader, and a real driver that has not
+seen the executable NAME before takes tens of seconds over it (38 s on box 206's Intel
+UHD 630; its cache is per application). `canvas::vulkanReady` used to BE that build, asked
+inside the first frame, so a new program showed a blank window for the whole compile, a
+`--debug` run wrote no stats line (bug-1045), and a program that ended meanwhile hung in
+shutdown's join for the rest of it (45 s measured).
+
+The rule now, and where each half lives:
+
+* **`canvas::vulkanReady()` is one load.** It starts nothing and waits for nothing, so
+  the render branch asks it every frame and the stats line asks it too.
+* **`canvas::vulkanBuild(place)` is the build.** `__canvas_vulkanReady` (the render
+  loop's wrapper) calls it once, the first time a frame wants the GPU: `0`, on a thread
+  of its own, unless `MFB_CANVAS_GPU` is set, then `1`, on the graphics thread, to its
+  end. The first is what a window gets; the second keeps a test's first frame a GPU
+  frame, and is why every GPU test and box script still sees `vulkanReady=TRUE` on its
+  first stats line.
+* **Frames are software until the word says built**, then Vulkan. Software to GPU and
+  back was already an ordinary per-frame event (a declined scene), so the window code
+  needed nothing: a blit hides the swapchain's child, a direct present shows it.
+
+**The hand-off is `GRAPHICS_OFFSET_VULKAN_READY`, and the order is the whole proof**
+(`runtime/canvas/vulkan_handoff.rs`): untried 0, built 1, failed 2, building 3.
+
+* Only the graphics thread takes it off 0, and it does so BEFORE the builder thread
+  exists. One builder at most, with no compare-and-swap.
+* The builder fills its object words with plain stores and writes the ready word LAST
+  (a store-release on AArch64). Then it returns.
+* The graphics thread reads the ready word FIRST (a load-acquire on AArch64) and an
+  object word only after reading 1. It writes none of the builder's words.
+
+Who owns which word:
+
+| Builder thread (before `READY = 1`), graphics thread reads after | Graphics thread only, made on a GPU frame |
+|---|---|
+| `LIB`, `INSTANCE`, `PHYSICAL`, `DEVICE`, `QUEUE`, `QUEUE_FAMILY`, `WSI` | `IMAGE`, `IMAGE_MEMORY`, `IMAGE_VIEW`, `FRAMEBUFFER`, `READ_BUFFER`, `READ_MEMORY`, `MAPPED`, `TEX_WIDTH/HEIGHT` |
+| `SET_LAYOUT`, `DESC_POOL`, `DESC_SET`, `EDGE_*`, `ITEM_*` | `COMMAND_POOL`, `COMMAND_BUFFER` |
+| `PIPELINE_LAYOUT`, `RENDER_PASS`, `PIPELINE`, `PIPELINE_MODES` | `SURFACE`, `SURFACE_HWND`, `SWAPCHAIN`, `SC_*`, `SEM_*`, `PRESENT_PASS` |
+
+No main-thread code touches any `GRAPHICS_OFFSET_VULKAN_*` word
+(`grep -rn GRAPHICS_OFFSET_VULKAN src/target` finds nothing).
+
+What to remember when touching it:
+
+* **The builder has no arena, on purpose** (§2's corollary). Its entry pins nothing into
+  the arena-state register; the build uses its own stack, the process-global state and
+  the loader. Anything added to `emit_vulkan_build` that allocates from the arena
+  allocates from whatever the thread library left in that register.
+* **Its entry owes the thread library every register MFB code may change**
+  (`emit_thread_entry`, shared with the graphics entry). The build is MFB-convention
+  code: on Win64 it writes `rdi`/`rsi`/`rbx`/`r12` freely.
+* **Nobody joins it and nobody stops it.** It is detached at birth
+  (`pthread_detach`, `CloseHandle`). Shutdown joins the graphics thread, which is not
+  inside the build (with `MFB_CANVAS_GPU` set it is, and an exit then waits as it always
+  did), and the process then ends with the builder wherever it is: nothing
+  it uses is freed (static state, its own stack, the driver's memory), and no Vulkan
+  object is destroyed at exit, built or not. Do not add a device teardown to shutdown
+  without first deciding what it does while the word is 3.
+* **A new reader of a builder word must be behind the ready word.** Reading `DEVICE`
+  "to see if there is one" is reading a half-built pipeline.
+* **The swapchain is not part of the build and stays on the graphics thread.** It needs
+  the window and the client size current at that frame, it is torn down and rebuilt on
+  every resize, and it compiles nothing: on box 206 the first GPU frame of a window,
+  which creates the render target, the surface and the swapchain, took 24 to 29 ms
+  against 2 to 3 ms for the frames around it.
+* **Metal has the same shape and is not fixed.** `canvas::metalReady` still builds the
+  pipeline on the graphics thread at the first GPU frame, and macOS keeps the compiled
+  form per application: 5.6 to 13 s on the first launch of an app name never run before
+  on this Mac, 24 to 83 ms on the second (`tools/canvas-bench/bench.sh <mfb> coldstart`).
+* **A headless run cannot reach the on-a-thread build.** Headless is software unless
+  `MFB_CANVAS_GPU` is set, and a set variable builds on the graphics thread. The
+  software-then-GPU switch is a real window's to prove (box 206, `schtasks /it`); the
+  cargo suites cover the seam by running the emitted members in the `-ncode` interpreter
+  (`tests/codegen/codegen_canvas_vulkan_off_frame_path.rs`).
 
 ### A group is one instanced draw per node, with an offset bound to BOTH stages
 
@@ -914,13 +1007,18 @@ lost — on the one path whose entire job is to report edges.
 
 A fourth selects the renderer rather than observing it:
 
-* `MFB_CANVAS_GPU` — ask for the Metal backend (§10). The stats line reports all
-  of the branch's discriminants — `metal=`, `gpuSelected=`, `metalReady=` and, on
-  Linux, `vulkan=` and `vulkanReady=` — which is how a test tells "the GPU agreed
-  with the oracle" from "there was no GPU and both runs were the oracle". The
-  Vulkan pair distinguishes a third case the Metal pair cannot: a machine with a
-  *loader* but no ICD reports `vulkan=FALSE`, which is a real configuration (box
-  2227) and not a failure.
+* `MFB_CANVAS_GPU` — ask for the GPU backend, or (`0`) refuse it (§10). The stats
+  line reports the branch's discriminants — `metal=`, `gpuSelected=`, `metalReady=`
+  and `vulkanReady=` — which is how a test tells "the GPU agreed with the oracle" from
+  "there was no GPU and both runs were the oracle".
+
+  **`vulkanReady=` is "built by now", not "can be built"** (bug-996). The stats line
+  starts no build and waits for none, so the field is FALSE on every line of a software
+  run, FALSE while a window's pipeline is still being built, and TRUE from the first
+  line of a run with `MFB_CANVAS_GPU` set (which builds before its first frame). Until
+  bug-996 the stats line's own question built the device, so a software `--debug` run
+  on a new executable name paid the whole compile; it no longer touches Vulkan at all.
+  `metalReady=` still builds on being asked.
 
 And a fifth is not about the renderer at all, but is what makes any of this
 observable on Linux:

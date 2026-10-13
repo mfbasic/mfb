@@ -299,6 +299,17 @@ pub(crate) fn win64_nonvolatile_int_registers() -> Vec<crate::target::shared::ab
         .collect()
 }
 
+/// The SysV callee-saved integer bank, in save-slot order: every register a
+/// hand-written SysV callback that runs hand-staged code owes its caller (bug-996, the
+/// canvas Vulkan builder's thread entry). Built from this model's own callee-saved
+/// table, like its Win64 twin above.
+pub(crate) fn sysv_nonvolatile_int_registers() -> Vec<crate::target::shared::abi::Reg> {
+    INT_CALLEE_SAVED
+        .iter()
+        .map(|name| crate::target::shared::abi::Reg::physical(name))
+        .collect()
+}
+
 /// The SysV callee-saved integer registers the Linux GTK x86-64 app wrap bracket
 /// saves around a hand-built callback body, in save-slot order: the callee-saved
 /// bank minus the frame pointer `rbp` and the pinned arena base. The last entry
