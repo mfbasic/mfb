@@ -126,7 +126,7 @@ Stop in `isPrime`, run three of its instructions, and show the next five:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp isPrime\nrun\nstep 3\ndis 5\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp isPrime\nrun\nstep 3\ndis 5\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
@@ -134,7 +134,7 @@ Launched examples/debug/build/debug.out as process 89969; paused before its firs
 DBG> bp isPrime
 Set a breakpoint at 0x0000000102734aa4 in isPrime.
 DBG> run
---[BP] T: 0 P: 0x0000000102734aa4 F: isPrime
+--[BP] T: 0 P: 0x0000000102734aa4 F: (isPrime) _mfb_fn_isPrime
 DBG> step 3
 Stepped 3 instructions; thread 0 is at 0x0000000102734ab0 in isPrime+0xc.
 DBG> dis 5
@@ -153,7 +153,7 @@ let the rest of the program run:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp countPrimes\nrun\nj lr x0=0 x1=7\nbp r countPrimes\nrun\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp countPrimes\nrun\nj lr x0=0 x1=7\nbp r countPrimes\nrun\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
@@ -161,7 +161,7 @@ Launched examples/debug/build/debug.out as process 82633; paused before its firs
 DBG> bp countPrimes
 Set a breakpoint at 0x00000001006ecdc4 in countPrimes.
 DBG> run
---[BP] T: 0 P: 0x00000001006ecdc4 F: countPrimes
+--[BP] T: 0 P: 0x00000001006ecdc4 F: (countPrimes) _mfb_fn_countPrimes
 DBG> j lr x0=0 x1=7
 Moved thread 0 to 0x00000001006ed284 in runRound+0x158; set x0 = 0x0000000000000000 (0), x1 = 0x0000000000000007 (7).
 DBG> bp r countPrimes
@@ -170,7 +170,7 @@ DBG> run
 round 1: 7 primes
 round 2: 31 primes
 total: 38 primes
---[EX] Program exit (0)
+--[EX] Program exit (0) - type "show report" to see the performance and memory report
 DBG> q
 Process 82633 had already exited.
 ```

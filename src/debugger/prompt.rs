@@ -11,10 +11,10 @@
 use std::io::{BufRead, Write};
 
 use super::backtrace;
-use super::breakpoints::{self, Breakpoints, Ended, ErrorCodes, Finish, Target};
+use super::breakpoints::{self, Breakpoints, Ended, ErrorCodes, Finish, Target, REPORT_HINT};
 use super::disassemble::{self, Request, Window};
 use super::location::{self, is_register, Condition, Location};
-use super::names::{classify, Collisions, Origin};
+use super::names::{classify, stop_name, Collisions, Origin};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
 use super::values::{self, Region, View};
 use super::{
@@ -39,6 +39,8 @@ Commands:
                   Dump a block: show arena <id> <block> [<offset>] [<size>]
                   An arena value as a type: show type <type> <where> (as show mem)
                   ('show type' alone for the types and their forms)
+                  The performance and memory report a --debug build writes as
+                  it exits, kept from the terminal: show report
   breakpoint, bp  Set a breakpoint: bp <address|function[+offset]> [<commands>]
                   Remove every one there: bp r <address|function[+offset]>
   breakpointif, bpi
@@ -56,9 +58,10 @@ Commands:
   breakerror, be  Stop when a thread raises an error:
                   be <code|name>... | any [<commands>]
                   Stop watching: be clear; be alone shows what is watched
-                  <commands> run at each stop, then the program runs on: list,
-                  show, bt, dis, j or a bare be, separated by ';' (bp fib bt 1;
-                  list reg x0)
+                  <commands> run at each stop: list, show, bt, dis, j, finish
+                  or a bare be, separated by ';'; the program stays stopped
+                  unless run is the last of them (bp fib bt 1; list reg x0;
+                  run)
   run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
   finish, f       Run until the current function returns
   restart, rs     Start the program again (a program the debugger launched)
@@ -87,7 +90,12 @@ Each stop prints one line per thread it stopped, starting --[<kind>]:
   --[BE] T: <thread> P: <pc> F: <function> E: <error>  a watched error
   --[XC] T: <thread> P: <pc> F: <function> X: <what>   another exception
   --[CC] User Break                                     Ctrl-C
-  --[EX] Program exit (<status>)                        the end";
+  --[EX] Program exit (<status>)                        the end
+A --debug build's exit line ends: - type \"show report\" to see the
+performance and memory report
+<function> is (<written name>) <symbol>, the symbol alone when the function
+has no written name; breakpoint takes either, the symbol when several
+functions share the written name.";
 
 /// What a bare `list` prints.
 pub(crate) const LIST_USAGE: &str = "\
@@ -96,7 +104,7 @@ Usage: list <what>
 Each listing starts with a line naming its columns; ' | ' separates them.
 
   func [<filter>...]
-                The program's functions, one per line:
+                The program's functions (also 'list function'), one per line:
                   <type> <address> <symbol> <written name>
                 A <filter> that is a type (MU, MB, MR, SL, SD) keeps that
                 type; any other is a name, matched against the symbol and the
@@ -111,8 +119,9 @@ Each listing starts with a line naming its columns; ' | ' separates them.
                 name.
   thread        The program's threads: <id> <name> <pc> <task>
                 <task> is App, MFB Main, User Thread or Other.
-  reg           A thread's registers: gpr, simd, sys, or the ones named.
-                Type 'list reg' for how.
+  reg           A thread's registers: gpr, simd, sys, or the ones named;
+                on its own, the argument and result registers and how to
+                ask for the rest.
   arena         The program's MFBASIC memory arenas (debug builds):
                   <id> <thread id> <address> <size in KB>
   breakpoint    The breakpoints: <address> <symbol> <written name>
@@ -123,12 +132,15 @@ Each listing starts with a line naming its columns; ' | ' separates them.
                 <value> is the bytes' value now; a <commands> column follows
                 when any has commands.";
 
-/// What a bare `list reg` prints.
+/// What a bare `list reg` prints under its registers, and all it prints once
+/// the program has ended.
 pub(crate) const LIST_REG_USAGE: &str = "\
-Usage: list reg [<id>] <what>...
+Usage: list reg [<id>] [<what>...]
 
 Shows the registers of thread <id> (default 0, the main thread) as
-<register> <hex value> (<decimal>). <what> is one or more of:
+<register> <hex value> (<decimal>). With no <what> it shows the registers
+that carry arguments and results, and the ones MFBASIC code keeps for
+itself, each with its role. <what> is one or more of:
 
   gpr           The general-purpose registers: x0 to x28, fp (x29), lr (x30)
   simd          The SIMD and floating-point registers: v0 to v31
@@ -156,6 +168,8 @@ enum Command {
     },
     /// `show error [<thread>]`: the error parked in a thread's arena.
     ShowError(Option<usize>),
+    /// `show report`: the debug report the program wrote as it exited.
+    ShowReport,
     /// `breakerror <code>|any [<commands>]`: stop when a thread raises it.
     BreakError(ErrorCodes, Vec<String>),
     /// `breakerror clear`.
@@ -344,7 +358,10 @@ const DUMP_SIZE: u64 = 1024;
 enum Listing {
     Functions(FunctionFilter),
     Threads,
-    RegisterUsage,
+    /// A bare `list reg`: the registers that have a role, then the usage.
+    CommonRegisters {
+        thread: usize,
+    },
     Registers {
         thread: usize,
         picks: Vec<RegisterPick>,
@@ -457,9 +474,9 @@ fn parse(line: &str) -> Result<Command, String> {
         ("quit" | "q", []) => Ok(Command::Quit),
         ("help" | "h" | "quit" | "q", _) => Err(format!("'{name}' takes no arguments")),
         ("list" | "l", []) => Ok(Command::List(None)),
-        ("list" | "l", ["func", filter @ ..]) => Ok(Command::List(Some(Listing::Functions(
-            FunctionFilter::parse(filter),
-        )))),
+        ("list" | "l", ["func" | "function", filter @ ..]) => Ok(Command::List(Some(
+            Listing::Functions(FunctionFilter::parse(filter)),
+        ))),
         ("list" | "l", ["thread"]) => Ok(Command::List(Some(Listing::Threads))),
         ("list" | "l", ["arena"]) => Ok(Command::List(Some(Listing::Arenas))),
         ("list" | "l", ["breakpoint"]) => Ok(Command::List(Some(Listing::Breakpoints))),
@@ -478,7 +495,7 @@ fn parse(line: &str) -> Result<Command, String> {
                 _ => (MAIN_THREAD, &words[..]),
             };
             if picks.is_empty() {
-                return Ok(Command::List(Some(Listing::RegisterUsage)));
+                return Ok(Command::List(Some(Listing::CommonRegisters { thread })));
             }
             Ok(Command::List(Some(Listing::Registers {
                 thread,
@@ -671,18 +688,20 @@ fn parse(line: &str) -> Result<Command, String> {
                 view,
             })
         }
+        ("show", ["report"]) => Ok(Command::ShowReport),
+        ("show", ["report", ..]) => Err("'show report' takes no arguments".to_string()),
         ("show", ["type"]) => Ok(Command::TypeUsage),
         ("show", ["type", type_word]) => Err(format!(
             "'show type {type_word}' needs an address or a register: show type {type_word} <where>"
         )),
         ("show", []) => Err(
             "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
-             show arena [<id>], or show error [<thread>]"
+             show arena [<id>], show error [<thread>], or show report"
                 .to_string(),
         ),
         ("show", [other, ..]) => Err(format!(
-            "cannot show '{other}'; 'show mem', 'show type', 'show arena' and 'show error' are \
-             what can be shown"
+            "cannot show '{other}'; 'show mem', 'show type', 'show arena', 'show error' and \
+             'show report' are what can be shown"
         )),
         ("disassemble" | "dis", []) => Ok(Command::Disassemble(Disassembly::Current)),
         ("disassemble" | "dis", [word]) if is_count(word) => Ok(Command::Disassemble(
@@ -830,35 +849,58 @@ fn is_command(word: &str) -> bool {
 /// The commands a stop runs, from the words after a breakpoint's,
 /// watchpoint's or error watch's own: `;` separates them. Each must be one
 /// that reads the program — `list`, `show`, `backtrace`, `disassemble`, or a
-/// bare `breakerror` — or `jump`, which moves the stopped thread.
+/// bare `breakerror` — `jump`, which moves the stopped thread, `finish`, or,
+/// as the last of them, `run`, which runs the program on.
 fn stop_commands(words: &[&str]) -> Result<Vec<String>, String> {
     let text = words.join(" ");
-    let mut commands = Vec::new();
+    let mut commands = Vec::<String>::new();
     for command in text
         .split(';')
         .map(str::trim)
         .filter(|command| !command.is_empty())
     {
+        if let Some(run) = commands.last().filter(|last| runs_on(last)) {
+            return Err(format!(
+                "'{run}' must be the last command of a stop: '{command}' follows it"
+            ));
+        }
         match parse(command)? {
             Command::List(_)
             | Command::ShowMemory { .. }
             | Command::ShowType { .. }
             | Command::ShowArena { .. }
             | Command::ShowError(_)
+            | Command::ShowReport
             | Command::Backtrace(_)
             | Command::Disassemble(_)
             | Command::Jump { .. }
+            | Command::Finish
+            | Command::Run
             | Command::ErrorWatch => commands.push(command.to_string()),
             _ => {
                 return Err(format!(
                     "'{command}' cannot run at a stop: a stop runs list, show, backtrace, \
-                     disassemble, jump and a bare breakerror"
+                     disassemble, jump, finish, a bare breakerror and, last, run"
                 ))
             }
         }
     }
     Ok(commands)
 }
+
+/// Whether a stop's command is `run`.
+fn runs_on(command: &str) -> bool {
+    matches!(parse(command), Ok(Command::Run))
+}
+
+/// The fault each thread is stopped on, as its stop named it (`a bad memory
+/// access at 0x8`), until the thread runs again: what `show error` says when
+/// the thread has no error.
+type Faults = std::collections::BTreeMap<usize, String>;
+
+/// A stop's commands that wait for the prompt to run them, each with the
+/// thread that stopped: the ones of a stop that has a `finish` among them.
+type Queue = std::collections::VecDeque<(usize, String)>;
 
 fn step_count(word: &str) -> Result<u64, String> {
     match word.parse::<u64>() {
@@ -1014,6 +1056,22 @@ pub(crate) fn register_lines(registers: &[Register]) -> Vec<String> {
     )
 }
 
+/// The lines of a bare `list reg`: the registers that have a role in compiled
+/// code, as [`register_lines`] shows them, with the role in a fourth column.
+pub(crate) fn common_register_lines(registers: &[Register]) -> Vec<String> {
+    table(
+        &["Register", "Hex", "Decimal", "Role"],
+        registers
+            .iter()
+            .filter_map(|register| {
+                let role = register.role?;
+                let (hex, decimal) = register_value(register);
+                Some(vec![register.name.clone(), hex, decimal, role.to_string()])
+            })
+            .collect(),
+    )
+}
+
 /// A register's value as `list reg` shows it: in full-width hex, and in
 /// decimal in parentheses.
 fn register_value(register: &Register) -> (String, String) {
@@ -1101,7 +1159,16 @@ fn list(
             let functions = inferior.functions().unwrap_or_default();
             Ok(thread_lines(&threads, &roles, &functions))
         }
-        Some(Listing::RegisterUsage) => Ok(LIST_REG_USAGE.lines().map(str::to_string).collect()),
+        Some(Listing::CommonRegisters { thread }) => {
+            let count = inferior.threads()?.len();
+            if thread >= count {
+                return Err(no_thread(thread, count));
+            }
+            let mut lines = common_register_lines(&inferior.registers(thread)?);
+            lines.push(String::new());
+            lines.extend(LIST_REG_USAGE.lines().map(str::to_string));
+            Ok(lines)
+        }
         Some(Listing::Registers { thread, picks }) => {
             let count = inferior.threads()?.len();
             if thread >= count {
@@ -1163,6 +1230,7 @@ fn step(
     inferior: &mut dyn Inferior,
     thread: usize,
     count: u64,
+    faults: &mut Faults,
 ) -> Result<(Vec<String>, bool), String> {
     let threads = inferior.threads()?.len();
     if thread >= threads {
@@ -1177,6 +1245,7 @@ fn step(
             false,
         ));
     }
+    faults.remove(&thread);
     let outcome = inferior
         .step(&[thread], count)?
         .pop()
@@ -1193,6 +1262,7 @@ fn step(
             match stop {
                 StepStop::Finished => format!("Stepped {taken}; thread {thread} is at {place}."),
                 StepStop::Exception(what) => {
+                    faults.insert(thread, what.clone());
                     format!("Stopped after {taken} by {what}; thread {thread} is at {place}.")
                 }
                 _ => format!(
@@ -1204,14 +1274,30 @@ fn step(
     Ok((vec![line], exited))
 }
 
+/// A step's `lines`, with where the debug report is after them when the step
+/// `ended` the program and the session kept one.
+fn ended_lines(mut lines: Vec<String>, ended: bool, breakpoints: &Breakpoints) -> Vec<String> {
+    if ended && breakpoints.has_report() {
+        let mut hint = REPORT_HINT.to_string();
+        hint[..1].make_ascii_uppercase();
+        lines.push(format!("{hint}."));
+    }
+    lines
+}
+
 /// Step every thread together `count` rounds and describe where each stopped;
 /// the flag is set when the program ended.
-fn step_all(inferior: &mut dyn Inferior, count: u64) -> Result<(Vec<String>, bool), String> {
+fn step_all(
+    inferior: &mut dyn Inferior,
+    count: u64,
+    faults: &mut Faults,
+) -> Result<(Vec<String>, bool), String> {
     let threads = inferior.threads()?.len();
     let ids = (0..threads).collect::<Vec<_>>();
     let outcomes = if count == 0 {
         Vec::new()
     } else {
+        faults.clear();
         inferior.step(&ids, count)?
     };
     if outcomes
@@ -1248,6 +1334,7 @@ fn step_all(inferior: &mut dyn Inferior, count: u64) -> Result<(Vec<String>, boo
                     let taken = instructions(outcome.taken);
                     match &outcome.stop {
                         StepStop::Exception(what) => {
+                            faults.insert(*id, what.clone());
                             format!("Thread {id}: stopped after {taken} by {what}; at {at}.")
                         }
                         StepStop::Waiting => format!(
@@ -1459,8 +1546,8 @@ fn stop_thread(stop: &RunStop) -> Option<usize> {
 
 /// A stop line's `T: <id> P: <pc> F: <function>`: the thread, the address of
 /// its instruction (`pc`, else the thread's own), and the function holding it
-/// with the offset into it — the executable's as `locate` names it, else a
-/// library's — `-` where none is known.
+/// as `(<written name>) <symbol>` with the offset into it — the executable's
+/// as `locate_stop` names it, else a library's — `-` where none is known.
 fn stop_place(inferior: &mut dyn Inferior, thread: usize, pc: Option<u64>) -> String {
     let threads = inferior.threads().unwrap_or_default();
     let Some(facts) = threads.get(thread) else {
@@ -1469,15 +1556,14 @@ fn stop_place(inferior: &mut dyn Inferior, thread: usize, pc: Option<u64>) -> St
     let pc = pc.unwrap_or(facts.pc);
     let functions = inferior.functions().unwrap_or_default();
     // The executable's functions first; then a library's, by its symbols.
-    let function = runtime::locate(&functions, pc)
+    let function = runtime::locate_stop(&functions, pc)
         .or_else(|| {
             let range = inferior.function_at(pc).ok().flatten()?;
-            let name =
-                disassemble::display_name(range.name.as_deref()?, &Collisions::of(&functions));
-            Some(match pc - range.start {
-                0 => name,
-                offset => format!("{name}+{offset:#x}"),
-            })
+            let symbol = range.name.as_deref()?;
+            let written = disassemble::display_name(symbol, &Collisions::default());
+            // A stub is named for the function it reaches, not written.
+            let written = (!symbol.starts_with("symbol stub for: ")).then_some(written);
+            Some(stop_name(written.as_deref(), symbol, pc - range.start))
         })
         .unwrap_or_else(|| "-".to_string());
     format!("T: {thread} P: 0x{pc:016x} F: {function}")
@@ -1492,8 +1578,14 @@ fn error_shown(code: i64) -> String {
     }
 }
 
-/// The lines a stop prints, one per thread it stopped.
-fn stop_lines(inferior: &mut dyn Inferior, stop: &RunStop) -> Vec<String> {
+/// The lines a stop prints, one per thread it stopped; `report` when the
+/// session kept the program's debug report, which the end's line then says.
+fn stop_lines(inferior: &mut dyn Inferior, stop: &RunStop, report: bool) -> Vec<String> {
+    let hint = if report {
+        format!(" - {REPORT_HINT}")
+    } else {
+        String::new()
+    };
     match stop {
         RunStop::Breakpoints(hits) => hits
             .iter()
@@ -1527,11 +1619,13 @@ fn stop_lines(inferior: &mut dyn Inferior, stop: &RunStop) -> Vec<String> {
             stop_place(inferior, *thread, None)
         )],
         RunStop::Interrupted => vec!["--[CC] User Break".to_string()],
-        RunStop::Exited(Exit::Status(status)) => vec![format!("--[EX] Program exit ({status})")],
-        RunStop::Exited(Exit::Signal(signal)) => {
-            vec![format!("--[EX] Program ended by signal ({signal})")]
+        RunStop::Exited(Exit::Status(status)) => {
+            vec![format!("--[EX] Program exit ({status}){hint}")]
         }
-        RunStop::Exited(Exit::Unknown) => vec!["--[EX] Program exit".to_string()],
+        RunStop::Exited(Exit::Signal(signal)) => {
+            vec![format!("--[EX] Program ended by signal ({signal}){hint}")]
+        }
+        RunStop::Exited(Exit::Unknown) => vec![format!("--[EX] Program exit{hint}")],
     }
 }
 
@@ -1560,7 +1654,12 @@ fn emit(
 /// Hear a stop: write the notes and its lines, make its thread current, and
 /// run the commands each of its breakpoints, watchpoints or error watch has,
 /// each with its own thread current. Answers whether the program runs on:
-/// when every stop in it has commands.
+/// when every stop in it has commands that end in `run`.
+///
+/// Commands that only read the program run here. A stop with a `finish`
+/// among its commands leaves them all in `queue` instead, for the prompt to
+/// run as if typed, with a `run` last when the program is to run on; a stop
+/// heard while those run takes their place.
 #[allow(clippy::too_many_arguments)]
 fn hear_stop(
     inferior: &mut dyn Inferior,
@@ -1569,27 +1668,57 @@ fn hear_stop(
     notes: Vec<String>,
     stop: &RunStop,
     current: &mut usize,
+    queue: &mut Queue,
+    faults: &mut Faults,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> Result<bool, String> {
     if let Some(thread) = stop_thread(stop) {
         *current = thread;
     }
+    if let RunStop::Exception { thread, what } = stop {
+        faults.insert(*thread, what.clone());
+    }
+    let stopped = *current;
     let mut lines = notes;
-    lines.extend(stop_lines(inferior, stop));
+    lines.extend(stop_lines(inferior, stop, breakpoints.has_report()));
     emit(out, err, Ok(lines))?;
     let (commands, every) = breakpoints.stop_commands(stop);
+    let on = every
+        && commands
+            .iter()
+            .all(|(_, commands)| commands.last().is_some_and(|last| runs_on(last)));
+    let finishes = commands.iter().any(|(_, commands)| {
+        commands
+            .iter()
+            .any(|command| matches!(parse(command), Ok(Command::Finish)))
+    });
+    queue.clear();
     for (thread, commands) in commands {
         *current = thread;
-        for command in commands {
+        for command in commands.into_iter().filter(|command| !runs_on(command)) {
+            if finishes {
+                queue.push_back((thread, command));
+                continue;
+            }
             let result = parse(&command).and_then(|command| match command {
-                Command::Jump { to, registers } => jump(inferior, thread, &to, &registers),
-                command => inspect(inferior, program, breakpoints, thread, command),
+                Command::Jump { to, registers } => {
+                    jump(inferior, thread, &to, &registers).inspect(|_| {
+                        faults.remove(&thread);
+                    })
+                }
+                command => inspect(inferior, program, breakpoints, faults, thread, command),
             });
             emit(out, err, result)?;
         }
     }
-    Ok(every)
+    if !finishes {
+        return Ok(on);
+    }
+    if on {
+        queue.push_back((stopped, "run".to_string()));
+    }
+    Ok(false)
 }
 
 /// Run a command that only reads the program — what a stop's commands may
@@ -1598,16 +1727,22 @@ fn inspect(
     inferior: &mut dyn Inferior,
     program: Program,
     breakpoints: &Breakpoints,
+    faults: &Faults,
     current: usize,
     command: Command,
 ) -> Result<Vec<String>, String> {
     match command {
         Command::List(listing) => list(inferior, program, breakpoints, listing),
         Command::ShowArena { id, dump } => show_arena(inferior, program, id, dump),
-        Command::ShowError(thread) => show_error(inferior, program, thread.unwrap_or(current)),
+        Command::ShowError(thread) => {
+            let thread = thread.unwrap_or(current);
+            show_error(inferior, program, thread, faults.get(&thread))
+        }
         Command::ErrorWatch => Ok(vec![breakpoints
             .watch_line()
             .unwrap_or_else(|| "No errors are being watched for.".to_string())]),
+        // A stop is not the end: only the prompt asks once the program has.
+        Command::ShowReport => Ok(breakpoints.report_lines(false)),
         Command::Disassemble(request) => disassemble_at(inferior, current, &request),
         Command::Backtrace(request) => backtrace(inferior, program, current, request),
         Command::ShowType { location, view } => {
@@ -1774,6 +1909,7 @@ fn show_error(
     inferior: &mut dyn Inferior,
     program: Program,
     thread: usize,
+    fault: Option<&String>,
 ) -> Result<Vec<String>, String> {
     let threads = inferior.threads()?;
     if thread >= threads.len() {
@@ -1792,7 +1928,14 @@ fn show_error(
         .find(|arena| arena.thread == Some(thread))
         .ok_or_else(|| format!("thread {thread} has no arena: it is running no MFBASIC code"))?;
     let Some(error) = runtime::current_error(inferior, arena.address)? else {
-        return Ok(vec![format!("Thread {thread} has no error in flight.")]);
+        // A fault is no error: nothing raised it and no `TRAP` catches it.
+        return Ok(vec![match fault {
+            Some(what) => format!(
+                "Thread {thread} has no error in flight: it stopped on {what}, which is a \
+                 fault, not an error a TRAP can catch. Use bt and list reg to see where."
+            ),
+            None => format!("Thread {thread} has no error in flight."),
+        }]);
     };
     let code = match runtime::error_code_name(error.code) {
         Some(name) => format!("{} ({name})", error.code),
@@ -2011,28 +2154,38 @@ pub(crate) fn run(
     let written = |result: std::io::Result<()>| result.map_err(|e| format!("cannot write: {e}"));
     let mut line = String::new();
     let mut breakpoints = Breakpoints::default();
+    breakpoints.watch_report(inferior, &mut Vec::new())?;
     // The thread `dis` shows: the last one a `run` or `step` stopped.
     let mut current = MAIN_THREAD;
     // Once the program has ended only `help`, `list`, `list breakpoint`, a bare
-    // `list reg` and `quit` mean anything.
+    // `list reg`, `show report`, `restart` and `quit` mean anything.
     let mut exited = false;
+    // The commands of a stop that wait to run: they come before the next line.
+    let mut queue = Queue::new();
+    let mut faults = Faults::new();
     loop {
-        write!(out, "{PROMPT}")
-            .and_then(|()| out.flush())
-            .map_err(|e| format!("cannot write the prompt: {e}"))?;
         line.clear();
-        let read = input
-            .read_line(&mut line)
-            .map_err(|e| format!("cannot read a command: {e}"))?;
-        if read == 0 {
-            // End of input: finish the prompt's line, then quit.
-            written(writeln!(out))?;
-            break;
-        }
-        if echo {
-            written(
-                write!(out, "{}", line.trim_end_matches(['\r', '\n'])).and_then(|()| writeln!(out)),
-            )?;
+        if let Some((thread, command)) = queue.pop_front() {
+            current = thread;
+            line.push_str(&command);
+        } else {
+            write!(out, "{PROMPT}")
+                .and_then(|()| out.flush())
+                .map_err(|e| format!("cannot write the prompt: {e}"))?;
+            let read = input
+                .read_line(&mut line)
+                .map_err(|e| format!("cannot read a command: {e}"))?;
+            if read == 0 {
+                // End of input: finish the prompt's line, then quit.
+                written(writeln!(out))?;
+                break;
+            }
+            if echo {
+                written(
+                    write!(out, "{}", line.trim_end_matches(['\r', '\n']))
+                        .and_then(|()| writeln!(out)),
+                )?;
+            }
         }
         let result = match parse(&line) {
             Ok(Command::Empty) => Ok(Vec::new()),
@@ -2040,29 +2193,34 @@ pub(crate) fn run(
             Ok(Command::Quit) => break,
             Ok(Command::TypeUsage) => Ok(values::TYPE_USAGE.lines().map(str::to_string).collect()),
             Ok(Command::List(
-                listing @ (None
-                | Some(
-                    Listing::Breakpoints | Listing::Watchpoints | Listing::RegisterUsage,
-                )),
+                listing @ (None | Some(Listing::Breakpoints | Listing::Watchpoints)),
             )) => list(inferior, program, &breakpoints, listing),
+            // An ended program has no registers to show; the usage still reads.
+            Ok(Command::List(Some(Listing::CommonRegisters { .. }))) if exited => {
+                Ok(LIST_REG_USAGE.lines().map(str::to_string).collect())
+            }
             Ok(Command::Restart) => restart(inferior, &mut breakpoints).inspect(|_| {
                 exited = false;
                 current = MAIN_THREAD;
+                faults.clear();
             }),
+            Ok(Command::ShowReport) => Ok(breakpoints.report_lines(exited)),
             Ok(_) if exited => {
                 Err("the program has exited; type 'quit' to end the session".to_string())
             }
             Ok(Command::Step { count, thread }) => {
-                step(inferior, thread, count).map(|(lines, ended)| {
+                step(inferior, thread, count, &mut faults).map(|(lines, ended)| {
                     exited = ended;
                     current = thread;
-                    lines
+                    ended_lines(lines, ended, &breakpoints)
                 })
             }
-            Ok(Command::StepAll(count)) => step_all(inferior, count).map(|(lines, ended)| {
-                exited = ended;
-                lines
-            }),
+            Ok(Command::StepAll(count)) => {
+                step_all(inferior, count, &mut faults).map(|(lines, ended)| {
+                    exited = ended;
+                    ended_lines(lines, ended, &breakpoints)
+                })
+            }
             Ok(Command::SetBreakpoint {
                 target,
                 condition,
@@ -2074,7 +2232,10 @@ pub(crate) fn run(
             Ok(Command::RemoveBreakpoint { target, condition }) => {
                 breakpoints.remove(inferior, &target, condition.as_ref())
             }
-            Ok(Command::Jump { to, registers }) => jump(inferior, current, &to, &registers),
+            Ok(Command::Jump { to, registers }) => jump(inferior, current, &to, &registers)
+                .inspect(|_| {
+                    faults.remove(&current);
+                }),
             Ok(Command::SetWatchpoint {
                 location,
                 size,
@@ -2088,6 +2249,7 @@ pub(crate) fn run(
             }
             Ok(Command::ClearErrors) => breakpoints.clear_errors(inferior),
             Ok(Command::Run) => {
+                faults.clear();
                 let ended = breakpoints.run(
                     inferior,
                     &mut |inferior: &mut dyn Inferior, breakpoints: &Breakpoints, notes, stop| {
@@ -2098,6 +2260,8 @@ pub(crate) fn run(
                             notes,
                             stop,
                             &mut current,
+                            &mut queue,
+                            &mut faults,
                             out,
                             err,
                         )
@@ -2111,12 +2275,17 @@ pub(crate) fn run(
                     // Breakpoints only a `finish` places: none are left.
                     Ended::Own(hits) => {
                         let mut lines = breakpoints.take_notes();
-                        lines.extend(stop_lines(inferior, &RunStop::Breakpoints(hits)));
+                        lines.extend(stop_lines(
+                            inferior,
+                            &RunStop::Breakpoints(hits),
+                            breakpoints.has_report(),
+                        ));
                         lines
                     }
                 })
             }
             Ok(Command::Finish) => {
+                faults.clear();
                 let thread = current;
                 let outcome = breakpoints.finish(
                     inferior,
@@ -2129,6 +2298,8 @@ pub(crate) fn run(
                             notes,
                             stop,
                             &mut current,
+                            &mut queue,
+                            &mut faults,
                             out,
                             err,
                         )
@@ -2141,10 +2312,13 @@ pub(crate) fn run(
                         lines
                     })
             }
-            Ok(command) => inspect(inferior, program, &breakpoints, current, command),
+            Ok(command) => inspect(inferior, program, &breakpoints, &faults, current, command),
             Err(message) => Err(message),
         };
         emit(out, err, result)?;
+        if exited {
+            queue.clear();
+        }
     }
     let pid = inferior.pid();
     let message = match inferior.end()? {
@@ -2321,16 +2495,19 @@ mod tests {
                     name: "x0".to_string(),
                     group: RegisterGroup::General,
                     value: RegisterValue::Bits64(x0),
+                    role: Some("MFB arg, MFB result, C arg, C result"),
                 },
                 Register {
                     name: "nzcv".to_string(),
                     group: RegisterGroup::System,
                     value: RegisterValue::Bits64(0x6000_0000),
+                    role: None,
                 },
                 Register {
                     name: "v31".to_string(),
                     group: RegisterGroup::Simd,
                     value: RegisterValue::Bits128(1 << 64),
+                    role: None,
                 },
             ])
         }
@@ -2492,6 +2669,12 @@ mod tests {
     }
 
     #[test]
+    fn list_function_is_list_func() {
+        assert_eq!(parse("list function"), parse("list func"));
+        assert_eq!(parse("l function MU fib"), parse("l func MU fib"));
+    }
+
+    #[test]
     fn list_func_groups_by_origin_then_address_and_keeps_repeats() {
         let (out, err, _) = session("l func\nq\n", Ending::Killed, false);
         assert_eq!(err, "");
@@ -2501,7 +2684,7 @@ mod tests {
                 "{PROMPT}\
 Type | Address            | Symbol                          | Written name
 MU   | 0x0000000000001004 | _mfb_fn_next_5Fseed             | next_seed
-MU   | 0x0000000000001010 | _mfb_fn_main                    | main <mfb>
+MU   | 0x0000000000001010 | _mfb_fn_main                    | main
 MB   | 0x0000000000001020 | _mfb_ifn_datetime_5FnormInstant | datetime::#normInstant
 MR   | 0x0000000000001000 | _main                           | -
 MR   | 0x0000000000001008 | _mfb_rt_print                   | -
@@ -2545,19 +2728,43 @@ ID | Name             | PC                 | Task
     }
 
     #[test]
-    fn list_reg_alone_shows_its_usage_even_after_the_program_ends() {
-        for line in ["list reg\nq\n", "l reg 2\nq\n"] {
+    fn list_reg_alone_shows_the_registers_with_a_role_then_its_usage() {
+        for (line, value) in [
+            ("list reg\nq\n", "2a | (42)   "),
+            ("l reg 2\nq\n", "2c | (44)   "),
+        ] {
             let (out, err, _) = session(line, Ending::Killed, false);
             assert_eq!(
                 out,
-                format!("{PROMPT}{LIST_REG_USAGE}\n{PROMPT}Killed process 42.\n")
+                format!(
+                    "{PROMPT}\
+Register | Hex                | Decimal | Role
+x0       | 0x00000000000000{value} | MFB arg, MFB result, C arg, C result
+
+{LIST_REG_USAGE}
+{PROMPT}Killed process 42.\n"
+                )
             );
             assert_eq!(err, "");
         }
+        let (out, err, _) = session("list reg 3\nq\n", Ending::Killed, false);
+        assert_eq!(out, format!("{PROMPT}{PROMPT}Killed process 42.\n"));
+        assert_eq!(
+            err,
+            "error: no thread 3: the program has 3 threads; type 'list thread' for them\n"
+        );
+    }
+
+    #[test]
+    fn list_reg_alone_shows_only_its_usage_after_the_program_ends() {
         let mut inferior = Recorder::new(Ending::AlreadyExited);
         inferior.runs = vec![RunStop::Exited(Exit::Status(0))];
         let (out, err) = drive(&mut inferior, "run\nlist reg\nlist reg gpr\nq\n", false);
-        assert!(out.contains(LIST_REG_USAGE), "{out}");
+        assert!(
+            out.contains(&format!("{PROMPT}{LIST_REG_USAGE}\n")),
+            "{out}"
+        );
+        assert!(!out.contains("Register |"), "{out}");
         assert_eq!(
             err,
             "error: the program has exited; type 'quit' to end the session\n"
@@ -2657,6 +2864,7 @@ x0       | 0x000000000000002c | (44)
             name: "x8".to_string(),
             group: RegisterGroup::General,
             value: RegisterValue::Bits64(u64::MAX),
+            role: None,
         };
         assert_eq!(
             register_lines(&[register]),
@@ -3127,14 +3335,14 @@ Thread 2 is at 0x0000000000007004.
             out,
             format!(
                 "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed.\n\
-                 {PROMPT}Set a breakpoint at 0x0000000000001012 in main+0x2 <mfb>.\n\
+                 {PROMPT}Set a breakpoint at 0x0000000000001012 in main+0x2.\n\
                  {PROMPT}\
-Address            | Symbol              | Written name
-0x0000000000001004 | _mfb_fn_next_5Fseed | next_seed
-0x0000000000001012 | _mfb_fn_main+0x2    | main+0x2 <mfb>
-{PROMPT}Removed the breakpoint at 0x0000000000001012 in main+0x2 <mfb>.\n\
-                 {PROMPT}Address            | Symbol              | Written name\n\
-                 0x0000000000001004 | _mfb_fn_next_5Fseed | next_seed\n\
+Address            | Count | Symbol              | Written name
+0x0000000000001004 | 0     | _mfb_fn_next_5Fseed | next_seed
+0x0000000000001012 | 0     | _mfb_fn_main+0x2    | main+0x2
+{PROMPT}Removed the breakpoint at 0x0000000000001012 in main+0x2.\n\
+                 {PROMPT}Address            | Count | Symbol              | Written name\n\
+                 0x0000000000001004 | 0     | _mfb_fn_next_5Fseed | next_seed\n\
                  {PROMPT}Killed process 42.\n"
             )
         );
@@ -3300,10 +3508,10 @@ Address            | Symbol              | Written name
                 "{PROMPT}\
 prog`next_seed:
     0x0000000000001004 <+0>: nop
-prog`mfb_rt_print:
+prog`_mfb_rt_print:
     0x0000000000001008 <+0>: nop
     0x000000000000100c <+4>: nop
-prog`main <mfb>:
+prog`main:
 ->  0x0000000000001010 <+0>: nop
     0x0000000000001014 <+4>: nop
 {PROMPT}\
@@ -3451,6 +3659,15 @@ SL  {linked}
                 commands: commands(&["bt 1", "list reg x0"])
             })
         );
+        // `finish` may be anywhere among a stop's commands, `run` only last.
+        assert_eq!(
+            parse("bp fib bt 1; f; list reg x0; r"),
+            Ok(Command::SetBreakpoint {
+                target: Target::Name("fib".to_string()),
+                condition: None,
+                commands: commands(&["bt 1", "f", "list reg x0", "r"])
+            })
+        );
         assert_eq!(
             parse("wp sp+0x10"),
             Ok(Command::SetWatchpoint {
@@ -3488,19 +3705,22 @@ SL  {linked}
         );
         for (line, message) in [
             (
-                "bp fib run",
-                "'run' cannot run at a stop: a stop runs list, show, backtrace, disassemble, \
-                 jump and a bare breakerror",
+                "bp fib run; bt",
+                "'run' must be the last command of a stop: 'bt' follows it",
+            ),
+            (
+                "bp fib r; finish",
+                "'r' must be the last command of a stop: 'finish' follows it",
             ),
             (
                 "wp 0x1000 8 bt; step",
                 "'step' cannot run at a stop: a stop runs list, show, backtrace, disassemble, \
-                 jump and a bare breakerror",
+                 jump, finish, a bare breakerror and, last, run",
             ),
             (
                 "be any be clear",
                 "'be clear' cannot run at a stop: a stop runs list, show, backtrace, \
-                 disassemble, jump and a bare breakerror",
+                 disassemble, jump, finish, a bare breakerror and, last, run",
             ),
             ("wp 0x1000 8x", "'8x' is not a number"),
             (
@@ -3535,7 +3755,7 @@ SL  {linked}
         ];
         let (out, err) = drive(
             &mut inferior,
-            "bp next_seed list reg x0; show mem 0x10\nrun\nq\n",
+            "bp next_seed list reg x0; show mem 0x10; run\nrun\nq\n",
             false,
         );
         assert_eq!(err, "error: unmapped 0x10\n");
@@ -3543,11 +3763,41 @@ SL  {linked}
             out,
             format!(
                 "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed. Each stop runs \
-                 'list reg x0; show mem 0x10' and continues.
-{PROMPT}--[BP] T: 0 P: 0x0000000000001004 F: next_seed
+                 'list reg x0; show mem 0x10; run'.
+{PROMPT}--[BP] T: 0 P: 0x0000000000001004 F: (next_seed) _mfb_fn_next_5Fseed
 Register | Hex                | Decimal
 x0       | 0x000000000000002a | (42)
 --[EX] Program exit (0)
+{PROMPT}Killed process 42.
+"
+            )
+        );
+    }
+
+    #[test]
+    fn a_stop_whose_commands_do_not_end_in_run_stays_stopped_and_is_counted() {
+        let mut inferior = Recorder::new(Ending::Killed);
+        inferior.runs = vec![
+            RunStop::Breakpoints(vec![(0, 0x1004)]),
+            RunStop::Exited(Exit::Status(0)),
+        ];
+        let (out, err) = drive(
+            &mut inferior,
+            "bp next_seed list reg x0\nrun\nlist breakpoint\nq\n",
+            false,
+        );
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed. Each stop runs \
+                 'list reg x0'.
+{PROMPT}--[BP] T: 0 P: 0x0000000000001004 F: (next_seed) _mfb_fn_next_5Fseed
+Register | Hex                | Decimal
+x0       | 0x000000000000002a | (42)
+{PROMPT}\
+Address            | Count | Symbol              | Written name | Commands
+0x0000000000001004 | 1     | _mfb_fn_next_5Fseed | next_seed    | list reg x0
 {PROMPT}Killed process 42.
 "
             )
@@ -3593,7 +3843,7 @@ x0       | 0x000000000000002a | (42)
             out,
             format!(
                 "{PROMPT}\
---[WP] T: 0 P: 0x0000000000001014 F: main+0x4 <mfb> M: 0x0000000000002000: 0x0000000000000005 (5) \
+--[WP] T: 0 P: 0x0000000000001014 F: (main) _mfb_fn_main+0x4 M: 0x0000000000002000: 0x0000000000000005 (5) \
 -> 0xffffffffffffffff (-1)
 --[WP] T: 1 P: 0x0000000000007000 F: - M: 0x0000000000003001: 0x00ab -> 0x01cd
 {PROMPT}--[BE] T: 0 P: 0x0000000000001000 F: _main E: errorCode::ErrOverflow (77050010)
@@ -3723,13 +3973,14 @@ x0       | 0x000000000000002a | (42)
             (
                 "show",
                 "'show' needs what to show: show mem <where> [<size>], show type <type> <where>, \
-                 show arena [<id>], or show error [<thread>]",
+                 show arena [<id>], show error [<thread>], or show report",
             ),
             (
                 "show it",
-                "cannot show 'it'; 'show mem', 'show type', 'show arena' and 'show error' are \
-                 what can be shown",
+                "cannot show 'it'; 'show mem', 'show type', 'show arena', 'show error' and \
+                 'show report' are what can be shown",
             ),
+            ("show report now", "'show report' takes no arguments"),
             (
                 "show arena x",
                 "'x' is not an arena id; type 'list arena' for the arenas",
@@ -3810,9 +4061,9 @@ x0       | 0x000000000000002a | (42)
             ),
             ("bpi r x0 eq 5 at f bt", "too many arguments to 'bpi r'"),
             (
-                "bpi x0 eq 5 at f run",
-                "'run' cannot run at a stop: a stop runs list, show, backtrace, disassemble, \
-                 jump and a bare breakerror",
+                "bpi x0 eq 5 at f restart",
+                "'restart' cannot run at a stop: a stop runs list, show, backtrace, \
+                 disassemble, jump, finish, a bare breakerror and, last, run",
             ),
         ] {
             assert_eq!(parse(line), Err(message.to_string()), "{line}");
@@ -3847,16 +4098,15 @@ q
         assert_eq!(
             out,
             format!(
-                "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed. Each stop runs 'bt' \
-                 and continues.
+                "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed. Each stop runs 'bt'.
 {PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed if x0 eq 0x0000000000000005 (5).
 {PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed if [0x0000000012348593] eq \
-                 0x0000000000000005 (5). Each stop runs 'bt' and continues.
+                 0x0000000000000005 (5). Each stop runs 'bt'.
 {PROMPT}{PROMPT}\
-Address            | Symbol              | Written name | If                                             | Commands
-0x0000000000001004 | _mfb_fn_next_5Fseed | next_seed    | -                                              | bt
-0x0000000000001004 | _mfb_fn_next_5Fseed | next_seed    | x0 eq 0x0000000000000005 (5)                   | -
-0x0000000000001004 | _mfb_fn_next_5Fseed | next_seed    | [0x0000000012348593] eq 0x0000000000000005 (5) | bt
+Address            | Count | Symbol              | Written name | If                                             | Commands
+0x0000000000001004 | 0     | _mfb_fn_next_5Fseed | next_seed    | -                                              | bt
+0x0000000000001004 | 0     | _mfb_fn_next_5Fseed | next_seed    | x0 eq 0x0000000000000005 (5)                   | -
+0x0000000000001004 | 0     | _mfb_fn_next_5Fseed | next_seed    | [0x0000000012348593] eq 0x0000000000000005 (5) | bt
 {PROMPT}Removed the breakpoint at 0x0000000000001004 in next_seed if x0 eq 0x0000000000000005 (5).
 {PROMPT}Removed the breakpoint at 0x0000000000001004 in next_seed.
 Removed the breakpoint at 0x0000000000001004 in next_seed if [0x0000000012348593] eq \
@@ -3898,7 +4148,7 @@ q
         assert_eq!(
             out,
             format!(
-                "{PROMPT}Moved thread 0 to 0x0000000000001010 in main <mfb>.
+                "{PROMPT}Moved thread 0 to 0x0000000000001010 in main.
 {PROMPT}Moved thread 0 to 0x0000000000001004 in next_seed; set x0 = 0x0000000000000077 \
                  (119), nzcv = 0x0000000060000000 (1610612736), fpcr = 0x0000000000000000 (0).
 {PROMPT}\
@@ -4025,7 +4275,7 @@ j 0x1010 x0=nothing
         ];
         let (out, err) = drive(
             &mut inferior,
-            "bp next_seed j 0x1010 x0=7
+            "bp next_seed j 0x1010 x0=7; run
 run
 q
 ",
@@ -4036,9 +4286,9 @@ q
             out,
             format!(
                 "{PROMPT}Set a breakpoint at 0x0000000000001004 in next_seed. Each stop runs 'j \
-                 0x1010 x0=7' and continues.
-{PROMPT}--[BP] T: 0 P: 0x0000000000001004 F: next_seed
-Moved thread 0 to 0x0000000000001010 in main <mfb>; set x0 = 0x0000000000000007 (7).
+                 0x1010 x0=7; run'.
+{PROMPT}--[BP] T: 0 P: 0x0000000000001004 F: (next_seed) _mfb_fn_next_5Fseed
+Moved thread 0 to 0x0000000000001010 in main; set x0 = 0x0000000000000007 (7).
 --[EX] Program exit (0)
 {PROMPT}Killed process 42.
 "

@@ -24,12 +24,20 @@
 //! one instruction there serves them all.
 //!
 //! A breakpoint, a watchpoint and the `breakerror` watch may carry commands:
-//! a stop at one runs them, and when every stop at once has commands the
-//! program runs on. `run` hands each stop to the session as it happens.
+//! a stop at one runs them, and the program stays stopped unless they end in
+//! `run`. `run` hands each stop to the session as it happens. Each breakpoint
+//! and watchpoint counts the stops it made.
+//!
+//! The session also keeps the debug report a `--debug` build writes as it
+//! exits ([`report`]), with breakpoints of its own that no stop shows.
 
-use super::disassemble::{returns, spelled_as_written};
+mod report;
+
+pub(crate) use report::REPORT_HINT;
+
+use super::disassemble::returns;
 use super::location::Condition;
-use super::names::{classify, Collisions};
+use super::names::{ambiguity, classify, Collisions};
 use super::prompt::table;
 use super::{Change, FunctionSymbol, Inferior, RunStop, StepStop};
 
@@ -48,12 +56,14 @@ pub(crate) struct Breakpoint {
     /// The function symbol it is in and its offset there, by which a restart
     /// finds it again; `None` for an address no function holds.
     pub(crate) anchor: Option<(String, u64)>,
-    /// The commands a stop here runs before the program runs on.
+    /// The commands a stop here runs.
     pub(crate) commands: Vec<String>,
     /// The test a thread must pass to stop here; `None` stops every one.
     pub(crate) condition: Option<Condition>,
     /// The session's number for it, unique among its breakpoints.
     pub(crate) id: u64,
+    /// The stops it has made since the program last started.
+    pub(crate) hits: u64,
 }
 
 /// One watchpoint the session holds.
@@ -61,8 +71,10 @@ pub(crate) struct Breakpoint {
 pub(crate) struct Watch {
     pub(crate) address: u64,
     pub(crate) size: u64,
-    /// The commands a change here runs before the program runs on.
+    /// The commands a change here runs.
     pub(crate) commands: Vec<String>,
+    /// The stops it has made.
+    pub(crate) hits: u64,
 }
 
 /// The most bytes a watchpoint covers, and the boundary it cannot cross.
@@ -118,10 +130,7 @@ fn runs(commands: &[String]) -> String {
     if commands.is_empty() {
         String::new()
     } else {
-        format!(
-            " Each stop runs '{}' and continues.",
-            commands_shown(commands)
-        )
+        format!(" Each stop runs '{}'.", commands_shown(commands))
     }
 }
 
@@ -181,7 +190,7 @@ impl Target {
 
 /// The addresses `offset` bytes into each loaded function `name` names.
 fn offsets(functions: &[FunctionSymbol], name: &str, offset: u64) -> Result<Vec<u64>, String> {
-    let found = find(functions, name);
+    let found = find(functions, name)?;
     if found.is_empty() {
         return Err(format!(
             "no function is named '{name}'; type 'list func' for the functions"
@@ -225,6 +234,8 @@ pub(crate) struct Breakpoints {
     finishing: Vec<u64>,
     /// The breakpoints each hit of the last stop stopped for, by id.
     matched: Vec<((usize, u64), Vec<u64>)>,
+    /// The program's debug report, and the breakpoints that keep it.
+    report: report::Report,
 }
 
 /// The runtime function every newly raised error goes through: it parks the
@@ -257,6 +268,14 @@ struct Raise {
     origin: Option<String>,
     /// Where the park returns to: in the function that raised the error.
     back: u64,
+}
+
+/// The hits of `hits` that stopped for none of the user's breakpoints.
+fn unseen(hits: &[(usize, u64)], user: &[(usize, u64)]) -> Vec<(usize, u64)> {
+    hits.iter()
+        .copied()
+        .filter(|hit| !user.contains(hit))
+        .collect()
 }
 
 /// The live address of [`PARK_ERROR`].
@@ -317,21 +336,23 @@ fn shown(name: &Option<String>) -> &str {
     name.as_deref().unwrap_or("-")
 }
 
-/// The breakpoints a name asks for: symbols spelled `name`, or else functions
-/// written `name`; one per distinct address, and one per symbol not yet bound.
-fn find(functions: &[FunctionSymbol], name: &str) -> Vec<Breakpoint> {
+/// The breakpoints a name asks for: symbols spelled `name`, or else the one
+/// function written `name` (an error when several are); one per distinct
+/// address, and one per symbol not yet bound.
+fn find(functions: &[FunctionSymbol], name: &str) -> Result<Vec<Breakpoint>, String> {
     let collisions = Collisions::of(functions);
-    // A symbol spelled as its written name (a C function on ELF) is found
-    // with the others written so.
     let mut matches = functions
         .iter()
-        .filter(|function| function.name == name && !spelled_as_written(function))
+        .filter(|function| function.name == name)
         .collect::<Vec<_>>();
     if matches.is_empty() {
         matches = functions
             .iter()
             .filter(|function| written(function).as_deref() == Some(name))
             .collect();
+        if let Some(error) = ambiguity(name, matches.iter().map(|f| f.name.as_str())) {
+            return Err(error);
+        }
     }
     let mut found: Vec<Breakpoint> = Vec::new();
     for function in matches {
@@ -353,10 +374,11 @@ fn find(functions: &[FunctionSymbol], name: &str) -> Vec<Breakpoint> {
                 commands: Vec::new(),
                 condition: None,
                 id: 0,
+                hits: 0,
             });
         }
     }
-    found
+    Ok(found)
 }
 
 /// The breakpoint for `address`: named by the function that holds it (with the
@@ -389,6 +411,7 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
             commands: Vec::new(),
             condition: None,
             id: 0,
+            hits: 0,
         };
     }
     match functions
@@ -404,6 +427,7 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
             commands: Vec::new(),
             condition: None,
             id: 0,
+            hits: 0,
         },
         None => Breakpoint {
             address: Some(address),
@@ -414,6 +438,7 @@ fn describe(functions: &[FunctionSymbol], address: u64) -> Breakpoint {
             commands: Vec::new(),
             condition: None,
             id: 0,
+            hits: 0,
         },
     }
 }
@@ -479,7 +504,7 @@ impl Breakpoints {
         let wanted = match target {
             Target::Address(address) => vec![describe(&functions, *address)],
             Target::Name(name) => {
-                let found = find(&functions, name);
+                let found = find(&functions, name)?;
                 if found.is_empty() {
                     return Err(format!(
                         "no function is named '{name}'; type 'list func' for the functions"
@@ -538,10 +563,14 @@ impl Breakpoints {
     }
 
     /// Whether a breakpoint the session holds is at `address`: one of the
-    /// user's, `breakerror`'s on the park, or one on a `ret` a `finish` waits
-    /// on. One instruction there serves them all.
+    /// user's, `breakerror`'s on the park, one on a `ret` a `finish` waits
+    /// on, or one that keeps the debug report. One instruction there serves
+    /// them all.
     fn armed(&self, address: u64) -> bool {
-        self.user_at(address) || self.is_park(address) || self.finishing.contains(&address)
+        self.user_at(address)
+            || self.is_park(address)
+            || self.finishing.contains(&address)
+            || self.report.holds(address)
     }
 
     /// Whether one of the user's breakpoints is at `address`.
@@ -591,18 +620,23 @@ impl Breakpoints {
                 let by_symbol = self
                     .list
                     .iter()
-                    .filter(|breakpoint| {
-                        breakpoint.symbol.as_ref() == Some(name)
-                            && breakpoint.written.as_ref() != Some(name)
-                    })
+                    .filter(|breakpoint| breakpoint.symbol.as_ref() == Some(name))
                     .cloned()
                     .collect::<Vec<_>>();
                 if by_symbol.is_empty() {
-                    self.list
+                    let written = self
+                        .list
                         .iter()
                         .filter(|breakpoint| breakpoint.written.as_ref() == Some(name))
                         .cloned()
-                        .collect()
+                        .collect::<Vec<_>>();
+                    let symbols = written
+                        .iter()
+                        .filter_map(|breakpoint| breakpoint.symbol.as_deref());
+                    if let Some(error) = ambiguity(name, symbols) {
+                        return Err(error);
+                    }
+                    written
                 } else {
                     by_symbol
                 }
@@ -680,7 +714,7 @@ impl Breakpoints {
         let commands = sorted
             .iter()
             .any(|breakpoint| !breakpoint.commands.is_empty());
-        let mut headers = vec!["Address", "Symbol", "Written name"];
+        let mut headers = vec!["Address", "Count", "Symbol", "Written name"];
         if tests {
             headers.push("If");
         }
@@ -694,6 +728,7 @@ impl Breakpoints {
                     breakpoint
                         .address
                         .map_or_else(|| "-".to_string(), |address| format!("0x{address:016x}")),
+                    breakpoint.hits.to_string(),
                     shown(&breakpoint.symbol).to_string(),
                     shown(&written_shown(breakpoint)).to_string(),
                 ];
@@ -733,6 +768,7 @@ impl Breakpoints {
             address,
             size,
             commands: commands.to_vec(),
+            hits: 0,
         });
         Ok(vec![format!(
             "Set a watchpoint at 0x{address:016x} ({size} {}): {}.{}",
@@ -764,7 +800,7 @@ impl Breakpoints {
         )])
     }
 
-    /// The `list watchpoint` lines: `<address> <size> <value>`, in address
+    /// The `list watchpoint` lines: `<address> <count> <size> <value>`, in address
     /// order, the value read now (`-` when it cannot be); a `Commands` column
     /// joins them when any watchpoint has commands.
     pub(crate) fn watch_lines(&self, inferior: &mut dyn Inferior) -> Vec<String> {
@@ -779,6 +815,7 @@ impl Breakpoints {
             .map(|watch| {
                 let mut row = vec![
                     format!("0x{:016x}", watch.address),
+                    watch.hits.to_string(),
                     watch.size.to_string(),
                     watched_value(inferior, watch.address, watch.size)
                         .map_or_else(|_| "-".to_string(), |value| value_shown(value, watch.size)),
@@ -790,13 +827,39 @@ impl Breakpoints {
             })
             .collect();
         if commands {
-            return table(&["Address", "Size", "Value", "Commands"], rows);
+            return table(&["Address", "Count", "Size", "Value", "Commands"], rows);
         }
-        table(&["Address", "Size", "Value"], rows)
+        table(&["Address", "Count", "Size", "Value"], rows)
+    }
+
+    /// Count `stop` against what made it: each breakpoint a hit stopped for,
+    /// and each watchpoint whose bytes changed.
+    fn count(&mut self, stop: &RunStop) {
+        match stop {
+            RunStop::Breakpoints(hits) => {
+                for (_, ids) in self.matched.iter().filter(|(hit, _)| hits.contains(hit)) {
+                    for breakpoint in &mut self.list {
+                        if ids.contains(&breakpoint.id) {
+                            breakpoint.hits += 1;
+                        }
+                    }
+                }
+            }
+            RunStop::Changed(changes) => {
+                for change in changes {
+                    for watch in &mut self.watches {
+                        if watch.address == change.address {
+                            watch.hits += 1;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     /// The commands each stop in `stop` runs, by thread, and whether every
-    /// stop in it has commands, so that the program runs on.
+    /// stop in it has commands.
     pub(crate) fn stop_commands(&self, stop: &RunStop) -> (Vec<(usize, Vec<String>)>, bool) {
         let mut found = Vec::new();
         let mut every = true;
@@ -889,13 +952,20 @@ impl Breakpoints {
                 if own.is_empty() {
                     continue;
                 }
+                self.close_report(inferior, false)?;
                 return Ok(Ended::Own(own));
             };
             let exited = matches!(stop, RunStop::Exited(_));
-            if !exited {
+            // The program is the user's again: no `step` runs the report's
+            // breakpoints, so a report half written is the program's to end.
+            if exited {
+                self.report_ended();
+            } else {
+                self.close_report(inferior, false)?;
                 self.place_pending(inferior)?;
             }
             let notes = self.take_notes();
+            self.count(&stop);
             let on = hear(inferior, self, notes, &stop)?;
             if !on || exited {
                 return Ok(Ended::Heard(stop));
@@ -941,8 +1011,9 @@ impl Breakpoints {
 
     /// Sort what the program stopped for: the user's breakpoints are a stop
     /// when one there stops the thread; the debugger's own — the entry point,
-    /// the error park — are not, though a watched raise at the park runs on to
-    /// the raiser; a watched write is a stop only when it changed something.
+    /// the error park, the debug report's — are not, though a watched raise at
+    /// the park runs on to the raiser; a watched write is a stop only when it
+    /// changed something.
     #[allow(clippy::type_complexity)]
     fn settle(
         &mut self,
@@ -961,6 +1032,7 @@ impl Breakpoints {
                     .filter(|(_, address)| Some(*address) != temporary)
                     .collect::<Vec<_>>();
                 let (user, own) = self.sort_hits(inferior, &hits);
+                self.report_hits(inferior, &unseen(&hits, &user))?;
                 if !user.is_empty() {
                     return Ok((Some(RunStop::Breakpoints(user)), own));
                 }
@@ -997,7 +1069,8 @@ impl Breakpoints {
     /// the thread (it has no test, or its test holds for that thread), each
     /// remembered for its commands — and the caller's own: a `ret` a `finish`
     /// waits on, or a breakpoint the session does not hold. A hit only at
-    /// breakpoints whose tests fail is neither, and neither is the park's.
+    /// breakpoints whose tests fail is neither, and neither is the park's or
+    /// the debug report's.
     #[allow(clippy::type_complexity)]
     fn sort_hits(
         &mut self,
@@ -1028,7 +1101,9 @@ impl Breakpoints {
                 user.push((thread, address));
                 self.matched.push(((thread, address), stopping));
             }
-            if self.finishing.contains(&address) || (!held && !self.is_park(address)) {
+            if self.finishing.contains(&address)
+                || (!held && !self.is_park(address) && !self.report.holds(address))
+            {
                 own.push((thread, address));
             }
         }
@@ -1167,6 +1242,7 @@ impl Breakpoints {
                 .filter(|(_, address)| !(ours && *address == raise.back))
                 .collect::<Vec<_>>();
             let (user, own) = self.sort_hits(inferior, &hits);
+            self.report_hits(inferior, &unseen(&hits, &user))?;
             if !user.is_empty() || !own.is_empty() {
                 break RunStop::Breakpoints(
                     hits.into_iter()
@@ -1270,9 +1346,11 @@ impl Breakpoints {
             inferior.insert_breakpoint(watch.park)?;
             placed.push(watch.park);
         }
+        self.watch_report(inferior, &mut placed)?;
         let functions = inferior.functions().unwrap_or_default();
         let mut kept = Vec::new();
         for mut breakpoint in std::mem::take(&mut self.list) {
+            breakpoint.hits = 0;
             let Some((symbol, offset)) = breakpoint.anchor.clone() else {
                 notes.push(format!(
                     "Dropped the breakpoint at {}: no function holds it.",
@@ -1643,6 +1721,7 @@ mod tests {
                 name: name.to_string(),
                 group: crate::debugger::RegisterGroup::General,
                 value: crate::debugger::RegisterValue::Bits64(value),
+                role: None,
             };
             let code = if self.raised.is_empty() {
                 0
@@ -1931,9 +2010,9 @@ mod tests {
         assert_eq!(
             breakpoints.lines(),
             [
-                "Address            | Symbol               | Written name",
-                "0x0000000000001124 | _mfb_fn_isPrime+0x24 | isPrime+0x24",
-                "0x0000000000005000 | -                    | -",
+                "Address            | Count | Symbol               | Written name",
+                "0x0000000000001124 | 0     | _mfb_fn_isPrime+0x24 | isPrime+0x24",
+                "0x0000000000005000 | 0     | -                    | -",
             ]
         );
         assert_eq!(
@@ -1946,28 +2025,44 @@ mod tests {
     fn an_unbound_linked_function_is_pending_until_the_entry_point() {
         let mut program = Program::new(vec![RunStop::Breakpoints(vec![(0, EXIT)])]);
         let mut breakpoints = Breakpoints::default();
-        // As written, `exit` names both the developer's function and the
-        // linked one, which is not bound yet (on Mach-O `exit` is no symbol;
-        // on ELF the C symbol is spelled as its written name).
+        // As written, `exit` is both the developer's function and the linked
+        // one: on Mach-O, where `exit` is no symbol, that is ambiguous; on ELF
+        // the C symbol is spelled `exit`, so the name is that function's.
+        if !crate::debugger::names::C_PREFIX.is_empty() {
+            assert_eq!(
+                breakpoints.set(&mut program, &name("exit"), None, &[]),
+                Err(
+                    "'exit' is ambiguous: it names _exit, _mfb_fn_exit; name one by its symbol"
+                        .to_string()
+                )
+            );
+        }
         assert_eq!(
             breakpoints
-                .set(&mut program, &name("exit"), None, &[])
+                .set(&mut program, &name("_mfb_fn_exit"), None, &[])
                 .unwrap(),
-            [
-                "Set a breakpoint at 0x0000000000001300 in exit <mfb>.".to_string(),
-                format!(
-                    "Set a pending breakpoint on {}: it is placed when the program has loaded \
-                     its libraries.",
-                    exit()
-                ),
-            ]
+            ["Set a breakpoint at 0x0000000000001300 in exit <mfb>."]
+        );
+        // The linked one is not bound yet.
+        assert_eq!(
+            breakpoints
+                .set(&mut program, &name(&exit()), None, &[])
+                .unwrap(),
+            [format!(
+                "Set a pending breakpoint on {}: it is placed when the program has loaded its \
+                 libraries.",
+                exit()
+            )]
         );
         assert_eq!(
             breakpoints.lines(),
             [
-                "Address            | Symbol       | Written name".to_string(),
-                "0x0000000000001300 | _mfb_fn_exit | exit <mfb>".to_string(),
-                format!("-                  | {:<12} | exit <native>", exit()),
+                "Address            | Count | Symbol       | Written name".to_string(),
+                "0x0000000000001300 | 0     | _mfb_fn_exit | exit <mfb>".to_string(),
+                format!(
+                    "-                  | 0     | {:<12} | exit <native>",
+                    exit()
+                ),
             ]
         );
         let (notes, stop) = run(&mut breakpoints, &mut program).unwrap();
@@ -2097,8 +2192,8 @@ mod tests {
         assert_eq!(
             breakpoints.watch_lines(&mut program),
             [
-                "Address            | Size | Value",
-                "0x0000000000008008 | 8    | 0x0000000000000006 (6)",
+                "Address            | Count | Size | Value",
+                "0x0000000000008008 | 1     | 8    | 0x0000000000000006 (6)",
             ]
         );
     }
@@ -2173,7 +2268,7 @@ mod tests {
                 .unwrap(),
             [
                 "Set a breakpoint at 0x0000000000001100 in isPrime. Each stop runs 'bt 1; list \
-                 reg x0' and continues."
+                 reg x0'."
             ]
         );
         breakpoints
@@ -2182,9 +2277,9 @@ mod tests {
         assert_eq!(
             breakpoints.lines(),
             [
-                "Address            | Symbol          | Written name | Commands",
-                "0x0000000000001100 | _mfb_fn_isPrime | isPrime      | bt 1; list reg x0",
-                "0x0000000000001300 | _mfb_fn_exit    | exit <mfb>   | -",
+                "Address            | Count | Symbol          | Written name | Commands",
+                "0x0000000000001100 | 0     | _mfb_fn_isPrime | isPrime      | bt 1; list reg x0",
+                "0x0000000000001300 | 0     | _mfb_fn_exit    | exit <mfb>   | -",
             ]
         );
         // Each stop is heard; the first, whose every breakpoint has
@@ -2266,10 +2361,10 @@ mod tests {
         assert_eq!(
             breakpoints.lines(),
             [
-                "Address            | Symbol          | Written name | If                           | Commands",
-                "0x0000000000001100 | _mfb_fn_isPrime | isPrime      | x0 eq 0x0000000000000005 (5) | -",
-                "0x0000000000001100 | _mfb_fn_isPrime | isPrime      | x0 gt 0x0000000000000006 (6) | bt",
-                "0x0000000000001300 | _mfb_fn_exit    | exit <mfb>   | -                            | -",
+                "Address            | Count | Symbol          | Written name | If                           | Commands",
+                "0x0000000000001100 | 0     | _mfb_fn_isPrime | isPrime      | x0 eq 0x0000000000000005 (5) | -",
+                "0x0000000000001100 | 0     | _mfb_fn_isPrime | isPrime      | x0 gt 0x0000000000000006 (6) | bt",
+                "0x0000000000001300 | 0     | _mfb_fn_exit    | exit <mfb>   | -                            | -",
             ]
         );
         // x0 = 1 passes neither test and runs on; x0 = 5 stops, with no
@@ -2466,7 +2561,7 @@ mod tests {
             breakpoints
                 .watch_errors(&mut program, ErrorCodes::Any, &commands)
                 .unwrap(),
-            ["Stopping when a thread raises any error. Each stop runs 'show error' and continues."]
+            ["Stopping when a thread raises any error. Each stop runs 'show error'."]
         );
         // More codes without commands keep the watch's commands.
         breakpoints

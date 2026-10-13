@@ -21,18 +21,19 @@ DBG> bt
     frame #1: 0x0000000100d9cfc8 debug.out`countPrimes + 584
     frame #2: 0x0000000100d9d260 debug.out`runRound + 344
     frame #3: 0x0000000100d9f678 debug.out`runRounds + 5120
-    frame #4: 0x0000000100da5040 debug.out`main + 2912 <mfb>
-    frame #5: 0x0000000100d9c634 debug.out`main + 348 <native>
+    frame #4: 0x0000000100da5040 debug.out`main + 2912
+    frame #5: 0x0000000100d9c634 debug.out`_main + 348
 ```
 
 Each frame is the address the thread will go on from in that function — for
 every frame but the first, the instruction after the call — then the file and
 function, and how many bytes into the function that is. Functions are named as
-`dis` names them. Your `main` and the program's native entry, which calls it,
-are both named `main`, so each carries a tag: `<mfb>` for MFBASIC code (yours or
-a built-in package's), `<native>` for the runtime's or a system library's.
-Every listing tags a name that way when MFBASIC and native code share it, such
-as your own `exit` and the C library's.
+`dis` names them: by the name you wrote, or, for a function nobody wrote a
+name for, by its symbol, as `list func` shows it. `main` is yours; `_main` is
+the program's native entry, which calls it. When MFBASIC and native code
+share a name, such as your own `exit` and the C library's, each carries a tag:
+`<mfb>` for MFBASIC code (yours or a built-in package's), `<native>` for the
+runtime's or a system library's.
 
 `bt 3` shows only the first three frames, `bt 3 2` the first three of thread 2
 (the `<id>` from `list thread`), and `bt all` every thread's, the current one
@@ -46,7 +47,7 @@ Stop in `isPrime` and see how the program got there:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp isPrime\nrun\nbt\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp isPrime\nrun\nbt\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 The output is the backtrace above. With each round on its own thread, every
@@ -68,14 +69,14 @@ DBG> bt all
     frame #1: 0x000000019683409c libsystem_pthread.dylib`_pthread_cond_wait + 984
     frame #2: 0x00000001004335b0 debug.out`thread::waitFor + 96
     frame #3: 0x000000010042715c debug.out`runRounds + 3812
-    frame #4: 0x000000010042d040 debug.out`main + 2912 <mfb>
-    frame #5: 0x0000000100424634 debug.out`main + 348 <native>
+    frame #4: 0x000000010042d040 debug.out`main + 2912
+    frame #5: 0x0000000100424634 debug.out`_main + 348
   thread #1, task = 'User Thread'
     frame #0: 0x0000000100424b8c debug.out`isPrime + 232
     frame #1: 0x0000000100424fc8 debug.out`countPrimes + 584
     frame #2: 0x0000000100425260 debug.out`runRound + 344
     frame #3: 0x0000000100425310 debug.out`roundWorker + 76
-    frame #4: 0x00000001004355ac debug.out`mfb_rt_thread_trampoline + 132
+    frame #4: 0x00000001004355ac debug.out`_mfb_rt_thread_trampoline + 132
     frame #5: 0x0000000196833bc8 libsystem_pthread.dylib`_pthread_start + 136
     frame #6: 0x000000019682eb80 libsystem_pthread.dylib`thread_start + 8
 DBG> q

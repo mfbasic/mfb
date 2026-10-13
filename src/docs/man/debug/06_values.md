@@ -116,7 +116,7 @@ them with `show mem`.
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp summarize\nrun\nshow type list x0\nshow type map x1 keys\nshow type set x2 0..\nshow type list x3 0..\nshow type list x4 1\nshow type list x5 0\nshow type resource x6\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp summarize\nrun\nshow type list x0\nshow type map x1 keys\nshow type set x2 0..\nshow type list x3 0..\nshow type list x4 1\nshow type list x5 0\nshow type resource x6\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
@@ -126,7 +126,7 @@ Set a breakpoint at 0x0000000104839ee0 in summarize.
 DBG> run
 round 1: 37 primes
 round 2: 31 primes
---[BP] T: 0 P: 0x0000000104839ee0 F: summarize
+--[BP] T: 0 P: 0x0000000104839ee0 F: (summarize) _mfb_fn_summarize
 DBG> show type list x0
 List Type: Integer Length: 2 Capacity: 4 Data: 16/32 bytes Block: 0x00000001048b4310-0x00000001048b4358 (72 bytes)
 DBG> show type map x1 keys

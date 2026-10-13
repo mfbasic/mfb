@@ -41,6 +41,7 @@ impl Float {
 /// them.
 pub(crate) fn registers(general: &General, float: &Float) -> Vec<Register> {
     let x = |name: String, group: RegisterGroup, value: u64| Register {
+        role: role(&name),
         name,
         group,
         value: RegisterValue::Bits64(value),
@@ -71,8 +72,25 @@ pub(crate) fn registers(general: &General, float: &Float) -> Vec<Register> {
         name: format!("v{index}"),
         group: RegisterGroup::Simd,
         value: RegisterValue::Bits128(*value),
+        role: None,
     }));
     registers
+}
+
+/// A register's [`Register::role`]: `x0`–`x7` carry arguments under both MFBASIC's convention
+/// and C's, the low ones carry results (four for MFBASIC, two for C), and
+/// MFBASIC code keeps three registers for itself. `None` for every other
+/// register.
+fn role(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "x0" | "x1" => "MFB arg, MFB result, C arg, C result",
+        "x2" | "x3" => "MFB arg, MFB result, C arg",
+        "x4" | "x5" | "x6" | "x7" => "MFB arg, C arg",
+        "x19" => "Arena",
+        "x20" => "Current Thread",
+        "x28" => "Closure",
+        _ => return None,
+    })
 }
 
 /// Where a register `jump` sets lives.
@@ -139,6 +157,48 @@ pub(crate) fn assign(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arch::aarch64::regmodel::Aarch64RegisterModel;
+    use crate::codegen::engine::operand::{abi_token, AbiConvention, AbiRole};
+    use crate::target::shared::abi::realize_abi_positional;
+    use crate::target::shared::regmodel::RegisterModel;
+
+    /// The roles `list reg` prints are the compiler's own: each convention's
+    /// last argument and result register carries that role, and the pinned
+    /// registers are the ones the register model reserves.
+    #[test]
+    fn roles_name_the_registers_the_compiler_uses() {
+        let last = |convention, role, index: u8, label: &str| {
+            // The token exists at `index`, so the convention reaches that far.
+            abi_token(convention, role, index);
+            let register = realize_abi_positional(index);
+            assert!(
+                super::role(register).is_some_and(|roles| roles.split(", ").any(|r| r == label)),
+                "{register} lacks '{label}'"
+            );
+            let next = format!("x{}", index + 1);
+            assert!(
+                !super::role(&next).is_some_and(|roles| roles.split(", ").any(|r| r == label)),
+                "{next} has '{label}'"
+            );
+        };
+        last(AbiConvention::Mfb, AbiRole::Arg, 7, "MFB arg");
+        last(AbiConvention::Mfb, AbiRole::Ret, 3, "MFB result");
+        last(AbiConvention::C, AbiRole::Arg, 7, "C arg");
+        last(AbiConvention::C, AbiRole::Ret, 1, "C result");
+        let model = Aarch64RegisterModel;
+        assert_eq!(super::role(model.arena_base()), Some("Arena"));
+        assert_eq!(super::role(model.current_thread()), Some("Current Thread"));
+        assert_eq!(super::role(model.closure_env()), Some("Closure"));
+        let named = registers(&[0; 34], &Float::zeroed())
+            .iter()
+            .filter(|register| register.role.is_some())
+            .map(|register| register.name.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            named,
+            ["x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x19", "x20", "x28"]
+        );
+    }
 
     #[test]
     fn the_float_state_is_the_528_bytes_both_kernels_use() {

@@ -239,8 +239,8 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   when `waitpid(WNOHANG)` reaps it (exit status or signal); an attached one
   when `pid_for_task` fails or `kill(pid, 0)` finds no process
   (`Exit::Unknown`). After that the session refuses every command but `help`,
-  `list`, `list breakpoint`, a bare `list reg` and `quit`, and `quit` reports
-  `AlreadyExited`.
+  `list`, `list breakpoint`, a bare `list reg`, `show report`, `restart` and
+  `quit`, and `quit` reports `AlreadyExited`.
 - **Libraries.** `function_at` and `library_functions` read the loader's image
   list (`task_info(TASK_DYLD_INFO)` → `dyld_all_image_infos.infoArray`), and
   for each image but the executable its Mach-O header in memory: `__TEXT`'s
@@ -411,9 +411,9 @@ Then, repeatedly:
 | --- | --- |
 | `help`, `h` | prints the `HELP` listing to stdout |
 | `list`, `l` | prints the `LIST_USAGE` block |
-| `list func [<filter>...]` | prints the function listing, kept to the types and names `<filter>` gives |
+| `list func [<filter>...]`, `list function [<filter>...]` | prints the function listing, kept to the types and names `<filter>` gives |
 | `list thread` | prints the thread listing |
-| `list reg [<id>]` | prints the `LIST_REG_USAGE` block |
+| `list reg [<id>]` | prints thread `<id>`'s registers (default 0) that have a role, a blank line, then the `LIST_REG_USAGE` block; only the block once the program has ended |
 | `list reg [<id>] <what>...` | prints thread `<id>`'s registers (default 0) of each group or name in `<what>` |
 | `list arena` | prints the arena listing |
 | `show mem <where> [<size>]` | dumps `<size>` bytes (default 64) of memory |
@@ -421,6 +421,7 @@ Then, repeatedly:
 | `show type <type> <where> [...]` | prints the arena value at `<where>` read as `<type>` |
 | `show arena [<id>]` | prints arena `<id>`'s state and block headers (default 0) |
 | `show error [<thread>]` | prints the error thread `<thread>` (default the current thread) has raised and not yet caught |
+| `show report` | prints the debug report the program wrote as it exited, or why there is none |
 | `show arena <id> <block> [<offset>] [<size>]` | dumps `<size>` bytes (default 1024) of a block from `<offset>` (default 0) |
 | `step [<count>] [<thread>]`, `s …` | runs thread `<thread>` (default 0) `<count>` instructions (default 1) |
 | `step-all [<count>]`, `sa …` | runs every thread `<count>` rounds of one instruction (default 1) |
@@ -535,14 +536,15 @@ Then, repeatedly:
 | an address `0x<hex>±<offset>` below 0 or past `u64::MAX` | `'<word>' is below address 0` / `'<word>' is past the last address` |
 | `dis <function>` naming nothing | `no function is named '<function>'; type 'list func' for the functions` |
 | `dis <function>` naming only an unbound import | `'<function>' is not loaded yet; run the program until it has loaded its libraries` |
-| `show` alone | `'show' needs what to show: show mem <where> [<size>], show type <type> <where>, show arena [<id>], or show error [<thread>]` |
+| `show` alone | `'show' needs what to show: show mem <where> [<size>], show type <type> <where>, show arena [<id>], show error [<thread>], or show report` |
 | `show error` with more than a thread | `too many arguments to 'show error'` |
-| `show <what>` but `mem`, `type`, `arena` or `error` | `cannot show '<what>'; 'show mem', 'show type', 'show arena' and 'show error' are what can be shown` |
+| `show report` with an argument | `'show report' takes no arguments` |
+| `show <what>` but `mem`, `type`, `arena`, `error` or `report` | `cannot show '<what>'; 'show mem', 'show type', 'show arena', 'show error' and 'show report' are what can be shown` |
 | `show arena` with more than four arguments | `too many arguments to 'show arena'` |
 | an arena id not a `usize` | `'<id>' is not an arena id; type 'list arena' for the arenas` |
 | a block number not a `usize` | `'<block>' is not a block number` |
 | an offset or size not a `u64` (decimal, or hex after `0x`) | `'<word>' is not a number` |
-| any command but `help`, `list`, `list breakpoint`, a bare `list reg`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
+| any command but `help`, `list`, `list breakpoint`, a bare `list reg`, `show report`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
 
 Every listing below — and `show type`'s element table — is laid out by
 `prompt::table`: a header line naming its columns, then one line per row; the
@@ -613,17 +615,25 @@ Classification and the written name come from the symbol alone
 | an import | `SL` | its C name: the symbol less `names::C_PREFIX` (`_` on Mach-O, nothing on ELF) |
 | a function of a library loaded while the program ran | `SD` | its C name, likewise |
 
+Everywhere a function is named — breakpoint messages, `step` and `finish`
+places, `dis` headers and comments, `bt` frames — it is shown by its written
+name, else by its symbol exactly as `list func` spells it (`_main`,
+`_mfb_arena_alloc`); a symbol that is not the executable's own (`_main`,
+`_mfb…`) is a system library's and is shown by its C name
+(`names::plain_name`). A stop line shows both the written name and the
+symbol (`run`, below). [[src/debugger/names.rs:plain_name]]
+
 A name an MFBASIC function (`MU`, `MB`) and a native one (`MR`, `SL`, `SD`)
-share — a function's name being its written name, else its plain name (the
-executable's own `_main` and `_mfb…` less their `_` on every format, any other
-symbol's C name; `names::plain_name`), over every function
+share — a function's name being the name it is shown by, over every function
 `Inferior::functions` answers — is shown with
 a tag: ` <mfb>` after the MFBASIC one's, ` <native>` after the native one's, so
-the program's `main` is `main <mfb>` and the runtime's `_main` reads `main
-<native>`. The tag follows any offset (`main+0x24 <mfb>`, `main + 8 <native>`)
-and is applied the same way in `list func`'s written names, `list breakpoint`
-and breakpoint messages, stop and `finish` places, `dis` headers and comments,
-and `bt` frames; it is never part of a name a command looks up.
+a developer's `exit` is `exit <mfb>` and the C library's `exit <native>`. The
+runtime's `_main` is shown by its symbol, so it shares no name with the
+program's `main`. The tag follows any offset (`exit+0x24 <mfb>`,
+`exit + 8 <native>`) and is applied the same way in `list func`'s written
+names, `list breakpoint` and breakpoint messages, `step` and `finish` places,
+`dis` headers and comments, and `bt` frames; it is never part of a name a
+command looks up, and a stop line carries none.
 [[src/debugger/names.rs:Collisions]]
 
 A trailing `$own<hex>` (a hand-over copy; the mask is not escaped) is dropped
@@ -662,11 +672,32 @@ no globals, so an app's main thread paused in a system call is `Other` there.
 
 The arguments are split at whitespace and at commas, so `x0, x1,x2` names
 three registers. A first argument of all digits is the thread id `<id>`
-(default 0). With no other argument the command prints the `LIST_REG_USAGE`
-block, even after the program has ended; otherwise every other argument picks
-registers, in the order given: `gpr`, `simd` and `sys` pick every register of
-that `RegisterGroup` in the backend's order, and any other word picks the one
-register of that name. [[src/debugger/prompt.rs:RegisterPick]]
+(default 0). Every other argument picks registers, in the order given: `gpr`,
+`simd` and `sys` pick every register of that `RegisterGroup` in the backend's
+order, and any other word picks the one register of that name.
+[[src/debugger/prompt.rs:RegisterPick]]
+
+With no other argument the command prints every register of the thread whose
+`Register::role` is set, in the backend's order, one line each as
+`<register> | 0x<hex> | (<decimal>) | <role>` under the header
+`Register | Hex | Decimal | Role`, then an empty line, then the
+`LIST_REG_USAGE` block. A thread id past the last thread is refused as it is
+with arguments. After the program has ended it prints the `LIST_REG_USAGE`
+block alone. [[src/debugger/prompt.rs:common_register_lines]]
+
+On AArch64 the roles are the compiler's own register assignments
+(`./mfb spec memory native-calling-convention`), and a role is a fixed label
+for the register, not a reading of what it holds at the stop:
+[[src/debugger/arm64.rs:role]]
+
+| Register | Role |
+| --- | --- |
+| `x0`, `x1` | `MFB arg, MFB result, C arg, C result` |
+| `x2`, `x3` | `MFB arg, MFB result, C arg` |
+| `x4`–`x7` | `MFB arg, C arg` |
+| `x19` | `Arena` |
+| `x20` | `Current Thread` |
+| `x28` | `Closure` |
 
 One line per register picked, `<register> | 0x<hex> | (<decimal>)`, under the
 header `Register | Hex | Decimal`: the value as `0x` plus 16 lowercase hex digits
@@ -726,6 +757,10 @@ function the executable defines, ` in <function>` as `list thread` spells it:
 | a system call that waits | `Stopped after <n> instruction(s): thread <t> is waiting in a system call at <place>.` |
 | the program ended | `The program exited after <n> instruction(s).` |
 
+When the step ended the program and the session holds its debug report (`show
+report`), a second line follows: `Type "show report" to see the performance and
+memory report.` [[src/debugger/prompt.rs:ended_lines]]
+
 ### `step-all`
 
 Runs every thread `list thread` shows in `<count>` rounds through one
@@ -741,7 +776,8 @@ Runs every thread `list thread` shows in `<count>` rounds through one
 | the thread is gone afterwards | `Thread <t> ended during the step.` |
 
 A program that ended prints only `The program exited after <r> round(s) of
-stepping.`, `<r>` being the most instructions any thread took. A thread the
+stepping.`, `<r>` being the most instructions any thread took, and then `step`'s
+second line when the session holds its debug report. A thread the
 program starts during the step is not stepped and runs until the round ends.
 
 `<exception>` is `a bad memory access at 0x<address>`, `an illegal
@@ -928,7 +964,19 @@ arena, which needs a debug build; …`); a thread with none fails with `thread
 <t> has no arena: it is running no MFBASIC code`. An empty slot prints `Thread
 <t> has no error in flight.` — as does a loose error (tag `1`, an error with no
 block because building one ran out of memory), which lives only in the
-registers. Otherwise: [[src/debugger/runtime.rs:current_error]]
+registers. [[src/debugger/runtime.rs:current_error]]
+
+When the slot is empty and the thread is stopped on a fault, the line names it
+instead: `Thread <t> has no error in flight: it stopped on <exception>, which
+is a fault, not an error a TRAP can catch. Use bt and list reg to see where.`
+`<exception>` is the text after `X:` on the thread's `--[XC]` line, or after
+`by` in a `step`'s or `step-all`'s `Stopped after … by <exception>` line. The
+session remembers it per thread (`prompt::Faults`) until the thread can have
+left the fault: `run`, `finish`, `restart` and a `step-all` of one round or
+more forget every thread's, a `step` of that thread and a `jump` of it forget
+its own. [[src/debugger/prompt.rs:Faults]]
+
+With an error in the slot:
 
 ```text
 Thread <t>'s error in flight (the Error at 0x<address>):
@@ -943,6 +991,65 @@ The block is read as `./mfb spec memory heap-values` lays out `Error` and
 other code [[src/debugger/runtime.rs:error_code_name]]; an error with no origin
 (a zero `ErrorLoc` offset) prints `Location: - (the error has no origin)`.
 
+### `show report`
+
+[[src/debugger/breakpoints/report.rs:Report]] A `--debug` build writes its
+debug report to stderr as its last act, one `write` to fd 2 per line
+(`./mfb spec tooling debug-report`). Under `mfb dbg` those lines do not reach
+stderr: the session takes them from the program as it writes them, and `show
+report` prints them.
+
+From its start, and again after each `restart`, the session keeps a breakpoint
+of its own at the entry of `_mfb_debug_shutdown` (`DEBUG_SHUTDOWN_SYMBOL`), when
+the executable defines that symbol.
+[[src/debugger/breakpoints/report.rs:watch_report]] A thread that stops there —
+at no breakpoint of the user's that stops it — opens a window: the session
+writes a breakpoint at the thread's `lr`, where the function returns to, and at
+the live address of every linked function whose C name is `write`; a program
+that links none opens no window. While the window is open, a stop at `write` by
+the thread that opened it (the system's thread id, not its index), with `2` in
+`x0` and at most 4096 (`LINE_LIMIT`) in `x2`, is one report line: the session
+reads `x2` bytes at `x1`, appends them to the report, and sets `x0` to `x2` and
+`pc` to `lr`, so the call does not run. A `write` by another thread, to another
+descriptor, or longer than that runs as the program wrote it. That thread's stop
+at the return address closes the window: both kinds of breakpoint are taken
+away, and the bytes taken become the session's report with it marked complete.
+None of these stops is printed, and `list breakpoint` does not show the
+breakpoints; one of the user's at the same address shares the instruction, and
+removing it keeps the session's. [[src/debugger/breakpoints/report.rs:report_hits]]
+
+The session holds one report per run of the program: the first window to take
+any bytes. A window that took none — a second pass through
+`_mfb_debug_shutdown`, which its once-guard makes write nothing — replaces
+nothing. `restart` forgets the report.
+[[src/debugger/breakpoints/report.rs:close_report]]
+
+Only `run` and `finish` see the session's breakpoints; `step` and `step-all`
+run the instructions they replaced. So the window is also closed, its bytes
+kept as an incomplete report, whenever `run` returns with the program still
+alive — a stop the user sees, or a `finish`'s own breakpoint — and the program
+writes the rest of the report to stderr itself. A program that ends with the
+window open likewise leaves an incomplete report. A breakpoint of the user's
+that stops the thread at `_mfb_debug_shutdown` or at one of its `write`s opens
+no window and takes no line there. A program stepped into
+`_mfb_debug_shutdown` writes the whole report itself.
+[[src/debugger/breakpoints.rs:run]]
+
+`show report` prints the report's lines as the program wrote them, each made
+safe for a terminal (`terminal_safe::safe`), followed for an incomplete report by
+`The report is incomplete: the program stopped or ended while writing it.` With
+no report it prints one line: [[src/debugger/breakpoints/report.rs:report_lines]]
+
+| State | Line |
+| --- | --- |
+| the executable defines no `_mfb_debug_shutdown` (a build without `--debug`) | `No performance and memory report: the program was not built with --debug.` |
+| the program has not ended | `No performance and memory report yet: the program writes it as it exits.` |
+| the program has ended | `No performance and memory report: the program ended without one being kept.` |
+
+It is one of the commands a stop may run, where it answers as before the
+program's end, and one the prompt still takes after it. The cost is one stop of
+the process per report line.
+
 ### Breakpoints
 
 [[src/debugger/breakpoints.rs:Breakpoints]] A `<target>` starting `0x` (or
@@ -954,14 +1061,20 @@ anything else is a name.
   that holds it (`<symbol>+0x<offset>` and `<written>+0x<offset>`), a linked
   function bound exactly there, or `-`.
 - **By name**: the function symbols spelled exactly `<target>` (as `list func`
-  shows them: `_mfb_rt_print`, `_exit`) but one spelled as its own written name
-  — a C function on ELF, whose symbol has no `_` to drop
-  (`disassemble::spelled_as_written`); only when there are none, those whose
-  written name is `<target>` (`isPrime`, `exit` — which can name both a
-  developer's function and a linked one, on either format). One breakpoint per distinct address
-  among them; a linked function not yet bound gives one **pending**
-  breakpoint per symbol, unless another record of it is bound. No match:
+  shows them: `_mfb_rt_print`, `_exit`); only when there are none, the
+  function whose written name is `<target>` (`isPrime`). A written name more
+  than one function has — overloads and generic instances (`show`), lambdas
+  (`lambda`), a developer's function and a linked one (`exit` on Mach-O; on
+  ELF `exit` is the C library's symbol, so it names that one) — is refused
+  with `'<target>' is ambiguous: it names <symbol>, <symbol>…; name one by
+  its symbol`, the symbols sorted. A function and its hand-over copies
+  (`<symbol>$own<hex>`) are one function: the written name names all of them,
+  and the refusal lists the function once (`names::ambiguity`). One breakpoint
+  per distinct address among the matches; a linked function not yet bound
+  gives one **pending** breakpoint per symbol, unless another record of it is
+  bound. No match:
   `no function is named '<target>'; type 'list func' for the functions`.
+  [[src/debugger/breakpoints.rs:find]]
 - **By place** (`<name>+<offset>`, the offset decimal or `0x` hex, as `bt` and
   stops print a place: `main+0x110`, `main+272`): `<name>` matched as by name,
   then one breakpoint `<offset>` bytes into each bound function it matches,
@@ -1000,20 +1113,26 @@ with no test, or one whose test holds; each of those runs its own commands. A
 thread no breakpoint there stops runs on, unseen. [[src/debugger/breakpoints.rs:Breakpoints]]
 
 Every word after the target is the breakpoints' **commands** (see Commands at
-a stop below); with any, the line goes on ` Each stop runs '<commands>' and
-continues.`, `<commands>` joined by `; `.
+a stop below); with any, the line goes on ` Each stop runs '<commands>'.`,
+`<commands>` joined by `; `.
 
 `breakpoint r <target>` removes, by address or by place, the breakpoints there; by name, the
 breakpoints whose symbol is `<target>`, or else whose written name is — every
-one, with a test or not. `breakpointif r <where> <test> [<value>] at <target>`
+one, with a test or not, unless those written so are on more than one function,
+which is refused as ambiguous as setting by name is. `breakpointif r <where> <test> [<value>] at <target>`
 removes just those of them with that test. Each prints `Removed the breakpoint
 at <place>.` (with ` if <test>`); none fails with `there is no breakpoint at
 <address>` / `on '<target>'` (with ` if <test>` for `breakpointif r`).
 
-`list breakpoint` prints `<address> | <symbol> | <written name>` per breakpoint
-under the header `Address | Symbol | Written name`, in address order with pending
-ones last (`-` for the address), and at one address the one without a test
-first, then in the order they were set; with none, `no breakpoints`. When any
+`list breakpoint` prints `<address> | <count> | <symbol> | <written name>` per
+breakpoint under the header `Address | Count | Symbol | Written name`, in
+address order with pending ones last (`-` for the address), and at one address
+the one without a test first, then in the order they were set; with none,
+`no breakpoints`. `<count>` is the stops the breakpoint has made since the
+program last started: one more each time a stop is reported for it, a thread
+whose test failed there not counting, and 0 again after `restart`
+(`Breakpoints::count`). The listing is still printed after the program has
+ended, so a breakpoint never reached reads 0 there. When any
 breakpoint has a test, a column `If` gives each one's (`-` for none); when any
 has commands, a last column `Commands` gives each one's, joined by `; `, or
 `-`.
@@ -1029,7 +1148,7 @@ when that starts with a digit (decimal, or hex after `0x`), else 8 (an
 multiple of 8 (`breakpoints::watchable`) and readable; the processor holds a
 fixed number of watchpoints (the backend refuses one more). Setting one prints
 `Set a watchpoint at 0x<address> (<size> byte[s]): <value>.`, with ` Each stop
-runs '<commands>' and continues.` when it has commands. `<value>` is the bytes
+runs '<commands>'.` when it has commands. `<value>` is the bytes
 read little-endian as `0x` and two hex digits per byte, and for 8 bytes the
 signed decimal after, in parentheses (`breakpoints::value_shown`):
 `0x05`, `0x0000000000000005 (5)`. `watchpoint r <where>` removes the one at
@@ -1048,10 +1167,11 @@ there at the next `run`, before anything runs. Only stores the thread makes
 are seen: the kernel writing the memory (a `read` into it) is not. After the
 stop the current thread is the writer, its `pc` past the write.
 
-`list watchpoint` prints `<address> | <size> | <value>` per watchpoint under the
-header `Address | Size | Value`, in address order, the value read now (`-` when it
-cannot be read); a fourth column `Commands` as for `list breakpoint` when any
-has commands; with none, `no watchpoints`. `restart` drops every watchpoint,
+`list watchpoint` prints `<address> | <count> | <size> | <value>` per
+watchpoint under the header `Address | Count | Size | Value`, in address order,
+`<count>` the stops it has made, the value read now (`-` when it cannot be
+read); a last column `Commands` as for `list breakpoint` when any has
+commands; with none, `no watchpoints`. `restart` drops every watchpoint,
 each with `Dropped the watchpoint at 0x<address>: a restarted program's memory
 is laid out anew.`
 
@@ -1062,12 +1182,31 @@ a watchpoint's place and size, or `breakerror`'s codes (which end at the first
 word that is a command name, `COMMAND_NAMES`) are joined with spaces and split
 at `;` into commands; empty ones are dropped. Each is parsed now, and must be
 one that reads the program — `list`, `show`, `backtrace`, `disassemble`, or a
-bare `breakerror` — or `jump`, which moves the stopped thread. A stop prints its
-lines, then runs the commands of each breakpoint, watchpoint or watched error
-it stopped for in turn, each with its own thread current, writing their output
-and errors as at the prompt (`prompt::hear_stop`). When every stop in it has commands the program runs on,
-as `run` again would — inside a `finish` too, which goes on toward its return —
-otherwise the prompt returns.
+bare `breakerror` — `jump`, which moves the stopped thread, `finish` (`f`),
+or `run` (`r`). `run` must be the last command (`'<run>' must be the last
+command of a stop: '<command>' follows it`); any other command is refused
+with `'<command>' cannot run at a stop: a stop runs list, show, backtrace,
+disassemble, jump, finish, a bare breakerror and, last, run`.
+
+A stop prints its lines, then runs the commands of each breakpoint,
+watchpoint or watched error it stopped for in turn, each with its own thread
+current, writing their output and errors as at the prompt
+(`prompt::hear_stop`). The program then stays stopped and the prompt returns,
+unless the stop runs on: every breakpoint, watchpoint or watched error it
+stopped for has commands and each one's last command is `run`. A stop that
+runs on does so as `run` again would — inside a `finish` too, which goes on
+toward its return.
+
+When no command of the stop is `finish`, its commands run as the stop is
+heard, before anything else. When one is, none runs there: they are queued,
+each with its thread, with one `run` after them when the stop runs on, and
+the prompt takes them one at a time before it reads another line, as if they
+were typed (no prompt or echo is written for them). A queued `finish` is the
+`finish` command for that thread: it prints where the thread returned and its
+`x0` and `x1`, and the commands after it see the thread there. A stop heard
+while queued commands wait — a breakpoint inside the function being finished
+— discards them and runs or queues its own; the program's end discards them.
+[[src/debugger/prompt.rs:hear_stop]]
 
 ### `breakerror`
 
@@ -1081,7 +1220,7 @@ are being watched for.` Setting one prints `Stopping when a thread raises
 `any error`), which `list breakpoint` also prints after its table (alone, in
 place of `no breakpoints`, when there are no breakpoints). Words after the
 codes (from the first command name) are the watch's commands; the line then
-goes on ` Each stop runs '<commands>' and continues.` A `breakerror` with
+goes on ` Each stop runs '<commands>'.` A `breakerror` with
 commands replaces the watch's; one without keeps them.
 
 The watch is a breakpoint of the debugger's own at the entry of
@@ -1150,18 +1289,29 @@ the notes made since the last, as one line per thread it stopped: [[src/debugger
 | a launched program ended by a signal | `--[EX] Program ended by signal (<n>)` |
 | an attached program ended | `--[EX] Program exit` |
 
+When the session holds the program's debug report (`show report`), each `--[EX]`
+line ends ` - type "show report" to see the performance and memory report`
+(`REPORT_HINT`).
+
 `<t>` is the thread's index; `<pc>` is `0x` and 16 hex digits — the
 breakpoint's address, the instruction that wrote a watched change, else the
-thread's `pc`; `<function>` is the function holding it with the offset into it
-(`runtime::locate`: `fib`, `fib+0x1c`, `main <native>`), else a loaded
-library's (`__cxa_finalize_ranges+0x8`), else `-`.
-[[src/debugger/prompt.rs:stop_place]]
+thread's `pc`; `<function>` is the function holding it as
+`(<written name>) <symbol>`, with `+0x<offset>` after the symbol when the stop
+is not at its start, and the symbol alone when the function has no written
+name or is written as its symbol is spelled (`names::stop_name`:
+`(fib) _mfb_fn_fib`, `(fib) _mfb_fn_fib+0x1c`, `(show) _mfb_fn_show_24Integer`,
+`_mfb_arena_alloc+0x4`, `(exit) _exit`) — the executable's functions and a
+linked function bound exactly there (`runtime::locate_stop`), else a loaded
+library's (`(__cxa_finalize_ranges) ___cxa_finalize_ranges+0x8`), else `-`. The
+symbol is what tells apart functions that share a written name, and it is the
+spelling `breakpoint` takes. [[src/debugger/prompt.rs:stop_place]]
 `T: - P: - F: -` stands for a thread no longer there. `<old>` and `<new>` are
 shown as watchpoint values are. The error's origin is not printed; `show
 error` reads it. A thread at breakpoints whose tests all fail is no stop and
 gets no line; at the error park it is still looked at for a watched raise. A
-stop whose every part has commands runs them and runs on (Commands at a stop);
-the first stop that does not ends the `run`, its thread current.
+stop whose every part has commands that end in `run` runs them and runs on
+(Commands at a stop); the first stop that does not ends the `run`, its thread
+current.
 
 ### `disassemble`
 
@@ -1186,11 +1336,12 @@ or the last `step` ran; thread 0 before either, or when it has ended.
 - `dis <function> <count>`: `<count>` counted from each function's start, as
   for `dis <count>`.
 - `dis <function>`: resolved as a breakpoint name is — symbols spelled
-  `<function>` (the executable's, its imports' bound addresses, and on Mach-O
-  the libraries' via `library_functions`), else written names (the
-  executable's functions, its imports' C names, and the libraries'
-  `<C_PREFIX><function>`) — one listing per
-  distinct start, separated by an empty line.
+  `<function>` (the executable's, its imports' bound addresses, and the
+  libraries' via `library_functions`), else the one function written so (the
+  executable's functions, its imports' C names, and on Mach-O the libraries'
+  `<C_PREFIX><function>`), refused as ambiguous when several functions are —
+  one listing per distinct start, separated by an empty line.
+  [[src/debugger/disassemble.rs:resolve]]
 
 A function's extent is the first known of: the executable's symbol size
 (`--debug` builds), its import stub's size, the library's function starts.
@@ -1322,7 +1473,8 @@ address no function held is dropped with `Dropped the breakpoint at <place>:
 no function holds it.`, and one whose function the program no longer has with
 `Dropped the breakpoint on <symbol>: the program no longer has it.` A
 breakpoint keeps its test, and one `brk` is written per address, the park's
-included. A number in a test (`[0x…]`) is not moved to the new process's
+and the debug report's (`show report`) included; the report the session held is
+forgotten. A number in a test (`[0x…]`) is not moved to the new process's
 layout. Every watchpoint is dropped first, as Watchpoints says. The
 current thread is 0 again, and the session runs on even after the program had
 ended.

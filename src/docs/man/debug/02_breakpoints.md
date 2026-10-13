@@ -32,11 +32,23 @@ function name:
   `_mfb_fn_isPrime` or `_exit`;
 - `exit`, `write` and the other system functions by their C names;
 - any of these with `+` and an offset, a place inside the function, written
-  the way `bt` and a stop show one: `bp main+0x110` or `bp main+272`.
+  the way `bt` and a stop show one: `bp main+0x110`, `bp main+272` or
+  `bp _mfb_fn_main+0x110`.
 
-A name sets a breakpoint at every function it matches. `breakpoint r` takes the
-same forms and removes every breakpoint they name, with a test or not.
-`list breakpoint` lists them.
+A name as you wrote it can belong to more than one function: two functions
+of one name that take different types, every lambda (each is named `lambda`),
+or your own `exit` beside the C library's. `mfb dbg` does not guess which you
+mean:
+
+```
+DBG> bp show
+error: 'show' is ambiguous: it names _mfb_fn_show_24Integer, _mfb_fn_show_24String; name one by its symbol
+DBG> bp _mfb_fn_show_24Integer
+Set a breakpoint at 0x000000010257884c in show.
+```
+
+`breakpoint r` takes the same forms and removes every breakpoint they name,
+with a test or not. `list breakpoint` lists them.
 
 A system function such as `_exit` has no address until the program has loaded
 its libraries. Set before then, its breakpoint waits (`list breakpoint` shows
@@ -54,21 +66,32 @@ Each stop prints one line for each thread it stopped. Every line starts with
 
 | Line | The program stopped because |
 | --- | --- |
-| `--[BP] T: 0 P: 0x… F: isPrime` | thread 0 reached a breakpoint |
-| `--[WP] T: 0 P: 0x… F: countPrimes+0x208 M: 0x…: 0x… (0) -> 0x… (1)` | thread 0 changed watched memory |
-| `--[BE] T: 0 P: 0x… F: main+0x110 E: errorCode::ErrOverflow (77050010)` | thread 0 raised an error you watch for |
+| `--[BP] T: 0 P: 0x… F: (isPrime) _mfb_fn_isPrime` | thread 0 reached a breakpoint |
+| `--[WP] T: 0 P: 0x… F: (countPrimes) _mfb_fn_countPrimes+0x208 M: 0x…: 0x… (0) -> 0x… (1)` | thread 0 changed watched memory |
+| `--[BE] T: 0 P: 0x… F: (main) _mfb_fn_main+0x110 E: errorCode::ErrOverflow (77050010)` | thread 0 raised an error you watch for |
 | `--[XC] T: 1 P: 0x… F: … X: a bad memory access at 0x8` | an instruction failed |
 | `--[CC] User Break` | you pressed Ctrl-C |
 | `--[EX] Program exit (0)` | the program ended, with its exit status |
 
+A program built with `--debug` writes a report as it ends
+(`mfb man debug report`). `mfb dbg` keeps it off the screen, and the line says
+how to read it:
+
+```
+--[EX] Program exit (0) - type "show report" to see the performance and memory report
+```
+
 `T:` is the thread, `P:` the address of the instruction, and `F:` the function
-it is in, with how far in (`-` when no function is known). A program that ends
+it is in: the name you wrote in parentheses, then the function's symbol, with
+how far in (`-` when no function is known). The symbol tells apart functions
+that share a written name, and it is a name `breakpoint` takes. A function
+nobody wrote a name for shows its symbol alone: `F: _mfb_arena_alloc+0x4`. A program that ends
 by a signal shows `--[EX] Program ended by signal (9)`, and one you attached
 to shows `--[EX] Program exit`, since only its own parent learns its status.
 
 Once the program has ended, only `help`, `list`, `list breakpoint`,
-`list watchpoint`, `list reg` and `show type` on their own, `restart` and
-`quit` still work.
+`list watchpoint`, `list reg` and `show type` on their own, `show report`,
+`restart` and `quit` still work.
 
 ### Stopping only when a test holds
 
@@ -105,7 +128,7 @@ DBG> bpi x0 eq 824084 at countPrimes
 Set a breakpoint at 0x00000001048f0dc4 in countPrimes if x0 eq 0x00000000000c9314 (824084).
 DBG> run
 round 1: 37 primes
---[BP] T: 0 P: 0x00000001048f0dc4 F: countPrimes
+--[BP] T: 0 P: 0x00000001048f0dc4 F: (countPrimes) _mfb_fn_countPrimes
 ```
 
 Breakpoints with different tests can share a place. A thread stops there when
@@ -136,7 +159,7 @@ breakpoint in, that is the usual case:
 
 ```
 DBG> finish
---[BP] T: 0 P: 0x0000000102e20a90 F: isPrime
+--[BP] T: 0 P: 0x0000000102e20a90 F: (isPrime) _mfb_fn_isPrime
 The finish from countPrimes did not complete; type 'finish' to run it again from here.
 ```
 
@@ -154,7 +177,7 @@ name:
 DBG> be ErrOverflow
 Stopping when a thread raises 77050010 (errorCode::ErrOverflow).
 DBG> run
---[BE] T: 0 P: 0x0000000102268908 F: main+0x110 <mfb> E: errorCode::ErrOverflow (77050010)
+--[BE] T: 0 P: 0x0000000102268908 F: (main) _mfb_fn_main+0x110 E: errorCode::ErrOverflow (77050010)
 ```
 
 From there `show error` shows the error and where in your source it was
@@ -206,15 +229,15 @@ up:
 DBG> bp countPrimes
 Set a breakpoint at 0x0000000100b60d1c in countPrimes.
 DBG> run
---[BP] T: 0 P: 0x0000000100b60d1c F: countPrimes
+--[BP] T: 0 P: 0x0000000100b60d1c F: (countPrimes) _mfb_fn_countPrimes
 DBG> wp sp-0xf0
 Set a watchpoint at 0x000000016f29ce60 (8 bytes): 0xb4051d3a4bfdb18f (-5474937635778743921).
 DBG> bp r countPrimes
 Removed the breakpoint at 0x0000000100b60d1c in countPrimes.
 DBG> run
---[WP] T: 0 P: 0x0000000100b60d40 F: countPrimes+0x24 M: 0x000000016f29ce60: 0xb4051d3a4bfdb18f (-5474937635778743921) -> 0x0000000000000000 (0)
+--[WP] T: 0 P: 0x0000000100b60d40 F: (countPrimes) _mfb_fn_countPrimes+0x24 M: 0x000000016f29ce60: 0xb4051d3a4bfdb18f (-5474937635778743921) -> 0x0000000000000000 (0)
 DBG> run
---[WP] T: 0 P: 0x0000000100b60f24 F: countPrimes+0x208 M: 0x000000016f29ce60: 0x0000000000000000 (0) -> 0x0000000000000001 (1)
+--[WP] T: 0 P: 0x0000000100b60f24 F: (countPrimes) _mfb_fn_countPrimes+0x208 M: 0x000000016f29ce60: 0x0000000000000000 (0) -> 0x0000000000000001 (1)
 ```
 
 `P:` and `F:` are the instruction that made the change; the thread is stopped
@@ -230,46 +253,78 @@ run's memory is laid out anew.
 
 A breakpoint, a watchpoint or `breakerror` can carry commands. Write them after
 the rest of the command, separated by `;`. At each stop the debugger prints the
-stop's line, runs the commands, and lets the program run on, so you can trace
-a run without stopping it:
+stop's line and runs the commands. The program then stays stopped, unless the
+last command is `run`: end the list with `run` to trace a run without
+stopping it.
 
 ```
-DBG> bp countPrimes list reg x0, x1; bt 3
-Set a breakpoint at 0x0000000100508d1c in countPrimes. Each stop runs 'list reg x0, x1; bt 3' and continues.
+DBG> bp countPrimes list reg x0, x1; bt 3; run
+Set a breakpoint at 0x0000000102750dc4 in countPrimes. Each stop runs 'list reg x0, x1; bt 3; run'.
 DBG> run
---[BP] T: 0 P: 0x0000000100508d1c F: countPrimes
+--[BP] T: 0 P: 0x0000000102750dc4 F: (countPrimes) _mfb_fn_countPrimes
 Register | Hex                | Decimal
 x0       | 0x00000000000620a7 | (401575)
 x1       | 0x00000000000001f4 | (500)
 * thread #0, task = 'MFB Main'
-  * frame #0: 0x0000000100508d1c debug.out`countPrimes
-    frame #1: 0x00000001005091dc debug.out`runRound + 344
-    frame #2: 0x000000010050b624 debug.out`runRounds + 5224
+  * frame #0: 0x0000000102750dc4 debug.out`countPrimes
+    frame #1: 0x0000000102751284 debug.out`runRound + 344
+    frame #2: 0x00000001027538f8 debug.out`runRounds + 5780
 round 1: 37 primes
---[BP] T: 0 P: 0x0000000100508d1c F: countPrimes
+--[BP] T: 0 P: 0x0000000102750dc4 F: (countPrimes) _mfb_fn_countPrimes
 Register | Hex                | Decimal
 x0       | 0x00000000000c9314 | (824084)
 x1       | 0x00000000000001f4 | (500)
 * thread #0, task = 'MFB Main'
-  * frame #0: 0x0000000100508d1c debug.out`countPrimes
-    frame #1: 0x00000001005091dc debug.out`runRound + 344
-    frame #2: 0x000000010050b624 debug.out`runRounds + 5224
+  * frame #0: 0x0000000102750dc4 debug.out`countPrimes
+    frame #1: 0x0000000102751284 debug.out`runRound + 344
+    frame #2: 0x00000001027538f8 debug.out`runRounds + 5780
 round 2: 31 primes
 total: 68 primes
---[EX] Program exit (0)
+--[EX] Program exit (0) - type "show report" to see the performance and memory report
 ```
 
 The commands run with the stopped thread as the current one. They can be
 `list`, `show`, `bt`, `dis`, or `be` alone: commands that look at the program
 without running it. They can also be `j`, which moves the stopped thread
-(`mfb man debug stepping`). `be ErrOverflow show error` prints every overflow
-as it happens, `wp sp-0xf0 8 bt 2` shows each change with the calls that made
-it, and `bp countPrimes j lr x0=0 x1=7` makes every call of `countPrimes`
-return 7 at once. When threads stop
-at the same time and one of their stops has no commands, the program stays
-stopped. A `finish` that meets a stop with commands runs them and carries on
-toward the end of its function. `list breakpoint` and `list watchpoint` show
-each one's commands in a `Commands` column.
+(`mfb man debug stepping`), `finish`, and, as the last one, `run`.
+`be ErrOverflow show error; run` prints every overflow as it happens,
+`wp sp-0xf0 8 bt 2; run` shows each change with the calls that made it, and
+`bp countPrimes j lr x0=0 x1=7; run` makes every call of `countPrimes` return
+7 at once.
+
+`finish` among the commands runs the function to its return and prints what
+it returned, so `finish; run` logs every call's result:
+
+```
+DBG> bp next_seed finish; run
+Set a breakpoint at 0x00000001026bc978 in next_seed. Each stop runs 'finish; run'.
+DBG> bp formatLine
+Set a breakpoint at 0x00000001026bd398 in formatLine.
+DBG> run
+--[BP] T: 0 P: 0x00000001026bc978 F: (next_seed) _mfb_fn_next_5Fseed
+Thread 0 returned from next_seed to 0x00000001026bec48 in runRounds+0x9e4: x0 = 0x0000000000000000 (0), x1 = 0x0000000041c67ea6 (1103527590).
+--[BP] T: 0 P: 0x00000001026bc978 F: (next_seed) _mfb_fn_next_5Fseed
+Thread 0 returned from next_seed to 0x00000001026bd160 in runRound+0x34: x0 = 0x0000000000000000 (0), x1 = 0x00000000167eb0e7 (377401575).
+--[BP] T: 0 P: 0x00000001026bd398 F: (formatLine) _mfb_fn_formatLine
+DBG> list breakpoint
+Address            | Count | Symbol              | Written name | Commands
+0x00000001026bc978 | 2     | _mfb_fn_next_5Fseed | next_seed    | finish; run
+0x00000001026bd398 | 1     | _mfb_fn_formatLine  | formatLine   | -
+```
+
+Commands after a `finish` see the thread where it returned. When the function
+being finished reaches another stop first, that stop's commands take over and
+the rest of the first list is dropped.
+
+When threads stop at the same time, the program runs on only if every one of
+their stops has commands that end in `run`. A `finish` you type that meets a
+stop whose commands end in `run` runs them and carries on toward the end of
+its function.
+
+`list breakpoint` and `list watchpoint` show each one's commands in a
+`Commands` column, and in `Count` how many times each has stopped a thread
+since the program started. A breakpoint whose `Count` is still 0 when the
+program has ended was never reached; `restart` sets the counts back to 0.
 
 ### Starting over
 
@@ -285,7 +340,7 @@ Stop in `isPrime`, and in the system's `exit` once every round is done:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp isPrime\nbp _exit\nrun\nbp r isPrime\nrun\nrun\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp isPrime\nbp _exit\nrun\nbp r isPrime\nrun\nrun\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
@@ -296,16 +351,16 @@ DBG> bp _exit
 Set a pending breakpoint on _exit: it is placed when the program has loaded its libraries.
 DBG> run
 Placed the pending breakpoint on _exit at 0x00000001966eaf8c.
---[BP] T: 0 P: 0x0000000100dd4aa4 F: isPrime
+--[BP] T: 0 P: 0x0000000100dd4aa4 F: (isPrime) _mfb_fn_isPrime
 DBG> bp r isPrime
 Removed the breakpoint at 0x0000000100dd4aa4 in isPrime.
 DBG> run
 round 1: 37 primes
 round 2: 31 primes
 total: 68 primes
---[BP] T: 0 P: 0x00000001966eaf8c F: exit
+--[BP] T: 0 P: 0x00000001966eaf8c F: (exit) _exit
 DBG> run
---[EX] Program exit (0)
+--[EX] Program exit (0) - type "show report" to see the performance and memory report
 DBG> q
 Process 89957 had already exited.
 ```
@@ -315,7 +370,7 @@ is 824084:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bpi x0 eq 824084 at countPrimes\nrun\nlist breakpoint\nlist reg x0, x1\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bpi x0 eq 824084 at countPrimes\nrun\nlist breakpoint\nlist reg x0, x1\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
@@ -324,10 +379,10 @@ DBG> bpi x0 eq 824084 at countPrimes
 Set a breakpoint at 0x00000001048f0dc4 in countPrimes if x0 eq 0x00000000000c9314 (824084).
 DBG> run
 round 1: 37 primes
---[BP] T: 0 P: 0x00000001048f0dc4 F: countPrimes
+--[BP] T: 0 P: 0x00000001048f0dc4 F: (countPrimes) _mfb_fn_countPrimes
 DBG> list breakpoint
-Address            | Symbol              | Written name | If
-0x00000001048f0dc4 | _mfb_fn_countPrimes | countPrimes  | x0 eq 0x00000000000c9314 (824084)
+Address            | Count | Symbol              | Written name | If
+0x00000001048f0dc4 | 1     | _mfb_fn_countPrimes | countPrimes  | x0 eq 0x00000000000c9314 (824084)
 DBG> list reg x0, x1
 Register | Hex                | Decimal
 x0       | 0x00000000000c9314 | (824084)
@@ -341,7 +396,7 @@ breakpoint still set:
 
 ```sh macos
 mfb build --debug -O0 examples/debug
-printf 'bp formatLine\nrun\nfinish\nshow type string x1\nrestart\nlist breakpoint\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500 2> report.txt
+printf 'bp formatLine\nrun\nfinish\nshow type string x1\nrestart\nlist breakpoint\nq\n' | mfb dbg examples/debug/build/debug.out -- 2 500
 ```
 
 ```
@@ -349,7 +404,7 @@ Launched examples/debug/build/debug.out as process 89963; paused before its firs
 DBG> bp formatLine
 Set a breakpoint at 0x0000000100fb5374 in formatLine.
 DBG> run
---[BP] T: 0 P: 0x0000000100fb5374 F: formatLine
+--[BP] T: 0 P: 0x0000000100fb5374 F: (formatLine) _mfb_fn_formatLine
 DBG> finish
 Thread 0 returned from formatLine to 0x0000000100fb7844 in runRounds+0x15cc: x0 = 0x0000000000000000 (0), x1 = 0x0000000101030440 (4311942208).
 DBG> show type string x1
@@ -357,8 +412,8 @@ Length: 18 Value: "round 1: 37 primes"
 DBG> restart
 Restarted the program as process 89965; paused before its first instruction.
 DBG> list breakpoint
-Address            | Symbol             | Written name
-0x0000000104bd1374 | _mfb_fn_formatLine | formatLine
+Address            | Count | Symbol             | Written name
+0x0000000104bd1374 | 0     | _mfb_fn_formatLine | formatLine
 DBG> q
 Killed process 89965.
 ```

@@ -511,41 +511,59 @@ pub(crate) fn error_code_name(code: i64) -> Option<String> {
         .map(|constant| format!("errorCode::{}", constant.name))
 }
 
-/// Where `pc` is, as `<name>+0x<offset>` for a function the executable defines
-/// (the written name when there is one), or the name of a linked function that
-/// starts exactly there; `None` anywhere else. A name an MFBASIC and a native
-/// function share carries its tag (`main <mfb>`).
-pub(crate) fn locate(functions: &[super::FunctionSymbol], pc: u64) -> Option<String> {
-    let collisions = super::names::Collisions::of(functions);
-    if let Some(function) = functions.iter().find(|function| {
-        !function.linked
-            && function
-                .address
-                .is_some_and(|address| address <= pc && pc - address < function.size.unwrap_or(0))
-    }) {
-        let offset = pc - function.address?;
-        let (origin, written) = super::names::classify_defined(&function.name);
-        let tag = written
-            .as_deref()
-            .and_then(|written| collisions.tag(written, origin));
-        let name = written.unwrap_or_else(|| function.name.clone());
-        let place = if offset == 0 {
-            name
-        } else {
-            format!("{name}+{offset:#x}")
-        };
-        return Some(match tag {
-            Some(tag) => format!("{place} {tag}"),
-            None => place,
-        });
-    }
+/// The function `pc` is in and how far in: one the executable defines, or a
+/// linked function that starts exactly there.
+fn holder(functions: &[super::FunctionSymbol], pc: u64) -> Option<(&super::FunctionSymbol, u64)> {
     functions
         .iter()
-        .find(|function| function.linked && function.address == Some(pc))
-        .map(|function| {
-            let (origin, written) = super::names::classify(function);
-            collisions.tagged(written.unwrap_or_default(), origin)
+        .find(|function| {
+            !function.linked
+                && function.address.is_some_and(|address| {
+                    address <= pc && pc - address < function.size.unwrap_or(0)
+                })
         })
+        .and_then(|function| Some((function, pc - function.address?)))
+        .or_else(|| {
+            functions
+                .iter()
+                .find(|function| function.linked && function.address == Some(pc))
+                .map(|function| (function, 0))
+        })
+}
+
+/// Where `pc` is, as `<name>+0x<offset>` for a function the executable defines
+/// (the written name when there is one, else the symbol), or the name of a
+/// linked function that starts exactly there; `None` anywhere else. A name an
+/// MFBASIC and a native function share carries its tag (`exit <mfb>`).
+pub(crate) fn locate(functions: &[super::FunctionSymbol], pc: u64) -> Option<String> {
+    let collisions = super::names::Collisions::of(functions);
+    let (function, offset) = holder(functions, pc)?;
+    let (origin, written) = super::names::classify(function);
+    let tag = written
+        .as_deref()
+        .and_then(|written| collisions.tag(written, origin));
+    let name = written.unwrap_or_else(|| function.name.clone());
+    let place = if offset == 0 {
+        name
+    } else {
+        format!("{name}+{offset:#x}")
+    };
+    Some(match tag {
+        Some(tag) => format!("{place} {tag}"),
+        None => place,
+    })
+}
+
+/// Where `pc` is as a stop line names it, `(<written name>) <symbol>+0x<offset>`
+/// ([`super::names::stop_name`]), for the functions [`locate`] knows.
+pub(crate) fn locate_stop(functions: &[super::FunctionSymbol], pc: u64) -> Option<String> {
+    let (function, offset) = holder(functions, pc)?;
+    let written = super::names::classify(function).1;
+    Some(super::names::stop_name(
+        written.as_deref(),
+        &function.name,
+        offset,
+    ))
 }
 
 #[cfg(test)]

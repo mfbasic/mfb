@@ -731,10 +731,10 @@ mod tests {
         );
     }
 
-    /// The program's `main` and the runtime's `_main` both read `main`, so
-    /// each is tagged with its side.
+    /// The program's `main` reads as written and the runtime's `_main` by its
+    /// symbol, so neither needs a tag.
     #[test]
-    fn two_functions_of_one_name_are_told_apart() {
+    fn a_function_nobody_wrote_reads_by_its_symbol() {
         let symbol = |name: &str| crate::debugger::FunctionSymbol {
             name: name.to_string(),
             linked: false,
@@ -759,8 +759,8 @@ mod tests {
         assert_eq!(
             lines(0, None, "MFB Main", &frames, false, &collisions)[1..],
             [
-                "    frame #0: 0x0000000000001010 debug.out`main + 16 <mfb>",
-                "    frame #1: 0x0000000000002000 debug.out`main <native>",
+                "    frame #0: 0x0000000000001010 debug.out`main + 16",
+                "    frame #1: 0x0000000000002000 debug.out`_main",
             ]
         );
     }

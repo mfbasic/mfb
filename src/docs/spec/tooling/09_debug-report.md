@@ -67,6 +67,11 @@ writes or errors. Atomicity depends on the destination and operating system.
 [[src/codegen/debug/write.rs:emit_write_window]] A consumer takes the **last** `mfb.debug.begin` block
 in stderr.
 
+`mfb dbg` depends on that shape: it takes each line at the `write` call, by the
+thread inside `_mfb_debug_shutdown` and to descriptor 2, and skips the call, so
+under the debugger the block does not reach stderr (`./mfb spec tooling
+debugger`, *show report*).
+
 ## Sections
 
 Sections print in the order of the compiler's feature registry,

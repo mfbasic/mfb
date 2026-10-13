@@ -108,9 +108,9 @@ pub(crate) fn classify(function: &FunctionSymbol) -> (Origin, Option<String>) {
     }
 }
 
-/// The names an MFBASIC function and a native one share — the program's `main`
-/// and the runtime's `_main`, a developer's `exit` and the C library's — which
-/// are shown with a tag saying which is meant: `main <mfb>`, `main <native>`.
+/// The names an MFBASIC function and a native one share — a developer's `exit`
+/// and the C library's — which are shown with a tag saying which is meant:
+/// `exit <mfb>`, `exit <native>`.
 /// A function's name here is its written name, else its [`plain_name`], as
 /// listings show it.
 #[derive(Debug, Default)]
@@ -141,7 +141,7 @@ impl Collisions {
             .then_some(if origin.native() { "<native>" } else { "<mfb>" })
     }
 
-    /// `name` with its tag, if it needs one: `main <mfb>`.
+    /// `name` with its tag, if it needs one: `exit <mfb>`.
     pub(crate) fn tagged(&self, name: String, origin: Origin) -> String {
         match self.tag(&name, origin) {
             Some(tag) => format!("{name} {tag}"),
@@ -230,14 +230,49 @@ pub(crate) fn linked_name(symbol: &str) -> String {
 }
 
 /// The name a symbol with no written name is shown by: an MFBASIC
-/// executable's own symbols (`_main`, `_mfb_…`), which every format spells
-/// with a leading `_`, less it; any other, a system library's, as
-/// [`linked_name`] reads it.
+/// executable's own symbols (`_main`, `_mfb_…`) as they are spelled, the
+/// spelling `list func` gives and `bp` takes; any other, a system library's,
+/// as [`linked_name`] reads it.
 pub(crate) fn plain_name(symbol: &str) -> String {
-    match symbol.strip_prefix('_') {
-        Some(rest) if symbol == "_main" || symbol.starts_with("_mfb") => rest.to_string(),
-        _ => linked_name(symbol),
+    if symbol == "_main" || symbol.starts_with("_mfb") {
+        symbol.to_string()
+    } else {
+        linked_name(symbol)
     }
+}
+
+/// A stop line's function: `(<written name>) <symbol>`, the symbol alone when
+/// nothing was written for it, with `+0x<offset>` after the symbol when the
+/// stop is not at its start. Several functions can share a written name
+/// (overloads, generic instances, lambdas); the symbol says which this is.
+pub(crate) fn stop_name(written: Option<&str>, symbol: &str, offset: u64) -> String {
+    let place = match offset {
+        0 => symbol.to_string(),
+        offset => format!("{symbol}+{offset:#x}"),
+    };
+    match written {
+        Some(written) if written != symbol => format!("({written}) {place}"),
+        _ => place,
+    }
+}
+
+/// The refusal for a written name that more than one function has: a command
+/// takes a symbol, or a written name that names one function. A function and
+/// its hand-over copies are one function. `None` when `symbols` are all one.
+pub(crate) fn ambiguity<'a>(
+    name: &str,
+    symbols: impl IntoIterator<Item = &'a str>,
+) -> Option<String> {
+    let functions = symbols
+        .into_iter()
+        .map(strip_own)
+        .collect::<std::collections::BTreeSet<_>>();
+    (functions.len() > 1).then(|| {
+        format!(
+            "'{name}' is ambiguous: it names {}; name one by its symbol",
+            functions.into_iter().collect::<Vec<_>>().join(", ")
+        )
+    })
 }
 
 /// Drop a hand-over copy's `$own<hex>` suffix; the copy is the same function.
@@ -448,10 +483,56 @@ mod tests {
             assert_eq!(linked_name("___error"), "__error");
         }
         assert_eq!(linked_name("plain"), "plain");
-        // The executable's own symbols read the same on every format.
-        assert_eq!(plain_name("_main"), "main");
-        assert_eq!(plain_name("_mfb_rt_print"), "mfb_rt_print");
+        // The executable's own symbols are shown as they are spelled.
+        assert_eq!(plain_name("_main"), "_main");
+        assert_eq!(plain_name("_mfb_rt_print"), "_mfb_rt_print");
         assert_eq!(plain_name(&format!("{C_PREFIX}write")), "write");
+    }
+
+    #[test]
+    fn a_stop_names_the_function_as_written_and_by_its_symbol() {
+        assert_eq!(
+            stop_name(Some("isPrime"), "_mfb_fn_isPrime", 0),
+            "(isPrime) _mfb_fn_isPrime"
+        );
+        assert_eq!(
+            stop_name(Some("show"), "_mfb_fn_show_24Integer", 0x6c),
+            "(show) _mfb_fn_show_24Integer+0x6c"
+        );
+        assert_eq!(
+            stop_name(None, "_mfb_arena_alloc", 4),
+            "_mfb_arena_alloc+0x4"
+        );
+        // A name written as its symbol is spelled is said once.
+        assert_eq!(stop_name(Some("exit"), "exit", 0), "exit");
+    }
+
+    #[test]
+    fn a_written_name_several_functions_have_is_ambiguous() {
+        assert_eq!(ambiguity("isPrime", ["_mfb_fn_isPrime"]), None);
+        // The same symbol twice, and a function's hand-over copies, are one.
+        assert_eq!(
+            ambiguity(
+                "isPrime",
+                ["_mfb_fn_isPrime", "_mfb_fn_isPrime", "_mfb_fn_isPrime$own4"]
+            ),
+            None
+        );
+        assert_eq!(
+            ambiguity(
+                "show",
+                [
+                    "_mfb_fn_show_24String",
+                    "_mfb_fn_show_24Integer",
+                    "_mfb_fn_show_24Integer$own1"
+                ]
+            )
+            .as_deref(),
+            Some(
+                "'show' is ambiguous: it names _mfb_fn_show_24Integer, _mfb_fn_show_24String; \
+                 name one by its symbol"
+            )
+        );
     }
 
     /// A C function's symbol as the host's format spells it.
@@ -480,8 +561,9 @@ mod tests {
             symbol(&c("malloc"), true),
         ]);
         let tagged = |name: &str, origin| collisions.tagged(name.to_string(), origin);
-        assert_eq!(tagged("main", Origin::User), "main <mfb>");
-        assert_eq!(tagged("main", Origin::Runtime), "main <native>");
+        // The runtime's `_main` is shown by its symbol, so `main` is one name.
+        assert_eq!(tagged("main", Origin::User), "main");
+        assert_eq!(tagged("_main", Origin::Runtime), "_main");
         assert_eq!(tagged("exit", Origin::User), "exit <mfb>");
         assert_eq!(tagged("exit", Origin::Linked), "exit <native>");
         assert_eq!(tagged("isPrime", Origin::User), "isPrime");

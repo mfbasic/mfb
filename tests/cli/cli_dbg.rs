@@ -216,7 +216,17 @@ mod native {
     /// on ELF.
     const EXIT_SYMBOL: &str = "_exit";
 
-    /// That function's C name, as listings and stops write it.
+    /// That function as a stop line names it: `(<C name>) <symbol>`, the symbol
+    /// alone where the format spells the C name as the symbol.
+    fn exit_stop() -> String {
+        if exit_name() == EXIT_SYMBOL {
+            EXIT_SYMBOL.to_string()
+        } else {
+            format!("({}) {EXIT_SYMBOL}", exit_name())
+        }
+    }
+
+    /// That function's C name, as listings write it.
     fn exit_name() -> &'static str {
         if cfg!(target_os = "linux") {
             "_exit"
@@ -301,7 +311,7 @@ mod native {
         let rows = table_rows(table, FUNCTION_COLUMNS)
             .into_iter()
             .map(|cells| {
-                // The written name may carry a tag (`main <mfb>`).
+                // The written name may carry a tag (`exit <mfb>`).
                 assert!(!cells[3].is_empty(), "{cells:?}");
                 <[String; 4]>::try_from(cells).unwrap()
             })
@@ -530,10 +540,9 @@ mod native {
                 && row[3] == "next_tick"),
             "{listing}"
         );
-        // The program's `main` shares its name with the runtime's `_main`.
-        assert!(rows
-            .iter()
-            .any(|row| row[0] == "MU" && row[3] == "main <mfb>"));
+        // The program's `main` reads as written; the runtime's `_main` has
+        // no written name, so the two do not share one.
+        assert!(rows.iter().any(|row| row[0] == "MU" && row[3] == "main"));
         assert!(rows
             .iter()
             .any(|row| row[0] == "MR" && row[2] == "_main" && row[3] == "-"));
@@ -573,6 +582,39 @@ mod native {
                 "{words:?}"
             );
         }
+
+        // On its own it shows the registers a call uses, each with its role,
+        // and the usage under them.
+        session.send("list reg\n");
+        let common = session.until_prompt();
+        let roles = common
+            .lines()
+            .filter_map(|line| {
+                let cells = line.split(" | ").map(str::trim).collect::<Vec<_>>();
+                (cells.len() == 4 && cells[0] != "Register").then(|| (cells[0], cells[3]))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            roles,
+            [
+                ("x0", "MFB arg, MFB result, C arg, C result"),
+                ("x1", "MFB arg, MFB result, C arg, C result"),
+                ("x2", "MFB arg, MFB result, C arg"),
+                ("x3", "MFB arg, MFB result, C arg"),
+                ("x4", "MFB arg, C arg"),
+                ("x5", "MFB arg, C arg"),
+                ("x6", "MFB arg, C arg"),
+                ("x7", "MFB arg, C arg"),
+                ("x19", "Arena"),
+                ("x20", "Current Thread"),
+                ("x28", "Closure"),
+            ],
+            "{common}"
+        );
+        assert!(
+            common.contains("\n\nUsage: list reg [<id>] [<what>...]\n"),
+            "{common}"
+        );
 
         session.send("q\n");
         let (code, _) = session.finish();
@@ -649,7 +691,7 @@ mod native {
         assert!(
             raised.len() == 1
                 && raised[0].starts_with("--[BE] T: 0 P: 0x")
-                && raised[0].contains(" F: main+0x")
+                && raised[0].contains(" F: (main) _mfb_fn_main+0x")
                 && raised[0].ends_with(" E: errorCode::ErrOverflow (77050010)"),
             "{raised:?}"
         );
@@ -672,9 +714,7 @@ mod native {
         let end = body(&session.until_prompt());
         assert!(
             end.iter().any(|line| line == "caught 77050010")
-                && end
-                    .last()
-                    .is_some_and(|line| line == "--[EX] Program exit (0)"),
+                && end.last().is_some_and(|line| line == EXITED),
             "{end:?}"
         );
         session.send("q\n");
@@ -715,6 +755,11 @@ mod native {
         build_debug(&project, "debug")
     }
 
+    /// How a `--debug` build that exits with status 0 ends: its report is
+    /// kept for `show report`.
+    const EXITED: &str =
+        "--[EX] Program exit (0) - type \"show report\" to see the performance and memory report";
+
     /// The lines between a command's echo and the next prompt.
     fn body(reply: &str) -> Vec<String> {
         reply
@@ -730,7 +775,7 @@ mod native {
     const THREAD_COLUMNS: &[&str] = &["ID", "Name", "PC", "Task"];
     const REGISTER_COLUMNS: &[&str] = &["Register", "Hex", "Decimal"];
     const ARENA_COLUMNS: &[&str] = &["ID", "Thread", "Address", "Size (KB)"];
-    const BREAKPOINT_COLUMNS: &[&str] = &["Address", "Symbol", "Written name"];
+    const BREAKPOINT_COLUMNS: &[&str] = &["Address", "Count", "Symbol", "Written name"];
 
     /// What separates a listing's columns.
     const SEPARATOR: &str = " | ";
@@ -1058,7 +1103,7 @@ mod native {
         assert!(
             changed.len() == 1
                 && changed[0].starts_with("--[WP] T: 0 P: 0x")
-                && changed[0].contains(" F: countPrimes+0x4 ")
+                && changed[0].contains(" F: (countPrimes) _mfb_fn_countPrimes+0x4 ")
                 && changed[0].contains(&format!(" M: {address}: 0x"))
                 && changed[0].ends_with(&format!(
                     " -> {lr} ({})",
@@ -1067,11 +1112,15 @@ mod native {
             "{changed:?} {lr}"
         );
         session.send("list watchpoint\n");
-        let listed = table_rows(&session.until_prompt(), &["Address", "Size", "Value"]);
+        // The one stop it made is counted.
+        let listed = table_rows(
+            &session.until_prompt(),
+            &["Address", "Count", "Size", "Value"],
+        );
         assert!(
             listed.len() == 1
-                && listed[0][..2] == [address.to_string(), "8".to_string()]
-                && listed[0][2].starts_with(&lr),
+                && listed[0][..3] == [address.to_string(), "1".to_string(), "8".to_string()]
+                && listed[0][3].starts_with(&lr),
             "{listed:?}"
         );
         session.send(&format!("wp r {address}\n"));
@@ -1082,7 +1131,7 @@ mod native {
         session.send("run\n");
         assert_eq!(
             body(&session.until_prompt()).last().map(String::as_str),
-            Some("--[EX] Program exit (0)")
+            Some(EXITED)
         );
         session.send("q\n");
         let (code, _) = session.finish();
@@ -1097,13 +1146,11 @@ mod native {
         let binary = debug_example();
         let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
         session.until_prompt();
-        session.send("bp countPrimes list reg x1; bt 1\n");
+        session.send("bp countPrimes list reg x1; bt 1; run\n");
         let set = body(&session.until_prompt());
         assert!(
             set.len() == 1
-                && set[0].ends_with(
-                    " in countPrimes. Each stop runs 'list reg x1; bt 1' and continues."
-                ),
+                && set[0].ends_with(" in countPrimes. Each stop runs 'list reg x1; bt 1; run'."),
             "{set:?}"
         );
         session.send("run\n");
@@ -1112,7 +1159,8 @@ mod native {
             .iter()
             .enumerate()
             .filter(|(_, line)| {
-                line.starts_with("--[BP] T: 0 P: 0x") && line.ends_with(" F: countPrimes")
+                line.starts_with("--[BP] T: 0 P: 0x")
+                    && line.ends_with(" F: (countPrimes) _mfb_fn_countPrimes")
             })
             .map(|(at, _)| at)
             .collect::<Vec<_>>();
@@ -1134,9 +1182,55 @@ mod native {
                 "{run:?}"
             );
         }
+        assert_eq!(run.last().map(String::as_str), Some(EXITED));
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+    }
+
+    /// A fault is no MFBASIC error: `show error` names the fault the thread
+    /// stopped on, until the thread is moved or runs again.
+    #[test]
+    fn show_error_names_the_fault_a_thread_stopped_on() {
+        let mfb = signed_mfb();
+        let binary = debug_example();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
+        session.until_prompt();
+        session.send("bp isPrime\n");
+        session.until_prompt();
+        session.send("run\n");
+        session.until_prompt();
+        session.send("show error\n");
         assert_eq!(
-            run.last().map(String::as_str),
-            Some("--[EX] Program exit (0)")
+            body(&session.until_prompt()),
+            ["Thread 0 has no error in flight."]
+        );
+        // With its stack pointer at 16, the function's first store faults.
+        session.send("j pc sp=16\n");
+        session.until_prompt();
+        session.send("run\n");
+        let stop = body(&session.until_prompt());
+        let what = stop
+            .last()
+            .filter(|line| line.starts_with("--[XC] T: 0 P: 0x"))
+            .and_then(|line| line.split_once(" X: "))
+            .map(|(_, what)| what.to_string())
+            .unwrap_or_else(|| panic!("no fault in {stop:?}"));
+        assert!(what.starts_with("a bad memory access at 0x"), "{stop:?}");
+        session.send("show error\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            [format!(
+                "Thread 0 has no error in flight: it stopped on {what}, which is a fault, not \
+                 an error a TRAP can catch. Use bt and list reg to see where."
+            )]
+        );
+        session.send("j pc\n");
+        session.until_prompt();
+        session.send("show error\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["Thread 0 has no error in flight."]
         );
         session.send("q\n");
         let (code, _) = session.finish();
@@ -1168,12 +1262,13 @@ mod native {
         session.send("list breakpoint\n");
         let listed = table_rows(
             &session.until_prompt(),
-            &["Address", "Symbol", "Written name", "If"],
+            &["Address", "Count", "Symbol", "Written name", "If"],
         );
         assert!(
             listed.len() == 1
                 && listed[0][1..]
                     == [
+                        "0".to_string(),
                         "_mfb_fn_countPrimes".to_string(),
                         "countPrimes".to_string(),
                         "x0 eq 0x00000000000c9314 (824084)".to_string()
@@ -1186,7 +1281,8 @@ mod native {
         assert_eq!(run.len(), 2, "{run:?}");
         assert_eq!(run[0], "round 1: 37 primes");
         assert!(
-            run[1].starts_with("--[BP] T: 0 P: 0x") && run[1].ends_with(" F: countPrimes"),
+            run[1].starts_with("--[BP] T: 0 P: 0x")
+                && run[1].ends_with(" F: (countPrimes) _mfb_fn_countPrimes"),
             "{run:?}"
         );
         session.send("list reg x0\n");
@@ -1217,15 +1313,59 @@ mod native {
         session.send("run\n");
         assert_eq!(
             body(&session.until_prompt()),
-            [
-                "round 2: 7 primes",
-                "total: 44 primes",
-                "--[EX] Program exit (0)"
-            ]
+            ["round 2: 7 primes", "total: 44 primes", EXITED]
         );
         session.send("q\n");
         let (code, _) = session.finish();
         assert_eq!(code, Some(0));
+    }
+
+    /// The report a `--debug` build writes as it exits never reaches stderr:
+    /// the debugger keeps it, and `show report` prints it.
+    #[test]
+    fn show_report_prints_the_report_the_program_wrote_as_it_exited() {
+        let mfb = signed_mfb();
+        let binary = debug_example();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
+        session.until_prompt();
+
+        session.send("show report\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["No performance and memory report yet: the program writes it as it exits."]
+        );
+        session.send("run\n");
+        let end = body(&session.until_prompt());
+        assert_eq!(end.last().map(String::as_str), Some(EXITED), "{end:?}");
+        assert!(
+            !end.iter().any(|line| line.starts_with("mfb.debug.")),
+            "{end:?}"
+        );
+        session.send("show report\n");
+        let report = body(&session.until_prompt());
+        assert!(
+            report
+                .first()
+                .is_some_and(|line| line == "mfb.debug.begin 1")
+                && report.last().is_some_and(|line| line == "mfb.debug.end 1")
+                && report.iter().any(|line| line == "arena.0.kind main"),
+            "{report:?}"
+        );
+        // A restart starts over: the next run's report is not written yet.
+        session.send("restart\n");
+        session.until_prompt();
+        session.send("show report\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["No performance and memory report yet: the program writes it as it exits."]
+        );
+        session.send("q\n");
+        let mut stderr = session.child.stderr.take().unwrap();
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+        let mut errors = String::new();
+        stderr.read_to_string(&mut errors).unwrap();
+        assert!(!errors.contains("mfb.debug."), "{errors}");
     }
 
     #[test]
@@ -1260,7 +1400,7 @@ mod native {
                     "Placed the pending breakpoint on {EXIT_SYMBOL} at 0x"
                 ))
                 && first[1].starts_with("--[BP] T: 0 P: 0x")
-                && first[1].ends_with(" F: isPrime"),
+                && first[1].ends_with(" F: (isPrime) _mfb_fn_isPrime"),
             "{first:?}"
         );
 
@@ -1297,7 +1437,7 @@ mod native {
         for (line, function) in
             frames[2..]
                 .iter()
-                .zip(["countPrimes", "runRound", "runRounds", "main", "main"])
+                .zip(["countPrimes", "runRound", "runRounds", "main", "_main"])
         {
             assert!(
                 line.contains(&format!(" {}`{function} + ", image())),
@@ -1340,7 +1480,7 @@ mod native {
         assert!(
             interrupted.len() == 2
                 && interrupted[0].starts_with("--[BP] T: 0 P: 0x")
-                && interrupted[0].ends_with(" F: isPrime"),
+                && interrupted[0].ends_with(" F: (isPrime) _mfb_fn_isPrime"),
             "{interrupted:?}"
         );
         assert_eq!(
@@ -1361,7 +1501,7 @@ mod native {
             second
                 .last()
                 .is_some_and(|line| line.starts_with("--[BP] T: 0 P: 0x")
-                    && line.ends_with(&format!(" F: {}", exit_name()))),
+                    && line.ends_with(&format!(" F: {}", exit_stop()))),
             "{second:?}"
         );
         // The program printed its rounds before reaching `exit`.
@@ -1371,7 +1511,7 @@ mod native {
         );
 
         session.send("run\n");
-        assert_eq!(body(&session.until_prompt()), ["--[EX] Program exit (0)"]);
+        assert_eq!(body(&session.until_prompt()), [EXITED]);
         // After the end, restart: a new process, the breakpoint on exit
         // pending again until the libraries load.
         session.send("restart\n");
@@ -1387,8 +1527,8 @@ mod native {
         assert_eq!(
             body(&session.until_prompt()),
             [
-                "Address | Symbol | Written name".to_string(),
-                format!("-       | {EXIT_SYMBOL:<6} | {}", exit_name())
+                "Address | Count | Symbol | Written name".to_string(),
+                format!("-       | 0     | {EXIT_SYMBOL:<6} | {}", exit_name())
             ]
         );
         session.send("run\n");
@@ -1399,7 +1539,7 @@ mod native {
             again
                 .last()
                 .is_some_and(|line| line.starts_with("--[BP] T: 0 P: 0x")
-                    && line.ends_with(&format!(" F: {}", exit_name()))),
+                    && line.ends_with(&format!(" F: {}", exit_stop()))),
             "{again:?}"
         );
         session.send("q\n");
