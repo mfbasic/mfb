@@ -31,6 +31,8 @@ to it): 688, 765, 968, 970, 991, 995, 996, 1024, 1045, 1079. Each document opens
 Cause note and the owner's rulings of 2026-10-12. 688 is worked on macOS and box 206 only
 (its Linux remainder is 1082, a later phase); 996 is software frames until the pipeline
 exists, and 1045 closes with it; 765 is batched frames plus a plan for the hash split.
+The owner added 1083 to the phase on 2026-10-12 (unasked scope is still frozen): 991 and 1083
+are one fix, the geometry record carrying its rim-free box.
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
@@ -39,7 +41,7 @@ exists, and 1045 closes with it; 765 is batched frames plus a plan for the hash 
 | [ ]  | 991    | MED      | A magnified transformed item's bounds pad scales with the transform, so a 27 px polygon covers 369 px; a scaled `canvas::Group` costs the same (bug-1083). Stopped twice in bug-staging-23. Round 2 built the second Cause note (rim of half the inverse's Frobenius norm; Metal `flat` 37 to 242 ms down to 8, software 30 s down to 0.2 s, every golden and 294 before/after frames byte-identical) and reverted it: an uneven-transform item inside a group whose matrix shrinks loses lit pixels unless the group sites carry the rim too (bug-1083's record change), and software `flat` is 3.7 to 4.5 times `pix` against a Goal of 3 because the oracle takes five samples a pixel. An arc keeps its box (its distance is not Lipschitz) |
 | [ ]  | 1024   | MED      | a Metal text frame is dumped with unwritten tiles (intermittent, cause unknown; not reproduced in 5 + 5 runs on 2026-10-12; the same two tests as 1059 in "Test tooling"). bs23: a command buffer that did not complete is now declined to software; whether that was this failure is unproven |
 | [ ]  | 1082   | MED      | on Linux a windowed Vulkan canvas frame is read back and blitted, never presented through a swapchain (split from 688; blocked on a real-GPU Linux box and the GTK4 surface decision; a later phase than `bug-staging-23`) |
-| [ ]  | 1083   | MED      | an item inside a magnifying `canvas::Group` is rasterised over a box that scales with the group (49 small polygons: 40 ms a frame against 4.5); split from 991, needs the geometry record to carry its rim (a later phase than `bug-staging-23`) |
+| [ ]  | 1083   | MED      | an item inside a magnifying `canvas::Group` is rasterised over a box that scales with the group (49 small polygons: 40 ms a frame against 4.5); one fix with 991: the geometry record carries its rim-free box (added to `bug-staging-23` by the owner, 2026-10-12) |
 | [ ]  | 1085   | MED      | a banded shape or path clip (32 or more edges) inside a `canvas::Group` whose matrix shrinks disagrees with the software oracle on Metal (a later phase than `bug-staging-23`) |
 | [ ]  | 1087   | MED      | on macOS the first canvas frame of a newly built app waits about 5 s for the Metal pipeline (4,745 ms against 18 ms on a second launch); bug-996's shape on Metal (a later phase than `bug-staging-23`) |
 | [ ]  | 1088   | MED      | a butt-capped `canvas::Arc` under a magnifying transform draws dotted rays from its centre along the ends of its sweep (lit pixels at x 161..455 for a radius-50 ring), software and Metal (a later phase than `bug-staging-23`) |
