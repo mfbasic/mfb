@@ -16,6 +16,7 @@
 #   hit
 #   clips [ITEMS] [FRAMES]
 #   magnified-polygons [FRAMES] [--software]
+#   shapes [ITEMS] [RADIUS] [KIND...]
 #   compare stress|poly|pics|text ARGS...
 #   coldstart
 #
@@ -782,6 +783,54 @@ cmd_magnified() {
 }
 
 # ---------------------------------------------------------------------------
+# shapes (bug-688)
+# ---------------------------------------------------------------------------
+# One run of a static `stress` scene into STATS (a fresh file name each run: the box
+# appends to one that is already there).
+shapes_run() {
+  local dir=$1 stats=$2
+  if [ -n "$LINUX_TARGET" ]; then
+    linux_run "$dir" stress "" "MFB_CANVAS_GPU=1" "MFB_CANVAS_STATS=$stats" || true
+  else
+    env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS="$stats" \
+      "$(bin_path "$dir" stress)" >/dev/null 2>&1 || true
+  fi
+}
+
+cmd_shapes() {
+  local items=${1:-10000}; local r=${2:-8.0}
+  [ $# -gt 2 ] && shift 2 || shift $#
+  local kinds=("$@"); [ ${#kinds[@]} -gt 0 ] || kinds=(rect circle poly)
+  case "$r" in *.*) ;; *) r="${r}.0" ;; esac
+  local secs=5
+  echo "# $items static items of radius $r and one of each alone, --debug build; each row is run twice"
+  local kind n run warmed=0
+  for kind in "${kinds[@]}"; do
+    for n in 1 "$items"; do
+      local dir="$WORK/shapes-$kind-$n"
+      KIND=$kind R=$r bash "$GEN/stress.sh" "$dir" "$n" 4 0 "$secs"
+      build_app "$dir" --debug
+      # On Windows the first run of a new shader compiles its pipelines (bug-996):
+      # one unmeasured run warms the driver's cache, and nearly all of its render
+      # phase is that compile.
+      if [ "$WIN" = 1 ] && [ "$warmed" = 0 ]; then
+        shapes_run "$dir" "$dir/stats-0"; warmed=1
+        echo "# first launch: $(wc -l < "$dir/stats-0" 2>/dev/null | tr -d ' ') frames, render phase $(stats_field "$dir/stats-0" phaseRenderMs) ms in all"
+      fi
+      for run in 1 2; do
+        local stats="$dir/stats-$run"
+        shapes_run "$dir" "$stats"
+        local rendered; rendered=$(wc -l < "$stats" 2>/dev/null | tr -d ' '); rendered=${rendered:-0}
+        local gp; gp=$(stats_field "$stats" gpuFrames); gp=${gp:-0}
+        printf "kind=%-6s items=%-6s run=%s | fps=%-6s renderer=%-8s phase: %s\n" \
+          "$kind" "$n" "$run" "$(awk -v f="$rendered" -v s="$secs" 'BEGIN{printf "%.1f", f/s}')" \
+          "$(renderer_of "$rendered" "$gp")" "$(phase_fields "$stats" "$rendered")"
+      done
+    done
+  done
+}
+
+# ---------------------------------------------------------------------------
 compare_run() {
   # compare_run DIR BINNAME -- sw vs gpu dump on an already-generated project.
   local dir=$1 name=$2
@@ -989,6 +1038,7 @@ case "$CMD" in
   hit) cmd_hit "$@" ;;
   clips) cmd_clips "$@" ;;
   magnified-polygons) cmd_magnified "$@" ;;
+  shapes) cmd_shapes "$@" ;;
   compare) cmd_compare "$@" ;;
   *) usage ;;
 esac

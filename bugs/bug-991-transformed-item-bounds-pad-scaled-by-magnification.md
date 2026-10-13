@@ -1,12 +1,147 @@
 # bug-991: A magnified transformed item's bounds pad scales with the transform, so a 27 px polygon covers 369 px
 
-Last updated: 2026-10-12
+Last updated: 2026-10-12 (bug-staging-23 round 2)
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other (Performance)
 
-Status: Open (stopped by bs23-agent-b, 2026-10-12: the Cause note's premises do not hold in the code; see "Stopped")
-Regression Test: planned `tests/canvas/rt_canvas_rasteriser.rs` (transformed-bounds case) + `tools/canvas-bench/bench.sh <mfb> magnified-polygons` (new scene)
+Status: Open (stopped a second time, bug-staging-23 round 2, 2026-10-12: the SECOND Cause note was built and measured, and it changes pixels in one case it does not name and misses the software half of the Goal; see "Stopped, round 2". The build is commit `5752c7e5b`, reverted by `6d3161619`)
+Regression Test: written and reverted with the fix: `a_transformed_items_box_is_its_mapped_extent_and_a_rim_of_pixels` in `tests/canvas/rt_canvas_damage.rs` (commit `4d9923d44`, reverted by `e84c14262`); `tools/canvas-bench/bench.sh <mfb> magnified-polygons`
+
+## Stopped, round 2 (bug-staging-23 agent D, 2026-10-12)
+
+The SECOND Cause note (below) was implemented as written, measured, and then reverted.
+No rendering code differs from before this round at the branch's head. The build is
+kept in history so the numbers here can be reproduced: `4d9923d44` (the RED test),
+`5752c7e5b` (the fix, the spec sentence, the `metal.rs` comment), reverted by
+`6d3161619` and `e84c14262`. Base for "before" is `896a4876d`.
+
+It is stopped on two things the note does not settle, and one more is recorded because
+the next note has to know it.
+
+**1. A changed pixel: a transformed item inside a group whose matrix shrinks.** The note
+leaves the three group sites alone (`__canvas_drawBound`, the two GPU vertex stages) and
+says every pixel stays identical. Those sites map the item's FINISHED box, so they
+inherit whatever rim the item's box carries, and under a group the gradient bound is the
+COMPOSED inverse's, which a shrinking group makes larger than the item's own `F`. The
+old rim (one unit of the item's space) covered that by accident for most scenes; `0.5 F`
+of the item's own inverse does not. `bugs/repro/bug-991/halo_in_shrinking_group.mfb` (a
+circle of radius 0.5 under `Transform[a := 100, d := 1]`, inside a `canvas::Group` whose
+transform scales by 0.1):
+
+```
+mfb build --app --debug <dir>
+MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=0|1 MFB_CANVAS_DUMP=f.rgba <binary>
+                          software            Metal
+before (896a4876d)        26 lit, x 287..312  26 lit, x 287..312
+with the fix (5752c7e5b)  24 lit, x 288..311  24 lit, x 288..311
+group scale 0.03 instead: before 12 and 12 lit; with the fix 10 (software) and 8 (Metal)
+```
+
+With the group scaling by 0.25 the frames are identical (12 lit pixels, both
+compilers, both renderers). Only an UNEVEN item transform under a shrinking group
+matrix does it: under a uniform item transform the group stage's own pixel is enough.
+The lost pixels are the uneven-transform halo (finding 1 of the first stop), which the
+note chose to keep. Keeping it under a group needs the group sites to grow the box by
+`0.5 F` of the composed inverse, which needs the header to say how much of its box is
+rim: the record change the note assigns to bug-1083. So the pad fix and bug-1083 have
+to land together, or the owner has to rule that this halo may shrink under a group.
+
+**2. The software half of the Goal is not met, and cannot be by the pad.** `bash
+tools/canvas-bench/bench.sh <mfb> magnified-polygons` (Metal, 40 frames) and
+`... magnified-polygons 3 --software`, each compiler twice, ms a frame (load average 9
+to 14 for Metal, 13 to 68 for software, from other agents' work: indicative):
+
+| mode | Metal before | Metal with the fix | software before | software with the fix |
+|---|---|---|---|---|
+| `flat` | 241.8, 36.6 | 7.5, 9.1 | 33,459, 29,968 | 210.0, 165.5 |
+| `group` | 41.1, 38.1 | 36.9, 47.2 | 28,246, 14,640 | 29,385, 25,469 |
+| `x10` | 15.7, 10.4 | 8.5, 9.2 | 1,214, 1,276 | 312.0, 169.0 |
+| `x100` | 7.6, 6.4 | 7.2, 8.4 | 562.0, 225.5 | 223.5, 266.5 |
+| `pix` | 4.9, 5.3 | 4.2, 5.1 | 70.0, 35.5 | 46.5, 45.0 |
+| `circle-xf` | 20.4, 15.5 | 4.6, 4.5 | 5,588, 4,917 | 72.5, 113.0 |
+| `circle-pix` | 10.5, 3.5 | 4.0, 12.3 | 16.0, 13.5 | 34.0, 78.5 |
+
+Metal `flat` meets the Goal (within noise of `x100`), and `circle-xf` is within noise of
+`circle-pix`. `group` does not move, as the note expects. Software `flat` is 3.7 and 4.5
+times software `pix` (165.5 / 45.0, 210.0 / 46.5), and the Goal says within 3. The
+Goal's 3 is "the three-evaluation transformed rule"; the oracle takes FIVE distance
+samples a transformed pixel (the centre and four neighbours, `__canvas_drawGeometry`),
+over a box that is now 31 px square against `pix`'s 29, which predicts 5.7 times. So
+the pad is not what misses it, and secondary 1 (the `0.5 * max(F, 1)` skip radius) is
+not what misses it either: the software renderer has no skip. The Goal's number needs
+the owner's ruling. Nothing was changed for secondary 1.
+
+**3. An arc cannot take the rim at all.** The note's rule is "a pixel takes coverage only
+where `d < 0.5 g`, and `g <= F`". That holds for a distance that is 1-Lipschitz. An
+arc's is not (out of its sweep it answers 1e6; `shapeCoverage` says so and never skips
+for one; the spec says so), and with butt caps it is visible today:
+`bugs/repro/bug-991/butt_arc_rays.mfb` (a butt-capped arc of radius 0.5 under a
+transform that scales by 100) draws two dotted rays from its centre along the ends of
+its sweep, out to the edge of its box, on software and on Metal alike (at `896a4876d`:
+1,190 lit pixels, 110 of them more than 57 px from the centre of an arc whose stroke
+ends at 55, x from 161 to 455). Any change of a transformed arc's box moves where those
+rays end. The build therefore had `__canvas_arcHeader` hand its box over whole with no
+rim, as the glyph run, the text box and the picture do, and a transformed arc keeps
+today's box and today's pixels. The rays themselves are a separate bug, not fixed here
+and not yet filed.
+
+### What the build was
+
+- `__canvas_boundsHeader(h, minX, minY, maxX, maxY, padX, padY, rim)`: the extent, how far
+  the builder's pad reaches past it on each axis (with the rim, computed exactly as
+  today), and how much of that pad is rim. Untransformed it writes `minX - padX` and so
+  on, the operations each builder performed inline (an ellipse's pad differs by axis and
+  is `sqrt(...) + (reach + 1.0)`, which is why the mapper is handed the pad and not the
+  reach: `(reach + 1.0)` and `reach`, `1.0` separately give different floats there).
+  Transformed with a rim it maps the extent grown by `(pad - rim) + 0.5 * frob`,
+  `frob = F * (1 + 1/256) + 1/256` as the shaders compute it, then adds its pixel.
+  Transformed with rim 0 it maps the box as it is.
+- Nine builders pass `(extent, pad, pad, __CANVAS_BOUNDS_RIM)` (a new module constant,
+  1.0); the arc, `__canvas_glyphRunHeader`, `__canvas_textBoxHeader` and the picture
+  pass their box with `0.0, 0.0, 0.0`. `helper_curves.rs` fits the rim form (its pad is
+  `max(strokePad, capReach + 1.0)`).
+- 57 non-comment lines added or removed in `helper_geometry.rs`, and one line changed in
+  each of `helper_curves.rs`, `helper_hit.rs` and `helper_picture.rs`
+  (`git show 5752c7e5b`).
+- Golden impact, had it landed: every function that calls `__canvas_boundsHeader` moves
+  in the `app_mouse_surface` sentinel (`__canvas_boundsHeader` itself, `__canvas_rectHeader`,
+  `__canvas_circleHeader`, `__canvas_ellipseHeader`, `__canvas_segmentHeader`,
+  `__canvas_arcHeader`, `__canvas_polygonHeader`, `__canvas_polylineHeader`,
+  `__canvas_textHeader`, `__canvas_glyphRunHeader`, `__canvas_textBoxHeader`,
+  `__canvas_pictureHeader`, the curve header builder), plus the new module constant's
+  slot; no pixel golden.
+
+### What it proved, with the fix in place
+
+- RED then GREEN: `cargo test --test rt_canvas_damage a_transformed_items_box` failed at
+  `896a4876d` ("a filled square, magnified 100 times: the box 58,58,285,285 is more than
+  5 px past the item's hull (160.0, 160.0, 240.0, 240.0)") and passed with the fix (the
+  seven boxes: 157,157,86,86 / 447,147,106,106 / 90,490,120,20 / 467,467,66,66 /
+  690,90,120,120 / 686,357,128,86 / 277,537,46,46). The test reads each item's box as
+  the damage rectangle of a present that changes only that item (`MFB_CANVAS_DAMAGE=1`,
+  the `damage=` stats field), so it needed no new hook.
+- `rt_canvas_geo_native` 4 passed (0 mismatches); `rt_canvas_golden` 26, `rt_canvas_rasteriser`
+  106, `rt_canvas_curves` 40, `rt_canvas_damage` 10, `rt_canvas_hit` 13, `rt_canvas_metal`
+  62, `rt_canvas_picture` 16, `rt_canvas_font` 33, `rt_canvas_autopaint` 22,
+  `rt_canvas_picture_fit` 9, `rt_canvas_pointer` 2, `rt_canvas_graphics_thread` 18,
+  `rt_canvas_group_ownership` 11: all passed (`cargo test --test <name>` each).
+- Frames byte-identical before and after, `cmp` of every frame: Metal and software on
+  this machine, 102 of 102 (the 48 render rows of `scripts/test-canvas-gpu-rows.sh`,
+  `anisotropic_halo.mfb` with its 26 lit pixels on both, `butt_arc_rays.mfb`, and a
+  scratch scene of every kind under magnifying, turned, sheared, uneven and
+  twentieth-scale transforms with miter joins, square caps, dashes, three text runs and
+  two pictures); box 206, 96 of 96 (`--target windows-x86_64 --keep`); box 2226, 96 of
+  96 (`--target linux-aarch64 --keep`). Every row passed on both boxes.
+- NOT identical: finding 1's scene, which none of those rows contains.
+
+### What a third note has to settle
+
+1. Whether the pad fix lands with bug-1083's record change (the header carries its rim,
+   the three group sites replace it by `0.5 F` of the composed inverse), or the halo of
+   an uneven item transform may shrink under a shrinking group.
+2. The software Goal: 3 times `pix` is not reachable with five samples a pixel.
+3. That an arc keeps its box until its sweep discontinuity is fixed.
 
 ## Stopped (bs23-agent-b, 2026-10-12, bug-staging-23)
 

@@ -1162,7 +1162,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "}\n",
     // bug-735: one sample's distance at the double-float shape-space point, for every kind a
     // distance draws: the polygon's edge walk (bug-687), the polyline's, or the pre-pass and
-    // then `dfShapeDistance`. One call site each.
+    // then `dfShapeDistance`. One call site each; `shapeCoverage` calls this from two.
     // plan-163-B: dashes (`helper_dashes.rs`). An item's dash words ride the dash region from
     // `strokeStyle.z`, `strokeStyle.w` of them (0 for a solid stroke), as float32 bit
     // patterns: the phase, the entry count, the period, each entry's END along the period,
@@ -1644,8 +1644,9 @@ const METAL_SHADER_BODY: &str = concat!(
     // `__canvas_drawGeometry`, operation for operation: the inverse map with the float32
     // terms, the central differences at 0.5 (all five on the centre's band), `d / ||grad
     // d||`, and the stroke's half-width -- its word plus its residual, stroking exactly when
-    // the oracle's `half > 0` -- taken off in shape space before the scale. The five samples
-    // are one loop so each distance helper is inlined once.
+    // the oracle's `half > 0` -- taken off in shape space before the scale. The CENTRE
+    // sample is straight-line code and every other sample sits behind one branch
+    // (bug-688, at the samples below), so `sampleDistance` has two call sites.
     //
     // A sample past `reach` has its coverage decided by its sign (the pre-passes return a
     // bound there, not the distance). Untransformed that is `0.5 + half`. Transformed,
@@ -1712,8 +1713,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "  bool joined = (item.strokeStyle.y > 0 || dashed) && item.misc.x != 10 && item.misc.x != 11;\n",
     "  float strokeReach = mapped ? reach - max(half2.x, 0.0) : 0.5;\n",
     // plan-163-C: samples 5..9 are a path clip's distance at the same five points, so the
-    // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's;
-    // one loop keeps one `sampleDistance` call site.
+    // clip is divided by ITS OWN gradient (`__canvas_clipPathSurface`), not the shape's.
     //
     // bug-995: the clip's CENTRE sample (5) takes the shape's shortcut. Its coverage is
     // `dfCoverage(d5 / cg)`, `cg` the central difference `|(d6 - d7, d8 - d9)|` of the
@@ -1747,26 +1747,38 @@ const METAL_SHADER_BODY: &str = concat!(
     "  bool clipSampled = clipMode == 2 || (clipMode == 1 && grouped);\n",
     "  int2 cband = clipMode == 2 ? clipBandAt(item, edges, itemMapped ? dfMapY(item, x, y).x : y.x) : int2(-1, 0);\n",
     "  float2 d[10];\n",
-    "  float2 cqx = x;\n",
-    "  float2 cqy = y;\n",
-    "  for (int k = 0; k < 10; ++k) {\n",
-    "    bool clipK = k >= 5;\n",
-    "    int j = clipK ? k - 5 : k;\n",
-    "    if (clipK ? (!clipSampled || j >= (clipMapped ? 5 : 1)) : j >= (mapped ? 5 : 1)) { continue; }\n",
-    "    float ox = j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0);\n",
-    "    float oy = j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0);\n",
-    "    float2 sx = dfAdd(x, float2(grouped ? gi.x * ox + gi.z * oy : ox, 0.0));\n",
-    "    float2 sy = dfAdd(y, float2(grouped ? gi.y * ox + gi.w * oy : oy, 0.0));\n",
-    "    float2 qx = itemMapped ? dfMapX(item, sx, sy) : sx;\n",
-    "    float2 qy = itemMapped ? dfMapY(item, sx, sy) : sy;\n",
-    "    if (k == 0) { cqx = qx; cqy = qy; }\n",
-    "    if (clipK && clipMode == 1) {\n",
-    "      d[k] = clipRectDistance(item, qx, qy);\n",
-    "    } else {\n",
-    "      d[k] = sampleDistance(item, edges, clipK ? cband : band, qx, qy, k == 0 ? reach : (k == 5 ? clipReach : 1.0e30), clipK);\n",
+    // bug-688: the shape's centre sample is taken here, outside the loop, and the loop is
+    // entered only by a pixel that needs another sample -- the shape's four neighbours
+    // (`mapped`, once the centre has not decided it) or the clip's (`clipSampled`). An
+    // untransformed, unclipped pixel therefore runs one sample and no loop. It did in the
+    // one ten-pass loop this replaces too, as nine `continue`s, and a driver that does
+    // not turn a skipped pass into skipped work charged it for all ten (box 206's Intel
+    // Vulkan driver, on the GLSL twin: 10,000 16 px squares rendered in 106 ms a frame,
+    // and in 58 this way). The samples and their order are unchanged; the centre point
+    // is `x`, `y` itself where the loop added a zero offset to it, which a double-float
+    // sum returns unchanged.
+    "  float2 cqx = itemMapped ? dfMapX(item, x, y) : x;\n",
+    "  float2 cqy = itemMapped ? dfMapY(item, x, y) : y;\n",
+    "  d[0] = sampleDistance(item, edges, band, cqx, cqy, reach, false);\n",
+    "  if (!joined && abs(d[0].x) > reach) { mapped = false; }\n",
+    "  if (mapped || clipSampled) {\n",
+    "    for (int k = 1; k < 10; ++k) {\n",
+    "      bool clipK = k >= 5;\n",
+    "      int j = clipK ? k - 5 : k;\n",
+    "      if (clipK ? (!clipSampled || j >= (clipMapped ? 5 : 1)) : !mapped) { continue; }\n",
+    "      float ox = j == 1 ? 0.5 : (j == 2 ? -0.5 : 0.0);\n",
+    "      float oy = j == 3 ? 0.5 : (j == 4 ? -0.5 : 0.0);\n",
+    "      float2 sx = dfAdd(x, float2(grouped ? gi.x * ox + gi.z * oy : ox, 0.0));\n",
+    "      float2 sy = dfAdd(y, float2(grouped ? gi.y * ox + gi.w * oy : oy, 0.0));\n",
+    "      float2 qx = itemMapped ? dfMapX(item, sx, sy) : sx;\n",
+    "      float2 qy = itemMapped ? dfMapY(item, sx, sy) : sy;\n",
+    "      if (clipK && clipMode == 1) {\n",
+    "        d[k] = clipRectDistance(item, qx, qy);\n",
+    "      } else {\n",
+    "        d[k] = sampleDistance(item, edges, clipK ? cband : band, qx, qy, k == 5 ? clipReach : 1.0e30, clipK);\n",
+    "      }\n",
+    "      if (k == 5 && abs(d[5].x) > clipReach) { clipMapped = false; }\n",
     "    }\n",
-    "    if (k == 0 && !joined && abs(d[0].x) > reach) { mapped = false; }\n",
-    "    if (k == 5 && abs(d[5].x) > clipReach) { clipMapped = false; }\n",
     "  }\n",
     "  float2 dRaw = d[0];\n",
     "  float2 g = float2(1.0, 0.0);\n",

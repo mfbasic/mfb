@@ -1,0 +1,13 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+' A circle of radius 0.5 under a transform that
+' scales x by 100 and y by 1, inside a group whose transform scales by 0.1.
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET t AS canvas::Transform = canvas::Transform[a := 100.0, b := 0.0, c := 0.0, d := 1.0, tx := 0.0, ty := 0.0]
+  canvas::setGroup("halo", [canvas::Circle[id := "", position := vector::Float2[x := 0.0, y := 0.0], radius := 0.5, paint := canvas::fill(color::rgb(255, 255, 255)), transform := t]])
+  canvas::present([canvas::Group[id := "", position := vector::Float2[x := 300.0, y := 200.3], transform := canvas::Transform[a := 0.1, b := 0.0, c := 0.0, d := 0.1, tx := 0.0, ty := 0.0], name := "halo"]])
+END FUNC

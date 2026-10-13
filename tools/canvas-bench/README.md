@@ -13,7 +13,7 @@ rendering code. bug-688 adds a Linux/Vulkan twin of the same instrument
   exit.
 - **gen/*.sh** — the MFBASIC scene templates `bench.sh` instantiates:
   `stress.sh` (polygons, tiled, moving or static, or one big polygon via
-  `R=`/`CX=`/`CY=`), `poly.sh` (one N-point wavy ring plus a box), `pics.sh`
+  `R=`/`CX=`/`CY=`; squares or circles instead with `KIND=rect|circle`), `poly.sh` (one N-point wavy ring plus a box), `pics.sh`
   (a tilemap of two alternating images plus an optional full-screen
   background), `text.sh` (a screen of text rows; takes an optional trailing
   font-path argument, used by Linux mode), `worker.sh` (the
@@ -285,6 +285,27 @@ small FRAMES, a magnified software frame is seconds.
 within about three times software `pix`. While bug-991 is open `flat` and
 `group` are about 30 ms a frame on Metal against 4 for `pix`, and 17 s
 against 34 ms in software: a magnified item's box is padded in its own units.
+
+### `shapes [ITEMS] [RADIUS] [KIND...]`
+
+bug-688's fragment-cost table: ITEMS (default 10,000) static items of RADIUS
+(default 8) px, once as squares (`rect`), once as circles (`circle`) and once
+as 4-point polygons (`poly`), or only the KINDs named, with one small
+rectangle moving so every frame is drawn, and each kind also as one item
+alone (the frame's fixed cost). Each row runs twice for 5 s; the columns are
+`sweep`'s. On Windows one unmeasured run goes first and its whole
+render phase is printed: nearly all of it is bug-996's pipeline compile when
+the shader is new to the box.
+
+    bash tools/canvas-bench/bench.sh <mfb> shapes
+    bash tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host test@192.168.1.206 shapes
+
+**Healthy**: the 10,000-item `phaseRenderMs` under the program's own time a
+frame, so the renderer is not the limit. On box 206 that is not yet so
+(bug-688): squares and circles render in about 58 and 54 ms and 4-point
+polygons in about 89, against 8 for one item. Before bug-688's shader
+restructure all three took 100 to 110 ms: every pixel paid for ten distance
+samples the source had already skipped.
 
 ### `compare stress|poly|pics|text ARGS...`
 

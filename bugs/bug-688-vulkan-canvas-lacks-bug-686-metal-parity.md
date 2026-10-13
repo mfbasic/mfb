@@ -1,12 +1,12 @@
 # bug-688: The Vulkan canvas backend is still at pre-bug-686 Metal: ordinary scenes fall to software, large polygons are O(edges × pixels), pictures copy per occurrence, every frame is read back
 
-Last updated: 2026-10-12
+Last updated: 2026-10-12 (bug-staging-23 round 2)
 Effort: huge (>3d)
 Severity: HIGH
 Class: Correctness / Performance
 
-Status: V1-V4 FIXED; V5 MEASURED on real hardware (box 206) with two fixes landed; V6 FIXED on Windows (swapchain present), Linux present BLOCKED (no real-GPU Linux box); the 10k-quad shader cost OPEN
-Regression Test: `scripts/test-canvas-gpu-rows.sh` (the bug-686 rows and the geo-verify rows, per target); `scripts/test-canvas-vulkan.sh --target`; the `vulkan.rs` unit tests `the_pipeline_specializes_every_region_base` and `the_shared_buffer_holds_every_region`; `both_predicates_count_each_picture_block_once`; `rt_canvas_metal` rows for the shared scenes; V6: `present_layout_tables_are_self_consistent`, `the_present_path_is_windows_only_and_fully_named`, `the_canvas_child_window_is_shown_by_one_arm_and_hidden_by_the_others`, and the real-window run on box 206 with `tools/win-screen-capture` (manual: needs the interactive session)
+Status: V1-V4 FIXED; V5 MEASURED on real hardware (box 206) with three fixes landed; V6 FIXED on Windows (swapchain present), Linux present is bug-1082; the 10k-quad shader cost OPEN (106 to 58 ms for squares, 108 to 92 for the sweep's polygon quads; see "bug-staging-23 round 2")
+Regression Test: `tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host test@192.168.1.206 shapes` (the fragment cost, box 206); `scripts/test-canvas-gpu-rows.sh` (the bug-686 rows and the geo-verify rows, per target); `scripts/test-canvas-vulkan.sh --target`; the `vulkan.rs` unit tests `the_pipeline_specializes_every_region_base` and `the_shared_buffer_holds_every_region`; `both_predicates_count_each_picture_block_once`; `rt_canvas_metal` rows for the shared scenes; V6: `present_layout_tables_are_self_consistent`, `the_present_path_is_windows_only_and_fully_named`, `the_canvas_child_window_is_shown_by_one_arm_and_hidden_by_the_others`, and the real-window run on box 206 with `tools/win-screen-capture` (manual: needs the interactive session)
 
 ## Cause (coordinator, 2026-10-12, bug-staging-23)
 
@@ -15,6 +15,164 @@ Regression Test: `scripts/test-canvas-gpu-rows.sh` (the bug-686 rows and the geo
 - Measured on box 206, 10,000 static 16 px rectangles, `--debug`, headless, render ms a frame (scratch shader variants, `/tmp/bs23/v/*.frag`): shipped 106; constant colour 14.2; item record fetched 14.9 (the 368-byte fetch is free); `farBound` only 19.6; one `sampleDistance` + `dfCoverage` 32.1; all of `shapeCoverage` with everything after it cut 105.4; **sample 0 taken out of the loop and the loop entered only under `mapped || clipSampled`: 56.0** (33.4 -> 16.7 at radius 0.6). Rectangle, circle and 4-point polygon cost the same (95 to 109), so it is not the edge walk; "the shader grew" was a guess and is not the cause. On Metal the same scene renders in 13.4 ms and the program is the limit (20.6 fps).
 - Place: the sampling loop of `mfb_canvas.frag:shapeCoverage` and `metal.rs:METAL_SHADER_BODY`, line for line. Fix: make the early-out real control flow (the decided pixel runs one straight-line sample; neighbour and clip samples sit behind a branch), same arithmetic, every pixel byte-identical on the same device. The gap that remains to the one-sample figure (56 against 32) is found the same way, by variant and measurement, not by guessing.
 - Cost to weigh: a second `sampleDistance` call site lengthened the cold pipeline compile on box 206 in the one run measured (bug-996 takes that off the first frame). After bug-995, which edits the same loop.
+
+## bug-staging-23 round 2 (agent D, 2026-10-12): the centre sample is straight-line code
+
+Base `dce8984c7`. The 10,000-quad row is still OPEN: the renderer is no longer twice
+the program's cost on box 206, but it is still as large as it (numbers at the end).
+
+**What changed.** `mfb_canvas.frag:shapeCoverage` and its twin in
+`metal.rs:METAL_SHADER_BODY`, line for line: the shape's centre sample is taken before
+the loop, and the loop (now samples 1 to 9) is entered only under
+`mapped || clipSampled`. Same samples, same order, same arithmetic; the centre point is
+`x`, `y` itself where the loop added a zero offset to it (a double-float sum of a
+normalised pair and zero returns the pair). bug-995's clip early-out is unchanged
+(sample 5 still takes `clipReach`, `clipMapped` still goes false past it).
+`sampleDistance` now has two call sites.
+
+**RED / GREEN.** `bash tools/canvas-bench/bench.sh <mfb> --target windows-x86_64 --host
+test@192.168.1.206 shapes` (new subcommand: 10,000 static items of radius 8, `--debug`,
+headless, each row twice; `phaseRenderMs` a frame):
+
+| row | base `dce8984c7` | after | one item alone |
+|---|---|---|---|
+| 10,000 squares | 110.3, 100.1 | 57.8, 57.9 | 8.0 |
+| 10,000 circles | 109.0, 102.6 | 54.2, 54.4 | 8.4 |
+| 10,000 4-point polygons | 111.0, 101.0 | 88.8, 88.8 | 8.1 |
+
+The polygon gains least: its sample is `edgeDistance`'s two passes over the edges, which
+the restructure does not touch, where a square's or a circle's is `farBound` and, near
+the outline, `dfShapeDistance`. The sweep's quads are polygons.
+
+**Frames byte-identical, before and after, on each device** (`cmp` of every frame):
+
+| device | how | result |
+|---|---|---|
+| Metal and software, this machine | each render row of `scripts/test-canvas-gpu-rows.sh` and `bugs/repro/bug-991/anisotropic_halo.mfb`, `mfb build --app --debug`, `MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=0|1 MFB_CANVAS_DUMP=…` with both compilers | 98 of 98 frames identical (49 scenes, software and Metal) |
+| box 2226 (lavapipe) | `scripts/test-canvas-gpu-rows.sh <mfb> --target linux-aarch64 --keep <dir>` with both compilers | 96 of 96 identical (48 rows, software and Vulkan); every row passes |
+| box 206 (Intel UHD 630) | the same with `--target windows-x86_64` | 96 of 96 identical (48 rows, software and Vulkan); every row passes |
+
+**Variants measured on box 206** (10,000 squares, ms of render a frame, two runs; the
+scratch sources are not kept). Each was built as a whole compiler with only the
+fragment blob changed. Readings taken in different sessions differ by about 5 ms, so
+each is beside the kept structure's reading from the same session.
+
+| variant | reading | kept structure, nearest reading | verdict |
+|---|---|---|---|
+| the kept structure (centre sample out of the loop, second call site) | 57.8, 57.9 | | kept |
+| one call site, the loop's bound and index decide what runs (`last = 1`, raised after the centre sample; no `continue`) | 106.6, 101.6 | 70.0, 70.4 | no gain over the base |
+| one call site, the same loop with no `d[10]` (the differences taken as the samples arrive) | 178.6, 169.7 | 57.8, 57.9 | 1.7 times slower than the base |
+| kept, and no `polygonBand` call (diagnostic: wrong for polygons) | 65.1, 64.9 | 63.3, 67.6 | no gain |
+| kept, and `polygonBand` written with one exit | 60.4, 68.0 | 63.3, 67.6 | no gain |
+| kept, and the neighbours' array declared inside the branch, gradients taken there | 71.4, 62.2 | 70.0, 70.4 | within noise |
+| kept, and the mapped centre computed once under an `if` (it is computed up to three times) | 59.2, 57.5 | 56.9, 60.0 | no gain |
+| kept, and the centre call given constant arguments (diagnostic) | 57.5, 58.4 | 56.9, 60.0 | no gain |
+| kept, and `shapeCoverage` returning right after the centre sample, the rest still reachable (diagnostic) | 64.5, 59.6 | 70.0, 70.4 | within noise |
+| the same with the rest unreachable (diagnostic) | 51.8, 50.5 | 56.9, 60.0 | 7 ms |
+| the same again without the `polygonBand` call (diagnostic) | 36.7, 36.7 | 56.9, 60.0 | 14 ms here, none with the rest reachable (row 4): the costs do not add |
+| one `sampleDistance` and `dfCoverage` in `main`, everything else unreachable (the Cause note's 32) | 34.9, 33.8 | 56.9, 60.0 | the floor for this arithmetic |
+| the same one sample taken first, everything else still reachable (diagnostic) | 43.0, 45.3 | 56.9, 60.0 | 10 ms for code that does not run |
+| kept, and `edgeDistance`'s second pass nested under an `if` instead of `continue` (4-point polygons) | 91.2, 91.1 | 88.8, 88.8 | no gain |
+
+**What is left, and why.** The gap from the kept structure (58) to one sample (34) is
+not a statement the pixel runs. The two diagnostics that run the SAME path cost 34 with
+the rest of the shader unreachable and 44 with it reachable, and cutting off only the
+neighbour, stroke and clip code that an unclipped square never runs took 7 ms off; no
+change to a statement the pixel does run (the `polygonBand` call, the array, the centre
+arguments, the map) moved the reading. So what remains is what Intel's compiler charges
+every pixel for the size of the one live shader, and the only way under it with this
+arithmetic is a second, smaller pipeline for the items that need less of it, which is a
+fast path chosen by naming what an item is. Not done. For polygons the cost above a
+square is the edge walk itself (`edgeDistance`, 31 ms for 10,000 4-point polygons), and
+the one restructure tried there gained nothing.
+
+**Cold pipeline compile on box 206** (`bugs/repro/bug-996/coldstart.mfb`, a fresh exe
+name each launch, `firstPresentMs`; the second launch of each name was 68 to 74 ms):
+
+| compiler | launch 1 | launch 2 |
+|---|---|---|
+| base | 36,249 | 35,041 |
+| after | 70,165 | 64,685 |
+
+The second `sampleDistance` call site doubles the cold compile. Both structures with one
+call site compiled in the base's time (35.9 and 39.0 s) and neither was faster than the
+base at drawing, so the faster frame is kept and the compile is bug-996's to take off the
+first frame. A program's first GPU frame on this driver now waits about 67 s instead
+of 35 until then.
+
+**The sweep, box 206** (`bash tools/canvas-bench/bench.sh <mfb> --target windows-x86_64
+--host test@192.168.1.206 sweep`, `--debug`, each compiler twice; fps / render ms):
+
+| row | base | after |
+|---|---|---|
+| 95 x 8-pt moving | 94.0 / 10.5, 95.0 / 10.4 | 105.8 / 9.3, 106.2 / 9.3 |
+| 1,000 x 8-pt moving | 31.8 / 30.4, 31.8 / 30.3 | 46.6 / 20.3, 46.8 / 20.3 |
+| 1,000 x 8-pt static | 32.4 / 30.4, 32.4 / 30.3 | 48.2 / 20.4, 48.0 / 20.5 |
+| 2,000 x 8-pt moving | 18.6 / 51.7, 18.4 / 51.8 | 28.8 / 32.4, 28.8 / 32.5 |
+| 2,500 x 8-pt moving | 15.2 / 62.8, 15.0 / 62.8 | 24.0 / 38.8, 23.8 / 38.8 |
+| 5,000 triangles moving | 12.8 / 73.0, 12.8 / 73.0 | 20.0 / 38.3, 19.8 / 38.6 |
+| 10,000 quads moving | 8.4 / 107.6, 8.2 / 108.0 | 9.2 / 92.5, 9.2 / 92.7 |
+| 10 x 300-pt moving | 103.8 / 9.5, 102.6 / 9.6 | 99.0 / 9.9, 98.8 / 10.0 |
+| 100 x 300-pt moving | 24.0 / 24.8, 24.0 / 24.8 | 24.2 / 23.7, 24.2 / 23.7 |
+| 10 x 4,000-pt moving | 30.2 / 31.7, 30.0 / 31.7 | 30.6 / 31.2, 30.6 / 31.3 |
+
+`10 x 300-pt` reads 0.4 ms slower in both runs; every other row is faster or level.
+
+**The same sweep on Metal** (this machine, no `--target`; each compiler twice, in the
+order base, after, base, after, at load average 8 to 13 from other agents' work, so
+indicative). fps / render ms:
+
+| row | base | after |
+|---|---|---|
+| 95 x 8-pt moving | 414.4 / 2.4, 341.4 / 2.9 | 372.8 / 2.6, 326.8 / 3.0 |
+| 1,000 x 8-pt moving | 133.6 / 4.7, 129.6 / 4.4 | 148.2 / 4.4, 117.8 / 4.4 |
+| 1,000 x 8-pt static | 253.6 / 3.8, 226.4 / 4.3 | 160.6 / 4.7, 217.4 / 4.4 |
+| 2,000 x 8-pt moving | 84.6 / 4.6, 59.0 / 5.5 | 78.2 / 5.3, 59.0 / 5.4 |
+| 2,500 x 8-pt moving | 54.8 / 6.7, 62.0 / 5.4 | 66.0 / 4.8, 47.4 / 5.9 |
+| 5,000 triangles moving | 29.6 / 9.8, 41.2 / 5.9 | 47.2 / 5.1, 32.6 / 6.7 |
+| 10,000 quads moving | 21.6 / 11.1, 16.2 / 13.5 | 21.8 / 10.7, 16.2 / 12.2 |
+| 10 x 300-pt moving | 415.0 / 2.4, 361.6 / 2.7 | 379.4 / 2.6, 316.2 / 3.1 |
+| 100 x 300-pt moving | 78.6 / 4.0, 55.2 / 5.1 | 54.6 / 5.2, 58.4 / 5.2 |
+| 10 x 4,000-pt moving | 95.4 / 5.7, 65.4 / 7.0 | 66.6 / 6.7, 72.2 / 6.7 |
+
+Two rows read slower in both runs after than in both runs before: `1,000 x 8-pt static`
+(4.7 and 4.4 against 3.8 and 4.3) and `100 x 300-pt` (5.2 and 5.2 against 4.0 and 5.1).
+The spread between two runs of ONE compiler is larger than either (9.8 and 5.9, 4.0 and
+5.1), so they are not shown to be the shader. `shapes` on Metal, 10,000 items, render ms, four readings each at load 36
+to 67: squares base 14.8, 15.6, 13.9, 11.5 and after 12.3, 10.4, 12.3, 10.5; circles base
+68.0, 12.0, 11.9, 11.6 and after 10.7, 8.4, 10.6, 10.4; polygons base 13.4, 14.5, 14.9,
+12.4 and after 11.5, 10.3, 13.9, 14.9. `clips` on Metal ran twice with each compiler at
+load 33 to 90; no row is slower in both runs. "Metal is not slower on any row" is
+consistent with these and NOT proven by them: it needs the machine alone
+(`bash tools/canvas-bench/bench.sh <mfb> sweep`, `shapes` and `clips` with each compiler
+at load under 4).
+
+**What the renderer costs now, on box 206.** 10,000 static squares: 58 ms of render a
+frame, of which 8 is the frame's fixed cost (one item alone), against 34 for the same
+quads with one distance sample and nothing else live in the shader, and 14 with a
+constant colour (the Cause note's figure). 10,000 moving 4-point polygons (the sweep's
+quad row, `--debug`): 93 and 96 ms of render a frame, while the program spends 81 ms
+building each scene and 13 ms in `present` (`presents=48 workerBuildMs=3886
+workerPresentMs=618` over 5 s). So the renderer is no longer the only limit on that row,
+and it is still as large as the program: the acceptance ("the renderer path is not the
+limit at 10,000 moving items") is not met.
+
+### Golden impact
+
+`scripts/artifact-gate.sh <mfb> all` lists the same nine diffs with the base compiler
+(`dce8984c7`) and with this change: `app_mouse_surface` `.ir`, `.macos-aarch64.app.nir`,
+`.nplan` and the four targets' `.app.ncode`, `app_window_surface.macos-aarch64.app.ncode`,
+and `loop_body_resource_reference_valid.ir`. They are round 1's, not yet regenerated;
+this change adds no fixture to the list. What it moves is inside fixtures already on it:
+
+- `mfb_canvas.frag.spv` is regenerated (`MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh`;
+  the vertex blob came back unchanged), so the `linux-*` and `windows-x86_64`
+  `app_mouse_surface` `.app.ncode` hashes move by the embedded blob (data only).
+- The `macos-aarch64` `.app.ncode` hashes move by the MSL string constant
+  (`METAL_SHADER_BODY`). No function's instructions change on any target, and nothing
+  moves at the `.ir`, `.nir` or `.nplan` level.
+- No canvas pixel golden moves (`rt_canvas_golden`, `rt_canvas_rasteriser`,
+  `rt_canvas_curves`, `rt_canvas_metal`: all passed with the change).
 
 ## Re-verified 2026-10-12: two items remain, both as recorded (HEAD `555130a25`)
 
