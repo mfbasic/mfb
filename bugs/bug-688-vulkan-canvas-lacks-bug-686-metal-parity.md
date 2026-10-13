@@ -159,12 +159,18 @@ limit at 10,000 moving items") is not met.
 
 ### Golden impact
 
+`scripts/artifact-gate.sh <mfb> all` lists the same nine diffs with the base compiler
+(`dce8984c7`) and with this change: `app_mouse_surface` `.ir`, `.macos-aarch64.app.nir`,
+`.nplan` and the four targets' `.app.ncode`, `app_window_surface.macos-aarch64.app.ncode`,
+and `loop_body_resource_reference_valid.ir`. They are round 1's, not yet regenerated;
+this change adds no fixture to the list. What it moves is inside fixtures already on it:
+
 - `mfb_canvas.frag.spv` is regenerated (`MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh`;
-  the vertex blob came back unchanged). The Vulkan app sentinels that embed the blob
-  move by it: the `app-mouse-surface` and `app-window-surface` `linux-*` and
-  `windows-*` dumps (data only: no function's instructions change).
-- The macOS dumps of the same sentinels move in the MSL string constant only
-  (`METAL_SHADER_BODY`); no function's instructions change.
+  the vertex blob came back unchanged), so the `linux-*` and `windows-x86_64`
+  `app_mouse_surface` `.app.ncode` hashes move by the embedded blob (data only).
+- The `macos-aarch64` `.app.ncode` hashes move by the MSL string constant
+  (`METAL_SHADER_BODY`). No function's instructions change on any target, and nothing
+  moves at the `.ir`, `.nir` or `.nplan` level.
 - No canvas pixel golden moves (`rt_canvas_golden`, `rt_canvas_rasteriser`,
   `rt_canvas_curves`, `rt_canvas_metal`: all passed with the change).
 
