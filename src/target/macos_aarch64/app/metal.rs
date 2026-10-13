@@ -3013,20 +3013,20 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         OFF_DRAW_ENTRIES,
     ));
     // bug-765: the pass word, off the list's first entry. A list with no entry is a
-    // frame of one pass that draws nothing, and has no word to read.
+    // frame of one pass that draws nothing: the entry count `SCRATCH[0]` holds is the 0
+    // it stores. One scratch register, as everywhere before the arguments are parked.
     {
         let no_entry = format!("{METAL_DRAW_SYMBOL}_no_pass_word");
-        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
         asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
         asm.push(abi::branch_eq(&no_entry));
         asm.push(abi::load_u64(
-            abi::SCRATCH[1],
+            abi::SCRATCH[0],
             abi::mfb_arg(7),
             COLLECTION_HEADER_SIZE + CANVAS_DRAW_PASS_WORD * 8,
         ));
         asm.push(abi::label(&no_entry));
         asm.push(abi::store_u64(
-            abi::SCRATCH[1],
+            abi::SCRATCH[0],
             abi::stack_pointer(),
             OFF_PASS,
         ));

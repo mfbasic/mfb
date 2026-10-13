@@ -7407,21 +7407,26 @@ pub(crate) fn emit_vulkan_draw_scene(
         off_draw_entries,
     ));
     // bug-765: the pass word, off the list's first entry (`CANVAS_DRAW_PASS_WORD`): 0
-    // for a frame of one pass, which is also what a list with no entry is.
+    // for a frame of one pass, which is also what a list with no entry is -- and the
+    // entry count is what `SCRATCH[0]` holds here, so a list with none stores it.
+    //
+    // `SCRATCH[0]` and nothing else: the arguments below are not parked yet, and on
+    // x86-64 the other scratch registers ARE argument registers (`.ai/arch-abi.md`). A
+    // first cut used `SCRATCH[1]` and overwrote the glyph metadata pointer, so every
+    // frame with a `Text` faulted on Windows and only there.
     let off_pass = builder.allocate_stack_object("vk_pass_word", 8);
     {
         let no_entry = builder.label("vk_no_pass_word");
-        builder.emit(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
         builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
         builder.emit(abi::branch_eq(&no_entry));
         builder.emit(abi::load_u64(
-            abi::SCRATCH[1],
+            abi::SCRATCH[0],
             draws.clone(),
             COLLECTION_HEADER_SIZE + CANVAS_DRAW_PASS_WORD * 8,
         ));
         builder.emit(abi::label(&no_entry));
         builder.emit(abi::store_u64(
-            abi::SCRATCH[1],
+            abi::SCRATCH[0],
             abi::stack_pointer(),
             off_pass,
         ));
