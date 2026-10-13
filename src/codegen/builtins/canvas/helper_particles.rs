@@ -63,12 +63,76 @@ FUNC __canvas_particleTemplate(t AS AutoShape) AS DrawItem
   RETURN __canvas_noItem()
 END FUNC
 
-' A `ParticleSystem`'s item hash: every field, the template's hash included. Never
-' hashed natively -- its `item` is a union field, which the structural walk does not
-' fold (`func_item_hash.rs`).
+' A system's emitter as the `DrawItem` it would be on its own -- the same rebuild, from
+' the narrower union. Only the item hash asks; the model reads the emitter as the
+' `Shape` it is.
+FUNC __canvas_particleEmitterItem(s AS Shape) AS DrawItem
+  MATCH s
+    CASE Rectangle(r)
+      LET item AS DrawItem = r
+      RETURN item
+    CASE Line(l)
+      LET item AS DrawItem = l
+      RETURN item
+    CASE Polygon(p)
+      LET item AS DrawItem = p
+      RETURN item
+    CASE Circle(c)
+      LET item AS DrawItem = c
+      RETURN item
+    CASE Arc(arc)
+      LET item AS DrawItem = arc
+      RETURN item
+    CASE Text(tx)
+      LET item AS DrawItem = tx
+      RETURN item
+    CASE Ellipse(e)
+      LET item AS DrawItem = e
+      RETURN item
+    CASE PolyLine(pl)
+      LET item AS DrawItem = pl
+      RETURN item
+    CASE PolyCurve(pc)
+      LET item AS DrawItem = pc
+      RETURN item
+    CASE CurvePolygon(cp)
+      LET item AS DrawItem = cp
+      RETURN item
+  END MATCH
+  RETURN __canvas_noItem()
+END FUNC
+
+FUNC __canvas_particleHashColor(acc AS Integer, c AS color::Color) AS Integer
+  RETURN __canvas_hashStep(acc, ((toInt(c.red) * 256 + toInt(c.green)) * 256 + toInt(c.blue)) * 256 + toInt(c.alpha))
+END FUNC
+
+' A `ParticleSystem`'s item hash: every field, the template's and the emitter's hashes
+' and `time` included -- so a system presented again with a new `time` is a different
+' scene to `present`, which is the whole of how one is animated. Never hashed natively:
+' its `item` is a union field, which the structural walk does not fold
+' (`func_item_hash.rs`).
 FUNC __canvas_particleSystemHash(ps AS ParticleSystem) AS Integer
   MUT h AS Integer = __canvas_hashStart(14)
-  RETURN __canvas_hashStep(h, __canvas_hashItem(__canvas_particleTemplate(ps.item)))
+  h = __canvas_hashPoint(h, ps.position)
+  h = __canvas_hashStep(h, __canvas_hashItem(__canvas_particleTemplate(ps.item)))
+  h = __canvas_hashStep(h, __canvas_hashItem(__canvas_particleEmitterItem(ps.emitter)))
+  LET e AS Emission = ps.emission
+  MUT mode AS Integer = 0
+  IF e.mode = EmissionMode.Burst THEN
+    mode = 1
+  END IF
+  h = __canvas_hashStep(__canvas_hashStep(__canvas_hashStep(h, mode), e.maxParticles), e.burst)
+  h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, e.rate), e.burstPeriod), e.lifetime), e.lifetimeVar)
+  LET m AS Motion = ps.motion
+  h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, m.speed), m.speedVar), m.angle), m.spread)
+  h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, m.gravityX), m.gravityY), m.drag)
+  h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, m.rotation), m.rotationVar), m.spin), m.spinVar)
+  h = __canvas_hashFloat(__canvas_hashFloat(h, m.turbulence), m.turbulenceHz)
+  LET a AS Appearance = ps.appearance
+  h = __canvas_particleHashColor(__canvas_particleHashColor(h, a.startColor), a.endColor)
+  h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, a.startScale), a.endScale), a.scaleVar)
+  h = __canvas_hashStep(h, ps.seed)
+  RETURN __canvas_hashFloat(h, ps.time)
 END FUNC"#;
 
 /// The hooks, for a program that constructs no `ParticleSystem`: it holds none, so none
@@ -88,7 +152,7 @@ END FUNC"#;
 const HOOKS: [&str; 1] = ["__canvas_particleSystemHash"];
 
 static BODY: std::sync::LazyLock<String> =
-    std::sync::LazyLock::new(|| format!("IMPORT canvas\nIMPORT collections\n\n{HOOKS_BODY}"));
+    std::sync::LazyLock::new(|| format!("IMPORT canvas\nIMPORT collections\nIMPORT color\nIMPORT vector\n\n{HOOKS_BODY}"));
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper {

@@ -712,20 +712,24 @@ with a changed template is not skipped as an identical scene.
   Result (2026-10-13): "2 passed; 0 failed" in 15.72 s, and "146 passed; 0 failed" in
   123.40 s. Met for the type as corrected (`item AS canvas::AutoShape`); the cycle the
   criterion was written about did NOT survive, which is Corrections 3.
-Commit: —
+Commit: 2d1c1f837
 
 ### Phase 2 — The full type set
 
 Registry data only; still no behaviour, so nothing can regress.
 
-- [ ] Expand `ParticleSystem` to all eight props (§4), in `new_canvas.md`'s order.
-- [ ] Add records `Emission`, `Motion`, `Appearance`, and the `EmissionMode` enum with
+- [x] Expand `ParticleSystem` to all eight props (§4), in `new_canvas.md`'s order. — and
+      `__canvas_particleSystemHash` folds every one of them, `time` included.
+- [x] Add records `Emission`, `Motion`, `Appearance`, and the `EmissionMode` enum with
       `Continuous` first.
-- [ ] Write per-field descriptions to the standard the existing records set
+- [x] Write per-field descriptions to the standard the existing records set
       (`.ai/man-content.md`) — every unit (px, px/s, px/s², radians, seconds) named in
-      the text, and what an emitter of each shape emits from.
-- [ ] Tests: extend `tests/canvas/rt_canvas_particles.rs` to construct every record, and
-      a `ParticleSystem` with an emitter of each of the eight shapes.
+      the text, and what an emitter of each shape emits from. — they describe the
+      behaviour Phases 3–4 build; letter C Phase 2 re-reads each claim against a run.
+- [x] Tests: extend `tests/canvas/rt_canvas_particles.rs` to construct every record, and
+      a `ParticleSystem` with an emitter of each of the eight shapes. — ten shapes
+      (Corrections 1): `every_record_is_built_and_every_shape_is_an_emitter` → "1 passed",
+      ten frames for ten emitters.
 
 Acceptance: `mfb man canvas types` lists `ParticleSystem`, `Emission`, `Motion`,
 `Appearance` and `EmissionMode` with every field documented, and a program constructing
@@ -733,6 +737,8 @@ a system with each of the eight emitter shapes compiles and runs.
   Check: `cargo test --bin mfb canvas` → pass, and
   `cargo run -- man canvas types | grep -c 'ParticleSystem\|Emission\|Motion\|Appearance'`
   → ≥ 5 (est. 5 min, guess).
+  Result (2026-10-13): `target/debug/mfb man canvas types | grep -c …` → 16;
+  `cargo test --bin mfb canvas` → "146 passed; 0 failed".
 Commit: —
 
 ### Phase 3 — The analytic model, as a pure function
