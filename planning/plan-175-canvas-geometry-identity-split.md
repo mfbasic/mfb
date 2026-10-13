@@ -519,9 +519,15 @@ Commit: —
    maps entries to ids by scene index: `__canvas_hitAppend`). **Recommendation: leave
    `id` out of `G` and out of `A`, and fold it into `D` only**, so renaming an item
    costs no geometry and still counts as a change for damage.
-   **DECIDED by the owner, 2026-10-12:** no. `id` is only meant for mouse feedback; it is in neither `G` nor `A`.
+   **DECIDED by the owner, 2026-10-12:** `id` is only meant for mouse feedback. It is in
+   neither `G` nor `A`, and NOT in `D` either: a changed `id` affects neither geometry nor
+   paint, so it redraws nothing. This overrides the recommendation's last clause. What a
+   phase of this plan must still prove: a scene that differs only in an `id` is still
+   PUBLISHED (the content compare sees it), so `canvas::pollMouse`'s `overID` answers the
+   new name, with no pixel redrawn for it.
 2. **A `refreshes=` stats field.** Without it a test cannot tell "refreshed" from "hit".
    **Recommendation: yes**, cumulative like `generations=`.
+   **DECIDED by the owner, 2026-10-12:** add it.
 3. **The order of the remaining work.** §8 lists three costs larger than the one this
    plan removes. **Recommendation: do §8.1 (the worker) before this plan's Phase 2**,
    because it is the largest cost on the Mac and no part of this plan touches it; and
