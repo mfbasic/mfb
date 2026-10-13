@@ -5,8 +5,8 @@ Effort: huge (>3d)
 Severity: HIGH
 Class: Other (Performance)
 
-Status: Open
-Regression Test: planned `tools/canvas-bench/bench.sh <mfb> dots 100000`
+Status: Open (deliverable 1 landed 2026-10-12; the 30/30 goal is not met)
+Regression Test: `tools/canvas-bench/bench.sh <mfb> dots 100000` (exits 1 today: under 30/30); the cap itself by `cargo test --test rt_canvas_metal -- a_frame_past a_frame_whose a_group_drawn_again` and the `items*` / `pass*` rows of `scripts/test-canvas-gpu-rows.sh`
 
 ## Cause (coordinator, 2026-10-12, bug-staging-23)
 
@@ -14,6 +14,107 @@ Regression Test: planned `tools/canvas-bench/bench.sh <mfb> dots 100000`
 - (1) THE CAP, fixed here. Rule: the honesty gate declines "a scene the backend truly cannot draw", but `helper_render.rs:__canvas_metalRenderable` / `__canvas_vulkanRenderable` decline a scene for being larger than ONE frame buffer (`METAL_MAX_FRAME_ITEMS`/`VULKAN_MAX_FRAME_ITEMS` = 65,536, and the edge, gradient-stop, dash-word and texel regions beside it), which the backend can draw in more than one pass. Place: `__canvas_renderMetal` / `__canvas_renderVulkan` hand the whole draw list to one `metalPresentScene`/`metalDrawScene` (`vulkanPresentScene`/`vulkanDrawScene`) call that fills the buffer once. Fix: a frame is drawn as consecutive runs of the draw list, each run the longest that fits EVERY region, in order, into the same target (the first pass clears, later ones load), each pass finished before the single-buffered frame buffer is refilled, presented or read back once after the last. The constants stay as the size of one pass; no scene size is a limit. Only an item that cannot fit a region BY ITSELF is still declined. No pipeline rebuild (the region bases are compiled into the shader; bug-996).
 - (2) THE HASH, NOT fixed here: `func_item_hash.rs:emit_item_hash` is by design both the geometry-cache key and the damage identity (`.ai/canvas-threading.md` 14), so a fill-only change rebuilds every item's geometry (`generations` = items a frame). Owner: geometry keyed on geometry only, with appearance (paint and anything else that is not geometry) a second identity that damage also reads. This bug is the SPIKE for that: its deliverable is a verified, workable plan document, proven by throwaway measurements, not a landed change.
 - OWNER RULING 2026-10-12: no hard-coded scene limit is wanted; the mechanism is the coordinator's choice from the code ("memory based" was an idea, not a requirement).
+
+## Landed 2026-10-12 (bug-staging-23): frames drawn in passes; the hash split is plan-175
+
+**Deliverable 1, the cap** (`61c75308e`, `ab9061ff8`; the bench row `12c9e8cf2`; RED
+`477d7c21e`). No scene size is a limit on a GPU backend any more. A frame whose blocks
+do not fit one frame buffer is drawn as consecutive runs of its draw list, each the
+longest that fits every region, into one target (the first pass clears, later ones
+load), each pass submitted and waited for before the buffer is refilled, presented or
+read back once. Only a block that fits no pass by itself is still declined. The
+mechanism and its rules are in `mfb spec app canvas` ("No scene size is a limit...") and
+`.ai/canvas-threading.md` §10.
+
+What was run, and what it showed:
+
+- RED at the base (`84201af37`): `cargo test --release --test rt_canvas_metal --
+  a_frame_past_one_buffers` → 3 failed, `gpuFrames=0` at 65,537 items, at 132,000
+  gradient stops and at 9,216,000 texels; `tools/canvas-bench/bench.sh <base mfb> dots
+  100000 5` → `renderer=Software ... gpuFrames=0`.
+- Metal: all 22 `tests/canvas` targets pass (`cargo test --release --no-fail-fast` over
+  every `--test rt_canvas_*`: 443 passed, 0 failed, 4 ignored, at `61c75308e`; the six
+  largest again after `ab9061ff8`: 275 passed). The pass tests are
+  65,535 / 65,536 / 65,537 / 140,000 items with translucent squares over their
+  neighbours and over the lap before, 1,025 rings (two passes on EDGES), 513 curve rings
+  (two passes on edge slots, two a piece), 44,000 three-stop gradients (two passes on
+  STOPS), four 1,920 by 1,200 images (two passes on TEXELS), and a group drawn in both
+  passes of a frame with a run cut by the boundary and Multiply fill-and-stroke items
+  after it. Each must be a GPU frame within `Tolerance::GPU_DEFAULT` (`GPU_CURVE` for
+  the curve rings) of the software oracle.
+- Vulkan readback, `scripts/test-canvas-gpu-rows.sh <mfb> --target ... --rows
+  items65535,items65536,items65537,items140000,passedges,passstops,passtexels,passgroups`:
+  0 failures on box 2226 (lavapipe) and on box 206 (Intel UHD 630). Worst channel delta
+  1 on every row but `passgroups` (2 on both); largest differing population 1.57%
+  (`passgroups` on box 2226) against `GPU_DEFAULT`'s 2%.
+- Vulkan in a real window on box 206 (swapchain present; `schtasks /it`, `--debug`,
+  `MFB_CANVAS_GPU=1`, 100,000 dots, two runs): `frames=33 gpuFrames=33 directFrames=33`
+  and `frames=34 gpuFrames=34 directFrames=34`. The base compiler in the same window:
+  `frames=20 gpuFrames=0`, `renderer=Software`.
+- Metal in a real window (`bench.sh <mfb> dots 100000 6 --window`): `frames=91
+  gpuFrames=91 directFrames=91`.
+- A frame under the cap is byte-identical to the base on the same device. Metal: each
+  scene file of `tests/canvas/scenes` built with both compilers and dumped with
+  `MFB_CANVAS_GPU=1` (`MFB_CANVAS_DUMP`, `cmp`): 52 identical, 2 not run (they need a
+  font file or a pointer script), and 1 different, `many_texels`, which is a software
+  frame at the base and two GPU passes now. The boxes: every row of
+  `scripts/test-canvas-gpu-rows.sh` run with both compilers and `--keep`, the GPU
+  frames compared with `cmp`. Box 206: 60 rows pass with the new compiler, 52 frames
+  identical, 4 different (`items65537`, `items140000`, `passedges`, `passgroups`:
+  software frames at the base). Box 2226: every row passes, 53 identical, 3 different
+  (`items65537`, `items140000`, `passgroups`, likewise).
+- A frame under the cap is not slower. Box 206, `bench.sh <mfb> --target windows-x86_64
+  --host test@192.168.1.206 sweep`, base then new, twice: `phaseRenderMs` 30.54 / 30.56
+  / 30.48 / 30.58 at 1,000 items, 73.52 / 73.66 / 73.79 / 73.48 at 5,000, 108.19 /
+  108.39 / 108.24 / 108.49 at 10,000. Metal at 60,000 dots (one pass), base and new in
+  turn three times, load average 13 to 24: `phaseRenderMs` 14.95 / 13.91, 13.76 /
+  14.09, 14.09 / 13.69. The Metal `sweep` rows were taken at a load average of 80 to
+  98 and decide nothing; the coordinator's re-measurement is one command each.
+- A bug of the first cut, found by the box 206 rows and fixed in `ab9061ff8`: the pass
+  word was read through a second scratch register before the arguments were parked, and
+  on x86-64 that register is an argument register, so every frame with a `Text`
+  faulted on Windows.
+
+**The measured state after it, 100,000 dots** (`bench.sh <mfb> dots 100000`):
+
+| Where | release pps / fps | `--debug` frames / gpuFrames / directFrames | offsets ms | render ms |
+|---|---|---|---:|---:|
+| Metal, headless (load 36) | 15 / 16 | 69 / 69 / 0 | 28.6 | 38.3 |
+| Metal, real window (load 18) | 19 / 19 | 91 / 91 / 91 | 27.0 | 32.0 |
+| box 206, headless, two runs | 4 / 4, 4 / 4 | 29 / 29 / 0 both | 59.5 / 59.4 | 209.1 / 210.8 |
+| box 206, real window, two runs | 4 / 5, 4 / 5 | 33 / 33 / 33, 34 / 34 / 34 | 66 / 66 | 172 / 170 |
+
+30 / 30 is NOT met, on either machine. Every frame is a GPU frame.
+
+**Deliverable 2, the hash** is `planning/plan-175-canvas-geometry-identity-split.md`: a
+geometry key `G`, an appearance identity `A` held per cache slot, damage on
+`mix(G, A)`, and a paint-only change rewritten in place in the cached record. Its §2.3
+is the attribution this document's Phase 1 asks for, measured at 10k / 50k / 60k / 100k
+dots on box 206 and on Metal. In short, at 100,000 on box 206 per frame: the worker's
+`present` 89 ms in release (93% of it the deep copy and the content compare), geometry
+builds and compaction 45 ms of a 56 ms offsets phase, the gate and pass layout 17.7 ms,
+writing the item blocks 0.41 µs a block (24.7 ms at 60,000), the GPU drawing them 1.4
+µs a circle (82 to 89 ms at 60,000). The split removes the 45 ms and nothing else: its
+upper bound (a throwaway geometry-only hash) is 4 fps to 4 or 5 on box 206, and 14 to
+19 fps to 24 to 28 on Metal.
+
+So this bug stays open for three costs the plan lists and does not remove (its §8): the
+worker's copy and compare, the per-frame block upload, and on the Intel GPU the draw
+itself, which no CPU-side change can bring under 33 ms at this count.
+
+### Golden impact (not regenerated)
+
+`scripts/artifact-gate.sh <mfb> all` reports the same 13 diffs with the new compiler as
+with the base one (`diff` of the two sorted DIFF lists is empty). Of those 13, this
+change alters the eight that hold the canvas source: `tests/syntax/app/app-mouse-surface`
+(`.ir`, `.nir`, `.nplan` and the four `.app.ncode` sums) and
+`tests/syntax/resources/loop-body-resource-reference-valid` (`.ir`). Found by building
+every fixture that has an app-mode `ncode` golden with both compilers and comparing the
+two outputs: only `app-mouse-surface` differs, on all four targets. The cause in each is
+`helper_render.rs` (the gate and the pass walk replace the two predicates), three new
+words in the graphics state before the pointer words
+(`GRAPHICS_OFFSET_VULKAN_LOAD_PASS`, `_PRESENT_LOAD_PASS`, `_SC_HELD`), and the pass
+branches in `emit_metal_draw` / `emit_vulkan_draw_scene` / `emit_submit_and_present`.
 
 Two prebuilt scenes of 100,000 fixed `canvas::Circle` items, differing only in fill
 color, sustain a median 3 presents/s and 4 frames/s on macOS Metal. Scene construction
@@ -283,16 +384,18 @@ spec detail if they change the contributor contract.
 
 ### Phase 1 — failing benchmark + phase audit (no behavior change)
 
-- [ ] Extend `tools/canvas-bench` with `dots N`, generating two prebuilt fixed-circle
+- [x] Extend `tools/canvas-bench` with `dots N`, generating two prebuilt fixed-circle
       scenes whose fills differ and alternating them for a measured 10-second window.
-- [ ] Make `dots 100000` assert 30.0 PPS and 30.0 FPS in release mode and confirm it
+- [x] Make `dots 100000` assert 30.0 PPS and 30.0 FPS in release mode and confirm it
       fails for the documented reason on macOS Metal.
-- [ ] Record worker publish, scene copy/compare, hashing, geometry generations,
+- [x] Record worker publish, scene copy/compare, hashing, geometry generations,
       graphics-thread resolve, backend encode/upload, GPU, and present times.
-- [ ] Run 10k, 50k, and 100k rows to determine scaling, plus identical-scene and
-      position-changing contrast rows.
-- [ ] Complete the Windows real-GPU matrix on box 206; record Linux as hardware-blocked
-      until a real-GPU host exists.
+      (plan-175 §2.3; the present itself is not separated from the GPU's time.)
+- [x] Run 10k, 50k, and 100k rows to determine scaling, plus identical-scene and
+      position-changing contrast rows. (plan-175 §2.3; `dots N --same`, `--move`.)
+- [x] Complete the Windows real-GPU matrix on box 206; record Linux as hardware-blocked
+      until a real-GPU host exists. (Above and plan-175 §2.3. Linux: box 2226 is
+      lavapipe, correctness only.)
 - [ ] Finish the blast-radius verdict for `presentLayers`, groups, text, pictures,
       damage-only rendering, readback, and both GPU backends.
 
