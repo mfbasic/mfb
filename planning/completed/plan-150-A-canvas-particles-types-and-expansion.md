@@ -1,7 +1,7 @@
 # plan-150-A: Particle systems — types, the analytic model, and expansion
 
-Last updated: 2026-10-11 (re-derived against the completed plan-172; see "Re-derivation
-record" below)
+Last updated: 2026-10-13 (executed; see Corrections. Re-derived 2026-10-11 against the
+completed plan-172; see "Re-derivation record" below)
 Overall Effort: x-large (1d–3d)
 Effort: large (3h–1d)
 Depends on: plan-172 (all of A–N; complete and archived — see Prerequisites)
@@ -922,7 +922,7 @@ SPIR-V blob has changed.
   guess).
   Result (2026-10-13): `cargo test --test rt_canvas_metal` → "69 passed; 0 failed" in
   125.36 s on a host with a Metal device; the porcelain is empty.
-Commit: —
+Commit: 24721092c
 
 ## Validation Plan
 
@@ -996,6 +996,13 @@ where plan-172 opened a choice that `planning/new_canvas.md` does not settle.
 
 Settled, and no longer open: **the rotation origin** is the template's reference point,
 by plan-172's transform rule.
+
+**As executed (2026-10-13):** 1 — composed into the item, as recommended; letter B
+measures it. 2 and 3 — no longer arise: a `Picture` or a `Group` is not an `AutoShape`
+(Corrections 3). 4 — ignored. 5 — bounded rejection, 32 tries, and a `CurvePolygon` the
+same over its flattened outline. 6 — the layout box. 7 — one new code,
+`ErrCanvasParticleLifetime` 77050028; the second raise became a type error. 8 — the tint
+does not reach a gradient, and the manual says so. 9 — two sines. 10 — allowed.
 
 ## Corrections
 
@@ -1135,6 +1142,16 @@ by plan-172's transform rule.
     `scripts/coverage-exceptions.txt`, and its executable Rust is `register`, which
     every registry test runs. (`helper_particles/tests/mod.rs` is out of scope, as
     every `tests/` path is.)
+12. **The final gate runs once for the whole split plan, in letter C** (2026-10-13).
+    This letter's "Final gate (run ONCE, after Phase 5)" and letter C's ("the full suite
+    for the whole plan-150 feature, run here because this is the last letter") name the
+    same command; letters B and C change code after this one, so a run here would be
+    repeated. `scripts/test-accept.sh` is run once, after letter C. What was run for
+    this letter is every phase's own check, recorded on its line, and the one new
+    acceptance fixture by itself (`bash scripts/test-accept.sh target/debug/mfb
+    /tmp/p150/accept-one canvas_particle_template_invalid` → "acceptance tests passed
+    (1 test(s) ran)"). `tests/syntax/app/app-mouse-surface/golden/*` is expected to
+    change there by the added types and variant.
 
 ## Summary
 
