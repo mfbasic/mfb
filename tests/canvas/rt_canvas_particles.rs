@@ -78,8 +78,7 @@ fn run_inner(name: &str, source: &str, env: &[(&str, &str)], font: bool) -> Run 
 
 /// The integer after `key ` on its own line of the `--debug` report.
 fn report(text: &str, key: &str) -> i64 {
-    text
-        .lines()
+    text.lines()
         .find_map(|line| line.strip_prefix(key)?.trim().parse().ok())
         .unwrap_or_else(|| panic!("no `{key}` in the debug report:\n{text}"))
 }
@@ -565,7 +564,10 @@ fn the_same_seed_and_slot_give_the_same_draw() {
         .map(|d| d.parse().expect("a draw"))
         .collect();
     assert_eq!(draws.len(), 24);
-    assert!(draws.iter().all(|v| (0..1_000_000_000).contains(v)), "{draws:?}");
+    assert!(
+        draws.iter().all(|v| (0..1_000_000_000).contains(v)),
+        "{draws:?}"
+    );
     let mut unique = draws.clone();
     unique.sort_unstable();
     unique.dedup();
@@ -583,8 +585,16 @@ fn a_slot_is_dead_before_birth_and_after_its_lifetime() {
     assert_eq!(answer(&out, "reborn"), "TRUE");
     assert_eq!(answer(&out, "cycle"), "1");
     assert_eq!(answer(&out, "outside"), "FALSE", "a slot past maxParticles");
-    assert_eq!(answer(&out, "norate"), "FALSE", "a rate of zero emits nothing");
-    assert_eq!(answer(&out, "negative"), "FALSE", "a negative time draws nothing");
+    assert_eq!(
+        answer(&out, "norate"),
+        "FALSE",
+        "a rate of zero emits nothing"
+    );
+    assert_eq!(
+        answer(&out, "negative"),
+        "FALSE",
+        "a negative time draws nothing"
+    );
 }
 
 /// **Burst schedule.** With a burst every two seconds and a one-second lifetime, a slot
@@ -596,8 +606,16 @@ fn a_burst_is_alive_after_each_period_and_dead_between() {
     assert_eq!(answer(&out, "t1.9"), "FALSE");
     assert_eq!(answer(&out, "t2.1"), "TRUE");
     assert_eq!(answer(&out, "past"), "FALSE", "a slot past `burst`");
-    assert_eq!(answer(&out, "once"), "TRUE FALSE", "burstPeriod 0 is one burst");
-    assert_eq!(answer(&out, "clamped"), "TRUE FALSE", "burst above the pool");
+    assert_eq!(
+        answer(&out, "once"),
+        "TRUE FALSE",
+        "burstPeriod 0 is one burst"
+    );
+    assert_eq!(
+        answer(&out, "clamped"),
+        "TRUE FALSE",
+        "burst above the pool"
+    );
 }
 
 /// **Drag limit.** The path under a vanishing drag is the path under none: the two
@@ -971,7 +989,8 @@ fn a_particle_scaled_to_nothing_is_not_drawn() {
 /// item: it renders as the nested groups its definition makes of it.
 #[test]
 fn a_system_in_a_turned_group_is_turned_with_it() {
-    let outer = "canvas::Transform[a := 0.96, b := 0.56, c := 0.0 - 0.56, d := 0.96, tx := 0.0, ty := 0.0]";
+    let outer =
+        "canvas::Transform[a := 0.96, b := 0.56, c := 0.0 - 0.56, d := 0.96, tx := 0.0, ty := 0.0]";
     let (system, _) = draw(
         "canvas_particle_in_group",
         &scene(&format!(
@@ -1030,7 +1049,11 @@ fn a_text_template_is_placed_scaled_and_tinted() {
         ),
         &[],
     );
-    assert_eq!(pixel(&frame, 320, 188), [255, 128, 0, 255], "inside the glyph");
+    assert_eq!(
+        pixel(&frame, 320, 188),
+        [255, 128, 0, 255],
+        "inside the glyph"
+    );
     let (count, x0, y0, x1, y1) = lit(&frame);
     assert!(count > 400, "the glyph is 24 px square");
     assert!(
@@ -1070,7 +1093,12 @@ fn an_autopaint_template_draws_its_own_paint() {
 fn curve_shapes_are_emitters() {
     for (name, emitter, y_from, y_to) in [
         ("polycurve", "WITH pc { curves := [bend] }", 0, 15),
-        ("curvepolygon", "WITH cp { contours := [[bend, back]] }", -15, 15),
+        (
+            "curvepolygon",
+            "WITH cp { contours := [[bend, back]] }",
+            -15,
+            15,
+        ),
     ] {
         let (frame, _) = draw(
             &format!("canvas_particle_emit_{name}"),
@@ -1191,7 +1219,11 @@ fn a_lifetime_of_zero_raises_from_present() {
     }
     // Not errors: an empty pool, no rate, and a time before the first birth.
     for (name, edit, time) in [
-        ("empty_pool", ("maxParticles := 10", "maxParticles := 0"), "1.0"),
+        (
+            "empty_pool",
+            ("maxParticles := 10", "maxParticles := 0"),
+            "1.0",
+        ),
         ("no_rate", ("rate := 5.0", "rate := 0.0"), "1.0"),
         ("negative_time", ("rate := 5.0", "rate := 5.0"), "0.0 - 1.0"),
     ] {
@@ -1231,7 +1263,10 @@ fn sixty_frames_follow_the_programs_clock() {
     let last = stats.last().expect("a frame");
     if last.contains("metalReady=TRUE") || last.contains("vulkanReady=TRUE") {
         assert_eq!(stat(last, "gpuFrames="), "60", "{last}");
-        assert_eq!(blocks[0], 100, "every particle of the burst is alive at time 0");
+        assert_eq!(
+            blocks[0], 100,
+            "every particle of the burst is alive at time 0"
+        );
         assert_eq!(blocks[59], 0, "none outlives 0.75 s");
         assert!(
             blocks.windows(2).all(|pair| pair[1] <= pair[0]),
@@ -1263,7 +1298,10 @@ fn damage(line: &str) -> Option<(u32, u32, u32, u32)> {
     if text == "none" {
         return None;
     }
-    let parts: Vec<u32> = text.split(',').map(|p| p.parse().expect("damage")).collect();
+    let parts: Vec<u32> = text
+        .split(',')
+        .map(|p| p.parse().expect("damage"))
+        .collect();
     Some((parts[0], parts[1], parts[2], parts[3]))
 }
 
@@ -1288,7 +1326,11 @@ fn damage_of_a_system_is_bounded_by_its_particles() {
         distinct.len() > 10,
         "the live count was meant to change from frame to frame: {entries:?}"
     );
-    assert_eq!(damage(&stats[0]), Some((0, 0, 900, 640)), "the first frame is full");
+    assert_eq!(
+        damage(&stats[0]),
+        Some((0, 0, 900, 640)),
+        "the first frame is full"
+    );
     for (frame, line) in stats.iter().enumerate().skip(1) {
         // A frame where nothing is alive yet and nothing was has no damage at all.
         let Some((x, y, w, h)) = damage(line) else {
@@ -1301,7 +1343,11 @@ fn damage_of_a_system_is_bounded_by_its_particles() {
     }
     assert_eq!(stat(stats.last().expect("a frame"), "partial="), "29");
 
-    let (full, _) = draw("canvas_particle_damage_off", &scene(STREAM_OVER_BACKGROUND), &[]);
+    let (full, _) = draw(
+        "canvas_particle_damage_off",
+        &scene(STREAM_OVER_BACKGROUND),
+        &[],
+    );
     assert!(lit(&full).0 > 500_000, "the background fills the surface");
     if let Err(diff) = compare_exact(&partial, &full) {
         panic!("thirty partial redraws left a different picture from a full one: {diff}");

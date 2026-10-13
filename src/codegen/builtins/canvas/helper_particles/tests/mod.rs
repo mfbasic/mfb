@@ -65,7 +65,13 @@ fn canvas_particle_model_names_no_canvas_type() {
 #[test]
 fn canvas_particle_model_uses_no_platform_transcendental() {
     for source in [MODEL, EXPAND] {
-        for name in ["math::sin", "math::cos", "math::exp", "math::pow", "math::tan"] {
+        for name in [
+            "math::sin",
+            "math::cos",
+            "math::exp",
+            "math::pow",
+            "math::tan",
+        ] {
             assert!(!source.contains(name), "the particle source calls `{name}`");
         }
     }
@@ -87,7 +93,9 @@ fn canvas_particle_draws_use_distinct_streams() {
     for stream in [0, 3, 4, 5, 6, 7, 8, 9] {
         assert_eq!(
             state
-                .matches(&format!("__canvas_particleHash(seed, slot, cycle, {stream})"))
+                .matches(&format!(
+                    "__canvas_particleHash(seed, slot, cycle, {stream})"
+                ))
                 .count(),
             1,
             "stream {stream}"

@@ -1514,10 +1514,11 @@ const HOOKS: [&str; 11] = [
     "__canvas_particleDamage",
 ];
 
-static BODY: std::sync::LazyLock<String> =
-    std::sync::LazyLock::new(|| format!(
+static BODY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
         "IMPORT bits\nIMPORT canvas\nIMPORT collections\nIMPORT color\nIMPORT math\nIMPORT vector\n\n{MODEL}\n\n{EXPAND}\n\n{DRAW}\n\n{DAMAGE}\n\n{HOOKS_BODY}"
-    ));
+    )
+});
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper {

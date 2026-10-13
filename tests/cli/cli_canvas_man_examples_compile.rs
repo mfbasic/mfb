@@ -167,18 +167,31 @@ fn the_particle_system_examples_compile() {
         (
             "fountain",
             "canvas::EmissionMode.Continuous",
-            &["canvas::ParticleSystem[", "canvas::Emission[", "canvas::Motion", "canvas::Appearance["][..],
+            &[
+                "canvas::ParticleSystem[",
+                "canvas::Emission[",
+                "canvas::Motion",
+                "canvas::Appearance[",
+            ][..],
         ),
         (
             "firework",
             "canvas::EmissionMode.Burst",
-            &["canvas::ParticleSystem[", "canvas::Emission", "canvas::Motion", "canvas::Appearance["][..],
+            &[
+                "canvas::ParticleSystem[",
+                "canvas::Emission",
+                "canvas::Motion",
+                "canvas::Appearance[",
+            ][..],
         ),
     ] {
         let source = example_containing("present", needle);
         assert!(source.contains("FUNC main() AS Nothing"), "{source}");
         for ty in types {
-            assert!(source.contains(ty), "the {name} example does not name {ty}:\n{source}");
+            assert!(
+                source.contains(ty),
+                "the {name} example does not name {ty}:\n{source}"
+            );
         }
         let project = common::temp_project(&format!("canvas_ex_particles_{name}"), &source);
         let output = Command::new(common::mfb_exe())
