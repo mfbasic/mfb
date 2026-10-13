@@ -1322,6 +1322,37 @@ fn assert_metal_draws_within(
     }
 }
 
+/// plan-150-A: the particle scene `rt_canvas_golden` holds a reference for — a firework
+/// burst and a fountain, 320 live particles between them.
+const PARTICLES: &str = include_str!("scenes/particles_on_black.mfb");
+/// plan-150-A: a system as a group's child, the group drawn through a turned, scaled
+/// node and through a moved one.
+const PARTICLES_GROUPED: &str = include_str!("scenes/particles_grouped_on_black.mfb");
+
+/// The particle design's central claim, measured: a particle is an ordinary item by the
+/// time a backend sees it — a shape with a position, a transform and a paint — so Metal
+/// draws a particle scene with the shaders, pipelines and buffer layout it already had.
+/// The scene's particles are scaled, turned, stroked and tinted, each a block of its own.
+#[test]
+fn a_particle_system_draws_on_metal_and_matches_the_software_oracle() {
+    assert_metal_draws_like_software(
+        "canvas_metal_particles",
+        PARTICLES,
+        "the firework and the fountain",
+    );
+}
+
+/// The second road to the GPU: a system inside a group is blocks of that group's shared
+/// run, placed per use by the node's matrix in the draw entry.
+#[test]
+fn a_particle_system_in_a_turned_group_draws_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_particles_grouped",
+        PARTICLES_GROUPED,
+        "a particle system in a group drawn turned and scaled, and again moved",
+    );
+}
+
 /// 5,000 small rectangles: past the old 4,096-quad frame cap (`CANVAS_MAX_FRAME_ITEMS`).
 const FIVE_THOUSAND_QUADS: &str = include_str!("scenes/five_thousand_quads.mfb");
 

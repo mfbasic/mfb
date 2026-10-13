@@ -29,6 +29,11 @@
 # step, which the draw list and the emitters used to split differently. `groupaffine` is
 # plan-172-H's: groups turned, scaled unevenly and nested, carrying a gradient, a
 # rectangle clip, a stroke and a run of text (the fixture font is shipped with it).
+# `particles` and `particlesgroup` are plan-150-A's: `canvas::ParticleSystem`, each live
+# particle an ordinary shape by the time a backend sees it -- a burst of scaled, tinted
+# discs and a stream of turned, stroked rectangles in the scene itself, and a system
+# that is a group's child, the group drawn through a turned, scaled node and a moved one.
+# They are the proof that no shader, pipeline or buffer layout knows particles exist.
 # `autopaint` and `autopaintgroup` are plan-172-K's: one scene of `canvas::AutoPaint`
 # buttons rendered HOVERED, the pointer put on a button by the row's fourth field — an
 # environment assignment the row's runs are given (`MFB_CANVAS_POINTER`, the `--debug`
@@ -177,6 +182,8 @@ clipstepblack|clips_at_a_step_on_black|render
 xformblack|transformed_shapes_on_black|render
 cornersblack|rect_corners_on_black|render
 groupaffine|group_affine_on_black|render
+particles|particles_on_black|render
+particlesgroup|particles_grouped_on_black|render
 autopaint|autopaint_on_black|render|MFB_CANVAS_POINTER=0,280,120,0,1
 autopaintgroup|autopaint_on_black|render|MFB_CANVAS_POINTER=0,150,320,0,1
 pictureshapes|picture_shapes_on_black|render

@@ -880,24 +880,39 @@ thread; and a system blocks no hit.
   group-node definition" is met as Corrections 8 restates it; 77050029 is a type error
   (Corrections 3) and 77050028 is the raise, caught by a `TRAP` around `present`, which
   only a raise on the worker can reach.
-Commit: —
+Commit: 21d4a58e4
 
 ### Phase 5 — Prove the GPU backends need no change
 
 The design's central claim, measured rather than asserted. If it fails, the failure is
 a bug in Phase 4's composition to root-cause — not evidence the design is dead.
 
-- [ ] Add a Metal parity case to `tests/canvas/rt_canvas_metal.rs` rendering the
+- [x] Add a Metal parity case to `tests/canvas/rt_canvas_metal.rs` rendering the
       Phase 4 fireworks scene twice — `MFB_CANVAS_GPU=1` and software — and diffing
       within `Tolerance::GPU_DEFAULT`, the pattern the file already uses. Add a second
-      row with the system inside a turned, scaled group.
-- [ ] Add the fireworks scene to `tests/canvas/scenes/`, so
+      row with the system inside a turned, scaled group. —
+      `a_particle_system_draws_on_metal_and_matches_the_software_oracle` and
+      `a_particle_system_in_a_turned_group_draws_on_metal` → ok. Run by hand to see
+      that it was the GPU: the grouped scene under `MFB_CANVAS_GPU=1` reports
+      `gpuSelected=TRUE gpuFrames=1 blocks=242 draws=0:242:…|0:242:…` — 240 particles,
+      a panel and a bar, laid out once and drawn as two instanced calls.
+- [x] Add the fireworks scene to `tests/canvas/scenes/`, so
       `scripts/test-canvas-gpu-rows.sh` carries it to the Linux and Windows lanes
-      letter C runs.
-- [ ] Confirm `git status` shows **no** diff in `src/codegen/runtime/canvas/shaders/`
+      letter C runs. — `particles_on_black.mfb` and `particles_grouped_on_black.mfb`,
+      rows `particles` and `particlesgroup`. A scene file is carried only by a row in
+      that script's `ROWS`, so the rows were added too.
+- [x] Confirm `git status` shows **no** diff in `src/codegen/runtime/canvas/shaders/`
       — neither `.frag`/`.vert` nor either `.spv` — and none in the MSL
-      (`src/target/macos_aarch64/app/metal.rs:METAL_SHADER_BODY`).
-- [ ] Record in the plan's Corrections section whether the no-shader-change claim held.
+      (`src/target/macos_aarch64/app/metal.rs:METAL_SHADER_BODY`). — `git status
+      --porcelain src/codegen/runtime/canvas/shaders/` → empty, and `git diff main --stat
+      -- src/codegen/runtime/canvas/ src/target/` → empty: not one file of the runtime
+      emitters or of any target changed.
+- [x] Record in the plan's Corrections section whether the no-shader-change claim held.
+      — it held: Corrections 10.
+- [x] (added) The Validation Plan's runtime proof, as a test:
+      `sixty_frames_follow_the_programs_clock` → ok — 60 presents with `time` advanced,
+      60 GPU frames, `blocks=` falling from 100 to 0 with the live count and never the
+      pool's 1,000.
 
 Acceptance: the Metal parity cases pass within `Tolerance::GPU_DEFAULT` on a host
 reporting a Metal device, skip cleanly on one that does not, and no shader source or
@@ -905,6 +920,8 @@ SPIR-V blob has changed.
   Check: `cargo test --test rt_canvas_metal` → pass or documented skip, and
   `git status --porcelain src/codegen/runtime/canvas/shaders/` → empty (est. 5 min,
   guess).
+  Result (2026-10-13): `cargo test --test rt_canvas_metal` → "69 passed; 0 failed" in
+  125.36 s on a host with a Metal device; the porcelain is empty.
 Commit: —
 
 ## Validation Plan
@@ -1104,6 +1121,20 @@ by plan-172's transform rule.
    the code every `DrawItem` copy and match carries per variant — `_sceneOffsets`
    +1,194, the user's own `main` +1,077, `_hashScene` +549. Items are no larger: a
    100-circle group is `groupBytes=63250` on both compilers.
+10. **The no-shader-change claim held** (2026-10-13). Both particle scenes draw on Metal
+    within `Tolerance::GPU_DEFAULT` of the software oracle, the 1,000-particle scene
+    and the grouped one report `gpuFrames` non-zero with a block per particle, and
+    `git diff main --stat -- src/codegen/runtime/canvas/ src/target/` is empty: no
+    shader source, no `.spv`, no emitter, no constant, no target. Vulkan is letter C's
+    to measure.
+11. **Coverage: the scoped check stands in for `scripts/coverage-check.sh`**
+    (2026-10-13). That script reads a profile `scripts/coverage.sh` leaves, which is
+    the whole instrumented suite. The mistake it was named to catch — the new file
+    missing from the denominator — is answered directly: `helper_particles.rs` matches
+    no pattern of `scripts/coverage-common.sh:IGNORE` and has no line in
+    `scripts/coverage-exceptions.txt`, and its executable Rust is `register`, which
+    every registry test runs. (`helper_particles/tests/mod.rs` is out of scope, as
+    every `tests/` path is.)
 
 ## Summary
 

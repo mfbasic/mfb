@@ -1206,3 +1206,45 @@ fn a_lifetime_of_zero_raises_from_present() {
         assert_eq!(lit(&frame).0, 0, "{name} drew something");
     }
 }
+
+/// The runtime proof: a burst animated over sixty frames by nothing but the program
+/// advancing `time`. Every present draws a frame (a new `time` is a new scene — redraw
+/// trigger 1, and no timer), the frame's blocks are the particles ALIVE at that time
+/// and not the pool, and on a host with a GPU every one of the sixty is a GPU frame.
+///
+/// The burst is 100 of a pool of 1,000, each living between a quarter and three
+/// quarters of a second, and `time` runs from 0 to 1 s: 100 blocks on the first frame,
+/// fewer as they die, none by the end — and never 1,000.
+#[test]
+fn sixty_frames_follow_the_programs_clock() {
+    let body = "  MUT motion AS canvas::Motion\n  MUT emission AS canvas::Emission\n  MUT ring AS canvas::Circle\n  LET emitter AS canvas::Shape = WITH ring { radius := 200.0 }\n  LET burst AS canvas::Emission = WITH emission { mode := canvas::EmissionMode.Burst, maxParticles := 1000, burst := 100, lifetime := 0.5, lifetimeVar := 0.5 }\n  MUT frame AS Integer = 0\n  WHILE frame < 60\n    LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(450.0, 320.0), item := disc(3.0, canvas::fill(white())), emitter := emitter, emission := burst, motion := WITH motion { speed := 40.0, spread := 3.2, gravityY := 90.0 }, appearance := look(white(), color::rgba(255, 80, 0, 0), 1.0), seed := 60, time := toFloat(frame) / 59.0]\n    canvas::present([ps])\n    frame = frame + 1\n  END WHILE\n";
+    let (_, stats) = draw(
+        "canvas_particle_sixty_frames",
+        &scene(body),
+        &[("MFB_CANVAS_GPU", "1")],
+    );
+    assert_eq!(stats.len(), 60, "one frame per present");
+    let blocks: Vec<u32> = stats
+        .iter()
+        .map(|line| stat(line, "blocks=").parse().expect("blocks="))
+        .collect();
+    let last = stats.last().expect("a frame");
+    if last.contains("metalReady=TRUE") || last.contains("vulkanReady=TRUE") {
+        assert_eq!(stat(last, "gpuFrames="), "60", "{last}");
+        assert_eq!(blocks[0], 100, "every particle of the burst is alive at time 0");
+        assert_eq!(blocks[59], 0, "none outlives 0.75 s");
+        assert!(
+            blocks.windows(2).all(|pair| pair[1] <= pair[0]),
+            "a burst only loses particles: {blocks:?}"
+        );
+        assert!(blocks.iter().all(|b| *b <= 100), "{blocks:?}");
+        // Somewhere in the middle some are alive and some are dead.
+        assert!(blocks[30] > 0 && blocks[30] < 100, "{blocks:?}");
+    } else {
+        eprintln!("skip the GPU half: this host built no GPU pipeline\n{last}");
+    }
+    // The geometry cache holds the frame's particles and nothing left over from the
+    // frames before: what the previous frame built and this one did not use is dropped.
+    let entries: u32 = stat(last, "entries=").parse().expect("entries=");
+    assert!(entries <= 100, "the cache kept dead particles: {last}");
+}

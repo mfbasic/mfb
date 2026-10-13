@@ -1,0 +1,53 @@
+' plan-150-A: a particle system inside a group that is turned and scaled, drawn twice.
+'
+' A system that is a group's CHILD takes a different road to a GPU than one in the
+' scene itself: its particles are blocks of the group's own run, laid out once and
+' shared by every node that draws the group, and what places each use is the node's
+' matrix in the draw entry -- the newest thing either backend reads. So this scene
+' draws one group through two nodes:
+'
+'   left    the group turned 30 degrees and scaled by 1.4
+'   right   the same group, only moved
+'
+' The group holds a dark panel, then a ring of 240 small outlined rectangles -- each
+' turned at its own angle, growing and brightening with age, 0.75 s into a steady
+' stream -- then a bar drawn over them. The panel and the bar are what show that the
+' particles sit between the group's other items, in order, in both uses.
+
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC box(x AS Float, y AS Float, w AS Float, h AS Float, paint AS canvas::Paint) AS canvas::Rectangle
+  RETURN canvas::Rectangle[id := "", position := at(x, y), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := none()]
+END FUNC
+
+FUNC swarm(time AS Float) AS canvas::DrawItem
+  LET chip AS canvas::AutoShape = box(0.0 - 4.0, 0.0 - 2.5, 8.0, 5.0, canvas::fillStroke(color::rgb(255, 170, 40), color::rgb(255, 255, 255), 1.0))
+  LET ring AS canvas::Shape = canvas::Circle[id := "", position := at(0.0, 0.0), radius := 90.0, paint := canvas::fill(color::rgb(0, 0, 0)), transform := none()]
+  LET emission AS canvas::Emission = canvas::Emission[mode := canvas::EmissionMode.Continuous, maxParticles := 240, rate := 400.0, burst := 0, burstPeriod := 0.0, lifetime := 0.6, lifetimeVar := 0.0]
+  LET motion AS canvas::Motion = canvas::Motion[speed := 12.0, speedVar := 0.5, angle := 0.0, spread := 3.141592653589793, gravityX := 0.0, gravityY := 0.0, drag := 0.0, rotation := 0.0, rotationVar := 3.141592653589793, spin := 1.5, spinVar := 0.0, turbulence := 0.0, turbulenceHz := 0.0]
+  LET appearance AS canvas::Appearance = canvas::Appearance[startColor := color::rgba(255, 255, 255, 110), endColor := color::rgb(255, 255, 255), startScale := 0.6, endScale := 1.6, scaleVar := 0.2]
+  LET system AS canvas::DrawItem = canvas::ParticleSystem[position := at(0.0, 0.0), item := chip, emitter := ring, emission := emission, motion := motion, appearance := appearance, seed := 150, time := time]
+  RETURN system
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET panel AS canvas::DrawItem = box(0.0 - 110.0, 0.0 - 110.0, 220.0, 220.0, canvas::fill(color::rgb(30, 40, 90)))
+  LET bar AS canvas::DrawItem = box(0.0 - 120.0, 0.0 - 8.0, 240.0, 16.0, canvas::fill(color::rgba(0, 200, 140, 200)))
+  canvas::setGroup("swarm", [panel, swarm(0.75), bar])
+
+  LET turned AS canvas::DrawItem = canvas::Group[id := "", position := at(250.0, 300.0), transform := canvas::Transform[a := 1.2124355652982142, b := 0.7, c := 0.0 - 0.7, d := 1.2124355652982142, tx := 0.0, ty := 0.0], name := "swarm"]
+  LET moved AS canvas::DrawItem = canvas::Group[id := "", position := at(680.0, 320.0), transform := none(), name := "swarm"]
+  canvas::present([turned, moved])
+END FUNC
