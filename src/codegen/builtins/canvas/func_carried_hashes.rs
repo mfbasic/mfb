@@ -19,6 +19,10 @@
 //! (a text whose font was destroyed must stop drawing). Everything else in a `DrawItem` is
 //! plain data inside its own bytes.
 //!
+//! **A `ParticleSystem` is never carried either** (plan-150-A): its template is a whole
+//! `DrawItem`, which may be a `Text` or a `Picture` -- or a `Group`, whose own bytes say
+//! nothing of what it names.
+//!
 //! A byte comparison can only ever say "different" too often, never too rarely: two equal
 //! values whose padding differs just get hashed, which is the old cost and the right
 //! answer. It must run BEFORE `canvas::publishScene`, which replaces the installed items;
@@ -68,6 +72,8 @@ pub(crate) fn lower_carried_hashes(
     let picture_tag = variant_tag(builder, "Picture")?;
     // plan-172-K: an `AutoPaint` may wrap a `Text`, whose hash folds its font's id.
     let auto_tag = variant_tag(builder, "AutoPaint")?;
+    // plan-150-A: a `ParticleSystem`'s template may be either of them.
+    let particles_tag = variant_tag(builder, "ParticleSystem")?;
 
     let items_slot = builder.allocate_stack_object("canvas_carry_items", 8);
     builder.emit(abi::store_u64(&incoming, abi::stack_pointer(), items_slot));
@@ -240,6 +246,8 @@ pub(crate) fn lower_carried_hashes(
     builder.emit(abi::compare_immediate(&lw, &picture_tag.to_string()));
     builder.emit(abi::branch_eq(&store));
     builder.emit(abi::compare_immediate(&lw, &auto_tag.to_string()));
+    builder.emit(abi::branch_eq(&store));
+    builder.emit(abi::compare_immediate(&lw, &particles_tag.to_string()));
     builder.emit(abi::branch_eq(&store));
     // Word compare while at least eight bytes remain, then bytes. `np`/`op`/`nlen`
     // are this iteration's own and are consumed here.

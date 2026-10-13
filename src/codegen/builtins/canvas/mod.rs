@@ -102,6 +102,7 @@ mod helper_hit;
 mod helper_items;
 mod helper_joins;
 mod helper_paint_defaults;
+mod helper_particles;
 mod helper_picture;
 mod helper_png;
 mod helper_render;
@@ -1468,6 +1469,9 @@ pub(crate) fn register(r: &mut Registry) {
     // they share: Rectangle 0, Line 1, Polygon 2, Circle 3, Arc 4, Text 5, Ellipse 6,
     // PolyLine 7, PolyCurve 8, CurvePolygon 9, AutoPaint 10, Picture 11, Group 12.
     //
+    // plan-150-A appended `ParticleSystem` to `DrawItem`'s own variants, at 13. No tag
+    // moved.
+    //
     // plan-164-A appended the two curve shapes to `Shape`, which moved `AutoPaint`,
     // `Picture` and `Group` by two (owner-approved, 2026-10-11): a shape has to be a
     // member of `Shape` for an `AutoPaint` to wrap it and a `Picture` to be cut to it.
@@ -1549,7 +1553,32 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "Group",
                 description: "A reference to a named group of items, placed and turned.",
             },
+            // plan-150-A: the third thing that is not a shape. Appended to `DrawItem`'s
+            // own variants -- not to `Shape` or `AutoShape`, whose members come first
+            // and would renumber `AutoPaint`, `Picture` and `Group` -- so it takes the
+            // next tag and moves no other.
+            UnionVariant {
+                name: "ParticleSystem",
+                description: "Many copies of one shape, placed by a rule and a clock.",
+            },
         ],
+    });
+
+    // plan-150-A: `item` is an `AutoShape`, not a `DrawItem` (owner's decision,
+    // 2026-10-13). A `DrawItem` that held a `DrawItem` would be a type cycle, and a
+    // value whose type reaches a cycle is not one flat block (`flatness_walk`): every
+    // scene of every canvas program would stop being the single block `present` copies,
+    // compares and hands to the graphics thread. So a particle is a shape, plain or
+    // wrapped in an `AutoPaint` -- never a `Picture`, a `Group` or another system.
+    pkg.add_record(RegistryRecord {
+        name: "ParticleSystem",
+        export: true,
+        description: "Many copies of one shape.",
+        props: vec![RecordProp {
+            name: "item",
+            ty: ParameterType::named("AutoShape"),
+            description: "The shape drawn once for each particle.",
+        }],
     });
 
     pkg.add_record(RegistryRecord {
@@ -2069,6 +2098,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_hit::register(&mut pkg);
     helper_autopaint::register(&mut pkg);
     helper_picture::register(&mut pkg);
+    helper_particles::register(&mut pkg);
     helper_render::register(&mut pkg);
 
     r.add_package(pkg);
@@ -2167,6 +2197,10 @@ mod tests {
     /// union's members come first: they sit after `PolyLine`, and `AutoPaint`,
     /// `Picture` and `Group` each moved by two. Appending them to `DrawItem` alone
     /// would have moved nothing and made them things no decorator could hold.
+    ///
+    /// **plan-150-A appended `ParticleSystem`, last, and moved no tag.** It is the
+    /// fourteenth variant, after `Group`, among `DrawItem`'s own. The list grew by one
+    /// visible entry and the assertion is as exact as it was.
     #[test]
     fn draw_item_variant_set_is_frozen() {
         assert_eq!(
@@ -2185,9 +2219,85 @@ mod tests {
                 "AutoPaint",
                 "Picture",
                 "Group",
+                "ParticleSystem",
             ],
             "the DrawItem variant set is frozen; extending it is a breaking change"
         );
+    }
+
+    /// plan-150-A: a particle is a shape -- `ParticleSystem.item` is an `AutoShape`, so
+    /// every member of it carries a paint or decorates something that does, and none
+    /// is a container or a `ParticleSystem`.
+    #[test]
+    fn the_particle_template_is_a_shape() {
+        let pkg = registry()
+            .resolve_package("canvas")
+            .expect("canvas package");
+        let system = pkg
+            .records()
+            .iter()
+            .find(|r| r.name == "ParticleSystem")
+            .expect("ParticleSystem record");
+        let item = system
+            .props
+            .iter()
+            .find(|p| p.name == "item")
+            .expect("ParticleSystem.item");
+        assert_eq!(item.ty.name(), "AutoShape");
+        for inner in members("AutoShape") {
+            assert!(!["Picture", "Group", "ParticleSystem"].contains(&inner));
+        }
+    }
+
+    /// plan-150-A: no canvas value type reaches itself. Every scene is one flat block
+    /// -- `present` copies it with one `copy_flat_block`, compares it by content, and
+    /// the native walks step through it by offset -- and a record that held, at any
+    /// depth, the union it is a variant of would make that union a pointer-linked graph
+    /// for every program, not only the ones that use the field. It was tried:
+    /// `ParticleSystem.item AS DrawItem` failed the build of a program that constructs
+    /// no particle system at all ("native content comparison does not support type
+    /// 'List OF canvas.DrawItem'").
+    #[test]
+    fn no_canvas_type_reaches_itself() {
+        let pkg = registry()
+            .resolve_package("canvas")
+            .expect("canvas package");
+        // What a named canvas type holds: a record's field types, a union's members.
+        let holds = |name: &str| -> Vec<String> {
+            let mut out = Vec::new();
+            if let Some(record) = pkg.records().iter().find(|r| r.name == name) {
+                for prop in &record.props {
+                    let mut ty = &prop.ty;
+                    loop {
+                        match ty {
+                            ParameterType::ListOf(inner) | ParameterType::Res(inner) => ty = inner,
+                            _ => break,
+                        }
+                    }
+                    out.push(ty.name().trim_start_matches("canvas.").to_string());
+                }
+            }
+            if pkg.unions().iter().any(|u| u.name == name) {
+                out.extend(members(name).into_iter().map(str::to_string));
+            }
+            out
+        };
+        let names: Vec<&str> = pkg
+            .records()
+            .iter()
+            .map(|r| r.name)
+            .chain(pkg.unions().iter().map(|u| u.name))
+            .collect();
+        for start in names {
+            let mut stack = holds(start);
+            let mut seen = std::collections::HashSet::new();
+            while let Some(next) = stack.pop() {
+                assert_ne!(next, start, "canvas::{start} reaches itself");
+                if seen.insert(next.clone()) {
+                    stack.extend(holds(&next));
+                }
+            }
+        }
     }
 
     /// plan-172-K: `Shape` is what an `AutoPaint` may wrap and (plan-172-L) what a
@@ -2260,13 +2370,19 @@ mod tests {
     /// `shape` must be a `Shape`, and every member of `Shape` is in the checked set
     /// below.
     ///
+    /// **plan-150-A added a second container, `ParticleSystem`.** It draws its `item`
+    /// once per particle and has no paint for the reason a `Group` has none: what it
+    /// holds carries one. It is listed here and not as a decorator because that list
+    /// checks a field named `shape`; `the_particle_template_is_a_shape` checks `item`.
+    ///
     /// Both exemptions are explicit lists rather than a property anything could drift
     /// into, so a future variant is not silently excused, and each list is itself
     /// checked against the union so a typo cannot quietly exempt nothing.
     #[test]
     fn every_draw_item_variant_carries_a_paint() {
-        /// Variants that are containers rather than shapes (plan-116-G).
-        const CONTAINERS: &[&str] = &["Group"];
+        /// Variants that are containers rather than shapes: `Group` (plan-116-G) and
+        /// `ParticleSystem` (plan-150-A), whose template carries the paint.
+        const CONTAINERS: &[&str] = &["Group", "ParticleSystem"];
         /// Variants that draw a `shape` they hold, with that shape's paint, and the
         /// union that shape is: `AutoPaint` (plan-172-K) and `Picture` (plan-172-L),
         /// whose shape may itself be an `AutoPaint`.

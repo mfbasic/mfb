@@ -239,6 +239,9 @@ FUNC __canvas_itemId(item AS DrawItem) AS String
     ' An `AutoPaint` has no `id` of its own: it reports its shape's.
     CASE AutoPaint(a)
       RETURN __canvas_itemId(__canvas_autoItem(a))
+    ' plan-150-A: a particle system has no `id` -- nothing about it is ever hit.
+    CASE ParticleSystem(ps)
+      RETURN ""
   END MATCH
 END FUNC
 

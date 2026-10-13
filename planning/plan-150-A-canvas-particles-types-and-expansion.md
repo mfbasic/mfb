@@ -15,7 +15,7 @@ index and the system's clock.
 ```
 canvas::ParticleSystem
     position   AS vector::Float2   ' the emitter's reference point
-    item       AS DrawItem         ' the template, drawn once per live particle
+    item       AS AutoShape        ' the template, drawn once per live particle
     emitter    AS Shape            ' where particles are born
     emission   AS Emission         ' how many, how often, how long they live
     motion     AS Motion           ' how they move
@@ -324,7 +324,7 @@ All registry data in `src/codegen/builtins/canvas/mod.rs`. This is
 ```
 canvas::ParticleSystem                    ' the 12th DrawItem variant — a CONTAINER, no paint
     position    AS vector::Float2         ' emitter reference point
-    item        AS canvas::DrawItem       ' the template drawn once per live particle
+    item        AS canvas::AutoShape      ' the template drawn once per live particle (Corrections 3)
     emitter     AS canvas::Shape
     emission    AS canvas::Emission
     motion      AS canvas::Motion
@@ -666,27 +666,42 @@ The one premise that would reshape the whole design. Nothing else is built until
 holds. Deliberately the smallest possible version: a one-field record, no model, no
 expansion.
 
-- [ ] Declare a minimal `ParticleSystem` record in `src/codegen/builtins/canvas/mod.rs`
+- [x] Declare a minimal `ParticleSystem` record in `src/codegen/builtins/canvas/mod.rs`
       with a single prop `item AS canvas::DrawItem`, and append it to `DrawItem`'s own
-      `variants`, after `Group`.
-- [ ] Amend `draw_item_variant_set_is_frozen` to the twelve-name list, **appending**
+      `variants`, after `Group`. — done, and **the premise is false**: with that field
+      `target/debug/mfb build -app --debug` of a one-circle program that constructs no
+      system failed with `native content comparison does not support type 'List OF
+      canvas.DrawItem'`. The field is `item AS canvas::AutoShape` (Corrections 3).
+- [x] Amend `draw_item_variant_set_is_frozen` to the twelve-name list, **appending**
       `ParticleSystem` last so no existing variant's tag moves. Keep the assertion's
       warning message; record the amendment in the doc comment beside the plan-116 and
       plan-172-K entries, per the rule that the list grows by one visible entry and
       never gets laxer. `shape_variant_set_is_frozen` and
-      `auto_shape_variant_set_is_frozen` must pass **unedited**.
-- [ ] Add `ParticleSystem` to `CONTAINERS` in `every_draw_item_variant_carries_a_paint`,
+      `auto_shape_variant_set_is_frozen` must pass **unedited**. — fourteen names
+      (Corrections 1); both `Shape` tests unedited (`git diff` shows no hunk in either).
+- [x] Add `ParticleSystem` to `CONTAINERS` in `every_draw_item_variant_carries_a_paint`,
       beside `Group`.
-- [ ] Give every MFBASIC `MATCH` over `DrawItem` that has no `CASE ELSE` the arm it
+- [x] Give every MFBASIC `MATCH` over `DrawItem` that has no `CASE ELSE` the arm it
       needs to keep compiling, drawing nothing. The compiler's exhaustiveness check
-      finds them; the list in §6 is what they should number.
-- [ ] Confirm, or teach, the two native folds to walk a `DrawItem` inside a variant
+      finds them; the list in §6 is what they should number. — five: the four
+      `2-203-0062` errors the plain program's build reported (`__canvas_clipOf`,
+      `__canvas_geometryFor`, `__canvas_geoReference`, `__canvas_hashItem`) and
+      `__canvas_itemId` in the `pollMouse`-gated chunk.
+- [x] Confirm, or teach, the two native folds to walk a `DrawItem` inside a variant
       record: `func_item_hash.rs` and `func_carried_hashes.rs`. Two systems differing
-      only in a field of their template must hash differently.
-- [ ] Write a runtime probe that presents a scene containing
+      only in a field of their template must hash differently. — taught: `itemHash`
+      answers -1 for a system (`NOT_HASHED`) and `__canvas_particleSystemHash` folds it;
+      `carriedHashes` never carries one; and a third native walk the plan did not list,
+      `canvas::sceneIdBits`, skips it (it has no `id` first field).
+- [x] Write a runtime probe that presents a scene containing
       `ParticleSystem[item := Circle[…]]` and survives `present`'s deep copy.
-- [ ] Tests: `tests/canvas/rt_canvas_particles.rs`, new — the probe above, and the
-      differing-template hash case.
+- [x] Tests: `tests/canvas/rt_canvas_particles.rs`, new — the probe above, and the
+      differing-template hash case. — `cargo test --test rt_canvas_particles` →
+      "2 passed; 0 failed": 100 rounds of (a, a, b) draw exactly 200 frames, and the
+      worker arena's live bytes are equal after 20 and 120 rounds.
+- [x] (added) Freeze the repaired shape: `the_particle_template_is_a_shape` and
+      `no_canvas_type_reaches_itself` in `canvas/mod.rs`, and the hook-parity test in
+      `helper_particles/tests/mod.rs`.
 
 Acceptance: a scene holding a `ParticleSystem` whose `item` is a `Circle` is presented,
 deep-copied and dropped without a leak, a double free, or a SIGSEGV — i.e. the type
@@ -694,6 +709,9 @@ cycle survives the graph-copy path `.ai/collections.md` describes — and re-pre
 with a changed template is not skipped as an identical scene.
   Check: `cargo test --test rt_canvas_particles` → pass (est. 3 min, guess), and
   `cargo test --bin mfb canvas` → pass (est. 3 min, guess).
+  Result (2026-10-13): "2 passed; 0 failed" in 15.72 s, and "146 passed; 0 failed" in
+  123.40 s. Met for the type as corrected (`item AS canvas::AutoShape`); the cycle the
+  criterion was written about did NOT survive, which is Corrections 3.
 Commit: —
 
 ### Phase 2 — The full type set
@@ -927,6 +945,39 @@ by plan-172's transform rule.
    "Measured populations": records 23 (was 20), unions 3, enums 13, registry functions
    98 (was 95), canvas runtime test files 22 (was 21), highest error code 77050027
    (unchanged, so the two raises are still 77050028 and 77050029).
+3. **The recursive type cannot be expressed; `item` is a `canvas::AutoShape`** (owner's
+   decision, 2026-10-13). Phase 1's experiment falsified the premise "Verified
+   properties" marks UNVERIFIED. Evidence, in order:
+   - With `ParticleSystem.item AS canvas::DrawItem` declared, a one-circle program that
+     constructs no `ParticleSystem` fails to build: `target/debug/mfb build -app --debug
+     /tmp/p150/plain` → `error: native content comparison does not support type 'List OF
+     canvas.DrawItem'` (`builder_collection_compare.rs:content_shape`).
+   - The cause is `builder_collection_layout.rs:flatness_walk`: a type met again on its
+     own path answers "not flat" ("Cyclic values cannot be a single finite flat block, so
+     treat them as pointers"). That is per TYPE, so `ParticleSystem`, then `DrawItem`,
+     then `List OF DrawItem` stop being flat for every canvas program.
+   - Read, not run (the build stops at the first error): `present` deep-copies the scene
+     with one `copy_flat_block` (`gen_present.rs`), the native walks step through it by
+     inline offset, and the graph copier refuses any type that holds a resource
+     (`needs_graph_copy` → `type_contains_resource`), which `DrawItem` does.
+   The feature does not rest on the cycle: nothing but a system of systems needs it, and
+   that was already to be refused. What changes:
+   - §4: `item AS canvas::AutoShape`. A template is one of the ten shapes or an
+     `AutoPaint`. **A `Picture` or a `Group` cannot be a template.**
+   - §6's table loses its `Picture`, `Group` and `ParticleSystem` rows; "The other
+     walks" loses the group-template GPU case and the resource walk's `Picture` case (a
+     `Text` template still names a font). The `ClipOnly` and group-tint consequences,
+     and Open Decisions 2 and 3, no longer arise.
+   - §7: `item` is a `ParticleSystem` is a compile-time type error, so raise 77050029 is
+     not minted. One new code, 77050028.
+   - The Phase 4/5 tasks that named a `Picture` or `Group` template are marked moot
+     where they stand, each citing this entry.
+   - Letter B's `Picture`-template measurement and letter C's `Picture`/`Group` template
+     prose and `fog` example (a `Picture` particle) are re-scoped in those letters.
+   An intermediate repair — a fourth union `ParticleItem` holding every variant but
+   `ParticleSystem` — was built and worked, and was withdrawn on the owner's instruction
+   in favour of `AutoShape`. A new freeze test, `no_canvas_type_reaches_itself`, holds
+   the line for the next variant that wants to hold an item.
 
 ## Summary
 

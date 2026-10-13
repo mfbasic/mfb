@@ -413,6 +413,9 @@ END TYPE
 ' variant, not the 11th.
 ' Particles are never hit-tested and block nothing beneath them. An AutoPaint inside the
 ' template draws its default paint.
+' The template is an AutoShape, not a DrawItem (owner, 2026-10-13; plan-150-A Corrections
+' 3): a DrawItem that held a DrawItem is a type cycle, and a scene would stop being one
+' flat block. So a Picture, a Group or another ParticleSystem cannot be a template.
 
 ENUM canvas::EmissionMode
     Continuous
@@ -421,7 +424,7 @@ END ENUM
 
 TYPE canvas::ParticleSystem               ' the 12th DrawItem variant — a CONTAINER, no paint
     position    AS vector::Float2         ' emitter Reference Point
-    item        AS canvas::DrawItem       ' the template drawn once per live particle
+    item        AS canvas::AutoShape      ' the template drawn once per live particle
     emitter     AS canvas::Shape
     emission    AS canvas::Emission
     motion      AS canvas::Motion

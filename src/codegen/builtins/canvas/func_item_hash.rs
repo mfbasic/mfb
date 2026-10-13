@@ -61,9 +61,10 @@ const FINAL: u64 = 0x2545_F491_4F6C_DD1D;
 const SEED: u64 = 0x1B87_3593_CC9E_2D51;
 
 /// The variants this walk hashes. `Text` and `Group` are the MFBASIC path's, and
-/// `AutoPaint` (plan-172-K), whose `shape` is a union field the walk does not fold; a
-/// variant in neither list fails the build rather than falling to a default nobody
-/// chose.
+/// `AutoPaint` (plan-172-K), whose `shape` is a union field the walk does not fold, and
+/// `ParticleSystem` (plan-150-A), whose `item` is one too -- a whole `DrawItem`, which
+/// may be any of the kinds above; a variant in neither list fails the build rather than
+/// falling to a default nobody chose.
 const HASHED: [&str; 10] = [
     "Rectangle",
     "Circle",
@@ -76,7 +77,7 @@ const HASHED: [&str; 10] = [
     "PolyCurve",
     "CurvePolygon",
 ];
-const NOT_HASHED: [&str; 3] = ["Text", "Group", "AutoPaint"];
+const NOT_HASHED: [&str; 4] = ["Text", "Group", "AutoPaint", "ParticleSystem"];
 
 struct Mixer {
     hash: VirtualRegister,
@@ -503,6 +504,12 @@ pub(crate) fn lower_scene_hashes(
 /// `AutoPaint` reports its wrapped shape's (plan-172-K).
 const UNSEEN_DECORATOR: &str = "AutoPaint";
 
+/// The one variant that has no `id` at all, and none to look for inside it: a
+/// `ParticleSystem` is never hit, so nothing it holds is ever reported (plan-150-A).
+/// It sets no bit: a scene of particle systems and nothing with an `id` builds no hit
+/// list.
+const NEVER_HIT: &str = "ParticleSystem";
+
 /// `canvas::sceneIdBits(items)`: what `canvas::pollMouse` needs to know about a scene
 /// before it builds anything for it (plan-172-I) — bit 0 when some item of the list has a
 /// non-empty `id`, a `Group` node's included; bit 1 when the list holds something this
@@ -533,7 +540,7 @@ pub(crate) fn lower_scene_id_bits(
         // plan-172-K: an `AutoPaint` has no `id` -- it reports its shape's -- and its
         // first field is the shape, a union. This pass does not look inside it: like a
         // group node, it is counted as "holds something this pass does not see".
-        if *name == UNSEEN_DECORATOR {
+        if *name == UNSEEN_DECORATOR || *name == NEVER_HIT {
             continue;
         }
         let (_, record) = variant(builder, name)?;
@@ -549,6 +556,7 @@ pub(crate) fn lower_scene_id_bits(
     let (group_tag, _) = variant(builder, "Group")?;
     let (picture_tag, picture) = variant(builder, "Picture")?;
     let (auto_tag, _) = variant(builder, UNSEEN_DECORATOR)?;
+    let (never_hit_tag, _) = variant(builder, NEVER_HIT)?;
     let inlined = builder.record_field_is_inlined(&ParameterType::String);
     // A picture's `shape`: a data union, held inlined or by pointer.
     let (shape_index, shape_type) = record_fields(builder, &picture)?
@@ -600,6 +608,9 @@ pub(crate) fn lower_scene_id_bits(
     emit_list_element(builder, &item, &view, &i);
     // A data union's tag is its first word; the variant's record follows at +16.
     builder.emit(abi::load_u64(&word, &item, 0));
+    // A `ParticleSystem`: no `id`, and never hit -- nothing to record.
+    builder.emit(abi::compare_immediate(&word, &never_hit_tag.to_string()));
+    builder.emit(abi::branch_eq(&next));
     // An `AutoPaint`: unseen, and its first slot is not an `id` -- skip the read.
     let not_auto = builder.label("canvas_id_bits_not_auto");
     builder.emit(abi::compare_immediate(&word, &auto_tag.to_string()));

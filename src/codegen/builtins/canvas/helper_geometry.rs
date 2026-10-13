@@ -695,6 +695,9 @@ FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
       RETURN __canvas_placedClip(cp.paint.clip, __canvas_buildX(cp.position, cp.transform), __canvas_buildY(cp.position, cp.transform))
     CASE Group(g)
       RETURN []
+    ' plan-150-A: nor has a particle system -- its particles are items of their own.
+    CASE ParticleSystem(ps)
+      RETURN []
     CASE AutoPaint(a)
       RETURN __canvas_clipOf(__canvas_autoItem(a))
   END MATCH
@@ -1666,6 +1669,10 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
     ' group's, for the same reason.
     CASE AutoPaint(a)
       header = __canvas_emptyHeader()
+    ' plan-150-A: a `ParticleSystem` is expanded into its particles before anything asks
+    ' for geometry (`__canvas_appendDraw`), so it never reaches here either.
+    CASE ParticleSystem(ps)
+      header = __canvas_emptyHeader()
     ' plan-154-A. The tail only when the header is a real polyline: an empty header
     ' declares a 51-float record, and a tail appended behind it would be floats the
     ' record does not own.
@@ -1988,6 +1995,11 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       RETURN __canvas_polyCurveHash(pc)
     CASE CurvePolygon(cp)
       RETURN __canvas_curvePolygonHash(cp)
+    ' plan-150-A: every field of the system and its template's hash, in the chunk a
+    ' program that constructs one carries (`helper_particles.rs`). Never hashed
+    ' natively: its `item` is a union field.
+    CASE ParticleSystem(ps)
+      RETURN __canvas_particleSystemHash(ps)
   END MATCH
 END FUNC"#;
 
@@ -2124,6 +2136,9 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
     ' mismatches: this arm answered the empty header, and the two labels had no box.
     CASE AutoPaint(a)
       RETURN __canvas_geoReference(__canvas_autoItem(a), offset)
+    ' plan-150-A: expanded before any record is built for it, like a group.
+    CASE ParticleSystem(ps)
+      header = __canvas_emptyHeader()
     CASE PolyLine(pl)
       LET moved AS PolyLine = __canvas_polylinePlaced(pl)
       header = __canvas_polylineHeader(moved)
