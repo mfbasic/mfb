@@ -291,45 +291,19 @@ END FUNC
 /// plan-116-A declined this scene: 40,000 edges was past the 16,384-edge frame region
 /// that letter introduced. bug-686 raised the region to 262,144 edges, and the scene is
 /// now a Metal acceptance case (`forty_thousand_polygon_edges_draw_on_metal`). The
-/// decline it used to prove is `PAST_THE_FRAME_EDGE_REGION`'s job below.
+/// decline it used to prove was `PAST_THE_FRAME_EDGE_REGION`'s job until bug-765, which
+/// made that scene two passes; `TOO_MANY_EDGES` is the decline that is left.
 const TOO_MANY_FRAME_EDGES: &str = include_str!("scenes/forty_thousand_edges.mfb");
 
 /// Polygons whose edges together pass Metal's frame edge region
 /// (`METAL_MAX_FRAME_EDGES` = 262,144 since bug-686).
 ///
 /// 1,025 rings of 256 edges is 262,400 edges — 256 past the region, and no ring past
-/// any per-polygon limit, so only the *sum* can decline it. The rings are 4 px across so
+/// any per-polygon limit, so only the *sum* can end a pass. The rings are 4 px across so
 /// the software oracle, which walks every edge for every pixel of a polygon's bounds,
 /// draws the frame in seconds rather than minutes. The rectangle keeps the frame from
 /// being blank.
-const PAST_THE_FRAME_EDGE_REGION: &str = r#"IMPORT app
-IMPORT canvas
-IMPORT vector
-IMPORT color
-IMPORT collections
-IMPORT math
-
-FUNC main() AS Nothing
-  app::setMode(app::Mode.Canvas)
-  MUT scene AS List OF canvas::DrawItem = [canvas::Rectangle[id := "", position := vector::Float2[x := 10.0, y := 10.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 50.0, height := 50.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]
-  MUT ring AS Integer = 0
-  WHILE ring < 1025
-    LET cx AS Float = 20.0 + toFloat((ring MOD 70) * 12)
-    LET cy AS Float = 80.0 + toFloat((ring / 70) * 12)
-    MUT points AS List OF vector::Float2 = []
-    MUT i AS Integer = 0
-    WHILE i < 256
-      LET a AS Float = toFloat(i) * 6.283185307179586 / 256.0
-      points = collections::append(points, vector::Float2[x := cx + 4.0 * math::cos(a), y := cy + 4.0 * math::sin(a)])
-      i = i + 1
-    END WHILE
-    LET poly AS canvas::DrawItem = canvas::Polygon[id := "", position := vector::Float2[x := 0.0, y := 0.0], contours := [points], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(color::rgba(0, 200, 255, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-    scene = collections::append(scene, poly)
-    ring = ring + 1
-  END WHILE
-  canvas::present(scene)
-END FUNC
-"#;
+const PAST_THE_FRAME_EDGE_REGION: &str = include_str!("scenes/past_the_edge_region.mfb");
 
 /// A built program, kept so both renders run the same binary.
 struct Program {
@@ -770,26 +744,24 @@ fn path_placement_matches_the_software_oracle() {
     }
 }
 
-/// A frame whose polygons *individually* fit but *together* overflow the edge region is
-/// declined too.
+/// A frame whose polygons individually fit but together overflow the edge region is
+/// drawn in passes, on Metal, and matches the oracle (bug-765).
 ///
-/// plan-116-A's one named compatibility change, and the test that pins it as a decline
-/// rather than as truncation. Before that letter Metal had no frame-wide edge budget at
-/// all — each polygon's edges were copied into the command buffer as they were recorded
-/// — so this scene rendered on the GPU. It now goes to software, which is the oracle, so
-/// the picture is at least as correct.
+/// Until bug-765 this frame was declined: the edge region was a FRAME cap, and 262,400
+/// edges past it sent the whole frame to the software renderer, byte for byte. The
+/// owner ruled that out on 2026-10-12 (the bug document's Cause note: no scene size is
+/// a limit; the region is the size of one pass). What the decline protected still
+/// holds and is still what this asserts: the frame is never drawn truncated at the
+/// region's end, and no ring reads another's edges. 1,025 rings of 256 edges is one
+/// ring past the region, so the frame is two passes, split where the EDGE region fills
+/// (the item region holds all 1,026 blocks sixty times over). A renderer that put all
+/// of them in one pass would leave the last ring undrawn or drawn from the wrong
+/// edges, and the comparison fails.
 ///
-/// Asserted **exactly**, like the per-item decline above: the fallback runs the identical
-/// software renderer on the identical scene, so anything other than byte equality means
-/// the Metal path drew part of a scene it should have refused. Asserting it by pixels
-/// rather than by reading a stats flag is the point — a renderer that silently truncated
-/// at the region's end would still report `gpuSelected=TRUE` and look healthy.
-///
-/// bug-686 raised the region from 16,384 edges to 262,144, so the 40,000-edge scene this
-/// test used to decline now draws on Metal (`forty_thousand_polygon_edges_draw_on_metal`)
-/// and this one is past the new region instead.
+/// `gpuFrames` is asserted because rings this small draw on Metal byte-identically to
+/// software: pixel agreement alone would pass for a frame that was declined.
 #[test]
-fn a_frame_whose_polygons_together_overflow_the_edge_region_falls_back() {
+fn a_frame_whose_polygons_together_overflow_the_edge_region_draws_in_passes() {
     if !cfg!(target_os = "macos") {
         return;
     }
@@ -803,17 +775,16 @@ fn a_frame_whose_polygons_together_overflow_the_edge_region_falls_back() {
         software.pixels.iter().any(|&b| b != 0),
         "the software render drew nothing, so the comparison would be vacuous",
     );
-    // bug-686: rings this small can draw on Metal byte-identically to software, so pixel
-    // equality alone would pass whether or not the frame was declined.
     assert!(
-        stats.contains("gpuFrames=0"),
-        "262,400 edges is past METAL_MAX_FRAME_EDGES, but Metal drew the frame: {stats}"
+        !stats.contains("gpuFrames=0"),
+        "262,400 edges is two passes of METAL_MAX_FRAME_EDGES, but the software renderer \
+         drew the frame: {stats}"
     );
-    if let Err(diff) = compare_exact(&gpu, &software) {
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_DEFAULT) {
         panic!(
-            "1,025 rings of 256 edges is 262,400 edges, past METAL_MAX_FRAME_EDGES — the \
-             renderer must decline the whole frame and let the software oracle draw it, \
-             so the two frames must be byte-identical, but {diff}"
+            "1,025 rings of 256 edges is 262,400 edges, one ring past one pass's edge \
+             region — Metal must draw the frame in two passes and agree with the oracle, \
+             but {diff}"
         );
     }
 }
@@ -2052,13 +2023,15 @@ FUNC main() AS Nothing
 END FUNC
 "#;
 
-/// A frame's curve pieces are counted against the edge region, two slots a piece, and a
-/// frame past it is the software renderer's (plan-164-C).
+/// A frame's curve pieces are counted against the edge region, two slots a piece
+/// (plan-164-C), and a frame past it is a second pass's (bug-765).
 ///
-/// 512 rings is 262,144 slots, the region exactly: Metal draws it. 513 is 262,656: the
-/// whole frame is declined and the two renders are byte-identical. The pair is what
-/// pins the factor -- a predicate that counted ONE slot a piece would let 513 rings
-/// through, and the emitter would then leave the rings past the region undrawn.
+/// 512 rings is 262,144 slots, the region exactly: one pass. 513 is 262,656: two. The
+/// pair is what pins the factor -- a count of ONE slot a piece would put 513 rings in
+/// one pass, and the emitter would then leave the rings past the region undrawn, which
+/// the comparison with the oracle sees. Until bug-765 the 513-ring frame was declined
+/// to software instead; the owner's ruling of 2026-10-12 (the bug document's Cause
+/// note) made the region the size of a pass, not of a frame.
 #[test]
 fn curve_pieces_are_counted_two_slots_each_against_the_edge_region() {
     if !cfg!(target_os = "macos") {
@@ -2091,12 +2064,12 @@ fn curve_pieces_are_counted_two_slots_each_against_the_edge_region() {
         "the software render drew nothing, so the comparison would be vacuous",
     );
     assert!(
-        stats.contains("gpuFrames=0"),
-        "131,328 pieces is 262,656 slots, past METAL_MAX_FRAME_EDGES, but Metal drew \
-         the frame: {stats}"
+        !stats.contains("gpuFrames=0"),
+        "131,328 pieces is 262,656 slots, two passes of METAL_MAX_FRAME_EDGES, but the \
+         software renderer drew the frame: {stats}"
     );
-    if let Err(diff) = compare_exact(&gpu, &software) {
-        panic!("a declined frame is the software renderer's, byte for byte, but {diff}");
+    if let Err(diff) = compare_within_tolerance(&gpu, &software, Tolerance::GPU_CURVE) {
+        panic!("Metal draws 513 rings of 256 pieces differently from the oracle: {diff}");
     }
 }
 
@@ -2106,7 +2079,7 @@ fn curve_pieces_are_counted_two_slots_each_against_the_edge_region() {
 // every region of the buffer, into one target -- and presented or read back once.
 // ---------------------------------------------------------------------------------------
 
-/// `MFB_TEST_ITEMS` squares, most opaque, every forty-first translucent over its
+/// `MFB_TEST_ITEMS` squares, most opaque, every ninety-seventh translucent over its
 /// neighbours, wrapping over the squares before them past 63,900.
 const MANY_ITEMS: &str = include_str!("scenes/many_items.mfb");
 
@@ -2177,6 +2150,28 @@ fn a_frame_past_one_buffers_texels_draws_in_passes_on_metal() {
     assert_metal_draws_like_software(
         "canvas_metal_many_texels",
         MANY_TEXELS,
-        "four translucent 1,920 by 1,200 pictures (9,216,000 texels)",
+        "four overlapping 1,920 by 1,200 pictures (9,216,000 texels)",
+    );
+}
+
+/// A group of 500 squares drawn three times around 70,000 squares of the scene, then
+/// Multiply items that both fill and stroke.
+const PASSES_GROUPED: &str = include_str!("scenes/passes_grouped.mfb");
+
+/// A pass is a run of the frame's DRAW ENTRIES, not of its block list.
+///
+/// A group's blocks are recorded once, at its first use, and named again by every later
+/// use. Here the third use falls in the second pass while the blocks' place in the
+/// block list is the first pass's: a walk of the block list would draw that use in the
+/// first pass, under 30,000 squares that belong beneath it, or not at all. The second
+/// use is in the pass that already holds the blocks and is drawn from them. The scene's
+/// own run of squares is cut in two by the end of the first pass, and the pass ends
+/// with entries under another pipeline whose blocks are two records each.
+#[test]
+fn a_group_drawn_again_in_a_later_pass_is_drawn_in_paint_order_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_passes_grouped",
+        PASSES_GROUPED,
+        "a group drawn in two passes of one frame",
     );
 }

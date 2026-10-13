@@ -328,9 +328,10 @@ now describe:
    block address current at that moment (`__canvas_pictureStamp`). The software
    renderer samples that block per pixel (`canvas::shadowTexel`); both GPU emitters
    copy its texels, one packed word each, into the frame buffer's glyph region. Each
-   emitter copies a distinct block ONCE per frame and points every later picture of it
-   at those texels (`emit_picture_lookup` — Metal's since bug-686, Vulkan's since
-   bug-688, the same table layout), and each predicate counts each distinct block once.
+   emitter copies a distinct block ONCE per pass (a frame is one pass unless it does
+   not fit the buffer, §10) and points every later picture of it at those texels
+   (`emit_picture_lookup` — Metal's since bug-686, Vulkan's since bug-688, the same
+   table layout), and the pass walk counts each distinct block once a pass.
 
 Why this holds up where the texture design needed care:
 
@@ -347,8 +348,9 @@ Why this holds up where the texture design needed care:
   draw hash, because the worker's published hash predates the swap).
 
 The cost is the per-frame copy of every drawn picture's texels on the GPU paths, and
-that those texels share the glyph region's frame cap — a frame whose pictures and
-glyphs together overflow it is declined to software by both predicates. A texture
+that those texels share the glyph region — a frame whose pictures and glyphs together
+overflow it is drawn in more than one pass (§10, bug-765), each pass copying the blocks
+it draws, and only an image larger than the region by itself is declined to software. A texture
 cache would trade that for exactly the protocol above; do it only with a measured scene
 that needs it. The superseded `dirty` and last-drawn-frame record words were removed.
 
@@ -612,7 +614,7 @@ Who owns which word:
 |---|---|
 | `LIB`, `INSTANCE`, `PHYSICAL`, `DEVICE`, `QUEUE`, `QUEUE_FAMILY`, `WSI` | `IMAGE`, `IMAGE_MEMORY`, `IMAGE_VIEW`, `FRAMEBUFFER`, `READ_BUFFER`, `READ_MEMORY`, `MAPPED`, `TEX_WIDTH/HEIGHT` |
 | `SET_LAYOUT`, `DESC_POOL`, `DESC_SET`, `EDGE_*`, `ITEM_*` | `COMMAND_POOL`, `COMMAND_BUFFER` |
-| `PIPELINE_LAYOUT`, `RENDER_PASS`, `PIPELINE`, `PIPELINE_MODES` | `SURFACE`, `SURFACE_HWND`, `SWAPCHAIN`, `SC_*`, `SEM_*`, `PRESENT_PASS` |
+| `PIPELINE_LAYOUT`, `RENDER_PASS`, `PIPELINE`, `PIPELINE_MODES` | `SURFACE`, `SURFACE_HWND`, `SWAPCHAIN`, `SC_*`, `SEM_*`, `PRESENT_PASS`, `LOAD_PASS`, `PRESENT_LOAD_PASS` |
 
 No main-thread code touches any `GRAPHICS_OFFSET_VULKAN_*` word
 (`grep -rn GRAPHICS_OFFSET_VULKAN src/target` finds nothing).
@@ -658,13 +660,14 @@ per contiguous run of blocks at a given offset:
 
 ```
 (itemBase, itemCount, dx, dy, blendMode, dxLo, dyLo,        sixteen 64-bit words
- hasMatrix, ia, ib, ic, id, 0, 0, 0, 0)
+ hasMatrix, ia, ib, ic, id, pass, 0, 0, 0)
 ```
 
 It was eight words until plan-172-G, and a translate-only entry is still those eight
 followed by zeros. `hasMatrix` is 1 when the entry's groups compose to more than a
 translation, and `ia`..`id` are then the INVERSE linear part of that composition, as
-float32 bit patterns.
+float32 bit patterns. `pass` is 0 in every entry the frame's layout writes; only a
+pass's own list sets it, in its first entry (bug-765, below).
 
 **The per-draw payload is 32 bytes, bound to both stages** (plan-172-H): the four offset
 words, then `ia`..`id` — `MfbDraw` in the MSL, `uniform Draw { ivec4 offset; ivec4
@@ -723,18 +726,18 @@ and the staging slot all read); Metal uses `setVertexBytes:` at buffer index **1
 `setFragmentBytes:` at index **3**, 32 bytes each, because its fragment stage already has
 items, edges and the glyph bitmap at 0..2.
 
-**A predicate cannot decline a group scene by looking for a `Group` item.** By the time
-`__canvas_vulkanRenderable` or `__canvas_metalRenderable` sees the offsets list, the walk
+**A gate cannot decline a group scene by looking for a `Group` item.** By the time
+`__canvas_vulkanRenderable` or `__canvas_metalRenderable` sees the block list, the walk
 has expanded every group away — a search finds nothing, the frame is accepted, and every
 group's child draws at the origin. plan-116-G solved that with a flag the *walk* set; with
 both backends taught the flag has no reader and was deleted, so a future backend that
 needs to decline has to set one again rather than search.
 
-**Count published records, not items, in the frame caps.** `__canvas_blockInstances` is
-the one answer to "how many instances does this block become", and both the draw list and
-the caps ask it. An item that both strokes and fills under a non-Normal blend mode
-publishes **two** records; counting it as one under-fills the cap, which is the direction
-that lets a scene write past the mapping. The emitters' own split test reads `strokeHalf`
+**Count published records, not items, against the item region.** `__canvas_blockInstances`
+is the one answer to "how many instances does this block become", and both the draw list
+and a block's cost (`__canvas_blockCost`) ask it. An item that both strokes and fills
+under a non-Normal blend mode publishes **two** records; counting it as one under-fills
+the region, which is the direction that lets a pass write past the mapping. The emitters' own split test reads `strokeHalf`
 **signed** for the same reason — a paint that does not stroke reports `-1.0`, and a
 zero-extending load makes that a very large positive number.
 
@@ -779,14 +782,14 @@ must therefore be a region of a frame buffer reached by an index carried in the 
 not a payload. That is what forced Metal's polygon edges to move (below), and it is the
 shape any future per-item payload has to take.
 
-**The two predicates are two functions with the same caps.** Each backend has its own
-constants — `METAL_MAX_FRAME_*` and `VULKAN_MAX_FRAME_*` — generated into its own
-predicate (`RENDER_CAPS`), and since bug-688 they are the same numbers: 65,536 quads,
+**The region sizes are one PASS's, not a frame's (bug-765).** Each backend has its own
+constants — `METAL_MAX_FRAME_*` and `VULKAN_MAX_FRAME_*` — generated into the MFBASIC
+source (`RENDER_CAPS`), and since bug-688 they are the same numbers: 65,536 quads,
 262,144 polygon edges, 131,072 gradient stops, 1,048,576 dash words (plan-163-B) and 8M
-glyph/picture texels a frame, each a frame SUM, with each distinct picture block counted
-once. A stroke's join records ride the EDGE region, two edge slots each, so they count
-twice against the edge cap rather than having a cap of their own; so do a curve shape's
-PIECES (below). Neither has a per-polygon edge
+glyph/picture texels, each a SUM over the blocks of one pass, with each distinct picture
+block counted once a pass. A stroke's join records ride the EDGE region, two edge slots
+each, so they count twice against it rather than having a region of their own; so do a
+curve shape's PIECES (below). Neither backend has a per-polygon edge
 cap: a polygon's edges are indexed by horizontal band (`emit_band_index`, bug-686 on
 Metal, ported to Vulkan's `CodeBuilder` by bug-688 — the algorithm exists twice so that
 Metal's instructions did not change), and the shader's `edgeDistance` walks only the
@@ -794,11 +797,69 @@ edges within reach of the pixel's band, which is bit-identical to walking them a
 bug-688 measured that on Vulkan too: the same scenes rendered with and without the index
 gave byte-identical GPU frames on lavapipe, stars and spikes included.
 
-Before bug-688 Vulkan kept plan-116-A's 4,096 quads and stops, 16,384 edges and 1M
-texels, so `examples/weather`, a 5,000-quad scene, a tilemap and a 1080p background all
-fell back to software there. A cap past which a frame is declined is still a real
-limit: software is the oracle, so a declined frame is at least as correct, and
-truncating instead would draw a *different shape*.
+Until bug-765 those sums were FRAME caps and a frame past one was declined to software:
+100,000 dots were a software frame for good. The owner ruled that no scene size is a
+limit. What is left to decline is a block that does not fit a region BY ITSELF — one
+polygon, one gradient, one image, one `Text` larger than the region. Software is the
+oracle, so a declined frame is at least as correct, and truncating instead would draw a
+*different shape*.
+
+### A frame that does not fit the frame buffer is drawn in passes (bug-765)
+
+`helper_render.rs`. `__canvas_metalRenderable` / `__canvas_vulkanRenderable` answer 0
+(a block fits no pass: software), 1 (the frame fits one buffer) or 2 (it does not).
+For 1 the renderer is handed `__CANVAS_DRAW_BLOCKS` and `__CANVAS_DRAWS` exactly as
+before. For 2 `__canvas_passNext` lays out one pass at a time into
+`__CANVAS_PASS_BLOCKS` / `__CANVAS_PASS_DRAWS`, the same two layouts, and the same
+member is called once per pass. What to keep true:
+
+* **One definition of a block's cost.** `__canvas_blockCost` is what the frame sum
+  (`__canvas_framePasses`) and the pass walk both add up. They were two predicates'
+  own loops; a count that differs between the sum and an emitter writes past a region.
+* **A pass is a run of DRAW ENTRIES, cut between two BLOCKS.** The entries are the
+  frame in paint order, so a pass must be a prefix of what is left of them; the block
+  list is in first-recorded order, and a group drawn again later names blocks recorded
+  long before. Walking the block list instead draws a group's second use under the
+  items that should be beneath it. The cut is between blocks and never inside one, so
+  the two records of a split blended item and the glyphs of a `Text` stay together
+  without the walk asking what kind a block is.
+* **Nothing else has to stay together.** An entry is one instanced draw at one offset
+  under one pipeline; cut in two it is two entries with the same words 2 to 11, and N
+  instances composite as their two halves do, in order, into the same target. That is
+  why translucent items composite across a pass boundary exactly as inside a pass.
+* **Every table an emitter keeps while filling the buffer is a pass's**, with no code:
+  each pass is one call of the renderer, which zeroes its cursors, its band region and
+  its picture-table count at entry. So the walk's own bookkeeping is per pass too: a
+  picture block is charged once a pass, and an entry whose blocks this pass already
+  holds (the same group again) is drawn from them, while one whose blocks an EARLIER
+  pass held is laid out again.
+* **The pass word, `CANVAS_DRAW_PASS_WORD`** (word 12 of the list's first entry), is all
+  an emitter knows of passes: `CONTINUES` (load the target, do not clear it; on a
+  swapchain, take the image the first pass acquired, `GRAPHICS_OFFSET_VULKAN_SC_HELD`)
+  and `MORE` (finish the pass, but neither present nor read back). It rides the list
+  because the seam's argument bank is full, and it is 0 in every list the frame layout
+  writes, so a frame of one pass runs the instructions it ran before.
+* **Each pass is submitted and waited for before the next is laid out.** The frame
+  buffer is single-buffered and a command buffer reads it when it EXECUTES, so two
+  passes recorded into one command buffer would both draw the last one's blocks.
+* **Nothing but the last pass touches what the window shows.** Metal: every pass
+  renders into the offscreen target; the drawable is taken, copied into and presented
+  by the last (`emit_branch_if_more`). Vulkan in a window: the first pass acquires the
+  image and every pass records into it, but it reaches the screen only through the
+  last pass's `vkQueuePresentKHR`; the first pass alone waits on the acquire semaphore
+  and the last alone signals the render one.
+* **A failed pass fails the frame** (bug-1024's rule, per pass). FALSE from a direct
+  present at any pass sends the WHOLE frame down the readback path from its first
+  pass; FALSE from a Metal readback pass makes it a software frame. Nothing is read
+  back or presented from a target holding some of a frame's passes. On Vulkan a
+  failing pass that holds the swapchain image gives it up (`emit_present_abandon`
+  clears `SC_HELD`, and the swapchain is rebuilt before the next frame).
+* **The later passes' render passes are made lazily on the graphics thread**
+  (`LOAD_PASS`, `PRESENT_LOAD_PASS`: `loadOp = LOAD`, entered and left in the layout the
+  first pass leaves the image in). They differ from the pass the pipelines were built
+  against in load operation and layouts only, so no pipeline is rebuilt (bug-996).
+* **The stats line describes the frame.** `blocks=` and `draws=` are the frame's lists
+  and `gpuFrames` counts the frame once, however many passes drew it.
 
 The reason a frame buffer needs a per-item *index* at all is unchanged and worth
 restating: a command buffer is recorded once and executed once, so rewriting — or
@@ -815,9 +876,10 @@ The split is what made the feature cheap, and it is the thing to keep:
   y-range — so the band index, the item block and every region base are unchanged. Do
   not interleave the two slots of a piece: the band index would then read control
   points as edges.
-- Both predicates count `2 * pieces` against the edge cap. A count of one a piece lets a
-  frame through that the emitter then cannot fit; `rt_canvas_metal.rs` pins the factor
-  with a 512-ring frame that draws and a 513-ring frame that is declined.
+- A block's cost counts `2 * pieces` against the edge region. A count of one a piece
+  puts more in a pass than the emitter can fit; `rt_canvas_metal.rs` pins the factor
+  with a 512-ring frame that is one pass and a 513-ring frame that is two, both of which
+  must match the oracle.
 - The weight is fp32 BITS, not 16.16: a weight is not a coordinate and has no 32,767.
 - The shader text is ONE template, `shaders/curves.tpl`, expanded to MSL at run time and
   into `mfb_canvas.frag` by `tools/canvas-curve-shader/generate.py`. Edit the template,
@@ -1625,9 +1687,9 @@ parts after it the same way.
 
 A path clip's edges share the frame's EDGE region with the polygons' — copied after the
 item's own edges and join records, 16.16 words plus residuals like any edge, and counted
-against the same per-frame edge cap by `__canvas_metalRenderable` and `__canvas_vulkanRenderable` — and are banded by the same
+against the same edge region, one pass's, by `__canvas_blockCost` — and are banded by the same
 `emit_band_index`, parameterised by a `BandSet` (which count, base and header words; a
-clip's reach has no stroke, cap or join term). A clip that would pass the cap is left at
+clip's reach has no stroke, cap or join term). A clip that would pass the region is left at
 edge count 0, which the shader reads as a clip enclosing nothing: hidden, never drawn
 unclipped.
 

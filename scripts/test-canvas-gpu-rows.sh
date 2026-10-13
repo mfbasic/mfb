@@ -55,6 +55,13 @@
 # `texeledge` is bug-1079's: plain pictures whose texel boundaries are pixel centres, in
 # x and in y, where the texel taken used to hang on the last bit of the driver's
 # division (box 206's Intel driver drew the neighbouring row).
+# The `items*` and `pass*` rows are bug-765's: a frame that does not fit one frame buffer
+# is drawn in passes. `many_items.mfb` at 65,535, 65,536 (one buffer's item region),
+# 65,537 (a second pass of one item) and 140,000 items (three passes), its translucent
+# squares lying over their neighbours and over the lap before; and one frame each that is
+# two passes long for its polygon edges, its gradient stops and its picture texels alone;
+# and `passes_grouped.mfb`, where a group is drawn in both passes of a frame and a run of
+# the scene's own items is cut by the end of the first.
 #
 # Every run sets `MFB_CANVAS_GEO_VERIFY=1`, and four more rows are the
 # `tests/canvas/rt_canvas_geo_native.rs` programs. bug-686's native geometry builder,
@@ -183,6 +190,14 @@ curvesplaced|curves_placed_on_black|curve
 curvepictures|curve_pictures_on_black|curve
 curveresiduals|curve_residuals_on_black|curve
 vertexrow|vertex_on_a_pixel_row|render
+items65535|many_items|render|MFB_TEST_ITEMS=65535
+items65536|many_items|render|MFB_TEST_ITEMS=65536
+items65537|many_items|render|MFB_TEST_ITEMS=65537
+items140000|many_items|render|MFB_TEST_ITEMS=140000
+passedges|past_the_edge_region_opaque|render
+passstops|many_gradient_stops|render
+passtexels|many_texels|render
+passgroups|passes_grouped|render
 matrix|canvas_geo_native_matrix|geo
 rehash|canvas_geo_native_rehash|geo
 framepass|canvas_geo_native_frame_pass|geo

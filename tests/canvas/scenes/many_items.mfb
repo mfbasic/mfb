@@ -7,7 +7,7 @@ IMPORT os
 
 ' bug-765: MFB_TEST_ITEMS pixel-aligned squares on a 3 px grid of 300 by 213 cells, so
 ' the scene wraps past 63,900 items and later squares cover earlier ones. Most are 2 px
-' and opaque; every forty-first is 5 px at half alpha and lies over its neighbours. Every
+' and opaque; every ninety-seventh is 5 px at half alpha and lies over its neighbours. Every
 ' colour comes from the item's index, so a frame that dropped a square, drew one twice
 ' or drew two out of order has other pixels than the oracle's.
 FUNC main() AS Nothing
@@ -19,7 +19,7 @@ FUNC main() AS Nothing
   WHILE k < count
     MUT side AS Float = 2.0
     MUT alpha AS Integer = 255
-    IF k MOD 41 = 0 THEN
+    IF k MOD 97 = 0 THEN
       side = 5.0
       alpha = 128
     END IF

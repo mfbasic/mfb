@@ -1,0 +1,44 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+
+' bug-765: a frame of several passes whose draw list is not one run. One group of 500
+' squares is drawn three times: first, again after 40,000 squares of the scene (the same
+' pass, which holds its blocks already), and again after 30,000 more (the second pass,
+' which has to lay them out again, at a third offset). The second run of the scene's own
+' squares is cut by the end of the first pass. After the last use come Multiply items
+' that both fill and stroke, each two records of the item region, and a blend mode the
+' pass's last entries carry.
+FUNC square(x AS Float, y AS Float, side AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN canvas::Rectangle[id := "", position := vector::Float2[x := x, y := y], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := side, height := side], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  MUT tile AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < 500
+    tile = collections::append(tile, square(toFloat((k MOD 25) * 6), toFloat((k / 25) * 6), 5.0, color::rgb(255 - (k MOD 25) * 8, (k / 25) * 12, 90)))
+    k = k + 1
+  END WHILE
+  canvas::setGroup("tile", tile)
+  MUT scene AS List OF canvas::DrawItem = [canvas::Group[id := "", position := vector::Float2[x := 10.0, y := 10.0], transform := none, name := "tile"]]
+  k = 0
+  WHILE k < 70000
+    IF k = 40000 THEN
+      scene = collections::append(scene, canvas::Group[id := "", position := vector::Float2[x := 300.0, y := 200.0], transform := none, name := "tile"])
+    END IF
+    scene = collections::append(scene, square(toFloat((k MOD 300) * 3), toFloat(((k / 300) MOD 213) * 3), 2.0, color::rgb((k * 7) MOD 256, (k * 13) MOD 256, (k / 256) MOD 256)))
+    k = k + 1
+  END WHILE
+  scene = collections::append(scene, canvas::Group[id := "", position := vector::Float2[x := 600.0, y := 420.0], transform := none, name := "tile"])
+  k = 0
+  WHILE k < 6
+    scene = collections::append(scene, canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(40 + k * 130), y := 300.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 100.0, height := 60.0], radiusTL := 8.0, radiusTR := 8.0, radiusBL := 8.0, radiusBR := 8.0, paint := WITH canvas::fillStroke(color::rgb(200, 220, 120), color::rgb(120, 60, 200), 6.0) { blend := canvas::BlendMode.Multiply }, transform := none])
+    k = k + 1
+  END WHILE
+  canvas::present(scene)
+END FUNC

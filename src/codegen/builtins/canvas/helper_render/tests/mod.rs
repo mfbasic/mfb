@@ -169,10 +169,15 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
              region has blocks. The emitter stops publishing at capacity, so the \
              surplus items would silently not be drawn",
     );
+    // bug-765: the sum is one function (`__canvas_framePasses`), handed the region sizes
+    // by each backend's gate, so "its own cap" is which constant a gate hands over.
     assert!(
-        body("metalRenderable").contains("quads > __CANVAS_METAL_MAX_FRAME_ITEMS")
-            && body("vulkanRenderable").contains("quads > __CANVAS_VULKAN_MAX_FRAME_ITEMS"),
-        "each predicate must test its own backend's quad cap",
+        body("metalRenderable").contains("(blocks, __CANVAS_METAL_MAX_FRAME_ITEMS, ")
+            && body("vulkanRenderable").contains("(blocks, __CANVAS_VULKAN_MAX_FRAME_ITEMS, ")
+            && body("framePasses").contains("quads > maxItems")
+            && body("passNext").contains("quads + own > __CANVAS_PASS_MAX_ITEMS"),
+        "each gate must hand over its own backend's quad cap, and the frame sum and the \
+         pass walk must both test it",
     );
     assert_eq!(
         declared("__CANVAS_VULKAN_MAX_GLYPH_SAMPLES"),
@@ -204,28 +209,44 @@ fn the_two_gpu_edge_budgets_match_the_emitters() {
              region cannot hold, so one item's stops would be read as another's",
     );
     assert!(
-        body("metalRenderable").contains("gradientStops > __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS")
-            && body("vulkanRenderable")
-                .contains("gradientStops > __CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS"),
-        "each predicate must test its own backend's gradient-stop cap",
+        body("metalRenderable")
+            .contains("__CANVAS_METAL_MAX_FRAME_EDGES, __CANVAS_METAL_MAX_FRAME_GRADIENT_STOPS, ")
+            && body("vulkanRenderable").contains(
+                "__CANVAS_VULKAN_MAX_FRAME_EDGES, __CANVAS_VULKAN_MAX_FRAME_GRADIENT_STOPS, "
+            )
+            && body("framePasses").contains("stops > maxStops")
+            && body("passNext").contains("stops + __CANVAS_COST_STOPS > __CANVAS_PASS_MAX_STOPS"),
+        "each gate must hand over its own backend's gradient-stop cap, and the frame sum \
+         and the pass walk must both test it",
     );
 }
 
-/// Both emitters upload a picture's pixel block ONCE per frame and point every later
+/// Both emitters upload a picture's pixel block ONCE per buffer and point every later
 /// picture of it at those texels (`emit_picture_lookup` in `metal.rs` and `vulkan.rs`),
-/// so both predicates must count each distinct block once against the glyph region.
-/// Counting per item declines a 2,000-tile tilemap that uses 2,048 texels (bug-686 H);
-/// counting per block against an emitter that copied per item would let the region
-/// overflow. bug-688 moved Vulkan from the second pair to the first.
+/// so the frame sum and the pass walk must count each distinct block once against the
+/// glyph region. Counting per item ends a pass early on a 2,000-tile tilemap that uses
+/// 2,048 texels (bug-686 H); counting per block against an emitter that copied per item
+/// would let the region overflow. bug-688 moved Vulkan from the second pair to the
+/// first; bug-765 made the two predicates' sums one, and gave the pass walk its own
+/// set, emptied each pass as the emitter's table is.
 #[test]
-fn both_predicates_count_each_picture_block_once() {
-    for predicate in ["metalRenderable", "vulkanRenderable"] {
-        assert!(
-            body(predicate).contains("IF NOT collections::contains(pictures, block) THEN"),
-            "__canvas_{predicate} counts a picture's texels per item, but its emitter \
-             uploads each distinct block once per frame",
-        );
-    }
+fn both_sums_count_each_picture_block_once() {
+    assert!(
+        body("framePasses")
+            .contains("ELSEIF NOT collections::contains(pictures, __CANVAS_COST_PICTURE) THEN"),
+        "__canvas_framePasses counts a picture's texels per item, but an emitter uploads \
+         each distinct block once per buffer",
+    );
+    let walk = body("passNext");
+    assert!(
+        walk.contains("IF collections::contains(pictures, picture) THEN\n            texels = 0"),
+        "__canvas_passNext counts a picture's texels per item, but an emitter uploads \
+         each distinct block once per buffer",
+    );
+    assert!(
+        walk.contains("MUT pictures AS Set OF Integer = Set OF Integer { }"),
+        "the pass walk's picture set must start empty each pass, as the emitter's table does",
+    );
 }
 
 /// The caps are generated into the MFBASIC text from the Rust constants (bug-686), so
@@ -296,6 +317,11 @@ fn every_cap_token_in_the_render_source_is_generated() {
 /// a factor of two, which `rt_canvas_metal.rs`'s
 /// `curve_pieces_are_counted_two_slots_each_against_the_edge_region` pins by frames).
 ///
+/// It went 8 → 5 in bug-765, and no read vanished: the two predicates' sums became one
+/// function both backends' gates call (`__canvas_blockCost`), so the three reads each
+/// predicate had (a polygon's, a polyline's, a curve shape's) exist once. The two
+/// shared walks are unchanged.
+///
 /// So the invariant is intact and is asserted in two places rather than one:
 /// `block_instances_keeps_the_blend_split_case` pins that
 /// `__canvas_blockInstances` reads slot 20 (and slots 26, 7 and 11 for the split),
@@ -307,7 +333,7 @@ fn the_predicates_read_the_edge_count_slot() {
     assert_eq!(HEADER_AUX0, 20);
     assert_eq!(
         source().matches(&format!("offset + {HEADER_AUX0}")).count(),
-        8,
+        5,
         "every glyph-run walk, edge sum and edge decline in both predicates should \
              read HEADER_AUX0. If this went DOWN, check where the read went before \
              changing the number: the quad counts left in plan-116-H by moving into \

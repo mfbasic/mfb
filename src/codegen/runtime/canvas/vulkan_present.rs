@@ -37,8 +37,8 @@ use super::*;
 use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_VULKAN_SC_COUNT, GRAPHICS_OFFSET_VULKAN_SC_FAILED,
     GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS, GRAPHICS_OFFSET_VULKAN_SC_H,
-    GRAPHICS_OFFSET_VULKAN_SC_IMAGES, GRAPHICS_OFFSET_VULKAN_SC_STALE,
-    GRAPHICS_OFFSET_VULKAN_SC_VIEWS, GRAPHICS_OFFSET_VULKAN_SC_W,
+    GRAPHICS_OFFSET_VULKAN_SC_HELD, GRAPHICS_OFFSET_VULKAN_SC_IMAGES,
+    GRAPHICS_OFFSET_VULKAN_SC_STALE, GRAPHICS_OFFSET_VULKAN_SC_VIEWS, GRAPHICS_OFFSET_VULKAN_SC_W,
     GRAPHICS_OFFSET_VULKAN_SEM_ACQUIRE, GRAPHICS_OFFSET_VULKAN_SEM_RENDER,
     GRAPHICS_OFFSET_VULKAN_SURFACE, GRAPHICS_OFFSET_VULKAN_SURFACE_HWND,
     GRAPHICS_OFFSET_VULKAN_SWAPCHAIN, GRAPHICS_OFFSET_VULKAN_WSI, VULKAN_MAX_SWAPCHAIN_IMAGES,
@@ -158,7 +158,7 @@ const STAGE_COLOR_ATTACHMENT_OUTPUT: &str = "1024";
 /// `VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT`.
 const ACCESS_COLOR_ATTACHMENT_WRITE: &str = "256";
 /// `VK_IMAGE_LAYOUT_PRESENT_SRC_KHR`.
-const IMAGE_LAYOUT_PRESENT_SRC: &str = "1000001002";
+pub(super) const IMAGE_LAYOUT_PRESENT_SRC: &str = "1000001002";
 /// `VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT`.
 const USAGE_COLOR_ATTACHMENT: &str = "16";
 /// `VK_COLOR_SPACE_SRGB_NONLINEAR_KHR`.
@@ -435,6 +435,81 @@ pub(super) fn emit_present_begin(builder: &mut CodeBuilder, at: &PresentSlots) {
     for slot in [at.presented, at.acquired] {
         builder.emit(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
     }
+}
+
+/// bug-765: take up the swapchain image this frame's first pass acquired and left
+/// held (`SC_HELD`): its index and framebuffer, and the mark that an image is out of
+/// the swapchain and not yet handed to the queue. Nothing held leaves the frame as
+/// `emit_present_begin` started it, and `emit_require_acquired` then gives it up.
+pub(super) fn emit_present_resume(builder: &mut CodeBuilder, off_state: usize, at: &PresentSlots) {
+    let none = builder.label("vk_sc_none_held");
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_SC_HELD,
+        abi::SCRATCH[1],
+    );
+    builder.emit(abi::compare_immediate(abi::SCRATCH[1], "0"));
+    builder.emit(abi::branch_eq(&none));
+    builder.emit(abi::subtract_immediate(abi::SCRATCH[1], abi::SCRATCH[1], 1));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        at.index,
+    ));
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        at.acquired,
+    ));
+    emit_park_framebuffer(builder, off_state, at);
+    builder.emit(abi::label(&none));
+}
+
+/// Branch to `declined` unless this frame holds an acquired image.
+pub(super) fn emit_require_acquired(builder: &mut CodeBuilder, at: &PresentSlots, declined: &str) {
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        at.acquired,
+    ));
+    builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    builder.emit(abi::branch_eq(declined));
+}
+
+/// `at.framebuffer = SC_FRAMEBUFFERS[at.index]`.
+fn emit_park_framebuffer(builder: &mut CodeBuilder, off_state: usize, at: &PresentSlots) {
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        at.index,
+    ));
+    builder.emit(abi::shift_left_immediate(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        3,
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        off_state,
+    ));
+    builder.emit(abi::add_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    builder.emit(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS,
+    ));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        at.framebuffer,
+    ));
 }
 
 /// Load the state word at `offset` into the stack slot `slot`.
@@ -1312,37 +1387,7 @@ pub(super) fn emit_ensure_swapchain(
         abi::stack_pointer(),
         at.acquired,
     ));
-    // framebuffer = SC_FRAMEBUFFERS[index]
-    builder.emit(abi::load_u32(
-        abi::SCRATCH[1],
-        abi::stack_pointer(),
-        at.index,
-    ));
-    builder.emit(abi::shift_left_immediate(
-        abi::SCRATCH[1],
-        abi::SCRATCH[1],
-        3,
-    ));
-    builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        off_state,
-    ));
-    builder.emit(abi::add_registers(
-        abi::SCRATCH[0],
-        abi::SCRATCH[0],
-        abi::SCRATCH[1],
-    ));
-    builder.emit(abi::load_u64(
-        abi::SCRATCH[0],
-        abi::SCRATCH[0],
-        GRAPHICS_OFFSET_VULKAN_SC_FRAMEBUFFERS,
-    ));
-    builder.emit(abi::store_u64(
-        abi::SCRATCH[0],
-        abi::stack_pointer(),
-        at.framebuffer,
-    ));
+    emit_park_framebuffer(builder, off_state, at);
     let done = builder.label("vk_sc_ready");
     builder.emit(abi::branch(&done));
 
@@ -1637,6 +1682,14 @@ pub(super) fn emit_present_abandon(
     ));
     builder.emit(abi::compare_immediate(abi::SCRATCH[0], "0"));
     builder.emit(abi::branch_eq(&clean));
+    // bug-765: the image is given up with the frame, whichever pass gave up.
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    emit_state_store(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_SC_HELD,
+        abi::SCRATCH[0],
+    );
     emit_device_call_1(
         builder,
         platform,
@@ -1719,11 +1772,14 @@ pub(super) fn emit_submit_and_present(
     off_fn: usize,
     off_state: usize,
     off_cmd_handle: usize,
+    off_pass: usize,
     at: &PresentSlots,
     declined: &str,
 ) -> Result<(), String> {
     let symbol = builder.current_symbol.clone();
     let presented = builder.label("vk_sc_presented");
+    let last_pass = builder.label("vk_sc_last_pass");
+    let finished = builder.label("vk_sc_pass_finished");
     emit_dlsym(
         builder,
         platform,
@@ -1783,6 +1839,29 @@ pub(super) fn emit_submit_and_present(
             (SUBMIT_SIGNAL_SEMAPHORES, Field::Addr(at.sem_render)),
         ],
     );
+    // bug-765: a frame's passes share one acquire and one present. Only its FIRST pass
+    // waits on the acquire semaphore (a later one finds the image already its own), and
+    // only its LAST signals the render semaphore the present waits on.
+    {
+        let waits = builder.label("vk_sc_submit_waits");
+        let signals = builder.label("vk_sc_submit_signals");
+        emit_branch_on_pass(builder, off_pass, CANVAS_DRAW_PASS_CONTINUES, false, &waits);
+        builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            at.submit + SUBMIT_WAIT_COUNT,
+        ));
+        builder.emit(abi::label(&waits));
+        emit_branch_on_pass(builder, off_pass, CANVAS_DRAW_PASS_MORE, false, &signals);
+        builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+        builder.emit(abi::store_u32(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            at.submit + SUBMIT_SIGNAL_COUNT,
+        ));
+        builder.emit(abi::label(&signals));
+    }
     emit_dlsym(
         builder,
         platform,
@@ -1808,6 +1887,58 @@ pub(super) fn emit_submit_and_present(
     emit_call_fn(builder, off_fn);
     builder.emit(abi::compare_immediate(abi::c_return(0), "0"));
     builder.emit(abi::branch_ne(declined));
+
+    // bug-765: a pass with more of its frame to come stops here. It waits for the
+    // queue, since the next pass refills the buffer its draws read and re-records the
+    // one command buffer; it leaves the image HELD for that pass; and it answers 1,
+    // "this pass is in the image". Nothing is presented, so the image the window shows
+    // is still the frame before: a swapchain image reaches the screen only through
+    // `vkQueuePresentKHR`, which only a frame's last pass calls.
+    emit_branch_on_pass(builder, off_pass, CANVAS_DRAW_PASS_MORE, false, &last_pass);
+    emit_dlsym(
+        builder,
+        platform,
+        platform_imports,
+        "vkQueueWaitIdle",
+        off_handle,
+        off_fn,
+        declined,
+    )?;
+    emit_state_load(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_QUEUE,
+        abi::c_arg(0),
+    );
+    emit_call_fn(builder, off_fn);
+    builder.emit(abi::load_u32(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        at.index,
+    ));
+    builder.emit(abi::add_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 1));
+    emit_state_store(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_SC_HELD,
+        abi::SCRATCH[0],
+    );
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    builder.emit(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        at.presented,
+    ));
+    builder.emit(abi::branch(&finished));
+    builder.emit(abi::label(&last_pass));
+    // The image goes to the queue now, held by no later pass.
+    builder.emit(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
+    emit_state_store(
+        builder,
+        off_state,
+        GRAPHICS_OFFSET_VULKAN_SC_HELD,
+        abi::SCRATCH[0],
+    );
 
     emit_struct(
         builder,
@@ -1925,6 +2056,7 @@ pub(super) fn emit_submit_and_present(
         &mut builder.relocations,
     )?;
     builder.emit(abi::label(&posted));
+    builder.emit(abi::label(&finished));
     Ok(())
 }
 

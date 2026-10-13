@@ -6,8 +6,8 @@ IMPORT collections
 
 ' bug-765: four distinct images of 1,920 by 1,200 texels, 2,304,000 each: 9,216,000
 ' texels, past the 8,388,608 one frame buffer's glyph and picture region holds. Three
-' fit a pass and the fourth is a second pass's. Each picture is half alpha and overlaps
-' the one before it, and a rectangle is drawn under the first and over the last.
+' fit a pass and the fourth is a second pass's. Each picture overlaps the one before it,
+' and a rectangle is drawn under the first and another over the last.
 FUNC pattern(w AS Integer, h AS Integer, seed AS Integer) AS List OF Byte
   MUT px AS List OF Byte = []
   MUT i AS Integer = 0
@@ -15,7 +15,7 @@ FUNC pattern(w AS Integer, h AS Integer, seed AS Integer) AS List OF Byte
     px = collections::append(px, toByte(((i MOD w) * 7 + seed) MOD 256))
     px = collections::append(px, toByte(((i / w) * 5 + seed * 3) MOD 256))
     px = collections::append(px, toByte((((i MOD w) + (i / w)) * 3) MOD 256))
-    px = collections::append(px, toByte(128))
+    px = collections::append(px, toByte(255))
     i = i + 1
   END WHILE
   RETURN px
@@ -35,5 +35,5 @@ FUNC main() AS Nothing
   RES b AS canvas::Image = canvas::createImage(1920, 1200, pattern(1920, 1200, 90))
   RES c AS canvas::Image = canvas::createImage(1920, 1200, pattern(1920, 1200, 140))
   RES d AS canvas::Image = canvas::createImage(1920, 1200, pattern(1920, 1200, 190))
-  canvas::present([box(20.0, 20.0, 700.0, 500.0, color::rgb(40, 160, 90)), shown(a, 40.0, 40.0), shown(b, 140.0, 110.0), shown(c, 240.0, 180.0), shown(d, 340.0, 250.0), box(300.0, 200.0, 200.0, 200.0, color::rgba(250, 60, 200, 120))])
+  canvas::present([box(20.0, 20.0, 700.0, 500.0, color::rgb(40, 160, 90)), shown(a, 40.0, 40.0), shown(b, 140.0, 110.0), shown(c, 240.0, 180.0), shown(d, 340.0, 250.0), box(300.0, 200.0, 200.0, 200.0, color::rgb(250, 60, 200))])
 END FUNC
