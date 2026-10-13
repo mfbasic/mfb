@@ -1,0 +1,78 @@
+' fireworks: three shells, each one canvas::ParticleSystem in Burst mode.
+'
+' A burst releases every particle at once from a single point -- an emitter that is a
+' canvas::Circle of radius 0 -- in every direction (spread PI). Gravity pulls them down
+' and drag slows them, so the shell opens fast, hangs, and falls. `burstPeriod` repeats
+' the burst, and each repeat draws its own random numbers, so no two shells of one system
+' are alike.
+'
+'   emitter   a point
+'   emission  Burst: `burst` particles every `burstPeriod` seconds
+'   look      white at birth, the shell's colour and transparent at death
+'
+' Three systems, not one with three colours: a system has one emitter and one look.
+' `delay` staggers them by starting each one's clock late; a negative time draws
+' nothing, which is exactly a shell that has not gone up yet.
+
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT errorCode
+IMPORT io
+IMPORT math
+IMPORT vector
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+' TRUE once Escape or Q is pressed -- or the program has no keyboard to read, which is
+' how a run with no window ends after its first frame.
+FUNC quitRequested() AS Boolean
+  LET k AS io::Key = io::readKey(0) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN FALSE
+    IF e.code = errorCode::ErrEndOfFile THEN RETURN TRUE
+    PROPAGATE
+  END TRAP
+  IF k.event = io::KeyEvent.Release THEN RETURN FALSE
+  IF k.key = io::KeyName.Escape THEN RETURN TRUE
+  RETURN k.key = io::KeyName.Unicode AND (k.grapheme = "q" OR k.grapheme = "Q")
+END FUNC
+
+FUNC shell(x AS Float, y AS Float, clock AS Float, which AS Integer, delay AS Float) AS canvas::DrawItem
+  MUT tint AS color::Color = color::rgb(255, 120, 200)
+  IF which = 2 THEN tint = color::rgb(120, 220, 255)
+  IF which = 3 THEN tint = color::rgb(255, 225, 110)
+  LET spark AS canvas::AutoShape = canvas::Circle[id := "", position := at(0.0, 0.0), radius := 3.5, paint := WITH canvas::fill(tint) { blend := canvas::BlendMode.Add }, transform := none()]
+  LET point AS canvas::Shape = canvas::Circle[id := "", position := at(0.0, 0.0), radius := 0.0, paint := canvas::fill(tint), transform := none()]
+  LET emission AS canvas::Emission = canvas::Emission[mode := canvas::EmissionMode.Burst, maxParticles := 240, rate := 0.0, burst := 240, burstPeriod := 2.8, lifetime := 2.3, lifetimeVar := 0.35]
+  LET motion AS canvas::Motion = canvas::Motion[speed := 210.0, speedVar := 0.6, angle := 0.0, spread := math::pi, gravityX := 0.0, gravityY := 120.0, drag := 1.0, rotation := 0.0, rotationVar := 0.0, spin := 0.0, spinVar := 0.0, turbulence := 0.0, turbulenceHz := 0.0]
+  LET look AS canvas::Appearance = canvas::Appearance[startColor := color::rgb(255, 255, 255), endColor := color::withAlpha(tint, 0), startScale := 1.1, endScale := 0.3, scaleVar := 0.3]
+  LET system AS canvas::DrawItem = canvas::ParticleSystem[position := at(x, y), item := spark, emitter := point, emission := emission, motion := motion, appearance := look, seed := 100 + which, time := clock - delay]
+  RETURN system
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  app::setTitle("Fireworks -- Esc or Q to quit")
+  ' A particle system holds no state and nothing advances it: the picture for a given
+  ' `time` is always the same, so the loop animates by presenting the scene again with
+  ' a later one. `dt` is the time since the last present; a long pause (the window was
+  ' hidden) is taken as a tenth of a second rather than a jump.
+  MUT clock AS Float = 0.0
+  MUT running AS Boolean = TRUE
+  DO WHILE running
+    LET stats AS canvas::FrameStats = canvas::getFrameStats()
+    clock = clock + math::min(stats.dt, 0.1)
+    LET size AS canvas::Size = canvas::getSize()
+    MUT back AS canvas::Rectangle
+    LET sky AS canvas::DrawItem = WITH back { size := size, paint := canvas::fill(color::rgb(6, 8, 20)) }
+    canvas::present([sky, shell(size.width * 0.3, size.height * 0.3, clock, 1, 0.0), shell(size.width * 0.68, size.height * 0.25, clock, 2, 0.9), shell(size.width * 0.5, size.height * 0.45, clock, 3, 1.7)])
+    canvas::waitFrame()
+    IF quitRequested() THEN running = FALSE
+  LOOP
+END FUNC

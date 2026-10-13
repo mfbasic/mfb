@@ -154,8 +154,9 @@ a `cargo test` target, another script, or a person.
   windows-x86_64).
 - **test-canvas-vulkan.sh** — Runtime acceptance for the canvas Vulkan backend: renders
   the same scenes on a Linux box with and without `MFB_CANVAS_GPU=1` and requires the
-  frames to agree within tolerance, including resize, group and polyline scenes (the
-  last two against their checked-in goldens). Usage:
+  frames to agree within tolerance, including resize, group, polyline and particle
+  scenes (the group, polyline and first particle scene also against their checked-in
+  goldens, which the software render must reproduce exactly). Usage:
   `bash scripts/test-canvas-vulkan.sh <mfb-exe> [--box <port>] [--target linux-x86_64|linux-aarch64] [--libc glibc|musl] [--icd auto|<manifest>]`.
   Run by: by hand (box 2228; 2226 with `--target linux-aarch64`; or 2227 with
   `--libc musl --icd auto`).

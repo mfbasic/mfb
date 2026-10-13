@@ -1625,8 +1625,10 @@ refused by the type checker, and a test holds that no canvas type reaches itself
 
 Every particle is a closed form in its slot and the system's `time`: nothing is
 integrated and nothing is remembered between frames. The same `(seed, time)` therefore
-draws the same picture on every run, backend and platform, and a system is animated by
-the program presenting it again with a new `time`. That is redraw trigger 1 — `time` is
+expands to the same items on every run and platform — in software, the same pixels:
+the reference image made on macOS is reproduced bit for bit on Linux AArch64 — and a
+GPU backend draws those items within its usual tolerance of the software picture. A
+system is animated by the program presenting it again with a new `time`. That is redraw trigger 1 — `time` is
 folded into the item's hash, so the scene differs — and there is no eighth trigger: no
 clock in the renderer belongs to a particle system.
 [[src/codegen/builtins/canvas/helper_particles.rs:HOOKS_BODY]]

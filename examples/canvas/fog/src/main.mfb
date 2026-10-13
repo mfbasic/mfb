@@ -1,0 +1,86 @@
+' fog: a drifting bank of fog from one canvas::ParticleSystem.
+'
+' A few dozen very large, very faint puffs born anywhere in a box that covers the lower
+' window, barely moving, each spreading as it ages. Fog is the overlap: one puff is
+' almost invisible, sixty of them over each other are a bank with soft, shifting edges.
+'
+' A puff is filled with a radial gradient that runs out to nothing at its rim. A
+' particle's tint multiplies a FLAT fill and stroke and does not reach a gradient's
+' stops, so these puffs are not tinted and do not fade: the look only grows them, and
+' one so faint and so soft is not seen to arrive or to go.
+'
+'   emitter   a canvas::Rectangle: particles are born evenly over its area
+'   motion    almost none -- a slow drift sideways and a long, lazy wander
+'   look      white, so the gradient's own colours stand; the size is what changes
+'
+' The moon is an ordinary canvas::Circle drawn BEFORE the fog, so the fog passes over it.
+
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT errorCode
+IMPORT io
+IMPORT math
+IMPORT vector
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+' TRUE once Escape or Q is pressed -- or the program has no keyboard to read, which is
+' how a run with no window ends after its first frame.
+FUNC quitRequested() AS Boolean
+  LET k AS io::Key = io::readKey(0) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN FALSE
+    IF e.code = errorCode::ErrEndOfFile THEN RETURN TRUE
+    PROPAGATE
+  END TRAP
+  IF k.event = io::KeyEvent.Release THEN RETURN FALSE
+  IF k.key = io::KeyName.Escape THEN RETURN TRUE
+  RETURN k.key = io::KeyName.Unicode AND (k.grapheme = "q" OR k.grapheme = "Q")
+END FUNC
+
+FUNC moon(x AS Float, y AS Float) AS canvas::DrawItem
+  LET disc AS canvas::DrawItem = canvas::Circle[id := "", position := at(x, y), radius := 46.0, paint := canvas::fill(color::rgb(236, 232, 210)), transform := none()]
+  RETURN disc
+END FUNC
+
+FUNC fog(size AS canvas::Size, time AS Float) AS canvas::DrawItem
+  ' A puff: a disc whose fill is a ramp from a faint grey at its centre to nothing at
+  ' its rim, so it has no edge to see.
+  LET haze AS color::Color = color::rgba(190, 200, 215, 42)
+  LET ramp AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := at(0.0, 0.0), endPoint := at(110.0, 0.0), stops := [canvas::GradientStop[offset := 0.0, color := haze], canvas::GradientStop[offset := 1.0, color := color::withAlpha(haze, 0)]], spread := canvas::GradientSpread.Pad, transform := none(), focalOffset := at(0.0, 0.0), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  LET puff AS canvas::AutoShape = canvas::Circle[id := "", position := at(0.0, 0.0), radius := 110.0, paint := WITH canvas::fill(haze) { gradient := ramp }, transform := none()]
+  MUT box AS canvas::Rectangle
+  LET emitter AS canvas::Shape = WITH box { size := canvas::Size[width := size.width + 200.0, height := size.height * 0.45] }
+  LET emission AS canvas::Emission = canvas::Emission[mode := canvas::EmissionMode.Continuous, maxParticles := 72, rate := 6.0, burst := 0, burstPeriod := 0.0, lifetime := 12.0, lifetimeVar := 0.2]
+  LET motion AS canvas::Motion = canvas::Motion[speed := 14.0, speedVar := 0.6, angle := 0.0, spread := 0.3, gravityX := 0.0, gravityY := 0.0, drag := 0.0, rotation := 0.0, rotationVar := 0.0, spin := 0.0, spinVar := 0.0, turbulence := 26.0, turbulenceHz := 0.08]
+  LET look AS canvas::Appearance = canvas::Appearance[startColor := color::rgb(255, 255, 255), endColor := color::rgb(255, 255, 255), startScale := 0.5, endScale := 2.0, scaleVar := 0.4]
+  LET system AS canvas::DrawItem = canvas::ParticleSystem[position := at(0.0 - 100.0, size.height * 0.5), item := puff, emitter := emitter, emission := emission, motion := motion, appearance := look, seed := 31, time := time + 12.0]
+  RETURN system
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  app::setTitle("Fog -- Esc or Q to quit")
+  ' A particle system holds no state and nothing advances it: the picture for a given
+  ' `time` is always the same, so the loop animates by presenting the scene again with
+  ' a later one. `dt` is the time since the last present; a long pause (the window was
+  ' hidden) is taken as a tenth of a second rather than a jump.
+  MUT clock AS Float = 0.0
+  MUT running AS Boolean = TRUE
+  DO WHILE running
+    LET stats AS canvas::FrameStats = canvas::getFrameStats()
+    clock = clock + math::min(stats.dt, 0.1)
+    LET size AS canvas::Size = canvas::getSize()
+    MUT back AS canvas::Rectangle
+    LET sky AS canvas::DrawItem = WITH back { size := size, paint := canvas::fill(color::rgb(16, 22, 30)) }
+    canvas::present([sky, moon(size.width * 0.72, size.height * 0.3), fog(size, clock)])
+    canvas::waitFrame()
+    IF quitRequested() THEN running = FALSE
+  LOOP
+END FUNC

@@ -199,63 +199,112 @@ both `.spv` blobs are unchanged.
   Result (2026-10-13): met on box 2226 and box 206, as recorded on the task lines; both
   `.spv` blobs unchanged. Metal re-run after Corrections 2: `cargo test --test
   rt_canvas_metal particle` → "2 passed; 0 failed".
-Commit: —
+Commit: ff35c95a8
 
 ### Phase 2 — Manual entries
 
 Registry descriptor prose, in `src/codegen/builtins/canvas/mod.rs`, to `.ai/man-content.md`'s
 standard. Rendering the page is the only verification: the compiler never reads it.
 
-- [ ] Write the `mfb man canvas` prose for `ParticleSystem`, `Emission`, `Motion`,
+- [x] Write the `mfb man canvas` prose for `ParticleSystem`, `Emission`, `Motion`,
       `Appearance`, `EmissionMode` — each field's units named, the tint rule stated as
-      the multiply it is and cross-referenced to `Picture`'s identical rule.
-- [ ] State, in `ParticleSystem`'s prose, what each emitter shape emits from: its
+      the multiply it is and cross-referenced to `Picture`'s identical rule. — written
+      with the types in letter A Phase 2 and re-read here against a run of each claim;
+      one was wrong and is fixed: the prose spelled the constant `math::PI`, which does
+      not exist (`math::pi`) — found by building the examples (Corrections 4).
+- [x] State, in `ParticleSystem`'s prose, what each emitter shape emits from: its
       interior for a `Rectangle`, `Circle`, `Ellipse`, `Polygon` and `Text`, its length
       for a `Line`, `Arc` and `PolyLine`; that the emitter's own `position` and
-      `transform` place and turn it; and that its `paint` and `id` are not used.
-- [ ] State what a particle does with each template kind (letter A §6): a shape, an
-      `AutoPaint` (its default paint), a `Picture` (and what `ClipOnly` means for a
-      spinning sprite), a `Group` (and its tint).
-- [ ] State that a particle is never under the mouse: it is not named by
+      `transform` place and turn it; and that its `paint` and `id` are not used. — on
+      the `emitter` field, with `CurvePolygon` (interior) and `PolyCurve` (length) for
+      the ten shapes there are.
+- [x] State what a particle does with each template kind (letter A §6): a shape, an
+      `AutoPaint` (its default paint), ~~a `Picture` (and what `ClipOnly` means for a
+      spinning sprite), a `Group` (and its tint)~~. — a shape and an `AutoPaint`, and in
+      place of the two struck: "a `canvas::Picture`, a `canvas::Group` or another
+      `ParticleSystem` cannot be `item`, and is refused when the program is built"
+      (letter A Corrections 3).
+- [x] State that a particle is never under the mouse: it is not named by
       `MouseEvent.overID` and does not hide what is beneath it from the mouse.
-- [ ] State explicitly, in `ParticleSystem`'s prose, that `time` is advanced **by the
+- [x] State explicitly, in `ParticleSystem`'s prose, that `time` is advanced **by the
       program** and that re-presenting is what draws the next frame — there is no timer
       (`.ai/canvas-threading.md` §4).
-- [ ] Quote letter B's measured particle counts. No adjectives where a number exists.
-- [ ] Document the two raises (77050028, 77050029, by their `errorcode` names) and the
-      silently-nothing cases from letter A §7.
-- [ ] Add one compiling example per type to the manual.
+- [x] Quote letter B's measured particle counts. No adjectives where a number exists.
+      — done by letter B Phase 4 and unchanged: 3.5 / 21 / 95 ms at 1,000 / 10,000 /
+      50,000, 60 fps to about 8,000 (3,000 turned or scaled), no threshold.
+- [x] Document the ~~two raises (77050028, 77050029, by their `errorcode` names)~~ one
+      raise and the silently-nothing cases from letter A §7. — `ErrCanvasParticleLifetime`
+      on `Emission.lifetime`, on `canvas::present` and on `canvas::presentLayers`, each
+      with its Errors-table row; the quiet cases in `Emission`'s description and on
+      `time`. 77050029 does not exist: it became a build error (letter A Corrections 3).
+- [x] Add one compiling example per type to the manual. — a record has no page of its
+      own to carry one (the `AutoPaint` precedent), so they are two programs on
+      `canvas::present`: a fountain (`ParticleSystem`, `Emission`, `Motion`,
+      `Appearance`, `EmissionMode.Continuous`, animated by the frame loop) and a
+      firework (`EmissionMode.Burst`). `the_particle_system_examples_compile` finds each
+      by what it contains and asserts it names its types.
+- [x] (added) Resolve the manual's vocabulary ban against the field name `lifetime`
+      (Corrections 3): carve-out 6 in `scripts/man-census.sh` and
+      `.ai/man-content.md` §4.4, the owner's choice over renaming the fields.
 
 Acceptance: `mfb man canvas types` documents all five types, and every manual example
 compiles under the existing gate.
   Check: `cargo test --test cli_canvas_man_examples_compile` → pass, and
   `bash scripts/man-census.sh --memory-scope` → 0 unclassified (est. 5 min, guess).
-Commit: —
+  Result (2026-10-13): `cargo test --test cli_canvas_man_examples_compile` → "3 passed;
+  0 failed"; `MFB=./target/debug/mfb bash scripts/man-census.sh --memory-scope` →
+  "unclassified memory-vocabulary hits: 0" (carve-out 6: 12). The two examples also
+  RUN: `scripts/man-run-examples.sh canvas --run present` → "built: 2 ran: 2 failed: 0".
+Commit: ab1e86829
 
 ### Phase 3 — Worked examples and spec sync
 
-- [ ] Add `examples/canvas/` with four programs: `fire` (a `Line` emitter along the
+- [x] Add `examples/canvas/` with four programs: `fire` (a `Line` emitter along the
       base, upward drift, orange→transparent ramp, turbulence), `fog` (a `Rectangle`
       emitter, near-zero speed, large soft `Picture` particles, low alpha), `fireworks`
       (a `Burst` system with a `Circle[radius := 0.0]` emitter, gravity and a colour
       ramp), `rain` (a `Rectangle` emitter across the top, high downward speed, a thin
-      `Line` template).
-- [ ] Wire them into `scripts/build-examples.sh` so they are built by the suite.
-- [ ] Review the spec letter A wrote against `.ai/spec-content.md`:
+      `Line` template). — `fire`, `fog`, `fireworks`, `rain`, each a project of its
+      own with one `src/main.mfb`, and a `README.md`. The fog's particle is a disc with
+      a radial gradient, not a `Picture` (Corrections 5). Each quits on Esc or Q.
+- [x] Wire them into `scripts/build-examples.sh` so they are built by the suite. —
+      nothing to wire: the script builds every `examples/**/project.json`
+      (`find examples -name project.json | grep canvas/` lists the four). Its loop, run
+      for the four alone on its four app targets (`/tmp/p150/build_examples.sh`): 16 of
+      16 `ok`, each target's artifacts present.
+- [x] Review the spec letter A wrote against `.ai/spec-content.md`:
       `src/docs/spec/app/06_canvas.md`'s "The item unions" (the twelfth variant and why
       it is in neither `Shape` nor `AutoShape`), its particle section (the model, the
       expansion, what each walk does with a system), "Hit-testing" (a system is not
-      hit), and `src/docs/spec/diagnostics/02_error-codes.md`.
-- [ ] Run the project's census scripts and resolve what they report:
-      `scripts/man-census.sh`, `scripts/spec-census.sh --citations`, `--links`.
-- [ ] Add a `.ai/canvas-threading.md` §4 sentence recording that a particle system is
-      advanced by trigger 1 and is **not** an eighth trigger.
+      hit), and `src/docs/spec/diagnostics/02_error-codes.md`. — one claim failed the
+      "which backend" rule and is rewritten: "draws the same picture on every run,
+      backend and platform" is true of the ITEMS, and of the pixels only in software
+      (measured: macOS's reference reproduced exactly on Linux AArch64); a GPU backend is
+      within tolerance. No plan or bug number is in the section; every measured number
+      names its machine.
+- [x] Run the project's census scripts and resolve what they report:
+      `scripts/man-census.sh`, `scripts/spec-census.sh --citations`, `--links`. —
+      `man-census.sh canvas`: TYPES 228/230 against 192/194 on `main`'s compiler, so all
+      36 new rows are described and the two missing are older than this plan.
+      `spec-census.sh --citations`: "MISS-PATH 0 MISS-LINE 0 MISS-SYMBOL 0" of 2,699.
+      `--links`: "links=1163 unresolved=0".
+- [x] Add a `.ai/canvas-threading.md` §4 sentence recording that a particle system is
+      advanced by trigger 1 and is **not** an eighth trigger. — landed with letter A
+      Phase 4, where the Hard Completion Gate put it; `grep -c 'NOT an eighth trigger'
+      .ai/canvas-threading.md` → 1.
+- [x] (added) The Validation Plan's runtime proof, on macOS: each example's four-second
+      copy run in a REAL window (`/tmp/p150/window_proof.sh`, `MFB_CANVAS_STATS`) —
+      fire, fog, fireworks, rain each `gpuSelected=TRUE gpuFrames=241 directFrames=241
+      displayHz=120.00`. Linux in a window: Corrections 6.
 
 Acceptance: all four examples build and run headless to completion, and both census
 scripts report no missing entries for the new types.
   Check: `scripts/build-examples.sh` → pass, `scripts/man-census.sh` and
   `scripts/spec-census.sh --citations` → no missing entries, 0 dangling
   (est. 10 min, guess).
+  Result (2026-10-13): the four build for macOS, both Linux targets and Windows (16 of
+  16) and each run headless exits 0 (`MFB_HEADLESS=1 …/fire < /dev/null`, and the
+  other three); the censuses as recorded on their line.
 Commit: —
 
 ## Validation Plan
@@ -303,6 +352,32 @@ Commit: —
    pixels. A row that close fails on the next driver for no reason, so the particles
    were made opaque (the tint is now a colour ramp): 0.8363% and 0.8698%, Metal still
    within tolerance. The scene has no stored reference, so nothing was re-baselined.
+3. **The manual bans the word the API uses** (2026-10-13). `lifetime` is on the
+   memory-vocabulary list (`.ai/man-content.md` §4.2) and is the name of two particle
+   fields and, through them, of an error. `man-census.sh --memory-scope canvas` went
+   from 0 unclassified to 12, every one the field's name. Asked, the owner chose a
+   carve-out over renaming: carve-out 6, the canvas pages and the `errorCode` overview,
+   the word alone (a line that still trips the ban without it is still a hit).
+4. **A manual sentence written in letter A was false, and only a build found it.** The
+   `Motion` prose said `math::PI`; the constant is `math::pi`. `.ai/man-content.md` §5
+   is right that nothing but running a claim verifies it: the type pages have no
+   example of their own to compile, so the mistake survived until the example programs
+   used the spelling. Fixed in the prose; the examples and the two manual examples now
+   compile the right one.
+5. **There is no `Picture` particle, so the fog is not sprites** (letter A Corrections
+   3). This letter's Open Decision expected the fog to ship a soft PNG and noted that a
+   gradient-filled circle "would not fade". Both halves are now the design: the fog's
+   puff is a disc filled with a radial gradient from a faint grey to nothing, which is
+   what gives it a soft edge; a tint does not reach a gradient, so the puffs only grow.
+   A flat-filled version was rendered first and looked like overlapping discs.
+6. **A Linux window was not run.** The Validation Plan asks for each example in a real
+   window "on macOS and Linux". No reachable Linux box has a display
+   (`scripts/test-canvas-vulkan.sh`'s header: "no reachable Linux box has a display"),
+   and box 2228 was down. What stands in is what exists: on macOS, a real window, four
+   of four with every frame presented directly by Metal; on Linux, the same particle
+   scenes drawn by a Vulkan driver headless, on box 2226; on Windows, on a hardware
+   GPU. A windowed Linux Vulkan frame is read back and blitted today in any case
+   (bug-1082), so a window there would exercise the same draw.
 
 ## Summary
 

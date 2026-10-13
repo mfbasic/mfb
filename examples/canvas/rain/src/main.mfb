@@ -1,0 +1,75 @@
+' rain: a downpour from one canvas::ParticleSystem.
+'
+' The particle is a canvas::Line -- a short streak -- not a dot, and it is drawn leaning
+' the way it falls: `rotation` turns every particle by the same small angle, which is
+' the slant of the wind. The emitter is a thin canvas::Rectangle lying across the top of
+' the window and a little beyond it on both sides, so the slanted rain still covers the
+' corners.
+'
+'   emitter   a strip above the top edge: particles are born evenly along it
+'   item      a Line from (0, 0) to (0, 16), stroked; a stroke is scaled with its particle
+'   motion    fast and straight down, a little spread, a steady push from gravityX
+'   emission  a lifetime just long enough to cross the window -- a drop that has left
+'             the bottom edge is one the system need not draw
+
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT errorCode
+IMPORT io
+IMPORT math
+IMPORT vector
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+' TRUE once Escape or Q is pressed -- or the program has no keyboard to read, which is
+' how a run with no window ends after its first frame.
+FUNC quitRequested() AS Boolean
+  LET k AS io::Key = io::readKey(0) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN FALSE
+    IF e.code = errorCode::ErrEndOfFile THEN RETURN TRUE
+    PROPAGATE
+  END TRAP
+  IF k.event = io::KeyEvent.Release THEN RETURN FALSE
+  IF k.key = io::KeyName.Escape THEN RETURN TRUE
+  RETURN k.key = io::KeyName.Unicode AND (k.grapheme = "q" OR k.grapheme = "Q")
+END FUNC
+
+FUNC rain(size AS canvas::Size, time AS Float) AS canvas::DrawItem
+  LET streak AS canvas::AutoShape = canvas::Line[id := "", position := at(0.0, 0.0), startAt := at(0.0, 0.0), endAt := at(0.0, 16.0), paint := canvas::stroke(color::rgb(170, 200, 235), 1.5), transform := none()]
+  MUT strip AS canvas::Rectangle
+  LET emitter AS canvas::Shape = WITH strip { size := canvas::Size[width := size.width + 300.0, height := 4.0] }
+  LET fall AS Float = 760.0
+  LET emission AS canvas::Emission = canvas::Emission[mode := canvas::EmissionMode.Continuous, maxParticles := 500, rate := 450.0, burst := 0, burstPeriod := 0.0, lifetime := (size.height + 60.0) / fall, lifetimeVar := 0.0]
+  LET motion AS canvas::Motion = canvas::Motion[speed := fall, speedVar := 0.15, angle := math::pi / 2.0 + 0.12, spread := 0.02, gravityX := 0.0, gravityY := 0.0, drag := 0.0, rotation := 0.12, rotationVar := 0.0, spin := 0.0, spinVar := 0.0, turbulence := 0.0, turbulenceHz := 0.0]
+  LET look AS canvas::Appearance = canvas::Appearance[startColor := color::rgba(255, 255, 255, 170), endColor := color::rgba(255, 255, 255, 170), startScale := 1.0, endScale := 1.0, scaleVar := 0.3]
+  LET system AS canvas::DrawItem = canvas::ParticleSystem[position := at(0.0 - 60.0, 0.0 - 30.0), item := streak, emitter := emitter, emission := emission, motion := motion, appearance := look, seed := 17, time := time]
+  RETURN system
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  app::setTitle("Rain -- Esc or Q to quit")
+  ' A particle system holds no state and nothing advances it: the picture for a given
+  ' `time` is always the same, so the loop animates by presenting the scene again with
+  ' a later one. `dt` is the time since the last present; a long pause (the window was
+  ' hidden) is taken as a tenth of a second rather than a jump.
+  MUT clock AS Float = 0.0
+  MUT running AS Boolean = TRUE
+  DO WHILE running
+    LET stats AS canvas::FrameStats = canvas::getFrameStats()
+    clock = clock + math::min(stats.dt, 0.1)
+    LET size AS canvas::Size = canvas::getSize()
+    MUT back AS canvas::Rectangle
+    LET sky AS canvas::DrawItem = WITH back { size := size, paint := canvas::fill(color::rgb(14, 18, 28)) }
+    canvas::present([sky, rain(size, clock)])
+    canvas::waitFrame()
+    IF quitRequested() THEN running = FALSE
+  LOOP
+END FUNC

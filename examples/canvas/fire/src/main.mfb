@@ -1,0 +1,74 @@
+' fire: a flame from one canvas::ParticleSystem.
+'
+' A stream of soft discs born along a short line -- the hearth -- that rise, wander a
+' little, shrink, and fade from a pale yellow to a transparent red. Each disc ADDS its
+' light to what is under it (`BlendMode.Add`), so where many overlap the flame is
+' white-hot and at its ragged edge it is a dull red, with no gradient anywhere.
+'
+'   emitter   a canvas::Line: particles are born evenly along its length
+'   motion    upward (angle -PI/2: canvas angles run clockwise from +X, and Y is down),
+'             a negative gravityY to keep them rising, drag so they slow, turbulence
+'   look      startColor -> endColor multiplies the disc's own white; the alpha going to
+'             0 is what makes a particle fade out rather than vanish
+
+IMPORT app
+IMPORT canvas
+IMPORT color
+IMPORT errorCode
+IMPORT io
+IMPORT math
+IMPORT vector
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+' TRUE once Escape or Q is pressed -- or the program has no keyboard to read, which is
+' how a run with no window ends after its first frame.
+FUNC quitRequested() AS Boolean
+  LET k AS io::Key = io::readKey(0) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN FALSE
+    IF e.code = errorCode::ErrEndOfFile THEN RETURN TRUE
+    PROPAGATE
+  END TRAP
+  IF k.event = io::KeyEvent.Release THEN RETURN FALSE
+  IF k.key = io::KeyName.Escape THEN RETURN TRUE
+  RETURN k.key = io::KeyName.Unicode AND (k.grapheme = "q" OR k.grapheme = "Q")
+END FUNC
+
+FUNC fire(x AS Float, y AS Float, time AS Float) AS canvas::DrawItem
+  LET glow AS canvas::Paint = WITH canvas::fill(color::rgb(255, 255, 255)) { blend := canvas::BlendMode.Add }
+  LET flame AS canvas::AutoShape = canvas::Circle[id := "", position := at(0.0, 0.0), radius := 13.0, paint := glow, transform := none()]
+  MUT hearth AS canvas::Line
+  LET emitter AS canvas::Shape = WITH hearth { startAt := at(0.0 - 55.0, 0.0), endAt := at(55.0, 0.0) }
+  LET emission AS canvas::Emission = canvas::Emission[mode := canvas::EmissionMode.Continuous, maxParticles := 360, rate := 200.0, burst := 0, burstPeriod := 0.0, lifetime := 1.6, lifetimeVar := 0.35]
+  LET motion AS canvas::Motion = canvas::Motion[speed := 70.0, speedVar := 0.5, angle := 0.0 - math::pi / 2.0, spread := 0.4, gravityX := 0.0, gravityY := 0.0 - 80.0, drag := 0.7, rotation := 0.0, rotationVar := 0.0, spin := 0.0, spinVar := 0.0, turbulence := 10.0, turbulenceHz := 1.3]
+  LET look AS canvas::Appearance = canvas::Appearance[startColor := color::rgba(255, 215, 90, 150), endColor := color::rgba(210, 30, 0, 0), startScale := 1.3, endScale := 0.15, scaleVar := 0.35]
+  LET system AS canvas::DrawItem = canvas::ParticleSystem[position := at(x, y), item := flame, emitter := emitter, emission := emission, motion := motion, appearance := look, seed := 5, time := time]
+  RETURN system
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  app::setTitle("Fire -- Esc or Q to quit")
+  ' A particle system holds no state and nothing advances it: the picture for a given
+  ' `time` is always the same, so the loop animates by presenting the scene again with
+  ' a later one. `dt` is the time since the last present; a long pause (the window was
+  ' hidden) is taken as a tenth of a second rather than a jump.
+  MUT clock AS Float = 0.0
+  MUT running AS Boolean = TRUE
+  DO WHILE running
+    LET stats AS canvas::FrameStats = canvas::getFrameStats()
+    clock = clock + math::min(stats.dt, 0.1)
+    LET size AS canvas::Size = canvas::getSize()
+    MUT back AS canvas::Rectangle
+    LET sky AS canvas::DrawItem = WITH back { size := size, paint := canvas::fill(color::rgb(10, 8, 14)) }
+    canvas::present([sky, fire(size.width / 2.0, size.height * 0.8, clock)])
+    canvas::waitFrame()
+    IF quitRequested() THEN running = FALSE
+  LOOP
+END FUNC
