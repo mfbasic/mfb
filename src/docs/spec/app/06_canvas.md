@@ -852,15 +852,6 @@ mapped whole instead, with no rim to replace: a `Text` run's (its font metrics),
 Lipschitz. The untransformed box is unchanged, and `canvas::geoBuild` builds it bit for
 bit. [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
 
-The record says how much of its box is rim: header slots 67 (the x sides) and 68 (the y
-sides), in the units the box is in. Untransformed both are the one unit. Under a
-transform they are what the rim adds to the hull, `(|a| + |c|)·0.5·F` and
-`(|b| + |d|)·0.5·F` for a forward matrix `a b c d`, and the pixel. A box mapped whole
-has none, and both are 0. An item drawn through no group matrix is evaluated over its
-box as it stands; the sites that carry a box through a group's matrix replace the rim
-(see "How the composed affine is carried").
-[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_LAYOUT]]
-
 A `Text` item is not a distance field — it is a run of coverage bitmaps — so it is
 specified separately: each pixel of the run's transformed bounds samples the glyph
 coverage at its inverse-mapped point. The result is the same rule stated for shapes,
@@ -1220,7 +1211,7 @@ above has any error to scale.
 Two geometry kinds over one tail, as `POLYLINE` and `POLYGON` are: 11
 (`__CANVAS_GEO_POLYCURVE`) and 12 (`__CANVAS_GEO_CURVEPOLYGON`); the kind says whether
 there is an interior. [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_LAYOUT]]
-The record is the 69-float header and then **pieces | join records | dash tail | clip
+The record is the 67-float header and then **pieces | join records | dash tail | clip
 edges | gradient stops**: a polygon's order with pieces for edges. Header slot 20 counts
 the pieces, slot 21 is a `CurvePolygon`'s rule, and a `PolyCurve` is stroke-as-fill as
 a `PolyLine` is (its half-width in slot 6, slot 7 at −1). There is one join record and
@@ -1451,19 +1442,10 @@ kept as a translation and, only when some node on the path has a transform in ef
   entry with a matrix takes the transformed-item path whatever the item is, so the
   distance is rescaled by its gradient and the stroke scales
   ([[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]);
-* an item's bounds under a matrix are the hull, through the linear part, of its header
-  box with the rim replaced, padded by a pixel. The header's rim (slots 67 and 68) was
-  sized for the item drawn with no group. A pixel takes coverage only within half the
-  composed inverse's norm of the item, and that norm is at most the product of the
-  item's and the groups', so each side's rim `r` becomes `r·N`, `N` the Frobenius norm
-  of the groups' inverse linear part: a lower bound `b` is carried as `(b + r) − r·N`
-  and an upper one as `(b − r) + r·N`. An item with no transform needs `0.5·N` and has
-  `1.0·N`. A group that magnifies has `N < 1` and the box comes in (under a scale of
-  170 the rim is 1.41 px, not 170); a group that shrinks has `N > 1` and it goes out,
-  which an unevenly transformed item needs. A box with no rim is carried as it stands.
-  The damage diff remembers and compares that hull
-  ([[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]],
-  [[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_FOR]]);
+* an item's bounds under a matrix are the hull of its header box through the linear
+  part, padded by a pixel — the header's own antialiasing rim is in the group's space
+  and a group that scales down would shrink it. The damage diff remembers and compares
+  that hull ([[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_FOR]]);
 * a rectangle clip, which is axis-aligned only in the item's space, is evaluated under a
   matrix as a path clip is: its distance at the item's point, divided by its own
   gradient;
@@ -1496,14 +1478,9 @@ With a matrix:
 
 * the **vertex** stage carries the item's box through the forward linear part — the
   inverse of the 2×2 it was given, taken in the shader — so the quad is a parallelogram.
-  The box's rim is first replaced as the software bounds replace it, by the same two
-  expressions; the rim reaches the stage as two 16.16 words of the item block, the
-  fourth words of `xform1` (x sides) and `gradInv1` (y sides), which nothing else
-  reads. The box is then grown on every side by the inverse's Frobenius norm, which is
-  at least one surface pixel: the stage's pixel is added before the map, where the
-  software bounds add theirs to the hull after it, because the quad is the mapped
-  parallelogram and not its hull
-  ([[src/codegen/runtime/canvas/mod.rs:ITEM_RIM_WORDS]]);
+  The box is first grown on every side by the inverse's Frobenius norm, which is at
+  least one surface pixel, because the box's own antialiasing rim is in the group's
+  space and a group that scales down would shrink it;
 * the **fragment** stage subtracts the translation from the pixel, as it always has,
   then applies the inverse linear part, and only then the item's own inverse if it has
   one. Every consumer reads that point: the distance (whose four neighbour samples are

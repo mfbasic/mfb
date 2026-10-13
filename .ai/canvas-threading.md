@@ -672,27 +672,8 @@ inverse; }` in the GLSL. `hasMatrix` itself is not sent: an inverse is never all
 all-zero bits mean "no matrix" and the shaders take the branch they always took, which is
 what keeps a translate-only frame byte-identical on each backend. With a matrix the
 vertex stage carries the item's box through the FORWARD linear part (it inverts the 2×2
-itself), and the fragment stage puts the query point through the inverse before anything
-else reads it.
-
-**The box a group's matrix carries is not the header's as it stands (bug-1083).** The
-header's box (slots 16-19) ends in a rim sized for the item drawn with no group, and the
-record says how much: slots 67 and 68 (`__CANVAS_GEO_RIM`, `HEADER_RIM`), the x sides'
-and the y sides', zero for a box that is not an extent and a rim (a glyph run, a text
-box, a picture, an arc). Three sites carry a box through a group's matrix,
-`helper_items.rs:__canvas_drawBound`, `mfb_canvas.vert` and Metal's `mfbVertex`, and all
-three replace the rim by itself times the Frobenius norm `N` of the groups' inverse:
-lower `(bound + rim) - rim * N`, upper `(bound - rim) + rim * N`. The derivation is in
-`__canvas_drawBound`'s comment. Keep the three in step, and note what they do NOT share:
-the software site pads the mapped HULL by one pixel, and the vertex stages grow the box
-by `N` before the map, because their quad is the parallelogram and has no hull to pad.
-With rim 0 each site is exactly what it was before the bug, which is what keeps text,
-pictures and arcs inside a group byte-identical on each device.
-
-The rim reaches the vertex stage in two words of the item block that nothing else
-wrote, the fourth words of `xform1` and `gradInv1` (`ITEM_RIM_WORDS`), 16.16. That is
-why this did not grow `ITEM_BLOCK_SIZE` and the fragment stage's SPIR-V did not change:
-do not hand those two words to anything else.
+itself) after growing it by the inverse's Frobenius norm, and the fragment stage puts the
+query point through the inverse before anything else reads it.
 
 `dx`/`dy` are 16.16 words (`toInt(d * 65536)`, truncated) and `dxLo`/`dyLo` their residual
 words in units of 2^-47 px (bug-735): both backends bind all four as the stage offset
@@ -1629,7 +1610,7 @@ and found it that way.
 
 ### A geometry record's tail is read back from its END
 
-A record is the 69-float header, then its tail in a fixed order: **edges | join records |
+A record is the 67-float header, then its tail in a fixed order: **edges | join records |
 dash tail | clip edges | gradient stops** (plan-163-B, plan-163-C). Only the edge count is
 known from the front; every other part is found by counting back from slot 1 (the
 record's length) — the stops are `slot1 - stops * 5`, a path clip's edges
