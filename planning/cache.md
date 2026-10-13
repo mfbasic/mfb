@@ -47,6 +47,6 @@ executable.
 
 ## Related
 
-- `bugs/bug-996-vulkan-first-frame-waits-25s-for-a-cold-uber-shader-pipeline-compile.md`
+- `bugs/completed/bug-996-vulkan-first-frame-waits-25s-for-a-cold-uber-shader-pipeline-compile.md`
   (its Fix Design piece 2 is this idea; piece 3, a smaller shader, is a separate question).
 - `mfb spec app canvas`, "Which renderer draws is chosen once, at the first present".
