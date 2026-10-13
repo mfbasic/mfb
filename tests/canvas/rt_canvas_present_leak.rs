@@ -134,10 +134,7 @@ fn live_bytes(name: &str, source: &str, frames: usize, sync: bool) -> u64 {
     let project = common::temp_project(name, &program);
     let binary = common::build_app_debug(&project, name);
     let mut run = Command::new(&binary);
-    run.current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1");
+    run.current_dir(&project).env("MFB_HEADLESS", "1");
     if sync {
         run.env("MFB_CANVAS_SYNC", "1");
     }

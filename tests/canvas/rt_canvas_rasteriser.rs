@@ -30,9 +30,7 @@ fn render(name: &str, source: &str) -> (Vec<u8>, Vec<String>) {
     let stats = project.join("stats.txt");
     let binary = common::build_app_debug(&project, name);
     let run = Command::new(&binary)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame)
         .env("MFB_CANVAS_STATS", &stats)
         // Render synchronously: since plan-98-D Phase 2 the render runs on a
@@ -84,15 +82,14 @@ fn render(name: &str, source: &str) -> (Vec<u8>, Vec<String>) {
 /// not merely unnecessary, it is the thing that must not exist.
 fn render_stdout(name: &str, source: &str) -> (String, String) {
     let project = common::temp_project(name, source);
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let run = Command::new(&binary)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         // The GTK one too. Omitting it is invisible on the macOS dev host, where the
         // MACAPP flag is the one that matters; on a Linux box the program tries to open
         // a display, fails, and exits 1 -- which these tests then report as a
         // use-after-free or a missing raise. `render` above has always set all three.
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
@@ -3411,9 +3408,7 @@ fn corner_rule_the_surface_size_is_whole_pixels_held_as_floats() {
     let project = common::temp_project("canvas_size_floats", source);
     let binary = common::build_app_debug(&project, "canvas_size_floats");
     let run = Command::new(&binary)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .output()
         .expect("run the size program");
@@ -5212,13 +5207,12 @@ fn removing_a_group_mid_frame_lets_the_frame_finish() {
     let frame_path = project.join("frame.rgba");
     let binary = common::build_app_debug(&project, "canvas_group_race");
     let run = Command::new(&binary)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         // The GTK one too. Omitting it is invisible on the macOS dev host, where the
         // MACAPP flag is the one that matters; on a Linux box the program tries to open
         // a display, fails, and exits 1 -- which these tests then report as a
         // use-after-free or a missing raise. `render` above has always set all three.
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame_path)
         .env("MFB_CANVAS_FRAME_HOLD_MS", "600")
         .output()
@@ -5277,15 +5271,14 @@ fn exiting_while_a_frame_draws_a_group_is_clean() {
              canvas::present([canvas::Group[id := \"\", position := vector::Float2[x := 200.0, y := 200.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"panel\"]])\n",
         ),
     );
-    let binary = common::build_app(&project, "canvas_group_exit_race");
+    let binary = common::build_app_debug(&project, "canvas_group_exit_race");
     let run = Command::new(&binary)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         // The GTK one too. Omitting it is invisible on the macOS dev host, where the
         // MACAPP flag is the one that matters; on a Linux box the program tries to open
         // a display, fails, and exits 1 -- which these tests then report as a
         // use-after-free or a missing raise. `render` above has always set all three.
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_FRAME_HOLD_MS", "400")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
@@ -5705,9 +5698,7 @@ fn destroying_a_font_mid_frame_is_clean() {
     let binary = common::build_app_debug(&project, "canvas_font_destroy_race");
     let run = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame_path)
         .env("MFB_CANVAS_FRAME_HOLD_MS", "600")
         .output()

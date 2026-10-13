@@ -1460,6 +1460,13 @@ pub(crate) fn emit_store_mouse_mode(ctx: &mut EmitCtx, value: u64, vregs: &mut V
 ///
 /// Pass-through bytes are dropped rather than delivered: injected input is test
 /// input, and there is no read in progress to hand a keystroke to.
+///
+/// **In every build, not only `--debug`,** unlike the other test hooks
+/// (`./mfb spec tooling debug-report`). While canvas is in development,
+/// `tools/canvas-bench`'s `hit` benchmark needs pointer events in a release build,
+/// whose timings a `--debug` build's instrumentation would distort, and this is the
+/// only source of them without a real mouse. It moves behind `--debug` once canvas
+/// settles.
 pub(crate) fn emit_mouse_inject(
     ctx: &mut EmitCtx,
     mouse_state_offset: usize,

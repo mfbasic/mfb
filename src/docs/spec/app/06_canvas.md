@@ -304,10 +304,11 @@ documented tolerance rather than exactly, because rasterisation rules and blend
 precision differ legitimately between drivers.
 
 **Which renderer draws is chosen once, at the first present.** A program in a
-real window draws on the GPU (Metal on macOS, Vulkan on Linux and Windows); a headless run,
-meaning any of `MFB_MACAPP_HEADLESS`, `MFB_GTKAPP_HEADLESS` or
-`MFB_WINAPP_HEADLESS`, draws in software. `MFB_CANVAS_GPU` overrides both ways:
-`0` forces software, any other value forces the GPU. The software rasteriser is
+real window draws on the GPU (Metal on macOS, Vulkan on Linux and Windows); a headless run
+(`MFB_HEADLESS` set), draws in software. `MFB_CANVAS_GPU` overrides both ways:
+`0` forces software, any other value forces the GPU. `MFB_HEADLESS` and `MFB_CANVAS_GPU`
+are the only environment variables a normal canvas build reads; the others are
+`--debug` only (`./mfb spec tooling debug-report`). The software rasteriser is
 the exact-match oracle, and every test that renders runs headless, so the goldens
 keep measuring it. A GPU frame is used only when a pipeline exists and the scene
 is one the backend draws correctly; otherwise that frame falls back to software.
@@ -430,7 +431,7 @@ otherwise narrow to zero, is given a residual of 1.
 frame is rendered offscreen, GPU-copied into the layer's next drawable and presented;
 nothing is read back to the CPU. The frame is read back into a CPU surface and blitted
 instead when something needs its pixels: a headless run (there is no window layer),
-damage mode (`MFB_CANVAS_DAMAGE`, which keeps the previous frame), a `--debug` build
+damage mode (`--debug` build only, `MFB_CANVAS_DAMAGE`, which keeps the previous frame), a `--debug` build
 writing `MFB_CANVAS_DUMP`, or a frame with no drawable available. Software frames
 always take the CPU surface, and the Metal layer is hidden while they show. The
 offscreen target is created with `allowGPUOptimizedContents` off, so it is stored
@@ -1678,6 +1679,8 @@ motion callback with no controller, Windows' `_mfb_winapp_pointer_move` with no 
 on the scripted-resize precedent, and after the scripted resize: inside is asked of the
 PUBLISHED surface size, which a headless run has none of until `MFB_CANVAS_RESIZE_W` /
 `_H` publish one. macOS has no headless path; its handlers are proved in a real window.
+A normal build reads neither pair: they are `--debug` only
+(`./mfb spec tooling debug-report`).
 
 **A `--debug` build can script the pointer.** `MFB_CANVAS_POINTER` holds
 `ms,x,y,buttons,inside;…`; at the start of each frame
@@ -1859,7 +1862,7 @@ group transforms and the geometry they name are as that frame left them, and eac
 row holds its instance's entry and flags. `__canvas_autoLight` reads the pointer, makes
 the one hit test, steps every row as `__canvas_autoResolve` would, and answers whether
 any row's paint changed. On FALSE the frame ends there — counted in `skipped=`, nothing
-walked, nothing presented, whatever `MFB_CANVAS_DAMAGE` says. On TRUE the frame is an
+walked, nothing presented, whatever `MFB_CANVAS_DAMAGE` says in a `--debug` build. On TRUE the frame is an
 ordinary one from that point, and its resolve steps the same rows again moments later
 to no effect: a window the first step started is still running and a press it took is
 still held.

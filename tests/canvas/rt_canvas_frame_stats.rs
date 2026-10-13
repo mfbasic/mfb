@@ -22,9 +22,7 @@ fn run_with_stats(name: &str, source: &str, env: &[(&str, &str)]) -> (String, St
     let stats = project.join("stats.txt");
     let binary = common::build_app_debug(&project, name);
     let run = Command::new(&binary)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_STATS", &stats)
         .envs(env.iter().copied())
         .output()

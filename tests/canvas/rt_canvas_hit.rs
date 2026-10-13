@@ -99,11 +99,10 @@ fn run(name: &str, body: &str, inject: &str) -> String {
     );
     let project = common::temp_project(name, &source);
     std::fs::write(project.join("fixture.ttf"), FIXTURE_TTF).expect("write the font");
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let run = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .env("MFB_MOUSE_INJECT", inject)
         .output()

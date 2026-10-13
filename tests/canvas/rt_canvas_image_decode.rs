@@ -260,12 +260,10 @@ END FUNC
 fn decode(name: &str, file: &[u8]) -> Result<(usize, usize, Vec<u8>), String> {
     let project = common::temp_project(name, DECODER);
     std::fs::write(project.join("fixture.png"), file).expect("write the fixture");
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let run = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
@@ -669,12 +667,10 @@ fn decode_bounded(
 ) -> Result<(usize, usize, Vec<u8>), String> {
     let project = common::temp_project(name, DECODER);
     std::fs::write(project.join("fixture.png"), file).expect("write the fixture");
-    let binary = common::build_app(&project, name);
+    let binary = common::build_app_debug(&project, name);
     let mut child = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

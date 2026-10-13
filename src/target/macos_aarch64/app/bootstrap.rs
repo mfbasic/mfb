@@ -187,7 +187,7 @@ pub(super) fn emit_main_bootstrap(
         asm.push(abi::move_register(abi::c_arg(0), REG_WINDOW));
         asm.call_external("_objc_msgSend", LIB_OBJC);
 
-        // headless = getenv("MFB_MACAPP_HEADLESS")
+        // headless = getenv("MFB_HEADLESS")
         asm.local_address(abi::c_arg(0), STR_HEADLESS_ENV.0);
         asm.call_external("_getenv", LIB_SYSTEM);
         asm.push(abi::move_register(REG_HEADLESS, abi::c_arg(0)));
@@ -2210,6 +2210,10 @@ pub(super) fn emit_append_helper() -> CodeFunction {
 /// so the process keeps running with the window open; the app quits when the
 /// window is closed (the synthesized delegate's
 /// applicationShouldTerminateAfterLastWindowClosed: returns YES).
+///
+/// Unless `MFB_TRANSCRIPT_DUMP` is set, which is how a test reads what a windowed
+/// run printed: the `--debug` GUI build then writes the transcript to stdout
+/// ([`emit_transcript_dump_helper`], on the main thread) and exits with the code.
 pub(super) fn emit_finish_helper(uses_term: bool, debug: bool) -> CodeFunction {
     let mut asm = Asm::new(FINISH_SYMBOL);
     // Frame: lr@0, x19(code)@8, x20(scratch/nsstring)@16, x21(textview)@24,
@@ -2253,6 +2257,25 @@ pub(super) fn emit_finish_helper(uses_term: bool, debug: bool) -> CodeFunction {
     asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // transcript view or nil
     asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
     asm.push(abi::branch_eq("headless_exit"));
+
+    // --- GUI, `MFB_TRANSCRIPT_DUMP` set: write the transcript to stdout and exit ---
+    //
+    // The readback touches AppKit, so it runs on the main thread:
+    // `dispatch_sync_f(dispatch_get_main_queue(), view, dump)` returns once it has.
+    // Every write before this was marshalled `waitUntilDone:YES`, so the transcript
+    // already holds all of the program's output.
+    if debug {
+        asm.local_address(abi::c_arg(0), STR_TRANSCRIPT_DUMP_ENV.0);
+        asm.call_external("_getenv", LIB_SYSTEM);
+        asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+        asm.push(abi::branch_eq("finish_status"));
+        asm.external_data(abi::c_arg(0), DISPATCH_MAIN_QUEUE, LIB_SYSTEM);
+        asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[2]));
+        asm.local_address(abi::c_arg(2), TRANSCRIPT_DUMP_SYMBOL);
+        asm.call_external("_dispatch_sync_f", LIB_SYSTEM);
+        asm.push(abi::branch("headless_exit"));
+        asm.push(abi::label("finish_status"));
+    }
 
     // --- GUI: append the completion status line, then end the worker thread ---
     build_nsstring_from_cstring(&mut asm, abi::LOCAL[1], STR_EXIT_PREFIX.0);
@@ -2309,6 +2332,87 @@ pub(super) fn emit_finish_helper(uses_term: bool, debug: bool) -> CodeFunction {
     CodeFunction {
         name: "macapp.finish".to_string(),
         symbol: FINISH_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// `void _mfb_macapp_transcript_dump(void *view /*x0*/)`: write the transcript
+/// `NSTextView`'s text to stdout as UTF-8. A `--debug` build's `MFB_TRANSCRIPT_DUMP`
+/// readback, called on the main thread by [`emit_finish_helper`] through
+/// `dispatch_sync_f`, whose work function takes the context pointer — here the view.
+///
+/// `[[view string] UTF8String]`, then `write(1, …)` until every byte is out: one
+/// `write` to a pipe may take only part of a long transcript. A failed write ends the
+/// loop; there is nowhere to report it, and the caller exits either way.
+pub(super) fn emit_transcript_dump_helper() -> CodeFunction {
+    let mut asm = Asm::new(TRANSCRIPT_DUMP_SYMBOL);
+    // Frame: lr@0, x19(view, then the cursor)@8, x20(bytes left)@16.
+    let frame = 32;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // view
+
+    // text = [view string]
+    asm.load_selector(SEL_STRING.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0)));
+    // bytes = [text UTF8String]
+    asm.load_selector(SEL_UTF8_STRING.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // cursor
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
+    asm.push(abi::branch_eq("dump_done"));
+    asm.call_external("_strlen", LIB_SYSTEM);
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // bytes left
+
+    asm.push(abi::label("dump_loop"));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_le("dump_done"));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "1")); // stdout
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[1]));
+    asm.call_external("_write", LIB_SYSTEM);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_le("dump_done")); // an error or nothing written
+    asm.push(abi::add_registers(
+        abi::LOCAL[0],
+        abi::LOCAL[0],
+        abi::c_arg(0),
+    ));
+    asm.push(abi::subtract_registers(
+        abi::LOCAL[1],
+        abi::LOCAL[1],
+        abi::c_arg(0),
+    ));
+    asm.push(abi::branch("dump_loop"));
+
+    asm.push(abi::label("dump_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.transcriptDump".to_string(),
+        symbol: TRANSCRIPT_DUMP_SYMBOL.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
         frame: CodeFrame {

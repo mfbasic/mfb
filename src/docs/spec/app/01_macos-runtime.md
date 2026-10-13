@@ -31,7 +31,7 @@ are held in callee-saved registers across the `objc_msgSend` sequence.
 | `x19` (`REG_APP`) | `NSApplication` instance |
 | `x20` (`REG_WINDOW`) | `NSWindow` instance |
 | `x21` (`REG_SCRATCH_OBJ`) | transient object (class / NSString / transcript view) |
-| `x22` (`REG_HEADLESS`) | `getenv("MFB_MACAPP_HEADLESS")` result |
+| `x22` (`REG_HEADLESS`) | `getenv("MFB_HEADLESS")` result |
 
 ```text
 _main stack frame (FRAME_SIZE = 32):
@@ -54,7 +54,7 @@ The unconditional bootstrap prefix builds the application and window:
 - `[window setTitle:[NSString stringWithUTF8String:"MFBASIC App"]]` (`STR_TITLE`); the
   window a `None`-start program's reconcile builds gets the same title, so a window
   is never shown with an empty title bar (`./mfb spec app window`).
-- `headless = getenv("MFB_MACAPP_HEADLESS")` (`STR_HEADLESS_ENV`); the result gates
+- `headless = getenv("MFB_HEADLESS")` (`STR_HEADLESS_ENV`); the result gates
   all GUI construction below.
 
 [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
@@ -64,7 +64,7 @@ The unconditional bootstrap prefix builds the application and window:
 A `compare REG_HEADLESS, 0` / `branch_ne after_show` guards the GUI section. When
 the env var is set the bootstrap branches to `after_show`, building no view and
 showing no window — the io helpers then find no associated NSTextView and fall
-back to the fd sink (see [Headless path](#headless-path-mfb_macapp_headless)).
+back to the fd sink (see [Headless path](#headless-path-mfb_headless)).
 [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 The GUI path constructs, in order:
@@ -196,6 +196,12 @@ the headless fallback inside the finish helper itself) still terminates via
 - It fetches the transcript view via `objc_getAssociatedObject(NSApp, &ASSOC_KEY)`.
   **nil** (headless / no window) → `headless_exit`: `_exit(code)`, preserving the
   console-like behavior the runtime tests rely on. [[src/target/macos_aarch64/app/bootstrap.rs:emit_finish_helper]]
+- **`--debug` with `MFB_TRANSCRIPT_DUMP` set** (windowed run): instead of appending
+  the exit line, it calls `dispatch_sync_f` on the main queue with
+  `_mfb_macapp_transcript_dump`, which writes `[[view string] UTF8String]` to fd 1,
+  then `_exit(code)`s with the program's exit code. The variable is read only by a
+  `--debug` build (`./mfb spec tooling debug-report`).
+  [[src/target/macos_aarch64/app/bootstrap.rs:emit_transcript_dump_helper]]
 - **GUI**: it appends `"\nProgram exited with code "` (`STR_EXIT_PREFIX`), then the
   decimal exit code formatted in-register by `emit_format_exit_code`. The code is
   first masked to its low 8 bits (`& 0xFF`), matching what `_exit(status)` actually
@@ -255,9 +261,9 @@ selector and C-string constants are emitted as NUL-terminated `raw` C strings
 (`align 1`) by `app_mode_data_objects`; selectors are interned at runtime through
 `sel_registerName`. [[src/target/macos_aarch64/app/mod.rs:app_mode_data_objects]]
 
-## Headless path (`MFB_MACAPP_HEADLESS`)
+## Headless path (`MFB_HEADLESS`)
 
-When the `MFB_MACAPP_HEADLESS` env var (`STR_HEADLESS_ENV`) is set, the bootstrap
+When the `MFB_HEADLESS` env var (`STR_HEADLESS_ENV`) is set, in every build, the bootstrap
 skips the entire GUI construction (transcript view, TermView, delegate, input pipe,
 menu, show/activate) and the AppKit event loop, spawning the worker inline and
 spinning `_main`. With no transcript view associated under `ASSOC_KEY`, the io

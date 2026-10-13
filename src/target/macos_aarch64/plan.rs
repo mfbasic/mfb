@@ -106,6 +106,20 @@ impl plan::NativePlanPlatform for Platform {
             .collect()
     }
 
+    /// What a `--debug` build's `MFB_TRANSCRIPT_DUMP` readback adds to the bootstrap's
+    /// imports: the hop to the main thread. Everything else it calls (`getenv`,
+    /// `strlen`, `write`, `objc_msgSend`) the bootstrap already declares.
+    fn debug_app_mode_imports(&self, _uses_canvas: bool) -> Vec<PlatformImport> {
+        ["_dispatch_sync_f", "__dispatch_main_q"]
+            .iter()
+            .map(|symbol| PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: (*symbol).to_string(),
+                required_by: "_main".to_string(),
+            })
+            .collect()
+    }
+
     fn app_mode_imports(&self, uses_mouse: bool, uses_canvas: bool) -> Vec<PlatformImport> {
         // plan-04-macos-app.md §6.5. The Obj-C runtime drives every AppKit call;
         // the `_OBJC_CLASS_$_*` symbols are referenced as external data (read via

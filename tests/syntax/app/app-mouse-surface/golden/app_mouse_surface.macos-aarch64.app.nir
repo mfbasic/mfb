@@ -31,14 +31,12 @@
   { "name": "#CANVAS_PARTIAL", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FPARTIAL", "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
   { "name": "#CANVAS_GPU_FRAMES", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGPU_5FFRAMES", "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
   { "name": "#CANVAS_DAMAGE", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FDAMAGE", "visibility": "public", "mutable": true, "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-  { "name": "#CANVAS_DAMAGE_MODE", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FDAMAGE_5FMODE", "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
   { "name": "#CANVAS_GLYPH_KEYS", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGLYPH_5FKEYS", "visibility": "public", "mutable": true, "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
   { "name": "#CANVAS_GLYPH_META", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGLYPH_5FMETA", "visibility": "public", "mutable": true, "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
   { "name": "#CANVAS_GLYPH_COV", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGLYPH_5FCOV", "visibility": "public", "mutable": true, "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
   { "name": "#CANVAS_GLYPH_LASTUSED", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGLYPH_5FLASTUSED", "visibility": "public", "mutable": true, "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
   { "name": "#CANVAS_GLYPH_REV", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGLYPH_5FREV", "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
   { "name": "#CANVAS_GLYPH_EVICTIONS", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGLYPH_5FEVICTIONS", "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-  { "name": "#CANVAS_GLYPH_BUDGET", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGLYPH_5FBUDGET", "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
   { "name": "#CANVAS_GLYPH_NEXTEVICT", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGLYPH_5FNEXTEVICT", "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
   { "name": "#CANVAS_GLYPH_PINS", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGLYPH_5FPINS", "visibility": "public", "mutable": true, "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
   { "name": "#CANVAS_GEO_HEADER", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGEO_5FHEADER", "visibility": "public", "mutable": false, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "67" } },
@@ -115,7 +113,6 @@
   { "name": "#CANVAS_GM_IC", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGM_5FIC", "visibility": "public", "mutable": true, "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.0" } },
   { "name": "#CANVAS_GM_ID", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGM_5FID", "visibility": "public", "mutable": true, "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.0" } },
   { "name": "#CANVAS_GFX_READY", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FGFX_5FREADY", "visibility": "public", "mutable": true, "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-  { "name": "#CANVAS_DISPLAY_OVERRIDE_READ", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FDISPLAY_5FOVERRIDE_5FREAD", "visibility": "public", "mutable": true, "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
   { "name": "#CANVAS_WAKE", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FWAKE", "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
   { "name": "#CANVAS_DRAW_DX", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FDRAW_5FDX", "visibility": "public", "mutable": true, "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [] } },
   { "name": "#CANVAS_DRAW_DY", "symbol": "_mfb_global_app_5Fmouse_5Fsurface__23CANVAS_5FDRAW_5FDY", "visibility": "public", "mutable": true, "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [] } },
@@ -1100,14 +1097,12 @@
     { "op": "storeGlobal", "name": "#CANVAS_PARTIAL", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     { "op": "storeGlobal", "name": "#CANVAS_GPU_FRAMES", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     { "op": "storeGlobal", "name": "#CANVAS_DAMAGE", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "storeGlobal", "name": "#CANVAS_DAMAGE_MODE", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     { "op": "storeGlobal", "name": "#CANVAS_GLYPH_KEYS", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
     { "op": "storeGlobal", "name": "#CANVAS_GLYPH_META", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
     { "op": "storeGlobal", "name": "#CANVAS_GLYPH_COV", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
     { "op": "storeGlobal", "name": "#CANVAS_GLYPH_LASTUSED", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
     { "op": "storeGlobal", "name": "#CANVAS_GLYPH_REV", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     { "op": "storeGlobal", "name": "#CANVAS_GLYPH_EVICTIONS", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "storeGlobal", "name": "#CANVAS_GLYPH_BUDGET", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     { "op": "storeGlobal", "name": "#CANVAS_GLYPH_NEXTEVICT", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     { "op": "storeGlobal", "name": "#CANVAS_GLYPH_PINS", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
     { "op": "storeGlobal", "name": "#CANVAS_GEO_HEADER", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "67" } },
@@ -1184,7 +1179,6 @@
     { "op": "storeGlobal", "name": "#CANVAS_GM_IC", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.0" } },
     { "op": "storeGlobal", "name": "#CANVAS_GM_ID", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.0" } },
     { "op": "storeGlobal", "name": "#CANVAS_GFX_READY", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "storeGlobal", "name": "#CANVAS_DISPLAY_OVERRIDE_READ", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "storeGlobal", "name": "#CANVAS_WAKE", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
     { "op": "storeGlobal", "name": "#CANVAS_DRAW_DX", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [] } },
     { "op": "storeGlobal", "name": "#CANVAS_DRAW_DY", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [] } },
@@ -5639,25 +5633,7 @@
     ],
     "returns": "Boolean",
     "body": [
-    {
-      "op": "if",
-      "condition": { "kind": "binary", "op": "=", "left": { "kind": "global", "name": "#CANVAS_DAMAGE_MODE", "type": "" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "then": [
-      { "op": "storeGlobal", "name": "#CANVAS_DAMAGE_MODE", "type": "", "value": { "kind": "const", "type": "Integer", "value": "1" } },
-      {
-        "op": "if",
-        "condition": { "kind": "binary", "op": ">", "left": { "kind": "call", "target": "len", "args": [{ "kind": "runtimeCall", "helper": "os", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_CANVAS_DAMAGE" }, { "kind": "const", "type": "String", "value": "" }] }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-        "then": [
-        { "op": "storeGlobal", "name": "#CANVAS_DAMAGE_MODE", "type": "", "value": { "kind": "const", "type": "Integer", "value": "2" } }
-        ],
-        "else": [
-        ]
-      }
-      ],
-      "else": [
-      ]
-    },
-    { "op": "return", "value": { "kind": "binary", "op": "=", "left": { "kind": "global", "name": "#CANVAS_DAMAGE_MODE", "type": "" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+    { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
     ]
   },
   {
@@ -5691,7 +5667,7 @@
     "body": [
     {
       "op": "if",
-      "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "call", "target": "#canvas_damageEnabled", "args": [] } },
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
       "then": [
       { "op": "return", "value": { "kind": "call", "target": "#canvas_damageFull", "args": [{ "kind": "local", "name": "width" }, { "kind": "local", "name": "height" }] } }
       ],
@@ -5980,7 +5956,7 @@
     "body": [
     {
       "op": "if",
-      "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "call", "target": "#canvas_damageEnabled", "args": [] } },
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
       "then": [
       { "op": "return", "value": null }
       ],
@@ -6022,59 +5998,6 @@
     ]
   },
   {
-    "name": "#canvas_budgetOr",
-    "visibility": "public",
-    "kind": "func",
-    "isolated": false,
-    "file": "builtins/canvas.mfb",
-    "params": [
-    { "name": "text", "type": "String", "default": null },
-    { "name": "fallback", "type": "Integer", "default": null }
-    ],
-    "returns": "Integer",
-    "body": [
-    {
-      "op": "if",
-      "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "text" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "then": [
-      { "op": "return", "value": { "kind": "local", "name": "fallback" } }
-      ],
-      "else": [
-      ]
-    },
-    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "local", "name": "text" }] } },
-    {
-      "op": "trap",
-      "name": "err",
-      "body": [
-      { "op": "return", "value": { "kind": "local", "name": "fallback" } }
-      ]
-    }
-    ]
-  },
-  {
-    "name": "#canvas_glyphBudget",
-    "visibility": "public",
-    "kind": "func",
-    "isolated": false,
-    "file": "builtins/canvas.mfb",
-    "params": [
-    ],
-    "returns": "Integer",
-    "body": [
-    {
-      "op": "if",
-      "condition": { "kind": "binary", "op": "=", "left": { "kind": "global", "name": "#CANVAS_GLYPH_BUDGET", "type": "" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "then": [
-      { "op": "storeGlobal", "name": "#CANVAS_GLYPH_BUDGET", "type": "", "value": { "kind": "call", "target": "#canvas_budgetOr", "args": [{ "kind": "runtimeCall", "helper": "os", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_CANVAS_GLYPH_BUDGET" }, { "kind": "const", "type": "String", "value": "" }] }, { "kind": "const", "type": "Integer", "value": "1048576" }] } }
-      ],
-      "else": [
-      ]
-    },
-    { "op": "return", "value": { "kind": "global", "name": "#CANVAS_GLYPH_BUDGET", "type": "" } }
-    ]
-  },
-  {
     "name": "#canvas_glyphKey",
     "visibility": "public",
     "kind": "func",
@@ -6103,6 +6026,19 @@
     "returns": "Integer",
     "body": [
     { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "size" }, "right": { "kind": "const", "type": "Float", "value": "16.0" } }, "right": { "kind": "const", "type": "Float", "value": "0.5" } }] } }
+    ]
+  },
+  {
+    "name": "#canvas_glyphBudget",
+    "visibility": "public",
+    "kind": "func",
+    "isolated": false,
+    "file": "builtins/canvas.mfb",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1048576" } }
     ]
   },
   {
@@ -6507,10 +6443,10 @@
     },
     {
       "op": "if",
-      "condition": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">", "left": { "kind": "call", "target": "len", "args": [{ "kind": "global", "name": "#CANVAS_GLYPH_COV", "type": "" }] }, "right": { "kind": "call", "target": "#canvas_glyphBudget", "args": [] } }, "right": { "kind": "binary", "op": ">=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "global", "name": "#CANVAS_GLYPH_COV", "type": "" }] }, "right": { "kind": "global", "name": "#CANVAS_GLYPH_NEXTEVICT", "type": "" } } },
+      "condition": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">", "left": { "kind": "call", "target": "len", "args": [{ "kind": "global", "name": "#CANVAS_GLYPH_COV", "type": "" }] }, "right": { "kind": "const", "type": "Integer", "value": "1048576" } }, "right": { "kind": "binary", "op": ">=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "global", "name": "#CANVAS_GLYPH_COV", "type": "" }] }, "right": { "kind": "global", "name": "#CANVAS_GLYPH_NEXTEVICT", "type": "" } } },
       "then": [
       { "op": "eval", "value": { "kind": "call", "target": "#canvas_glyphEvict", "args": [] } },
-      { "op": "storeGlobal", "name": "#CANVAS_GLYPH_NEXTEVICT", "type": "", "value": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "len", "args": [{ "kind": "global", "name": "#CANVAS_GLYPH_COV", "type": "" }] }, "right": { "kind": "binary", "op": "/", "left": { "kind": "call", "target": "#canvas_glyphBudget", "args": [] }, "right": { "kind": "const", "type": "Integer", "value": "2" } } } }
+      { "op": "storeGlobal", "name": "#CANVAS_GLYPH_NEXTEVICT", "type": "", "value": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "len", "args": [{ "kind": "global", "name": "#CANVAS_GLYPH_COV", "type": "" }] }, "right": { "kind": "const", "type": "Integer", "value": "524288" } } }
       ],
       "else": [
       ]
@@ -14620,76 +14556,11 @@
       "op": "if",
       "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "global", "name": "#CANVAS_GFX_READY", "type": "" } },
       "then": [
-      { "op": "eval", "value": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.setSyncMode", "args": [{ "kind": "binary", "op": ">", "left": { "kind": "call", "target": "len", "args": [{ "kind": "runtimeCall", "helper": "os", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_CANVAS_SYNC" }, { "kind": "const", "type": "String", "value": "" }] }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] } },
+      { "op": "eval", "value": { "kind": "call", "target": "#canvas_readSyncMode", "args": [] } },
       { "op": "eval", "value": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.setGpuMode", "args": [{ "kind": "call", "target": "#canvas_wantGpu", "args": [] }] } },
       { "op": "eval", "value": { "kind": "call", "target": "#canvas_readDisplayOverride", "args": [] } },
       { "op": "eval", "value": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.startGraphics", "args": [] } },
       { "op": "storeGlobal", "name": "#CANVAS_GFX_READY", "type": "", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
-      ],
-      "else": [
-      ]
-    }
-    ]
-  },
-  {
-    "name": "#canvas_readDisplayOverride",
-    "visibility": "public",
-    "kind": "func",
-    "isolated": false,
-    "file": "builtins/canvas.mfb",
-    "params": [
-    ],
-    "returns": "Nothing",
-    "body": [
-    {
-      "op": "if",
-      "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "global", "name": "#CANVAS_DISPLAY_OVERRIDE_READ", "type": "" } },
-      "then": [
-      { "op": "bind", "mutable": true, "name": "$trap_failed16", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-      { "op": "bind", "mutable": true, "name": "$trap_val15", "type": "Integer", "value": null },
-      { "op": "bind", "mutable": false, "name": "$trap_res13", "type": "Result OF String", "value": { "kind": "callResult", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_CANVAS_DISPLAY_HZ" }, { "kind": "const", "type": "String", "value": "0" }] } },
-      {
-        "op": "if",
-        "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res13" } },
-        "then": [
-        { "op": "bind", "mutable": false, "name": "$trap_arg12", "type": "String", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$trap_res13" } } },
-        { "op": "bind", "mutable": false, "name": "$trap_res14", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "toInt", "args": [{ "kind": "local", "name": "$trap_arg12" }] } },
-        {
-          "op": "if",
-          "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res14" } },
-          "then": [
-          { "op": "assign", "name": "$trap_val15", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$trap_res14" } } }
-          ],
-          "else": [
-          { "op": "assign", "name": "$trap_failed16", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
-          ]
-        }
-        ],
-        "else": [
-        { "op": "assign", "name": "$trap_failed16", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
-        ]
-      },
-      {
-        "op": "if",
-        "condition": { "kind": "local", "name": "$trap_failed16" },
-        "then": [
-        { "op": "assign", "name": "$trap_val15", "value": { "kind": "const", "type": "Integer", "value": "0" } }
-        ],
-        "else": [
-        ]
-      },
-      { "op": "bind", "mutable": true, "name": "hz", "type": "Integer", "value": { "kind": "local", "name": "$trap_val15" } },
-      {
-        "op": "if",
-        "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "hz" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "op": ">", "left": { "kind": "local", "name": "hz" }, "right": { "kind": "const", "type": "Integer", "value": "1000000" } } },
-        "then": [
-        { "op": "assign", "name": "hz", "value": { "kind": "const", "type": "Integer", "value": "0" } }
-        ],
-        "else": [
-        ]
-      },
-      { "op": "eval", "value": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.setDisplayOverride", "args": [{ "kind": "binary", "op": "*", "left": { "kind": "local", "name": "hz" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } }] } },
-      { "op": "storeGlobal", "name": "#CANVAS_DISPLAY_OVERRIDE_READ", "type": "", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
       ],
       "else": [
       ]
@@ -14718,25 +14589,7 @@
     },
     {
       "op": "if",
-      "condition": { "kind": "binary", "op": ">", "left": { "kind": "call", "target": "len", "args": [{ "kind": "runtimeCall", "helper": "os", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_MACAPP_HEADLESS" }, { "kind": "const", "type": "String", "value": "" }] }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "then": [
-      { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
-      ],
-      "else": [
-      ]
-    },
-    {
-      "op": "if",
-      "condition": { "kind": "binary", "op": ">", "left": { "kind": "call", "target": "len", "args": [{ "kind": "runtimeCall", "helper": "os", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_GTKAPP_HEADLESS" }, { "kind": "const", "type": "String", "value": "" }] }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "then": [
-      { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
-      ],
-      "else": [
-      ]
-    },
-    {
-      "op": "if",
-      "condition": { "kind": "binary", "op": ">", "left": { "kind": "call", "target": "len", "args": [{ "kind": "runtimeCall", "helper": "os", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_WINAPP_HEADLESS" }, { "kind": "const", "type": "String", "value": "" }] }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "condition": { "kind": "binary", "op": ">", "left": { "kind": "call", "target": "len", "args": [{ "kind": "runtimeCall", "helper": "os", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_HEADLESS" }, { "kind": "const", "type": "String", "value": "" }] }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
       { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
       ],
@@ -14744,6 +14597,43 @@
       ]
     },
     { "op": "return", "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+    ]
+  },
+  {
+    "name": "#canvas_readSyncMode",
+    "visibility": "public",
+    "kind": "func",
+    "isolated": false,
+    "file": "builtins/canvas.mfb",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.setSyncMode", "args": [{ "kind": "binary", "op": ">", "left": { "kind": "call", "target": "len", "args": [{ "kind": "runtimeCall", "helper": "os", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_CANVAS_SYNC" }, { "kind": "const", "type": "String", "value": "" }] }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] } }
+    ]
+  },
+  {
+    "name": "#canvas_readDisplayOverride",
+    "visibility": "public",
+    "kind": "func",
+    "isolated": false,
+    "file": "builtins/canvas.mfb",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  },
+  {
+    "name": "#canvas_frameHold",
+    "visibility": "public",
+    "kind": "func",
+    "isolated": false,
+    "file": "builtins/canvas.mfb",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
     ]
   },
   {
@@ -14874,16 +14764,7 @@
     { "op": "eval", "value": { "kind": "call", "target": "#canvas_phaseMark", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "bind", "mutable": false, "name": "draws", "type": "List OF Integer", "value": { "kind": "call", "target": "#canvas_sceneDraws", "args": [] } },
     { "op": "eval", "value": { "kind": "call", "target": "#canvas_phaseMark", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "bind", "mutable": false, "name": "holdMs", "type": "Integer", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "runtimeCall", "helper": "os", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_CANVAS_FRAME_HOLD_MS" }, { "kind": "const", "type": "String", "value": "0" }] }] } },
-    {
-      "op": "if",
-      "condition": { "kind": "binary", "op": ">", "left": { "kind": "local", "name": "holdMs" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
-      "then": [
-      { "op": "eval", "value": { "kind": "runtimeCall", "helper": "os", "target": "os.sleep", "args": [{ "kind": "local", "name": "holdMs" }] } }
-      ],
-      "else": [
-      ]
-    },
+    { "op": "eval", "value": { "kind": "call", "target": "#canvas_frameHold", "args": [] } },
     { "op": "bind", "mutable": false, "name": "hashes", "type": "List OF Integer", "value": { "kind": "global", "name": "#CANVAS_DRAW_HASHES", "type": "" } },
     { "op": "bind", "mutable": false, "name": "damage", "type": "List OF Integer", "value": { "kind": "call", "target": "#canvas_damageFor", "args": [{ "kind": "local", "name": "hashes" }, { "kind": "local", "name": "offsets" }, { "kind": "local", "name": "surfaceW" }, { "kind": "local", "name": "surfaceH" }] } },
     { "op": "storeGlobal", "name": "#CANVAS_DAMAGE", "type": "", "value": { "kind": "local", "name": "damage" } },
@@ -15104,7 +14985,7 @@
     { "op": "eval", "value": { "kind": "call", "target": "#canvas_enterGroupMatrix", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] } },
     {
       "op": "if",
-      "condition": { "kind": "call", "target": "#canvas_damageEnabled", "args": [] },
+      "condition": { "kind": "const", "type": "Boolean", "value": "false" },
       "then": [
       { "op": "storeGlobal", "name": "#CANVAS_KEPT", "type": "", "value": { "kind": "local", "name": "buffer" } },
       { "op": "storeGlobal", "name": "#CANVAS_KEPT_W", "type": "", "value": { "kind": "local", "name": "width" } },
@@ -15240,16 +15121,16 @@
     "returns": "List OF Integer",
     "body": [
     { "op": "bind", "mutable": true, "name": "out", "type": "List OF Integer", "value": { "kind": "local", "name": "offsets" } },
-    { "op": "bind", "mutable": false, "name": "$match17", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
+    { "op": "bind", "mutable": false, "name": "$match12", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "$match17" },
+      "value": { "kind": "local", "name": "$match12" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Group" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match17" } } },
+        { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match12" } } },
         {
           "op": "if",
           "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "depth" }, "right": { "kind": "const", "type": "Integer", "value": "64" } },
@@ -15291,7 +15172,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.AutoPaint" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "a", "type": "canvas.AutoPaint", "value": { "kind": "unionExtract", "type": "canvas.AutoPaint", "value": { "kind": "local", "name": "$match17" } } },
+        { "op": "bind", "mutable": false, "name": "a", "type": "canvas.AutoPaint", "value": { "kind": "unionExtract", "type": "canvas.AutoPaint", "value": { "kind": "local", "name": "$match12" } } },
         { "op": "return", "value": { "kind": "call", "target": "#canvas_autoAppend", "args": [{ "kind": "local", "name": "out" }, { "kind": "local", "name": "a" }, { "kind": "local", "name": "hash" }, { "kind": "local", "name": "gdx" }, { "kind": "local", "name": "gdy" }, { "kind": "local", "name": "mat" }, { "kind": "local", "name": "depth" }, { "kind": "local", "name": "path" }, { "kind": "local", "name": "index" }] } }
         ]
       },
@@ -15299,7 +15180,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Picture" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "pic", "type": "canvas.Picture", "value": { "kind": "unionExtract", "type": "canvas.Picture", "value": { "kind": "local", "name": "$match17" } } },
+        { "op": "bind", "mutable": false, "name": "pic", "type": "canvas.Picture", "value": { "kind": "unionExtract", "type": "canvas.Picture", "value": { "kind": "local", "name": "$match12" } } },
         { "op": "return", "value": { "kind": "call", "target": "#canvas_pictureAppend", "args": [{ "kind": "local", "name": "out" }, { "kind": "local", "name": "pic" }, { "kind": "local", "name": "hash" }, { "kind": "local", "name": "gdx" }, { "kind": "local", "name": "gdy" }, { "kind": "local", "name": "mat" }, { "kind": "local", "name": "depth" }, { "kind": "local", "name": "path" }, { "kind": "local", "name": "index" }] } }
         ]
       },
@@ -15391,7 +15272,7 @@
             "op": "if",
             "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "depth" }, "right": { "kind": "const", "type": "Integer", "value": "64" } },
             "then": [
-            { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050024" }, { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "canvas group nesting exceeded " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "const", "type": "Integer", "value": "64" }] } }, "right": { "kind": "const", "type": "String", "value": " levels -- this is a cycle or a bug" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "7853" }, { "kind": "const", "type": "Integer", "value": "16" }] }] } }
+            { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050024" }, { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "canvas group nesting exceeded " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "const", "type": "Integer", "value": "64" }] } }, "right": { "kind": "const", "type": "String", "value": " levels -- this is a cycle or a bug" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "7806" }, { "kind": "const", "type": "Integer", "value": "16" }] }] } }
             ],
             "else": [
             ]
@@ -16008,16 +15889,16 @@
           "op": "if",
           "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "itemOffset" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
           "then": [
-          { "op": "bind", "mutable": false, "name": "$match21", "type": "canvas.DrawItem", "value": { "kind": "call", "target": "collections.getOr", "args": [{ "kind": "global", "name": "#CANVAS_FRAME_ITEMS", "type": "" }, { "kind": "local", "name": "index" }, { "kind": "local", "name": "none" }] } },
+          { "op": "bind", "mutable": false, "name": "$match16", "type": "canvas.DrawItem", "value": { "kind": "call", "target": "collections.getOr", "args": [{ "kind": "global", "name": "#CANVAS_FRAME_ITEMS", "type": "" }, { "kind": "local", "name": "index" }, { "kind": "local", "name": "none" }] } },
           {
             "op": "match",
-            "value": { "kind": "local", "name": "$match21" },
+            "value": { "kind": "local", "name": "$match16" },
             "cases": [
             {
               "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Group" } },
               "guard": null,
               "body": [
-              { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match21" } } },
+              { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match16" } } },
               { "op": "eval", "value": { "kind": "call", "target": "#canvas_pushDraw", "args": [{ "kind": "local", "name": "runBase" }, { "kind": "local", "name": "runCount" }, { "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
               { "op": "assign", "name": "runCount", "value": { "kind": "const", "type": "Integer", "value": "0" } },
               { "op": "bind", "mutable": false, "name": "topMat", "type": "Integer", "value": { "kind": "call", "target": "#canvas_composeGroup", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "g" }, "member": "position" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "g" }, "member": "transform" }] } },
@@ -16466,7 +16347,7 @@
     },
     {
       "op": "if",
-      "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "call", "target": "#canvas_damageEnabled", "args": [] } },
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
       "then": [
       {
         "op": "if",
@@ -16487,7 +16368,7 @@
     { "op": "eval", "value": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.metalDrawScene", "args": [{ "kind": "local", "name": "buffer" }, { "kind": "local", "name": "width" }, { "kind": "local", "name": "height" }, { "kind": "global", "name": "#CANVAS_GEO_DATA", "type": "" }, { "kind": "global", "name": "#CANVAS_DRAW_BLOCKS", "type": "" }, { "kind": "global", "name": "#CANVAS_GLYPH_META", "type": "" }, { "kind": "global", "name": "#CANVAS_GLYPH_COV", "type": "" }, { "kind": "global", "name": "#CANVAS_DRAWS", "type": "" }] } },
     {
       "op": "if",
-      "condition": { "kind": "call", "target": "#canvas_damageEnabled", "args": [] },
+      "condition": { "kind": "const", "type": "Boolean", "value": "false" },
       "then": [
       { "op": "storeGlobal", "name": "#CANVAS_KEPT", "type": "", "value": { "kind": "local", "name": "buffer" } },
       { "op": "storeGlobal", "name": "#CANVAS_KEPT_W", "type": "", "value": { "kind": "local", "name": "width" } },
@@ -16709,7 +16590,7 @@
     },
     {
       "op": "if",
-      "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "call", "target": "#canvas_damageEnabled", "args": [] } },
+      "condition": { "kind": "const", "type": "Boolean", "value": "true" },
       "then": [
       {
         "op": "if",
@@ -16730,7 +16611,7 @@
     { "op": "eval", "value": { "kind": "runtimeCall", "helper": "canvas", "target": "canvas.vulkanDrawScene", "args": [{ "kind": "local", "name": "buffer" }, { "kind": "local", "name": "width" }, { "kind": "local", "name": "height" }, { "kind": "global", "name": "#CANVAS_GEO_DATA", "type": "" }, { "kind": "global", "name": "#CANVAS_DRAW_BLOCKS", "type": "" }, { "kind": "global", "name": "#CANVAS_GLYPH_META", "type": "" }, { "kind": "global", "name": "#CANVAS_GLYPH_COV", "type": "" }, { "kind": "global", "name": "#CANVAS_DRAWS", "type": "" }] } },
     {
       "op": "if",
-      "condition": { "kind": "call", "target": "#canvas_damageEnabled", "args": [] },
+      "condition": { "kind": "const", "type": "Boolean", "value": "false" },
       "then": [
       { "op": "storeGlobal", "name": "#CANVAS_KEPT", "type": "", "value": { "kind": "local", "name": "buffer" } },
       { "op": "storeGlobal", "name": "#CANVAS_KEPT_W", "type": "", "value": { "kind": "local", "name": "width" } },
@@ -17440,7 +17321,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "<", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "size" }] }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050023" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "not an image this build can decode: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9114" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050023" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "not an image this build can decode: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9067" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -17450,7 +17331,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "pixels" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050023" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "image file is malformed: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9118" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050023" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "image file is malformed: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9071" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -17480,7 +17361,7 @@
         "op": "if",
         "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "faces" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
         "then": [
-        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "font collection holds no faces: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9131" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "font collection holds no faces: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9084" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ],
         "else": [
         ]
@@ -17511,7 +17392,7 @@
       "op": "if",
       "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "call", "target": "#canvas_isTrueType", "args": [{ "kind": "local", "name": "face" }] } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "not a TrueType font: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9144" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "not a TrueType font: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9097" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -17526,7 +17407,7 @@
         "op": "if",
         "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "upem" }, "right": { "kind": "const", "type": "Integer", "value": "16" } }, "right": { "kind": "binary", "op": ">", "left": { "kind": "local", "name": "upem" }, "right": { "kind": "const", "type": "Integer", "value": "16384" } } },
         "then": [
-        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "font unitsPerEm is outside 16..16384: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9155" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050022" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "font unitsPerEm is outside 16..16384: " }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9108" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ],
         "else": [
         ]
@@ -17577,7 +17458,7 @@
       }
       ]
     },
-    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "no face named " }, "right": { "kind": "local", "name": "face" } }, "right": { "kind": "const", "type": "String", "value": " in " } }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9171" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "no face named " }, "right": { "kind": "local", "name": "face" } }, "right": { "kind": "const", "type": "String", "value": " in " } }, "right": { "kind": "local", "name": "path" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9124" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
     ]
   },
   {
@@ -17657,7 +17538,7 @@
       "op": "if",
       "condition": { "kind": "unary", "op": "NOT", "operand": { "kind": "local", "name": "found" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "no system font named: " }, "right": { "kind": "local", "name": "name" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9209" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "no system font named: " }, "right": { "kind": "local", "name": "name" } }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/canvas.mfb" }, { "kind": "const", "type": "Integer", "value": "9162" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -22031,16 +21912,16 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match28", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
+    { "op": "bind", "mutable": false, "name": "$match23", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "$match28" },
+      "value": { "kind": "local", "name": "$match23" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Rectangle" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "r", "type": "canvas.Rectangle", "value": { "kind": "unionExtract", "type": "canvas.Rectangle", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "r", "type": "canvas.Rectangle", "value": { "kind": "unionExtract", "type": "canvas.Rectangle", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "id" } }
         ]
       },
@@ -22048,7 +21929,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Circle" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "c", "type": "canvas.Circle", "value": { "kind": "unionExtract", "type": "canvas.Circle", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "c", "type": "canvas.Circle", "value": { "kind": "unionExtract", "type": "canvas.Circle", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "c" }, "member": "id" } }
         ]
       },
@@ -22056,7 +21937,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Line" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "l", "type": "canvas.Line", "value": { "kind": "unionExtract", "type": "canvas.Line", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "l", "type": "canvas.Line", "value": { "kind": "unionExtract", "type": "canvas.Line", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "l" }, "member": "id" } }
         ]
       },
@@ -22064,7 +21945,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Arc" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "a", "type": "canvas.Arc", "value": { "kind": "unionExtract", "type": "canvas.Arc", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "a", "type": "canvas.Arc", "value": { "kind": "unionExtract", "type": "canvas.Arc", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "a" }, "member": "id" } }
         ]
       },
@@ -22072,7 +21953,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Polygon" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "p", "type": "canvas.Polygon", "value": { "kind": "unionExtract", "type": "canvas.Polygon", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "p", "type": "canvas.Polygon", "value": { "kind": "unionExtract", "type": "canvas.Polygon", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "p" }, "member": "id" } }
         ]
       },
@@ -22080,7 +21961,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Text" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "t", "type": "canvas.Text", "value": { "kind": "unionExtract", "type": "canvas.Text", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "t", "type": "canvas.Text", "value": { "kind": "unionExtract", "type": "canvas.Text", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "id" } }
         ]
       },
@@ -22088,7 +21969,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Ellipse" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "e", "type": "canvas.Ellipse", "value": { "kind": "unionExtract", "type": "canvas.Ellipse", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "e", "type": "canvas.Ellipse", "value": { "kind": "unionExtract", "type": "canvas.Ellipse", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "id" } }
         ]
       },
@@ -22096,7 +21977,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Group" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "g" }, "member": "id" } }
         ]
       },
@@ -22104,7 +21985,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Picture" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "pic", "type": "canvas.Picture", "value": { "kind": "unionExtract", "type": "canvas.Picture", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "pic", "type": "canvas.Picture", "value": { "kind": "unionExtract", "type": "canvas.Picture", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "pic" }, "member": "id" } }
         ]
       },
@@ -22112,7 +21993,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.PolyLine" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "pl", "type": "canvas.PolyLine", "value": { "kind": "unionExtract", "type": "canvas.PolyLine", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "pl", "type": "canvas.PolyLine", "value": { "kind": "unionExtract", "type": "canvas.PolyLine", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "pl" }, "member": "id" } }
         ]
       },
@@ -22120,7 +22001,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.PolyCurve" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "pc", "type": "canvas.PolyCurve", "value": { "kind": "unionExtract", "type": "canvas.PolyCurve", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "pc", "type": "canvas.PolyCurve", "value": { "kind": "unionExtract", "type": "canvas.PolyCurve", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "pc" }, "member": "id" } }
         ]
       },
@@ -22128,7 +22009,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.CurvePolygon" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "cp", "type": "canvas.CurvePolygon", "value": { "kind": "unionExtract", "type": "canvas.CurvePolygon", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "cp", "type": "canvas.CurvePolygon", "value": { "kind": "unionExtract", "type": "canvas.CurvePolygon", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "cp" }, "member": "id" } }
         ]
       },
@@ -22136,7 +22017,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.AutoPaint" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "a", "type": "canvas.AutoPaint", "value": { "kind": "unionExtract", "type": "canvas.AutoPaint", "value": { "kind": "local", "name": "$match28" } } },
+        { "op": "bind", "mutable": false, "name": "a", "type": "canvas.AutoPaint", "value": { "kind": "unionExtract", "type": "canvas.AutoPaint", "value": { "kind": "local", "name": "$match23" } } },
         { "op": "return", "value": { "kind": "call", "target": "#canvas_itemId", "args": [{ "kind": "call", "target": "#canvas_autoItem", "args": [{ "kind": "local", "name": "a" }] }] } }
         ]
       }
@@ -22287,16 +22168,16 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match29", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
+    { "op": "bind", "mutable": false, "name": "$match24", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "$match29" },
+      "value": { "kind": "local", "name": "$match24" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Text" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "t", "type": "canvas.Text", "value": { "kind": "unionExtract", "type": "canvas.Text", "value": { "kind": "local", "name": "$match29" } } },
+        { "op": "bind", "mutable": false, "name": "t", "type": "canvas.Text", "value": { "kind": "unionExtract", "type": "canvas.Text", "value": { "kind": "local", "name": "$match24" } } },
         { "op": "bind", "mutable": false, "name": "found", "type": "Integer", "value": { "kind": "call", "target": "#canvas_hitCached", "args": [{ "kind": "local", "name": "hash" }] } },
         {
           "op": "if",
@@ -22317,7 +22198,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.AutoPaint" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "a", "type": "canvas.AutoPaint", "value": { "kind": "unionExtract", "type": "canvas.AutoPaint", "value": { "kind": "local", "name": "$match29" } } },
+        { "op": "bind", "mutable": false, "name": "a", "type": "canvas.AutoPaint", "value": { "kind": "unionExtract", "type": "canvas.AutoPaint", "value": { "kind": "local", "name": "$match24" } } },
         { "op": "return", "value": { "kind": "call", "target": "#canvas_hitGeometry", "args": [{ "kind": "call", "target": "#canvas_autoItem", "args": [{ "kind": "local", "name": "a" }] }, { "kind": "local", "name": "hash" }] } }
         ]
       },
@@ -22348,16 +22229,16 @@
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match30", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
+    { "op": "bind", "mutable": false, "name": "$match25", "type": "canvas.DrawItem", "value": { "kind": "local", "name": "item" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "$match30" },
+      "value": { "kind": "local", "name": "$match25" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Group" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match30" } } },
+        { "op": "bind", "mutable": false, "name": "g", "type": "canvas.Group", "value": { "kind": "unionExtract", "type": "canvas.Group", "value": { "kind": "local", "name": "$match25" } } },
         {
           "op": "if",
           "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "depth" }, "right": { "kind": "const", "type": "Integer", "value": "64" } },
@@ -22395,7 +22276,7 @@
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "canvas.Picture" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "pic", "type": "canvas.Picture", "value": { "kind": "unionExtract", "type": "canvas.Picture", "value": { "kind": "local", "name": "$match30" } } },
+        { "op": "bind", "mutable": false, "name": "pic", "type": "canvas.Picture", "value": { "kind": "unionExtract", "type": "canvas.Picture", "value": { "kind": "local", "name": "$match25" } } },
         { "op": "eval", "value": { "kind": "call", "target": "#canvas_hitAppend", "args": [{ "kind": "call", "target": "#canvas_pictureHitItem", "args": [{ "kind": "local", "name": "pic" }] }, { "kind": "local", "name": "gdx" }, { "kind": "local", "name": "gdy" }, { "kind": "local", "name": "mat" }, { "kind": "local", "name": "depth" }, { "kind": "call", "target": "#canvas_joinId", "args": [{ "kind": "local", "name": "path" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "pic" }, "member": "id" }] }] } }
         ]
       },
@@ -25105,10 +24986,10 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match32", "type": "encoding.Codepage", "value": { "kind": "local", "name": "codepage" } },
+    { "op": "bind", "mutable": false, "name": "$match27", "type": "encoding.Codepage", "value": { "kind": "local", "name": "codepage" } },
     {
       "op": "match",
-      "value": { "kind": "local", "name": "$match32" },
+      "value": { "kind": "local", "name": "$match27" },
       "cases": [
       {
         "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "encoding.Codepage" }, "member": "Utf8" } },

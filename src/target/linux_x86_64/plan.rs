@@ -91,6 +91,17 @@ impl NativePlanPlatform for Platform {
         })
     }
 
+    fn debug_app_mode_imports(&self, uses_canvas: bool) -> Vec<PlatformImport> {
+        let common = self.common();
+        crate::target::linux_gtk::debug_app_mode_imports(
+            crate::target::linux_gtk::AppLibcNames {
+                libc: common.libc(),
+                libpthread: common.libpthread(),
+            },
+            uses_canvas,
+        )
+    }
+
     fn app_mode_imports(&self, uses_mouse: bool, uses_canvas: bool) -> Vec<PlatformImport> {
         // Shared with the sibling Linux backend
         // (src/target/linux_gtk/mod.rs::app_mode_imports). The C-library

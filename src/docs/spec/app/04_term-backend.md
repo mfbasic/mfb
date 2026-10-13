@@ -352,7 +352,8 @@ doubles before dividing.
 ### Testing without a mouse
 
 `MFB_MOUSE_INJECT` carries raw SGR bytes that `enableMouse(TRUE)` feeds through
-the decoder. It is a test affordance, in the same spirit as `MFB_WINAPP_INPUT`:
+the decoder. It is a test affordance, in the same spirit as `MFB_WINAPP_INPUT`, read
+by every build on a POSIX target (`./mfb spec tooling debug-report`):
 it exercises the real parser rather than bypassing it, which is what makes the
 decoder and the ring provable on a machine with no mouse and over ssh.
 [[src/codegen/error/constants/error_constants.rs:MOUSE_INJECT_ENV]]
@@ -1024,8 +1025,8 @@ size.
 
 **A headless run has no window**, so its surface starts at `TUI_HEADLESS_COLS` ×
 `TUI_HEADLESS_ROWS` (80×25, the globals' initial data), and the only resize it can
-see is the scripted one: `MFB_WINAPP_TERM_RESIZE_W`/`_H` (owner-approved
-2026-09-25, the twin of `MFB_CANVAS_RESIZE_W`/`_H`) give a client size in pixels,
+see is the scripted one: `MFB_WINAPP_TERM_RESIZE_W`/`_H` (read only by a `--debug` build; the twin of
+`MFB_CANVAS_RESIZE_W`/`_H`) give a client size in pixels,
 and `_main` hands them to the same `emit_term_resize` once `term::on` has built
 the surface — polling with `WaitForSingleObject(worker, 20)` so a program that
 never enters TUI mode ends the wait by exiting. This is what

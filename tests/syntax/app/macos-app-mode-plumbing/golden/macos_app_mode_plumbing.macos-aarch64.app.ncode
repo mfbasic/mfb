@@ -101,7 +101,7 @@
   { "symbol": "_mfb_macapp_sel_activateIgnoringOtherApps", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 27, "value": "616374697661746549676e6f72696e674f74686572417070733a00" },
   { "symbol": "_mfb_macapp_sel_run", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 4, "value": "72756e00" },
   { "symbol": "_mfb_macapp_str_title", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 12, "value": "4d4642415349432041707000" },
-  { "symbol": "_mfb_macapp_str_headless", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 20, "value": "4d46425f4d41434150505f484541444c45535300" },
+  { "symbol": "_mfb_macapp_str_headless", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 13, "value": "4d46425f484541444c45535300" },
   { "symbol": "_mfb_macapp_sel_contentView", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 12, "value": "636f6e74656e745669657700" },
   { "symbol": "_mfb_macapp_sel_initWithFrame", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 15, "value": "696e6974576974684672616d653a00" },
   { "symbol": "_mfb_macapp_sel_setEditable", "kind": "raw", "layout": "C string (NUL-terminated)", "align": 1, "size": 13, "value": "7365744564697461626c653a00" },

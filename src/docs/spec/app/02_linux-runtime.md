@@ -94,6 +94,13 @@ GLib/GObject type system GTK requires — then calls `main`. It never returns
    platform-data is valid UTF-8. The loop owns the process until the window closes.
 5. returns 0 → `__libc_start_main` calls `exit(0)`.
 
+Before step 2, `getenv("MFB_HEADLESS")` is read in every build: when it is set, the
+bootstrap skips GTK and the window, spawns the program thread directly and parks
+the main thread. A `--debug` build of a canvas program also reads
+`MFB_CANVAS_RESIZE_W`/`_H` and `MFB_CANVAS_POINTER_X`/`_Y` on that headless path
+(`./mfb spec tooling debug-report`); the build adds the `atoi` and `usleep` imports
+only for `--debug`. [[src/target/linux_gtk/mod.rs:debug_app_mode_imports]]
+
 [[src/target/linux_gtk/bootstrap.rs:emit_main_bootstrap]]
 
 ## `activate`: window, widgets, pipe, worker
@@ -365,8 +372,13 @@ macOS app runtime:
   attached, `_exit(code)`s, so the app closes when its program does. Only a
   `--debug` build (`AppEntrySpec.debug_hooks`) takes the GUI path: it appends
   `Program exited with code N` and parks the worker in `pause()`, which keeps the
-  window open until the user closes it.
+  window open until the user closes it. With `MFB_TRANSCRIPT_DUMP` set in a
+  windowed `--debug` run, it instead schedules `_mfb_gtkapp_transcript_dump_idle`
+  with `g_idle_add`; that callback reads the buffer with `gtk_text_buffer_get_bounds`
+  and `gtk_text_buffer_get_text`, writes the text as UTF-8 to fd 1 and calls
+  `_exit(code)` (`./mfb spec tooling debug-report`).
   [[src/target/linux_gtk/bootstrap.rs:emit_finish_helper]]
+  [[src/target/linux_gtk/bootstrap.rs:emit_transcript_dump_idle_helper]]
 - **`io::printError` styling.** stderr runs *are* prefixed with `"[stderr] "`
   (`STR_STDERR_PREFIX`) in the transcript chunk; no distinct `GtkTextTag` styling
   is applied.

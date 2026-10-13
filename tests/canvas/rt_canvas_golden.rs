@@ -108,9 +108,7 @@ fn render_inner(name: &str, source: &str, font: bool, extra: &[(&str, &str)]) ->
         // from the repository root instead would resolve the relative path against
         // cargo's cwd, where the fixture is not.
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         // Wait for the frame this scene asked for. Without it `present` returns at
         // once and `main` returns behind it, and the process tears down while the
         // graphics thread is still reading the scene: the geometry survives (the ring

@@ -343,9 +343,7 @@ fn app_build_os_args_without_a_main_parameter() {
     let exe = common::build_app(&project, name);
     let run = Command::new(&exe)
         .args(["one", "two"])
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .output()
         .expect("run the app build");
     let stdout = String::from_utf8_lossy(&run.stdout).into_owned();

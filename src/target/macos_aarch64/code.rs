@@ -190,10 +190,9 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         uses_canvas: bool,
     ) -> Vec<CodeDataObject> {
         // The AppKit bootstrap's strings are all class/selector names and fixed
-        // markers; the bundle carries the per-project identity in `Info.plist`. It has
-        // no reporting hook of its own.
-        let _ = (project_name, debug_hooks);
-        app::app_mode_data_objects(uses_mouse, uses_canvas)
+        // markers; the bundle carries the per-project identity in `Info.plist`.
+        let _ = project_name;
+        app::app_mode_data_objects(debug_hooks, uses_mouse, uses_canvas)
     }
 
     fn app_mode_reconcile_data_objects(&self) -> Vec<CodeDataObject> {

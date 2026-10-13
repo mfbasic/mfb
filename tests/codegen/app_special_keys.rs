@@ -54,7 +54,7 @@
 mod common;
 
 use common::ncode_emu::{data_cstr, find_calls, CallSite, Externals, Machine, Sym};
-use common::{build_ncode_app, temp_project};
+use common::{build_ncode_app_with, temp_project};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -124,15 +124,22 @@ fn ncode_for(target: &'static str) -> &'static Value {
 }
 
 fn ncode_of(target: &'static str, program: &'static str) -> &'static Value {
-    type Cache = Mutex<HashMap<(&'static str, &'static str), &'static Value>>;
+    ncode_of_build(target, program, false)
+}
+
+/// [`ncode_of`] for a normal build or (`debug`) a `--debug` one, which is the only
+/// build that carries the test hooks.
+fn ncode_of_build(target: &'static str, program: &'static str, debug: bool) -> &'static Value {
+    type Cache = Mutex<HashMap<(&'static str, &'static str, bool), &'static Value>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut cache = cache
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    cache.entry((target, program)).or_insert_with(|| {
+    cache.entry((target, program, debug)).or_insert_with(|| {
         let project = temp_project("app_special_keys", program);
-        let ncode = build_ncode_app(&project, target, "app_special_keys");
+        let extra: &[&str] = if debug { &["--debug"] } else { &[] };
+        let ncode = build_ncode_app_with(&project, target, "app_special_keys", extra);
         let _ = std::fs::remove_dir_all(&project);
         Box::leak(Box::new(ncode))
     })
@@ -1383,9 +1390,10 @@ impl Externals for WinMainModel {
 }
 
 /// Run a Console-start program's `_main` to its message loop and return the
-/// `WM_CHAR`s it posted, as characters.
-fn win_main_posted_chars(env: &[(&str, &str)]) -> Vec<u64> {
-    let ncode = ncode_of("windows-x86_64", CONSOLE_PROGRAM);
+/// `WM_CHAR`s it posted, as characters. `debug` picks the `--debug` build, the only
+/// one that carries the `MFB_WINAPP_INPUT` hook.
+fn win_main_posted_chars(debug: bool, env: &[(&str, &str)]) -> Vec<u64> {
+    let ncode = ncode_of_build("windows-x86_64", CONSOLE_PROGRAM, debug);
     let mut machine = Machine::new(ncode);
     let mut model = WinMainModel {
         env: env
@@ -1415,14 +1423,25 @@ fn win_main_posted_chars(env: &[(&str, &str)]) -> Vec<u64> {
 /// nowhere — which is why only the Console start showed it.)
 #[test]
 fn windows_main_posts_no_keystrokes_when_mfb_winapp_input_is_unset() {
-    assert_eq!(win_main_posted_chars(&[]), Vec::<u64>::new());
+    assert_eq!(win_main_posted_chars(true, &[]), Vec::<u64>::new());
+    assert_eq!(win_main_posted_chars(false, &[]), Vec::<u64>::new());
+}
+
+/// `MFB_WINAPP_INPUT` is a `--debug` build's hook: a normal build has no reader, so
+/// setting the variable posts nothing.
+#[test]
+fn windows_main_ignores_mfb_winapp_input_in_a_normal_build() {
+    assert_eq!(
+        win_main_posted_chars(false, &[("MFB_WINAPP_INPUT", "ab")]),
+        Vec::<u64>::new()
+    );
 }
 
 #[test]
 fn windows_main_posts_mfb_winapp_input_then_enter() {
     // The affordance's own contract: each character, then a final Enter.
     assert_eq!(
-        win_main_posted_chars(&[("MFB_WINAPP_INPUT", "ab")]),
+        win_main_posted_chars(true, &[("MFB_WINAPP_INPUT", "ab")]),
         vec![u64::from(b'a'), u64::from(b'b'), 13]
     );
 }

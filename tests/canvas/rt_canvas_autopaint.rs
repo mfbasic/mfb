@@ -124,9 +124,7 @@ fn run(built: &Built, sync: bool, envs: &[(&str, &str)]) -> Ran {
     let mut command = Command::new(&built.binary);
     command
         .current_dir(&built.project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_STATS", &stats_path)
         .env("MFB_CANVAS_DUMP", &frame_path);
     if sync {

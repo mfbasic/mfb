@@ -70,6 +70,13 @@ const DELETE_LAST_CHAR_SYMBOL: &str = "_mfb_gtkapp_delete_last_char";
 const APPEND_IDLE_SYMBOL: &str = "_mfb_gtkapp_append_idle";
 /// Worker program-completion handler (referenced by `emit_program_exit`).
 pub(crate) const FINISH_SYMBOL: &str = "_mfb_gtkapp_finish";
+/// `gboolean _mfb_gtkapp_transcript_dump_idle(gpointer code)`: a `--debug` build's
+/// `MFB_TRANSCRIPT_DUMP` readback, scheduled on the main loop by the finish helper.
+const TRANSCRIPT_DUMP_IDLE_SYMBOL: &str = "_mfb_gtkapp_transcript_dump_idle";
+/// The name of the variable that asks a `--debug` build to write the window
+/// transcript to stdout when the program finishes.
+const STR_TRANSCRIPT_DUMP_ENV: (&str, &str) =
+    ("_mfb_gtkapp_str_transcript_dump", "MFB_TRANSCRIPT_DUMP");
 /// plan-62-D Phase 2: the GLib main-loop idle callback the worker's `setMode`
 /// schedules (via `g_idle_add`) to build or tear down the transcript window to
 /// match the new presentation mode.
@@ -115,10 +122,9 @@ const STR_ENTER_MONITOR: (&str, &str) = ("_mfb_gtkapp_str_enter_monitor", "enter
 /// and the window-input pipe fds live here so every helper can reach them without
 /// register preservation (plan-05-linux-app.md §6.2).
 const STATE_SYMBOL: &str = "_mfb_gtkapp_state";
-/// plan-98-F: the headless gate's environment variable, the Linux twin of
-/// `MFB_MACAPP_HEADLESS` / `MFB_WINAPP_HEADLESS`.
-pub(super) const STR_HEADLESS_ENV: (&str, &str) =
-    ("_mfb_gtkapp_str_headless", "MFB_GTKAPP_HEADLESS");
+/// plan-98-F: the headless gate's environment variable, the one every app backend
+/// reads.
+pub(super) const STR_HEADLESS_ENV: (&str, &str) = ("_mfb_gtkapp_str_headless", "MFB_HEADLESS");
 
 const ST_APPLICATION: usize = 0;
 const ST_WINDOW: usize = 8;
@@ -606,7 +612,7 @@ pub(crate) fn emit_app_program_entry(
 ) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
         emit_libc_start_trampoline()?,
-        emit_main_bootstrap(spec.uses_canvas)?,
+        emit_main_bootstrap(spec.uses_canvas, spec.debug_hooks)?,
         emit_activate_handler(spec.initial_mode, spec.uses_mouse, spec.uses_window)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
@@ -618,6 +624,11 @@ pub(crate) fn emit_app_program_entry(
         emit_append_helper()?,
         emit_delete_last_char_helper()?,
         emit_append_idle_helper()?,
+    ];
+    if spec.debug_hooks {
+        functions.push(emit_transcript_dump_idle_helper()?);
+    }
+    functions.extend([
         // term:: TUI surface support (plan-01-term.md §6.3).
         emit_term_draw_helper()?,
         emit_term_show_idle_helper()?,
@@ -627,7 +638,7 @@ pub(crate) fn emit_app_program_entry(
         emit_term_scroll_helper()?,
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
-    ];
+    ]);
     // plan-94-D: the three mouse controllers' callbacks. Emitted only for a
     // program that uses the mouse members — each loads `_mfb_rt_mouse_mode`,
     // which is itself emitted only then, so emitting them unconditionally would
@@ -720,7 +731,7 @@ pub(crate) fn emit_app_program_entry_x86(
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
-        emit_main_bootstrap(spec.uses_canvas)?,
+        emit_main_bootstrap(spec.uses_canvas, spec.debug_hooks)?,
         emit_activate_handler(spec.initial_mode, spec.uses_mouse, spec.uses_window)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
@@ -732,6 +743,11 @@ pub(crate) fn emit_app_program_entry_x86(
         emit_append_helper()?,
         emit_delete_last_char_helper()?,
         emit_append_idle_helper()?,
+    ];
+    if spec.debug_hooks {
+        functions.push(emit_transcript_dump_idle_helper()?);
+    }
+    functions.extend([
         emit_term_draw_helper()?,
         emit_term_show_idle_helper()?,
         emit_term_hide_idle_helper()?,
@@ -740,7 +756,7 @@ pub(crate) fn emit_app_program_entry_x86(
         emit_term_scroll_helper()?,
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
-    ];
+    ]);
     // plan-94-D: the three mouse controllers' callbacks. Emitted only for a
     // program that uses the mouse members — each loads `_mfb_rt_mouse_mode`,
     // which is itself emitted only then, so emitting them unconditionally would
@@ -1013,6 +1029,36 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
 /// imported function; `__libc_start_main` runs the C runtime init before the
 /// real `main`; pthread spawns the language worker; the pipe primitives feed
 /// window input to the reused fd-0 console readers.
+/// The imports a `--debug` build's test hooks call, which nothing else declares: the
+/// transcript readback's, and (plan-98-F Phase 2, plan-172-J) `atoi` and `usleep` for
+/// the headless scripted resize and pointer, which parse their numbers and wait for
+/// the first frame. Only a canvas program carries those two hooks.
+pub(crate) fn debug_app_mode_imports(
+    libc_names: AppLibcNames,
+    uses_canvas: bool,
+) -> Vec<crate::target::shared::plan::PlatformImport> {
+    // The transcript readback (`MFB_TRANSCRIPT_DUMP`): the buffer's whole text, and
+    // its length for the `write`.
+    let mut imports = vec![
+        (GTK, "gtk_text_buffer_get_bounds"),
+        (GTK, "gtk_text_buffer_get_text"),
+        (libc_names.libc, "strlen"),
+    ];
+    if uses_canvas {
+        imports.extend([(libc_names.libc, "atoi"), (libc_names.libc, "usleep")]);
+    }
+    imports
+        .iter()
+        .map(
+            |(library, symbol)| crate::target::shared::plan::PlatformImport {
+                library: (*library).to_string(),
+                symbol: (*symbol).to_string(),
+                required_by: "_main".to_string(),
+            },
+        )
+        .collect()
+}
+
 pub(crate) fn app_mode_imports(
     libc_names: AppLibcNames,
     uses_mouse: bool,
@@ -1194,12 +1240,6 @@ pub(crate) fn app_mode_imports(
         (libc, "memset"),
         (libc, "memmove"),
         (libc, "pause"),
-        // plan-98-F Phase 2: the headless scripted resize parses its two dimensions
-        // and waits for the first frame before publishing them. Declared with the
-        // rest of the app's libc set rather than per-call: this whole table is the
-        // app bootstrap's, and it is emitted for every GTK program.
-        (libc, "atoi"),
-        (libc, "usleep"),
         // The finish helper's hard-exit fallback. The x86-64 console exit is a
         // raw `exit_group` syscall, so unlike aarch64 nothing else declares it.
         (libc, "_exit"),
@@ -1231,6 +1271,7 @@ pub(crate) fn app_mode_imports(
 /// arrived at the hard way.
 pub(crate) fn app_mode_data_objects(
     project_name: &str,
+    debug_hooks: bool,
     uses_mouse: bool,
     uses_canvas: bool,
 ) -> Vec<CodeDataObject> {
@@ -1247,8 +1288,6 @@ pub(crate) fn app_mode_data_objects(
         STR_RESIZE,
         // plan-155-A: the surface signal the display rate is republished on.
         STR_ENTER_MONITOR,
-        STR_RESIZE_W_ENV,
-        STR_RESIZE_H_ENV,
         STR_EXIT_PREFIX,
         STR_STDERR_PREFIX,
         STR_MONO_DESC,
@@ -1293,9 +1332,18 @@ pub(crate) fn app_mode_data_objects(
         pointer_strings.push(mouse::STR_SCROLL);
     }
     if uses_canvas {
+        pointer_strings.extend([pointer::STR_ENTER, pointer::STR_LEAVE]);
+    }
+    // A `--debug` canvas build's headless hooks: the scripted resize's and the scripted
+    // pointer's variable names. `emit_main_bootstrap` emits their readers on the same
+    // condition, so no other build carries the names.
+    if debug_hooks {
+        pointer_strings.push(STR_TRANSCRIPT_DUMP_ENV);
+    }
+    if uses_canvas && debug_hooks {
         pointer_strings.extend([
-            pointer::STR_ENTER,
-            pointer::STR_LEAVE,
+            STR_RESIZE_W_ENV,
+            STR_RESIZE_H_ENV,
             pointer::STR_POINTER_X_ENV,
             pointer::STR_POINTER_Y_ENV,
         ]);
@@ -1433,7 +1481,7 @@ mod identity_tests {
 
     #[test]
     fn app_mode_data_objects_carry_the_derived_id_and_title() {
-        let objects = app_mode_data_objects("my-app", false, false);
+        let objects = app_mode_data_objects("my-app", false, false, false);
         let id = objects
             .iter()
             .find(|object| object.symbol == SYM_APP_ID)
@@ -1563,14 +1611,14 @@ mod import_tests {
             .collect();
         // bug-59 removed `getenv` as a dead import and pinned its absence here.
         // plan-98-F made it live again: `emit_main_bootstrap` reads
-        // `MFB_GTKAPP_HEADLESS` with it. The assertion is inverted rather than
+        // `MFB_HEADLESS` with it. The assertion is inverted rather than
         // deleted, because the property bug-59 cared about — no import without a
         // caller — is still the one worth holding, and the companion test
         // (`every_emitted_external_call_is_a_declared_import`) is what pins the
         // caller's existence.
         assert!(
             symbols.iter().any(|s| s == "getenv"),
-            "the headless gate reads MFB_GTKAPP_HEADLESS, so `getenv` must be imported"
+            "the headless gate reads MFB_HEADLESS, so `getenv` must be imported"
         );
         assert!(
             symbols.iter().any(|s| s == "close"),
@@ -1611,7 +1659,7 @@ mod import_tests {
             "memset",
             "memmove",
             "pause",
-            // plan-98-F: the MFB_GTKAPP_HEADLESS gate.
+            // plan-98-F: the MFB_HEADLESS gate.
             "getenv",
             "_exit",
             "__libc_start_main",

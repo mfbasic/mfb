@@ -75,9 +75,7 @@ fn stats_for(name: &str, source: &str) -> String {
     let run = Command::new(&binary)
         // The project directory, so `loadFont("fixture.ttf")` resolves against it.
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         // Wait for the frame. Without it `present` returns at once and the process tears
         // down while the graphics thread is still reading the scene — a font's outlines
         // live in the worker's arena, which is per-thread, so the frame lands with zero
@@ -113,9 +111,7 @@ fn run_for(name: &str, source: &str, with_font: bool) -> (String, Vec<String>) {
     let binary = common::build_app_debug(&project, name);
     let run = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .env("MFB_CANVAS_STATS", &stats_path)
         .output()
@@ -504,12 +500,10 @@ fn removing_a_group_mid_frame_keeps_the_font_until_the_frame_completes() {
     let project = common::temp_project("canvas_group_own_font_race", REMOVE_FONT_MID_FRAME);
     std::fs::write(project.join("fixture.ttf"), common::fixture_truetype())
         .expect("write the font fixture");
-    let binary = common::build_app(&project, "canvas_group_own_font_race");
+    let binary = common::build_app_debug(&project, "canvas_group_own_font_race");
     let run = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_FRAME_HOLD_MS", "600")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
@@ -575,12 +569,10 @@ END FUNC
 #[test]
 fn removing_a_group_mid_frame_keeps_the_image_until_the_frame_completes() {
     let project = common::temp_project("canvas_group_own_race", REMOVE_MID_FRAME);
-    let binary = common::build_app(&project, "canvas_group_own_race");
+    let binary = common::build_app_debug(&project, "canvas_group_own_race");
     let run = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         // Slows the GRAPHICS thread. The worker's own os::sleep(120) is the other half:
         // without it the worker reaches removeGroup before the frame starts.
         .env("MFB_CANVAS_FRAME_HOLD_MS", "600")

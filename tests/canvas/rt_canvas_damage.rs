@@ -30,9 +30,7 @@ fn render(name: &str, source: &str, damage: bool) -> (Vec<u8>, Vec<String>) {
     let mut command = Command::new(&binary);
     command
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame)
         .env("MFB_CANVAS_STATS", &stats)
         .env("MFB_CANVAS_SYNC", "1");
@@ -272,12 +270,10 @@ fn did_resize_is_false_until_the_surface_changes_and_then_true_once() {
     // the size it already had — would make every program lay out twice at startup and
     // look correct while doing it.
     let project = common::temp_project("canvas_did_resize", RESIZE_POLL);
-    let binary = common::build_app(&project, "canvas_did_resize");
+    let binary = common::build_app_debug(&project, "canvas_did_resize");
     let run = std::process::Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));

@@ -7,7 +7,7 @@
 //! that slot with no per-variant codegen at all.
 //!
 //! These cases drive the real `mfb` CLI. The macOS ones additionally *run* the
-//! produced bundle under `MFB_MACAPP_HEADLESS=1` (the same AppKit construction +
+//! produced bundle under `MFB_HEADLESS=1` (the same AppKit construction +
 //! worker-thread path the GUI build takes, minus the window and the run loop), so
 //! the round-trip is proven at runtime and not merely at compile time.
 
@@ -104,7 +104,7 @@ fn run_headless_with_stdin(exe: &Path, stdin: &str) -> (i32, String) {
     use std::process::Stdio;
 
     let mut child = Command::new(exe)
-        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

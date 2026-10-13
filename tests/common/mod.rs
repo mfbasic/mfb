@@ -147,8 +147,9 @@ pub fn build_app(project: &Path, name: &str) -> PathBuf {
 }
 
 /// [`build_app`] with `--debug` (plan-130-E): the build a suite needs when its run sets
-/// `MFB_CANVAS_STATS` or `MFB_CANVAS_DUMP`, whose readers exist only in a `--debug`
-/// build. A normal build ignores both variables.
+/// any variable but `MFB_HEADLESS`, `MFB_CANVAS_GPU`, `MFB_CANVAS_SYNC` and
+/// `MFB_MOUSE_INJECT` — `MFB_CANVAS_STATS`, `MFB_CANVAS_DUMP` and the rest have readers
+/// only in a `--debug` build. A normal build ignores them.
 pub fn build_app_debug(project: &Path, name: &str) -> PathBuf {
     build_app_with(project, name, &["--debug"])
 }
@@ -319,11 +320,23 @@ pub fn build_ncode_opt(project: &Path, target: &str, name: &str, level: &str) ->
 /// [`build_ncode`] for an `--app` build: the dump then carries the target's app
 /// bootstrap (window procedures, key handlers), which a console build has none of.
 pub fn build_ncode_app(project: &Path, target: &str, name: &str) -> serde_json::Value {
+    build_ncode_app_with(project, target, name, &[])
+}
+
+/// [`build_ncode_app`] with extra build flags — `--debug`, for the plan of a build
+/// that carries the test hooks.
+pub fn build_ncode_app_with(
+    project: &Path,
+    target: &str,
+    name: &str,
+    extra: &[&str],
+) -> serde_json::Value {
     let output = Command::new(mfb_exe())
         .arg("build")
         .arg("-q")
         .arg("-ncode")
         .arg("--app")
+        .args(extra)
         .arg("-target")
         .arg(target)
         .arg(project)
@@ -671,7 +684,8 @@ pub fn run_with_stdin(executable: &Path, stdin: &[u8]) -> String {
 ///
 /// The env-driven test affordances (`MFB_WINAPP_INPUT`, `MFB_MOUSE_INJECT`) exist
 /// so a path that needs hardware — a keyboard, a mouse — can be exercised on a box
-/// that has neither, and over ssh. Driving them needs the child's environment, not
+/// that has neither, and over ssh. Only a `--debug` build reads `MFB_WINAPP_INPUT`;
+/// every build reads `MFB_MOUSE_INJECT`. Driving them needs the child's environment, not
 /// its stdin, which is what separates this from [`run_with_stdin`].
 pub fn run_with_env(executable: &Path, env: &[(&str, &str)]) -> String {
     let mut command = Command::new(executable);

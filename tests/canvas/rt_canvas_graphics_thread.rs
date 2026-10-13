@@ -40,9 +40,7 @@ fn run_env(name: &str, source: &str, sync: bool, env: &[(&str, &str)]) -> (Strin
     let binary = common::build_app_debug(&project, name);
     let mut command = Command::new(&binary);
     command
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_STATS", &stats);
     if sync {
         command.env("MFB_CANVAS_SYNC", "1");
@@ -513,9 +511,7 @@ fn picture_frame(name: &str, body: &str, env: &[(&str, &str)]) -> Vec<u8> {
     let binary = common::build_app_debug(&project, name);
     let mut command = Command::new(&binary);
     command
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame_path);
     for (key, value) in env {
         command.env(key, value);

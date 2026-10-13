@@ -8,8 +8,8 @@
 //! - `_main` (the PE entry) creates a `RegisterClassExW`/`CreateWindowExW` window,
 //!   spawns a worker thread, and runs a `GetMessageW`/`DispatchMessageW` loop that
 //!   owns the main thread (the AppKit `[NSApp run]` / GTK `g_application_run`
-//!   analog). An `MFB_WINAPP_HEADLESS` env var skips the window + loop for CI/box
-//!   runs that cannot open a GUI (mirrors macOS's `MFB_MACAPP_HEADLESS`).
+//!   analog). The `MFB_HEADLESS` env var skips the window + loop for CI/box
+//!   runs that cannot open a GUI, as it does on macOS and Linux.
 //! - the worker runs the standard program body under `MACAPP_PROGRAM_SYMBOL`
 //!   (emitted separately by the shared entry with `entry_called_as_function:true`),
 //!   which sets up the arena on the worker thread and runs MFBASIC.
@@ -142,7 +142,7 @@ const CLASS_NAME_SYM: &str = "_mfb_winapp_class";
 const TITLE_SYM: &str = "_mfb_winapp_title";
 const HEADLESS_ENV_SYM: &str = "_mfb_winapp_headless_env";
 const EDIT_CLASS_SYM: &str = "_mfb_winapp_edit_class"; // L"EDIT"
-const DUMP_ENV_SYM: &str = "_mfb_winapp_dump_env"; // L"MFB_WINAPP_DUMP" (test readback gate)
+const DUMP_ENV_SYM: &str = "_mfb_winapp_dump_env"; // L"MFB_TRANSCRIPT_DUMP" (test readback gate)
 const CRLF_SYM: &str = "_mfb_winapp_crlf"; // L"\r\n"
 /// Writable 8-byte global holding the transcript EDIT control's HWND (0 until the
 /// window is built). Written by `_main` (UI thread), read by `io_write` (worker
@@ -543,7 +543,7 @@ fn emit_main(
         HINSTANCE,
     ));
 
-    // headless = GetEnvironmentVariableW(L"MFB_WINAPP_HEADLESS", NULL, 0) != 0
+    // headless = GetEnvironmentVariableW(L"MFB_HEADLESS", NULL, 0) != 0
     load_addr(abi::mfb_arg(0), HEADLESS_ENV_SYM, from, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "0"));
@@ -781,84 +781,87 @@ fn emit_main(
     }
 
     // ---- plan-66-J-4 keystroke injection (test affordance) ----
-    // If MFB_WINAPP_INPUT is set, post each of its characters as a WM_CHAR to the
-    // EDIT (then a final Enter), simulating typing so the subclass → pipe → readLine
-    // round-trip is box-provable over ssh without a keyboard. The message loop below
-    // dispatches these to editproc, which feeds the pipe on the UI thread.
-    // n = GetEnvironmentVariableW(L"MFB_WINAPP_INPUT", inputbuf, 250)
-    load_addr(abi::mfb_arg(0), INPUT_ENV_SYM, from, &mut ins, &mut rel);
-    load_addr(abi::mfb_arg(1), INPUT_BUF_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "250"));
-    call_external(
-        from,
-        "GetEnvironmentVariableW",
-        KERNEL32,
-        &mut ins,
-        &mut rel,
-    );
-    // The count is the Win32 call's C result (`rax`), NOT `return_register()` —
-    // on Win64 that is the MFB result `rcx`, which the call leaves undefined
-    // (`.ai/testing-gates.md`, "Win64 codegen invariant"). Reading `rcx` made an
-    // UNSET variable look like a garbage-length string, and the loop below posted
-    // that many `WM_CHAR 0`s into the input pipe: a byte read in a program that
-    // starts in `Console` returned 0 at once, forever (bug-699;
-    // found independently by bug-540).
-    ins.push(abi::store_u64(
-        abi::c_return(0),
-        abi::stack_pointer(),
-        INJ_N,
-    )); // count
-    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
-    ins.push(abi::branch_eq("inject_enter")); // unset/empty → just send Enter? no — skip all
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), INJ_I)); // i = 0
-    ins.push(abi::label("inject_loop"));
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), INJ_I));
-    ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), INJ_N));
-    ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
-    ins.push(abi::branch_ge("inject_enter")); // i >= n → done, send Enter
-                                              // ch = inputbuf[i] (a UTF-16 code unit); PostMessageW(edit, WM_CHAR, ch, 0).
-    load_addr(abi::mfb_arg(1), INPUT_BUF_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::shift_left_immediate(
-        abi::mfb_arg(0),
-        abi::mfb_arg(0),
-        1,
-    )); // i*2
-    ins.push(abi::add_registers(
-        abi::mfb_arg(1),
-        abi::mfb_arg(1),
-        abi::mfb_arg(0),
-    ));
-    ins.push(abi::load_u16(abi::mfb_arg(2), abi::mfb_arg(1), 0)); // wParam = ch
-    load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0)); // edit hwnd
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", WM_CHAR));
-    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0")); // lParam
-    call_external(from, "PostMessageW", USER32, &mut ins, &mut rel);
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), INJ_I));
-    ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), INJ_I));
-    ins.push(abi::branch("inject_loop"));
-    ins.push(abi::label("inject_enter"));
-    // A final Enter (WM_CHAR '\r') so readLine terminates the line.
-    load_addr(abi::mfb_arg(0), INPUT_ENV_SYM, from, &mut ins, &mut rel);
-    load_addr(abi::mfb_arg(1), INPUT_BUF_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "250"));
-    call_external(
-        from,
-        "GetEnvironmentVariableW",
-        KERNEL32,
-        &mut ins,
-        &mut rel,
-    );
-    ins.push(abi::compare_immediate(abi::c_return(0), "0"));
-    ins.push(abi::branch_eq("inject_done")); // MFB_WINAPP_INPUT unset → no injection at all
-    load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
-    ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", WM_CHAR));
-    ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", VK_RETURN)); // '\r'
-    ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0"));
-    call_external(from, "PostMessageW", USER32, &mut ins, &mut rel);
-    ins.push(abi::label("inject_done"));
+    // A `--debug` build only: a normal build has no reader and no name.
+    if debug_hooks {
+        // If MFB_WINAPP_INPUT is set, post each of its characters as a WM_CHAR to the
+        // EDIT (then a final Enter), simulating typing so the subclass → pipe → readLine
+        // round-trip is box-provable over ssh without a keyboard. The message loop below
+        // dispatches these to editproc, which feeds the pipe on the UI thread.
+        // n = GetEnvironmentVariableW(L"MFB_WINAPP_INPUT", inputbuf, 250)
+        load_addr(abi::mfb_arg(0), INPUT_ENV_SYM, from, &mut ins, &mut rel);
+        load_addr(abi::mfb_arg(1), INPUT_BUF_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "250"));
+        call_external(
+            from,
+            "GetEnvironmentVariableW",
+            KERNEL32,
+            &mut ins,
+            &mut rel,
+        );
+        // The count is the Win32 call's C result (`rax`), NOT `return_register()` —
+        // on Win64 that is the MFB result `rcx`, which the call leaves undefined
+        // (`.ai/testing-gates.md`, "Win64 codegen invariant"). Reading `rcx` made an
+        // UNSET variable look like a garbage-length string, and the loop below posted
+        // that many `WM_CHAR 0`s into the input pipe: a byte read in a program that
+        // starts in `Console` returned 0 at once, forever (bug-699;
+        // found independently by bug-540).
+        ins.push(abi::store_u64(
+            abi::c_return(0),
+            abi::stack_pointer(),
+            INJ_N,
+        )); // count
+        ins.push(abi::compare_immediate(abi::c_return(0), "0"));
+        ins.push(abi::branch_eq("inject_enter")); // unset/empty → just send Enter? no — skip all
+        ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), INJ_I)); // i = 0
+        ins.push(abi::label("inject_loop"));
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), INJ_I));
+        ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), INJ_N));
+        ins.push(abi::compare_registers(abi::mfb_arg(0), abi::mfb_arg(1)));
+        ins.push(abi::branch_ge("inject_enter")); // i >= n → done, send Enter
+                                                  // ch = inputbuf[i] (a UTF-16 code unit); PostMessageW(edit, WM_CHAR, ch, 0).
+        load_addr(abi::mfb_arg(1), INPUT_BUF_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::shift_left_immediate(
+            abi::mfb_arg(0),
+            abi::mfb_arg(0),
+            1,
+        )); // i*2
+        ins.push(abi::add_registers(
+            abi::mfb_arg(1),
+            abi::mfb_arg(1),
+            abi::mfb_arg(0),
+        ));
+        ins.push(abi::load_u16(abi::mfb_arg(2), abi::mfb_arg(1), 0)); // wParam = ch
+        load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0)); // edit hwnd
+        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", WM_CHAR));
+        ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0")); // lParam
+        call_external(from, "PostMessageW", USER32, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), INJ_I));
+        ins.push(abi::add_immediate(abi::mfb_arg(0), abi::mfb_arg(0), 1));
+        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), INJ_I));
+        ins.push(abi::branch("inject_loop"));
+        ins.push(abi::label("inject_enter"));
+        // A final Enter (WM_CHAR '\r') so readLine terminates the line.
+        load_addr(abi::mfb_arg(0), INPUT_ENV_SYM, from, &mut ins, &mut rel);
+        load_addr(abi::mfb_arg(1), INPUT_BUF_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "250"));
+        call_external(
+            from,
+            "GetEnvironmentVariableW",
+            KERNEL32,
+            &mut ins,
+            &mut rel,
+        );
+        ins.push(abi::compare_immediate(abi::c_return(0), "0"));
+        ins.push(abi::branch_eq("inject_done")); // MFB_WINAPP_INPUT unset → no injection at all
+        load_addr(abi::mfb_arg(0), EDIT_HWND_SYM, from, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
+        ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", WM_CHAR));
+        ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", VK_RETURN)); // '\r'
+        ins.push(abi::move_immediate(abi::mfb_arg(3), "Integer", "0"));
+        call_external(from, "PostMessageW", USER32, &mut ins, &mut rel);
+        ins.push(abi::label("inject_done"));
+    }
 
     // Message loop.
     ins.push(abi::label("msg_loop"));
@@ -941,14 +944,20 @@ fn emit_main(
     // symbol, and a program that never imports `canvas` does not emit that data
     // object — an ungated reference fails the build with "relocation target
     // `_mfb_rt_canvas_graphics` is not a data object or defined symbol".
+    //
+    // A `--debug` build only, like the pointer and `term::` blocks below: a normal
+    // build's headless path spawns the worker and waits, and reads no variable but
+    // the headless switch itself.
+    let canvas_hooks = uses_canvas && debug_hooks;
+    let term_hooks = uses_term && debug_hooks;
     // Where the canvas block goes when it has nothing to do: on to the `term::` twin
     // below when the program has one, else straight to the wait.
-    let after_canvas_resize = if uses_term {
+    let after_canvas_resize = if term_hooks {
         "headless_term_resize"
     } else {
         "headless_wait_worker"
     };
-    if uses_canvas {
+    if canvas_hooks {
         emit_parse_wide_env(
             RESIZE_W_ENV_SYM,
             abi::LOCAL[0],
@@ -1074,7 +1083,7 @@ fn emit_main(
     // is not a resize of anything, and the handler would not count it. The wait is a
     // `WaitForSingleObject` on the worker rather than a `Sleep`, so a program that
     // never calls `term::on` ends the poll by ending, instead of hanging `_main`.
-    if uses_term {
+    if term_hooks {
         ins.push(abi::label("headless_term_resize"));
         emit_parse_wide_env(
             TERM_RESIZE_W_ENV_SYM,
@@ -1141,7 +1150,7 @@ fn emit_main(
 
     // The loop ended (worker posted WM_APP_QUIT) or the headless worker exited.
     // Test affordance (plan-66-J-3 box proof), a `--debug` build only (plan-130-E): when
-    // MFB_WINAPP_DUMP is set, the UI thread reads the transcript back (WM_GETTEXT) and
+    // MFB_TRANSCRIPT_DUMP is set, the UI thread reads the transcript back (WM_GETTEXT) and
     // writes the raw UTF-16 to stdout, so an ssh box run can confirm io::print reached
     // the window without a visible display. A normal build contains no reader.
     ins.push(abi::label("main_done"));
@@ -5771,16 +5780,17 @@ fn emit_display_rate() -> CodeFunction {
 /// Read-only data the bootstrap references: the window class name, the title
 /// (the project name), and the headless env-var name.
 ///
-/// The `MFB_WINAPP_DUMP` name and its readback buffer are a `--debug` build's only
-/// (plan-130-E), beside the reader `emit_main` emits then.
+/// Every test hook's variable name and scratch buffer is a `--debug` build's only,
+/// beside the reader `emit_main` emits then: the `MFB_TRANSCRIPT_DUMP` readback
+/// (plan-130-E), keystroke injection, and the headless scripted resizes and pointer.
 pub(super) fn app_mode_data_objects(
     project_name: &str,
     debug_hooks: bool,
     uses_canvas: bool,
 ) -> Vec<CodeDataObject> {
     let mut objects = bootstrap_data_objects(project_name);
-    // plan-172-J: the pointer block's "a WM_MOUSELEAVE is armed" word and the scripted
-    // pointer's two variable names. A canvas program's only: nothing else names them.
+    // plan-172-J: the pointer block's "a WM_MOUSELEAVE is armed" word. A canvas
+    // program's only: nothing else names it.
     if uses_canvas {
         objects.push(CodeDataObject {
             symbol: pointer::POINTER_TRACKING_SYM.to_string(),
@@ -5790,17 +5800,51 @@ pub(super) fn app_mode_data_objects(
             size: 8,
             value: "0000000000000000".to_string(),
         });
-        objects.push(utf16z_data_object(
-            pointer::POINTER_X_ENV_SYM,
-            "MFB_CANVAS_POINTER_X",
-        ));
-        objects.push(utf16z_data_object(
-            pointer::POINTER_Y_ENV_SYM,
-            "MFB_CANVAS_POINTER_Y",
-        ));
     }
     if debug_hooks {
-        objects.push(utf16z_data_object(DUMP_ENV_SYM, "MFB_WINAPP_DUMP"));
+        // The test hooks `emit_main` emits in a `--debug` build, each with the name it
+        // reads: keystroke injection and its scratch, and the headless run's scripted
+        // resizes with the one buffer they parse a dimension from.
+        objects.push(utf16z_data_object(INPUT_ENV_SYM, "MFB_WINAPP_INPUT"));
+        objects.push(CodeDataObject {
+            symbol: INPUT_BUF_SYM.to_string(),
+            kind: "raw".to_string(),
+            layout: "u16[256] (writable keystroke-injection scratch)".to_string(),
+            align: 2,
+            size: 512,
+            value: "00".repeat(512),
+        });
+        objects.push(utf16z_data_object(RESIZE_W_ENV_SYM, "MFB_CANVAS_RESIZE_W"));
+        objects.push(utf16z_data_object(RESIZE_H_ENV_SYM, "MFB_CANVAS_RESIZE_H"));
+        // bug-540 WIN-02: the scripted `term::` resize's two variable names.
+        objects.push(utf16z_data_object(
+            TERM_RESIZE_W_ENV_SYM,
+            "MFB_WINAPP_TERM_RESIZE_W",
+        ));
+        objects.push(utf16z_data_object(
+            TERM_RESIZE_H_ENV_SYM,
+            "MFB_WINAPP_TERM_RESIZE_H",
+        ));
+        objects.push(CodeDataObject {
+            symbol: RESIZE_BUF_SYM.to_string(),
+            kind: "raw".to_string(),
+            layout: "UTF-16 scratch for one scripted-resize dimension".to_string(),
+            align: 2,
+            size: RESIZE_BUF_CHARS * 2,
+            value: "00".repeat(RESIZE_BUF_CHARS * 2),
+        });
+        // plan-172-J: the scripted pointer's two variable names, a canvas program's.
+        if uses_canvas {
+            objects.push(utf16z_data_object(
+                pointer::POINTER_X_ENV_SYM,
+                "MFB_CANVAS_POINTER_X",
+            ));
+            objects.push(utf16z_data_object(
+                pointer::POINTER_Y_ENV_SYM,
+                "MFB_CANVAS_POINTER_Y",
+            ));
+        }
+        objects.push(utf16z_data_object(DUMP_ENV_SYM, "MFB_TRANSCRIPT_DUMP"));
         objects.push(CodeDataObject {
             symbol: "_mfb_winapp_testbuf".to_string(),
             kind: "raw".to_string(),
@@ -5835,24 +5879,10 @@ fn bootstrap_fixed_data_objects(title: &str) -> Vec<CodeDataObject> {
     vec![
         utf16z_data_object(CLASS_NAME_SYM, "MFBWinApp"),
         utf16z_data_object(TITLE_SYM, title),
-        utf16z_data_object(HEADLESS_ENV_SYM, "MFB_WINAPP_HEADLESS"),
-        utf16z_data_object(RESIZE_W_ENV_SYM, "MFB_CANVAS_RESIZE_W"),
-        utf16z_data_object(RESIZE_H_ENV_SYM, "MFB_CANVAS_RESIZE_H"),
-        // bug-540 WIN-02: the scripted `term::` resize's two variable names.
-        utf16z_data_object(TERM_RESIZE_W_ENV_SYM, "MFB_WINAPP_TERM_RESIZE_W"),
-        utf16z_data_object(TERM_RESIZE_H_ENV_SYM, "MFB_WINAPP_TERM_RESIZE_H"),
-        CodeDataObject {
-            symbol: RESIZE_BUF_SYM.to_string(),
-            kind: "raw".to_string(),
-            layout: "UTF-16 scratch for one scripted-resize dimension".to_string(),
-            align: 2,
-            size: RESIZE_BUF_CHARS * 2,
-            value: "00".repeat(RESIZE_BUF_CHARS * 2),
-        },
+        utf16z_data_object(HEADLESS_ENV_SYM, "MFB_HEADLESS"),
         utf16z_data_object(EDIT_CLASS_SYM, "EDIT"),
         utf16z_data_object(STATIC_CLASS_SYM, "STATIC"),
         utf16z_data_object(CRLF_SYM, "\r\n"),
-        utf16z_data_object(INPUT_ENV_SYM, "MFB_WINAPP_INPUT"),
         // Writable 8-byte globals (kind:"raw" → the writable data partition): the
         // transcript EDIT HWND and the main window HWND, both 0 until built.
         writable_qword(EDIT_HWND_SYM),
@@ -5886,14 +5916,6 @@ fn bootstrap_fixed_data_objects(title: &str) -> Vec<CodeDataObject> {
         // plan-70-F: cached CJK-capable HFONT + its face name.
         writable_qword(TUI_FONT_SYM),
         utf16z_data_object(FONT_NAME_SYM, "Consolas"),
-        CodeDataObject {
-            symbol: INPUT_BUF_SYM.to_string(),
-            kind: "raw".to_string(),
-            layout: "u16[256] (writable keystroke-injection scratch)".to_string(),
-            align: 2,
-            size: 512,
-            value: "00".repeat(512),
-        },
     ]
 }
 
@@ -6042,7 +6064,7 @@ mod tests {
         }
     }
 
-    /// plan-130-E: the `MFB_WINAPP_DUMP` transcript readback — its variable name, its
+    /// plan-130-E: the `MFB_TRANSCRIPT_DUMP` transcript readback — its variable name, its
     /// buffer, and the reader in `_main` — exists only in a `--debug` build.
     #[test]
     fn the_dump_readback_exists_only_in_a_debug_build() {
@@ -6216,12 +6238,51 @@ mod tests {
     #[test]
     fn input_data_objects_present() {
         let objs = app_mode_data_objects("P", false, false);
-        // The injection env-var name (UTF-16) and the two input-state writable globals.
-        assert!(objs.iter().any(|o| o.symbol == INPUT_ENV_SYM));
+        // The two input-state writable globals, in every build.
         let w = objs.iter().find(|o| o.symbol == STDIN_WRITE_SYM).unwrap();
         assert_eq!(w.size, 8);
         assert!(objs.iter().any(|o| o.symbol == EDIT_OLDPROC_SYM));
-        assert!(objs.iter().any(|o| o.symbol == INPUT_BUF_SYM));
+    }
+
+    /// Every test hook's variable name and scratch buffer is a `--debug` build's only:
+    /// keystroke injection, the scripted resizes, the transcript readback.
+    #[test]
+    fn the_test_hooks_data_is_a_debug_builds_only() {
+        let hooks = [
+            INPUT_ENV_SYM,
+            INPUT_BUF_SYM,
+            RESIZE_W_ENV_SYM,
+            RESIZE_H_ENV_SYM,
+            TERM_RESIZE_W_ENV_SYM,
+            TERM_RESIZE_H_ENV_SYM,
+            RESIZE_BUF_SYM,
+            DUMP_ENV_SYM,
+        ];
+        let pointer = [pointer::POINTER_X_ENV_SYM, pointer::POINTER_Y_ENV_SYM];
+        for uses_canvas in [false, true] {
+            let normal = app_mode_data_objects("P", false, uses_canvas);
+            for symbol in hooks.iter().chain(&pointer) {
+                assert!(
+                    !normal.iter().any(|o| o.symbol == *symbol),
+                    "a normal build carries {symbol}"
+                );
+            }
+            assert!(normal.iter().any(|o| o.symbol == HEADLESS_ENV_SYM));
+            let debug = app_mode_data_objects("P", true, uses_canvas);
+            for symbol in hooks {
+                assert!(
+                    debug.iter().any(|o| o.symbol == symbol),
+                    "a --debug build lacks {symbol}"
+                );
+            }
+            for symbol in pointer {
+                assert_eq!(
+                    debug.iter().any(|o| o.symbol == symbol),
+                    uses_canvas,
+                    "{symbol} is a canvas program's"
+                );
+            }
+        }
     }
 
     #[test]
@@ -6840,6 +6901,15 @@ mod canvas_reconcile_tests {
             let mut spec = spec(PresentationMode::Console);
             spec.uses_canvas = uses_canvas;
             spec.uses_term = true;
+            // A normal build has the window's resize and no scripted one.
+            let normal = emit_app_program_entry(&spec, &HashMap::new()).expect("app entry");
+            let main = normal.iter().find(|f| f.symbol == MAIN_SYMBOL).unwrap();
+            assert_eq!(externals(main, TERM_RESIZE_SYMBOL), 0);
+            for env in [TERM_RESIZE_W_ENV_SYM, TERM_RESIZE_H_ENV_SYM] {
+                assert_eq!(externals(main, env), 0, "a normal _main reads {env}");
+            }
+            // The scripted hook is a `--debug` build's.
+            spec.debug_hooks = true;
             let fns = emit_app_program_entry(&spec, &HashMap::new()).expect("app entry");
             let find = |symbol: &str| fns.iter().find(|f| f.symbol == symbol).unwrap();
             assert_eq!(externals(find(WNDPROC_SYMBOL), TERM_RESIZE_SYMBOL), 1);

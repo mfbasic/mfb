@@ -1413,8 +1413,8 @@ END FUNC"#;
 /// putting a per-platform `getenv` on the spawn path.
 ///
 /// **The renderer.** A program in a real window draws on the GPU (Metal on macOS,
-/// Vulkan on Linux and Windows, where a pipeline exists); a headless run — any of the three
-/// `MFB_*_HEADLESS` switches the tests use — draws in software.
+/// Vulkan on Linux and Windows, where a pipeline exists); a headless run
+/// (`MFB_HEADLESS`) draws in software.
 /// `MFB_CANVAS_GPU` overrides both ways: `0` forces software, any other value
 /// forces the GPU. The software renderer is the exact-match oracle the goldens and
 /// the GPU backends are measured against, and every test that renders runs
@@ -1429,7 +1429,7 @@ r#"MUT __CANVAS_GFX_READY AS Boolean = FALSE
 
 FUNC __canvas_ensureGraphics() AS Nothing
   IF NOT __CANVAS_GFX_READY THEN
-    canvas::setSyncMode(len(os::getEnvOr("MFB_CANVAS_SYNC", "")) > 0)
+    __canvas_readSyncMode()
     canvas::setGpuMode(__canvas_wantGpu())
     __canvas_readDisplayOverride()
     canvas::startGraphics()
@@ -1437,9 +1437,41 @@ FUNC __canvas_ensureGraphics() AS Nothing
   END IF
 END FUNC
 
-' plan-155-A: a test affordance, off by default -- pin the display rate the runtime
-' reports, since a headless run has no monitor to ask. Read once, by whichever asks
-' first: the first present, or (plan-155-B) a `canvas::getFrameStats` made before it.
+FUNC __canvas_wantGpu() AS Boolean
+  LET choice AS String = os::getEnvOr("MFB_CANVAS_GPU", "")
+  IF len(choice) > 0 THEN RETURN choice <> "0"
+  IF len(os::getEnvOr("MFB_HEADLESS", "")) > 0 THEN RETURN FALSE
+  RETURN TRUE
+END FUNC
+
+' Make `present` wait for the frame it asked for. Any non-empty value turns it on.
+'
+' A test switch, yet read by EVERY build rather than only `--debug` like the others
+' (`./mfb spec tooling debug-report`): while canvas is in development,
+' `tools/canvas-bench`'s `sweep --release` needs one rendered frame per present in a
+' release build, to measure fps without a `--debug` build's instrumentation. It moves
+' behind `--debug` once canvas settles.
+FUNC __canvas_readSyncMode() AS Nothing
+  canvas::setSyncMode(len(os::getEnvOr("MFB_CANVAS_SYNC", "")) > 0)
+END FUNC"#;
+
+/// The two switches a test sets to make a headless run observable beyond
+/// `MFB_CANVAS_SYNC`: report a pinned display rate, and hold the graphics thread
+/// inside a frame. A normal build has neither — each body is empty, which leaves the
+/// graphics state's display-override word at the zero it starts with.
+const TEST_SWITCHES: &str = r#"FUNC __canvas_readDisplayOverride() AS Nothing
+END FUNC
+
+FUNC __canvas_frameHold() AS Nothing
+END FUNC"#;
+
+/// [`TEST_SWITCHES`] for a `--debug` build, which is the only build that reads
+/// `MFB_CANVAS_DISPLAY_HZ` and `MFB_CANVAS_FRAME_HOLD_MS`.
+#[rustfmt::skip]
+const TEST_SWITCHES_DEBUG: &str =
+r#"' plan-155-A: pin the display rate the runtime reports, since a headless run has no
+' monitor to ask. Read once, by whichever asks first: the first present, or
+' (plan-155-B) a `canvas::getFrameStats` made before it.
 MUT __CANVAS_DISPLAY_OVERRIDE_READ AS Boolean = FALSE
 
 FUNC __canvas_readDisplayOverride() AS Nothing
@@ -1457,13 +1489,13 @@ FUNC __canvas_readDisplayOverride() AS Nothing
   END IF
 END FUNC
 
-FUNC __canvas_wantGpu() AS Boolean
-  LET choice AS String = os::getEnvOr("MFB_CANVAS_GPU", "")
-  IF len(choice) > 0 THEN RETURN choice <> "0"
-  IF len(os::getEnvOr("MFB_MACAPP_HEADLESS", "")) > 0 THEN RETURN FALSE
-  IF len(os::getEnvOr("MFB_GTKAPP_HEADLESS", "")) > 0 THEN RETURN FALSE
-  IF len(os::getEnvOr("MFB_WINAPP_HEADLESS", "")) > 0 THEN RETURN FALSE
-  RETURN TRUE
+' plan-116-G, G9: hold the graphics thread INSIDE a frame, for tests that need a
+' worker action to land mid-render. Off unless the variable is set.
+FUNC __canvas_frameHold() AS Nothing
+  LET holdMs AS Integer = toInt(os::getEnvOr("MFB_CANVAS_FRAME_HOLD_MS", "0"))
+  IF holdMs > 0 THEN
+    os::sleep(holdMs)
+  END IF
 END FUNC"#;
 
 // `__canvas_renderLoop`/`__canvas_renderFrame` are one body in both builds except for
@@ -1541,15 +1573,11 @@ FUNC __canvas_renderFrame() AS Nothing
   ' exactly the race the drain gate exists for -- the block is retired while a frame is
   ' demonstrably still working from it.
   '
-  ' Off unless the variable is set, and off the production path in the same sense the
-  ' other four affordances in `.ai/canvas-threading.md` section 11 are. Before this,
-  ' every "mid-render" row was reached through `MFB_CANVAS_RESIZE_W`/`_H` firing while
-  ' the worker slept, which is resize-specific -- so the rows that needed a different
-  ' worker action were either untestable (R1) or tested by luck.
-  LET holdMs AS Integer = toInt(os::getEnvOr("MFB_CANVAS_FRAME_HOLD_MS", "0"))
-  IF holdMs > 0 THEN
-    os::sleep(holdMs)
-  END IF
+  ' A `--debug` build's `MFB_CANVAS_FRAME_HOLD_MS`; nothing in a normal build. Before
+  ' this, every "mid-render" row was reached through `MFB_CANVAS_RESIZE_W`/`_H` firing
+  ' while the worker slept, which is resize-specific -- so the rows that needed a
+  ' different worker action were either untestable (R1) or tested by luck.
+  __canvas_frameHold()
   ' plan-116-G: the EXPANDED hashes, written by the walk above, not
   ' `canvas::installedHashes()`. The damage diff pairs hashes with offsets by index, and
   ' expanding one `Group` node into N children makes those two lists different lengths
@@ -2009,6 +2037,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "canvas_ensureGraphics",
         ENSURE_GRAPHICS,
     ));
+    for helper in
+        RegistryHelper::debug_split("canvas_testSwitches", TEST_SWITCHES, TEST_SWITCHES_DEBUG)
+    {
+        pkg.add_helper(helper);
+    }
     for helper in
         RegistryHelper::debug_split("canvas_phaseTimers", PHASE_TIMERS, PHASE_TIMERS_DEBUG)
     {

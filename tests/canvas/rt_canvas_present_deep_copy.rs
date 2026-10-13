@@ -507,9 +507,7 @@ fn published_polygon_rings_are_copied_not_aliased() {
     let frame = project.join("frame.rgba");
     let binary = common::build_app_debug(&project, "canvas_rings_deep_copy");
     let run = Command::new(&binary)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame)
         .env("MFB_CANVAS_SYNC", "1")
         .output()

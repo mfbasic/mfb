@@ -19,9 +19,7 @@ fn run(name: &str, source: &str) -> Vec<String> {
     let binary = common::build_app(&project, name);
     let out = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(

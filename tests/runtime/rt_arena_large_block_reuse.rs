@@ -185,9 +185,7 @@ END FUNC
     let binary = common::build_app_debug(&project, name);
     let output = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_GPU", "1")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));

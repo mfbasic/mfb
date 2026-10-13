@@ -218,7 +218,7 @@ fn run_headless(exe: &std::path::Path) -> (i32, String) {
         .expect("the .app bundle sits under the project directory");
     let output = Command::new(exe)
         .current_dir(project)
-        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .output()
         .expect("run headless app bundle");
     (

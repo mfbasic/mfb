@@ -485,7 +485,7 @@ fn every_cross_target_calls_the_report_right_after_shutdown_done() {
 /// so a headless macOS `--app --debug` run ends stderr with the report (build
 /// token `app`) and otherwise behaves like the `--app` build.
 ///
-/// `MFB_MACAPP_HEADLESS` skips all window construction, so this opens nothing.
+/// `MFB_HEADLESS` skips all window construction, so this opens nothing.
 #[cfg(target_os = "macos")]
 #[test]
 fn a_headless_app_finish_ends_stderr_with_the_report() {
@@ -504,7 +504,7 @@ fn a_headless_app_finish_ends_stderr_with_the_report() {
             String::from_utf8_lossy(&output.stderr)
         );
         let output = Command::new(common::app_binary(&project, name))
-            .env("MFB_MACAPP_HEADLESS", "1")
+            .env("MFB_HEADLESS", "1")
             .output()
             .expect("run the headless app");
         Run {

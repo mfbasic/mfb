@@ -75,7 +75,7 @@ helper reaches them without register preservation:
 
 [[src/target/linux_gtk/mod.rs:ST_PIPE_WRITE_FD]]
 
-When no window is attached (the macOS `MFB_MACAPP_HEADLESS` test path, or before
+When no window is attached (the macOS `MFB_HEADLESS` test path, or before
 the window exists) there is no transcript/buffer and the write helpers fall back
 to `write()` on fd 1/2 directly; reads still come from fd 0. [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_write]]
 

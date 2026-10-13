@@ -565,9 +565,8 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         uses_canvas: bool,
     ) -> Vec<CodeDataObject> {
         self.arch.app().require_gtk();
-        // The GTK bootstrap has no reporting hook of its own.
-        let _ = debug_hooks;
-        gtk::app_mode_data_objects(project_name, uses_mouse, uses_canvas)
+        // The GTK bootstrap's hooks are the headless scripted resize and pointer.
+        gtk::app_mode_data_objects(project_name, debug_hooks, uses_mouse, uses_canvas)
     }
 
     fn emit_app_mode_reconcile(

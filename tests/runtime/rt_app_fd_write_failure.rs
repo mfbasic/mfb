@@ -3,10 +3,10 @@
 //! a short write dropped the tail. It now runs the console write loop: every byte,
 //! `EINTR` retried, stdout `EPIPE` re-raising SIGPIPE, otherwise `ErrWriteFailed`.
 //!
-//! Run headless (`MFB_MACAPP_HEADLESS=1`) with stdout bound to a read-only file:
+//! Run headless (`MFB_HEADLESS=1`) with stdout bound to a read-only file:
 //! the write fails, and the program's `TRAP` must see `ErrWriteFailed` (77020002).
-//! The same program was verified on Windows (box 206, `MFB_WINAPP_HEADLESS`) and
-//! Linux GTK (box 2226, `MFB_GTKAPP_HEADLESS`); see the bug doc.
+//! The same program was verified on Windows (box 206, `MFB_HEADLESS`) and
+//! Linux GTK (box 2226, `MFB_HEADLESS`); see the bug doc.
 
 #![cfg(target_os = "macos")]
 
@@ -51,7 +51,7 @@ fn a_failed_headless_app_write_raises_write_failed() {
     let exe = build("bug799_app_fd_write");
     let read_only = std::fs::File::open(&exe).expect("open a read-only descriptor");
     let output = Command::new(&exe)
-        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .stdout(Stdio::from(read_only))
         .output()
         .expect("run the app headless");
@@ -72,7 +72,7 @@ fn a_failed_headless_app_write_raises_write_failed() {
 fn a_headless_app_write_still_reaches_stdout() {
     let exe = build("bug799_app_fd_write_ok");
     let output = Command::new(&exe)
-        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .output()
         .expect("run the app headless");
     assert!(output.status.success());

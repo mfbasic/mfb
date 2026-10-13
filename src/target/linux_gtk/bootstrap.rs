@@ -186,7 +186,13 @@ fn emit_headless_scripted_resize(asm: &mut Asm) {
 /// GtkApplication, wires the `activate` signal, and runs the GTK main loop; the
 /// loop owns the process until the window closes (plan-05 §6.1). Returns 0 so
 /// `__libc_start_main` exits cleanly.
-pub(super) fn emit_main_bootstrap(uses_canvas: bool) -> Result<CodeFunction, String> {
+///
+/// `debug_hooks` is a `--debug` build: a canvas program's headless run then carries the
+/// scripted resize and pointer. A normal build has neither reader.
+pub(super) fn emit_main_bootstrap(
+    uses_canvas: bool,
+    debug_hooks: bool,
+) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(GTK_MAIN_SYMBOL);
     // lr@0, argc@8, argv@16, headless pthread_t@24, headless pthread_attr_t@48..112.
     let frame = 112;
@@ -228,8 +234,8 @@ pub(super) fn emit_main_bootstrap(uses_canvas: bool) -> Result<CodeFunction, Str
         },
     )?;
 
-    // plan-98-F: the headless gate, the Linux twin of `MFB_MACAPP_HEADLESS` and
-    // `MFB_WINAPP_HEADLESS`.
+    // plan-98-F: the headless gate, `MFB_HEADLESS` — the variable the macOS and
+    // Windows bootstraps read too.
     //
     // It has to be structurally different from macOS's, and the difference is the
     // point. macOS builds its window and merely skips showing it, keeping the AppKit
@@ -254,7 +260,7 @@ pub(super) fn emit_main_bootstrap(uses_canvas: bool) -> Result<CodeFunction, Str
     // finish helper `_exit`s with the program's code, so this thread never has to
     // wake up.
     emit_spawn_program_thread(&mut asm, 24, 48);
-    if uses_canvas {
+    if uses_canvas && debug_hooks {
         // The resize first: a headless run has no window to publish a surface size,
         // and the scripted pointer's "is it inside" is asked of the published size.
         emit_headless_scripted_resize(&mut asm);
@@ -1303,9 +1309,25 @@ pub(super) fn emit_finish_helper(debug: bool) -> Result<CodeFunction, String> {
     asm.call_external("_exit");
     asm.push(abi::branch_self());
 
+    asm.push(abi::label("fin_gui"));
+    // `MFB_TRANSCRIPT_DUMP` set: write the transcript to stdout and exit, which is how
+    // a test reads what a windowed run printed. The readback touches the
+    // `GtkTextBuffer`, so it runs on the main loop — queued behind every append the
+    // program's output scheduled, since idle sources of one priority run in order.
+    // The worker parks; the idle callback ends the process with the exit code.
+    if debug {
+        asm.local_address(abi::c_arg(0), STR_TRANSCRIPT_DUMP_ENV.0);
+        asm.call_external("getenv");
+        asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+        asm.push(abi::branch_eq("fin_status"));
+        asm.local_address(abi::c_arg(0), TRANSCRIPT_DUMP_IDLE_SYMBOL);
+        asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
+        asm.call_external("g_idle_add");
+        asm.push(abi::branch("park"));
+        asm.push(abi::label("fin_status"));
+    }
     // GUI: build the status chunk "<prefix>" + decimal(code) + "\n" and marshal it.
     // Chunk layout matches the io write helper: [0]=len, [16..]=bytes.
-    asm.push(abi::label("fin_gui"));
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "64")); // 16 hdr + prefix + 3 digits + nl
     asm.call_external("malloc");
     asm.push(abi::move_register(abi::LOCAL[1], abi::c_return(0))); // chunk
@@ -1561,6 +1583,94 @@ pub(super) fn emit_delete_last_char_helper() -> Result<CodeFunction, String> {
     asm.finish(DELETE_LAST_CHAR_SYMBOL, "Nothing")
 }
 
+/// `gboolean _mfb_gtkapp_transcript_dump_idle(gpointer code)` — a `--debug` build's
+/// `MFB_TRANSCRIPT_DUMP` readback. Runs on the GTK main thread, scheduled by the
+/// finish helper: writes the transcript buffer's whole text to stdout as UTF-8 and
+/// ends the process with the program's exit code, which arrives as the user data.
+///
+/// `write(1, …)` repeats until every byte is out: one `write` to a pipe may take only
+/// part of a long transcript. A failed write ends the loop; there is nowhere to
+/// report it, and the process exits either way. It never returns, so it frees
+/// nothing and restores nothing.
+pub(super) fn emit_transcript_dump_idle_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(TRANSCRIPT_DUMP_IDLE_SYMBOL);
+    // lr@0, start_iter@16 (80B GtkTextIter), end_iter@96 (80B); frame 176.
+    let frame = 176;
+    let start_iter = 16;
+    let end_iter = 96;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // exit code
+
+    // gtk_text_buffer_get_bounds(buffer, &start, &end)
+    asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        start_iter,
+    ));
+    asm.push(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        end_iter,
+    ));
+    asm.call_external("gtk_text_buffer_get_bounds");
+    // text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE)
+    asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        start_iter,
+    ));
+    asm.push(abi::add_immediate(
+        abi::c_arg(2),
+        abi::stack_pointer(),
+        end_iter,
+    ));
+    asm.push(abi::move_immediate(abi::c_arg(3), "Boolean", FALSE)); // no hidden text
+    asm.call_external("gtk_text_buffer_get_text");
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_return(0))); // cursor
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq("dump_exit"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("strlen");
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_return(0))); // bytes left
+
+    asm.push(abi::label("dump_loop"));
+    asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
+    asm.push(abi::branch_le("dump_exit"));
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "1")); // stdout
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[1]));
+    asm.push(abi::move_register(abi::c_arg(2), abi::LOCAL[2]));
+    asm.call_external("write");
+    asm.push(abi::move_register(abi::SCRATCH[4], abi::c_return(0)));
+    asm.push(abi::compare_immediate(abi::SCRATCH[4], "0"));
+    asm.push(abi::branch_le("dump_exit")); // an error or nothing written
+    asm.push(abi::add_registers(
+        abi::LOCAL[1],
+        abi::LOCAL[1],
+        abi::SCRATCH[4],
+    ));
+    asm.push(abi::subtract_registers(
+        abi::LOCAL[2],
+        abi::LOCAL[2],
+        abi::SCRATCH[4],
+    ));
+    asm.push(abi::branch("dump_loop"));
+
+    asm.push(abi::label("dump_exit"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
+    asm.call_external("_exit");
+    asm.push(abi::branch_self());
+    asm.push(abi::return_());
+    asm.finish(TRANSCRIPT_DUMP_IDLE_SYMBOL, "Boolean")
+}
+
 /// `gboolean _mfb_gtkapp_append_idle(gpointer chunk)` — runs on the GTK main
 /// thread (scheduled by the io write helper via `g_idle_add`). Inserts the chunk's
 /// bytes into the transcript via `_mfb_gtkapp_append`, frees the chunk, and returns
@@ -1635,7 +1745,7 @@ pub(super) fn emit_canvas_blit_helper() -> Result<CodeFunction, String> {
     asm.push(abi::move_register(abi::LOCAL[1], abi::mfb_arg(1))); // width
     asm.push(abi::move_register(abi::LOCAL[2], abi::mfb_arg(2))); // height
 
-    // No drawing area, no blit. Headless (`MFB_GTKAPP_HEADLESS`) there is no window
+    // No drawing area, no blit. Headless (`MFB_HEADLESS`) there is no window
     // and no main loop, so the `g_idle_add` below would hand a malloc'd frame to a
     // queue nothing drains — one leaked surface per frame. This is the same check
     // the macOS blit makes against its app delegate, and it means a headless run

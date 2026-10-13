@@ -84,6 +84,12 @@ fn functions_of(plan: &Value) -> serde_json::Map<String, Value> {
 
 /// The whole `-ncode` plan of `source` built `-app` for `target`.
 fn app_ncode_plan(name: &str, target: &str, source: &str) -> Value {
+    app_ncode_plan_with(name, target, source, &[])
+}
+
+/// [`app_ncode_plan`] with extra build flags: `--debug`, for the build that carries
+/// the headless test hooks.
+fn app_ncode_plan_with(name: &str, target: &str, source: &str, extra: &[&str]) -> Value {
     let project = temp_project(name, source);
     let mut command = Command::new(common::mfb_exe());
     // `-target` on BOTH sides, always. Omitting it for the macOS oracle asked for
@@ -93,7 +99,11 @@ fn app_ncode_plan(name: &str, target: &str, source: &str) -> Value {
     // comparison. Measured with the release compiler: `-app -target
     // macos-aarch64 -ncode` yields 7/7/26/6 glyphs for drawHLine/drawVLine/
     // drawBox/fillRect from any host, `-target linux-x86_64` yields 0/0/0/0.
-    command.arg("build").arg("-app").args(["-target", target]);
+    command
+        .arg("build")
+        .arg("-app")
+        .args(extra)
+        .args(["-target", target]);
     let output = command
         .arg("-ncode")
         .arg(&project)
@@ -679,7 +689,14 @@ fn utf16_value(object: &Value) -> Option<String> {
 /// updates the size `term::terminalSize` reads.
 #[test]
 fn windows_app_mode_window_and_scripted_resize_share_one_term_handler() {
-    let plan = app_ncode_plan("win_app_term_resize_paths", "windows-x86_64", RESIZE_SOURCE);
+    // A `--debug` build: the scripted hook is a test affordance, so only that build
+    // has it (`a_normal_windows_app_build_carries_no_test_hook`).
+    let plan = app_ncode_plan_with(
+        "win_app_term_resize_paths",
+        "windows-x86_64",
+        RESIZE_SOURCE,
+        &["--debug"],
+    );
     let windows = functions_of(&plan);
     let calls = |symbol: &str| -> Vec<String> {
         body(&windows, symbol)
@@ -782,6 +799,44 @@ fn reads_of_clobbered_args(instructions: &[Value]) -> Vec<String> {
         }
     }
     found
+}
+
+/// A normal build's bootstrap reads one variable, the headless switch. Every test
+/// hook — keystroke injection, the scripted resizes, the scripted pointer, the
+/// transcript readback — is a `--debug` build's, name and reader both.
+#[test]
+fn a_normal_windows_app_build_carries_no_test_hook() {
+    let names = |plan: &Value| -> Vec<String> {
+        plan["dataObjects"]
+            .as_array()
+            .expect("dataObjects")
+            .iter()
+            .filter_map(utf16_value)
+            .filter(|value| value.starts_with("MFB_"))
+            .collect()
+    };
+    let normal = app_ncode_plan("win_app_no_hooks", "windows-x86_64", RESIZE_SOURCE);
+    assert_eq!(names(&normal), ["MFB_HEADLESS"]);
+    let debug = app_ncode_plan_with(
+        "win_app_debug_hooks",
+        "windows-x86_64",
+        RESIZE_SOURCE,
+        &["--debug"],
+    );
+    let debug = names(&debug);
+    for variable in [
+        "MFB_HEADLESS",
+        "MFB_WINAPP_INPUT",
+        "MFB_CANVAS_RESIZE_W",
+        "MFB_CANVAS_RESIZE_H",
+        "MFB_WINAPP_TERM_RESIZE_W",
+        "MFB_WINAPP_TERM_RESIZE_H",
+    ] {
+        assert!(
+            debug.iter().any(|name| name == variable),
+            "a --debug build must name {variable}; it names {debug:?}"
+        );
+    }
 }
 
 /// The transcript write reads `MultiByteToWideChar`'s count to place the NUL. It

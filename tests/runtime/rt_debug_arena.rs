@@ -162,7 +162,7 @@ fn the_canvas_graphics_thread_registers_a_graphics_arena() {
         String::from_utf8_lossy(&output.stderr)
     );
     let run = Command::new(common::app_binary(&project, name))
-        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .output()
         .expect("run the headless app");
     let stdout = String::from_utf8_lossy(&run.stdout);

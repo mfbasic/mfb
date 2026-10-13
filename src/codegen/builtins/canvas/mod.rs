@@ -2427,7 +2427,53 @@ mod tests {
         let debug = canvas.get_mfb_for(true);
         assert!(debug.contains("\"MFB_CANVAS_STATS\"") && debug.contains("\"MFB_CANVAS_DUMP\""));
         assert!(debug.contains("\"MFB_CANVAS_POINTER\""));
+        for switch in DEBUG_ONLY_VARIABLES {
+            assert!(
+                debug.contains(&format!("\"{switch}\"")),
+                "the --debug canvas source does not read {switch}"
+            );
+        }
         assert_parses(&debug);
+    }
+
+    /// Every variable only a `--debug` build's canvas source reads: the reporting hooks
+    /// and the switches a test sets to drive or observe a headless run.
+    const DEBUG_ONLY_VARIABLES: [&str; 9] = [
+        "MFB_CANVAS_STATS",
+        "MFB_CANVAS_DUMP",
+        "MFB_CANVAS_POINTER",
+        "MFB_CANVAS_AUTO_WINDOW_MS",
+        "MFB_CANVAS_GEO_VERIFY",
+        "MFB_CANVAS_DAMAGE",
+        "MFB_CANVAS_DISPLAY_HZ",
+        "MFB_CANVAS_FRAME_HOLD_MS",
+        "MFB_CANVAS_GLYPH_BUDGET",
+    ];
+
+    /// A normal build's canvas source reads exactly three variables: the renderer
+    /// choice, the headless switch, and `MFB_CANVAS_SYNC`, which stays in every build
+    /// while canvas is in development (`__canvas_readSyncMode`). Everything else is a
+    /// `--debug` build's.
+    #[test]
+    fn the_normal_source_reads_only_the_renderer_headless_and_sync_variables() {
+        let normal = registry()
+            .resolve_package("canvas")
+            .expect("canvas")
+            .get_mfb_for(false);
+        for switch in DEBUG_ONLY_VARIABLES {
+            assert!(
+                !normal.contains(&format!("\"{switch}\"")),
+                "normal canvas source reads {switch}"
+            );
+        }
+        let mut read: Vec<&str> = normal
+            .split("os::getEnvOr(\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        read.sort_unstable();
+        read.dedup();
+        assert_eq!(read, ["MFB_CANVAS_GPU", "MFB_CANVAS_SYNC", "MFB_HEADLESS"]);
     }
 
     /// plan-130-E: a normal build's canvas source carries no reporting hook — nothing

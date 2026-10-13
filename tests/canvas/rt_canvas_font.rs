@@ -34,9 +34,7 @@ fn run_files(name: &str, source: &str, files: &[(&str, Vec<u8>)]) -> Vec<String>
     let binary = common::build_app(&project, name);
     let out = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
@@ -378,9 +376,7 @@ fn run_with_font(name: &str, source: &str) -> Vec<String> {
     let binary = common::build_app(&project, name);
     let out = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
     assert!(
@@ -410,9 +406,7 @@ fn run_with_font_frame(name: &str, source: &str) -> Vec<u8> {
     let binary = common::build_app_debug(&project, name);
     let out = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .env("MFB_CANVAS_DUMP", &frame)
         .output()
@@ -678,9 +672,7 @@ fn render_env_files(
     let mut command = Command::new(&binary);
     command
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame)
         .env("MFB_CANVAS_STATS", &stats)
         .env("MFB_CANVAS_SYNC", "1");
@@ -1706,9 +1698,7 @@ fn run_fonts_bounded(
     let mut command = Command::new(&binary);
     command
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::null());

@@ -24,7 +24,7 @@ Neither shape emits a console `.out`. See `./mfb spec architecture artifacts`.
 
 - `macos-runtime` — the AppKit `_main` bootstrap (NSApplication/NSWindow/menu/
   delegate), the transcript view, the worker pthread shim, and the
-  associated-object per-process state scheme; plus the `MFB_MACAPP_HEADLESS`
+  associated-object per-process state scheme; plus the `MFB_HEADLESS`
   test path.
 - `linux-runtime` — the GTK4 bootstrap, the `_mfb_gtkapp_state` global, the
   drawing-area term surface, and the documented divergences.

@@ -40,9 +40,7 @@ fn render(name: &str, source: &str) -> (Vec<u8>, Vec<String>) {
     let stats = project.join("stats.txt");
     let binary = common::build_app_debug(&project, name);
     let run = Command::new(&binary)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame)
         .env("MFB_CANVAS_STATS", &stats)
         .env("MFB_CANVAS_SYNC", "1")
@@ -459,9 +457,7 @@ fn set_bytes_repaints_under_damage_tracking() {
     let frame = project.join("frame.rgba");
     let binary = common::build_app_debug(&project, "canvas_picture_damage");
     let run = Command::new(&binary)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame)
         .env("MFB_CANVAS_SYNC", "1")
         .env("MFB_CANVAS_DAMAGE", "1")
@@ -530,9 +526,7 @@ fn set_bytes_twice_between_frames_shows_the_last() {
     let frame = project.join("frame.rgba");
     let binary = common::build_app_debug(&project, "canvas_picture_r9");
     let run = Command::new(&binary)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame)
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));

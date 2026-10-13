@@ -1108,10 +1108,7 @@ fn run_lines(name: &str, source: &str, build: Build) -> Result<(Vec<String>, u64
     let (exe, project) = build_debug_as(name, source, build)?;
     let mut command = Command::new(&exe);
     if build == Build::App {
-        command
-            .env("MFB_MACAPP_HEADLESS", "1")
-            .env("MFB_WINAPP_HEADLESS", "1")
-            .env("MFB_GTKAPP_HEADLESS", "1");
+        command.env("MFB_HEADLESS", "1");
     }
     let output = output_with_stdin(&mut command, source);
     let _ = std::fs::remove_dir_all(&project);

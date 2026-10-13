@@ -140,29 +140,78 @@ The `perf` section maps its own timing region at program entry (never the arena)
 and prints each line with a single `write`; it is emitted only for a `macos-aarch64`
 `--debug` build. [[src/codegen/debug/perf.rs:PerfFeature]]
 
-## Reporting hooks
+## Environment variables a build reads
 
-Three environment variables make a program write diagnostic output while it runs.
-They are reporting hooks, not program behavior, so only a `--debug` build contains
-the code that reads them; a normal build ignores them.
+A compiled program reads four environment variables in every build:
 
-| Variable | Build | What the program writes |
+| Variable | Program | Effect |
 | --- | --- | --- |
-| `MFB_CANVAS_STATS` | canvas program | appends one line of renderer counters (`generations=`, `frames=`, `skipped=`, `damage=`, …) to the named file for every rendered or skipped frame |
-| `MFB_CANVAS_DUMP` | canvas program | writes each presented frame's raw RGBA8 bytes to the named file, overwriting it |
-| `MFB_WINAPP_DUMP` | Windows app | when set, the UI thread reads the window transcript back at exit and writes it to stdout as raw UTF-16 |
+| `MFB_HEADLESS` | app | an app-mode program skips its window and event loop; a canvas program also defaults to the software renderer |
+| `MFB_CANVAS_GPU` | canvas | the canvas renderer choice |
+| `MFB_CANVAS_SYNC` | canvas | any non-empty value makes `present` wait for its frame; unset, `present` never waits |
+| `MFB_MOUSE_INJECT` | `term::enableMouse` and `canvas::enableMouse`, POSIX targets | raw SGR bytes fed through the mouse decoder |
 
-The canvas hooks live in the canvas package's source, which carries a normal and a
-`--debug` body for `__canvas_presentSurface` and the render loop
-(`RegistryHelper::debug_split`); the build injects the body matching its flag.
+`MFB_CANVAS_SYNC` and `MFB_MOUSE_INJECT` are test switches. They are read by every
+build because `tools/canvas-bench` measures release builds with them (`sweep --release`
+and `hit`), and a `--debug` build's instrumentation would change the timings.
+[[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
+[[src/codegen/term/core/term.rs:emit_mouse_inject]]
+
+Every other `MFB_` variable a program reads is read only by a `--debug` build: the
+variable name and the code that reads it are both absent from a normal build's binary,
+so a normal build ignores them. This section is the canonical list.
+
+**Reporting hooks** make the program write diagnostic output while it runs.
+
+| Variable | Program | What the program writes |
+| --- | --- | --- |
+| `MFB_CANVAS_STATS` | canvas | appends one line of renderer counters (`generations=`, `frames=`, `skipped=`, `damage=`, ...) to the named file for every rendered or skipped frame |
+| `MFB_CANVAS_DUMP` | canvas | writes each presented frame's raw RGBA8 bytes to the named file, overwriting it |
+| `MFB_TRANSCRIPT_DUMP` | app (macOS, Linux GTK, Windows), windowed run | when the program finishes, writes the transcript window's text to stdout and exits with the program's exit code, instead of appending `Program exited with code N` and keeping the window open |
+
+`MFB_TRANSCRIPT_DUMP` output is UTF-8 on macOS and Linux GTK and raw UTF-16 on
+Windows (the UI thread reads the transcript back with `WM_GETTEXT`). A headless run
+has no transcript window, so the variable does nothing there. On macOS the finish
+helper runs the dump on the main queue with `dispatch_sync_f`; on Linux GTK it
+schedules an idle callback with `g_idle_add` that writes the buffer to fd 1 and calls
+`_exit`.
+[[src/target/macos_aarch64/app/bootstrap.rs:emit_transcript_dump_helper]]
+[[src/target/linux_gtk/bootstrap.rs:emit_transcript_dump_idle_helper]]
+[[src/target/win_x86_64/app/mod.rs:app_mode_data_objects]]
+
+**Test switches** let a harness drive a program deterministically.
+
+| Variable | Program | Effect |
+| --- | --- | --- |
+| `MFB_CANVAS_DAMAGE` | canvas | turns damage tracking on; unset, damage tracking is off |
+| `MFB_CANVAS_DISPLAY_HZ` | canvas | overrides the display refresh rate the runtime reports; unset, no override |
+| `MFB_CANVAS_FRAME_HOLD_MS` | canvas | holds the graphics thread inside a frame; unset, no hold |
+| `MFB_CANVAS_GLYPH_BUDGET` | canvas | sets the glyph cache byte budget; unset, the budget is 1048576 bytes |
+| `MFB_CANVAS_POINTER` | canvas | a pointer script, `ms,x,y,buttons,inside;…`, published by the graphics thread as each entry falls due |
+| `MFB_CANVAS_AUTO_WINDOW_MS` | canvas | overrides how long an `AutoPaint` enter or exit paint is held, in milliseconds; unset, the project's `options.canvasAutoPaintMS` |
+| `MFB_CANVAS_GEO_VERIFY` | canvas | `1` rebuilds every geometry record with the MFBASIC builders and counts those that differ from the native builder's, on the stats line |
+| `MFB_CANVAS_RESIZE_W` / `_H` | canvas app, headless run on Linux GTK and Windows | publishes a surface size in pixels |
+| `MFB_CANVAS_POINTER_X` / `_Y` | canvas app, headless run on Linux GTK and Windows | delivers a pointer position to the platform callback |
+| `MFB_WINAPP_INPUT` | Windows app, windowed run | posts each character of the value to the input control, then Enter |
+| `MFB_WINAPP_TERM_RESIZE_W` / `_H` | Windows `term::` app, headless run | gives the window a client size in pixels |
+
+In a normal build, therefore, damage tracking is always off, the glyph cache budget
+is always 1048576 bytes, and there is no display-rate override or frame hold. The `MFB_CANVAS_RESIZE_*` and
+`MFB_CANVAS_POINTER_X`/`_Y` variables are never read on macOS.
+
+The canvas variables live in the canvas package's source, which carries a normal and
+a `--debug` body for each reading helper (`RegistryHelper::debug_split`); the build
+injects the body matching its flag.
 [[src/codegen/registry/mod.rs:debug_split]]
-The Windows hook's variable name, buffer and reader are emitted only when the app
-entry is built with `--debug`. [[src/target/win_x86_64/app/mod.rs:app_mode_data_objects]]
-
-The switches tests use to drive a program — `MFB_MACAPP_HEADLESS`,
-`MFB_WINAPP_HEADLESS`, `MFB_GTKAPP_HEADLESS`, `MFB_CANVAS_SYNC`, `MFB_CANVAS_GPU`,
-`MFB_CANVAS_RESIZE_W`/`_H`, `MFB_WINAPP_INPUT` — are not reporting hooks and work in
-every build.
+[[src/codegen/builtins/canvas/helper_render.rs:TEST_SWITCHES_DEBUG]]
+[[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_SWITCH_DEBUG]]
+[[src/codegen/builtins/canvas/helper_glyph_cache.rs:GLYPH_BUDGET_DEBUG]]
+The Linux GTK bootstrap emits its variable names and the `atoi`/`usleep` imports only
+for `--debug`.
+[[src/target/linux_gtk/bootstrap.rs:emit_main_bootstrap]]
+[[src/target/linux_gtk/mod.rs:debug_app_mode_imports]]
+The Windows entry emits its names and readers only for `--debug`.
+[[src/target/win_x86_64/app/mod.rs:emit_main]]
 
 ## Symbol tables
 

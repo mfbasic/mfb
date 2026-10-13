@@ -203,6 +203,11 @@ pub(crate) trait NativePlanPlatform {
     fn debug_clock_imports(&self, _required_by: &str) -> Vec<PlatformImport> {
         Vec::new()
     }
+    /// The imports the app bootstrap's test hooks need, in a `--debug` build only (the
+    /// GTK headless run's scripted resize and pointer, which a canvas program carries).
+    fn debug_app_mode_imports(&self, _uses_canvas: bool) -> Vec<PlatformImport> {
+        Vec::new()
+    }
     /// The libc imports (`dlopen`/`dlsym`) the per-library `LINK` initializer
     /// needs to resolve user binding symbols at load time (plan-linker.md §12.1).
     fn link_imports(&self, required_by: &str) -> Vec<PlatformImport>;

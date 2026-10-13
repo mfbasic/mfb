@@ -33,7 +33,7 @@ END FUNC"#;
 /// * When `MFB_CANVAS_DUMP` names a file, the raw RGBA8 bytes are written to it.
 ///   That is how a *headless* run — which has no window at all — is observed, and it
 ///   is what makes the rasteriser testable as an oracle rather than only visible.
-///   The same shape as the existing `MFB_WINAPP_DUMP` transcript readback.
+///   The same shape as the existing `MFB_TRANSCRIPT_DUMP` transcript readback.
 /// * The window blit is plan-98-C Phase 3, per platform.
 ///
 /// A frame with no destination is not an error: a program can legitimately render

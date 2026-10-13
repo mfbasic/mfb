@@ -1506,7 +1506,7 @@ pub(crate) struct AppEntrySpec {
     /// only for such a program.
     pub(crate) uses_window: bool,
     /// A `--debug` build (plan-130-E): the backend emits its reporting hooks (the Windows
-    /// `MFB_WINAPP_DUMP` transcript readback). A normal build contains none of them.
+    /// `MFB_TRANSCRIPT_DUMP` transcript readback). A normal build contains none of them.
     pub(crate) debug_hooks: bool,
 }
 

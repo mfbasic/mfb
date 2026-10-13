@@ -583,9 +583,6 @@ impl NativePlanPlatform for Platform {
             // set/reset, plus the monotonic clock the ring stamps each event with
             // — `QueryPerformanceCounter`/`Frequency`, because Windows has no
             // `clock_gettime` (the same pair `datetime::monotonicNanos` uses).
-            // `getenv` serves the `MFB_MOUSE_INJECT` test affordance; it is the
-            // CRT spelling and resolves through the same import table the rest of
-            // the console path uses.
             "term.enableMouse" => vec![
                 import("GetStdHandle", KERNEL32, required_by),
                 import("WriteFile", KERNEL32, required_by),

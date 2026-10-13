@@ -46,42 +46,12 @@ MUT __CANVAS_GLYPH_COV AS List OF Byte = []
 MUT __CANVAS_GLYPH_LASTUSED AS List OF Integer = []
 MUT __CANVAS_GLYPH_REV AS Integer = 0
 MUT __CANVAS_GLYPH_EVICTIONS AS Integer = 0
-MUT __CANVAS_GLYPH_BUDGET AS Integer = 0
 MUT __CANVAS_GLYPH_NEXTEVICT AS Integer = 0
 
 ' The entries of the glyph run currently being built, if any. A run is not in the
 ' geometry cache until it is finished, so this is the only way an eviction pass
 ' triggered part-way through one can see the glyphs that run has already claimed.
 MUT __CANVAS_GLYPH_PINS AS List OF Integer = []
-
-' The coverage budget, in bytes. A megabyte is a few hundred glyphs at body sizes and
-' a couple of dozen at display sizes -- enough that ordinary text never evicts, and
-' small enough that a program animating a size cannot grow the cache without bound.
-' Crossing it is not a failure: it is the point at which the cache starts behaving like
-' a cache.
-'
-' `MFB_CANVAS_GLYPH_BUDGET` shrinks it. Without that, a test cannot force an eviction
-' at a cost it can afford: filling a megabyte with the four-edge fixture glyph takes a
-' scene far larger than one that also has to be checked pixel by pixel, so the eviction
-' path would go untested while the test that was meant to cover it passed. Resolved
-' once and cached, so the ordinary path is a compare against a global rather than a
-' `getenv` per glyph.
-FUNC __canvas_budgetOr(text AS String, fallback AS Integer) AS Integer
-  IF len(text) = 0 THEN
-    RETURN fallback
-  END IF
-  RETURN toInt(text)
-  TRAP(err)
-    RETURN fallback
-  END TRAP
-END FUNC
-
-FUNC __canvas_glyphBudget() AS Integer
-  IF __CANVAS_GLYPH_BUDGET = 0 THEN
-    __CANVAS_GLYPH_BUDGET = __canvas_budgetOr(os::getEnvOr("MFB_CANVAS_GLYPH_BUDGET", ""), 1048576)
-  END IF
-  RETURN __CANVAS_GLYPH_BUDGET
-END FUNC
 
 FUNC __canvas_glyphKey(fontId AS Integer, sizeQ AS Integer, gid AS Integer) AS Integer
   ' Every term is folded into a fixed width before it is combined. `fontId` is the
@@ -273,11 +243,54 @@ FUNC __canvas_floorF(v AS Float) AS Float
   RETURN t
 END FUNC"#;
 
+/// The coverage budget, in bytes. A megabyte is a few hundred glyphs at body sizes and
+/// a couple of dozen at display sizes — enough that ordinary text never evicts, and
+/// small enough that a program animating a size cannot grow the cache without bound.
+/// Crossing it is not a failure: it is the point at which the cache starts behaving like
+/// a cache.
+const GLYPH_BUDGET: &str = r#"FUNC __canvas_glyphBudget() AS Integer
+  RETURN 1048576
+END FUNC"#;
+
+/// [`GLYPH_BUDGET`] for a `--debug` build, which is the only build that reads
+/// `MFB_CANVAS_GLYPH_BUDGET`.
+#[rustfmt::skip]
+const GLYPH_BUDGET_DEBUG: &str =
+r#"MUT __CANVAS_GLYPH_BUDGET AS Integer = 0
+
+' `MFB_CANVAS_GLYPH_BUDGET` shrinks the megabyte a normal build always uses. Without
+' that, a test cannot force an eviction at a cost it can afford: filling a megabyte with
+' the four-edge fixture glyph takes a scene far larger than one that also has to be
+' checked pixel by pixel, so the eviction path would go untested while the test that was
+' meant to cover it passed. Resolved once and cached, so the path is a compare against a
+' global rather than a `getenv` per glyph.
+FUNC __canvas_budgetOr(text AS String, fallback AS Integer) AS Integer
+  IF len(text) = 0 THEN
+    RETURN fallback
+  END IF
+  RETURN toInt(text)
+  TRAP(err)
+    RETURN fallback
+  END TRAP
+END FUNC
+
+FUNC __canvas_glyphBudget() AS Integer
+  IF __CANVAS_GLYPH_BUDGET = 0 THEN
+    __CANVAS_GLYPH_BUDGET = __canvas_budgetOr(os::getEnvOr("MFB_CANVAS_GLYPH_BUDGET", ""), 1048576)
+  END IF
+  RETURN __CANVAS_GLYPH_BUDGET
+END FUNC"#;
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always(
         "canvas_glyphCacheState",
         GLYPH_CACHE_STATE,
     ));
+    for helper in
+        RegistryHelper::debug_split("canvas_glyphBudget", GLYPH_BUDGET, GLYPH_BUDGET_DEBUG)
+    {
+        pkg.add_helper(helper);
+    }
     pkg.add_helper(RegistryHelper::always(
         "canvas_glyphDistance",
         GLYPH_DISTANCE,

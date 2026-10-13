@@ -63,9 +63,7 @@ fn stats(name: &str, source: &str) -> Vec<String> {
     let stats = project.join("stats.txt");
     let run = Command::new(&binary)
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_STATS", &stats)
         // Synchronous, or presents coalesce and the frame count is the scheduler's
         // answer rather than the program's — and every number below is per frame.

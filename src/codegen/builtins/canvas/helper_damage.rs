@@ -59,9 +59,18 @@ MUT __CANVAS_PARTIAL AS Integer = 0
 ' separates "the GPU drew this and it matches" from "a predicate declined, software
 ' drew a perfect picture, and the comparison passed for the wrong reason".
 MUT __CANVAS_GPU_FRAMES AS Integer = 0
-MUT __CANVAS_DAMAGE AS List OF Integer = []
+MUT __CANVAS_DAMAGE AS List OF Integer = []"#;
 
-' Damage is off unless `MFB_CANVAS_DAMAGE` is set. It changes no visible output -- that
+/// Whether damage tracking is on. A normal build has no switch for it, so it is off.
+const DAMAGE_SWITCH: &str = r#"FUNC __canvas_damageEnabled() AS Boolean
+  RETURN FALSE
+END FUNC"#;
+
+/// [`DAMAGE_SWITCH`] for a `--debug` build, which is the only build that reads
+/// `MFB_CANVAS_DAMAGE`.
+#[rustfmt::skip]
+const DAMAGE_SWITCH_DEBUG: &str =
+r#"' Damage is off unless `MFB_CANVAS_DAMAGE` is set. It changes no visible output -- that
 ' is the property its tests assert -- but it does change *when* the renderer runs at all,
 ' and a frame counter that silently stops advancing is the kind of thing a stale test
 ' reads as a pass. Resolved once and cached; 0 is unresolved, 1 off, 2 on.
@@ -280,5 +289,10 @@ END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_damageState", DAMAGE_STATE));
+    for helper in
+        RegistryHelper::debug_split("canvas_damageSwitch", DAMAGE_SWITCH, DAMAGE_SWITCH_DEBUG)
+    {
+        pkg.add_helper(helper);
+    }
     pkg.add_helper(RegistryHelper::always("canvas_damageFor", DAMAGE_FOR));
 }

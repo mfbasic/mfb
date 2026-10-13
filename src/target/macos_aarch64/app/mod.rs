@@ -96,7 +96,7 @@ pub(crate) const DEFAULT_WINDOW_TITLE: &str = "MFBASIC App";
 /// and the AppKit event loop, spawning the worker headlessly. This drives the
 /// automated runtime tests (plan §7.2 Strategy A) through the same construction
 /// and worker code the GUI path uses.
-const STR_HEADLESS_ENV: (&str, &str) = ("_mfb_macapp_str_headless", "MFB_MACAPP_HEADLESS");
+const STR_HEADLESS_ENV: (&str, &str) = ("_mfb_macapp_str_headless", "MFB_HEADLESS");
 
 // Transcript view selectors (Phase 4 output path, plan §5.5).
 const SEL_CONTENT_VIEW: (&str, &str) = ("_mfb_macapp_sel_contentView", "contentView");
@@ -252,6 +252,15 @@ const INPUT_MODE_RAW_NO_ECHO: &str = "2";
 const NS_UTF8_ENCODING: &str = "4";
 /// The transcript NSTextView append helper emitted alongside the bootstrap.
 const APPEND_SYMBOL: &str = "_mfb_macapp_append";
+/// `void _mfb_macapp_transcript_dump(void *view)`: a `--debug` build's
+/// `MFB_TRANSCRIPT_DUMP` readback, run on the main thread by the finish helper.
+const TRANSCRIPT_DUMP_SYMBOL: &str = "_mfb_macapp_transcript_dump";
+/// The name of the variable that asks a `--debug` build to write the window
+/// transcript to stdout when the program finishes.
+const STR_TRANSCRIPT_DUMP_ENV: (&str, &str) =
+    ("_mfb_macapp_str_transcriptDump", "MFB_TRANSCRIPT_DUMP");
+/// libdispatch's main queue object (`dispatch_get_main_queue()` is `&_dispatch_main_q`).
+const DISPATCH_MAIN_QUEUE: &str = "__dispatch_main_q";
 /// Console io.write / io.readLine runtime helpers that app-mode `io.input`
 /// composes (force-emitted in app mode when io.input is used).
 const IO_WRITE_SYMBOL: &str = "_mfb_rt_io_io_write";
@@ -766,7 +775,7 @@ const LIB_SYSTEM: &str = "libSystem";
 const REG_APP: Reg = abi::LOCAL[0]; // NSApplication instance
 const REG_WINDOW: Reg = abi::LOCAL[1]; // NSWindow instance
 const REG_SCRATCH_OBJ: Reg = abi::LOCAL[2]; // transient object (class / NSString)
-const REG_HEADLESS: Reg = abi::LOCAL[3]; // getenv("MFB_MACAPP_HEADLESS") result
+const REG_HEADLESS: Reg = abi::LOCAL[3]; // getenv("MFB_HEADLESS") result
 
 // `_main` stack frame: [sp+0]=argc, [sp+8]=argv (worker arg block),
 // [sp+16]=pthread_t, [sp+24..32]=input pipe fds (read, write),
@@ -903,6 +912,11 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_worker_shim(spec),
         emit_append_helper(),
         emit_finish_helper(spec.uses_term, spec.debug_hooks),
+    ];
+    if spec.debug_hooks {
+        functions.push(emit_transcript_dump_helper());
+    }
+    functions.extend([
         emit_should_terminate_helper(spec.initial_mode == PresentationMode::None),
         emit_did_finish_launching_helper(),
         emit_key_down_helper(),
@@ -925,7 +939,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_accepts_first_responder(),
         emit_term_key_down_helper(),
         emit_term_set_frame_size_helper(),
-    ];
+    ]);
     // plan-94-C: the mouse IMPs. `TermView`'s eleven are emitted only for a program
     // that uses the mouse members — each body loads `_mfb_rt_mouse_mode`, which is
     // itself emitted only then, so installing them unconditionally would leave every
@@ -1127,7 +1141,11 @@ fn emit_double_immediate(asm: &mut Asm, dst: Reg, value: u32) {
 /// entries (bug-326-A21): a data object nothing references still lands in the
 /// binary, and nineteen dead strings in every app program that never touches the
 /// mouse is exactly that bug again — which the app fixtures' goldens caught.
-pub(crate) fn app_mode_data_objects(uses_mouse: bool, uses_canvas: bool) -> Vec<CodeDataObject> {
+pub(crate) fn app_mode_data_objects(
+    debug_hooks: bool,
+    uses_mouse: bool,
+    uses_canvas: bool,
+) -> Vec<CodeDataObject> {
     let mut objects: Vec<CodeDataObject> = [
         SEL_SHARED_APPLICATION,
         SEL_SET_ACTIVATION_POLICY,
@@ -1248,6 +1266,19 @@ pub(crate) fn app_mode_data_objects(uses_mouse: bool, uses_canvas: bool) -> Vec<
         value: hex_cstring(text),
     })
     .collect();
+    // A `--debug` build's transcript readback names its variable. A normal build has
+    // no reader, so it has no name either.
+    if debug_hooks {
+        let (symbol, text) = STR_TRANSCRIPT_DUMP_ENV;
+        objects.push(CodeDataObject {
+            symbol: symbol.to_string(),
+            kind: "raw".to_string(),
+            layout: "C string (NUL-terminated)".to_string(),
+            align: 1,
+            size: text.len() + 1,
+            value: hex_cstring(text),
+        });
+    }
     // The transcript NSTextView is stored as an associated object on NSApp keyed
     // by the address of this 1-byte read-only symbol (objc-runtime-managed
     // per-process storage; see ASSOC_KEY).
@@ -1573,7 +1604,7 @@ mod release_tests {
     #[test]
     fn release_selector_string_is_emitted() {
         assert!(
-            app_mode_data_objects(false, false)
+            app_mode_data_objects(false, false, false)
                 .iter()
                 .any(|d| d.symbol.as_str() == SEL_RELEASE.0),
             "the `release` selector C-string must be emitted (bug-53)"
@@ -1585,7 +1616,7 @@ mod release_tests {
 /// plan-98-A Phase 3: the `Mode.Canvas` arm of the macOS reconcile.
 ///
 /// These inspect the emitted code directly rather than running it, because the
-/// reconcile IMP is **unreachable under `MFB_MACAPP_HEADLESS=1`**: headless installs
+/// reconcile IMP is **unreachable under `MFB_HEADLESS=1`**: headless installs
 /// no app delegate (`emit_main_bootstrap` skips `emit_gui_delegate`), and
 /// `_mfb_macapp_reconcile_marshal` no-ops when `[NSApp delegate]` is nil — it must,
 /// since `waitUntilDone:YES` with no run loop to drain the perform would deadlock.

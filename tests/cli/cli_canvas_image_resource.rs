@@ -208,7 +208,7 @@ fn macos_the_image_resource_contract_holds_at_runtime() {
     assert!(ok, "build should succeed:\n{log}");
     let exe = project.join("build/canvas_image_rt.app/Contents/MacOS/canvas_image_rt");
     let output = Command::new(&exe)
-        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .output()
         .expect("run headless app bundle");
     let code = output.status.code().unwrap_or(-1);
@@ -247,7 +247,7 @@ fn macos_the_presented_picture_draws_its_pixels() {
     let exe = project.join("build/canvas_image_px.app/Contents/MacOS/canvas_image_px");
     let frame_path = project.join("frame.rgba");
     let output = Command::new(&exe)
-        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .env("MFB_CANVAS_DUMP", &frame_path)
         .output()

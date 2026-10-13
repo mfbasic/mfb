@@ -25,9 +25,7 @@ fn pointers(name: &str, source: &str, envs: &[(&str, &str)]) -> Vec<String> {
     let binary = common::build_app_debug(&project, name);
     let mut command = Command::new(&binary);
     command
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_STATS", &stats)
         // One frame per present, so the n-th stats line is the n-th present's frame.
         .env("MFB_CANVAS_SYNC", "1");

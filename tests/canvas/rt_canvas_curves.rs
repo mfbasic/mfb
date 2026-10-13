@@ -1043,9 +1043,7 @@ fn scene_on(name: &str, body: &str, functions: &str, presses: &[(u32, u32)], gpu
     }
     let run = command
         .current_dir(&project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
-        .env("MFB_GTKAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_DUMP", &frame)
         .env("MFB_CANVAS_STATS", &stats)
         .env("MFB_CANVAS_GEO_VERIFY", "1")

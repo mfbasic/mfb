@@ -5,7 +5,7 @@
 //! completes raised `ErrStackOverflow` (before bug-789: died by SIGSEGV).
 //!
 //! The bootstrap now creates the program thread with an explicit
-//! `THREAD_STACK_BYTES` stack. Run headless (`MFB_MACAPP_HEADLESS=1`): a
+//! `THREAD_STACK_BYTES` stack. Run headless (`MFB_HEADLESS=1`): a
 //! 20000-deep recursion must return its value. The Linux GTK bootstrap was
 //! verified on box 2226 under `ulimit -s 256`; see the bug doc.
 
@@ -51,7 +51,7 @@ fn a_headless_app_program_gets_the_console_stack() {
         .join("Contents/MacOS")
         .join(name);
     let output = Command::new(&exe)
-        .env("MFB_MACAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .output()
         .expect("run the app headless");
     assert!(

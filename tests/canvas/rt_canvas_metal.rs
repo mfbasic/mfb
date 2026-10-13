@@ -362,8 +362,7 @@ fn render_env(program: &Program, metal: bool, tag: &str, envs: &[(&str, &str)]) 
     let mut command = Command::new(&program.binary);
     command
         .current_dir(&program.project)
-        .env("MFB_MACAPP_HEADLESS", "1")
-        .env("MFB_WINAPP_HEADLESS", "1")
+        .env("MFB_HEADLESS", "1")
         .env("MFB_CANVAS_SYNC", "1")
         .env("MFB_CANVAS_STATS", &stats_path)
         .env("MFB_CANVAS_DUMP", &frame_path);
