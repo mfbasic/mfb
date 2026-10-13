@@ -18,6 +18,7 @@
 #   magnified-polygons [FRAMES] [--software]
 #   compare stress|poly|pics|text ARGS...
 #   coldstart
+#   dots N [SECONDS] [--window] [--move|--same]
 #
 # Without --target/--box, everything runs headless (MFB_MACAPP_HEADLESS=1)
 # and *locally* as a macOS `.app` bundle (`mfb build -app`), exactly as
@@ -978,8 +979,80 @@ cmd_coldstart() {
   done
 }
 
+# ---------------------------------------------------------------------------
+# dots
+# ---------------------------------------------------------------------------
+# dots_run DIR ERRFILE ENV_ASSIGN... -- run DIR's dots program with ENV_ASSIGN
+# (and headless, unless DOTS_WINDOW=1 on macOS), its stderr -- the program's
+# one result line -- into ERRFILE.
+dots_run() {
+  local dir=$1 errfile=$2; shift 2
+  if [ -n "$LINUX_TARGET" ]; then
+    linux_run "$dir" dots "$errfile" "$@" || true
+  elif [ "$DOTS_WINDOW" = 1 ]; then
+    env "$@" "$(bin_path "$dir" dots)" >/dev/null 2>"$errfile" || true
+  else
+    env MFB_MACAPP_HEADLESS=1 "$@" "$(bin_path "$dir" dots)" >/dev/null 2>"$errfile" || true
+  fi
+}
+
+cmd_dots() {
+  local n=${1:?"dots needs N"}; shift
+  local secs=10 move=0 same=0
+  DOTS_WINDOW=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --window) DOTS_WINDOW=1 ;;
+      --move) move=1 ;;
+      --same) same=1 ;;
+      *) secs=$1 ;;
+    esac
+    shift
+  done
+  [ "$DOTS_WINDOW" = 1 ] && [ -n "$LINUX_TARGET" ] && die "dots --window runs a real window on this Mac only"
+  local kind=paint; [ "$move" = 1 ] && kind=move; [ "$same" = 1 ] && kind=same
+  # Release: the rates. No stats line in a release build, so the renderer is
+  # the one canvas::getFrameStats reports for the last frame drawn.
+  local rdir="$WORK/dots-$n-$kind-release"
+  MOVE=$move SAME=$same bash "$GEN/dots.sh" "$rdir" "$n" "$secs"
+  build_app "$rdir"
+  dots_run "$rdir" "$rdir/result" "MFB_CANVAS_GPU=1"
+  local line; line=$(grep '^count=' "$rdir/result" | tail -1 || true)
+  local pps fps renderer
+  pps=$(stats_field_line "$line" pps); fps=$(stats_field_line "$line" fps)
+  renderer=$(echo "$line" | grep -oE 'renderer=[A-Za-z]+' | cut -d= -f2)
+  # --debug: the same run with the stats line, for what the rates cannot say:
+  # how many of the frames a GPU backend drew, how many geometry records a
+  # frame built, and where a frame's time went. Slower than release; its rates
+  # are not reported.
+  local ddir="$WORK/dots-$n-$kind-debug"
+  MOVE=$move SAME=$same bash "$GEN/dots.sh" "$ddir" "$n" "$secs"
+  build_app "$ddir" --debug
+  local stats="$ddir/stats"
+  dots_run "$ddir" "$ddir/result" "MFB_CANVAS_GPU=1" "MFB_CANVAS_STATS=$stats"
+  local rendered; rendered=$(wc -l < "$stats" 2>/dev/null | tr -d ' '); rendered=${rendered:-0}
+  local frames gpu g0 g1 builds phases
+  frames=$(stats_field "$stats" frames); gpu=$(stats_field "$stats" gpuFrames)
+  local direct; direct=$(stats_field "$stats" directFrames)
+  g0=$(stats_field_line "$(head -1 "$stats" 2>/dev/null)" generations); g1=$(stats_field "$stats" generations)
+  builds=$(awk -v a="${g0:-0}" -v b="${g1:-0}" -v r="$rendered" 'BEGIN{ if (r>1) printf "%.0f", (b-a)/(r-1); else print "-" }')
+  phases=$(phase_fields "$stats" "$rendered")
+  printf "dots=%-7s scene=%-5s window=%s secs=%s | release: pps=%-6s fps=%-6s renderer=%-8s | debug: frames=%-5s gpuFrames=%-5s directFrames=%-5s builds/frame=%-7s phase: %s\n" \
+    "$n" "$kind" "$DOTS_WINDOW" "$secs" "${pps:--}" "${fps:--}" "${renderer:--}" "${frames:--}" "${gpu:--}" "${direct:--}" "$builds" "$phases"
+  # bug-765's goal, asked of the paint-only scene: 30 presents and 30 frames a
+  # second, every frame a GPU frame.
+  if [ "$kind" = paint ]; then
+    if ! awk -v p="${pps:-0}" -v f="${fps:-0}" 'BEGIN{exit !(p >= 30.0 && f >= 30.0)}' \
+       || [ "${gpu:-0}" != "${frames:-x}" ] || [ "${renderer:-Software}" = Software ]; then
+      echo "dots=$n FAIL: under 30.0 pps / 30.0 fps, or a frame was not drawn by the GPU backend"
+      return 1
+    fi
+  fi
+}
+
 case "$CMD" in
   coldstart) cmd_coldstart "$@" ;;
+  dots) cmd_dots "$@" ;;
   sweep) cmd_sweep "$@" ;;
   poly) cmd_poly "$@" ;;
   pics) cmd_pics "$@" ;;

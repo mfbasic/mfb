@@ -345,6 +345,45 @@ window, default renderer    first launch   firstPresentMs=38246   (before bug-99
 window, default renderer    first launch   firstPresentMs=23      (after)
 ```
 
+### `dots N [SECONDS] [--window] [--move|--same]`
+
+bug-765's scene and its regression row: N fixed circles on a grid, built twice
+with two fill colours (`gen/dots.sh`), and the two scenes presented in turn
+with `canvas::present` + `canvas::waitFrame` for SECONDS (default 10). Nothing
+moves, so every frame changes every item's paint and no item's geometry. Both
+scenes exist before the clock starts.
+
+It builds the scene twice and prints one row:
+
+- **release** gives the rates the bug is about, `pps` and `fps` from
+  `canvas::getFrameStats` at the end of the run, and the renderer of the last
+  frame (a release build has no stats line).
+- **`--debug`** gives what the rates cannot say: `frames` and `gpuFrames` (equal
+  when no frame was drawn by the software renderer), `directFrames` (frames
+  presented straight to a window), `builds/frame` (geometry records built per
+  frame; N means a paint change rebuilt every record) and the per-frame phase
+  times. A `--debug` build is slower; its own rates are not printed.
+
+The row FAILS, and the command exits 1, unless the release run holds 30.0 pps
+and 30.0 fps and every frame of the debug run is a GPU frame.
+
+`--window` runs in a real window on this Mac instead of headless: the direct
+present path, which is what a program's user gets. Headless runs (the default,
+and the only mode on a remote box) take the readback path. `--move` also moves
+every dot between the two scenes (the geometry-changing contrast) and `--same`
+presents one scene every time (the frame skip refuses it after the first, so it
+draws one frame); neither is held to 30/30.
+
+```
+tools/canvas-bench/bench.sh target/release/mfb dots 100000
+tools/canvas-bench/bench.sh target/release/mfb dots 100000 10 --window
+tools/canvas-bench/bench.sh target/release/mfb --target windows-x86_64 --host test@192.168.1.206 dots 100000
+```
+
+Past 65,536 dots the frame does not fit one frame buffer and is drawn in passes
+(`mfb spec app canvas`); before bug-765 such a frame was a software frame and
+this row read `gpuFrames=0`.
+
 ## 60 fps target rows (bug-686's Goal)
 
 These are what bug-686 is judged on. None hold at HEAD; they're listed here
