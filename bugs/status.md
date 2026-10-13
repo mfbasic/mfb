@@ -42,6 +42,8 @@ exists, and 1045 closes with it; 765 is batched frames plus a plan for the hash 
 | [ ]  | 1083   | MED      | an item inside a magnifying `canvas::Group` is rasterised over a box that scales with the group (49 small polygons: 40 ms a frame against 4.5); split from 991, needs the geometry record to carry its rim (a later phase than `bug-staging-23`) |
 | [ ]  | 1085   | MED      | a banded shape or path clip (32 or more edges) inside a `canvas::Group` whose matrix shrinks disagrees with the software oracle on Metal (a later phase than `bug-staging-23`) |
 | [ ]  | 1087   | MED      | on macOS the first canvas frame of a newly built app waits about 5 s for the Metal pipeline (4,745 ms against 18 ms on a second launch); bug-996's shape on Metal (a later phase than `bug-staging-23`) |
+| [ ]  | 1088   | MED      | a butt-capped `canvas::Arc` under a magnifying transform draws dotted rays from its centre along the ends of its sweep (lit pixels at x 161..455 for a radius-50 ring), software and Metal (a later phase than `bug-staging-23`) |
+| [ ]  | 1089   | MED      | with `MFB_CANVAS_DAMAGE=1` an unchanged item overlapping a changed one is blended twice along its edge (worst=32, 0.0762% of the frame) (a later phase than `bug-staging-23`) |
 | [ ]  | 1086   | LOW      | the Vulkan canvas path reads a frame back without testing `vkQueueSubmit`'s or `vkQueueWaitIdle`'s result (Metal's twin fixed under 1024; a later phase than `bug-staging-23`) |
 
 ## App windows and GTK

@@ -76,7 +76,7 @@ the owner's ruling. Nothing was changed for secondary 1.
 where `d < 0.5 g`, and `g <= F`". That holds for a distance that is 1-Lipschitz. An
 arc's is not (out of its sweep it answers 1e6; `shapeCoverage` says so and never skips
 for one; the spec says so), and with butt caps it is visible today:
-`bugs/repro/bug-991/butt_arc_rays.mfb` (a butt-capped arc of radius 0.5 under a
+`bugs/repro/bug-1088/butt_arc_rays.mfb` (a butt-capped arc of radius 0.5 under a
 transform that scales by 100) draws two dotted rays from its centre along the ends of
 its sweep, out to the edge of its box, on software and on Metal alike (at `896a4876d`:
 1,190 lit pixels, 110 of them more than 57 px from the centre of an arc whose stroke
