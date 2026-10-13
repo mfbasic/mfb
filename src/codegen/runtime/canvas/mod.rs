@@ -996,17 +996,6 @@ pub(crate) const ITEM_ELLIPSE_GRADIENT_COUNT: usize = 8;
 pub(crate) const ITEM_ELLIPSE_GRADIENT_BASE: usize = 12;
 pub(crate) const HEADER_ELLIPSE_COS: usize = 39;
 pub(crate) const HEADER_ELLIPSE_SIN: usize = 40;
-/// bug-1083: the two words of the item block that carry the box's rim (`HEADER_RIM`),
-/// 16.16 like the box itself: the x sides' in `xform1.w` and the y sides' in
-/// `gradInv1.w`. Only the vertex stage reads them, and only under a group matrix.
-///
-/// They are the fourth word of each inverse's second `ivec4`, which nothing wrote: an
-/// inverse is six floats and a flag. Taking them is what keeps `ITEM_BLOCK_SIZE` where
-/// it is, and with it the fragment stage's SPIR-V and both backends' frame layouts: the
-/// vertex stage is the only shader text this bug changes. A fifth pair of the per-kind
-/// kind of sharing `ITEM_OFFSET_ARC` does would not do, since every kind has a box.
-pub(crate) const ITEM_RIM_WORDS: [usize; 2] =
-    [ITEM_OFFSET_TRANSFORM + 28, ITEM_OFFSET_GRADIENT_INV + 28];
 // The `hasTransform` flag is the seventh word from `ITEM_OFFSET_TRANSFORM`, written
 // positionally by the same loop that writes the six terms — a named offset for it
 // would be a second way to say where it lives, and one of the two would eventually be
@@ -1236,11 +1225,7 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
-pub(crate) const HEADER_SLOTS: usize = 69;
-/// bug-1083: `__CANVAS_GEO_RIM` -- how much of the box in `HEADER_BOUNDS` is rim, on its
-/// x sides and (the slot after) on its y sides, in the units the box is in. Zero for a
-/// box that is not an extent and a rim (a glyph run, a picture, an arc).
-pub(crate) const HEADER_RIM: usize = 67;
+pub(crate) const HEADER_SLOTS: usize = 67;
 /// plan-163-B: `__CANVAS_GEO_JOIN_COUNT` -- a stroke's join records in the tail, one
 /// per outline edge -- and `__CANVAS_GEO_JOIN_REACH`, how far a record reaches from its
 /// vertex, which a polygon's or polyline's band index widens to.

@@ -27,8 +27,7 @@ struct ItemBlock {
     ivec4 surface; //  96: width, height, blendMode, gradient kind (0 linear, 1 radial)
     ivec4 clip;    // 112: the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     ivec4 xform0;  // 128: inverse transform ia,ib,ic,id as float32 BITS
-    ivec4 xform1;  // 144: itx, ity (float32 bits), hasTransform (0 or 1); then
-                   //      (bug-1083) how much of the quad's x sides is rim, 16.16
+    ivec4 xform1;  // 144: itx, ity (float32 bits), hasTransform (0 or 1), unused
     ivec4 arcCaps; // 160: an arc's sweep endpoints startX,startY,endX,endY (16.16 px)
     ivec4 ellipse; // 176: an ellipse's rotation cos, sin (16.16); then a gradient's
                    //      stop count and first-stop index
@@ -46,8 +45,7 @@ struct ItemBlock {
     ivec4 clipBand;    // 288, plan-163-C
     ivec4 clipPath;    // 304
     // plan-163-D: a radial gradient's inverse (float32 bits) and flag, and its focal
-    // offset and radius (16.16). The vertex stage reads none of them, except (bug-1083)
-    // `gradInv1.w`: how much of the quad's y sides is rim, 16.16.
+    // offset and radius (16.16). The vertex stage reads none of them.
     ivec4 gradInv0;    // 320
     ivec4 gradInv1;    // 336
     ivec4 gradFocal;   // 352
@@ -111,30 +109,18 @@ void main() {
                 + vec2(fx(draw.offset.x), fx(draw.offset.y));
     // plan-172-H: under a group matrix the quad is the item's box carried through the
     // FORWARD linear part — the inverse of the 2x2 the draw carries — which makes it a
-    // parallelogram, and four mapped corners of a triangle strip are exactly that.
-    //
-    // bug-1083: the box carried is not the block's as it stands. Its rim — `xform1.w`
-    // on the x sides, `gradInv1.w` on the y sides, zero for a box that is not an extent
-    // and a rim — was sized for the item drawn with no group, and a pixel takes
-    // coverage only within half the COMPOSED inverse's norm of the item, which is at
-    // most the product of the item's norm and the groups'. So the rim is replaced by
-    // itself scaled by the groups' norm `|M|`: the lower sides are `(bound + rim) - rim
-    // * |M|`, the upper `(bound - rim) + rim * |M|`. `__canvas_drawBound` has the
-    // derivation, kind of rim by kind of rim, and takes the same two lines.
-    //
-    // Then the pixel: the box is grown by `|M|` once more on every side. That is at
-    // least one pixel on the surface, because the forward map shrinks nothing by more
-    // than `1 / |M|`, and it is added here, before the map, because the quad is the
-    // mapped parallelogram and not its hull (the oracle pads its hull by a pixel
-    // instead). Metal's `mfbVertex`, line for line.
+    // parallelogram, and four mapped corners of a triangle strip are exactly that. The
+    // box is first grown by the inverse's Frobenius norm on every side: its own
+    // antialiasing rim is in the group's space, and a group that scales down would
+    // shrink it under the pixel it has to cover. Growing by `|M|` in the group's space
+    // is at least one pixel on the surface, because the forward map shrinks nothing by
+    // more than `1 / |M|`. Metal's `mfbVertex`, line for line.
     if ((draw.inverse.x | draw.inverse.y | draw.inverse.z | draw.inverse.w) != 0) {
         vec4 gi = vec4(intBitsToFloat(draw.inverse.x), intBitsToFloat(draw.inverse.y),
                        intBitsToFloat(draw.inverse.z), intBitsToFloat(draw.inverse.w));
         float pad = length(gi);
-        vec2 rim = vec2(fx(item.xform1.w), fx(item.gradInv1.w));
-        vec2 grow = rim * pad - rim + pad;
-        vec2 local = vec2(fx((gl_VertexIndex & 1) == 0 ? item.quad.x : item.quad.z) + ((gl_VertexIndex & 1) == 0 ? -grow.x : grow.x),
-                          fx((gl_VertexIndex & 2) == 0 ? item.quad.y : item.quad.w) + ((gl_VertexIndex & 2) == 0 ? -grow.y : grow.y));
+        vec2 local = vec2(fx((gl_VertexIndex & 1) == 0 ? item.quad.x : item.quad.z) + ((gl_VertexIndex & 1) == 0 ? -pad : pad),
+                          fx((gl_VertexIndex & 2) == 0 ? item.quad.y : item.quad.w) + ((gl_VertexIndex & 2) == 0 ? -pad : pad));
         float det = gi.x * gi.w - gi.y * gi.z;
         corner = vec2((gi.w * local.x - gi.z * local.y) / det, (gi.x * local.y - gi.y * local.x) / det)
                  + vec2(fx(draw.offset.x), fx(draw.offset.y));

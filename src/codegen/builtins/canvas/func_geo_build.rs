@@ -55,12 +55,7 @@ use crate::target::shared::abi;
 use crate::types::ParameterType;
 
 /// `__CANVAS_GEO_HEADER`: the fixed header's length in floats.
-pub(super) const GEO_HEADER: usize = 69;
-/// `__CANVAS_GEO_RIM` (bug-1083): how much of the box in slots 16-19 is rim, on its x
-/// sides and (the slot after) on its y sides.
-const SLOT_RIM: usize = 67;
-/// `__CANVAS_BOUNDS_RIM`: the rim every natively built kind's pad ends in.
-const BOUNDS_RIM: f64 = 1.0;
+pub(super) const GEO_HEADER: usize = 67;
 /// `__CANVAS_KIND_RECT`, `__CANVAS_KIND_CIRCLE`, `__CANVAS_KIND_SEGMENT`,
 /// `__CANVAS_GEO_POLYGON`, `__CANVAS_GEO_NONE` — the slot-0 kind tags.
 pub(super) const KIND_RECT: f64 = 0.0;
@@ -1039,16 +1034,11 @@ fn emit_paint_header(
     Ok(())
 }
 
-/// `__canvas_boundsHeader` for an identity transform: the four bounds, unmodified, and
-/// the rim they carry. Every kind built here hands that function `__CANVAS_BOUNDS_RIM`
-/// (a rectangle, a circle, a line, a polygon, a polyline: none passes a box whole), and
-/// untransformed it stores the rim as it was handed, so the two slots are the constant.
+/// `__canvas_boundsHeader` for an identity transform: the four bounds, unmodified.
 fn put_bounds(builder: &mut CodeBuilder, out: &VirtualRegister, bounds: [&VirtualRegister; 4]) {
     for (k, value) in bounds.iter().enumerate() {
         put(builder, out, 16 + k, value);
     }
-    put_const(builder, out, SLOT_RIM, BOUNDS_RIM);
-    put_const(builder, out, SLOT_RIM + 1, BOUNDS_RIM);
 }
 
 /// `__canvas_capTag(paint.cap)` as a whole number: Round 1, Square 2, Butt 0.
@@ -3660,11 +3650,6 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(value("__CANVAS_GEO_HEADER"), GEO_HEADER as f64);
-        assert_eq!(value("__CANVAS_GEO_RIM"), SLOT_RIM as f64);
-        assert!(
-            source.contains(&format!("LET __CANVAS_BOUNDS_RIM AS Float = {BOUNDS_RIM:?}\n")),
-            "__CANVAS_BOUNDS_RIM is not the rim the native builder stores"
-        );
         assert_eq!(value("__CANVAS_KIND_RECT"), KIND_RECT);
         assert_eq!(value("__CANVAS_KIND_CIRCLE"), KIND_CIRCLE);
         assert_eq!(value("__CANVAS_KIND_SEGMENT"), KIND_SEGMENT);

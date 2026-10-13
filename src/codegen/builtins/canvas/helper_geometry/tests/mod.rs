@@ -5,7 +5,7 @@ use crate::codegen::runtime::canvas::{
     HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV, HEADER_GRADIENT_INV,
     HEADER_GRADIENT_SPREAD, HEADER_HAS_TRANSFORM, HEADER_JOIN_COUNT, HEADER_JOIN_REACH,
     HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYGON_RULE, HEADER_POLYLINE_FIRST,
-    HEADER_POLYLINE_LAST, HEADER_RIM, HEADER_SLOTS, PICTURE_SHADOW_SPLIT_BITS,
+    HEADER_POLYLINE_LAST, HEADER_SLOTS, PICTURE_SHADOW_SPLIT_BITS,
 };
 
 /// The decimal literal `GEO_LAYOUT` binds to `name`.
@@ -134,11 +134,8 @@ fn the_gradient_slots_follow_the_clip_slots_and_fill_the_header() {
     );
     assert_eq!(HEADER_GRADIENT_INV + 6, HEADER_GRADIENT_HAS_INV);
     assert!(declared("__CANVAS_GEO_PICTURE_TRANSPARENCY") < 55);
-    // bug-1083: the rim pair, the header's last two slots.
-    assert_eq!(declared("__CANVAS_GEO_RIM"), HEADER_RIM);
-    assert_eq!(HEADER_RIM, 67, "the rim follows the gradient slots");
-    assert_eq!(declared("__CANVAS_GEO_HEADER"), 69);
-    assert_eq!(HEADER_SLOTS, 69);
+    assert_eq!(declared("__CANVAS_GEO_HEADER"), 67);
+    assert_eq!(HEADER_SLOTS, 67);
 }
 
 /// bug-484: a picture's pixel-block slots and split equal what the emitters rebuild

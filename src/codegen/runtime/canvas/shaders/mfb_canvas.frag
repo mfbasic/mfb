@@ -26,8 +26,7 @@ struct ItemBlock {
     ivec4 surface; // width, height, blendMode, gradient kind (0 linear, 1 radial)
     ivec4 clip;    // the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     ivec4 xform0;  // inverse transform ia,ib,ic,id as float32 BITS
-    ivec4 xform1;  // itx, ity (float32 bits), hasTransform (0 or 1); `.w` is the vertex
-                   // stage's (bug-1083: the rim of the quad's x sides)
+    ivec4 xform1;  // itx, ity (float32 bits), hasTransform (0 or 1), unused
     ivec4 arcCaps; // an arc's two sweep endpoints startX,startY,endX,endY (16.16 px);
                    //   for a polygon, its band header (bug-688, `polygonBand`)
     ivec4 ellipse; // an ellipse's rotation cos, sin (16.16); then a gradient's
