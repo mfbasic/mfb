@@ -63,12 +63,12 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-172 (the canvas shape model) is complete and archived, every letter A–N | `ls planning/plan-172-*` → no matches, and `ls planning/completed/plan-172-M-*` → present | MET (2026-10-11) |
-| The `DrawItem` union is plan-172's eleven variants, ending `AutoPaint`, `Picture`, `Group` | `cargo test --bin mfb draw_item_variant_set_is_frozen` → pass against that list | MET (2026-10-11: "1 passed") |
-| Every shape carries its own `transform`, and `Paint` has none | `grep -c 'transform_prop()' src/codegen/builtins/canvas/mod.rs` → ≥ 8, and `mfb man canvas types` shows no `transform` under `Paint` | MET (2026-10-11: the grep → 9, the helper plus eight uses; `Paint`'s thirteen props read from the registry source hold no `transform`. The `mfb man` half was NOT run — the built binary predates HEAD; rebuild and run it first) |
-| `canvas::Shape` exists, for `emitter AS canvas::Shape` | `grep -c 'name: "Shape"' src/codegen/builtins/canvas/mod.rs` → 1 | MET (2026-10-11: 1) |
-| No other plan has appended a `DrawItem` variant since | `grep -c '"ParticleSystem"\|"Path"' src/codegen/builtins/canvas/mod.rs` → 0 | MET (2026-10-11: 0). If plan-164 lands first, `Path` is the twelfth variant and `ParticleSystem` the thirteenth: re-read every "twelfth"/"tag 11" below |
-| The canvas suite is green before any edit | `cargo test --test rt_canvas_golden --test rt_canvas_rasteriser` → pass | UNVERIFIED — run first |
+| plan-172 (the canvas shape model) is complete and archived, every letter A–N | `ls planning/plan-172-*` → no matches, and `ls planning/completed/plan-172-M-*` → present | MET (2026-10-13 at `29f5500cb`: no matches; `planning/completed/plan-172-M-canvas-closeout.md` present) |
+| The `DrawItem` union is plan-172's eleven variants, ending `AutoPaint`, `Picture`, `Group` | `cargo test --bin mfb draw_item_variant_set_is_frozen` → pass against that list | MET (2026-10-13: "1 passed") — against a list of **thirteen**, not eleven: plan-164-A put `PolyCurve` and `CurvePolygon` in `Shape`. It still ends `AutoPaint`, `Picture`, `Group`. See Corrections 1 |
+| Every shape carries its own `transform`, and `Paint` has none | `grep -c 'transform_prop()' src/codegen/builtins/canvas/mod.rs` → ≥ 8, and `mfb man canvas types` shows no `transform` under `Paint` | MET (2026-10-13: the grep → 11, the helper plus ten uses; `target/debug/mfb man canvas types`, built at `29f5500cb`, lists no `transform` row in the `canvas::Paint` table) |
+| `canvas::Shape` exists, for `emitter AS canvas::Shape` | `grep -c 'name: "Shape"' src/codegen/builtins/canvas/mod.rs` → 1 | MET (2026-10-13: 1) |
+| No other plan has appended a `DrawItem` variant since | `grep -c '"ParticleSystem"\|"Path"' src/codegen/builtins/canvas/mod.rs` → 0 | MET (2026-10-13: 0). plan-164 DID land first, as two members of `Shape` rather than a `Path` variant of `DrawItem` — Corrections 1. If plan-164 lands first, `Path` is the twelfth variant and `ParticleSystem` the thirteenth: re-read every "twelfth"/"tag 11" below |
+| The canvas suite is green before any edit | `cargo test --test rt_canvas_golden --test rt_canvas_rasteriser` → pass | MET (2026-10-13: "26 passed; 0 failed" and "106 passed; 0 failed; 2 ignored") |
 
 plan-150-B and plan-150-C inherit this gate through their dependency on this letter.
 
@@ -904,7 +904,29 @@ by plan-172's transform rule.
 
 ## Corrections
 
-<Filled in DURING execution.>
+1. **`DrawItem` has thirteen variants and `Shape` ten, not eleven and eight**
+   (2026-10-13, `cargo test --bin mfb draw_item_variant_set_is_frozen` at `29f5500cb`;
+   the list is `Rectangle`, `Line`, `Polygon`, `Circle`, `Arc`, `Text`, `Ellipse`,
+   `PolyLine`, `PolyCurve`, `CurvePolygon`, `AutoPaint`, `Picture`, `Group`). plan-164-A
+   landed between this plan's re-derivation and its execution and appended `PolyCurve`
+   and `CurvePolygon` to `Shape`. Every "twelfth variant" / "tag 11" / "twelve-name list"
+   / "eight shapes" above reads **fourteenth / tag 13 / fourteen-name list / ten shapes**.
+   Re-scoped in place, not re-split:
+   - §5's emitter table gains two rows: a `PolyCurve` emits uniformly along its length
+     (a stroke emitter, like `PolyLine`), a `CurvePolygon` uniformly over its interior
+     under `rule` (bounded rejection, like `Polygon`). Both are sampled on the outline
+     flattened to straight edges, the reduction a `Picture` already cuts to
+     (`.ai/canvas-threading.md` §17).
+   - §6's template table: both curve shapes are "any of the shapes" — rewritten like
+     the other eight.
+   - Phase 2's "an emitter of each of the eight shapes" is each of the ten; Phase 3's
+     stroke-emitter and polygon-emitter cases gain a curve twin each.
+   - Letter C's "interior for a `Rectangle`, `Circle`, `Ellipse`, `Polygon` and `Text`,
+     its length for a `Line`, `Arc` and `PolyLine`" gains `CurvePolygon` and `PolyCurve`.
+2. **Other populations re-measured 2026-10-13 at `29f5500cb`**, same commands as
+   "Measured populations": records 23 (was 20), unions 3, enums 13, registry functions
+   98 (was 95), canvas runtime test files 22 (was 21), highest error code 77050027
+   (unchanged, so the two raises are still 77050028 and 77050029).
 
 ## Summary
 
