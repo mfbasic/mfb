@@ -394,7 +394,7 @@ MFB
   fi
 
   # The app window members (setTitle/getTitle/setFullscreen/getFullscreen),
-  # headless: MFB_GTKAPP_HEADLESS never creates the GApplication, so the members
+  # headless: MFB_HEADLESS never creates the GApplication, so the members
   # are state-only and the g_idle_add sync is skipped (queuing idles no main loop
   # will run would leak one per call). Proves the pthread title lock, the
   # malloc/free title copies, the project-name default title and the fullscreen
@@ -433,7 +433,7 @@ MFB
       || fail "$libc: ship the window-members AppImage"
     # shellcheck disable=SC2086
     out=$(timeout_run 20 $ssh -n "cd $remote && chmod +x winprobe.AppImage && \
-      MFB_GTKAPP_HEADLESS=1 ./winprobe.AppImage $run_flags 2>&1")
+      MFB_HEADLESS=1 ./winprobe.AppImage $run_flags 2>&1")
     local expect
     for expect in "title0=winprobe" "fs0=FALSE" "title1=Hello GTK" "title2=frame 2000" \
       "fs1=TRUE title3=frame 2000" "fs2=FALSE"; do

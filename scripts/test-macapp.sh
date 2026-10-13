@@ -2,7 +2,7 @@
 # Runtime acceptance for macOS app mode (plan-04-macos-app.md §7.2).
 #
 # Builds an app-mode `.app` bundle and launches its executable headlessly
-# (MFB_MACAPP_HEADLESS=1) so the same AppKit construction + worker-thread code
+# (MFB_HEADLESS=1) so the same AppKit construction + worker-thread code
 # the GUI path uses runs without showing a window or blocking on the event loop.
 # Proves: the Objective-C runtime / AppKit / Foundation bind and run, the worker
 # thread executes the MFBASIC program entry, and the program's exit code
@@ -75,7 +75,7 @@ bundle() { printf '%s' "$1/build/$2.app"; }
 # test-appimage.sh's `timeout_run` so the two gates cannot diverge silently.
 run_headless() {
   local exe=$1 limit=${2:-15}
-  MFB_MACAPP_HEADLESS=1 perl -e '
+  MFB_HEADLESS=1 perl -e '
     my $limit = shift @ARGV;
     my $pid = fork();
     if ($pid == 0) { exec($ARGV[0]) or exit 127; }
@@ -91,7 +91,7 @@ run_headless() {
 # (default 15s). Callers use `$(...)`, which strips the trailing newline.
 run_headless_stdout() {
   local exe=$1 limit=${2:-15}
-  MFB_MACAPP_HEADLESS=1 perl -e '
+  MFB_HEADLESS=1 perl -e '
     my $limit = shift @ARGV;
     my $pid = open(my $fh, "-|");
     if ($pid == 0) { exec($ARGV[0]) or exit 127; }
@@ -475,7 +475,7 @@ fi
 #
 # This case MUST be GUI *and* must capture the screen: every other check in this
 # plan can be satisfied by a renderer whose output never leaves memory. The
-# headless MFB_CANVAS_DUMP path proves the rasteriser; only a screenshot proves
+# headless MFB_CANVAS_DUMP path (a `--debug` build) proves the rasteriser; only a screenshot proves
 # the blit — the CGImage, the main-thread marshal, and the layer contents.
 #
 # The program draws two flat colour bars with no antialiased edge between them and
@@ -1029,6 +1029,66 @@ else
       pass "a release build closed with its program (exit 0)"
     else
       fail "a release app did not exit with its program's code ($result)"
+    fi
+  fi
+fi
+
+# Case 4b (GUI): `MFB_TRANSCRIPT_DUMP` reads a windowed run's transcript back. With it
+# set, a `--debug` build writes what the window shows to stdout when the program
+# finishes and exits with the program's code, instead of keeping the window open --
+# the only way to see, from outside, what a real window was given. A release build has
+# no reader: it prints nothing and exits with its program's code, as it always does.
+proj="$work/transcriptdump"
+mkdir -p "$proj/src"
+scaffold_project "$proj" transcriptdump
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT io
+FUNC main() AS Integer
+  io::print("first line")
+  io::print("h\u{E9}llo \u{2713}")
+  RETURN 7
+END FUNC
+MFB
+# Prints `<exit code>|<stdout>`; `timeout` when the program is still up after 20 s.
+transcript_probe() {
+  perl -e '
+    use POSIX ":sys_wait_h";
+    $ENV{MFB_TRANSCRIPT_DUMP} = "1";
+    pipe(my $r, my $w);
+    my $pid = fork();
+    if ($pid == 0) {
+      close($r); open(STDOUT, ">&", $w); open(STDERR, ">", "/dev/null");
+      exec($ARGV[0]) or exit 127;
+    }
+    close($w);
+    my $done = 0;
+    for (1..200) { if (waitpid($pid, WNOHANG) != 0) { $done = 1; last; } select(undef, undef, undef, 0.1); }
+    if (!$done) { kill "KILL", $pid; waitpid($pid, 0); print "timeout"; exit; }
+    my $code = $? >> 8;
+    local $/; my $out = <$r>;
+    print "$code|$out";
+  ' "$(bundle "$proj" transcriptdump)/Contents/MacOS/transcriptdump"
+}
+if ! gui_enabled; then
+  echo "skip: transcript-dump GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app --debug "$proj" >/dev/null 2>&1; then
+  fail "build -app --debug transcriptdump"
+else
+  result=$(transcript_probe)
+  want=$(printf '7|first line\nh\303\251llo \342\234\223')
+  if [ "$result" = "$want" ]; then
+    pass "MFB_TRANSCRIPT_DUMP wrote the window transcript to stdout and exited with the code"
+  else
+    fail "MFB_TRANSCRIPT_DUMP on a --debug app: got '$result'"
+  fi
+  if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+    fail "build -app transcriptdump"
+  else
+    result=$(transcript_probe)
+    if [ "$result" = "7|" ]; then
+      pass "a release build ignores MFB_TRANSCRIPT_DUMP"
+    else
+      fail "a release app read MFB_TRANSCRIPT_DUMP ($result)"
     fi
   fi
 fi

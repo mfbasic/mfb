@@ -106,7 +106,7 @@ run() {
   if [ "$windows" = 1 ]; then
     {
       printf '@echo off\r\n'
-      printf 'set MFB_WINAPP_HEADLESS=1\r\nset MFB_CANVAS_SYNC=1\r\n'
+      printf 'set MFB_HEADLESS=1\r\nset MFB_CANVAS_SYNC=1\r\n'
       printf 'set MFB_CANVAS_STATS=%s\\%s.txt\r\n' "$rdir" "$tag"
       local e
       for e in "$@"; do printf 'set %s\r\n' "$e"; done
@@ -116,7 +116,7 @@ run() {
     remote_ssh "$PORT" "$host" "$rdir\\$tag.bat" >/dev/null 2>&1 || true
     remote_scp "$PORT" "$host:C:/mfbpointer-$$/$tag.txt" "$work/$tag.txt" >/dev/null 2>&1 || true
   else
-    remote_ssh "$PORT" "$host" "cd $rdir && timeout 60 env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$rdir/$tag.txt $* ./squashfs-root/usr/bin/pointer >/dev/null 2>&1" || true
+    remote_ssh "$PORT" "$host" "cd $rdir && timeout 60 env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$rdir/$tag.txt $* ./squashfs-root/usr/bin/pointer >/dev/null 2>&1" || true
     remote_scp "$PORT" "$host:$rdir/$tag.txt" "$work/$tag.txt" >/dev/null 2>&1 || true
   fi
   seen=$(tr -d '\r' < "$work/$tag.txt" 2>/dev/null | grep -o 'pointer=[0-9,-]*' | uniq | tr '\n' ' ')

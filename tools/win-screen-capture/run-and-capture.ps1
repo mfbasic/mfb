@@ -3,8 +3,8 @@
 #
 #   run-and-capture.ps1 -Exe C:\path\app.exe -Out C:\path\shots -At 4,12,20
 #
-# Environment variables set before launching this script (MFB_CANVAS_GPU,
-# MFB_CANVAS_STATS, ...) reach the program. The program's stdout goes to
+# Environment variables set before launching this script (MFB_CANVAS_GPU;
+# MFB_CANVAS_STATS, ... -- the latter only for a --debug build) reach the program. The program's stdout goes to
 # <Out>\out.txt; each capture is <Out>\shot-<seconds>.png; capture failures are
 # appended to <Out>\capture-errors.txt; <Out>\done.txt is written last.
 param(

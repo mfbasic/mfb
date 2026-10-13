@@ -20,7 +20,7 @@
 ' signature substitute is needed since this probe is an --app build (like
 ' wind-map-probe), run headless.
 '
-' Usage: MFB_MACAPP_HEADLESS=1 water-probe.out (no arguments; prints
+' Usage: MFB_HEADLESS=1 water-probe.out (no arguments; prints
 ' PASS/FAIL to stdout)
 
 IMPORT canvas

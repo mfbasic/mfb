@@ -4,7 +4,7 @@
 #   powershell -ExecutionPolicy Bypass -File windows-pointer.ps1 -Exe C:\path\app.exe
 #
 # Must run INSIDE a logged-in desktop session (from ssh: a scheduled task created with
-# /it -- see README.md beside this file). Set MFB_CANVAS_STATS (and MFB_CANVAS_GPU=0)
+# /it -- see README.md beside this file). Set MFB_CANVAS_STATS (a --debug build reads it) and MFB_CANVAS_GPU=0
 # in the environment first; the program inherits it. Prints the client origin it found,
 # then "done".
 #

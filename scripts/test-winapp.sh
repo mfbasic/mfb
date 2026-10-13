@@ -17,7 +17,7 @@
 #                      decision (bug-741): 2230's lavapipe faults inside
 #                      `vulkan_lvp.dll` in about 1 GPU run in 7, so GPU runs moved off it.
 #
-# The box needs no GPU and no display: `MFB_WINAPP_HEADLESS=1` skips the window and
+# The box needs no GPU and no display: `MFB_HEADLESS=1` skips the window and
 # the program's own output is what is checked. That is deliberate — it is what makes
 # this runnable at all on a headless VM.
 set -euo pipefail
@@ -80,7 +80,7 @@ echo "--- building for windows-x86_64 ---"
 cat > "$work/runner.bat" <<'BAT'
 @echo off
 setlocal
-set MFB_WINAPP_HEADLESS=1
+set MFB_HEADLESS=1
 set MFB_WINAPP_PROBE=probe-value
 cd /d C:\mfbwin
 winapp.exe > winapp.out 2>&1
@@ -170,7 +170,7 @@ echo "--- building the canvas program for windows-x86_64 ---"
 cat > "$work/canvas.bat" <<'BAT'
 @echo off
 setlocal
-set MFB_WINAPP_HEADLESS=1
+set MFB_HEADLESS=1
 set MFB_CANVAS_SYNC=1
 set MFB_CANVAS_DUMP=C:\mfbwin\wincanvas.raw
 cd /d C:\mfbwin
@@ -232,7 +232,7 @@ fi
 cat > "$work/canvasgpu.bat" <<'BAT'
 @echo off
 setlocal
-set MFB_WINAPP_HEADLESS=1
+set MFB_HEADLESS=1
 set MFB_CANVAS_SYNC=1
 set MFB_CANVAS_GPU=1
 set MFB_CANVAS_STATS=C:\mfbwin\wincanvas.stats
@@ -307,7 +307,7 @@ resize_run() { # $1 = tag, $2 = extra env line, $3 $4 = the box's port and host
   cat > "$work/rs.bat" <<BAT
 @echo off
 setlocal
-set MFB_WINAPP_HEADLESS=1
+set MFB_HEADLESS=1
 set MFB_CANVAS_SYNC=1
 set MFB_CANVAS_RESIZE_W=640
 set MFB_CANVAS_RESIZE_H=480
@@ -445,7 +445,7 @@ echo "--- building the term gate program for windows-x86_64 ---"
 cat > "$work/winterm.bat" <<'BAT'
 @echo off
 setlocal
-set MFB_WINAPP_HEADLESS=1
+set MFB_HEADLESS=1
 cd /d C:\mfbwin
 winterm.exe > winterm.out 2>&1
 echo rc=%errorlevel%
@@ -540,7 +540,7 @@ echo "--- building the term style program for windows-x86_64 ---"
 cat > "$work/winstyle.bat" <<'BAT'
 @echo off
 setlocal
-set MFB_WINAPP_HEADLESS=1
+set MFB_HEADLESS=1
 cd /d C:\mfbwin
 winstyle.exe > winstyle.out 2>&1
 echo rc=%errorlevel%
@@ -617,7 +617,7 @@ echo "--- building the term cluster program for windows-x86_64 ---"
 cat > "$work/wincluster.bat" <<'BAT'
 @echo off
 setlocal
-set MFB_WINAPP_HEADLESS=1
+set MFB_HEADLESS=1
 cd /d C:\mfbwin
 wincluster.exe > wincluster.out 2>&1
 echo rc=%errorlevel%
@@ -647,7 +647,7 @@ esac
 # fell through to a flag nothing on Windows ever set, so it always read FALSE.
 #
 # A resize is a WINDOW event and headless has no window, so this is driven by the
-# scripted `term::` resize — `MFB_WINAPP_TERM_RESIZE_W`/`_H`, the twin of
+# scripted `term::` resize (a `--debug` build) — `MFB_WINAPP_TERM_RESIZE_W`/`_H`, the twin of
 # `MFB_CANVAS_RESIZE_W`/`_H`: once `term::on` has built the surface, the main thread
 # hands those client-area pixels to the same handler `WM_SIZE` calls. 960x480 px at
 # the 8x16 cell is 120x30 cells.
@@ -715,13 +715,13 @@ END FUNC
 MFB
 
 echo "--- building the term resize program for windows-x86_64 ---"
-"$MFB_EXE" build --app --target windows-x86_64 "$rsproj" >/dev/null
+"$MFB_EXE" build --app --debug --target windows-x86_64 "$rsproj" >/dev/null
 
 term_resize_run() { # $1 = tag, $2 = extra env line
   cat > "$work/$1.bat" <<BAT
 @echo off
 setlocal
-set MFB_WINAPP_HEADLESS=1
+set MFB_HEADLESS=1
 $2
 cd /d C:\\mfbwin
 winresize.exe > $1.out 2>&1
@@ -779,7 +779,7 @@ esac
 # for: the WM_SIZE arm itself. The driver prints the client size it produced, and
 # the program's `term::terminalSize` must equal it divided by the 8x16 cell.
 #
-# The transcript is read back with `MFB_WINAPP_DUMP` (a `--debug` build) and must be
+# The transcript is read back with `MFB_TRANSCRIPT_DUMP` (a `--debug` build) and must be
 # EXACTLY the two printed lines. That is the other half: the transcript write
 # placed its NUL from `rcx` instead of `MultiByteToWideChar`'s count in `rax`, so
 # `io::print("FALSE")` handed the EDIT "FALSE" plus ~32K units of arena garbage, and
@@ -846,7 +846,7 @@ PS
 cat > "$work/winlive.bat" <<'BAT'
 @echo off
 setlocal
-set MFB_WINAPP_DUMP=1
+set MFB_TRANSCRIPT_DUMP=1
 cd /d C:\mfbwin
 del /q winlive.out 2>nul
 start "" /b cmd /c "winlive.exe > winlive.out 2>&1"
@@ -930,7 +930,7 @@ echo "--- building the window-members program for windows-x86_64 ---"
 cat > "$work/winwindow.bat" <<'BAT'
 @echo off
 setlocal
-set MFB_WINAPP_HEADLESS=1
+set MFB_HEADLESS=1
 cd /d C:\mfbwin
 winwindow.exe > winwindow.out 2>&1
 echo rc=%errorlevel%

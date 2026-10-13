@@ -16,13 +16,13 @@
 #   hit
 #   compare stress|poly|pics|text ARGS...
 #
-# Without --target/--box, everything runs headless (MFB_MACAPP_HEADLESS=1)
+# Without --target/--box, everything runs headless (MFB_HEADLESS=1)
 # and *locally* as a macOS `.app` bundle (`mfb build -app`), exactly as
 # bug-686 left it.
 #
 # With --target/--box (bug-688), the same scenes build as a Linux AppImage
 # (`mfb build --app --target <target>`) and run headless
-# (MFB_GTKAPP_HEADLESS=1) on a remote box reached over
+# (MFB_HEADLESS=1) on a remote box reached over
 # `ssh -p <ssh-port> test@127.0.0.1`: shipped with `scp`, extracted with
 # `--appimage-extract`, run under `timeout`, and its stats/dump files copied
 # back so the rest of this script (cmp.py, the stats parsers below) reads
@@ -33,7 +33,7 @@
 # `bench.sh <mfb> poly --target linux-aarch64 --box 2226 1000` work.
 #
 # With --target windows-x86_64 --host <user@host> (bug-688 V5), the scenes
-# build as a Windows .exe and run headless (MFB_WINAPP_HEADLESS=1) on that
+# build as a Windows .exe and run headless (MFB_HEADLESS=1) on that
 # host over key-auth ssh, through a CRLF .bat that sets the env vars (cmd's
 # `set X=1 && prog` is unreliable over ssh); stats/dump files are copied back
 # the same way. Box 206 (192.168.1.206) is a REAL GPU (Intel UHD 630), so its
@@ -193,7 +193,7 @@ remote_dir_of() {
 }
 
 # linux_run DIR NAME OUTFILE ENV_ASSIGN... -- run DIR's shipped NAME binary
-# on the box with MFB_GTKAPP_HEADLESS=1 plus ENV_ASSIGN (NAME=VALUE strings,
+# on the box with MFB_HEADLESS=1 plus ENV_ASSIGN (NAME=VALUE strings,
 # same shape as the macOS call sites' `env` args), time-boxed to 120s.
 # OUTFILE ("" to discard) gets the run's combined stdout+stderr. Any
 # ENV_ASSIGN value that is a path under DIR (MFB_CANVAS_STATS,
@@ -229,7 +229,7 @@ linux_run() {
     local bat="$dir/run.bat" e i
     {
       printf 'cd /d %s\r\n' "$(win_path "$rdir")"
-      printf 'set MFB_WINAPP_HEADLESS=1\r\n'
+      printf 'set MFB_HEADLESS=1\r\n'
       for e in ${remote_envs[@]+"${remote_envs[@]}"}; do
         local ek=${e%%=*} ev=${e#*=}
         case "$ev" in "$rdir"/*) ev=$(win_path "$ev") ;; esac
@@ -249,7 +249,7 @@ linux_run() {
     done
     return 0
   fi
-  local remote_cmd="cd '$rdir' && timeout 120 env MFB_GTKAPP_HEADLESS=1 ${remote_envs[*]+"${remote_envs[*]}"} ./squashfs-root/usr/bin/$name"
+  local remote_cmd="cd '$rdir' && timeout 120 env MFB_HEADLESS=1 ${remote_envs[*]+"${remote_envs[*]}"} ./squashfs-root/usr/bin/$name"
   if [ -n "$outfile" ]; then
     ssh_box "$remote_cmd" >"$outfile" 2>&1
   else
@@ -388,7 +388,7 @@ cmd_sweep() {
         build_app "$dir"
         local bin; bin=$(bin_path "$dir" stress)
         local out
-        out=$(env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1 "$bin" 2>/dev/null | grep '^presents=')
+        out=$(env MFB_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_SYNC=1 "$bin" 2>/dev/null | grep '^presents=')
         local presents; presents=$(stats_field_line "$out" presents)
         fps=$(awk -v p="$presents" -v s="$secs" 'BEGIN{printf "%.1f", p/s}')
         renderer="n/a (release, no stats)"
@@ -411,7 +411,7 @@ cmd_sweep() {
         build_app "$dir" --debug
         local bin; bin=$(bin_path "$dir" stress)
         local stats="$dir/stats"
-        env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS="$stats" "$bin" >/dev/null 2>&1 || true
+        env MFB_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS="$stats" "$bin" >/dev/null 2>&1 || true
         local rendered; rendered=$(wc -l < "$stats" | tr -d ' ')
         fps=$(awk -v r="$rendered" -v s="$secs" 'BEGIN{printf "%.1f", r/s}')
         local g0 g1; g0=$(stats_field_line "$(head -1 "$stats")" generations); g1=$(stats_field "$stats" generations)
@@ -445,7 +445,7 @@ cmd_poly() {
     local bin; bin=$(bin_path "$dir" poly)
     for mode in sw gpu; do
       local gpu=0; [ "$mode" = gpu ] && gpu=1
-      env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=$gpu \
+      env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=$gpu \
         MFB_CANVAS_STATS="$dir/stats-$mode" MFB_CANVAS_DUMP="$dir/frame-$mode" "$bin" >/dev/null 2>&1
     done
   fi
@@ -481,11 +481,11 @@ cmd_pics() {
     build_app "$live" --debug
     build_app "$oracle" --debug
     local livebin; livebin=$(bin_path "$live" pics)
-    env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS="$live/stats" "$livebin" >/dev/null 2>&1 || true
+    env MFB_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS="$live/stats" "$livebin" >/dev/null 2>&1 || true
     local obin; obin=$(bin_path "$oracle" pics)
     for mode in sw gpu; do
       local gpu=0; [ "$mode" = gpu ] && gpu=1
-      env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=$gpu \
+      env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=$gpu \
         MFB_CANVAS_STATS="$oracle/stats-$mode" MFB_CANVAS_DUMP="$oracle/frame-$mode" "$obin" >/dev/null 2>&1
     done
   fi
@@ -521,11 +521,11 @@ cmd_text() {
     build_app "$live" --debug
     build_app "$oracle" --debug
     local livebin; livebin=$(bin_path "$live" txt)
-    env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS="$live/stats" "$livebin" >/dev/null 2>&1 || true
+    env MFB_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS="$live/stats" "$livebin" >/dev/null 2>&1 || true
     local obin; obin=$(bin_path "$oracle" txt)
     for mode in sw gpu; do
       local gpu=0; [ "$mode" = gpu ] && gpu=1
-      env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=$gpu \
+      env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=$gpu \
         MFB_CANVAS_STATS="$oracle/stats-$mode" MFB_CANVAS_DUMP="$oracle/frame-$mode" "$obin" >/dev/null 2>&1
     done
   fi
@@ -554,7 +554,7 @@ cmd_weather() {
     local rstats="$rdir/stats"
     # `;`, not `&&`, before `setsid`: a `&` after an AND-list backgrounds the whole list,
     # whose shell keeps this ssh session's stdout open until weather exits.
-    ssh_box "cd '$rdir' && rm -f stdin.fifo; mkfifo stdin.fifo; setsid sh -c 'exec 3<>stdin.fifo; exec env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$rstats ./squashfs-root/usr/bin/weather <&3' >run.log 2>&1 </dev/null & disown; true"
+    ssh_box "cd '$rdir' && rm -f stdin.fifo; mkfifo stdin.fifo; setsid sh -c 'exec 3<>stdin.fifo; exec env MFB_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$rstats ./squashfs-root/usr/bin/weather <&3' >run.log 2>&1 </dev/null & disown; true"
     local waited=0
     local rlines
     rlines=$(ssh_box "wc -l < '$rstats' 2>/dev/null || echo 0" | tr -d ' ')
@@ -583,7 +583,7 @@ cmd_weather() {
     local stats="$dir/stats"
     mkfifo "$dir/stdin.fifo"
     exec 3<>"$dir/stdin.fifo"
-    ( env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS="$stats" "$bin" <&3 >/dev/null 2>&1 ) &
+    ( env MFB_HEADLESS=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS="$stats" "$bin" <&3 >/dev/null 2>&1 ) &
     local pid=$!
     local waited=0
     until [ -f "$stats" ] && [ "$(wc -l < "$stats" | tr -d ' ')" -ge 2 ]; do
@@ -623,7 +623,7 @@ cmd_worker() {
   else
     build_app "$dir"
     local bin; bin=$(bin_path "$dir" mb)
-    env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=0 "$bin"
+    env MFB_HEADLESS=1 MFB_CANVAS_GPU=0 "$bin"
   fi
 }
 
@@ -661,7 +661,7 @@ cmd_hit() {
         linux_run "$dir" hit "$outfile" "MFB_CANVAS_GPU=0" "MFB_MOUSE_INJECT=\$(for i in \$(seq 60); do printf '\\033[<0;445;55M'; done)"
       else
         local bin; bin=$(bin_path "$dir" hit)
-        env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_GPU=0 MFB_MOUSE_INJECT="$(for i in $(seq 60); do printf '\033[<0;445;55M'; done)" "$bin" > "$outfile" 2>&1
+        env MFB_HEADLESS=1 MFB_CANVAS_GPU=0 MFB_MOUSE_INJECT="$(for i in $(seq 60); do printf '\033[<0;445;55M'; done)" "$bin" > "$outfile" 2>&1
       fi
       printf '%-7s %-4s %-18s %-20s %-20s %-9s %s\n' "$n" "$ids" \
         "$(hit_stat "$outfile" present-ns)" "$(hit_stat "$outfile" poll-first-ns)" \
@@ -689,7 +689,7 @@ compare_run() {
     local bin; bin=$(bin_path "$dir" "$name")
     for mode in sw gpu; do
       local gpu=0; [ "$mode" = gpu ] && gpu=1
-      env MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=$gpu \
+      env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=$gpu \
         MFB_CANVAS_STATS="$dir/stats-$mode" MFB_CANVAS_DUMP="$dir/frame-$mode" "$bin" >/dev/null 2>&1
     done
   fi

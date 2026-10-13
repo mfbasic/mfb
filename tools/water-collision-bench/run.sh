@@ -75,7 +75,7 @@ EOF
 
 if [ "$(uname -s)" = "Darwin" ]; then
   EXE="$STAGE/build/water-collision-bench.app/Contents/MacOS/water-collision-bench"
-  OUT=$(MFB_MACAPP_HEADLESS=1 perl -e '
+  OUT=$(MFB_HEADLESS=1 perl -e '
     my $limit = shift @ARGV;
     my $pid = open(my $fh, "-|");
     if ($pid == 0) { exec($ARGV[0]) or exit 127; }

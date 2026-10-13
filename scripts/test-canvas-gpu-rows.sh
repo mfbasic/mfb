@@ -217,7 +217,7 @@ run_remote() {
     {
       echo "@echo off"
       echo "setlocal"
-      echo "set MFB_WINAPP_HEADLESS=1"
+      echo "set MFB_HEADLESS=1"
       echo "set MFB_CANVAS_GEO_VERIFY=1"
       [ "$sync" = 1 ] && echo "set MFB_CANVAS_SYNC=1"
       [ "$gpu" = 1 ] && echo "set MFB_CANVAS_GPU=1"
@@ -234,7 +234,7 @@ run_remote() {
     remote_scp "$PORT" "$host:C:/mfbrows-$$/$row/$tag.txt" "$work/$row/$tag.txt" >/dev/null 2>&1 || true
     remote_scp "$PORT" "$host:C:/mfbrows-$$/$row/$tag.rgba" "$work/$row/$tag.rgba" >/dev/null 2>&1 || true
   else
-    local dir="/tmp/mfb-rows-$$/$row" env="MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_GEO_VERIFY=1"
+    local dir="/tmp/mfb-rows-$$/$row" env="MFB_HEADLESS=1 MFB_CANVAS_GEO_VERIFY=1"
     [ "$sync" = 1 ] && env="$env MFB_CANVAS_SYNC=1"
     [ "$gpu" = 1 ] && env="$env MFB_CANVAS_GPU=1"
     [ -z "$ROW_ENV" ] || env="$env $ROW_ENV"

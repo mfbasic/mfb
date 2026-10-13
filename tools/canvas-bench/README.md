@@ -8,7 +8,7 @@ rendering code. bug-688 adds a Linux/Vulkan twin of the same instrument
 (same subcommands, same output format), described in "Linux mode" below.
 
 - **bench.sh** — one runner, several subcommands. Everything is headless
-  (`MFB_MACAPP_HEADLESS=1` on macOS, `MFB_GTKAPP_HEADLESS=1` on Linux),
+  (`MFB_HEADLESS=1`),
   builds temporary MFBASIC projects under `$TMPDIR`, and cleans them up on
   exit.
 - **gen/*.sh** — the MFBASIC scene templates `bench.sh` instantiates:
@@ -31,7 +31,7 @@ rendering code. bug-688 adds a Linux/Vulkan twin of the same instrument
 `--target windows-x86_64 --host <user@host>` runs every subcommand against a
 Windows box over key-auth ssh: the scene builds as a `.exe` (`mfb build --app
 --target windows-x86_64`), is copied into a fresh `canvas-bench-*` directory
-under the user's home, and runs headless (`MFB_WINAPP_HEADLESS=1`) through a
+under the user's home, and runs headless (`MFB_HEADLESS=1`) through a
 CRLF `.bat` that sets the `MFB_CANVAS_*` variables (cmd's `set X=1 && prog`
 is unreliable over ssh). Stats and dump files come back to the same local paths
 the other modes use, so every parser and `cmp.py` call is unchanged, and the
@@ -69,7 +69,7 @@ In Linux mode, `bench.sh`:
    there with `./app.AppImage --appimage-extract`;
 3. runs `./squashfs-root/usr/bin/<name>` over
    `ssh -o BatchMode=yes -o ConnectTimeout=10 -p <port> test@127.0.0.1`,
-   under `timeout`, with `MFB_GTKAPP_HEADLESS=1` plus the same
+   under `timeout`, with `MFB_HEADLESS=1` plus the same
    `MFB_CANVAS_*` env vars the macOS path uses;
 4. `scp`s any `MFB_CANVAS_STATS`/`MFB_CANVAS_DUMP` file the run wrote back to
    the same local path the macOS path would have written, so every stats
@@ -95,7 +95,7 @@ lacks that path, probe it first (`ssh -p <port> test@127.0.0.1 'find
 
 **Without `--target`/`--box`, `bench.sh` behaves exactly as it always
 did** — every macOS command it runs (the `mfb build -app` invocations, the
-`env MFB_MACAPP_HEADLESS=1 ...` runs, the `bin_path`/`grep`/`awk` parsing) is
+`env MFB_HEADLESS=1 ...` runs, the `bin_path`/`grep`/`awk` parsing) is
 untouched; Linux mode is purely additive.
 
 **Warning: fps numbers from Linux mode are not GPU numbers.** The Vulkan
@@ -128,11 +128,11 @@ Runs the bug doc's section B table: items × points × moving/static
   `MFB_CANVAS_STATS` line has none yet (`helper_surface.rs`); Phase 0 of the
   bug doc adds them.
 
-`--release` builds without `--debug` and counts presents under
-`MFB_CANVAS_SYNC=1` instead of reading stats (a release build has no
-`MFB_CANVAS_STATS` at all). That gives an accurate fps number without the
-debug-build tax, but no renderer/geometry columns (release has nothing to
-read them from).
+`--release` builds without `--debug` and counts presents instead of reading
+stats (a release build has no `MFB_CANVAS_STATS` at all). It sets
+`MFB_CANVAS_SYNC=1`, which every build reads, so each `present` waits for its frame
+and the count of presents is the count of rendered frames. There are no
+renderer/geometry columns (release has nothing to read them from).
 
 **Why two build modes at all.** Measured on the 1,000×8 moving scene with
 `MFB_CANVAS_SYNC=1` (every present waits for its frame): 116 frames in 5 s

@@ -73,7 +73,7 @@ fi
 
 EXE="$STAGE/build/water-probe.app/Contents/MacOS/water-probe"
 
-OUT=$(MFB_MACAPP_HEADLESS=1 perl -e '
+OUT=$(MFB_HEADLESS=1 perl -e '
   my $limit = shift @ARGV;
   my $pid = open(my $fh, "-|");
   if ($pid == 0) { exec($ARGV[0]) or exit 127; }

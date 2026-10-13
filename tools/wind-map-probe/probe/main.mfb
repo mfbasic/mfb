@@ -12,7 +12,7 @@
 ' spliced into a per-frame scene the same way, it is caught by re-running
 ' this tool against the new example, not just against wind.
 '
-' Run headless (no window needed): MFB_MACAPP_HEADLESS=1 <built .app exe>
+' Run headless (no window needed): MFB_HEADLESS=1 <built .app exe>
 
 IMPORT app
 IMPORT canvas

@@ -28,7 +28,7 @@
 #
 # The box needs a Vulkan loader and an ICD. It does NOT need a display server: the
 # renderer draws offscreen and reads back (plan-98-F Correction 1), and
-# `MFB_GTKAPP_HEADLESS` skips GTK entirely. That is deliberate — no reachable Linux
+# `MFB_HEADLESS` skips GTK entirely. That is deliberate — no reachable Linux
 # box has a display, so a design that needed one could not be tested at all.
 #
 # A box that cannot build a pipeline reports `vulkanReady=FALSE`; this skips rather
@@ -320,13 +320,13 @@ remote_ssh "$PORT" "$host" "
   cd $remote
   ./app.AppImage --appimage-extract >/dev/null 2>&1
   bin=./squashfs-root/usr/bin/vkcanvas
-  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remote/sw.txt \
+  $icd_env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remote/sw.txt \
     MFB_CANVAS_DUMP=$remote/sw.rgba timeout 180 \$bin >/dev/null 2>&1
-  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remote/gpu.txt \
+  $icd_env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remote/gpu.txt \
     MFB_CANVAS_DUMP=$remote/gpu.rgba timeout 180 \$bin >/dev/null 2>&1
-  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_RESIZE_W=$RESIZE_W MFB_CANVAS_RESIZE_H=$RESIZE_H \
+  $icd_env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_RESIZE_W=$RESIZE_W MFB_CANVAS_RESIZE_H=$RESIZE_H \
     MFB_CANVAS_DUMP=$remote/sw2.rgba timeout 180 \$bin >$remote/sw2.out 2>&1
-  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_RESIZE_W=$RESIZE_W \
+  $icd_env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_RESIZE_W=$RESIZE_W \
     MFB_CANVAS_RESIZE_H=$RESIZE_H MFB_CANVAS_STATS=$remote/gpu2.txt \
     MFB_CANVAS_DUMP=$remote/gpu2.rgba timeout 180 \$bin >/dev/null 2>&1
   # plan-98-G Phase 3: a resize to the size the surface already has. It wakes the
@@ -335,7 +335,7 @@ remote_ssh "$PORT" "$host" "
   # an unchanged scene before it ever signals a redraw. This box is where that case can
   # be reached at all -- macOS has no scripted-resize affordance. (No backticks in this
   # comment: it is inside a double-quoted ssh command, where the shell would run it.)
-  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_DAMAGE=1 \
+  $icd_env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_DAMAGE=1 \
     MFB_CANVAS_RESIZE_W=900 MFB_CANVAS_RESIZE_H=640 MFB_CANVAS_STATS=$remote/dmg.txt \
     MFB_CANVAS_DUMP=$remote/dmg.rgba timeout 180 \$bin >/dev/null 2>&1
 "
@@ -613,9 +613,9 @@ remote_ssh "$PORT" "$host" "
   cp fixture.ttf squashfs-root/fixture.ttf
   cd squashfs-root
   bin=./usr/bin/vkgroups
-  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remoteg/sw.txt \
+  $icd_env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remoteg/sw.txt \
     MFB_CANVAS_DUMP=$remoteg/sw.rgba timeout 180 \$bin >/dev/null 2>&1
-  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remoteg/gpu.txt \
+  $icd_env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remoteg/gpu.txt \
     MFB_CANVAS_DUMP=$remoteg/gpu.rgba timeout 180 \$bin >/dev/null 2>&1
 "
 remote_scp "$PORT" "$host:$remoteg/sw.rgba" "$work/gsw.rgba" >/dev/null
@@ -699,9 +699,9 @@ remote_ssh "$PORT" "$host" "
   ./app.AppImage --appimage-extract >/dev/null 2>&1
   cd squashfs-root
   bin=./usr/bin/vkpolylines
-  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remotep/sw.txt \
+  $icd_env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_STATS=$remotep/sw.txt \
     MFB_CANVAS_DUMP=$remotep/sw.rgba timeout 180 \$bin >/dev/null 2>&1
-  $icd_env MFB_GTKAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remotep/gpu.txt \
+  $icd_env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=1 MFB_CANVAS_STATS=$remotep/gpu.txt \
     MFB_CANVAS_DUMP=$remotep/gpu.rgba timeout 180 \$bin >/dev/null 2>&1
 "
 remote_scp "$PORT" "$host:$remotep/sw.rgba" "$work/psw.rgba" >/dev/null

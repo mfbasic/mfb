@@ -66,7 +66,7 @@ def main():
     assert common(sources['fractals']) == common(sources['fractals-image'])
     result = {'rounds': args.rounds, 'frames_per_position': args.frames, 'runs': []}
     env = os.environ.copy()
-    env.pop('MFB_MACAPP_HEADLESS', None)  # Real Metal rendering, not headless mode.
+    env.pop('MFB_HEADLESS', None)  # Real Metal rendering, not headless mode.
     with tempfile.TemporaryDirectory(prefix='mfb-fractals-bench-') as tmp:
         base = Path(tmp)
         for name, source in sources.items():

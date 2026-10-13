@@ -87,7 +87,7 @@ EXE="$STAGE/build/wind-map-probe.app/Contents/MacOS/wind-map-probe"
 
 # Run headless (no window needed) with a watchdog, the same shape
 # scripts/test-macapp.sh uses for every other --app runtime probe.
-OUT=$(MFB_MACAPP_HEADLESS=1 perl -e '
+OUT=$(MFB_HEADLESS=1 perl -e '
   my $limit = shift @ARGV;
   my $pid = open(my $fh, "-|");
   if ($pid == 0) { exec($ARGV[0]) or exit 127; }

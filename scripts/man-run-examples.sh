@@ -384,7 +384,7 @@ run_one_block() {
 				fi
 				# An app-mode program has no stdout: io::print goes to the
 				# application transcript. Running still proves it starts.
-				export MFB_MACAPP_HEADLESS=1 MFB_GTKAPP_HEADLESS=1
+				export MFB_HEADLESS=1
 			fi
 			# STDIN_FILE feeds real input to examples that read stdin, so an
 			# io/term page is verified by running rather than written off as

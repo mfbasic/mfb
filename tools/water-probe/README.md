@@ -23,7 +23,7 @@ body (not its exact mathematical centre — see "A boundary note, not a bug"
 below) is decided by `shapeAt`, not swallowed by `onToolbar`. It calls the
 real `onToolbar`/`buttonAt` with a real `vector::Float2`, exactly as
 `examples/water/src/main.mfb` does — this probe is an `--app` build, run
-headless via `MFB_MACAPP_HEADLESS=1` (the same technique `wind-map-probe`
+headless via `MFB_HEADLESS=1` (the same technique `wind-map-probe`
 uses), so no signature substitute is needed.
 
 ## Running it

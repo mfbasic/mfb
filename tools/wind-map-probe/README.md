@@ -28,7 +28,7 @@ catches it; a committed copy could not.
 It calls `mapItems` directly for a whole-world view, a 10x-zoomed view, and
 the zoomed view again (a cache hit), and prints how many items each call's
 result holds. It needs `app::Mode.Canvas` active (`canvas::setGroup`
-requires it), so it runs headless via `MFB_MACAPP_HEADLESS=1` rather than as
+requires it), so it runs headless via `MFB_HEADLESS=1` rather than as
 a plain console program — no window is opened.
 
 Run it:
