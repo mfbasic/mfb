@@ -50,7 +50,13 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// present.
 #[rustfmt::skip]
 const GEO_LAYOUT: &str =
-r#"LET __CANVAS_GEO_HEADER AS Integer = 67
+r#"LET __CANVAS_GEO_HEADER AS Integer = 69
+' bug-1083: how much of the item's box (slots 16-19) is rim, on the x sides (67) and
+' on the y sides (68), in the units the box is in. The box less this is the item's
+' extent and stroke reach under its own transform and nothing more; the sites that
+' carry a box through a group's matrix replace the rim there (`__canvas_drawBound`).
+' Zero for a box that is not an extent and a rim (`__canvas_boundsHeader`).
+LET __CANVAS_GEO_RIM AS Integer = 67
 ' plan-163-D: the gradient's per-pixel words, after plan-163-C's. 55 is the spread
 ' (0 Pad, 1 Reflect, 2 Repeat), 56 whether the ramp also paints the stroke (1 for
 ' FillAndStroke on a kind that has a stroke to paint), 57-62 a RADIAL gradient's inverse
@@ -764,6 +770,14 @@ LET __CANVAS_BOUNDS_RIM AS Float = 1.0
 ' `pad - rim` is exact for a pad that ends in `+ rim`, to half a unit in the pad's last
 ' place, which `F`'s widening covers many times over.
 '
+' bug-1083: the box says how much of itself is rim, in slots `__CANVAS_GEO_RIM` (x
+' sides) and the one after (y sides), because a group's matrix changes the rim a pixel
+' needs and only the site that has that matrix can size it (`__canvas_drawBound`).
+' Untransformed that is the builder's rim. Under a transform it is what the mapped rim
+' adds to the hull -- `0.5 * F` through the forward matrix is `(|a| + |c|) * 0.5 * F`
+' on the x sides and `(|b| + |d|) * 0.5 * F` on the y sides -- and the pixel. A box
+' handed over whole has none: nothing may be taken off it.
+'
 ' The forward matrix is recovered by inverting the stored inverse rather than carried in
 ' six more slots. Two reasons that is safe: a bounding box only has to be CONSERVATIVE,
 ' so the float32 round-trip's last-bit error cannot matter, and the result is padded by
@@ -787,11 +801,18 @@ FUNC __canvas_boundsHeader(h AS List OF Float, minX AS Float, minY AS Float, max
     LET fty AS Float = collections::getOr(fwd, 5, 0.0)
     MUT growX AS Float = padX
     MUT growY AS Float = padY
+    ' Written either way: a picture's header arrives here already built as a rectangle's.
+    MUT rimX AS Float = 0.0
+    MUT rimY AS Float = 0.0
     IF rim > 0.0 THEN
       LET frob AS Float = math::sqrt(ia * ia + ib * ib + ic * ic + id * id) * (1.0 + 1.0 / 256.0) + 1.0 / 256.0
       growX = (padX - rim) + 0.5 * frob
       growY = (padY - rim) + 0.5 * frob
+      rimX = (__canvas_absF(fa) + __canvas_absF(fc)) * (0.5 * frob) + 1.0
+      rimY = (__canvas_absF(fb) + __canvas_absF(fd)) * (0.5 * frob) + 1.0
     END IF
+    out = collections::set(out, __CANVAS_GEO_RIM, rimX)
+    out = collections::set(out, __CANVAS_GEO_RIM + 1, rimY)
     LET lowX AS Float = minX - growX
     LET lowY AS Float = minY - growY
     LET highX AS Float = maxX + growX
@@ -816,6 +837,8 @@ FUNC __canvas_boundsHeader(h AS List OF Float, minX AS Float, minY AS Float, max
   out = collections::set(out, 17, minY - padY)
   out = collections::set(out, 18, maxX + padX)
   out = collections::set(out, 19, maxY + padY)
+  out = collections::set(out, __CANVAS_GEO_RIM, rim)
+  out = collections::set(out, __CANVAS_GEO_RIM + 1, rim)
   RETURN out
 END FUNC
 

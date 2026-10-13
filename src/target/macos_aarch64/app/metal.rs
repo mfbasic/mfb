@@ -192,7 +192,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int gradientKind;\n",
     "  int4 clip;\n",   // clip x0,y0,x1,y1 (16.16 px); zero-area = unclipped
     "  int4 xform0;\n", // inverse transform ia,ib,ic,id as float32 BITS
-    "  int4 xform1;\n", // itx, ity (float32 bits), hasTransform (0 or 1), unused
+    // itx, ity (float32 bits), hasTransform (0 or 1); then (bug-1083) how much of the
+    // quad's x sides is rim, 16.16, which only the vertex stage reads
+    "  int4 xform1;\n",
     "  int4 arcCaps;\n", // an arc's two sweep endpoints startX,startY,endX,endY (16.16)
     "  int4 ellipse;\n", // ellipse cos, sin (16.16); gradient stop count and base
     "  int4 gradient;\n", // a gradient's axis startX,startY,endX,endY (16.16)
@@ -209,7 +211,8 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int4 clipBand;\n",
     "  int4 clipPath;\n",
     // plan-163-D: a radial gradient's own inverse transform (float32 bits) and flag, then
-    // its focal offset and focal radius (16.16).
+    // its focal offset and focal radius (16.16). bug-1083: `gradInv1.w` is how much of
+    // the quad's y sides is rim, 16.16 (`xform1.w` has the x sides').
     "  int4 gradInv0;\n",
     "  int4 gradInv1;\n",
     "  int4 gradFocal;\n",
@@ -270,17 +273,28 @@ const METAL_SHADER_BODY: &str = concat!(
     // plan-172-H: under a group matrix the quad is the item's box carried through the
     // FORWARD linear part -- the inverse of the 2x2 the draw carries -- which makes it
     // a parallelogram, and four mapped corners of a triangle strip are exactly that.
-    // The box is first grown by the inverse's Frobenius norm on every side: its own
-    // antialiasing rim is in the group's space, and a group that scales down would
-    // shrink it under the pixel it has to cover. Growing by `|M|` in the group's space
-    // is at least one pixel on the surface, because the forward map shrinks nothing by
-    // more than `1 / |M|`. The fragment stage decides coverage; a quad can only be too
-    // small.
+    //
+    // bug-1083: the box carried is not the block's as it stands. Its rim -- `xform1.w`
+    // on the x sides, `gradInv1.w` on the y sides, zero for a box that is not an extent
+    // and a rim -- was sized for the item drawn with no group, and a pixel takes
+    // coverage only within half the COMPOSED inverse's norm of the item, which is at
+    // most the product of the item's norm and the groups'. So the rim is replaced by
+    // itself scaled by the groups' norm `|M|`: the lower sides are `(bound + rim) - rim
+    // * |M|`, the upper `(bound - rim) + rim * |M|`. `__canvas_drawBound` has the
+    // derivation, kind of rim by kind of rim, and takes the same two lines.
+    //
+    // Then the pixel: the box is grown by `|M|` once more on every side. That is at
+    // least one pixel on the surface, because the forward map shrinks nothing by more
+    // than `1 / |M|`, and it is added here, before the map, because the quad is the
+    // mapped parallelogram and not its hull (the oracle pads its hull by a pixel
+    // instead). The fragment stage decides coverage; a quad can only be too small.
     "  if (drawGrouped(draw)) {\n",
     "    float4 gi = drawInverse(draw);\n",
     "    float pad = length(gi);\n",
-    "    float2 local = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z) + ((vid & 1) == 0 ? -pad : pad),\n",
-    "                          fx((vid & 2) == 0 ? item.quad.y : item.quad.w) + ((vid & 2) == 0 ? -pad : pad));\n",
+    "    float2 rim = float2(fx(item.xform1.w), fx(item.gradInv1.w));\n",
+    "    float2 grow = rim * pad - rim + pad;\n",
+    "    float2 local = float2(fx((vid & 1) == 0 ? item.quad.x : item.quad.z) + ((vid & 1) == 0 ? -grow.x : grow.x),\n",
+    "                          fx((vid & 2) == 0 ? item.quad.y : item.quad.w) + ((vid & 2) == 0 ? -grow.y : grow.y));\n",
     "    float det = gi.x * gi.w - gi.y * gi.z;\n",
     "    corner = float2((gi.w * local.x - gi.z * local.y) / det, (gi.x * local.y - gi.y * local.x) / det)\n",
     "             + float2(fx(draw.offset.x), fx(draw.offset.y));\n",
@@ -4211,7 +4225,9 @@ pub(super) fn emit_transaction_commit(asm: &mut Asm) {
 /// ramp has pixels to run over -- a unit, which untransformed is a pixel, or half the
 /// inverse's Frobenius norm of the item's units and a pixel under a transform
 /// (`__canvas_boundsHeader`, bug-991) -- and the SDF fragment stage needs exactly the
-/// same margin.
+/// same margin. The block also says how much of the quad is that rim (`ITEM_RIM_WORDS`,
+/// bug-1083): under a group matrix the vertex stage replaces it, as the software bounds
+/// do (`__canvas_drawBound`), and with no group it reads the quad as it stands.
 /// (Phase 1 used the exact extent because a flat fill has no ramp to make room for.)
 ///
 /// Positions narrow to 16.16 fixed point, colours cross as the whole 0–255 values the
@@ -4744,6 +4760,29 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
                 OFF_ITEM + item_offset + index * 4,
             ));
         }
+    }
+    // bug-1083: how much of that box is rim, 16.16 like the box, in the two words the
+    // vertex stage reads it from under a group matrix (`ITEM_RIM_WORDS`).
+    for (index, word) in crate::codegen::runtime::canvas::ITEM_RIM_WORDS
+        .into_iter()
+        .enumerate()
+    {
+        let slot = crate::codegen::runtime::canvas::HEADER_RIM + index;
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            scale,
+        ));
+        asm.push(abi::float_round_to_signed_x(
+            abi::SCRATCH[1],
+            abi::FP_SCRATCH[1],
+        ));
+        asm.push(abi::store_u32(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            OFF_ITEM + word,
+        ));
     }
 
     // bug-735: every field a distance reads -- the shape parameters, the radius and
