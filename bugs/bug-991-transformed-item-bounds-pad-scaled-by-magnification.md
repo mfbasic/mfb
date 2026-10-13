@@ -5,8 +5,107 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other (Performance)
 
-Status: Open (stopped a second time, bug-staging-23 round 2, 2026-10-12: the SECOND Cause note was built and measured, and it changes pixels in one case it does not name and misses the software half of the Goal; see "Stopped, round 2". The build is commit `5752c7e5b`, reverted by `6d3161619`)
-Regression Test: written and reverted with the fix: `a_transformed_items_box_is_its_mapped_extent_and_a_rim_of_pixels` in `tests/canvas/rt_canvas_damage.rs` (commit `4d9923d44`, reverted by `e84c14262`); `tools/canvas-bench/bench.sh <mfb> magnified-polygons`
+Status: Open (stopped a third time, bug-staging-23 round 3, 2026-10-12: both halves were built, measured and reverted. `0.5 * F` is not a bound for the coverage rule's fallback gradient, so a tight box cuts lit pixels under a large magnification; and where a transform shrinks along one axis only, the base's box was cutting lit pixels that a bound lets appear. See "Round 3")
+Regression Test: written and reverted with the fix: `a_transformed_items_box_is_its_mapped_extent_and_a_rim_of_pixels` in `tests/canvas/rt_canvas_damage.rs` (commit `4d9923d44`, reverted by `e84c14262`; restored as `094ae5056` and reverted again by `95fe00093` in round 3); `tools/canvas-bench/bench.sh <mfb> magnified-polygons`
+
+## Round 3 (bug-staging-23 agent F, 2026-10-12)
+
+The third Cause note was built: round 2's item-transform half restored (`git revert` of
+its two reverts: `094ae5056`, `94b259391`) and bug-1083's group half on top. It was
+measured and then reverted, so no rendering code differs from `a6749e280` at the
+branch's head. What the group half is, its proofs, its Golden impact, the commits and
+the command that brings the build back are in bug-1083's document, "Built, round 3".
+This section is what concerns THIS bug's half. Base for "before" is `a6749e280`.
+
+**The case that stopped round 2 is repaired.** `halo_in_shrinking_group.mfb` at group
+scale 0.1 draws its 26 pixels again, byte-identical to the base on software and Metal
+(24 with this half alone), and 46 at 0.25.
+
+**A new changed case, and it is this half's own.** The second Cause note says every
+pixel stays identical because the rim `0.5 * F` covers every pixel that can take
+coverage. That is true, and it is the reason a pixel changes: the OLD rim, one unit,
+did not cover them where `F > 2`, that is, where the transform shrinks along some axis.
+Under a uniform shrink the item's own extent hides it. Under an uneven one the base
+draws its box and not its coverage rule. `bugs/repro/bug-991/uneven_minify.mfb` (a
+circle of radius 0.5 under `Transform[a := 3, d := 0.03, tx := 300, ty := 200.3]`, no
+group):
+
+```
+mfb build --app --debug <dir>
+MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=0|1 MFB_CANVAS_DUMP=f.rgba <binary>
+                          software            Metal
+before (a6749e280)        12 lit, x 294..305  11 lit, x 294..304
+with this half            14 lit, x 293..306  14 lit, x 293..306
+```
+
+The base's box there is `(0.5 + 1.0) * 3 + 1 = 5.5` px either side of x = 300, which
+software's truncation makes 294..305 and Metal's pixel-centre rule 294..304: the base's
+lit set IS its box, on each renderer, and the two renderers disagree by a pixel of value
+34 (past `GPU_DEFAULT`: run as an extra row of a scratch copy of
+`scripts/test-canvas-gpu-rows.sh`, the scene fails on box 2226 and on box 206 at the
+base, and passes on box 2226 with the fix). The coverage rule with
+no box lights 14 pixels. The same composition reached through a group
+(`halo_in_shrinking_group.mfb` at 0.03) goes from 12 to 14 the same way, and with both
+halves the two spellings draw the same row. Round 2's 102 dumps held no transform that
+shrinks along one axis only (its twentieth-scale items were uniform), which is why it
+read "byte-identical".
+
+So the Non-goal "every rendered pixel, on every backend" and the Goal's bound cannot
+both hold there. The pixels the old box cut off are the artefact family of
+`anisotropic_halo.mfb`, which the second note kept.
+
+**And a case where `0.5 * F` is NOT a bound: the fallback gradient.** The second note's
+rule is "a pixel takes coverage only where `d < 0.5 * g`, and `g <= F`". There is a
+second way to take coverage: a pixel whose gradient comes out under 1e-6 is given
+`g = 1` (`__canvas_drawGeometry`, `shapeCoverage`), and then it is lit wherever
+`d < 0.5` of the item's UNITS, whatever `F` is. That is what the `max(F, 1)` in
+`shapeCoverage`'s skip radius allows for (secondary 1). Both central differences vanish
+exactly only at a point midway between two parts of the shape, which is inside its
+extent; but they fall UNDER the threshold along the whole line of such points, for a
+distance of about `1e-6 / F` units either side, once the transform magnifies more than
+about a thousand times. `bugs/repro/bug-991/fallback_column.mfb` (one polygon of two
+squares 0.9 units apart, magnified 14,000 times, so both are far off the surface):
+
+```
+                          software                 Metal
+before (a6749e280)        191 lit, x 450, y 205..395   the same 191
+with this half            73 lit, x 450, y 264..336    the same 73
+```
+
+The base draws the whole faint column the fallback makes (its box is a unit, 14,000 px,
+either side); the new box is the squares' extent, 7 px, and a rim of 28 (the `1/256` in
+the widening of `F` is 27 px at this scale) and cuts it. An untransformed item inside a
+group that magnifies as much is cut the same way by bug-1083's half
+(`bugs/repro/bug-1083/fallback_column_in_group.mfb`: 191 lit before, 19 after). The rim that IS a
+bound for this rule is `0.5 * max(F, 1)`, and that is the old unit again under any
+magnification, which is the cost this bug exists to remove. So the box cannot be both
+tight under magnification and a bound, unless the fallback stops lighting pixels that
+far from the shape, and that is a change of the coverage rule (secondary 1's subject),
+not of a box. This is the third note's stop condition; nothing was patched around it.
+
+**The software half of the Goal**, `bash tools/canvas-bench/bench.sh <mfb>
+magnified-polygons 3 --software`, two runs each (load average 14 to 60, indicative):
+`flat` 20,634 and 19,800 ms a frame before, 164.0 and 196.0 after; `pix` 57.5 and 47.5
+in the same two runs. That is 2.9 and 4.1 times `pix`. The doc's "within 3" assumed
+three samples a transformed pixel; the oracle takes five (round 2, finding 2), which
+predicts about 5.7. Reported, not chased.
+
+**Metal**, five runs each (load 10 to 30): `flat` 31.5, 33.6, 31.5, 31.3, 31.5 before and
+13.9, 8.3, 7.7, 14.3, 8.5 after; `x100` 7.1, 7.5, 8.4, 7.7, 7.3 and 6.6, 7.2, 9.9, 6.6,
+6.2; `circle-xf` 12.1, 12.5, 14.5, 11.8, 14.0 and 9.8, 4.7, 4.3, 7.0, 4.4; `pix` 4.0,
+4.9, 6.1, 4.2, 4.9 and 6.2, 4.0, 3.9, 3.9, 4.3. `flat` is within noise of `x100`.
+
+**Secondary 1** (the `0.5 * max(F, 1)` skip radius), measured as the doc says and not
+changed: with the pad fixed, `flat` (median 8.5 ms, where the radius is 85 px and no
+pixel of a quad skips) against `x100` (median 6.6, where `F` is 0.83, the radius is
+0.85 px and the inside of every disc skips). The radius is worth at most the difference
+between those two, about 2 ms of 8 at this size, inside the run-to-run spread. On box
+206 (Intel UHD 630; `... --target windows-x86_64 --host test@192.168.1.206
+magnified-polygons`, four runs) it is not inside the spread: `flat` 34.2, 30.2, 30.1,
+30.4 against `x100` 21.3 four times and `pix` 12.5, 12.5, 12.4, 12.4 (before: `flat`
+363.4 to 364.7, `x100` 18.1 to 18.8). So on that GPU the five-sample path over a whole
+quad is 9 to 13 ms of a 30 ms frame, and the radius is worth measuring there once the
+fallback it guards is settled. No variant was built.
 
 ## Stopped, round 2 (bug-staging-23 agent D, 2026-10-12)
 
