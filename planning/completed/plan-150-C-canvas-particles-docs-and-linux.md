@@ -1,7 +1,7 @@
 # plan-150-C: Particle systems — documentation, examples, and Linux/Vulkan parity
 
-Last updated: 2026-10-11 (re-derived against the completed plan-172; see
-"Re-derivation record")
+Last updated: 2026-10-13 (executed; see Corrections. Re-derived 2026-10-11 against the
+completed plan-172; see "Re-derivation record")
 Effort: medium (1h–2h)
 Depends on: plan-150-B
 
@@ -305,7 +305,7 @@ scripts report no missing entries for the new types.
   Result (2026-10-13): the four build for macOS, both Linux targets and Windows (16 of
   16) and each run headless exits 0 (`MFB_HEADLESS=1 …/fire < /dev/null`, and the
   other three); the censuses as recorded on their line.
-Commit: —
+Commit: 0afb25356
 
 ## Validation Plan
 
@@ -378,6 +378,31 @@ Commit: —
    scenes drawn by a Vulkan driver headless, on box 2226; on Windows, on a hardware
    GPU. A windowed Linux Vulkan frame is read back and blitted today in any case
    (bug-1082), so a window there would exercise the same draw.
+7. **The final gate, for all three letters** (2026-10-13). `main` had not moved (tip and
+   merge-base both `29f5500cb`); `cargo fmt --all` in both workspaces, committed.
+   - `bash scripts/test-accept.sh target/debug/mfb target/accept-actual` → 1,724
+     fixtures ran, **4 mismatches, all generated dumps of canvas programs**:
+     `app-mouse-surface`'s `.ir`, `.nir` and `.nplan` (the fixture letter A named) and
+     `loop-body-resource-reference-valid`'s `.ir`, which also dumps the whole canvas
+     companion and which no letter named. Diffed line by line before either was
+     touched: of 6,762 changed lines in the first `.ir`, 6,469 are a `"line"` number
+     and nothing else (the companion source grew), and the rest are the four records,
+     the enum, the fourteenth variant and the new arms and hooks. Re-run on the two:
+     "acceptance tests passed (2 test(s) ran)".
+   - `cargo test` → the bin's unit tests 4,978 passed, **1 failed**:
+     `field_kind_census_covers_every_record_field_type`, which wants every exported
+     record classified for in-place update. The four new records were not: now
+     `ParticleSystem` rebuilds (its size varies) and `Emission`, `Motion` and
+     `Appearance` are fixed-size, in `self_update.rs:FIELD_KIND_TABLE` and its twin
+     `tests/runtime/inplace_self_update/field_kinds.tsv`. A test the plan did not know
+     of; found only by running everything.
+   - `cargo test --no-fail-fast --test '*'` → 351 targets ok, 1 failed: the artifact
+     gate, "2352 golden(s) checked, 4 diff(s)" — `app-mouse-surface`'s `.ncode`
+     checksum on each of its four targets, and nothing else. So every fixture that is
+     not a canvas program is byte-identical, which is letter A's side-condition,
+     measured. Regenerated for that one fixture
+     (`scripts/regen-native-goldens.sh … tests/syntax/app/app-mouse-surface`), then
+     `cargo test --test golden` → "0 diff(s)".
 
 ## Summary
 
