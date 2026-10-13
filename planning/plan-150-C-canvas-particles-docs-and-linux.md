@@ -17,7 +17,7 @@ and the Vulkan path is proved to match the software oracle, not assumed to.
 
 References:
 
-- `planning/plan-150-A-canvas-particles-types-and-expansion.md` — the type set the
+- `planning/completed/plan-150-A-canvas-particles-types-and-expansion.md` — the type set the
   manual documents.
 - `planning/plan-150-B-canvas-particles-cost-and-damage.md` — the measured cost model
   the manual must quote instead of adjectives.

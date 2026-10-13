@@ -1,0 +1,144 @@
+' tools/particle-bench: what one `canvas::ParticleSystem` costs a frame.
+'
+' One system, every particle alive for the whole run (one burst, a lifetime longer than
+' the run), presented FRAMES times with `time` advanced each present. Under
+' MFB_CANVAS_SYNC a `present` returns when its frame has been drawn, so the time around
+' it is the whole cost of a frame: the worker's copy and hash, and the graphics thread's
+' expansion, geometry and draw.
+'
+'   COUNT     particles                                   (default 1000)
+'   FRAMES    presents                                    (default 120)
+'   TEMPLATE  circle | rect | text                        (default circle)
+'   EMITTER   disc | polygon                              (default disc)
+'   MOTION    still | moving | spinning                   (default moving)
+'   TINT      white | ramp                                (default ramp)
+'   POLL      1 to call canvas::pollMouse every frame     (default 0)
+'   FONT      the font a text template uses               (default fixture.ttf)
+'
+' It prints one line: the count, the frames, the least and the mean milliseconds a
+' present took, and what `canvas::getFrameStats` says drew the last frame. Rank on the
+' least (`benchmark/RANKING.md` section 1.1): the mean carries every other process on
+' the machine.
+
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT datetime
+IMPORT io
+IMPORT os
+IMPORT vector
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+' A five-pointed star: a polygon that fills about half of its bounding box, so the
+' emitter's rejection loop has work to do.
+FUNC star() AS List OF vector::Float2
+  RETURN [at(0.0, 0.0 - 250.0), at(59.0, 0.0 - 81.0), at(238.0, 0.0 - 77.0), at(95.0, 31.0), at(147.0, 202.0), at(0.0, 100.0), at(0.0 - 147.0, 202.0), at(0.0 - 95.0, 31.0), at(0.0 - 238.0, 0.0 - 77.0), at(0.0 - 59.0, 0.0 - 81.0)]
+END FUNC
+
+FUNC emitterOf(kind AS String) AS canvas::Shape
+  IF kind = "polygon" THEN
+    MUT p AS canvas::Polygon
+    LET s AS canvas::Shape = WITH p { contours := [star()] }
+    RETURN s
+  END IF
+  MUT c AS canvas::Circle
+  LET s AS canvas::Shape = WITH c { radius := 250.0 }
+  RETURN s
+END FUNC
+
+FUNC motionOf(kind AS String) AS canvas::Motion
+  MUT m AS canvas::Motion
+  IF kind = "still" THEN
+    RETURN m
+  END IF
+  IF kind = "spinning" THEN
+    RETURN WITH m { speed := 20.0, spread := 3.2, rotationVar := 3.0, spin := 2.0, spinVar := 0.5 }
+  END IF
+  RETURN WITH m { speed := 20.0, spread := 3.2, gravityY := 10.0, drag := 0.3 }
+END FUNC
+
+FUNC lookOf(kind AS String) AS canvas::Appearance
+  LET white AS color::Color = color::rgb(255, 255, 255)
+  IF kind = "white" THEN
+    RETURN canvas::Appearance[startColor := white, endColor := white, startScale := 1.0, endScale := 1.0, scaleVar := 0.0]
+  END IF
+  RETURN canvas::Appearance[startColor := white, endColor := color::rgb(255, 60, 0), startScale := 1.0, endScale := 1.0, scaleVar := 0.0]
+END FUNC
+
+FUNC rendererName(r AS canvas::Renderer) AS String
+  IF r = canvas::Renderer.Metal THEN
+    RETURN "Metal"
+  END IF
+  IF r = canvas::Renderer.Vulkan THEN
+    RETURN "Vulkan"
+  END IF
+  RETURN "Software"
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET count AS Integer = toInt(os::getEnvOr("COUNT", "1000"))
+  LET frames AS Integer = toInt(os::getEnvOr("FRAMES", "120"))
+  LET template AS String = os::getEnvOr("TEMPLATE", "circle")
+  LET poll AS Boolean = os::getEnvOr("POLL", "0") = "1"
+  LET yellow AS canvas::Paint = canvas::fill(color::rgb(255, 220, 80))
+
+  RES face AS canvas::Font = canvas::loadFont(os::getEnvOr("FONT", "fixture.ttf")) TRAP(e)
+    io::print("no font: " & os::getEnvOr("FONT", "fixture.ttf"))
+    RETURN
+  END TRAP
+
+  MUT dot AS canvas::Circle
+  MUT chip AS canvas::Rectangle
+  MUT item AS canvas::AutoShape = WITH dot { radius := 2.0, paint := yellow }
+  IF template = "rect" THEN
+    item = WITH chip { position := at(0.0 - 3.0, 0.0 - 2.0), size := canvas::Size[width := 6.0, height := 4.0], paint := yellow }
+  ELSEIF template = "text" THEN
+    item = canvas::Text[id := "", position := at(0.0, 0.0), text := "AB", font := face, fontSize := 10.0, paint := yellow, transform := none()]
+  END IF
+
+  LET emitter AS canvas::Shape = emitterOf(os::getEnvOr("EMITTER", "disc"))
+  LET motion AS canvas::Motion = motionOf(os::getEnvOr("MOTION", "moving"))
+  LET look AS canvas::Appearance = lookOf(os::getEnvOr("TINT", "ramp"))
+  MUT emission AS canvas::Emission
+  LET burst AS canvas::Emission = WITH emission { mode := canvas::EmissionMode.Burst, maxParticles := count, burst := count, lifetime := 1000.0 }
+  IF poll THEN
+    canvas::enableMouse(TRUE)
+  END IF
+
+  MUT least AS Integer = 0
+  MUT total AS Integer = 0
+  MUT frame AS Integer = 0
+  WHILE frame < frames
+    LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(450.0, 320.0), item := item, emitter := emitter, emission := burst, motion := motion, appearance := look, seed := 150, time := toFloat(frame) / 60.0]
+    LET t0 AS Integer = datetime::monotonicNanos()
+    canvas::present([ps])
+    IF poll THEN
+      LET event AS canvas::MouseEvent = canvas::pollMouse()
+    END IF
+    LET took AS Integer = datetime::monotonicNanos() - t0
+    ' The first frame builds the pipeline and warms every cache: not a frame's cost.
+    IF frame > 0 THEN
+      total = total + took
+      IF least = 0 OR took < least THEN
+        least = took
+      END IF
+    END IF
+    frame = frame + 1
+  END WHILE
+
+  LET stats AS canvas::FrameStats = canvas::getFrameStats()
+  MUT measured AS Integer = frames - 1
+  IF measured < 1 THEN
+    measured = 1
+  END IF
+  io::print("count=" & toString(count) & " frames=" & toString(frames) & " minUs=" & toString(least / 1000) & " meanUs=" & toString(total / measured / 1000) & " presents=" & toString(stats.presents) & " drawn=" & toString(stats.frames) & " renderer=" & rendererName(stats.renderer))
+END FUNC

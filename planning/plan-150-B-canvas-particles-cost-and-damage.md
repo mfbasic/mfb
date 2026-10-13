@@ -21,7 +21,7 @@ rather than forcing a full redraw every frame.
 
 References:
 
-- `planning/plan-150-A-canvas-particles-types-and-expansion.md` — the type set, the
+- `planning/completed/plan-150-A-canvas-particles-types-and-expansion.md` — the type set, the
   analytic model, and the expansion this letter measures. Its Open Decision 1 (where the
   per-particle affine lives) is the choice this letter's numbers settle.
 - `.ai/canvas-threading.md` §14 — the geometry cache as it is now: keyed by a 62-bit
@@ -37,8 +37,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-150-A complete and archived | `ls planning/plan-150-A-*` → no matches, and `ls planning/completed/plan-150-A-*` → present | NOT MET (2026-10-11) |
-| The particle golden renders | `cargo test --test rt_canvas_golden particles` → pass | NOT MET (2026-10-11) |
+| plan-150-A complete and archived | `ls planning/plan-150-A-*` → no matches, and `ls planning/completed/plan-150-A-*` → present | MET (2026-10-13: no matches; `planning/completed/plan-150-A-canvas-particles-types-and-expansion.md`) |
+| The particle golden renders | `cargo test --test rt_canvas_golden particles` → pass | MET (2026-10-13: "1 passed; 0 failed") |
 
 If plan-150-A is not complete, this letter cannot start, full stop.
 
@@ -211,23 +211,31 @@ measured numbers.
 Nothing is optimized before this exists. The numbers set both remaining phases, and
 either may end as "no change needed, here is the measurement".
 
-- [ ] Add a standalone program under `tools/particle-bench/` with a README (a
+- [x] Add a standalone program under `tools/particle-bench/` with a README (a
       benchmark, so `tools/`, not `scripts/`), presenting one system at 100 / 1,000 /
       10,000 / 50,000 particles with a `Circle` template, `time` advanced 120 frames.
-- [ ] Record, per count: frames rendered, frames skipped, wall time per frame, and
+      — `src/main.mfb`, `bench.sh` (`sweep`, `row`), `README.md`.
+- [x] Record, per count: frames rendered, frames skipped, wall time per frame, and
       whether the frame took the GPU or declined to software — from
       `canvas::getFrameStats` and the `MFB_CANVAS_STATS` line, which is how a headless
       test can see graphics-thread state at all.
-- [ ] Split the per-frame cost three ways with scratch patches (not landed): the model
+- [x] Split the per-frame cost three ways with scratch patches (not landed): the model
       alone (expansion that appends nothing); the model plus the item build and
       `__canvas_hashItem`; and the whole path. The difference between the last two is
-      the geometry records.
-- [ ] Measure the same counts with a `Picture` template and a `Text` template, and with
-      a `Polygon` emitter, whose spawn is a rejection loop (plan-150-A §5).
-- [ ] Measure the same counts with the program also calling `canvas::pollMouse` every
+      the geometry records. — in a detached checkout, `/tmp/p150/scratch`, patched by
+      `/tmp/p150/scratch_patch.py model|item|whole`; a fourth variant
+      (`scratch_patch2.py build`) built each record natively and threw it away, which
+      split the records' share again. "The split", below.
+- [x] Measure the same counts with ~~a `Picture` template and~~ a `Text` template, and with
+      a `Polygon` emitter, whose spawn is a rejection loop (plan-150-A §5). — a `Picture`
+      cannot be a template (`item` is an `AutoShape`, plan-150-A Corrections 3; pinned by
+      `tests/syntax/canvas/canvas_particle_template_invalid`). In its place, a template
+      the plan did not name and the numbers needed: a rectangle that spins, which is a
+      TRANSFORMED particle and takes a different geometry builder.
+- [x] Measure the same counts with the program also calling `canvas::pollMouse` every
       frame, to prove the worker's hit walk does not scale with the particle count.
-- [ ] Record all of it in this plan as a table, each row with its command, ranked on
-      `min` per `benchmark/RANKING.md` §1.1.
+- [x] Record all of it in this plan as a table, each row with its command, ranked on
+      `min` per `benchmark/RANKING.md` §1.1. — "Measured", below.
 
 Acceptance: the table exists in this file, with commands, and answers four questions
 in numbers: the particle count reachable at 60 fps on the GPU; the count at which the
@@ -237,52 +245,228 @@ records; and that polling the mouse adds no per-particle cost.
   (est. 30 min, guess — longer than 10 because it is four counts × three cost splits ×
   120 frames, and a scoped single run would not separate record cost from expansion
   cost, which is the whole question).
+  Result (2026-10-13): the tables under "Measured" answer the four questions — 60 fps
+  to about 7,000 plain particles (about 8,000 after Phase 2); no count at which a frame
+  declines; the records 28% of the expansion for a plain particle and 65% for a turned
+  one; polling the mouse free.
 Commit: —
+
+## Measured
+
+All on an Apple M2 Max, macOS, headless, 2026-10-13, every row 120 presents under
+`MFB_CANVAS_SYNC=1` (so the time around a present is a whole frame), ranked on the least
+frame (`benchmark/RANKING.md` §1.1). The command for a row is
+
+    bash tools/particle-bench/bench.sh target/debug/mfb row COUNT [NAME=value ...]
+
+with the knobs in the row's second column, and `sweep 120` runs the first five blocks.
+`gpu` and `software` are the normal build with and without `MFB_CANVAS_GPU=1`; the
+other columns are the `--debug` build's stats line. In every row `frames=120
+skipped=0`.
+
+### particles/frame, before Phase 2 (the compiler at `24721092c`)
+
+| particles/frame | knobs | gpu min µs | software min µs | gpuFrames | blocks | offsets / draws / render, ms per frame |
+|---|---|---|---|---|---|---|
+| 100 | — | 1,758 | 1,280 | 120 | 100 | 0.28 / 0.00 / 2.26 |
+| 1,000 | — | 3,741 | 6,638 | 120 | 1,000 | 2.60 / 0.03 / 3.06 |
+| 6,000 | — | 14,402 | 37,085 | 120 | 6,000 | 15.56 / 0.36 / 4.03 |
+| 7,000 | — | 16,443 | 42,837 | 120 | 7,000 | 18.23 / 0.39 / 4.44 |
+| 8,000 | — | 18,682 | 48,689 | 120 | 8,000 | 20.80 / 0.49 / 4.74 |
+| 10,000 | — | 23,114 | 62,213 | 120 | 10,000 | 26.55 / 0.66 / 5.88 |
+| 50,000 | — | 111,950 | 292,277 | 120 | 50,000 | 135.13 / 5.09 / 15.88 |
+| 70,000 | — | 155,197 | 389,077 | 120 | 70,000 | 181.06 / 7.26 / 24.48 |
+| 140,000 | — | 306,032 | 759,726 | 120 | 140,000 | 362.11 / 17.48 / 36.68 |
+| 10,000 | `TINT=white MOTION=still` | 19,012 | 56,774 | 120 | 10,000 | 20.81 / 0.57 / 5.37 |
+| 100 | `TEMPLATE=rect MOTION=spinning` | 2,139 | 11,811 | 120 | 100 | 0.60 / 0.00 / 2.66 |
+| 1,000 | `TEMPLATE=rect MOTION=spinning` | 6,326 | 112,204 | 120 | 1,000 | 5.52 / 0.03 / 4.30 |
+| 3,000 | `TEMPLATE=rect MOTION=spinning` | 14,807 | 336,534 | 120 | 3,000 | 17.08 / 0.16 / 7.56 |
+| 4,000 | `TEMPLATE=rect MOTION=spinning` | 18,948 | 444,768 | 120 | 4,000 | 22.67 / 0.18 / 6.86 |
+| 10,000 | `TEMPLATE=rect MOTION=spinning` | 43,903 | 1,112,797 | 120 | 10,000 | 56.60 / 0.57 / 15.17 |
+| 50,000 | `TEMPLATE=rect MOTION=spinning` | 211,523 | 5,551,855 | 120 | 50,000 | 287.60 / 5.33 / 40.94 |
+| 100 | `TEMPLATE=text` (Arial, `AB`) | 40,654 | 40,275 | 120 | 100 | 40.19 / 0.03 / 2.83 |
+| 1,000 | `TEMPLATE=text` | 389,317 | 395,840 | 120 | 1,000 | 397.62 / 0.20 / 5.13 |
+| 10,000 | `TEMPLATE=text` | 3,875,595 | 3,918,791 | 120 | 10,000 | 3938.18 / 2.59 / 21.39 |
+| 1,000 | `TEMPLATE=text FONT=`the 304-byte fixture | 7,893 | 6,244 | 120 | 1,000 | 10.55 / 0.17 / 3.89 |
+| 100 | `EMITTER=polygon` | 1,757 | 1,286 | 120 | 100 | 0.32 / 0.00 / 2.77 |
+| 1,000 | `EMITTER=polygon` | 3,997 | 6,861 | 120 | 1,000 | 3.02 / 0.03 / 2.90 |
+| 10,000 | `EMITTER=polygon` | 25,179 | 60,417 | 120 | 10,000 | 29.65 / 0.37 / 5.65 |
+| 50,000 | `EMITTER=polygon` | 117,813 | 282,870 | 120 | 50,000 | 150.69 / 3.83 / 15.85 |
+| 100 | `POLL=1` | 1,757 | 1,231 | 120 | 100 | 0.27 / 0.00 / 2.67 |
+| 1,000 | `POLL=1` | 3,650 | 6,651 | 120 | 1,000 | 2.52 / 0.03 / 3.04 |
+| 10,000 | `POLL=1` | 21,533 | 59,625 | 120 | 10,000 | 24.98 / 0.38 / 5.17 |
+| 50,000 | `POLL=1` | 102,647 | 276,929 | 120 | 50,000 | 127.18 / 3.59 / 13.65 |
+
+The four questions:
+
+1. **60 fps on the GPU** (16,667 µs): 7,000 plain particles (16,443 µs); 8,000 is over
+   (18,682). For a particle that is turned, between 3,000 (14,807) and 4,000 (18,948).
+2. **The count at which a frame declines to software: there is none.** 70,000 and
+   140,000 particles are past the 65,536 blocks a pass holds and every one of their 120
+   frames was a GPU frame (`gpuFrames=120`): a frame whose blocks do not fit is drawn in
+   passes (bug-765). This letter's premise that a system "exceeds a frame cap [and]
+   declines the frame to software" is false as of that fix — Corrections 1.
+3. **The geometry records' share** — "The split".
+4. **Polling the mouse adds no per-particle cost**: every `POLL=1` row is at or under
+   its row without (21,533 against 23,114 µs at 10,000).
+
+A `Polygon` emitter costs a star-shaped one about 9% at 10,000 (25,179 against 23,114)
+and 5% at 50,000: its rejection loop, about half of whose candidates miss.
+
+A `Text` template is 389 µs a particle with a system font and 7.9 µs with a 304-byte
+one: the cost is the font FILE's size, copied on every text record built. That is not
+this plan's to fix and is not a property of particles: bug-1091.
+
+### The split (10,000 particles, the `--debug` phase timer, ms per frame)
+
+`offsets` is the scene walk; with the expansion patched to stop early, what is left is
+that much of it.
+
+| The expansion… | plain circle | spinning rectangle |
+|---|---|---|
+| runs the model for every slot and appends nothing | 7.32 | 6.39 |
+| …and builds each particle's item and hashes it | 18.98 | 19.88 |
+| …and builds each record natively, then discards it (`geoBuild`) | 20.85 | (declined: transformed) |
+| the whole path | 26.23 | 56.33 |
+
+| Share of the expansion | plain circle | spinning rectangle |
+|---|---|---|
+| the model | 7.32 ms, 28% | 6.39 ms, 11% |
+| the item built and hashed | 11.66 ms, 44% | 13.49 ms, 24% |
+| the geometry record | 7.25 ms, 28% | 36.45 ms, 65% |
+| — of which the record's own build | 1.87 ms | — |
+| — of which the cache around it (lookup, slot, index, the next frame's drop) | 5.38 ms | — |
+
+The whole frame at those counts is `offsets + draws + render`: 31.7 ms and 69.1 ms in
+the `--debug` build, so the expansion is 83% and 82% of a frame and everything Metal
+does is the rest.
+
+### What a draw entry per particle would cost (10,000 draws of one block each)
+
+A probe, not landed (`/tmp/p150/gdraws`): 10,000 `Group` nodes each drawing a one-circle
+group under its own matrix, which is the draw list "the template under a per-particle
+matrix" would produce. Per frame, `--debug` phase timers: draw list 5.7 ms and render
+19 ms, against 0.6 and 4.9 for the same 10,000 circles as blocks of one draw. So a draw
+entry costs about 1.9 µs on Metal where a block of an instanced draw costs about 0.5.
 
 ### Phase 2 — Stop building a record per particle (conditional on Phase 1)
 
 Land only if Phase 1 attributes material cost to the geometry records. If it does not,
 tick this phase moot with the measurement as evidence.
 
-- [ ] Choose between §3's two candidates from Phase 1's split, and record the choice and
-      the numbers behind it here before writing code.
-- [ ] If the draw-entry matrix: an untinted particle is appended as the template's own
+- [x] Choose between §3's two candidates from Phase 1's split, and record the choice and
+      the numbers behind it here before writing code. — **the uncached record, for a
+      particle the native builder takes; the draw-entry matrix is not landed.**
+      *The matrix* saves a plain particle its item, hash and record — 18.9 ms at 10,000
+      — and costs a draw entry each: 19 ms more render and 5 ms more draw list,
+      measured. It nets nothing on the GPU for the common particle, it turns every
+      system into the many-draws frame that is the renderer's worst case, and as
+      specified it serves only a system with no tint. It would pay for a turned
+      particle (36.45 ms of record against 24), and that case is left as it is, with
+      the number, rather than given a second expansion path.
+      *The uncached record* cannot touch the model or the item, and of the record's
+      7.25 ms it leaves the 1.87 ms build. Its ceiling is the other 5.38 ms: 20% of the
+      expansion, 17% of the frame.
+- [x] ~~If the draw-entry matrix: an untinted particle is appended as the template's own
       record under `__canvas_composeGroup(gdx, gdy, mat, P, M)`. The software walk, the
       GPU walk and the damage hash already read a per-entry matrix; confirm each with a
-      test rather than by reading.
-- [ ] If the uncached record: route particle entries around the table insert, and
+      test rather than by reading.~~ — moot: not chosen, on the measurement above
+      (1.9 µs a draw entry on Metal against the 1.9 µs a plain particle's item, hash and
+      record cost together).
+- [x] If the uncached record: route particle entries around the table insert, and
       confirm the record stays valid for the whole frame — the frame-stamp rule
       (`.ai/canvas-threading.md` §14) is what protects an offset today, and a record
-      outside the table must be protected by something that is stated.
-- [ ] A `Text` template's glyphs: confirm the glyph cache's pin (`.ai/canvas-threading.md`
+      outside the table must be protected by something that is stated. —
+      `__canvas_particleRecord` appends the native builder's record to
+      `__CANVAS_GEO_DATA` and uses its offset: no lookup, no slot, no index entry.
+      What protects it is the rule that protects every offset, now written at the
+      site and in `.ai/canvas-threading.md` §14: no float of that list moves or is
+      dropped inside a frame; `canvas::geoBeginFrame` is the one place that does, and
+      there a float no slot used is stale and goes with the rest
+      (`func_geo_cache.rs:lower_geo_begin_frame`: `stale = count − used`). A particle
+      the native builder declines — turned, scaled, a gradient, text — takes the cache
+      as before. `a_plain_particles_record_is_not_cached`: `entries=10` beside 1,000
+      particles, `blocks=1010`, and `floats=` flat from the sixth frame to the twelfth.
+- [x] A `Text` template's glyphs: confirm the glyph cache's pin (`.ai/canvas-threading.md`
       §14, "Glyph eviction pins only what the frame in progress uses") still covers a
-      particle's run under the chosen route.
-- [ ] Tests: the particle golden and letter A's group-node equivalence case must pass
+      particle's run under the chosen route. — it is not on the route: the native
+      builder declines text, so a text particle is a cached, stamped slot exactly as
+      before and its glyphs are pinned by it.
+      `a_text_particles_record_is_still_cached_and_its_glyphs_drawn`: 40 text particles,
+      `entries=40`, all drawn.
+- [x] Tests: the particle golden and letter A's group-node equivalence case must pass
       **unedited**; a scene mixing a 1,000-particle system with 10 ordinary items draws
-      the 10 identically with and without the system.
+      the 10 identically with and without the system. — `git diff 0a7733866 --
+      tests/golden/canvas/particles.png` is empty and no line of the equivalence tests
+      changed; `ordinary_items_draw_the_same_beside_a_system` compares every pixel of
+      the items' half.
 
 Acceptance: Phase 1's benchmark, re-run, shows the record share of the per-frame cost
 moved in the direction the choice predicted, and no particle golden moved.
   Check: `cargo test --test rt_canvas_particles --test rt_canvas_golden` → pass, goldens
   unmodified (est. 8 min, guess), plus the re-run benchmark row recorded here.
+  Result (2026-10-13): particles "29 passed", golden "28 passed", and
+  `--test rt_canvas_damage` "11 passed", 0 failed, goldens unmodified. Re-run rows, the
+  same commands:
+
+  | particles/frame | gpu min µs before → after | offsets ms before → after |
+  |---|---|---|
+  | 10,000 | 23,114 → 20,557 (−11%) | 26.55 → 22.32 |
+  | 50,000 | 111,950 → 94,774 (−15%) | 135.13 → 110.67 |
+
+  And the rows the manual quotes, on the compiler with Phase 2 in it:
+
+  | particles/frame | knobs | gpu min µs | software min µs | gpuFrames |
+  |---|---|---|---|---|
+  | 100 | — | 1,708 | 1,300 | 120 |
+  | 1,000 | — | 3,522 | 6,829 | 120 |
+  | 8,000 | — | 16,844 | 49,591 | 120 |
+  | 9,000 | — | 18,381 | 55,270 | 120 |
+  | 10,000 | — | 20,557 | 61,170 | 120 |
+  | 50,000 | — | 94,774 | 278,299 | 120 |
+  | 140,000 | — | 275,136 | 745,625 | 120 |
+  | 10,000 | `TEMPLATE=rect MOTION=spinning` | 43,837 | 1,121,349 | 120 |
+
+  60 fps (16,667 µs) is now just short of 8,000 plain particles (16,844 µs; 7,000 was
+  16,443 before the change). A turned particle is unchanged, as predicted: its record
+  is not one the native builder makes.
+
+  The record's share of a plain particle's expansion: 7.25 of 26.23 ms (28%) before,
+  22.32 − 18.98 = 3.34 of 22.32 (15%) after — the direction the choice predicted, and
+  4.2 of the 5.38 ms ceiling.
 Commit: —
 
 ### Phase 3 — Bound a particle system's damage (conditional on Phase 1)
 
-- [ ] Determine, from Phase 1's stats under `MFB_CANVAS_DAMAGE=1`, whether a particle
+- [x] Determine, from Phase 1's stats under `MFB_CANVAS_DAMAGE=1`, whether a particle
       scene reports a full redraw every frame. If it does not, tick this phase moot with
-      the evidence.
-- [ ] Give the expansion a per-system bounding rectangle over its live particles, fed
+      the evidence. — it does, when the live count changes, and only then. A probe of
+      30 presents (a static background and one system; `/tmp/p150/dmg`, run with
+      `MFB_CANVAS_DAMAGE=1 MFB_CANVAS_STATS=…`, counting `damage=0,0,900,640` lines):
+      a `Continuous` stream filling its pool → **28 of 30 frames full**; a `Burst` whose
+      60 particles all stay alive → 1 of 30 (the first), the other 29 partial. So the
+      phase is not moot.
+- [x] Give the expansion a per-system bounding rectangle over its live particles, fed
       into the damage pass the way an ordinary item's bounds are (`helper_damage.rs`).
       The bounds must go through the entry's offset and matrix, as every bound there
-      does since plan-172-G.
-- [ ] Tests: a scene with a static background and one particle system confined to a
+      does since plan-172-G. — a frame that expanded a system is diffed by UNIT
+      (`helper_particles.rs:DAMAGE`): each system one unit, its hash folded from its
+      entries' and its rectangle the union of `__canvas_drawBound` over them; every
+      other entry a unit by itself. A frame with no system takes the entry diff
+      untouched (Corrections 3).
+- [x] Tests: a scene with a static background and one particle system confined to a
       quarter of the surface; assert the reported damage rectangle does not cover the
-      full surface.
+      full surface. — `damage_of_a_system_is_bounded_by_its_particles`: `partial=29` of
+      30, every rectangle inside the quarter, and the picture thirty partial redraws
+      leave `compare_exact`s a full redraw's.
+      `damage_of_an_item_beside_a_system_is_the_items`: an ordinary item moving beside
+      a still system damages only its own two places.
 
 Acceptance: under `MFB_CANVAS_DAMAGE=1`, a particle system occupying a quarter of the
 surface, over a static background, reports partial damage rather than a full redraw.
   Check: `cargo test --test rt_canvas_particles damage` → pass (est. 5 min, guess).
+  Result (2026-10-13): "2 passed; 0 failed" in 101.31 s; and the suite that holds the
+  entry diff, `cargo test --test rt_canvas_damage` → "11 passed; 0 failed", unedited.
 Commit: —
 
 ### Phase 4 — Write the cost model down
@@ -329,7 +513,39 @@ Commit: —
 
 ## Corrections
 
-<Filled in DURING execution.>
+1. **No frame declines to software for its particle count** (2026-10-13). This letter
+   was written to find "the count at which the frame declines to software", and its
+   Non-goals say a system that exceeds a frame cap declines the frame. Since bug-765 a
+   frame whose blocks do not fit one pass is drawn in several: `bench.sh … row 70000`
+   and `row 140000` report `gpuFrames=120` of 120. The 65,536 is the size of a pass.
+   The question the cost model answers is therefore the frame TIME at a count, and the
+   manual says so. It also settles "whether the measured numbers argue for a later
+   letter raising a frame cap": they do not — the cap bounds a pass, not a frame, and
+   at the counts where a second pass begins the frame is already 150 ms of expansion.
+2. **`item` is an `AutoShape`, so there is no `Picture` template to measure**
+   (plan-150-A Corrections 3). The row is replaced by one the plan lacked: a rectangle
+   that spins. It mattered — a turned particle's record is 65% of its expansion against
+   a plain one's 28%, because a shape with a transform in effect is not built natively.
+3. **The damage diff was special-cased, by unit** (2026-10-13). §3 held "special-casing
+   the damage diff for particles" in reserve, hoping "a per-system bounding rectangle
+   can be expressed as an ordinary damage contribution". It cannot be, as the diff
+   stood: the diff pairs ENTRIES by index and a system's entry count is its live count.
+   So a frame that expanded a system is diffed by unit — a system one unit, every other
+   entry a unit by itself — and a frame with no system takes the entry diff, untouched.
+   Measured before: 28 of 30 frames full for a stream filling its pool; after: 1.
+4. **Phase 3 was built before Phase 2**, while Phase 1's long rows ran: the two are
+   independent (damage is a `--debug` mode; the record path is not), and they landed in
+   one commit because both edit `helper_particles.rs`.
+5. **A `Text` particle costs the font file's size, not its glyph count** (2026-10-13).
+   §Phase 4 expected to tell users "a `Text` template costs one quad per glyph per
+   particle". It does cost that on the GPU, and it is not what a user will feel: 389 µs
+   a particle with Arial against 7.9 µs with a 304-byte font, because every text record
+   built copies the font's bytes. Filed as bug-1091 — it is every rebuilt `Text` item's
+   cost, not a particle's — and the manual gives the measured number and the reason.
+6. **What "the item built and hashed" costs was not on this letter's list, and is the
+   largest part** — 44% of a plain particle's expansion. Neither candidate of §3 reaches
+   it without a draw entry per particle. Recorded for whoever comes next: the per-
+   particle `WITH` of the template record and its paint is where a further gain is.
 
 ## Summary
 
