@@ -7838,8 +7838,9 @@ mod tests {
     /// `MTLCommandBufferStatusCompleted`, and nothing has stored "presented" by then.
     ///
     /// That is the answer `direct_failed` gives, by the same means: the answer is the
-    /// `OFF_PRESENTED` slot, zeroed at entry and set to 1 only on the two paths below
-    /// this branch. So the caller declines the frame and software draws it.
+    /// `OFF_PRESENTED` slot, zeroed at entry and set to 1 only on the three paths below
+    /// this branch (a pass with more to come, the present, the readback). So the caller
+    /// declines the frame and software draws it.
     #[test]
     fn a_buffer_that_did_not_complete_reports_the_frame_not_drawn() {
         let func = emit_metal_draw();
@@ -7873,11 +7874,15 @@ mod tests {
             })
             .collect();
         let after: Vec<usize> = stores.iter().copied().filter(|at| *at > send).collect();
+        // bug-765: three since a frame can be several passes. A pass with more of its
+        // frame to come also answers 1, and it too only below the status branch, so a
+        // pass the GPU did not finish stops the frame as an unfinished frame does.
         assert_eq!(
             (stores.len(), after.len()),
-            (3, 2),
-            "one store clears the answer at entry and two set it, one for the present \
-             and one for the readback, both after the status branch: {stores:?}"
+            (4, 3),
+            "one store clears the answer at entry and three set it, one for a pass \
+             with more to come, one for the present and one for the readback, all \
+             after the status branch: {stores:?}"
         );
     }
 
