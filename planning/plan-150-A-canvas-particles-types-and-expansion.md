@@ -739,24 +739,29 @@ a system with each of the eight emitter shapes compiles and runs.
   → ≥ 5 (est. 5 min, guess).
   Result (2026-10-13): `target/debug/mfb man canvas types | grep -c …` → 16;
   `cargo test --bin mfb canvas` → "146 passed; 0 failed".
-Commit: —
+Commit: 83d5e0873
 
 ### Phase 3 — The analytic model, as a pure function
 
 Testable in isolation, before anything draws. The whole model is a function of its
 arguments, so this phase is where its correctness is actually established.
 
-- [ ] New `src/codegen/builtins/canvas/helper_particles.rs`: `__canvas_particleHash`,
+- [x] New `src/codegen/builtins/canvas/helper_particles.rs`: `__canvas_particleHash`,
       `__canvas_particleAge`, `__canvas_particleSpawn`, `__canvas_particlePosition`,
-      `__canvas_particleState`, per §5.
-- [ ] Register the helper in `src/codegen/builtins/canvas/mod.rs` alongside the other
+      `__canvas_particleState`, per §5. — as two texts: `MODEL` (numbers and points
+      only, so it compiles without a canvas) and `EXPAND` (reads a system into it).
+      Four departures from §5, each in Corrections 4.
+- [x] Register the helper in `src/codegen/builtins/canvas/mod.rs` alongside the other
       `helper_*` registrations, gated on the program constructing a `ParticleSystem`
       the way `helper_autopaint.rs` is gated on an `AutoPaint`
       (`.ai/canvas-threading.md` §16, "The code is gated on the program constructing
-      one"), so a program without one carries none of it.
-- [ ] Unit-test the module the way the sibling helpers are tested, in
-      `src/codegen/builtins/canvas/helper_particles/tests/mod.rs`.
-- [ ] Tests, each a named case in `tests/canvas/rt_canvas_particles.rs`:
+      one"), so a program without one carries none of it. — `target/debug/mfb build
+      -app -ncode /tmp/p150/plain` then `grep -c canvas_particle plain.ncode` → 2: the
+      one stand-in hook and its one call.
+- [x] Unit-test the module the way the sibling helpers are tested, in
+      `src/codegen/builtins/canvas/helper_particles/tests/mod.rs`. — `cargo test --bin
+      mfb canvas_particle` → "5 passed; 0 failed".
+- [x] Tests, each a named case in `tests/canvas/rt_canvas_particles.rs`:
       **determinism** (same `(seed, time)` → identical state, twice in one run);
       **liveness** (a slot is dead before birth and after `lifetime`);
       **drag limit** (`drag = 1e-6` agrees with `drag = 0` to 1e-4 px over 1 s);
@@ -769,12 +774,18 @@ arguments, so this phase is where its correctness is actually established.
       to 1e-9 px);
       **polygon emitter** (an L-shaped `Polygon`: no sample falls in the notch);
       **burst schedule** (with `burstPeriod = 2.0`, slots are alive at `t = 0.1` and
-      `t = 2.1` and dead at `t = 1.9` for `lifetime = 1.0`).
+      `t = 2.1` and dead at `t = 1.9` for `lifetime = 1.0`). — eight cases, all pass.
+      The curve twins Corrections 1 added are covered at the model's level (a closed
+      path, and a ring with a hole under both fill rules); a real `PolyCurve` and
+      `CurvePolygon` emitter is drawn in Phase 4.
 
 Acceptance: every case above passes, and the disc-uniformity case **fails** if the
 `sqrt` is removed from the `Circle` sample — verified once by removing it, observing the
 failure, and restoring it.
   Check: `cargo test --test rt_canvas_particles` → pass (est. 5 min, guess).
+  Result (2026-10-13): "11 passed; 0 failed" in 80.83 s. With `math::sqrt(r1)` replaced
+  by `r1` in `__canvas_particleDisc`, `a_disc_is_sampled_evenly_over_its_area` FAILED
+  with "5079 of 10000 samples fell inside half the radius"; restored, it passes.
 Commit: —
 
 ### Phase 4 — Expansion and rendering (largest blast radius)
@@ -984,6 +995,27 @@ by plan-172's transform rule.
    `ParticleSystem` — was built and worked, and was withdrawn on the owner's instruction
    in favour of `AutoShape`. A new freeze test, `no_canvas_type_reaches_itself`, holds
    the line for the next variant that wants to hold an item.
+4. **Four departures from §5's formulas, found writing them** (2026-10-13):
+   - **The random draw is not `__canvas_hashFloat`'s mixing.** §5 said to reuse it.
+     Read in `helper_geometry.rs:__canvas_hashStep`, each lane is a multiply-and-add
+     modulo 2^31 - 1 — affine in its input — so two streams of it differ by a constant
+     for every slot and a particle's two emitter coordinates would lie on a line.
+     `__canvas_particleMix` is a xor-shift-multiply over 31 bits instead.
+   - **The drag form is rewritten, not approximated.** §5's
+     `(v0 - g/k)(1 - e^(-kt))/k + (g/k)t` divides by `k` twice; at `k = 1e-6` the two
+     terms are 1e8 apart and cancel. `__canvas_particlePosition` computes the same
+     closed form as `p0 + v0 t phi(kt) + g t^2 psi(kt)`, with `phi` and `psi` from their
+     series below `kt = 0.25`. `k = 0` is then the same code path, not a branch.
+   - **Sine, cosine and the exponential are the package's own**, not `math::`: the
+     picture must be the same on every target. The package's `__canvas_wrapAngle`
+     loops, so the model wraps an angle in one step first, and normalises the unit
+     vector — the package's sine is good to 5.6e-8, and §5's "on its curve to 1e-9 px"
+     needs the point ON the circle.
+   - **Every conversion to an integer is guarded.** A `time` that is not a number, or
+     more than 1e12 periods, makes the slot dead rather than trapping on the graphics
+     thread.
+   Also: `toString` of a `Float` keeps two decimals, so the model tests print billionths
+   as integers — a first version of the drag test passed on "0.00".
 
 ## Summary
 
