@@ -307,7 +307,7 @@ FUNC __canvas_textBoxHeader(t AS Text) AS List OF Float
   out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 1, y0)
   out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 2, pen)
   out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 3, y1)
-  RETURN __canvas_boundsHeader(out, x0, y0, pen, y1)
+  RETURN __canvas_boundsHeader(out, x0, y0, pen, y1, 0.0, 0.0, 0.0)
 END FUNC
 
 ' The record a hit test reads for one item. Every kind but one is the record the

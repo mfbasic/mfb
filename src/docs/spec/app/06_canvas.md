@@ -892,6 +892,18 @@ Two consequences follow, both specified rather than left to the backend:
   untransformed item; the second is specified because it is the one a program can
   see and diagnose.
 
+The pixels a transformed item is evaluated over are its box: the hull, on the surface,
+of its extent grown by its stroke, cap or join reach and by a rim, padded by one pixel.
+Untransformed the rim is one unit, which is a pixel. Under a transform it is `0.5·F` of
+the item's own units, `F` the inverse matrix's Frobenius norm widened by `F/256 + 1/256`
+as the GPU shaders widen it: coverage is `0.5 − d/g`, and the gradient `g` the distance
+is divided by is at most `F`, so no pixel further than that from the stroked shape takes
+coverage. Under a uniform scale the rim is 0.71 px whatever the scale. Three boxes are
+mapped whole instead, with no rim to replace: a `Text` run's (its font metrics), a
+`Picture`'s (two units about its destination), and an `Arc`'s, whose distance is not
+Lipschitz. The untransformed box is unchanged, and `canvas::geoBuild` builds it bit for
+bit. [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+
 A `Text` item is not a distance field — it is a run of coverage bitmaps — so it is
 specified separately: each pixel of the run's transformed bounds samples the glyph
 coverage at its inverse-mapped point. The result is the same rule stated for shapes,

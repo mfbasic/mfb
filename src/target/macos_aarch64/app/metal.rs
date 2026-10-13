@@ -4335,8 +4335,11 @@ pub(super) fn emit_transaction_commit(asm: &mut Asm) {
 /// address is in `SCRATCH[0]`, and the edge buffer at `sp + OFF_EDGES` from its tail.
 ///
 /// The quad is the header's **bounds**, not the shape's own extent: the bounds carry
-/// the `strokeHalf + 1` pad the software rasteriser gives itself so its coverage ramp
-/// has pixels to run over, and the SDF fragment stage needs exactly the same margin.
+/// the stroke's reach and the rim the software rasteriser gives itself so its coverage
+/// ramp has pixels to run over -- a unit, which untransformed is a pixel, or half the
+/// inverse's Frobenius norm of the item's units and a pixel under a transform
+/// (`__canvas_boundsHeader`, bug-991) -- and the SDF fragment stage needs exactly the
+/// same margin.
 /// (Phase 1 used the exact extent because a flat fill has no ramp to make room for.)
 ///
 /// Positions narrow to 16.16 fixed point, colours cross as the whole 0–255 values the
