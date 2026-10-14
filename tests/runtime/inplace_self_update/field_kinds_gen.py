@@ -195,7 +195,7 @@ LITERALS = {
 # Kinds whose values the harness's forms cannot build at all: they hold a live
 # `RES` handle (a font, an image), so `MUT x AS K` has no default and no literal
 # can name the resource.
-UNBUILDABLE = {"canvas::Text", "canvas::Picture"}
+UNBUILDABLE = {"canvas::Text", "canvas::Picture", "canvas::Tile"}
 
 
 def expects(klass, state_ok=True, buildable=True):

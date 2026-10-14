@@ -321,3 +321,14 @@ Commit: c27b934e7
    `DrawItem` kind; a `tile` row was added so the new kind is not silently missing.
    The committed baseline predates it, so `compare.py` lists it as new until the next
    attended re-baseline.
+7. The final gate's `cargo test` failed `field_kind_census_covers_every_record_field_type`:
+   `canvas.Tile (InlinedFixed) has no FIELD_KIND_TABLE row`. A new record kind must be
+   classified for in-place self-update. Tile is an image handle and four `Float2`s, so
+   `Arm('F')` like `canvas.Transform`; `field_kinds.tsv` gains only the generated
+   `canvas::Tile` line (`UNBUILDABLE`, as Picture: it holds a live `RES`), not a
+   regenerated file. `cargo test --bin mfb field_kind_census` → 1 passed;
+   `cargo test --test inplace_self_update_census` → 2 passed.
+8. A Tile inside a group cannot go stale through `setBytes`: `canvas::setGroup` moves the
+   item list and the image with it, so `setBytes(img, …)` after it is
+   `TYPE_USE_AFTER_MOVE` (measured with a draft test, removed). Only a directly presented
+   tile can, which `set_bytes_on_a_presented_tile_image_repaints` covers.

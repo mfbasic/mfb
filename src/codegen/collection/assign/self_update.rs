@@ -2734,6 +2734,8 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
     ("canvas.Arc", SIZE_VARIES),
     ("canvas.Text", SIZE_VARIES),
     ("canvas.Picture", SIZE_VARIES),
+    // plan-173: an image handle and four `vector::Float2`s, no `id` -- fixed size.
+    ("canvas.Tile", FieldKindRow::Arm('F')),
     ("canvas.AutoPaint", SIZE_VARIES),
     ("canvas.Group", SIZE_VARIES),
     ("canvas.Ellipse", SIZE_VARIES),
