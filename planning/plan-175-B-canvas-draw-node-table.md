@@ -78,6 +78,12 @@ Everything below is written against the world where that holds.
   `func_geo_cache.rs:lower_scene_draws_flat` writes the same rows natively for a frame
   with no group, and `helper_geometry.rs:__canvas_drawsVerify` checks it against the
   walk under `MFB_CANVAS_GEO_VERIFY`.
+- Rows are written only for blocks in the viewport (plan-173). `__canvas_pushDraw`
+  ends a run where `__canvas_boundsMeetViewport` changes its answer from one block to
+  the next, and drops an offscreen run; `lower_scene_draws_flat` does the same through
+  `emit_block_visible`. An offscreen block keeps its place in `__CANVAS_DRAW_BLOCKS` and
+  its instance base, so culling changes how many rows there are, never a row's `base`.
+  Row `i` is still the `i`-th row written, which is what "row `i` at node `i`" needs.
 - Metal (`app/metal.rs:emit_draw_list_pass`), per row: copies words 2, 3, 5, 6, 8–11
   into the 32 bytes at `OFF_DRAW_PAIR`, binds the row's pipeline
   (`setRenderPipelineState:`), sends the 32 bytes with `setVertexBytes:` at index 1 and
@@ -126,6 +132,12 @@ Everything below is written against the world where that holds.
   only `helper_render.rs`, `helper_surface.rs` (stats text) and `helper_geometry.rs`
   (the verifier). The oracle every GPU test compares against is untouched, so pixel
   equality against it stays a real check.
+- **Culling decides rows, not nodes.** Neither viewport test reads or writes a row's
+  words 2–15 (`__canvas_boundsMeetViewport` reads the geometry record and the entry's
+  offset and matrix, which the walk already holds; `emit_block_visible` runs at no
+  offset). So the node table needs no culling logic of its own, and a frame with every
+  item offscreen has zero rows and zero nodes. Read: `helper_render.rs:__canvas_pushDraw`,
+  `func_geo_cache.rs:emit_block_visible`.
 - **Words 13–15 of a row are free.** `__canvas_pushOneDraw` writes 0 there, and
   `runtime/canvas/mod.rs`'s comment on `CANVAS_DRAW_ENTRY_WORDS` records "word 12 is
   the pass word; words 13–15 are reserved"; of the six readers above only the pass walk
@@ -324,7 +336,11 @@ Commit: —
 
 ## Corrections
 
-None yet.
+1. 2026-10-13, before any phase: plan-173 (merged at `bf951f32f`) made both draw-list
+   builders cull offscreen blocks. §2 now says rows are written only for visible runs,
+   and "Verified properties" records why the node table is unaffected. No goal, task or
+   check changed; `benchmark/canvas`'s `group` rows are all in view, so their row counts
+   (10,001, 101) still hold.
 
 ## Summary
 

@@ -35,6 +35,20 @@ so they are done here, after the split's Phases 1 and 2, rather than twice. The
 `ParticleSystem` expansion, the benchmark's largest walk, touches none of this plan's code
 and is not in it (§8.5).
 
+**Updated 2026-10-13: plan-173 landed first** (`canvas::Tile` and viewport culling,
+merged at `bf951f32f`). It changed four things this plan stands on, each corrected in
+place below and listed in Corrections 1:
+- a hashed kind more: `Tile` is in `HASHED` and, like `Picture`, is never carried and
+  never resolved on its hash alone (`emit_hit` skips `TILE_KIND_BITS`). §4.1 and §4.6
+  classify it.
+- `__canvas_pictureCached` confirms tile records too. A tilemap of 10,000 `Tile`s of one
+  atlas is Phase 6's case as much as 10,000 pictures of one image is.
+- the draw-list builders cull. `__canvas_pushDraw` tests every block of every node
+  against the viewport (`__canvas_boundsMeetViewport`), and the native flat list does
+  the same (`emit_block_visible`). That is a new per-node cost in the group walk, which
+  §2.4's baseline predates.
+- `benchmark/canvas` has `tile` rows, which its committed baseline does not.
+
 References:
 
 - `bugs/bug-765-canvas-100k-color-changing-dots-miss-30-fps.md` — the bug, its Cause
@@ -45,9 +59,9 @@ References:
 - `tools/canvas-bench/README.md` — `dots N`, the row this plan is judged by.
 - `benchmark/canvas/` — the standing per-kind benchmark; its `group fill 10000` and
   `picture fill 10000` rows are what Phases 5 and 6 are judged by (§2.4).
-- `planning/plan-173-canvas-atlas-tile.md` — adds a `DrawItem` variant. Whichever of the
-  two lands second classifies the other's fields; §4.1's guard makes forgetting a build
-  error.
+- `planning/completed/plan-173-canvas-atlas-tile.md` — added `canvas::Tile` and viewport
+  culling, and landed first. So this plan classifies `Tile`'s fields (§4.1); the guard
+  makes forgetting a build error.
 
 ## Prerequisites
 
@@ -90,10 +104,12 @@ References:
 ### 2.1 One hash, two jobs
 
 - `func_item_hash.rs:emit_item_hash` is one walker generated from the type model. For
-  ten kinds (`HASHED`: Rectangle, Circle, Line, Arc, Polygon, Picture, Ellipse,
-  PolyLine, PolyCurve, CurvePolygon) it folds `id`, the kind's own fields, the WHOLE
-  `paint` record and the transform, in slot order, into a 64-bit multiply-xorshift that
-  is shifted to 62 bits. `Text`, `Group` and `AutoPaint` (`NOT_HASHED`) answer -1 and
+  eleven kinds (`HASHED`: Rectangle, Circle, Line, Arc, Polygon, Picture, Ellipse,
+  PolyLine, PolyCurve, CurvePolygon, Tile) it folds `id`, the kind's own fields, the
+  WHOLE `paint` record and the transform, in slot order, into a 64-bit multiply-xorshift
+  that is shifted to 62 bits. A `Tile` has no `id`, `paint` or transform: it folds its
+  image handle and four `vector::Float2`s. `Text`, `Group`, `AutoPaint` and
+  `ParticleSystem` (`NOT_HASHED`) answer -1 and
   are hashed in MFBASIC by `helper_geometry.rs:__canvas_hashItem` with the two-lane
   `__canvas_hashStep`; its paint walk is `__canvas_hashPaint`.
 - The worker computes the hashes in `canvas::present`:
@@ -103,7 +119,8 @@ References:
   scene's revision.
 - The graphics thread resolves every scene index by that hash
   (`func_geo_cache.rs:lower_scene_resolve`): `emit_find` in `__CANVAS_GEO_TABLE`; a hit
-  is trusted on the hash alone (`emit_hit`, pictures excepted); a miss of a natively
+  is trusted on the hash alone (`emit_hit`, pictures and tiles excepted:
+  `PICTURE_KIND_BITS`, `TILE_KIND_BITS`); a miss of a natively
   built kind is built in place (`emit_fill_record`, `emit_add_slot`,
   `generations` + 1), anything else is left to `__canvas_appendDraw`.
 - The same hash, folded with the entry's group offset and matrix
@@ -112,7 +129,8 @@ References:
 
 ### 2.2 What today's record carries that is appearance, not geometry
 
-A record is `__CANVAS_GEO_HEADER` = 67 floats and a tail. Read from
+A record is `__CANVAS_GEO_HEADER` = 69 floats (`HEADER_SLOTS` in
+`runtime/canvas/mod.rs`) and a tail. Read from
 `helper_geometry.rs` (`__canvas_paintHeader`, `__canvas_gradientHeader`,
 `__canvas_strokeAsFill`, `__canvas_withDashes`, `__canvas_withJoins`) and its native
 twin `func_geo_build.rs:emit_paint_header`:
@@ -128,6 +146,9 @@ twin `func_geo_build.rs:emit_paint_header`:
 | 42–46, 55–66 | gradient kind, axis, spread, apply, radial inverse, focal | APPEARANCE |
 | 54 | a picture's transparency | APPEARANCE |
 | 35, 36 (picture) | the pixel block's address | content identity, neither class (§4.6) |
+| 67, 68 | rim, x and y (bug-1083) | geometry |
+| 69–72 (tile tail) | a `Tile`'s `srcPosition` and `srcSize` | geometry |
+| 35, 36 (tile) | the atlas's pixel block address, as a picture's | content identity (§4.6) |
 | tail: edges, join records, dash floats, clip edges, curve pieces, glyph triples | | geometry |
 | tail: gradient stops (5 floats each), a `PolyLine`'s per-point colours | | APPEARANCE of a fixed COUNT |
 
@@ -262,6 +283,10 @@ frames, the rest medians:
 | `picture fill 10000` (10,000 `Picture`s of one 32×32 image in a circle) | 12.0 | 21.3 | 18.8 | 0.05 | 2 | 2 |
 | `rect fill 10000`, for scale | 0.4 | 7.2 | 6.0 | 0.03 | 1 | 1 |
 
+That baseline predates plan-173. Its group walk had no viewport test, and it has no
+`tile` rows. Phases 5 and 6 therefore measure their own "before" at their base, and the
+figures above are context, not the bar.
+
 What a group node costs, read from `helper_render.rs:__canvas_appendDraw`'s `Group`
 arm: every node, every frame, resolves its name (`canvas::groupResolve`), copies the
 group's item list (`canvas::groupItems`), and hashes each child again in MFBASIC
@@ -368,12 +393,16 @@ One table in `func_item_hash.rs`, beside `HASHED`:
   `gradient` (the stop COUNT and `strokeApply` are geometry: they size the tail and
   change strokeHalf; everything else is appearance) and a `PolyLine`'s `colors` (its
   count is geometry, `__canvas_polylineHalf`; its values are appearance);
-- every item field is `Geometry` except `id` (§7, decision 1) and a `Picture`'s `image`
-  (content identity, §4.6).
+- every item field is `Geometry` except `id` (§7, decision 1) and the `image` of a
+  `Picture` or a `Tile` (content identity, §4.6).
 
 `fold_field` takes the lane from the table. A field the table does not name fails the
 build, as an unknown field TYPE does today, so a new `Paint` field or a new item kind
-(plan-173's `Tile`) cannot be silently folded into the wrong lane or into neither.
+cannot be silently folded into the wrong lane or into neither. `Tile` (plan-173) is
+the first kind the table must name that was not designed with it. Its `srcPosition`,
+`srcSize`, `position` and `size` are `Geometry` and its `image` is content identity. It
+has no `paint` and no `id`, so its `A` lane is empty: one constant for every tile, and
+a tile is never refreshed.
 
 The geometry predicates are computed ONCE, by the function the header builders call:
 `__canvas_strokeHalf` and its native twin are what decide "is the stroke drawn", and
@@ -387,8 +416,9 @@ builder calls it absent refreshes a record whose bounds are wrong.
   hashes revision (`CANVAS_SCENE_HASHES_REVISION_OFFSET`), so the sequence lock of §3
   covers both with no new word. `canvas::snapshotHashes` hands the frame both.
 - `canvas::carriedHashes` carries BOTH when an item's payload bytes are unchanged, and
-  neither otherwise. `Text`, `Picture` and `AutoPaint` are never carried, as now (their
-  hash folds a resource id that answers 0 once closed).
+  neither otherwise. `Text`, `Picture`, `Tile`, `AutoPaint` and `ParticleSystem` are
+  never carried, as now (the kind list in `lower_carried_hashes`; `Text`, `Picture`
+  and `Tile` fold a resource id that answers 0 once closed).
 - `__CANVAS_DRAW_HASHES` holds `D` folded with the entry's offset and matrix, as now.
   `__canvas_damageFor`, `__canvas_rememberScene` and `__canvas_autoResolve` are
   untouched. Spike experiment 1 (§9) is why `D` must fold `A`: with the geometry-only
@@ -456,6 +486,13 @@ and never refreshes: a paint-only frame costs the hit path no build at all.
   block, and `emit_hit` still leaves every picture to the MFBASIC walk. The image id
   folds into `G` (a different image is a different record: its size is geometry). The
   tint and transparency are `A`. Records under `__canvas_pictureKey` step `G`.
+- **`Tile`** (plan-173): the same rule as a picture. `emit_hit` leaves it to the
+  MFBASIC walk (`TILE_KIND_BITS`), and `__canvas_tileGeometry` confirms slots 35/36 with
+  `__canvas_pictureCached` before trusting its record. It is one record under the
+  item's own key, which becomes `G`, and is never refreshed (§4.1: its `A` is empty).
+  A tile in a `Group` cannot see a `setBytes` at all: `canvas::setGroup` moves the
+  atlas with the item list (plan-173 Correction 8). So only a directly presented tile
+  needs the confirmation.
 - **`Text`**: the font, size, string and position are `G`; the fill colour and blend
   are `A`. A `Text` record's glyph indices stay volatile (`canvas::geoForget`). Until
   Phase 3 a colour change rebuilds the run, as now.
@@ -499,7 +536,14 @@ changes a record, a key's meaning, or a pixel.
   for an image's pixel-block address is remembered for the frame, keyed by that address;
   the 2nd to 10,000th picture of one image reuse it. `__canvas_noteEntry` still folds
   each picture's block address into its draw hash, so a `setBytes` still damages every
-  picture of the image.
+  picture of the image. The same answer serves every `Tile` of the atlas, through the
+  same function (`__canvas_tileGeometry`); a tilemap is the case where one image is
+  named most often.
+- **Viewport culling is untouched, and it is part of the group walk's cost.** Since
+  plan-173, `__canvas_pushDraw` calls `__canvas_boundsMeetViewport` for every block of
+  every node (two `__canvas_drawBound` corner hulls under the node's matrix). The cost
+  stays per node, because the test needs the node's own placement. Phase 5's "before"
+  includes it, and Phase 5 must not cache a visibility answer across nodes or frames.
 - **Fewer allocations is the measure.** Each change above removes a per-node or
   per-picture list. Phase 5 and 6 record `perf.mfb_alloc.count` and
   `perf.mfb_free.count` from the `--debug` report (`mfb spec tooling debug-report`, the
@@ -531,11 +575,13 @@ is handed `D = mix(G, A)` and behaves as now. The cache is still keyed by `D`.
 - [ ] `func_item_hash.rs`: the field classification, `fold_field` by lane, the three
       geometry predicates from the builders' own functions, `mix`.
 - [ ] `helper_geometry.rs`: `__canvas_hashItem` and `__canvas_hashPaint` return the
-      pair for `Text`, `Group`, `AutoPaint`; `__canvas_pictureHash` likewise.
+      pair for `Text`, `Group`, `AutoPaint`; `__canvas_pictureHash` likewise; the
+      `Tile` arm (the native walk hashes it, the arm is the fallback) gives `(G, empty A)`.
 - [ ] `func_carried_hashes.rs`, `func_scene_hashes.rs`, `func_present.rs`,
       `func_present_layers.rs`, `func_geo_cache.rs:lower_scene_snapshot`: 2N words under
       the one revision.
-- [ ] Unit tests: every `Paint` field and every item field is classified; two paints
+- [ ] Unit tests: every `Paint` field and every item field is classified, including the
+      five of `Tile`; two paints
       that differ only in an appearance field have one `G`; each geometry predicate
       (stroke alpha 0 against 1, one stop against two, `FillOnly` against
       `FillAndStroke`, empty against non-empty `colors`) changes `G`.
@@ -581,7 +627,8 @@ Commit: —
 ### Phase 3 — Refresh for gradients, pictures and text (only where measured)
 
 - [ ] A bench row per case (`dots` with a two-stop gradient whose colours alternate; a
-      tilemap whose tint alternates; a page of text whose colour alternates), first, to
+      tilemap of `Picture`s whose tint alternates -- a `Tile` has no tint, so a tilemap of
+      tiles has no paint-only change to measure; a page of text whose colour alternates), first, to
       show the rebuild-in-place cost of Phase 2 for each.
 - [ ] Refresh for each case whose row shows the rebuild above 10% of its frame: the
       gradient header words and stops tail (same count), a picture's tint and
@@ -621,7 +668,8 @@ Acceptance: no pixel moves; the group row allocates less and walks faster.
   Check: `cargo test --release --test rt_canvas_geo_native --test rt_canvas_damage
   --test rt_canvas_group_ownership --test rt_canvas_graphics_thread` → pass.
   Check: `./benchmark/canvas/run.sh --only '^group '` then `compare.py` → every `group`
-  row's `.sums` unchanged; `group fill 10000`'s walk average below the baseline's 14.1 ms.
+  row's `.sums` unchanged; `group fill 10000`'s walk average below the baseline's 14.1 ms
+  and below the same row measured at this phase's base (`compare.py --base <base run>`).
   Check: `perf.mfb_alloc.count` from the `--debug` report of a 120-frame
   `KIND=group COUNT=10000` run of `benchmark/canvas/mfb`,
   before and after, recorded here.
@@ -629,14 +677,21 @@ Commit: —
 
 ### Phase 6 — The picture walk: one confirmation per image per frame
 
-Depends on Phase 2 (pictures are keyed by `G`, §4.6).
+Depends on Phase 2 (pictures and tiles are keyed by `G`, §4.6).
 
 - [ ] `helper_picture.rs`: `__canvas_pictureCached`'s answer remembered per frame by
-      pixel-block address (§4.8), reset at the frame's start.
+      pixel-block address (§4.8), reset at the frame's start. Both `__canvas_pictureCached`
+      callers use it: the picture paths and `__canvas_tileGeometry`.
 - [ ] `tests/canvas/rt_canvas_picture.rs`: many pictures of one image, then a `setBytes`
       on it, redraw every one of them with the new pixels (R9 and R10 of
       `.ai/canvas-threading.md` §8 still hold); a closed image draws nothing in every
       picture that named it (R11).
+- [ ] `tests/canvas/rt_canvas_tile.rs`: many directly presented tiles of one atlas,
+      then a `setBytes` on it, redraw every one of them with the new pixels (the
+      many-tile twin of `set_bytes_on_a_presented_tile_image_repaints`).
+- [ ] Measure `tile fill 10000` at this phase's base and after, because the committed
+      `benchmark/canvas` baseline has no `tile` row (plan-173 added it after the baseline
+      run).
 
 Acceptance: no pixel moves; the picture row allocates less and walks faster.
   Check: `cargo test --release --test rt_canvas_picture --test rt_canvas_damage
@@ -644,9 +699,12 @@ Acceptance: no pixel moves; the picture row allocates less and walks faster.
   Check: `./benchmark/canvas/run.sh --only '^picture '` then `compare.py` → every
   `picture` row's `.sums` unchanged; `picture fill 10000`'s walk average below the
   baseline's 12.0 ms.
+  Check: `./benchmark/canvas/run.sh --only '^tile '` at the base and after, compared
+  with `compare.py --base <base run>` → every `tile` row's `.sums` unchanged, and
+  `tile fill 10000`'s walk average lower after than at the base.
   Check: `perf.mfb_alloc.count` from the `--debug` report of a 120-frame
-  `KIND=picture COUNT=10000` run of `benchmark/canvas/mfb`,
-  before and after, recorded here.
+  `KIND=picture COUNT=10000` run of `benchmark/canvas/mfb`, and of the same with
+  `KIND=tile`, before and after, recorded here.
 Commit: —
 
 ### Phase 7 — Spec, threading notes, closeout
@@ -792,8 +850,22 @@ name (the timers: `mach_absolute_time`, `gettimeofday` and its commpage helpers,
 
 ## Corrections
 
-None yet. When a phase finds a claim of this plan wrong, the claim is struck in place
-and the correction is added here, dated, with the command that showed it.
+When a phase finds a claim of this plan wrong, the claim is struck in place and the
+correction is added here, dated, with the command that showed it.
+
+1. 2026-10-13, before any phase: plan-173 landed first (merged at `bf951f32f`). These
+   claims were corrected in place:
+   - §2.1: `HASHED` is eleven kinds with `Tile`, and `NOT_HASHED` includes
+     `ParticleSystem` (`rg -n '^const (NOT_HASHED|HASHED)' -A14
+     src/codegen/builtins/canvas/func_item_hash.rs`).
+   - §2.1: `emit_hit` skips tiles as well as pictures (`rg -n TILE_KIND_BITS
+     src/codegen/builtins/canvas/func_geo_cache.rs`).
+   - §2.2: the header is 69 floats, not 67 (`rg -n 'HEADER_SLOTS: usize'
+     src/codegen/runtime/canvas/mod.rs` → 69). The table gains the rim slots and the
+     tile tail.
+   - §4.2: the never-carried list is `lower_carried_hashes`' five kinds.
+   - §4.1, §4.6, §4.8 and Phases 1, 3 and 6: `Tile` classified and carried through.
+   - §4.8: the group walk's per-block viewport test is recorded.
 
 ## Summary
 

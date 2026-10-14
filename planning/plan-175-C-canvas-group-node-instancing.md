@@ -64,6 +64,16 @@ Everything below is written against the world where that holds.
   group produce adjacent rows when the group's own items form ONE run (one blend mode,
   no `Text` split, no nested group): `group fill 10000`'s rows are 10,000 such rows and
   the marker's.
+- Since plan-173, `__canvas_pushDraw` writes rows only for blocks in the viewport,
+  tested per block under each node's own offset and matrix. Two consequences for the
+  merge:
+  - **A node wholly offscreen writes no row.** The visible nodes on either side of it
+    become adjacent rows and merge. That is correct, because the culled node drew
+    nothing between them, so instance order is still draw order.
+  - **A node partly offscreen writes only its visible blocks**, as one or more shorter
+    runs whose words 0 and 1 differ from a whole node's. It merges with nothing, which
+    is correct but merges less. A large map group panned across an edge is the case
+    where this shows: its nodes on the edge stay separate draws.
 - `__canvas_passNext` adds rows one at a time; a row whose blocks are already in the
   pass is found by `__canvas_passFind` and costs no blocks. After plan-175-B it also
   counts rows against `__CANVAS_PASS_MAX_NODES`.
@@ -142,7 +152,13 @@ Rejected alternatives:
       - nodes of one group with another item between them: no merge across it
         (`draws=` shows separate heads) and the frame equals the software frame;
       - 70,000 nodes of one group: the run is cut at 65,536, the frame draws in two
-        passes, and equals the software frame.
+        passes, and equals the software frame;
+      - culling around a merge (plan-173): nodes in view with one node wholly
+        offscreen between them merge across it into one head, and a node half across
+        the right edge does not merge with the whole nodes beside it. `draws=` shows
+        both, and the frame equals the software frame.
+      Every node of the other four cases is placed wholly inside the 900×640 surface:
+      an offscreen node writes no row, and would change the counts asserted.
 
 Acceptance: adjacent identical rows draw as one call, every frame unchanged.
   Check: `cargo test --release --test rt_canvas_rasteriser` → pass (est. 4 min; the
@@ -190,7 +206,10 @@ Commit: —
 
 ## Corrections
 
-None yet.
+1. 2026-10-13, before any phase: plan-173 (merged at `bf951f32f`) made the draw-list
+   walk cull offscreen blocks per node. §2 records what that does to adjacency, and
+   Phase 1 gains a culling case and the rule that the other cases' nodes are in view.
+   The goal is unchanged: `benchmark/canvas`'s `group` rows are all in view.
 
 ## Summary
 
