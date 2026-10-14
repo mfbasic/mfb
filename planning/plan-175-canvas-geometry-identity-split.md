@@ -1,7 +1,7 @@
-# plan-175: Canvas geometry identity split (a geometry key, and a paint identity that damage also reads)
+# plan-175: Canvas geometry identity split (a geometry key, and a paint identity that damage also reads), and the group and picture walks
 
-Last updated: 2026-10-12
-Effort: huge (>3d) over five phases; each phase is large (3h–1d) and lands alone
+Last updated: 2026-10-13
+Effort: huge (>3d) over seven phases; each phase is large (3h–1d) and lands alone
 
 A canvas item has ONE 62-bit content hash. It is the key of the geometry cache and it
 is the damage identity (`.ai/canvas-threading.md` §14). It folds the item's whole
@@ -22,6 +22,15 @@ is NOT what stands between this scene and 30 frames a second. The measurements n
 three larger costs. The plan covers the split and says, in §8, what each of the other
 three needs.
 
+**Added 2026-10-13: the group and picture walks (§2.4, §4.8, Phases 5 and 6).** The
+canvas benchmark (`benchmark/canvas`) found that at 10,000 items the graphics thread's
+scene walk costs more than the renderer for `Group` nodes and for `Picture`s. Both walks
+run through the code the split rewrites (§4.6: a group's children are hashed and resolved
+in `__canvas_appendDraw`; a picture is confirmed by `__canvas_pictureCached` every frame),
+so they are done here, after the split's Phases 1 and 2, rather than twice. The
+`ParticleSystem` expansion, the benchmark's largest walk, touches none of this plan's code
+and is not in it (§8.5).
+
 References:
 
 - `bugs/bug-765-canvas-100k-color-changing-dots-miss-30-fps.md` — the bug, its Cause
@@ -30,6 +39,8 @@ References:
   §14 (geometry cache and item hashes), §16 (`AutoPaint`), §17 (`Picture`).
 - `src/docs/spec/app/06_canvas.md` — the contract; §4.7 lists the text a split changes.
 - `tools/canvas-bench/README.md` — `dots N`, the row this plan is judged by.
+- `benchmark/canvas/` — the standing per-kind benchmark; its `group fill 10000` and
+  `picture fill 10000` rows are what Phases 5 and 6 are judged by (§2.4).
 - `planning/plan-173-canvas-atlas-tile.md` — adds a `DrawItem` variant. Whichever of the
   two lands second classifies the other's fields; §4.1's guard makes forgetting a build
   error.
@@ -55,6 +66,10 @@ References:
   rewritten in place (§4.3).
 - No pixel changes, on any backend. `MFB_CANVAS_GEO_VERIFY=1` reports 0 mismatches on
   every suite that sets it.
+- A frame that draws a `Group` node hashes the group's items once per `setGroup` of that
+  group, not once per node per frame, and copies no item list per node (§4.8).
+- A frame that draws many `Picture`s of one image confirms that image once, not once per
+  picture (§4.8).
 
 ### Non-goals
 
@@ -229,6 +244,69 @@ offsets 11 ms, draws 4.7 ms, render 217 ms. On the Mac (load 19 to 51): worker 3
 36 ms, offsets 6 to 7 ms, render 34 to 41 ms debug, and 24 to 28 fps in release
 against 14 to 19 before.
 
+### 2.4 Measured: the group and picture walks (added 2026-10-13)
+
+`benchmark/canvas` (macOS, Metal, a `--debug` build in a real window, display sync on;
+`benchmark/canvas/README.md` defines the columns). From its committed baseline,
+`benchmark/canvas/baseline/canvas.log` (run `20261013-190605` at `8b43850b0`, Apple M2
+Max, 120 Hz), per frame, `walk` = `phaseOffsetsMs` + `phaseDrawsMs` averaged over 119
+frames, the rest medians:
+
+| Row | walk ms | work ms | gpu ms | encode ms | draws | passes |
+|---|---:|---:|---:|---:|---:|---:|
+| `group fill 10000` (10,000 `Group` nodes naming one one-rectangle group) | 14.1 | 10.5 | 6.9 | 2.2 | 10,001 | 1 |
+| `picture fill 10000` (10,000 `Picture`s of one 32×32 image in a circle) | 12.0 | 21.3 | 18.8 | 0.05 | 2 | 2 |
+| `rect fill 10000`, for scale | 0.4 | 7.2 | 6.0 | 0.03 | 1 | 1 |
+
+What a group node costs, read from `helper_render.rs:__canvas_appendDraw`'s `Group`
+arm: every node, every frame, resolves its name (`canvas::groupResolve`), copies the
+group's item list (`canvas::groupItems`), and hashes each child again in MFBASIC
+(`__canvas_hashItem`), although a group's items change only at `setGroup`, which bumps
+its revision (`canvas::groupRevision`). Each node is also its own draw-list entry, so
+10,000 nodes are 10,001 draw calls a frame, and encoding them is 2.2 ms.
+
+What a picture costs: every picture is confirmed against its image's current pixel
+block every frame (`__canvas_pictureCached`, `__canvas_geoStamp`), and its draw hash
+folds the block address in (`__canvas_noteEntry`), although all 10,000 name one image.
+
+**Where the graphics thread's time goes**, by `sample` (self time, one-millisecond
+samples, 8 s of a 400-frame run of each row; scratch build of `benchmark/canvas/mfb`
+with `--debug` at `09eaa48f3`; command in §9). Sampling slows the run (the walk read
+25.9 and 25.1 ms a frame under it), so read the SHARES, not the times:
+
+| Share of the busy graphics thread | `group fill 10000` | `picture fill 10000` |
+|---|---:|---:|
+| `--debug` perf timers around every arena alloc and free (`mach_absolute_time`, `gettimeofday`, `mfb_rt_perf_*`) | 38.6% | 27.1% |
+| arena free scrub (`mfb_arena_fill_random`, every build) | 20.8% | 18.1% |
+| arena alloc, free and drops | 4.1% | 2.2% |
+| canvas walk code (MFBASIC and native helpers) | 18.8% | 41.0% |
+| renderer, Metal, objc | 11.0% | 8.8% |
+| the rest (stats line, its clock, other) | 6.7% | 2.8% |
+
+The walk code's largest self times: for groups `canvas::groupItems`, `__canvas_hashStep`,
+`__canvas_sceneOffsets`, `__canvas_pushOneDraw`, `canvas::itemHash`,
+`__canvas_appendDraw`, `__canvas_sceneDrawsWalk`; for pictures `__canvas_geoStamp`,
+`__canvas_hashStep`, `__canvas_pictureCached`, `__canvas_blockCost`,
+`__canvas_sceneOffsets`, `__canvas_passNext`, `__canvas_flatScene`, `__canvas_hashFloat`.
+
+What the measurements say:
+
+1. **Most of both walks is allocation.** Two thirds of the busy group thread and
+   nearly half of the picture thread is in the arena or around it. The `--debug` perf
+   section times every `_mfb_arena_alloc` and `_mfb_arena_free`, so a `--debug` walk
+   overstates allocation-heavy code; the free scrub is in every build. The per-node and
+   per-picture lists the walk builds and drops are the cost to remove, and fewer
+   allocations is how a phase here shows its gain.
+2. **A group node repeats per frame what only `setGroup` changes**: the item list copy
+   and the children's hashes. The draw-list entry per node is a separate cost (encode
+   2.2 ms) that this plan does not take on (§7, decision 5).
+3. **The picture row's second pass is real, not a miscount.** A picture in a circle
+   writes 1,297 bytes of frame buffer a frame and its texels are copied once a pass
+   (`profTexels` 1,024 a pass): 9,000 pictures draw in one pass and 10,000 in two
+   (`KIND=picture COUNT=9000|10000 FRAMES=4` with `MFB_CANVAS_STATS`, last frame's
+   `profPasses` and `profBytes`). So `__canvas_blockCost` and `__canvas_passNext` in
+   that profile are §8.4's pass layout, not a picture cost.
+
 ## 3. Design Overview
 
 **Two lanes from one walk, one classification.** Every field of every item kind, and
@@ -396,6 +474,33 @@ item unions" (what is hashed natively), "Named groups" (the draw hash), "Hit-tes
 is drawn inside a shape" (the keys). There is no spec heading for `carriedHashes`, the
 cache table or damage identity today; Phase 5 adds one ("Item identity").
 
+### 4.8 The group and picture walks
+
+Both walks stay on the graphics thread and in the code §4.6 already changes; neither
+changes a record, a key's meaning, or a pixel.
+
+- **A group's children are hashed once per revision.** The graphics thread keeps, per
+  group slot, the `(G, A)` pairs of its items and the revision they were computed at.
+  `__canvas_appendDraw`'s `Group` arm reads the pairs when `canvas::groupRevision(slot)`
+  still matches, and computes and stores them when it does not. A child's draw hash
+  still folds the node's composed offset and matrix (`__canvas_noteEntry`), so damage is
+  unchanged. The slot table is the graphics thread's own (`.ai/canvas-threading.md` §2:
+  arena state is per thread), and a group freed by the retirement drain of §13 there
+  clears its slot's entry.
+- **No item list is copied per node.** The arm walks the group's items in place through
+  an index (`canvas::groupItemAt(slot, k)` and a count), instead of `canvas::groupItems`
+  building a list per node per frame. The items are the retired-then-drained buffer §13
+  protects, so reading them in place is as safe within a frame as the copy is.
+- **A picture's image is confirmed once per frame.** `__canvas_pictureCached`'s answer
+  for an image's pixel-block address is remembered for the frame, keyed by that address;
+  the 2nd to 10,000th picture of one image reuse it. `__canvas_noteEntry` still folds
+  each picture's block address into its draw hash, so a `setBytes` still damages every
+  picture of the image.
+- **Fewer allocations is the measure.** Each change above removes a per-node or
+  per-picture list. Phase 5 and 6 record `perf.mfb_alloc.count` and
+  `perf.mfb_free.count` from the `--debug` report (`mfb spec tooling debug-report`, the
+  perf section) for their row before and after, alongside the walk time.
+
 ## Compatibility / Format Impact
 
 - No public API, no program-visible behaviour, no pixel.
@@ -407,6 +512,9 @@ cache table or damage identity today; Phase 5 adds one ("Item identity").
   can tell a refresh from a hit.
 - Every canvas program's code changes, so the canvas goldens under `tests/syntax/app/`
   move in the phases that touch the walk and the resolve.
+- Phase 5 adds a per-slot table of child hashes to the graphics thread's group state, and
+  a native `canvas::groupItemAt` beside `canvas::groupItems`; Phase 6 adds a per-frame
+  map from pixel-block address to confirmation. None is program-visible.
 
 ## Phases
 
@@ -490,12 +598,63 @@ Acceptance: a paint-only frame builds nothing on the worker; `overID` is unchang
   Check: `cargo test --release --test rt_canvas_hit --test rt_canvas_pointer`.
 Commit: —
 
-### Phase 5 — Spec, threading notes, closeout
+### Phase 5 — The group walk: children hashed once per revision, no list per node
+
+Depends on Phase 2 (the walk hashes `(G, A)` and resolves through §4.3).
+
+- [ ] `helper_render.rs:__canvas_appendDraw`, `Group` arm: the per-slot child-hash table
+      of §4.8, read while `canvas::groupRevision(slot)` matches; children walked through
+      `canvas::groupItemAt` with no list copied.
+- [ ] `canvas::groupItemAt(slot, k)` (native, beside `canvas::groupItems`), and the
+      table's entry cleared where §13's drain frees a group buffer.
+- [ ] `tests/canvas/rt_canvas_damage.rs` and `rt_canvas_graphics_thread.rs`: a
+      `setGroup` that changes one child's paint and another's geometry redraws both,
+      under `MFB_CANVAS_GEO_VERIFY=1` and under `MFB_CANVAS_DAMAGE=1`; a group replaced
+      while a frame holds it (R13 to R15 of `.ai/canvas-threading.md` §8) still draws
+      what it resolved.
+
+Acceptance: no pixel moves; the group row allocates less and walks faster.
+  Check: `cargo test --release --test rt_canvas_geo_native --test rt_canvas_damage
+  --test rt_canvas_group_ownership --test rt_canvas_graphics_thread` → pass.
+  Check: `./benchmark/canvas/run.sh --only '^group '` then `compare.py` → every `group`
+  row's `.sums` unchanged; `group fill 10000`'s walk average below the baseline's 14.1 ms.
+  Check: `perf.mfb_alloc.count` from the `--debug` report of a 120-frame
+  `KIND=group COUNT=10000` run of `benchmark/canvas/mfb`,
+  before and after, recorded here.
+Commit: —
+
+### Phase 6 — The picture walk: one confirmation per image per frame
+
+Depends on Phase 2 (pictures are keyed by `G`, §4.6).
+
+- [ ] `helper_picture.rs`: `__canvas_pictureCached`'s answer remembered per frame by
+      pixel-block address (§4.8), reset at the frame's start.
+- [ ] `tests/canvas/rt_canvas_picture.rs`: many pictures of one image, then a `setBytes`
+      on it, redraw every one of them with the new pixels (R9 and R10 of
+      `.ai/canvas-threading.md` §8 still hold); a closed image draws nothing in every
+      picture that named it (R11).
+
+Acceptance: no pixel moves; the picture row allocates less and walks faster.
+  Check: `cargo test --release --test rt_canvas_picture --test rt_canvas_damage
+  --test rt_canvas_geo_native` → pass.
+  Check: `./benchmark/canvas/run.sh --only '^picture '` then `compare.py` → every
+  `picture` row's `.sums` unchanged; `picture fill 10000`'s walk average below the
+  baseline's 12.0 ms.
+  Check: `perf.mfb_alloc.count` from the `--debug` report of a 120-frame
+  `KIND=picture COUNT=10000` run of `benchmark/canvas/mfb`,
+  before and after, recorded here.
+Commit: —
+
+### Phase 7 — Spec, threading notes, closeout
 
 - [ ] The text of §4.7.
 - [ ] `scripts/spec-census.sh --render` and `--citations`.
 - [ ] Re-run §2.3's rows on box 206 and this Mac alone (load under 4) and record them
       in bug-765.
+- [ ] Re-run `benchmark/canvas` in full; if the group or picture rows moved by 1.25× or
+      more, re-baseline it in its own commit with `compare.py`'s output.
+- [ ] `.ai/canvas-threading.md` §13 (the child-hash table and its drain) and §17 (one
+      confirmation per image per frame).
 
 Acceptance: the spec describes the implementation at HEAD.
 Commit: —
@@ -508,6 +667,8 @@ Commit: —
   deliberately left out of the table in a unit test (the build of the walk must fail).
 - Runtime proof: `dots 100000` on Metal and box 206 before and after each of Phases 1
   and 2, `--keep` frames compared by `cmp`.
+- Walk proof: `benchmark/canvas`'s `group` and `picture` rows before and after Phases 5
+  and 6 (`compare.py`; `.sums` unchanged is the pixel proof, the walk average the gain).
 - Doc sync: Phase 5.
 - Final gate (once, after the last phase): `cargo test`, `scripts/artifact-gate.sh
   <mfb> all`, the GPU rows on box 206 and box 2226.
@@ -539,6 +700,17 @@ Commit: —
    set box 206's from what §8.2 can reach** once that is measured.
    **DECIDED by the owner, 2026-10-12: as recommended.** The goal stays for Metal; box
    206's is set from what the Intel draw cost can reach.
+5. **One draw call per `Group` node.** 10,000 nodes are 10,001 draw-list entries and
+   2.2 ms of encode a frame (§2.4). Nodes naming one group differ only in offset and
+   matrix, so they could be one instanced draw with the offset per instance, but the
+   offset is a per-DRAW payload on both backends today (`.ai/canvas-threading.md`,
+   "A group is one instanced draw per node"), and moving it into the item buffer
+   changes both shaders. **Recommendation: not in this plan;** its own plan, judged by
+   `group fill 10000`'s encode column.
+6. **Is the arena's free scrub on the canvas walk worth a decision?** It is 18 to 21% of
+   the busy graphics thread in §2.4's rows, in every build. Phases 5 and 6 reduce it by
+   freeing less; the scrub itself is plan-01 §6.2's and is not this plan's to change.
+   **Recommendation: no change here;** record the measured share in Phase 7.
 
 ## 8. What this plan does NOT do, and what each needs
 
@@ -561,7 +733,15 @@ Commit: —
    block at a time to a global list. A native member that lays a pass out from the
    block and instance lists (the way `canvas::sceneDrawsFlat` lays out the draw list)
    would remove most of it; `__canvas_blockCost` stays the one definition by being what
-   that member is generated from, or verified against.
+   that member is generated from, or verified against. `picture fill 10000` (two passes)
+   pays it in `benchmark/canvas` (§2.4).
+5. **The `ParticleSystem` expansion** — 20.7 ms of walk a frame against 2.6 ms of render
+   at 10,000 particles (`benchmark/canvas`, `particles fill 10000`). Every frame,
+   `helper_particles.rs:__canvas_particleAppend` takes each live particle through its
+   state, tint, shape (`__canvas_particleItem`) and hash (`__canvas_hashItem`) in
+   MFBASIC, and builds its geometry with no cache (`__canvas_particleRecord`). No part
+   of this plan touches that path except the two-lane hash of Phase 1, so it is its own
+   plan and can go before this one.
 
 ## 9. The spike, so a claim here can be re-run
 
@@ -578,6 +758,15 @@ Scratch worktree at `ab9061ff8` (`git worktree add --detach`), its own
 The scene is `tools/canvas-bench/gen/dots.sh` with the time inside `canvas::present`
 summed and printed as `workerPresentUs=`.
 
+§2.4's profile (2026-10-13) needs no edit to the compiler: copy `benchmark/canvas/mfb`
+to a scratch directory, `mfb build -app --debug` it, run it in a window with
+`KIND=group` (or `picture`) `COUNT=10000 FRAMES=400 MFB_CANVAS_SYNC=1
+MFB_TRANSCRIPT_DUMP=1 MFB_CANVAS_STATS=<file>`, and after 6 s `sample <pid> 8 -file
+<out>`. Self time per function on the thread whose tree holds `__canvas_sceneOffsets`
+is each node's count less its direct children's; the six shares group those functions by
+name (the timers: `mach_absolute_time`, `gettimeofday` and its commpage helpers,
+`_mach_boottime_usec`, `mfb_rt_perf_*`; the scrub: `mfb_arena_fill_random`).
+
 | # | Experiment | Command (macOS, headless, `MFB_CANVAS_GPU=1`) | Result |
 |---|---|---|---|
 | 1 | the geometry-only hash as the damage identity | 2,000 dots, built with `MFB_SPIKE_GEOHASH=1`, run with `MFB_CANVAS_DAMAGE=1` for 2 s | `frames=1 skipped=104`: every paint-only frame skipped. Today's hash: `frames=100 skipped=0` |
@@ -591,6 +780,11 @@ None yet. When a phase finds a claim of this plan wrong, the claim is struck in 
 and the correction is added here, dated, with the command that showed it.
 
 ## Summary
+
+Added 2026-10-13: Phases 5 and 6 take the group and picture walks that `benchmark/canvas`
+measured at 14.1 and 12.0 ms a frame for 10,000 items, after the split, because they run
+through the code it rewrites. Both are mostly allocation (§2.4), so fewer lists per node
+and per picture is the change, and the benchmark's `.sums` is the pixel proof.
 
 The split is small in mechanism (one classification, a fifth word in a cache slot, nine
 floats rewritten in place) and its risk is concentrated in one property the existing
