@@ -201,20 +201,28 @@ outside image bounds, and invalid/closed images.
 Acceptance: software output selects the requested atlas pixels and renders out-of-image
 samples transparent without errors.
   Check: `cargo test --test rt_canvas_tile` → pass (est. under 10 minutes).
-Commit: —
+Commit: b1217e431
 
 ### Phase 2 — Metal and Vulkan sampling
 
 Carry the tile source rectangle through both GPU backends and match the software oracle.
 
-- [ ] Extend picture-table/upload preparation to preserve tile source bounds in
+- [x] Extend picture-table/upload preparation to preserve tile source bounds in
       `src/target/macos_aarch64/app/metal.rs` and `src/codegen/runtime/canvas/vulkan.rs`.
-- [ ] Update Metal and Vulkan shader sampling to apply the same mapping and transparent
-      out-of-bounds rule.
-- [ ] Add a named `tile` row to `scripts/test-canvas-gpu-rows.sh` so Vulkan runs the
+      (`emit_picture_buffer` / `emit_picture_upload` copy the four tail floats as 16.16
+      into the ItemBlock gradient words.) Proven by the two rows below.
+- [x] Update Metal and Vulkan shader sampling to apply the same mapping and transparent
+      out-of-bounds rule (`tileColour` in the MSL string and `mfb_canvas.frag` + its
+      `.spv`). The Vulkan row's exact match is the proof the checked-in `.spv` carries it.
+- [x] Add a named `tile` row to `scripts/test-canvas-gpu-rows.sh` so Vulkan runs the
       atlas case against the software oracle on the remote Vulkan host.
-- [ ] Extend `tests/canvas/rt_canvas_metal.rs` and the Vulkan GPU-row coverage for atlas
-      regions, including partial out-of-bounds samples.
+      `scripts/test-canvas-gpu-rows.sh target/release/mfb --target linux-aarch64 --box 2226
+      --rows tile` → `ok: tile: drawn on Vulkan (gpuFrames=1)`, `ok worst=0
+      differing=0.0000%, 91200 lit`.
+- [x] Extend `tests/canvas/rt_canvas_metal.rs` and the Vulkan GPU-row coverage for atlas
+      regions, including partial out-of-bounds samples (`scenes/tile.mfb`: tile `b`'s
+      source starts at x = -0.5). `cargo test --test rt_canvas_metal tile` → 2 passed
+      (`tile_atlas_regions_match_the_software_oracle_on_metal`, which rejects `gpuFrames=0`).
 
 Acceptance: Metal and Vulkan tile output match the software oracle within the existing
 GPU tolerance, including transparent samples outside the image.
