@@ -1,5 +1,5 @@
-' bug-760 C: benchmark/mfb/src/main.mfb test_nbody's body verbatim as nbody(),
-' and benchmark/mfb/src/math.mfb test_math_fixed's loop as fixedMath().
+' bug-760 C: benchmark/language/mfb/src/main.mfb test_nbody's body verbatim as nbody(),
+' and benchmark/language/mfb/src/math.mfb test_math_fixed's loop as fixedMath().
 ' Compiled only for its -O1 .ncode by tests/codegen/codegen_regalloc_eviction.rs.
 IMPORT io
 IMPORT math

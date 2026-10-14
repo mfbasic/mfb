@@ -17,7 +17,7 @@
 '
 ' It prints one line: the count, the frames, the least and the mean milliseconds a
 ' present took, and what `canvas::getFrameStats` says drew the last frame. Rank on the
-' least (`benchmark/RANKING.md` section 1.1): the mean carries every other process on
+' least (`benchmark/language/RANKING.md` section 1.1): the mean carries every other process on
 ' the machine.
 
 IMPORT app

@@ -36,7 +36,7 @@ draw. A program that does not wait on its frames pays the worker's part per pres
 the rest per frame drawn.
 
 - **gpu** and **software** are the normal build, with and without `MFB_CANVAS_GPU=1`.
-  These are the times. Rank on `min` (`benchmark/RANKING.md` §1.1): the machine can
+  These are the times. Rank on `min` (`benchmark/language/RANKING.md` §1.1): the machine can
   only make a run slower, so the least is the estimate and the mean carries everything
   else that was running.
 - **debug** is the `--debug` build under `MFB_CANVAS_GPU=1` with `MFB_CANVAS_STATS`.

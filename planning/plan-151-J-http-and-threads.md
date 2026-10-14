@@ -74,7 +74,7 @@ conclusion, source file:symbol evidence, command/probe and result, and benchmark
 coverage or an explicit gap. A row with an unresolved cost is unfinished, not a
 ProviderDependent placeholder. Record why fast-path and general cases cover all calls.
 
-Consult benchmark/mfb/src/main.mfb and existing local HTTP/thread runtime fixtures. Existing measurements can challenge a claim but cannot prove an
+Consult benchmark/language/mfb/src/main.mfb and existing local HTTP/thread runtime fixtures. Existing measurements can challenge a claim but cannot prove an
 asymptotic bound. No blanket benchmark rerun and no benchmark format change. If a
 claim needs a one-off scaling/copy-count probe, place it in `/tmp`, record the full
 repro in the ledger, and cap inputs/wall time. Instrumentation is a probe, not a

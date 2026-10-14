@@ -283,7 +283,7 @@ bug to root-cause (`-ncode` ONE fixture), never a design verdict.
 project with `mfb build -q -ncode -target <target>` into a scratch copy (never
 in-tree — testing-gates "A corpus sweep that builds IN-TREE clobbers a concurrent
 one") and runs `tools/ncode-census/census.py` over the dumps. The corpus is
-fixed and listed in the README: every `examples/*` project, `benchmark/mfb`, and
+fixed and listed in the README: every `examples/*` project, `benchmark/language/mfb`, and
 every `tests/byte-identity/*` fixture. `census.py` reads one JSON instruction
 per line (`{ "op": …, … }`, the `-ncode` format) and counts, per function and in
 total: instruction count; adjacent same-base `str_u64`/`ldr_u64` 8 apart (with
@@ -476,8 +476,8 @@ Commit: —
       against the predicted set (aarch64 goldens only).
 - [ ] Runtime proof: `bash scripts/test-accept.sh target/release/mfb /tmp/171a-accept`
       on macOS and `bash scripts/linux-runtime-proof.sh target/release/mfb 2223 linux-aarch64`.
-- [ ] Benchmark: `./benchmark/run.sh 10` on the macOS host; compare with
-      `benchmark/baseline/mfb-O1.log` via `./benchmark/rank.py`; record the
+- [ ] Benchmark: `./benchmark/language/run.sh 10` on the macOS host; compare with
+      `benchmark/language/baseline/mfb-O1.log` via `./benchmark/language/rank.py`; record the
       `recurse` and `tree` rows (call-heavy) in Corrections/Summary. No baseline
       regeneration.
 

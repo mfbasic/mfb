@@ -397,8 +397,8 @@ here is below.
 
 The move is a breaking rename with a measured blast radius:
 `grep -rn "fs::tempDirectory"` excluding `.git`/`target`/`node_modules` → **161 call sites**,
-of which **116 are generated** `.mfb` under `benchmark/mfb/src/` and **3 are the Python
-generators** that emit them (`benchmark/mfb/gen_list.py`, `gen_map.py`, `gen_set.py`). Edit
+of which **116 are generated** `.mfb` under `benchmark/language/mfb/src/` and **3 are the Python
+generators** that emit them (`benchmark/language/mfb/gen_list.py`, `gen_map.py`, `gen_set.py`). Edit
 the three generators and regenerate; do not hand-edit the 116.
 
 What the `dirs` crate provides, since the name is opaque: the per-platform answer to "where
@@ -511,7 +511,7 @@ Checked 2026-09-12 against strace: `yamljson to-json samples/config.yaml` report
 2. **Measure the entropy-fill cost** on grow and free (fill on vs off), to know its share of
    every number below. Measurement only; the fill stays.
    **Measured 2026-09-13 (plan-133-B Phase 2), box 2223** (native aarch64, 4 KiB pages; load
-   0.16–0.45). The whole `benchmark/mfb` suite was built at `b31e6abf8` twice: normally, and
+   0.16–0.45). The whole `benchmark/language/mfb` suite was built at `b31e6abf8` twice: normally, and
    with a throwaway one-line patch that makes `_mfb_arena_fill_random` return at entry. Each
    build ran `--run 3`, and per-`section.row` medians were compared with plan-130-C's script.
    Checksums were identical in every run.
