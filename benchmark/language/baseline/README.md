@@ -25,9 +25,9 @@ mfb -O1/-O2/-O3 and across C -O0/-O2.
 
 Provenance:
 
-- date: 2026-10-13 (run timestamp `20261013-174139`)
-- commit: main at `d68270144`
-- host: Apple M2 Max, macOS 15.7.7 (arm64), load average ~3.6–4.4
+- date: 2026-10-14 (run timestamp `20261014-113545`)
+- commit: main at `ccb2cbf3f` (the arena zero fill, `4bb55ea8c`)
+- host: Apple M2 Max, macOS 15.7.7 (arm64), load average ~4–5
 - command: `./benchmark/language/run.sh 10`
 
 Rank these numbers with `./benchmark/language/rank.py` (see `benchmark/language/RANKING.md`).
@@ -38,7 +38,20 @@ between two columns `min` is measurably the more stable estimator
 Timings are host-specific — compare a new run against this baseline only on
 comparable hardware, and prefer the median column.
 
-This run replaced the 2026-09-28 evening baseline (`1b5faaded`, 2162 commits
+This run replaced the 2026-10-13 baseline (`d68270144`). Against it, with C and
+Python flat (geomean 1.00), mfb's geomean `min` ratio is 0.792 at -O1, 0.753 at -O2 and
+0.749 at -O3, and the -O1 grade distribution moved from 241/116/92/54/3/0 (S/A/B/C/D/F)
+to 254/125/84/42/1/0. No `.sums` file changed. The cause is the arena's zero fill
+(`4bb55ea8c`), which replaced a PCG64 fill that ran a 128-bit multiply for every freed
+byte: an A/B the same morning of the compiler just before it (`95e8cd31a`) against this
+one, both through this suite, gave 0.791 / 0.755 / 0.749 with C and Python at 1.00.
+The largest gains are the operations that build and drop whole lists — `zip` about
+0.26×, `window` and `chunks` about 0.33×, `copy` 0.35× — and the `map`, `parse`,
+`arena`, `regexbench` and set sections at 0.68 to 0.73; sections that barely allocate
+(`vector`, `closure`, `convert`, `io`, `recurse`, `bits`) are at 1.00. The
+`list (State-Fixed)` regression recorded below is unchanged (`get` 0.446 ms min).
+
+The 2026-10-13 baseline replaced the 2026-09-28 evening baseline (`1b5faaded`, 2162 commits
 earlier). Against it, with C and Python flat (geomean 1.01–1.02), mfb's geomean
 `min` ratio is 0.629 at -O1, 0.645 at -O2 and 0.653 at -O3; the -O1 grade
 distribution moved from 190/111/96/73/28/8 (S/A/B/C/D/F) to 241/116/92/54/3/0.
