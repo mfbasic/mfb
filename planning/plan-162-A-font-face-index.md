@@ -55,9 +55,9 @@ letter may not start while any row gating it is NOT MET.
 
 | Must be true | Gates | Command | Status |
 |---|---|---|---|
-| bug-756 fixed and archived (`__canvas_shapeRun` over a handle list exists) | A–F | `ls bugs/completed/bug-756-* && grep -n "FUNC __canvas_shapeRun(fonts AS List OF Integer" src/codegen/builtins/canvas/helper_font.rs` → both match | NOT MET (bug-756 is open, 2026-09-27) |
-| bug-753 fixed (a `List OF RES` bound from a call no longer leaks) | C | `ls bugs/completed/bug-753-*` → match | NOT MET (open, 2026-09-27) |
-| bug-755 fixed (a function returning a passed handle doesn't close it early) | C | `ls bugs/completed/bug-755-*` → match | NOT MET (open, 2026-09-27) |
+| bug-756 fixed and archived (`__canvas_shapeRun` over a handle list exists) | A–F | `ls bugs/completed/bug-756-* && grep -n "FUNC __canvas_shapeRun(fonts AS List OF Integer" src/codegen/builtins/canvas/helper_font.rs` → both match | MET (2026-10-14: `bugs/completed/bug-756-canvas-text-has-four-copies-of-the-glyph-walk.md`; grep hit `helper_font.rs:310`) |
+| bug-753 fixed (a `List OF RES` bound from a call no longer leaks) | C | `ls bugs/completed/bug-753-*` → match | MET (2026-10-14: `bug-753-a-list-of-res-bound-from-a-call-leaks-its-block.md`) |
+| bug-755 fixed (a function returning a passed handle doesn't close it early) | C | `ls bugs/completed/bug-755-*` → match | MET (2026-10-14: `bug-755-a-user-function-handing-back-a-passed-handle-gets-it-closed-early.md`) |
 
 Why bug-753 and bug-755 gate C: C makes `canvas::Text` hold a `List OF RES
 canvas::Font`. The natural program shape is a helper that returns the chain, for
@@ -101,7 +101,7 @@ Everything below is written against the world where these hold.
   the index version word (§4.1).
 - **Outlines keep reading bytes.** Composite-glyph support (bug-757) and any narrower
   outline copy are out of scope.
-- **The font table's 16-slot capacity is unchanged.**
+- **The font table's chunk geometry is unchanged** apart from the slot stride (Correction 5).
 
 ## 2. Current State
 
@@ -142,26 +142,43 @@ Everything below is written against the world where these hold.
 | What | Count | Command |
 |---|---|---|
 | Font table slots | 16 | `gen_font_table.rs` module doc ("Sixteen fixed slots") |
-| Font-byte fetches in canvas MFBASIC outside the table module | UNMEASURED until bug-756 lands | Phase 1: `grep -n "__canvas_fontBlob(" src/codegen/builtins/canvas/helper_*.rs src/codegen/builtins/canvas/func_*.rs` |
+| Font-byte fetches in canvas MFBASIC outside the table module | 8 (measured 2026-10-14): `helper_font.rs` `__canvas_shapeRun`; `func_measure_text.rs` `__canvas_measureText`; `helper_geometry.rs` `__canvas_textGlyphRun`, `__canvas_textEdges`, `__canvas_glyphRunHeader`, `__canvas_geoRunReference`; `helper_hit.rs` `__canvas_textBoxHeader`; `helper_particles.rs` `__canvas_particleTextBox`; `helper_autopaint.rs` `__canvas_autoTextBox`. Only `__canvas_textGlyphRun` (via `__canvas_glyphEntry`) and `__canvas_textEdges` (via `__canvas_glyphEdges`) read outlines | `grep -n "__canvas_fontBlob(" src/codegen/builtins/canvas/helper_*.rs src/codegen/builtins/canvas/func_*.rs` |
 | Existing `rt_canvas_font` tests | 24 | `grep -c "^#\[test\]" tests/canvas/rt_canvas_font.rs` → 24 |
-| Face-index size for real fonts | UNMEASURED | Phase 1 probe over `canvas::listSystemFonts()` |
+| Face-index size for real fonts | 638 TrueType faces: median 997 words, max 122,707 words (`STHeiti Light.ttc` face at dir 32: R = 23,495 format-12 runs, H = 52,213). Worst index-bytes / (4 × (hmtx + cmap bytes)) = 1.09 (`NISC18030.ttf`), under the 4× stop line. No format-12 subtable is unsorted or overlapping (0 of 105) | `python3 -I /tmp/p162/probe.py` (a scratch copy of §4.1 over every face under `/System/Library/Fonts`, `/Library/Fonts`, `~/Library/Fonts`, `/System/Library/AssetsV2`) |
 
 ### Verified properties
 
-- *The record has room for one more pointer.* Verified by reading `gen_font.rs`:
-  `FONT_BYTES = 32`, the assert `FONT_BYTES + 8 <= RESOURCE_RECORD_SIZE_BYTES` (96),
-  and the note that "nothing generic frees offset 32". So offset 40 is free in the
-  96-byte envelope, subject to the same "no per-record close pointer" rule.
-  **UNVERIFIED:** that nothing else stores at 40 for tag `RESOURCE_TAG_FONT`. Phase 1
-  greps for it.
-- *Who frees `FONT_BYTES`, and when.* **UNVERIFIED**: read `func_destroy_font.rs` and
-  the retirement path (§7, R17b). The face block must follow exactly the same free
-  path. Phase 1 task.
-- *What reads geometry-record slot 2 (the run's font handle) for `__CANVAS_GEO_TEXT`.*
-  **UNVERIFIED**. `__canvas_glyphRunHeader` sets it (`helper_geometry.rs`), and a grep
-  of `helper_render.rs`/`helper_glyph_cache.rs`/`helper_items.rs` for slot-2 reads on
-  text records found none. It matters for letter C (multi-font runs), not for A.
-  Phase 1 records the answer here.
+- *The record has room for one more pointer — at offset 48, not 40.* Verified
+  2026-10-14 by reading `gen_font.rs` and `error_constants.rs`: the canonical header
+  grew an owner word (`RESOURCE_OFFSET_OWNER` = 32, bug-755), so
+  `RESOURCE_TAIL_START` = 40 (`const _: () = assert!(RESOURCE_TAIL_START == 40)`) and
+  `FONT_BYTES = RESOURCE_TAIL_START` = **40**. The face block goes at
+  `FONT_FACE = RESOURCE_TAIL_START + 8` = **48**. `grep -rn "40\b\|48\b\|FONT_FACE"
+  src/codegen/builtins/canvas/gen_font.rs src/codegen/builtins/canvas/func_*font*.rs` →
+  only `FONT_BYTES`'s own asserts and unrelated MFBASIC literals (`count > 4096`,
+  `rec + 8`), so nothing stores at 48 for `RESOURCE_TAG_FONT`. (Correction 1.)
+- *Who frees `FONT_BYTES`, and when: nobody, ever.* Verified 2026-10-14:
+  `func_destroy_font.rs:lower_destroy_font` runs `emit_unregister_font`, then sets
+  `closed@16`, and its doc says "The font bytes are arena-owned and reclaimed with the
+  arena; there is no OS handle to give back". The scope-drop of a `RES canvas::Font`
+  routes to the same `destroyFont`. Group retirement (`__canvas_closeRetired`, R17b)
+  calls `destroyFont` too. `.ai/canvas-threading.md` §7 states the rule: "**Close
+  never frees.** … the image's record and its pixel blocks are never freed by anyone",
+  which is what makes a close safe while the graphics thread is mid-frame. So the face
+  block follows exactly that path: it is never freed, like the bytes and the record.
+  (Correction 2.)
+- *What reads geometry-record slot 2 (the run's font handle) for `__CANVAS_GEO_TEXT`:
+  nothing.* Verified 2026-10-14. `grep -rn "GEO_TEXT" src/codegen/builtins/canvas/*.rs`
+  lists every text-record consumer: `helper_glyph_cache.rs` (pins and remaps read slot
+  20 and the run), `helper_items.rs:529` (draw: slot 20, colour slots 8–11, the run),
+  `helper_render.rs` (`__canvas_blockInstances` slot 20, `__canvas_drawsJoin` slot 0,
+  `__canvas_blockCost` via `__canvas_runSamples`), `helper_hit.rs` (the text box at
+  `__CANVAS_GEO_TEXT_BOX`). Natively, `HEADER_SHAPE` (= 2) is read only by
+  `ITEM_RESIDUAL_FIELDS` in `src/codegen/runtime/canvas/mod.rs`, which the item-block
+  packer uses, and both GPU publishers branch a text record away before that packer
+  (`metal.rs`: `compare_immediate(SCRATCH[1], GEO_KIND_TEXT)` → `text_item`, ahead of
+  `emit_item_block`; `vulkan.rs:8172` likewise). So letter C may write fonts[0]'s
+  handle there.
 
 ## 3. Design Overview
 
@@ -282,27 +299,41 @@ the header:
 
 Settles the three unknowns before anything lands.
 
-- [ ] Re-run the prerequisite commands and update the table.
-- [ ] Record the font-byte fetch census (the Measured populations row) with its command
-      and output.
-- [ ] Read `func_destroy_font.rs` and the retirement path, and write here who frees
-      `FONT_BYTES`, on which thread, and behind which gate (§7, R17b).
-- [ ] `grep -rn "40\b\|FONT_FACE" src/codegen/builtins/canvas/gen_font.rs src/codegen/builtins/canvas/func_*font*.rs`:
-      confirm offset 40 is unused for fonts, and record the result.
-- [ ] Face-index size probe: a `/tmp` program that loads every
+- [x] Re-run the prerequisite commands and update the table. All three MET
+      (2026-10-14, commands and hits in the table).
+- [x] Record the font-byte fetch census (the Measured populations row) with its command
+      and output. 8 sites, not the 3–4 the plan assumed (Correction 3).
+- [x] Read `func_destroy_font.rs` and the retirement path, and write here who frees
+      `FONT_BYTES`, on which thread, and behind which gate (§7, R17b). Nobody frees it
+      (§2 Verified properties, Correction 2).
+- [x] `grep -rn "40\b\|FONT_FACE" src/codegen/builtins/canvas/gen_font.rs src/codegen/builtins/canvas/func_*font*.rs`:
+      confirm offset 40 is unused for fonts, and record the result. 40 is now
+      `FONT_BYTES` itself; 48 is the free word (Correction 1).
+- [x] Face-index size probe: a `/tmp` program that loads every
       `canvas::listSystemFonts()` face, builds the index with a scratch copy of
       §4.1's algorithm, and prints `len(index)` and load time per face. Record the max
       and the median here. If the largest index exceeds 4 × its font's `hmtx` + `cmap`
       byte size, stop and revise §4.1 before Phase 2 (a design correction, recorded
       in Corrections).
-- [ ] Letter C premise: a `/tmp` app program declares a local record with a
+      Result: `python3 -I /tmp/p162/probe.py` → 638 TrueType faces, median 997 words,
+      max 122,707 (STHeiti Light, face 2), worst ratio 1.09 < 4, so §4.1 stands. Load
+      time is measured on the real builder in Phase 2 (Correction 4).
+- [x] Letter C premise: a `/tmp` app program declares a local record with a
       `List OF RES canvas::Font` field, builds a `canvas::Text`-like value from two
       loaded fonts, presents a scene containing it, and destroys the fonts. Record
       whether it compiles, whether `present`'s deep copy aliases the handles (no
       double close), and any diagnostic. If it fails, file a bug and add it to
       the Prerequisites as gating C.
-- [ ] Resolve the slot-2 UNVERIFIED property (who reads the run's font handle) and
-      record it.
+      Result: `/tmp/p162/cpremise` (a `TYPE Chain` with `fonts AS List OF RES
+      canvas::Font`, filled each frame from `chainOf(a, b)` returning `[a, b]`, each
+      font measured through `FOR EACH f IN c.fonts`, a `Text` presented, three frames)
+      compiles with no diagnostic and prints `len 2` / `w 15.57` / `w 17.50` per frame.
+      Then `canvas::destroyFont(a)` and `(b)` both succeed and the program prints
+      `done`, exit 0 (`./target/debug/mfb build -app /tmp/p162/cpremise &&
+      MFB_HEADLESS=1 …/cpremise`), so neither the chain's drop nor `present` closed
+      them. The builtin-union-variant half is re-checked in C Phase 1.
+- [x] Resolve the slot-2 UNVERIFIED property (who reads the run's font handle) and
+      record it. Nothing reads it (§2 Verified properties).
 
 Acceptance: every UNMEASURED and UNVERIFIED item above has a recorded value and the
 command behind it.
@@ -315,21 +346,26 @@ Commit: —
 - [ ] `helper_font.rs`: add `__canvas_faceIndex(bytes)` per §4.1, reusing
       `__canvas_cmapSubtable`/`__canvas_cmap4`/`__canvas_cmap12`/`__canvas_glyphAdvance`/metric
       readers.
-- [ ] `gen_font.rs`: add `FONT_FACE = 40`, with the same compile-time asserts as `FONT_BYTES`.
+- [ ] `gen_font.rs`: add `FONT_FACE = RESOURCE_TAIL_START + 8` (= 48, Correction 1), with the same compile-time asserts as `FONT_BYTES`.
 - [ ] `func_load_font.rs`: `__canvas_loadFontBytes` builds the index and calls
       `canvas::fontFromBytes(face, index)`. `lower_font_from_bytes` stores it at `FONT_FACE`.
 - [ ] `gen_font_table.rs`: stride 24, `emit_register_font(handle, block, face)`, and
       update `emit_unregister_font` and every slot scan to the new stride.
-- [ ] Free the index on the `FONT_BYTES` free path (Phase 1 finding).
+- [x] ~~Free the index on the `FONT_BYTES` free path (Phase 1 finding).~~ — moot: nothing frees `FONT_BYTES` (`func_destroy_font.rs:lower_destroy_font` doc, `.ai/canvas-threading.md` §7 "Close never frees"), so following its path means the index is never freed either. The Phase 2 live-bytes test pins that it is the only thing left behind.
 - [ ] Tests (`tests/canvas/rt_canvas_font.rs`): the index of the fixture font equals
       a hand-computed list, reached through an internal-only debug read in a `--debug`
       build, following the `MFB_CANVAS_STATS` precedent. A font with no `head` yields
       word 1 = 0.
-- [ ] Tests: `tests/canvas/rt_canvas_present_leak.rs`-style load/destroy loop, showing
-      memory stays flat over many `loadFont`/`destroyFont` cycles.
+- [ ] Tests: `tests/canvas/rt_canvas_present_leak.rs`-style load/destroy loop over
+      `arena.0.live_bytes`. Memory cannot stay flat, because a font's bytes, record and
+      index are never freed (Correction 2). The check is that each cycle leaves exactly
+      those three blocks behind and nothing else: per-cycle growth between N and 2N cycles
+      ≤ the font's byte length + 8 × the index's word count + one record + the
+      collection headers and allocator rounding. That catches a transient leak in the
+      builder, which is the real risk.
 
-Acceptance: the index is built, owned and freed, nothing reads it, and pixels are
-unchanged.
+Acceptance: the index is built and owned, it rides the bytes' never-freed lifetime and
+leaves nothing else behind per load, nothing reads it, and pixels are unchanged.
   Check: `cargo test --test rt_canvas_font --test rt_canvas_present_leak --test rt_canvas_golden`
   → all pass (est. 5 min).
 Commit: —
@@ -360,6 +396,11 @@ Commit: —
       `__canvas_faceMetric`, and the `__canvas_fontBlob` metrics read added by bug-756
       is removed. The closed guard (`canvas::fontOpenHandle`) stays.
 - [ ] `__canvas_glyphRunHeader` (`helper_geometry.rs`): ascent/descent through the index.
+- [ ] (Correction 3) The other metrics readers through the index:
+      `helper_hit.rs:__canvas_textBoxHeader`, `helper_particles.rs:__canvas_particleTextBox`,
+      `helper_autopaint.rs:__canvas_autoTextBox` and `__canvas_geoRunReference` stop
+      fetching the blob. `__canvas_textGlyphRun` and `__canvas_textEdges` keep theirs for
+      outlines only and take `unitsPerEm` from the index.
 - [ ] Delete `__canvas_glyphIndex`/`__canvas_cmapSubtable`'s per-call path if nothing
       calls them any more. They stay only as the index builder's readers, so they
       move into the builder's doc scope, and nothing is suppressed.
@@ -403,7 +444,38 @@ Commit: —
 
 ## Corrections
 
-(empty)
+1. **Offset 40 is taken; the face pointer goes at 48.** The plan assumed `FONT_BYTES` =
+   32 and a free word at 40. bug-755 added `owner@32` to the canonical header, so
+   `RESOURCE_TAIL_START` = 40 = `FONT_BYTES`. `FONT_FACE` is
+   `RESOURCE_TAIL_START + 8` = 48, inside the 96-byte envelope. Evidence:
+   `error_constants.rs` `assert!(RESOURCE_TAIL_START == 40)`, `gen_font.rs`
+   `FONT_BYTES = RESOURCE_TAIL_START`.
+2. **Nothing frees a font's bytes, so nothing frees its index.** §4.3 and Phase 2 said
+   "freed wherever `FONT_BYTES` is freed". That place does not exist:
+   `lower_destroy_font` unregisters and sets the closed flag only, and §7 of
+   `.ai/canvas-threading.md` makes "close never frees" the rule. The Phase 2 "memory
+   stays flat" test could not pass even at HEAD, since each `loadFont` keeps its bytes
+   and record. It is replaced by a stronger, checkable bound: each cycle leaves exactly
+   the bytes, the record and the index, and nothing transient.
+3. **The census is 8 font-byte fetches, not 3–4.** Besides `__canvas_shapeRun`,
+   `__canvas_measureText` and the four geometry builders, three more metrics-only
+   readers fetch the whole file: `helper_hit.rs:__canvas_textBoxHeader`,
+   `helper_particles.rs:__canvas_particleTextBox`, and
+   `helper_autopaint.rs:__canvas_autoTextBox`. The §1 grep covers their files, so §1's
+   goal already requires them to move. Phase 4 gains a task for them, and for
+   `__canvas_textGlyphRun`/`__canvas_textEdges`/`__canvas_geoRunReference`'s
+   `unitsPerEm` reads: those two outline readers keep their blob for outlines but take
+   `unitsPerEm` from the index, and `__canvas_geoRunReference` reads no outlines at
+   all.
+4. **Load time is measured on the real builder, not the probe.** The Phase 1 probe is
+   Python, a scratch copy of §4.1's algorithm. It gives exact index sizes but no
+   MFBASIC timing. The real `__canvas_faceIndex` load time over the largest face
+   (STHeiti) is measured in Phase 2 and recorded there.
+5. **The font table is a chain of 16-slot chunks, not one 16-slot table.** bug-756
+   replaced the fixed table (`error_constants.rs:CANVAS_FONTS_SYMBOL` doc). The
+   non-goal "16-slot capacity unchanged" now reads "chunk geometry unchanged except the
+   slot stride (16 → 24 bytes)". Every scan walks `CANVAS_FONT_SLOT_BYTES`, so the
+   stride change is one constant, and `CANVAS_FONT_CHUNK_NEXT` follows from it.
 
 ## Summary
 
