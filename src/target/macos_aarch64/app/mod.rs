@@ -995,7 +995,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // the blit for the same reason — `MFB_CANVAS_GPU=1` is a runtime choice,
         // so any program that draws must carry the code that choice would run.
         functions.push(metal::emit_metal_init());
-        functions.push(metal::emit_metal_draw());
+        functions.push(metal::emit_metal_draw(spec.debug_hooks));
         // bug-686 Phase 4: the direct present's main-thread layer bookkeeping — the
         // graphics-thread hop and the `mfbMetalLayer:` IMP it lands in.
         functions.push(metal::emit_metal_layer_sync());
@@ -1278,6 +1278,20 @@ pub(crate) fn app_mode_data_objects(
             size: text.len() + 1,
             value: hex_cstring(text),
         });
+    }
+    // A `--debug` build's Metal renderer profiles itself, and asks the command buffer
+    // two things a normal build's never does.
+    if debug_hooks && uses_canvas {
+        for (symbol, text) in metal::metal_profile_data_objects() {
+            objects.push(CodeDataObject {
+                symbol: symbol.to_string(),
+                kind: "raw".to_string(),
+                layout: "C string (NUL-terminated)".to_string(),
+                align: 1,
+                size: text.len() + 1,
+                value: hex_cstring(text),
+            });
+        }
     }
     // The transcript NSTextView is stored as an associated object on NSApp keyed
     // by the address of this 1-byte read-only symbol (objc-runtime-managed

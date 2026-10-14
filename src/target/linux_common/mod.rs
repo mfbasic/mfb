@@ -78,6 +78,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "canvas.surfaceWidth",
     "canvas.surfaceHeight",
     "canvas.displayMilliHz",
+    "canvas.profileWord",
     "canvas.setDisplayOverride",
     "canvas.notePresent",
     "canvas.frameCounters",

@@ -1031,7 +1031,14 @@ The canvas ones are `RegistryHelper::debug_split` pairs (`TEST_SWITCHES` /
   since bug-686), `directFrames=` (Metal frames presented straight to the window), and
   the cumulative phase timers `phaseOffsetsMs=` / `phaseDrawsMs=` / `phaseDamageMs=` /
   `phaseRenderMs=` (bug-686 Phase 0; `__canvas_phaseMark` is an empty `FUNC … AS Nothing` in a normal
-  build). `tools/canvas-bench/` reads them. **A `--debug` build is ~35% slower on this
+  build). After them come the Metal renderer's own split of `phaseRenderMs`, cumulative
+  too: `profAcquireUs=` / `profFillUs=` / `profEncodeUs=` / `profWaitUs=` / `profGpuUs=` /
+  `profReadbackUs=` / `profPresentUs=` in microseconds, and the counters `profPasses=` /
+  `profBytes=` / `profTexels=` / `profDraws=` (`mfb spec tooling debug-report`, "The canvas
+  frame profile"). They are `emit_metal_draw`'s, so they are 0 for a software frame and on
+  every Vulkan target. A rendered frame's line is written BEFORE its `phaseRenderMs` is
+  added, so a line's `prof…` fields include its own frame and its `phaseRenderMs` does not.
+  `tools/canvas-bench/` reads the phase timers. **A `--debug` build is ~35% slower on this
   path** (116 vs 157 frames/5 s on 1,000 moving polygons), and much more on
   allocation-heavy code, so judge frame rates on a release build. Appends rather than overwrites because the interesting quantity is
   the delta between frames. It is also the **only** window onto either cache: both live

@@ -109,9 +109,13 @@ impl plan::NativePlanPlatform for Platform {
     /// What a `--debug` build's `MFB_TRANSCRIPT_DUMP` readback adds to the bootstrap's
     /// imports: the hop to the main thread. Everything else it calls (`getenv`,
     /// `strlen`, `write`, `objc_msgSend`) the bootstrap already declares.
-    fn debug_app_mode_imports(&self, _uses_canvas: bool) -> Vec<PlatformImport> {
+    ///
+    /// A canvas program's Metal renderer also reads the clock for its frame profile
+    /// (`emit_metal_draw`), and it is emitted whether or not the program presents.
+    fn debug_app_mode_imports(&self, uses_canvas: bool) -> Vec<PlatformImport> {
         ["_dispatch_sync_f", "__dispatch_main_q"]
             .iter()
+            .chain(uses_canvas.then_some(&"_clock_gettime"))
             .map(|symbol| PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: (*symbol).to_string(),

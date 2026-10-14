@@ -449,6 +449,94 @@ fn the_full_primitive_set_matches_the_software_oracle() {
     }
 }
 
+/// One integer field of a stats line, by name.
+fn stat(line: &str, name: &str) -> i64 {
+    line.split_whitespace()
+        .find_map(|word| word.strip_prefix(name)?.strip_prefix('='))
+        .unwrap_or_else(|| panic!("no `{name}=` on the stats line: {line}"))
+        .parse()
+        .unwrap_or_else(|e| panic!("`{name}=` is not an integer ({e}): {line}"))
+}
+
+/// A `--debug` build's Metal renderer reports where its own time went.
+///
+/// `phaseRenderMs` is one number for the whole backend call; the `prof…` fields split
+/// it. The software run is the control: nothing but the Metal renderer writes the
+/// block, so there every field is 0, and a field that is non-zero on the GPU run was
+/// put there by the frame it describes.
+///
+/// A headless frame is read back, so it has a readback time and no present. The
+/// acquire time is not asserted: with no drawable to take it is the few instructions
+/// between two clock readings, which is under a microsecond unless the thread is
+/// descheduled between them.
+#[test]
+fn a_debug_metal_frame_reports_its_own_phases() {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_profile", PRIMITIVES);
+    let (_, software) = render(&program, false, "sw");
+    let (_, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return; // no Metal device on this host (§metal_built)
+    }
+    let fields = [
+        "profAcquireUs",
+        "profFillUs",
+        "profEncodeUs",
+        "profWaitUs",
+        "profGpuUs",
+        "profReadbackUs",
+        "profPresentUs",
+        "profPasses",
+        "profBytes",
+        "profTexels",
+        "profDraws",
+    ];
+    let software = software.lines().next_back().expect("a software stats line");
+    for name in fields {
+        assert_eq!(
+            stat(software, name),
+            0,
+            "a software frame wrote `{name}`: {software}"
+        );
+    }
+
+    let line = stats.lines().next_back().expect("a Metal stats line");
+    assert_eq!(stat(line, "gpuFrames"), 1, "one Metal frame: {line}");
+    assert_eq!(stat(line, "profPasses"), 1, "one frame, one pass: {line}");
+    for name in [
+        "profFillUs",
+        "profEncodeUs",
+        "profWaitUs",
+        "profGpuUs",
+        "profReadbackUs",
+    ] {
+        assert!(stat(line, name) > 0, "`{name}` was not timed: {line}");
+    }
+    assert_eq!(
+        stat(line, "profPresentUs"),
+        0,
+        "a headless frame is read back, not presented: {line}"
+    );
+    // The GPU cannot have executed for longer than the thread waited on it.
+    assert!(
+        stat(line, "profGpuUs") <= stat(line, "profWaitUs"),
+        "the GPU's own time exceeds the wait around it: {line}"
+    );
+    // Every item is one block at least, and the scene's two polygons have edges.
+    assert!(
+        stat(line, "profBytes") >= stat(line, "blocks") * 368,
+        "fewer bytes than the frame's blocks alone: {line}"
+    );
+    assert!(stat(line, "profDraws") >= 1, "no draw call counted: {line}");
+    assert_eq!(
+        stat(line, "profTexels"),
+        0,
+        "the scene has no text and no picture: {line}"
+    );
+}
+
 /// A scene the shader cannot draw is declined, not drawn wrongly.
 ///
 /// This is the test that keeps `MFB_CANVAS_GPU=1` honest. A backend that drew a

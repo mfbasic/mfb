@@ -92,6 +92,12 @@ use crate::codegen::runtime::canvas::{
     PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
 };
 use crate::codegen::runtime::canvas::{
+    CANVAS_PROFILE_ACQUIRE_NS, CANVAS_PROFILE_BYTES, CANVAS_PROFILE_DRAWS,
+    CANVAS_PROFILE_ENCODE_NS, CANVAS_PROFILE_FILL_NS, CANVAS_PROFILE_GPU_NS, CANVAS_PROFILE_PASSES,
+    CANVAS_PROFILE_PRESENT_NS, CANVAS_PROFILE_READBACK_NS, CANVAS_PROFILE_SYMBOL,
+    CANVAS_PROFILE_TEXELS, CANVAS_PROFILE_WAIT_NS,
+};
+use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_MTL_DRAWABLE_H, GRAPHICS_OFFSET_MTL_DRAWABLE_W, GRAPHICS_OFFSET_MTL_LAYER,
     GRAPHICS_OFFSET_MTL_LAYER_READY, GRAPHICS_OFFSET_MTL_LAYER_SHOW,
     GRAPHICS_OFFSET_MTL_LAYER_SHOWN,
@@ -2916,6 +2922,27 @@ const OFF_DRAW_PAIR: usize = OFF_TEXTURE + 320;
 /// Past `OFF_DRAW_PAIR`; the eight bytes after it keep the frame a multiple of sixteen.
 const OFF_PASS: usize = OFF_DRAW_PAIR + 32;
 
+/// A `--debug` build's frame is this much deeper, for the profile's clock: the
+/// `timespec` `clock_gettime` fills (and, between the two `GPU…Time` sends, the first
+/// one's answer) and the reading the last mark took. Above every other slot, so no
+/// offset below moves and a normal build's frame is `DRAW_FRAME` exactly.
+const PROFILE_FRAME: usize = 32;
+const OFF_PROFILE_TIMESPEC: usize = DRAW_FRAME;
+const OFF_PROFILE_AT: usize = DRAW_FRAME + 16;
+/// `CLOCK_MONOTONIC` on Darwin — `clock_monotonic` in the macOS code platform, and the
+/// clock `canvas::frameNanos` reads for the phase timers these sit inside.
+const PROFILE_CLOCK: &str = "6";
+/// `-[MTLCommandBuffer GPUStartTime]` / `GPUEndTime` — host seconds, as a C double,
+/// when the GPU began and finished executing the buffer. Sent by a `--debug` build only.
+pub(super) const SEL_GPU_START_TIME: (&str, &str) =
+    ("_mfb_macapp_sel_GPUStartTime", "GPUStartTime");
+pub(super) const SEL_GPU_END_TIME: (&str, &str) = ("_mfb_macapp_sel_GPUEndTime", "GPUEndTime");
+
+/// The selector strings only a `--debug` build's renderer sends.
+pub(super) fn metal_profile_data_objects() -> [(&'static str, &'static str); 2] {
+    [SEL_GPU_START_TIME, SEL_GPU_END_TIME]
+}
+
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
 /// render one frame on the GPU and read it back into `pixels`.
 ///
@@ -2946,8 +2973,17 @@ const OFF_PASS: usize = OFF_DRAW_PAIR + 32;
 /// its own, and `renderPassDescriptor`, `commandBuffer` and
 /// `renderCommandEncoderWithDescriptor:` all return autoreleased objects — without a
 /// pool those do not merely leak, they abort the thread in libmalloc when it exits.
-pub(super) fn emit_metal_draw() -> CodeFunction {
+///
+/// `profile` is a `--debug` build: the body then also times its own phases into the
+/// profile block (`CANVAS_PROFILE_SYMBOL`, `emit_profile_mark`). With it off not one
+/// instruction differs.
+pub(super) fn emit_metal_draw(profile: bool) -> CodeFunction {
     let mut asm = Asm::new(METAL_DRAW_SYMBOL);
+    let frame = if profile {
+        DRAW_FRAME + PROFILE_FRAME
+    } else {
+        DRAW_FRAME
+    };
     let restore = format!("{METAL_DRAW_SYMBOL}_restore");
     let release_pool = format!("{METAL_DRAW_SYMBOL}_release_pool");
     let make_texture = format!("{METAL_DRAW_SYMBOL}_make_texture");
@@ -2970,7 +3006,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     let show_done = format!("{METAL_DRAW_SYMBOL}_show_done");
 
     asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(DRAW_FRAME));
+    asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(
         abi::link_register(),
         abi::stack_pointer(),
@@ -3231,6 +3267,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     }
 
     asm.push(abi::label(&have_texture));
+    emit_profile_mark(&mut asm, profile, None);
 
     // --- bug-686 Phase 4: the drawable, taken BEFORE anything is recorded ----------
     // Asking first is what makes "no drawable" cost nothing: the frame reports 0 and
@@ -3317,6 +3354,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
 
     // --- the render pass ---------------------------------------------------------
     asm.push(abi::label(&render_pass));
+    emit_profile_mark(&mut asm, profile, Some(CANVAS_PROFILE_ACQUIRE_NS));
     asm.external_data(abi::LOCAL[0], CLASS_MTL_RENDER_PASS_DESCRIPTOR, LIB_METAL);
     asm.load_selector(SEL_RENDER_PASS_DESCRIPTOR.0);
     asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
@@ -3483,6 +3521,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     }
 
     // --- one quad per item -------------------------------------------------------
+    emit_profile_mark(&mut asm, profile, Some(CANVAS_PROFILE_ENCODE_NS));
     asm.push(abi::move_immediate(abi::LOCAL[2], "Integer", "0"));
     // The frame's cursors: the item buffer's next free block, the run currently being
     // accumulated, and the edge region's next free edge.
@@ -3695,6 +3734,8 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     asm.push(abi::add_immediate(abi::LOCAL[2], abi::LOCAL[2], 1));
     asm.push(abi::branch(&item_head));
     asm.push(abi::label(&item_done));
+    emit_profile_mark(&mut asm, profile, Some(CANVAS_PROFILE_FILL_NS));
+    emit_profile_counts(&mut asm, profile);
 
     // The scene's last run — everything published since the final glyph run, or the
     // whole frame when it contains no text. Without this the trailing shapes are
@@ -3774,11 +3815,14 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     // Waiting is kept on the direct path too: the frame buffer and the offscreen target
     // are single-buffered, so the next frame may not write either while this one reads.
     asm.push(abi::label(&submit));
+    emit_profile_mark(&mut asm, profile, Some(CANVAS_PROFILE_ENCODE_NS));
     for selector in [SEL_COMMIT.0, SEL_WAIT_UNTIL_COMPLETED.0] {
         asm.load_selector(selector);
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
     }
+    emit_profile_mark(&mut asm, profile, Some(CANVAS_PROFILE_WAIT_NS));
+    emit_profile_gpu_time(&mut asm, profile);
     // The wait returning is not the GPU having drawn (bug-1024): a buffer can end in
     // `MTLCommandBufferStatusError` — the GPU was restarted under it, or it timed out —
     // with its target written in part or not at all. Such a frame is not read back and
@@ -3856,6 +3900,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         OFF_DRAWABLE,
     ));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    emit_profile_mark(&mut asm, profile, Some(CANVAS_PROFILE_PRESENT_NS));
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
@@ -3969,6 +4014,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
     asm.push(abi::add_immediate(abi::LOCAL[2], abi::LOCAL[2], 1));
     asm.push(abi::branch(&swizzle_head));
     asm.push(abi::label(&swizzle_done));
+    emit_profile_mark(&mut asm, profile, Some(CANVAS_PROFILE_READBACK_NS));
 
     asm.push(abi::label(&release_pool));
     asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), OFF_POOL));
@@ -4025,7 +4071,7 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
             OFF_SAVES + slot * 8,
         ));
     }
-    asm.push(abi::add_stack(DRAW_FRAME));
+    asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
 
     CodeFunction {
@@ -4041,6 +4087,194 @@ pub(super) fn emit_metal_draw() -> CodeFunction {
         instructions: asm.ins,
         relocations: asm.rel,
     }
+}
+
+/// `profile[word] += value`. Clobbers `SCRATCH[2]` and `SCRATCH[3]`; `value` is neither.
+fn emit_profile_add(asm: &mut Asm, word: usize, value: Reg) {
+    asm.local_address(abi::SCRATCH[2], CANVAS_PROFILE_SYMBOL);
+    asm.push(abi::load_u64(abi::SCRATCH[3], abi::SCRATCH[2], word * 8));
+    asm.push(abi::add_registers(abi::SCRATCH[3], abi::SCRATCH[3], value));
+    asm.push(abi::store_u64(abi::SCRATCH[3], abi::SCRATCH[2], word * 8));
+}
+
+/// A `--debug` build's phase mark: read the monotonic clock, add the nanoseconds since
+/// the last mark to `phase`'s word of the profile block, and remember the reading. With
+/// no `phase` it only remembers, which is how a frame starts its clock.
+///
+/// A C call, so it is placed only where no caller-saved register holds a live value:
+/// at a label every path reaches with its registers dead, or straight after another
+/// call. The frame's own state is in the `LOCAL`s and on the stack, which it keeps.
+fn emit_profile_mark(asm: &mut Asm, profile: bool, phase: Option<usize>) {
+    if !profile {
+        return;
+    }
+    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", PROFILE_CLOCK));
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
+        abi::stack_pointer(),
+        OFF_PROFILE_TIMESPEC,
+    ));
+    asm.call_external("_clock_gettime", LIB_SYSTEM);
+    // now = tv_sec * 1e9 + tv_nsec
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_PROFILE_TIMESPEC,
+    ));
+    asm.push(abi::load_u64(
+        abi::SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_PROFILE_TIMESPEC + 8,
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[2],
+        "Integer",
+        "1000000000",
+    ));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[2],
+    ));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    if let Some(word) = phase {
+        asm.push(abi::load_u64(
+            abi::SCRATCH[1],
+            abi::stack_pointer(),
+            OFF_PROFILE_AT,
+        ));
+        asm.push(abi::subtract_registers(
+            abi::SCRATCH[1],
+            abi::SCRATCH[0],
+            abi::SCRATCH[1],
+        ));
+        emit_profile_add(asm, word, abi::SCRATCH[1]);
+    }
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_PROFILE_AT,
+    ));
+}
+
+/// A `--debug` build's counters, taken where the fill ends and every cursor is final:
+/// the bytes this pass wrote to the frame buffer (each region's cursor times its
+/// element size; an edge is its four words and their four residuals), the glyph and
+/// picture texels among them, and the draw calls the pass is about to issue.
+fn emit_profile_counts(asm: &mut Asm, profile: bool) {
+    if !profile {
+        return;
+    }
+    asm.push(abi::load_u64(
+        abi::SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_ITEM_CURSOR,
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        &ITEM_BLOCK_SIZE.to_string(),
+    ));
+    asm.push(abi::multiply_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+    ));
+    for (cursor, bytes) in [
+        (OFF_EDGE_CURSOR, 32),
+        (OFF_BAND_CURSOR, 4),
+        (OFF_GRAD_CURSOR, GRADIENT_STOP_WORDS * 4),
+        (OFF_DASH_CURSOR, 4),
+        (OFF_GLYPH_CURSOR, 4),
+    ] {
+        asm.push(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), cursor));
+        asm.push(abi::move_immediate(
+            abi::SCRATCH[2],
+            "Integer",
+            &bytes.to_string(),
+        ));
+        asm.push(abi::multiply_registers(
+            abi::SCRATCH[1],
+            abi::SCRATCH[1],
+            abi::SCRATCH[2],
+        ));
+        asm.push(abi::add_registers(
+            abi::SCRATCH[0],
+            abi::SCRATCH[0],
+            abi::SCRATCH[1],
+        ));
+    }
+    emit_profile_add(asm, CANVAS_PROFILE_BYTES, abi::SCRATCH[0]);
+    for (slot, word) in [
+        (OFF_GLYPH_CURSOR, CANVAS_PROFILE_TEXELS),
+        (OFF_DRAW_ENTRIES, CANVAS_PROFILE_DRAWS),
+    ] {
+        asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), slot));
+        emit_profile_add(asm, word, abi::SCRATCH[0]);
+    }
+}
+
+/// A `--debug` build, once the command buffer has completed: count the pass, and add
+/// what the GPU itself spent on it, `GPUEndTime - GPUStartTime`.
+///
+/// Both are C doubles of host seconds, returned in the first FP register. The first
+/// answer waits on the stack across the second send, since a call keeps no FP scratch
+/// register. A buffer that did not run reports no interval; a negative one is dropped.
+fn emit_profile_gpu_time(asm: &mut Asm, profile: bool) {
+    if !profile {
+        return;
+    }
+    let skip = format!("{METAL_DRAW_SYMBOL}_profile_gpu_skip");
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    emit_profile_add(asm, CANVAS_PROFILE_PASSES, abi::SCRATCH[0]);
+
+    asm.load_selector(SEL_GPU_END_TIME.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::store_double(
+        abi::FP_SCRATCH[0],
+        abi::stack_pointer(),
+        OFF_PROFILE_TIMESPEC,
+    ));
+    asm.load_selector(SEL_GPU_START_TIME.0);
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[7]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::load_double(
+        abi::FP_SCRATCH[1],
+        abi::stack_pointer(),
+        OFF_PROFILE_TIMESPEC,
+    ));
+    asm.push(abi::float_subtract_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[0],
+    ));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        "1000000000",
+    ));
+    asm.push(abi::signed_convert_to_float_d(
+        abi::FP_SCRATCH[0],
+        abi::SCRATCH[0],
+    ));
+    asm.push(abi::float_multiply_d(
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[1],
+        abi::FP_SCRATCH[0],
+    ));
+    asm.push(abi::float_convert_to_signed_x(
+        abi::SCRATCH[0],
+        abi::FP_SCRATCH[1],
+    ));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
+    asm.push(abi::branch_lt(&skip));
+    emit_profile_add(asm, CANVAS_PROFILE_GPU_NS, abi::SCRATCH[0]);
+    asm.push(abi::label(&skip));
 }
 
 /// bug-765: branch to `target` when the list being drawn is a pass with more of its
@@ -7746,7 +7980,11 @@ mod tests {
     /// write to the first argument register. Anything else is the bug above.
     #[test]
     fn every_msg_send_stages_its_receiver_after_the_selector_lookup() {
-        for func in [emit_metal_init(), emit_metal_draw()] {
+        for func in [
+            emit_metal_init(),
+            emit_metal_draw(false),
+            emit_metal_draw(true),
+        ] {
             assert_receivers_staged(&func);
         }
     }
@@ -7797,7 +8035,7 @@ mod tests {
     /// command buffer and an encoder per frame for the process lifetime.
     #[test]
     fn the_frame_renderer_balances_its_autorelease_pool() {
-        let func = emit_metal_draw();
+        let func = emit_metal_draw(false);
         for (symbol, expected) in [
             ("_objc_autoreleasePoolPush", 1usize),
             ("_objc_autoreleasePoolPop", 1),
@@ -7813,6 +8051,125 @@ mod tests {
                 func.symbol,
             );
         }
+    }
+
+    /// One instruction as text: its op and every operand, in order.
+    fn spelled(instruction: &CodeInstruction) -> String {
+        let fields: Vec<String> = instruction
+            .fields
+            .iter()
+            .map(|(name, _)| format!("{name}={}", instruction.get(name).unwrap_or_default()))
+            .collect();
+        format!("{:?} {}", instruction.op, fields.join(" "))
+    }
+
+    /// A normal build's renderer carries nothing of the `--debug` frame profile, and
+    /// the profile only ADDS to it.
+    ///
+    /// The first half is the promise that the profile costs a normal build nothing: no
+    /// clock call, no reference to the profile block, no `GPU…Time` send. The second is
+    /// what makes a profiled frame the same frame: with the two stack adjustments set
+    /// aside (the profiled frame is `PROFILE_FRAME` deeper), the normal renderer's
+    /// instructions appear in the profiled one in order, so the profile inserts and
+    /// never replaces or reorders.
+    #[test]
+    fn the_profile_only_adds_to_the_normal_renderer() {
+        let normal = emit_metal_draw(false);
+        let profiled = emit_metal_draw(true);
+        let profile_only = [
+            "_clock_gettime",
+            CANVAS_PROFILE_SYMBOL,
+            SEL_GPU_START_TIME.0,
+            SEL_GPU_END_TIME.0,
+        ];
+        for symbol in profile_only {
+            assert!(
+                !normal.relocations.iter().any(|r| r.to == symbol),
+                "a normal build's renderer references `{symbol}`"
+            );
+            assert!(
+                profiled.relocations.iter().any(|r| r.to == symbol),
+                "the profiled renderer never references `{symbol}`"
+            );
+        }
+
+        let deeper = DRAW_FRAME + PROFILE_FRAME;
+        let adjusted = [
+            (
+                spelled(&abi::subtract_stack(DRAW_FRAME)),
+                spelled(&abi::subtract_stack(deeper)),
+            ),
+            (
+                spelled(&abi::add_stack(DRAW_FRAME)),
+                spelled(&abi::add_stack(deeper)),
+            ),
+        ];
+        let mut rest = profiled.instructions.iter().map(spelled);
+        for (index, instruction) in normal.instructions.iter().enumerate() {
+            let want = spelled(instruction);
+            let want = adjusted
+                .iter()
+                .find(|(shallow, _)| *shallow == want)
+                .map_or(want.clone(), |(_, deep)| deep.clone());
+            assert!(
+                rest.any(|have| have == want),
+                "instruction {index} of the normal renderer, `{want}`, is missing from \
+                 the profiled one or out of order"
+            );
+        }
+        assert_eq!(
+            (DRAW_FRAME + PROFILE_FRAME) % 16,
+            0,
+            "a 16-byte-aligned frame"
+        );
+        assert!(
+            OFF_PROFILE_AT + 8 <= DRAW_FRAME + PROFILE_FRAME
+                && OFF_PROFILE_TIMESPEC + 16 <= OFF_PROFILE_AT,
+            "the profile's slots fit the bytes the frame grows by"
+        );
+    }
+
+    /// Every profile mark sits where no caller-saved register is live.
+    ///
+    /// A mark is a C call. The renderer keeps its frame state in the `LOCAL`s and on
+    /// the stack, but between calls it also computes in the scratch bank, and a mark
+    /// dropped into such a stretch would hand the next instruction a clobbered value:
+    /// a wrong frame, in a `--debug` build only. So the instruction after each mark's
+    /// sequence must not READ a scratch register the sequence did not just write.
+    /// The sequence ends by storing `SCRATCH[0]` (the reading) to the frame; whatever
+    /// follows it is the renderer's own next instruction. One instruction is as far as
+    /// this looks; it catches a mark placed between a value's computation and its use.
+    #[test]
+    fn a_profile_mark_is_followed_by_no_read_of_a_scratch_register() {
+        let func = emit_metal_draw(true);
+        let scratch: Vec<String> = abi::SCRATCH
+            .iter()
+            .map(|register| render_field("src", *register))
+            .collect();
+        let ends_mark = spelled(&abi::store_u64(
+            abi::SCRATCH[0],
+            abi::stack_pointer(),
+            OFF_PROFILE_AT,
+        ));
+        let mut marks = 0;
+        for (index, instruction) in func.instructions.iter().enumerate() {
+            if spelled(instruction) != ends_mark {
+                continue;
+            }
+            marks += 1;
+            let next = &func.instructions[index + 1];
+            for role in ["src", "lhs", "rhs", "base", "value"] {
+                let Some(operand) = next.get(role) else {
+                    continue;
+                };
+                assert!(
+                    !scratch.contains(&operand),
+                    "after the mark at {index}, `{}` reads the scratch register {operand}",
+                    spelled(next)
+                );
+            }
+        }
+        assert_eq!(marks, 8, "one starting reading and seven phase marks");
     }
 
     /// The frame is committed and then **waited on**, in that order, exactly once.
@@ -7833,7 +8190,7 @@ mod tests {
     /// texture the GPU had not finished writing *most* of the time.
     #[test]
     fn the_frame_is_committed_then_waited_on() {
-        let func = emit_metal_draw();
+        let func = emit_metal_draw(false);
         let order: Vec<&str> = func
             .relocations
             .iter()
@@ -7871,7 +8228,7 @@ mod tests {
     /// presenting it, shows a frame the GPU did not draw and reports it as drawn.
     #[test]
     fn the_buffer_status_is_read_after_the_wait_and_before_the_frame_is_used() {
-        let func = emit_metal_draw();
+        let func = emit_metal_draw(false);
         let wait = selector_load(&func, SEL_WAIT_UNTIL_COMPLETED.0);
         let status = selector_load(&func, SEL_STATUS.0);
         let read_back = selector_load(&func, SEL_GET_BYTES.0);
@@ -7897,7 +8254,7 @@ mod tests {
     /// declines the frame and software draws it.
     #[test]
     fn a_buffer_that_did_not_complete_reports_the_frame_not_drawn() {
-        let func = emit_metal_draw();
+        let func = emit_metal_draw(false);
         let ins = &func.instructions;
         let status = selector_load(&func, SEL_STATUS.0);
         let send = (status..ins.len())
@@ -7947,7 +8304,7 @@ mod tests {
     /// asked to reallocate repeatedly.
     #[test]
     fn a_resize_releases_the_texture_it_replaces() {
-        let func = emit_metal_draw();
+        let func = emit_metal_draw(false);
         let order: Vec<&str> = func
             .relocations
             .iter()

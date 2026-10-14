@@ -18,9 +18,10 @@ use crate::codegen::runtime::canvas::metal::emit_metal_available;
 use crate::codegen::runtime::canvas::vulkan::{emit_vulkan_build, emit_vulkan_ready};
 use crate::codegen::runtime::canvas::{
     emit_await_pickup, emit_display_milli_hz, emit_frame_counters, emit_frame_done,
-    emit_note_present, emit_set_display_override, emit_set_gpu_mode, emit_set_sync_mode,
-    emit_signal_redraw, emit_start_graphics, emit_surface_dimension, emit_sync_frame, emit_use_gpu,
-    emit_wait_for_redraw, FrameRecord, GraphicsScratch, SurfaceDimension,
+    emit_note_present, emit_profile_word, emit_set_display_override, emit_set_gpu_mode,
+    emit_set_sync_mode, emit_signal_redraw, emit_start_graphics, emit_surface_dimension,
+    emit_sync_frame, emit_use_gpu, emit_wait_for_redraw, FrameRecord, GraphicsScratch,
+    SurfaceDimension,
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -402,6 +403,32 @@ pub(crate) fn lower_display_milli_hz(
     })
 }
 
+/// `canvas::profileWord(index AS Integer) AS Integer` — one cumulative word of a
+/// `--debug` build's GPU frame profile (`CANVAS_PROFILE_SYMBOL`), for the
+/// `MFB_CANVAS_STATS` line. Only the `--debug` phase timers call it, so a normal build
+/// has no reader and no block.
+pub(crate) fn lower_profile_word(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let index = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the index argument"))?
+        .location
+        .clone();
+    let scratch = GraphicsScratch::new(&mut || builder.temporary_vreg());
+    emit_profile_word(
+        &symbol,
+        &scratch,
+        &index,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    Ok(ok_return(builder, symbol))
+}
+
 /// `canvas::setDisplayOverride(mhz AS Integer)` — see `emit_set_display_override`.
 pub(crate) fn lower_set_display_override(
     builder: &mut CodeBuilder,
@@ -672,6 +699,20 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         "displayMilliHz",
         Body::abi_function(lower_display_milli_hz),
     ));
+    pkg.add_function(RegistryFunction {
+        name: "profileWord",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![integer_param("index")],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::abi_function(lower_profile_word),
+        }],
+    });
     pkg.add_function(RegistryFunction {
         name: "setDisplayOverride",
         intro: "",

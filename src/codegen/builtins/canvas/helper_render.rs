@@ -2011,7 +2011,14 @@ FUNC __canvas_phaseMark(phase AS Integer) AS Nothing
 END FUNC
 
 FUNC __canvas_phaseText() AS String
-  RETURN " phaseOffsetsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 0, 0) / 1000000) & " phaseDrawsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 1, 0) / 1000000) & " phaseDamageMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 2, 0) / 1000000) & " phaseRenderMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 3, 0) / 1000000)
+  RETURN " phaseOffsetsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 0, 0) / 1000000) & " phaseDrawsMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 1, 0) / 1000000) & " phaseDamageMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 2, 0) / 1000000) & " phaseRenderMs=" & toString(collections::getOr(__CANVAS_PHASE_NS, 3, 0) / 1000000) & __canvas_profileText()
+END FUNC
+
+' The GPU renderer's own split of `phaseRenderMs` (`CANVAS_PROFILE_SYMBOL`), cumulative
+' like the phases and in microseconds, because one frame's share of a phase is often
+' under a millisecond. Only the Metal renderer fills the block; elsewhere every field is 0.
+FUNC __canvas_profileText() AS String
+  RETURN " profAcquireUs=" & toString(canvas::profileWord(0) / 1000) & " profFillUs=" & toString(canvas::profileWord(1) / 1000) & " profEncodeUs=" & toString(canvas::profileWord(2) / 1000) & " profWaitUs=" & toString(canvas::profileWord(3) / 1000) & " profGpuUs=" & toString(canvas::profileWord(4) / 1000) & " profReadbackUs=" & toString(canvas::profileWord(5) / 1000) & " profPresentUs=" & toString(canvas::profileWord(6) / 1000) & " profPasses=" & toString(canvas::profileWord(7)) & " profBytes=" & toString(canvas::profileWord(8)) & " profTexels=" & toString(canvas::profileWord(9)) & " profDraws=" & toString(canvas::profileWord(10))
 END FUNC"#;
 
 /// plan-172-J: the scripted pointer. A normal build has no script and no reader.

@@ -165,7 +165,7 @@ so a normal build ignores them. This section is the canonical list.
 
 | Variable | Program | What the program writes |
 | --- | --- | --- |
-| `MFB_CANVAS_STATS` | canvas | appends one line of renderer counters (`generations=`, `frames=`, `skipped=`, `damage=`, ...) to the named file for every rendered or skipped frame |
+| `MFB_CANVAS_STATS` | canvas | appends one line of renderer counters (`generations=`, `frames=`, `skipped=`, `damage=`, ...) to the named file for every rendered or skipped frame; its timing fields are under "The canvas frame profile" below |
 | `MFB_CANVAS_DUMP` | canvas | writes each presented frame's raw RGBA8 bytes to the named file, overwriting it |
 | `MFB_TRANSCRIPT_DUMP` | app (macOS, Linux GTK, Windows), windowed run | when the program finishes, writes the transcript window's text to stdout and exits with the program's exit code, instead of appending `Program exited with code N` and keeping the window open |
 
@@ -210,8 +210,72 @@ The Linux GTK bootstrap emits its variable names and the `atoi`/`usleep` imports
 for `--debug`.
 [[src/target/linux_gtk/bootstrap.rs:emit_main_bootstrap]]
 [[src/target/linux_gtk/mod.rs:debug_app_mode_imports]]
+A macOS canvas program imports `clock_gettime` for `_main` only for `--debug`, for the
+frame profile below.
+[[src/target/macos_aarch64/plan.rs:debug_app_mode_imports]]
 The Windows entry emits its names and readers only for `--debug`.
 [[src/target/win_x86_64/app/mod.rs:emit_main]]
+
+## The canvas frame profile
+
+A `--debug` build's `MFB_CANVAS_STATS` line carries four phase totals for the graphics
+thread's frame, in milliseconds: `phaseOffsetsMs=`, `phaseDrawsMs=`, `phaseDamageMs=`
+and `phaseRenderMs=`. The last covers the whole call into whichever renderer drew the
+frame. [[src/codegen/builtins/canvas/helper_render.rs:PHASE_TIMERS_DEBUG]]
+
+On macOS the Metal renderer splits that call. It keeps eleven 64-bit words in the data
+object `_mfb_rt_canvas_profile`, and the stats line prints each one after
+`phaseRenderMs=`. Every word is cumulative over the run, so one frame's share is the
+difference between two lines.
+[[src/codegen/runtime/canvas/mod.rs:CANVAS_PROFILE_SYMBOL]]
+[[src/target/macos_aarch64/app/metal.rs:emit_profile_mark]]
+
+| Field | Unit | What it totals |
+| --- | --- | --- |
+| `profAcquireUs=` | microseconds | taking the window's drawable, including the main-thread hop that sizes its layer |
+| `profFillUs=` | microseconds | writing the frame buffer: item blocks, edges, band index, gradient stops, dash words, glyph and picture texels |
+| `profEncodeUs=` | microseconds | recording commands: the render pass and its bindings, one draw per draw-list entry, the copy into the drawable |
+| `profWaitUs=` | microseconds | `commit` to `waitUntilCompleted` returning |
+| `profGpuUs=` | microseconds | the command buffer's `GPUEndTime` minus its `GPUStartTime` |
+| `profReadbackUs=` | microseconds | `getBytes:` into the CPU surface and the BGRA to RGBA reorder |
+| `profPresentUs=` | microseconds | `[drawable present]` |
+| `profPasses=` | count | command buffers submitted and waited for |
+| `profBytes=` | bytes | frame-buffer bytes written, as each region's cursor at the end of a fill times its element size |
+| `profTexels=` | count | glyph and picture texels copied into the frame buffer |
+| `profDraws=` | count | draw calls, one per draw-list entry |
+
+The time fields are measured with `clock_gettime(CLOCK_MONOTONIC)`: one reading when
+the render target is ready, then seven more, each adding the nanoseconds since the
+reading before it to one word (`profEncodeUs=` takes two of them, either side of the
+fill). The stats line divides by 1000. `profGpuUs=` is the device's own interval, not one of those
+points, and a negative interval adds nothing.
+[[src/target/macos_aarch64/app/metal.rs:emit_profile_gpu_time]]
+
+Which fields a frame adds to depends on where it goes. A frame presented to the window
+adds to `profAcquireUs=` and `profPresentUs=` and not to `profReadbackUs=`. A frame
+read back adds to `profReadbackUs=` and not to `profPresentUs=`; a headless run reads
+every frame back. A frame drawn in several passes adds each pass's fill, encode and
+wait, and only its last pass reads back or presents. A pass that ends early (no
+drawable, or a command buffer that did not complete) keeps what it had added.
+
+`profBytes=` leaves out the picture table's records.
+[[src/target/macos_aarch64/app/metal.rs:emit_profile_counts]]
+
+A rendered frame's line is written before that frame's `phaseRenderMs=` is added, so
+on any one line the `prof…` fields include the frame being reported and
+`phaseRenderMs=` does not.
+[[src/codegen/builtins/canvas/helper_render.rs:DIRECT_PRESENT_DEBUG]]
+
+A software frame writes nothing to the block. On Linux and Windows no renderer writes
+it, so a `--debug` build there prints every `prof…` field as 0.
+
+A normal build has no block, no clock reads in the renderer and no `GPUStartTime` or
+`GPUEndTime` selector: `emit_metal_draw` emits the same instructions it would without
+the profile, and `canvas::profileWord`, which reads the block, is called only from the
+`--debug` phase timers.
+[[src/target/macos_aarch64/app/metal.rs:emit_metal_draw]]
+[[src/codegen/runtime/canvas/mod.rs:emit_profile_word]]
+[[src/target/macos_aarch64/app/metal.rs:metal_profile_data_objects]]
 
 ## Symbol tables
 

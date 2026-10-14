@@ -1690,6 +1690,11 @@ pub(crate) fn lower_module_for_platform(
         data_objects.push(crate::codegen::runtime::canvas::graphics_state_data_object(
             module.canvas_auto_paint_ms,
         ));
+        // A `--debug` build's GPU frame profile, which only its renderer writes and
+        // only its stats line reads; a normal build has neither.
+        if module.debug.enabled {
+            data_objects.push(crate::codegen::runtime::canvas::profile_data_object());
+        }
         data_objects.push(CodeDataObject {
             symbol: CANVAS_SCENE_SYMBOL.to_string(),
             kind: "raw".to_string(),

@@ -63,6 +63,7 @@ impl NativeBackend for Backend {
                 "canvas.surfaceWidth",
                 "canvas.surfaceHeight",
                 "canvas.displayMilliHz",
+                "canvas.profileWord",
                 "canvas.setDisplayOverride",
                 "canvas.notePresent",
                 "canvas.frameCounters",

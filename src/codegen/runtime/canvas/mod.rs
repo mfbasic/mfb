@@ -1770,6 +1770,103 @@ pub(crate) fn graphics_state_data_object(auto_paint_ms: u64) -> CodeDataObject {
     }
 }
 
+/// A `--debug` build's GPU frame profile: where a GPU frame's time goes inside the
+/// backend's own renderer, which `phaseRenderMs` reports as one number.
+///
+/// [`CANVAS_PROFILE_WORDS`] cumulative 64-bit words, written by the renderer on the
+/// graphics thread and read back on that same thread by `canvas::profileWord` for the
+/// `MFB_CANVAS_STATS` line, so there is no lock and no ordering. Its own data object
+/// and not words of the graphics state: a normal build has neither the object nor a
+/// reader, and its graphics state is the size it always was.
+///
+/// Only the Metal renderer fills it (`emit_metal_draw` in the macOS app module); on
+/// every other target the words stay zero.
+pub(crate) const CANVAS_PROFILE_SYMBOL: &str = "_mfb_rt_canvas_profile";
+/// Nanoseconds preparing the frame's target: taking the window's drawable (and the
+/// main-thread hop that sizes its layer). Zero for a frame that is read back.
+pub(crate) const CANVAS_PROFILE_ACQUIRE_NS: usize = 0;
+/// Nanoseconds writing the frame buffer: every item's block, edges, bands, stops,
+/// dashes, and glyph and picture texels.
+pub(crate) const CANVAS_PROFILE_FILL_NS: usize = 1;
+/// Nanoseconds recording commands: the render pass and its bindings, one draw per
+/// draw-list entry, and the copy into the drawable.
+pub(crate) const CANVAS_PROFILE_ENCODE_NS: usize = 2;
+/// Nanoseconds from submitting the command buffer to its completion being reported —
+/// how long the graphics thread was blocked on the GPU.
+pub(crate) const CANVAS_PROFILE_WAIT_NS: usize = 3;
+/// Nanoseconds the GPU spent executing the command buffer, by the device's own clock.
+pub(crate) const CANVAS_PROFILE_GPU_NS: usize = 4;
+/// Nanoseconds copying the finished frame to the CPU surface and reordering its
+/// channels. Zero for a frame presented straight to the window.
+pub(crate) const CANVAS_PROFILE_READBACK_NS: usize = 5;
+/// Nanoseconds presenting the drawable. Zero for a frame that is read back.
+pub(crate) const CANVAS_PROFILE_PRESENT_NS: usize = 6;
+/// Passes submitted. A frame is one pass unless it does not fit the frame buffer.
+pub(crate) const CANVAS_PROFILE_PASSES: usize = 7;
+/// Frame-buffer bytes written, summed over the regions' cursors at the end of each fill.
+pub(crate) const CANVAS_PROFILE_BYTES: usize = 8;
+/// Glyph and picture texels copied into the frame buffer.
+pub(crate) const CANVAS_PROFILE_TEXELS: usize = 9;
+/// Draw calls issued, one per draw-list entry.
+pub(crate) const CANVAS_PROFILE_DRAWS: usize = 10;
+pub(crate) const CANVAS_PROFILE_WORDS: usize = 11;
+
+/// The profile block, zeroed. Emitted only for a `--debug` build of a canvas program.
+pub(crate) fn profile_data_object() -> CodeDataObject {
+    CodeDataObject {
+        symbol: CANVAS_PROFILE_SYMBOL.to_string(),
+        kind: "raw".to_string(),
+        layout: "mfb.runtime.canvas_profile.v1 { u64 acquireNs, fillNs, encodeNs, waitNs, \
+                 gpuNs, readbackNs, presentNs, passes, bytes, texels, draws }"
+            .to_string(),
+        align: 8,
+        size: CANVAS_PROFILE_WORDS * 8,
+        value: "00".repeat(CANVAS_PROFILE_WORDS * 8),
+    }
+}
+
+/// `canvas::profileWord(index) AS Integer` — one word of the profile block, or `0` for
+/// an index it does not have.
+pub(crate) fn emit_profile_word(
+    symbol: &str,
+    scratch: &GraphicsScratch,
+    index: &Operand,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let held = format!("{symbol}_profile_held");
+    let done = format!("{symbol}_profile_done");
+    instructions.push(abi::move_register(&scratch.scratch, index));
+    // Unsigned, so a negative index is out of range too.
+    instructions.push(abi::compare_immediate(
+        &scratch.scratch,
+        &CANVAS_PROFILE_WORDS.to_string(),
+    ));
+    instructions.push(abi::branch_lo(&held));
+    instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
+    instructions.push(abi::branch(&done));
+    instructions.push(abi::label(&held));
+    push_symbol_address(
+        symbol,
+        CANVAS_PROFILE_SYMBOL,
+        &scratch.base,
+        instructions,
+        relocations,
+    );
+    instructions.push(abi::shift_left_immediate(
+        &scratch.scratch,
+        &scratch.scratch,
+        3,
+    ));
+    instructions.push(abi::add_registers(
+        &scratch.base,
+        &scratch.base,
+        &scratch.scratch,
+    ));
+    instructions.push(abi::load_u64(RESULT_VALUE_REGISTER, &scratch.base, 0));
+    instructions.push(abi::label(&done));
+}
+
 /// The MFBASIC render loop's native symbol.
 ///
 /// Derived from the helper's own name rather than hard-coded, so a rename of
