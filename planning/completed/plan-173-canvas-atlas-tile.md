@@ -348,3 +348,7 @@ Commit: c27b934e7
    GPU rows: `scripts/test-canvas-gpu-rows.sh target/release/mfb --target linux-aarch64
    --box 2226` → exit 0, 59 rows match the software oracle; the Metal rows
    (`rt_canvas_metal`) pass inside the full `cargo test`.
+10. Main advanced after the final gate by two documentation-only commits (7cf2ce34b,
+    8515aedea: `planning/` and `bugs/` files). Merged (afce59532); the full suite was not
+    re-run because no test reads those directories (`rg -l "planning|bugs/" tests src`
+    finds only comments), so nothing covered changed.
