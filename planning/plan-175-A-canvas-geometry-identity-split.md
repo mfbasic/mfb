@@ -1,7 +1,11 @@
-# plan-175: Canvas geometry identity split (a geometry key, and a paint identity that damage also reads), and the group and picture walks
+# plan-175-A: Canvas geometry identity split (a geometry key, and a paint identity that damage also reads), and the group and picture walks
 
 Last updated: 2026-10-13
+Overall Effort: huge (>3d) — plan-175 is three letters: A (this file), then
+`plan-175-B-canvas-draw-node-table.md` (large), then
+`plan-175-C-canvas-group-node-instancing.md` (medium), landed in that order.
 Effort: huge (>3d) over seven phases; each phase is large (3h–1d) and lands alone
+Depends on: nothing (its Phase 2 waits on §8.1, decision 3)
 
 A canvas item has ONE 62-bit content hash. It is the key of the geometry cache and it
 is the damage identity (`.ai/canvas-threading.md` §14). It folds the item's whole
@@ -299,7 +303,7 @@ What the measurements say:
    allocations is how a phase here shows its gain.
 2. **A group node repeats per frame what only `setGroup` changes**: the item list copy
    and the children's hashes. The draw-list entry per node is a separate cost (encode
-   2.2 ms) that this plan does not take on (§7, decision 5).
+   2.2 ms), taken on by plan-175-B and plan-175-C (decision 5).
 3. **The picture row's second pass is real, not a miscount.** A picture in a circle
    writes 1,297 bytes of frame buffer a frame and its texels are copied once a pass
    (`profTexels` 1,024 a pass): 9,000 pictures draw in one pass and 10,000 in two
@@ -655,6 +659,9 @@ Commit: —
       more, re-baseline it in its own commit with `compare.py`'s output.
 - [ ] `.ai/canvas-threading.md` §13 (the child-hash table and its drain) and §17 (one
       confirmation per image per frame).
+- [ ] The arena free scrub's share of the busy graphics thread in `group fill 10000`
+      and `picture fill 10000`, re-profiled as in §9, recorded here against §2.4's
+      20.8% and 18.1% (decision 6).
 
 Acceptance: the spec describes the implementation at HEAD.
 Commit: —
@@ -673,7 +680,9 @@ Commit: —
 - Final gate (once, after the last phase): `cargo test`, `scripts/artifact-gate.sh
   <mfb> all`, the GPU rows on box 206 and box 2226.
 
-## Open Decisions
+## Decisions
+
+Every decision below is decided; none is open.
 
 1. **Is an item's `id` part of `G`?** Today it is folded, so two shapes that differ
    only in `id` have two records. Nothing in a record depends on `id` (the hit walk
@@ -700,17 +709,24 @@ Commit: —
    set box 206's from what §8.2 can reach** once that is measured.
    **DECIDED by the owner, 2026-10-12: as recommended.** The goal stays for Metal; box
    206's is set from what the Intel draw cost can reach.
-5. **One draw call per `Group` node.** 10,000 nodes are 10,001 draw-list entries and
-   2.2 ms of encode a frame (§2.4). Nodes naming one group differ only in offset and
-   matrix, so they could be one instanced draw with the offset per instance, but the
-   offset is a per-DRAW payload on both backends today (`.ai/canvas-threading.md`,
-   "A group is one instanced draw per node"), and moving it into the item buffer
-   changes both shaders. **Recommendation: not in this plan;** its own plan, judged by
-   `group fill 10000`'s encode column.
-6. **Is the arena's free scrub on the canvas walk worth a decision?** It is 18 to 21% of
-   the busy graphics thread in §2.4's rows, in every build. Phases 5 and 6 reduce it by
-   freeing less; the scrub itself is plan-01 §6.2's and is not this plan's to change.
-   **Recommendation: no change here;** record the measured share in Phase 7.
+5. **One draw call per `Group` node** — 10,000 nodes are 10,001 draw-list entries and
+   2.2 ms of encode a frame (§2.4). **DECIDED by the owner, 2026-10-13:** it is its own
+   plan letters, after this one: `plan-175-B` moves each draw's offset and matrix out
+   of the per-draw payload into a per-pass node table on both backends (no pixel
+   changes), and `plan-175-C` merges adjacent identical group-node entries into one
+   instanced draw. This file is renamed `plan-175-A` for it.
+6. **The arena's free scrub on the canvas walk** — 18 to 21% of the busy graphics
+   thread in §2.4's rows. **DECIDED by the owner, 2026-10-13: no change to the scrub.**
+   It belongs where it is: `_mfb_arena_free` scrubs every freed chunk with
+   `mfb_arena_fill_random`, on the CPU, on the freeing thread, in every build
+   (`mfb spec memory arenas`, "always on, in debug and release"). On the graphics
+   thread the memory freed is the MFBASIC canvas walk's own: every caller `sample`
+   resolves is MFBASIC walk code or the drops it triggers (`__canvas_appendDraw`,
+   `__canvas_sceneDrawsWalk`, `__canvas_sceneOffsets`, `__canvas_pictureQuick`,
+   `mfb_rt_drop_owned_*`); the native Metal renderer makes no arena call
+   (`grep -c arena src/target/macos_aarch64/app/metal.rs` → 0), and GPU memory is
+   Metal's buffers, never the arena. Phases 5 and 6 cut the scrub by freeing less;
+   Phase 7 records the share that is left.
 
 ## 8. What this plan does NOT do, and what each needs
 
