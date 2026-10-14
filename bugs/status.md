@@ -29,7 +29,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [*]  | 688    | HIGH     | Vulkan canvas parity with Metal: V1 to V4 fixed and Windows presents through a swapchain. The 10,000-item render on the Intel GPU (box 206) is down from 106 to 58 ms a frame for squares and circles and from 108 to 92 for the sweep's polygon quads (bug-staging-23: the coverage shader's centre sample is straight-line code), still as large as the program's own 94 ms a present, so not closed; what is left is the size of the one live shader and the polygon edge walk. The cold pipeline compile went from 35 s to 67 s (bug-996 takes it off the first frame). Linux present is bug-1082 |
-| [*]  | 765    | HIGH     | Canvas renders 100,000 color-changing dots under 30 PPS / 30 FPS. The frame cap is gone (2026-10-12: a frame past one frame buffer is drawn in passes, every frame a GPU frame on Metal and Vulkan): 15 to 19 FPS on Metal, 4 to 5 on box 206. Left: the worker's copy and compare, geometry rebuilt on a fill-only change (planning/plan-175), the per-frame block upload, and the Intel GPU's own draw time |
+| [*]  | 765    | HIGH     | Canvas renders 100,000 color-changing dots under 30 PPS / 30 FPS. The frame cap is gone (2026-10-12: a frame past one frame buffer is drawn in passes, every frame a GPU frame on Metal and Vulkan): 15 to 19 FPS on Metal, 4 to 5 on box 206. Left: the worker's copy and compare, geometry rebuilt on a fill-only change (planning/plan-175-A), the per-frame block upload, and the Intel GPU's own draw time |
 | [ ]  | 1082   | MED      | on Linux a windowed Vulkan canvas frame is read back and blitted, never presented through a swapchain (split from 688; blocked on a real-GPU Linux box and the GTK4 surface decision) |
 | [ ]  | 1085   | MED      | a banded shape or path clip (32 or more edges) inside a `canvas::Group` whose matrix shrinks disagrees with the software oracle on Metal |
 | [ ]  | 1087   | MED      | on macOS the first canvas frame of a newly built app waits about 5 s for the Metal pipeline (4,745 ms against 18 ms on a second launch); bug-996's shape on Metal |
@@ -40,7 +40,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | [ ]  | 1090   | LOW      | under a huge magnification the zero-gradient coverage fallback lights a stray column of pixels far from the shape (191 pixels at x = 450 for two off-surface squares at a 14,000 times transform); software and Metal |
 
 * Partial fix landed: 10,000 squares 110 → 58 ms on box 206. Render is still about 93 ms at 10,000 moving quads.
-* Frames draw in passes, so 100,000 dots run on the GPU: 20 FPS on Metal, 4 to 5 on box 206. `planning/plan-175-canvas-geometry-identity-split.md` has all four decisions recorded.
+* Frames draw in passes, so 100,000 dots run on the GPU: 20 FPS on Metal, 4 to 5 on box 206. `planning/plan-175-A-canvas-geometry-identity-split.md` has all four decisions recorded.
 
 ## App windows and GTK
 

@@ -10,13 +10,13 @@ Regression Test: `tools/canvas-bench/bench.sh <mfb> dots 100000` (exits 1 today:
 
 ## Cause (coordinator, 2026-10-12, bug-staging-23)
 
-- OWNER RULING 2026-10-12 (plan-175's open decision 4): the 30 PPS / 30 FPS goal stays for Metal. Box 206's goal is NOT 30: it is set from what the Intel draw cost can reach, once that is measured (about 1.4 us a circle today, so about 140 ms for 100,000).
+- OWNER RULING 2026-10-12 (plan-175-A's open decision 4): the 30 PPS / 30 FPS goal stays for Metal. Box 206's goal is NOT 30: it is set from what the Intel draw cost can reach, once that is measured (about 1.4 us a circle today, so about 140 ms for 100,000).
 - Two causes, both measured below. This bug now has TWO deliverables, by the owner's rulings of 2026-10-12.
 - (1) THE CAP, fixed here. Rule: the honesty gate declines "a scene the backend truly cannot draw", but `helper_render.rs:__canvas_metalRenderable` / `__canvas_vulkanRenderable` decline a scene for being larger than ONE frame buffer (`METAL_MAX_FRAME_ITEMS`/`VULKAN_MAX_FRAME_ITEMS` = 65,536, and the edge, gradient-stop, dash-word and texel regions beside it), which the backend can draw in more than one pass. Place: `__canvas_renderMetal` / `__canvas_renderVulkan` hand the whole draw list to one `metalPresentScene`/`metalDrawScene` (`vulkanPresentScene`/`vulkanDrawScene`) call that fills the buffer once. Fix: a frame is drawn as consecutive runs of the draw list, each run the longest that fits EVERY region, in order, into the same target (the first pass clears, later ones load), each pass finished before the single-buffered frame buffer is refilled, presented or read back once after the last. The constants stay as the size of one pass; no scene size is a limit. Only an item that cannot fit a region BY ITSELF is still declined. No pipeline rebuild (the region bases are compiled into the shader; bug-996).
 - (2) THE HASH, NOT fixed here: `func_item_hash.rs:emit_item_hash` is by design both the geometry-cache key and the damage identity (`.ai/canvas-threading.md` 14), so a fill-only change rebuilds every item's geometry (`generations` = items a frame). Owner: geometry keyed on geometry only, with appearance (paint and anything else that is not geometry) a second identity that damage also reads. This bug is the SPIKE for that: its deliverable is a verified, workable plan document, proven by throwaway measurements, not a landed change.
 - OWNER RULING 2026-10-12: no hard-coded scene limit is wanted; the mechanism is the coordinator's choice from the code ("memory based" was an idea, not a requirement).
 
-## Landed 2026-10-12 (bug-staging-23): frames drawn in passes; the hash split is plan-175
+## Landed 2026-10-12 (bug-staging-23): frames drawn in passes; the hash split is plan-175-A
 
 **Deliverable 1, the cap** (`61c75308e`, `ab9061ff8`; the bench row `12c9e8cf2`; RED
 `477d7c21e`). No scene size is a limit on a GPU backend any more. A frame whose blocks
@@ -87,7 +87,7 @@ What was run, and what it showed:
 
 30 / 30 is NOT met, on either machine. Every frame is a GPU frame.
 
-**Deliverable 2, the hash** is `planning/plan-175-canvas-geometry-identity-split.md`: a
+**Deliverable 2, the hash** is `planning/plan-175-A-canvas-geometry-identity-split.md`: a
 geometry key `G`, an appearance identity `A` held per cache slot, damage on
 `mix(G, A)`, and a paint-only change rewritten in place in the cached record. Its §2.3
 is the attribution this document's Phase 1 asks for, measured at 10k / 50k / 60k / 100k
@@ -391,11 +391,11 @@ spec detail if they change the contributor contract.
       fails for the documented reason on macOS Metal.
 - [x] Record worker publish, scene copy/compare, hashing, geometry generations,
       graphics-thread resolve, backend encode/upload, GPU, and present times.
-      (plan-175 §2.3; the present itself is not separated from the GPU's time.)
+      (plan-175-A §2.3; the present itself is not separated from the GPU's time.)
 - [x] Run 10k, 50k, and 100k rows to determine scaling, plus identical-scene and
-      position-changing contrast rows. (plan-175 §2.3; `dots N --same`, `--move`.)
+      position-changing contrast rows. (plan-175-A §2.3; `dots N --same`, `--move`.)
 - [x] Complete the Windows real-GPU matrix on box 206; record Linux as hardware-blocked
-      until a real-GPU host exists. (Above and plan-175 §2.3. Linux: box 2226 is
+      until a real-GPU host exists. (Above and plan-175-A §2.3. Linux: box 2226 is
       lavapipe, correctness only.)
 - [ ] Finish the blast-radius verdict for `presentLayers`, groups, text, pictures,
       damage-only rendering, readback, and both GPU backends.
