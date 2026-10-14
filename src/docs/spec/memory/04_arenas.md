@@ -40,10 +40,10 @@ The arena-state structure is `ARENA_STATE_SIZE` = **3776 bytes**: [[src/codegen/
 ArenaState (at x19)
   +0    U64  blockHead        ; pointer to the current (most-recent) block, 0 if none
   +8    U64  workerThread     ; this thread's control block, 0 on the main thread
-  +16   U64  fillRngLo        ; dedicated memory-fill PCG64 state, low 64 bits
-  +24   U64  fillRngHi        ; dedicated memory-fill PCG64 state, high 64 bits
+  +16   U64  reserved16       ; reserved: zero, read by nothing
+  +24   U64  reserved24       ; reserved: zero, read by nothing
   +32   U64  exitStatus       ; pending exit/result code used during teardown
-  +40   U64  arenaStartTime   ; arena init time in ns (diagnostics + fill-seed mix)
+  +40   U64  arenaStartTime   ; arena init time in ns (diagnostics)
   +48   U64  freeListHead     ; lowest-address free chunk, 0 when the list is empty
   +56   U64  moneyRoundingMode ; per-thread Money arithmetic rounding: 0 = Commercial
                               ; (half-away, default), 1 = Banker (half-even); inherited
@@ -101,10 +101,10 @@ allocation (see the small- and large-request fast paths below), and
 [[src/codegen/error/constants/error_constants.rs:ARENA_LARGE_FLUSH_CREDIT_OFFSET]] The
 cleanup-failure triple records diagnostics if reclamation of a value fails during
 teardown, and the two RNG words at 88/96 give each arena (hence each thread) an
-independent `math::rand` stream seeded at startup. The `fillRngLo`/`fillRngHi`
-words at 16/24 hold a **separate** dedicated memory-fill PCG64 stream (see Entropy
-Fill below), seeded independently so it never perturbs the reproducible
-`math::rand` sequence. The entry shim's RNG scratch begins at `ARENA_STATE_SIZE`; globals follow it,
+independent `math::rand` stream seeded at startup. The words at 16/24 are
+**reserved**: every arena state is zero-initialized and nothing reads or writes
+them.
+[[src/codegen/error/constants/error_constants.rs:ARENA_RESERVED_16_OFFSET]] The entry shim's RNG scratch begins at `ARENA_STATE_SIZE`; globals follow it,
 and an argument-list entry reserves argc/argv materialization slots above the
 globals (see `./mfb spec memory program-startup`). Because the main arena-state lives on the entry
 stack (not zero-filled), the entry shim zeroes the whole `ARENA_STATE_SIZE`
@@ -165,7 +165,7 @@ caller-saved integer registers (x0–x17) are clobbered**; callee-saved register
 (x19–x28) are preserved by its PCS frame. Callers must not hold a live value in
 any caller-saved register across the call — spill to a stack slot instead. The
 fast (first-fit) path makes no call, but the rare block-grow path calls
-`arena_fill_random` to poison the freshly mapped block, so `arena_alloc` is **not**
+`arena_fill_zero` to zero the freshly mapped block, so `arena_alloc` is **not**
 a leaf — it carries a frame and saves the link register.
 
 The algorithm:
@@ -267,7 +267,7 @@ source as ordinary language-level errors (see the language spec §14.3.1).
 `arena_free` (symbol `_mfb_arena_free`) takes the chunk pointer in `x0` and its
 byte `size` in `x1` and returns nothing; [[src/codegen/memory/arena/arena.rs:lower_arena_free]] like every runtime helper it
 clobbers all caller-saved integer registers (it carries a frame, saves the link
-register, and calls `arena_fill_random`). `size` is
+register, and calls `arena_fill_zero`). `size` is
 normalized exactly as `arena_alloc` normalizes it (zero → 1, rounded up to 16),
 so the freed extent matches the live chunk that was handed out. A chunk of
 2048 bytes or less then **parks on its exact-size quick bin** — an O(1) head
@@ -277,7 +277,7 @@ larger chunk (> 2048) instead **parks on its large-bin size class**, also an
 O(1) head push, and adds its bytes to `largeFlushCredit`. The 64 classes split
 each power of two from 2 KiB into four: for `2^k ≤ size < 2^(k+1)` the class is
 `(k - 11) * 4 + ((size >> (k - 2)) & 3)`, and every size from 112 MiB up shares
-the last. [[src/codegen/memory/arena/arena.rs:emit_large_bin_slot]] In either bin path the chunk is then entropy-scrubbed (see *Entropy Fill*) over
+the last. [[src/codegen/memory/arena/arena.rs:emit_large_bin_slot]] In either bin path the chunk is then zero-filled (see *Zero Fill*) over
 `[ptr+16, ptr+size)` — every payload byte past the 16-byte `FreeNode` overlay
 just written, so the scrub can never destroy live free-list metadata. An
 **immediate repeated free of the same address is a no-op**: the push finds the
@@ -301,30 +301,32 @@ is supplied by the compiler's type-directed drop glue; there is no user-level
 free operation. This ABI requires the pointer and rounded extent to match the
 allocation and does not provide general double-free detection.
 
-## Entropy Fill
+## Zero Fill
 
-Freed chunks and freshly mapped blocks are filled with pseudo-random bytes —
-always on, in debug and release. This scrubs freed secrets so they
-do not linger as plaintext and poisons memory so a use-after-free or
-uninitialized read yields garbage instead of stale-but-plausible data. Because
-fresh arena memory is not implicitly zero, every allocation site must fully
-initialize the bytes it later reads (the language's allocators already do).
+Freed chunks and freshly mapped blocks are overwritten with zero — always on, in
+debug and release. The point is confidentiality: a freed value does not linger in
+the arena as plaintext for a later bug, dump or reader to find. One overwrite is
+enough, because RAM keeps no trace of the value it replaced, and zero is the
+cheapest value to write. A fresh block is zeroed for the same reason, so no byte the
+OS handed over or a previous run of the arena left can be read through it.
 
-The fill source is a **dedicated per-arena PCG64** at arena-state offsets 16/24,
-separate from the `math::rand` stream at 88/96 and seeded independently at arena
-init (`arena_fill_seed`): the main thread mixes OS entropy (`getentropy`) with the
-arena address and start time (offset 40); each worker mixes a draw from the
-parent's fill stream with its own arena address. [[src/codegen/builtins/math/gen_rng_pcg64.rs:lower_arena_fill_seed]] Its output is never observable —
-filled bytes are always overwritten by a constructor before any read — so the
-stream needs no reproducibility. `arena_fill_random(ptr, len)` streams PRNG words
-(no syscall per fill); `arena_free` calls it after parking the chunk on its bin (over
-the freed payload past the FreeNode words — see `arena_free` above), and
-`arena_alloc` calls it on a freshly mapped block's usable region before first use.
-It writes four words per loop iteration by PCG64 jump-ahead — word *j* is the
-carried state advanced *j* steps in one 128-bit multiply-add, so the four
-multiplies are independent — and single-steps the remaining `count mod 4` words;
-the words and the state left at offsets 16/24 are exactly those of the one-step
-stream. [[src/codegen/builtins/math/gen_rng_pcg64.rs:lower_arena_fill_random]]
+`arena_fill_zero(ptr, len)` stores zero words, four to a loop, then one at a time;
+`len` is rounded up to a word, which is exact for every chunk handed to it.
+`arena_free` calls it after parking the chunk on its bin, over the freed payload past
+the FreeNode words (see `arena_free` above); the node's own `{next, size}` overwrite
+the first 16 bytes, so every freed byte is overwritten. `arena_alloc` calls it on a
+freshly mapped block's usable region before first use.
+[[src/codegen/memory/arena/arena.rs:lower_arena_fill_zero]]
+
+**Arena memory is not guaranteed zero.** A chunk handed out again begins with its
+free-list node's two words, and a chunk split from a larger free one carries that
+one's. So every allocation site fully initializes the bytes it later reads (the
+language's allocators do). A use-after-free or an uninitialized read sees mostly
+zeros, which can look like a valid value.
+
+The fill draws no randomness: it never reads or advances the language RNG
+(`math::rand`, offsets 88/96).
+
 A `--debug` build counts both kinds of fill for each arena in the debug report:
 `arena.<n>.fill_grow_calls`/`.fill_grow_bytes` for fresh blocks and
 `arena.<n>.fill_free_calls`/`.fill_free_bytes` for freed chunks (see

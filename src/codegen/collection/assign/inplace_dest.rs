@@ -543,7 +543,7 @@ impl CodeBuilder<'_> {
     /// `lower_value`), which does not copy a flat value: `r.s` — or any value read
     /// out of the owner — is an interior pointer into the record. The grow
     /// (`InlineGrow`) reallocates the owner and frees the old block before the item
-    /// bytes are copied in, so the element was copied from freed (entropy-scrubbed)
+    /// bytes are copied in, so the element was copied from freed (zero-scrubbed)
     /// memory: `r = WITH r { xs := collections::append(r.xs, r.s) }` stored garbage,
     /// and an inlined record item segfaulted. A scalar item is a register value, not
     /// a pointer, and an item whose top node is an operator builds a new value (the

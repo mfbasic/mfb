@@ -321,7 +321,7 @@ fn record_churn_source(n: usize) -> String {
     )
 }
 
-/// plan-133-B: the fill counters count exactly the bytes the entropy fill is handed.
+/// plan-133-B: the fill counters count exactly the bytes the zero fill is handed.
 /// A fresh block is filled over its usable region (`mapped − 32` per block), so over a
 /// run `fill_grow_bytes == mapped_bytes − 32 × grow` with one fill per grow. A freed
 /// chunk is scrubbed past its 16-byte node, so each extra 64 B record adds one fill of

@@ -28,14 +28,10 @@ impl plan::NativePlanPlatform for Platform {
             symbol: "_exit".to_string(),
             required_by: "_main".to_string(),
         }];
-        // The program entry always seeds the per-arena memory-fill RNG (entropy
-        // fill is always on, plan-01 §6.5): `getentropy` for the seed and
-        // `clock_gettime` for the start-time mixed into it.
-        imports.push(PlatformImport {
-            library: "libSystem".to_string(),
-            symbol: "_getentropy".to_string(),
-            required_by: "_main".to_string(),
-        });
+        // The program entry always captures the arena start time (`clock_gettime`).
+        // `getentropy` is not an entry import: the arena fill is a zero fill and needs
+        // no seed, and every call that does want OS entropy (`math.rand`/`math.seed`,
+        // `crypto.randomBytes`, the temp-file and data-file names) declares its own.
         imports.push(PlatformImport {
             library: "libSystem".to_string(),
             symbol: "_clock_gettime".to_string(),

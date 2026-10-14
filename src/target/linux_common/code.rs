@@ -1721,8 +1721,8 @@ mod tests {
             seed_presentation_mode_offset: None,
             debug_features: &[],
         };
-        // The entry's always-on arena-start-time + entropy-fill blocks call libc,
-        // so provide the imports they resolve against.
+        // The entry's always-on arena-start-time block and its seed_rng block call
+        // libc, so provide the imports they resolve against.
         let imports = [
             "clock_gettime",
             "getentropy",

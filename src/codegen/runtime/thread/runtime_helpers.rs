@@ -795,22 +795,6 @@ pub(crate) fn lower_thread_start_helper(
         ctx.relocations
             .push(internal_branch(symbol, RNG_SEED_SYMBOL));
     }
-    // Seed the worker's dedicated memory-fill RNG (always on, plan-01 §6): a value from
-    // the parent's fill stream XOR the worker arena address, so each worker poisons
-    // with a distinct stream, separate from its `math::rand` stream.
-    ctx.instructions
-        .push(abi::branch_link(ARENA_FILL_NEXT_SYMBOL));
-    ctx.relocations
-        .push(internal_branch(symbol, ARENA_FILL_NEXT_SYMBOL));
-    ctx.instructions.extend([
-        abi::move_register(abi::c_arg(1), abi::return_register()),
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), WORKER_OFFSET),
-        abi::exclusive_or_registers(abi::c_arg(1), abi::c_arg(1), abi::return_register()),
-    ]);
-    ctx.instructions
-        .push(abi::branch_link(ARENA_FILL_SEED_SYMBOL));
-    ctx.relocations
-        .push(internal_branch(symbol, ARENA_FILL_SEED_SYMBOL));
 
     if platform.family() == PlatformFamily::Windows {
         // CreateThread(NULL, 8 MiB, trampoline, cb, 0, NULL). lpStartAddress and

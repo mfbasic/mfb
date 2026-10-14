@@ -94,8 +94,8 @@ Sections print in the order of the compiler's feature registry,
 | | `arena.<n>.double_free_skips` | frees skipped because the chunk was already free |
 | | `arena.<n>.live_bytes`, `.peak_live_bytes` | bytes allocated and not yet freed when the report ran, and the most ever held at once |
 | | `arena.<n>.flushes`, `.insert_free_calls` | free-list coalescing passes, and chunks inserted into the coalescing free list |
-| | `arena.<n>.fill_grow_calls`, `.fill_grow_bytes` | entropy fills of a newly mapped block and their bytes: each fill covers the block's usable region (its size minus the 32-byte header), and `fill_grow_calls` always equals `grow` |
-| | `arena.<n>.fill_free_calls`, `.fill_free_bytes` | entropy scrubs of a freed chunk and their bytes: each covers the chunk past its 16-byte free-list node, so a 16-byte chunk is not scrubbed and not counted, and skipped double frees add no scrub bytes |
+| | `arena.<n>.fill_grow_calls`, `.fill_grow_bytes` | zero fills of a newly mapped block and their bytes: each fill covers the block's usable region (its size minus the 32-byte header), and `fill_grow_calls` always equals `grow` |
+| | `arena.<n>.fill_free_calls`, `.fill_free_bytes` | zero scrubs of a freed chunk and their bytes: each covers the chunk past its 16-byte free-list node, so a 16-byte chunk is not scrubbed and not counted, and skipped double frees add no scrub bytes |
 | | `arena.<n>.series.count` | the number of memory-over-time samples that follow, at most 256 |
 | | `arena.<n>.series.<i>.t_ns`, `.mapped_bytes`, `.live_bytes`, `.peak_rss_bytes` | one sample per line group, oldest first: nanoseconds since the first arena registered (monotonic clock), the arena's mapped and live bytes just after a grow, and the process's peak RSS read at that moment the same way as `process.peak_rss_bytes` |
 | `process` | `process.peak_rss_bytes` | the most physical memory the process has held at once, in bytes, as the operating system counts it when the report runs: `ru_maxrss` from `getrusage` on macOS and Linux (Linux's KiB scaled to bytes), `PeakWorkingSetSize` from `K32GetProcessMemoryInfo` on Windows; `0` if the call fails |

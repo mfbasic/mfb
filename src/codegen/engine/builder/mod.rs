@@ -2800,11 +2800,8 @@ pub(crate) fn lower_module_for_platform(
     code_functions.push(lower_arena_insert_free(debug_arena));
     code_functions.push(lower_arena_flush_coalesce(debug_arena));
     code_functions.push(lower_arena_free(perf_arena, debug_arena));
-    // Entropy fill is always on (plan-01 §6.5): scrub freed chunks and poison
-    // fresh blocks. The fill RNG/seed helpers ship with every arena.
-    code_functions.push(lower_arena_fill_random());
-    code_functions.push(lower_arena_fill_seed());
-    code_functions.push(lower_arena_fill_next());
+    // The arena's zero fill is always on: it scrubs freed chunks and fills fresh blocks.
+    code_functions.push(lower_arena_fill_zero());
     code_functions.push(lower_arena_destroy(platform, debug_arena)?);
     // Opt-in stdout buffering (plan-14-A): the shared `_mfb_rt_io_stdout_drain`
     // helper is emitted whenever any stdout writer, stdin reader, or buffering

@@ -572,17 +572,6 @@ pub(crate) fn lower_thread_block_arena_create(
             crate::codegen::debug::DEBUG_ARENA_REGISTER_SYMBOL,
         ));
     }
-    // The fill stream: drawn from the CALLING thread's own stream (`x19` is its
-    // arena, so the draw is race-free), mixed with this state's address.
-    instructions.push(abi::branch_link(ARENA_FILL_NEXT_SYMBOL));
-    relocations.push(internal_branch(symbol, ARENA_FILL_NEXT_SYMBOL));
-    instructions.extend([
-        abi::move_register(abi::c_arg(1), abi::return_register()),
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
-        abi::exclusive_or_registers(abi::c_arg(1), abi::c_arg(1), abi::return_register()),
-    ]);
-    instructions.push(abi::branch_link(ARENA_FILL_SEED_SYMBOL));
-    relocations.push(internal_branch(symbol, ARENA_FILL_SEED_SYMBOL));
     instructions.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STATE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),

@@ -51,14 +51,15 @@ impl NativePlanPlatform for Platform {
     }
 
     fn entry_imports(&self, module: &NirModule) -> Vec<PlatformImport> {
-        // The entry maps/unmaps the arena (VirtualAlloc/VirtualFree), seeds the
-        // arena start time (GetSystemTimePreciseAsFileTime) and the always-on
-        // memory-fill RNG (BCryptGenRandom, bcrypt.dll).
+        // The entry maps/unmaps the arena (VirtualAlloc/VirtualFree) and captures the
+        // arena start time (GetSystemTimePreciseAsFileTime). BCryptGenRandom is not an
+        // entry import: the arena fill is a zero fill and needs no seed, and every call
+        // that does want OS entropy (`math.rand`/`math.seed`, `crypto.randomBytes`, the
+        // data-file, atomic-write and temp-file names) declares its own.
         let mut imports = vec![
             import("VirtualAlloc", KERNEL32, "_start"),
             import("VirtualFree", KERNEL32, "_start"),
             import("GetSystemTimePreciseAsFileTime", KERNEL32, "_start"),
-            import("BCryptGenRandom", "bcrypt.dll", "_start"),
             // The entry sets the console text code page to UTF-8 so verbatim UTF-8
             // output decodes as glyphs, not OEM-code-page mojibake (bug-392;
             // emit_console_utf8). Output + input, for symmetry.
@@ -771,8 +772,8 @@ impl NativePlanPlatform for Platform {
                     import("WriteFile", KERNEL32, required_by),
                 ]
             }
-            // crypto:: NIST-EC over CNG/BCrypt (plan-47-J). randomBytes already
-            // rides BCryptGenRandom in the entry floor; the EC ops pull the key/
+            // crypto:: NIST-EC over CNG/BCrypt (plan-47-J). randomBytes declares
+            // BCryptGenRandom itself (below); the EC ops pull the key/
             // hash/sign surface. Any crypto.* EC call declares the whole set; the
             // merged IAT dedups.
             "crypto.generate" | "crypto.sign" | "crypto.verify" => vec![
@@ -943,7 +944,14 @@ impl NativePlanPlatform for Platform {
         ]
     }
 
-    fn native_call_imports(&self, _target: &str, _required_by: &str) -> Vec<PlatformImport> {
+    /// The PCG64 language RNG draws its program-startup seed from the OS (the entry's
+    /// seed_rng block, `emit_random_bytes`): a program that uses `math::rand` or
+    /// `math::seed` imports `BCryptGenRandom` for it. No entry imports it otherwise —
+    /// the arena fill is a zero fill and needs no seed.
+    fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {
+        if matches!(target, "math.rand" | "math.seed") {
+            return vec![import("BCryptGenRandom", BCRYPT, required_by)];
+        }
         Vec::new()
     }
 

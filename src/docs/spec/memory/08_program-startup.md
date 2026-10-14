@@ -176,11 +176,10 @@ termination. Windows emits no POSIX signal setup.
 
 ## RNG Seeding and Start Time
 
-The memory-fill PCG64 stream is seeded before user code; the independent
-`math::rand` stream is seeded when the program uses it. Their state
-words and the stream algorithm are owned by `./mfb spec memory arenas` (the
-`math::rand` stream at arena offsets `88`/`96`, the dedicated memory-fill stream
-at `16`/`24`); this topic owns only the startup seeding.
+The `math::rand` stream is seeded when the program uses it. Its state words (arena
+offsets `88`/`96`) and the stream algorithm are owned by `./mfb spec memory arenas`;
+this topic owns only the startup seeding. The arena's memory fill is a zero fill and
+needs no seed.
 
 When the program uses `math::rand`/`math::seed` (`seed_rng`), the shim draws 8
 entropy bytes from the OS (`emit_random_bytes`) into the dedicated
@@ -188,13 +187,11 @@ entropy bytes from the OS (`emit_random_bytes`) into the dedicated
 yields a varying seed — then calls `_mfb_rng_seed_at` (`RNG_SEED_SYMBOL`) with
 `x0 = x19` and the seed in `x1`. [[src/codegen/error/constants/error_constants.rs:RNG_SEED_SYMBOL]] [[src/codegen/error/constants/error_constants.rs:ENTRY_SEED_SCRATCH_OFFSET]]
 
-The memory-fill stream is seeded unconditionally (entropy fill is always on). The
-shim keeps needed argc/argv in the preserved scratch roles, captures the arena start time at
-arena-state offset `40` through the platform start-time hook (the default
-uses `clock_gettime(CLOCK_REALTIME)` converted to nanoseconds), draws 8 entropy bytes, XORs them with the start
-time and the arena address, calls `_mfb_arena_fill_seed`, then retains the saved
-argc/argv for later materialization. The mixing incorporates time and address
-variation; it is not a uniqueness guarantee.
+Unconditionally, the shim keeps needed argc/argv in the preserved scratch roles,
+captures the arena start time at arena-state offset `40` through the platform
+start-time hook (the default uses `clock_gettime(CLOCK_REALTIME)` converted to
+nanoseconds), then retains the saved argc/argv for later materialization. No OS
+entropy is drawn for a program that does not use `math::rand`/`math::seed`.
 [[src/codegen/error/constants/error_constants.rs:ARENA_START_TIME_OFFSET]]
 
 ## Running the Program

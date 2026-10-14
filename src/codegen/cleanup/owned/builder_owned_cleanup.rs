@@ -1117,7 +1117,7 @@ impl CodeBuilder<'_> {
 
     /// Free an owned, non-escaping flat value at scope-drop (plan-01 Phase 5 /
     /// plan-02 Phase 8): recompute the block's byte size from its static type and
-    /// `arena_free(ptr, size)`. `arena_free` scrubs the bytes (entropy poison),
+    /// `arena_free(ptr, size)`. `arena_free` scrubs the bytes (zero fill),
     /// so a later use-after-free reads garbage and traps loudly. Clobbers
     /// caller-saved scratch; the caller reloads anything it needs afterward.
     pub(crate) fn emit_owned_value_drop(

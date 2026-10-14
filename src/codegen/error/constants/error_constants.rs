@@ -854,18 +854,14 @@ pub(crate) const ARENA_WORKER_THREAD_OFFSET: usize = 8;
 pub(crate) const ARENA_CLEANUP_FAILURE_COUNT_OFFSET: usize = 64;
 pub(crate) const ARENA_CLEANUP_FAILURE_CODE_OFFSET: usize = 72;
 pub(crate) const ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET: usize = 80;
-/// Dedicated per-arena memory-fill PCG64 state, reusing the two reserved
-/// arena-state words at offsets 16/24. This stream is **separate** from the
-/// language RNG at 88/96 (`math::rand`): it is seeded independently and its
-/// output is never observable (filled bytes are always overwritten before any
-/// read), so advancing it on every alloc/free never perturbs `math::rand`'s
-/// reproducible sequence.
-pub(crate) const ARENA_FILL_RNG_LO_OFFSET: usize = 16;
-pub(crate) const ARENA_FILL_RNG_HI_OFFSET: usize = 24;
-/// Arena start time in nanoseconds (reserved word at offset 40). Captured once at
-/// arena init for lightweight diagnostics and mixed into the fill-RNG seed so two
-/// arenas seeding in the same instant (or after a `getentropy` failure) still get
-/// distinct poison streams.
+/// Reserved arena-state words at offsets 16 and 24. Zero (every arena state is
+/// zero-initialized) and read by nothing. They held a dedicated memory-fill PCG64
+/// stream until the arena fill became a zero fill (`ARENA_FILL_ZERO_SYMBOL`), and are
+/// kept reserved rather than reused so the rest of the layout does not move.
+pub(crate) const ARENA_RESERVED_16_OFFSET: usize = 16;
+pub(crate) const ARENA_RESERVED_24_OFFSET: usize = 24;
+/// Arena start time in nanoseconds (reserved word at offset 40), captured once at
+/// arena init for lightweight diagnostics.
 pub(crate) const ARENA_START_TIME_OFFSET: usize = 40;
 /// Per-arena address-ordered coalescing free-list head (lowest-address free
 /// chunk, 0 when empty). Stored in the reserved arena-state word at offset 48
@@ -1048,7 +1044,7 @@ pub(crate) const ARENA_LARGE_FLUSH_CREDIT_OFFSET: usize = ARENA_STDIN_SUBSCRIBER
 /// Large bytes that must be freed per chunk the previous flush sorted before a
 /// big request may flush again (bug-690). A power of two (the flush multiplies by
 /// shifting). At 256, the flush's sort costs at most about `log2(M) / 256` steps per
-/// freed byte — below the entropy scrub `arena_free` already spends on every byte.
+/// freed byte — below the zero scrub `arena_free` already spends on every byte.
 pub(crate) const ARENA_LARGE_FLUSH_BYTES_PER_CHUNK: u64 = 256;
 pub(crate) const ARENA_STATE_SIZE: usize = ARENA_LARGE_FLUSH_CREDIT_OFFSET + 8;
 
@@ -1209,17 +1205,11 @@ pub(crate) const RNG_NEXT_SYMBOL: &str = "_mfb_rng_next";
 /// `x1`. Used both for the program-startup seed and to give each spawned thread
 /// its own stream drawn from the parent's generator.
 pub(crate) const RNG_SEED_SYMBOL: &str = "_mfb_rng_seed_at";
-/// Fill `x1` bytes at `x0` with output from the dedicated per-arena fill RNG.
-/// Used to scrub freed chunks and poison freshly mapped blocks. A leaf,
-/// vreg-allocated: it clobbers caller-saved registers only.
-pub(crate) const ARENA_FILL_RANDOM_SYMBOL: &str = "_mfb_arena_fill_random";
-/// Seed the fill RNG at `[x0 + ARENA_FILL_RNG_*]` from the 64-bit seed in `x1`,
-/// using the same canonical PCG64 seeding dance as the language RNG.
-pub(crate) const ARENA_FILL_SEED_SYMBOL: &str = "_mfb_arena_fill_seed";
-/// Advance the calling thread's fill RNG (`x19`) one step and return the next
-/// 64-bit value in `x0`. Used to draw an independent child seed from the parent
-/// at thread spawn (runs in the parent, so the draw is race-free).
-pub(crate) const ARENA_FILL_NEXT_SYMBOL: &str = "_mfb_arena_fill_next";
+/// Zero `x1` bytes at `x0`, rounded up to whole words. Used to scrub freed chunks
+/// and to fill freshly mapped blocks: one overwrite destroys a freed value, and zero
+/// is the cheapest value to write. A leaf, vreg-allocated: it clobbers caller-saved
+/// registers only.
+pub(crate) const ARENA_FILL_ZERO_SYMBOL: &str = "_mfb_arena_fill_zero";
 
 // ===========================================================================
 // SIMD

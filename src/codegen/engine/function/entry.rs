@@ -424,7 +424,7 @@ pub(crate) fn lower_program_entry(
     let seed_scratch_sp_offset = ENTRY_SEED_SCRATCH_OFFSET + shadow;
     // argc/argv were parked in SCRATCH[17]/SCRATCH[18] at the top of the entry:
     // everything here — the seed_rng `getentropy`/`RNG_SEED` calls, the always-on
-    // fill block's `clock_gettime`/`getentropy`/`ARENA_FILL_SEED`, and the later
+    // start-time block's `clock_gettime`, and the later
     // `LINK`/global-initializer calls — clobbers ARG[0]/ARG[1], so the args region
     // is read back from those callee-saved registers below.
     if seed_rng {
@@ -460,19 +460,14 @@ pub(crate) fn lower_program_entry(
         instructions.push(abi::move_immediate(abi::c_arg(0), "Integer", "1"));
         instructions.push(abi::store_u64(abi::c_arg(0), ARENA_STATE_REGISTER, offset));
     }
-    // Capture the arena start time (offset 40) and seed the dedicated memory-fill
-    // RNG (offsets 16/24). Always on — entropy fill is a requirement (plan-01 §6),
-    // so this runs for every program before the first allocation. The seed is OS
-    // entropy XORed with the arena address and start time, so a `getentropy`
-    // failure or two arenas seeding in the same instant still yield distinct
-    // poison streams. This is a separate stream from `math::rand` (offsets 88/96),
-    // so it never perturbs the reproducible language RNG.
+    // Capture the arena start time (offset 40), for every program before the first
+    // allocation. (Words 16/24 held a memory-fill PCG64 stream seeded here until the
+    // arena fill became a zero fill; they are reserved and stay zero.)
     //
     // `argc`/`argv` (x0/x1) may still be live here (for a non-arg entry they are
     // irrelevant), and this block clobbers x0–x16, so park them in callee-saved
-    // x27/x28 — preserved by the libc calls and the fill helpers — and restore
-    // them afterward. A local 16-byte stack buffer holds first the `timespec`
-    // and then the entropy bytes, so no entry-stack slot is touched. An
+    // x27/x28 — preserved by the libc calls — and restore them afterward. A local
+    // 16-byte stack buffer holds the `timespec`, so no entry-stack slot is touched. An
     // arg-accepting entry has already parked argc/argv into x27/x28 above (before
     // the seed_rng block clobbered x0/x1), so it must NOT re-park garbage here.
     if !language_entry_accepts_args {
@@ -482,8 +477,7 @@ pub(crate) fn lower_program_entry(
         ]);
     }
     // Capture the arena start time into ARENA_START_TIME_OFFSET, using a 16-byte
-    // stack buffer at [sp] that the entropy block below reuses (freed by the
-    // matching `add_stack(16)`). The clock source is platform-abstracted
+    // stack buffer at [sp] (freed by the matching `add_stack(16)` below). The clock source is platform-abstracted
     // (`clock_gettime` on POSIX; `GetSystemTimePreciseAsFileTime` on Windows,
     // plan-47-D §3.1) — `emit_arena_start_time`'s default reproduces the POSIX
     // sequence, so every existing target's entry is byte-identical.
@@ -519,34 +513,12 @@ pub(crate) fn lower_program_entry(
         )?;
     }
     instructions.extend([
-        // Pre-fill the seed scratch with the arena address (getentropy fallback).
-        abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
-        abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-    ]);
-    platform.emit_random_bytes(
-        entry_symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.extend([
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), 0), // entropy (or arena addr)
+        // Free the start-time buffer `emit_arena_start_time` reserved.
         abi::add_stack(16),
-        abi::load_u64(
-            abi::SCRATCH[0],
-            ARENA_STATE_REGISTER,
-            ARENA_START_TIME_OFFSET,
-        ),
-        abi::exclusive_or_registers(abi::c_arg(1), abi::c_arg(1), abi::SCRATCH[0]), // mix start time
-        abi::exclusive_or_registers(abi::c_arg(1), abi::c_arg(1), ARENA_STATE_REGISTER), // mix arena address
-        abi::move_register(abi::c_arg(0), ARENA_STATE_REGISTER),
-        abi::branch_link(ARENA_FILL_SEED_SYMBOL),
         // Restore argc/argv for the arg-materialization path below.
         abi::move_register(abi::c_arg(0), abi::SCRATCH[17]),
         abi::move_register(abi::c_arg(1), abi::SCRATCH[18]),
     ]);
-    relocations.push(internal_branch(entry_symbol, ARENA_FILL_SEED_SYMBOL));
     // Populate the static closure descriptors (bug-78): write each no-capture
     // function value's `code` word with `&func`. Runs once, before `main` and
     // before any thread is spawned, and cannot fail — no tag check.

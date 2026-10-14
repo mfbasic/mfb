@@ -60,7 +60,7 @@ impl CodeBuilder<'_> {
     ///
     /// The `.mfb` body starts from an empty set and `add`s each element, so the
     /// result grows from empty — for 300 elements, 9 allocations, 8 copies, 8
-    /// entropy-scrubbed frees and 8 hash-index rebuilds, although `len(value)`
+    /// zero-scrubbed frees and 8 hash-index rebuilds, although `len(value)`
     /// bounds the result. This allocates the result ONCE, at
     /// `capacity = len(value)` with the fixed-width data region a grow to that
     /// capacity would give (`dataCapacity = capacity * stride`, bug-621's stride)

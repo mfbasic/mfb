@@ -85,7 +85,8 @@ required by a helper):
   on the others.
   [[src/codegen/builtins/process/func_detach.rs:lower_process_detach_helper_posix]]
 - `math::rand`/`math::seed` declare
-  `getentropy` on POSIX for the startup seed; the transcendentals, `pow`,
+  `getentropy` on POSIX (`BCryptGenRandom` on Windows) for the startup seed; no
+  entry imports an entropy source otherwise; the transcendentals, `pow`,
   `atan2`, `tan`, and `Float MOD` are in-tree kernels.
 
 ### Linux flavor differences

@@ -600,10 +600,7 @@ fn every_process_member_declares_exactly_the_errors_its_lowering_raises() {
 }
 
 /// `thread` callees that raise nothing of their own:
-/// `_mfb_arena_fill_next`/`_mfb_arena_fill_seed` step/seed the per-arena fill
-/// RNG (pure register arithmetic, no call, no error code —
-/// `error_constants.rs`'s `ARENA_FILL_NEXT_SYMBOL`/`ARENA_FILL_SEED_SYMBOL`
-/// doc comments); `_mfb_rt_thread_block_release` frees a block with no error
+/// `_mfb_rt_thread_block_release` frees a block with no error
 /// path (`control_block.rs::lower_thread_block_release` has no
 /// `raise_error_into` call in its body); `_mfb_rt_stdin_subscribe`/
 /// `_mfb_rt_stdin_unsubscribe` register/unregister the calling thread with the
@@ -614,14 +611,6 @@ const THREAD_RAISES_NOTHING: &[(&str, &str)] = &[
         "returns a null pointer; the caller raises ErrOutOfMemory",
     ),
     ("_mfb_arena_free", "releases a block; never fails"),
-    (
-        "_mfb_arena_fill_next",
-        "advances the per-arena fill RNG one step; pure register arithmetic, no call",
-    ),
-    (
-        "_mfb_arena_fill_seed",
-        "seeds the per-arena fill RNG from a 64-bit value; pure register arithmetic",
-    ),
     (
         "_mfb_rt_thread_block_release",
         "frees a released block; control_block.rs::lower_thread_block_release has \

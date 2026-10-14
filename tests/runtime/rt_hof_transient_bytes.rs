@@ -6,7 +6,7 @@
 //! twice its content); `groupBy` sized its hash scratch by element count (a 32 768-
 //! slot table for 7 keys), grew each bucket geometrically from one element, and
 //! copied every bucket into a map that also grew from empty. Every freed byte is
-//! then scrubbed by the arena's entropy fill.
+//! then scrubbed by the arena's zero fill.
 //!
 //! Each case runs its call and a checksum of the result `N` and `2N` times under
 //! `--debug`, and a control runs only the checksum (over one result computed

@@ -58,8 +58,8 @@ list empty. The format-specific execution contract is in
 
 macOS imports `_signal` in both console and app mode. Console startup installs
 SIGINT/SIGTERM handlers; both modes ignore SIGPIPE process-wide. Linux likewise
-imports `signal` in both modes. macOS entry also imports `_exit`, `_getentropy`,
-and `_clock_gettime`; Linux's entry-import policy depends on its ISA's raw-syscall
+imports `signal` in both modes. macOS entry also imports `_exit` and
+`_clock_gettime` (the arena start time); Linux's entry-import policy depends on its ISA's raw-syscall
 support, as described in `import-selection`.
 [[src/target/macos_aarch64/plan.rs:entry_imports]]
 [[src/target/linux_common/plan.rs:entry_imports]]

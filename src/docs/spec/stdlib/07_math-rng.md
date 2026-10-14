@@ -5,8 +5,8 @@ a 128-bit linear-congruential state with a 64-bit permuted output. This topic
 specifies the *algorithm* — the state advance, the output permutation, the
 seeding dance, and how the main thread and each spawned thread obtain their
 seeds. The 128-bit state is **stored** in the per-arena arena-state words at
-offsets 88/96; that storage (and the *separate* memory-fill stream at 16/24) is
-owned by `./mfb spec memory arenas` and is not duplicated here.
+offsets 88/96; that storage is owned by `./mfb spec memory arenas` and is not
+duplicated here.
 
 The per-function API (signatures, parameters, errors) is owned by
 `./mfb man math`. This topic specifies the model behind it.
@@ -189,18 +189,15 @@ already seeded automatically (main from the OS, children from the parent) — an
 is needed only to make a thread's subsequent sequence reproducible.
 [[src/codegen/builtins/math/gen_math.rs:883]]
 
-## Relationship to the memory-fill RNG
+## Relationship to the arena's memory fill
 
-The arena also holds a **second, separate** PCG64 stream (the memory-fill RNG at
-offsets 16/24) used to scrub freed chunks and poison fresh blocks. It uses the
-same step/seed algorithm but a different, independently-seeded state and its
-output is never observable, so advancing it on every alloc/free never perturbs
-the reproducible `math::rand` sequence at 88/96. That stream and the full
-arena-state layout are specified by `./mfb spec memory arenas`.
+This is the arena's only PCG64 stream. The arena scrubs freed chunks and fills fresh
+blocks with zero (`./mfb spec memory arenas`, *Zero Fill*), not with random bytes, so
+no allocation or free ever advances or reads the `math::rand` state at 88/96.
 
 ## See Also
 
 - `./mfb man math` — per-function API for `math::rand`, `math::seed`, and the rest of `math::`.
-- `./mfb spec memory arenas` — arena-state layout, the 88/96 RNG storage words, and the separate memory-fill stream at 16/24.
+- `./mfb spec memory arenas` — arena-state layout, the 88/96 RNG storage words, and the zero fill.
 - `./mfb spec language types` — the `Integer` (signed 64-bit) domain that bounds `math::rand`.
 - `./mfb spec architecture frontend` — how `math::` builtins are lowered and the runtime RNG helpers are emitted.

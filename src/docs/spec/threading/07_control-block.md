@@ -106,8 +106,7 @@ The mutex and the eight condition variables are initialized (`pthread_*_init`) b
 ## The block arena
 
 The block arena is an ordinary arena state (`ARENA_STATE_SIZE` bytes, a heap block,
-zeroed, its entropy-fill stream seeded from the spawning thread's XOR the state's
-address) whose chunks `_mfb_arena_alloc` maps on demand and `_mfb_arena_destroy`
+zeroed) whose chunks `_mfb_arena_alloc` maps on demand and `_mfb_arena_destroy`
 unmaps. Every value that crosses between the two threads is deep-copied into it —
 the seed at start, each message at its enqueue, the worker's result at its exit — so
 nothing either thread reads lives in the other thread's arena.

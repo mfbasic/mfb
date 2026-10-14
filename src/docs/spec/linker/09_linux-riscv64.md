@@ -79,11 +79,11 @@ to the GTK app path, which is not ported to this target). The general entry sequ
 — arena carve, hook install, language-entry dispatch, teardown — is owned by
 `./mfb spec memory program-startup`. [[src/target/linux_common/code.rs:entry_args_in_registers]] [[src/codegen/engine/function/entry.rs:lower_program_entry]]
 
-The entry imports `_exit` (teardown), `write` (the error-report path), `getentropy`
-and `clock_gettime` (to seed the per-arena memory-fill RNG), and — in console mode —
-`signal` (to install the `SIGINT`/`SIGTERM` handlers that run `_mfb_shutdown`). The
-RNG seed draws from the `getentropy` libc import on riscv64 (x86-64 uses the
-`getrandom` syscall instead). [[src/target/linux_riscv64/plan.rs:entry_imports]]
+The entry imports `_exit` (teardown), `write` (the error-report path),
+`clock_gettime` (the arena start time), and — in console mode — `signal` (to install
+the `SIGINT`/`SIGTERM` handlers that run `_mfb_shutdown`). A program that uses
+`math::rand`/`math::seed` also imports `getentropy` for its startup seed (x86-64 uses
+the `getrandom` syscall instead). [[src/target/linux_riscv64/plan.rs:entry_imports]]
 
 ## Static vs dynamic output
 

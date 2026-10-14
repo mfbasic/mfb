@@ -140,7 +140,7 @@ const ALL_PHYS: PhysMask = PhysMask::MAX;
 /// compiled function — its frame saves the callee-saved registers its allocation
 /// used — and names no callee-saved register by hand, except the module-globals
 /// base (`x19`, `r15`, `s11`), which it only reads. Everything they call is the
-/// same: `_mfb_arena_fill_random`, `_mfb_arena_flush_coalesce`,
+/// same: `_mfb_arena_fill_zero`, `_mfb_arena_flush_coalesce`,
 /// `_mfb_arena_insert_free` and `_mfb_arena_free`, plus the OS allocator (`mmap`
 /// by syscall, Win64 `VirtualAlloc`), which preserve callee-saved registers by
 /// their own ABI. `tests/runtime/rt_runtime_helper_callee_saved.rs` re-derives

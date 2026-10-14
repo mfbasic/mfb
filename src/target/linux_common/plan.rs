@@ -105,13 +105,10 @@ impl LinuxPlan<'_> {
         if !self.abi.raw_exit {
             imports.push(self.libc_import("_exit", "_main"));
         }
-        // The program entry always seeds the per-arena memory-fill RNG (entropy
-        // fill is always on, plan-01 §6.5): `getentropy` for the seed — unless the
-        // backend draws entropy from the raw `getrandom` syscall — and
-        // `clock_gettime` for the start time mixed into it.
-        if !self.abi.raw_getrandom {
-            imports.push(self.libc_import("getentropy", "_main"));
-        }
+        // The program entry always captures the arena start time (`clock_gettime`).
+        // `getentropy` is not an entry import: the arena fill is a zero fill and needs
+        // no seed, and every call that does want OS entropy (`math.rand`/`math.seed`,
+        // `crypto.randomBytes`, `fs.createTempFile`) declares its own.
         imports.push(self.libc_import("clock_gettime", "_main"));
         // `signal` installs the SIGINT/SIGTERM handlers that run `_mfb_shutdown`
         // and, since bug-467, the process-wide `SIGPIPE -> SIG_IGN` disposition

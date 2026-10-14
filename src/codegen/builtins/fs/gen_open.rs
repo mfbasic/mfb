@@ -535,7 +535,8 @@ pub(crate) fn lower_fs_open_helper(
         abi::store_u64(abi::ZERO, abi::mfb_return(1), RESOURCE_OFFSET_OWNER),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_STATE),
         // Opt-in per-File output buffer (plan-14-B): a fresh handle is unbuffered.
-        // Arena memory is poisoned, so zero the buffer fields explicitly.
+        // Arena memory is not guaranteed zero (a reused chunk keeps its free-list node
+        // words), so zero the buffer fields explicitly.
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_PTR),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_FILLED),
         abi::store_u64(abi::ZERO, abi::mfb_return(1), FILE_OFFSET_BUF_ENABLED),
