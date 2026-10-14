@@ -77,7 +77,7 @@ r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integ
     LET gdy AS Float = collections::getOr(__CANVAS_DRAW_DY, di, 0.0)
     ' plan-172-G: the entry's group matrix, current for the bounds test and the draw.
     __canvas_enterGroupMatrix(collections::getOr(__CANVAS_DRAW_MAT, di, 0))
-    IF full OR __canvas_boundsMeetOffset(offset, damage, gdx, gdy) THEN
+    IF __canvas_boundsMeetViewport(offset, width, height, gdx, gdy) AND (full OR __canvas_boundsMeetOffset(offset, damage, gdx, gdy)) THEN
       buffer = __canvas_drawGeometry(buffer, width, height, offset, gdx, gdy)
     END IF
     di = di + 1
@@ -340,7 +340,8 @@ FUNC __canvas_noteEntry(offset AS Integer, hash AS Integer, gdx AS Float, gdy AS
   ' for. The geometry was just built on this thread from the live image, so its header
   ' holds the current block.
   MUT drawHash AS Integer = hash
-  IF toInt(__canvas_geoAt(offset, 0)) = __CANVAS_GEO_PICTURE THEN
+  LET imageKind AS Integer = toInt(__canvas_geoAt(offset, 0))
+  IF imageKind = __CANVAS_GEO_PICTURE OR imageKind = __CANVAS_GEO_TILE THEN
     drawHash = __canvas_hashFloat(__canvas_hashFloat(drawHash, __canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)), __canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
   END IF
   drawHash = __canvas_hashFloat(__canvas_hashFloat(drawHash, gdx), gdy)
@@ -509,6 +510,8 @@ MUT __CANVAS_DRAW_MEMO_VARIANT AS List OF Integer = []
 ' one entry per item and still lets the glyph path publish N blocks from one of them.
 MUT __CANVAS_DRAW_INST AS List OF Integer = []
 MUT __CANVAS_DRAW_NEXT_INST AS Integer = 0
+MUT __CANVAS_VIEWPORT_W AS Integer = 0
+MUT __CANVAS_VIEWPORT_H AS Integer = 0
 
 ' How many item-buffer blocks one geometry record occupies.
 ' How many INSTANCES one geometry block publishes. This has to agree, case for case,
@@ -671,18 +674,27 @@ FUNC __canvas_pushDraw(base AS Integer, count AS Integer, dx AS Float, dy AS Flo
   IF count <= 0 THEN
     RETURN
   END IF
+  __canvas_enterGroupMatrix(mat)
   MUT runStart AS Integer = base
+  MUT visible AS Boolean = __canvas_boundsMeetViewport(collections::getOr(__CANVAS_DRAW_BLOCKS, base, 0), __CANVAS_VIEWPORT_W, __CANVAS_VIEWPORT_H, dx, dy)
   MUT i AS Integer = base + 1
   WHILE i < base + count
     LET prev AS Integer = collections::getOr(__CANVAS_DRAW_BLOCKS, i - 1, 0)
     LET here AS Integer = collections::getOr(__CANVAS_DRAW_BLOCKS, i, 0)
-    IF NOT __canvas_drawsJoin(prev, here) THEN
-      __canvas_pushOneDraw(runStart, i - runStart, dx, dy, mat)
+    LET hereVisible AS Boolean = __canvas_boundsMeetViewport(here, __CANVAS_VIEWPORT_W, __CANVAS_VIEWPORT_H, dx, dy)
+    IF hereVisible <> visible OR NOT __canvas_drawsJoin(prev, here) THEN
+      IF visible THEN
+        __canvas_pushOneDraw(runStart, i - runStart, dx, dy, mat)
+      END IF
       runStart = i
+      visible = hereVisible
     END IF
     i = i + 1
   END WHILE
-  __canvas_pushOneDraw(runStart, base + count - runStart, dx, dy, mat)
+  IF visible THEN
+    __canvas_pushOneDraw(runStart, base + count - runStart, dx, dy, mat)
+  END IF
+  __canvas_enterGroupMatrix(0)
 END FUNC
 
 ' One more block of the frame's block list, and the instance it starts at.
@@ -787,6 +799,8 @@ FUNC __canvas_sceneDraws() AS List OF Integer
   ' bug-686: a frame with no group node is laid out natively, in one pass over the
   ' offsets `__canvas_sceneOffsets` resolved -- the walk below, specialised to one run at
   ' no offset. A frame with a group comes back FALSE, untouched, and takes the walk.
+  ' plan-173: both lay out every block and publish draw entries only for the runs in
+  ' the viewport (`__canvas_boundsMeetViewport`, natively `emit_block_visible`).
   IF canvas::sceneDrawsFlat() THEN
     __canvas_drawsVerify()
     RETURN __CANVAS_DRAWS
@@ -1124,7 +1138,7 @@ FUNC __canvas_blockCost(offset AS Integer) AS Integer
   ' bug-484: a picture's texels ride the same region as glyph coverage, one word each --
   ' the region overflowing would make one picture read another's texels, a plausible
   ' wrong image.
-  IF kind = __CANVAS_GEO_PICTURE THEN
+  IF kind = __CANVAS_GEO_PICTURE OR kind = __CANVAS_GEO_TILE THEN
     picture = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)) * __CANVAS_GEO_PICTURE_SPLIT + toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
     samples = __canvas_pictureSamples(offset)
   END IF
@@ -1848,6 +1862,8 @@ FUNC __canvas_renderFrame() AS Nothing
   ' pixels and every consumer below wants them as Integers, so they are read directly.
   LET surfaceW AS Integer = canvas::surfaceWidth()
   LET surfaceH AS Integer = canvas::surfaceHeight()
+  __CANVAS_VIEWPORT_W = surfaceW
+  __CANVAS_VIEWPORT_H = surfaceH
   __canvas_phaseMark(0)
   ' The geometry is built once, here, and the offsets are then handed to whichever
   ' backend draws them. It has to happen before the damage diff rather than inside the
@@ -2248,6 +2264,11 @@ const CLOSE_RETIRED: &str = r#"FUNC __canvas_closeRetired(gone AS List OF DrawIt
         END IF
         ' plan-172-L: and the font of a `Text` it has for a shape.
         __canvas_pictureCloseFont(p, scene)
+      CASE Tile(t)
+        LET ih AS Integer = canvas::imageHandle(t.image)
+        IF ih <> 0 AND NOT __canvas_anythingNamesImage(scene, ih) THEN
+          canvas::destroyImage(t.image)
+        END IF
       CASE Text(t)
         LET fh AS Integer = canvas::fontHandle(t.font)
         IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
@@ -2317,6 +2338,10 @@ FUNC __canvas_listNamesImage(live AS List OF DrawItem, handle AS Integer) AS Boo
     MATCH item
       CASE Picture(p)
         IF canvas::imageHandle(p.image) = handle THEN
+          RETURN TRUE
+        END IF
+      CASE Tile(t)
+        IF canvas::imageHandle(t.image) = handle THEN
           RETURN TRUE
         END IF
       CASE ELSE

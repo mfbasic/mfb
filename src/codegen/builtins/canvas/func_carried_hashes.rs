@@ -70,6 +70,7 @@ pub(crate) fn lower_carried_hashes(
         .clone();
     let text_tag = variant_tag(builder, "Text")?;
     let picture_tag = variant_tag(builder, "Picture")?;
+    let tile_tag = variant_tag(builder, "Tile")?;
     // plan-172-K: an `AutoPaint` may wrap a `Text`, whose hash folds its font's id.
     let auto_tag = variant_tag(builder, "AutoPaint")?;
     // plan-150-A: a `ParticleSystem`'s template may be either of them.
@@ -244,6 +245,8 @@ pub(crate) fn lower_carried_hashes(
     builder.emit(abi::compare_immediate(&lw, &text_tag.to_string()));
     builder.emit(abi::branch_eq(&store));
     builder.emit(abi::compare_immediate(&lw, &picture_tag.to_string()));
+    builder.emit(abi::branch_eq(&store));
+    builder.emit(abi::compare_immediate(&lw, &tile_tag.to_string()));
     builder.emit(abi::branch_eq(&store));
     builder.emit(abi::compare_immediate(&lw, &auto_tag.to_string()));
     builder.emit(abi::branch_eq(&store));

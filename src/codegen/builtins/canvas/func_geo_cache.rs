@@ -1380,6 +1380,52 @@ fn emit_block_instances(
     builder.emit(abi::label(&done));
 }
 
+/// `visible` = `__canvas_boundsMeetViewport(off, width, height, 0.0, 0.0)` with no group
+/// matrix (plan-173): 1 when the block's bounds (slots 16-19) cross the half-open
+/// viewport `[0, width) x [0, height)`, else 0. Each test branches on its TRUE outcome,
+/// so a NaN bound is offscreen here as it is in MFBASIC, where a comparison with NaN is
+/// FALSE.
+fn emit_block_visible(
+    builder: &mut CodeBuilder,
+    data: &VirtualRegister,
+    off: &VirtualRegister,
+    width: &VirtualRegister,
+    height: &VirtualRegister,
+) -> VirtualRegister {
+    let visible = builder.temporary_vreg();
+    let offscreen = builder.label("canvas_draws_offscreen");
+    let done = builder.label("canvas_draws_visible_done");
+    let zero_i = imm(builder, 0);
+    let zero = builder.temporary_fp_vreg();
+    builder.emit(abi::signed_convert_to_float_d(&zero, &zero_i));
+    let at = word_addr(builder, data, off);
+    // x1 > 0, y1 > 0, x0 < width, y0 < height.
+    for (slot, limit, below) in [
+        (18, &zero, false),
+        (19, &zero, false),
+        (16, width, true),
+        (17, height, true),
+    ] {
+        let bound = builder.temporary_fp_vreg();
+        builder.emit(abi::load_double(&bound, &at, slot * 8));
+        let holds = builder.label("canvas_draws_visible_next");
+        builder.emit(abi::float_compare_d(&bound, limit));
+        builder.emit(if below {
+            abi::branch_mi(&holds)
+        } else {
+            abi::branch_gt(&holds)
+        });
+        builder.emit(abi::branch(&offscreen));
+        builder.emit(abi::label(&holds));
+    }
+    builder.emit(abi::move_immediate(&visible, "Integer", "1"));
+    builder.emit(abi::branch(&done));
+    builder.emit(abi::label(&offscreen));
+    builder.emit(abi::move_immediate(&visible, "Integer", "0"));
+    builder.emit(abi::label(&done));
+    visible
+}
+
 /// `canvas::sceneDrawsFlat() AS Boolean`: `__canvas_sceneDraws` for a frame with no
 /// group node, natively — FALSE, having touched nothing, when `__CANVAS_TOP_OFFSETS`
 /// holds a group (-1) and the MFBASIC walk must lay the frame out.
@@ -1390,8 +1436,11 @@ fn emit_block_instances(
 /// stretch `__canvas_drawsJoin` joins — split where the blend mode changes or at a
 /// `Text` block — each `CANVAS_DRAW_ENTRY_WORDS` words, `(instBase, instCount, 0, 0, mode)`
 /// and zeros after (no offset, no matrix), skipped when it publishes no instance
-/// (`__canvas_pushOneDraw`). The memo lists are emptied,
-/// as the walk empties them.
+/// (`__canvas_pushOneDraw`). plan-173: a run also ends where a block's viewport
+/// visibility differs from the one before it (`emit_block_visible`), and an offscreen run
+/// publishes no entry — `__canvas_pushDraw`'s split, so the block list and instance bases
+/// stay those of every block while the GPU draws only the visible ones. The memo lists
+/// are emptied, as the walk empties them.
 fn lower_scene_draws_flat(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
@@ -1403,6 +1452,8 @@ fn lower_scene_draws_flat(
     let blocks_off = global(builder, "CANVAS_DRAW_BLOCKS")?;
     let inst_off = global(builder, "CANVAS_DRAW_INST")?;
     let next_off = global(builder, "CANVAS_DRAW_NEXT_INST")?;
+    let viewport_w_off = global(builder, "CANVAS_VIEWPORT_W")?;
+    let viewport_h_off = global(builder, "CANVAS_VIEWPORT_H")?;
     let memo = [
         global(builder, "CANVAS_DRAW_MEMO_SLOT")?,
         global(builder, "CANVAS_DRAW_MEMO_BASE")?,
@@ -1480,8 +1531,16 @@ fn lower_scene_draws_flat(
     emit_set_count(builder, blocks_off, &n);
     emit_set_count(builder, inst_off, &n);
 
-    // The runs: i from 1 to n inclusive, a run ending at i when i = n or the two blocks
-    // do not join.
+    // plan-173: the viewport `__canvas_renderFrame` stored, as floats for the bounds test.
+    let viewport_w = builder.temporary_fp_vreg();
+    let w = gload(builder, viewport_w_off);
+    builder.emit(abi::signed_convert_to_float_d(&viewport_w, &w));
+    let viewport_h = builder.temporary_fp_vreg();
+    let h = gload(builder, viewport_h_off);
+    builder.emit(abi::signed_convert_to_float_d(&viewport_h, &h));
+
+    // The runs: i from 1 to n inclusive, a run ending at i when i = n, the two blocks
+    // do not join, or one is in the viewport and the other is not.
     let d = imm(builder, 0);
     let run_start = imm(builder, 0);
     let runs = builder.label("canvas_draws_runs");
@@ -1509,10 +1568,20 @@ fn lower_scene_draws_flat(
         let ma = geo_int(builder, &data, &a, 26);
         let mb = geo_int(builder, &data, &b, 26);
         builder.emit(abi::compare_registers(&ma, &mb));
+        builder.emit(abi::branch_ne(&end_run));
+        let va = emit_block_visible(builder, &data, &a, &viewport_w, &viewport_h);
+        let vb = emit_block_visible(builder, &data, &b, &viewport_w, &viewport_h);
+        builder.emit(abi::compare_registers(&va, &vb));
         builder.emit(abi::branch_eq(&continue_run));
     }
     builder.emit(abi::label(&end_run));
     {
+        // An offscreen run publishes nothing; its blocks keep their instance bases.
+        let offscreen = builder.label("canvas_draws_offscreen_run");
+        let first = load_word(builder, &blocks, &run_start, 0);
+        let shown = emit_block_visible(builder, &data, &first, &viewport_w, &viewport_h);
+        builder.emit(abi::compare_immediate(&shown, "0"));
+        builder.emit(abi::branch_eq(&offscreen));
         // instBase = inst[runStart]; instEnd = inst[i] (or the total at i = n).
         let base = load_word(builder, &inst, &run_start, 0);
         let end = builder.temporary_vreg();
@@ -1531,7 +1600,6 @@ fn lower_scene_draws_flat(
         let skip = builder.label("canvas_draws_empty_run");
         builder.emit(abi::compare_immediate(&count, "0"));
         builder.emit(abi::branch_le(&skip));
-        let first = load_word(builder, &blocks, &run_start, 0);
         let mode = geo_int(builder, &data, &first, 26);
         let zero = imm(builder, 0);
         // A flat frame's entry: base, count, the blend mode in word 4, zeros elsewhere.
@@ -1547,6 +1615,7 @@ fn lower_scene_draws_flat(
         }
         builder.emit(abi::add_immediate(&d, &d, CANVAS_DRAW_ENTRY_WORDS));
         builder.emit(abi::label(&skip));
+        builder.emit(abi::label(&offscreen));
         builder.emit(abi::move_register(&run_start, &i));
     }
     builder.emit(abi::label(&continue_run));

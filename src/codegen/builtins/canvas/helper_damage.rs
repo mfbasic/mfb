@@ -222,6 +222,17 @@ FUNC __canvas_boundsMeet(offset AS Integer, damage AS List OF Integer) AS Boolea
   RETURN __canvas_boundsMeetOffset(offset, damage, 0.0, 0.0)
 END FUNC
 
+' plan-173: the one transformed-bounds/viewport predicate used before software
+' rasterisation and while building both GPU draw lists. The viewport is half-open:
+' touching its far edge without crossing it has no pixel in common.
+FUNC __canvas_boundsMeetViewport(offset AS Integer, width AS Integer, height AS Integer, gdx AS Float, gdy AS Float) AS Boolean
+  LET x0 AS Float = __canvas_drawBound(offset, 0, gdx, gdy)
+  LET y0 AS Float = __canvas_drawBound(offset, 1, gdx, gdy)
+  LET x1 AS Float = __canvas_drawBound(offset, 2, gdx, gdy)
+  LET y1 AS Float = __canvas_drawBound(offset, 3, gdx, gdy)
+  RETURN x1 > 0.0 AND y1 > 0.0 AND x0 < toFloat(width) AND y0 < toFloat(height)
+END FUNC
+
 ' plan-116-G: the same test, against bounds translated by an item's accumulated group
 ' offset. `__canvas_boundsMeet` is the no-group case and now delegates, so there is one
 ' rectangle test rather than two that could disagree -- a partial redraw that used the

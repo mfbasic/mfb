@@ -151,6 +151,7 @@ quads|five_thousand_quads|render
 edges|forty_thousand_opaque_edges|render
 gradients|many_gradients|render
 tilemap|tilemap|render
+tile|tile|render
 background|background|render
 polygons|large_polygons|render
 huge|huge_polygon|render

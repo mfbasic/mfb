@@ -124,6 +124,13 @@ LET __CANVAS_GEO_PICTURE AS Integer = 9
 LET __CANVAS_GEO_PICTURE_SHADOW_HI AS Integer = 35
 LET __CANVAS_GEO_PICTURE_SHADOW_LO AS Integer = 36
 LET __CANVAS_GEO_PICTURE_SPLIT AS Integer = 16777216
+' plan-173. A Tile uses the picture image words and rectangle destination slots, with
+' its requested source rectangle in a four-float tail.
+LET __CANVAS_GEO_TILE AS Integer = 13
+LET __CANVAS_GEO_TILE_SRC_X AS Integer = 69
+LET __CANVAS_GEO_TILE_SRC_Y AS Integer = 70
+LET __CANVAS_GEO_TILE_SRC_W AS Integer = 71
+LET __CANVAS_GEO_TILE_SRC_H AS Integer = 72
 ' plan-154-A. A PolyLine: stroke-as-fill like a Line (the stroke colour in the fill
 ' slots, the half-width in the radius slot 6, slot 7 at -1), its segment count in the
 ' aux slot 20 as a polygon's edge count is, and a tail of that many edges in the
@@ -682,6 +689,8 @@ FUNC __canvas_clipOf(item AS DrawItem) AS List OF List OF vector::Float2
     ' plan-172-L: a picture's clip is its shape's, and is written into its records
     ' where they are built (`helper_picture.rs`); it never reaches this.
     CASE Picture(pic)
+      RETURN []
+    CASE Tile(tile)
       RETURN []
     CASE Ellipse(e)
       RETURN __canvas_placedClip(e.paint.clip, __canvas_buildX(e.position, e.transform), __canvas_buildY(e.position, e.transform))
@@ -1554,6 +1563,11 @@ END FUNC
 ' changing the item -- confirmed in `helper_picture.rs`, which the walks hand a picture
 ' to before they get here (`__canvas_appendDraw`, `__canvas_memoGroup`).
 FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
+  MATCH item
+    CASE Tile(tile)
+      RETURN __canvas_tileGeometry(tile, hash)
+    CASE ELSE
+  END MATCH
   LET slot AS Integer = canvas::geoFind(hash)
   IF slot >= 0 THEN
     __canvas_geoStamp(slot)
@@ -1635,6 +1649,8 @@ FUNC __canvas_geometryFor(item AS DrawItem, hash AS Integer) AS Integer
     ' plan-172-L: never reached (see above); the arm keeps MATCH exhaustive, as a
     ' group's does.
     CASE Picture(pic)
+      header = __canvas_emptyHeader()
+    CASE Tile(tile)
       header = __canvas_emptyHeader()
     CASE Ellipse(e)
       header = __canvas_ellipseHeader(e)
@@ -1948,6 +1964,12 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
     ' `AutoPaint`. Every other picture was answered above.
     CASE Picture(pic)
       RETURN __canvas_pictureHash(pic)
+    CASE Tile(tile)
+      MUT h AS Integer = __canvas_hashStart(13)
+      h = __canvas_hashText(h, tile.id)
+      h = __canvas_hashStep(h, canvas::imageHandle(tile.image))
+      h = __canvas_hashPoint(__canvas_hashPoint(__canvas_hashPoint(__canvas_hashPoint(h, tile.srcPosition), tile.srcSize), tile.position), tile.size)
+      RETURN h
     CASE Text(t)
       ' The font id is a resource HANDLE -- an address -- and must be folded in as the
       ' integer it is, never through `__canvas_hashFloat`, whose `value * 65536.0`
@@ -2104,6 +2126,11 @@ FUNC __canvas_geoReference(item AS DrawItem, offset AS Integer) AS List OF Float
     ' built from IS checked, as the item it is, where it is built
     ' (`__canvas_geoVerify`).
     CASE Picture(pic)
+      IF offset < 0 THEN
+        RETURN __canvas_emptyHeader()
+      END IF
+      RETURN collections::mid(__CANVAS_GEO_DATA, offset, toInt(collections::getOr(__CANVAS_GEO_DATA, offset + 1, 0.0)))
+    CASE Tile(tile)
       IF offset < 0 THEN
         RETURN __canvas_emptyHeader()
       END IF

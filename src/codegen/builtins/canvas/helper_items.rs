@@ -775,12 +775,13 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   ' differs, and that is sampled per pixel below. `distKind` is what the distance calls
   ' dispatch on; `kind` keeps saying PICTURE for the fill.
   LET isPicture AS Boolean = kind = __CANVAS_GEO_PICTURE
+  LET isTile AS Boolean = kind = __CANVAS_GEO_TILE
   MUT distKind AS Integer = kind
   MUT picShadow AS Integer = 0
   MUT picW AS Integer = 0
   MUT picH AS Integer = 0
   MUT picStep AS Integer = 0
-  IF isPicture THEN
+  IF isPicture OR isTile THEN
     distKind = __CANVAS_KIND_RECT
     picShadow = toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_HI)) * __CANVAS_GEO_PICTURE_SPLIT + toInt(__canvas_geoAt(offset, __CANVAS_GEO_PICTURE_SHADOW_LO))
     picW = toInt(__canvas_geoAt(offset, 20))
@@ -792,6 +793,16 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   LET picY0 AS Float = p1 - p3
   LET picDW AS Float = p2 * 2.0
   LET picDH AS Float = p3 * 2.0
+  MUT picSX AS Float = 0.0
+  MUT picSY AS Float = 0.0
+  MUT picSW AS Float = toFloat(picW)
+  MUT picSH AS Float = toFloat(picH)
+  IF isTile THEN
+    picSX = __canvas_geoAt(offset, __CANVAS_GEO_TILE_SRC_X)
+    picSY = __canvas_geoAt(offset, __CANVAS_GEO_TILE_SRC_Y)
+    picSW = __canvas_geoAt(offset, __CANVAS_GEO_TILE_SRC_W)
+    picSH = __canvas_geoAt(offset, __CANVAS_GEO_TILE_SRC_H)
+  END IF
 
   ' Arc sweep vectors: per-shape constants, so the only sin/cos in the renderer runs
   ' once per arc rather than once per pixel.
@@ -1004,15 +1015,15 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       ' The index is clamped, not rejected: the antialiased edge pixels just outside the
       ' destination (centre within half a pixel of it) still take coverage, and they
       ' belong to the border texel -- exactly as a rectangle's edge pixels take its fill.
-      IF isPicture THEN
+      IF isPicture OR isTile THEN
         '
         ' bug-1079: the index is `floor(t / d)` corrected by at most one from the exact
         ' products, so it does not hang on the last bit of the quotient. A GPU driver may
         ' round `/` either way (Vulkan allows 2.5 ULP), and where a texel boundary is a
         ' pixel centre -- `t` exactly a whole number of `d` -- that bit chose the texel.
         ' Both shaders' `pictureTexel` take these same three steps.
-        LET picTX AS Float = (qx - picX0) * toFloat(picW)
-        LET picTY AS Float = (qy - picY0) * toFloat(picH)
+        LET picTX AS Float = picSX * picDW + (qx - picX0) * picSW
+        LET picTY AS Float = picSY * picDH + (qy - picY0) * picSH
         MUT tu AS Integer = math::floor(picTX / picDW)
         MUT tv AS Integer = math::floor(picTY / picDH)
         IF toFloat(tu + 1) * picDW <= picTX THEN
@@ -1025,13 +1036,27 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         ELSEIF toFloat(tv) * picDH > picTY THEN
           tv = tv - 1
         END IF
-        tu = __canvas_maxI(__canvas_minI(tu, picW - 1), 0)
-        tv = __canvas_maxI(__canvas_minI(tv, picH - 1), 0)
-        LET texel AS Integer = canvas::shadowTexel(picShadow, tv * picW + tu)
-        gR = __canvas_tintChannel(texel MOD 256, toInt(fillR), fillA)
-        gG = __canvas_tintChannel((texel / 256) MOD 256, toInt(fillG), fillA)
-        gB = __canvas_tintChannel((texel / 65536) MOD 256, toInt(fillB), fillA)
-        gA = __canvas_fadeAlpha(texel / 16777216, picStep)
+        IF isTile AND (tu < 0 OR tv < 0 OR tu >= picW OR tv >= picH) THEN
+          gR = toByte(0)
+          gG = toByte(0)
+          gB = toByte(0)
+          gA = 0
+        ELSE
+          tu = __canvas_maxI(__canvas_minI(tu, picW - 1), 0)
+          tv = __canvas_maxI(__canvas_minI(tv, picH - 1), 0)
+          LET texel AS Integer = canvas::shadowTexel(picShadow, tv * picW + tu)
+          IF isTile THEN
+            gR = toByte(texel MOD 256)
+            gG = toByte((texel / 256) MOD 256)
+            gB = toByte((texel / 65536) MOD 256)
+            gA = texel / 16777216
+          ELSE
+            gR = __canvas_tintChannel(texel MOD 256, toInt(fillR), fillA)
+            gG = __canvas_tintChannel((texel / 256) MOD 256, toInt(fillG), fillA)
+            gB = __canvas_tintChannel((texel / 65536) MOD 256, toInt(fillB), fillA)
+            gA = __canvas_fadeAlpha(texel / 16777216, picStep)
+          END IF
+        END IF
       END IF
       IF gA > 0 THEN
         MUT coverage AS Integer = __canvas_coverage(distance)

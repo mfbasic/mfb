@@ -1399,6 +1399,48 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     pkg.add_record(RegistryRecord {
+        name: "Tile",
+        export: true,
+        description: "A rectangle of an image drawn into a rectangle on the canvas. \
+                      `srcPosition` and `srcSize` select image pixels; `position` and \
+                      `size` place them in canvas coordinates. Scaling uses the nearest \
+                      image pixel. A sample outside the image is transparent, without \
+                      moving or stretching the part that is inside. A nonpositive \
+                      source or destination size draws nothing. A tile has no paint or \
+                      transform of its own; put it in a `canvas::Group` to move, turn, \
+                      scale or shear a map. A `Tile` has no default value because it \
+                      holds an image, so every field is written out.",
+        props: vec![
+            id_prop(),
+            RecordProp {
+                name: "image",
+                ty: ParameterType::res(ParameterType::named("canvas.Image")),
+                description: "The image whose pixels are sampled.",
+            },
+            RecordProp {
+                name: "srcPosition",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The top-left of the requested source rectangle, in image pixels. Fractional coordinates are allowed.",
+            },
+            RecordProp {
+                name: "srcSize",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The width and height of the requested source rectangle, in image pixels. A nonpositive value draws nothing.",
+            },
+            RecordProp {
+                name: "position",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The top-left of the destination rectangle, in canvas coordinates.",
+            },
+            RecordProp {
+                name: "size",
+                ty: ParameterType::named(crate::codegen::builtins::vector::FLOAT2_TYPE_ID),
+                description: "The width and height of the destination rectangle, in canvas coordinates. A nonpositive value draws nothing.",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
         name: "Picture",
         export: true,
         description: "An image drawn inside a shape. The shape says where the picture \
@@ -1560,6 +1602,10 @@ pub(crate) fn register(r: &mut Registry) {
             UnionVariant {
                 name: "ParticleSystem",
                 description: "Many copies of one shape, placed by a rule and a clock.",
+            },
+            UnionVariant {
+                name: "Tile",
+                description: "A rectangle of an image drawn into a rectangle on the canvas.",
             },
         ],
     });
@@ -2549,6 +2595,9 @@ mod tests {
     /// **plan-150-A appended `ParticleSystem`, last, and moved no tag.** It is the
     /// fourteenth variant, after `Group`, among `DrawItem`'s own. The list grew by one
     /// visible entry and the assertion is as exact as it was.
+    ///
+    /// **plan-173 appended `Tile`, last, and moved no tag.** It is paint-free by
+    /// design: the image texel is its colour.
     #[test]
     fn draw_item_variant_set_is_frozen() {
         assert_eq!(
@@ -2568,6 +2617,7 @@ mod tests {
                 "Picture",
                 "Group",
                 "ParticleSystem",
+                "Tile",
             ],
             "the DrawItem variant set is frozen; extending it is a breaking change"
         );
@@ -2701,7 +2751,7 @@ mod tests {
         }
     }
 
-    /// Every *drawable* variant carries a `paint`, which is what makes `Paint` a
+    /// Every *painted* variant carries a `paint`, which is what makes `Paint` a
     /// threaded value rather than ambient state. A variant that forgot it would
     /// silently draw with no way to colour it.
     ///
@@ -2726,11 +2776,16 @@ mod tests {
     /// Both exemptions are explicit lists rather than a property anything could drift
     /// into, so a future variant is not silently excused, and each list is itself
     /// checked against the union so a typo cannot quietly exempt nothing.
+    ///
+    /// **plan-173 added the first paint-free leaf, `Tile`.** Its sampled texel is the
+    /// colour, with no tint or stroke surface. It is checked as an explicit singleton
+    /// so a later paint-free variant cannot bypass this guard accidentally.
     #[test]
     fn every_draw_item_variant_carries_a_paint() {
         /// Variants that are containers rather than shapes: `Group` (plan-116-G) and
         /// `ParticleSystem` (plan-150-A), whose template carries the paint.
         const CONTAINERS: &[&str] = &["Group", "ParticleSystem"];
+        const PAINT_FREE: &[&str] = &["Tile"];
         /// Variants that draw a `shape` they hold, with that shape's paint, and the
         /// union that shape is: `AutoPaint` (plan-172-K) and `Picture` (plan-172-L),
         /// whose shape may itself be an `AutoPaint`.
@@ -2741,7 +2796,11 @@ mod tests {
             .expect("canvas package");
         let all = members("DrawItem");
         let decorators: Vec<&str> = DECORATORS.iter().map(|(name, _)| *name).collect();
-        for name in CONTAINERS.iter().chain(decorators.iter()) {
+        for name in CONTAINERS
+            .iter()
+            .chain(PAINT_FREE.iter())
+            .chain(decorators.iter())
+        {
             assert!(
                 all.contains(name),
                 "`{name}` is exempted from the paint requirement but is not a \
@@ -2761,6 +2820,17 @@ mod tests {
                     "`{variant}` is listed as a container but declares a `paint` field, \
                      which no renderer can honour — either it is a shape and belongs in \
                      the checked set, or the field should go",
+                );
+                continue;
+            }
+            if PAINT_FREE.contains(&variant) {
+                assert!(
+                    !record.props.iter().any(|p| p.name == "paint"),
+                    "`{variant}` is the paint-free image leaf but declares a paint"
+                );
+                assert!(
+                    record.props.iter().any(|p| p.name == "image"),
+                    "`{variant}` is paint-free only because its image supplies colour"
                 );
                 continue;
             }

@@ -83,13 +83,13 @@ one before it (`./mfb spec language types`):
 |---|---|---|
 | `canvas::Shape` | `Rectangle`, `Line`, `Polygon`, `Circle`, `Arc`, `Text`, `Ellipse`, `PolyLine`, `PolyCurve`, `CurvePolygon` | the ten things drawn with a paint of their own; what an `AutoPaint` wraps |
 | `canvas::AutoShape` | `Shape`'s ten, then `AutoPaint` | a shape, plain or decorated |
-| `canvas::DrawItem` | `AutoShape`'s eleven, then `Picture`, `Group`, `ParticleSystem` | what `present` takes |
+| `canvas::DrawItem` | `AutoShape`'s eleven, then `Picture`, `Group`, `ParticleSystem`, `Tile` | what `present` takes |
 
 An included union's members come first, in its own order, so the three share tags:
 
-| Tag | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Variant | `Rectangle` | `Line` | `Polygon` | `Circle` | `Arc` | `Text` | `Ellipse` | `PolyLine` | `PolyCurve` | `CurvePolygon` | `AutoPaint` | `Picture` | `Group` | `ParticleSystem` |
+| Tag | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Variant | `Rectangle` | `Line` | `Polygon` | `Circle` | `Arc` | `Text` | `Ellipse` | `PolyLine` | `PolyCurve` | `CurvePolygon` | `AutoPaint` | `Picture` | `Group` | `ParticleSystem` | `Tile` |
 
 A `Rectangle` is tag 0 in all three unions and an `AutoPaint` tag 10 in the two that
 have it. The order is pinned by three tests, one per union.
@@ -103,6 +103,10 @@ that to `AutoPaint`, `Picture` and `Group`.
 appended to `DrawItem`'s own variants, takes the next tag and moves none. It holds an
 `AutoShape` — never a `DrawItem`, which would be a type cycle — and is expanded into
 ordinary items before anything draws (*Particle systems*, below).
+
+`canvas::Tile` is likewise appended to `DrawItem` rather than `Shape`. It is a
+paint-free image leaf with its own destination rectangle, not something `AutoPaint`
+wraps or `Picture` clips.
 
 `canvas::PolyCurve` and `canvas::CurvePolygon` are the curved counterparts of `PolyLine`
 and `Polygon`: a chain, and closed contours, of `canvas::BezierCurve` — a record of
@@ -909,6 +913,13 @@ mapped whole instead, with no rim to replace: a `Text` run's (its font metrics),
 `Picture`'s (two units about its destination), and an `Arc`'s, whose distance is not
 Lipschitz. The untransformed box is unchanged, and `canvas::geoBuild` builds it bit for
 bit. [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+
+Before any renderer submits or rasterises an item, that surface-space hull is tested
+against the half-open viewport. A hull wholly beyond any edge is skipped; one crossing
+an edge is drawn. The test runs after every enclosing group affine has been composed.
+Culling changes only work for the current frame: it does not remove the item from the
+retained scene, so a later group placement can bring it back into view.
+[[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_FOR]]
 
 The record says how much of its box is rim: header slots 67 (the x sides) and 68 (the y
 sides), in the units the box is in. Untransformed both are the one unit. Under a
@@ -2392,6 +2403,27 @@ An `Image` is an ordinary resource, closing when it leaves scope or with
 `RES canvas::Font`. A `Picture` whose shape is a `Text` names that text's font as well
 — it draws nothing, but it holds the font, and the group ownership rules below count
 it.
+
+### A tile selects an image rectangle
+
+`canvas::Tile` has `id`, `image AS RES canvas::Image`, `srcPosition`, `srcSize`,
+`position` and `size`; the last four fields are `vector::Float2`. It has no paint,
+shape, hit target or per-item transform. A group transform carries it like every other
+item.
+
+The source rectangle is in image pixels and maps directly onto the destination
+rectangle in canvas coordinates. At destination-local point `p`, the sampled image
+coordinate is `srcPosition + p * srcSize / size`, selected by the canvas nearest-pixel
+rule. A coordinate outside `[0, imageWidth) × [0, imageHeight)` contributes transparent
+RGBA; the renderer does not clamp it or stretch the in-bounds remainder. Fractional
+source values are allowed. A nonpositive source or destination extent, or a closed or
+unavailable image, draws nothing.
+
+Tile carries a distinct geometry kind. Its destination uses the rectangle header and
+its four source values follow the fixed header as a tile-only tail; both GPU emitters
+copy them into Tile's otherwise-unused gradient words. The software, Metal and Vulkan
+paths therefore use the same mapping without changing `Picture` semantics.
+[[src/codegen/builtins/canvas/helper_picture.rs:PICTURE]]
 
 ### A picture is drawn inside a shape
 

@@ -1094,6 +1094,13 @@ pub(crate) const GEO_KIND_POLYLINE: &str = "10";
 /// `the_geo_layout_constants_match_their_rust_counterparts` holds the two equal.
 pub(crate) const GEO_KIND_POLYCURVE: &str = "11";
 pub(crate) const GEO_KIND_CURVEPOLYGON: &str = "12";
+/// `__CANVAS_GEO_TILE` — a source rectangle of a `canvas::Image` drawn into a
+/// destination rectangle (plan-173).
+///
+/// Like `Picture`, its texels ride the glyph region. Its four source-rectangle values
+/// follow the fixed geometry header and are copied into the otherwise-unused
+/// `ITEM_OFFSET_GRADIENT` words as 16.16 values for both GPU shaders.
+pub(crate) const GEO_KIND_TILE: &str = "13";
 /// The doubles one piece of a curve record's tail occupies: `x0, y0, x1, y1, x2, y2,
 /// w1` (`__CANVAS_CURVE_PIECE` in `builtins/canvas/helper_curves.rs`, which
 /// `canvas_curve_piece_width_is_pinned` holds equal to this).
@@ -1257,6 +1264,10 @@ pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.
 pub(crate) const HEADER_SLOTS: usize = 69;
+pub(crate) const TILE_SOURCE_X: usize = HEADER_SLOTS;
+pub(crate) const TILE_SOURCE_Y: usize = HEADER_SLOTS + 1;
+pub(crate) const TILE_SOURCE_W: usize = HEADER_SLOTS + 2;
+pub(crate) const TILE_SOURCE_H: usize = HEADER_SLOTS + 3;
 /// bug-1083: `__CANVAS_GEO_RIM` -- how much of the box in `HEADER_BOUNDS` is rim, on its
 /// x sides and (the slot after) on its y sides, in the units the box is in. Zero for a
 /// box that is not an extent and a rim (a glyph run, a picture, an arc).

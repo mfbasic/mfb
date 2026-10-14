@@ -76,7 +76,7 @@ scene (`__canvas_renderMetal` and `__canvas_renderVulkan` in
 items by viewport intersection.
 
 Plan 172 supplies group affine transforms and the picture shape work this plan follows.
-The current renderer uses a shared 67-float geometry header
+The current renderer uses a shared 69-float geometry header
 (`__CANVAS_GEO_HEADER` in `helper_geometry.rs`); slots 55–66 already encode gradient
 state. Tile source coordinates must be carried without widening or reinterpreting the
 header in a way that changes other item kinds. Use a tile-specific geometry tail or
@@ -261,3 +261,9 @@ Commit: —
   the way to move/scale/rotate a map.
 - Viewport culling applies to all canvas items and all renderers, including items inside
   transformed groups.
+
+## Corrections
+
+1. The current geometry header is 69 floats, not 67. `rg -n '__CANVAS_GEO_HEADER AS'
+   src/codegen/builtins/canvas/helper_geometry.rs` reports `69`; Tile therefore starts
+   its four-float source tail at slots 69–72.

@@ -74,10 +74,10 @@ use crate::codegen::runtime::canvas::{
     CANVAS_DRAW_ENTRY_COUNT_SHIFT, CANVAS_DRAW_ENTRY_MODE, CANVAS_DRAW_ENTRY_SHIFT,
     CANVAS_DRAW_PASS_CONTINUES, CANVAS_DRAW_PASS_MORE, CANVAS_DRAW_PASS_WORD, CURVE_PIECE_SLOTS,
     EDGE_SLOTS, FIXED_POINT_SCALE, GEO_KIND_CURVEPOLYGON, GEO_KIND_PICTURE, GEO_KIND_POLYCURVE,
-    GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, GLYPH_META_H, GLYPH_META_SLOTS,
-    GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0, GLYPH_RUN_SLOTS,
-    GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS, HEADER_CAP,
-    HEADER_FILL_R, HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND,
+    GEO_KIND_POLYGON, GEO_KIND_POLYLINE, GEO_KIND_TEXT, GEO_KIND_TILE, GLYPH_META_H,
+    GLYPH_META_SLOTS, GLYPH_META_START, GLYPH_META_W, GLYPH_META_X0, GLYPH_META_Y0,
+    GLYPH_RUN_SLOTS, GRADIENT_STOP_WORDS, HEADER_AUX0, HEADER_AUX1, HEADER_BLEND, HEADER_BOUNDS,
+    HEADER_CAP, HEADER_FILL_R, HEADER_GRADIENT_COUNT, HEADER_GRADIENT_FROM_X, HEADER_GRADIENT_KIND,
     HEADER_HAS_TRANSFORM, HEADER_KIND, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO,
     HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SLOTS, HEADER_STROKE_HALF,
     HEADER_STROKE_R, HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC,
@@ -89,7 +89,8 @@ use crate::codegen::runtime::canvas::{
     ITEM_SURFACE_GRADIENT_KIND, METAL_GLYPH_BASE_WORDS, METAL_GRADIENT_BASE_WORDS,
     METAL_MAX_FRAME_GLYPH_SAMPLES, METAL_MAX_FRAME_GRADIENT_STOPS, METAL_PICTURE_INDEX_OFFSET,
     METAL_PICTURE_INDEX_SLOTS, METAL_PICTURE_RECORDS, METAL_PICTURE_RECORDS_OFFSET,
-    PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS,
+    PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS, TILE_SOURCE_H, TILE_SOURCE_W, TILE_SOURCE_X,
+    TILE_SOURCE_Y,
 };
 use crate::codegen::runtime::canvas::{
     CANVAS_PROFILE_ACQUIRE_NS, CANVAS_PROFILE_BYTES, CANVAS_PROFILE_DRAWS,
@@ -894,7 +895,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float2 radius = dfFixed(item.misc.y, item.miscLo.x);\n",
     "  float2 dx = dfSub(x, cx);\n",
     "  float2 dy = dfSub(y, cy);\n",
-    "  if (kind == 0 || kind == 9) {\n",
+    "  if (kind == 0 || kind == 9 || kind == 13) {\n",
     "    return dfSub(dfRectDistance(dx, dy, ex, ey), radius);\n",
     "  }\n",
     "  if (kind == 1) { return dfSub(dfSub(dfLength(dx, dy), ex), radius); }\n",
@@ -1023,7 +1024,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "    return max(m - slack, 0.0);\n",
     "  }\n",
     "  float d;\n",
-    "  if (kind == 0 || kind == 9) {\n",
+    "  if (kind == 0 || kind == 9 || kind == 13) {\n",
     "    d = rectDistance(p, c, e) - r;\n",
     "  } else if (kind == 1) {\n",
     "    d = length(p - c) - e.x - r;\n",
@@ -1968,6 +1969,11 @@ const METAL_SHADER_BODY: &str = concat!(
     "  if ((u + 1.0) * d <= t) { u += 1.0; } else if (u * d > t) { u -= 1.0; }\n",
     "  return clamp(int(u), 0, n - 1);\n",
     "}\n",
+    "static int tileTexel(float t, float d) {\n",
+    "  float u = floor(t / d);\n",
+    "  if ((u + 1.0) * d <= t) { u += 1.0; } else if (u * d > t) { u -= 1.0; }\n",
+    "  return int(u);\n",
+    "}\n",
     // bug-484: a picture's fill colour at the SHAPE-space point `q` -- its image sampled
     // NEAREST and tinted by the fill (plan-163-C: towards `texel * fill / 255` by
     // `fill.a / 255`, rounded half away from zero, and its alpha faded by the transparency
@@ -2001,6 +2007,23 @@ const METAL_SHADER_BODY: &str = concat!(
     "  }\n",
     "  out.w = (tex.w * (255 - item.clipPath.w) + 127) / 255;\n",
     "  return out;\n",
+    "}\n",
+    // plan-173: the requested source rectangle maps directly; samples outside the image
+    // are transparent instead of clamped or remapped.
+    "static int4 tileColour(constant MfbItem &item, constant int *edges, float2 q) {\n",
+    "  int iw = item.misc.w, ih = item.arc.x;\n",
+    "  if (iw <= 0 || ih <= 0) { return int4(0); }\n",
+    "  float hw = fx(item.shape.z), hh = fx(item.shape.w);\n",
+    "  float x0 = fx(item.shape.x) - hw, y0 = fx(item.shape.y) - hh;\n",
+    "  float dw = hw * 2.0, dh = hh * 2.0;\n",
+    "  float sx = fx(item.gradient.x), sy = fx(item.gradient.y);\n",
+    "  float sw = fx(item.gradient.z), sh = fx(item.gradient.w);\n",
+    "  int u = tileTexel(sx * dw + (q.x - x0) * sw, dw);\n",
+    "  int v = tileTexel(sy * dh + (q.y - y0) * sh, dh);\n",
+    "  if (u < 0 || v < 0 || u >= iw || v >= ih) { return int4(0); }\n",
+    "  uint word = as_type<uint>(edges[METAL_GLYPH_BASE + item.arc.z + v * iw + u]);\n",
+    "  return int4(int(word & 255u), int((word >> 8) & 255u),\n",
+    "              int((word >> 16) & 255u), int((word >> 24) & 255u));\n",
     "}\n",
     // The oracle quantizes coverage to a whole 0..255 and then takes an integer
     // `(colourAlpha * coverage) / 255`. Matching that here rather than blending in
@@ -2097,6 +2120,9 @@ const METAL_SHADER_BODY: &str = concat!(
     // inverse-mapped point under a transform (plan-116-C section 4.5, as a glyph is).
     "  if (item.misc.x == 9) {\n",
     "    fillRgba = pictureColour(item, edges, q);\n",
+    "  }\n",
+    "  if (item.misc.x == 13) {\n",
+    "    fillRgba = tileColour(item, edges, q);\n",
     "  }\n",
     // plan-163-D: a fill alpha of -1 is the stroke record of a split blended item.
     "  float4 colour = item.fill.w < 0 ? float4(0.0) : covered(fillRgba, (cov.x * clipCov) / 255);\n",
@@ -6495,7 +6521,36 @@ fn emit_picture_buffer(asm: &mut Asm) {
     ));
     asm.push(abi::float_convert_to_signed_x(kind, abi::FP_SCRATCH[1]));
     asm.push(abi::compare_immediate(kind, GEO_KIND_PICTURE));
+    let image = format!("{METAL_DRAW_SYMBOL}_picture_image");
+    asm.push(abi::branch_eq(&image));
+    asm.push(abi::compare_immediate(kind, GEO_KIND_TILE));
     asm.push(abi::branch_ne(&done));
+    asm.push(abi::label(&image));
+
+    // Tile has no gradient, so its source rectangle owns these four ItemBlock words.
+    let source_done = format!("{METAL_DRAW_SYMBOL}_tile_source_done");
+    asm.push(abi::compare_immediate(kind, GEO_KIND_TILE));
+    asm.push(abi::branch_ne(&source_done));
+    asm.push(abi::move_immediate(temp, "Integer", FIXED_POINT_SCALE));
+    asm.push(abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], temp));
+    for (index, slot) in [TILE_SOURCE_X, TILE_SOURCE_Y, TILE_SOURCE_W, TILE_SOURCE_H]
+        .into_iter()
+        .enumerate()
+    {
+        asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));
+        asm.push(abi::float_multiply_d(
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[1],
+            abi::FP_SCRATCH[0],
+        ));
+        asm.push(abi::float_round_to_signed_x(temp, abi::FP_SCRATCH[1]));
+        asm.push(abi::store_u32(
+            temp,
+            abi::stack_pointer(),
+            OFF_ITEM + ITEM_OFFSET_GRADIENT + index * 4,
+        ));
+    }
+    asm.push(abi::label(&source_done));
 
     for (register, slot) in [(width, HEADER_AUX0), (height, HEADER_AUX1)] {
         asm.push(abi::load_double(abi::FP_SCRATCH[1], header, slot * 8));

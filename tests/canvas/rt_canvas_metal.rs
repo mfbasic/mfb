@@ -1483,6 +1483,16 @@ fn a_scene_past_four_thousand_gradient_stops_draws_on_metal() {
 /// The scenes in `scenes/` are shared with `scripts/test-canvas-gpu-rows.sh`, which
 /// renders them on Vulkan (bug-688), so both backends are held to the same programs.
 const TILEMAP: &str = include_str!("scenes/tilemap.mfb");
+const TILE: &str = include_str!("scenes/tile.mfb");
+
+#[test]
+fn tile_atlas_regions_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_tile",
+        TILE,
+        "Tile atlas regions including transparent out-of-bounds samples",
+    );
+}
 
 #[test]
 fn a_tilemap_of_two_thousand_tiles_draws_on_metal() {

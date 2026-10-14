@@ -27,7 +27,7 @@
 use crate::codegen::registry::{HelperGate, RegistryHelper, RegistryPackage};
 
 /// The record types whose construction opens this chunk.
-pub(super) const CONSTRUCTED: &[&str] = &["Picture"];
+pub(super) const CONSTRUCTED: &[&str] = &["Picture", "Tile"];
 
 /// Fit, outline and clip intersection.
 ///
@@ -496,7 +496,8 @@ FUNC __canvas_pictureCached(key AS Integer, shadow AS Integer) AS Integer
     RETURN 0 - 1
   END IF
   LET offset AS Integer = collections::getOr(__CANVAS_GEO_SLOTS, slot * 4 + 1, 0)
-  IF toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0)) = __CANVAS_GEO_PICTURE THEN
+  LET kind AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset, 0.0))
+  IF kind = __CANVAS_GEO_PICTURE OR kind = __CANVAS_GEO_TILE THEN
     LET hi AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_PICTURE_SHADOW_HI, 0.0))
     LET lo AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_PICTURE_SHADOW_LO, 0.0))
     IF hi * __CANVAS_GEO_PICTURE_SPLIT + lo <> shadow THEN
@@ -516,6 +517,39 @@ END FUNC
 FUNC __canvas_pictureNothing() AS List OF List OF Float
   LET none AS List OF Float = []
   RETURN [__canvas_emptyHeader(), none]
+END FUNC
+
+' plan-173: one tile record. The destination is an ordinary square-cornered rectangle;
+' the source rectangle is its four-float tail. The image block is confirmed on every
+' cache hit because setBytes changes the pixels without changing the Tile value.
+FUNC __canvas_tileRecord(tile AS Tile, shadow AS Integer, iw AS Integer, ih AS Integer) AS List OF List OF Float
+  IF shadow = 0 OR iw <= 0 OR ih <= 0 OR tile.size.x <= 0.0 OR tile.size.y <= 0.0 OR tile.srcSize.x <= 0.0 OR tile.srcSize.y <= 0.0 THEN
+    RETURN __canvas_pictureNothing()
+  END IF
+  MUT paint AS Paint
+  LET base AS List OF Float = __canvas_rectHeader(tile.position.x, tile.position.y, tile.size.x, tile.size.y, 0.0, paint, __canvas_noTransform(), tile.position.x, tile.position.y)
+  MUT header AS List OF Float = __canvas_pictureStamp(base, paint, shadow, iw, ih)
+  IF toInt(collections::getOr(header, 0, 0.0)) <> __CANVAS_GEO_PICTURE THEN
+    RETURN __canvas_pictureNothing()
+  END IF
+  header = collections::set(header, 0, toFloat(__CANVAS_GEO_TILE))
+  header = collections::set(header, 1, toFloat(__CANVAS_GEO_HEADER + 4))
+  header = collections::set(header, 7, 0.0 - 1.0)
+  header = collections::set(header, 8, 255.0)
+  header = collections::set(header, 9, 255.0)
+  header = collections::set(header, 10, 255.0)
+  header = collections::set(header, 11, 255.0)
+  RETURN [header, [tile.srcPosition.x, tile.srcPosition.y, tile.srcSize.x, tile.srcSize.y]]
+END FUNC
+
+FUNC __canvas_tileGeometry(tile AS Tile, hash AS Integer) AS Integer
+  LET shadow AS Integer = canvas::imageShadow(tile.image)
+  LET cached AS Integer = __canvas_pictureCached(hash, shadow)
+  IF cached >= 0 THEN
+    RETURN cached
+  END IF
+  LET built AS List OF List OF Float = __canvas_tileRecord(tile, shadow, canvas::imageWidthOf(tile.image), canvas::imageHeightOf(tile.image))
+  RETURN __canvas_pictureInsert(hash, built)
 END FUNC
 
 ' bug-484: a rectangle's header made a picture's -- re-kinded, plus what the sampler
@@ -1237,13 +1271,17 @@ FUNC __canvas_pictureNamesFont(pic AS Picture, handle AS Integer) AS Boolean
   RETURN FALSE
 END FUNC
 
+FUNC __canvas_tileGeometry(tile AS Tile, hash AS Integer) AS Integer
+  RETURN 0 - 1
+END FUNC
+
 FUNC __canvas_pictureCloseFont(pic AS Picture, scene AS List OF DrawItem) AS Nothing
 END FUNC"#;
 
 /// The names the unconditional source calls: each is defined once in [`PICTURE`] and
 /// once in [`ABSENT`], and exactly one of the two chunks is in any canvas program.
 #[cfg(test)]
-const HOOKS: [&str; 8] = [
+const HOOKS: [&str; 9] = [
     "__canvas_pictureAppend",
     "__canvas_pictureBlocks",
     "__canvas_pictureAutoBlocks",
@@ -1251,6 +1289,7 @@ const HOOKS: [&str; 8] = [
     "__canvas_pictureHitItem",
     "__canvas_pictureShapeId",
     "__canvas_pictureNamesFont",
+    "__canvas_tileGeometry",
     "__canvas_pictureCloseFont",
 ];
 
@@ -1308,10 +1347,17 @@ mod tests {
     /// A shaped picture's records are never cached under the item's own hash: the
     /// native first pass would then resolve the item to ONE record and the walk that
     /// makes its two entries would never see it. Only the plain path inserts under
-    /// `hash`.
+    /// `hash`. A Tile is also one record and deliberately uses its own item hash; the
+    /// exact count remains pinned so a shaped-picture path cannot join them.
     #[test]
     fn canvas_picture_only_the_plain_record_is_cached_under_the_item_hash() {
-        assert_eq!(PICTURE.matches("__canvas_pictureInsert(hash,").count(), 1);
+        assert_eq!(PICTURE.matches("__canvas_pictureInsert(hash,").count(), 2);
+        let tile = PICTURE
+            .split("FUNC __canvas_tileGeometry")
+            .nth(1)
+            .and_then(|s| s.split("END FUNC").next())
+            .expect("Tile geometry helper");
+        assert_eq!(tile.matches("__canvas_pictureInsert(hash,").count(), 1);
         for line in PICTURE
             .lines()
             .filter(|l| l.contains("__canvas_geometryFor("))

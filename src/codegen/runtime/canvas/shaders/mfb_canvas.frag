@@ -725,7 +725,7 @@ vec2 dfShapeDistance(vec2 x, vec2 y) {
     vec2 radius = dfFixed(item.misc.y, item.miscLo.x);
     vec2 dx = dfSub(x, cx);
     vec2 dy = dfSub(y, cy);
-    if (kind == 0 || kind == 9) {
+    if (kind == 0 || kind == 9 || kind == 13) {
         return dfSub(dfRectDistance(dx, dy, ex, ey), radius);
     }
     if (kind == 1) { return dfSub(dfSub(dfLength(dx, dy), ex), radius); }
@@ -842,7 +842,7 @@ float farBound(vec2 p) {
         return max(m - slack, 0.0);
     }
     float d;
-    if (kind == 0 || kind == 9) {
+    if (kind == 0 || kind == 9 || kind == 13) {
         d = rectDistance(p, c, e) - r;
     } else if (kind == 1) {
         d = length(p - c) - e.x - r;
@@ -1758,6 +1758,12 @@ int pictureTexel(float t, float d, int n) {
     return clamp(int(u), 0, n - 1);
 }
 
+int tileTexel(float t, float d) {
+    float u = floor(t / d);
+    if ((u + 1.0) * d <= t) { u += 1.0; } else if (u * d > t) { u -= 1.0; }
+    return int(u);
+}
+
 // A picture's fill colour at the SHAPE-space point `q`, as an `ivec4` of 0..255
 // (bug-484) — the oracle's picture arm in `helper_items.rs`, operation for operation.
 //
@@ -1796,6 +1802,27 @@ ivec4 pictureColour(vec2 q) {
     }
     outc.w = (tex.w * (255 - item.clipPath.w) + 127) / 255;
     return outc;
+}
+
+// plan-173: direct source-rectangle mapping. Unlike Picture, a sample outside the
+// image is transparent and the surviving portion is not stretched over the destination.
+ivec4 tileColour(vec2 q) {
+    int iw = item.misc.w;
+    int ih = item.arc.x;
+    if (iw <= 0 || ih <= 0) { return ivec4(0); }
+    float x0 = fx(item.shape.x) - fx(item.shape.z);
+    float y0 = fx(item.shape.y) - fx(item.shape.w);
+    float dw = fx(item.shape.z) * 2.0;
+    float dh = fx(item.shape.w) * 2.0;
+    float sx = fx(item.gradient.x);
+    float sy = fx(item.gradient.y);
+    float sw = fx(item.gradient.z);
+    float sh = fx(item.gradient.w);
+    int u = tileTexel(sx * dw + (q.x - x0) * sw, dw);
+    int v = tileTexel(sy * dh + (q.y - y0) * sh, dh);
+    if (u < 0 || v < 0 || u >= iw || v >= ih) { return ivec4(0); }
+    int word = edges.values[GLYPH_BASE + item.arc.z + v * iw + u];
+    return ivec4(word & 255, (word >> 8) & 255, (word >> 16) & 255, (word >> 24) & 255);
 }
 
 float srgbToLinear(float c) {
@@ -2229,6 +2256,9 @@ void main() {
     // shape-space point, the inverse-mapped one under a transform.
     if (item.misc.x == 9) {
         fillRgba = pictureColour(q);
+    }
+    if (item.misc.x == 13) {
+        fillRgba = tileColour(q);
     }
     // plan-163-D: a fill alpha of -1 is the stroke record of a split blended item
     // (`emit_split_or_publish`): no fill here, whatever its colour would be.

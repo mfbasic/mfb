@@ -1,11 +1,12 @@
 use super::*;
 use crate::codegen::runtime::canvas::{
     GEO_KIND_CURVEPOLYGON, GEO_KIND_GROUP, GEO_KIND_PICTURE, GEO_KIND_POLYCURVE, GEO_KIND_POLYGON,
-    GEO_KIND_POLYLINE, GEO_KIND_TEXT, HEADER_CAP, HEADER_CLIP_EDGE_COUNT, HEADER_DASH_COUNT,
-    HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV, HEADER_GRADIENT_INV,
-    HEADER_GRADIENT_SPREAD, HEADER_HAS_TRANSFORM, HEADER_JOIN_COUNT, HEADER_JOIN_REACH,
-    HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYGON_RULE, HEADER_POLYLINE_FIRST,
-    HEADER_POLYLINE_LAST, HEADER_RIM, HEADER_SLOTS, PICTURE_SHADOW_SPLIT_BITS,
+    GEO_KIND_POLYLINE, GEO_KIND_TEXT, GEO_KIND_TILE, HEADER_CAP, HEADER_CLIP_EDGE_COUNT,
+    HEADER_DASH_COUNT, HEADER_GRADIENT_APPLY, HEADER_GRADIENT_FOCAL_X, HEADER_GRADIENT_HAS_INV,
+    HEADER_GRADIENT_INV, HEADER_GRADIENT_SPREAD, HEADER_HAS_TRANSFORM, HEADER_JOIN_COUNT,
+    HEADER_JOIN_REACH, HEADER_PICTURE_SHADOW_HI, HEADER_PICTURE_SHADOW_LO, HEADER_POLYGON_RULE,
+    HEADER_POLYLINE_FIRST, HEADER_POLYLINE_LAST, HEADER_RIM, HEADER_SLOTS,
+    PICTURE_SHADOW_SPLIT_BITS, TILE_SOURCE_H, TILE_SOURCE_W, TILE_SOURCE_X, TILE_SOURCE_Y,
 };
 
 /// The decimal literal `GEO_LAYOUT` binds to `name`.
@@ -75,6 +76,8 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
         // plan-164-A.
         ("__CANVAS_GEO_POLYCURVE", GEO_KIND_POLYCURVE),
         ("__CANVAS_GEO_CURVEPOLYGON", GEO_KIND_CURVEPOLYGON),
+        // plan-173.
+        ("__CANVAS_GEO_TILE", GEO_KIND_TILE),
     ] {
         assert_eq!(
             declared(name).to_string(),
@@ -104,6 +107,19 @@ fn the_geo_layout_constants_match_their_rust_counterparts() {
         declared("__CANVAS_GEO_CLIP_EDGE_COUNT"),
         HEADER_CLIP_EDGE_COUNT
     );
+}
+
+#[test]
+fn the_tile_tail_layout_matches_both_gpu_emitters() {
+    for (name, slot) in [
+        ("__CANVAS_GEO_TILE_SRC_X", TILE_SOURCE_X),
+        ("__CANVAS_GEO_TILE_SRC_Y", TILE_SOURCE_Y),
+        ("__CANVAS_GEO_TILE_SRC_W", TILE_SOURCE_W),
+        ("__CANVAS_GEO_TILE_SRC_H", TILE_SOURCE_H),
+    ] {
+        assert_eq!(declared(name), slot, "{name}");
+    }
+    assert_eq!(TILE_SOURCE_X, HEADER_SLOTS);
 }
 
 /// plan-163-D: the gradient's per-pixel slots sit after every older slot, one each, in

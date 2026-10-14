@@ -65,7 +65,7 @@ const SEED: u64 = 0x1B87_3593_CC9E_2D51;
 /// `ParticleSystem` (plan-150-A), whose `item` is one too -- a whole `DrawItem`, which
 /// may be any of the kinds above; a variant in neither list fails the build rather than
 /// falling to a default nobody chose.
-const HASHED: [&str; 10] = [
+const HASHED: [&str; 11] = [
     "Rectangle",
     "Circle",
     "Line",
@@ -76,6 +76,7 @@ const HASHED: [&str; 10] = [
     "PolyLine",
     "PolyCurve",
     "CurvePolygon",
+    "Tile",
 ];
 const NOT_HASHED: [&str; 4] = ["Text", "Group", "AutoPaint", "ParticleSystem"];
 
