@@ -339,54 +339,83 @@ Acceptance: every UNMEASURED and UNVERIFIED item above has a recorded value and 
 command behind it.
   Check: `grep -c "UNMEASURED\|UNVERIFIED" planning/plan-162-A-font-face-index.md` →
   counts only this Phase 1 text and the Corrections section (est. 1 min).
-Commit: —
+  Result: → 3, all three in this phase's own task/acceptance text.
+Commit: 91f130e1e
 
 ### Phase 2 — build and own the index (no reader uses it yet)
 
-- [ ] `helper_font.rs`: add `__canvas_faceIndex(bytes)` per §4.1, reusing
+- [x] `helper_font.rs`: add `__canvas_faceIndex(bytes)` per §4.1, reusing
       `__canvas_cmapSubtable`/`__canvas_cmap4`/`__canvas_cmap12`/`__canvas_glyphAdvance`/metric
-      readers.
-- [ ] `gen_font.rs`: add `FONT_FACE = RESOURCE_TAIL_START + 8` (= 48, Correction 1), with the same compile-time asserts as `FONT_BYTES`.
-- [ ] `func_load_font.rs`: `__canvas_loadFontBytes` builds the index and calls
+      readers. `__canvas_cmap4`'s segment body became `__canvas_cmap4Segment` and
+      `__canvas_cmap12`'s bound became `__canvas_cmap12Groups`, so the builder and the
+      per-call lookups share them (Correction 7). The probe's sizes are reproduced
+      exactly: Arial 5,361 words, STHeiti 122,707 (`MFB_CANVAS_FACE_DUMP` on
+      `/tmp/p162/dump`), and that two-font program ran in `perf.program` 97.7 ms.
+- [x] `gen_font.rs`: add `FONT_FACE = RESOURCE_TAIL_START + 8` (= 48, Correction 1), with the same compile-time asserts as `FONT_BYTES`.
+- [x] `func_load_font.rs`: `__canvas_loadFontBytes` builds the index and calls
       `canvas::fontFromBytes(face, index)`. `lower_font_from_bytes` stores it at `FONT_FACE`.
-- [ ] `gen_font_table.rs`: stride 24, `emit_register_font(handle, block, face)`, and
-      update `emit_unregister_font` and every slot scan to the new stride.
+- [x] `gen_font_table.rs`: stride 24, `emit_register_font(handle, block, face)`, and
+      update `emit_unregister_font` and every slot scan to the new stride. Every scan
+      already steps by `CANVAS_FONT_SLOT_BYTES`, now 24 with `CANVAS_FONT_SLOT_FACE` = 16
+      (`error_constants.rs`).
 - [x] ~~Free the index on the `FONT_BYTES` free path (Phase 1 finding).~~ — moot: nothing frees `FONT_BYTES` (`func_destroy_font.rs:lower_destroy_font` doc, `.ai/canvas-threading.md` §7 "Close never frees"), so following its path means the index is never freed either. The Phase 2 live-bytes test pins that it is the only thing left behind.
-- [ ] Tests (`tests/canvas/rt_canvas_font.rs`): the index of the fixture font equals
+- [x] Tests (`tests/canvas/rt_canvas_font.rs`): the index of the fixture font equals
       a hand-computed list, reached through an internal-only debug read in a `--debug`
       build, following the `MFB_CANVAS_STATS` precedent. A font with no `head` yields
-      word 1 = 0.
-- [ ] Tests: `tests/canvas/rt_canvas_present_leak.rs`-style load/destroy loop over
+      word 1 = 0. `face_index_of_the_fixture_is_its_own_tables` and
+      `face_index_of_a_font_with_no_head_has_no_units_per_em`, through the new
+      `MFB_CANVAS_FACE_DUMP` (`helper_font.rs:FACE_DUMP_DEBUG`, spec
+      `tooling/09_debug-report.md`) → ok.
+- [x] Tests: `tests/canvas/rt_canvas_present_leak.rs`-style load/destroy loop over
       `arena.0.live_bytes`. Memory cannot stay flat, because a font's bytes, record and
       index are never freed (Correction 2). The check is that each cycle leaves exactly
       those three blocks behind and nothing else: per-cycle growth between N and 2N cycles
       ≤ the font's byte length + 8 × the index's word count + one record + the
       collection headers and allocator rounding. That catches a transient leak in the
       builder, which is the real risk.
+      `a_load_destroy_cycle_keeps_only_the_fonts_own_blocks` asserts it **exactly**: the
+      growth over 40 extra cycles is 40 × 656 bytes (352 bytes block, 192 index block,
+      112 record; Correction 6) → ok. The same program over Arial
+      (`/tmp/p162/cycles.sh`) leaves 773,392 bytes a cycle at `main` and 816,320 here;
+      the difference, 42,928, is exactly 40 + 8 × 5,361, Arial's index block.
 
 Acceptance: the index is built and owned, it rides the bytes' never-freed lifetime and
 leaves nothing else behind per load, nothing reads it, and pixels are unchanged.
   Check: `cargo test --test rt_canvas_font --test rt_canvas_present_leak --test rt_canvas_golden`
   → all pass (est. 5 min).
-Commit: —
+  Result: 36 + 28 + 6 passed, 0 failed (`/tmp/p162/phase2-accept.log`), and
+  `git status --short tests/golden/canvas` → empty.
+Commit: (Phases 2 and 3 landed in one commit, Correction 8)
 
 ### Phase 3 — the in-place accessor
 
-- [ ] `gen_font_table.rs`: `canvas::faceAt(id, i) AS Integer`, `internal_only: true`,
+- [x] `gen_font_table.rs`: `canvas::faceAt(id, i) AS Integer`, `internal_only: true`,
       `errors: []`, and a doc comment carrying the no-aliasing rule and its exit-139
-      history.
-- [ ] `helper_font.rs`: `__canvas_faceGlyph`, `__canvas_faceAdvance`,
+      history. `lower_face_at`; `emit_lookup_font` takes the slot word to read. Added
+      to every backend's `RUNTIME_CALLS`.
+- [x] `helper_font.rs`: `__canvas_faceGlyph`, `__canvas_faceAdvance`,
       `__canvas_faceMetric` per §4.2.
-- [ ] Tests: for every codepoint 0..0x10FFFF, excluding surrogates, in the fixture font
+- [x] Tests: for every codepoint 0..0x10FFFF, excluding surrogates, in the fixture font
       and in one real system font from the Phase 1 probe, `__canvas_faceGlyph` equals
       `__canvas_glyphIndex`. Likewise `__canvas_faceAdvance` equals
       `__canvas_glyphAdvance` for every glyph ID. Run it as a `--debug` scratch
       program in the test.
+      The sweep is `__canvas_faceCheck` (`MFB_CANVAS_FACE_CHECK`, a `--debug`-only hook in
+      `measureText`), over every scalar 0..0x10FFFF except surrogates and every glyph id
+      0..max(65535, highest mapped). Run on: the fixture; a format-4 fixture with delta,
+      wrapping, `idRangeOffset` and shadowed segments; an unsorted, overlapping
+      format-12 fixture (the painted path); and Arial (format 4, 657 runs) and Noto Sans
+      Bamum (format 12). Each test also pins the exact runs where the shape is
+      hand-computable. All report `glyphMismatches=0 advanceMismatches=0
+      metricMismatches=0` (Arial: `mapped=2792 glyphIds=65536 runs=657`, 2.7 s). STHeiti
+      is not in the test: its byte-reader side is a linear scan of 23,495 groups per
+      codepoint, which is the cost the index removes, and ran more than 10 min.
 
 Acceptance: the index answers exactly what the byte readers answer, for every input.
   Check: `cargo test --test rt_canvas_font face_index` → pass (est. 3 min; the
   full-range sweep is the only check that catches a run-merging off-by-one).
-Commit: —
+  Result: 6 passed, 0 failed, 76 s.
+Commit: (with Phase 2, Correction 8)
 
 ### Phase 4 — switch the readers (blast radius last)
 
@@ -476,6 +505,34 @@ Commit: —
    non-goal "16-slot capacity unchanged" now reads "chunk geometry unchanged except the
    slot stride (16 → 24 bytes)". Every scan walks `CANVAS_FONT_SLOT_BYTES`, so the
    stride change is one constant, and `CANVAS_FONT_CHUNK_NEXT` follows from it.
+
+6. **The resource record is 112 bytes, not 96.** §2 quoted `RESOURCE_RECORD_SIZE`
+   as 96 bytes. `error_constants.rs` has `RESOURCE_RECORD_SIZE: &str = "112"`. The
+   live-bytes test budget uses 112, and 16-byte pool rounding (`mfb man debug pools`).
+   The first draft of that test used 96 and 8-byte rounding, came out 32 bytes a cycle
+   high, and the gap was traced to those two numbers, not a leak (`File` cycles flat,
+   `Image` cycles their own blocks only, `main` and this branch differ by exactly the
+   index block).
+7. **`__canvas_cmap4` and `__canvas_cmap12` were refactored, not only reused.** The
+   builder needs format 4's per-segment rule and format 12's group bound without the
+   linear search around them, so `__canvas_cmap4Segment` and `__canvas_cmap12Groups`
+   were lifted out and both the lookups and the builder call them. Behaviour is
+   unchanged (the Phase 3 sweep holds the two together). A format-12 table whose
+   groups are unsorted or overlap takes `__canvas_cmap12Painted`, an O(n log n) paint
+   over the sorted group boundaries. `collections::sort` cannot be called from canvas
+   helpers (`error: NIR call target '#collections_sort' does not resolve`), so the
+   merge sort is `__canvas_sortedDistinct`.
+8. **Phases 2 and 3 share one commit.** Phase 3's sweep needs Phase 2's dump and index
+   in place, and the two touch the same functions in `helper_font.rs` and
+   `gen_font_table.rs`. They were verified separately (Phase 2's acceptance, then
+   Phase 3's) and committed together. The bug-756 test
+   `canvas::tests::canvas_text_has_one_glyph_walk` was extended in the same commit:
+   (1) written by bug-756; (2) it protects "only `__canvas_shapeRun` turns
+   codepoints into glyph ids or advances"; (3) nothing else depends on it; (4) the
+   new `__canvas_faceCheck` calls the byte readers only to compare them with the
+   index. The rule is kept and strengthened: `__canvas_faceGlyph` and
+   `__canvas_faceAdvance` are now guarded too, and the oracle is named as the one
+   exemption.
 
 ## Summary
 

@@ -2272,3 +2272,499 @@ END FUNC
     );
     assert_eq!(lines, vec!["bold is wider".to_string()]);
 }
+
+// ---------------------------------------------------------------------------------------
+// plan-162-A: the parse-once face index.
+//
+// `canvas::loadFont` parses the metrics, the `cmap` and the advances once, into a flat
+// `List OF Integer` the `Font` resource owns. Nothing hands that list back to a program,
+// so a `--debug` build run with `MFB_CANVAS_FACE_DUMP=<file>` appends one `face …` line per
+// load: the window these tests read it through (the `MFB_CANVAS_STATS` precedent).
+
+/// Build `source` as a `--debug` app with `files` beside it, run it headless with `env`
+/// (`{project}` in a value is the project directory), and return its stdout, its stderr
+/// and the project directory, which the caller removes. Panics on a non-zero exit.
+fn run_debug_files(
+    name: &str,
+    source: &str,
+    files: &[(&str, Vec<u8>)],
+    env: &[(&str, String)],
+) -> (String, String, std::path::PathBuf) {
+    let project = common::temp_project(name, source);
+    for (file, bytes) in files {
+        std::fs::write(project.join(file), bytes).expect("write a fixture file");
+    }
+    let binary = common::build_app_debug(&project, name);
+    let mut command = Command::new(&binary);
+    command.current_dir(&project).env("MFB_HEADLESS", "1");
+    for (key, value) in env {
+        command.env(
+            key,
+            value.replace("{project}", &project.display().to_string()),
+        );
+    }
+    let out = command
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(
+        out.status.success(),
+        "program {}:\n{stdout}\n{stderr}",
+        common::exit_description(&out.status),
+    );
+    (stdout, stderr, project)
+}
+
+/// The face index of every font `source` loads from `files`, one `Vec` per load.
+fn face_dumps(name: &str, source: &str, files: &[(&str, Vec<u8>)]) -> Vec<Vec<i64>> {
+    let (_, _, project) = run_debug_files(
+        name,
+        source,
+        files,
+        &[("MFB_CANVAS_FACE_DUMP", "{project}/face.txt".to_string())],
+    );
+    let text = std::fs::read_to_string(project.join("face.txt")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&project);
+    text.lines()
+        .map(|line| {
+            let mut words = line.split(' ');
+            assert_eq!(
+                words.next(),
+                Some("face"),
+                "a dump line is `face …`: {line}"
+            );
+            words.map(|w| w.parse().expect("an index word")).collect()
+        })
+        .collect()
+}
+
+/// `font` with the table directory's `from` tag renamed `to`, so `__canvas_fontTable`
+/// no longer finds it: the cheapest way to build "a font with no `head`".
+fn rename_table(font: &[u8], from: &[u8; 4], to: &[u8; 4]) -> Vec<u8> {
+    let mut out = font.to_vec();
+    let tables = u16::from_be_bytes([font[4], font[5]]) as usize;
+    let at = (0..tables)
+        .map(|i| 12 + i * 16)
+        .find(|&rec| &font[rec..rec + 4] == from)
+        .expect("the fixture carries the table");
+    out[at..at + 4].copy_from_slice(to);
+    out
+}
+
+const LOAD_FIXTURE: &str = r#"IMPORT app
+IMPORT canvas
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+END FUNC
+"#;
+
+/// The fixture's index, word for word, from its own tables: `head.unitsPerEm` 1000,
+/// `hhea` 800 / −200 / 100, a format-12 `cmap` mapping `A`→1 and `B`→2 (two runs of
+/// delta −64), and three `hmtx` advances.
+#[test]
+fn face_index_of_the_fixture_is_its_own_tables() {
+    let dumps = face_dumps(
+        "canvas_face_index_fixture",
+        LOAD_FIXTURE,
+        &[("fixture.ttf", minimal_truetype())],
+    );
+    assert_eq!(
+        dumps,
+        vec![vec![
+            1, 1000, 800, -200, 100, // version, unitsPerEm, ascent, descent, lineGap
+            2, 9, 3, 15, // R at word 9, H at word 15
+            65, 65, -64, 66, 66, -64, // the runs
+            500, 250, 300, // the advances
+        ]],
+    );
+}
+
+/// A font with no `head` has no scale: word 1 is 0, which every reader takes as "draws
+/// and measures as nothing" — the answer `__canvas_fontUnitsPerEm` gives it. The rest of
+/// the index is still the font's.
+#[test]
+fn face_index_of_a_font_with_no_head_has_no_units_per_em() {
+    let headless = rename_table(&minimal_truetype(), b"head", b"hxad");
+    let dumps = face_dumps(
+        "canvas_face_index_no_head",
+        LOAD_FIXTURE,
+        &[("fixture.ttf", headless)],
+    );
+    assert_eq!(
+        dumps,
+        vec![vec![
+            1, 0, 800, -200, 100, 2, 9, 3, 15, 65, 65, -64, 66, 66, -64, 500, 250, 300
+        ]],
+    );
+}
+
+/// `font` with table `tag`'s contents replaced by `data`, the directory and every table
+/// offset rebuilt so the file stays well formed.
+fn replace_table(font: &[u8], tag: &[u8; 4], data: &[u8]) -> Vec<u8> {
+    let count = u16::from_be_bytes([font[4], font[5]]) as usize;
+    let be32 = |at: usize| u32::from_be_bytes([font[at], font[at + 1], font[at + 2], font[at + 3]]);
+    let mut tables: Vec<([u8; 4], Vec<u8>)> = (0..count)
+        .map(|i| {
+            let rec = 12 + i * 16;
+            let mut t = [0u8; 4];
+            t.copy_from_slice(&font[rec..rec + 4]);
+            let (at, len) = (be32(rec + 8) as usize, be32(rec + 12) as usize);
+            (t, font[at..at + len].to_vec())
+        })
+        .collect();
+    let slot = tables
+        .iter_mut()
+        .find(|(t, _)| t == tag)
+        .expect("the fixture carries the table");
+    slot.1 = data.to_vec();
+    let mut out = font[..12].to_vec();
+    let mut offset = 12 + 16 * count;
+    let mut body = Vec::new();
+    for (t, bytes) in &tables {
+        out.extend(t);
+        out.extend(0u32.to_be_bytes());
+        out.extend((offset as u32).to_be_bytes());
+        out.extend((bytes.len() as u32).to_be_bytes());
+        let padded = bytes.len().div_ceil(4) * 4;
+        body.extend(bytes);
+        body.resize(body.len() + padded - bytes.len(), 0);
+        offset += padded;
+    }
+    out.extend(body);
+    out
+}
+
+/// A `cmap` holding one subtable, built from its body.
+fn cmap_with(platform: u16, encoding: u16, subtable: Vec<u8>) -> Vec<u8> {
+    let mut cmap = Vec::new();
+    cmap.extend(0u16.to_be_bytes()); // version
+    cmap.extend(1u16.to_be_bytes()); // numTables
+    cmap.extend(platform.to_be_bytes());
+    cmap.extend(encoding.to_be_bytes());
+    cmap.extend(12u32.to_be_bytes()); // the subtable follows this one record
+    cmap.extend(subtable);
+    cmap
+}
+
+/// A format-4 segment: `start..=end`, `delta`, and either no glyph array (the glyph is
+/// `cp + delta`, mod 65536) or one entry per codepoint (an `idRangeOffset` segment).
+struct Segment {
+    start: u16,
+    end: u16,
+    delta: i16,
+    glyphs: Option<Vec<u16>>,
+}
+
+/// A format-4 subtable with `segments` in exactly the order given — sorted or not.
+fn cmap4(segments: &[Segment]) -> Vec<u8> {
+    let segs = segments.len();
+    let mut ends = Vec::new();
+    let mut starts = Vec::new();
+    let mut deltas = Vec::new();
+    let mut ranges = Vec::new();
+    let mut array: Vec<u8> = Vec::new();
+    for (i, seg) in segments.iter().enumerate() {
+        ends.extend(seg.end.to_be_bytes());
+        starts.extend(seg.start.to_be_bytes());
+        deltas.extend(seg.delta.to_be_bytes());
+        match &seg.glyphs {
+            None => ranges.extend(0u16.to_be_bytes()),
+            Some(glyphs) => {
+                // Bytes from this segment's own `idRangeOffset` word to its glyphs.
+                let offset = (segs - i) * 2 + array.len();
+                ranges.extend((offset as u16).to_be_bytes());
+                for g in glyphs {
+                    array.extend(g.to_be_bytes());
+                }
+            }
+        }
+    }
+    let mut body = Vec::new();
+    body.extend(4u16.to_be_bytes()); // format
+    let length = 16 + segs * 8 + array.len();
+    body.extend((length as u16).to_be_bytes());
+    body.extend(0u16.to_be_bytes()); // language
+    body.extend(((segs * 2) as u16).to_be_bytes());
+    body.extend([0u8; 6]); // searchRange, entrySelector, rangeShift — unread
+    body.extend(ends);
+    body.extend(0u16.to_be_bytes()); // reservedPad
+    body.extend(starts);
+    body.extend(deltas);
+    body.extend(ranges);
+    body.extend(array);
+    body
+}
+
+/// A format-12 subtable whose groups are `(first, last, startGlyph)` in the order given.
+fn cmap12(groups: &[(u32, u32, u32)]) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend(12u16.to_be_bytes());
+    body.extend(0u16.to_be_bytes());
+    body.extend(((16 + 12 * groups.len()) as u32).to_be_bytes());
+    body.extend(0u32.to_be_bytes()); // language
+    body.extend((groups.len() as u32).to_be_bytes());
+    for (first, last, glyph) in groups {
+        body.extend(first.to_be_bytes());
+        body.extend(last.to_be_bytes());
+        body.extend(glyph.to_be_bytes());
+    }
+    body
+}
+
+/// Run the `--debug` face self-check over `font`: `measureText` with
+/// `MFB_CANVAS_FACE_CHECK` set compares the index readers with the byte readers for every
+/// scalar and glyph id. Returns the `faceCheck …` line and the font's index.
+fn face_check(name: &str, font: Vec<u8>) -> (String, Vec<i64>) {
+    let source = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+  io::print(toString(canvas::measureText(f, 10.0, "A").width))
+END FUNC
+"#;
+    let (_, _, project) = run_debug_files(
+        name,
+        source,
+        &[("fixture.ttf", font)],
+        &[
+            ("MFB_CANVAS_FACE_CHECK", "{project}/check.txt".to_string()),
+            ("MFB_CANVAS_FACE_DUMP", "{project}/face.txt".to_string()),
+        ],
+    );
+    let check = std::fs::read_to_string(project.join("check.txt")).unwrap_or_default();
+    let face = std::fs::read_to_string(project.join("face.txt")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&project);
+    let index = face
+        .split_whitespace()
+        .skip(1)
+        .map(|w| w.parse().expect("an index word"))
+        .collect();
+    (check.trim().to_string(), index)
+}
+
+/// Assert a self-check line found no mismatch, and return its `mapped=` count.
+fn assert_check_clean(check: &str) -> i64 {
+    for field in [
+        "glyphMismatches=0",
+        "advanceMismatches=0",
+        "metricMismatches=0",
+    ] {
+        assert!(
+            check.split(' ').any(|f| f == field),
+            "the index disagrees with the byte readers: `{check}`"
+        );
+    }
+    check
+        .split(' ')
+        .find_map(|f| f.strip_prefix("mapped="))
+        .and_then(|n| n.parse().ok())
+        .unwrap_or_else(|| panic!("no `mapped=` in `{check}`"))
+}
+
+/// The fixture's index answers what its bytes do, for every scalar and glyph id.
+#[test]
+fn face_index_answers_the_fixture_exactly() {
+    let (check, _) = face_check("canvas_face_index_sweep_fixture", minimal_truetype());
+    assert_eq!(
+        assert_check_clean(&check),
+        2,
+        "`A` and `B` are mapped: `{check}`"
+    );
+}
+
+/// Format 4, every way a segment can answer: delta segments, a delta that wraps past
+/// 65,535, `idRangeOffset` segments whose array holds a `0` (unmapped) amid real ids, a
+/// segment starting above the end of the one before (the gap reads 0), and a segment
+/// listed after one whose endCode already covers it — so `__canvas_cmap4`'s "first
+/// segment whose endCode reaches the codepoint" rule, not the file order, decides who
+/// answers.
+#[test]
+fn face_index_answers_a_format_4_cmap_exactly() {
+    let segments = [
+        Segment {
+            start: 0x41,
+            end: 0x5a,
+            delta: -0x40,
+            glyphs: None,
+        },
+        // An array segment: `0` is unmapped, the rest get the delta added.
+        Segment {
+            start: 0x60,
+            end: 0x66,
+            delta: 3,
+            glyphs: Some(vec![9, 0, 9, 10, 11, 0, 40]),
+        },
+        // Wraps: 0xfff0 + 0x20 = 0x10010 → glyph 0x10, and 0xfffe → 0x1e.
+        Segment {
+            start: 0xfff0,
+            end: 0xfffe,
+            delta: 0x20,
+            glyphs: None,
+        },
+        // Shadowed: its endCode (0x50) is below 0x5a, so the first segment answers it.
+        Segment {
+            start: 0x48,
+            end: 0x50,
+            delta: 100,
+            glyphs: None,
+        },
+        // Reaches back below the wrap segment's start; only 0xffff is its own.
+        Segment {
+            start: 0x70,
+            end: 0xffff,
+            delta: 1,
+            glyphs: None,
+        },
+    ];
+    let font = replace_table(
+        &minimal_truetype(),
+        b"cmap",
+        &cmap_with(3, 1, cmap4(&segments)),
+    );
+    let (check, index) = face_check("canvas_face_index_sweep_cmap4", font);
+    // 26 letters, 5 of the array's 7, 15 wrapped, and 0xffff + 1 = 0x10000, which wraps to
+    // glyph 0: unmapped.
+    assert_eq!(assert_check_clean(&check), 26 + 5 + 15, "`{check}`");
+    let runs = index[5] as usize;
+    let at = index[6] as usize;
+    assert_eq!(
+        &index[at..at + runs * 3],
+        &[
+            0x41,
+            0x5a,
+            -0x40, // the letters
+            0x60,
+            0x60,
+            -0x54, // 0x60 → 12
+            0x62,
+            0x64,
+            -0x56, // 0x62..0x64 → 12..14: one delta, one run
+            0x66,
+            0x66,
+            -0x3b, // 0x66 → 43
+            0xfff0,
+            0xfffe,
+            0x20 - 0x10000, // the wrapped run, delta mod 65536
+        ],
+        "format-4 runs",
+    );
+}
+
+/// Format 12 whose groups overlap, go backwards and include an empty one: still "the
+/// first group that contains the codepoint", settled by `__canvas_cmap12Painted`.
+#[test]
+fn face_index_answers_an_unsorted_overlapping_format_12_cmap_exactly() {
+    let groups = [
+        (100, 200, 1000),
+        (150, 300, 2000), // 150..200 is the first group's
+        (50, 120, 3000),  // only 50..99 is its own
+        (400, 399, 5),    // empty: last before first
+        (250, 260, 7000), // inside the second group: none of it is its own
+        (500, 600, 10),
+        (90, 95, 4000), // inside the third group: none of it is its own
+    ];
+    let font = replace_table(
+        &minimal_truetype(),
+        b"cmap",
+        &cmap_with(3, 10, cmap12(&groups)),
+    );
+    let (check, index) = face_check("canvas_face_index_sweep_cmap12_painted", font);
+    assert_eq!(
+        assert_check_clean(&check),
+        (200 - 50 + 1) + (300 - 200) + (600 - 500 + 1),
+        "`{check}`"
+    );
+    let runs = index[5] as usize;
+    let at = index[6] as usize;
+    assert_eq!(
+        &index[at..at + runs * 3],
+        &[50, 99, 2950, 100, 200, 900, 201, 300, 1850, 500, 600, -490],
+        "painted format-12 runs",
+    );
+}
+
+/// A real font holds its index to its bytes for every scalar and glyph id: a format-4
+/// face with hundreds of runs and `idRangeOffset` segments, and a format-12 face. The
+/// fixture fonts above pin each rule; these pin the rules against what shipping fonts
+/// actually contain. macOS only, where the files are known to exist.
+#[cfg(target_os = "macos")]
+#[test]
+fn face_index_answers_real_system_fonts_exactly() {
+    for (name, path) in [
+        (
+            "canvas_face_index_sweep_arial",
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+        ),
+        (
+            "canvas_face_index_sweep_bamum",
+            "/System/Library/Fonts/Supplemental/NotoSansBamum-Regular.ttf",
+        ),
+    ] {
+        let Ok(font) = std::fs::read(path) else {
+            eprintln!("skipping {path}: not installed on this host");
+            continue;
+        };
+        let (check, _) = face_check(name, font);
+        assert!(assert_check_clean(&check) > 0, "{path}: `{check}`");
+    }
+}
+
+/// `arena.0.live_bytes` at exit for `cycles` load/destroy cycles of the fixture font.
+fn live_after_cycles(cycles: usize) -> u64 {
+    let source = r#"IMPORT app
+IMPORT canvas
+
+FUNC cycle() AS Nothing
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+  canvas::destroyFont(f)
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    cycle()
+    i = i + 1
+  END WHILE
+END FUNC
+"#
+    .replace("{N}", &cycles.to_string());
+    let name = format!("canvas_face_index_cycles_{cycles}");
+    let (_, stderr, project) =
+        run_debug_files(&name, &source, &[("fixture.ttf", minimal_truetype())], &[]);
+    let _ = std::fs::remove_dir_all(&project);
+    let lines = common::debug_report::arena_lines(&name, &stderr);
+    common::debug_report::counter(&name, &lines, 0, "live_bytes")
+}
+
+/// A load/destroy cycle leaves behind exactly what a closed font keeps — its bytes, its
+/// face index and its record, none of which a close frees (`.ai/canvas-threading.md` §7)
+/// — and nothing the index's construction allocated along the way. `live_bytes` is an
+/// exact count, so the growth must be exactly those three blocks: each collection is its
+/// 40-byte header plus its payload, the record is `RESOURCE_RECORD_SIZE` (112), and the
+/// pool rounds every request to 16 bytes (`mfb man debug pools`). A builder that leaked one
+/// intermediate list per load — the cmap runs, the advances, the header — breaks it.
+#[test]
+fn a_load_destroy_cycle_keeps_only_the_fonts_own_blocks() {
+    const FEW: usize = 40;
+    const MANY: usize = 80;
+    let font = minimal_truetype().len() as u64;
+    let words = 18u64; // the fixture's index, `face_index_of_the_fixture_is_its_own_tables`
+    let round = |n: u64| n.div_ceil(16) * 16;
+    let per_cycle = round(40 + font) + round(40 + 8 * words) + 112;
+    let few = live_after_cycles(FEW);
+    let many = live_after_cycles(MANY);
+    let grew = many.saturating_sub(few);
+    assert_eq!(
+        grew,
+        per_cycle * (MANY - FEW) as u64,
+        "{FEW} cycles left {few} live bytes and {MANY} left {many}; each cycle must keep \
+         exactly a closed font's bytes, index and record, {per_cycle} bytes",
+    );
+}

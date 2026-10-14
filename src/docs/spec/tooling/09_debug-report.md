@@ -167,6 +167,8 @@ so a normal build ignores them. This section is the canonical list.
 | --- | --- | --- |
 | `MFB_CANVAS_STATS` | canvas | appends one line of renderer counters (`generations=`, `frames=`, `skipped=`, `damage=`, ...) to the named file for every rendered or skipped frame; its timing fields are under "The canvas frame profile" below |
 | `MFB_CANVAS_DUMP` | canvas | writes each presented frame's raw RGBA8 bytes to the named file, overwriting it |
+| `MFB_CANVAS_FACE_DUMP` | canvas | appends one line per loaded font to the named file: `face` and then every word of the font's face index, the parse-once form of its metrics, `cmap` and advances [[src/codegen/builtins/canvas/helper_font.rs:FACE_DUMP_DEBUG]] |
+| `MFB_CANVAS_FACE_CHECK` | canvas | on each `canvas::measureText`, holds the measured font's face index to its font bytes for every Unicode scalar, every glyph id and the four metrics, and appends `faceCheck glyphMismatches=… advanceMismatches=… metricMismatches=… mapped=… glyphIds=… runs=…` to the named file. It costs seconds per call on a large font |
 | `MFB_TRANSCRIPT_DUMP` | app (macOS, Linux GTK, Windows), windowed run | when the program finishes, writes the transcript window's text to stdout and exits with the program's exit code, instead of appending `Program exited with code N` and keeping the window open |
 
 `MFB_TRANSCRIPT_DUMP` output is UTF-8 on macOS and Linux GTK and raw UTF-16 on

@@ -64,6 +64,7 @@ END FUNC
 const MEASURE_TEXT: &str =
 r#"FUNC __canvas_measureText(font AS canvas::Font, size AS Float, text AS String) AS TextMetrics
   LET handle AS Integer = canvas::fontOpenHandle(font)
+  __canvas_faceCheck(handle)
   LET b AS List OF Byte = __canvas_fontBlob(handle)
   LET upem AS Integer = __canvas_fontUnitsPerEm(b)
   IF upem <= 0 THEN

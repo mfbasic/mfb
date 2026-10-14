@@ -2981,8 +2981,10 @@ mod tests {
 
     /// Every variable only a `--debug` build's canvas source reads: the reporting hooks
     /// and the switches a test sets to drive or observe a headless run.
-    const DEBUG_ONLY_VARIABLES: [&str; 9] = [
+    const DEBUG_ONLY_VARIABLES: [&str; 11] = [
         "MFB_CANVAS_STATS",
+        "MFB_CANVAS_FACE_DUMP",
+        "MFB_CANVAS_FACE_CHECK",
         "MFB_CANVAS_DUMP",
         "MFB_CANVAS_POINTER",
         "MFB_CANVAS_AUTO_WINDOW_MS",
@@ -3072,9 +3074,17 @@ mod tests {
                 if code.starts_with('\'') {
                     continue;
                 }
+                // plan-162-A: the face-index readers are the per-glyph readers too —
+                // `__canvas_shapeRun` reads through them — so they are held to the same
+                // rule. `__canvas_faceCheck` is the one other caller: the `--debug`
+                // oracle that holds each index reader to the byte reader it replaced,
+                // for every codepoint. It turns no text into glyphs.
                 let calls = code.contains("__canvas_glyphIndex(")
-                    || code.contains("__canvas_glyphAdvance(");
-                if calls && current != "__canvas_shapeRun" && !offenders.contains(&current) {
+                    || code.contains("__canvas_glyphAdvance(")
+                    || code.contains("__canvas_faceGlyph(")
+                    || code.contains("__canvas_faceAdvance(");
+                let allowed = current == "__canvas_shapeRun" || current == "__canvas_faceCheck";
+                if calls && !allowed && !offenders.contains(&current) {
                     offenders.push(current.clone());
                 }
             }

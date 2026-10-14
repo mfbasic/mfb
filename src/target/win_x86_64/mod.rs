@@ -183,6 +183,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.measureText",
     "canvas.fontRegistered",
     "canvas.fontBlobUnchecked",
+    "canvas.faceAt",
     "canvas.getSize",
     "canvas.didResize",
     "canvas.frameNanos",

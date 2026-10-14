@@ -11,7 +11,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::gen_font::FONT_BYTES;
+use super::gen_font::{FONT_BYTES, FONT_FACE};
 
 const INTRO: &str = r#"Load a TrueType font file and hold it as a `Font` resource."#;
 
@@ -107,7 +107,11 @@ FUNC __canvas_loadFontBytes(path AS String, bytes AS List OF Byte, dir AS Intege
       FAIL error(77050022, "font unitsPerEm is outside 16..16384: " & path)
     END IF
   END IF
-  RETURN canvas::fontFromBytes(face)
+  ' Parsed once, here, on the worker: the metrics, cmap and advances every string reads
+  ' (plan-162-A). The resource owns the result and publishes it beside the bytes.
+  LET index AS List OF Integer = __canvas_faceIndex(face)
+  __canvas_faceDump(index)
+  RETURN canvas::fontFromBytes(face, index)
 END FUNC"#;
 
 /// `canvas::loadFont(path, face)` — load one named face of a file (plan-148-A).
@@ -265,7 +269,11 @@ r#"FUNC __canvas_isTrueType(bytes AS List OF Byte) AS Boolean
   RETURN FALSE
 END FUNC"#;
 
-/// `canvas::fontFromBytes(bytes) AS Font` — stamp the resource record.
+/// `canvas::fontFromBytes(bytes, face) AS Font` — stamp the resource record.
+///
+/// `face` is the face index `__canvas_faceIndex` built from `bytes` (plan-162-A). Both
+/// are copied into runtime-owned blocks, stored at `FONT_BYTES` and `FONT_FACE`, and
+/// published together in the font table.
 ///
 /// The image twin of this is inside `createImage`; here it is a member of its own
 /// because the *reading* half is MFBASIC and only the record stamping needs an
@@ -283,12 +291,19 @@ pub(crate) fn lower_font_from_bytes(
         .ok_or_else(|| format!("'{symbol}' expects the font bytes"))?
         .location
         .clone();
+    let face_in = args
+        .get(1)
+        .ok_or_else(|| format!("'{symbol}' expects the face index"))?
+        .location
+        .clone();
 
     let alloc_ok = builder.label("canvas_font_alloc_ok");
     let done = builder.label("canvas_font_done");
 
     let bytes_slot = builder.allocate_stack_object("canvas_font_bytes", 8);
     builder.emit(abi::store_u64(&bytes_in, abi::stack_pointer(), bytes_slot));
+    let face_in_slot = builder.allocate_stack_object("canvas_font_face_in", 8);
+    builder.emit(abi::store_u64(&face_in, abi::stack_pointer(), face_in_slot));
 
     // Copy the file into runtime-owned storage. `copy_flat_block` on a collection is
     // shrink-to-fit, so the resource carries no caller headroom — which matters more
@@ -299,6 +314,19 @@ pub(crate) fn lower_font_from_bytes(
     let owned = builder.copy_flat_block(&byte_list, &source)?;
     let owned_slot = builder.allocate_stack_object("canvas_font_owned", 8);
     builder.emit(abi::store_u64(&owned, abi::stack_pointer(), owned_slot));
+    // The face index likewise, shrink-to-fit: the caller's list was built by appends.
+    let face_source = builder.temporary_vreg();
+    builder.emit(abi::load_u64(
+        &face_source,
+        abi::stack_pointer(),
+        face_in_slot,
+    ));
+    let face_owned = builder.copy_flat_block(
+        &ParameterType::list_of(ParameterType::Integer),
+        &face_source,
+    )?;
+    let face_slot = builder.allocate_stack_object("canvas_font_face", 8);
+    builder.emit(abi::store_u64(&face_owned, abi::stack_pointer(), face_slot));
 
     builder.emit(abi::move_immediate(
         abi::c_arg(0),
@@ -328,6 +356,9 @@ pub(crate) fn lower_font_from_bytes(
     let value = builder.temporary_vreg();
     builder.emit(abi::load_u64(&value, abi::stack_pointer(), owned_slot));
     builder.emit(abi::store_u64(&value, &record, FONT_BYTES));
+    let face = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&face, abi::stack_pointer(), face_slot));
+    builder.emit(abi::store_u64(&face, &record, FONT_FACE));
     // Publish it where the graphics thread can find it. The record is the worker's;
     // the renderer only ever has the integer `canvas::fontHandle` reads out of the font.
     // Registering can grow the table, so it can raise `ErrOutOfMemory` and leave by
@@ -336,6 +367,7 @@ pub(crate) fn lower_font_from_bytes(
         builder,
         &Operand::from(record),
         &Operand::from(value),
+        &Operand::from(face),
         &done,
     )?;
 
@@ -360,7 +392,7 @@ pub(crate) fn lower_font_from_bytes(
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "fontFromBytes",
-        intro: "Stamp a `Font` resource around already-read font bytes.",
+        intro: "Stamp a `Font` resource around already-read font bytes and their face index.",
         desc: "The record-stamping half of `canvas::loadFont`, split out because \
                reading and validating the file is MFBASIC and only this needs an \
                emitter. Internal: it performs no validation of its own.",
@@ -368,13 +400,22 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: None,
         internal_only: true,
         implementations: vec![Implementation {
-            params: vec![Parameter {
-                name: "bytes",
-                desc: "The whole font file.",
-                aliases: &[],
-                ty: ParameterType::list_of(ParameterType::Byte),
-                default: DefaultValue::None,
-            }],
+            params: vec![
+                Parameter {
+                    name: "bytes",
+                    desc: "The whole font file.",
+                    aliases: &[],
+                    ty: ParameterType::list_of(ParameterType::Byte),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "face",
+                    desc: "The face index `__canvas_faceIndex` built from `bytes`.",
+                    aliases: &[],
+                    ty: ParameterType::list_of(ParameterType::Integer),
+                    default: DefaultValue::None,
+                },
+            ],
             return_type: ParameterType::named(super::FONT_TYPE_ID),
             errors: vec!["ErrOutOfMemory"],
             body: Body::abi_function(lower_font_from_bytes),
