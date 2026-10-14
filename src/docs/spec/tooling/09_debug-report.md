@@ -185,6 +185,7 @@ schedules an idle callback with `g_idle_add` that writes the buffer to fd 1 and 
 | --- | --- | --- |
 | `MFB_CANVAS_DAMAGE` | canvas | turns damage tracking on; unset, damage tracking is off |
 | `MFB_CANVAS_DISPLAY_HZ` | canvas | overrides the display refresh rate the runtime reports; unset, no override |
+| `MFB_CANVAS_VSYNC` | canvas app, windowed run on macOS | `0` turns the window's Metal layer's display sync off; unset or any other value, the layer's default (on) |
 | `MFB_CANVAS_FRAME_HOLD_MS` | canvas | holds the graphics thread inside a frame; unset, no hold |
 | `MFB_CANVAS_GLYPH_BUDGET` | canvas | sets the glyph cache byte budget; unset, the budget is 1048576 bytes |
 | `MFB_CANVAS_POINTER` | canvas | a pointer script, `ms,x,y,buttons,inside;…`, published by the graphics thread as each entry falls due |
@@ -196,7 +197,8 @@ schedules an idle callback with `g_idle_add` that writes the buffer to fd 1 and 
 | `MFB_WINAPP_TERM_RESIZE_W` / `_H` | Windows `term::` app, headless run | gives the window a client size in pixels |
 
 In a normal build, therefore, damage tracking is always off, the glyph cache budget
-is always 1048576 bytes, and there is no display-rate override or frame hold. The `MFB_CANVAS_RESIZE_*` and
+is always 1048576 bytes, the window layer's display sync is always on, and there is no
+display-rate override or frame hold. The `MFB_CANVAS_RESIZE_*` and
 `MFB_CANVAS_POINTER_X`/`_Y` variables are never read on macOS.
 
 The canvas variables live in the canvas package's source, which carries a normal and
@@ -223,7 +225,7 @@ thread's frame, in milliseconds: `phaseOffsetsMs=`, `phaseDrawsMs=`, `phaseDamag
 and `phaseRenderMs=`. The last covers the whole call into whichever renderer drew the
 frame. [[src/codegen/builtins/canvas/helper_render.rs:PHASE_TIMERS_DEBUG]]
 
-On macOS the Metal renderer splits that call. It keeps eleven 64-bit words in the data
+On macOS the Metal renderer splits that call. It keeps twelve 64-bit words in the data
 object `_mfb_rt_canvas_profile`, and the stats line prints each one after
 `phaseRenderMs=`. Every word is cumulative over the run, so one frame's share is the
 difference between two lines.
@@ -243,6 +245,7 @@ difference between two lines.
 | `profBytes=` | bytes | frame-buffer bytes written, as each region's cursor at the end of a fill times its element size |
 | `profTexels=` | count | glyph and picture texels copied into the frame buffer |
 | `profDraws=` | count | draw calls, one per draw-list entry |
+| `profVsyncOff=` | flag | 1 once `MFB_CANVAS_VSYNC=0` has turned the window layer's display sync off, else 0; not cumulative |
 
 The time fields are measured with `clock_gettime(CLOCK_MONOTONIC)`: one reading when
 the render target is ready, then seven more, each adding the nanoseconds since the
@@ -261,6 +264,20 @@ drawable, or a command buffer that did not complete) keeps what it had added.
 `profBytes=` leaves out the picture table's records.
 [[src/target/macos_aarch64/app/metal.rs:emit_profile_counts]]
 
+**Display sync.** With the layer's default, a windowed frame's wait for the display's
+next refresh is inside `profAcquireUs=`: `nextDrawable` blocks until the compositor
+releases a drawable. `MFB_CANVAS_VSYNC=0` makes the main thread's layer apply send
+`setDisplaySyncEnabled:NO` when it first configures the layer, and set `profVsyncOff=`
+to 1. It does not take the refresh out of a frame. In a window the compositor still
+paces the drawables, and the wait moves from `profAcquireUs=` into `profGpuUs=` and
+`profWaitUs=`: measured on one moving rectangle at 120 Hz, 120 frames, the per-frame
+medians went from acquire 7.4 ms, wait 0.8 ms, GPU 0.23 ms to acquire 0.05 ms, wait
+8.3 ms, GPU 8.0 ms, and the frame time from 8 to 16 ms. So with display sync on,
+`profAcquireUs=` is the refresh wait and the other times are the frame's own work; with
+it off, the GPU times are not. A headless run configures no layer, so the variable does
+nothing there and `profVsyncOff=` stays 0.
+[[src/target/macos_aarch64/app/metal.rs:emit_vsync_switch]]
+
 A rendered frame's line is written before that frame's `phaseRenderMs=` is added, so
 on any one line the `prof…` fields include the frame being reported and
 `phaseRenderMs=` does not.
@@ -276,6 +293,11 @@ the profile, and `canvas::profileWord`, which reads the block, is called only fr
 [[src/target/macos_aarch64/app/metal.rs:emit_metal_draw]]
 [[src/codegen/runtime/canvas/mod.rs:emit_profile_word]]
 [[src/target/macos_aarch64/app/metal.rs:metal_profile_data_objects]]
+
+Nor does a normal build's layer apply read `MFB_CANVAS_VSYNC` or send
+`setDisplaySyncEnabled:`; both are in `emit_metal_layer_apply` only when it is built for
+`--debug`.
+[[src/target/macos_aarch64/app/metal.rs:emit_metal_layer_apply]]
 
 ## Symbol tables
 

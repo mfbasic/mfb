@@ -95,7 +95,7 @@ use crate::codegen::runtime::canvas::{
     CANVAS_PROFILE_ACQUIRE_NS, CANVAS_PROFILE_BYTES, CANVAS_PROFILE_DRAWS,
     CANVAS_PROFILE_ENCODE_NS, CANVAS_PROFILE_FILL_NS, CANVAS_PROFILE_GPU_NS, CANVAS_PROFILE_PASSES,
     CANVAS_PROFILE_PRESENT_NS, CANVAS_PROFILE_READBACK_NS, CANVAS_PROFILE_SYMBOL,
-    CANVAS_PROFILE_TEXELS, CANVAS_PROFILE_WAIT_NS,
+    CANVAS_PROFILE_TEXELS, CANVAS_PROFILE_VSYNC_OFF, CANVAS_PROFILE_WAIT_NS,
 };
 use crate::codegen::runtime::canvas::{
     GRAPHICS_OFFSET_MTL_DRAWABLE_H, GRAPHICS_OFFSET_MTL_DRAWABLE_W, GRAPHICS_OFFSET_MTL_LAYER,
@@ -2938,9 +2938,25 @@ pub(super) const SEL_GPU_START_TIME: (&str, &str) =
     ("_mfb_macapp_sel_GPUStartTime", "GPUStartTime");
 pub(super) const SEL_GPU_END_TIME: (&str, &str) = ("_mfb_macapp_sel_GPUEndTime", "GPUEndTime");
 
-/// The selector strings only a `--debug` build's renderer sends.
-pub(super) fn metal_profile_data_objects() -> [(&'static str, &'static str); 2] {
-    [SEL_GPU_START_TIME, SEL_GPU_END_TIME]
+/// `-[CAMetalLayer setDisplaySyncEnabled:]` — whether `nextDrawable` and a present wait
+/// on the display's refresh. Sent by a `--debug` build only, and only to turn it off.
+pub(super) const SEL_SET_DISPLAY_SYNC_ENABLED: (&str, &str) = (
+    "_mfb_macapp_sel_setDisplaySyncEnabled",
+    "setDisplaySyncEnabled:",
+);
+/// The variable that turns the window layer's display sync off: `0` does, and unset or
+/// any other value leaves the layer's default (on). Read by a `--debug` build only.
+pub(super) const STR_VSYNC_ENV: (&str, &str) = ("_mfb_macapp_str_canvas_vsync", "MFB_CANVAS_VSYNC");
+
+/// The C strings only a `--debug` build's Metal code names: the renderer's two
+/// `GPU…Time` selectors, and the layer apply's display-sync switch and its selector.
+pub(super) fn metal_profile_data_objects() -> [(&'static str, &'static str); 4] {
+    [
+        SEL_GPU_START_TIME,
+        SEL_GPU_END_TIME,
+        SEL_SET_DISPLAY_SYNC_ENABLED,
+        STR_VSYNC_ENV,
+    ]
 }
 
 /// `void _mfb_macapp_metal_draw(pixels, width, height, geometry, offsets, count)` —
@@ -4395,9 +4411,15 @@ pub(super) fn emit_metal_layer_sync() -> CodeFunction {
 /// * visibility, only ever turned ON here. It is turned off by the software blit's
 ///   apply, the other writer of `…_LAYER_SHOWN`, and both run on this thread.
 ///
+/// A `--debug` build (`debug`) also reads `MFB_CANVAS_VSYNC` in the once-only
+/// configuration, and for `0` sends `setDisplaySyncEnabled:NO` and sets the profile's
+/// `CANVAS_PROFILE_VSYNC_OFF` word: `nextDrawable` then stops waiting on the display's
+/// refresh, so the frame profile's acquire time is the cost of taking a drawable rather
+/// than the wait for the next refresh. A normal build has neither the read nor the send.
+///
 /// All of it inside a `CATransaction` with actions disabled: `hidden` is animatable,
 /// and an implicit fade over a frame is a frame showing the wrong picture.
-pub(super) fn emit_metal_layer_apply() -> CodeFunction {
+pub(super) fn emit_metal_layer_apply(debug: bool) -> CodeFunction {
     let mut asm = Asm::new(METAL_LAYER_APPLY_SYMBOL);
     let frame = 32;
     let done = format!("{METAL_LAYER_APPLY_SYMBOL}_done");
@@ -4451,6 +4473,9 @@ pub(super) fn emit_metal_layer_apply() -> CodeFunction {
         asm.push(abi::move_immediate(abi::c_arg(2), "Integer", value));
         asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
         asm.call_external("_objc_msgSend", LIB_OBJC);
+    }
+    if debug {
+        emit_vsync_switch(&mut asm);
     }
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
     asm.push(abi::store_u64(
@@ -4553,6 +4578,38 @@ pub(super) fn emit_metal_layer_apply() -> CodeFunction {
         instructions: asm.ins,
         relocations: asm.rel,
     }
+}
+
+/// A `--debug` build's `MFB_CANVAS_VSYNC` switch, inside the layer apply's once-only
+/// configuration with the layer in `LOCAL[1]`: when the variable is exactly `0`,
+/// `[layer setDisplaySyncEnabled:NO]` and the profile's display-sync word set to 1.
+///
+/// The word is written on the main thread and read on the graphics thread, by the stats
+/// line. The apply is `waitUntilDone:YES`, so the graphics thread reads it only after the
+/// hop that wrote it has returned.
+fn emit_vsync_switch(asm: &mut Asm) {
+    let kept = format!("{METAL_LAYER_APPLY_SYMBOL}_vsync_kept");
+    asm.local_address(abi::c_arg(0), STR_VSYNC_ENV.0);
+    asm.call_external("_getenv", LIB_SYSTEM);
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_eq(&kept));
+    for (offset, byte) in [(0, "48"), (1, "0")] {
+        asm.push(abi::load_u8(abi::SCRATCH[0], abi::c_return(0), offset));
+        asm.push(abi::compare_immediate(abi::SCRATCH[0], byte));
+        asm.push(abi::branch_ne(&kept));
+    }
+    asm.load_selector(SEL_SET_DISPLAY_SYNC_ENABLED.0);
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address(abi::SCRATCH[1], CANVAS_PROFILE_SYMBOL);
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "1"));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        CANVAS_PROFILE_VSYNC_OFF * 8,
+    ));
+    asm.push(abi::label(&kept));
 }
 
 /// `[CATransaction begin]; [CATransaction setDisableActions:YES]` — the bracket every
@@ -8127,6 +8184,49 @@ mod tests {
                 && OFF_PROFILE_TIMESPEC + 16 <= OFF_PROFILE_AT,
             "the profile's slots fit the bytes the frame grows by"
         );
+    }
+
+    /// `MFB_CANVAS_VSYNC` is a `--debug` build's alone, and it only adds to the layer
+    /// apply.
+    ///
+    /// A normal build's apply reads no variable, sends no `setDisplaySyncEnabled:` and
+    /// writes no profile word, so its layer keeps display sync on whatever the
+    /// environment says. The `--debug` apply has all three, and every instruction of the
+    /// normal one, in order, so the switch inserts and never replaces.
+    #[test]
+    fn the_vsync_switch_is_debug_only_and_only_adds_to_the_layer_apply() {
+        let normal = emit_metal_layer_apply(false);
+        let debug = emit_metal_layer_apply(true);
+        for symbol in [
+            "_getenv",
+            STR_VSYNC_ENV.0,
+            SEL_SET_DISPLAY_SYNC_ENABLED.0,
+            CANVAS_PROFILE_SYMBOL,
+        ] {
+            assert!(
+                !normal.relocations.iter().any(|r| r.to == symbol),
+                "a normal build's layer apply references `{symbol}`"
+            );
+            assert!(
+                debug.relocations.iter().any(|r| r.to == symbol),
+                "the --debug layer apply never references `{symbol}`"
+            );
+        }
+        assert!(
+            metal_profile_data_objects()
+                .iter()
+                .any(|(symbol, text)| *symbol == STR_VSYNC_ENV.0 && *text == "MFB_CANVAS_VSYNC"),
+            "the variable's name is emitted for a --debug build"
+        );
+        let mut rest = debug.instructions.iter().map(spelled);
+        for (index, instruction) in normal.instructions.iter().enumerate() {
+            let want = spelled(instruction);
+            assert!(
+                rest.any(|have| have == want),
+                "instruction {index} of the normal layer apply, `{want}`, is missing from \
+                 the --debug one or out of order"
+            );
+        }
     }
 
     /// Every profile mark sits where no caller-saved register is live.

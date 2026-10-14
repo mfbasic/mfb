@@ -1779,8 +1779,9 @@ pub(crate) fn graphics_state_data_object(auto_paint_ms: u64) -> CodeDataObject {
 /// and not words of the graphics state: a normal build has neither the object nor a
 /// reader, and its graphics state is the size it always was.
 ///
-/// Only the Metal renderer fills it (`emit_metal_draw` in the macOS app module); on
-/// every other target the words stay zero.
+/// Only the Metal renderer fills it (`emit_metal_draw` in the macOS app module, and
+/// `emit_metal_layer_apply` for the display-sync word); on every other target the words
+/// stay zero.
 pub(crate) const CANVAS_PROFILE_SYMBOL: &str = "_mfb_rt_canvas_profile";
 /// Nanoseconds preparing the frame's target: taking the window's drawable (and the
 /// main-thread hop that sizes its layer). Zero for a frame that is read back.
@@ -1809,7 +1810,11 @@ pub(crate) const CANVAS_PROFILE_BYTES: usize = 8;
 pub(crate) const CANVAS_PROFILE_TEXELS: usize = 9;
 /// Draw calls issued, one per draw-list entry.
 pub(crate) const CANVAS_PROFILE_DRAWS: usize = 10;
-pub(crate) const CANVAS_PROFILE_WORDS: usize = 11;
+/// `1` once `MFB_CANVAS_VSYNC=0` has turned the window layer's display sync off, else
+/// `0`. Not cumulative: the main thread's layer apply sets it once, when it first
+/// configures the layer, before the frame that asked for the apply takes a drawable.
+pub(crate) const CANVAS_PROFILE_VSYNC_OFF: usize = 11;
+pub(crate) const CANVAS_PROFILE_WORDS: usize = 12;
 
 /// The profile block, zeroed. Emitted only for a `--debug` build of a canvas program.
 pub(crate) fn profile_data_object() -> CodeDataObject {
@@ -1817,7 +1822,7 @@ pub(crate) fn profile_data_object() -> CodeDataObject {
         symbol: CANVAS_PROFILE_SYMBOL.to_string(),
         kind: "raw".to_string(),
         layout: "mfb.runtime.canvas_profile.v1 { u64 acquireNs, fillNs, encodeNs, waitNs, \
-                 gpuNs, readbackNs, presentNs, passes, bytes, texels, draws }"
+                 gpuNs, readbackNs, presentNs, passes, bytes, texels, draws, vsyncOff }"
             .to_string(),
         align: 8,
         size: CANVAS_PROFILE_WORDS * 8,

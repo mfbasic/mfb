@@ -1115,6 +1115,15 @@ lost — on the one path whose entire job is to report edges.
   window and so no monitor to ask; the stats line's `displayHz=` shows what the runtime
   would use.
 
+* `MFB_CANVAS_VSYNC` — **a `--debug` build only**, macOS windowed runs: `0` makes the
+  main-thread layer apply send `setDisplaySyncEnabled:NO` when it first configures the
+  `CAMetalLayer`, and set the profile's `profVsyncOff=` word (`emit_vsync_switch`). It
+  does NOT remove the refresh from a windowed frame: the compositor still paces the
+  drawables, and the wait moves out of `profAcquireUs=` into `profGpuUs=`/`profWaitUs=`
+  (acquire 7.4 → 0.05 ms, GPU 0.23 → 8.0 ms, frame 8 → 16 ms on one rectangle at
+  120 Hz). With sync ON the refresh wait is all in acquire and the other `prof…` times
+  are clean, which is why `benchmark/canvas` runs with it on by default.
+
 A fourth selects the renderer rather than observing it:
 
 * `MFB_CANVAS_GPU` — ask for the GPU backend, or (`0`) refuse it (§10). The stats
