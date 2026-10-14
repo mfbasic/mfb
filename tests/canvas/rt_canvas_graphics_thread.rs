@@ -35,6 +35,18 @@ fn run_with(name: &str, source: &str, sync: bool, metal: bool) -> (String, Vec<S
 
 /// As `run`, plus arbitrary extra environment variables.
 fn run_env(name: &str, source: &str, sync: bool, env: &[(&str, &str)]) -> (String, Vec<String>) {
+    let (out, lines, _) = run_env_timed(name, source, sync, env);
+    (out, lines)
+}
+
+/// As `run_env`, and how long the program ran -- the run alone, not the build, which
+/// on a loaded host takes longer than any bound a test sets on the program.
+fn run_env_timed(
+    name: &str,
+    source: &str,
+    sync: bool,
+    env: &[(&str, &str)],
+) -> (String, Vec<String>, std::time::Duration) {
     let project = common::temp_project(name, source);
     let stats = project.join("stats.txt");
     let binary = common::build_app_debug(&project, name);
@@ -46,9 +58,11 @@ fn run_env(name: &str, source: &str, sync: bool, env: &[(&str, &str)]) -> (Strin
         command.env("MFB_CANVAS_SYNC", "1");
     }
     command.envs(env.iter().copied());
+    let started = std::time::Instant::now();
     let run = command
         .output()
         .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let took = started.elapsed();
     assert!(
         run.status.success(),
         "program {}:\n{}\n{}",
@@ -64,7 +78,7 @@ fn run_env(name: &str, source: &str, sync: bool, env: &[(&str, &str)]) -> (Strin
         .collect();
     let out = String::from_utf8_lossy(&run.stdout).to_string();
     let _ = std::fs::remove_dir_all(&project);
-    (out, lines)
+    (out, lines, took)
 }
 
 /// A program body, wrapped in the canvas-mode boilerplate.
@@ -812,8 +826,9 @@ fn auto_shutdown_completes_while_a_window_is_pending() {
     let source = format!(
         "{AUTO_BUTTON}FUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  canvas::present([button(100.0)])\nEND FUNC\n"
     );
-    let started = std::time::Instant::now();
-    let (_, lines) = run_env(
+    // The program's run alone: the build was inside this clock until 2026-10-14, and on a
+    // loaded host it took 51 s of the 84 s that failed the bound.
+    let (_, lines, took) = run_env_timed(
         "canvas_auto_r28",
         &source,
         true,
@@ -822,7 +837,7 @@ fn auto_shutdown_completes_while_a_window_is_pending() {
             ("MFB_CANVAS_AUTO_WINDOW_MS", "120000"),
         ],
     );
-    let took = started.elapsed().as_secs();
+    let took = took.as_secs();
     assert_eq!(auto_states(&lines), vec!["1"], "{}", lines.join("\n"));
     assert!(
         took < 60,
