@@ -29,8 +29,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Plan 172 is complete and archived | `ls planning/plan-172-[A-M]-*` → no matches | NOT MET |
-| Canvas group affine is in the registry and renderers | `rg -n 'name: "Group"|transform AS canvas::Transform' src/codegen/builtins/canvas/mod.rs` → group transform is present | NOT MET |
+| Plan 172 is complete and archived | `ls planning/plan-172-[A-M]-*` → no matches | MET (no active matches; all 13 files are under `planning/completed/`) |
+| Canvas group affine is in the registry and renderers | `rg -n 'name: "Group"|transform AS canvas::Transform' src/codegen/builtins/canvas/mod.rs` → group transform is present | MET (`Group` registry record and renderer composition present) |
 
 If plan 172 is not complete and archived, this plan cannot start, full stop. This plan
 is written against the canvas surface after plan 172.
