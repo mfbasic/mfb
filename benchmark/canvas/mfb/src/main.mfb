@@ -1,0 +1,199 @@
+' benchmark/canvas: one scene of one canvas::DrawItem kind, presented FRAMES times.
+'
+' run.sh runs this once per row, as a `--debug` build in a real window under
+' MFB_CANVAS_SYNC=1 and MFB_CANVAS_STATS, and reads the renderer's `prof…` fields off
+' the stats lines. The program itself measures nothing.
+'
+'   KIND    rect | rrect | line | polygon | circle | arc | ellipse | text | polyline |
+'           polycurve | curvepolygon | autopaint | picture | group | particles
+'   COUNT   items in the scene (for `particles`, particles in one system)   (default 100)
+'   PAINT   fill | stroke | fillStroke                                    (default fill)
+'   SIZE    small (16 px items, scattered) | big (one item over most of the surface)
+'                                                                         (default small)
+'   FRAMES  presents                                                      (default 120)
+'   FONT    the font file a `text` scene loads
+'
+' The scene is built once. Each frame presents it with one small marker rectangle
+' appended at a new place, so every frame is drawn -- an unchanged scene is never
+' re-rendered -- while every other item's geometry stays cached. The marker is in
+' every row, so it is part of each row's cost alike.
+'
+' `line`, `arc`, `polyline` and `polycurve` have no inside, so they are always stroked
+' and PAINT does not apply to them.
+
+IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT math
+IMPORT os
+IMPORT vector
+
+FUNC none() AS canvas::Transform
+  RETURN canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+END FUNC
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC paintOf(kind AS String) AS canvas::Paint
+  LET body AS color::Color = color::rgba(0, 200, 255, 160)
+  LET edge AS color::Color = color::rgb(255, 220, 80)
+  IF kind = "stroke" THEN
+    RETURN canvas::stroke(edge, 2.0)
+  END IF
+  IF kind = "fillStroke" THEN
+    RETURN canvas::fillStroke(body, edge, 2.0)
+  END IF
+  RETURN canvas::fill(body)
+END FUNC
+
+' A ten-point star of radius r around (cx, cy).
+FUNC star(cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
+  MUT i AS Integer = 0
+  WHILE i < 10
+    LET a AS Float = toFloat(i) * 6.283185307179586 / 10.0
+    MUT k AS Float = r
+    IF i MOD 2 = 1 THEN
+      k = r * 0.45
+    END IF
+    points = collections::append(points, at(cx + k * math::cos(a), cy + k * math::sin(a)))
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+' An eight-point zigzag across a box of half-width r.
+FUNC zigzag(cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
+  MUT i AS Integer = 0
+  WHILE i < 8
+    MUT dy AS Float = r * 0.6
+    IF i MOD 2 = 1 THEN
+      dy = 0.0 - r * 0.6
+    END IF
+    points = collections::append(points, at(cx - r + toFloat(i) * r * 2.0 / 7.0, cy + dy))
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+FUNC cubic(a AS vector::Float2, b AS vector::Float2, c AS vector::Float2, d AS vector::Float2) AS canvas::BezierCurve
+  RETURN canvas::BezierCurve[points := [a, b, c, d], weights := []]
+END FUNC
+
+' A closed blob of four cubics around (cx, cy).
+FUNC blob(cx AS Float, cy AS Float, r AS Float) AS List OF canvas::BezierCurve
+  LET k AS Float = r * 0.55
+  RETURN [cubic(at(cx + r, cy), at(cx + r, cy + k), at(cx + k, cy + r), at(cx, cy + r)), cubic(at(cx, cy + r), at(cx - k, cy + r), at(cx - r * 1.3, cy + k), at(cx - r * 1.3, cy)), cubic(at(cx - r * 1.3, cy), at(cx - r * 1.3, cy - k), at(cx - k, cy - r), at(cx, cy - r)), cubic(at(cx, cy - r), at(cx + k, cy - r), at(cx + r, cy - k), at(cx + r, cy))]
+END FUNC
+
+FUNC pattern(side AS Integer) AS List OF Byte
+  MUT px AS List OF Byte = []
+  MUT y AS Integer = 0
+  WHILE y < side
+    MUT x AS Integer = 0
+    WHILE x < side
+      px = collections::append(px, toByte((x * 7) MOD 256))
+      px = collections::append(px, toByte((y * 5) MOD 256))
+      px = collections::append(px, toByte(((x + y) * 3) MOD 256))
+      px = collections::append(px, toByte(255))
+      x = x + 1
+    END WHILE
+    y = y + 1
+  END WHILE
+  RETURN px
+END FUNC
+
+FUNC circleAt(cx AS Float, cy AS Float, r AS Float, paint AS canvas::Paint) AS canvas::Circle
+  RETURN canvas::Circle[id := "", position := at(cx, cy), radius := r, paint := paint, transform := none()]
+END FUNC
+
+FUNC marker(frame AS Integer) AS canvas::DrawItem
+  RETURN canvas::Rectangle[id := "", position := at(toFloat(frame MOD 800), 600.0), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 20.0, height := 20.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 0, 0)), transform := none()]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET kind AS String = os::getEnvOr("KIND", "rect")
+  LET count AS Integer = toInt(os::getEnvOr("COUNT", "100"))
+  LET frames AS Integer = toInt(os::getEnvOr("FRAMES", "120"))
+  LET big AS Boolean = os::getEnvOr("SIZE", "small") = "big"
+  LET paint AS canvas::Paint = paintOf(os::getEnvOr("PAINT", "fill"))
+  LET ink AS canvas::Paint = canvas::stroke(color::rgb(255, 220, 80), 2.0)
+
+  RES face AS canvas::Font = canvas::loadFont(os::getEnvOr("FONT", "/System/Library/Fonts/Supplemental/Arial.ttf"))
+  RES tile AS canvas::Image = canvas::createImage(32, 32, pattern(32))
+
+  MUT r AS Float = 8.0
+  IF big THEN
+    r = 300.0
+  END IF
+  IF kind = "group" THEN
+    canvas::setGroup("cell", [canvas::Rectangle[id := "", position := at(0.0 - r, 0.0 - r), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := r * 2.0, height := r * 2.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := paint, transform := none()]])
+  END IF
+
+  MUT scene AS List OF canvas::DrawItem = []
+  MUT items AS Integer = count
+  IF kind = "particles" THEN
+    items = 1
+  END IF
+  MUT k AS Integer = 0
+  WHILE k < items
+    MUT cx AS Float = toFloat((k * 37) MOD 860) + 20.0
+    MUT cy AS Float = toFloat((k * 53) MOD 560) + 20.0
+    IF big OR kind = "particles" THEN
+      cx = 450.0
+      cy = 320.0
+    END IF
+    MUT it AS canvas::DrawItem = circleAt(cx, cy, r, paint)
+    IF kind = "rect" OR kind = "rrect" THEN
+      MUT corner AS Float = 0.0
+      IF kind = "rrect" THEN
+        corner = r * 0.4
+      END IF
+      it = canvas::Rectangle[id := "", position := at(cx - r, cy - r), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := r * 2.0, height := r * 2.0], radiusTL := corner, radiusTR := corner, radiusBL := corner, radiusBR := corner, paint := paint, transform := none()]
+    ELSEIF kind = "line" THEN
+      it = canvas::Line[id := "", position := at(0.0, 0.0), startAt := at(cx - r, cy - r), endAt := at(cx + r, cy + r), paint := ink, transform := none()]
+    ELSEIF kind = "polygon" THEN
+      it = canvas::Polygon[id := "", position := at(0.0, 0.0), contours := [star(cx, cy, r)], rule := canvas::FillRule.NonZero, paint := paint, transform := none()]
+    ELSEIF kind = "arc" THEN
+      it = canvas::Arc[id := "", position := at(cx, cy), radius := r, startAngle := 0.0, endAngle := 4.0, paint := ink, transform := none()]
+    ELSEIF kind = "ellipse" THEN
+      it = canvas::Ellipse[id := "", position := at(cx, cy), radiusX := r, radiusY := r * 0.6, paint := paint, transform := none()]
+    ELSEIF kind = "text" THEN
+      MUT size AS Float = r * 1.5
+      IF big THEN
+        size = 200.0
+      END IF
+      it = canvas::Text[id := "", position := at(cx - r, cy + r * 0.5), text := "Ag", font := face, fontSize := size, paint := paint, transform := none()]
+    ELSEIF kind = "polyline" THEN
+      it = canvas::PolyLine[id := "", position := at(0.0, 0.0), points := zigzag(cx, cy, r), colors := [color::rgb(255, 0, 0), color::rgb(255, 128, 0), color::rgb(255, 255, 0), color::rgb(0, 255, 0), color::rgb(0, 255, 255), color::rgb(0, 0, 255), color::rgb(128, 0, 255), color::rgb(255, 0, 255)], paint := ink, transform := none()]
+    ELSEIF kind = "polycurve" THEN
+      it = canvas::PolyCurve[id := "", position := at(0.0, 0.0), curves := [cubic(at(cx - r, cy), at(cx - r * 0.3, cy - r * 1.5), at(cx + r * 0.3, cy + r * 1.5), at(cx + r, cy))], paint := ink, transform := none()]
+    ELSEIF kind = "curvepolygon" THEN
+      it = canvas::CurvePolygon[id := "", position := at(0.0, 0.0), contours := [blob(cx, cy, r)], rule := canvas::FillRule.NonZero, paint := paint, transform := none()]
+    ELSEIF kind = "autopaint" THEN
+      it = canvas::AutoPaint[shape := circleAt(cx, cy, r, paint), useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := paint, exitPaint := paint, hoverPaint := ink, pressedPaint := ink]
+    ELSEIF kind = "picture" THEN
+      it = canvas::Picture[id := "", shape := circleAt(cx, cy, r, paint), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := tile]
+    ELSEIF kind = "group" THEN
+      it = canvas::Group[id := "", position := at(cx, cy), transform := none(), name := "cell"]
+    ELSEIF kind = "particles" THEN
+      MUT emission AS canvas::Emission
+      MUT motion AS canvas::Motion
+      LET white AS color::Color = color::rgb(255, 255, 255)
+      it = canvas::ParticleSystem[position := at(cx, cy), item := circleAt(0.0, 0.0, 2.0, paint), emitter := circleAt(0.0, 0.0, 250.0, paint), emission := WITH emission { mode := canvas::EmissionMode.Burst, maxParticles := count, burst := count, lifetime := 1000.0 }, motion := motion, appearance := canvas::Appearance[startColor := white, endColor := white, startScale := 1.0, endScale := 1.0, scaleVar := 0.0], seed := 150, time := 0.5]
+    END IF
+    scene = collections::append(scene, it)
+    k = k + 1
+  END WHILE
+
+  MUT frame AS Integer = 0
+  WHILE frame < frames
+    canvas::present(collections::append(scene, marker(frame)))
+    frame = frame + 1
+  END WHILE
+END FUNC

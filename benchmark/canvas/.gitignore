@@ -1,0 +1,8 @@
+*.log
+*.sums
+mfb/build/
+
+# baseline/ holds the committed reference run, so the ignores above must not
+# swallow it.
+!baseline/*.log
+!baseline/*.sums

@@ -28,7 +28,7 @@
 #
 # MFB_CANVAS_SYNC=1 throughout: a present returns when its frame is drawn, so the time
 # around it is a whole frame -- the worker's copy and hash, and the graphics thread's
-# expansion, geometry and draw. Rank on the least (benchmark/RANKING.md section 1.1).
+# expansion, geometry and draw. Rank on the least (benchmark/language/RANKING.md section 1.1).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -6,7 +6,8 @@ exactly one entry below; `cargo test --test scripts_index_is_complete` fails if 
 is added without one, or if an entry names a file that is gone.
 
 What does NOT belong here: generators with their own inputs, measuring probes, oracles
-and benchmarks live under `tools/<name>/`, each with a README. A one-off probe for a
+and bug-related or isolated benchmarks live under `tools/<name>/`, each with a README;
+the general benchmark suites live under `benchmark/<suite>/`. A one-off probe for a
 single bug or plan lives in `/tmp` or in that bug's doc. Deleting a script means
 grepping for its name and updating every live caller in the same commit.
 

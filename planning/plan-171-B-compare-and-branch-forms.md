@@ -284,7 +284,7 @@ Commit: —
       bytes changed), 2229 (`linux-riscv64`); the fixture built for
       `windows-x86_64` and run on box 2230 (`scp` + `ssh -p 2230 … .\fixture.exe`),
       output compared with its golden `build.log` run section.
-- [ ] Benchmark on the macOS host (`./benchmark/run.sh 10`; `rank.py`); x86/rv64
+- [ ] Benchmark on the macOS host (`./benchmark/language/run.sh 10`; `rank.py`); x86/rv64
       are compared by census instruction counts only (their boxes are emulated,
       so timings there measure QEMU).
 

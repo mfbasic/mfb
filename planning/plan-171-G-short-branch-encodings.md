@@ -161,8 +161,8 @@ Commit: —
 - [ ] Hand-written emitters outside `finalize_frame` (B Phase 5's list) re-checked
       against all forms (pairs, logical immediates, selects, tables).
 - [ ] `planning/optimizations.md`: every row plan-171 touched is current.
-- [ ] Benchmark (macOS host): full `./benchmark/run.sh 10` vs.
-      `benchmark/baseline/` with `rank.py`; regenerate `benchmark/baseline/`
+- [ ] Benchmark (macOS host): full `./benchmark/language/run.sh 10` vs.
+      `benchmark/language/baseline/` with `rank.py`; regenerate `benchmark/language/baseline/`
       only if the user asks (it is the committed reference).
 
 Acceptance: every remaining candidate class has a recorded reason.

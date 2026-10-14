@@ -492,6 +492,7 @@ fn a_debug_metal_frame_reports_its_own_phases() {
         "profBytes",
         "profTexels",
         "profDraws",
+        "profVsyncOff",
     ];
     let software = software.lines().next_back().expect("a software stats line");
     for name in fields {
@@ -534,6 +535,12 @@ fn a_debug_metal_frame_reports_its_own_phases() {
         stat(line, "profTexels"),
         0,
         "the scene has no text and no picture: {line}"
+    );
+    // Display sync is a window layer's, and a headless run configures no layer.
+    assert_eq!(
+        stat(line, "profVsyncOff"),
+        0,
+        "a headless run turned a layer's display sync off: {line}"
     );
 }
 

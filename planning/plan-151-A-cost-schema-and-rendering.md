@@ -36,7 +36,7 @@ References:
 - `src/cli/man.rs:render_function_markdown`, `function_errors_by_overload`.
 - `src/docs/spec/tooling/07_cli-reference.md`; `.ai/man-content.md`;
   `.ai/specifications.md`; `.ai/spec-content.md`; `.ai/testing-gates.md`.
-- `benchmark/README.md` and `benchmark/mfb/src/`: corroborating workloads, not proofs.
+- `benchmark/language/README.md` and `benchmark/language/mfb/src/`: corroborating workloads, not proofs.
 
 ## Prerequisites
 

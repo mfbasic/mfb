@@ -999,7 +999,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // bug-686 Phase 4: the direct present's main-thread layer bookkeeping — the
         // graphics-thread hop and the `mfbMetalLayer:` IMP it lands in.
         functions.push(metal::emit_metal_layer_sync());
-        functions.push(metal::emit_metal_layer_apply());
+        functions.push(metal::emit_metal_layer_apply(spec.debug_hooks));
         // plan-155-A: the display-rate publish and its screen-change IMP.
         functions.extend(display::emit_display_functions());
     }

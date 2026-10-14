@@ -117,7 +117,7 @@ Commit: —
 - [ ] Runtime: macOS acceptance; 2223 and 2227 `linux-runtime-proof.sh` for the
       fixture (`FILTER=if-select-shapes`); 2230 Windows run.
 - [ ] Benchmark (macOS host): `run.sh 10` compares `mfb-O3` rows against
-      `benchmark/baseline/mfb-O3.log`.
+      `benchmark/language/baseline/mfb-O3.log`.
 
 Acceptance: converted at `-O3` on AArch64/x86 only; every level and target prints the same.
   Check: `cargo test --bin mfb opt2::ifconv` → pass (est. 2 min); `cargo test --release --test rt_regalloc_levels_agree` → pass (est. 6 min).

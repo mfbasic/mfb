@@ -1,4 +1,4 @@
-' bug-760: benchmark/mfb/src/math.mfb test_math_simd's loop, one run. The three
+' bug-760: benchmark/language/mfb/src/math.mfb test_math_simd's loop, one run. The three
 ' `toFloat(collections::sum(<Integer list>))` terms among sixteen Float terms put
 ' enough pressure on the allocator that a wrong register share at -O2/-O3 dropped
 ' exactly those three terms (1544 + 2568 + 2056 per rep).

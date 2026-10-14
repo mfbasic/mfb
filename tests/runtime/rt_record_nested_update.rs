@@ -434,7 +434,7 @@ END FUNC
     );
 }
 
-/// bug-784: `benchmark/mfb/src/recordbench.mfb:test_record_nested`'s shape — the
+/// bug-784: `benchmark/language/mfb/src/recordbench.mfb:test_record_nested`'s shape — the
 /// update loop's `LET h = get(hs, k)` and a checksum loop that binds `h` again.
 /// The second binding once disqualified the first (the borrow analysis keyed
 /// facts by name across the function): 3 allocations per update. Each binding is
