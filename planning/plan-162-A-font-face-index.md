@@ -385,7 +385,7 @@ leaves nothing else behind per load, nothing reads it, and pixels are unchanged.
   → all pass (est. 5 min).
   Result: 36 + 28 + 6 passed, 0 failed (`/tmp/p162/phase2-accept.log`), and
   `git status --short tests/golden/canvas` → empty.
-Commit: (Phases 2 and 3 landed in one commit, Correction 8)
+Commit: e37100d85 (Phases 2 and 3 in one commit, Correction 8)
 
 ### Phase 3 — the in-place accessor
 
@@ -415,35 +415,51 @@ Acceptance: the index answers exactly what the byte readers answer, for every in
   Check: `cargo test --test rt_canvas_font face_index` → pass (est. 3 min; the
   full-range sweep is the only check that catches a run-merging off-by-one).
   Result: 6 passed, 0 failed, 76 s.
-Commit: (with Phase 2, Correction 8)
+Commit: e37100d85 (with Phase 2, Correction 8)
 
 ### Phase 4 — switch the readers (blast radius last)
 
-- [ ] `__canvas_shapeRun` (`helper_font.rs`): glyph and advance through the index. It
+- [x] `__canvas_shapeRun` (`helper_font.rs`): glyph and advance through the index. It
       no longer calls `__canvas_fontBlob`.
-- [ ] `__canvas_measureText` (`func_measure_text.rs`): metrics through
+- [x] `__canvas_measureText` (`func_measure_text.rs`): metrics through
       `__canvas_faceMetric`, and the `__canvas_fontBlob` metrics read added by bug-756
       is removed. The closed guard (`canvas::fontOpenHandle`) stays.
-- [ ] `__canvas_glyphRunHeader` (`helper_geometry.rs`): ascent/descent through the index.
-- [ ] (Correction 3) The other metrics readers through the index:
+- [x] `__canvas_glyphRunHeader` (`helper_geometry.rs`): ascent/descent through the index.
+- [x] (Correction 3) The other metrics readers through the index:
       `helper_hit.rs:__canvas_textBoxHeader`, `helper_particles.rs:__canvas_particleTextBox`,
       `helper_autopaint.rs:__canvas_autoTextBox` and `__canvas_geoRunReference` stop
       fetching the blob. `__canvas_textGlyphRun` and `__canvas_textEdges` keep theirs for
-      outlines only and take `unitsPerEm` from the index.
-- [ ] Delete `__canvas_glyphIndex`/`__canvas_cmapSubtable`'s per-call path if nothing
+      outlines only and take `unitsPerEm` from the index. A blob-emptiness check became
+      `canvas::fontRegistered`, which is what `__canvas_fontBlob` tested.
+- [x] Delete `__canvas_glyphIndex`/`__canvas_cmapSubtable`'s per-call path if nothing
       calls them any more. They stay only as the index builder's readers, so they
       move into the builder's doc scope, and nothing is suppressed.
-- [ ] `src/docs/spec/app/06_canvas.md`: add a subsection "A font is parsed once" that
+      `__canvas_cmapSubtable`, `__canvas_cmap12Groups`, `__canvas_cmap4Segment` and the
+      metric readers are the builder's and stay in the normal build. `__canvas_glyphIndex`,
+      `__canvas_cmap12`, `__canvas_cmap4` and `__canvas_glyphAdvance` have no caller but
+      the `--debug` oracle `__canvas_faceCheck`, so they moved into `FACE_DUMP_DEBUG`,
+      and a normal build no longer carries them (Correction 9).
+- [x] `src/docs/spec/app/06_canvas.md`: add a subsection "A font is parsed once" that
       cites `[[src/codegen/builtins/canvas/helper_font.rs:__canvas_faceIndex]]` and
       `[[src/codegen/builtins/canvas/gen_font_table.rs:faceAt]]`, and states the
-      in-place read rule.
+      in-place read rule. It also cites `__canvas_cmap4Segment`,
+      `__canvas_cmap12Painted`, `FACE_READ` and `FACE_DUMP_DEBUG`. `cargo test --bin mfb
+      spec` → 46 passed.
 
 Acceptance: pixels and metrics are byte-identical, and the only font-byte fetches left
 are for outlines.
   Check: `cargo test --test rt_canvas_font --test rt_canvas_golden --test rt_canvas_geo_native`
   → pass, and `git status --short tests/golden/canvas` → empty (est. 6 min). Then the
   §1 grep lists only the outline readers.
-Commit: —
+  Result: 40 + 28 + 4 passed, 0 failed (`/tmp/p162/phase4-accept.log`), and
+  `git status --short tests/golden/canvas` → empty. The §1 grep's code hits are
+  `helper_geometry.rs:1406` (`__canvas_textGlyphRun`) and `:1467`
+  (`__canvas_textEdges`), the outline readers, plus `helper_font.rs:612`, the
+  `--debug`-only oracle `__canvas_faceCheck` (Correction 9). The rest are doc
+  comments. Runtime proof: `/tmp/p162/frame` (Arial filled, Georgia stroked, 9,626
+  lit pixels) dumped under `MFB_CANVAS_SYNC=1` by `main`'s compiler and by this
+  branch's → `cmp` identical, with identical printed metrics.
+Commit: — (this commit)
 
 ## Validation Plan
 
@@ -533,6 +549,14 @@ Commit: —
    index. The rule is kept and strengthened: `__canvas_faceGlyph` and
    `__canvas_faceAdvance` are now guarded too, and the oracle is named as the one
    exemption.
+
+9. **The §1 grep also lists the `--debug` oracle.** `__canvas_faceCheck` fetches the
+   bytes to compare them with the index. It exists only in a `--debug` build and only
+   runs under `MFB_CANVAS_FACE_CHECK`. The four per-call lookups it compares against
+   (`__canvas_glyphIndex`, `__canvas_cmap12`, `__canvas_cmap4`,
+   `__canvas_glyphAdvance`) moved into that debug half, since a normal build has no
+   caller for them. "Delete the per-call path" is therefore done for the normal build,
+   and the debug build keeps the path only as the oracle.
 
 ## Summary
 

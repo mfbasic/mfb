@@ -807,11 +807,10 @@ FUNC __canvas_autoTextBox(header AS List OF Float, t AS Text) AS List OF Float
     RETURN header
   END IF
   LET font AS Integer = canvas::fontHandle(t.font)
-  LET b AS List OF Byte = __canvas_fontBlob(font)
-  IF len(b) = 0 THEN
+  IF NOT canvas::fontRegistered(font) THEN
     RETURN header
   END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
+  LET upem AS Integer = __canvas_faceMetric(font, __CANVAS_FACE_UPEM)
   IF upem <= 0 THEN
     RETURN header
   END IF
@@ -830,9 +829,9 @@ FUNC __canvas_autoTextBox(header AS List OF Float, t AS Text) AS List OF Float
     out = collections::set(out, __CANVAS_GEO_GRADIENT_KIND, toFloat(__CANVAS_GEO_TEXT_BOX_MARK))
   END IF
   out = collections::set(out, __CANVAS_GEO_TEXT_BOX, x0)
-  out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 1, baseline - toFloat(__canvas_fontAscent(b)) * scale)
+  out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 1, baseline - toFloat(__canvas_faceMetric(font, __CANVAS_FACE_ASCENT)) * scale)
   out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 2, pen)
-  out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 3, baseline + toFloat(0 - __canvas_fontDescent(b)) * scale)
+  out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 3, baseline + toFloat(0 - __canvas_faceMetric(font, __CANVAS_FACE_DESCENT)) * scale)
   RETURN out
 END FUNC
 

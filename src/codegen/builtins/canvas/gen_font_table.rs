@@ -346,11 +346,12 @@ pub(crate) fn lower_font_registered(
 /// reasoned: in the retired `canvas::fontBytes` (bug-756 replaced it with this read), the
 /// first `measureText` printed correct metrics and the next one segfaulted (exit 139).
 ///
-/// So the cost is real and paid deliberately. What removes it is not an alias but not
-/// reading the file at all: plan-162-A's parse-once face index answers glyphs, advances
-/// and metrics by handle. Until then `__canvas_shapeRun` binds one copy per font per run,
-/// and the draw paths pay it once per geometry-cache **miss**, not per glyph or frame:
-/// the cache means a string is only shaped again when it changes.
+/// So the cost is real and paid deliberately — and now paid only where the file itself is
+/// needed. What removed it everywhere else was not an alias but not reading the file at
+/// all: the parse-once face index (plan-162-A, `lower_face_at`) answers glyphs, advances
+/// and metrics by handle. The callers left are the two outline readers,
+/// `__canvas_textGlyphRun` and `__canvas_textEdges`, which pay one copy per geometry-cache
+/// **miss**, not per glyph or frame, and the `--debug` oracle `__canvas_faceCheck`.
 ///
 /// `Unchecked` because it must be called with a handle `canvas::fontRegistered` just
 /// said yes to; on any other it would copy from a null pointer.

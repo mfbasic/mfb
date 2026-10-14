@@ -282,11 +282,10 @@ END FUNC
 ' the renderer (`__canvas_glyphRunHeader`).
 FUNC __canvas_textBoxHeader(t AS Text) AS List OF Float
   LET font AS Integer = canvas::fontHandle(t.font)
-  LET b AS List OF Byte = __canvas_fontBlob(font)
-  IF len(b) = 0 THEN
+  IF NOT canvas::fontRegistered(font) THEN
     RETURN __canvas_emptyHeader()
   END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
+  LET upem AS Integer = __canvas_faceMetric(font, __CANVAS_FACE_UPEM)
   IF upem <= 0 THEN
     RETURN __canvas_emptyHeader()
   END IF
@@ -303,8 +302,8 @@ FUNC __canvas_textBoxHeader(t AS Text) AS List OF Float
     pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
     c = c + 1
   END WHILE
-  LET y0 AS Float = baseline - toFloat(__canvas_fontAscent(b)) * scale
-  LET y1 AS Float = baseline + toFloat(0 - __canvas_fontDescent(b)) * scale
+  LET y0 AS Float = baseline - toFloat(__canvas_faceMetric(font, __CANVAS_FACE_ASCENT)) * scale
+  LET y1 AS Float = baseline + toFloat(0 - __canvas_faceMetric(font, __CANVAS_FACE_DESCENT)) * scale
   MUT out AS List OF Float = __canvas_blankHeader()
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_TEXT))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))

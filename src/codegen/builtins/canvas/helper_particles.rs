@@ -487,11 +487,10 @@ END FUNC
 ' is closed, or a run with no glyph, emits nothing.
 FUNC __canvas_particleTextBox(t AS Text) AS Nothing
   LET font AS Integer = canvas::fontHandle(t.font)
-  LET b AS List OF Byte = __canvas_fontBlob(font)
-  IF len(b) = 0 THEN
+  IF NOT canvas::fontRegistered(font) THEN
     RETURN
   END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
+  LET upem AS Integer = __canvas_faceMetric(font, __CANVAS_FACE_UPEM)
   IF upem <= 0 THEN
     RETURN
   END IF
@@ -506,8 +505,8 @@ FUNC __canvas_particleTextBox(t AS Text) AS Nothing
     advance = advance + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
     c = c + 1
   END WHILE
-  LET up AS Float = toFloat(__canvas_fontAscent(b)) * scale
-  LET down AS Float = toFloat(0 - __canvas_fontDescent(b)) * scale
+  LET up AS Float = toFloat(__canvas_faceMetric(font, __CANVAS_FACE_ASCENT)) * scale
+  LET down AS Float = toFloat(0 - __canvas_faceMetric(font, __CANVAS_FACE_DESCENT)) * scale
   __CANVAS_PARTICLE_EKIND = 2
   __CANVAS_PARTICLE_E0 = advance
   __CANVAS_PARTICLE_E1 = up + down

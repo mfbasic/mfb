@@ -58,15 +58,14 @@ END FUNC
 ///
 /// The handle comes from `canvas::fontOpenHandle`, which is what keeps a closed font an
 /// `ErrResourceClosed` rather than the all-zero metrics an unpublished handle would read
-/// as. The `head`/`hhea` metrics still read the font file through `__canvas_fontBlob`
-/// until plan-162-A's face index answers them by handle.
+/// as. The `head`/`hhea` metrics come from the font's face index by that handle
+/// (`__canvas_faceMetric`, plan-162-A), so measuring copies nothing of the font file.
 #[rustfmt::skip]
 const MEASURE_TEXT: &str =
 r#"FUNC __canvas_measureText(font AS canvas::Font, size AS Float, text AS String) AS TextMetrics
   LET handle AS Integer = canvas::fontOpenHandle(font)
   __canvas_faceCheck(handle)
-  LET b AS List OF Byte = __canvas_fontBlob(handle)
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
+  LET upem AS Integer = __canvas_faceMetric(handle, __CANVAS_FACE_UPEM)
   IF upem <= 0 THEN
     RETURN TextMetrics[width := 0.0, height := 0.0, ascent := 0.0, descent := 0.0, lineGap := 0.0]
   END IF
@@ -78,12 +77,12 @@ r#"FUNC __canvas_measureText(font AS canvas::Font, size AS Float, text AS String
     advance = advance + collections::getOr(run, i, 0)
     i = i + 3
   END WHILE
-  LET ascent AS Float = toFloat(__canvas_fontAscent(b)) * scale
+  LET ascent AS Float = toFloat(__canvas_faceMetric(handle, __CANVAS_FACE_ASCENT)) * scale
   ' `hhea.descender` is negative in the file -- it measures downward from the
   ' baseline -- and `TextMetrics.descent` is documented as a positive number, so the
   ' sign is flipped here rather than left for every caller to remember.
-  LET descent AS Float = toFloat(0 - __canvas_fontDescent(b)) * scale
-  LET lineGap AS Float = toFloat(__canvas_fontLineGap(b)) * scale
+  LET descent AS Float = toFloat(0 - __canvas_faceMetric(handle, __CANVAS_FACE_DESCENT)) * scale
+  LET lineGap AS Float = toFloat(__canvas_faceMetric(handle, __CANVAS_FACE_LINEGAP)) * scale
   RETURN TextMetrics[width := toFloat(advance) * scale, height := ascent + descent + lineGap, ascent := ascent, descent := descent, lineGap := lineGap]
 END FUNC"#;
 

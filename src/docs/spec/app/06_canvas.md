@@ -2708,7 +2708,7 @@ it.
 instead, so that a scene naming a closed font draws nothing rather than stopping.
 [[src/codegen/builtins/canvas/func_measure_text.rs:lower_font_open_handle]]
 
-The bytes behind a handle come from the process-global font table that `loadFont`
+The bytes and face index behind a handle come from the process-global font table that `loadFont`
 registers into and `destroyFont` clears. It is a chain of sixteen-slot chunks. The
 worker links in a new arena chunk only when every slot is taken, and chunks never move
 and are never freed, so the graphics thread walks the chain without a lock. A slot's
@@ -2717,6 +2717,48 @@ load-acquire on AArch64. [[src/codegen/builtins/canvas/gen_font_table.rs:emit_re
 [[src/codegen/builtins/canvas/gen_font_table.rs:emit_lookup_font]] Every live font
 therefore draws and measures, however many are open. The table was once sixteen fixed
 slots, and a seventeenth font's glyphs silently drew nothing (bug-756).
+
+## A font is parsed once
+
+`loadFont` parses the part of a font every string needs into a **face index** once,
+on the worker, as it loads: a flat `List OF Integer` holding a layout version,
+`head.unitsPerEm` (0 for a font with no `head`), the `hhea` ascender, descender (as
+stored, negative) and lineGap, then the `cmap` as sorted, disjoint
+`(firstCp, lastCp, delta)` runs and the `hmtx` advance column.
+[[src/codegen/builtins/canvas/helper_font.rs:__canvas_faceIndex]] The `Font` record
+owns the block at `FONT_FACE`, beside the bytes at `FONT_BYTES`, and the font-table
+slot publishes it with them as a third word.
+[[src/codegen/builtins/canvas/gen_font.rs:FONT_FACE]] The index lives as long as the
+bytes do: no close frees either, because the graphics thread reads both in place and a
+frame may still be drawing when the font closes.
+
+The index is built **by** the byte readers, so it says exactly what they say. A format-4
+run is a span over which the one segment evaluator both use answers with one constant
+`gid - cp`, taking each codepoint from the first segment whose endCode reaches it. A
+format-12 run is a group. A format-12 table whose groups overlap or go backwards keeps
+"the first group that contains the codepoint", settled by an O(n log n) paint, so a
+hostile table costs a sort at load. A codepoint in no run maps to glyph 0, and a glyph
+at or past the advance count takes the last advance.
+[[src/codegen/builtins/canvas/helper_font.rs:__canvas_cmap4Segment]]
+[[src/codegen/builtins/canvas/helper_font.rs:__canvas_cmap12Painted]]
+
+**Text reads the index in place, one word at a time, through the internal
+`canvas::faceAt(handle, i)`, and never through a copy of the font file.** It never
+allocates and never hands the block to MFBASIC: a block bound to an MFBASIC name is
+freed by that name's scope-drop, and the font's next reader then reads freed memory.
+An unregistered handle, or an `i` outside the block, reads `0`, so a closed font has no
+runs, no advances and a zero `unitsPerEm`, which is the answer the empty file it used to
+read as gave. [[src/codegen/builtins/canvas/gen_font_table.rs:lower_face_at]]
+`__canvas_shapeRun`, `measureText`, the run header's ink box and every text box read
+glyphs, advances and metrics this way. The only per-glyph reads that still need the file
+are the outlines: the filled run's rasteriser and the stroked edges each fetch it once
+per geometry-cache miss.
+[[src/codegen/builtins/canvas/helper_font.rs:FACE_READ]]
+
+A `--debug` build's `MFB_CANVAS_FACE_DUMP` writes each loaded font's index, and
+`MFB_CANVAS_FACE_CHECK` holds every index reader to the byte lookup it replaced, for
+every Unicode scalar and glyph id (`./mfb spec tooling debug-report`).
+[[src/codegen/builtins/canvas/helper_font.rs:FACE_DUMP_DEBUG]]
 
 ## System fonts are an OS query, then an ordinary load
 

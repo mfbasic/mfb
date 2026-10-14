@@ -1401,11 +1401,13 @@ END FUNC
 
 FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
   LET font AS Integer = canvas::fontHandle(t.font)
+  ' The file, for the outlines `__canvas_glyphEntry` rasterises on a miss: the one read
+  ' that needs it. Everything else comes from the face index (plan-162-A).
   LET b AS List OF Byte = __canvas_fontBlob(font)
   IF len(b) = 0 THEN
     RETURN []
   END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
+  LET upem AS Integer = __canvas_faceMetric(font, __CANVAS_FACE_UPEM)
   IF upem <= 0 THEN
     RETURN []
   END IF
@@ -1458,7 +1460,7 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
 END FUNC
 
 ' A `Text` names one font, so every triple of its shaped run has font index 0 and `b`
-' is the file its outlines come from.
+' is the file its outlines come from -- the only thing the file is fetched for.
 FUNC __canvas_textEdges(t AS Text) AS List OF Float
   __CANVAS_RING_MARKS = []
   LET font AS Integer = canvas::fontHandle(t.font)
@@ -1466,7 +1468,7 @@ FUNC __canvas_textEdges(t AS Text) AS List OF Float
   IF len(b) = 0 THEN
     RETURN []
   END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
+  LET upem AS Integer = __canvas_faceMetric(font, __CANVAS_FACE_UPEM)
   IF upem <= 0 THEN
     RETURN []
   END IF
@@ -1750,11 +1752,11 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
   ' ascent/descent box always contains the ink. It is only used to clip and to
   ' invalidate, so a box that is too large costs nothing and one that is too small
   ' would clip the glyphs it was meant to bound.
-  LET b AS List OF Byte = __canvas_fontBlob(canvas::fontHandle(t.font))
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
+  LET font AS Integer = canvas::fontHandle(t.font)
+  LET upem AS Integer = __canvas_faceMetric(font, __CANVAS_FACE_UPEM)
   LET scale AS Float = t.fontSize / toFloat(__canvas_maxI(upem, 1))
-  LET ascent AS Float = toFloat(__canvas_fontAscent(b)) * scale
-  LET descent AS Float = toFloat(0 - __canvas_fontDescent(b)) * scale
+  LET ascent AS Float = toFloat(__canvas_faceMetric(font, __CANVAS_FACE_ASCENT)) * scale
+  LET descent AS Float = toFloat(0 - __canvas_faceMetric(font, __CANVAS_FACE_DESCENT)) * scale
   MUT minX AS Float = collections::getOr(run, 1, __canvas_textX(t))
   MUT maxX AS Float = minX
   MUT i AS Integer = 0
@@ -2193,11 +2195,10 @@ END FUNC
 ' glyph's key (else -2, which no run holds).
 FUNC __canvas_geoRunReference(t AS Text, offset AS Integer) AS List OF Float
   LET font AS Integer = canvas::fontHandle(t.font)
-  LET b AS List OF Byte = __canvas_fontBlob(font)
-  IF len(b) = 0 THEN
+  IF NOT canvas::fontRegistered(font) THEN
     RETURN []
   END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
+  LET upem AS Integer = __canvas_faceMetric(font, __CANVAS_FACE_UPEM)
   IF upem <= 0 THEN
     RETURN []
   END IF
