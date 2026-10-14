@@ -74,7 +74,7 @@ FUNC main() AS Nothing
   canvas::present([box(100.0)])
   os::sleep(2500)
   canvas::present([box(200.0)])
-  os::sleep(3500)
+  os::sleep(13000)
   canvas::present([box(300.0)])
 END FUNC
 "#;
@@ -82,13 +82,15 @@ END FUNC
 /// The script's entries are applied at the start of the first frame at or after their
 /// time, in order, and the graphics thread reads back exactly what was published.
 ///
-/// Three entries, at 0, 1.5 and 5 s on the script's clock, which starts with the first
+/// Three entries, at 0, 1.5 and 12 s on the script's clock, which starts with the first
 /// frame: inside at (10, 20) with nothing held; inside at (30, 40) with the left
 /// button; then gone from the surface. The second frame starts 2.5 s after the first
-/// ENDS and the third at least 6 s after it started, so the second entry is due by
-/// the second frame and the third is not unless the first frame took 2.5 s to draw —
-/// a `--debug` build's software frame is slow, and the first cut of this test, with
-/// 100 ms margins, saw the third entry land in the second frame.
+/// ENDS and the third at least 15.5 s after the first started, so the second entry is
+/// due by the second frame and the third is not unless the first frame took 9.5 s to
+/// draw — a `--debug` build's software frame is slow, and the first cut of this test,
+/// with 100 ms margins, saw the third entry land in the second frame. So did a 5 s third
+/// entry (2.5 s of margin) inside a full `cargo test`, where the first frame ran past
+/// 2.5 s under load; the test passed alone.
 #[test]
 fn the_graphics_thread_reads_each_scripted_pointer_state() {
     let seen = pointers(
@@ -96,7 +98,7 @@ fn the_graphics_thread_reads_each_scripted_pointer_state() {
         THREE_FRAMES,
         &[(
             "MFB_CANVAS_POINTER",
-            "0,10,20,0,1;1500,30,40,1,1;5000,0,0,0,0",
+            "0,10,20,0,1;1500,30,40,1,1;12000,0,0,0,0",
         )],
     );
     assert_eq!(seen, vec!["10,20,0,1", "30,40,1,1", "0,0,0,0"]);
