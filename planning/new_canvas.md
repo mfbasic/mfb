@@ -81,8 +81,6 @@ END UNION
 UNION DrawItem INCLUDES AutoShape
     Picture
     Group
-    ParticleSystem
-    Tile
 END UNION
 
 * `INCLUDES` is not subtyping: a `Shape` value is not accepted where a `DrawItem` is
@@ -373,25 +371,6 @@ END TYPE
     image is fitted there and drawn upright; only the clip outline is transformed.
   Enclosing group transforms apply to the image in both modes.
 * Scaling still picks the nearest image pixel.
-
-TYPE Tile
-    image       AS RES canvas::Image
-    srcPosition AS vector::Float2
-    srcSize     AS vector::Float2
-    position    AS vector::Float2
-    size        AS vector::Float2
-END TYPE
-
-* A `Tile` maps the requested image-pixel source rectangle directly onto its canvas
-  destination with nearest-pixel sampling. Source samples outside the image are
-  transparent; the in-bounds part is not clamped or stretched to replace them.
-* Nonpositive source or destination extents draw nothing. Fractional source coordinates
-  and sizes are allowed.
-* A Tile has no paint, shape, hit target or per-item transform. An enclosing `Group`
-  moves, scales or rotates it with the rest of a map.
-* All renderers cull an item only after its enclosing group transforms have been
-  composed. A fully offscreen item remains in the scene and appears when a later group
-  placement brings it back into the viewport.
 
 TYPE Group
     id        AS String           ' This use of the group; it goes in front of its items' ids in overID
