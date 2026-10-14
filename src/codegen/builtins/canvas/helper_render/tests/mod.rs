@@ -404,3 +404,28 @@ fn the_vulkan_arm_asks_through_the_wrapper() {
         assert!(!loop_source.contains("IF canvas::useGpu() AND canvas::vulkanReady() THEN"));
     }
 }
+
+/// plan-173: viewport culling is ONE predicate, `__canvas_boundsMeetViewport`. The
+/// software walk gates its rasteriser call on it -- before the damage test, so a full
+/// frame skips an offscreen item too -- and the GPU draw-list split asks it for every
+/// block. The stats line shows the GPU list's result (`draws=`); nothing counts what the
+/// software walk skipped, so this is what holds that gate in place.
+#[test]
+fn both_renderers_cull_through_the_one_viewport_predicate() {
+    let scene = RENDER_SCENE;
+    let gate = scene
+        .find("IF __canvas_boundsMeetViewport(offset, width, height, gdx, gdy) AND (full OR")
+        .expect("the software walk's draw gate tests the viewport first");
+    let draw = scene
+        .find("buffer = __canvas_drawGeometry(buffer, width, height, offset, gdx, gdy)")
+        .expect("the software walk rasterises the entry");
+    assert!(gate < draw, "the viewport gate guards the rasteriser call");
+    assert_eq!(scene.matches("__canvas_drawGeometry(").count(), 1);
+    assert_eq!(
+        body("pushDraw")
+            .matches("__canvas_boundsMeetViewport(")
+            .count(),
+        2,
+        "the first block and each later one are tested"
+    );
+}

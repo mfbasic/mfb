@@ -231,25 +231,40 @@ GPU tolerance, including transparent samples outside the image.
   Check: `scripts/test-canvas-gpu-rows.sh target/release/mfb --target linux-aarch64
   --box 2226 --rows tile` → Vulkan tile row matches the software oracle (est. under
   10 minutes; box 2226 is the native AArch64 Vulkan host).
-Commit: —
+Commit: 0df3bef76
 
 ### Phase 3 — Viewport culling
 
 Skip renderer work for fully offscreen items across software, Metal, and Vulkan while
 keeping the scene intact for later group movement.
 
-- [ ] Add the shared transformed-bounds/viewport intersection helper in
-      `helper_damage.rs` or its geometry companion.
-- [ ] Apply it to the software full-frame walk and both GPU draw-list builders after
-      nested group transforms are composed.
-- [ ] Add runtime cases for items beyond each viewport edge and a map group moved,
+- [x] Add the shared transformed-bounds/viewport intersection helper in
+      `helper_damage.rs` or its geometry companion. `__canvas_boundsMeetViewport`
+      (half-open, over `__canvas_drawBound`'s hull of the composed corners); its native
+      twin for the no-group list is `emit_block_visible` (Correction 4).
+- [x] Apply it to the software full-frame walk and both GPU draw-list builders after
+      nested group transforms are composed. `cargo test --bin mfb
+      both_renderers_cull_through_the_one_viewport_predicate` → ok (software gate before
+      the damage test; `__canvas_pushDraw` tests every block). The native flat list is
+      checked against the MFBASIC walk by `flat_items_past_each_viewport_edge_publish_no_draw`
+      (`geoVerifyMismatches=0`, draws `1:1|4:1` of 6 blocks).
+- [x] Add runtime cases for items beyond each viewport edge and a map group moved,
       scaled, and rotated across an edge; assert visible pixels are preserved and an
       offscreen-to-onscreen group move draws the items.
+      `viewport_culling_uses_composed_group_bounds_and_keeps_the_scene`: four frames past
+      each edge publish `draws=none`; the fifth draws the moved, negatively scaled and
+      quarter-turned groups (the last two offscreen before their transform) and not the
+      fourth; their interior pixels are red. `cargo test --test rt_canvas_tile` → 5 passed.
+- [x] Doc sync (added): `mfb man canvas` package page gains the culling paragraph (rendered,
+      lines 37-42); `mfb man canvas types` renders `canvas::Tile`; `mfb spec app canvas`
+      renders the Tile and GPU-culling text with 0 leaked `[[`; `cargo test --bin mfb spec`
+      → 46 passed.
 
 Acceptance: fully offscreen items are not submitted to raster/draw work, and transformed
 items that intersect the viewport remain visible.
   Check: `cargo test --test rt_canvas_tile --test rt_canvas_golden group` → pass
-  (est. under 10 minutes).
+  (est. under 10 minutes). Measured: rt_canvas_golden 5 passed (group, group affine, and
+  both GPU group rows), rt_canvas_tile 1 passed (the filter selects the culling test).
 Commit: —
 
 ## Validation Plan
@@ -302,3 +317,7 @@ Commit: —
    runs it under `MFB_CANVAS_GEO_VERIFY=1` against the MFBASIC walk.
 5. Main was merged into the plan branch mid-plan at the owner's request (merge
    `834c4eaec`, no conflicts).
+6. `benchmark/canvas` (landed on main after this plan was written) measures every
+   `DrawItem` kind; a `tile` row was added so the new kind is not silently missing.
+   The committed baseline predates it, so `compare.py` lists it as new until the next
+   attended re-baseline.

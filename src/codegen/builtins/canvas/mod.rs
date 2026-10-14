@@ -163,6 +163,13 @@ evicted entry took, so a program presenting items with new coordinates every
 frame reaches a steady memory size — set by how much is on screen, not by how
 long it has been running — and can animate indefinitely at that size.
 
+An item wholly outside the window costs no drawing. Each frame, an item whose
+bounds — after every enclosing `canvas::Group`'s position and transform — miss
+the surface is skipped, and one that crosses an edge is drawn. It stays in the
+scene, so a large map can be one group of `canvas::Tile`s moved under the window:
+the tiles that scroll back into view are drawn again with nothing re-presented
+but the group.
+
 `present` **returns at once**; it never waits for the frame to be drawn. An animation
 loop that should run at the display's pace ends each iteration with
 `canvas::waitFrame`, and reads the time step to advance by from

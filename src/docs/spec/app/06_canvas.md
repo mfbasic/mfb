@@ -920,6 +920,11 @@ an edge is drawn. The test runs after every enclosing group affine has been comp
 Culling changes only work for the current frame: it does not remove the item from the
 retained scene, so a later group placement can bring it back into view.
 [[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_FOR]]
+On the GPU path the block list still holds every item and its instance base; a run of
+blocks ends where viewport visibility changes, and only visible runs become draw
+entries. A frame with no group lays that out natively with the same test at no offset,
+and a `--debug` build's `MFB_CANVAS_GEO_VERIFY=1` checks it against the MFBASIC walk.
+[[src/codegen/builtins/canvas/func_geo_cache.rs:emit_block_visible]]
 
 The record says how much of its box is rim: header slots 67 (the x sides) and 68 (the y
 sides), in the units the box is in. Untransformed both are the one unit. Under a
@@ -2406,10 +2411,14 @@ it.
 
 ### A tile selects an image rectangle
 
-`canvas::Tile` has `id`, `image AS RES canvas::Image`, `srcPosition`, `srcSize`,
-`position` and `size`; the last four fields are `vector::Float2`. It has no paint,
-shape, hit target or per-item transform. A group transform carries it like every other
-item.
+`canvas::Tile` has `image AS RES canvas::Image`, `srcPosition`, `srcSize`, `position`
+and `size`; the last four fields are `vector::Float2`. It has no `id`, paint, shape,
+hit target or per-item transform. A group transform carries it like every other item.
+Like a `ParticleSystem` it is never hit: `canvas::sceneIdBits` and
+`__canvas_hitAppend` skip it, so `overID` never names it and it hides nothing beneath
+it from the mouse. Its geometry is an image record, so the native resolver leaves a cache
+hit on it to `__canvas_pictureCached`, which confirms the image's current pixel block
+as it does a picture's. [[src/codegen/builtins/canvas/func_item_hash.rs:NEVER_HIT]]
 
 The source rectangle is in image pixels and maps directly onto the destination
 rectangle in canvas coordinates. At destination-local point `p`, the sampled image
