@@ -198,6 +198,9 @@ fn a_normal_build_names_only_the_headless_renderer_and_sync_variables() {
         "MFB_CANVAS_RESIZE_H",
         "MFB_CANVAS_RESIZE_W",
     ];
+    // 8b43850b0: the window layer's display-sync switch is a Metal one
+    // (`mfb spec tooling debug-report`, "MFB_CANVAS_VSYNC").
+    let macos_only = ["MFB_CANVAS_VSYNC"];
     let windows_only = [
         "MFB_WINAPP_INPUT",
         "MFB_WINAPP_TERM_RESIZE_H",
@@ -209,7 +212,7 @@ fn a_normal_build_names_only_the_headless_renderer_and_sync_variables() {
             .map(|name| name.to_string())
             .collect();
     for (target, extra) in [
-        ("macos-aarch64", Vec::new()),
+        ("macos-aarch64", macos_only.to_vec()),
         ("linux-x86_64", scripted_window.to_vec()),
         ("linux-aarch64", scripted_window.to_vec()),
         (
