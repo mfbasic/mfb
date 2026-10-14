@@ -65,7 +65,10 @@ full runs, a row's `work` median moved 1.09× at p90 and 1.22× at most, and its
 1.40× and 1.74× (`gpu`: 1.04× and 1.24× against 1.73× and 2.19×). A row is about 119
 frames, and its least catches the odd frame the GPU ran at a higher clock. So a row
 that moves by 1.25× or more (`compare.py`'s default) is outside the noise those two runs
-showed, and a smaller move is not evidence. `vsync` is reported but kept out of `work`, because it is the display's pacing rather
+showed, and a smaller move is not evidence. **Except `particles fill 10000`:** its GPU
+time is bimodal from run to run with one compiler (1,389 to 2,202 µs, `baseline/README.md`),
+so a move of up to 1.5× there is a change of band, not of code; re-run it before reading
+anything into it. `vsync` is reported but kept out of `work`, because it is the display's pacing rather
 than the renderer's. With display sync on (the default) the wait for the next refresh
 is all in `vsync`, and the other times are the frame's own: measured on one moving
 rectangle at 120 Hz, `vsync` was 7.4 ms of an 8 ms frame and the GPU 0.23 ms.
