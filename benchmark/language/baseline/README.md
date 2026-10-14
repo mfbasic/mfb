@@ -25,9 +25,9 @@ mfb -O1/-O2/-O3 and across C -O0/-O2.
 
 Provenance:
 
-- date: 2026-09-28 (run timestamp `20260928-201348`)
-- commit: the bug-760 fix (branch `worktree-B-760` at `1b5faaded`, merged to main)
-- host: Apple M2 Max, macOS 15.7.7 (arm64)
+- date: 2026-10-13 (run timestamp `20261013-174139`)
+- commit: main at `d68270144`
+- host: Apple M2 Max, macOS 15.7.7 (arm64), load average ~3.6–4.4
 - command: `./benchmark/language/run.sh 10`
 
 Rank these numbers with `./benchmark/language/rank.py` (see `benchmark/language/RANKING.md`).
@@ -38,7 +38,16 @@ between two columns `min` is measurably the more stable estimator
 Timings are host-specific — compare a new run against this baseline only on
 comparable hardware, and prefer the median column.
 
-This run replaced the 2026-09-28 morning baseline (`9c1ea5568`), which included
+This run replaced the 2026-09-28 evening baseline (`1b5faaded`, 2162 commits
+earlier). Against it, with C and Python flat (geomean 1.01–1.02), mfb's geomean
+`min` ratio is 0.629 at -O1, 0.645 at -O2 and 0.653 at -O3; the -O1 grade
+distribution moved from 190/111/96/73/28/8 (S/A/B/C/D/F) to 241/116/92/54/3/0.
+No `.sums` file changed. It includes one known regression: `list (State-Fixed)`
+`get`/`getOr` read ~1.65× and `reduce`/`reduceRight` 1.14–1.40× the previous
+baseline at every level (reproduced in a second run), and `list (Record-Fixed)
+contains` reads 1.51× at -O3 only. They are not yet bisected.
+
+The 2026-09-28 evening baseline replaced that day's morning baseline (`9c1ea5568`), which included
 the performance regressions filed as bug-760. Against it, with C and Python flat
 (geomean 1.00), mfb's geomean `min` ratio is 0.777 at -O1, 0.838 at -O2 and 0.804
 at -O3; every bug-760 row is back within 1.25× of the 2026-09-03 numbers. The only
