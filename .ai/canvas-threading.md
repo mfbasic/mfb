@@ -579,11 +579,13 @@ The Vulkan backend (plan-98-F) sits behind the same branch, gated on the single
 two probes of overlapping facts can disagree and one of them did. **Unlike `metalReady` it
 builds nothing** (§10.1). It has the same offscreen
 shape: it renders into an image and reads it back so the frame leaves through
-`canvas::blitSurface` like every other — always, in a window too: there is no Vulkan twin
-of Metal's direct present (bug-688 left it to be measured on real GPU hardware, which no
-reachable box has). It needs no `VkSurfaceKHR` and no swapchain, which is what lets it be
-tested headless; box 2226 now has a GNOME Wayland session, but its Vulkan driver, like
-every reachable one, is Mesa's CPU lavapipe.
+`canvas::blitSurface` like every other. That path needs no `VkSurfaceKHR` and no
+swapchain, which is what lets it be tested headless, and on Linux it is the only path, in
+a window too. **Windows has the twin of Metal's direct present** (bug-688 V6,
+`runtime/canvas/vulkan_present.rs`, `canvas::vulkanPresentScene`): the frame is recorded
+into a swapchain image of the canvas's child window and presented, and any frame it
+declines is read back instead. Box 2226 now has a GNOME Wayland session, but its Vulkan
+driver, like every reachable Linux one, is Mesa's CPU lavapipe.
 
 ### 10.1 The Vulkan pipeline is never on a frame's critical path (bug-996)
 
@@ -799,11 +801,13 @@ because neither builtin exists there. Flat, not interpolated: the value is an in
 interpolating an index across a quad yields a plausible picture drawn from the wrong
 blocks rather than a failure.
 
-**Glyph runs are still N draws, not N instances.** A text item was never one draw
-(`GEO_KIND_TEXT`), and folding it into the instancing scheme is a change of shape rather
-than of transport. Each glyph still publishes its own block and is drawn at its own
-index, and the per-glyph coverage bitmap is the one per-draw payload left anywhere on
-either backend — it never has to survive an instanced run, so it did not have to move.
+**A glyph run is one instanced draw, N instances.** Each glyph publishes its own block,
+so a `Text` item is N contiguous blocks and one draw-list entry draws them all
+(`emit_draw_list_pass` on both backends). Its coverage bitmap is not a per-draw payload:
+both emitters copy it into the frame buffer's glyph region and the glyph's block names
+its slice (`emit_glyph_publish`, bug-670 on Metal). It was a per-glyph
+`setFragmentBytes:` while each glyph was its own draw; under one instanced draw every
+glyph read whichever bitmap was bound last.
 
 A consequence worth knowing before adding anything per-item: **an instanced run cannot
 rebind a per-item side payload between its instances.** Anything that varies per item

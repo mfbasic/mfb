@@ -6698,10 +6698,9 @@ fn emit_draw_list_pass(
 /// and the software oracle comparable at all — the tolerance comparator diffs an
 /// RGBA8 buffer — and here it is also what makes the renderer testable headless.
 ///
-/// Unlike Metal (bug-686 Phase 4) there is no direct present: a frame is read back even
-/// in a window. Whether that readback threatens the frame budget is a real-GPU question
-/// bug-688 could not measure — every reachable Vulkan driver is Mesa's CPU lavapipe — so
-/// no `VK_KHR_swapchain` path was built on a guess.
+/// This member always reads back. The direct present is `canvas::vulkanPresentScene`
+/// (`vulkan_present.rs`), which is Windows only: on Linux a frame is read back even in a
+/// window.
 ///
 /// The submit is followed by `vkQueueWaitIdle`, so the frame is complete before this
 /// returns and `canvas::frameDone` advances D's counter after real GPU completion —
