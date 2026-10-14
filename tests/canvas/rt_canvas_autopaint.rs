@@ -996,3 +996,100 @@ fn a_picture_on_an_autopaint_over_a_curve_polygon_tints_on_hover() {
     assert_eq!(corner.autos(), vec!["0"]);
     assert_eq!(corner.pixel(200, 200), [255, 255, 255]);
 }
+
+/// A scene of `COUNT` `AutoPaint` circles, presented `FRAMES` times with one moving
+/// marker so every frame is walked: what `__canvas_autoResolve` costs per instance.
+const MANY: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT collections
+IMPORT color
+IMPORT os
+IMPORT vector
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET count AS Integer = toInt(os::getEnvOr("COUNT", "100"))
+  LET frames AS Integer = toInt(os::getEnvOr("FRAMES", "8"))
+  LET body AS canvas::Paint = canvas::fill(color::rgb(0, 200, 255))
+  LET lit AS canvas::Paint = canvas::fill(color::rgb(255, 0, 0))
+  MUT scene AS List OF canvas::DrawItem = []
+  MUT k AS Integer = 0
+  WHILE k < count
+    LET c AS canvas::Circle = canvas::Circle[id := "", position := vector::Float2[x := toFloat((k * 37) MOD 860) + 20.0, y := toFloat((k * 53) MOD 560) + 20.0], radius := 8.0, paint := body, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET a AS canvas::DrawItem = canvas::AutoPaint[shape := c, useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := body, exitPaint := body, hoverPaint := lit, pressedPaint := lit]
+    scene = collections::append(scene, a)
+    k = k + 1
+  END WHILE
+  MUT frame AS Integer = 0
+  WHILE frame < frames
+    LET marker AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(frame MOD 800), y := 600.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 20.0, height := 20.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := lit, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    canvas::present(collections::append(scene, marker))
+    frame = frame + 1
+  END WHILE
+END FUNC
+"#;
+
+/// The graphics thread's arena's scrubbed bytes, from the `--debug` report's arena
+/// section: the arena whose `kind` is `graphics`.
+fn graphics_scrubbed_bytes(ran: &Ran) -> u64 {
+    let index = ran
+        .stderr
+        .lines()
+        .find_map(|line| {
+            let rest = line.strip_prefix("arena.")?;
+            let (index, kind) = rest.split_once(".kind ")?;
+            (kind.trim() == "graphics").then(|| index.to_string())
+        })
+        .unwrap_or_else(|| panic!("no graphics arena in the report:\n{}", ran.stderr));
+    let key = format!("arena.{index}.fill_free_bytes ");
+    ran.stderr
+        .lines()
+        .find_map(|line| line.strip_prefix(key.as_str()))
+        .unwrap_or_else(|| panic!("no `{key}` in the report:\n{}", ran.stderr))
+        .trim()
+        .parse()
+        .expect("a byte count")
+}
+
+/// The scene walk's milliseconds per frame (`phaseOffsetsMs`, cumulative), over the
+/// frames after the first two, which build the pipeline and every record.
+fn walk_ms_per_frame(ran: &Ran) -> f64 {
+    let at = |line: &String| -> f64 { field(line, "phaseOffsetsMs").parse().expect("a number") };
+    let first = &ran.stats[2];
+    let last = ran.stats.last().expect("stats lines");
+    (at(last) - at(first)) / (ran.stats.len() - 3) as f64
+}
+
+/// The walk of a frame of `AutoPaint`s grows with the instance count, not its square.
+///
+/// It grew with the square twice over. `__canvas_autoResolve` found each instance's row
+/// by scanning the whole table (`__canvas_autoRow`, and `__canvas_autoVariant` per
+/// group use), and `__canvas_autoAppend` handed the walk's growing entry list on as its
+/// own parameter, so every instance freed (and scrubbed) a copy of it. Measured before
+/// the fix: 4,000 instances walked 40 times slower than 250 (16 times the instances),
+/// and 2,000 scrubbed 5.96 times the bytes of 500 (4 times). After: 13.8 and 3.90.
+///
+/// The bytes are exact, so their bound is tight. The walk is a time, read as a ratio so
+/// the machine's speed cancels; its bound sits midway between linear and what the
+/// square gave.
+#[test]
+fn an_autopaint_frame_costs_linear_in_its_instances() {
+    let built = build("canvas_autopaint_many", MANY);
+    let small = run(&built, true, &[("COUNT", "500")]);
+    let large = run(&built, true, &[("COUNT", "2000")]);
+    let bytes = graphics_scrubbed_bytes(&large) as f64 / graphics_scrubbed_bytes(&small) as f64;
+    assert!(
+        bytes < 5.0,
+        "4x the AutoPaints scrubbed {bytes:.2}x the graphics thread's bytes (linear is 4): \
+         an n-sized block is freed per instance"
+    );
+
+    let few = run(&built, true, &[("COUNT", "250")]);
+    let many = run(&built, true, &[("COUNT", "4000")]);
+    let walk = walk_ms_per_frame(&many) / walk_ms_per_frame(&few);
+    assert!(
+        walk < 25.0,
+        "16x the AutoPaints walked {walk:.1}x slower (linear is 16): a per-instance scan \
+         of the instance table"
+    );
+}

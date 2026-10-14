@@ -1510,6 +1510,16 @@ own index (`__canvas_autoPath`). Three keys that look more natural are each wron
 What the structural key costs is stated in the spec: insert or remove an item ahead of
 an instance in its list and it gets a new key and starts again from its own paint.
 
+**A row is found through an index, never by scanning the table.** Every instance looks
+its row up, and every group use asks for its variant, once a frame; a scan of the table
+in either made a frame of n instances cost n * n — 277 ms a frame at 10,000 in
+`benchmark/canvas`. `__canvas_autoIndexTable` rebuilds `__CANVAS_AUTO_T_ROW` (key to
+FIRST row) and the parent chains (`__CANVAS_AUTO_T_FIRST`, `__CANVAS_AUTO_T_NEXT`)
+wherever `__CANVAS_AUTO_T_KEY` is written. A chain and not a list per parent: every
+top-level instance has parent 0, and appending to a list held in a map copies it, which
+is the same n * n again. The variant still reads `__CANVAS_AUTO_T_SHOWN` live, because
+`__canvas_autoLight` rewrites it between resolves.
+
 ### The walk notes, the resolve swaps
 
 `__canvas_appendDraw`'s `AutoPaint` arm appends the shape's entry built from the shape's

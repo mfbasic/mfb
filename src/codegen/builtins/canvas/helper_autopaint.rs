@@ -215,6 +215,13 @@ MUT __CANVAS_AUTO_HOSTS AS List OF Integer = []
 ' phase (+ 4 when it owns the press), the end of the window it is in, the paint it is
 ' showing, and its parent path.
 MUT __CANVAS_AUTO_T_KEY AS List OF Integer = []
+' The table's rows by key, and each parent path's rows in table order, rebuilt
+' wherever `__CANVAS_AUTO_T_KEY` is (`__canvas_autoIndexTable`). A scan of the table per
+' instance (`__canvas_autoRow`) and per group use (`__canvas_autoVariant`) made a frame of
+' n instances cost n * n.
+MUT __CANVAS_AUTO_T_ROW AS Map OF Integer TO Integer = Map OF Integer TO Integer { }
+MUT __CANVAS_AUTO_T_FIRST AS Map OF Integer TO Integer = Map OF Integer TO Integer { }
+MUT __CANVAS_AUTO_T_NEXT AS List OF Integer = []
 MUT __CANVAS_AUTO_T_STATE AS List OF Integer = []
 MUT __CANVAS_AUTO_T_DEADLINE AS List OF Integer = []
 MUT __CANVAS_AUTO_T_SHOWN AS List OF Integer = []
@@ -412,9 +419,16 @@ END FUNC
 
 ' `__canvas_appendDraw`'s `AutoPaint` arm: note the instance, then append its shape's
 ' entry -- with the shape's OWN paint, which is what the hit test must read.
+'
+' Through a local, not the parameter: handing `offsets` straight on to
+' `__canvas_appendDraw` copied the walk's whole entry list for every instance (and freed
+' and scrubbed the copy), so a frame of n instances cost n * n
+' (`an_autopaint_frame_costs_linear_in_its_instances`).
 FUNC __canvas_autoAppend(offsets AS List OF Integer, a AS AutoPaint, hash AS Integer, gdx AS Float, gdy AS Float, mat AS Integer, depth AS Integer, path AS Integer, index AS Integer) AS List OF Integer
-  __canvas_autoNote(a, hash, len(offsets), depth, path, index, 0 - 1)
-  RETURN __canvas_appendDraw(offsets, __canvas_autoItem(a), __canvas_autoGeoHash(hash, 0), gdx, gdy, mat, depth, path, index)
+  MUT out AS List OF Integer = offsets
+  __canvas_autoNote(a, hash, len(out), depth, path, index, 0 - 1)
+  out = __canvas_appendDraw(out, __canvas_autoItem(a), __canvas_autoGeoHash(hash, 0), gdx, gdy, mat, depth, path, index)
+  RETURN out
 END FUNC
 
 ' plan-172-L: the shape of an `AutoPaint` under the paint it shows (0: its own), for a
@@ -437,14 +451,36 @@ END FUNC
 
 ' The table row of `key`, or -1.
 FUNC __canvas_autoRow(key AS Integer) AS Integer
+  RETURN collections::getOr(__CANVAS_AUTO_T_ROW, key, 0 - 1)
+END FUNC
+
+' Index the table just written: each key's FIRST row (what the scan it replaced
+' answered), and each parent path's rows as a chain in rising order -- the parent's
+' first row, then each row's next row of the same parent (-1 ends it). A chain, not a
+' list per parent: every top-level instance has parent 0, and appending to a list held
+' in a map copies it, which is the n * n this index exists to remove.
+FUNC __canvas_autoIndexTable() AS Nothing
+  LET count AS Integer = len(__CANVAS_AUTO_T_KEY)
+  __CANVAS_AUTO_T_ROW = Map OF Integer TO Integer { }
+  __CANVAS_AUTO_T_FIRST = Map OF Integer TO Integer { }
+  __CANVAS_AUTO_T_NEXT = collections::repeat([], 0 - 1, count)
+  MUT last AS Map OF Integer TO Integer = Map OF Integer TO Integer { }
   MUT i AS Integer = 0
-  WHILE i < len(__CANVAS_AUTO_T_KEY)
-    IF collections::getOr(__CANVAS_AUTO_T_KEY, i, 0) = key THEN
-      RETURN i
+  WHILE i < count
+    LET key AS Integer = collections::getOr(__CANVAS_AUTO_T_KEY, i, 0)
+    IF NOT collections::hasKey(__CANVAS_AUTO_T_ROW, key) THEN
+      __CANVAS_AUTO_T_ROW = collections::set(__CANVAS_AUTO_T_ROW, key, i)
     END IF
+    LET parent AS Integer = collections::getOr(__CANVAS_AUTO_T_PARENT, i, 0)
+    LET previous AS Integer = collections::getOr(last, parent, 0 - 1)
+    IF previous < 0 THEN
+      __CANVAS_AUTO_T_FIRST = collections::set(__CANVAS_AUTO_T_FIRST, parent, i)
+    ELSE
+      __CANVAS_AUTO_T_NEXT = collections::set(__CANVAS_AUTO_T_NEXT, previous, i)
+    END IF
+    last = collections::set(last, parent, i)
     i = i + 1
   END WHILE
-  RETURN 0 - 1
 END FUNC
 
 ' The topmost of the last walked frame's draw entries under a surface point, or -1: the
@@ -474,6 +510,9 @@ END FUNC
 
 FUNC __canvas_autoForget() AS Nothing
   __CANVAS_AUTO_T_KEY = []
+  __CANVAS_AUTO_T_ROW = Map OF Integer TO Integer { }
+  __CANVAS_AUTO_T_FIRST = Map OF Integer TO Integer { }
+  __CANVAS_AUTO_T_NEXT = []
   __CANVAS_AUTO_T_STATE = []
   __CANVAS_AUTO_T_DEADLINE = []
   __CANVAS_AUTO_T_SHOWN = []
@@ -611,6 +650,7 @@ FUNC __canvas_autoResolve(offsets AS List OF Integer, spans AS List OF Integer) 
   __CANVAS_AUTO_T_PARENT = parents
   __CANVAS_AUTO_T_ENTRY = entries
   __CANVAS_AUTO_T_FLAGS = flagWords
+  __canvas_autoIndexTable()
   __CANVAS_AUTO_WAS_BUTTONS = buttons
   __CANVAS_AUTO_DEADLINE = earliest
   __CANVAS_AUTO_ITEMS = []
@@ -732,15 +772,13 @@ END FUNC
 ' the group's one run; otherwise a number that names which are showing what.
 FUNC __canvas_autoVariant(path AS Integer) AS Integer
   MUT variant AS Integer = 0
-  MUT i AS Integer = 0
-  WHILE i < len(__CANVAS_AUTO_T_KEY)
+  MUT i AS Integer = collections::getOr(__CANVAS_AUTO_T_FIRST, path, 0 - 1)
+  WHILE i >= 0
     LET shown AS Integer = collections::getOr(__CANVAS_AUTO_T_SHOWN, i, 0)
     IF shown <> 0 THEN
-      IF collections::getOr(__CANVAS_AUTO_T_PARENT, i, 0) = path THEN
-        variant = __canvas_hashStep(__canvas_hashStep(variant, collections::getOr(__CANVAS_AUTO_T_KEY, i, 0)), shown) + 1
-      END IF
+      variant = __canvas_hashStep(__canvas_hashStep(variant, collections::getOr(__CANVAS_AUTO_T_KEY, i, 0)), shown) + 1
     END IF
-    i = i + 1
+    i = collections::getOr(__CANVAS_AUTO_T_NEXT, i, 0 - 1)
   END WHILE
   RETURN variant
 END FUNC
