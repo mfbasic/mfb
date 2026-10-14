@@ -180,13 +180,23 @@ Add the registry type, geometry representation, software nearest-pixel sampling,
 focused runtime coverage for atlas selection, fractional scaling, transparent samples
 outside image bounds, and invalid/closed images.
 
-- [ ] Add `Tile` to `src/codegen/builtins/canvas/mod.rs` and `DrawItem` documentation.
-- [ ] Add tile source geometry and hashing in `helper_geometry.rs` and software sampling
-      in `helper_items.rs`.
-- [ ] Add `tests/canvas/rt_canvas_tile.rs` with inside, partial out-of-bounds, wholly
+- [x] Add `Tile` to `src/codegen/builtins/canvas/mod.rs` and `DrawItem` documentation.
+      `cargo test --bin mfb builtins::canvas` → 48 passed (incl.
+      `draw_item_variant_set_is_frozen`, `every_draw_item_variant_carries_a_paint`).
+- [x] Add tile source geometry and hashing in `helper_geometry.rs` and software sampling
+      in `helper_items.rs`. `the_tile_tail_layout_matches_both_gpu_emitters` and
+      `image_kind_bits_are_their_kinds_as_floats` pass in the run above.
+- [x] Add `tests/canvas/rt_canvas_tile.rs` with inside, partial out-of-bounds, wholly
       out-of-bounds, scaled, zero-area, and closed-image cases.
-- [ ] Add the matching `tests/golden/canvas/tile.png` fixture and route it through the
-      existing canvas runtime harness.
+      `cargo test --test rt_canvas_tile` → 5 passed.
+- [x] Add the matching `tests/golden/canvas/tile.png` fixture and route it through the
+      existing canvas runtime harness. `atlas_regions_scale_and_out_of_bounds_samples_are_exact`
+      asserts the selected cells pixel by pixel, then `compare_exact` against the PNG → ok.
+- [x] Never-hit Tile (added, Correction 2): no `id`; `NEVER_HIT` in `func_item_hash.rs`,
+      `Tile` arms in `__canvas_itemId` / `__canvas_hitAppend`. Builds and passes in both runs above.
+- [x] Cached Tile records confirm their image block (added, Correction 3):
+      `set_bytes_on_a_presented_tile_image_repaints` was RED (last frame `(255, 0, 0, 255)`,
+      the old pixels), GREEN after `emit_hit` skips `TILE_KIND_BITS`.
 
 Acceptance: software output selects the requested atlas pixels and renders out-of-image
 samples transparent without errors.
@@ -267,3 +277,20 @@ Commit: —
 1. The current geometry header is 69 floats, not 67. `rg -n '__CANVAS_GEO_HEADER AS'
    src/codegen/builtins/canvas/helper_geometry.rs` reports `69`; Tile therefore starts
    its four-float source tail at slots 69–72.
+2. A Tile has no `id`. §1 lists its fields as `image`, `srcPosition`, `srcSize`, `position`,
+   `size`, and Decisions say it has no hit testing; the in-progress work had added an `id`
+   and left it to the generic hit walk, which would have built a kind-13 record that
+   `__canvas_hitDistance` does not know. It is now never hit, like `ParticleSystem`:
+   `NEVER_HIT` (`func_item_hash.rs`) and explicit `Tile` arms in `helper_hit.rs`.
+3. Bug found and fixed: `canvas::sceneResolve`'s native cache hit (`emit_hit` in
+   `func_geo_cache.rs`) left only Picture records (`PICTURE_KIND_BITS`) to
+   `__canvas_pictureCached`, so a Tile record was trusted on its hash and kept sampling
+   the old pixel block after `canvas::setBytes`. Repro: `cargo test --test rt_canvas_tile
+   set_bytes` → last frame red, not green. Fixed with `TILE_KIND_BITS`.
+4. Flat-frame culling is native. The in-progress work rebuilt the native
+   `canvas::sceneDrawsFlat` list with an MFBASIC `__canvas_pushDraw` walk over every
+   block every frame, undoing bug-686's fast path. `lower_scene_draws_flat` now splits runs
+   on visibility itself (`emit_block_visible`), and `flat_items_past_each_viewport_edge_publish_no_draw`
+   runs it under `MFB_CANVAS_GEO_VERIFY=1` against the MFBASIC walk.
+5. Main was merged into the plan branch mid-plan at the owner's request (merge
+   `834c4eaec`, no conflicts).

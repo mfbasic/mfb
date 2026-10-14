@@ -1408,10 +1408,12 @@ pub(crate) fn register(r: &mut Registry) {
                       moving or stretching the part that is inside. A nonpositive \
                       source or destination size draws nothing. A tile has no paint or \
                       transform of its own; put it in a `canvas::Group` to move, turn, \
-                      scale or shear a map. A `Tile` has no default value because it \
-                      holds an image, so every field is written out.",
+                      scale or shear a map. A tile is never under the mouse: it has \
+                      no `id`, `canvas::MouseEvent.overID` never names it, and it \
+                      does not hide what is beneath it from the mouse. A `Tile` has \
+                      no default value because it holds an image, so every field is \
+                      written out.",
         props: vec![
-            id_prop(),
             RecordProp {
                 name: "image",
                 ty: ParameterType::res(ParameterType::named("canvas.Image")),

@@ -6,8 +6,8 @@ IMPORT io
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES atlas AS canvas::Image = canvas::createImage(4, 2, [toByte(255), toByte(0), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(255), toByte(0), toByte(0), toByte(255), toByte(255), toByte(255), toByte(255), toByte(0), toByte(255), toByte(255), toByte(0), toByte(255), toByte(255), toByte(0), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(255), toByte(128), toByte(64), toByte(32), toByte(255)])
-  LET a AS canvas::DrawItem = canvas::Tile[id := "a", image := atlas, srcPosition := vector::Float2[x := 1.0, y := 0.0], srcSize := vector::Float2[x := 2.0, y := 2.0], position := vector::Float2[x := 40.0, y := 40.0], size := vector::Float2[x := 240.0, y := 180.0]]
-  LET b AS canvas::DrawItem = canvas::Tile[id := "b", image := atlas, srcPosition := vector::Float2[x := -0.5, y := 0.5], srcSize := vector::Float2[x := 3.0, y := 1.0], position := vector::Float2[x := 340.0, y := 80.0], size := vector::Float2[x := 360.0, y := 160.0]]
+  LET a AS canvas::DrawItem = canvas::Tile[image := atlas, srcPosition := vector::Float2[x := 1.0, y := 0.0], srcSize := vector::Float2[x := 2.0, y := 2.0], position := vector::Float2[x := 40.0, y := 40.0], size := vector::Float2[x := 240.0, y := 180.0]]
+  LET b AS canvas::DrawItem = canvas::Tile[image := atlas, srcPosition := vector::Float2[x := -0.5, y := 0.5], srcSize := vector::Float2[x := 3.0, y := 1.0], position := vector::Float2[x := 340.0, y := 80.0], size := vector::Float2[x := 360.0, y := 160.0]]
   canvas::present([a, b])
   io::print("rendered")
 END FUNC

@@ -58,6 +58,10 @@ const SLOT_WORDS: usize = 4;
 const MIN_BUCKETS: usize = 64;
 /// `__CANVAS_GEO_PICTURE`, as the bit pattern of the float in a record's slot 0.
 const PICTURE_KIND_BITS: u64 = 0x4022_0000_0000_0000; // 9.0
+/// `__CANVAS_GEO_TILE` the same way (plan-173). A Tile samples an image exactly as a
+/// picture does, so its cached record names a pixel block that `setBytes` replaces
+/// without changing the item.
+const TILE_KIND_BITS: u64 = 0x402A_0000_0000_0000; // 13.0
 
 fn int_list() -> ParameterType {
     ParameterType::list_of(ParameterType::Integer)
@@ -1066,7 +1070,8 @@ fn emit_resolved(
     builder.emit(abi::store_u64(&r, abi::stack_pointer(), resolved_slot));
 }
 
-/// A cache hit on `slot`: a picture's record branches to `next` unresolved; anything
+/// A cache hit on `slot`: a picture's or a tile's record branches to `next` unresolved,
+/// so the MFBASIC pass confirms its image block (`__canvas_pictureCached`); anything
 /// else is stamped and resolved, then branches to `next`.
 fn emit_hit(
     builder: &mut CodeBuilder,
@@ -1090,6 +1095,14 @@ fn emit_hit(
         &PICTURE_KIND_BITS.to_string(),
     ));
     builder.emit(abi::compare_registers(&kind, &picture));
+    builder.emit(abi::branch_eq(next));
+    let tile = builder.temporary_vreg();
+    builder.emit(abi::move_immediate(
+        &tile,
+        "Integer",
+        &TILE_KIND_BITS.to_string(),
+    ));
+    builder.emit(abi::compare_registers(&kind, &tile));
     builder.emit(abi::branch_eq(next));
     emit_stamp(builder, g, slot);
     emit_resolved(builder, top_off, gi_slot, resolved_slot, &off);
@@ -1900,4 +1913,23 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         vec!["ErrOutOfMemory"],
         lower_scene_layout,
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PICTURE_KIND_BITS, TILE_KIND_BITS};
+    use crate::codegen::runtime::canvas::{GEO_KIND_PICTURE, GEO_KIND_TILE};
+
+    /// `emit_hit` compares a record's slot 0 against these as raw bits, so each must be
+    /// exactly the float its kind constant names.
+    #[test]
+    fn image_kind_bits_are_their_kinds_as_floats() {
+        for (bits, kind) in [
+            (PICTURE_KIND_BITS, GEO_KIND_PICTURE),
+            (TILE_KIND_BITS, GEO_KIND_TILE),
+        ] {
+            let kind: f64 = kind.parse().expect("a numeric kind");
+            assert_eq!(bits, kind.to_bits(), "kind {kind}");
+        }
+    }
 }

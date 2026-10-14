@@ -1965,9 +1965,7 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
     CASE Picture(pic)
       RETURN __canvas_pictureHash(pic)
     CASE Tile(tile)
-      MUT h AS Integer = __canvas_hashStart(13)
-      h = __canvas_hashText(h, tile.id)
-      h = __canvas_hashStep(h, canvas::imageHandle(tile.image))
+      MUT h AS Integer = __canvas_hashStep(__canvas_hashStart(13), canvas::imageHandle(tile.image))
       h = __canvas_hashPoint(__canvas_hashPoint(__canvas_hashPoint(__canvas_hashPoint(h, tile.srcPosition), tile.srcSize), tile.position), tile.size)
       RETURN h
     CASE Text(t)

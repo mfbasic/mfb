@@ -375,7 +375,6 @@ END TYPE
 * Scaling still picks the nearest image pixel.
 
 TYPE Tile
-    id          AS String
     image       AS RES canvas::Image
     srcPosition AS vector::Float2
     srcSize     AS vector::Float2

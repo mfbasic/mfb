@@ -242,6 +242,9 @@ FUNC __canvas_itemId(item AS DrawItem) AS String
     ' plan-150-A: a particle system has no `id` -- nothing about it is ever hit.
     CASE ParticleSystem(ps)
       RETURN ""
+    ' plan-173: nor is a tile; it has no `id` to report.
+    CASE Tile(tile)
+      RETURN ""
   END MATCH
 END FUNC
 
@@ -369,6 +372,10 @@ FUNC __canvas_hitAppend(item AS DrawItem, gdx AS Float, gdy AS Float, mat AS Int
     ' is not reported by `overID` and hides nothing beneath it -- and this thread never
     ' runs the particle model.
     CASE ParticleSystem(ps)
+      RETURN
+    ' plan-173: a tile is never under the mouse either, and hides nothing beneath it --
+    ' a map is a backdrop, and the items over it are what `overID` names.
+    CASE Tile(tile)
       RETURN
     CASE ELSE
       LET offset AS Integer = __canvas_hitGeometry(item, __canvas_hashItem(item))
