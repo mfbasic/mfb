@@ -332,3 +332,19 @@ Commit: c27b934e7
    item list and the image with it, so `setBytes(img, …)` after it is
    `TYPE_USE_AFTER_MOVE` (measured with a draft test, removed). Only a directly presented
    tile can, which `set_bytes_on_a_presented_tile_image_repaints` covers.
+9. Final gate, run once (§Validation): `cargo test --no-fail-fast` → 356 test binaries ok, 3
+   failed, each then fixed and re-run:
+   * `artifact_gate_all`: 9 diffs, all canvas programs (predicted: the injected canvas
+     source changed). Localized on `loop_body_resource_reference_valid.ir` with line
+     numbers normalized: every changed call target is this plan's. Rewritten with
+     `regen-native-goldens.sh` and the gate's own `mfb build -q -ast -ir`;
+     `scripts/artifact-gate.sh target/release/mfb all` → 2352 checked, 0 diffs (74de1a280).
+   * `a_normal_build_names_only_the_headless_renderer_and_sync_variables`: pre-existing on
+     main. 8b43850b0 added the documented macOS `--debug` variable `MFB_CANVAS_VSYNC`
+     without adding it to the test's list. Fixed (9bae03a9d); `rt_canvas_debug_hooks` → 3 passed.
+   * `the_graphics_thread_reads_each_scripted_pointer_state`: a timing flake under suite
+     load (passed alone); its third entry's margin widened from 2.5 s to 9.5 s, assertions
+     unchanged (ff8a93961); `rt_canvas_pointer` → 2 passed.
+   GPU rows: `scripts/test-canvas-gpu-rows.sh target/release/mfb --target linux-aarch64
+   --box 2226` → exit 0, 59 rows match the software oracle; the Metal rows
+   (`rt_canvas_metal`) pass inside the full `cargo test`.
