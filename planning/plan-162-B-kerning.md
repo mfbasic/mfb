@@ -63,8 +63,8 @@ References:
 
 | What | Count | Command |
 |---|---|---|
-| System fonts carrying `GPOS` / `kern` | UNMEASURED | Phase 1 probe over `canvas::listSystemFonts()`, printing which tables each face has |
-| Pair-table sizes (format 1 pairs, format 2 class matrix cells) | UNMEASURED | same probe |
+| System fonts carrying `GPOS` / `kern` | Of 638 TrueType faces: 355 have `GPOS`, 250 of them a `kern` feature (DFLT → latn → first script); 267 have a `kern` table, 133 of those with no `GPOS` `kern`. `kern` versions: 211 version 0, 56 Apple version 1. Every version-0 subtable is format 0 with coverage low byte 1 (horizontal only): 231 subtables. `kern`-feature lookup shapes (type, format, via Extension) → faces: (2,1) 181, (2,2) 124, (2,1,ext) 16, (2,2,ext) 15, plus non-pair types the letter ignores ((8,·) 50, (4,1) 9, (7,2) 3, (1,1) 2). 158 faces use more than one pair subtable | `python3 -I /tmp/p162/probe.py` over `/System/Library/Fonts`, `/Library/Fonts`, `~/Library/Fonts`, `/System/Library/AssetsV2`, summarised from `/tmp/p162/probe.json` (2026-10-14) |
+| Pair-table sizes (format 1 pairs, format 2 class matrix cells) | max 46,098 format-1 pairs in one face; max 1,129,208 format-2 class-matrix cells in one face | same probe |
 
 ## 3. Design Overview
 
@@ -147,17 +147,23 @@ in font units, so every caller's pixel arithmetic (bug-756) is unchanged.
 
 ### Phase 1 — measure real fonts
 
-- [ ] `/tmp` probe: for each `canvas::listSystemFonts()` face, print whether it has
+- [x] `/tmp` probe: for each `canvas::listSystemFonts()` face, print whether it has
       `GPOS`, whether `GPOS` has a `kern` feature, the lookup types and subtable
       formats it uses (including Extension-wrapped ones), and whether it has a `kern`
       table and which versions/formats. Record the counts in §2 with the command.
-- [ ] Pick the real-font oracle face for Phase 4: one with format 2 through an
+      Done by the shared plan-162 probe (`/tmp/p162/probe.py`); counts in §2.
+- [x] Pick the real-font oracle face for Phase 4: one with format 2 through an
       Extension lookup, if any is installed. Record its name and file hash.
+      `/System/Library/Fonts/SFNS.ttf` (SF Pro, TrueType outlines, upem 2048): `kern`
+      through Extension lookups, formats 1 and 2, 11 pair subtables, 43,926 format-1
+      pairs and 24,742 class cells. SHA-256
+      `1c81ead87ca36eee7d51dbe816c3202ba8052fc88228a46de930339c4ec1df22`.
 
 Acceptance: §2's UNMEASURED rows hold numbers and commands.
   Check: `grep -c UNMEASURED planning/plan-162-B-kerning.md` → 0 outside this task list
   (est. 1 min).
-Commit: —
+  Result: → 1, the line above.
+Commit: — (with plan-162-A's Phase 4 hash, this commit)
 
 ### Phase 2 — fixtures
 
@@ -238,7 +244,30 @@ Commit: —
 
 ## Corrections
 
-(empty)
+1. **The kerning section has lookups that contain subtables, not one flat subtable
+   list.** §3 states the rule correctly: "the first subtable … wins" inside a lookup,
+   and adjustments add across lookups. A flat `[subtableCount, off…]` list cannot say
+   where one lookup ends, so §4.1's layout is corrected to
+   `[lookupCount, lookupOff…]`, each lookup `[subtableCount, subtableOff…]`.
+2. **A pair adjusts both glyphs, and a second-glyph value record moves the walk on.**
+   §4.4 added one term to the left glyph. HarfBuzz, the oracle Phase 4 is held to,
+   applies `value2.XAdvance` to the right glyph, and when `valueFormat2 ≠ 0` it skips
+   the right glyph as the next pair's left (`PairPosFormat1/2::apply`, `if (len2)
+   skippy_iter.idx++`). So each pair entry stores `(second, xAdvance1, xAdvance2)`. A
+   class matrix stores the second column only when `valueFormat2` has `XAdvance`. Each
+   subtable carries a "skips the second glyph" flag, and the walk is per lookup:
+   `i += 2` after such a pair, `i += 1` otherwise. With `valueFormat2 = 0`, which is
+   every pair in §2's census bar a handful, this is exactly §4.4.
+3. **Format 2 stops its lookup even at a zero value.** Once the left glyph is covered
+   and both classes are in range, the subtable applies whatever the matrix holds, 0
+   included, and no later subtable of that lookup is tried. Format 1 applies only when
+   the right glyph is in the left glyph's pair set. The text in §3, "has an entry for
+   the right glyph", reads that way for both formats once a class-0 cell counts as an
+   entry.
+4. **`__canvas_faceKern` is reached through the `--debug` face check.** No program can
+   call an `internal_only` helper. Phase 3's check reads it through
+   `MFB_CANVAS_FACE_CHECK`, whose line gains `kern=left:right:x1:x2,…`: every non-zero
+   pair among the first 64 glyph ids, which covers a fixture font whole.
 
 ## Summary
 

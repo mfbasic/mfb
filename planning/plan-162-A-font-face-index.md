@@ -459,7 +459,7 @@ are for outlines.
   comments. Runtime proof: `/tmp/p162/frame` (Arial filled, Georgia stroked, 9,626
   lit pixels) dumped under `MFB_CANVAS_SYNC=1` by `main`'s compiler and by this
   branch's → `cmp` identical, with identical printed metrics.
-Commit: — (this commit)
+Commit: 4607fad9e
 
 ## Validation Plan
 
