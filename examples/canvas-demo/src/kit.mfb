@@ -269,6 +269,8 @@ FUNC placed(d AS canvas::DrawItem, t AS canvas::Transform) AS canvas::DrawItem
     CASE canvas::Picture(v) : RETURN v
     CASE canvas::AutoPaint(v) : RETURN v
     CASE canvas::Group(v) : RETURN v
+    CASE canvas::ParticleSystem(v) : RETURN v
+    CASE canvas::Tile(v) : RETURN v
   END MATCH
 END FUNC
 
