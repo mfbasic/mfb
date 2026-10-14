@@ -265,7 +265,7 @@ items that intersect the viewport remain visible.
   Check: `cargo test --test rt_canvas_tile --test rt_canvas_golden group` → pass
   (est. under 10 minutes). Measured: rt_canvas_golden 5 passed (group, group affine, and
   both GPU group rows), rt_canvas_tile 1 passed (the filter selects the culling test).
-Commit: —
+Commit: c27b934e7
 
 ## Validation Plan
 
