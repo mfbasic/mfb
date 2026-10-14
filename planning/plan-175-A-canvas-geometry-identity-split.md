@@ -32,8 +32,9 @@ scene walk costs more than the renderer for `Group` nodes and for `Picture`s. Bo
 run through the code the split rewrites (§4.6: a group's children are hashed and resolved
 in `__canvas_appendDraw`; a picture is confirmed by `__canvas_pictureCached` every frame),
 so they are done here, after the split's Phases 1 and 2, rather than twice. The
-`ParticleSystem` expansion, the benchmark's largest walk, touches none of this plan's code
-and is not in it (§8.5).
+`ParticleSystem` expansion, ~~the benchmark's largest walk~~ the largest walk once the
+`AutoPaint` walk's quadratic cost is fixed (Correction 2), touches none of this plan's
+code and is not in it (§8.5).
 
 **Updated 2026-10-13: plan-173 landed first** (`canvas::Tile` and viewport culling,
 merged at `bf951f32f`). It changed four things this plan stands on, each corrected in
@@ -866,6 +867,19 @@ correction is added here, dated, with the command that showed it.
    - §4.2: the never-carried list is `lower_carried_hashes`' five kinds.
    - §4.1, §4.6, §4.8 and Phases 1, 3 and 6: `Tile` classified and carried through.
    - §4.8: the group walk's per-block viewport test is recorded.
+2. 2026-10-14: the particle expansion was not the benchmark's largest walk, as the
+   2026-10-13 addition said (20.7 ms a frame at 10,000 particles). The baseline had a larger
+   one that went unread: `autopaint fill 10000` walked 277 ms a frame
+   (`awk '/^autopaint fill 10000:/{s=1} s&&/walk/{print;exit}'
+   benchmark/canvas/baseline/canvas.log` → median `277000.0` µs). It grew with the square of
+   the instance count (7.7, 20.1, 59.3 and 184.3 ms at 1,000, 2,000, 4,000 and 8,000
+   instances): a scan of the instance table per instance (`helper_autopaint.rs:
+   __canvas_autoRow`, and `__canvas_autoVariant` per group use), and a copy of the walk's
+   entry list per instance (`__canvas_autoAppend` handed its parameter straight on). It is
+   a bug, not this plan's scope, fixed on its own (9a0723cc6, test
+   `an_autopaint_frame_costs_linear_in_its_instances`). Corrected in place in the
+   2026-10-13 paragraph at the top; this plan's group and picture walks and §8.5 are
+   otherwise unaffected.
 
 ## Summary
 
