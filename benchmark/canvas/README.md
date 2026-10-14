@@ -37,8 +37,9 @@ The kinds are `rect`, `rrect` (rounded corners), `line`, `polygon` (a ten-point 
 `circle`, `arc`, `ellipse`, `text` (`"Ag"`), `polyline` (eight points, a colour each),
 `polycurve` (one cubic), `curvepolygon` (four cubics), `autopaint` (a circle with a
 hover paint), `picture` (a 32-by-32 image in a circle), `group` (N `canvas::Group` nodes
-naming one installed rectangle) and `particles` (one `canvas::ParticleSystem` of N
-particles). `line`, `arc`, `polyline` and `polycurve` have no inside, so they are always
+naming one installed rectangle), `particles` (one `canvas::ParticleSystem` of N
+particles) and `tile` (a `canvas::Tile` drawing the middle 16-by-16 cell of the same
+image; it has no paint, so it has only `fill` rows). `line`, `arc`, `polyline` and `polycurve` have no inside, so they are always
 stroked.
 
 ## Reading the log

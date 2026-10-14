@@ -46,7 +46,7 @@ FONT="${FONT:-/System/Library/Fonts/Supplemental/Arial.ttf}"
 # polycurve) is always stroked, so its rows say "stroke".
 rows=()
 outlined=(line arc polyline polycurve)
-filled=(rect rrect polygon circle ellipse text curvepolygon autopaint picture group)
+filled=(rect rrect polygon circle ellipse text curvepolygon autopaint picture group tile)
 for count in 1 100 10000; do
   for kind in "${filled[@]}"; do rows+=("$kind fill $count"); done
   for kind in "${outlined[@]}"; do rows+=("$kind stroke $count"); done

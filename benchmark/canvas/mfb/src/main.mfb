@@ -5,7 +5,7 @@
 ' the stats lines. The program itself measures nothing.
 '
 '   KIND    rect | rrect | line | polygon | circle | arc | ellipse | text | polyline |
-'           polycurve | curvepolygon | autopaint | picture | group | particles
+'           polycurve | curvepolygon | autopaint | picture | group | particles | tile
 '   COUNT   items in the scene (for `particles`, particles in one system)   (default 100)
 '   PAINT   fill | stroke | fillStroke                                    (default fill)
 '   SIZE    small (16 px items, scattered) | big (one item over most of the surface)
@@ -19,7 +19,8 @@
 ' every row, so it is part of each row's cost alike.
 '
 ' `line`, `arc`, `polyline` and `polycurve` have no inside, so they are always stroked
-' and PAINT does not apply to them.
+' and PAINT does not apply to them. A `tile` has no paint either: it draws the middle
+' 16-by-16 cell of the 32-by-32 image into its square.
 
 IMPORT app
 IMPORT canvas
@@ -179,6 +180,8 @@ FUNC main() AS Nothing
       it = canvas::AutoPaint[shape := circleAt(cx, cy, r, paint), useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := FALSE, enterPaint := paint, exitPaint := paint, hoverPaint := ink, pressedPaint := ink]
     ELSEIF kind = "picture" THEN
       it = canvas::Picture[id := "", shape := circleAt(cx, cy, r, paint), clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := tile]
+    ELSEIF kind = "tile" THEN
+      it = canvas::Tile[image := tile, srcPosition := at(8.0, 8.0), srcSize := at(16.0, 16.0), position := at(cx - r, cy - r), size := at(r * 2.0, r * 2.0)]
     ELSEIF kind = "group" THEN
       it = canvas::Group[id := "", position := at(cx, cy), transform := none(), name := "cell"]
     ELSEIF kind = "particles" THEN
