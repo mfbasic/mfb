@@ -249,9 +249,12 @@ callers.
       `src/ir/verify/compat.rs`, and `src/ir/tests.rs` with the AttributedString
       overload and import requirement. — `cargo test --bin mfb term_measure_text
       -- --nocapture` passed 2 tests.
-- [ ] Switch `helper_pad_to_width.rs` and
+- [x] Switch `helper_pad_to_width.rs` and
       `string_self_update.rs:emit_pad_to_width_measure` to the internal helpers,
-      retaining raw scalar validation for `padChar`.
+      retaining raw scalar validation for `padChar`. — `rg -n
+      'scalarWidthRaw|measureTextRaw'` shows the generated helper split, `rg -n
+      'scalar_width_of|measure_text_of'` shows the native split, and `cargo test
+      --test rt_strings_unowned_blocks` passed 6 tests.
 - [ ] Add focused Rust/IR tests for public String and AttributedString dispatch,
       rejection of user calls to both internal names, Unicode-table retention,
       gate order, and unchanged off-TUI padding.

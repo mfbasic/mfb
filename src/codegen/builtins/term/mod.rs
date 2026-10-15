@@ -87,7 +87,7 @@ mod func_get_foreground;
 mod func_get_underline;
 mod func_hide_cursor;
 mod func_is_on;
-mod func_measure_text;
+pub(crate) mod func_measure_text;
 mod func_move_to;
 mod func_off;
 mod func_on;

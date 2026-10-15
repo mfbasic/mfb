@@ -1221,7 +1221,7 @@ impl CodeBuilder<'_> {
         newlen_slot: usize,
         member: &str,
     ) -> Result<(usize, usize), String> {
-        use crate::codegen::builtins::strings::func_display_width::display_width_of;
+        use crate::codegen::builtins::term::func_measure_text::{measure_text_of, scalar_width_of};
         if columns.type_ != ParameterType::Integer {
             return Err(format!(
                 "strings.padToWidth columns must be Integer, got {}",
@@ -1283,7 +1283,7 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::compare_immediate(&scalars, "1"));
         self.emit(abi::branch_ne(&invalid));
-        // `unit = displayWidth(padChar) >= 1`.
+        // Raw scalar width keeps combining marks and ZWJ invalid as pad units.
         let pad_value = ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1291,11 +1291,11 @@ impl CodeBuilder<'_> {
             text: String::new(),
         };
         self.emit(abi::load_u64(&pad_ptr, abi::stack_pointer(), pad_slot));
-        let unit_value = display_width_of(self, &pad_value)?;
+        let unit_value = scalar_width_of(self, &pad_value)?;
         self.emit(abi::move_register(&unit, &unit_value.location));
         self.emit(abi::compare_immediate(&unit, "1"));
         self.emit(abi::branch_lt(&invalid));
-        // `have = displayWidth(value)`; no padding when it already fills the width.
+        // Current width uses the terminal-cell clamp; no padding when it already fills the width.
         let value_value = ValueResult {
             origin: None,
             type_: ParameterType::String,
@@ -1303,7 +1303,7 @@ impl CodeBuilder<'_> {
             text: String::new(),
         };
         self.emit(abi::load_u64(&value_ptr, abi::stack_pointer(), value_slot));
-        let have_value = display_width_of(self, &value_value)?;
+        let have_value = measure_text_of(self, &value_value)?;
         self.emit(abi::move_register(&have, &have_value.location));
         self.emit(abi::load_u64(&cols, abi::stack_pointer(), columns_slot));
         self.emit(abi::compare_registers(&have, &cols));
