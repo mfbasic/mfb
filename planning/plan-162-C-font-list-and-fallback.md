@@ -59,25 +59,40 @@ References:
 - `canvas::Text` is registered in `src/codegen/builtins/canvas/mod.rs` (the `"Text"` record,
   with a `font` field of type `ParameterType::res(ParameterType::named("canvas.Font"))`).
   The test `mod.rs:the_resource_naming_variants_hold_the_resource_itself` pins that type.
-- Every MFBASIC read of `t.font` in the canvas helpers:
-  `grep -n "t\.font\b" src/codegen/builtins/canvas/helper_geometry.rs src/codegen/builtins/canvas/helper_render.rs`
-  → 10 lines, as of 2026-09-27. They cover:
-  - geometry: glyph run, edges, run header, verify reference;
-  - `__canvas_hashItem`'s `Text` arm;
-  - `__canvas_closeRetired`;
-  - `__canvas_listNamesFont`.
+- Every MFBASIC read of `t.font` in the canvas helpers, re-measured 2026-10-14 after A
+  and B: `grep -n "t\.font\b" src/codegen/builtins/canvas/*.rs` → 30 lines, 26 of them
+  code (the rest are doc comments in `func_handle_bridge.rs` and `mod.rs`), in **7 files,
+  not 2**:
+  - `helper_geometry.rs` (6): glyph run, edges, run header (slot 2 and the ink box),
+    the `Text` hash arm, the verify reference;
+  - `helper_render.rs` (6): `__canvas_closeRetired`'s `Text` arms, and
+    `__canvas_listNamesFont`;
+  - `helper_picture.rs` (6): `__canvas_itemNamesFont` and the group-retire close, the
+    `Picture`/`Text` ownership walk;
+  - `helper_particles.rs` (4): the `Text` emitter box, the template's font handle,
+    and the template close;
+  - `helper_hit.rs` (1), `helper_autopaint.rs` (1): the text boxes.
 
-  Re-measure after A/B land.
-- Construction sites repo-wide:
-  `grep -rn "font :=" src tests examples tools benchmarks scripts | wc -l` → 48, and
-  `grep -rho "canvas::Text\[" src tests examples benchmarks tools | wc -l` → 45 in 20 files
-  (2026-09-27). Three of them are in `scripts/test-canvas-vulkan.sh` heredocs, which
-  nothing compiles (`.ai/testing-gates.md`: build them after the change).
+  The count is the plan's 10 only because its grep named two files (Correction 1).
+- Construction sites repo-wide, re-measured 2026-10-14:
+  `grep -rn "font :=" src tests examples tools benchmark scripts | wc -l` → 76, and
+  `grep -rho "canvas::Text\[" src tests examples benchmark tools scripts | wc -l` → 75,
+  in 33 files (`grep -rlo …`). The directory is `benchmark`, not `benchmarks`. The
+  `scripts/test-canvas-vulkan.sh` heredocs are among them, and nothing compiles them
+  until the script runs (`.ai/testing-gates.md`: build them after the change).
 - `measureText` call lines: `grep -rn "measureText(" src tests examples tools scripts | wc -l`
-  → 28. They stay valid, because the single-font overload is kept.
+  → 43. They stay valid, because the single-font overload is kept.
 - Group hand-off: the compiler rejects naming a font again after `canvas::setGroup`
-  (`2-203-0055`). **UNVERIFIED:** that its analysis sees a font inside a
-  `List OF RES` inside a `Text` literal. Phase 1 task.
+  (`2-203-0055`). *Its analysis sees a font inside a `List OF RES` inside a `Text`
+  literal* (read 2026-10-14). `setGroup`'s `items` is declared with
+  `add_consuming_parameter("setGroup", "items")` (`func_set_group.rs`), and
+  `src/ir/verify/link.rs:consumed_contained` resolves the argument through
+  `held_resources` → `collect_held`. That walk recurses structurally through
+  `IrValue::Constructor` args, `ListLiteral`/`SetLiteral` elements, map entries,
+  `UnionWrap`/`Checked` and `WithUpdate`, and stops at a resource `Local` (or a local's
+  recorded containment). So `canvas::Text[…, fonts := [f], …]` reaches `f` through
+  Constructor → ListLiteral → Local. Phase 3 proves it with a diagnostic fixture and
+  needs no compiler change.
 
 ## 3. Design Overview
 
@@ -144,9 +159,9 @@ Rejected alternatives:
 ## Compatibility / Format Impact
 
 - **Breaking, source level:** `canvas::Text[font := f]` → `canvas::Text[fonts := [f]]`. All
-  48 in-repo sites are migrated here.
-  **UNVERIFIED:** whether there is an external-package corpus to notify. Check the
-  package registry fixtures in Phase 1.
+  in-repo sites are migrated here: 75 `canvas::Text[` literals in 33 files, re-measured.
+  *No external-package corpus to notify:* `grep -rln "canvas::Text\|canvas.Text"
+  repository/ packages/` → nothing (2026-10-14).
 - **Additive:** the `measureText` list overload.
 - **Unchanged:** `canvas::Font`, `loadFont`, `systemFonts`, `destroyFont`, and all
   non-text items.
@@ -157,20 +172,30 @@ Rejected alternatives:
 
 ### Phase 1 — premises
 
-- [ ] Re-run plan-162-A's prerequisite table. The bug-753 and bug-755 rows must be MET.
-- [ ] Re-measure the `t.font` reads and the construction sites. Update §2.
-- [ ] Read the `2-203-0055` implementation. Find it with
+- [x] Re-run plan-162-A's prerequisite table. The bug-753 and bug-755 rows must be MET.
+      `ls bugs/completed/bug-753-* bugs/completed/bug-755-*` → both (2026-10-14).
+- [x] Re-measure the `t.font` reads and the construction sites. Update §2.
+- [x] Read the `2-203-0055` implementation. Find it with
       `grep -rn "0055\|setGroup" src/semantics src/codegen/builtins/canvas | head`, then
       follow the analysis. Record whether it walks into a `List OF RES` inside a record
       literal. If not, extending it is Phase 3 scope, because it is the compiler half of
-      this feature.
-- [ ] Re-confirm the plan-162-A Phase 1 finding on `List OF RES` record fields in a union
-      variant and through `present`'s deep copy.
+      this feature. It does (§2). `src/semantics` does not exist; the analysis is
+      `src/ir/verify/link.rs`, reached from the consuming-parameter declaration.
+- [x] Re-confirm the plan-162-A Phase 1 finding on `List OF RES` record fields in a union
+      variant and through `present`'s deep copy. `/tmp/p162/cpremise`, rewritten
+      2026-10-14 as a user `UNION Item` of `Chain` (`fonts AS List OF RES canvas::Font`)
+      and `Plain`, built per frame from `chainOf(a, b)` and read through `MATCH … CASE
+      Chain(c)` / `FOR EACH f IN c.fonts`. Three frames print `2 15.57 17.50` / `plain`,
+      a `Text` presented each frame, then both `destroyFont`s succeed and it prints
+      `done`, exit 0. A *builtin* variant through `present` cannot exist before Phase 3
+      makes the field; `rt_canvas_present_deep_copy` and the Phase 3 ownership tests
+      prove it there.
 
 Acceptance: every UNVERIFIED item in §2 and §Compatibility has a recorded answer.
   Check: `grep -c UNVERIFIED planning/plan-162-C-font-list-and-fallback.md` → 0 outside
   this list (est. 1 min).
-Commit: —
+  Result: → 1, the acceptance line above.
+Commit: — (this commit)
 
 ### Phase 2 — the `measureText` list overload (additive, no field change yet)
 
@@ -213,6 +238,10 @@ Commit: —
       Outline bytes are fetched per glyph for the font its `fontIndex` names.
 - [ ] `helper_render.rs`: `__canvas_closeRetired`, `__canvas_anythingNamesFont` and
       `__canvas_listNamesFont` iterate over the list and close distinct handles once.
+- [ ] (Correction 1) `helper_picture.rs`, `helper_particles.rs`, `helper_hit.rs` and
+      `helper_autopaint.rs` read `t.fonts`. Group ownership and the particle template
+      walk every listed font. The text boxes take their metrics as `measureText`'s list
+      form does.
 - [ ] Compiler: extend `2-203-0055` through the list if Phase 1 found it doesn't see
       it. Add the diagnostic test in the existing `2-203-0055` test file.
 - [ ] Migrate every construction site (48, re-measured in Phase 1) to `fonts := [f]`:
@@ -264,7 +293,11 @@ Commit: —
 
 ## Corrections
 
-(empty)
+1. **The `t.font` population is 26 code lines in 7 files, not 10 in 2.** The plan's grep
+   named only `helper_geometry.rs` and `helper_render.rs`. The group-ownership walk
+   (`helper_picture.rs`), the particle template (`helper_particles.rs`) and the hit and
+   AutoPaint text boxes read the field too. Phase 3's tasks name `helper_geometry.rs`
+   and `helper_render.rs`, and gain one for the other four files.
 
 ## Summary
 
