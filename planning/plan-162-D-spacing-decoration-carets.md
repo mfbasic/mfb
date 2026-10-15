@@ -71,8 +71,8 @@ References:
 
 | What | Count | Command |
 |---|---|---|
-| System fonts missing `post` / `OS/2` strikeout fields | UNMEASURED | Phase 1 probe over `canvas::listSystemFonts()` |
-| `TextMetrics[` literal constructions that name every field | UNMEASURED | Phase 1: `grep -rn "TextMetrics\[" src tests examples` |
+| System fonts missing `post` / `OS/2` strikeout fields | Of 638 TrueType faces: every one has `post`, 632 have `OS/2` (6 do not). A zero `post.underlineThickness`: 12; a zero `OS/2.yStrikeoutSize`: 3. `OS/2` versions: 76 × v1, 55 × v2, 286 × v3, 215 × v4 (`yStrikeoutSize`/`yStrikeoutPosition` sit at +26/+28 in every version). Medians as a fraction of the em: underline position −0.100, thickness 0.050; strikeout position +0.262, size 0.050 | `python3 -I /tmp/p162/probe.py` over the four font directories, summarised from `/tmp/p162/probe.json` (2026-10-14) |
+| `TextMetrics[` literal constructions that name every field | 2, both in `func_measure_text.rs`'s own body | `grep -rn "TextMetrics\[" src tests examples \| wc -l` → 2 |
 
 ## 3. Design Overview
 
@@ -130,15 +130,18 @@ Rejected alternatives:
 
 ### Phase 1 — measure
 
-- [ ] `/tmp` probe: per system face, record whether `post` and `OS/2` exist, the
+- [x] `/tmp` probe: per system face, record whether `post` and `OS/2` exist, the
       `OS/2` version, and whether the thickness fields are zero. Record the counts.
-- [ ] Census of `TextMetrics[` literals, since new fields are additive and named
-      construction keeps them compiling. Record the count with its command.
+      The shared plan-162 probe; counts and medians in §2.
+- [x] Census of `TextMetrics[` literals, since new fields are additive and named
+      construction keeps them compiling. Record the count with its command. 2, both
+      in the `measureText` body itself.
 
 Acceptance: §2 rows are measured.
   Check: `grep -c UNMEASURED planning/plan-162-D-spacing-decoration-carets.md` → 0
   outside this list (est. 1 min).
-Commit: —
+  Result: → 1, the line above.
+Commit: — (this commit)
 
 ### Phase 2 — the five-column run
 

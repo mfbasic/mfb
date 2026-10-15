@@ -334,7 +334,7 @@ byte-identical after migration to one-element lists, and ownership tests pass.
   were added), then the 2 + 4 new tests, all ok. `git status --short
   tests/golden/canvas` → empty: the PNG goldens, migrated to one-element lists, are
   byte-identical. The other migrated suites: cli_canvas_package 7, rt_canvas_autopaint 23, rt_canvas_hit 14, rt_canvas_metal 71, rt_canvas_particles 29, rt_canvas_rasteriser 107 (2 ignored, as at HEAD) passed (`/tmp/p162/c3-migrated.log`).
-Commit: — (this commit)
+Commit: d2a8c3420
 
 ## Validation Plan
 

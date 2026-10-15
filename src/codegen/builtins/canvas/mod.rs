@@ -1351,9 +1351,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "fonts",
-                ty: ParameterType::list_of(ParameterType::res(ParameterType::named(
-                    "canvas.Font",
-                ))),
+                ty: ParameterType::list_of(ParameterType::res(ParameterType::named("canvas.Font"))),
                 description: "The fonts to draw it in, in fallback order: each \
                               character is drawn in the first font in the list that \
                               has it, so `[latinFace, cjkFace]` draws Latin text from \
@@ -2956,8 +2954,7 @@ mod tests {
                 held
             };
             assert_eq!(
-                field.ty,
-                expected,
+                field.ty, expected,
                 "`{owner}.{field_name}` must be `RES {resource}` (in a list for `Text`). A bare \
                  `Named(\"{resource}\")` renders the same and is a VALUE field — it \
                  would copy the resource record instead of aliasing the live one",
