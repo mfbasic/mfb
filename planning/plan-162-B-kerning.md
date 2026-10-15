@@ -194,24 +194,41 @@ Acceptance: the fixtures load and the RED tests fail today with the unkerned wid
   `left: [("gpos1", [550000, 550000, 500000]), …]` against
   `right: [("gpos1", [430000, 550000, 470000]), …]`. `VA` already matches (550000);
   `AV` and `AA` differ by exactly the kerning term.
-Commit: — (this commit)
+Commit: 683a2d4ee
 
 ### Phase 3 — build the kerning section
 
-- [ ] New `src/codegen/builtins/canvas/helper_kern.rs`, registered with the canvas
+- [x] New `src/codegen/builtins/canvas/helper_kern.rs`, registered with the canvas
       helpers: the `GPOS` walk (script/LangSys/feature selection per the Non-goals
       rule), types 2 and 9, Coverage 1/2, ClassDef 1/2, ValueRecord sizing (§4.2), and
-      the `kern` v0 f0 reader.
-- [ ] `__canvas_faceIndex` appends the section and writes version 2.
-- [ ] `__canvas_faceKern(font, left, right) AS Integer` over `canvas::faceAt`.
+      the `kern` v0 f0 reader. The feature walk, `__canvas_layoutLookups(b, table,
+      feature)`, takes the table offset and the feature tag, so `GSUB` (plan-162-F) can
+      call it unchanged. Every file-supplied count is clipped to the file
+      (`__canvas_clipCount`), and a class matrix past the end of the file is dropped.
+- [x] `__canvas_faceIndex` appends the section and writes version 2. Header word 9 is
+      the section's offset; the header is now 10 words.
+- [x] `__canvas_faceKern(font, left, right) AS Integer` over `canvas::faceAt`. It sits
+      in the `--debug` half: shaping applies lookups along the run
+      (`__canvas_kernRun`, Correction 2), so `__canvas_faceKern`'s one caller is the face
+      check's `kern=` field (Correction 4). Both go through the shared
+      `__canvas_kernLookup`.
 
 Acceptance: `__canvas_faceKern` returns the fixture values, and 0 for unkerned pairs.
   Check: `cargo test --test rt_canvas_font face_kern` → pass (est. 3 min).
-Commit: —
+  Result: `face_kern_reads_each_fixtures_pairs` → ok. gpos1, both and wide list
+  `1:1:-30:0,1:2:-120:0`; gpos2ext lists `1:2:-120:0`; kern lists
+  `1:1:-30:0,1:2:-80:0`. The kerning-free fixture lists nothing, with word 9 = 0, and
+  every fixture's sweep stays at zero mismatches. The plan-A index tests moved to
+  version 2 (ten-word header, word 9 = 0, 19 words), as §4.1 predicts, and pass
+  (`face_index_of_*`, `a_load_destroy_cycle_keeps_only_the_fonts_own_blocks`).
+Commit: — (this commit; Phase 4's first task landed here too, Correction 5)
 
 ### Phase 4 — apply in `__canvas_shapeRun`, docs
 
-- [ ] `__canvas_shapeRun`: add the pair term per §4.4.
+- [x] `__canvas_shapeRun`: add the pair term per §4.4. A second loop over the fonts,
+      after glyph selection, runs `__canvas_kernRun` for each (Correction 2's walk).
+      `kern_pairs_measure_at_the_kerned_width` → ok: (a) `AV` 430000, `VA` 550000, `AA`
+      470000, and so on for all five.
 - [ ] Phase 2 tests go GREEN. Add pixel tests showing the second glyph's lit column
       moves by the kerned amount on the fill path and on the stroke path.
 - [ ] Real-font oracle: in the Phase 1 face, `measureText("AVAWATo")` equals the width
@@ -281,6 +298,11 @@ Commit: —
    call an `internal_only` helper. Phase 3's check reads it through
    `MFB_CANVAS_FACE_CHECK`, whose line gains `kern=left:right:x1:x2,…`: every non-zero
    pair among the first 64 glyph ids, which covers a fixture font whole.
+
+5. **Phase 3 and Phase 4's first task share a commit.** Applying the section in
+   `__canvas_shapeRun` is four lines over `__canvas_kernRun`, and Phase 3's reader is
+   the same `__canvas_kernLookup`. They were verified together: the face check pins
+   the section, and the RED width test going green pins the shaping.
 
 ## Summary
 

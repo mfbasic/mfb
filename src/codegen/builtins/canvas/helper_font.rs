@@ -230,15 +230,19 @@ END FUNC"#;
 /// parsed **once**, when the font loads, into a flat `List OF Integer` the `Font`
 /// resource owns (`gen_font.rs:FONT_FACE`) and the font table publishes beside the bytes.
 ///
-/// Layout version 1, header words then sections at the offsets the header names:
+/// Layout version 2, header words then sections at the offsets the header names:
 ///
 /// | Word | Meaning |
 /// |---|---|
-/// | 0 | layout version (1) |
+/// | 0 | layout version (2) |
 /// | 1 | `head.unitsPerEm`, or 0 for a font with no `head` |
 /// | 2, 3, 4 | `hhea` ascender, descender (stored negative, as in the file), lineGap |
 /// | 5, 6 | cmap run count `R`, and the word the runs start at |
 /// | 7, 8 | advance count `H` (`numberOfHMetrics`), and the word they start at |
+/// | 9 | the kerning section's first word, or 0 for a font with no kerning (plan-162-B, `helper_kern.rs`) |
+///
+/// Each later letter of plan-162 appends its section and bumps the version: 1 was the
+/// metrics, `cmap` and advances alone.
 ///
 /// A cmap **run** is `(firstCp, lastCp, delta)`: every codepoint in it maps to
 /// `cp + delta`, the runs are sorted by `firstCp` and never overlap, and a codepoint in
@@ -273,14 +277,22 @@ LET __CANVAS_FACE_RUNS AS Integer = 5
 LET __CANVAS_FACE_RUNS_AT AS Integer = 6
 LET __CANVAS_FACE_ADVANCES AS Integer = 7
 LET __CANVAS_FACE_ADVANCES_AT AS Integer = 8
-LET __CANVAS_FACE_HEADER AS Integer = 9
+LET __CANVAS_FACE_KERN AS Integer = 9
+LET __CANVAS_FACE_HEADER AS Integer = 10
 
 FUNC __canvas_faceIndex(b AS List OF Byte) AS List OF Integer
   LET runs AS List OF Integer = __canvas_cmapRuns(b)
   LET advances AS List OF Integer = __canvas_faceAdvances(b)
-  MUT out AS List OF Integer = [1, __canvas_fontUnitsPerEm(b), __canvas_fontAscent(b), __canvas_fontDescent(b), __canvas_fontLineGap(b), len(runs) / 3, __CANVAS_FACE_HEADER, len(advances), __CANVAS_FACE_HEADER + len(runs)]
+  LET kerning AS List OF Integer = __canvas_kernSection(b)
+  LET body AS Integer = __CANVAS_FACE_HEADER + len(runs) + len(advances)
+  MUT kernAt AS Integer = 0
+  IF len(kerning) > 0 THEN
+    kernAt = body
+  END IF
+  MUT out AS List OF Integer = [2, __canvas_fontUnitsPerEm(b), __canvas_fontAscent(b), __canvas_fontDescent(b), __canvas_fontLineGap(b), len(runs) / 3, __CANVAS_FACE_HEADER, len(advances), __CANVAS_FACE_HEADER + len(runs), kernAt]
   out = collections::append(out, runs)
   out = collections::append(out, advances)
+  out = collections::append(out, kerning)
   RETURN out
 END FUNC
 
@@ -651,7 +663,7 @@ FUNC __canvas_faceCheck(font AS Integer) AS Nothing
   IF __canvas_faceMetric(font, __CANVAS_FACE_LINEGAP) <> __canvas_fontLineGap(b) THEN
     metrics = metrics + 1
   END IF
-  LET line AS String = "faceCheck glyphMismatches=" & toString(glyphs) & " advanceMismatches=" & toString(advances) & " metricMismatches=" & toString(metrics) & " mapped=" & toString(mapped) & " glyphIds=" & toString(lastGid + 1) & " runs=" & toString(__canvas_faceMetric(font, __CANVAS_FACE_RUNS)) & "\n"
+  LET line AS String = "faceCheck glyphMismatches=" & toString(glyphs) & " advanceMismatches=" & toString(advances) & " metricMismatches=" & toString(metrics) & " mapped=" & toString(mapped) & " glyphIds=" & toString(lastGid + 1) & " runs=" & toString(__canvas_faceMetric(font, __CANVAS_FACE_RUNS)) & " kern=" & __canvas_faceKernText(font) & "\n"
   fs::appendText(path, line) TRAP(err)
     RETURN
   END TRAP
@@ -735,6 +747,12 @@ END FUNC"#;
 /// copies agreeing. Kerning, spacing and ligatures (plan-162) change this body and none
 /// of its callers.
 ///
+/// **Kerning** (plan-162-B) runs after every codepoint has its glyph: font by font,
+/// `__canvas_kernRun` adds each pair adjustment of that font's `GPOS` `kern` feature,
+/// or of its legacy `kern` table, to the advances, and only between two glyphs from the
+/// same font. The adjustment stays in font units, so no caller's pixel arithmetic
+/// changes, and measuring and drawing pick it up together.
+///
 /// `fonts` is a list of font **handles**, and list order is fallback order: each
 /// codepoint takes the first font whose `cmap` maps it to a glyph other than `0`, and
 /// one no font maps is glyph `0` — `.notdef` — of `fonts[0]`, exactly what a one-font
@@ -778,6 +796,11 @@ r#"FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF I
       END IF
       c = c + 1
     END WHILE
+    which = which + 1
+  NEXT
+  which = 0
+  FOR EACH f IN fonts
+    run = __canvas_kernRun(f, which, run)
     which = which + 1
   NEXT
   RETURN run

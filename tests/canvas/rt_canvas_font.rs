@@ -2363,7 +2363,8 @@ END FUNC
 
 /// The fixture's index, word for word, from its own tables: `head.unitsPerEm` 1000,
 /// `hhea` 800 / −200 / 100, a format-12 `cmap` mapping `A`→1 and `B`→2 (two runs of
-/// delta −64), and three `hmtx` advances.
+/// delta −64), three `hmtx` advances, and no kerning (word 9 is 0). Layout version 2,
+/// whose header is ten words (plan-162-B added word 9).
 #[test]
 fn face_index_of_the_fixture_is_its_own_tables() {
     let dumps = face_dumps(
@@ -2374,8 +2375,9 @@ fn face_index_of_the_fixture_is_its_own_tables() {
     assert_eq!(
         dumps,
         vec![vec![
-            1, 1000, 800, -200, 100, // version, unitsPerEm, ascent, descent, lineGap
-            2, 9, 3, 15, // R at word 9, H at word 15
+            2, 1000, 800, -200, 100, // version, unitsPerEm, ascent, descent, lineGap
+            2, 10, 3, 16, // R at word 10, H at word 16
+            0,  // no kerning section
             65, 65, -64, 66, 66, -64, // the runs
             500, 250, 300, // the advances
         ]],
@@ -2396,7 +2398,7 @@ fn face_index_of_a_font_with_no_head_has_no_units_per_em() {
     assert_eq!(
         dumps,
         vec![vec![
-            1, 0, 800, -200, 100, 2, 9, 3, 15, 65, 65, -64, 66, 66, -64, 500, 250, 300
+            2, 0, 800, -200, 100, 2, 10, 3, 16, 0, 65, 65, -64, 66, 66, -64, 500, 250, 300
         ]],
     );
 }
@@ -2755,7 +2757,7 @@ fn a_load_destroy_cycle_keeps_only_the_fonts_own_blocks() {
     const FEW: usize = 40;
     const MANY: usize = 80;
     let font = minimal_truetype().len() as u64;
-    let words = 18u64; // the fixture's index, `face_index_of_the_fixture_is_its_own_tables`
+    let words = 19u64; // the fixture's index, `face_index_of_the_fixture_is_its_own_tables`
     let round = |n: u64| n.div_ceil(16) * 16;
     let per_cycle = round(40 + font) + round(40 + 8 * words) + 112;
     let few = live_after_cycles(FEW);
@@ -3254,4 +3256,37 @@ fn kern_pairs_measure_at_the_kerned_width() {
             ("wide".to_string(), expect(-120, -30)),
         ],
     );
+}
+
+/// The kerning section, read back pair by pair: the `--debug` face check's `kern=` field
+/// lists `left:right:x1:x2` for every glyph pair with a non-zero adjustment. Format 2
+/// lists only its one non-zero cell; `GPOS` hides the `kern` table in "both"; the wide
+/// ValueRecords read the same values as the narrow ones.
+#[test]
+fn face_kern_reads_each_fixtures_pairs() {
+    let expected = [
+        ("gpos1", "1:1:-30:0,1:2:-120:0"),
+        ("gpos2ext", "1:2:-120:0"),
+        ("kern", "1:1:-30:0,1:2:-80:0"),
+        ("both", "1:1:-30:0,1:2:-120:0"),
+        ("wide", "1:1:-30:0,1:2:-120:0"),
+    ];
+    for ((name, font), (want_name, want)) in kerning_fixtures().into_iter().zip(expected) {
+        assert_eq!(name, want_name);
+        let (check, index) = face_check(&format!("canvas_face_kern_{name}"), font);
+        assert_check_clean(&check);
+        let kern = check
+            .split(' ')
+            .find_map(|f| f.strip_prefix("kern="))
+            .unwrap_or_else(|| panic!("no `kern=` in `{check}`"));
+        assert_eq!(kern, want, "{name}: `{check}`");
+        assert_eq!(index[0], 2, "{name}: layout version");
+        assert!(index[9] > 0, "{name}: a kerning section");
+    }
+    let (check, index) = face_check("canvas_face_kern_none", minimal_truetype());
+    assert!(
+        check.ends_with("kern="),
+        "a font with no kerning lists no pair: `{check}`"
+    );
+    assert_eq!(index[9], 0, "and has no section");
 }

@@ -100,6 +100,7 @@ mod helper_glyph;
 mod helper_glyph_cache;
 mod helper_hit;
 mod helper_items;
+mod helper_kern;
 mod helper_joins;
 mod helper_paint_defaults;
 mod helper_particles;
@@ -2487,6 +2488,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_shapes::register(&mut pkg);
     helper_draw::register(&mut pkg);
     helper_font::register(&mut pkg);
+    helper_kern::register(&mut pkg);
     helper_font_name::register(&mut pkg);
     helper_glyph::register(&mut pkg);
     helper_damage::register(&mut pkg);
