@@ -3290,3 +3290,98 @@ fn face_kern_reads_each_fixtures_pairs() {
     );
     assert_eq!(index[9], 0, "and has no section");
 }
+
+/// The rightmost lit column of `"AV"` drawn at size 100 in `font` with `paint`.
+fn av_right_edge(name: &str, font: Vec<u8>, paint: &str) -> usize {
+    let source = format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("kerned.ttf")
+  canvas::present([canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AV", font := face, fontSize := 100.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+END FUNC
+"#
+    );
+    let (frame, _) = render_env_files(name, &source, &[], &[("kerned.ttf", font)]);
+    let runs = lit_column_runs(&frame);
+    assert!(!runs.is_empty(), "{name}: `AV` drew nothing");
+    runs.last().unwrap().1
+}
+
+/// The drawn `V` moves left by exactly the kerned amount — −120 units at size 100 in a
+/// 1000-unit em is 12 px — on the filled glyph run and on the stroked edges, the two draw
+/// paths that place glyphs. Both read the one shaped run (bug-756), so a kern applied to
+/// `measureText` alone would leave the drawn `V` where it was.
+#[test]
+fn a_kerned_pair_draws_at_the_kerned_distance_filled_and_stroked() {
+    for (paint, label) in [
+        ("canvas::fill(color::rgb(255, 255, 255))", "fill"),
+        ("canvas::stroke(color::rgb(255, 255, 255), 2.0)", "stroke"),
+    ] {
+        let plain = av_right_edge(
+            &format!("canvas_kern_draw_plain_{label}"),
+            kerning_font(&[]),
+            paint,
+        );
+        let kerned = av_right_edge(
+            &format!("canvas_kern_draw_kerned_{label}"),
+            kerning_font(&[(b"GPOS", gpos_format1())]),
+            paint,
+        );
+        assert_eq!(
+            plain - kerned,
+            12,
+            "{label}: the kerned `V` must end 12 px left of the unkerned one ({plain} → {kerned})",
+        );
+    }
+}
+
+/// A shipping font kerns as HarfBuzz does. `SFNS.ttf` (SF Pro) carries its `kern`
+/// feature as `GPOS` PairPos formats 1 and 2 inside Extension lookups. At size 2048, its
+/// `unitsPerEm`, the width is the summed advances in font units. The expected value is
+/// HarfBuzz 12.2.0's: `hb-shape --features=-liga,-clig,-calt,kern --no-glyph-names
+/// --no-clusters /System/Library/Fonts/SFNS.ttf "AVAWATo"` → advances
+/// 1141+1132+1171+1762+1101+920+1087 = 8314 (9364 with `-kern`). The face's SHA-256 was
+/// `1c81ead87ca36eee7d51dbe816c3202ba8052fc88228a46de930339c4ec1df22` when this was
+/// recorded, and a different build of the font can kern differently, so the test skips,
+/// logged, on any other file.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_real_font_kerns_as_harfbuzz_does() {
+    const PATH: &str = "/System/Library/Fonts/SFNS.ttf";
+    const SHA256: &str = "1c81ead87ca36eee7d51dbe816c3202ba8052fc88228a46de930339c4ec1df22";
+    let Ok(bytes) = std::fs::read(PATH) else {
+        eprintln!("skipping: {PATH} is not installed");
+        return;
+    };
+    let digest = Command::new("shasum")
+        .args(["-a", "256", PATH])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    if !digest.starts_with(SHA256) {
+        eprintln!(
+            "skipping: {PATH} is not the recorded build ({} bytes, `{digest}`)",
+            bytes.len()
+        );
+        return;
+    }
+    let lines = run(
+        "canvas_kern_sfns",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("/System/Library/Fonts/SFNS.ttf")
+  io::print(toString(toInt(canvas::measureText(f, 2048.0, "AVAWATo").width * 1000.0)))
+END FUNC
+"#,
+    );
+    assert_eq!(lines, vec!["8314000".to_string()]);
+}

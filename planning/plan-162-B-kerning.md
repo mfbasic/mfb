@@ -221,7 +221,7 @@ Acceptance: `__canvas_faceKern` returns the fixture values, and 0 for unkerned p
   every fixture's sweep stays at zero mismatches. The plan-A index tests moved to
   version 2 (ten-word header, word 9 = 0, 19 words), as §4.1 predicts, and pass
   (`face_index_of_*`, `a_load_destroy_cycle_keeps_only_the_fonts_own_blocks`).
-Commit: — (this commit; Phase 4's first task landed here too, Correction 5)
+Commit: f46561429 (Phase 4's first task landed here too, Correction 5)
 
 ### Phase 4 — apply in `__canvas_shapeRun`, docs
 
@@ -229,28 +229,51 @@ Commit: — (this commit; Phase 4's first task landed here too, Correction 5)
       after glyph selection, runs `__canvas_kernRun` for each (Correction 2's walk).
       `kern_pairs_measure_at_the_kerned_width` → ok: (a) `AV` 430000, `VA` 550000, `AA`
       470000, and so on for all five.
-- [ ] Phase 2 tests go GREEN. Add pixel tests showing the second glyph's lit column
+- [x] Phase 2 tests go GREEN. Add pixel tests showing the second glyph's lit column
       moves by the kerned amount on the fill path and on the stroke path.
-- [ ] Real-font oracle: in the Phase 1 face, `measureText("AVAWATo")` equals the width
+      `kern_pairs_measure_at_the_kerned_width` → ok, and
+      `a_kerned_pair_draws_at_the_kerned_distance_filled_and_stroked` → ok: `AV`'s
+      rightmost lit column is exactly 12 px left of the unkerned font's (−120 units ×
+      0.1), under `canvas::fill` and under `canvas::stroke(…, 2.0)`.
+- [x] Real-font oracle: in the Phase 1 face, `measureText("AVAWATo")` equals the width
       HarfBuzz reports with only `kern` enabled (`hb-shape --features=-liga,-clig,-calt,kern`,
       summed advances, scaled). The expected value is recorded in the test with the
       command that produced it. Skip with a logged reason if the face isn't installed.
-- [ ] Man pages: `canvas::measureText` DESC and `canvas::loadFont` DESC. Replace "no
+      `a_real_font_kerns_as_harfbuzz_does` → ok: SFNS at size 2048 measures 8314 units,
+      HarfBuzz 12.2.0's 1141+1132+1171+1762+1101+920+1087 (9364 with `-kern`). It skips,
+      logged, on a missing file or any SHA-256 but the recorded one. Wider sweep,
+      `python3 -I /tmp/p162/oracle.py`: 24 faces (8 Extension-wrapped `GPOS`, 8 direct
+      `GPOS`, 8 `kern`-table-only) × 5 strings = 120 cases, **0 mismatches** against
+      HarfBuzz's kerning (Correction 6 explains why the comparison factors out
+      tracking).
+- [x] Man pages: `canvas::measureText` DESC and `canvas::loadFont` DESC. Replace "no
       kerning" with what is applied: pair kerning from `GPOS` `kern`, or the legacy
       `kern` table. Say plainly that complex shaping is still not done. Check with
       `mfb man canvas measureText` and `scripts/man-census.sh --memory-scope`
-      → 0 unclassified.
-- [ ] Spec `06_canvas.md`: a "Kerning" subsection covering the feature/script selection
-      and precedence, citing `helper_kern.rs` symbols.
-- [ ] GPU: `scripts/test-canvas-vulkan.sh` on the Vulkan box, plus the Metal
+      → 0 unclassified. Both pages render (`mfb man canvas measureText`, `mfb man canvas
+      loadFont`'s new "Kerning." paragraph); census → `unclassified memory-vocabulary
+      hits: 0`.
+- [x] Spec `06_canvas.md`: a "Kerning" subsection covering the feature/script selection
+      and precedence, citing `helper_kern.rs` symbols. `### Kerning` under "A font is
+      parsed once", citing `KERN_SECTION`, `LAYOUT_FEATURE`, `__canvas_valueSize` and
+      `KERN_READ`. `cargo test --bin mfb spec` → 46 passed, and `mfb spec app canvas`
+      leaks no `[[`.
+- [x] GPU: `scripts/test-canvas-vulkan.sh` on the Vulkan box, plus the Metal
       `rt_canvas_metal` suite locally. Glyph placement is on the CPU, so this confirms
-      only that nothing else moved.
+      only that nothing else moved. Metal: `cargo test --test rt_canvas_metal` → 71
+      passed. Vulkan: `scripts/test-canvas-vulkan.sh target/debug/mfb --box 2226 --target linux-aarch64` → "canvas Vulkan runtime tests passed", 24 `ok` lines, 0 failures, `vulkanReady=TRUE` (`/tmp/p162/b4-vulkan.log`) (Correction 7).
 
 Acceptance: kerned pairs measure and draw kerned, unkerned fonts are byte-identical,
 and the docs are true.
   Check: `cargo test --test rt_canvas_font --test rt_canvas_golden` → pass and
   `git status --short tests/golden/canvas` → empty (est. 6 min).
-Commit: —
+  Result: 44 + 28 passed, 0 failed (`/tmp/p162/b4-accept.log`), and
+  `git status --short tests/golden/canvas` → empty. Runtime proof (Validation Plan,
+  Correction 8): the caption `"AVAWATo Typography, Ltd."` in `canvas-demo`'s bundled
+  `Lato-Regular.ttf` at size 2000 (its em) measures 25,113 units with `main`'s compiler
+  and 23,898 with this one, which is HarfBuzz's 23,898 kerned / 25,113 unkerned.
+  `Cinzel.ttf` measures 29,140 → 27,600 (size 2000, em 1000).
+Commit: — (this commit)
 
 ## Validation Plan
 
@@ -303,6 +326,23 @@ Commit: —
    `__canvas_shapeRun` is four lines over `__canvas_kernRun`, and Phase 3's reader is
    the same `__canvas_kernLookup`. They were verified together: the face check pins
    the section, and the RED width test going green pins the shaping.
+
+6. **The real-font oracle compares kerning, not tracking.** HarfBuzz also applies a
+   font's AAT `trak` table, at a 12 pt default point size, on the variable Apple faces
+   that carry one. A first sweep "failed" 30 of 120 cases in SF Compact, SF Pro
+   Rounded, New York, SF Camera and SF Armenian Rounded by exactly a constant per glyph
+   (+92 units in SF Pro Rounded, +40 in SF Compact, +12 in New York). `hb-shape
+   --font-ptem=6/12/48/200` turns SF Pro Rounded's `H` into 1606/1524/1447/1432, and
+   1432 is its `hmtx` advance, which is what this build draws. Tracking is not in any
+   letter's scope. The oracle therefore checks Σ `hmtx` + (HarfBuzz kerned − HarfBuzz
+   unkerned) at one point size. `SFNS.ttf`, the test's face, tracks by 0 at 12 pt, so its
+   raw HarfBuzz sum is the expected value as recorded.
+7. **The Vulkan box is 2226, not 2228.** On 2026-10-14 `ssh -p 2228` → `Connection
+   refused`, as were 2222–2225 and 2227. 2226 (Debian 12 aarch64, lavapipe ICD) was up
+   and the script supports it: `--box 2226 --target linux-aarch64`.
+8. **`examples/emoji` does not exist.** The Validation Plan's runtime proof names it,
+   but `ls examples/` has no `emoji`. The proof uses `examples/canvas-demo`'s bundled
+   Lato and Cinzel instead.
 
 ## Summary
 

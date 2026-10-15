@@ -2757,8 +2757,46 @@ per geometry-cache miss.
 
 A `--debug` build's `MFB_CANVAS_FACE_DUMP` writes each loaded font's index, and
 `MFB_CANVAS_FACE_CHECK` holds every index reader to the byte lookup it replaced, for
-every Unicode scalar and glyph id (`./mfb spec tooling debug-report`).
+every Unicode scalar and glyph id, and lists the kerning of every pair of the first 64
+glyph ids (`./mfb spec tooling debug-report`).
 [[src/codegen/builtins/canvas/helper_font.rs:FACE_DUMP_DEBUG]]
+
+### Kerning
+
+The face index's layout version 2 adds a kerning section, read once at load and
+pointed at by header word 9 (0 for a font with no kerning).
+[[src/codegen/builtins/canvas/helper_kern.rs:KERN_SECTION]] A font with a `GPOS` `kern`
+feature uses it and nothing else. The feature is taken from the `DFLT` script's default
+LangSys, else `latn`'s, else the first script's, whichever enables `kern` first. Its
+lookups apply in lookup-index order, and only types 2 (PairPos, formats 1 and 2) and 9
+(Extension wrapping a type 2) are read. A font without a `GPOS` `kern` feature uses its
+`kern` table: version 0, and only format-0 subtables marked horizontal and neither
+minimum nor cross-stream, each acting as a lookup of its own. Apple's version-1 `kern`
+is not read. [[src/codegen/builtins/canvas/helper_kern.rs:LAYOUT_FEATURE]]
+
+Of each ValueRecord only `XAdvance` is kept; the record's size is two bytes per set bit
+of the format's low byte, and device and variation offsets are counted, never followed.
+[[src/codegen/builtins/canvas/helper_kern.rs:__canvas_valueSize]] A hostile count costs
+reads, not a loop: each is clipped to what the file holds, and a class matrix past the
+end of the file is dropped.
+
+`__canvas_shapeRun` applies the section after every codepoint has its glyph, font by
+font and lookup by lookup, along the pairs whose two glyphs come from the same font.
+This follows HarfBuzz, which is the oracle the tests hold the result to:
+
+- Within a lookup, the first subtable that applies wins. Format 1 applies when the right
+  glyph is in the left glyph's pair set. Format 2 applies whenever the left glyph is
+  covered and both classes are in range, a zero cell included.
+- Across lookups, adjustments add. A `kern` subtable with its override bit replaces what
+  the pair has gathered instead.
+- `value1.XAdvance` adds to the left glyph's advance and `value2.XAdvance` to the right
+  glyph's.
+- After a pair whose second ValueRecord is non-empty, the walk resumes past the right
+  glyph.
+
+[[src/codegen/builtins/canvas/helper_kern.rs:KERN_READ]] Adjustments are in font units,
+so `measureText` and both draw paths take them through the run with no change of their
+own, and a font with no kerning shapes exactly as before.
 
 ## System fonts are an OS query, then an ordinary load
 

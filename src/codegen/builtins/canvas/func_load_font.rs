@@ -36,6 +36,15 @@ It refuses CFF/OpenType-PostScript outlines and WOFF with
 16..16384 the format allows is refused the same way. When text is drawn, a glyph whose bitmap at the requested size
 would exceed 8192 pixels a side or 16,777,216 pixels draws nothing.
 
+**Kerning.** Text drawn and measured in the font is kerned by the font's own pair
+kerning: the `kern` feature of its `GPOS` table, or, for a font without one, its older
+`kern` table. Only the horizontal advance between two neighbouring characters changes,
+and never between a glyph and its neighbour from a different font. No other shaping is
+done: no ligatures, no contextual alternates, no mark positioning, and no Arabic,
+Indic or other complex-script shaping, so text in those scripts draws one glyph per
+character in reading order. The older Apple form of the `kern` table is not read, and
+a font that kerns only through it draws unkerned.
+
 `loadFont` is the reproducible way to get a font: the same file draws the same pixels
 on every platform, so a program that ships its font file looks the same everywhere.
 To use a font already installed on the machine instead, pick a name from

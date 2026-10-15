@@ -24,10 +24,13 @@ grid by `size / unitsPerEm`. `descent` is a **positive** distance below the base
 The font file stores it negative — `hhea.descender` measures downward — and the sign
 is flipped here so no caller has to remember which convention it is holding.
 
-`width` is the sum of the glyphs' advance widths. This build does no kerning,
-ligatures or complex shaping (see `canvas::loadFont`), so the width is exact for what
-it will actually draw — measuring and drawing use the same glyph walk, which is the
-property that matters more than absolute typographic fidelity.
+`width` is the sum of the glyphs' advance widths, with the font's **pair kerning**
+applied: in `"AV"`, a font that tucks the `V` under the `A` measures the pair narrower
+than the two letters apart. The kerning comes from the font itself (see
+`canvas::loadFont` for which tables are read), and a font without any measures the
+plain advances. Ligatures and complex shaping are not done. Measuring and drawing use
+the same glyph walk, kerning included, so the width is exactly what a `canvas::Text`
+with the same font, size and string draws.
 
 A font with no `head` table measures as all zeroes rather than failing. A closed
 font is different: measuring it raises `ErrResourceClosed`. Text already in a
