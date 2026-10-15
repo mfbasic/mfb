@@ -2768,3 +2768,490 @@ fn a_load_destroy_cycle_keeps_only_the_fonts_own_blocks() {
          exactly a closed font's bytes, index and record, {per_cycle} bytes",
     );
 }
+
+// ---------------------------------------------------------------------------------------
+// plan-162-B: kerning — `GPOS` pair adjustment and the legacy `kern` table.
+//
+// The fixture is the square font with glyph 2 given the same square outline, and a
+// `cmap` mapping `A` → 1 (advance 250) and `V` → 2 (advance 300). Each table builder
+// below writes the OpenType structure it names, field by field, so a fixture states the
+// font a kerning case needs rather than borrowing a system font's.
+
+fn be16(v: u16) -> [u8; 2] {
+    v.to_be_bytes()
+}
+
+/// Glyph 1's record — a square — so another glyph id can carry the same outline.
+fn square_record(square: [i16; 4]) -> Vec<u8> {
+    let [x0, y0, x1, y1] = square;
+    let mut glyf = Vec::new();
+    glyf.extend(be16(1));
+    for v in square {
+        glyf.extend(be16(v as u16));
+    }
+    glyf.extend(be16(3));
+    glyf.extend(be16(0));
+    glyf.extend([0x01u8; 4]);
+    for dx in [x0, x1 - x0, 0, x0 - x1] {
+        glyf.extend(be16(dx as u16));
+    }
+    for dy in [y0, 0, y1 - y0, 0] {
+        glyf.extend(be16(dy as u16));
+    }
+    glyf
+}
+
+/// The glyph id `A` maps to in [`kerning_font`]: advance 250.
+const GID_A: u16 = 1;
+/// The glyph id `V` maps to in [`kerning_font`]: advance 300.
+const GID_V: u16 = 2;
+
+/// `font` with each `(tag, data)` table replaced, or added when it is absent; the
+/// directory is kept in tag order, as a real font's is.
+fn with_tables(font: &[u8], tables: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let mut out = font.to_vec();
+    for (tag, data) in tables {
+        let count = u16::from_be_bytes([out[4], out[5]]) as usize;
+        let present = (0..count).any(|i| &out[12 + i * 16..12 + i * 16 + 4] == *tag);
+        if !present {
+            // Add an empty table record in sorted position, then fill it.
+            let mut records: Vec<([u8; 4], Vec<u8>)> = (0..count)
+                .map(|i| {
+                    let rec = 12 + i * 16;
+                    let be32 = |at: usize| {
+                        u32::from_be_bytes([out[at], out[at + 1], out[at + 2], out[at + 3]])
+                            as usize
+                    };
+                    let mut t = [0u8; 4];
+                    t.copy_from_slice(&out[rec..rec + 4]);
+                    (
+                        t,
+                        out[be32(rec + 8)..be32(rec + 8) + be32(rec + 12)].to_vec(),
+                    )
+                })
+                .collect();
+            records.push((**tag, Vec::new()));
+            records.sort_by(|a, b| a.0.cmp(&b.0));
+            let mut rebuilt = out[..4].to_vec();
+            rebuilt.extend(be16(records.len() as u16));
+            rebuilt.extend([0u8; 6]);
+            let mut offset = 12 + 16 * records.len();
+            let mut body = Vec::new();
+            for (t, bytes) in &records {
+                rebuilt.extend(t);
+                rebuilt.extend(0u32.to_be_bytes());
+                rebuilt.extend((offset as u32).to_be_bytes());
+                rebuilt.extend((bytes.len() as u32).to_be_bytes());
+                let padded = bytes.len().div_ceil(4) * 4;
+                body.extend(bytes);
+                body.resize(body.len() + padded - bytes.len(), 0);
+                offset += padded;
+            }
+            rebuilt.extend(body);
+            out = rebuilt;
+        }
+        out = replace_table(&out, tag, data);
+    }
+    out
+}
+
+/// The kerning base font, plus `tables`.
+fn kerning_font(tables: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let square = [100, 0, 400, 300];
+    let base = truetype_fixture_with(1000, 2, square, &square_record(square));
+    let cmap = cmap_with(
+        3,
+        10,
+        cmap12(&[
+            (b'A' as u32, b'A' as u32, GID_A as u32),
+            (b'V' as u32, b'V' as u32, GID_V as u32),
+        ]),
+    );
+    let mut all: Vec<(&[u8; 4], Vec<u8>)> = vec![(b"cmap", cmap)];
+    all.extend(tables.iter().map(|(t, d)| (*t, d.clone())));
+    with_tables(&base, &all)
+}
+
+/// Bytes in a ValueRecord of `format`: two per set bit of the low byte.
+fn value_size(format: u16) -> usize {
+    2 * (format & 0x00ff).count_ones() as usize
+}
+
+/// A ValueRecord of `format` whose fields, in format-bit order, are `fields`.
+fn value_record(format: u16, fields: &[i16]) -> Vec<u8> {
+    assert_eq!(
+        fields.len() * 2,
+        value_size(format),
+        "one field per format bit"
+    );
+    fields.iter().flat_map(|v| v.to_be_bytes()).collect()
+}
+
+/// Coverage format 1: the sorted glyph array.
+fn coverage1(glyphs: &[u16]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(glyphs.len() as u16));
+    for g in glyphs {
+        out.extend(be16(*g));
+    }
+    out
+}
+
+/// ClassDef format 2: `(start, end, class)` ranges.
+fn class_def2(ranges: &[(u16, u16, u16)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(be16(2));
+    out.extend(be16(ranges.len() as u16));
+    for (start, end, class) in ranges {
+        out.extend(be16(*start));
+        out.extend(be16(*end));
+        out.extend(be16(*class));
+    }
+    out
+}
+
+/// ClassDef format 1: consecutive glyphs from `start`, one class each.
+fn class_def1(start: u16, classes: &[u16]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(start));
+    out.extend(be16(classes.len() as u16));
+    for c in classes {
+        out.extend(be16(*c));
+    }
+    out
+}
+
+/// One PairValueRecord: the second glyph, then its two ValueRecords.
+type PairRecord = (u16, Vec<u8>, Vec<u8>);
+
+/// PairPos format 1 over `firsts` (one pair set each, in coverage order).
+fn pair_pos1(firsts: &[u16], vf1: u16, vf2: u16, sets: &[Vec<PairRecord>]) -> Vec<u8> {
+    assert_eq!(firsts.len(), sets.len());
+    let header = 10 + 2 * sets.len();
+    let mut sets_bytes: Vec<Vec<u8>> = Vec::new();
+    for set in sets {
+        let mut b = Vec::new();
+        b.extend(be16(set.len() as u16));
+        for (second, v1, v2) in set {
+            assert_eq!(v1.len(), value_size(vf1));
+            assert_eq!(v2.len(), value_size(vf2));
+            b.extend(be16(*second));
+            b.extend(v1);
+            b.extend(v2);
+        }
+        sets_bytes.push(b);
+    }
+    let mut offsets = Vec::new();
+    let mut at = header;
+    for b in &sets_bytes {
+        offsets.push(at);
+        at += b.len();
+    }
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(at as u16)); // coverage after the sets
+    out.extend(be16(vf1));
+    out.extend(be16(vf2));
+    out.extend(be16(sets.len() as u16));
+    for o in offsets {
+        out.extend(be16(o as u16));
+    }
+    for b in sets_bytes {
+        out.extend(b);
+    }
+    out.extend(coverage1(firsts));
+    out
+}
+
+/// PairPos format 2: a coverage, two ClassDefs and the `class1 × class2` matrix of
+/// `(value1, value2)` records.
+fn pair_pos2(
+    firsts: &[u16],
+    vf1: u16,
+    vf2: u16,
+    class1: Vec<u8>,
+    class2: Vec<u8>,
+    matrix: &[Vec<(Vec<u8>, Vec<u8>)>],
+) -> Vec<u8> {
+    let c1 = matrix.len();
+    let c2 = matrix[0].len();
+    let header = 16;
+    let cell = value_size(vf1) + value_size(vf2);
+    let records = c1 * c2 * cell;
+    let coverage = coverage1(firsts);
+    let cov_at = header + records;
+    let cd1_at = cov_at + coverage.len();
+    let cd2_at = cd1_at + class1.len();
+    let mut out = Vec::new();
+    out.extend(be16(2));
+    out.extend(be16(cov_at as u16));
+    out.extend(be16(vf1));
+    out.extend(be16(vf2));
+    out.extend(be16(cd1_at as u16));
+    out.extend(be16(cd2_at as u16));
+    out.extend(be16(c1 as u16));
+    out.extend(be16(c2 as u16));
+    for row in matrix {
+        assert_eq!(row.len(), c2);
+        for (v1, v2) in row {
+            assert_eq!(v1.len() + v2.len(), cell);
+            out.extend(v1);
+            out.extend(v2);
+        }
+    }
+    out.extend(coverage);
+    out.extend(class1);
+    out.extend(class2);
+    out
+}
+
+/// An Extension subtable (lookup type 9) wrapping `subtable` of `kind`.
+fn extension(kind: u16, subtable: Vec<u8>) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(kind));
+    out.extend(8u32.to_be_bytes());
+    out.extend(subtable);
+    out
+}
+
+/// A lookup of `kind` holding `subtables`.
+fn lookup(kind: u16, subtables: &[Vec<u8>]) -> Vec<u8> {
+    let header = 6 + 2 * subtables.len();
+    let mut out = Vec::new();
+    out.extend(be16(kind));
+    out.extend(be16(0)); // lookupFlag
+    out.extend(be16(subtables.len() as u16));
+    let mut at = header;
+    for s in subtables {
+        out.extend(be16(at as u16));
+        at += s.len();
+    }
+    for s in subtables {
+        out.extend(s);
+    }
+    out
+}
+
+/// A `GPOS` (or `GSUB`) table: one script, `script`, whose default LangSys enables one
+/// feature, `feature`, over every lookup in `lookups`, in order.
+fn layout_table(script: &[u8; 4], feature: &[u8; 4], lookups: &[Vec<u8>]) -> Vec<u8> {
+    // ScriptList: one record, its Script, the Script's default LangSys.
+    let mut script_list = Vec::new();
+    script_list.extend(be16(1));
+    script_list.extend(script);
+    script_list.extend(be16(8)); // Script at 8
+    script_list.extend(be16(4)); // Script: defaultLangSys at 4
+    script_list.extend(be16(0)); // langSysCount
+    script_list.extend(be16(0)); // LangSys: lookupOrder
+    script_list.extend(be16(0xffff)); // requiredFeatureIndex: none
+    script_list.extend(be16(1));
+    script_list.extend(be16(0)); // featureIndex 0
+                                 // FeatureList: one record and its Feature.
+    let mut feature_list = Vec::new();
+    feature_list.extend(be16(1));
+    feature_list.extend(feature);
+    feature_list.extend(be16(8));
+    feature_list.extend(be16(0)); // featureParams
+    feature_list.extend(be16(lookups.len() as u16));
+    for i in 0..lookups.len() {
+        feature_list.extend(be16(i as u16));
+    }
+    // LookupList.
+    let mut lookup_list = Vec::new();
+    lookup_list.extend(be16(lookups.len() as u16));
+    let mut at = 2 + 2 * lookups.len();
+    for l in lookups {
+        lookup_list.extend(be16(at as u16));
+        at += l.len();
+    }
+    for l in lookups {
+        lookup_list.extend(l);
+    }
+    let script_at = 10;
+    let feature_at = script_at + script_list.len();
+    let lookup_at = feature_at + feature_list.len();
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(0));
+    out.extend(be16(script_at as u16));
+    out.extend(be16(feature_at as u16));
+    out.extend(be16(lookup_at as u16));
+    out.extend(script_list);
+    out.extend(feature_list);
+    out.extend(lookup_list);
+    out
+}
+
+/// A version-0 `kern` table with one format-0 subtable of `coverage`.
+fn kern_table(coverage: u16, pairs: &[(u16, u16, i16)]) -> Vec<u8> {
+    let mut sub = Vec::new();
+    sub.extend(be16(0)); // version
+    sub.extend(be16((14 + 6 * pairs.len()) as u16));
+    sub.extend(be16(coverage));
+    sub.extend(be16(pairs.len() as u16));
+    sub.extend([0u8; 6]); // searchRange, entrySelector, rangeShift
+    for (l, r, v) in pairs {
+        sub.extend(be16(*l));
+        sub.extend(be16(*r));
+        sub.extend(v.to_be_bytes());
+    }
+    let mut out = Vec::new();
+    out.extend(be16(0));
+    out.extend(be16(1));
+    out.extend(sub);
+    out
+}
+
+const X_PLACEMENT: u16 = 0x0001;
+const Y_PLACEMENT: u16 = 0x0002;
+const X_ADVANCE: u16 = 0x0004;
+const Y_ADVANCE: u16 = 0x0008;
+const X_ADVANCE_DEVICE: u16 = 0x0040;
+
+/// (a) `GPOS` format 1 under `kern`: `A,A` = −30 and `A,V` = −120 in one pair set, so a
+/// misread record size moves `A,V` onto garbage.
+fn gpos_format1() -> Vec<u8> {
+    let set = vec![
+        (GID_A, value_record(X_ADVANCE, &[-30]), vec![]),
+        (GID_V, value_record(X_ADVANCE, &[-120]), vec![]),
+    ];
+    layout_table(
+        b"DFLT",
+        b"kern",
+        &[lookup(2, &[pair_pos1(&[GID_A], X_ADVANCE, 0, &[set])])],
+    )
+}
+
+/// (b) `GPOS` format 2 inside an Extension lookup: `A` is class 1 on the left, `V` class
+/// 1 on the right, and only that cell is −120.
+fn gpos_format2_extension() -> Vec<u8> {
+    let zero = || (value_record(X_ADVANCE, &[0]), vec![]);
+    let matrix = vec![
+        vec![zero(), zero()],
+        vec![zero(), (value_record(X_ADVANCE, &[-120]), vec![])],
+    ];
+    let sub = pair_pos2(
+        &[GID_A],
+        X_ADVANCE,
+        0,
+        class_def1(GID_A, &[1]),
+        class_def2(&[(GID_V, GID_V, 1)]),
+        &matrix,
+    );
+    layout_table(b"DFLT", b"kern", &[lookup(9, &[extension(2, sub)])])
+}
+
+/// (c) only a `kern` table: `A,A` = −30, `A,V` = −80.
+fn kern_only() -> Vec<u8> {
+    kern_table(0x0001, &[(GID_A, GID_A, -30), (GID_A, GID_V, -80)])
+}
+
+/// (e) a first ValueRecord carrying `XPlacement`, `XAdvance`, `YAdvance` and an
+/// `XAdvDevice` offset (junk, never followed), and a second carrying placements only.
+fn gpos_wide_value_records() -> Vec<u8> {
+    let vf1 = X_PLACEMENT | X_ADVANCE | Y_ADVANCE | X_ADVANCE_DEVICE;
+    let vf2 = X_PLACEMENT | Y_PLACEMENT;
+    let set = vec![
+        (
+            GID_A,
+            value_record(vf1, &[55, -30, 33, -1]),
+            value_record(vf2, &[7, 7]),
+        ),
+        (
+            GID_V,
+            value_record(vf1, &[55, -120, 33, -1]),
+            value_record(vf2, &[9, 9]),
+        ),
+    ];
+    layout_table(
+        b"DFLT",
+        b"kern",
+        &[lookup(2, &[pair_pos1(&[GID_A], vf1, vf2, &[set])])],
+    )
+}
+
+/// The five kerning fixtures, by name.
+fn kerning_fixtures() -> Vec<(&'static str, Vec<u8>)> {
+    vec![
+        ("gpos1", kerning_font(&[(b"GPOS", gpos_format1())])),
+        (
+            "gpos2ext",
+            kerning_font(&[(b"GPOS", gpos_format2_extension())]),
+        ),
+        ("kern", kerning_font(&[(b"kern", kern_only())])),
+        (
+            "both",
+            kerning_font(&[(b"GPOS", gpos_format1()), (b"kern", kern_only())]),
+        ),
+        (
+            "wide",
+            kerning_font(&[(b"GPOS", gpos_wide_value_records())]),
+        ),
+    ]
+}
+
+/// `measureText(…, 1000.0, s).width` for each string in `texts`, per fixture, in
+/// thousandths of a pixel. At size 1000 in a 1000-unit em the scale is 1, so a width is
+/// its advances in font units, exactly.
+fn kerned_widths(name: &str, texts: &[&str]) -> Vec<(String, Vec<i64>)> {
+    let fixtures = kerning_fixtures();
+    let mut source = String::from(
+        "IMPORT app\nIMPORT canvas\nIMPORT io\n\nFUNC widthOf(path AS String, s AS String) AS Integer\n  RES f AS canvas::Font = canvas::loadFont(path)\n  RETURN toInt(canvas::measureText(f, 1000.0, s).width * 1000.0)\nEND FUNC\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n",
+    );
+    for (fixture, _) in &fixtures {
+        let mut line = format!("  io::print(\"{fixture}\"");
+        for t in texts {
+            line.push_str(&format!(
+                " & \" \" & toString(widthOf(\"{fixture}.ttf\", \"{t}\"))"
+            ));
+        }
+        line.push_str(")\n");
+        source.push_str(&line);
+    }
+    source.push_str("END FUNC\n");
+    let files: Vec<(String, Vec<u8>)> = fixtures
+        .into_iter()
+        .map(|(n, f)| (format!("{n}.ttf"), f))
+        .collect();
+    let files: Vec<(&str, Vec<u8>)> = files.iter().map(|(n, f)| (n.as_str(), f.clone())).collect();
+    run_files(name, &source, &files)
+        .into_iter()
+        .map(|line| {
+            let mut words = line.split(' ');
+            let fixture = words.next().unwrap_or_default().to_string();
+            (
+                fixture,
+                words.map(|w| w.parse().expect("a width")).collect(),
+            )
+        })
+        .collect()
+}
+
+/// `AV` measures `adv(A) + kern(A, V) + adv(V)`; `VA` is unkerned in every fixture; `AA`
+/// takes the pair-set record before `A,V`, so a wrong ValueRecord size breaks one of the
+/// two. `GPOS` wins over `kern` when a font has both.
+#[test]
+fn kern_pairs_measure_at_the_kerned_width() {
+    let widths = kerned_widths("canvas_kern_widths", &["AV", "VA", "AA"]);
+    let unkerned_av = (250 + 300) * 1000;
+    let expect = |kern_av: i64, kern_aa: i64| {
+        vec![
+            unkerned_av + kern_av * 1000,
+            unkerned_av,
+            (500 + kern_aa) * 1000,
+        ]
+    };
+    assert_eq!(
+        widths,
+        vec![
+            ("gpos1".to_string(), expect(-120, -30)),
+            ("gpos2ext".to_string(), expect(-120, 0)),
+            ("kern".to_string(), expect(-80, -30)),
+            ("both".to_string(), expect(-120, -30)),
+            ("wide".to_string(), expect(-120, -30)),
+        ],
+    );
+}

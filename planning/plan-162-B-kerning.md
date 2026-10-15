@@ -163,11 +163,11 @@ Acceptance: §2's UNMEASURED rows hold numbers and commands.
   Check: `grep -c UNMEASURED planning/plan-162-B-kerning.md` → 0 outside this task list
   (est. 1 min).
   Result: → 1, the line above.
-Commit: — (with plan-162-A's Phase 4 hash, this commit)
+Commit: ba9d8c543
 
 ### Phase 2 — fixtures
 
-- [ ] `tests/canvas/rt_canvas_font.rs`: extend the fixture builder with two outline
+- [x] `tests/canvas/rt_canvas_font.rs`: extend the fixture builder with two outline
       glyphs (`A`, `V`) with distinct advances, plus:
   - (a) a `GPOS` with a format 1 pair `A,V = −120` behind the `kern` feature;
   - (b) a `GPOS` with a format 2 class pair, wrapped in an Extension lookup;
@@ -175,13 +175,26 @@ Commit: — (with plan-162-A's Phase 4 hash, this commit)
   - (d) both `GPOS` (−120) and `kern` (−80), to test precedence;
   - (e) a ValueFormat carrying `XPlacement` + `XAdvance` + `YAdvance` + a device
     offset.
-- [ ] RED tests: `measureText("AV")` width = `(adv(A) − 120 + adv(V)) × scale` for
+
+  `kerning_font` is the square font with glyph 2 given the square outline too, and a
+  `cmap` of `A` → 1 (advance 250), `V` → 2 (advance 300). The builders `layout_table`,
+  `lookup`, `pair_pos1`, `pair_pos2`, `extension`, `class_def1`/`class_def2` and
+  `kern_table` write each structure field by field. Every format-1 pair set holds
+  `A,A` = −30 before `A,V`, so a wrong ValueRecord size corrupts `A,V`. (e) also has a
+  non-zero `valueFormat2` (placements only).
+- [x] RED tests: `measureText("AV")` width = `(adv(A) − 120 + adv(V)) × scale` for
       (a), (b) and (e); −80 for (c); −120 for (d). `"VA"` is unkerned in all five.
+      `kern_pairs_measure_at_the_kerned_width`, all five fixtures in one program, at
+      size 1000 (scale 1), also asserting `AA`.
 
 Acceptance: the fixtures load and the RED tests fail today with the unkerned width.
   Check: `cargo test --test rt_canvas_font kern` → the five width tests fail on the
   kerning term only (est. 3 min).
-Commit: —
+  Result: FAILED as predicted. Every fixture loaded and measured unkerned:
+  `left: [("gpos1", [550000, 550000, 500000]), …]` against
+  `right: [("gpos1", [430000, 550000, 470000]), …]`. `VA` already matches (550000);
+  `AV` and `AA` differ by exactly the kerning term.
+Commit: — (this commit)
 
 ### Phase 3 — build the kerning section
 
