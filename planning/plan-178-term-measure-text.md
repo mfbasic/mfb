@@ -245,9 +245,10 @@ callers.
       runtime dispatch, error data, Unicode-table usage, and package docs. —
       `cargo check --bin mfb` passed; `cargo test --bin mfb term -- --nocapture`
       passed 72 tests.
-- [ ] Extend `helper_astrings_bridge.rs`, `src/ir/shape.rs`, `src/ir/lower.rs`,
+- [x] Extend `helper_astrings_bridge.rs`, `src/ir/shape.rs`, `src/ir/lower.rs`,
       `src/ir/verify/compat.rs`, and `src/ir/tests.rs` with the AttributedString
-      overload and import requirement.
+      overload and import requirement. — `cargo test --bin mfb term_measure_text
+      -- --nocapture` passed 2 tests.
 - [ ] Switch `helper_pad_to_width.rs` and
       `string_self_update.rs:emit_pad_to_width_measure` to the internal helpers,
       retaining raw scalar validation for `padChar`.

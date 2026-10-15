@@ -1,5 +1,5 @@
-//! The `term`↔`astrings` `drawText(AttributedString)` bridge — `__term_drawTextAttr`
-//! plus its private `__TermStyle` record and color/style helpers, as ONE gated
+//! The `term`↔`astrings` attributed-text bridge — `__term_drawTextAttr`,
+//! `__term_measureTextAttr`, its private `__TermStyle` record, and color/style helpers, as ONE gated
 //! source chunk.
 //!
 //! Why this is a helper chunk and not a `Body::mfb` overload on `func_draw_text.rs`:
@@ -18,6 +18,7 @@ use crate::codegen::registry::{HelperGate, RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"' ===========================================================================
 ' term ↔ astrings bridge: term::drawText(row, column, text AS AttributedString)
+' and term::measureText(value AS AttributedString)
 '
 ' The native drawing callables know nothing of the `astrings` attribute overlay,
 ' so the AttributedString overload of `term::drawText` is a source-companion body
@@ -47,6 +48,12 @@ IMPORT strings
 IMPORT bits
 IMPORT color
 IMPORT collections
+
+' Measurement uses exactly the visible text and the public term member so its
+' lifecycle/mode gates and cell semantics cannot drift from the String overload.
+FUNC __term_measureTextAttr(value AS AttributedString) AS Integer
+  RETURN term::measureText(toString(value))
+END FUNC
 
 ' The renderable subset of an AttributedString's per-scalar styling: the attributes
 ' the terminal surface can represent — bold, underline, and packed 0xAARRGGBB

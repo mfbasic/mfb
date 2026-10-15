@@ -107,6 +107,9 @@ mod gen_shared;
 /// The `term::drawText` qualified call name — the co-located IR-level rewrite key for
 /// the `drawText(AttributedString)` overload (routed to `__term_drawTextAttr`).
 pub(crate) const DRAW_TEXT: &str = "term.drawText";
+/// The `term::measureText` qualified call name — the co-located IR-level rewrite
+/// key for the `measureText(AttributedString)` overload.
+pub(crate) const MEASURE_TEXT: &str = "term.measureText";
 
 /// The read-only `TermSize` record type (`columns`/`rows` `Integer`), returned by
 /// `term::terminalSize`.

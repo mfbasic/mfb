@@ -4,7 +4,7 @@ use crate::operators::UnaryOp;
 /// The builtin a lowered call targets, by the name the source wrote: the
 /// target itself when it is a builtin call, or — for a call lowering rewrote
 /// to a source-companion body (a `Body::Mfb`/`Body::Rewrite` member, the
-/// `astrings` Tier-B transforms, the `term::drawText(AttributedString)`
+/// `astrings` Tier-B transforms, the attributed `term::drawText`/`measureText`
 /// bridge) — the member that body implements. `None` for a declared function.
 ///
 /// A rewritten call keeps the builtin argument normalization (extras kept, no
@@ -16,6 +16,9 @@ pub(super) fn builtin_call_target(target: &str) -> Option<String> {
     }
     if target == crate::internal_name::internalize("__term_drawTextAttr") {
         return Some(crate::codegen::builtins::term::DRAW_TEXT.to_string());
+    }
+    if target == crate::internal_name::internalize("__term_measureTextAttr") {
+        return Some(crate::codegen::builtins::term::MEASURE_TEXT.to_string());
     }
     if let Some(owner) = crate::codegen::builtins::strings::tier_b_transform_owner(target) {
         return Some(owner.to_string());
@@ -439,12 +442,17 @@ impl TypeEnv {
             let third_is_attributed = target == crate::codegen::builtins::term::DRAW_TEXT
                 && arg_types.len() == 3
                 && arg_types[2].name() == "AttributedString";
+            let first_is_attributed = target == crate::codegen::builtins::term::MEASURE_TEXT
+                && arg_types.len() == 1
+                && arg_types[0].name() == "AttributedString";
             let params: Vec<ParameterType> = if third_is_attributed {
                 vec![
                     ParameterType::Integer,
                     ParameterType::Integer,
                     ParameterType::named("AttributedString"),
                 ]
+            } else if first_is_attributed {
+                vec![ParameterType::named("AttributedString")]
             } else {
                 builtins::argument_types_typed(target).unwrap_or_default()
             };

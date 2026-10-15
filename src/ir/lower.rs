@@ -5593,6 +5593,22 @@ fn lower_expression_unwrapped(
                     Some(crate::internal_name::internalize("__term_drawTextAttr"))
                 })
                 .or_else(|| {
+                    // `term::measureText(AttributedString)` measures the visible
+                    // text through the gated bridge body. A String stays on the
+                    // native `term.measureText` ABI helper.
+                    if canonical_callee != crate::codegen::builtins::term::MEASURE_TEXT {
+                        return None;
+                    }
+                    let value_type = arguments
+                        .first()
+                        .map(call_arg_value)
+                        .and_then(|argument| expression_type(argument, locals, context));
+                    if value_type != Some(attributed_string_type()) {
+                        return None;
+                    }
+                    Some(crate::internal_name::internalize("__term_measureTextAttr"))
+                })
+                .or_else(|| {
                     // plan-89-D: a Tier-B `strings::` transform whose text argument
                     // is an `AttributedString` routes to its `__astrings_*`
                     // attribute-preserving source-companion body (the native String

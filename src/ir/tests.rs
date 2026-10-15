@@ -7408,6 +7408,28 @@ mod lower_coverage_tests {
     }
 
     #[test]
+    fn term_measure_text_with_attributed_string_routes_to_the_attr_companion() {
+        let ir = lower_src(
+            "IMPORT term\n\
+             IMPORT astrings\n\n\
+             FUNC main AS Integer\n  \
+               LET a AS AttributedString = astrings::fromString(\"hi\")\n  \
+               LET aw AS Integer = term::measureText(a)\n  \
+               LET sw AS Integer = term::measureText(\"plain\")\n  \
+               RETURN aw + sw\nEND FUNC\n",
+        );
+        let json = ir.to_json();
+        assert!(
+            json.contains("\"target\": \"#term_measureTextAttr\""),
+            "AttributedString measurement must route through the bridge"
+        );
+        assert!(
+            json.contains("\"target\": \"term.measureText\""),
+            "String measurement must stay on the native member"
+        );
+    }
+
+    #[test]
     fn audio_calls_route_to_native_and_source_implementation_names() {
         // The `audio::` overloads whose body differs rewrite onto their own
         // internal runtime-helper name (openInput/read/poll — native) or their

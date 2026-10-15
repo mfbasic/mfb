@@ -2518,15 +2518,18 @@ impl<'a> Walker<'a> {
                 self.call_typed_unknown = false;
                 return;
             }
-            // `term::drawText` additionally accepts an `AttributedString` at the
-            // text position; the source-companion overload honours its
-            // attributes. Its body lives in a bridge injected only when the
+            // `term::drawText` and `term::measureText` additionally accept an
+            // `AttributedString`; their source-companion overloads use its visible
+            // text (and drawText honours its attributes). Their bodies live in a bridge injected only when the
             // project imports `astrings`, so the import is required here — a
             // source fact the IR does not keep.
             let third_is_attributed = canonical == crate::codegen::builtins::term::DRAW_TEXT
                 && names.len() == 3
                 && names[2] == "AttributedString";
-            if third_is_attributed && !self.astrings_imported {
+            let first_is_attributed = canonical == crate::codegen::builtins::term::MEASURE_TEXT
+                && names.len() == 1
+                && names[0] == "AttributedString";
+            if (third_is_attributed || first_is_attributed) && !self.astrings_imported {
                 self.emit(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
                     format!(
@@ -2545,6 +2548,8 @@ impl<'a> Walker<'a> {
                     ParameterType::Integer,
                     ParameterType::named("AttributedString"),
                 ]
+            } else if first_is_attributed {
+                vec![ParameterType::named("AttributedString")]
             } else {
                 builtins::argument_types_typed(canonical).unwrap_or_default()
             };
@@ -4361,6 +4366,25 @@ mod tests {
         assert_eq!(
             details,
             ["Call to `term.drawText` with an `AttributedString` requires `IMPORT astrings`."]
+        );
+    }
+
+    #[test]
+    fn term_measure_text_attributed_requires_astrings_import() {
+        let diagnostics = collect_diagnostics(
+            Path::new("/proj"),
+            &hir_from(
+                "IMPORT term\nFUNC width(a AS AttributedString) AS Integer\n  RETURN term::measureText(a)\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            ),
+            &[],
+            &[],
+            &HashMap::new(),
+            &[],
+        );
+        let details: Vec<_> = diagnostics.iter().map(|d| d.detail.as_str()).collect();
+        assert_eq!(
+            details,
+            ["Call to `term.measureText` with an `AttributedString` requires `IMPORT astrings`."]
         );
     }
 
