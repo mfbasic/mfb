@@ -1202,11 +1202,11 @@ END FUNC
 FUNC __canvas_pictureNamesFont(pic AS Picture, handle AS Integer) AS Boolean
   MATCH pic.shape
     CASE Text(t)
-      RETURN canvas::fontHandle(t.font) = handle
+      RETURN __canvas_textNamesFont(t, handle)
     CASE AutoPaint(a)
       MATCH a.shape
         CASE Text(t)
-          RETURN canvas::fontHandle(t.font) = handle
+          RETURN __canvas_textNamesFont(t, handle)
         CASE ELSE
       END MATCH
     CASE ELSE
@@ -1217,22 +1217,17 @@ END FUNC
 FUNC __canvas_pictureCloseFont(pic AS Picture, scene AS List OF DrawItem) AS Nothing
   MATCH pic.shape
     CASE Text(t)
-      LET fh AS Integer = canvas::fontHandle(t.font)
-      IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
-        canvas::destroyFont(t.font)
-      END IF
+      __canvas_closeTextFonts(t, scene)
     CASE AutoPaint(a)
       MATCH a.shape
         CASE Text(t)
-          LET fh AS Integer = canvas::fontHandle(t.font)
-          IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
-            canvas::destroyFont(t.font)
-          END IF
+          __canvas_closeTextFonts(t, scene)
         CASE ELSE
       END MATCH
     CASE ELSE
   END MATCH
-END FUNC"#;
+END FUNC
+"#;
 
 /// What the unconditional source calls in a program that constructs no `Picture`
 /// ([`HelperGate::WhenNotConstructed`]). Such a program holds none, so these cannot be

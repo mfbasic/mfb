@@ -26,8 +26,8 @@
 //! close them, because `add_resource` derives a runtime call from its close op.
 //! Until then — and in every published scene thereafter — an item names a resource
 //! **directly**: `canvas::Picture.image` is a `RES canvas::Image` and
-//! `canvas::Text.font` a `RES canvas::Font`. The scene draws through the resource you
-//! still own; close it and that item draws nothing.
+//! `canvas::Text.fonts` a `List OF RES canvas::Font` (plan-162-C). The scene draws
+//! through the resources you still own; close one and the item draws nothing from it.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::registry::{
@@ -210,9 +210,11 @@ shape": every field the caller did not name is already inert. The transparent
 colour is the all-zero `color::Color`, so this holds for `fill` and `stroke` too.
 
 An item that draws an image or text holds the resource itself — `canvas::Picture.image`
-is a `RES canvas::Image` and `canvas::Text.font` a `RES canvas::Font`. A published scene
-may still outlive what it names: closing an image or font a scene still draws makes that
-item draw nothing, rather than failing the frame.
+is a `RES canvas::Image` and `canvas::Text.fonts` a list of `RES canvas::Font`, in
+fallback order. A published scene may still outlive what it names: closing an image a
+scene still draws makes that item draw nothing, and closing a font makes its text draw
+from the next font in its list, or nothing when none is left, rather than failing the
+frame.
 
 `Image` is a resource, so it is bound with `RES` and named
 **package-qualified**, exactly like `fs::File`:
@@ -796,7 +798,7 @@ pub(crate) fn register(r: &mut Registry) {
     // through a plain `Integer` handle instead.
     //
     // plan-114-D lifted that ban and plan-116-I removed the workaround. `Picture.image`
-    // and `Text.font` now hold the **resource itself**. What the handle bought — a
+    // and `Text.fonts` (a list since plan-162-C) now hold the **resources themselves**. What the handle bought — a
     // published scene having no opinion on the resource's lifetime — is preserved
     // rather than given up: the renderer reads the backend id through
     // `canvas::imageHandle`/`fontHandle`, which answer `0` for a destroyed resource
@@ -1322,9 +1324,17 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Text",
         export: true,
-        description: "A run of text drawn in a font at a size. `position` is the \
-                      start of the baseline, not the top-left corner — use \
-                      `canvas::measureText` to lay text out without drawing it.",
+        description: "A run of text drawn at a size in a list of fonts. Each \
+                      character is drawn in the first font in `fonts` that has it, so \
+                      a line mixing scripts draws each from a font that covers it, and \
+                      `canvas::measureText` over the same list measures what is drawn. \
+                      Glyph outlines come from the fonts' TrueType `glyf` tables only: \
+                      colour and bitmap glyphs (most emoji fonts) draw nothing. Arabic, \
+                      Indic and other scripts that need complex shaping draw one glyph \
+                      per character in reading order, unjoined; a font is chosen per \
+                      character, not per cluster. `position` is the start of the \
+                      baseline, not the top-left corner — use `canvas::measureText` to \
+                      lay text out without drawing it.",
         props: vec![
             id_prop(),
             RecordProp {
@@ -1340,12 +1350,18 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "The text to draw.",
             },
             RecordProp {
-                name: "font",
-                ty: ParameterType::res(ParameterType::named("canvas.Font")),
-                description: "The font to draw it in. The item holds the font \
-                              itself — you still close it, and closing it while a \
-                              scene still names it draws nothing rather than \
-                              failing.",
+                name: "fonts",
+                ty: ParameterType::list_of(ParameterType::res(ParameterType::named(
+                    "canvas.Font",
+                ))),
+                description: "The fonts to draw it in, in fallback order: each \
+                              character is drawn in the first font in the list that \
+                              has it, so `[latinFace, cjkFace]` draws Latin text from \
+                              the first and CJK from the second. One font is a list of \
+                              one, `[face]`. The item holds the fonts themselves — you \
+                              still close them, and a closed font in the list is \
+                              passed over; with none open the text draws nothing \
+                              rather than failing.",
             },
             RecordProp {
                 name: "fontSize",
@@ -2386,9 +2402,9 @@ pub(crate) fn register(r: &mut Registry) {
     // member leaves a call the catalog cannot route
     // (`catalog_is_consistent`: "canvas.destroyImage: None (expected Some(Canvas))").
     //
-    // `Picture` and `Text` name these directly: since plan-116-I their `image` and
-    // `font` fields are `RES canvas::Image` and `RES canvas::Font`. The value handles
-    // that used to stand in for them are gone.
+    // `Picture` and `Text` name these directly: since plan-116-I `Picture.image` is a
+    // `RES canvas::Image`, and since plan-162-C `Text.fonts` is a `List OF RES
+    // canvas::Font`. The value handles that used to stand in for them are gone.
 
     pkg.add_resource(RegistryResource {
         name: IMAGE_TYPE,
@@ -2917,9 +2933,11 @@ mod tests {
             .resolve_package("canvas")
             .expect("canvas package");
 
-        for (owner, field_name, resource) in [
-            ("Picture", "image", "canvas.Image"),
-            ("Text", "font", "canvas.Font"),
+        for (owner, field_name, resource, in_list) in [
+            ("Picture", "image", "canvas.Image", false),
+            // plan-162-C: a `Text` names a LIST of fonts, and each element is still the
+            // resource itself, not a copy.
+            ("Text", "fonts", "canvas.Font", true),
         ] {
             let variant = pkg
                 .records()
@@ -2931,10 +2949,16 @@ mod tests {
                 .iter()
                 .find(|p| p.name == field_name)
                 .unwrap_or_else(|| panic!("{owner} should have a `{field_name}` field"));
+            let held = ParameterType::res(ParameterType::named(resource));
+            let expected = if in_list {
+                ParameterType::list_of(held)
+            } else {
+                held
+            };
             assert_eq!(
                 field.ty,
-                ParameterType::res(ParameterType::named(resource)),
-                "`{owner}.{field_name}` must be `RES {resource}`. A bare \
+                expected,
+                "`{owner}.{field_name}` must be `RES {resource}` (in a list for `Text`). A bare \
                  `Named(\"{resource}\")` renders the same and is a VALUE field — it \
                  would copy the resource record instead of aliasing the live one",
             );

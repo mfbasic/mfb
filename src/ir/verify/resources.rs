@@ -283,7 +283,7 @@ impl TypeEnv {
             // bug-852: not carried round a loop's back edge. A consuming parameter
             // takes over what its argument names on EVERY pass, and a resource it
             // already owns is simply named again: the rebuild-every-frame loop
-            // (`FOR … canvas::setGroup("panel", [Text[font := face]]) NEXT`) is valid
+            // (`FOR … canvas::setGroup("panel", [Text[fonts := [face]]]) NEXT`) is valid
             // and the group closes the font once. Only a close, a `RETURN` and a
             // `RES` rebind are moves the next iteration must see.
             let carrying = self.back_edge_scan.borrow().is_some();

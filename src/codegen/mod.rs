@@ -38,7 +38,7 @@ pub(crate) mod registry;
 /// plan-116-J: for each local bound in `ops`, the locals it structurally **holds**.
 ///
 /// A whole-function pre-pass, in the shape `promotable_vector_locals` established, read
-/// by `deactivate_consumed_cleanups`. `LET tag = canvas::Text[…, font := face, …]` gives
+/// by `deactivate_consumed_cleanups`. `LET tag = canvas::Text[…, fonts := [face], …]` gives
 /// `tag -> ["face"]`, so that handing `[tag]` to a consuming parameter can find the close
 /// obligation that has to be dropped — `face`, whose name appears nowhere in the
 /// argument.

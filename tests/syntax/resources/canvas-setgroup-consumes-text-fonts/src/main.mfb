@@ -1,0 +1,31 @@
+' plan-162-C: `canvas::setGroup` consumes every font a `Text` lists, not only the first.
+'
+' `canvas::Text.fonts` is a `List OF RES canvas::Font`, in fallback order. A group takes
+' over closing what its items name (`canvas-setgroup-consumes-items` explains why that
+' has to be a compile-time move and not a runtime rule), so it takes over every font in
+' the list. The move checker reaches them through the `Text` constructor and the list
+' literal inside it: here `body` is the SECOND font of the first group's text, and
+' naming it again in a second group is the use-after-move.
+'
+' Do not "fix" this fixture by giving the second group its own font. The point is that
+' a font later in the list is held exactly as the first one is.
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  RES title AS canvas::Font = canvas::loadFont("title.ttf")
+  RES body AS canvas::Font = canvas::loadFont("body.ttf")
+
+  LET a AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 0.0, y := 20.0], text := "one", fonts := [title, body], fontSize := 16.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  canvas::setGroup("one", [a])
+
+  ' `body` was moved into the group above, inside the list. Naming it again is the
+  ' use-after-move.
+  LET b AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 0.0, y := 40.0], text := "two", fonts := [body], fontSize := 16.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  canvas::setGroup("two", [b])
+
+  RETURN 0
+END FUNC

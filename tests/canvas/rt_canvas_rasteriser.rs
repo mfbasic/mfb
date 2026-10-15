@@ -5686,7 +5686,7 @@ fn destroying_a_font_mid_frame_is_clean() {
             "  RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n  \
              RETURN\n  \
              END TRAP\n  \
-             LET label AS canvas::DrawItem = canvas::Text[id := \"\", position := vector::Float2[x := 100.0, y := 200.0], text := \"AA\", font := face, fontSize := 90.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET label AS canvas::DrawItem = canvas::Text[id := \"\", position := vector::Float2[x := 100.0, y := 200.0], text := \"AA\", fonts := [face], fontSize := 90.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              LET mark AS canvas::DrawItem = canvas::Circle[id := \"\", position := vector::Float2[x := 700.0, y := 500.0], radius := 30.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([mark, label])\n  \
              os::sleep(120)\n  \

@@ -325,5 +325,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             },
         ],
     });
-    pkg.add_helper(RegistryHelper::always("canvas_measureHandles", MEASURE_HANDLES));
+    pkg.add_helper(RegistryHelper::always(
+        "canvas_measureHandles",
+        MEASURE_HANDLES,
+    ));
 }

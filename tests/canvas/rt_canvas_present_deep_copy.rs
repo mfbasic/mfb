@@ -129,7 +129,7 @@ const SOURCE: &str = "IMPORT app\n\
     \x20 LET c AS color::Color = color::rgb(1, 2, 3)\n\
     \x20 LET pts AS List OF vector::Float2 = [vector::Float2[x := 1.0, y := 2.0]]\n\
     \x20 LET a AS canvas::DrawItem = canvas::Polygon[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], contours := [pts], rule := canvas::FillRule.EvenOdd, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
-    \x20 LET b AS canvas::DrawItem = canvas::Text[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], text := \"hi\", font := f, fontSize := 9.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
+    \x20 LET b AS canvas::DrawItem = canvas::Text[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], text := \"hi\", fonts := [f], fontSize := 9.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n\
     \x20 RETURN [a, b]\n\
      END FUNC\n\
      FUNC main AS Integer\n\

@@ -239,13 +239,13 @@ Acceptance: the overload works, and the single form is byte-identical.
   `measure_text_sums_a_mixed_run_in_font_units_then_scales_once` (the last-bit
   Integer-sum test) and `measure_text_scales_the_fonts_own_metrics`, now running through
   the list body.
-Commit: — (this commit)
+Commit: 5da31a307
 
 ### Phase 3 — `Text.fonts`, drawing, ownership (blast radius last)
 
-- [ ] `mod.rs`: `Text.font` → `Text.fonts` (`List OF RES canvas::Font`), with a
+- [x] `mod.rs`: `Text.font` → `Text.fonts` (`List OF RES canvas::Font`), with a
       description giving the fallback order.
-- [ ] Update `the_resource_naming_variants_hold_the_resource_itself` to expect
+- [x] Update `the_resource_naming_variants_hold_the_resource_itself` to expect
       `list_of(res(named("canvas.Font")))`. AGENTS.md test-edit proof:
   - (1) written by plan-116-I (`git log -S "the_resource_naming_variants_hold_the_resource_itself"`);
   - (2) it protects "the field aliases the live resource rather than copying it";
@@ -253,23 +253,46 @@ Commit: — (this commit)
   - (4) proof the old line is wrong: this plan's decision replaces the field.
 
   The protected property is kept: the element stays `RES`, not a value. Cite this in
-  the commit.
-- [ ] `helper_geometry.rs`: glyph run, edges, run header (ink box over the fonts used;
+  the commit. The test now carries `(owner, field, resource, in_list)` and expects
+  `list_of(res(named("canvas.Font")))` for `Text.fonts`, and `res(named(…))` for
+  `Picture.image` as before.
+- [x] `helper_geometry.rs`: glyph run, edges, run header (ink box over the fonts used;
       slot 2 per Phase 1), verify reference, and the hash arm all switch to `t.fonts`.
-      Outline bytes are fetched per glyph for the font its `fontIndex` names.
-- [ ] `helper_render.rs`: `__canvas_closeRetired`, `__canvas_anythingNamesFont` and
+      Outline bytes are fetched per glyph for the font its `fontIndex` names. A font's
+      file is re-fetched only when the run moves to another font, so a one-font run
+      fetches it once, as before. Shared helpers: `__canvas_textHandles`,
+      `__canvas_fontScales`, `__canvas_runDrawable`, `__canvas_runLine`, `__canvas_runPen`.
+      A glyph from a font with no scale is left out of the run, never given a `-1`
+      entry, so no draw path or GPU publisher sees one. Slot 2 is `fonts[0]`'s handle.
+      The hash folds the font count, then each handle.
+- [x] `helper_render.rs`: `__canvas_closeRetired`, `__canvas_anythingNamesFont` and
       `__canvas_listNamesFont` iterate over the list and close distinct handles once.
-- [ ] (Correction 1) `helper_picture.rs`, `helper_particles.rs`, `helper_hit.rs` and
+      Through `__canvas_closeTextFonts` and `__canvas_textNamesFont` (in
+      `helper_geometry.rs`, which every program carries; `helper_picture.rs` is
+      injected only with `Picture`). A repeat closes once because a closed font's handle
+      reads 0.
+- [x] (Correction 1) `helper_picture.rs`, `helper_particles.rs`, `helper_hit.rs` and
       `helper_autopaint.rs` read `t.fonts`. Group ownership and the particle template
       walk every listed font. The text boxes take their metrics as `measureText`'s list
-      form does.
-- [ ] Compiler: extend `2-203-0055` through the list if Phase 1 found it doesn't see
-      it. Add the diagnostic test in the existing `2-203-0055` test file.
-- [ ] Migrate every construction site (48, re-measured in Phase 1) to `fonts := [f]`:
+      form does. `grep -n "t\.font\b" src/codegen/builtins/canvas/*.rs` now hits only
+      prose.
+- [x] ~~Compiler: extend `2-203-0055` through the list if Phase 1 found it doesn't see
+      it.~~ — moot: Phase 1 found `collect_held` already walks Constructor → ListLiteral
+      → Local. Add the diagnostic test in the existing `2-203-0055` test file. Done as
+      the sibling fixture `tests/syntax/resources/canvas-setgroup-consumes-text-fonts`,
+      beside `canvas-setgroup-consumes-items`, since each fixture is one program. It
+      hands `[title, body]` to one group and names `body` in a second, and the golden is
+      `main.mfb:27 error[2-203-0055 TYPE_USE_AFTER_MOVE] … Binding \`body\` was moved`
+      (`scripts/test-accept.sh target/debug/mfb /tmp/p162/accept-c3
+      canvas-setgroup-consumes-text-fonts` → passed).
+- [x] Migrate every construction site (48, re-measured in Phase 1) to `fonts := [f]`:
       `tests/`, `examples/`, `src/docs/spec/app/06_canvas.md`, registry examples,
       `tools/canvas-bench/gen/text.sh`, and the three `scripts/test-canvas-vulkan.sh`
-      heredocs.
-- [ ] Tests:
+      heredocs. 76 sites in 34 files (`/tmp/p162/edits/c3migrate.py`, a word-bounded
+      `font := X` → `fonts := [X]`; every right-hand side was a plain identifier), after
+      which `grep -rnE "(^|[^A-Za-z])font := " src tests examples tools benchmark scripts`
+      → nothing.
+- [x] Tests:
   - a two-font drawn string: pixel columns show each glyph from its font (fixture
     fonts with different outlines);
   - closing the first font draws the whole string from the second;
@@ -277,18 +300,41 @@ Commit: — (this commit)
     them;
   - a `Text` whose list repeats a font closes it once;
   - an R18-style rebuilt-each-frame group keeps drawing.
-- [ ] Man: the `Text` page (the `fonts` field, fallback, what isn't supported: colour
+
+  `rt_canvas_font`: `a_two_font_string_draws_each_glyph_from_its_own_font` (`AB` in
+  `[latin, fallback]` lights columns 110..204, `[latin]` alone 110..139) and
+  `closing_the_first_font_draws_the_string_from_the_next` (125..204). Both ok.
+  `rt_canvas_group_ownership`: `retiring_a_group_closes_every_font_its_text_lists`
+  (`a=FALSE b=FALSE`),
+  `retiring_a_group_keeps_a_listed_font_the_scene_still_names` (`a=FALSE b=TRUE`),
+  `a_font_listed_twice_closes_once`, and
+  `a_group_rebuilt_each_frame_from_a_font_list_keeps_drawing` (glyphs > 0 every
+  frame, both open). All ok.
+- [x] Man: the `Text` page (the `fonts` field, fallback, what isn't supported: colour
       glyphs, complex scripts), and `loadFont` (unsupported scripts). Check with
       `scripts/man-census.sh --memory-scope` → 0 unclassified, and
-      `cargo test --test cli_canvas_man_examples_compile` → pass.
-- [ ] Spec `06_canvas.md`: the `Text` contract, list ownership in groups, and metrics
-      over a list.
+      `cargo test --test cli_canvas_man_examples_compile` → pass. `Text`'s record
+      description and its `fonts` field (`mfb man canvas types`) carry the fallback
+      rule, colour/bitmap glyphs drawing nothing, and complex scripts drawing unjoined.
+      `loadFont`'s "Kerning." paragraph (plan-162-B) already names the unsupported
+      shaping. The package overview's resource paragraph now says closing a font moves
+      the text to the next font. Census → 0 unclassified;
+      `cli_canvas_man_examples_compile` → 3 passed.
+- [x] Spec `06_canvas.md`: the `Text` contract, list ownership in groups, and metrics
+      over a list. "Images are named, not embedded" (`Text.fonts`), "A named group is
+      the exception" (per-font close, repeat once, move checker through the list),
+      "Every text path reads one shaped run" (first open font's `.notdef`, per-font
+      scale, list metrics, hash). `cargo test --bin mfb spec` → 46 passed.
 
 Acceptance: fallback draws and measures consistently, the PNG goldens are
 byte-identical after migration to one-element lists, and ownership tests pass.
   Check: `cargo test --test rt_canvas_font --test rt_canvas_golden --test rt_canvas_group_ownership --test rt_canvas_present_deep_copy`
   → pass, and `git status --short tests/golden/canvas` → empty (est. 8 min).
-Commit: —
+  Result: 46 + 28 + 11 + 9 passed (`/tmp/p162/c3-accept1.log`, before the new tests
+  were added), then the 2 + 4 new tests, all ok. `git status --short
+  tests/golden/canvas` → empty: the PNG goldens, migrated to one-element lists, are
+  byte-identical. The other migrated suites: cli_canvas_package 7, rt_canvas_autopaint 23, rt_canvas_hit 14, rt_canvas_metal 71, rt_canvas_particles 29, rt_canvas_rasteriser 107 (2 ignored, as at HEAD) passed (`/tmp/p162/c3-migrated.log`).
+Commit: — (this commit)
 
 ## Validation Plan
 

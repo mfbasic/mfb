@@ -601,7 +601,7 @@ pub(crate) struct CodeBuilder<'a> {
     /// per function, consulted at each `Bind`).
     pub(crate) promotable_vector_locals: HashSet<String>,
     /// plan-116-J: for each local, the resource locals it structurally **holds** —
-    /// `LET tag = canvas::Text[…, font := face, …]` gives `tag -> {face}`.
+    /// `LET tag = canvas::Text[…, fonts := [face], …]` gives `tag -> {face}`.
     ///
     /// Computed once per function as a pre-pass, in the shape
     /// `promotable_vector_locals` established, and read only by

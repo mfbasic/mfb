@@ -35,7 +35,7 @@ FUNC main() AS Nothing
   MUT text AS List OF canvas::DrawItem = []
   MUT r AS Integer = 0
   WHILE r < $L
-    LET t AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 4.0, y := toFloat(r + 1) * toFloat($SZ) * 1.1], text := line, font := face, fontSize := toFloat($SZ), paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET t AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 4.0, y := toFloat(r + 1) * toFloat($SZ) * 1.1], text := line, fonts := [face], fontSize := toFloat($SZ), paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     text = collections::append(text, t)
     r = r + 1
   END WHILE

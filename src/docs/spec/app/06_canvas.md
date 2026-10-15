@@ -2404,10 +2404,10 @@ normal build has none of the three.
 
 An `Image` is an ordinary resource, closing when it leaves scope or with
 `canvas::destroyImage`. An item that draws one names it directly:
-`canvas::Picture.image` is a `RES canvas::Image`, and `canvas::Text.font` is a
-`RES canvas::Font`. A `Picture` whose shape is a `Text` names that text's font as well
-— it draws nothing, but it holds the font, and the group ownership rules below count
-it.
+`canvas::Picture.image` is a `RES canvas::Image`, and `canvas::Text.fonts` is a
+`List OF RES canvas::Font`, whose every element is the resource itself. A `Picture`
+whose shape is a `Text` names that text's fonts as well — it draws nothing, but it holds
+them, and the group ownership rules below count them.
 
 ### A tile selects an image rectangle
 
@@ -2579,7 +2579,7 @@ program does not close it:
 ```
 FUNC installPanel() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("ui.ttf")
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 8.0, y := 24.0], text := "Ready", font := face, fontSize := 18.0, paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 8.0, y := 24.0], text := "Ready", fonts := [face], fontSize := 18.0, paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [label])
 END FUNC
 ```
@@ -2600,6 +2600,15 @@ rebuilt every frame from one long-lived font therefore keeps drawing: the font i
 named by the new items as well as the old, so it stays usable. There is still no
 reference count; the question asked is "does anything drawn right now name this?",
 and it is asked only when a replaced group's items are being discarded.
+
+A `Text` names every font in its `fonts` list, and each is decided on its own: the
+retired items' fonts that nothing live names close, and the ones still named stay
+open. A font the list repeats closes once, because a closed font's `canvas::fontHandle`
+reads `0` and the second visit passes it over. The move checker sees every listed font
+too: its containment walk goes through the `Text` constructor into the list literal,
+so naming any font of a handed-off `Text` again is `2-203-0055`.
+[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_closeTextFonts]]
+[[src/ir/verify/link.rs:collect_held]]
 
 One consequence follows from the field being a resource rather than a plain value:
 **a `List OF canvas::DrawItem` cannot cross a thread's data plane.** A `Picture` or
@@ -2684,18 +2693,32 @@ loop or an out-of-bounds read.
 A string becomes glyphs in exactly one function, `__canvas_shapeRun(fonts, text)`,
 which takes font **handles** in fallback order and returns flat
 `(fontIndex, glyphId, advanceUnits)` triples, one per codepoint. Each codepoint takes
-the first font whose `cmap` maps it to a glyph other than `0`; one no font maps is
-glyph `0` (`.notdef`) of the first font.
+the first font whose `cmap` maps it to a glyph other than `0`. A closed font maps
+nothing and is passed over, so a codepoint no font maps is glyph `0` (`.notdef`) of the
+first **open** font, and with no font open every codepoint is glyph 0 at advance 0 and
+draws nothing.
 [[src/codegen/builtins/canvas/helper_font.rs:SHAPE_RUN]] `canvas::measureText`, the
 filled glyph run, the stroked text edges, and the `MFB_CANVAS_GEO_VERIFY` reference for
 the glyph run all read that run, and none of them looks up a glyph or an advance
 itself. The `canvas` unit test `canvas_text_has_one_glyph_walk` enforces this over the
 assembled source. [[src/codegen/builtins/canvas/mod.rs:canvas_text_has_one_glyph_walk]]
-Today each caller passes a one-font list.
+A `Text` passes its `fonts` list, as handles (`__canvas_textHandles`), and the
+single-font `measureText` passes a one-element list.
+
+Each glyph is scaled by its own font's `size / unitsPerEm`, and a font with no `head`
+has no scale: its glyphs draw nothing and advance nothing. `measureText` sums each font's
+advances as an Integer in that font's units and scales each sum once, so a one-element
+list is exactly the old single-font width. Its `ascent` and `descent`, and a drawn run's
+ink box and text box, are the largest of the fonts that supplied a glyph (the first
+drawable font's for an empty string). Its `lineGap` is `fonts[0]`'s. The filled run and
+the stroked edges fetch a font's file for outlines only when the run moves to another
+font. [[src/codegen/builtins/canvas/func_measure_text.rs:MEASURE_HANDLES]]
+[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_runLine]] A `Text`'s
+cache hash folds the number of fonts and then each handle in order.
 
 Advances stay in font units, because the callers deliberately convert them
 differently. `measureText` sums the advances as Integers and scales once.
-[[src/codegen/builtins/canvas/func_measure_text.rs:MEASURE_TEXT]] The filled run and
+[[src/codegen/builtins/canvas/func_measure_text.rs:MEASURE_HANDLES]] The filled run and
 its verify reference add a scaled Float per glyph and snap each glyph's pen to a whole
 pixel, because a glyph is a cached bitmap placed on integer pixels. The stroked edges
 add the same Floats but do not snap, because edges are exact geometry.

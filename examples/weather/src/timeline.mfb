@@ -148,7 +148,7 @@ END FUNC
 ' Text centred on x, with its baseline at y.
 FUNC centredText(face AS canvas::Font, x AS Float, y AS Float, size AS Float, tint AS color::Color, text AS String) AS canvas::DrawItem
   LET width AS Float = canvas::measureText(face, size, text).width
-  RETURN canvas::Text[id := "", position := vector::Float2[x := x - width / 2.0, y := y], text := text, font := face, fontSize := size, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x - width / 2.0, y := y], text := text, fonts := [face], fontSize := size, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' The button: a triangle to play, a square to stop, dimmed while the forecast is
@@ -230,7 +230,7 @@ FUNC timelineItems(t AS Track, p AS Playback, days AS List OF DayMark, face AS c
   IF p.status <> "" THEN
     LET statusWidth AS Float = canvas::measureText(face, labelSize, p.status).width
     statusLeft = t.right - statusWidth
-    LET status AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := statusLeft, y := aboveY], text := p.status, font := face, fontSize := labelSize, paint := canvas::fill(HINT_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET status AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := statusLeft, y := aboveY], text := p.status, fonts := [face], fontSize := labelSize, paint := canvas::fill(HINT_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, status)
   END IF
 

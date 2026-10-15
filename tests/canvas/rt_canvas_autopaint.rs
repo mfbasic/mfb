@@ -175,7 +175,7 @@ FUNC shapes(face AS canvas::Font, wrap AS Boolean, shift AS Float) AS List OF ca
   r = WITH r { id := "box", position := vector::Float2[x := 40.0 + shift, y := 40.0], size := canvas::Size[width := 200.0, height := 80.0], radiusTL := 12.0, radiusTR := 12.0, radiusBL := 12.0, radiusBR := 12.0, paint := canvas::fillStroke(color::rgb(40, 90, 200), color::rgb(255, 255, 255), 3.0) }
   MUT c AS canvas::Circle
   c = WITH c { id := "dot", position := vector::Float2[x := 400.0, y := 90.0], radius := 45.0, paint := canvas::fill(color::rgb(30, 160, 90)) }
-  LET t AS canvas::Text = canvas::Text[id := "label", position := vector::Float2[x := 60.0, y := 240.0], text := "AA", font := face, fontSize := 60.0, paint := canvas::fill(color::rgb(240, 240, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET t AS canvas::Text = canvas::Text[id := "label", position := vector::Float2[x := 60.0, y := 240.0], text := "AA", fonts := [face], fontSize := 60.0, paint := canvas::fill(color::rgb(240, 240, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   IF wrap THEN
     RETURN [auto(r), auto(c), auto(t)]
   END IF
@@ -350,7 +350,7 @@ FUNC labelled() AS Nothing
   IF os::getEnvOr("STROKE", "") = "1" THEN
     ink = canvas::stroke(color::rgb(240, 240, 120), 2.0)
   END IF
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 120.0, y := 165.0], text := "AA", font := face, fontSize := 40.0, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 120.0, y := 165.0], text := "AA", fonts := [face], fontSize := 40.0, paint := ink, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([button(100.0, 100.0, "btn", canvas::fill(color::rgb(255, 0, 0))), label])
   os::sleep(toInt(os::getEnvOr("SLEEP", "1000")))
 END FUNC

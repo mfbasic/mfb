@@ -301,8 +301,8 @@ fn hit_region_text_is_its_layout_box() {
     io::print("font failed")
     RETURN
   END TRAP
-  LET labelItem AS canvas::DrawItem = canvas::Text[id := "label", position := at(100.0, 400.0), text := "AB", font := face, fontSize := 100.0, paint := grey(), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET outlinedItem AS canvas::DrawItem = canvas::Text[id := "outlined", position := at(400.0, 400.0), text := "AB", font := face, fontSize := 100.0, paint := canvas::stroke(color::rgb(200, 200, 200), 2.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET labelItem AS canvas::DrawItem = canvas::Text[id := "label", position := at(100.0, 400.0), text := "AB", fonts := [face], fontSize := 100.0, paint := grey(), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET outlinedItem AS canvas::DrawItem = canvas::Text[id := "outlined", position := at(400.0, 400.0), text := "AB", fonts := [face], fontSize := 100.0, paint := canvas::stroke(color::rgb(200, 200, 200), 2.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([labelItem, outlinedItem])
   report("over")
 "#,
