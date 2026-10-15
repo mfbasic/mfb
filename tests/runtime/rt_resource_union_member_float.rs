@@ -80,7 +80,7 @@ fn prelude(data: &Path) -> String {
          \x20 io::print(toString(t))\n\
          \x20 RETURN 0\n\
          END FUNC\n",
-        data.display()
+        common::mfb_path_literal(data)
     )
 }
 
