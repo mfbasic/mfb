@@ -255,13 +255,15 @@ callers.
       'scalarWidthRaw|measureTextRaw'` shows the generated helper split, `rg -n
       'scalar_width_of|measure_text_of'` shows the native split, and `cargo test
       --test rt_strings_unowned_blocks` passed 6 tests.
-- [ ] Add focused Rust/IR tests for public String and AttributedString dispatch,
+- [x] Add focused Rust/IR tests for public String and AttributedString dispatch,
       rejection of user calls to both internal names, Unicode-table retention,
-      gate order, and unchanged off-TUI padding.
+      gate order, and unchanged off-TUI padding. — `cargo test --bin mfb
+      term_measure_text -- --nocapture` passed 5 tests; `cargo test --test
+      rt_strings_unowned_blocks` passed 7 tests.
 
 Acceptance: focused compiler tests prove the overload routing, internal boundary,
 and padding behavior.
-  Check: `cargo test --bin mfb ir::tests::term_measure_text && cargo test --test rt_strings_unowned_blocks` → all selected tests pass (est. 3 min).
+  Check: `cargo test --bin mfb term_measure_text && cargo test --test rt_strings_unowned_blocks` → 5 focused compiler tests and 7 runtime tests pass (est. 3 min).
 Commit: —
 
 ### Phase 2 — Remove the strings API and migrate source callers
@@ -360,7 +362,10 @@ Commit: —
 
 ## Corrections
 
-None yet.
+- Phase 1 acceptance originally filtered on the nonexistent module path
+  `ir::tests::term_measure_text`, selecting zero tests. The test names span the
+  IR and built-in test modules, so the filter is `term_measure_text`; that
+  command selected and passed all 5 focused compiler tests.
 
 ## Summary
 

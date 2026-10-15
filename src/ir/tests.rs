@@ -7348,7 +7348,7 @@ END FUNC
 /// `cargo llvm-cov --bin mfb`. Drive them in-process here.
 #[cfg(test)]
 mod lower_coverage_tests {
-    use super::helpers::{function, lower_src};
+    use super::helpers::{function, lower_src, try_lower_src};
 
     #[test]
     fn astrings_tier_a_and_tier_b_calls_lower_through_the_routing() {
@@ -7427,6 +7427,19 @@ mod lower_coverage_tests {
             json.contains("\"target\": \"term.measureText\""),
             "String measurement must stay on the native member"
         );
+    }
+
+    #[test]
+    fn term_measure_text_internal_helpers_are_not_user_callable() {
+        for helper in ["measureTextRaw", "scalarWidthRaw"] {
+            let source = format!(
+                "IMPORT term\nFUNC main AS Integer\n  RETURN term::{helper}(\"x\")\nEND FUNC\n"
+            );
+            assert!(
+                try_lower_src(&source).is_none(),
+                "term::{helper} is internal-only and user source must not lower"
+            );
+        }
     }
 
     #[test]

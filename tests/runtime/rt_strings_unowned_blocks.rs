@@ -207,6 +207,35 @@ fn the_flat_siblings_stay_flat() {
     }
 }
 
+#[test]
+fn width_padding_stays_ungated_and_rejects_zero_width_pad_chars() {
+    let exe = build_debug(
+        "p178_width_padding_off_tui",
+        r#"IMPORT errorCode
+IMPORT io
+IMPORT strings
+
+FUNC rejected(padChar AS String) AS Boolean
+  LET ignored AS String = strings::padRightToWidth("x", 3, padChar)
+  RETURN FALSE
+  TRAP(e)
+    RETURN e.code = errorCode::ErrInvalidArgument
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  io::print(strings::padLeftToWidth("界", 4, "."))
+  io::print(strings::padRightToWidth("e\u{301}", 3, "."))
+  io::print(toString(rejected("\u{301}")) & " " & toString(rejected("\u{200d}")))
+  RETURN 0
+END FUNC
+"#,
+    );
+    let (status, stdout, stderr) = common::run_capture_with_env(&exe, &[]);
+    assert_eq!(status, 0, "{stdout}\n{stderr}");
+    assert_eq!(stdout, "..界\ne\u{301}..\nTRUE TRUE\n");
+}
+
 /// One value check per member: the three grapheme members agree cluster for
 /// cluster, and `graphemeAt` keeps its `ErrIndexOutOfRange` contract.
 #[test]

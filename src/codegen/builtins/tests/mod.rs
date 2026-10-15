@@ -75,6 +75,7 @@ mod resource_union_default;
 mod shape_refusals;
 mod strings_fold;
 mod term_read;
+mod term_measure_text;
 mod thread_send_scalar;
 mod threads;
 mod validation;
