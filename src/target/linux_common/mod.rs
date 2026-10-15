@@ -216,6 +216,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "term.on",
     "term.off",
     "term.isOn",
+    "term.measureText",
     "term.setForeground",
     "term.setBackground",
     "term.setBold",

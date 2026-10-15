@@ -257,6 +257,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "io.isOutputTerminal",
     "io.isErrorTerminal",
     "term.terminalSize",
+    "term.measureText",
     "term.didResize",
     "term.enableMouse",
     "term.pollMouse",

@@ -495,8 +495,9 @@ pub(crate) fn string_symbols(
             push_string_value(&mut values, value);
         }
     }
-    // `term.terminalSize` raises ErrUnsupported when the console size cannot be
-    // read; the `term::` draw helpers raise it in the Windows app/GDI backend,
+    // `term.terminalSize` and `term.measureText` raise ErrUnsupported while the
+    // terminal surface is inactive (terminalSize can also fail to read its size);
+    // the `term::` draw helpers raise it in the Windows app/GDI backend,
     // which has no cell grid to stamp into (`win_x86_64::app::emit_app_term_helper`).
     // Either use needs the `_mfb_str_error_unsupported` data object present so the
     // error-return relocation resolves.
@@ -504,6 +505,7 @@ pub(crate) fn string_symbols(
         module,
         &[
             "term.terminalSize",
+            "term.measureText",
             "term.drawHLine",
             "term.drawVLine",
             "term.drawBox",

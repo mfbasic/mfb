@@ -6,16 +6,18 @@
 //! cursor control (`showCursor`/`hideCursor`/`moveTo`), screen clearing / frame
 //! presentation (`clear`/`sync`), box-drawing (`drawHLine`/`drawVLine`/`drawBox`/
 //! `fillRect`), text/glyph stamping (`drawText`/`drawGlyph`), size/resize queries
-//! (`terminalSize`/`didResize`), and the opt-in mouse surface
+//! (`terminalSize`/`didResize`), terminal-cell text measurement (`measureText`),
+//! and the opt-in mouse surface
 //! (`enableMouse`/`pollMouse`, plan-94).
 //!
-//! Each of the 26 members owns its `Body::abi_function` body
+//! Each of the 27 public members owns its `Body::abi_function` body
 //! (`func_*.rs::lower_<name>`); the `abi_function` wrapper seeds the entry label,
 //! binds the ABI argument registers, and finalizes. Each body calls the shared
 //! family-generic [`gen_shared::lower_term_helper`] with its own runtime-call name,
 //! which branches app-vs-console internally off the [`AbiCtx`] it is threaded
 //! (`build_mode`/`term_state_offset`/`presentation_mode_offset`) and delegates to the
-//! heavy terminal emitters kept in the shared code layer
+//! heavy terminal emitters kept in the shared code layer (except `measureText`,
+//! whose Unicode walk is target-independent and lives with its descriptor)
 //! (`code::lower_term_helper` for the console backend,
 //! `CodegenPlatform::emit_app_term_helper` for the per-platform app backend). Those
 //! ~150 KB of terminal-grid emission stay shared like the `strings`/`vector` codegen
@@ -85,6 +87,7 @@ mod func_get_foreground;
 mod func_get_underline;
 mod func_hide_cursor;
 mod func_is_on;
+mod func_measure_text;
 mod func_move_to;
 mod func_off;
 mod func_on;
@@ -245,6 +248,10 @@ resized), so a program that depends on it should query it again rather than cach
 the result. `term::LineStyle` selects the box-drawing weight for `term::drawHLine`,
 `term::drawVLine`, and `term::drawBox`; `term::FillStyle` selects the block or shade
 glyph for `term::fillRect`.
+
+`term::measureText` measures a `String` in the same terminal grid cells that
+`term::drawText` advances. It is available only while the Console TUI is active;
+measure before `term::off` when the result is needed afterwards.
 
 `term::MouseEvent` carries one thing the mouse did: `kind` (a
 `term::MouseKind` — `None`, `Down`, `Up`, `Move`, `Drag`, `ScrollUp`,
@@ -531,6 +538,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_on::register(&mut pkg);
     func_off::register(&mut pkg);
     func_is_on::register(&mut pkg);
+    func_measure_text::register(&mut pkg);
     func_set_foreground::register(&mut pkg);
     func_set_background::register(&mut pkg);
     func_set_bold::register(&mut pkg);

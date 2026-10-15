@@ -21,7 +21,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| Plan number 178 is unused | `find planning -type f -name 'plan-178*' \| wc -l` → `0` before this file was created | MET |
+| Plan number 178 is unused | `find planning -type f -name 'plan-178*' \| wc -l` → `1` (`planning/plan-178-term-measure-text.md`, this plan only) | MET |
 
 Everything below is written against the world where this holds.
 
@@ -240,9 +240,11 @@ and callable with term off.
 Land the new implementation and internal split before removing the old public
 callers.
 
-- [ ] Add `func_measure_text.rs`; register public `measureText` plus internal-only
+- [x] Add `func_measure_text.rs`; register public `measureText` plus internal-only
       `measureTextRaw` and `scalarWidthRaw`; add the Console and active-term gates,
-      runtime dispatch, error data, Unicode-table usage, and package docs.
+      runtime dispatch, error data, Unicode-table usage, and package docs. —
+      `cargo check --bin mfb` passed; `cargo test --bin mfb term -- --nocapture`
+      passed 72 tests.
 - [ ] Extend `helper_astrings_bridge.rs`, `src/ir/shape.rs`, `src/ir/lower.rs`,
       `src/ir/verify/compat.rs`, and `src/ir/tests.rs` with the AttributedString
       overload and import requirement.
