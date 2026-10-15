@@ -3385,3 +3385,132 @@ END FUNC
     );
     assert_eq!(lines, vec!["8314000".to_string()]);
 }
+
+// ---------------------------------------------------------------------------------------
+// plan-162-C: a list of fonts, in fallback order.
+//
+// Two fixtures with disjoint `cmap`s: the "latin" one is the kerning base font without
+// kerning (`A` → 1, advance 250; `V` → 2, advance 300; em 1000; ascent 800, descent 200,
+// lineGap 100), and the "fallback" one maps `B` → 1 (advance 250) and `C` → 2 (advance
+// 300) in a 2000-unit em with ascent 1800, descent 600 and lineGap 50 — so at size 1000
+// its glyphs are half as wide per unit and its line is taller.
+
+/// The fallback fixture: `B` and `C`, em 2000, a taller line.
+fn fallback_font() -> Vec<u8> {
+    let square = [200, 0, 800, 600];
+    let base = truetype_fixture_with(2000, 2, square, &square_record(square));
+    let cmap = cmap_with(3, 10, cmap12(&[(b'B' as u32, b'C' as u32, 1)]));
+    let mut hhea = vec![0u8; 36];
+    hhea[4..6].copy_from_slice(&be16(1800));
+    hhea[6..8].copy_from_slice(&be16((-600i16) as u16));
+    hhea[8..10].copy_from_slice(&be16(50));
+    hhea[34..36].copy_from_slice(&be16(3));
+    with_tables(&base, &[(b"cmap", cmap), (b"hhea", hhea)])
+}
+
+/// Run `body` (statements inside `main`, with `latin` and `fallback` loaded) and return
+/// what it printed.
+fn run_two_fonts(name: &str, body: &str) -> Vec<String> {
+    let source = format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+' A close behind a resource parameter consumes nothing at the caller, so the caller can
+' still name the font, and using it raises at run time (`.ai/canvas-threading.md` R3b).
+FUNC closeIt(f AS canvas::Font) AS Nothing
+  canvas::destroyFont(f)
+END FUNC
+
+FUNC thousandths(m AS canvas::TextMetrics) AS String
+  RETURN toString(toInt(m.width * 1000.0)) & " " & toString(toInt(m.ascent * 1000.0)) & " " & toString(toInt(m.descent * 1000.0)) & " " & toString(toInt(m.lineGap * 1000.0)) & " " & toString(toInt(m.height * 1000.0))
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES latin AS canvas::Font = canvas::loadFont("latin.ttf")
+  RES fallback AS canvas::Font = canvas::loadFont("fallback.ttf")
+{body}
+END FUNC
+"#
+    );
+    run_files(
+        name,
+        &source,
+        &[
+            ("latin.ttf", kerning_font(&[])),
+            ("fallback.ttf", fallback_font()),
+        ],
+    )
+}
+
+/// The width is summed per font in that font's own units and scale: `A` and `V` from
+/// the first font (250 + 300 units at scale 1), `B` from the second (250 units at scale
+/// 0.5), and `X`, which neither maps, is the first font's glyph 0 (500 units). Ascent and
+/// descent are the largest of the fonts that supplied a glyph; lineGap is the first
+/// font's.
+#[test]
+fn measure_text_over_a_font_list_sums_each_font_at_its_own_scale() {
+    let lines = run_two_fonts(
+        "canvas_measure_list_mixed",
+        r#"  io::print(thousandths(canvas::measureText([latin, fallback], 1000.0, "AVB")))
+  io::print(thousandths(canvas::measureText([latin, fallback], 1000.0, "AV")))
+  io::print(thousandths(canvas::measureText([latin, fallback], 1000.0, "X")))
+  io::print(thousandths(canvas::measureText([fallback, latin], 1000.0, "BA")))
+  io::print(thousandths(canvas::measureText([latin, fallback], 1000.0, "")))"#,
+    );
+    assert_eq!(
+        lines,
+        vec![
+            // 550 + 125 wide; the fallback's 900 / 300 line box; the latin lineGap.
+            "675000 900000 300000 100000 1300000",
+            // Only the first font supplied a glyph: its own box.
+            "550000 800000 200000 100000 1100000",
+            // Neither maps `X`: the first font's glyph 0, 500 units.
+            "500000 800000 200000 100000 1100000",
+            // Order is fallback order: `B` from the first-listed font, `A` from the
+            // second; the line gap is the first font's, 50 units at scale 0.5.
+            "375000 900000 300000 25000 1225000",
+            // An empty string measures the first font's line.
+            "0 800000 200000 100000 1100000",
+        ],
+    );
+}
+
+/// `measureText([f], …)` is `measureText(f, …)`, field for field, and an empty list or a
+/// closed font in the list raises what the single form would.
+#[test]
+fn measure_text_over_a_one_font_list_is_the_single_font_form() {
+    let lines = run_two_fonts(
+        "canvas_measure_list_single",
+        r#"  io::print(thousandths(canvas::measureText([latin], 37.0, "AVAV")) & " / " & thousandths(canvas::measureText(latin, 37.0, "AVAV")))
+  io::print(thousandths(canvas::measureText([fallback], 13.0, "BCX")) & " / " & thousandths(canvas::measureText(fallback, 13.0, "BCX")))
+  LET none AS List OF RES canvas::Font = []
+  LET empty AS canvas::TextMetrics = canvas::measureText(none, 10.0, "A") TRAP(e)
+    io::print("empty: " & toString(e.code))
+    RECOVER canvas::measureText(latin, 10.0, "A")
+  END TRAP
+  closeIt(fallback)
+  LET closed AS canvas::TextMetrics = canvas::measureText([latin, fallback], 10.0, "A") TRAP(e)
+    io::print("closed: " & toString(e.code))
+    RECOVER canvas::measureText(latin, 10.0, "A")
+  END TRAP"#,
+    );
+    let same = |line: &String| {
+        let (a, b) = line.split_once(" / ").expect("two measurements");
+        a == b
+    };
+    assert_eq!(lines.len(), 4, "{lines:?}");
+    assert!(
+        same(&lines[0]) && same(&lines[1]),
+        "a one-font list must measure as the font: {lines:?}"
+    );
+    assert_eq!(
+        lines[2], "empty: 77050002",
+        "an empty list is ErrInvalidArgument"
+    );
+    assert_eq!(
+        lines[3], "closed: 77030004",
+        "a closed font in the list is ErrResourceClosed"
+    );
+}

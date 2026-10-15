@@ -273,7 +273,7 @@ and the docs are true.
   `Lato-Regular.ttf` at size 2000 (its em) measures 25,113 units with `main`'s compiler
   and 23,898 with this one, which is HarfBuzz's 23,898 kerned / 25,113 unkerned.
   `Cinzel.ttf` measures 29,140 → 27,600 (size 2000, em 1000).
-Commit: — (this commit)
+Commit: 6ceb5f502 (and 33bcf7493, the rustfmt sort of `mod helper_kern`)
 
 ## Validation Plan
 

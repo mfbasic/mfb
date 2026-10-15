@@ -766,36 +766,55 @@ END FUNC"#;
 /// `fonts[0]` shapes every codepoint, `.notdef` included, and each later font replaces
 /// only the triples still at glyph `0` that it maps. That is the first-font-that-maps
 /// rule, and with one font it is exactly the old `cmap` + `hmtx` walk. An empty `fonts`
-/// shapes nothing. A handle with no published font has no index, and every word of it
-/// reads `0`: glyph 0, advance 0, as the empty file it used to read as answered.
+/// shapes nothing. A handle with no published font — a closed font — has no index, so it
+/// maps nothing and is passed over: a codepoint no font maps takes glyph `0` of the
+/// **first open** font, and when no font is open, glyph 0 at advance 0 of `fonts[0]`,
+/// which draws nothing (plan-162-C).
 #[rustfmt::skip]
 const SHAPE_RUN: &str =
 r#"FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF Integer
   LET cps AS List OF Integer = encoding::utf32Encode(text)
   LET n AS Integer = len(cps)
+  ' The first open font shapes every codepoint, `.notdef` included; with none open,
+  ' `fonts[0]` does, and every lookup through its missing index answers 0.
+  MUT base AS Integer = 0
+  MUT k AS Integer = len(fonts) - 1
+  WHILE k >= 0
+    IF canvas::fontRegistered(collections::getOr(fonts, k, 0)) THEN
+      base = k
+    END IF
+    k = k - 1
+  END WHILE
   MUT run AS List OF Integer = []
-  MUT which AS Integer = 0
-  FOR EACH f IN fonts
+  LET first AS Integer = collections::getOr(fonts, base, 0)
+  IF len(fonts) > 0 THEN
     MUT c AS Integer = 0
     WHILE c < n
-      LET cp AS Integer = collections::getOr(cps, c, 0)
-      IF which = 0 THEN
-        LET gid AS Integer = __canvas_faceGlyph(f, cp)
-        run = collections::append(run, 0)
-        run = collections::append(run, gid)
-        run = collections::append(run, __canvas_faceAdvance(f, gid))
-      ELSE
+      LET gid AS Integer = __canvas_faceGlyph(first, collections::getOr(cps, c, 0))
+      run = collections::append(run, base)
+      run = collections::append(run, gid)
+      run = collections::append(run, __canvas_faceAdvance(first, gid))
+      c = c + 1
+    END WHILE
+  END IF
+  ' Every later font, in list order, takes the codepoints still at glyph 0 that it maps.
+  ' A font before `base` is closed, and a closed one maps nothing, so neither is asked.
+  MUT which AS Integer = 0
+  FOR EACH f IN fonts
+    IF which > base AND canvas::fontRegistered(f) THEN
+      MUT c AS Integer = 0
+      WHILE c < n
         IF collections::getOr(run, c * 3 + 1, 0) = 0 THEN
-          LET gid AS Integer = __canvas_faceGlyph(f, cp)
+          LET gid AS Integer = __canvas_faceGlyph(f, collections::getOr(cps, c, 0))
           IF gid <> 0 THEN
             run = collections::set(run, c * 3, which)
             run = collections::set(run, c * 3 + 1, gid)
             run = collections::set(run, c * 3 + 2, __canvas_faceAdvance(f, gid))
           END IF
         END IF
-      END IF
-      c = c + 1
-    END WHILE
+        c = c + 1
+      END WHILE
+    END IF
     which = which + 1
   NEXT
   which = 0

@@ -194,31 +194,52 @@ Rejected alternatives:
 Acceptance: every UNVERIFIED item in §2 and §Compatibility has a recorded answer.
   Check: `grep -c UNVERIFIED planning/plan-162-C-font-list-and-fallback.md` → 0 outside
   this list (est. 1 min).
-  Result: → 1, the acceptance line above.
-Commit: — (this commit)
+  Result: → 2, both in the acceptance text above.
+Commit: 0f3eaf7ed
 
 ### Phase 2 — the `measureText` list overload (additive, no field change yet)
 
-- [ ] `func_measure_text.rs`: a second `Implementation` whose MFBASIC body checks every
+- [x] `func_measure_text.rs`: a second `Implementation` whose MFBASIC body checks every
       font with `canvas::fontOpenHandle` (raising `ErrResourceClosed`), raises
       `ErrInvalidArgument` on an empty list, shapes with the handle list, and computes
-      metrics per §3.3.
-- [ ] Refactor the single-font body to call the list body with `[font]`, so there is one
-      metric computation.
-- [ ] Tests (`rt_canvas_font.rs`), using two fixture fonts with disjoint cmaps:
+      metrics per §3.3. `__canvas_measureTextFonts`, over the shared
+      `__canvas_measureHandles` helper.
+- [x] Refactor the single-font body to call the list body with `[font]`, so there is one
+      metric computation. `__canvas_measureText` is
+      `__canvas_measureHandles([canvas::fontOpenHandle(font)], size, text)`.
+      `__canvas_shapeRun` also now gives `.notdef` to the first **open** font, per §3.2's
+      "nothing maps it" rule, rather than to `fonts[0]` unconditionally.
+- [x] Tests (`rt_canvas_font.rs`), using two fixture fonts with disjoint cmaps:
   - the mixed-string width equals the sum computed per font;
   - a codepoint mapped by neither font takes fonts[0]'s glyph-0 advance;
   - ascent/descent are the maxima over the fonts used;
   - an empty list raises `ErrInvalidArgument`;
   - a closed second font raises `ErrResourceClosed`;
   - `measureText([f], …)` equals `measureText(f, …)` field for field.
-- [ ] Man: `measureText` page. Describe the overload and the fallback rule in developer
+
+  `measure_text_over_a_font_list_sums_each_font_at_its_own_scale` covers the first
+  three bullets and fallback order: `"AVB"` in `[latin, fallback]` →
+  `675000 900000 300000 100000 1300000` (thousandths). `X` → the first font's glyph 0,
+  500 units. `measure_text_over_a_one_font_list_is_the_single_font_form` covers the
+  other three: identical metrics for `[f]` and `f` in both fixtures, `empty: 77050002`,
+  and `closed: 77030004`. The closed case closes the font behind a resource parameter;
+  closing it directly is the compile-time `2-203-0055` this plan's Phase 3 relies on.
+- [x] Man: `measureText` page. Describe the overload and the fallback rule in developer
       terms, with a runnable example. Check with
       `scripts/man-run-examples.sh canvas --run` → the new example runs.
+      A "Measuring in a list of fonts" paragraph, plus `measureText([face], …)` in the
+      example. `scripts/man-run-examples.sh canvas --run measureText` → `examples: 1
+      built: 1 ran: 1 … failed: 0`, printing `width 60.00 height 26.40` / `same width
+      TRUE`. The runner uses `target/release/mfb`, which must be rebuilt first
+      (Correction 2).
 
 Acceptance: the overload works, and the single form is byte-identical.
   Check: `cargo test --test rt_canvas_font measure` → pass (est. 3 min).
-Commit: —
+  Result: 6 passed, 0 failed. That includes the single-form
+  `measure_text_sums_a_mixed_run_in_font_units_then_scales_once` (the last-bit
+  Integer-sum test) and `measure_text_scales_the_fonts_own_metrics`, now running through
+  the list body.
+Commit: — (this commit)
 
 ### Phase 3 — `Text.fonts`, drawing, ownership (blast radius last)
 
@@ -298,6 +319,10 @@ Commit: —
    (`helper_picture.rs`), the particle template (`helper_particles.rs`) and the hit and
    AutoPaint text boxes read the field too. Phase 3's tasks name `helper_geometry.rs`
    and `helper_render.rs`, and gain one for the other four files.
+
+2. **`man-run-examples.sh` runs `target/release/mfb`** (`MFB=${MFB:-./target/release/mfb}`).
+   The first run printed only the old example's line because the release binary
+   predated the page edit. After `cargo build --release` it ran the new example.
 
 ## Summary
 
