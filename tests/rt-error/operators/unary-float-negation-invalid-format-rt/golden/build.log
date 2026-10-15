@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/operators/unary-float-negation-invalid-format-rt
 Wrote executable to tests/rt-error/operators/unary-float-negation-invalid-format-rt/build/unary_float_negation_invalid_format_rt.out
 [exit 0]
 $ tests/rt-error/operators/unary-float-negation-invalid-format-rt/build/unary_float_negation_invalid_format_rt.out
-Error: 7-705-0003
-Text parse or non-finite numeric representation conversion failed.
+Thread:   0x00000000
+Error:    7-705-0003
+Message:  Text parse or non-finite numeric representation conversion failed.
+Location: src/main.mfb:2:25
+
 [exit 255]

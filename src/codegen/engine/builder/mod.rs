@@ -3319,6 +3319,13 @@ pub(crate) fn lower_module_for_platform(
     let uses_thread_start = runtime_symbols
         .iter()
         .any(|symbol| symbol == "_mfb_rt_thread_thread_start");
+    if module.entry.is_some() {
+        code_functions.push(crate::codegen::error::report::lower_error_report(
+            uses_thread_start,
+            &platform_imports,
+            platform,
+        )?);
+    }
     if uses_thread_start {
         code_functions.push(platform.emit_thread_trampoline(
             &platform_imports,

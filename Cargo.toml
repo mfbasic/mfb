@@ -886,6 +886,11 @@ name = "rt_tls_listener_close_frees"
 path = "tests/net/rt_tls_listener_close_frees.rs"
 
 # --- tests/runtime/ ---------------------------------------------------
+
+[[test]]
+name = "rt_entry_error_location"
+path = "tests/runtime/rt_entry_error_location.rs"
+
 [[test]]
 name = "rt_audio_alias_trap_resource_result"
 path = "tests/runtime/rt_audio_alias_trap_resource_result.rs"

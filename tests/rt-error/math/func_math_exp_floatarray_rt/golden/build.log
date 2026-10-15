@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/math/func_math_exp_floatarray_rt
 Wrote executable to tests/rt-error/math/func_math_exp_floatarray_rt/build/func_math_exp_floatarray_rt.out
 [exit 0]
 $ tests/rt-error/math/func_math_exp_floatarray_rt/build/func_math_exp_floatarray_rt.out
-Error: 7-705-0014
-Floating-point operation produced an infinity result.
+Thread:   0x00000000
+Error:    7-705-0014
+Message:  Floating-point operation produced an infinity result.
+Location: src/main.mfb:8:29
+
 [exit 255]

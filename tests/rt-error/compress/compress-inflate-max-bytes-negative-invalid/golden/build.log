@@ -7,6 +7,9 @@ Wrote executable to tests/rt-error/compress/compress-inflate-max-bytes-negative-
 [exit 0]
 $ tests/rt-error/compress/compress-inflate-max-bytes-negative-invalid/build/compress-inflate-max-bytes-negative-invalid.out
 before
-Error: 7-705-0002
-compress::inflate: maxBytes must not be negative
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  compress::inflate: maxBytes must not be negative
+Location: builtins/compress_inflate.mfb:8:10
+
 [exit 255]

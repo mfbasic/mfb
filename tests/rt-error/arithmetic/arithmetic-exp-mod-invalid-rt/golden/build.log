@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/arithmetic/arithmetic-exp-mod-invalid-rt
 Wrote executable to tests/rt-error/arithmetic/arithmetic-exp-mod-invalid-rt/build/arithmetic_exp_mod_invalid_rt.out
 [exit 0]
 $ tests/rt-error/arithmetic/arithmetic-exp-mod-invalid-rt/build/arithmetic_exp_mod_invalid_rt.out
-Error: 7-705-0002
-Argument value is not valid for the requested operation.
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  Argument value is not valid for the requested operation.
+Location: src/main.mfb:4:15
+
 [exit 255]

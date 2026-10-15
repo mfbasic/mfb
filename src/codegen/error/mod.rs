@@ -3,3 +3,5 @@
 pub(crate) mod constants;
 pub(crate) mod emission;
 pub(crate) mod result;
+
+pub(crate) mod report;

@@ -722,7 +722,14 @@ pub(crate) fn string_symbols(
         push_string_value(&mut values, "FALSE".to_string());
         push_string_value(&mut values, err_msg("ErrEncoding"));
     }
-    for value in [ENTRY_ERROR_PREFIX, ENTRY_ERROR_NEWLINE] {
+    for value in [
+        ENTRY_ERROR_THREAD,
+        ENTRY_ERROR_PREFIX,
+        ENTRY_ERROR_NEWLINE,
+        ENTRY_ERROR_MESSAGE_PREFIX,
+        ENTRY_ERROR_LOCATION_PREFIX,
+        ENTRY_ERROR_LOCATION_SEPARATOR,
+    ] {
         if !values.contains(&value.to_string()) {
             values.push(value.to_string());
         }
@@ -738,10 +745,18 @@ pub(crate) fn string_symbols(
         .map(|(index, value)| {
             let symbol = if let Some(symbol) = standard_error_message_symbol(&value) {
                 symbol.to_string()
+            } else if value == ENTRY_ERROR_THREAD {
+                ENTRY_ERROR_THREAD_SYMBOL.to_string()
             } else if value == ENTRY_ERROR_PREFIX {
                 ENTRY_ERROR_PREFIX_SYMBOL.to_string()
             } else if value == ENTRY_ERROR_NEWLINE {
                 ENTRY_ERROR_NEWLINE_SYMBOL.to_string()
+            } else if value == ENTRY_ERROR_MESSAGE_PREFIX {
+                ENTRY_ERROR_MESSAGE_PREFIX_SYMBOL.to_string()
+            } else if value == ENTRY_ERROR_LOCATION_PREFIX {
+                ENTRY_ERROR_LOCATION_PREFIX_SYMBOL.to_string()
+            } else if value == ENTRY_ERROR_LOCATION_SEPARATOR {
+                ENTRY_ERROR_LOCATION_SEPARATOR_SYMBOL.to_string()
             } else if value == CLEANUP_FAILURE_PREFIX {
                 CLEANUP_FAILURE_PREFIX_SYMBOL.to_string()
             } else {

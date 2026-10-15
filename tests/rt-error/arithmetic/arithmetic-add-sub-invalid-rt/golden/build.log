@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/arithmetic/arithmetic-add-sub-invalid-rt
 Wrote executable to tests/rt-error/arithmetic/arithmetic-add-sub-invalid-rt/build/arithmetic_add_sub_invalid_rt.out
 [exit 0]
 $ tests/rt-error/arithmetic/arithmetic-add-sub-invalid-rt/build/arithmetic_add_sub_invalid_rt.out
-Error: 7-705-0011
-Arithmetic underflow below the destination range.
+Thread:   0x00000000
+Error:    7-705-0011
+Message:  Arithmetic underflow below the destination range.
+Location: src/main.mfb:4:5
+
 [exit 255]

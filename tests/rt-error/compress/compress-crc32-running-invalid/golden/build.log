@@ -7,6 +7,9 @@ Wrote executable to tests/rt-error/compress/compress-crc32-running-invalid/build
 [exit 0]
 $ tests/rt-error/compress/compress-crc32-running-invalid/build/compress-crc32-running-invalid.out
 before
-Error: 7-705-0002
-compress::crc32: running must be 0..4294967295
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  compress::crc32: running must be 0..4294967295
+Location: builtins/compress_crc32.mfb:8:10
+
 [exit 255]

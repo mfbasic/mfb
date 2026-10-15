@@ -7,6 +7,9 @@ Wrote executable to tests/rt-behavior/fs/func_fs_deleteFile_valid/build/func_fs_
 [exit 0]
 $ tests/rt-behavior/fs/func_fs_deleteFile_valid/build/func_fs_deleteFile_valid.out
 FALSE
-Error: 7-703-0001
-Filesystem path does not exist.
+Thread:   0x00000000
+Error:    7-703-0001
+Message:  Filesystem path does not exist.
+Location: src/main.mfb:7:3
+
 [exit 255]

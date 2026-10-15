@@ -13,6 +13,16 @@ worker timeout 7
 poll false
 interrupted
 cancelled 7
+Thread:   <worker-1>
+Error:    7-705-0009
+Message:  Operation was interrupted before completion.
+Location: src/lib.mfb:105:27
+
 receive interrupted
+Thread:   <worker-2>
+Error:    7-705-0009
+Message:  Operation was interrupted before completion.
+Location: src/lib.mfb:120:3
+
 outbound interrupted
 [exit 0]

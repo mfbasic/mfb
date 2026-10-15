@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/math/func_math_log10_float_domain_rt
 Wrote executable to tests/rt-error/math/func_math_log10_float_domain_rt/build/math_log10_float_domain_rt.out
 [exit 0]
 $ tests/rt-error/math/func_math_log10_float_domain_rt/build/math_log10_float_domain_rt.out
-Error: 7-705-0012
-Floating-point operation domain is invalid (negative `sqrt`, non-positive `log`/`log10`, out-of-range `asin`/`acos`, a non-whole or negative `^` exponent, or a `Float MOD 0`). Divide-by-zero is not reported here — `x / 0` produces `±Inf`/`NaN` caught at the observation boundary as `ErrFloatOverflow`/`ErrFloatNaN`.
+Thread:   0x00000000
+Error:    7-705-0012
+Message:  Floating-point operation domain is invalid (negative `sqrt`, non-positive `log`/`log10`, out-of-range `asin`/`acos`, a non-whole or negative `^` exponent, or a `Float MOD 0`). Divide-by-zero is not reported here — `x / 0` produces `±Inf`/`NaN` caught at the observation boundary as `ErrFloatOverflow`/`ErrFloatNaN`.
+Location: src/main.mfb:5:25
+
 [exit 255]

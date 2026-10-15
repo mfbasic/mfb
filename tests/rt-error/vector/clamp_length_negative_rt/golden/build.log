@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/vector/clamp_length_negative_rt
 Wrote executable to tests/rt-error/vector/clamp_length_negative_rt/build/func_vector_clamp_length_negative_rt.out
 [exit 0]
 $ tests/rt-error/vector/clamp_length_negative_rt/build/func_vector_clamp_length_negative_rt.out
-Error: 7-705-0002
-vector::clamp_length with negative max
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  vector::clamp_length with negative max
+Location: builtins/vector.mfb:1085:10
+
 [exit 255]

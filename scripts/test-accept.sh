@@ -185,6 +185,21 @@ normalize_exe_flavor() {
     | awk '/^Wrote executable to / && $0 == prev { next } { print; prev = $0 }'
 }
 
+# Runtime worker identities are control-block pointers, so ASLR changes their
+# values between runs. Keep main's zero identity and preserve repeated/distinct
+# workers in the golden; raw pointer formatting is checked by runtime tests.
+# Only a complete Thread field is rewritten; all other report bytes survive.
+normalize_thread_ids() {
+  awk '
+    /^Thread:   0x[0-9a-f]+$/ && $2 !~ /^0x0+$/ {
+      if (!($2 in workers)) workers[$2] = ++count
+      print "Thread:   <worker-" workers[$2] ">"
+      next
+    }
+    { print }
+  '
+}
+
 # Pick the executable to run from a build's stdout. One line -> use it. Several
 # (Linux dual-emit) -> the flavor this host can actually execute.
 select_run_path() {
@@ -620,7 +635,7 @@ while IFS= read -r project_json; do
   } >"$log_path" 2>&1
   # Canonicalize the host-varying libc flavor out of the finished log (see
   # `normalize_exe_flavor`) so this golden is comparable on every host.
-  normalize_exe_flavor <"$log_path" >"$log_path.norm" && mv "$log_path.norm" "$log_path"
+  normalize_exe_flavor <"$log_path" | normalize_thread_ids >"$log_path.norm" && mv "$log_path.norm" "$log_path"
   remove_output_dir "$test_dir"
 
   if [ -f "$ast_path" ]; then

@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/os/os-sleep-negative-rt
 Wrote executable to tests/rt-error/os/os-sleep-negative-rt/build/os_sleep_negative_rt.out
 [exit 0]
 $ tests/rt-error/os/os-sleep-negative-rt/build/os_sleep_negative_rt.out
-Error: 7-705-0002
-Argument value is not valid for the requested operation.
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  Argument value is not valid for the requested operation.
+Location: src/main.mfb:9:3
+
 [exit 255]

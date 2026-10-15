@@ -7,6 +7,9 @@ Wrote executable to tests/rt-error/compress/compress-zlib-decode-preset-dictiona
 [exit 0]
 $ tests/rt-error/compress/compress-zlib-decode-preset-dictionary-invalid/build/compress-zlib-decode-preset-dictionary-invalid.out
 before
-Error: 7-705-0003
-compress::zlibDecode: preset dictionary is not supported
+Thread:   0x00000000
+Error:    7-705-0003
+Message:  compress::zlibDecode: preset dictionary is not supported
+Location: builtins/compress_zlib_frame.mfb:26:10
+
 [exit 255]

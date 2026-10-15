@@ -1479,6 +1479,27 @@ pub(crate) fn lower_thread_finish(
     ));
     platform.emit_program_exit(symbol, ctx.instructions, ctx.relocations)?;
     ctx.instructions.push(abi::label(&not_program_exit));
+    if program_shutdown {
+        // Report only an error escaping this worker's entry, not a handled
+        // raise. Run before either block locking or result copying: the source
+        // is still alive even if the parent has already dropped its handle.
+        let reported = format!("{symbol}_error_reported");
+        ctx.instructions.extend([
+            abi::load_u64(r.v9, abi::stack_pointer(), TAG),
+            abi::compare_immediate(r.v9, RESULT_OK_TAG),
+            abi::branch_eq(&reported),
+            abi::load_u64(abi::c_arg(0), abi::stack_pointer(), BLOCK),
+            abi::load_u64(abi::c_arg(1), abi::stack_pointer(), VALUE),
+            abi::load_u64(abi::c_arg(2), abi::stack_pointer(), MESSAGE),
+            abi::load_u64(abi::c_arg(3), abi::stack_pointer(), SOURCE),
+            abi::branch_link(crate::codegen::error::report::ERROR_REPORT_SYMBOL),
+            abi::label(&reported),
+        ]);
+        ctx.relocations.push(internal_branch(
+            symbol,
+            crate::codegen::error::report::ERROR_REPORT_SYMBOL,
+        ));
+    }
     emit_block_lock(&mut ctx, BLOCK)?;
     // A handle side that already closed the thread reads no result: skip the copies.
     // Otherwise move the result into the block arena — everything the parent reads

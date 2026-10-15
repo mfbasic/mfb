@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/arithmetic/bug137-fixed-pow-underflow-overflow-rt
 Wrote executable to tests/rt-error/arithmetic/bug137-fixed-pow-underflow-overflow-rt/build/bug137_fixed_pow_underflow_overflow_rt.out
 [exit 0]
 $ tests/rt-error/arithmetic/bug137-fixed-pow-underflow-overflow-rt/build/bug137_fixed_pow_underflow_overflow_rt.out
-Error: 7-705-0010
-Arithmetic overflow or numeric conversion outside the destination range.
+Thread:   0x00000000
+Error:    7-705-0010
+Message:  Arithmetic overflow or numeric conversion outside the destination range.
+Location: src/main.mfb:7:3
+
 [exit 255]

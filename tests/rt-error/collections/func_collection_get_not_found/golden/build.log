@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/collections/func_collection_get_not_found
 Wrote executable to tests/rt-error/collections/func_collection_get_not_found/build/func_collection_get_not_found.out
 [exit 0]
 $ tests/rt-error/collections/func_collection_get_not_found/build/func_collection_get_not_found.out
-Error: 7-705-0004
-Requested item, key, file, or resource was not found.
+Thread:   0x00000000
+Error:    7-705-0004
+Message:  Requested item, key, file, or resource was not found.
+Location: src/main.mfb:4:10
+
 [exit 255]

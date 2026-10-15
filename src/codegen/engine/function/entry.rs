@@ -648,66 +648,32 @@ pub(crate) fn lower_program_entry(
             &mut instructions,
             &mut relocations,
         );
+        instructions.push(abi::move_immediate(
+            RESULT_ERROR_SOURCE_REGISTER,
+            "Integer",
+            "0",
+        ));
         instructions.push(abi::branch(error_label));
     }
     instructions.extend([
         abi::label(error_label),
-        abi::store_u64(RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, 32),
-        abi::move_register(abi::SCRATCH[10], RESULT_ERROR_MESSAGE_REGISTER),
+        // The program entry is the main MFB thread (no control block). Stage
+        // all result fields first: the C and MFB argument banks overlap differently.
+        abi::subtract_stack(32),
+        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), 0),
+        abi::store_u64(RESULT_ERROR_MESSAGE_REGISTER, abi::stack_pointer(), 8),
+        abi::store_u64(RESULT_ERROR_SOURCE_REGISTER, abi::stack_pointer(), 16),
+        abi::move_immediate(abi::c_arg(0), "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), 0),
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), 8),
+        abi::load_u64(abi::c_arg(3), abi::stack_pointer(), 16),
+        abi::branch_link(crate::codegen::error::report::ERROR_REPORT_SYMBOL),
+        abi::add_stack(32),
     ]);
-    emit_write_string_object(
-        &mut EmitCtx {
-            symbol: entry_symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        ENTRY_ERROR_PREFIX_SYMBOL,
-    )?;
-    emit_write_integer_to_stderr(&mut EmitCtx {
-        symbol: entry_symbol,
-        platform_imports,
-        platform,
-        instructions: &mut instructions,
-        relocations: &mut relocations,
-    })?;
-    // The untrapped-error banner is `Error:  <G-SSS-EEEE>\n<message>\n`, so the
-    // code (printed above in canonical hyphenated form) is followed by a newline,
-    // not the legacy ` Message: ` label. The cleanup-failure audit keeps its own
-    // ` Message: ` separator (a distinct call below), so this only reformats the
-    // program-ending untrapped-error output.
-    emit_write_string_object(
-        &mut EmitCtx {
-            symbol: entry_symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        ENTRY_ERROR_NEWLINE_SYMBOL,
-    )?;
-    instructions.extend([
-        abi::load_u64(abi::string_length_register(), abi::SCRATCH[10], 0),
-        abi::add_immediate(abi::string_data_register(), abi::SCRATCH[10], 8),
-        abi::move_immediate(abi::return_register(), "Integer", "2"),
-    ]);
-    platform.emit_write(
+    relocations.push(internal_branch(
         entry_symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    emit_write_string_object(
-        &mut EmitCtx {
-            symbol: entry_symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        ENTRY_ERROR_NEWLINE_SYMBOL,
-    )?;
+        crate::codegen::error::report::ERROR_REPORT_SYMBOL,
+    ));
     if emit_cleanup_failure_audit {
         emit_cleanup_failure_audit_report(&mut EmitCtx {
             symbol: entry_symbol,
@@ -1049,6 +1015,11 @@ fn emit_entry_args_list_materialization(
         abi::branch_eq("entry_args_alloc_ok"),
     ]);
     raise_error_into(entry_symbol, "ErrOutOfMemory", instructions, relocations);
+    instructions.push(abi::move_immediate(
+        RESULT_ERROR_SOURCE_REGISTER,
+        "Integer",
+        "0",
+    ));
     // The fill phase below uses ONLY `x9`–`x17`: the x86 residual-scratch pool
     // has 11 distinct registers, so `map_scratch_register` wraps at `xN+11` —
     // `x9`/`x20` share rbx, `x10`/`x21` share rsi, and so on. Mixing the low
@@ -1213,7 +1184,7 @@ fn emit_cleanup_failure_audit_report(ctx: &mut EmitCtx) -> Result<(), String> {
         "entry_cleanup_failure_code",
         true,
     )?;
-    // Same banner shape as the untrapped-error path: `Cleanup failure: <code>\n`
+    // The cleanup audit retains `Cleanup failure: <code>\n`
     // with the code in canonical hyphenated form, then the message on its own
     // line.
     emit_write_string_object(
@@ -1285,25 +1256,6 @@ fn emit_write_string_object(ctx: &mut EmitCtx, data_symbol: &str) -> Result<(), 
     platform.emit_write(from, platform_imports, ctx.instructions, ctx.relocations)
 }
 
-fn emit_write_integer_to_stderr(ctx: &mut EmitCtx) -> Result<(), String> {
-    // `from` is gone: it named the emitting symbol, which is `ctx.symbol`.
-    let from = ctx.symbol;
-    let platform = ctx.platform;
-    let platform_imports = ctx.platform_imports;
-
-    emit_write_integer_to_stderr_with_labels(
-        &mut EmitCtx {
-            symbol: from,
-            platform_imports,
-            platform,
-            instructions: ctx.instructions,
-            relocations: ctx.relocations,
-        },
-        "entry_error_code",
-        true,
-    )
-}
-
 fn emit_write_integer_to_stderr_with_labels(
     ctx: &mut EmitCtx,
     label_prefix: &str,
@@ -1337,7 +1289,7 @@ fn emit_write_integer_to_stderr_with_labels(
         abi::move_immediate(abi::SCRATCH[14], "Integer", "10"),
     ]);
     // Canonical error-code formatting (doc `diagnostics 02_error-codes.md`): the
-    // untrapped-error banner prints the code in its hyphenated `G-SSS-EEEE` form,
+    // cleanup-failure banner prints the code in its hyphenated `G-SSS-EEEE` form,
     // so the digit loop keeps a running digit count and injects a `-` after the
     // 4th and 7th digit-from-the-right — but only while more digits remain, so an
     // arbitrary short `FAIL` code degrades to a plain number rather than gaining a

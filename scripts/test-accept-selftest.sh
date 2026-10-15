@@ -173,6 +173,36 @@ check "a native kind with no golden is not counted" "0" "$level_variant_skipped"
 rm -f "$probe_golden"
 unset -f compare_optional_output
 
+# Worker identities are pointers and change on every process launch. Preserve
+# main's zero identity and repeated/distinct worker identities without changing
+# any other diagnostic field or text that only resembles a Thread line.
+helper=$(sed -n '/^normalize_thread_ids() {/,/^}/p' "$HARNESS")
+if [ -z "$helper" ]; then
+  echo "FAIL: could not extract normalize_thread_ids from $HARNESS" >&2
+  exit 1
+fi
+eval "$helper"
+out=$(printf '%s\n' \
+  'Thread:   0x00000000' \
+  'Thread:   0x148822800' \
+  'Error:    7-705-0002' \
+  'Message:  Thread:   0x148822800' \
+  'Location: src/main.mfb:999:99' \
+  'Thread:   0x148822800' \
+  'Thread:   0x000abcde' \
+  'Thread:   0x0' \
+  'Thread:   0xinvalid' | normalize_thread_ids)
+check "only pointer identities are canonicalized, preserving identity" \
+  'Thread:   0x00000000
+Thread:   <worker-1>
+Error:    7-705-0002
+Message:  Thread:   0x148822800
+Location: src/main.mfb:999:99
+Thread:   <worker-1>
+Thread:   <worker-2>
+Thread:   0x0
+Thread:   0xinvalid' "$out"
+
 echo
 if [ "$failures" -eq 0 ]; then
   echo "test-accept selftest: all checks passed"

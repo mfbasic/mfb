@@ -8,6 +8,9 @@ Wrote executable to tests/rt-behavior/resources/closed-default-drop-rt/build/clo
 $ tests/rt-behavior/resources/closed-default-drop-rt/build/closed_default_drop_rt.out
 file-failed=TRUE
 socket-failed=TRUE
-Error: 700
-intentional exit to reach the cleanup audit
+Thread:   0x00000000
+Error:    700
+Message:  intentional exit to reach the cleanup audit
+Location: src/main.mfb:48:8
+
 [exit 255]

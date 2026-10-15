@@ -10,6 +10,8 @@ Shape
 ExtraShape
 10
 4
-Error: 7-705-0010
-Arithmetic overflow or numeric conversion outside the destination range.
+Thread:   0x00000000
+Error:    7-705-0010
+Message:  Arithmetic overflow or numeric conversion outside the destination range.
+
 [exit 255]

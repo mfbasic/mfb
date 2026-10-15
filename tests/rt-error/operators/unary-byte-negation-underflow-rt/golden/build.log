@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/operators/unary-byte-negation-underflow-rt
 Wrote executable to tests/rt-error/operators/unary-byte-negation-underflow-rt/build/unary_byte_negation_underflow_rt.out
 [exit 0]
 $ tests/rt-error/operators/unary-byte-negation-underflow-rt/build/unary_byte_negation_underflow_rt.out
-Error: 7-705-0011
-Arithmetic underflow below the destination range.
+Thread:   0x00000000
+Error:    7-705-0011
+Message:  Arithmetic underflow below the destination range.
+Location: src/main.mfb:3:25
+
 [exit 255]

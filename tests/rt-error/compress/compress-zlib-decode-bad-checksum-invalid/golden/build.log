@@ -7,6 +7,9 @@ Wrote executable to tests/rt-error/compress/compress-zlib-decode-bad-checksum-in
 [exit 0]
 $ tests/rt-error/compress/compress-zlib-decode-bad-checksum-invalid/build/compress-zlib-decode-bad-checksum-invalid.out
 before
-Error: 7-705-0003
-compress::zlibDecode: incorrect data check
+Thread:   0x00000000
+Error:    7-705-0003
+Message:  compress::zlibDecode: incorrect data check
+Location: builtins/compress_zlib_frame.mfb:42:12
+
 [exit 255]

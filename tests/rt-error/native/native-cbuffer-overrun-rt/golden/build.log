@@ -11,6 +11,8 @@ Wrote executable to tests/rt-error/native/native-cbuffer-overrun-rt/build/native
 [exit 0]
 $ tests/rt-error/native/native-cbuffer-overrun-rt/build/native_cbuffer_overrun_rt.out
 fd_ok TRUE
-Error: 7-703-0010
-Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected).
+Thread:   0x00000000
+Error:    7-703-0010
+Message:  Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected).
+
 [exit 255]

@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/math/func_math_clamp_intarray_rt
 Wrote executable to tests/rt-error/math/func_math_clamp_intarray_rt/build/func_math_clamp_intarray_rt.out
 [exit 0]
 $ tests/rt-error/math/func_math_clamp_intarray_rt/build/func_math_clamp_intarray_rt.out
-Error: 7-705-0002
-Argument value is not valid for the requested operation.
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  Argument value is not valid for the requested operation.
+Location: src/main.mfb:8:30
+
 [exit 255]

@@ -7,6 +7,9 @@ Wrote executable to tests/rt-error/compress/compress-gzip-encode-level-invalid/b
 [exit 0]
 $ tests/rt-error/compress/compress-gzip-encode-level-invalid/build/compress-gzip-encode-level-invalid.out
 before
-Error: 7-705-0002
-compress::gzipEncode: level must be from 0 to 9
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  compress::gzipEncode: level must be from 0 to 9
+Location: builtins/compress_gzip_encode.mfb:8:10
+
 [exit 255]

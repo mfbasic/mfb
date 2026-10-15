@@ -175,7 +175,14 @@ x1 = input value
   the result to `_mfb_rt_thread_finish` and returns zero to the OS start-routine
   caller. [[src/codegen/resource/module_owner.rs:lower_module_resource_drain]] [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 
-`_mfb_rt_thread_finish` first drains the worker's buffered standard output. A
+`_mfb_rt_thread_finish` first drains the worker's buffered standard output.
+In an executable, an error result emits the failed-thread report described in
+`./mfb spec language error-model`, using the control-block address as thread
+identity. This happens outside the control-block lock, before result copying and
+arena destruction, even if the parent has already closed the handle. Success and
+program-exit results do not produce error reports.
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_finish]]
+ A
 program-exit result (tag `2`: the worker, or a function it called, ran
 `EXIT PROGRAM n`; the lexical cleanup of its frames already ran on the way out, and
 the trampoline's teardown closed its module-level resources) is not published: the

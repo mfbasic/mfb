@@ -7,6 +7,9 @@ Wrote executable to tests/rt-error/compress/compress-inflate-too-large-invalid/b
 [exit 0]
 $ tests/rt-error/compress/compress-inflate-too-large-invalid/build/compress-inflate-too-large-invalid.out
 before
-Error: 7-705-0027
-compress: output exceeds maxBytes
+Thread:   0x00000000
+Error:    7-705-0027
+Message:  compress: output exceeds maxBytes
+Location: builtins/compress_inflate_core.mfb:353:18
+
 [exit 255]
