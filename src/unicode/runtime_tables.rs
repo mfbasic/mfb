@@ -51,9 +51,10 @@ impl PackedProperty {
     const AMBIGUOUS: u16 = 1 << 6;
 
     /// The terminal display width (0/1/2 columns) of this codepoint, from the
-    /// utf8proc `charwidth` field packed into `flags` bits 4–5. Used by the
-    /// compile-time folding of `strings::displayWidth`; the runtime reads the
-    /// same bits directly out of the embedded table.
+    /// utf8proc `charwidth` field packed into `flags` bits 4–5. This is retained
+    /// as a test oracle for the shipped table; generated code reads the same bits
+    /// directly out of the embedded table.
+    #[cfg(test)]
     pub(crate) fn charwidth(&self) -> u16 {
         (self.flags & Self::CHARWIDTH_MASK) >> Self::CHARWIDTH_SHIFT
     }
@@ -102,11 +103,11 @@ pub(crate) fn properties_hex() -> String {
 /// The emitted runtime performs this same lookup itself, against the same tables,
 /// in generated code. This Rust copy is the executable statement of the algorithm:
 /// the specification cites it by name (`unicode/01_tables-and-algorithms.md:57`,
-/// `[[src/unicode/runtime_tables.rs:property_for_codepoint]]`), its own tests check
-/// the shipped tables actually decode, and the compile-time folding of
-/// `strings::displayWidth` (plan-70-A) reads `charwidth()` through it so the folded
-/// and runtime paths share one table. Deleting it would leave the spec citing
-/// nothing and the tables checked only indirectly (bug-326-D4).
+/// `[[src/unicode/runtime_tables.rs:property_for_codepoint]]`), and its own tests
+/// check the shipped tables actually decode. Deleting it would leave the spec
+/// citing nothing and the tables checked only indirectly (bug-326-D4).
+// Test-only executable oracle for the emitted two-stage lookup and packed table.
+#[cfg(test)]
 pub(crate) fn property_for_codepoint(codepoint: u32) -> PackedProperty {
     let tables = tables();
     // The two-stage trie only covers U+0000..=U+10FFFF; anything above has no

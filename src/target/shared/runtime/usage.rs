@@ -108,7 +108,6 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
             | "strings.padRight"
             | "strings.graphemeAt"
             | "strings.graphemesCount"
-            | "strings.displayWidth"
             | "strings.trimChars"
             // plan-89-A/B: native-direct `astrings` codegen (`gen_astrings.rs`,
             // `Body::abi_inline`). `fromString` is the public constructor;

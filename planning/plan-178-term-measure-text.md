@@ -264,16 +264,20 @@ callers.
 Acceptance: focused compiler tests prove the overload routing, internal boundary,
 and padding behavior.
   Check: `cargo test --bin mfb term_measure_text && cargo test --test rt_strings_unowned_blocks` → 5 focused compiler tests and 7 runtime tests pass (est. 3 min).
-Commit: —
+Commit: `cdc87b0a0`
 
 ### Phase 2 — Remove the strings API and migrate source callers
 
 Remove the obsolete surface and update every non-golden caller to obey the new
 lifecycle.
 
-- [ ] Delete `func_display_width.rs` and remove `strings.displayWidth` from
+- [x] Delete `func_display_width.rs` and remove `strings.displayWidth` from
       strings registration, Tier-A/infallible tables, runtime-use analysis,
-      data-object planning, and runtime-usage classification.
+      data-object planning, and runtime-usage classification. — `cargo check
+      --bin mfb` passed without warnings; `cargo test --bin mfb
+      unicode::runtime_tables -- --nocapture` passed 13 tests; `rg -n
+      'strings\.displayWidth|func_display_width' src/codegen src/target src/ir
+      --glob '*.rs'` returned no implementation references.
 - [ ] Replace the direct behavior and syntax fixtures with term fixtures covering
       empty, ASCII, CJK, NFD, emoji, all-zero-width, AttributedString, wrong
       arity/type, inactive use, wrong app mode, private-helper rejection, and

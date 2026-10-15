@@ -36,7 +36,6 @@ mod func_byte_len;
 mod func_case_fold;
 mod func_contains;
 mod func_count;
-pub(crate) mod func_display_width;
 mod func_ends_with;
 mod func_ends_with_any;
 mod func_find;
@@ -230,7 +229,6 @@ pub(crate) fn register(r: &mut Registry) {
     func_pad_right_to_width::register(&mut pkg);
     func_grapheme_at::register(&mut pkg);
     func_graphemes_count::register(&mut pkg);
-    func_display_width::register(&mut pkg);
     func_gen_cat::register(&mut pkg);
     func_trim_chars::register(&mut pkg);
     func_to_bytes::register(&mut pkg);
@@ -323,7 +321,6 @@ pub(crate) fn is_tier_a_query(name: &str) -> bool {
         "strings.byteLen"
             | "strings.contains"
             | "strings.count"
-            | "strings.displayWidth"
             | "strings.endsWith"
             | "strings.endsWithAny"
             | "strings.find"

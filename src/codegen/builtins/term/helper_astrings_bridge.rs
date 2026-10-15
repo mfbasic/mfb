@@ -169,7 +169,7 @@ FUNC __term_drawTextAttr(row AS Integer, column AS Integer, value AS AttributedS
       __term_applyFg(st.fg, saveFg)
       __term_applyBg(st.bg, saveBg)
       term::drawText(row, col, seg)
-      col = col + strings::displayWidth(seg)
+      col = col + term::measureTextRaw(seg)
       ci = cj
       si = sj
     END WHILE
