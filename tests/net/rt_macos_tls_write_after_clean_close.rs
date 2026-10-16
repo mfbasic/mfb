@@ -207,9 +207,18 @@ fn macos_tls_write_succeeds_live_and_raises_connection_closed_after_close_notify
     };
 
     // Not `-quiet`: that implies `-ign_eof`, and the stdin EOF below is what
-    // makes s_client shut the session down with close_notify.
+    // makes s_client shut the session down with close_notify. Pin TLS 1.2
+    // because Apple's LibreSSL 3.3.6 exits a TLS 1.3 session on stdin EOF
+    // without emitting the alert; this fixture measures an orderly peer close,
+    // not TLS-version negotiation.
     let mut peer = Command::new("openssl")
-        .args(["s_client", "-msg", "-connect", &format!("127.0.0.1:{port}")])
+        .args([
+            "s_client",
+            "-tls1_2",
+            "-msg",
+            "-connect",
+            &format!("127.0.0.1:{port}"),
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
