@@ -287,8 +287,14 @@ lifecycle.
       `ok`; all four syntax projects emitted their intended diagnostics; `cargo
       test --test cli_app_canvas_mode macos_term_traps_wrong_mode_in_canvas --
       --nocapture` passed 1 test.
-- [ ] Preserve the regalloc and unowned-block intent exactly as specified in
+- [x] Preserve the regalloc and unowned-block intent exactly as specified in
       §6; keep the string padding fixture off-TUI and assert its results directly.
+      — `cargo test --test codegen_regalloc_eviction -- --nocapture` passed with
+      0 `main` eviction pairs against the bound of 22; `cargo test --test
+      rt_strings_unowned_blocks
+      term_measure_text_balances_repeated_calls_after_one_setup -- --nocapture`
+      passed with balanced 100/200-call runs; the off-TUI padding assertion
+      remains in `width_padding_stays_ungated_and_rejects_zero_width_pad_chars`.
 - [ ] Migrate the 32 example, 11 benchmark, and 2 spike occurrences measured in
       §2, including caching values before `term::off()` and moving benchmark
       lifecycle outside timed loops.

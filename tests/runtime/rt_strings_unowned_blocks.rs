@@ -181,13 +181,12 @@ END FUNC
     assert_eq!(out.lines().next(), Some("9 8"));
 }
 
-/// The measured-flat siblings stay flat, and a bound `fromScalars` still works: a
+/// The flat siblings stay flat, and a bound `fromScalars` still works: a
 /// fix that disabled an allocation or a free elsewhere would show here.
 #[test]
 fn the_flat_siblings_stay_flat() {
     for (name, expression, expected) in [
         ("b992_graphemes", "len(strings::graphemes(s))", CLUSTERS),
-        ("b992_width", "strings::displayWidth(s)", "51"),
         ("b992_mid", "len(strings::mid(s, 1, 10))", "10"),
         ("b992_scalars", "len(strings::toScalars(s))", "50"),
     ] {
@@ -205,6 +204,48 @@ fn the_flat_siblings_stay_flat() {
         let run = run_at("b992_bound", &exe, n);
         assert_eq!((run.allocs, run.live), (run.frees, 0), "b992_bound N={n}");
     }
+}
+
+#[test]
+fn term_measure_text_balances_repeated_calls_after_one_setup() {
+    let exe = build_debug(
+        "p178_measure_text_balance",
+        r#"IMPORT io
+IMPORT os
+IMPORT term
+
+FUNC main() AS Integer
+  LET s AS String = os::getEnvOr("LORE", "The quick brown fox jumps over the lazy dog a😀b👍🏽c")
+  term::on()
+  MUT total AS Integer = 0
+  FOR i = 1 TO toInt(os::getEnv("N"))
+    total = total + term::measureText(s)
+  NEXT
+  term::off()
+  io::print(toString(total) & " " & toString(len(s)))
+  RETURN 0
+END FUNC
+"#,
+    );
+    let low = run_at("p178_measure_text_balance", &exe, 100);
+    let high = run_at("p178_measure_text_balance", &exe, 200);
+    for (n, run) in [(100, &low), (200, &high)] {
+        assert_eq!(
+            (run.allocs, run.live),
+            (run.frees, 0),
+            "p178_measure_text_balance N={n}: alloc_calls {} free_calls {} live_bytes {}",
+            run.allocs,
+            run.frees,
+            run.live
+        );
+    }
+    assert!(low.stdout.ends_with("5100 50\n"), "{:?}", low.stdout);
+    assert!(high.stdout.ends_with("10200 50\n"), "{:?}", high.stdout);
+    assert_eq!(
+        high.allocs - low.allocs,
+        high.frees - low.frees,
+        "the extra 100 measurements must free every incremental allocation"
+    );
 }
 
 #[test]

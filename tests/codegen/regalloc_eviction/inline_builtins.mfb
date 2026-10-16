@@ -1,4 +1,4 @@
-' bug-760 D: collections::sort / collections::find / strings::displayWidth lowered
+' bug-760 D: collections::sort / collections::find / strings::graphemesCount lowered
 ' inline into main. Compiled only for its -O1 .ncode by
 ' tests/codegen/codegen_regalloc_eviction.rs.
 IMPORT io
@@ -62,9 +62,9 @@ FUNC main(args AS List OF String) AS Integer
   t0 = datetime::monotonicNanos()
   acc = 0
   FOR k = 0 TO 9999
-    acc = acc + strings::displayWidth(w)
+    acc = acc + strings::graphemesCount(w)
   NEXT
   t1 = datetime::monotonicNanos()
-  io::print("width_ascii ms=" & toString((t1 - t0) / 1000000) & " chk=" & toString(acc))
+  io::print("graphemes   ms=" & toString((t1 - t0) / 1000000) & " chk=" & toString(acc))
   RETURN 0
 END FUNC
