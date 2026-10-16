@@ -6,34 +6,34 @@ $ mfb build tests/rt-behavior/strings/strings-pad-to-width-rt
 Wrote executable to tests/rt-behavior/strings/strings-pad-to-width-rt/build/strings_pad_to_width_rt.out
 [exit 0]
 $ tests/rt-behavior/strings/strings-pad-to-width-rt/build/strings_pad_to_width_rt.out
--- the old measure: same scalar count, different screen width --
-scalars=8 padRight_columns=8 padRightToWidth_columns=8
-scalars=8 padRight_columns=11 padRightToWidth_columns=8
-scalars=8 padRight_columns=8 padRightToWidth_columns=8
-scalars=8 padRight_columns=7 padRightToWidth_columns=8
-scalars=8 padRight_columns=10 padRightToWidth_columns=8
+-- scalar padding and column padding produce different strings --
+scalar=[ascii   ] width=[ascii   ]
+scalar=[日本語     ] width=[日本語  ]
+scalar=[café    ] width=[café    ]
+scalar=[café   ] width=[café    ]
+scalar=[😀😀      ] width=[😀😀    ]
 
 -- the new measure: every row is 8 columns and they line up --
-|ascii   |end| columns=8
-|日本語  |end| columns=8
-|café    |end| columns=8
-|café    |end| columns=8
-|😀😀    |end| columns=8
+|ascii   |end|
+|日本語  |end|
+|café    |end|
+|café    |end|
+|😀😀    |end|
 
 -- padLeftToWidth is the same rule from the other side --
-|   ascii| columns=8
-|  日本語| columns=8
-|    café| columns=8
-|    café| columns=8
-|    😀😀| columns=8
+|   ascii|
+|  日本語|
+|    café|
+|    café|
+|    😀😀|
 
 -- UNDERSHOOT: the result never exceeds `columns` --
-padLeftToWidth(x, 6, wide) columns=5 [😀😀x]
-padRightToWidth(x, 6, wide) columns=5 [x😀😀]
-padLeftToWidth(x, 7, wide) columns=7
+padLeftToWidth(x, 6, wide)=[😀😀x]
+padRightToWidth(x, 6, wide)=[x😀😀]
+padLeftToWidth(x, 7, wide)=[😀😀😀x]
 
 -- never truncates, and 0 never pads --
-[日本語] columns=6
+[日本語]
 [abc]
 
 -- rejections, each catchable through an INLINE trap --
@@ -47,16 +47,11 @@ padLeft takes that same padChar, scalars=4
 
 -- the AttributedString overload runs on the visible text --
 padRightToWidth=[日本    ] bold=BB----
-  columns=8
 padLeftToWidth=[    日本] bold=----BB
-  columns=8
-
--- the in-tree caller this member replaces agrees on every input --
-compared=65 disagreements=0
 
 -- the POSITIVE pin: padLeft/padRight are untouched --
 [   42]
 [42000]
-[--日本] scalars=4 columns=6
+[--日本] scalars=4
 ascii agree: [...ab] [...ab]
 [exit 0]

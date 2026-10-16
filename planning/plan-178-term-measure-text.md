@@ -335,9 +335,13 @@ changes after the mandated pre-rebaseline suite.
       old member; the focused term example and all 8 changed padding examples
       built and ran; the term/strings rendered-content censuses reported 0
       unclassified memory-vocabulary hits and 0 internals-vocabulary hits.
-- [ ] Run the full acceptance suite before any golden edit; inspect one migrated
+- [x] Run the full acceptance suite before any golden edit; inspect one migrated
       fixture diff to localize the expected API/gate/result changes. Treat every
-      unrelated diff as a bug-hunt trigger.
+      unrelated diff as a bug-hunt trigger. — `bash scripts/test-accept.sh
+      target/debug/mfb target/accept-plan178` ran 1,727 fixtures and reported 33
+      expected mismatches; inspecting `strings-display-width-rt` localized the
+      public API, active-term lifecycle, attributed-string, and zero-width
+      result changes before any golden edit.
 - [ ] Correct only the disproved lines in affected goldens, then rerun the full
       acceptance suite.
 
@@ -404,6 +408,13 @@ Commit: —
   The Phase 2 gate therefore measures executable caller sites, leaving the one
   negative fixture and seven documentation/descriptor files for their specified
   coverage and Phase 3 updates.
+- Phase 3 predicted 24 affected golden files from the old-name census. The
+  pre-edit full suite measured 30 changed existing artifacts plus 3 new syntax
+  fixtures: generated padding IR embeds the changed private helper in additional
+  acceptance projects, while direct fixture migrations change multiple
+  AST/IR/log artifacts. Every existing correction was applied from the retained
+  pre-edit actual, and the three new diagnostic logs came from focused compiler
+  runs.
 
 ## Summary
 

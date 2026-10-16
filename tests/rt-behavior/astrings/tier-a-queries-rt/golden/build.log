@@ -16,7 +16,6 @@ endsWithAny TRUE/TRUE
 find 4/4
 findMissing trap:77050004/77050004
 graphemesCount 11/11
-displayWidth 11/11
 graphemeAt w/w
 split 2/2
 graphemes 11/11

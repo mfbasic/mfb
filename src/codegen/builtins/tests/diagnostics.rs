@@ -1,6 +1,6 @@
 //! The committed diagnostic goldens, reproduced in process.
 //!
-//! `tests/syntax/**` is the language's rejection contract: 581 programs, each
+//! `tests/syntax/**` is the language's rejection contract: 775 programs, each
 //! with a `golden/build.log` recording the exact rule codes the compiler must
 //! emit for it. That corpus is gated only by `scripts/test-accept.sh`, which
 //! spawns `mfb` — so from this process it covers nothing, and the two passes it
@@ -89,7 +89,6 @@ const DIAGNOSTIC_CORPUS: &[&str] = &[
     "control-flow-nothing-trap-invalid",
     "cross_invalid",
     "device_literal_invalid",
-    "displayWidth",
     "distance_invalid",
     "dot_invalid",
     "endpoints_invalid",
@@ -312,6 +311,8 @@ const DIAGNOSTIC_CORPUS: &[&str] = &[
     "func_term_getUnderline_invalid",
     "func_term_hideCursor_invalid",
     "func_term_isOn_invalid",
+    "func_term_measureText_attr_import_invalid",
+    "func_term_measureText_invalid",
     "func_term_moveTo_invalid",
     "func_term_off_invalid",
     "func_term_on_invalid",
