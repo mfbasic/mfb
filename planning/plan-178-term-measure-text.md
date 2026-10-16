@@ -303,12 +303,19 @@ lifecycle.
       spike projects all produced native executables/packages. The benchmark
       lifecycle wraps only the three width rows, outside their timed loops, and
       the wide demo/spike cache measurements before `term::off()`.
-- [ ] Run the non-golden census again and reduce old-name occurrences outside
-      historical/completed planning records to zero.
+- [x] Run the non-golden caller census again and reduce old-name call sites to
+      zero, except for the required removed-name rejection fixture; documentation
+      references remain queued for Phase 3. — `rg -n
+      'strings::displayWidth|strings\.displayWidth' src tests examples benchmark
+      spikes --glob '!**/golden/**' --glob '!src/docs/**' --glob
+      '!src/codegen/builtins/**' --glob
+      '!tests/syntax/strings/displayWidth/**'` returned no references. The full
+      remaining-file census contains only seven documentation/descriptor files
+      and the one intentional rejection source.
 
 Acceptance: the focused term, strings-padding, regalloc, runtime-balance, and
 Canvas wrong-mode tests pass without golden edits.
-  Check: `cargo test --test codegen_regalloc_eviction && cargo test --test rt_strings_unowned_blocks && cargo test --test cli_app_canvas_mode` → all selected tests pass (est. 4 min).
+  Check: `cargo test --test codegen_regalloc_eviction && cargo test --test rt_strings_unowned_blocks && cargo test --test cli_app_canvas_mode` → 1 regalloc, 8 runtime-balance, and 11 Canvas tests passed (est. 4 min).
 Commit: —
 
 ### Phase 3 — Synchronize specs, man pages, and acceptance goldens
@@ -386,6 +393,11 @@ Commit: —
   `ir::tests::term_measure_text`, selecting zero tests. The test names span the
   IR and built-in test modules, so the filter is `term_measure_text`; that
   command selected and passed all 5 focused compiler tests.
+- Phase 2's literal zero-occurrence census conflicted with both its required
+  removed-name rejection fixture and Phase 3's explicit documentation migration.
+  The Phase 2 gate therefore measures executable caller sites, leaving the one
+  negative fixture and seven documentation/descriptor files for their specified
+  coverage and Phase 3 updates.
 
 ## Summary
 
