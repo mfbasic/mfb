@@ -890,24 +890,40 @@ mod native {
             .stderr(Stdio::null())
             .spawn()
             .expect("start the example");
-        std::thread::sleep(Duration::from_millis(1000));
         if !attach_allowed(&mfb, example.id()) {
             example.kill().unwrap();
             example.wait().unwrap();
             return;
         }
-        let mut session = Session::start(&mfb, &[&example.id().to_string()]);
-        session.until_prompt();
-
-        session.send("list thread\n");
-        let threads = table_rows(&session.until_prompt(), THREAD_COLUMNS);
         let task = |cells: &Vec<String>| cells[3].clone();
+        // Do not guess how long the process needs to start its first worker.
+        // Under the full parallel suite a fixed one-second sleep can expire
+        // while the child is still in startup. Attach/list/detach until the
+        // runtime registry itself reports the state this test exercises.
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let (mut session, threads, workers) = loop {
+            let mut session = Session::start(&mfb, &[&example.id().to_string()]);
+            session.until_prompt();
+            session.send("list thread\n");
+            let threads = table_rows(&session.until_prompt(), THREAD_COLUMNS);
+            let workers = threads
+                .iter()
+                .filter(|cells| task(cells) == "User Thread")
+                .map(|cells| cells[0].clone())
+                .collect::<Vec<_>>();
+            if workers.len() == 1 {
+                break (session, threads, workers);
+            }
+            session.send("q\n");
+            let (code, _) = session.finish();
+            assert_eq!(code, Some(0));
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the example never published its worker thread: {threads:?}"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        };
         assert_eq!(task(&threads[0]), "MFB Main", "{threads:?}");
-        let workers = threads
-            .iter()
-            .filter(|cells| task(cells) == "User Thread")
-            .map(|cells| cells[0].clone())
-            .collect::<Vec<_>>();
         assert_eq!(workers.len(), 1, "{threads:?}");
 
         session.send("list arena\n");
