@@ -342,14 +342,17 @@ changes after the mandated pre-rebaseline suite.
       expected mismatches; inspecting `strings-display-width-rt` localized the
       public API, active-term lifecycle, attributed-string, and zero-width
       result changes before any golden edit.
-- [ ] Correct only the disproved lines in affected goldens, then rerun the full
-      acceptance suite.
+- [x] Correct only the disproved lines in affected goldens, then rerun the full
+      acceptance suite. — All 30 existing golden artifacts matched their
+      retained pre-edit actuals byte-for-byte after narrow corrections; focused
+      runs produced the 3 new diagnostic logs; the post-correction
+      `scripts/test-accept.sh` run passed all 1,727 fixtures.
 
 Acceptance: specs/man pages describe the implemented contract, no old public
 name remains in live source documentation, and the full acceptance suite passes
 after narrow golden corrections.
   Check: `cargo test --bin mfb spec && target/debug/mfb man term measureText && target/debug/mfb man strings --all` → spec tests pass, the new page renders, and the old member is absent (est. 3 min).
-Commit: —
+Commit: `26316691e`
 
 ## Validation Plan
 
