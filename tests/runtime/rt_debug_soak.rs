@@ -303,7 +303,7 @@ fn a_paint_loop_keeps_live_bytes_constant() {
             browser_project(
             "soak_paint",
             &format!(
-                "IMPORT display\nIMPORT dom\nIMPORT io\n\nFUNC main() AS Nothing\n  LET d AS dom::Node = dom::indexFields(dom::resolveStyles(dom::parse(\"<div><p>hello <b>world</b> and <a href='/x'>a link</a></p><ul><li>one</li><li>two</li></ul></div>\")))\n  MUT rows AS Integer = 0\n  FOR i = 1 TO {n}\n    LET pr AS display::PaintResult = display::paint(d, 120, 8, 16)\n    rows = len(pr.rows)\n  NEXT\n  io::print(toString(rows))\nEND FUNC\n"
+                "IMPORT display\nIMPORT dom\nIMPORT io\nIMPORT term\n\nFUNC main() AS Nothing\n  term::on()\n  LET d AS dom::Node = dom::indexFields(dom::resolveStyles(dom::parse(\"<div><p>hello <b>world</b> and <a href='/x'>a link</a></p><ul><li>one</li><li>two</li></ul></div>\")))\n  MUT rows AS Integer = 0\n  FOR i = 1 TO {n}\n    LET pr AS display::PaintResult = display::paint(d, 120, 8, 16)\n    rows = len(pr.rows)\n  NEXT\n  term::off()\n  io::print(toString(rows))\nEND FUNC\n"
             ),
             &["dom", "display"],
         )
