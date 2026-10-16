@@ -278,10 +278,15 @@ lifecycle.
       unicode::runtime_tables -- --nocapture` passed 13 tests; `rg -n
       'strings\.displayWidth|func_display_width' src/codegen src/target src/ir
       --glob '*.rs'` returned no implementation references.
-- [ ] Replace the direct behavior and syntax fixtures with term fixtures covering
+- [x] Replace the direct behavior and syntax fixtures with term fixtures covering
       empty, ASCII, CJK, NFD, emoji, all-zero-width, AttributedString, wrong
       arity/type, inactive use, wrong app mode, private-helper rejection, and
-      rejection of the removed strings name.
+      rejection of the removed strings name. — Both runtime projects built;
+      running the measurement project under `script -q /dev/null` produced
+      literal/dynamic widths `0, 3, 6, 4, 2, 1`, attributed CJK width `6`, and
+      `ok`; all four syntax projects emitted their intended diagnostics; `cargo
+      test --test cli_app_canvas_mode macos_term_traps_wrong_mode_in_canvas --
+      --nocapture` passed 1 test.
 - [ ] Preserve the regalloc and unowned-block intent exactly as specified in
       §6; keep the string padding fixture off-TUI and assert its results directly.
 - [ ] Migrate the 32 example, 11 benchmark, and 2 spike occurrences measured in

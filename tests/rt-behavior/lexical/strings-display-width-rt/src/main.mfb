@@ -1,36 +1,46 @@
-' plan-70-A: `strings::displayWidth` returns the terminal column width of a
-' string (the sum of its grapheme clusters' display widths). This fixture asserts
-' the goal values from plan-70-A over BOTH paths: a string-literal argument, which
-' the compiler folds at build time, and a FUNC-parameter argument, which never
-' folds and so exercises the runtime walk over the embedded utf8proc table. The
-' two paths must agree — a divergence is a real bug.
+' `term::measureText` returns the terminal-cell width used by the terminal grid.
+' Cache every result while term is active, then turn it off before printing so
+' the transcript contains the measurements rather than a live alternate screen.
 IMPORT io
-IMPORT strings
+IMPORT term
+IMPORT astrings
 
-' The argument is a parameter, never a compile-time constant, so displayWidth
-' cannot fold it and must walk the property table at runtime.
 FUNC widthOf(value AS String) AS Integer
-  RETURN strings::displayWidth(value)
+  RETURN term::measureText(value)
 END FUNC
 
 FUNC main() AS Integer
-  ' Folded path (string-literal argument).
-  io::print("fold empty : " & toString(strings::displayWidth("")))
-  io::print("fold ascii : " & toString(strings::displayWidth("abc")))
-  io::print("fold cjk   : " & toString(strings::displayWidth("日本語")))
-  io::print("fold nfc   : " & toString(strings::displayWidth("café")))
-  io::print("fold nfd   : " & toString(strings::displayWidth("cafe" & "́")))
-  io::print("fold emoji : " & toString(strings::displayWidth("👨‍👩‍👧‍👦")))
-  io::print("fold comb  : " & toString(strings::displayWidth("́")))
+  term::on()
+  LET literalEmpty AS Integer = term::measureText("")
+  LET literalAscii AS Integer = term::measureText("abc")
+  LET literalCjk AS Integer = term::measureText("日本語")
+  LET literalNfd AS Integer = term::measureText("cafe" & "́")
+  LET literalEmoji AS Integer = term::measureText("👨‍👩‍👧‍👦")
+  LET literalZero AS Integer = term::measureText("́")
+  LET attributed AS AttributedString = astrings::fromString("日本語")
+  LET attributedCjk AS Integer = term::measureText(attributed)
 
-  ' Dynamic path (same inputs through a parameter).
-  io::print("dyn empty  : " & toString(widthOf("")))
-  io::print("dyn ascii  : " & toString(widthOf("abc")))
-  io::print("dyn cjk    : " & toString(widthOf("日本語")))
-  io::print("dyn nfc    : " & toString(widthOf("café")))
-  io::print("dyn nfd    : " & toString(widthOf("cafe" & "́")))
-  io::print("dyn emoji  : " & toString(widthOf("👨‍👩‍👧‍👦")))
-  io::print("dyn comb   : " & toString(widthOf("́")))
+  LET dynamicEmpty AS Integer = widthOf("")
+  LET dynamicAscii AS Integer = widthOf("abc")
+  LET dynamicCjk AS Integer = widthOf("日本語")
+  LET dynamicNfd AS Integer = widthOf("cafe" & "́")
+  LET dynamicEmoji AS Integer = widthOf("👨‍👩‍👧‍👦")
+  LET dynamicZero AS Integer = widthOf("́")
+  term::off()
+
+  io::print("literal empty : " & toString(literalEmpty))
+  io::print("literal ascii : " & toString(literalAscii))
+  io::print("literal cjk   : " & toString(literalCjk))
+  io::print("literal nfd   : " & toString(literalNfd))
+  io::print("literal emoji : " & toString(literalEmoji))
+  io::print("literal zero  : " & toString(literalZero))
+  io::print("attributed cjk: " & toString(attributedCjk))
+  io::print("dynamic empty : " & toString(dynamicEmpty))
+  io::print("dynamic ascii : " & toString(dynamicAscii))
+  io::print("dynamic cjk   : " & toString(dynamicCjk))
+  io::print("dynamic nfd   : " & toString(dynamicNfd))
+  io::print("dynamic emoji : " & toString(dynamicEmoji))
+  io::print("dynamic zero  : " & toString(dynamicZero))
   io::print("ok")
   RETURN 0
 END FUNC

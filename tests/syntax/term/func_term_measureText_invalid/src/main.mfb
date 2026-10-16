@@ -1,0 +1,8 @@
+IMPORT term
+
+FUNC main AS Integer
+  LET missing AS Integer = term::measureText()
+  LET wrongType AS Integer = term::measureText(12)
+  LET tooMany AS Integer = term::measureText("a", "b")
+  RETURN 0
+END FUNC

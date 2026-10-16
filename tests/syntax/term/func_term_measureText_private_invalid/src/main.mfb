@@ -1,0 +1,7 @@
+IMPORT term
+
+FUNC main AS Integer
+  LET privateMeasure AS Integer = term::measureTextRaw("a")
+  LET privateScalar AS Integer = term::scalarWidthRaw("a")
+  RETURN 0
+END FUNC
