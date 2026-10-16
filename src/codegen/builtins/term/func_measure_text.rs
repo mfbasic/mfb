@@ -178,6 +178,12 @@ fn string_arg(args: &[ValueResult], call: &str) -> Result<ValueResult, String> {
     Ok(arg)
 }
 
+fn inline_arg(args: &[ValueResult], call: &str) -> Result<ValueResult, String> {
+    args.first()
+        .cloned()
+        .ok_or_else(|| format!("{call}: missing String argument"))
+}
+
 pub(crate) fn lower_measure_text(
     builder: &mut CodeBuilder,
     args: &[ValueResult],
@@ -227,7 +233,7 @@ fn lower_measure_text_raw(
     args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    measure_text_of(builder, &string_arg(args, "term.measureTextRaw")?)
+    measure_text_of(builder, &inline_arg(args, "term.measureTextRaw")?)
 }
 
 fn lower_scalar_width_raw(
@@ -235,7 +241,7 @@ fn lower_scalar_width_raw(
     args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    scalar_width_of(builder, &string_arg(args, "term.scalarWidthRaw")?)
+    scalar_width_of(builder, &inline_arg(args, "term.scalarWidthRaw")?)
 }
 
 fn string_param(desc: &'static str) -> Parameter {
