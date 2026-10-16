@@ -22,10 +22,12 @@ The compile-time and runtime paths use the data as follows:
   [[src/codegen/engine/types/type_utils.rs:strings_package_static_string_value]]
   [[src/unicode/backend.rs:graphemes]]
   [[src/codegen/builtins/strings/func_graphemes.rs:lower]]
-- **Display-width folding.** `strings::displayWidth` also folds a statically
-  known string. It segments through `unicode::backend::graphemes` and reads
-  `PackedProperty::charwidth` in the compiler; the result is an integer literal.
-  [[src/codegen/builtins/strings/func_display_width.rs:lower]]
+- **Terminal measurement.** `term::measureText` always executes its runtime
+  function, even for a statically known string, so its presentation-mode and
+  active-terminal gates cannot be folded away. Its grapheme walk reads the same
+  packed property trie as terminal drawing.
+  [[src/codegen/builtins/term/func_measure_text.rs:lower_measure_text]]
+  [[src/codegen/builtins/term/func_measure_text.rs:measure_text_of]]
 - **Runtime tables.** When the argument is dynamic, the compiler emits code that
   uses the algorithms below against the embedded tables: a two-stage lookup for
   packed properties, binary search for mappings and category/Script ranges, and
@@ -169,9 +171,10 @@ fields:
 The runtime reads the display width as `(flags >> 4) & 0b11` (`CHARWIDTH_SHIFT`=4,
 `CHARWIDTH_MASK`); a value of 2 is East-Asian-Wide (two terminal columns), 1 is
 one column, and 0 is zero-width. How per-scalar widths combine into a grapheme's
-width — including a grapheme made only of zero-width scalars, which is `0` — is
-owned by `./mfb spec unicode strings-model`. The `AMBIGUOUS` bit marks East Asian Ambiguous
-width; `strings::displayWidth` and the `term::` backends treat ambiguous as width 1.
+width — including the one-cell clamp for a grapheme made only of zero-width
+scalars — is owned by `./mfb spec unicode strings-model`. The `AMBIGUOUS` bit
+marks East Asian Ambiguous width; terminal measurement and drawing treat
+ambiguous as width 1.
 
 [[src/unicode/runtime_tables.rs:COMB_IS_SECOND]]
 [[src/unicode/runtime_tables.rs:charwidth]]
@@ -238,8 +241,9 @@ changing any Unicode result. Today emission is **per-table**, driven by the
 relocations the generated code actually carries: a table is emitted iff some
 function relocates against its
 `_mfb_unicode_*` symbol. So a program that reaches only part of the Unicode
-surface carries only the tables it reads — `strings::graphemes`/`displayWidth`
-pull just the base trie (`stage1`/`stage2`/`properties`); `strings::caseFold`
+surface carries only the tables it reads — `strings::graphemes` and
+`term::measureText` pull just the base trie (`stage1`/`stage2`/`properties`);
+`strings::caseFold`
 pulls just the two casefold tables (the case-mapping path never indexes the
 property trie); `strings::normalizeNfc` pulls the base trie plus the
 `combinations_*`/`nfd_*` tables. The relocation scan is the ground truth; a
@@ -334,10 +338,11 @@ consonant opens the context. A walk seeds it from the first scalar through
 `emit_seed_indic_conjunct_state`, which maps anything but a consonant to
 "none". A leading linker (`U+094D U+0915`) therefore breaks before the consonant,
 two clusters, as on the folded Rust path. Every walk seeds the same way: the
-grapheme list, count and index, `displayWidth`, and terminal placement's
+grapheme list, count and index, terminal measurement, and terminal placement's
 standalone helpers.
 [[src/codegen/string/unicode_props.rs:emit_seed_indic_conjunct_state]]
 [[src/codegen/builtins/strings/gen_graphemes.rs:lower_strings_graphemes]]
+[[src/codegen/builtins/term/func_measure_text.rs:measure_text_of]]
 [[src/codegen/string/unicode_props.rs:emit_grapheme_break_branch_free]]
 [[src/codegen/string/unicode_props.rs:emit_grapheme_state_update_free]]
 [[src/unicode/backend.rs:graphemes]]

@@ -316,19 +316,25 @@ lifecycle.
 Acceptance: the focused term, strings-padding, regalloc, runtime-balance, and
 Canvas wrong-mode tests pass without golden edits.
   Check: `cargo test --test codegen_regalloc_eviction && cargo test --test rt_strings_unowned_blocks && cargo test --test cli_app_canvas_mode` → 1 regalloc, 8 runtime-balance, and 11 Canvas tests passed (est. 4 min).
-Commit: —
+Commit: `2e87cc224`
 
 ### Phase 3 — Synchronize specs, man pages, and acceptance goldens
 
 Document the observable contract and make only evidence-backed expected-output
 changes after the mandated pre-rebaseline suite.
 
-- [ ] Update Unicode algorithm/string specs and the term backend spec so cell
+- [x] Update Unicode algorithm/string specs and the term backend spec so cell
       ownership, gate behavior, zero-only clamping, and raw padding validation are
-      explicit; update source citations.
-- [ ] Remove the strings man entry, add the term `measureText` descriptor/examples,
+      explicit; update source citations. — `cargo test --bin mfb spec` passed 46
+      tests; both `./scripts/spec-census.sh --citations unicode app stdlib` and
+      `./scripts/spec-census.sh --links unicode app stdlib` reported 0 misses.
+- [x] Remove the strings man entry, add the term `measureText` descriptor/examples,
       update strings padding prose and package overviews, and render both man
-      surfaces.
+      surfaces. — `target/debug/mfb man term measureText` and
+      `target/debug/mfb man strings --all` rendered the updated pages with no
+      old member; the focused term example and all 8 changed padding examples
+      built and ran; the term/strings rendered-content censuses reported 0
+      unclassified memory-vocabulary hits and 0 internals-vocabulary hits.
 - [ ] Run the full acceptance suite before any golden edit; inspect one migrated
       fixture diff to localize the expected API/gate/result changes. Treat every
       unrelated diff as a bug-hunt trigger.

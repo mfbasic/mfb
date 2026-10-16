@@ -252,9 +252,11 @@ the result. `term::LineStyle` selects the box-drawing weight for `term::drawHLin
 `term::drawVLine`, and `term::drawBox`; `term::FillStyle` selects the block or shade
 glyph for `term::fillRect`.
 
-`term::measureText` measures a `String` in the same terminal grid cells that
-`term::drawText` advances. It is available only while the Console TUI is active;
-measure before `term::off` when the result is needed afterwards.
+`term::measureText` measures a `String` or an `astrings::AttributedString` in the
+same terminal grid cells that `term::drawText` advances; attributes do not change
+the answer. The empty string measures zero, and even a grapheme made entirely of
+zero-width characters occupies one cell. It is available only while the Console
+TUI is active; measure before `term::off` when the result is needed afterwards.
 
 `term::MouseEvent` carries one thing the mouse did: `kind` (a
 `term::MouseKind` — `None`, `Down`, `Up`, `Move`, `Drag`, `ScrollUp`,

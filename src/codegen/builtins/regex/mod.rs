@@ -210,7 +210,7 @@ operations a *pattern* can express: `match`↔`contains`, `find`↔`find`,
 no pattern equivalent have none because a pattern would add nothing to them, not
 because they were overlooked:
 
-- The **measurements and decompositions** — `len`, `byteLen`, `displayWidth`,
+- The **measurements and decompositions** — `len`, `byteLen`,
   `graphemes`, `graphemesCount`, `graphemeAt`, `toBytes`, `toScalars`,
   `fromScalars` — ask about the text itself, not about a pattern in it.
 - The **position-anchored members** — `startsWith`, `endsWith`, `startsWithAny`,

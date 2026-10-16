@@ -97,8 +97,8 @@ trimming and case mapping (`trim`, `trimStart`, `trimEnd`, `trimChars`, `upper`,
 `graphemes`, `graphemeAt`, `graphemesCount`), tests and search (`startsWith`,
 `endsWith`, `contains`, `startsWithAny`, `endsWithAny`, `find`, `count`), slicing
 and reshaping (`left`, `right`, `mid`, `stripPrefix`, `stripSuffix`, `split`,
-`join`, `replace`, `repeat`, `padLeft`, `padRight`), terminal display width
-(`displayWidth`, `padLeftToWidth`, `padRightToWidth`), length and byte queries
+`join`, `replace`, `repeat`, `padLeft`, `padRight`), terminal-column padding
+(`padLeftToWidth`, `padRightToWidth`), length and byte queries
 (`byteLen`, `toBytes`), and the Unicode-scalar seam (`toScalars`, `fromScalars`,
 and the `Scalar` classifiers `isLetter`, `isDigit`, `isWhitespace`, `isUpper`,
 `isLower`).
@@ -138,9 +138,10 @@ negative width or count anywhere in the package, raises `ErrInvalidArgument`.
 **Padding comes in two units, and picking the wrong one is the package's
 sharpest edge.** `padLeft` and `padRight` pad to a count of Unicode scalar
 values — right for a fixed-length record field or a zero-padded number.
-`padLeftToWidth` and `padRightToWidth` pad to a count of terminal columns, the
-measure `displayWidth` reports — right for anything that has to line up on
-screen. The two agree only on text whose scalars are all one column wide, so a
+`padLeftToWidth` and `padRightToWidth` pad to the same terminal-column measure
+as `term::measureText`, without requiring the terminal surface to be active —
+right for anything that has to line up on screen. The two units agree only on
+text whose scalars are all one column wide, so a
 table built with `padLeft` goes crooked the moment a row carries CJK text, an
 emoji or a combining sequence.
 
