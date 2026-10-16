@@ -295,9 +295,14 @@ lifecycle.
       term_measure_text_balances_repeated_calls_after_one_setup -- --nocapture`
       passed with balanced 100/200-call runs; the off-TUI padding assertion
       remains in `width_padding_stays_ungated_and_rejects_zero_width_pad_chars`.
-- [ ] Migrate the 32 example, 11 benchmark, and 2 spike occurrences measured in
+- [x] Migrate the 32 example, 11 benchmark, and 2 spike occurrences measured in
       §2, including caching values before `term::off()` and moving benchmark
-      lifecycle outside timed loops.
+      lifecycle outside timed loops. — The original census command now reports
+      0 old-name occurrences in each of `examples`, `benchmark`, and `spikes`;
+      the affected AI chat, wide demo, browser package chain, benchmark, and
+      spike projects all produced native executables/packages. The benchmark
+      lifecycle wraps only the three width rows, outside their timed loops, and
+      the wide demo/spike cache measurements before `term::off()`.
 - [ ] Run the non-golden census again and reduce old-name occurrences outside
       historical/completed planning records to zero.
 

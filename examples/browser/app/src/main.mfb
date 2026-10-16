@@ -120,7 +120,7 @@ END FUNC
 
 ' ----- text shaping -----
 '
-' Every measurement here is in terminal *columns* (strings::displayWidth), never
+' Every measurement here is in terminal *columns* (`term::measureText`), never
 ' Unicode scalar count (len): a CJK ideograph or emoji occupies two cells and a
 ' combining mark none, so measuring by scalars would let a wide glyph push the
 ' right edge out of alignment. Truncation always breaks on a grapheme boundary,
@@ -129,7 +129,7 @@ END FUNC
 ' Space-pad `s` on the right to exactly `width` columns. `s` must already be no
 ' wider than `width`; a space is one column, so the pad count is exact.
 FUNC padCols(s AS String, width AS Integer) AS String
-  LET w AS Integer = strings::displayWidth(s)
+  LET w AS Integer = term::measureText(s)
   IF w >= width THEN RETURN s
   RETURN s & strings::repeat(" ", width - w)
 END FUNC
@@ -139,11 +139,11 @@ END FUNC
 ' column short (the caller pads that cell).
 FUNC clipCols(s AS String, width AS Integer) AS String
   IF width <= 0 THEN RETURN ""
-  IF strings::displayWidth(s) <= width THEN RETURN s
+  IF term::measureText(s) <= width THEN RETURN s
   MUT out AS String = ""
   MUT used AS Integer = 0
   FOR EACH g IN strings::graphemes(s)
-    LET gw AS Integer = strings::displayWidth(g)
+    LET gw AS Integer = term::measureText(g)
     IF used + gw > width THEN EXIT FOR
     out = out & g
     used = used + gw
@@ -162,7 +162,7 @@ END FUNC
 FUNC maxLineWidth(lines AS List OF AttributedString) AS Integer
   MUT m AS Integer = 0
   FOR EACH line IN lines
-    LET w AS Integer = strings::displayWidth(toString(line))
+    LET w AS Integer = term::measureText(toString(line))
     IF w > m THEN m = w
   NEXT
   RETURN m
@@ -184,7 +184,7 @@ END FUNC
 FUNC composeFooter(left AS String, right AS String, width AS Integer) AS String
   IF width <= 0 THEN RETURN ""
   LET r AS String = clipCols(right, width)
-  LET leftRoom AS Integer = width - strings::displayWidth(r)
+  LET leftRoom AS Integer = width - term::measureText(r)
   RETURN padCols(clipCols(left, leftRoom), leftRoom) & r
 END FUNC
 
@@ -207,7 +207,7 @@ FUNC wrapContent(content AS String, width AS Integer) AS List OF String
       MUT chunk AS String = ""
       MUT chunkW AS Integer = 0
       FOR EACH g IN strings::graphemes(line)
-        LET gw AS Integer = strings::displayWidth(g)
+        LET gw AS Integer = term::measureText(g)
         IF chunkW > 0 AND chunkW + gw > w THEN
           out = collections::append(out, chunk)
           chunk = ""
@@ -357,7 +357,7 @@ FUNC drawChrome(size AS term::TermSize, addressMode AS Boolean, rawMode AS Boole
   ' the indicator emoji (🔒/🔓) is one scalar but occupies two terminal cells, so
   ' `len` would place the cursor one cell short — on the last letter, not past it.
   IF addressMode THEN
-    LET curCol AS Integer = minOf(strings::displayWidth(hrefPrefix) + strings::displayWidth(url), cols - 1)
+    LET curCol AS Integer = minOf(term::measureText(hrefPrefix) + term::measureText(url), cols - 1)
     term::moveTo(0, curCol)
     term::showCursor()
   ELSE

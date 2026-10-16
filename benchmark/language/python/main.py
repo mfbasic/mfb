@@ -869,7 +869,7 @@ def main():
     # scalarbench group (roundtrip/classify/transform/listchurn)
     scalarbench.run_all(RUN, now_ns, record)
 
-    # width group (plan-87 strings::displayWidth — ascii/mixed/churn)
+    # width group (plan-178 term::measureText — ascii/mixed/churn)
     widthbench.run_all(RUN, now_ns, record)
 
     # pipeline group (plan-87 chained HOF — int/groupagg/str)

@@ -954,7 +954,7 @@ FUNC handleInput(ui AS UiState, key AS String) AS KeyStep
     u = WITH u { sessions := setScroll(u.sessions, u.activeIdx, collections::get(u.sessions, u.activeIdx).scroll - 1) }
   ELSEIF key = "BACKSPACE" THEN
     IF len(u.inputBuf) > 0 THEN u = WITH u { inputBuf := strings::mid(u.inputBuf, 0, len(u.inputBuf) - 1) }
-  ELSEIF len(key) = 1 AND strings::displayWidth(key) > 0 THEN
+  ELSEIF len(key) = 1 AND term::measureText(key) > 0 THEN
     ' single printable scalar; named keys (UP, ENTER, TAB, ...) are len > 1
     u = WITH u { inputBuf := u.inputBuf & key }
   END IF

@@ -44,7 +44,7 @@ chained pipelines, compile-once/run-many — rather than one call per member:
 | `regexbench`        | compile-once/match-many, capture-group rewrite, `\|`-alternation find-all, and pattern-driven replace |
 | `arena`             | mixed-size transient-churn / long-lived+short-lived / grow-shrink — the **regression gate for the arena free list** (see below) |
 | `scalarbench`       | the `Scalar` primitive (plan-41): string↔`List OF Scalar` round-trip, `is*` classification sweep, `toInt`/`toScalar` transform pipeline, and the 4-byte `List OF Scalar` payload width |
-| `width`             | `strings::displayWidth` (plan-87) — the first benchmark of terminal display width (UAX #29 grapheme segmentation + a per-cluster utf8proc column-width lookup): `ascii` (all-narrow EGC fast path over a fixed ~4 KB buffer), `mixed` (the wide-CJK / zero-width-combining / ZWJ-emoji slow path over a curated corpus, plus a companion `graphemesCount`), and `churn` (per-row segmentation of fresh String temporaries — arena-gated, tiny) |
+| `width`             | `term::measureText` (plan-178) — the benchmark of terminal display width (UAX #29 grapheme segmentation + a per-cluster utf8proc column-width lookup): `ascii` (all-narrow EGC fast path over a fixed ~4 KB buffer), `mixed` (the wide-CJK / zero-width-combining / ZWJ-emoji slow path over a curated corpus, plus a companion `graphemesCount`), and `churn` (per-row segmentation of fresh String temporaries — arena-gated, tiny) |
 | `pipeline`          | chained collection HOF pipelines (plan-87) — the shape the per-member matrix never chains, stressing the intermediate lists materialized between stages: `int` (`filter`→`transform`→`reduce` over a `List OF Integer`), `groupagg` (`groupBy`→`mapValues(reduce)`→`values`→`reduce` map-of-list ETL fold), and `str` (the same chain over a `List OF String` with `strings::upper` — arena-gated, small) |
 | `convert`           | in-memory number-conversion throughput (plan-87), isolating `toString`/`toInt`/`toFloat` from the file-IO-bound `io format`/`readnum` rows: `int` (`toString`/`toInt` round-trip) and `float` (`toString(_,6)`/`toFloat` round-trip over exact dyadic values) |
 | `record wide`/`nested` + `float nbody_rec`/`nbody_vec` (`recordbench.*`) | record-shaped code the way users write it (P1 coverage): `wide` (1M `WITH`-updates of a 10-field mixed Integer/Float/String record passed into and returned from a FUNC), `nested` (the same update on that record inside a record inside a `List` — `get`, nested `WITH`, `collections::set` write-back); `nbody_rec` / `nbody_vec` are the **same simulation as `float nbody`** (same bodies, 100000 steps, same pair and float op order) over a `List OF Body` of records updated with `WITH` + `collections::set`, and over `vector::Float3` position/velocity fields with `vector::dot`/`vector::distance`. C peers use structs by value (a 3-double struct for `vec`), Python `dataclasses.replace` (records) and `__slots__` objects / tuples (n-body). Record-row Float ops are adds or power-of-two multiplies (exact), and the n-body rows fold `round(energy × 1e9)` — the nine decimals `float nbody` prints — so all checksums match bit-for-bit (`wide=10005154`, `nested=3543353`, `nbody_rec`=`nbody_vec`=`-169079859`) |
@@ -74,7 +74,7 @@ merge sort's best/worst/average shapes, all sorting to the same canonical order 
 one shared order-sensitive checksum proves each shape sorted correctly).
 
 Three more groups (plan-87) close the last narrow gaps. `width` is the first
-benchmark of `strings::displayWidth` (plan-70), which had zero coverage — a
+benchmark of `term::measureText` (plan-178), which owns terminal measurement — a
 distinct fourth string measure (UAX #29 extended-grapheme-cluster segmentation +
 a per-cluster utf8proc column-width lookup) separate from `len` (scalars),
 `byteLen` (UTF-8 bytes), and `graphemesCount` (clusters). `pipeline` benches the
@@ -278,7 +278,7 @@ Python `record(group, name, None)` does.
 - **`width` (plan-87)** has no C/Python display-width builtin, so the peers
   hand-roll the width logic over the *controlled* mixed corpus (a per-scalar width
   table plus a one-scalar ZWJ/combining lookahead); the corpus is chosen so that
-  reproduces mfb's `displayWidth`/`graphemesCount` exactly and the column/cluster
+  reproduces mfb's `measureText`/`graphemesCount` exactly and the column/cluster
   checksums match bit-for-bit (`ascii=8250000`, `mixed=480320`, `churn=360`).
 - **`convert float` (plan-87)** folds its reparsed value **rounded to nearest**
   rather than truncated, because mfb's `toFloat` is a naive digit-accumulation
@@ -378,13 +378,13 @@ per-call cost is flat across the run loop — and run at realistic counts today.
 The plan-87 rows carrying arena markers are two: `width churn` (`TODO(arena
 grapheme-churn)`) segments many *fresh* short String temporaries per iteration, so
 it hits the residual grapheme-transient-churn quadratic that
-`strings::graphemes`/`graphemesCount`/`displayWidth`-over-fresh-strings still
+`strings::graphemes`/`graphemesCount`/`term::measureText`-over-fresh-strings still
 degrade on — authored tiny (8 rows × 5 passes), to be bumped and kept linear when
 that residual lands; and `pipeline str` (`TODO(plan-86-A)`) reshapes a `List OF
 String` through `filter`/`transform`(`upper`)/`reduce`, allocating fresh String
 temporaries, so it is authored small (50 elems × 20 reps) until plan-86 sub-plan A
 (String native lowering) lands. Their same-buffer / Integer siblings — `width
-ascii`, `width mixed` (`displayWidth` alone streams with no retained temporary and
+ascii`, `width mixed` (`measureText` alone streams with no retained temporary and
 stays flat; the degrading `graphemesCount` companion is called once, not per rep),
 `pipeline int`, `pipeline groupagg`, and both `convert` rows — are Phase 1 and run
 at realistic sizes today.
