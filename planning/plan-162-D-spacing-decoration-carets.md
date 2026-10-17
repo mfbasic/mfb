@@ -220,29 +220,46 @@ Acceptance: metrics match the fixture tables.
   Result: `decoration` 1 passed. With it, the v3-dependent `face_index_of_*`,
   `face_kern_reads_each_fixtures_pairs` and the exact live-bytes test (now 23 index
   words) passed: 5 passed, 0 failed.
-Commit: — (this commit)
+Commit: d4ce4670b
 
 ### Phase 5 — caret stops, docs
 
-- [ ] New `func_caret_stops.rs`: `CaretStop` record, and two implementations (a single
+- [x] New `func_caret_stops.rs`: `CaretStop` record, and two implementations (a single
       font, and a list), sharing one MFBASIC body over `__canvas_shapeRun`.
-- [ ] Tests:
+      `__canvas_caretStopsHandles`; the last stop takes `__canvas_measureHandles`'s width.
+      Listed in each backend's `RUNTIME_CALLS` beside `measureText`.
+- [x] Tests:
   - the last stop's `x` equals `measureText(...).width` for 50 generated strings,
     including kerned pairs and spacing;
   - stop indices equal the grapheme start scalar indices;
   - the empty string gives one stop `(0, 0.0)`;
   - a closed font raises `ErrResourceClosed`.
-- [ ] Man pages: `caretStops` (with a hit-test example and a caret-drawing example),
+
+  `caret_stops_agree_with_measuring_and_with_graphemes`: 50 generated strings over
+  `A`, `V`, space and `A`+U+0301 in the kerning fixture, with spacings 0, 3.5 and −1.25.
+  Every one prints `TRUE TRUE` (last `x` = `measureText` width; indices = grapheme
+  starts). `caret_stops_place_kerned_characters_and_refuse_closed_fonts`: `AV` →
+  `0:0 1:130 2:430`, with spacing 10 over a list `0:0 1:140 2:440`, `""` → `0:0`,
+  `empty: 77050002`, `closed: 77030004`. Both ok.
+- [x] Man pages: `caretStops` (with a hit-test example and a caret-drawing example),
       `measureText` (`letterSpacing`), the `Text` page (`letterSpacing`), and the
       `TextMetrics` fields (an underline example using `canvas::Line`). Check with
       `scripts/man-run-examples.sh canvas --run` and
-      `scripts/man-census.sh --memory-scope` → 0 unclassified.
-- [ ] Spec `06_canvas.md`: the run columns, where gaps go, and the caret stop contract.
+      `scripts/man-census.sh --memory-scope` → 0 unclassified. `caretStops` (a
+      nearest-stop hit-test example; the caret is drawn at a stop's `x`), `measureText`
+      ("Letter-spacing." and "Underline and strikeout." paragraphs, and the example draws
+      the underline `canvas::Line`), `Text.letterSpacing` and the four `TextMetrics`
+      field descriptions. `scripts/man-run-examples.sh canvas --run measureText
+      caretStops` → `examples: 2 built: 2 ran: 2 … failed: 0`; census → 0.
+- [x] Spec `06_canvas.md`: the run columns, where gaps go, and the caret stop contract.
+      Under "Every text path reads one shaped run", with the decoration words.
+      `cargo test --bin mfb spec` → 46 passed; no leaked `[[`.
 
 Acceptance: caret stops agree with measuring and drawing.
   Check: `cargo test --test rt_canvas_font caret --test cli_canvas_man_examples_compile`
   → pass (est. 4 min).
-Commit: —
+  Result: `caret` 2 passed; `cli_canvas_man_examples_compile` 3 passed.
+Commit: — (this commit)
 
 ## Validation Plan
 

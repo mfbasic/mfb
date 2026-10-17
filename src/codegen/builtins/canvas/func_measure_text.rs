@@ -45,6 +45,24 @@ of them. `lineGap` is the first font's. Kerning applies only between two charact
 from the same font. A one-font list measures exactly as that font alone does. An empty
 list raises `ErrInvalidArgument`.
 
+**Letter-spacing.** The optional `letterSpacing` adds that many pixels after every
+character but the last, where a character is what a reader sees as one — a letter with
+its accents, a whole emoji sequence — so `"AVA"` with `letterSpacing` 2.0 is 4 pixels
+wider, never 6. It matches `canvas::Text.letterSpacing`, and a text item and a
+measurement with the same spacing agree. A negative spacing measures narrower. To place
+a caret or hit-test a click inside the text, use `canvas::caretStops`, which takes the
+same arguments.
+
+**Underline and strikeout.** `underlineOffset` and `strikeoutOffset` are where the first
+font in the list puts those lines, as pixels from the baseline down to the line's top
+edge: an underline's offset is positive (below the baseline) and a strikeout's negative
+(across the letters). `underlineThickness` and `strikeoutThickness` are their
+thicknesses. A font that does not give a line gets a standard one: an underline 0.1 em
+below the baseline and 0.05 em thick, and a strikeout 0.26 em above it with the
+underline's thickness. Draw either as a `canvas::Line` along the band's middle, at
+`offset + thickness / 2` below the baseline with `thickness` as its stroke width, as
+the example below does.
+
 A font with no `head` table measures as all zeroes rather than failing; in a list, it
 adds nothing. A closed font is different: measuring it raises `ErrResourceClosed`, and so
 does a list with a closed font anywhere in it. Text already in a
@@ -56,7 +74,9 @@ measurement needs the font open.
 const EX: &str = r#"```
 IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
+IMPORT vector
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
@@ -68,6 +88,15 @@ FUNC main() AS Nothing
   ' first one that has it.
   LET inList AS canvas::TextMetrics = canvas::measureText([face], 24.0, "hello")
   io::print("same width " & toString(inList.width = m.width))
+  ' Two pixels between characters: four gaps in "hello", so 8 pixels wider.
+  LET spaced AS canvas::TextMetrics = canvas::measureText(face, 24.0, "hello", 2.0)
+  io::print("spaced width " & toString(spaced.width))
+  ' Underline the text drawn at (20, 60): a line along the middle of the font's band.
+  LET y AS Float = 60.0 + m.underlineOffset + m.underlineThickness / 2.0
+  LET underline AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 20.0, y := y], startAt := vector::Float2[x := 0.0, y := 0.0], endAt := vector::Float2[x := m.width, y := 0.0], paint := canvas::stroke(color::rgb(255, 255, 255), m.underlineThickness), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 20.0, y := 60.0], text := "hello", fonts := [face], fontSize := 24.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  canvas::present([label, underline])
+  io::print("underline at y " & toString(y) & ", " & toString(m.underlineThickness) & " thick")
 END FUNC
 ```"#;
 

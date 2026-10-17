@@ -104,6 +104,7 @@ impl NativeBackend for Backend {
                 "canvas.fontHandle",
                 "canvas.fontOpenHandle",
                 "canvas.measureText",
+                "canvas.caretStops",
                 "canvas.fontRegistered",
                 "canvas.fontBlobUnchecked",
                 "canvas.faceAt",

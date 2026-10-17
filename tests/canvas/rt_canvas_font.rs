@@ -3864,3 +3864,136 @@ fn decoration_metrics_come_from_post_and_os2_or_the_defaults() {
         "no strikeout: the default position, at the font's underline thickness"
     );
 }
+
+/// 50 strings over `A`, `V` (a kerned pair in the gpos1 fixture), a space (`.notdef`),
+/// and `A` + U+0301 (two scalars, one grapheme), each with one of three spacings. For
+/// every one, `caretStops`' last `x` is `measureText`'s `width` exactly, and its indices
+/// are exactly the grapheme starts `strings::graphemes` gives, plus the length.
+#[test]
+fn caret_stops_agree_with_measuring_and_with_graphemes() {
+    let mut seed: u32 = 162;
+    let mut next = || {
+        seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        (seed >> 16) as usize
+    };
+    let pieces: [&[u32]; 4] = [&[65], &[86], &[32], &[65, 0x301]];
+    let spacings = ["0.0", "3.5", "0.0 - 1.25"];
+    let mut body = String::new();
+    for _ in 0..50 {
+        let len = next() % 7;
+        let mut cps: Vec<String> = Vec::new();
+        for _ in 0..len {
+            for cp in pieces[next() % pieces.len()] {
+                cps.push(cp.to_string());
+            }
+        }
+        let spacing = spacings[next() % spacings.len()];
+        body.push_str(&format!(
+            "  check(f, encoding::utf32Decode([{}]), {spacing})\n",
+            cps.join(", ")
+        ));
+    }
+    let source = format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT encoding
+IMPORT strings
+IMPORT io
+
+FUNC check(f AS canvas::Font, s AS String, spacing AS Float) AS Nothing
+  LET stops AS List OF canvas::CaretStop = canvas::caretStops(f, 37.0, s, spacing)
+  LET width AS Float = canvas::measureText(f, 37.0, s, spacing).width
+  MUT want AS String = "0"
+  MUT at AS Integer = 0
+  FOR EACH g IN strings::graphemes(s)
+    at = at + len(encoding::utf32Encode(g))
+    want = want & "," & toString(at)
+  NEXT
+  MUT got AS String = ""
+  MUT lastX AS Float = 0.0 - 1.0
+  FOR EACH stop IN stops
+    IF len(got) > 0 THEN
+      got = got & ","
+    END IF
+    got = got & toString(stop.index)
+    lastX = stop.x
+  NEXT
+  io::print(toString(lastX = width) & " " & toString(got = want))
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("kerned.ttf")
+{body}END FUNC
+"#
+    );
+    let lines = run_files(
+        "canvas_caret_stops_agree",
+        &source,
+        &[("kerned.ttf", kerning_font(&[(b"GPOS", gpos_format1())]))],
+    );
+    assert_eq!(lines.len(), 50);
+    for (i, line) in lines.iter().enumerate() {
+        assert_eq!(
+            line, "TRUE TRUE",
+            "string {i}: last stop = width, indices = grapheme starts"
+        );
+    }
+}
+
+/// Stops sit where the characters after them are drawn: in the gpos1 fixture at size
+/// 1000, `AV` kerns to 250 − 120 = 130 for `A`, so the stop before `V` is at 130, and the
+/// end at 130 + 300. An empty string is one stop, `0` at 0; a closed font raises
+/// `ErrResourceClosed` and an empty list `ErrInvalidArgument`.
+#[test]
+fn caret_stops_place_kerned_characters_and_refuse_closed_fonts() {
+    let lines = run_files(
+        "canvas_caret_stops_edges",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC closeIt(f AS canvas::Font) AS Nothing
+  canvas::destroyFont(f)
+END FUNC
+
+FUNC show(stops AS List OF canvas::CaretStop) AS String
+  MUT out AS String = ""
+  FOR EACH stop IN stops
+    out = out & toString(stop.index) & ":" & toString(toInt(stop.x)) & " "
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("kerned.ttf")
+  RES g AS canvas::Font = canvas::loadFont("kerned.ttf")
+  io::print(show(canvas::caretStops(f, 1000.0, "AV")))
+  io::print(show(canvas::caretStops([g, f], 1000.0, "AV", 10.0)))
+  io::print(show(canvas::caretStops(f, 1000.0, "")))
+  LET none AS List OF RES canvas::Font = []
+  LET a AS List OF canvas::CaretStop = canvas::caretStops(none, 10.0, "A") TRAP(e)
+    io::print("empty: " & toString(e.code))
+    RECOVER []
+  END TRAP
+  closeIt(g)
+  LET b AS List OF canvas::CaretStop = canvas::caretStops([g, f], 10.0, "A") TRAP(e)
+    io::print("closed: " & toString(e.code))
+    RECOVER []
+  END TRAP
+END FUNC
+"#,
+        &[("kerned.ttf", kerning_font(&[(b"GPOS", gpos_format1())]))],
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "0:0 1:130 2:430 ",
+            "0:0 1:140 2:440 ",
+            "0:0 ",
+            "empty: 77050002",
+            "closed: 77030004",
+        ]
+    );
+}

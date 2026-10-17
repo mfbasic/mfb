@@ -2705,6 +2705,35 @@ assembled source. [[src/codegen/builtins/canvas/mod.rs:canvas_text_has_one_glyph
 A `Text` passes its `fonts` list, as handles (`__canvas_textHandles`), and the
 single-font `measureText` passes a one-element list.
 
+Each glyph's record is five words, read by the `__CANVAS_RUN_*` column names and never
+by position: `fontIndex`, `glyphId`, `advanceUnits`, `scalarIndex` (the zero-based
+Unicode scalar index of the codepoint the glyph came from), and `gapAfter`. `gapAfter`
+is 1 on the last glyph of every grapheme but the final one, with graphemes taken from
+`strings::graphemes`. That one column decides where letter-spacing goes and where a
+caret can stand, so both agree with drawing by construction.
+[[src/codegen/builtins/canvas/helper_font.rs:SHAPE_RUN]] `letterSpacing`, on
+`canvas::Text` and as `measureText`'s optional last argument, adds its pixels to the pen
+after every `gapAfter` glyph: between graphemes, never after the last. It is added only
+when it is not `0.0`, and the `Text` hash folds it only then, so an unspaced item draws,
+measures and keys the cache exactly as before.
+
+`TextMetrics` also carries the first font's decoration lines: `underlineOffset` and
+`strikeoutOffset`, in pixels down from the baseline to the line's top edge (OpenType's
+`post.underlinePosition` and `OS/2.yStrikeoutPosition` both name the top), and their
+thicknesses. They are read at load into face-index words 10–13 (layout version 3),
+which hold −32768 when the table is missing or gives a non-positive thickness. Such a
+font gets the defaults, the medians of the 638 TrueType faces plan-162 measured: an
+underline 0.10 em below the baseline and 0.05 em thick, and a strikeout 0.26 em above
+it at the underline's thickness.
+[[src/codegen/builtins/canvas/helper_font.rs:__canvas_faceLine]]
+
+`canvas::caretStops` projects the same run. One `CaretStop` (`index`, `x`) at 0, then
+one after every `gapAfter` glyph, at the next glyph's scalar index and at the pen
+position the draw paths reach there, spacing included. The last is the scalar count, at
+`__canvas_measureHandles`'s width itself, so it equals `measureText`'s `width` bit for
+bit. An empty string is the one stop `(0, 0.0)`.
+[[src/codegen/builtins/canvas/func_caret_stops.rs:CARET_STOPS_HANDLES]]
+
 Each glyph is scaled by its own font's `size / unitsPerEm`, and a font with no `head`
 has no scale: its glyphs draw nothing and advance nothing. `measureText` sums each font's
 advances as an Integer in that font's units and scales each sum once, so a one-element

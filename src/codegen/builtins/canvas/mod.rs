@@ -60,6 +60,7 @@ mod func_installed_layers;
 mod func_item_hash;
 pub(crate) mod func_load_font;
 mod func_load_image;
+mod func_caret_stops;
 mod func_measure_text;
 mod func_metal_draw;
 mod func_metal_present;
@@ -2523,6 +2524,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_load_font::register(&mut pkg);
     func_system_fonts::register(&mut pkg);
     func_measure_text::register(&mut pkg);
+    func_caret_stops::register(&mut pkg);
     func_destroy_font::register(&mut pkg);
     func_get_size::register(&mut pkg);
     func_nurbs_to_beziers::register(&mut pkg);
