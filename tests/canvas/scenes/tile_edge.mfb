@@ -1,0 +1,30 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT io
+IMPORT collections
+
+FUNC at(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+' bug-1093: a 2x3 image, row 0 red, row 1 green, row 2 blue. Two tiles of row 1 (green):
+' one on whole pixels, one at (10.5, 50.5). The partly covered edge pixels of the second
+' must take the green source row, never the red or blue rows either side of it.
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT px AS List OF Byte = []
+  FOR r = 0 TO 2
+    FOR c = 0 TO 1
+      IF r = 0 THEN px = collections::append(px, [toByte(255), toByte(0), toByte(0), toByte(255)])
+      IF r = 1 THEN px = collections::append(px, [toByte(0), toByte(255), toByte(0), toByte(255)])
+      IF r = 2 THEN px = collections::append(px, [toByte(0), toByte(0), toByte(255), toByte(255)])
+    NEXT
+  NEXT
+  RES img AS canvas::Image = canvas::createImage(2, 3, px)
+  LET whole AS canvas::DrawItem = canvas::Tile[image := img, srcPosition := at(0.0, 1.0), srcSize := at(2.0, 1.0), position := at(10.0, 10.0), size := at(40.0, 20.0)]
+  LET frac AS canvas::DrawItem = canvas::Tile[image := img, srcPosition := at(0.0, 1.0), srcSize := at(2.0, 1.0), position := at(10.5, 50.5), size := at(40.0, 20.0)]
+  LET fracX AS canvas::DrawItem = canvas::Tile[image := img, srcPosition := at(0.0, 1.0), srcSize := at(1.0, 1.0), position := at(100.5, 10.5), size := at(40.0, 20.0)]
+  canvas::present([whole, frac, fracX])
+  io::print("rendered")
+END FUNC

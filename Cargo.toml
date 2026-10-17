@@ -12,6 +12,12 @@ members = [".", "repository", "wire"]
 # hole bug-347 closed for `repository`.
 default-members = [".", "repository", "wire"]
 
+# A bare `cargo test` builds with release optimizations: the suite's in-process
+# compiler tests run hours in an unoptimized build. `cargo build`/`cargo run`
+# keep the normal debug profile.
+[profile.test]
+inherits = "release"
+
 [package]
 name = "mfb"
 version = "0.1.0"

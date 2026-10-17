@@ -1,9 +1,8 @@
 ' scenery - the trees, birds, stars and motes several scenes share.
 '
-' Every shape here is built in its own coordinates around (0, 0) and placed with
-' a canvas::Transform, or built directly where it stands, as the comment on each
-' function says. Each takes a seed where it scatters detail, so a tree drawn
-' twice with one seed is the same tree.
+' Every shape here is built around its own origin and placed by its position,
+' its own transform, or the Group node that draws it. Each takes a seed where
+' it scatters detail, so a tree drawn twice with one seed is the same tree.
 
 IMPORT canvas
 IMPORT vector
@@ -15,10 +14,10 @@ IMPORT math
 ' Trees
 ' ---------------------------------------------------------------------------
 
-' The outline of a pine standing on (cx, baseY), `h` tall and `w` across at its
+' The outline of a pine standing on (0, 0), `h` tall and `w` across at its
 ' widest: a short trunk under tiers of drooping, ragged boughs that narrow
 ' towards a single tip.
-FUNC pineRing(cx AS Float, baseY AS Float, h AS Float, w AS Float, seed AS Integer) AS List OF vector::Float2
+FUNC pineRing(h AS Float, w AS Float, seed AS Integer) AS List OF vector::Float2
   LET tiers AS Integer = 6 + seed MOD 3
   LET trunkH AS Float = h * 0.07
   LET trunkW AS Float = w * 0.06
@@ -29,29 +28,28 @@ FUNC pineRing(cx AS Float, baseY AS Float, h AS Float, w AS Float, seed AS Integ
   FOR k = 0 TO tiers - 1
     LET u0 AS Float = toFloat(k) / toFloat(tiers)
     LET u1 AS Float = toFloat(k + 1) / toFloat(tiers)
-    LET yTop AS Float = baseY - trunkH - crownH * (1.0 - u0)
-    LET yTip AS Float = baseY - trunkH - crownH * (1.0 - u1) + crownH * 0.015
+    LET yTop AS Float = -trunkH - crownH * (1.0 - u0)
+    LET yTip AS Float = -trunkH - crownH * (1.0 - u1) + crownH * 0.015
     LET reach AS Float = w * 0.5 * (0.18 + 0.82 * u1) * hashRange(seed * 31 + k, 0.86, 1.08)
     LET tuck AS Float = reach * 0.42
-    right = collections::append(right, pt(cx + tuck * 0.55 + reach * 0.1, yTop + (yTip - yTop) * 0.45))
-    right = collections::append(right, pt(cx + reach * 0.78, yTip - crownH * 0.012))
-    right = collections::append(right, pt(cx + reach, yTip + crownH * 0.006))
-    IF k < tiers - 1 THEN right = collections::append(right, pt(cx + tuck, yTip - crownH * 0.022))
+    right = collections::append(right, pt(tuck * 0.55 + reach * 0.1, yTop + (yTip - yTop) * 0.45))
+    right = collections::append(right, pt(reach * 0.78, yTip - crownH * 0.012))
+    right = collections::append(right, pt(reach, yTip + crownH * 0.006))
+    IF k < tiers - 1 THEN right = collections::append(right, pt(tuck, yTip - crownH * 0.022))
   NEXT
-  MUT ring AS List OF vector::Float2 = [pt(cx, baseY - h)]
+  MUT ring AS List OF vector::Float2 = [pt(0.0, -h)]
   ring = collections::append(ring, right)
-  ring = collections::append(ring, [pt(cx + trunkW, baseY - trunkH), pt(cx + trunkW, baseY), pt(cx - trunkW, baseY), pt(cx - trunkW, baseY - trunkH)])
+  ring = collections::append(ring, [pt(trunkW, -trunkH), pt(trunkW, 0.0), pt(-trunkW, 0.0), pt(-trunkW, -trunkH)])
   ' Up the left-hand side: the right side mirrored, with its own raggedness.
   FOR i = len(right) - 1 TO 0 STEP -1
     LET p AS vector::Float2 = collections::get(right, i)
-    LET jitter AS Float = hashRange(seed * 97 + i, 0.9, 1.08)
-    ring = collections::append(ring, pt(cx - (p.x - cx) * jitter, p.y + (hash01(seed * 13 + i) - 0.5) * h * 0.012))
+    ring = collections::append(ring, pt(-p.x * hashRange(seed * 97 + i, 0.9, 1.08), p.y + (hash01(seed * 13 + i) - 0.5) * h * 0.012))
   NEXT
   RETURN ring
 END FUNC
 
 FUNC pine(cx AS Float, baseY AS Float, h AS Float, w AS Float, seed AS Integer, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN poly(pineRing(cx, baseY, h, w, seed), p)
+  RETURN polyAt(cx, baseY, pineRing(h, w, seed), p)
 END FUNC
 
 ' A row of pines along a ridge: `count` trees spread over the width `width`,
@@ -72,33 +70,30 @@ END FUNC
 
 ' A bird in flight seen from the side, in its own frame: beak towards +X, one
 ' unit from tail to beak. `flap` runs -1 (wings down) to 1 (wings up). The far
-' wing is a little behind and darker, so a flapping bird reads as having two.
-FUNC birdNearWing(flap AS Float, broad AS Float) AS List OF vector::Float2
-  LET lift AS Float = flap
-  LET elbowX AS Float = 0.02
-  LET elbowY AS Float = -0.36 * lift
-  LET tipX AS Float = -0.34 + 0.06 * math::abs(lift)
-  LET tipY AS Float = -0.78 * lift + 0.08
-  RETURN [pt(0.16, -0.02), pt(elbowX + 0.06, elbowY - 0.04 * broad), pt(tipX, tipY), pt(tipX - 0.05 * broad, tipY + 0.07), pt(elbowX - 0.1 * broad, elbowY + 0.12 * broad), pt(-0.12, 0.04)]
+' wing is a little behind and darker, so a flapping bird reads as having two;
+' (ox, oy) is where in the bird's frame a wing's root is.
+FUNC birdWing(flap AS Float, broad AS Float, ox AS Float, oy AS Float) AS List OF vector::Float2
+  LET elbowX AS Float = 0.02 + ox
+  LET elbowY AS Float = -0.36 * flap + oy
+  LET tipX AS Float = -0.34 + 0.06 * math::abs(flap) + ox
+  LET tipY AS Float = -0.78 * flap + 0.08 + oy
+  RETURN [pt(0.16 + ox, -0.02 + oy), pt(elbowX + 0.06, elbowY - 0.04 * broad), pt(tipX, tipY), pt(tipX - 0.05 * broad, tipY + 0.07), pt(elbowX - 0.1 * broad, elbowY + 0.12 * broad), pt(-0.12 + ox, 0.04 + oy)]
 END FUNC
 
 FUNC birdBody AS List OF vector::Float2
   RETURN [pt(0.5, 0.0), pt(0.4, -0.06), pt(0.3, -0.08), pt(0.1, -0.08), pt(-0.2, -0.04), pt(-0.48, -0.08), pt(-0.5, 0.06), pt(-0.22, 0.07), pt(0.1, 0.09), pt(0.32, 0.06), pt(0.42, 0.03)]
 END FUNC
 
-' A whole bird placed at (x, y), heading `angle`, `size` pixels from tail to
-' beak. `broad` widens the wings (a hawk is about 1.6, a swallow 0.8). A bird
-' heading left is mirrored rather than flown upside down.
+' A whole bird at (x, y), heading `angle`, `size` pixels from tail to beak,
+' its outline turned and sized there (kit's `turned` says why not by a
+' transform of its own). `broad` widens the wings (a
+' hawk is about 1.6, a swallow 0.8). A bird heading left is mirrored rather
+' than flown upside down.
 FUNC bird(x AS Float, y AS Float, angle AS Float, size AS Float, flap AS Float, broad AS Float, body AS color::Color, far AS color::Color) AS List OF canvas::DrawItem
-  MUT a AS Float = angle
   MUT sy AS Float = size
-  IF math::cos(angle) < 0.0 THEN
-    ' Facing left: mirror vertically in the bird's frame so its back stays up.
-    sy = -size
-  END IF
-  LET t AS canvas::Transform = place2(x, y, a, size, sy)
-  LET farFlap AS Float = flap * 0.8 + 0.1
-  RETURN [poly(mapRing(shiftPts(birdNearWing(farFlap, broad), 0.06, -0.02), t), fillP(far)), poly(mapRing(birdBody(), t), fillP(body)), poly(mapRing(birdNearWing(flap, broad), t), fillP(body))]
+  IF math::cos(angle) < 0.0 THEN sy = -size
+  LET t AS canvas::Transform = turnScale(angle, size, sy)
+  RETURN [polyAt(x, y, turned(birdWing(flap * 0.8 + 0.1, broad, 0.06, -0.02), t), fillP(far)), polyAt(x, y, turned(birdBody(), t), fillP(body)), polyAt(x, y, turned(birdWing(flap, broad, 0.0, 0.0), t), fillP(body))]
 END FUNC
 
 ' A soaring raptor seen from below, in its own frame: heading +X, about one
@@ -121,32 +116,37 @@ FUNC raptorRing(flap AS Float) AS List OF vector::Float2
   RETURN collections::append(ring, [pt(0.36, -0.08), pt(0.5, -0.05)])
 END FUNC
 
-FUNC raptor(x AS Float, y AS Float, heading AS Float, size AS Float, flap AS Float, body AS color::Color, under AS color::Color) AS List OF canvas::DrawItem
-  LET t AS canvas::Transform = place(x, y, heading, size)
-  ' The underside is paler towards the middle of the wing: a radial ramp in the
-  ' bird's own frame, carried round by the same transform as its outline.
-  RETURN [placed(poly(raptorRing(flap), gradP(radial(0.05, 0.0, 1.1, [gstop(0.0, under), gstop(0.55, mixC(under, body, 0.5)), gstop(1.0, body)]))), t)]
+' The underside is paler towards the middle of the wing: a radial ramp in the
+' bird's own frame, carried round by the same transform as its outline.
+FUNC raptor(x AS Float, y AS Float, heading AS Float, size AS Float, flap AS Float, body AS color::Color, under AS color::Color) AS canvas::DrawItem
+  RETURN polyT(x, y, raptorRing(flap), turnScale(heading, size, size), gradP(radial(0.05, 0.0, 1.1, [gstop(0.0, under), gstop(0.55, mixC(under, body, 0.5)), gstop(1.0, body)])))
 END FUNC
 
-' A small round songbird perched or hopping, drawn where it stands: (x, y) is
-' its feet, `s` its height in pixels, facing right when `dir` is 1 and left when
-' -1. `tilt` cocks the head.
-FUNC songbird(x AS Float, y AS Float, s AS Float, dir AS Float, tilt AS Float, back AS color::Color, breast AS color::Color) AS List OF canvas::DrawItem
-  LET t AS canvas::Transform = place2(x, y, 0.0, s * dir, s)
-  LET headT AS canvas::Transform = place2(x + 0.18 * s * dir, y - 0.62 * s, tilt * dir, s * dir, s)
-  RETURN [
-    placed(poly([pt(-0.18, -0.38), pt(-0.62, -0.5), pt(-0.6, -0.42), pt(-0.2, -0.28)], fillP(back)), t),
-    placed(ellipse(0.0, -0.36, 0.3, 0.24, -0.25, fillP(back)), t),
-    placed(ellipse(0.06, -0.3, 0.2, 0.16, -0.2, fillP(breast)), t),
-    placed(poly([pt(-0.16, -0.42), pt(0.08, -0.44), pt(-0.02, -0.3), pt(-0.28, -0.26)], fillP(mixC(back, color::black, 0.25))), t),
-    placed(line(-0.04, -0.12, -0.08, 0.0, strokeP(hex("#3a2a1e"), 0.04)), t),
-    placed(line(0.06, -0.12, 0.06, 0.0, strokeP(hex("#3a2a1e"), 0.04)), t),
-    placed(circle(0.0, 0.0, 0.16, fillP(back)), headT),
-    placed(circle(0.05, 0.04, 0.1, fillP(breast)), headT),
-    placed(poly([pt(0.13, -0.03), pt(0.27, 0.01), pt(0.13, 0.04)], fillP(hex("#e0a030"))), headT),
-    placed(circle(0.07, -0.04, 0.035, fillP(hex("#120c08"))), headT),
-    placed(circle(0.08, -0.05, 0.012, fillP(color::white)), headT)
-  ]
+' A small round songbird, perched or hopping, built once in its own frame at
+' one unit tall - its feet at (0, 0), facing +X - as two groups: the body, and
+' the head, which turns on its own. `key` names the pair.
+FUNC installSongbird(key AS String, back AS color::Color, breast AS color::Color) AS Nothing
+  MUT body AS List OF canvas::DrawItem = [poly([pt(-0.18, -0.38), pt(-0.62, -0.5), pt(-0.6, -0.42), pt(-0.2, -0.28)], fillP(back))]
+  body = collections::append(body, ellipse(0.0, -0.36, 0.3, 0.24, -0.25, fillP(back)))
+  body = collections::append(body, ellipse(0.06, -0.3, 0.2, 0.16, -0.2, fillP(breast)))
+  body = collections::append(body, poly([pt(-0.16, -0.42), pt(0.08, -0.44), pt(-0.02, -0.3), pt(-0.28, -0.26)], fillP(mixC(back, color::black, 0.25))))
+  body = collections::append(body, line(-0.04, -0.12, -0.08, 0.0, strokeP(hex("#3a2a1e"), 0.04)))
+  body = collections::append(body, line(0.06, -0.12, 0.06, 0.0, strokeP(hex("#3a2a1e"), 0.04)))
+  canvas::setGroup("songbird-body-" & key, body)
+  MUT head AS List OF canvas::DrawItem = [circle(0.0, 0.0, 0.16, fillP(back))]
+  head = collections::append(head, circle(0.05, 0.04, 0.1, fillP(breast)))
+  head = collections::append(head, poly([pt(0.13, -0.03), pt(0.27, 0.01), pt(0.13, 0.04)], fillP(hex("#e0a030"))))
+  head = collections::append(head, circle(0.07, -0.04, 0.035, fillP(hex("#120c08"))))
+  head = collections::append(head, circle(0.08, -0.05, 0.012, fillP(color::white)))
+  canvas::setGroup("songbird-head-" & key, head)
+END FUNC
+
+' The songbird `key` standing at (x, y), `s` pixels tall, facing right when
+' `dir` is 1 and left when -1, its head cocked by `tilt`: two nodes, one
+' mirroring and sizing the body, the other doing the same to the head and
+' turning it.
+FUNC songbird(key AS String, x AS Float, y AS Float, s AS Float, dir AS Float, tilt AS Float) AS List OF canvas::DrawItem
+  RETURN [nodeT("songbird-body-" & key, x, y, scaled(s * dir, s)), nodeT("songbird-head-" & key, x + 0.18 * s * dir, y - 0.62 * s, turnScale(tilt * dir, s * dir, s))]
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -154,7 +154,9 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 ' A field of stars over the upper part of the window, twinkling with time `t`
-' and faded by `visible` (0 by day, 1 at night).
+' and faded by `visible` (0 by day, 1 at night). The stars stand still and
+' each one twinkles for as long as it is shown, so they are drawn by hand
+' rather than as particles.
 FUNC starField(w AS Float, h AS Float, count AS Integer, t AS Float, visible AS Float, seed AS Integer) AS List OF canvas::DrawItem
   MUT out AS List OF canvas::DrawItem = []
   IF visible <= 0.01 THEN RETURN out
@@ -164,40 +166,118 @@ FUNC starField(w AS Float, h AS Float, count AS Integer, t AS Float, visible AS 
     LET big AS Float = hash01(seed + i * 3 + 2)
     LET tw AS Float = 0.55 + 0.45 * math::sin(t * (1.0 + big * 3.0) + toFloat(i))
     LET a AS Float = visible * tw * (0.35 + 0.65 * big)
-    IF big > 0.93 THEN
-      out = collections::append(out, glow(x, y, 6.0 + big * 4.0, alpha(hex("#cfe0ff"), a * 0.6)))
-    END IF
+    IF big > 0.93 THEN out = collections::append(out, glow(x, y, 6.0 + big * 4.0, alpha(hex("#cfe0ff"), a * 0.6)))
     out = collections::append(out, circle(x, y, 0.6 + big * 1.1, glowP(alpha(hex("#f4f6ff"), a))))
   NEXT
   RETURN out
 END FUNC
 
-' Drifting motes of light - pollen, dust in a sunbeam, or fireflies - over the
-' rectangle (x, y, w, h). Each mote wanders on its own slow loop.
-FUNC motes(x AS Float, y AS Float, w AS Float, h AS Float, count AS Integer, t AS Float, c AS color::Color, size AS Float, seed AS Integer) AS List OF canvas::DrawItem
-  MUT out AS List OF canvas::DrawItem = []
-  FOR i = 0 TO count - 1
-    LET s AS Float = toFloat(seed + i)
-    LET px AS Float = x + fract(hash01(seed + i * 5) + t * 0.01 * hashRange(seed + i * 5 + 1, -1.0, 1.0)) * w + math::sin(t * 0.7 + s) * 18.0
-    LET py AS Float = y + fract(hash01(seed + i * 5 + 2) - t * 0.015 * hashRange(seed + i * 5 + 3, 0.3, 1.0)) * h + math::cos(t * 0.5 + s * 1.3) * 12.0
-    LET pulse AS Float = 0.5 + 0.5 * math::sin(t * 2.0 * hashRange(seed + i * 5 + 4, 0.5, 1.5) + s)
-    LET r AS Float = size * (0.6 + 0.8 * hash01(seed + i * 7))
-    out = collections::append(out, glow(px, py, r * 4.0, fade(c, 0.35 * pulse)))
-    out = collections::append(out, circle(px, py, r * 0.5, glowP(fade(c, 0.4 + 0.6 * pulse))))
-  NEXT
-  RETURN out
+' A crescent: the disc of radius r about (x, y) with a second disc, k times
+' its size and moved by (dx, dy) radii, taken out of it. Its outline is one
+' closed contour of two arcs that meet where the circles cross: round the far
+' side of the first circle, then back along the second - each arc exact
+' rational curves.
+FUNC crescent(x AS Float, y AS Float, r AS Float, dx AS Float, dy AS Float, k AS Float, p AS canvas::Paint) AS canvas::DrawItem
+  LET d AS Float = r * math::sqrt(dx * dx + dy * dy)
+  LET rb AS Float = k * r
+  LET phi AS Float = math::atan2(dy, dx)
+  LET ca AS Float = (r * r + d * d - rb * rb) / (2.0 * r * d)
+  LET a AS Float = math::acos(clampF(ca, -1.0, 1.0))
+  ' Where the circles cross, and where those points are on the second circle,
+  ' measured from the side of it that faces the first circle's middle.
+  LET bx AS Float = dx * r
+  LET by AS Float = dy * r
+  LET facing AS Float = phi + math::pi
+  LET b1 AS Float = facing + wrapAngle(math::atan2(r * math::sin(phi + a) - by, r * math::cos(phi + a) - bx) - facing)
+  LET b2 AS Float = facing + wrapAngle(math::atan2(r * math::sin(phi - a) - by, r * math::cos(phi - a) - bx) - facing)
+  MUT outline AS List OF canvas::BezierCurve = arcCurves(0.0, 0.0, r, r, phi + a, phi + TAU - a)
+  outline = collections::append(outline, arcCurves(bx, by, rb, rb, b2, b1))
+  RETURN curveShape(x, y, [outline], canvas::FillRule.NonZero, p)
+END FUNC
+
+' An angle brought into -PI..PI.
+FUNC wrapAngle(a AS Float) AS Float
+  RETURN math::atan2(math::sin(a), math::cos(a))
 END FUNC
 
 ' A soft cloud: overlapping translucent ellipses, lit from above.
 FUNC cloud(cx AS Float, cy AS Float, size AS Float, seed AS Integer, lit AS color::Color, shade AS color::Color) AS List OF canvas::DrawItem
   MUT out AS List OF canvas::DrawItem = []
-  LET puffs AS Integer = 7
-  FOR i = 0 TO puffs - 1
-    LET u AS Float = toFloat(i) / toFloat(puffs - 1) - 0.5
+  FOR i = 0 TO 6
+    LET u AS Float = toFloat(i) / 6.0 - 0.5
     LET px AS Float = cx + u * size * 2.2 + hashRange(seed * 9 + i, -0.1, 0.1) * size
     LET r AS Float = size * (0.55 - math::abs(u) * 0.5) * hashRange(seed * 3 + i, 0.8, 1.2)
     LET py AS Float = cy - r * 0.35 + hashRange(seed * 5 + i, -0.08, 0.08) * size
-    out = collections::append(out, ellipse(px, py, r * 1.25, r * 0.82, 0.0, gradP(linear(px, py - r, px, py + r * 0.8, [gstop(0.0, lit), gstop(1.0, shade)]))))
+    out = collections::append(out, ellipse(px, py, r * 1.25, r * 0.82, 0.0, gradP(linear(0.0, -r, 0.0, r * 0.8, [gstop(0.0, lit), gstop(1.0, shade)]))))
   NEXT
   RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Motes
+' ---------------------------------------------------------------------------
+
+' How long a mote takes to brighten, and then again to fade.
+LET MOTE_HALF AS Float = 2.5
+' How often it sways from side to side and up and down, per second. A mote
+' sways exactly once while it brightens (MOTE_HALF times this is whole), which
+' is what lets the second half of its life pick up where the first left off.
+LET MOTE_SWAY_HZ AS Float = 0.4
+LET MOTE_SPEED AS Float = 7.0
+
+' Drifting motes of light - pollen, dust in a sunbeam, or fireflies - over the
+' rectangle (x, y, w, h): about `count` at a time, each a bright core in a soft
+' halo, coloured `c`. `clock` is the motes' own time in seconds, which the
+' scene advances.
+'
+' A mote is born somewhere in the rectangle, glows brighter and brighter, then
+' dims to nothing, drifting up and swaying all the while. A particle system
+' gives each particle one blend from a start colour to an end colour, and a
+' radial gradient - the halo - is not tinted by it at all; so a mote is four
+' systems that share a seed, and with it every particle's place:
+'
+'   - one draws the cores brightening, the other the cores fading. The second
+'     runs MOTE_HALF seconds behind the first, so its particle number n is
+'     born the instant the first's dies, and its position is moved on by the
+'     distance a mote drifts in that time, so it is born where the first one
+'     ended. The sway repeats exactly once in MOTE_HALF, so it carries on too.
+'   - the halos do the same, growing from nothing and shrinking back, which on
+'     a soft disc reads as the same swell and fade.
+FUNC motes(x AS Float, y AS Float, w AS Float, h AS Float, count AS Integer, clock AS Float, c AS color::Color, size AS Float, seed AS Integer) AS List OF canvas::DrawItem
+  IF count <= 0 OR toInt(c.alpha) = 0 THEN RETURN []
+  LET heading AS Float = hashRange(seed, -1.9, -1.25)
+  LET dx AS Float = math::cos(heading) * MOTE_SPEED * MOTE_HALF
+  LET dy AS Float = math::sin(heading) * MOTE_SPEED * MOTE_HALF
+  LET halo AS canvas::AutoShape = canvas::Circle[id := "", position := pt(0.0, 0.0), radius := size * 4.0, paint := WITH glowP(color::white) { gradient := glowRamp(size * 4.0, fade(c, 0.35)) }, transform := none()]
+  LET core AS canvas::AutoShape = canvas::Circle[id := "", position := pt(0.0, 0.0), radius := size * 0.5, paint := glowP(c), transform := none()]
+  ' The clock starts a whole life in, so the motes are all there from the
+  ' first frame rather than appearing one by one.
+  LET t AS Float = clock + 2.0 * MOTE_HALF
+  MUT out AS List OF canvas::DrawItem = [moteSystem(0.0, 0.0, x, y, w, h, count, halo, seed, t, TRUE, TRUE, heading)]
+  out = collections::append(out, moteSystem(dx, dy, x, y, w, h, count, halo, seed, t - MOTE_HALF, TRUE, FALSE, heading))
+  out = collections::append(out, moteSystem(0.0, 0.0, x, y, w, h, count, core, seed, t, FALSE, TRUE, heading))
+  RETURN collections::append(out, moteSystem(dx, dy, x, y, w, h, count, core, seed, t - MOTE_HALF, FALSE, FALSE, heading))
+END FUNC
+
+' One of a mote's four systems: the halos (`halo`) or the cores, in the half of
+' their life when they brighten (`rising`) or fade.
+FUNC moteSystem(sx AS Float, sy AS Float, x AS Float, y AS Float, w AS Float, h AS Float, count AS Integer, item AS canvas::AutoShape, seed AS Integer, time AS Float, halo AS Boolean, rising AS Boolean, heading AS Float) AS canvas::DrawItem
+  ' A mote is too dim to see near the start and the end of its life, so about
+  ' four in ten more are kept alive to show `count` at a time.
+  LET rate AS Float = toFloat(count) * 1.4 / (2.0 * MOTE_HALF)
+  LET area AS canvas::Shape = canvas::Rectangle[id := "", position := pt(x, y), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := none()]
+  LET emission AS canvas::Emission = canvas::Emission[mode := canvas::EmissionMode.Continuous, maxParticles := math::ceil(rate * MOTE_HALF) + 1, rate := rate, burst := 0, burstPeriod := 0.0, lifetime := MOTE_HALF, lifetimeVar := 0.0]
+  LET motion AS canvas::Motion = canvas::Motion[speed := MOTE_SPEED, speedVar := 0.0, angle := heading, spread := 0.0, gravityX := 0.0, gravityY := 0.0, drag := 0.0, rotation := 0.0, rotationVar := 0.0, spin := 0.0, spinVar := 0.0, turbulence := 14.0, turbulenceHz := MOTE_SWAY_HZ]
+  RETURN canvas::ParticleSystem[position := pt(sx, sy), item := item, emitter := area, emission := emission, motion := motion, appearance := moteLook(halo, rising), seed := seed, time := time]
+END FUNC
+
+' A core is tinted from clear to its full colour and back; a halo, which a
+' tint does not reach, grows from nothing to full size and back, its sizes
+' varied a little from mote to mote.
+FUNC moteLook(halo AS Boolean, rising AS Boolean) AS canvas::Appearance
+  LET dark AS color::Color = rgba(255, 255, 255, 0)
+  IF halo AND rising THEN RETURN canvas::Appearance[startColor := color::white, endColor := color::white, startScale := 0.0, endScale := 1.0, scaleVar := 0.4]
+  IF halo THEN RETURN canvas::Appearance[startColor := color::white, endColor := color::white, startScale := 1.0, endScale := 0.0, scaleVar := 0.4]
+  IF rising THEN RETURN canvas::Appearance[startColor := dark, endColor := color::white, startScale := 1.0, endScale := 1.0, scaleVar := 0.0]
+  RETURN canvas::Appearance[startColor := color::white, endColor := dark, startScale := 1.0, endScale := 1.0, scaleVar := 0.0]
 END FUNC

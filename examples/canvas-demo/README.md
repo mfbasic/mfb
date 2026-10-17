@@ -6,20 +6,20 @@ canvas, then in the language), and **Esc** returns to the title screen from
 anywhere. Nine of the ten are interactive, and the tenth can be scrubbed
 through its day. Everything is vector-drawn by the program except the
 pixel-art sprites of scene VI and the SVG artwork of scene VIII, which is read
-and drawn by an SVG reader written in MFBASIC.
+by an SVG reader written in MFBASIC and drawn as curves.
 
 | | Scene | Shows off | You can |
 |---|---|---|---|
-| I | Dawn Awakening | multi-stop gradients, Multiply colour grading, additive light shafts, EvenOdd contours, clipped mortar | drag or scroll to scrub the time of day |
-| II | The Guardian of the Spring | parallax from installed groups, ripples clipped to the pool, fading PolyLines | lead the guardian with the mouse; click to dive |
-| III | Twilight Flight | a 150-bird boids flock, mirrored reflections by transform, a clipped crescent, Repeat-spread portal | scare the flock, hold to lure it, Space to scatter |
-| IV | The Alchemist's Sanctuary | liquid clipped to five bottle shapes, focal glass gradients with FillAndStroke, Screen-blended steam | click a potion (or 1–5) to pour it |
-| V | Echoes of the Canopy | hundreds of tumbling leaves, a recursive tree bending in the wind, streamlines | drag to blow, wheel for a breeze |
-| VI | The Wanderer's Path | sprite sheets cut with getBytes/createImage, a level installed as one group, Picture tint, night as Multiply | walk and jump (arrows/A D, Space), N for night |
-| VII | The Runestone Scribe | caps, joins, miter limits and dashes; the dash-reveal carving trick | carve your own runes in any stroke style |
-| VIII | The Living Bestiary | real SVG files (paths, fill rules, gradients, transforms) drawn through canvas; a page turn by transform | turn pages, zoom and pan, W for the wireframe |
-| IX | The Cathedral of Light | glass from Repeat and focal gradients, the window's light projected onto the floor by transform | move the sun, click a pane to change its glass |
-| X | Lanternlight | a whole second world revealed through `Paint.clip`; darkness from one radial gradient | carry the lantern, find and free the seven spirits |
+| I | Dawn Awakening | time-of-day gradients, Multiply grading, an EvenOdd `CurvePolygon` archway installed as a group, songbirds placed by `Group` nodes, motes as particle systems | drag or scroll to scrub the time of day |
+| II | The Guardian of the Spring | parallax from installed groups, a curved basin, ripples clipped to the pool, a `Burst` of sparks where the guardian lands | lead the guardian with the mouse; click to dive |
+| III | Twilight Flight | a 150-bird boids flock, mountains and fountain mirrored by a flipped `Group` node, a two-arc crescent, `PolyCurve` limbs | scare the flock, hold to lure it, Space to scatter |
+| IV | The Alchemist's Sanctuary | five `CurvePolygon` bottles on their own transforms, liquid clipped to each, a `Continuous` spark stream, bubbles, `AutoPaint` bottles | click a potion (or 1–5) to pour it |
+| V | Echoes of the Canopy | hundreds of tumbling leaves, a recursive tree bending in the wind, the spray as a particle system | drag to blow, wheel for a breeze |
+| VI | The Wanderer's Path | a level of `Tile`s from one sheet in one group moved by the camera and culled, a mirrored hero, `Picture` tint, a `Cover` portrait and a `Contain` map | walk and jump (arrows/A D, Space), N for night |
+| VII | The Runestone Scribe | caps, joins, miter limits and dashes; the dash-reveal carving trick; an `AutoPaint` toolbox | carve your own runes in any stroke style |
+| VIII | The Living Bestiary | real SVG files as `BezierCurve`s and `CurvePolygon`s, zoomed by each shape's own transform; a page turn by a `Group` node | turn pages, zoom and pan, W for the wireframe |
+| IX | The Cathedral of Light | `CurvePolygon` panes glazed with Repeat and focal gradients, the light on the floor as a sheared `Group` node, panes clicked by id | move the sun, click a pane to change its glass |
+| X | Lanternlight | a whole second world revealed through `Paint.clip`; a lantern swung by its node; spirits clickable only inside the light | carry the lantern, find and free the seven spirits |
 
 A soundtrack plays throughout: a quiet ambience for each screen synthesised
 sample by sample on a thread of its own (`audio.mfb`). With no audio device the
@@ -70,36 +70,57 @@ fades through black between screens. `demos.mfb` holds the ten scenes in one
 `UNION Scene`, so stepping and drawing the current scene is a single
 exhaustive `MATCH`. Each scene is one file with `<name>New`, `<name>Step` and
 `<name>Draw`. `ui.mfb` has the panel, the buttons and text layout; `menu.mfb`
-the title screen; `kit.mfb` and `scenery.mfb` the shapes the scenes share;
-`svg.mfb` the SVG reader; `audio.mfb` the soundtrack.
+the title screen; `kit.mfb` and `scenery.mfb` the shapes, curves and particle
+systems the scenes share; `svg.mfb` the SVG reader; `audio.mfb` the soundtrack.
 
-Shapes drawn many at a time (a flock, a fall of leaves, the panes of the rose
-window) are placed by mapping their points rather than by `Paint.transform`:
-an item's antialiasing margin is currently added in its own units, so a polygon
-magnified many times by its transform costs the GPU several times what the
-same polygon costs given in pixels (bug-991, found while building this demo).
+The demo is written to the canvas's shape model throughout:
+
+- **Shapes are built where they stand.** A shape's points, a gradient's ends
+  and a clip's rings are all measured from its `position`, so moving a shape
+  is changing its position, and its own `transform` turns and scales it about
+  that point. `kit.mfb` has one small builder per shape, each returning one
+  item as a full literal.
+- **Figures are groups.** Anything drawn the same way frame after frame — the
+  menu's card frame, the archway, the songbirds, the mountains, the window's
+  glass, the lantern, the level — is installed once with `canvas::setGroup`
+  and placed by a `canvas::Group` node, whose transform moves, turns, scales
+  or mirrors it. One group is drawn ten times on the title screen, each node
+  with its own id.
+- **Curves are curves.** SVG paths, arches, bottles, crescents, petals and
+  limbs are `canvas::BezierCurve`s in `CurvePolygon`s and `PolyCurve`s, arcs
+  as exact rational quadratics. `canvas::flatten` is used only where points
+  are what is needed: a liquid's clip, a mortar clip, a gradient's bounding
+  box. Where a curve would be re-made every frame for no visible gain — a
+  grass blade, a falling leaf, a writhing vine — the demo measured it and
+  uses points; the comment there gives the numbers. Likewise a flock's birds
+  and the falling leaves have their points turned by the program rather than
+  carrying a transform of their own, because the canvas builds an
+  untransformed shape on its fast path (`kit.mfb`'s `turned` has the
+  measurement).
+- **The canvas says what the mouse is on.** Whatever can be clicked carries an
+  `id`, and `canvas::MouseEvent.overID` names it; nothing tests the mouse
+  against a rectangle. A button's hover and press are a `canvas::AutoPaint`
+  laid over it, which the window repaints by itself. Only the topmost item
+  under the mouse is reported, so each scene draws its hotspots last, over its
+  vignette.
+- **Effects that are born, move and fade are particle systems.** Motes,
+  sparks, spray and bubbles are `canvas::ParticleSystem`s advanced by their
+  clock alone; a mote that brightens and then fades is two systems sharing a
+  seed, the second running half a life behind the first. Effects whose
+  particles react to something or cause something — falling leaves, the
+  fountain's drops that ripple the pool, the guardian's trail, the steam — are
+  simulated by hand, and the comment on each says why.
+- **The level is tiles.** Scene VI draws every cell as a `canvas::Tile` of its
+  sprite sheet, all in one group moved by the camera; the renderer skips the
+  tiles outside the window. Images are cut from a sheet only where a tile
+  cannot do the job: a tinted sprite and a portrait cut to an oval.
 
 ## Known issues
 
-Runtime and compiler bugs found while building this demo, open at the time of
-writing (see `bugs/`):
-
-- **macOS: scrolling with a trackpad crashes the app** (bug-993). The macOS
-  mouse handlers clobber a register AppKit relies on, and a trackpad sends a
-  zero-delta scroll event at the start and end of every gesture. A mouse wheel
-  is unaffected.
-- **Windows: Float values can be overwritten across calls into sin, cos or
-  pow** (bug-994). The SVG reader keeps its viewBox in a list to stay clear of
-  it; other scenes may show small numeric glitches on Windows until it is
-  fixed.
-- **Windows (Intel Vulkan): the first launch of a new build shows an empty
-  window for about 25 seconds** while the driver compiles the canvas shader
-  (bug-996); later launches start at once.
 - **Windows: new windows open at 400 by 300** (bug-997), so the demo switches
   to full screen at startup when its window is that small.
-- The demo also works around bug-991 (transformed polygons cost the GPU more
-  than they should), bug-992 (`strings::graphemesCount` leaks) and bug-995 (a
-  clip on a transformed item is slow).
+- **Linux and Windows: the mouse is reported only to a program that also reads
+  the keyboard** (bug-1015). The demo reads the keyboard every frame.
 
 ## Assets
 
@@ -109,5 +130,5 @@ third-party; the sigil SVG, every vector scene and the soundtrack were made for
 this demo.
 
 No dependencies beyond the built-in packages: `app`, `audio`, `canvas`,
-`collections`, `color`, `errorCode`, `fs`, `io`, `math`, `os`, `strings` and
-`thread`.
+`collections`, `color`, `errorCode`, `fs`, `io`, `math`, `os`, `strings`,
+`thread` and `vector`.

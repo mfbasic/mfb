@@ -5,17 +5,23 @@
 ' to night as you go (or press N), and at night the lanterns, the gems and the
 ' fireflies are the only light.
 '
-' The art is Kenney's CC0 "Pixel Platformer" sheets (resources/sprites). Each
-' sheet is loaded once with canvas::loadImage, read back with canvas::getBytes,
-' cut into its 18- and 24-pixel cells in MFBASIC, and every cell becomes its own
-' image with canvas::createImage - a mirrored copy too, for the hero facing
-' left. canvas::Picture scales with nearest-neighbour sampling, so drawing a
-' cell at a whole-number multiple keeps the pixels crisp.
+' The art is Kenney's CC0 "Pixel Platformer" sheets (resources/sprites). The
+' level is drawn from its sheet as it stands: every cell of ground, platform
+' and decoration is a canvas::Tile that names the sheet and the 18-pixel
+' rectangle of it to draw, and the whole level is one group, installed once
+' and moved by the camera. The window shows a slice of a level many windows
+' long, and the renderer skips every tile outside it without the program doing
+' anything. Tiles scale by the nearest pixel, so drawn at a whole multiple the
+' pixel art stays crisp.
 '
-' All of those images belong to groups: the whole level is one group, drawn
-' each frame at the camera's offset, and each sprite frame is a group of its
-' own. A frame's scene is then mostly Group nodes - a few dozen items, not the
-' level's hundreds of tiles.
+' canvas::setGroup takes over the images its items name, so each group has a
+' sheet of its own: the level's, a coin's, the gem's, the hero's. Mirroring the
+' hero to face left is its node's transform. Only two sprites are still cut out
+' of a sheet into images of their own, for what a tile cannot do: the hero
+' blinking red after a fall is a Picture tinted by its shape's fill, and the
+' hero's portrait in the corner is a Picture inside an oval. The map beside it
+' is an image the program draws itself, one pixel a cell, shown inside a
+' curved scroll.
 
 IMPORT canvas
 IMPORT vector
@@ -61,7 +67,8 @@ END TYPE
 TYPE WandererState
   lv AS Level
   t AS Float
-  ready AS Boolean     ' the sprite groups are installed
+  fx AS Float          ' the fireflies' clock
+  ready AS Boolean     ' the groups are installed
   scale AS Float       ' screen pixels per sprite pixel, for the window size the level was installed at
   x AS Float           ' the hero's feet, in sprite pixels
   y AS Float
@@ -141,33 +148,16 @@ FUNC wandererNew AS WandererState
       IF c = "c" OR c = "g" THEN pickups = collections::append(pickups, Pickup[col := col, row := row, gem := c = "g", taken := -1.0])
     NEXT
   NEXT
-  RETURN WandererState[lv := lv, t := 0.0, ready := FALSE, scale := 0.0, x := 40.0, y := 160.0, vx := 0.0, vy := 0.0, grounded := FALSE, coyote := 0.0, face := 1, walk := 0.0, cam := 0.0, night := 0.0, nightWanted := FALSE, dayClock := 0.0, pickups := pickups, lit := [], coins := 0, gems := 0, checkpoint := 40.0, hurt := 0.0, won := -1.0]
+  RETURN WandererState[lv := lv, t := 0.0, fx := 0.0, ready := FALSE, scale := 0.0, x := 40.0, y := 160.0, vx := 0.0, vy := 0.0, grounded := FALSE, coyote := 0.0, face := 1, walk := 0.0, cam := 0.0, night := 0.0, nightWanted := FALSE, dayClock := 0.0, pickups := pickups, lit := [], coins := 0, gems := 0, checkpoint := 40.0, hurt := 0.0, won := -1.0]
 END FUNC
 
 ' ---------------------------------------------------------------------------
-' Cutting the sheets
+' The sheets
 ' ---------------------------------------------------------------------------
 
-' One cell of a sheet as its own RGBA8 pixels: `size` rows, each a slice of
-' the sheet's row. Mirrored left-to-right when `mirror` is set.
-FUNC cell(pixels AS List OF Byte, sheetW AS Integer, col AS Integer, row AS Integer, size AS Integer, mirror AS Boolean) AS List OF Byte
-  MUT out AS List OF Byte = []
-  FOR y = 0 TO size - 1
-    LET start AS Integer = ((row * size + y) * sheetW + col * size) * 4
-    LET line_ AS List OF Byte = collections::mid(pixels, start, size * 4)
-    IF mirror THEN
-      FOR x = size - 1 TO 0 STEP -1
-        out = collections::append(out, collections::mid(line_, x * 4, 4))
-      NEXT
-    ELSE
-      out = collections::append(out, line_)
-    END IF
-  NEXT
-  RETURN out
-END FUNC
-
-' The tile drawn for a ground or platform cell: grass on top of the ground,
-' dirt below it, and the edge pieces where the neighbour on that side is open.
+' The tile drawn for a ground or platform cell, as its index in the sheet
+' (twenty cells a row): grass on top of the ground, dirt below it, and the
+' edge pieces where the neighbour on that side is open.
 FUNC groundTile(lv AS Level, col AS Integer, row AS Integer) AS Integer
   LET c AS String = levelChar(lv, col, row)
   LET openL AS Boolean = NOT solidAt(lv, col - 1, row) OR col = 0
@@ -194,82 +184,138 @@ FUNC decorTile(c AS String) AS Integer
     CASE "m" : RETURN 128
     CASE "f" : RETURN 106
     CASE ">" : RETURN 85
+    CASE "F" : RETURN 111
     CASE ELSE : RETURN -1
   END MATCH
 END FUNC
 
+' The top-left corner of cell `index` of the tile sheet, in its pixels. The
+' sheet is packed - its cells touch - so a cell's rectangle is exactly 18 by
+' 18 from here, and never reaches into its neighbour.
+FUNC cellAt(index AS Integer) AS vector::Float2
+  RETURN pt(toFloat((index MOD 20) * WANDER_TILE), toFloat((index / 20) * WANDER_TILE))
+END FUNC
 
-' Load and cut both sheets and install every group the scene draws with. `s`
-' is the scale the level is drawn at.
+' One cell of a sheet as its own RGBA8 pixels, for the two sprites a tile
+' cannot draw (see wandererInstall).
+FUNC cell(pixels AS List OF Byte, sheetW AS Integer, col AS Integer, row AS Integer, size AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR y = 0 TO size - 1
+    out = collections::append(out, collections::mid(pixels, ((row * size + y) * sheetW + col * size) * 4, size * 4))
+  NEXT
+  RETURN out
+END FUNC
+
+' A lantern post, built where it stands in the level - (x, y) the foot of its
+' post - unlit; a lit one has its glass drawn over it.
+FUNC lanternPost(x AS Float, y AS Float, s AS Float) AS List OF canvas::DrawItem
+  LET postH AS Float = toFloat(WANDER_TILE) * s * 1.6
+  RETURN [rect(x - s * 1.5, y - postH, s * 3.0, postH, fillP(hex("#3a2a24"))), rrect(x - s * 4.0, y - postH - s * 8.0, s * 8.0, s * 9.0, s * 2.0, fillStrokeP(hex("#2a1e1a"), hex("#6a4a3a"), s))]
+END FUNC
+
+' The level as a map, one pixel a cell: grass, earth, platforms, lanterns and
+' the flag, and everything else clear.
+FUNC mapPixels(lv AS Level) AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR row = 0 TO lv.rows - 1
+    FOR col = 0 TO lv.cols - 1
+      LET c AS String = levelChar(lv, col, row)
+      MUT px AS List OF Byte = [toByte(0), toByte(0), toByte(0), toByte(0)]
+      IF c = "G" AND NOT solidAt(lv, col, row - 1) THEN
+        px = [toByte(63), toByte(202), toByte(122), toByte(255)]
+      ELSEIF c = "G" THEN
+        px = [toByte(200), toByte(128), toByte(90), toByte(255)]
+      ELSEIF c = "P" THEN
+        px = [toByte(232), toByte(176), toByte(120), toByte(255)]
+      ELSEIF c = "L" THEN
+        px = [toByte(255), toByte(210), toByte(122), toByte(255)]
+      ELSEIF c = "F" THEN
+        px = [toByte(226), toByte(85), toByte(74), toByte(255)]
+      END IF
+      out = collections::append(out, px)
+    NEXT
+  NEXT
+  RETURN out
+END FUNC
+
+' The map's frame: a scroll, `w` by `h`, its two ends bowed outward by curves
+' so the box around it is the scroll exactly.
+FUNC scroll(w AS Float, h AS Float) AS List OF List OF canvas::BezierCurve
+  LET r AS Float = h * 0.5
+  RETURN [[straight(r, 0.0, w - r, 0.0), cubic(w - r, 0.0, w + r / 3.0, 0.0, w + r / 3.0, h, w - r, h), straight(w - r, h, r, h), cubic(r, h, -r / 3.0, h, -r / 3.0, 0.0, r, 0.0)]]
+END FUNC
+
+LET MAP_SCALE AS Float = 2.0
+LET MAP_H AS Float = 44.0
+
+' Install every group the scene draws with, `s` the scale the level is drawn
+' at.
 FUNC wandererInstall(lv AS Level, s AS Float) AS Nothing
-  RES tiles AS canvas::Image = canvas::loadImage(os::appResourcePath("sprites/tiles.png"))
-  RES chars AS canvas::Image = canvas::loadImage(os::appResourcePath("sprites/characters.png"))
-  LET tilePx AS List OF Byte = canvas::getBytes(tiles)
-  LET charPx AS List OF Byte = canvas::getBytes(chars)
-  LET tilesW AS Integer = toInt(canvas::getSize(tiles).width)
-  LET charsW AS Integer = toInt(canvas::getSize(chars).width)
-
-  ' The level: one Picture per solid or decorated cell, each its own image.
-  LET size AS Float = toFloat(WANDER_TILE) * s
+  LET ts AS Float = toFloat(WANDER_TILE)
+  LET size AS Float = ts * s
+  ' The level: a tile for every solid or decorated cell, all from one sheet,
+  ' and the lantern posts.
+  RES sheet AS canvas::Image = canvas::loadImage(os::appResourcePath("sprites/tiles.png"))
   MUT level AS List OF canvas::DrawItem = []
   FOR row = 0 TO lv.rows - 1
     FOR col = 0 TO lv.cols - 1
       LET c AS String = levelChar(lv, col, row)
-      MUT index AS Integer = -1
-      IF c = "G" OR c = "P" THEN
-        index = groundTile(lv, col, row)
-      ELSE
-        index = decorTile(c)
-      END IF
-      IF index >= 0 THEN
-        ' The Picture is built right here, around the image: a resource
-        ' placed straight into the list floats out to the list's scope, where
-        ' a call that merely returned it would leave it closing at the end of
-        ' this iteration.
-        RES img AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, index MOD 20, index / 20, WANDER_TILE, FALSE))
-        LET tile AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(col) * size, y := toFloat(row) * size], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := size, height := size], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
-        level = collections::append(level, tile)
-      END IF
-      IF c = "F" THEN
-        ' The flag is two cells: the banner and the pole under it.
-        RES top AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 5, WANDER_TILE, FALSE))
-        RES pole AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 6, WANDER_TILE, FALSE))
-        LET banner AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(col) * size, y := toFloat(row + 1) * size], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := size, height := size], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := top]
-        LET staff AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := toFloat(col) * size, y := toFloat(row + 2) * size], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := size, height := size], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := pole]
-        level = collections::append(level, [banner, staff])
-      END IF
+      MUT index AS Integer = decorTile(c)
+      MUT y AS Float = toFloat(row) * size
+      IF c = "G" OR c = "P" THEN index = groundTile(lv, col, row)
+      ' The flag is two cells, the banner and the pole under it, standing on
+      ' the ground below its letter.
+      IF c = "F" THEN y = y + size
+      IF index >= 0 THEN level = collections::append(level, canvas::Tile[image := sheet, srcPosition := cellAt(index), srcSize := pt(ts, ts), position := pt(toFloat(col) * size, y), size := pt(size, size)])
+      IF c = "F" THEN level = collections::append(level, canvas::Tile[image := sheet, srcPosition := cellAt(index + 20), srcSize := pt(ts, ts), position := pt(toFloat(col) * size, y + size), size := pt(size, size)])
+      IF c = "L" THEN level = collections::append(level, lanternPost((toFloat(col) + 0.5) * size, toFloat(row + 1) * size, s))
     NEXT
   NEXT
   canvas::setGroup("wander-level", level)
 
-  ' The hero: two frames, each facing both ways, and the same four tinted red -
-  ' a Picture's fill colour multiplies the image, at a strength set by its
-  ' alpha - for the blink after a fall.
-  LET hs AS Float = toFloat(WANDER_HERO) * s
+  ' The coins (face-on and edge-on, for the spin) and the gem, each a tile at
+  ' a sprite pixel a unit, centred on (0, 0), sized by the node that places
+  ' it. Each group needs a sheet of its own.
   FOR frame = 0 TO 1
-    FOR dir = 0 TO 1
-      FOR red = 0 TO 1
-        RES img AS canvas::Image = canvas::createImage(WANDER_HERO, WANDER_HERO, cell(charPx, charsW, frame, 1, WANDER_HERO, dir = 1))
-        MUT tint AS color::Color = color::white
-        IF red = 1 THEN tint = rgba(255, 70, 70, 220)
-        canvas::setGroup("wander-hero-" & toString(frame) & toString(dir) & toString(red), [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := -hs / 2.0, y := -hs], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := hs, height := hs], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]])
-      NEXT
-    NEXT
+    RES coinSheet AS canvas::Image = canvas::loadImage(os::appResourcePath("sprites/tiles.png"))
+    canvas::setGroup("wander-coin-" & toString(frame), [canvas::Tile[image := coinSheet, srcPosition := cellAt(151 + frame), srcSize := pt(ts, ts), position := pt(-ts / 2.0, -ts / 2.0), size := pt(ts, ts)]])
+  NEXT
+  RES gemSheet AS canvas::Image = canvas::loadImage(os::appResourcePath("sprites/tiles.png"))
+  canvas::setGroup("wander-gem", [canvas::Tile[image := gemSheet, srcPosition := cellAt(67), srcSize := pt(ts, ts), position := pt(-ts / 2.0, -ts / 2.0), size := pt(ts, ts)]])
+
+  ' The hero: two frames of its walk, standing on (0, 0) and facing right.
+  LET hs AS Float = toFloat(WANDER_HERO)
+  FOR frame = 0 TO 1
+    RES heroSheet AS canvas::Image = canvas::loadImage(os::appResourcePath("sprites/characters.png"))
+    canvas::setGroup("wander-hero-" & toString(frame), [canvas::Tile[image := heroSheet, srcPosition := pt(toFloat(frame) * hs, hs), srcSize := pt(hs, hs), position := pt(-hs / 2.0, -hs), size := pt(hs, hs)]])
   NEXT
 
-  ' Coins (face-on and edge-on, for the spin) and the gem, centred on (0, 0).
-  LET ts AS Float = toFloat(WANDER_TILE) * s
-  RES coinA AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 7, WANDER_TILE, FALSE))
-  canvas::setGroup("wander-coin-0", [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := -ts / 2.0, y := -ts / 2.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := ts, height := ts], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := coinA]])
-  RES coinB AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 12, 7, WANDER_TILE, FALSE))
-  canvas::setGroup("wander-coin-1", [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := -ts / 2.0, y := -ts / 2.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := ts, height := ts], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := coinB]])
-  RES gem AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 7, 3, WANDER_TILE, FALSE))
-  canvas::setGroup("wander-gem", [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := -ts / 2.0, y := -ts / 2.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := ts, height := ts], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := gem]])
-  ' Small copies for the counters in the corner.
-  RES coinHud AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 11, 7, WANDER_TILE, FALSE))
-  canvas::setGroup("wander-hud-coin", [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 36.0, height := 36.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := coinHud]])
-  RES gemHud AS canvas::Image = canvas::createImage(WANDER_TILE, WANDER_TILE, cell(tilePx, tilesW, 7, 3, WANDER_TILE, FALSE))
-  canvas::setGroup("wander-hud-gem", [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 36.0, height := 36.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::white), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := gemHud]])
+  ' What a tile cannot do. A tile has no paint to tint it and no shape to cut
+  ' it to, and a Picture shows the whole of its image, so for these two the
+  ' hero's frames are cut out of the sheet into images of their own: the
+  ' frames tinted red - a Picture's fill multiplies its image - for the blink
+  ' after a fall, and the hero's portrait, an oval window it fills.
+  RES chars AS canvas::Image = canvas::loadImage(os::appResourcePath("sprites/characters.png"))
+  LET charPx AS List OF Byte = canvas::getBytes(chars)
+  LET charsW AS Integer = toInt(canvas::getSize(chars).width)
+  FOR frame = 0 TO 1
+    RES hurt AS canvas::Image = canvas::createImage(WANDER_HERO, WANDER_HERO, cell(charPx, charsW, frame, 1, WANDER_HERO))
+    canvas::setGroup("wander-hurt-" & toString(frame), [canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := pt(-hs / 2.0, -hs), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := hs, height := hs], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(rgba(255, 70, 70, 220)), transform := none()], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := hurt]])
+  NEXT
+  ' The portrait: the hero in an oval taller than it is wide, so the square
+  ' sprite is fitted with Cover - kept in proportion, as large as fills the
+  ' oval, its sides cut away. The oval is 36 by 48, so the sprite is drawn at
+  ' exactly twice its size and its pixels stay square.
+  RES face AS canvas::Image = canvas::createImage(WANDER_HERO, WANDER_HERO, cell(charPx, charsW, 0, 1, WANDER_HERO))
+  canvas::setGroup("wander-portrait", [ellipse(0.0, 0.0, 18.0, 24.0, 0.0, gradP(downward(24.0, [gstop(0.0, hex("#bfe6ff")), gstop(1.0, hex("#7ec8f0"))]))), canvas::Picture[id := "", shape := canvas::Ellipse[id := "", position := pt(0.0, 0.0), radiusX := 18.0, radiusY := 24.0, paint := canvas::fillStroke(color::white, gold(), 2.0), transform := none()], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Cover, image := face]])
+
+  ' The map: the level a pixel a cell, drawn by the program, in a scroll. The
+  ' level is far wider than it is tall, so it is fitted with Contain - whole,
+  ' in proportion - and the scroll is sized so that comes to exactly twice the
+  ' map's size: as wide as the map at that size, and taller than it.
+  LET mw AS Float = toFloat(lv.cols) * MAP_SCALE
+  RES map AS canvas::Image = canvas::createImage(lv.cols, lv.rows, mapPixels(lv))
+  canvas::setGroup("wander-map", [curveShape(0.0, 0.0, scroll(mw, MAP_H), canvas::FillRule.NonZero, fillP(rgba(10, 14, 24, 225))), canvas::Picture[id := "", shape := canvas::CurvePolygon[id := "", position := pt(0.0, 0.0), contours := scroll(mw, MAP_H), rule := canvas::FillRule.NonZero, paint := canvas::fillStroke(color::white, alpha(gold(), 0.6), 1.5), transform := none()], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Contain, image := map]])
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -296,7 +342,6 @@ END FUNC
 FUNC wanderScale(h AS Float) AS Float
   RETURN math::max(2.0, toFloat(math::round(h / (toFloat(WANDER_TILE) * 12.5))))
 END FUNC
-
 FUNC wandererStep(s AS WandererState, inp AS Input, dt AS Float) AS WandererState
   LET sc AS Float = wanderScale(inp.h)
   LET lv AS Level = s.lv
@@ -403,7 +448,7 @@ FUNC wandererStep(s AS WandererState, inp AS Input, dt AS Float) AS WandererStat
   IF won < 0.0 AND x > (toFloat(lv.flag) + 0.2) * ts THEN won = 0.0
   IF won > 6.0 THEN
     ' Round again from the start, with the wood restored.
-    RETURN WITH wandererNew() { ready := TRUE, scale := sc, night := s.night, nightWanted := s.nightWanted, t := s.t + dt }
+    RETURN WITH wandererNew() { ready := TRUE, scale := sc, night := s.night, nightWanted := s.nightWanted, t := s.t + dt, fx := s.fx + inp.pdt }
   END IF
 
   ' Day and night: a slow cycle, or N to switch.
@@ -427,7 +472,7 @@ FUNC wandererStep(s AS WandererState, inp AS Input, dt AS Float) AS WandererStat
   LET cam AS Float = approach(s.cam, want, 5.0, dt)
   MUT walk AS Float = s.walk
   IF grounded AND math::abs(vx) > 10.0 THEN walk = walk + dt * math::abs(vx) / 18.0
-  RETURN WandererState[lv := lv, t := s.t + dt, ready := TRUE, scale := sc, x := x, y := y, vx := vx, vy := vy, grounded := grounded, coyote := coyote, face := face, walk := walk, cam := cam, night := night, nightWanted := nightWanted, dayClock := dayClock, pickups := pickups, lit := lit, coins := coins, gems := gems, checkpoint := checkpoint, hurt := hurt, won := won]
+  RETURN WandererState[lv := lv, t := s.t + dt, fx := s.fx + inp.pdt, ready := TRUE, scale := sc, x := x, y := y, vx := vx, vy := vy, grounded := grounded, coyote := coyote, face := face, walk := walk, cam := cam, night := night, nightWanted := nightWanted, dayClock := dayClock, pickups := pickups, lit := lit, coins := coins, gems := gems, checkpoint := checkpoint, hurt := hurt, won := won]
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -439,126 +484,142 @@ FUNC hillAt(u AS Float, seed AS Float) AS Float
   RETURN math::sin(u * 0.004 + seed) * 0.5 + math::sin(u * 0.011 + seed * 2.0) * 0.3 + math::sin(u * 0.027 + seed * 3.0) * 0.2
 END FUNC
 
+' A hill line across the window, sliding by `offset` as the camera moves. The
+' line is a sum of sines worked out at points across the window each frame,
+' and its colour changes with the night, so it is drawn afresh: a polygon of
+' those points, which the canvas builds fastest.
 FUNC hillLayer(w AS Float, baseY AS Float, amp AS Float, offset AS Float, seed AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  MUT pts AS List OF vector::Float2 = [pt(-10.0, baseY + amp * 3.0)]
+  MUT pts AS List OF vector::Float2 = [pt(-10.0, amp * 3.0)]
   FOR i = 0 TO 48
     LET sx AS Float = -10.0 + (w + 20.0) * toFloat(i) / 48.0
-    pts = collections::append(pts, pt(sx, baseY - amp * hillAt(sx + offset, seed)))
+    pts = collections::append(pts, pt(sx, -amp * hillAt(sx + offset, seed)))
   NEXT
-  RETURN poly(collections::append(pts, pt(w + 10.0, baseY + amp * 3.0)), p)
+  RETURN polyAt(0.0, baseY, collections::append(pts, pt(w + 10.0, amp * 3.0)), p)
 END FUNC
 
 FUNC wandererDraw(s AS WandererState, f AS Fonts, w AS Float, h AS Float) AS List OF canvas::DrawItem
   LET sc AS Float = wanderScale(h)
   LET ts AS Float = toFloat(WANDER_TILE)
+  LET size AS Float = ts * sc
   LET cam AS Float = s.cam
   LET n AS Float = s.night
   LET t AS Float = s.t
   ' The level's rows are fixed to the bottom of the window.
   LET lv AS Level = s.lv
-  LET levelH AS Float = toFloat(lv.rows) * ts * sc
-  LET oy AS Float = h - levelH
-  ' Sky and the vector backdrop: hills drawn with smooth curves behind the
-  ' pixel art, sliding at a fraction of the camera's speed.
+  LET oy AS Float = h - toFloat(lv.rows) * size
+  ' Sky and the vector backdrop behind the pixel art, sliding at a fraction of
+  ' the camera's speed.
   LET skyTop AS color::Color = mixC(hex("#7ec8f0"), hex("#0a0f2a"), n)
   LET skyLow AS color::Color = mixC(hex("#dff4ff"), hex("#2a2450"), n)
-  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(linear(0.0, 0.0, 0.0, h * 0.8, [gstop(0.0, skyTop), gstop(1.0, skyLow)])))]
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(downward(h * 0.8, [gstop(0.0, skyTop), gstop(1.0, skyLow)])))]
   out = collections::append(out, starField(w, h * 0.6, 100, t, n, 51))
-  LET orbX AS Float = w * 0.78
-  LET orbY AS Float = h * 0.18
-  out = collections::append(out, glow(orbX, orbY, h * 0.25, fade(mixC(hex("#fff6c0"), hex("#c8d8ff"), n), 0.5)))
-  out = collections::append(out, circle(orbX, orbY, h * 0.05, fillP(mixC(hex("#fff2b0"), hex("#eef2ff"), n))))
+  out = collections::append(out, glow(w * 0.78, h * 0.18, h * 0.25, fade(mixC(hex("#fff6c0"), hex("#c8d8ff"), n), 0.5)))
+  out = collections::append(out, circle(w * 0.78, h * 0.18, h * 0.05, fillP(mixC(hex("#fff2b0"), hex("#eef2ff"), n))))
   out = collections::append(out, hillLayer(w, h * 0.55, h * 0.08, cam * sc * 0.1, 1.0, fillP(mixC(hex("#a8d8c8"), hex("#1e2a48"), n))))
   out = collections::append(out, hillLayer(w, h * 0.62, h * 0.07, cam * sc * 0.25, 4.0, fillP(mixC(hex("#7cc4a0"), hex("#172238"), n))))
   out = collections::append(out, hillLayer(w, h * 0.7, h * 0.06, cam * sc * 0.45, 7.0, fillP(mixC(hex("#4fa878"), hex("#101a2a"), n))))
 
-  ' The level itself: one Group, moved by the camera. Whole-pixel offsets keep
-  ' the pixel art from shimmering.
+  ' The level itself: one group, moved by the camera to whole pixels so the
+  ' pixel art does not shimmer. Most of it is outside the window at any
+  ' moment, and the renderer leaves that part undrawn.
   LET dx AS Float = toFloat(math::round(-cam * sc))
-  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := dx, y := oy], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-level"]))
-  ' Lantern posts, drawn in vectors over the tiles.
+  out = collections::append(out, node("wander-level", dx, oy))
+  ' The glass of each lit lantern.
   FOR i = 0 TO len(lv.lanterns) - 1
     LET col AS Integer = collections::get(lv.lanterns, i)
-    LET lx AS Float = dx + (toFloat(col) + 0.5) * ts * sc
-    LET baseY AS Float = oy + toFloat(collections::get(lv.lanternRows, i) + 1) * ts * sc
-    LET postH AS Float = ts * sc * 1.6
-    out = collections::append(out, rect(lx - sc * 1.5, baseY - postH, sc * 3.0, postH, fillP(hex("#3a2a24"))))
-    out = collections::append(out, rrect(lx - sc * 4.0, baseY - postH - sc * 8.0, sc * 8.0, sc * 9.0, sc * 2.0, WITH fillP(hex("#2a1e1a")) { stroke := hex("#6a4a3a"), strokeWidth := sc }))
     IF collections::contains(s.lit, col) THEN
-      out = collections::append(out, rect(lx - sc * 2.5, baseY - postH - sc * 6.5, sc * 5.0, sc * 6.0, fillP(hex("#ffd27a"))))
+      LET lx AS Float = dx + (toFloat(col) + 0.5) * size
+      LET baseY AS Float = oy + toFloat(collections::get(lv.lanternRows, i) + 1) * size
+      out = collections::append(out, rect(lx - sc * 2.5, baseY - size * 1.6 - sc * 6.5, sc * 5.0, sc * 6.0, fillP(hex("#ffd27a"))))
     END IF
   NEXT
-  ' Pickups, bobbing, coins spinning between their two frames.
+  ' Pickups, bobbing, coins spinning between their two frames; one taken is a
+  ' ring of light rising and fading. Only those near the window are named: a
+  ' pickup off the screen would not be drawn, but it would still be walked.
+  ' Each is placed on a whole pixel, as the level and the hero are, so its
+  ' pixels stay square rather than smeared across two.
   FOR EACH p IN s.pickups
-    LET px AS Float = dx + (toFloat(p.col) + 0.5) * ts * sc
-    LET py AS Float = oy + (toFloat(p.row) + 0.5) * ts * sc + math::sin(t * 3.0 + toFloat(p.col)) * sc * 1.5
-    IF p.taken < 0.0 AND px > -40.0 AND px < w + 40.0 THEN
-      IF p.gem THEN
-        out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := px, y := py], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-gem"]))
-      ELSE
-        out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := px, y := py], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-coin-" & toString(math::floor(t * 5.0 + toFloat(p.col)) MOD 2)]))
+    LET px AS Float = dx + (toFloat(p.col) + 0.5) * size
+    LET py AS Float = toFloat(math::round(oy + (toFloat(p.row) + 0.5) * size + math::sin(t * 3.0 + toFloat(p.col)) * sc * 1.5))
+    IF px > -40.0 AND px < w + 40.0 THEN
+      IF p.taken < 0.0 THEN
+        MUT name AS String = "wander-gem"
+        IF NOT p.gem THEN name = "wander-coin-" & toString(math::floor(t * 5.0 + toFloat(p.col)) MOD 2)
+        out = collections::append(out, nodeT(name, px, py, scaled(sc, sc)))
+      ELSEIF p.taken < 0.6 THEN
+        LET u AS Float = p.taken / 0.6
+        out = collections::append(out, circle(px, py - u * size, size * (0.3 + u * 0.6), WITH canvas::stroke(fade(hex("#fff0a0"), 1.0 - u), 2.0 * sc) { blend := canvas::BlendMode.Add }))
       END IF
-    ELSEIF p.taken >= 0.0 AND p.taken < 0.6 THEN
-      ' Taken: a ring of light rising and fading.
-      LET u AS Float = p.taken / 0.6
-      out = collections::append(out, circle(px, py - u * ts * sc, ts * sc * (0.3 + u * 0.6), WITH canvas::stroke(fade(hex("#fff0a0"), 1.0 - u), 2.0 * sc) { blend := canvas::BlendMode.Add }))
     END IF
   NEXT
-  ' The hero: a group per frame and facing; red-tinted frames while blinking.
-  LET frame AS Integer = math::floor(s.walk) MOD 2
-  MUT dir AS Integer = 0
-  IF s.face < 0 THEN dir = 1
-  MUT red AS Integer = 0
-  IF s.hurt > 0.0 AND math::floor(s.hurt * 10.0) MOD 2 = 0 THEN red = 1
-  MUT heroFrame AS Integer = frame
-  IF NOT s.grounded THEN heroFrame = 1
+  ' The hero: a frame of its walk, mirrored by its node when it faces left,
+  ' and a red-tinted frame while it blinks.
+  MUT frame AS Integer = math::floor(s.walk) MOD 2
+  IF NOT s.grounded THEN frame = 1
+  MUT name AS String = "wander-hero-"
+  IF s.hurt > 0.0 AND math::floor(s.hurt * 10.0) MOD 2 = 0 THEN name = "wander-hurt-"
   LET hx AS Float = toFloat(math::round(dx + s.x * sc))
   LET hy AS Float = toFloat(math::round(oy + s.y * sc))
-  out = collections::append(out, ellipse(hx, hy, ts * sc * 0.35, sc * 1.5, 0.0, fillP(rgba(0, 0, 0, 60))))
-  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := hx, y := hy + sc * 2.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-hero-" & toString(heroFrame) & toString(dir) & toString(red)]))
+  out = collections::append(out, ellipse(hx, hy, size * 0.35, sc * 1.5, 0.0, fillP(rgba(0, 0, 0, 60))))
+  out = collections::append(out, nodeT(name & toString(frame), hx, hy + sc * 2.0, scaled(sc * toFloat(s.face), sc)))
 
   ' Night: a Multiply wash over everything so far, then the lights added on
   ' top of it - the lanterns, the gems and the fireflies.
-  IF n > 0.01 THEN
-    out = collections::append(out, rect(0.0, 0.0, w, h, WITH fillP(mixC(color::white, hex("#3a4a8a"), n)) { blend := canvas::BlendMode.Multiply }))
-    FOR i = 0 TO len(lv.lanterns) - 1
-      LET col AS Integer = collections::get(lv.lanterns, i)
-      LET ly AS Float = oy + toFloat(collections::get(lv.lanternRows, i) + 1) * ts * sc - ts * sc * 1.6 - sc * 3.5
-      LET lx AS Float = dx + (toFloat(col) + 0.5) * ts * sc
-      IF collections::contains(s.lit, col) THEN
-        LET flick AS Float = 0.9 + 0.1 * math::sin(t * 13.0 + toFloat(col))
-        out = collections::append(out, glow(lx, ly, ts * sc * 4.0 * flick, fade(hex("#ffb84a"), 0.55 * n)))
-        out = collections::append(out, glow(lx, ly, ts * sc * 0.8, fade(hex("#fff0c0"), 0.9 * n)))
-      END IF
-    NEXT
-    FOR EACH p IN s.pickups
-      IF p.taken < 0.0 THEN
-        LET px AS Float = dx + (toFloat(p.col) + 0.5) * ts * sc
-        LET py AS Float = oy + (toFloat(p.row) + 0.5) * ts * sc
-        IF p.gem THEN
-          out = collections::append(out, glow(px, py, ts * sc * 1.4, fade(hex("#6ad8ff"), 0.7 * n)))
-        ELSE
-          out = collections::append(out, glow(px, py, ts * sc * 0.7, fade(hex("#ffd84a"), 0.4 * n)))
-        END IF
-      END IF
-    NEXT
-    out = collections::append(out, glow(hx, hy - ts * sc * 0.6, ts * sc * 2.0, fade(hex("#ffe8b0"), 0.18 * n)))
-    out = collections::append(out, motes(0.0, h * 0.35, w, h * 0.5, 24, t, fade(hex("#d8ff7a"), n), 2.2, 33))
-  END IF
+  IF n > 0.01 THEN out = collections::append(out, nightLights(s, w, h, dx, oy, size, hx, hy))
 
-  ' The counters.
+  ' The counters, the hero's portrait, and the map with the hero on it and
+  ' the window's span of the level marked.
   LET hudX AS Float = w - 220.0
-  out = collections::append(out, rrect(hudX, 16.0, 200.0, 50.0, 25.0, WITH fillP(rgba(10, 14, 24, 150)) { stroke := alpha(gold(), 0.4), strokeWidth := 1.0 }))
-  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := hudX + 14.0, y := 23.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-hud-coin"]))
+  out = collections::append(out, rrect(hudX, 16.0, 200.0, 50.0, 25.0, fillStrokeP(rgba(10, 14, 24, 150), alpha(gold(), 0.4), 1.0)))
+  out = collections::append(out, nodeT("wander-coin-0", hudX + 32.0, 41.0, scaled(2.0, 2.0)))
   out = collections::append(out, label(f.bold, 20.0, toString(s.coins), hudX + 56.0, 49.0, parchment()))
-  out = collections::append(out, item(canvas::Group[id := "", position := vector::Float2[x := hudX + 104.0, y := 23.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "wander-hud-gem"]))
+  out = collections::append(out, nodeT("wander-gem", hudX + 122.0, 41.0, scaled(2.0, 2.0)))
   out = collections::append(out, label(f.bold, 20.0, toString(s.gems), hudX + 146.0, 49.0, parchment()))
-  IF s.won >= 0.0 THEN
-    LET a AS Float = clamp01(s.won / 0.6)
-    out = collections::append(out, rect(0.0, 0.0, w, h, fillP(rgba(0, 0, 0, (math::round(120.0 * a))))))
-    out = collections::append(out, glowText(f.display, 54.0, "The Path's End", (w - textWidth(f.display, 54.0, "The Path's End")) / 2.0, h * 0.45, gold(), 2.5))
-    out = collections::append(out, centered(f.display, 54.0, "The Path's End", w / 2.0, h * 0.45, fillP(fade(hex("#f6e3b4"), a))))
-    out = collections::append(out, centered(f.italic, 20.0, toString(s.coins) & " coins and " & toString(s.gems) & " gems gathered", w / 2.0, h * 0.45 + 44.0, fillP(fade(parchment(), a))))
-  END IF
+  out = collections::append(out, node("wander-portrait", hudX - 30.0, 41.0))
+  LET mw AS Float = toFloat(lv.cols) * MAP_SCALE
+  LET mapX AS Float = w - 20.0 - mw
+  LET mapY AS Float = 76.0
+  out = collections::append(out, node("wander-map", mapX, mapY))
+  LET my AS Float = mapY + (MAP_H - toFloat(lv.rows) * MAP_SCALE) / 2.0
+  out = collections::append(out, rect(mapX + cam / ts * MAP_SCALE, my, w / size * MAP_SCALE, toFloat(lv.rows) * MAP_SCALE, canvas::stroke(rgba(255, 255, 255, 140), 1.0)))
+  out = collections::append(out, circle(mapX + s.x / ts * MAP_SCALE, my + (s.y - HERO_H * 0.5) / ts * MAP_SCALE, 2.5, fillStrokeP(hex("#ff5a4a"), color::white, 1.0)))
+  IF s.won >= 0.0 THEN out = collections::append(out, pathsEnd(s, f, w, h))
   RETURN out
+END FUNC
+
+FUNC nightLights(s AS WandererState, w AS Float, h AS Float, dx AS Float, oy AS Float, size AS Float, hx AS Float, hy AS Float) AS List OF canvas::DrawItem
+  LET n AS Float = s.night
+  LET lv AS Level = s.lv
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, WITH fillP(mixC(color::white, hex("#3a4a8a"), n)) { blend := canvas::BlendMode.Multiply })]
+  FOR i = 0 TO len(lv.lanterns) - 1
+    LET col AS Integer = collections::get(lv.lanterns, i)
+    IF collections::contains(s.lit, col) THEN
+      LET ly AS Float = oy + toFloat(collections::get(lv.lanternRows, i) + 1) * size - size * 1.6 - size / toFloat(WANDER_TILE) * 3.5
+      LET lx AS Float = dx + (toFloat(col) + 0.5) * size
+      out = collections::append(out, glow(lx, ly, size * 4.0 * (0.9 + 0.1 * math::sin(s.t * 13.0 + toFloat(col))), fade(hex("#ffb84a"), 0.55 * n)))
+      out = collections::append(out, glow(lx, ly, size * 0.8, fade(hex("#fff0c0"), 0.9 * n)))
+    END IF
+  NEXT
+  FOR EACH p IN s.pickups
+    LET px AS Float = dx + (toFloat(p.col) + 0.5) * size
+    IF p.taken < 0.0 AND px > -size * 2.0 AND px < w + size * 2.0 THEN
+      LET py AS Float = oy + (toFloat(p.row) + 0.5) * size
+      IF p.gem THEN
+        out = collections::append(out, glow(px, py, size * 1.4, fade(hex("#6ad8ff"), 0.7 * n)))
+      ELSE
+        out = collections::append(out, glow(px, py, size * 0.7, fade(hex("#ffd84a"), 0.4 * n)))
+      END IF
+    END IF
+  NEXT
+  out = collections::append(out, glow(hx, hy - size * 0.6, size * 2.0, fade(hex("#ffe8b0"), 0.18 * n)))
+  RETURN collections::append(out, motes(0.0, h * 0.35, w, h * 0.5, 24, s.fx, fade(hex("#d8ff7a"), n), 2.2, 33))
+END FUNC
+
+' The end of the path: the scene dims and names it.
+FUNC pathsEnd(s AS WandererState, f AS Fonts, w AS Float, h AS Float) AS List OF canvas::DrawItem
+  LET a AS Float = clamp01(s.won / 0.6)
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, fillP(rgba(0, 0, 0, math::round(120.0 * a))))]
+  out = collections::append(out, glowText(f.display, 54.0, "The Path's End", (w - textWidth(f.display, 54.0, "The Path's End")) / 2.0, h * 0.45, gold(), 2.5, a))
+  out = collections::append(out, centered(f.display, 54.0, "The Path's End", w / 2.0, h * 0.45, fillP(fade(hex("#f6e3b4"), a))))
+  RETURN collections::append(out, centered(f.italic, 20.0, toString(s.coins) & " coins and " & toString(s.gems) & " gems gathered", w / 2.0, h * 0.45 + 44.0, fillP(fade(parchment(), a))))
 END FUNC

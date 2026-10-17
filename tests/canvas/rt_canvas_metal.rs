@@ -1501,6 +1501,40 @@ fn tile_atlas_regions_match_the_software_oracle_on_metal() {
     );
 }
 
+/// bug-1093: a tile's partly covered edge pixel takes the source rectangle's own edge
+/// texel on Metal too -- stated outright, not only against the software oracle, so a
+/// bleed that both renderers shared could not pass.
+const TILE_EDGE: &str = include_str!("scenes/tile_edge.mfb");
+
+#[test]
+fn a_tile_edge_pixel_samples_inside_its_source_rectangle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_tile_edge",
+        TILE_EDGE,
+        "Tile edge pixels at fractional destinations",
+    );
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let program = build("canvas_metal_tile_edge_px", TILE_EDGE);
+    let (gpu, stats) = render(&program, true, "gpu");
+    if !metal_built(&stats) {
+        return;
+    }
+    let at = |x: usize, y: usize| {
+        let i = (y * WIDTH as usize + x) * 4;
+        (gpu.pixels[i], gpu.pixels[i + 1], gpu.pixels[i + 2])
+    };
+    let (r, g, b) = at(30, 70);
+    assert!(
+        (r, b) == (0, 0) && g > 150,
+        "half-covered bottom edge is green, not the blue row below the source: {:?}",
+        (r, g, b)
+    );
+    assert_eq!(at(120, 30).2, 0, "no blue below the third tile's source");
+    assert_eq!(at(120, 10).0, 0, "no red above the third tile's source");
+}
+
 #[test]
 fn a_tilemap_of_two_thousand_tiles_draws_on_metal() {
     assert_metal_draws_like_software(

@@ -7,10 +7,14 @@
 ' which the flock treats as a hawk. Hold the button down and the mouse becomes
 ' a lure instead, and the flock streams after it.
 '
-' The lake is the sky and the mountains again, mirrored by a transform with a
-' negative Y scale and faded; the crescent moon is a disc clipped by a ring
-' with a hole in it; the portal on the far shore is a radial gradient with
-' GradientSpread.Repeat, its rings pulsing outward as its radius is animated.
+' The lake mirrors the mountains and the fountain. Each is a group, drawn once
+' as it stands and once more by a Group node whose transform has a negative Y
+' scale, which turns it upside down about the waterline; the mirrored copy is
+' the same figure built a little transparent. The mountains never change, so
+' both are installed once. The crescent moon is two circles, the second cut
+' out of the first under EvenOdd; the portal on the far shore is a radial
+' gradient with GradientSpread.Repeat, its rings pulsing outward as its radius
+' is animated.
 
 IMPORT canvas
 IMPORT vector
@@ -51,8 +55,7 @@ FUNC spawnFlock(w AS Float, h AS Float) AS List OF Boid
   RETURN out
 END FUNC
 
-' The things the flock keeps clear of, as circles: the fountain and the cliff
-' tree's crown.
+' Where the fountain stands, which the flock keeps clear of.
 FUNC fountainSpot(w AS Float, h AS Float) AS vector::Float2
   RETURN pt(w * 0.56, h * 0.56)
 END FUNC
@@ -61,7 +64,10 @@ FUNC twilightStep(s AS TwilightState, inp AS Input, dt AS Float) AS TwilightStat
   LET w AS Float = inp.w
   LET h AS Float = inp.h
   MUT boids AS List OF Boid = s.boids
-  IF len(boids) = 0 OR s.w <> w OR s.h <> h THEN boids = spawnFlock(w, h)
+  IF len(boids) = 0 OR s.w <> w OR s.h <> h THEN
+    boids = spawnFlock(w, h)
+    twilightInstall(w, h)
+  END IF
   MUT scare AS Float = math::max(0.0, s.scare - dt * 0.8)
   MUT sx AS Float = s.sx
   MUT sy AS Float = s.sy
@@ -174,119 +180,124 @@ END FUNC
 ' Drawing
 ' ---------------------------------------------------------------------------
 
-' A gnarled tree clinging to a cliff: a recursive branching, each limb a
-' tapering line, each fork turned by a repeatable twist.
+' A gnarled tree clinging to a cliff: a recursive branching, each limb one
+' quadratic curve from where its parent ended, bowed to one side by a
+' repeatable twist and drawn with round caps, so the joins are smooth.
 FUNC gnarled(x AS Float, y AS Float, angle AS Float, len_ AS Float, width AS Float, depth AS Integer, seed AS Integer, t AS Float, c AS color::Color) AS List OF canvas::DrawItem
   IF depth = 0 OR len_ < 3.0 THEN RETURN []
-  LET sway AS Float = math::sin(t * 0.8 + toFloat(seed)) * 0.02 * toFloat(6 - depth)
-  LET a AS Float = angle + sway
-  LET mx AS Float = x + math::cos(a) * len_ * 0.5 + math::cos(a + 1.57) * len_ * hashRange(seed, -0.12, 0.12)
-  LET my AS Float = y + math::sin(a) * len_ * 0.5 + math::sin(a + 1.57) * len_ * hashRange(seed, -0.12, 0.12)
-  LET ex AS Float = x + math::cos(a) * len_
-  LET ey AS Float = y + math::sin(a) * len_
-  MUT out AS List OF canvas::DrawItem = [path(collections::prepend(quadPts(x, y, mx, my, ex, ey, 6), pt(x, y)), WITH strokeP(c, width) { cap := canvas::CapStyle.Round })]
+  LET a AS Float = angle + math::sin(t * 0.8 + toFloat(seed)) * 0.02 * toFloat(6 - depth)
+  LET bow AS Float = len_ * hashRange(seed, -0.12, 0.12)
+  LET mx AS Float = math::cos(a) * len_ * 0.5 + math::cos(a + 1.57) * bow
+  LET my AS Float = math::sin(a) * len_ * 0.5 + math::sin(a + 1.57) * bow
+  LET ex AS Float = math::cos(a) * len_
+  LET ey AS Float = math::sin(a) * len_
+  MUT out AS List OF canvas::DrawItem = [curvePath(x, y, [quad(0.0, 0.0, mx, my, ex, ey)], WITH strokeP(c, width) { cap := canvas::CapStyle.Round })]
   LET spread AS Float = hashRange(seed * 3 + 1, 0.35, 0.7)
-  out = collections::append(out, gnarled(ex, ey, a - spread, len_ * hashRange(seed * 5 + 2, 0.62, 0.8), width * 0.68, depth - 1, seed * 2 + 1, t, c))
-  out = collections::append(out, gnarled(ex, ey, a + spread * 0.8, len_ * hashRange(seed * 7 + 3, 0.55, 0.76), width * 0.65, depth - 1, seed * 2 + 2, t, c))
-  RETURN out
+  out = collections::append(out, gnarled(x + ex, y + ey, a - spread, len_ * hashRange(seed * 5 + 2, 0.62, 0.8), width * 0.68, depth - 1, seed * 2 + 1, t, c))
+  RETURN collections::append(out, gnarled(x + ex, y + ey, a + spread * 0.8, len_ * hashRange(seed * 7 + 3, 0.55, 0.76), width * 0.65, depth - 1, seed * 2 + 2, t, c))
 END FUNC
 
 ' An ornate fountain in three tiers on an island, in silhouette against the
-' dusk, with runes glowing on its plinth and water shining at each tier.
-FUNC runeFountain(x AS Float, baseY AS Float, s AS Float, t AS Float) AS List OF canvas::DrawItem
-  LET stone AS color::Color = hex("#1a1426")
-  LET rim AS color::Color = hex("#5a3d6a")
-  MUT out AS List OF canvas::DrawItem = []
-  ' The island.
-  out = collections::append(out, ellipse(x, baseY, s * 1.3, s * 0.12, 0.0, WITH gradP(linear(0.0, baseY - s * 0.12, 0.0, baseY + s * 0.12, [gstop(0.0, hex("#3a2a48")), gstop(0.5, hex("#160f22")), gstop(1.0, hex("#0b0812"))])) { stroke := rgba(255, 160, 180, 60), strokeWidth := 1.0 }))
-  ' Plinth, three bowls and a spire, back to front.
-  out = collections::append(out, poly([pt(x - s * 0.5, baseY), pt(x - s * 0.42, baseY - s * 0.28), pt(x + s * 0.42, baseY - s * 0.28), pt(x + s * 0.5, baseY)], fillP(stone)))
+' dusk, built around the middle of its base, `s` its size: runes glowing on
+' its plinth and water shining at each tier. `opacity` fades the whole of it,
+' for its reflection.
+FUNC runeFountain(s AS Float, t AS Float, opacity AS Float) AS List OF canvas::DrawItem
+  LET stone AS canvas::Paint = faded(fillP(hex("#1a1426")), opacity)
+  ' The island, the plinth, then three bowls on their stems and a spire.
+  MUT out AS List OF canvas::DrawItem = [ellipse(0.0, 0.0, s * 1.3, s * 0.12, 0.0, faded(WITH gradP(linear(0.0, -s * 0.12, 0.0, s * 0.12, [gstop(0.0, hex("#3a2a48")), gstop(0.5, hex("#160f22")), gstop(1.0, hex("#0b0812"))])) { stroke := rgba(255, 160, 180, 60), strokeWidth := 1.0 }, opacity))]
+  out = collections::append(out, poly([pt(-s * 0.5, 0.0), pt(-s * 0.42, -s * 0.28), pt(s * 0.42, -s * 0.28), pt(s * 0.5, 0.0)], stone))
   FOR k = 0 TO 2
-    LET fk AS Float = toFloat(k)
-    LET by AS Float = baseY - s * (0.36 + fk * 0.36)
-    LET br AS Float = s * (0.85 - fk * 0.24)
-    out = collections::append(out, poly([pt(x - s * 0.08, by + s * 0.36), pt(x - s * 0.05, by + s * 0.08), pt(x + s * 0.05, by + s * 0.08), pt(x + s * 0.08, by + s * 0.36)], fillP(stone)))
-    out = collections::append(out, poly([pt(x - br, by), pt(x - br * 0.7, by + s * 0.1), pt(x + br * 0.7, by + s * 0.1), pt(x + br, by)], WITH fillP(stone) { stroke := rim, strokeWidth := 1.2 }))
-    ' Water spilling over the lip in a thin glowing sheet on each side.
-    FOR side = -1 TO 1 STEP 2
-      LET sx AS Float = x + toFloat(side) * br
-      LET drop AS Float = s * (0.36 - 0.02)
-      MUT sheet AS List OF vector::Float2 = []
-      FOR j = 0 TO 8
-        LET u AS Float = toFloat(j) / 8.0
-        sheet = collections::append(sheet, pt(sx + toFloat(side) * s * 0.08 * math::sqrt(u), by + drop * u))
-      NEXT
-      out = collections::append(out, trail(sheet, [rgba(160, 240, 255, 200), rgba(120, 220, 255, 120), rgba(120, 220, 255, 0)], WITH strokeP(color::white, 2.0 + math::sin(t * 6.0 + fk) * 0.4) { blend := canvas::BlendMode.Add, dashes := [6.0, 4.0], dashOffset := -t * 60.0 }))
-    NEXT
-    out = collections::append(out, ellipse(x, by - 1.0, br * 0.92, s * 0.025, 0.0, glowP(rgba(120, 230, 255, 90))))
+    out = collections::append(out, fountainTier(s, k, t, opacity))
   NEXT
-  out = collections::append(out, poly([pt(x - s * 0.04, baseY - s * 1.08), pt(x, baseY - s * 1.45), pt(x + s * 0.04, baseY - s * 1.08)], fillP(stone)))
+  out = collections::append(out, poly([pt(-s * 0.04, -s * 1.08), pt(0.0, -s * 1.45), pt(s * 0.04, -s * 1.08)], stone))
   ' Runes along the plinth.
   FOR i = 0 TO 4
-    LET rx AS Float = x - s * 0.32 + toFloat(i) * s * 0.16
-    LET ry AS Float = baseY - s * 0.14
+    LET rx AS Float = -s * 0.32 + toFloat(i) * s * 0.16
+    LET ry AS Float = -s * 0.14
     LET pulse AS Float = 0.55 + 0.45 * math::sin(t * 2.0 + toFloat(i) * 1.3)
-    LET c AS color::Color = rgba(130, 240, 255, (math::round(255.0 * pulse)))
-    out = collections::append(out, path([pt(rx - s * 0.03, ry - s * 0.06), pt(rx, ry + s * 0.06), pt(rx + s * 0.03, ry - s * 0.06)], WITH strokeP(c, 1.4) { join := canvas::JoinStyle.Miter }))
-    out = collections::append(out, glow(rx, ry, s * 0.09, rgba(100, 230, 255, (math::round(110.0 * pulse)))))
+    out = collections::append(out, pathAt(rx, ry, [pt(-s * 0.03, -s * 0.06), pt(0.0, s * 0.06), pt(s * 0.03, -s * 0.06)], faded(WITH strokeP(rgba(130, 240, 255, math::round(255.0 * pulse)), 1.4) { join := canvas::JoinStyle.Miter }, opacity)))
+    out = collections::append(out, glow(rx, ry, s * 0.09, rgba(100, 230, 255, math::round(110.0 * pulse * opacity))))
   NEXT
-  out = collections::append(out, glow(x, baseY - s * 1.45, s * 0.25, rgba(160, 240, 255, 120)))
-  RETURN out
+  RETURN collections::append(out, glow(0.0, -s * 1.45, s * 0.25, rgba(160, 240, 255, math::round(120.0 * opacity))))
 END FUNC
 
-FUNC twilightSky(w AS Float, h AS Float, horizon AS Float) AS canvas::Gradient
-  RETURN linear(0.0, 0.0, 0.0, horizon, [gstop(0.0, hex("#0b0820")), gstop(0.35, hex("#2a1650")), gstop(0.68, hex("#7a2f6a")), gstop(0.88, hex("#d0566a")), gstop(1.0, hex("#f59a62"))])
+' One bowl of the fountain on its stem, with water spilling over its lip in a
+' thin glowing sheet on each side.
+FUNC fountainTier(s AS Float, k AS Integer, t AS Float, opacity AS Float) AS List OF canvas::DrawItem
+  LET fk AS Float = toFloat(k)
+  LET by AS Float = -s * (0.36 + fk * 0.36)
+  LET br AS Float = s * (0.85 - fk * 0.24)
+  LET stone AS canvas::Paint = faded(fillP(hex("#1a1426")), opacity)
+  MUT out AS List OF canvas::DrawItem = [poly([pt(-s * 0.08, by + s * 0.36), pt(-s * 0.05, by + s * 0.08), pt(s * 0.05, by + s * 0.08), pt(s * 0.08, by + s * 0.36)], stone)]
+  out = collections::append(out, poly([pt(-br, by), pt(-br * 0.7, by + s * 0.1), pt(br * 0.7, by + s * 0.1), pt(br, by)], faded(WITH fillP(hex("#1a1426")) { stroke := hex("#5a3d6a"), strokeWidth := 1.2 }, opacity)))
+  ' The sheet falls as x = a * sqrt(y / drop) - a parabola on its side, which
+  ' is exactly one quadratic curve: from the lip, its control point level with
+  ' the lip halfway out, to its foot.
+  LET drop AS Float = s * 0.34
+  LET a AS Float = s * 0.08
+  FOR side = -1 TO 1 STEP 2
+    LET sd AS Float = toFloat(side)
+    out = collections::append(out, curvePath(sd * br, by, [quad(0.0, 0.0, sd * a / 2.0, 0.0, sd * a, drop)], faded(WITH strokeP(rgba(225, 248, 255, 230), 2.0 + math::sin(t * 6.0 + fk) * 0.4) { blend := canvas::BlendMode.Add, dashes := [6.0, 4.0], dashOffset := -t * 60.0 }, opacity)))
+  NEXT
+  RETURN collections::append(out, ellipse(0.0, by - 1.0, br * 0.92, s * 0.025, 0.0, glowP(rgba(120, 230, 255, math::round(90.0 * opacity)))))
 END FUNC
 
-' The mountains, near and far, standing on the horizon. Drawn once upright and
-' once mirrored for the lake.
-FUNC twilightMountains(w AS Float, h AS Float, horizon AS Float) AS List OF canvas::DrawItem
-  MUT out AS List OF canvas::DrawItem = []
-  out = collections::append(out, poly(ridge(w, horizon + 1.0, horizon - h * 0.07, h * 0.12, 27, 1.4, 70), fillP(hex("#4a2a5e"))))
-  out = collections::append(out, poly(ridge(w, horizon + 1.0, horizon - h * 0.02, h * 0.07, 31, 1.6, 90), fillP(hex("#2e1a40"))))
+FUNC twilightSky(horizon AS Float) AS canvas::Gradient
+  RETURN downward(horizon, [gstop(0.0, hex("#0b0820")), gstop(0.35, hex("#2a1650")), gstop(0.68, hex("#7a2f6a")), gstop(0.88, hex("#d0566a")), gstop(1.0, hex("#f59a62"))])
+END FUNC
+
+' The mountains, near and far, standing on the horizon; `opacity` as opaque
+' as they are drawn.
+FUNC twilightMountains(w AS Float, h AS Float, horizon AS Float, opacity AS Float) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = [poly(ridge(w, horizon + 1.0, horizon - h * 0.07, h * 0.12, 27, 1.4, 70), faded(fillP(hex("#4a2a5e")), opacity))]
+  out = collections::append(out, poly(ridge(w, horizon + 1.0, horizon - h * 0.02, h * 0.07, 31, 1.6, 90), faded(fillP(hex("#2e1a40")), opacity)))
   ' The cliff on the left, rising steeply out of the water.
-  out = collections::append(out, poly([pt(-10.0, horizon + 1.0), pt(-10.0, h * 0.3), pt(w * 0.05, h * 0.28), pt(w * 0.11, h * 0.36), pt(w * 0.14, h * 0.35), pt(w * 0.19, h * 0.5), pt(w * 0.25, h * 0.58), pt(w * 0.3, horizon + 1.0)], fillP(hex("#170f22"))))
+  out = collections::append(out, poly([pt(-10.0, horizon + 1.0), pt(-10.0, h * 0.3), pt(w * 0.05, h * 0.28), pt(w * 0.11, h * 0.36), pt(w * 0.14, h * 0.35), pt(w * 0.19, h * 0.5), pt(w * 0.25, h * 0.58), pt(w * 0.3, horizon + 1.0)], faded(fillP(hex("#170f22")), opacity)))
   ' The far shore on the right, where the portal stands.
-  out = collections::append(out, poly([pt(w * 0.72, horizon + 1.0), pt(w * 0.8, horizon - h * 0.06), pt(w * 0.9, horizon - h * 0.08), pt(w + 10.0, horizon - h * 0.05), pt(w + 10.0, horizon + 1.0)], fillP(hex("#1b1228"))))
-  RETURN out
+  RETURN collections::append(out, poly([pt(w * 0.72, horizon + 1.0), pt(w * 0.8, horizon - h * 0.06), pt(w * 0.9, horizon - h * 0.08), pt(w + 10.0, horizon - h * 0.05), pt(w + 10.0, horizon + 1.0)], faded(fillP(hex("#1b1228")), opacity)))
+END FUNC
+
+FUNC twilightInstall(w AS Float, h AS Float) AS Nothing
+  LET horizon AS Float = h * 0.66
+  canvas::setGroup("twilight-mountains", twilightMountains(w, h, horizon, 1.0))
+  canvas::setGroup("twilight-mountains-mirrored", twilightMountains(w, h, horizon, 0.55))
+END FUNC
+
+' The portal on the far shore: rings of light from a radial gradient that
+' repeats, its radius breathing so the rings seem to flow outward, between two
+' standing stones.
+FUNC portal(w AS Float, h AS Float, horizon AS Float, t AS Float) AS List OF canvas::DrawItem
+  LET px AS Float = w * 0.86
+  LET py AS Float = horizon - h * 0.16
+  LET pr AS Float = h * 0.075
+  LET ringR AS Float = pr * (0.32 + 0.06 * fract(t * 0.5))
+  MUT out AS List OF canvas::DrawItem = [glow(px, py, pr * 2.4, rgba(150, 110, 255, 70))]
+  out = collections::append(out, ellipse(px, py, pr * 0.62, pr, 0.0, WITH gradP(WITH radial(0.0, 0.0, ringR, [gstop(0.0, rgba(120, 250, 255, 30)), gstop(0.5, rgba(170, 120, 255, 220)), gstop(1.0, rgba(120, 250, 255, 30))]) { spread := canvas::GradientSpread.Repeat }) { blend := canvas::BlendMode.Add, stroke := rgba(200, 180, 255, 220), strokeWidth := 3.0 }))
+  out = collections::append(out, ellipse(px, py, pr * 0.62, pr, 0.0, WITH canvas::stroke(rgba(255, 240, 255, 180), 1.5) { dashes := [pr * 0.12, pr * 0.08], dashOffset := t * 40.0, cap := canvas::CapStyle.Round, blend := canvas::BlendMode.Add }))
+  out = collections::append(out, polyAt(px, horizon - h * 0.07, [pt(-pr * 0.9, 0.0), pt(-pr * 0.85, py - pr * 1.1 - horizon + h * 0.07), pt(-pr * 0.65, py - pr * 1.2 - horizon + h * 0.07), pt(-pr * 0.6, 0.0)], fillP(hex("#120c1c"))))
+  RETURN collections::append(out, polyAt(px, horizon - h * 0.07, [pt(pr * 0.6, 0.0), pt(pr * 0.66, py - pr * 1.25 - horizon + h * 0.07), pt(pr * 0.84, py - pr * 1.1 - horizon + h * 0.07), pt(pr * 0.9, 0.0)], fillP(hex("#120c1c"))))
 END FUNC
 
 FUNC twilightDraw(s AS TwilightState, w AS Float, h AS Float) AS List OF canvas::DrawItem
   LET t AS Float = s.t
   LET horizon AS Float = h * 0.66
-  ' The sky, then the same sky mirrored into the lake, a little darker.
-  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, horizon + 1.0, gradP(twilightSky(w, h, horizon)))]
-  out = collections::append(out, rect(0.0, horizon, w, h - horizon, gradP(linear(0.0, horizon, 0.0, h, [gstop(0.0, hex("#c8546a")), gstop(0.25, hex("#5a2456")), gstop(1.0, hex("#0a0716"))]))))
+  ' The sky, and the lake below it.
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, horizon + 1.0, gradP(twilightSky(horizon)))]
+  out = collections::append(out, rect(0.0, horizon, w, h - horizon, gradP(downward(h - horizon, [gstop(0.0, hex("#c8546a")), gstop(0.25, hex("#5a2456")), gstop(1.0, hex("#0a0716"))]))))
   out = collections::append(out, starField(w, horizon * 0.6, 120, t, 0.9, 41))
 
-  ' The crescent moon: a full disc, clipped to a square with a second, offset
-  ' disc cut out of it - a clip ring inside another is a hole under EvenOdd.
+  ' The crescent moon, its light from a focal gradient off to one side.
   LET mx AS Float = w * 0.8
   LET my AS Float = h * 0.17
   LET mr AS Float = h * 0.06
   out = collections::append(out, glow(mx, my, mr * 6.0, rgba(255, 200, 220, 45)))
-  LET bite AS List OF List OF vector::Float2 = [rectRing(mx - mr * 2.0, my - mr * 2.0, mr * 4.0, mr * 4.0), ovalRing(mx + mr * 0.42, my - mr * 0.18, mr * 0.9, mr * 0.9, 40, 0.0)]
-  out = collections::append(out, circle(mx, my, mr, WITH gradP(focal(mx, my, mr, -mr * 0.4, mr * 0.2, [gstop(0.0, hex("#fff8ea")), gstop(1.0, hex("#f6d8c0"))])) { clip := bite, clipRule := canvas::FillRule.EvenOdd }))
+  out = collections::append(out, crescent(mx, my, mr, 0.42, -0.18, 0.9, gradP(focal(0.0, 0.0, mr, -mr * 0.4, mr * 0.2, [gstop(0.0, hex("#fff8ea")), gstop(1.0, hex("#f6d8c0"))]))))
 
-  ' Mountains, and their reflection: the same items under a transform that
-  ' flips them about the horizon, faded and tinted by a Multiply wash.
-  LET mountains AS List OF canvas::DrawItem = twilightMountains(w, h, horizon)
-  out = collections::append(out, mountains)
-  LET flip AS canvas::Transform = canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := -1.0, tx := 0.0, ty := horizon * 2.0]
-  out = collections::append(out, restyle(mountains, flip, 0.45))
-
-  ' The portal on the far shore: rings of light from a radial gradient that
-  ' repeats, its radius breathing so the rings seem to flow outward.
-  LET px AS Float = w * 0.86
-  LET py AS Float = horizon - h * 0.16
-  LET pr AS Float = h * 0.075
-  LET ringR AS Float = pr * (0.32 + 0.06 * fract(t * 0.5))
-  out = collections::append(out, glow(px, py, pr * 2.4, rgba(150, 110, 255, 70)))
-  out = collections::append(out, ellipse(px, py, pr * 0.62, pr, 0.0, WITH gradP(WITH radial(px, py, ringR, [gstop(0.0, rgba(120, 250, 255, 30)), gstop(0.5, rgba(170, 120, 255, 220)), gstop(1.0, rgba(120, 250, 255, 30))]) { spread := canvas::GradientSpread.Repeat }) { blend := canvas::BlendMode.Add, stroke := rgba(200, 180, 255, 220), strokeWidth := 3.0 }))
-  out = collections::append(out, ellipse(px, py, pr * 0.62, pr, 0.0, WITH canvas::stroke(rgba(255, 240, 255, 180), 1.5) { dashes := [pr * 0.12, pr * 0.08], dashOffset := t * 40.0, cap := canvas::CapStyle.Round, blend := canvas::BlendMode.Add }))
-  ' Standing stones either side of it.
-  out = collections::append(out, poly([pt(px - pr * 0.9, horizon - h * 0.07), pt(px - pr * 0.85, py - pr * 1.1), pt(px - pr * 0.65, py - pr * 1.2), pt(px - pr * 0.6, horizon - h * 0.07)], fillP(hex("#120c1c"))))
-  out = collections::append(out, poly([pt(px + pr * 0.6, horizon - h * 0.07), pt(px + pr * 0.66, py - pr * 1.25), pt(px + pr * 0.84, py - pr * 1.1), pt(px + pr * 0.9, horizon - h * 0.07)], fillP(hex("#120c1c"))))
+  ' The mountains, and their reflection: the same figure under a node that
+  ' flips it about the horizon.
+  out = collections::append(out, node("twilight-mountains", 0.0, 0.0))
+  out = collections::append(out, nodeT("twilight-mountains-mirrored", 0.0, horizon * 2.0, scaled(1.0, -1.0)))
+  out = collections::append(out, portal(w, h, horizon, t))
 
   ' Shimmer on the water: thin horizontal glints drifting.
   FOR i = 0 TO 40
@@ -294,14 +305,19 @@ FUNC twilightDraw(s AS TwilightState, w AS Float, h AS Float) AS List OF canvas:
     LET gx AS Float = fract(hash01(i + 310) + t * 0.01 * hashRange(i + 320, -1.0, 1.0)) * w
     LET gl AS Float = w * hashRange(i + 330, 0.01, 0.05) * (0.5 + (gy - horizon) / (h - horizon))
     LET ga AS Float = 0.25 + 0.25 * math::sin(t * 1.5 + toFloat(i))
-    out = collections::append(out, line(gx - gl, gy, gx + gl, gy, WITH strokeP(rgba(255, 190, 200, (math::round(90.0 * ga))), 1.2) { blend := canvas::BlendMode.Add }))
+    out = collections::append(out, line(gx - gl, gy, gx + gl, gy, WITH strokeP(rgba(255, 190, 200, math::round(90.0 * ga)), 1.2) { blend := canvas::BlendMode.Add }))
   NEXT
 
-  ' The fountain on its island, and its reflection.
+  ' The fountain on its island, and its reflection, squashed a little as well
+  ' as flipped, as a reflection seen from above the water is. The fountain's
+  ' water and runes move, so it is installed afresh each frame - one list,
+  ' placed twice.
   LET fs AS vector::Float2 = fountainSpot(w, h)
-  LET fountain AS List OF canvas::DrawItem = runeFountain(fs.x, horizon + h * 0.03, h * 0.2, t)
-  out = collections::append(out, restyle(fountain, canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := -0.7, tx := 0.0, ty := (horizon + h * 0.03) * 1.7], 0.6))
-  out = collections::append(out, fountain)
+  LET baseY AS Float = horizon + h * 0.03
+  canvas::setGroup("twilight-fountain", runeFountain(h * 0.2, t, 1.0))
+  canvas::setGroup("twilight-fountain-mirrored", runeFountain(h * 0.2, t, 0.4))
+  out = collections::append(out, nodeT("twilight-fountain-mirrored", fs.x, baseY, scaled(1.0, -0.7)))
+  out = collections::append(out, node("twilight-fountain", fs.x, baseY))
 
   ' The cliff tree, leaning out over the water.
   out = collections::append(out, gnarled(w * 0.12, h * 0.36, -1.15, h * 0.13, h * 0.022, 7, 1, t, hex("#120a18")))
@@ -309,10 +325,9 @@ FUNC twilightDraw(s AS TwilightState, w AS Float, h AS Float) AS List OF canvas:
   ' The flock, each bird turned to its heading. A bird's shade depends on its
   ' height, so the ones low over the bright horizon read as silhouettes.
   FOR EACH b IN s.boids
-    LET heading AS Float = math::atan2(b.vy, b.vx)
     LET tone AS color::Color = mixC(hex("#2a1830"), hex("#0d0812"), clamp01(b.y / horizon))
-    out = collections::append(out, bird(b.x, b.y, heading, h * 0.028, math::sin(b.phase), 1.0, tone, mixC(tone, hex("#000000"), 0.3)))
+    out = collections::append(out, bird(b.x, b.y, math::atan2(b.vy, b.vx), h * 0.028, math::sin(b.phase), 1.0, tone, mixC(tone, hex("#000000"), 0.3)))
   NEXT
-  IF s.scare > 0.0 THEN out = collections::append(out, ellipse(s.sx, s.sy, h * 0.6 * (1.0 - s.scare), h * 0.6 * (1.0 - s.scare), 0.0, WITH canvas::stroke(rgba(255, 220, 255, (math::round(120.0 * s.scare))), 2.0) { blend := canvas::BlendMode.Add }))
+  IF s.scare > 0.0 THEN out = collections::append(out, circle(s.sx, s.sy, h * 0.6 * (1.0 - s.scare), WITH canvas::stroke(rgba(255, 220, 255, math::round(120.0 * s.scare)), 2.0) { blend := canvas::BlendMode.Add }))
   RETURN collections::append(out, vignette(w, h, 170))
 END FUNC

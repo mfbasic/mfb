@@ -803,6 +803,21 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
     picSW = __canvas_geoAt(offset, __CANVAS_GEO_TILE_SRC_W)
     picSH = __canvas_geoAt(offset, __CANVAS_GEO_TILE_SRC_H)
   END IF
+  ' bug-1093: the texels a tile's source rectangle touches, `[floor(src), ceil(src + size) - 1]`
+  ' on each axis. A partly covered edge pixel's centre lies outside the destination, so its
+  ' mapped texel lies outside the source; the index is clamped to this range (before the
+  ' image-bounds test) so that pixel takes the source's own edge texel. Both shaders'
+  ' `tileColour` take the same step.
+  MUT tileLoU AS Integer = 0
+  MUT tileHiU AS Integer = 0
+  MUT tileLoV AS Integer = 0
+  MUT tileHiV AS Integer = 0
+  IF isTile THEN
+    tileLoU = math::floor(picSX)
+    tileHiU = math::ceil(picSX + picSW) - 1
+    tileLoV = math::floor(picSY)
+    tileHiV = math::ceil(picSY + picSH) - 1
+  END IF
 
   ' Arc sweep vectors: per-shape constants, so the only sin/cos in the renderer runs
   ' once per arc rather than once per pixel.
@@ -1035,6 +1050,10 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
           tv = tv + 1
         ELSEIF toFloat(tv) * picDH > picTY THEN
           tv = tv - 1
+        END IF
+        IF isTile THEN
+          tu = __canvas_maxI(__canvas_minI(tu, tileHiU), tileLoU)
+          tv = __canvas_maxI(__canvas_minI(tv, tileHiV), tileLoV)
         END IF
         IF isTile AND (tu < 0 OR tv < 0 OR tu >= picW OR tv >= picH) THEN
           gR = toByte(0)
