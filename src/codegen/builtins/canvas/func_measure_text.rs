@@ -25,13 +25,14 @@ grid by `size / unitsPerEm`. `descent` is a **positive** distance below the base
 The font file stores it negative — `hhea.descender` measures downward — and the sign
 is flipped here so no caller has to remember which convention it is holding.
 
-`width` is the sum of the glyphs' advance widths, with the font's **pair kerning**
-applied: in `"AV"`, a font that tucks the `V` under the `A` measures the pair narrower
-than the two letters apart. The kerning comes from the font itself (see
-`canvas::loadFont` for which tables are read), and a font without any measures the
-plain advances. Ligatures and complex shaping are not done. Measuring and drawing use
-the same glyph walk, kerning included, so the width is exactly what a `canvas::Text`
-with the same font, size and string draws.
+`width` is the sum of the glyphs' advance widths, with the font's **pair kerning** and
+**standard ligatures** applied: in `"AV"`, a font that tucks the `V` under the `A`
+measures the pair narrower than the two letters apart, and in `"fi"`, a font with an
+`fi` ligature measures that one glyph. Both come from the font itself (see
+`canvas::loadFont` for which tables are read); a font without them measures the plain
+advances. Complex shaping is not done. Measuring and drawing use the same glyph walk,
+kerning and ligatures included, so the width is exactly what a `canvas::Text` with the
+same font, size and string draws.
 
 **Measuring in a list of fonts.** Pass a `List OF RES canvas::Font` instead of one font
 and each character is measured in the first font in the list that has a glyph for it,
@@ -49,7 +50,9 @@ list raises `ErrInvalidArgument`.
 character but the last, where a character is what a reader sees as one — a letter with
 its accents, a whole emoji sequence — so `"AVA"` with `letterSpacing` 2.0 is 4 pixels
 wider, never 6. It matches `canvas::Text.letterSpacing`, and a text item and a
-measurement with the same spacing agree. A negative spacing measures narrower. To place
+measurement with the same spacing agree. A negative spacing measures narrower. Any
+spacing other than `0.0` turns ligatures off, because spaced letters cannot share one
+glyph. To place
 a caret or hit-test a click inside the text, use `canvas::caretStops`, which takes the
 same arguments.
 
@@ -161,7 +164,7 @@ END FUNC"#;
 const MEASURE_HANDLES: &str =
 r#"FUNC __canvas_measureHandles(handles AS List OF Integer, size AS Float, text AS String, spacing AS Float) AS TextMetrics
   __canvas_faceCheck(collections::getOr(handles, 0, 0))
-  LET run AS List OF Integer = __canvas_shapeRun(handles, text)
+  LET run AS List OF Integer = __canvas_shapeRun(handles, text, spacing)
   __canvas_shapeDump(run)
   LET fonts AS Integer = len(handles)
   MUT sums AS List OF Integer = []

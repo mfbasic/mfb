@@ -23,7 +23,10 @@ arguments.
 text before the stop. `x` is in pixels from the start of the text — add the `Text`
 item's `position.x` to place it on the canvas. Each stop's `x` is where the character
 starting there is drawn: kerning and `letterSpacing` are included, so a caret drawn at
-a stop sits exactly at the left edge of the character after it.
+a stop sits exactly at the left edge of the character after it. Inside a ligature,
+where one glyph draws several characters (`fi` in many fonts), there is still a stop
+between them: at the position the font gives for that boundary if it gives one, and
+otherwise at an equal share of the ligature's width.
 
 Clicking a position to the nearest stop is a search over `x`, shown below. Stops run
 left to right along the line; right-to-left text is not supported.
@@ -96,25 +99,51 @@ END FUNC"#;
 ///
 /// The pen walks the run as the draw paths do — each advance at its font's scale, then
 /// `spacing` after a `gapAfter` glyph — and a stop lands after every `gapAfter` glyph, at
-/// the next glyph's scalar index. The last stop is the scalar count at
-/// `__canvas_measureHandles`'s width itself, so it equals `measureText`'s to the bit
-/// rather than to the rounding of a second sum.
+/// the next glyph's scalar index. A ligature (plan-162-F) stands for several codepoints,
+/// so a grapheme can start inside it: such a stop lands at the font's `GDEF` caret for
+/// that component boundary, or, for a ligature without carets, at an even share of its
+/// advance. The last stop is the scalar count at `__canvas_measureHandles`'s width
+/// itself, so it equals `measureText`'s to the bit rather than to the rounding of a
+/// second sum.
 #[rustfmt::skip]
 const CARET_STOPS_HANDLES: &str =
 r#"FUNC __canvas_caretStopsHandles(handles AS List OF Integer, size AS Float, text AS String, spacing AS Float) AS List OF CaretStop
-  LET run AS List OF Integer = __canvas_shapeRun(handles, text)
+  LET run AS List OF Integer = __canvas_shapeRun(handles, text, spacing)
   LET scales AS List OF Float = __canvas_fontScales(handles, size)
   MUT stops AS List OF CaretStop = [CaretStop[index := 0, x := 0.0]]
   LET glyphs AS Integer = len(run) / __CANVAS_RUN_STRIDE
   IF glyphs = 0 THEN
     RETURN stops
   END IF
+  LET n AS Integer = len(encoding::utf32Encode(text))
+  LET boundary AS List OF Boolean = __canvas_graphemeEnds(text, n)
   MUT pen AS Float = 0.0
   MUT c AS Integer = 0
-  WHILE c < glyphs - 1
+  WHILE c < glyphs
     LET at AS Integer = c * __CANVAS_RUN_STRIDE
-    pen = pen + toFloat(collections::getOr(run, at + __CANVAS_RUN_ADVANCE, 0)) * collections::getOr(scales, collections::getOr(run, at + __CANVAS_RUN_FONT, 0), 0.0)
-    IF collections::getOr(run, at + __CANVAS_RUN_GAP, 0) = 1 THEN
+    LET which AS Integer = collections::getOr(run, at + __CANVAS_RUN_FONT, 0)
+    LET scale AS Float = collections::getOr(scales, which, 0.0)
+    LET advance AS Float = toFloat(collections::getOr(run, at + __CANVAS_RUN_ADVANCE, 0)) * scale
+    LET components AS Integer = collections::getOr(run, at + __CANVAS_RUN_COMPONENTS, 1)
+    IF components > 1 THEN
+      ' Graphemes that start inside a ligature.
+      LET first AS Integer = collections::getOr(run, at + __CANVAS_RUN_SCALAR, 0)
+      LET gid AS Integer = collections::getOr(run, at + __CANVAS_RUN_GLYPH, 0)
+      MUT k AS Integer = 1
+      WHILE k < components
+        IF collections::getOr(boundary, first + k, FALSE) THEN
+          LET caret AS Integer = __canvas_faceCaret(collections::getOr(handles, which, 0), gid, k)
+          MUT x AS Float = pen + advance * toFloat(k) / toFloat(components)
+          IF caret <> __CANVAS_FACE_UNSET THEN
+            x = pen + toFloat(caret) * scale
+          END IF
+          stops = collections::append(stops, CaretStop[index := first + k, x := x])
+        END IF
+        k = k + 1
+      END WHILE
+    END IF
+    pen = pen + advance
+    IF c < glyphs - 1 AND collections::getOr(run, at + __CANVAS_RUN_GAP, 0) = 1 THEN
       IF spacing <> 0.0 THEN
         pen = pen + spacing
       END IF

@@ -808,7 +808,7 @@ FUNC __canvas_autoTextBox(header AS List OF Float, t AS Text) AS List OF Float
   END IF
   LET handles AS List OF Integer = __canvas_textHandles(t)
   LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
-  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text)
+  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text, t.letterSpacing)
   ' The line the run sits on; for an empty string, the first drawable font's. No such
   ' font -- every font closed, or none with a scale -- and there is no box.
   LET line AS List OF Float = __canvas_runLine(handles, scales, shaped)

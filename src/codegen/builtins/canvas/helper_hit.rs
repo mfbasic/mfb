@@ -283,7 +283,7 @@ END FUNC
 FUNC __canvas_textBoxHeader(t AS Text) AS List OF Float
   LET handles AS List OF Integer = __canvas_textHandles(t)
   LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
-  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text)
+  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text, t.letterSpacing)
   IF len(shaped) < __CANVAS_RUN_STRIDE OR NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN __canvas_emptyHeader()
   END IF

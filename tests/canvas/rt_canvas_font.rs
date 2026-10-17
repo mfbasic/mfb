@@ -4187,3 +4187,124 @@ END FUNC
     );
     assert_eq!(lines, vec!["700", "700", "501"]);
 }
+
+/// The lit column runs of `text` drawn at size 100 from x = 100 in the ligature font.
+fn liga_columns(name: &str, text: &str, spacing: &str) -> Vec<(usize, usize)> {
+    let source = format!(
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  RES face AS canvas::Font = canvas::loadFont(\"liga.ttf\")\n  canvas::present([canvas::Text[id := \"\", position := vector::Float2[x := 100.0, y := 200.0], text := \"{text}\", fonts := [face], fontSize := 100.0, letterSpacing := {spacing}, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\nEND FUNC\n"
+    );
+    let (frame, _) = render_env_files(name, &source, &[], &[("liga.ttf", ligating_font())]);
+    lit_column_runs(&frame)
+}
+
+/// The drawn `fi` is the one `fi` glyph — a 400-unit slab, columns 100..139 at 0.1 — not
+/// an `f` bar (100..109) and an `i` bar after it. With spacing on, it is those two.
+#[test]
+fn liga_draws_the_ligature_glyph() {
+    assert_eq!(
+        liga_columns("canvas_liga_draw", "fi", "0.0"),
+        vec![(100, 139)]
+    );
+    assert_eq!(
+        liga_columns("canvas_liga_draw_spaced", "fi", "1.0"),
+        vec![(100, 109), (131, 138)],
+        "spacing turns the ligature off: f at 100, i at 100 + 30 + 1"
+    );
+}
+
+/// Carets inside a ligature: `ffi` has `GDEF` carets at 230 and 470, so its stops are
+/// there; `fi` has none, so its one inner stop is half its 450 advance. The run carries
+/// the ligature glyph with its component count, after which `l` follows.
+#[test]
+fn liga_carets_split_the_ligature() {
+    let lines = run_debug_files(
+        "canvas_liga_carets",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC show(stops AS List OF canvas::CaretStop) AS String
+  MUT out AS String = ""
+  FOR EACH stop IN stops
+    out = out & toString(stop.index) & ":" & toString(toInt(stop.x)) & " "
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("liga.ttf")
+  io::print(show(canvas::caretStops(f, 1000.0, "ffi")))
+  io::print(show(canvas::caretStops(f, 1000.0, "fil")))
+  io::print(toString(toInt(canvas::measureText(f, 1000.0, "ffil").width)))
+END FUNC
+"#,
+        &[("liga.ttf", ligating_font())],
+        &[("MFB_CANVAS_SHAPE_DUMP", "{project}/shape.txt".to_string())],
+    );
+    let (stdout, _, project) = lines;
+    let dump = std::fs::read_to_string(project.join("shape.txt")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&project);
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        vec!["0:0 1:230 2:470 3:700 ", "0:0 1:225 2:450 3:700 ", "950"]
+    );
+    // The `ffil` run: the `ffi` ligature (glyph 5, advance 700, scalar 0, a gap after
+    // it, 3 components), then `l` (glyph 3, 250, scalar 3, no gap, 1 component).
+    let last = dump.lines().last().expect("a shaped run");
+    assert_eq!(last, "shape 0 5 700 0 1 3 0 3 250 3 0 1");
+}
+
+/// A shipping font ligates as HarfBuzz does. `SFCamera.ttf` carries `liga` as `GSUB`
+/// type-4 lookups, and `office fluffy` forms two ligatures in it. The expected glyph ids
+/// and width are HarfBuzz 12.2.0's, from `hb-shape --features=liga,kern,-clig,-calt
+/// --no-glyph-names --no-clusters /System/Library/Fonts/SFCamera.ttf "office fluffy"` →
+/// glyphs 176 147 233 129 137 2 234 202 147 147 218. The width is the glyphs' `hmtx`
+/// advances plus HarfBuzz's kerning, kern on minus kern off (the tracking HarfBuzz also
+/// applies from `trak` cancels in the difference; plan-162-B Correction 6): 11158 units
+/// at size 2048, the face's em. The run's glyph column is read through
+/// `MFB_CANVAS_SHAPE_DUMP`. Skipped, logged, when the file is missing or a different
+/// build of the font.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_real_font_ligates_as_harfbuzz_does() {
+    const PATH: &str = "/System/Library/Fonts/SFCamera.ttf";
+    const SHA256: &str = "1c89c9953b2ade5ecef874ff42885dc86beb27d5cd47f52d1759c7f7fece82fc";
+    let digest = Command::new("shasum")
+        .args(["-a", "256", PATH])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    if !digest.starts_with(SHA256) {
+        eprintln!("skipping: {PATH} is missing or not the recorded build (`{digest}`)");
+        return;
+    }
+    let (stdout, _, project) = run_debug_files(
+        "canvas_liga_sfcamera",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("/System/Library/Fonts/SFCamera.ttf")
+  io::print(toString(toInt(canvas::measureText(f, 2048.0, "office fluffy").width * 1000.0)))
+END FUNC
+"#,
+        &[],
+        &[("MFB_CANVAS_SHAPE_DUMP", "{project}/shape.txt".to_string())],
+    );
+    let dump = std::fs::read_to_string(project.join("shape.txt")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&project);
+    assert_eq!(stdout.trim(), "11158000");
+    let words: Vec<i64> = dump
+        .split_whitespace()
+        .skip(1)
+        .map(|w| w.parse().expect("a run word"))
+        .collect();
+    let glyphs: Vec<i64> = words.chunks(RUN_STRIDE).map(|g| g[1]).collect();
+    assert_eq!(
+        glyphs,
+        vec![176, 147, 233, 129, 137, 2, 234, 202, 147, 147, 218]
+    );
+}

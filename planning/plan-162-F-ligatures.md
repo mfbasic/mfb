@@ -162,34 +162,61 @@ kerning tests still pass.
   ok. `liga_measures_ligatures_and_not_with_spacing` FAILED as predicted:
   `left: ["800", "750", "501"]`, `right: ["700", "700", "501"]`. The spaced case already
   holds; the two ligature widths differ by exactly the ligature term.
-Commit: — (this commit)
+Commit: 3957a3526
 
 ### Phase 3 — apply, carets, docs
 
-- [ ] `__canvas_shapeRun`: the substitution per §3.2, plus the `componentCount` column.
-- [ ] `caretStops`: the interior split per §3.3.
-- [ ] Tests:
+- [x] `__canvas_shapeRun`: the substitution per §3.2, plus the `componentCount` column.
+      `__canvas_ligaRun` runs per font after glyph selection and before kerning, only when
+      the new `spacing` argument is 0.0; every caller passes its `letterSpacing`.
+      `gapAfter` is now set through `scalarIndex + componentCount` and the grapheme ends
+      (`__canvas_graphemeEnds`), which fixes the Phase 1 audit's
+      glyph-per-codepoint assumption.
+- [x] `caretStops`: the interior split per §3.3. Every glyph is walked; a ligature's
+      inner grapheme boundaries get a stop at `__canvas_faceCaret` or at
+      `advance × k / componentCount`.
+- [x] Tests:
   - the RED tests go GREEN;
   - the drawn `fi` shows one glyph's outline, checked by a pixel column unique to the
     ligature outline;
   - the caret stops for `"ffi"` sit at the `GDEF` coordinates, and for `"fi"` at the
     halves;
   - the last stop equals the width.
-- [ ] Real-font oracle: the Phase 1 face compared with HarfBuzz
+
+  `liga_measures_ligatures_and_not_with_spacing` (`700 700 501`),
+  `liga_draws_the_ligature_glyph` (`fi` lights one run, columns 100..139; spaced,
+  `(100,109), (131,138)`), and `liga_carets_split_the_ligature` (`ffi` →
+  `0:0 1:230 2:470 3:700`, `fil` → `0:0 1:225 2:450 3:700`, `ffil` = 950, run
+  `shape 0 5 700 0 1 3 0 3 250 3 0 1`). All ok. The last stop is the width by
+  construction, which `caret_stops_agree_with_measuring_and_with_graphemes` keeps
+  holding.
+- [x] Real-font oracle: the Phase 1 face compared with HarfBuzz
       (`hb-shape --features=liga,kern,-clig,-calt`), glyph IDs and summed advances for
-      `"office fluffy"`, recorded with the command.
-- [ ] Man: `measureText`, `Text` and `caretStops` (ligatures, and the spacing rule).
+      `"office fluffy"`, recorded with the command. SF Pro, the plan-B face, forms no
+      ligature in that string in HarfBuzz or here (13 identical glyphs, width 9,607),
+      so the test uses `SFCamera.ttf` (Correction 3):
+      `a_real_font_ligates_as_harfbuzz_does` → ok, glyphs
+      `176 147 233 129 137 2 234 202 147 147 218` and width 11,158 units, both
+      HarfBuzz 12.2.0's. Sweep `python3 -I /tmp/p162/liga_oracle.py` over the 20
+      `liga` faces × 3 strings: every case HarfBuzz ligates through type 4 matches; the 7
+      that differ are out of scope (Correction 4).
+- [x] Man: `measureText`, `Text` and `caretStops` (ligatures, and the spacing rule).
       `loadFont` DESC: the shaping sentence now lists pair kerning and standard
       ligatures, and still says complex scripts are unsupported. Check with
-      `scripts/man-census.sh --memory-scope` → 0 unclassified.
-- [ ] Spec `06_canvas.md`: the ligature rule, the `componentCount` column, and the caret
-      split.
+      `scripts/man-census.sh --memory-scope` → 0 unclassified. `loadFont`'s
+      "Kerning and ligatures." paragraph, `measureText`'s width paragraph and its
+      spacing note, the `Text` record and `letterSpacing` field, and `caretStops`'
+      ligature stops. Census → 0.
+- [x] Spec `06_canvas.md`: the ligature rule, the `componentCount` column, and the caret
+      split. A "Ligatures" subsection, and the run-column paragraph now lists six
+      words. `cargo test --bin mfb spec` → 46 passed, no leaked `[[`.
 
 Acceptance: ligatures draw, measure and caret consistently. Unligated fonts are
 byte-identical.
   Check: `cargo test --test rt_canvas_font --test rt_canvas_golden --test rt_canvas_geo_native`
   → pass and `git status --short tests/golden/canvas` → empty (est. 6 min).
-Commit: —
+  Result: rt_canvas_font 59, rt_canvas_geo_native 4, rt_canvas_golden 28 passed, 0 failed (`/tmp/p162/f3-accept.log`); `git status --short tests/golden/canvas` → empty.
+Commit: — (this commit)
 
 ## Validation Plan
 
@@ -225,6 +252,17 @@ Commit: —
    and `f` carries `gapAfter`. The rule it serves is §Non-goals' "with `letterSpacing
    <> 0.0` there are no ligatures at all", which is what is implemented: ligatures form
    across grapheme boundaries only when the spacing is 0.
+
+3. **The oracle face is SF Camera, not SF Pro.** The Phase 1 face (plan-162-B's oracle
+   SF Pro) has 110 ligature sets but none for `fi`/`ff`/`fl`: HarfBuzz shapes `office
+   fluffy` there as 13 separate glyphs, and so does this build. `SFCamera.ttf` ligates
+   the string twice in HarfBuzz, so it is the face that tests substitution.
+4. **Ligatures outside `liga` type 4 differ from HarfBuzz, as scoped.** Of 60 sweep
+   cases, 7 differ, all for reasons the Non-goals exclude. STIX Two Text (6 cases) forms
+   its `fi`/`ffl` ligatures through chaining-contextual lookups (type 6) under `liga`.
+   Trattatello's final `y` (1 case) is substituted with `liga` turned off as well
+   (`hb-shape --features=-liga,…` still gives glyph 1730), so it comes from the font's
+   `morx` or another always-on feature, not `liga`.
 
 ## Summary
 

@@ -1405,7 +1405,7 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
   ' Shaped once, before pass one. The run is a plain local list of glyph ids and
   ' advances, and it holds no cache index, so the eviction pass one can trigger -- which
   ' renumbers entries, see below -- cannot make it stale.
-  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text)
+  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text, t.letterSpacing)
   IF NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN []
   END IF
@@ -1614,7 +1614,7 @@ FUNC __canvas_textEdges(t AS Text) AS List OF Float
   __CANVAS_RING_MARKS = []
   LET handles AS List OF Integer = __canvas_textHandles(t)
   LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
-  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text)
+  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text, t.letterSpacing)
   IF NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN []
   END IF
@@ -1912,7 +1912,7 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
   ' would clip the glyphs it was meant to bound. With several fonts it is the tallest
   ' of the ones the run draws from.
   LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
-  LET line AS List OF Float = __canvas_runLine(handles, scales, __canvas_shapeRun(handles, t.text))
+  LET line AS List OF Float = __canvas_runLine(handles, scales, __canvas_shapeRun(handles, t.text, t.letterSpacing))
   LET ascent AS Float = collections::getOr(line, 0, 0.0)
   LET descent AS Float = collections::getOr(line, 1, 0.0)
   MUT minX AS Float = collections::getOr(run, 1, __canvas_textX(t))
@@ -2365,7 +2365,7 @@ END FUNC
 FUNC __canvas_geoRunReference(t AS Text, offset AS Integer) AS List OF Float
   LET handles AS List OF Integer = __canvas_textHandles(t)
   LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
-  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text)
+  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text, t.letterSpacing)
   IF NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN []
   END IF

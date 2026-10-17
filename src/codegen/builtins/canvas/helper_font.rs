@@ -854,7 +854,7 @@ LET __CANVAS_RUN_GAP AS Integer = 4
 LET __CANVAS_RUN_COMPONENTS AS Integer = 5
 LET __CANVAS_RUN_STRIDE AS Integer = 6
 
-FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF Integer
+FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String, spacing AS Float) AS List OF Integer
   LET cps AS List OF Integer = encoding::utf32Encode(text)
   LET n AS Integer = len(cps)
   ' The first open font shapes every codepoint, `.notdef` included; with none open,
@@ -903,22 +903,51 @@ FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF Inte
     END IF
     which = which + 1
   NEXT
+  ' Ligatures (plan-162-F), font by font, before kerning, so a ligature kerns with its
+  ' neighbours. Only with no letter-spacing: spacing would pull a ligature's letters
+  ' apart, and one glyph cannot be.
+  IF spacing = 0.0 THEN
+    which = 0
+    FOR EACH f IN fonts
+      run = __canvas_ligaRun(f, which, run)
+      which = which + 1
+    NEXT
+  END IF
   which = 0
   FOR EACH f IN fonts
     run = __canvas_kernRun(f, which, run)
     which = which + 1
   NEXT
-  ' Grapheme boundaries: the last glyph of each grapheme but the final one has a gap
-  ' after it. One glyph per codepoint, so a grapheme's last glyph is the one at its last
-  ' scalar.
+  ' Grapheme boundaries: a glyph has a gap after it when the codepoints it stands for end
+  ' exactly at a boundary inside the text. A ligature ends where its last component does.
+  LET boundary AS List OF Boolean = __canvas_graphemeEnds(text, n)
+  MUT g AS Integer = 0
+  WHILE g * __CANVAS_RUN_STRIDE < len(run)
+    LET at AS Integer = g * __CANVAS_RUN_STRIDE
+    LET reach AS Integer = collections::getOr(run, at + __CANVAS_RUN_SCALAR, 0) + collections::getOr(run, at + __CANVAS_RUN_COMPONENTS, 1)
+    IF reach < n AND collections::getOr(boundary, reach, FALSE) THEN
+      run = collections::set(run, at + __CANVAS_RUN_GAP, 1)
+    END IF
+    g = g + 1
+  END WHILE
+  RETURN run
+END FUNC
+
+' `n + 1` flags, TRUE at every scalar index where a grapheme of `text` ends (and the
+' next begins).
+FUNC __canvas_graphemeEnds(text AS String, n AS Integer) AS List OF Boolean
+  MUT ends AS List OF Boolean = []
+  MUT i AS Integer = 0
+  WHILE i <= n
+    ends = collections::append(ends, FALSE)
+    i = i + 1
+  END WHILE
   MUT reach AS Integer = 0
   FOR EACH g IN strings::graphemes(text)
     reach = reach + len(encoding::utf32Encode(g))
-    IF reach < n THEN
-      run = collections::set(run, (reach - 1) * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GAP, 1)
-    END IF
+    ends = collections::set(ends, reach, TRUE)
   NEXT
-  RETURN run
+  RETURN ends
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

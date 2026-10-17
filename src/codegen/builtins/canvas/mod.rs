@@ -1363,7 +1363,10 @@ pub(crate) fn register(r: &mut Registry) {
                       character is drawn in the first font in `fonts` that has it, so \
                       a line mixing scripts draws each from a font that covers it, and \
                       `canvas::measureText` over the same list measures what is drawn. \
-                      Glyph outlines come from the fonts' TrueType `glyf` tables only: \
+                      The fonts' pair kerning and standard ligatures (`fi`, `fl`) \
+                      are applied, the ligatures only when `letterSpacing` is \
+                      `0.0`. Glyph outlines come from the fonts' TrueType `glyf` \
+                      tables only: \
                       colour and bitmap glyphs (most emoji fonts) draw nothing. Arabic, \
                       Indic and other scripts that need complex shaping draw one glyph \
                       per character in reading order, unjoined; a font is chosen per \
@@ -1408,7 +1411,8 @@ pub(crate) fn register(r: &mut Registry) {
                               last, where a character is what a reader sees as one: \
                               a letter with its accents, a whole emoji sequence. \
                               `0.0`, the zero value, adds none; a negative value draws \
-                              characters closer. `canvas::measureText` takes the same \
+                              characters closer. Any other value turns the font's \
+                              ligatures off. `canvas::measureText` takes the same \
                               spacing, so it measures what is drawn.",
             },
             paint_prop(),

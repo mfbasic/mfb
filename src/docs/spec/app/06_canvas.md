@@ -2705,9 +2705,10 @@ assembled source. [[src/codegen/builtins/canvas/mod.rs:canvas_text_has_one_glyph
 A `Text` passes its `fonts` list, as handles (`__canvas_textHandles`), and the
 single-font `measureText` passes a one-element list.
 
-Each glyph's record is five words, read by the `__CANVAS_RUN_*` column names and never
+Each glyph's record is six words, read by the `__CANVAS_RUN_*` column names and never
 by position: `fontIndex`, `glyphId`, `advanceUnits`, `scalarIndex` (the zero-based
-Unicode scalar index of the codepoint the glyph came from), and `gapAfter`. `gapAfter`
+Unicode scalar index of the first codepoint the glyph came from), `gapAfter`, and
+`componentCount` (see "Ligatures"). `gapAfter`
 is 1 on the last glyph of every grapheme but the final one, with graphemes taken from
 `strings::graphemes`. That one column decides where letter-spacing goes and where a
 caret can stand, so both agree with drawing by construction.
@@ -2726,6 +2727,32 @@ font gets the defaults, the medians of the 638 TrueType faces plan-162 measured:
 underline 0.10 em below the baseline and 0.05 em thick, and a strikeout 0.26 em above
 it at the underline's thickness.
 [[src/codegen/builtins/canvas/helper_font.rs:__canvas_faceLine]]
+
+### Ligatures
+
+Face-index layout version 4 adds two sections, each read once at load: header word 14 is
+the ligature section and word 15 the ligature-caret section, 0 for none.
+[[src/codegen/builtins/canvas/helper_liga.rs:LIGA_SECTION]] The ligatures are the `GSUB`
+`liga` feature's lookups of type 4 (LigatureSubst format 1), directly or through type 7
+(Extension). They are found by the kerning walk with the `GSUB` table, so the script and
+LangSys choice is the same, and no other feature or lookup type is read. The carets
+are `GDEF`'s LigCaretList, each boundary's x in font units. A ligature with a format-2
+(contour point) caret has none.
+
+`__canvas_shapeRun` substitutes after glyph selection and before kerning, and only when
+`letterSpacing` is `0.0`. [[src/codegen/builtins/canvas/helper_liga.rs:LIGA_READ]] For
+each font and lookup in turn, walking left to right over that font's glyphs: the first
+subtable covering a glyph, and in it the first ligature whose components follow,
+replaces them with the ligature glyph. That is HarfBuzz's rule, and since fonts list
+longer ligatures first it is the longest match. A ligature never spans two fonts. The
+glyph's record takes its first component's `scalarIndex`, and the run's sixth column,
+`componentCount`, holds how many codepoints it stands for: 1 for every other glyph.
+`gapAfter` is set when a glyph's codepoints end exactly at a grapheme boundary, so a
+ligature carries its last component's.
+
+`canvas::caretStops` puts a stop at every grapheme boundary inside a ligature too. Its
+`x` is the `GDEF` caret for that component boundary when the font gives one, otherwise
+`advance × k / componentCount`.
 
 `canvas::caretStops` projects the same run. One `CaretStop` (`index`, `x`) at 0, then
 one after every `gapAfter` glyph, at the next glyph's scalar index and at the pen
