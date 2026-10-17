@@ -2579,7 +2579,7 @@ program does not close it:
 ```
 FUNC installPanel() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("ui.ttf")
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 8.0, y := 24.0], text := "Ready", fonts := [face], fontSize := 18.0, paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 8.0, y := 24.0], text := "Ready", fonts := [face], fontSize := 18.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [label])
 END FUNC
 ```

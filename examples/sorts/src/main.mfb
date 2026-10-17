@@ -534,11 +534,11 @@ FUNC grouped(n AS Integer) AS String
 END FUNC
 
 FUNC tableItem(face AS canvas::Font, x AS Float, y AS Float, text AS String) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := text, fonts := [face], fontSize := TABLE_SIZE, paint := canvas::fill(TABLE_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := text, fonts := [face], fontSize := TABLE_SIZE, letterSpacing := 0.0, paint := canvas::fill(TABLE_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC textItem(face AS canvas::Font, x AS Float, line AS Integer, text AS String) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := STATS_MARGIN + STATS_SIZE * (1.0 + 1.3 * toFloat(line))], text := text, fonts := [face], fontSize := STATS_SIZE, paint := canvas::fill(STATS_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := STATS_MARGIN + STATS_SIZE * (1.0 + 1.3 * toFloat(line))], text := text, fonts := [face], fontSize := STATS_SIZE, letterSpacing := 0.0, paint := canvas::fill(STATS_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' ---------------------------------------------------------------------------

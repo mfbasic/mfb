@@ -19,12 +19,12 @@ FUNC main AS Integer
   RES title AS canvas::Font = canvas::loadFont("title.ttf")
   RES body AS canvas::Font = canvas::loadFont("body.ttf")
 
-  LET a AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 0.0, y := 20.0], text := "one", fonts := [title, body], fontSize := 16.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET a AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 0.0, y := 20.0], text := "one", fonts := [title, body], fontSize := 16.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("one", [a])
 
   ' `body` was moved into the group above, inside the list. Naming it again is the
   ' use-after-move.
-  LET b AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 0.0, y := 40.0], text := "two", fonts := [body], fontSize := 16.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET b AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 0.0, y := 40.0], text := "two", fonts := [body], fontSize := 16.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("two", [b])
 
   RETURN 0

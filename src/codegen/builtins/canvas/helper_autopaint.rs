@@ -817,7 +817,7 @@ FUNC __canvas_autoTextBox(header AS List OF Float, t AS Text) AS List OF Float
   END IF
   LET x0 AS Float = __canvas_textX(t)
   LET baseline AS Float = __canvas_textY(t)
-  LET pen AS Float = __canvas_runPen(shaped, scales, x0)
+  LET pen AS Float = __canvas_runPen(shaped, scales, x0, t.letterSpacing)
   MUT out AS List OF Float = header
   IF kind = __CANVAS_GEO_POLYGON THEN
     out = collections::set(out, __CANVAS_GEO_GRADIENT_KIND, toFloat(__CANVAS_GEO_TEXT_BOX_MARK))

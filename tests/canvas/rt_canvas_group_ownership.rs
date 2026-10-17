@@ -34,7 +34,7 @@ FUNC install() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("held", [tag])
 END FUNC
 
@@ -58,7 +58,7 @@ FUNC main AS Integer
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN 1
   END TRAP
-  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("held", [tag])
   canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "held"]])
   RETURN 0
@@ -159,7 +159,7 @@ FUNC main AS Integer
     RETURN 1
   END TRAP
   FOR i = 1 TO 6
-    LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::setGroup("panel", [tag])
     canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := toFloat(i)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
   NEXT
@@ -454,7 +454,7 @@ IMPORT io
 IMPORT os
 
 FUNC install(face AS canvas::Font) AS Nothing
-  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [tag])
 END FUNC
 
@@ -640,7 +640,7 @@ FUNC panel() AS canvas::DrawItem
 END FUNC
 
 FUNC textIn(fonts AS List OF RES canvas::Font, y AS Float) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", position := vector::Float2[x := 40.0, y := y], text := "AA", fonts := fonts, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := 40.0, y := y], text := "AA", fonts := fonts, fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 "#;
 

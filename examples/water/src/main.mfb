@@ -191,7 +191,7 @@ FUNC hintItem(face AS canvas::Font, height AS Float, p AS Pipe) AS canvas::DrawI
   MUT state AS String = "on"
   IF NOT p.on THEN state = "off"
   LET text AS String = "pipe " & state & "  \u{00B7}  " & toString(dropsOut()) & " of " & toString(POOL_SIZE) & " drops  \u{00B7}  drag the pipe, click it on/off  \u{00B7}  a d turn  \u{00B7}  q e spin  \u{00B7}  w s size  \u{00B7}  delete removes  \u{00B7}  esc quits"
-  RETURN canvas::Text[id := "", position := vector::Float2[x := 12.0, y := height - 12.0], text := text, fonts := [face], fontSize := HINT_SIZE, paint := canvas::fill(HINT_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := 12.0, y := height - 12.0], text := text, fonts := [face], fontSize := HINT_SIZE, letterSpacing := 0.0, paint := canvas::fill(HINT_COLOR), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 FUNC frameScene(width AS Float, height AS Float, p AS Pipe, selected AS Integer) AS List OF canvas::DrawItem

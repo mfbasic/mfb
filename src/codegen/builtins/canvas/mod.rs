@@ -1370,6 +1370,16 @@ pub(crate) fn register(r: &mut Registry) {
                 ty: ParameterType::Float,
                 description: "The em size in pixels.",
             },
+            RecordProp {
+                name: "letterSpacing",
+                ty: ParameterType::Float,
+                description: "Extra space in pixels after every character but the \
+                              last, where a character is what a reader sees as one: \
+                              a letter with its accents, a whole emoji sequence. \
+                              `0.0`, the zero value, adds none; a negative value draws \
+                              characters closer. `canvas::measureText` takes the same \
+                              spacing, so it measures what is drawn.",
+            },
             paint_prop(),
             transform_prop(),
         ],

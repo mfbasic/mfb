@@ -492,7 +492,7 @@ FUNC __canvas_particleTextBox(t AS Text) AS Nothing
   IF len(shaped) < __CANVAS_RUN_STRIDE OR NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN
   END IF
-  LET advance AS Float = __canvas_runPen(shaped, scales, 0.0)
+  LET advance AS Float = __canvas_runPen(shaped, scales, 0.0, t.letterSpacing)
   LET line AS List OF Float = __canvas_runLine(handles, scales, shaped)
   LET up AS Float = collections::getOr(line, 0, 0.0)
   LET down AS Float = collections::getOr(line, 1, 0.0)

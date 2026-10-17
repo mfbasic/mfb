@@ -170,24 +170,33 @@ Acceptance: identical pixels, and the property test passes.
   (`a_cmap_group_count_*`, `a_glyph_whose_bitmap_would_exceed_the_raster_cap_is_skipped`)
   time out. Run alone, the three pass in 10.8 s together; they are wall-clock bounded,
   and the box was loaded (Correction 3).
-Commit: — (this commit)
+Commit: 78cef082d
 
 ### Phase 3 — letter-spacing
 
-- [ ] `mod.rs`: add a `Text.letterSpacing` field, described in pixels, applied between
-      characters, and not after the last one.
-- [ ] `func_measure_text.rs`: add a defaulted `letterSpacing` parameter to both
-      implementations.
-- [ ] The callers' pen steps and the `Text` hash arm fold in `letterSpacing`.
+- [x] `mod.rs`: add a `Text.letterSpacing` field, described in pixels, applied between
+      characters, and not after the last one. A record literal must name every field,
+      so all 78 `canvas::Text[` literals gained `letterSpacing := 0.0` (Correction 4).
+- [x] `func_measure_text.rs`: add a defaulted `letterSpacing` parameter to both
+      implementations. `DefaultValue::Fill { Float, "0.0" }`; the width adds
+      `gaps × spacing` only when the spacing is non-zero.
+- [x] The callers' pen steps and the `Text` hash arm fold in `letterSpacing`.
       Forgetting the hash is the geometry-cache stale-glyph trap, so a test changes
-      only the spacing between two presents.
-- [ ] Tests: the width grows by `(graphemes − 1) × spacing`, the drawn second-grapheme
+      only the spacing between two presents. Glyph run, edges, verify reference and
+      `__canvas_runPen` (the hit, particle and AutoPaint boxes) add it after a
+      `gapAfter` glyph when it is non-zero. The hash folds it only when non-zero, so an
+      unspaced `Text` keeps its old key.
+- [x] Tests: the width grows by `(graphemes − 1) × spacing`, the drawn second-grapheme
       column moves by `spacing`, negative spacing works, and a spacing-only change
-      re-renders.
+      re-renders. `measure_text_spacing_adds_between_graphemes_only` (`AVA` 800 → 820 at
+      +10, 792 at −4 over a list, `A`+U+0301 750 either way),
+      `letter_spacing_moves_the_next_character_by_the_spacing` (fill and stroke, +7 and
+      −5 px), `a_spacing_only_change_redraws` → all ok.
 
 Acceptance: measured and drawn spacing agree.
   Check: `cargo test --test rt_canvas_font spacing` → pass (est. 3 min).
-Commit: —
+  Result: 3 passed, 0 failed.
+Commit: — (this commit)
 
 ### Phase 4 — decoration metrics
 
@@ -259,6 +268,13 @@ Commit: —
    hostile font's run with a 30 s timeout. They timed out once while another test binary
    ran in parallel and passed alone (10.8 s for all three). The checks below run the
    suite alone.
+
+4. **Every `Text` literal names `letterSpacing`.** §1 said the zero value leaves
+   existing items unchanged. That holds for drawing, but a record literal must name
+   every field (`error[2-203-0024 TYPE_CONSTRUCTOR_ARITY_MISMATCH]: Constructor
+   \`canvas.Text\` has 7 argument(s), expected 8`), so adding the field is a source
+   change at every construction site. All 78 were updated with `letterSpacing := 0.0`
+   (`/tmp/p162/edits/d3migrate.py`, inserted after `fontSize := …`).
 
 ## Summary
 

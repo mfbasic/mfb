@@ -289,7 +289,7 @@ FUNC __canvas_textBoxHeader(t AS Text) AS List OF Float
   END IF
   LET x0 AS Float = __canvas_textX(t)
   LET baseline AS Float = __canvas_textY(t)
-  LET pen AS Float = __canvas_runPen(shaped, scales, x0)
+  LET pen AS Float = __canvas_runPen(shaped, scales, x0, t.letterSpacing)
   LET line AS List OF Float = __canvas_runLine(handles, scales, shaped)
   LET y0 AS Float = baseline - collections::getOr(line, 0, 0.0)
   LET y1 AS Float = baseline + collections::getOr(line, 1, 0.0)

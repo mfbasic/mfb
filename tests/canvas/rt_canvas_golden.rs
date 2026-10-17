@@ -402,8 +402,8 @@ FUNC main() AS Nothing
 
   ' 90 degrees, so the rotated run is a vertical column of the fixture's squares.
   LET textT AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 860.0, ty := 120.0]
-  LET plainText AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 380.0, y := 300.0], text := "AA", fonts := [face], fontSize := 50.0, paint := canvas::fill(color::rgb(200, 255, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET rotText AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 0.0, y := 0.0], text := "AA", fonts := [face], fontSize := 50.0, paint := canvas::fill(color::rgb(200, 255, 120)), transform := textT]
+  LET plainText AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 380.0, y := 300.0], text := "AA", fonts := [face], fontSize := 50.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(200, 255, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET rotText AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 0.0, y := 0.0], text := "AA", fonts := [face], fontSize := 50.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(200, 255, 120)), transform := textT]
 
   canvas::present([ground, plainRect, rotRect, plainCircle, scaledCircle, plainPoly, shearPoly, plainText, rotText])
   io::print("rendered")
@@ -1176,7 +1176,7 @@ fn a_gradient_on_a_stroked_text_is_ignored() {
              LET g AS canvas::Gradient = canvas::Gradient[kind := canvas::GradientKind.Linear, \
              startPoint := vector::Float2[x := 0.0, y := 0.0], \
              endPoint := vector::Float2[x := 400.0, y := 0.0], stops := s, spread := canvas::GradientSpread.Pad, transform := canvas::Transform[a := 0.0, b := 0.0, c := 0.0, d := 0.0, tx := 0.0, ty := 0.0], focalOffset := vector::Float2[x := 0.0, y := 0.0], focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]\n  \
-             LET label AS canvas::DrawItem = canvas::Text[id := \"\", position := vector::Float2[x := 40.0, y := 120.0], text := \"AA\", fonts := [face], fontSize := 90.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
+             LET label AS canvas::DrawItem = canvas::Text[id := \"\", position := vector::Float2[x := 40.0, y := 120.0], text := \"AA\", fonts := [face], fontSize := 90.0, letterSpacing := 0.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              LET box AS canvas::DrawItem = canvas::Rectangle[id := \"\", position := vector::Float2[x := 300.0, y := 380.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 60.0, height := 60.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(0, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  \
              canvas::present([label, box])\n  io::print(\"rendered\")\nEND FUNC\n"
         )
@@ -1387,7 +1387,7 @@ FUNC main() AS Nothing
   LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 160.0, height := 70.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := ramp }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET band AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 80.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 160.0, height := 30.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[vector::Float2[x := 40.25, y := 0.0 - 80.0], vector::Float2[x := 130.75, y := 0.0 - 80.0], vector::Float2[x := 130.75, y := 560.0], vector::Float2[x := 40.25, y := 560.0]]] }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 30.0, y := 140.0], radius := 22.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 5.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 70.0, y := 155.0], text := "AA", fonts := [face], fontSize := 46.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 70.0, y := 155.0], text := "AA", fonts := [face], fontSize := 46.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [bar, band, dot, tag])
   ' A nested group: the outer holds the panel, so the two offsets compose.
   canvas::setGroup("outer", [canvas::Group[id := "", position := vector::Float2[x := 20.0, y := 30.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]])

@@ -219,7 +219,7 @@ FUNC captionSize(v AS View) AS Float
 END FUNC
 
 FUNC textItem(face AS canvas::Font, x AS Float, y AS Float, size AS Float, tint AS color::Color, text AS String) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := text, fonts := [face], fontSize := size, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := text, fonts := [face], fontSize := size, letterSpacing := 0.0, paint := canvas::fill(tint), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' A full-window message on the void colour - the loading screen, and the one

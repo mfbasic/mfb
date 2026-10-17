@@ -102,7 +102,7 @@ FUNC main() AS Nothing
   IF template = "rect" THEN
     item = WITH chip { position := at(0.0 - 3.0, 0.0 - 2.0), size := canvas::Size[width := 6.0, height := 4.0], paint := yellow }
   ELSEIF template = "text" THEN
-    item = canvas::Text[id := "", position := at(0.0, 0.0), text := "AB", fonts := [face], fontSize := 10.0, paint := yellow, transform := none()]
+    item = canvas::Text[id := "", position := at(0.0, 0.0), text := "AB", fonts := [face], fontSize := 10.0, letterSpacing := 0.0, paint := yellow, transform := none()]
   END IF
 
   LET emitter AS canvas::Shape = emitterOf(os::getEnvOr("EMITTER", "disc"))

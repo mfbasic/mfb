@@ -84,8 +84,8 @@ END FUNC
 /// computation (plan-162-C), `__canvas_measureHandles`.
 #[rustfmt::skip]
 const MEASURE_TEXT: &str =
-r#"FUNC __canvas_measureText(font AS canvas::Font, size AS Float, text AS String) AS TextMetrics
-  RETURN __canvas_measureHandles([canvas::fontOpenHandle(font)], size, text)
+r#"FUNC __canvas_measureText(font AS canvas::Font, size AS Float, text AS String, letterSpacing AS Float) AS TextMetrics
+  RETURN __canvas_measureHandles([canvas::fontOpenHandle(font)], size, text, letterSpacing)
 END FUNC"#;
 
 /// `canvas::measureText(fonts, size, text)` — the list form (plan-162-C). An empty list is
@@ -94,7 +94,7 @@ END FUNC"#;
 /// single form raises for its one font.
 #[rustfmt::skip]
 const MEASURE_TEXT_FONTS: &str =
-r#"FUNC __canvas_measureTextFonts(fonts AS List OF RES canvas::Font, size AS Float, text AS String) AS TextMetrics
+r#"FUNC __canvas_measureTextFonts(fonts AS List OF RES canvas::Font, size AS Float, text AS String, letterSpacing AS Float) AS TextMetrics
   IF len(fonts) = 0 THEN
     FAIL error(77050002, "measureText needs at least one font")
   END IF
@@ -102,7 +102,7 @@ r#"FUNC __canvas_measureTextFonts(fonts AS List OF RES canvas::Font, size AS Flo
   FOR EACH f IN fonts
     handles = collections::append(handles, canvas::fontOpenHandle(f))
   NEXT
-  RETURN __canvas_measureHandles(handles, size, text)
+  RETURN __canvas_measureHandles(handles, size, text, letterSpacing)
 END FUNC"#;
 
 /// The metrics of `text` shaped in the fonts `handles` names, in fallback order.
@@ -117,9 +117,14 @@ END FUNC"#;
 /// for an empty string — so a line holding a fallback font's taller glyphs is tall enough
 /// for them. `lineGap` is `fonts[0]`'s. `height` is their sum, as before. A one-element
 /// list whose font has no `head` measures all zeroes.
+///
+/// `spacing` (plan-162-D) adds once per grapheme boundary inside the string — every
+/// glyph the run marks `gapAfter` — so `width` grows by `(graphemes - 1) * spacing` and
+/// no trailing gap is measured. It is added only when it is not `0.0`, so a zero spacing
+/// leaves the width bit-identical.
 #[rustfmt::skip]
 const MEASURE_HANDLES: &str =
-r#"FUNC __canvas_measureHandles(handles AS List OF Integer, size AS Float, text AS String) AS TextMetrics
+r#"FUNC __canvas_measureHandles(handles AS List OF Integer, size AS Float, text AS String, spacing AS Float) AS TextMetrics
   __canvas_faceCheck(collections::getOr(handles, 0, 0))
   LET run AS List OF Integer = __canvas_shapeRun(handles, text)
   __canvas_shapeDump(run)
@@ -132,8 +137,10 @@ r#"FUNC __canvas_measureHandles(handles AS List OF Integer, size AS Float, text 
     used = collections::append(used, len(run) = 0 AND k = 0)
     k = k + 1
   END WHILE
+  MUT gaps AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < len(run)
+    gaps = gaps + collections::getOr(run, i + __CANVAS_RUN_GAP, 0)
     LET which AS Integer = collections::getOr(run, i + __CANVAS_RUN_FONT, 0)
     sums = collections::set(sums, which, collections::getOr(sums, which, 0) + collections::getOr(run, i + __CANVAS_RUN_ADVANCE, 0))
     used = collections::set(used, which, TRUE)
@@ -176,6 +183,9 @@ r#"FUNC __canvas_measureHandles(handles AS List OF Integer, size AS Float, text 
   END IF
   IF NOT measured THEN
     RETURN TextMetrics[width := 0.0, height := 0.0, ascent := 0.0, descent := 0.0, lineGap := 0.0]
+  END IF
+  IF spacing <> 0.0 AND gaps > 0 THEN
+    width = width + toFloat(gaps) * spacing
   END IF
   RETURN TextMetrics[width := width, height := ascent + descent + lineGap, ascent := ascent, descent := descent, lineGap := lineGap]
 END FUNC"#;
@@ -287,6 +297,19 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         ty: ParameterType::String,
                         default: DefaultValue::None,
                     },
+                    Parameter {
+                        name: "letterSpacing",
+                        desc: "Extra pixels after every character but the last, as \
+                               `canvas::Text.letterSpacing` adds them. Optional; \
+                               `0.0` adds none, and a negative value measures \
+                               characters closer.",
+                        aliases: &[],
+                        ty: ParameterType::Float,
+                        default: DefaultValue::Fill {
+                            type_name: ParameterType::Float,
+                            expr: "0.0",
+                        },
+                    },
                 ],
                 return_type: ParameterType::named("TextMetrics"),
                 errors: vec!["ErrResourceClosed", "ErrOutOfMemory"],
@@ -318,6 +341,19 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         aliases: &[],
                         ty: ParameterType::String,
                         default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "letterSpacing",
+                        desc: "Extra pixels after every character but the last, as \
+                               `canvas::Text.letterSpacing` adds them. Optional; \
+                               `0.0` adds none, and a negative value measures \
+                               characters closer.",
+                        aliases: &[],
+                        ty: ParameterType::Float,
+                        default: DefaultValue::Fill {
+                            type_name: ParameterType::Float,
+                            expr: "0.0",
+                        },
                     },
                 ],
                 return_type: ParameterType::named("TextMetrics"),

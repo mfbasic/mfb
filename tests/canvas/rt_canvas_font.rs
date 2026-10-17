@@ -452,7 +452,7 @@ FUNC main() AS Nothing
     io::print("font failed")
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "A", fonts := [face], fontSize := 200.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "A", fonts := [face], fontSize := 200.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("label", [label])
   canvas::present([canvas::Group[id := "", position := vector::Float2[x := 400.0, y := 300.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "label"]])
   io::print("done")
@@ -522,8 +522,8 @@ FUNC main() AS Nothing
     io::print("font failed")
     RETURN
   END TRAP
-  LET filled AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 220.0], text := "A", fonts := [face], fontSize := 200.0, paint := WITH canvas::fill({fill}){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET outlined AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 400.0, y := 220.0], text := "A", fonts := [face], fontSize := 200.0, paint := WITH canvas::stroke({stroke}, 6.0){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET filled AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 220.0], text := "A", fonts := [face], fontSize := 200.0, letterSpacing := 0.0, paint := WITH canvas::fill({fill}){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET outlined AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 400.0, y := 220.0], text := "A", fonts := [face], fontSize := 200.0, letterSpacing := 0.0, paint := WITH canvas::stroke({stroke}, 6.0){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([filled, outlined])
   io::print("done")
 END FUNC
@@ -733,7 +733,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "A", fonts := [face], fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "A", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -808,7 +808,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("composite.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "B", fonts := [face], fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "B", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -869,7 +869,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AA", fonts := [face], fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AA", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -907,13 +907,13 @@ const WALK_PENS: [&str; 2] = ["100.25", "152.75"];
 fn walk_scene(paint: &str, whole_string: bool) -> String {
     let items = if whole_string {
         format!(
-            "[canvas::Text[id := \"\", position := vector::Float2[x := {}, y := 200.0], text := \"{WALK_TEXT}\", fonts := [face], fontSize := {WALK_SIZE}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]",
+            "[canvas::Text[id := \"\", position := vector::Float2[x := {}, y := 200.0], text := \"{WALK_TEXT}\", fonts := [face], fontSize := {WALK_SIZE}, letterSpacing := 0.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]",
             WALK_PENS[0]
         )
     } else {
         let one = |x: &str| {
             format!(
-                "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 200.0], text := \"A\", fonts := [face], fontSize := {WALK_SIZE}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+                "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 200.0], text := \"A\", fonts := [face], fontSize := {WALK_SIZE}, letterSpacing := 0.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
             )
         };
         format!("[{}, {}]", one(WALK_PENS[0]), one(WALK_PENS[1]))
@@ -1078,7 +1078,7 @@ fn every_live_font_draws_however_many_are_loaded() {
         }
         let text = |x: &str, font: &str| {
             format!(
-                "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 200.0], text := \"A\", fonts := [{font}], fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+                "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 200.0], text := \"A\", fonts := [{font}], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
             )
         };
         source.push_str(&format!(
@@ -1180,7 +1180,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "A", fonts := [face], fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "A", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   ' Destroyed BEFORE the present, so the frame is rendered from a scene whose font is
   ' already gone — the ordering the guard exists for.
   canvas::destroyFont(face)
@@ -1213,7 +1213,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 300.0], text := "AAAA", fonts := [face], fontSize := 120.0, paint := canvas::fill(color::rgb(220, 40, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 300.0], text := "AAAA", fonts := [face], fontSize := 120.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(220, 40, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;
@@ -1287,7 +1287,7 @@ FUNC main() AS Nothing
     RETURN
   END TRAP
   LET under AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 80.0, y := 150.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 300.0, height := 200.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 60, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 300.0], text := "AAAA", fonts := [face], fontSize := 120.0, paint := canvas::fill(color::rgba(220, 40, 160, 150)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 300.0], text := "AAAA", fonts := [face], fontSize := 120.0, letterSpacing := 0.0, paint := canvas::fill(color::rgba(220, 40, 160, 150)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET tail AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 600.0, y := 200.0], radius := 60.0, paint := canvas::fill(color::rgb(120, 220, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([under, label, tail])
 END FUNC
@@ -1355,7 +1355,7 @@ FUNC scene(face AS canvas::Font, base AS Float) AS List OF canvas::DrawItem
     LET size AS Float = base + toFloat(i) * 0.2
     LET x AS Float = 4.0 + toFloat(i MOD 20) * 45.0
     LET y AS Float = 36.0 + toFloat(i / 20) * 40.0
-    LET glyph AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := "A", fonts := [face], fontSize := size, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET glyph AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := "A", fonts := [face], fontSize := size, letterSpacing := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, glyph)
     i = i + 1
   END WHILE
@@ -1461,7 +1461,7 @@ FUNC main() AS Nothing
   END TRAP
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 80.0]
   LET p AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 60.0], text := "AAAA", fonts := [face], fontSize := 60.0, paint := p, transform := t]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 60.0], text := "AAAA", fonts := [face], fontSize := 60.0, letterSpacing := 0.0, paint := p, transform := t]
   canvas::present([label])
 END FUNC
 "#;
@@ -1477,7 +1477,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 60.0], text := "AAAA", fonts := [face], fontSize := 60.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 60.0], text := "AAAA", fonts := [face], fontSize := 60.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;
@@ -1637,7 +1637,7 @@ FUNC main() AS Nothing
   WHILE i < 200
     ' The x moves each frame so the scene differs and the present is not skipped —
     ' a skipped present would exercise nothing.
-    LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 10.0 + toFloat(i), y := 40.0], text := "A", fonts := [face], fontSize := 24.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 10.0 + toFloat(i), y := 40.0], text := "A", fonts := [face], fontSize := 24.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::present([label])
     i = i + 1
   END WHILE
@@ -1760,7 +1760,7 @@ FUNC main() AS Nothing
     io::print("load failed " & toString(e.code))
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 600.0], text := "A", fonts := [face], fontSize := {size}, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 600.0], text := "A", fonts := [face], fontSize := {size}, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
   io::print("presented")
 END FUNC
@@ -2024,7 +2024,7 @@ IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("FONTFILE")
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AB", fonts := [face], fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AB", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;
@@ -3302,7 +3302,7 @@ IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("kerned.ttf")
-  canvas::present([canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AV", fonts := [face], fontSize := 100.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+  canvas::present([canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AV", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
 END FUNC
 "#
     );
@@ -3417,6 +3417,7 @@ fn run_two_fonts(name: &str, body: &str) -> Vec<String> {
     let source = format!(
         r#"IMPORT app
 IMPORT canvas
+IMPORT encoding
 IMPORT io
 
 ' A close behind a resource parameter consumes nothing at the caller, so the caller can
@@ -3541,7 +3542,7 @@ FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES latin AS canvas::Font = canvas::loadFont("latin.ttf")
   RES fallback AS canvas::Font = canvas::loadFont("fallback.ttf")
-{close}  canvas::present([canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "{text}", fonts := {fonts}, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+{close}  canvas::present([canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "{text}", fonts := {fonts}, fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
 END FUNC
 "#
     );
@@ -3722,4 +3723,70 @@ fn shape_run_marks_every_grapheme_boundary_and_scalar() {
             );
         }
     }
+}
+
+/// The rightmost lit column of `"AV"` drawn at size 100 from x = 100 in the unkerned
+/// two-glyph font, presented once per spacing in `spacings` (the dump is the last frame).
+fn spaced_right_edge(name: &str, paint: &str, spacings: &[&str]) -> usize {
+    let presents: String = spacings
+        .iter()
+        .map(|s| format!("  canvas::present([canvas::Text[id := \"\", position := vector::Float2[x := 100.0, y := 200.0], text := \"AV\", fonts := [face], fontSize := 100.0, letterSpacing := {s}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n"))
+        .collect();
+    let source = format!(
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  RES face AS canvas::Font = canvas::loadFont(\"plain.ttf\")\n{presents}END FUNC\n"
+    );
+    let (frame, _) = render_env_files(name, &source, &[], &[("plain.ttf", kerning_font(&[]))]);
+    let runs = lit_column_runs(&frame);
+    assert!(!runs.is_empty(), "{name}: `AV` drew nothing");
+    runs.last().unwrap().1
+}
+
+/// `letterSpacing` moves the second grapheme by exactly the spacing, on the filled run
+/// and the stroked edges, positive or negative.
+#[test]
+fn letter_spacing_moves_the_next_character_by_the_spacing() {
+    for (paint, label) in [
+        ("canvas::fill(color::rgb(255, 255, 255))", "fill"),
+        ("canvas::stroke(color::rgb(255, 255, 255), 2.0)", "stroke"),
+    ] {
+        let plain = spaced_right_edge(&format!("canvas_spacing_plain_{label}"), paint, &["0.0"]);
+        let wide = spaced_right_edge(&format!("canvas_spacing_wide_{label}"), paint, &["7.0"]);
+        let tight = spaced_right_edge(
+            &format!("canvas_spacing_tight_{label}"),
+            paint,
+            &["0.0 - 5.0"],
+        );
+        assert_eq!(wide, plain + 7, "{label}: +7 px of spacing");
+        assert_eq!(tight + 5, plain, "{label}: -5 px of spacing");
+    }
+}
+
+/// A change of spacing alone, between two presents of an otherwise identical `Text`,
+/// draws the new spacing: the cache key folds it, so the run is rebuilt.
+#[test]
+fn a_spacing_only_change_redraws() {
+    let fill = "canvas::fill(color::rgb(255, 255, 255))";
+    let fresh = spaced_right_edge("canvas_spacing_fresh", fill, &["9.0"]);
+    let changed = spaced_right_edge("canvas_spacing_changed", fill, &["0.0", "9.0"]);
+    assert_eq!(
+        changed, fresh,
+        "the second present must draw at the new spacing"
+    );
+}
+
+/// `measureText`'s spacing adds once per grapheme boundary, never after the last:
+/// `"AVA"` (250 + 300 + 250 units) is three graphemes, so `+10.0` adds 20 px and `-4.0`
+/// takes 8; a combining mark joins its base, so `A` + U+0301 (250 + `.notdef`'s 500) is
+/// one grapheme and spacing adds nothing to it.
+#[test]
+fn measure_text_spacing_adds_between_graphemes_only() {
+    let lines = run_two_fonts(
+        "canvas_measure_spacing",
+        r#"  io::print(toString(toInt(canvas::measureText(latin, 1000.0, "AVA").width)))
+  io::print(toString(toInt(canvas::measureText(latin, 1000.0, "AVA", 10.0).width)))
+  io::print(toString(toInt(canvas::measureText([latin, fallback], 1000.0, "AVA", 0.0 - 4.0).width)))
+  io::print(toString(toInt(canvas::measureText(latin, 1000.0, "A" & encoding::utf32Decode([769]), 10.0).width)))
+  io::print(toString(toInt(canvas::measureText(latin, 1000.0, "A" & encoding::utf32Decode([769])).width)))"#,
+    );
+    assert_eq!(lines, vec!["800", "820", "792", "750", "750"]);
 }

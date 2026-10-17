@@ -585,7 +585,7 @@ FUNC padNumber(n AS Integer, width AS Integer) AS String
 END FUNC
 
 FUNC label(face AS canvas::Font, size AS Float, text AS String, px AS Float, baseline AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", position := vector::Float2[x := px, y := baseline], text := text, fonts := [face], fontSize := size, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  RETURN canvas::Text[id := "", position := vector::Float2[x := px, y := baseline], text := text, fonts := [face], fontSize := size, letterSpacing := 0.0, paint := canvas::fill(c), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
 END FUNC
 
 ' A centred panel over a dimmed field: a title and a line of key hints.

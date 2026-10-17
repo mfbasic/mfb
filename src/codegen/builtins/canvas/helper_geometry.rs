@@ -1469,6 +1469,9 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
       run = collections::append(run, toFloat(toInt(__canvas_textY(t) + 0.5)))
     END IF
     pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * scale
+    IF t.letterSpacing <> 0.0 AND collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GAP, 0) = 1 THEN
+      pen = pen + t.letterSpacing
+    END IF
     c = c + 1
   END WHILE
   RETURN run
@@ -1590,12 +1593,16 @@ FUNC __canvas_closeTextFonts(t AS Text, scene AS List OF DrawItem) AS Nothing
   NEXT
 END FUNC
 
-' The pen's travel along a shaped run, from `x0`: each advance at its font's scale.
-FUNC __canvas_runPen(shaped AS List OF Integer, scales AS List OF Float, x0 AS Float) AS Float
+' The pen's travel along a shaped run, from `x0`: each advance at its font's scale, and
+' `spacing` at every grapheme boundary when it is not 0 (plan-162-D).
+FUNC __canvas_runPen(shaped AS List OF Integer, scales AS List OF Float, x0 AS Float, spacing AS Float) AS Float
   MUT pen AS Float = x0
   MUT c AS Integer = 0
   WHILE c * __CANVAS_RUN_STRIDE < len(shaped)
     pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * collections::getOr(scales, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0), 0.0)
+    IF spacing <> 0.0 AND collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GAP, 0) = 1 THEN
+      pen = pen + spacing
+    END IF
     c = c + 1
   END WHILE
   RETURN pen
@@ -1628,6 +1635,9 @@ FUNC __canvas_textEdges(t AS Text) AS List OF Float
       edges = __canvas_glyphEdges(b, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GLYPH, 0), scale, pen, __canvas_textY(t), edges)
     END IF
     pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * scale
+    IF t.letterSpacing <> 0.0 AND collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GAP, 0) = 1 THEN
+      pen = pen + t.letterSpacing
+    END IF
     c = c + 1
   END WHILE
   __CANVAS_RING_MARKING = FALSE
@@ -2132,6 +2142,12 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       NEXT
       h = __canvas_hashText(h, t.text)
       h = __canvas_hashText(h, t.id)
+      ' plan-162-D: the spacing moves every glyph after the first, so it keys the cache --
+      ' a spacing-only change must rebuild. Folded only when set, so an unspaced `Text`
+      ' keeps the key it always had.
+      IF t.letterSpacing <> 0.0 THEN
+        h = __canvas_hashFloat(h, t.letterSpacing)
+      END IF
       RETURN __canvas_hashPaint(h, t.paint, t.transform)
     CASE Ellipse(e)
       MUT h AS Integer = __canvas_hashStart(8)
@@ -2376,6 +2392,9 @@ FUNC __canvas_geoRunReference(t AS Text, offset AS Integer) AS List OF Float
       at = at + 1
     END IF
     pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * scale
+    IF t.letterSpacing <> 0.0 AND collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GAP, 0) = 1 THEN
+      pen = pen + t.letterSpacing
+    END IF
     c = c + 1
   END WHILE
   RETURN run

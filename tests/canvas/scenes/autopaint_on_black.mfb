@@ -44,8 +44,8 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET filled AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 120.0, y := 165.0], text := "AB", fonts := [face], fontSize := 40.0, paint := canvas::fill(color::rgb(240, 240, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET outlined AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 190.0, y := 165.0], text := "AB", fonts := [face], fontSize := 40.0, paint := canvas::stroke(color::rgb(240, 240, 120), 2.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET filled AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 120.0, y := 165.0], text := "AB", fonts := [face], fontSize := 40.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(240, 240, 120)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET outlined AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 190.0, y := 165.0], text := "AB", fonts := [face], fontSize := 40.0, letterSpacing := 0.0, paint := canvas::stroke(color::rgb(240, 240, 120), 2.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("face", [button(0.0, 0.0, "face")])
   MUT first AS canvas::Group
   first = WITH first { id := "one", position := vector::Float2[x := 100.0, y := 300.0], name := "face" }
