@@ -11,5 +11,10 @@ $ tests/rt-behavior/threads/thread-timeout-convention-rt/build/thread_timeout_co
 receive0 timeout
 receive-neg invalid
 send-neg invalid
+Thread:   <worker-1>
+Error:    7-705-0009
+Message:  Operation was interrupted before completion.
+Location: src/lib.mfb:105:27
+
 done
 [exit 0]

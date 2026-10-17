@@ -81,7 +81,8 @@ a `cargo test` target, another script, or a person.
 ## Acceptance harness
 
 - **test-accept-selftest.sh** — Exercises `test-accept.sh`'s own machinery (the
-  per-fixture watchdog, signal exit codes, stdin isolation, level-variant kinds)
+  per-fixture watchdog, signal exit codes, stdin isolation, level-variant kinds,
+  and stable worker identities in diagnostic logs)
   without a hanging fixture. Usage: `bash scripts/test-accept-selftest.sh`.
   Run by: `cargo test --test script_selftests`.
 - **gate-lock.sh** — Per-tree mutual exclusion (bug-470) for every script that

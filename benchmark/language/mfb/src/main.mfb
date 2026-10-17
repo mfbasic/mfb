@@ -9,6 +9,7 @@ IMPORT json
 IMPORT regex
 IMPORT thread
 IMPORT bench_workers
+IMPORT term
 
 ' Unified MFBASIC benchmark. One function per micro-benchmark; each times its
 ' workload `run` times (default 10, override with `--run N`) using the monotonic
@@ -1572,10 +1573,13 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_scalar_transform(run, tests)
   tests = test_scalar_listchurn(run, tests)
 
-  ' width group (width.mfb) — plan-87 strings::displayWidth (zero-coverage feature)
+  ' The terminal lifecycle is outside every measured loop.
+  term::on()
+  ' width group (width.mfb) — plan-178 term::measureText
   tests = test_width_ascii(run, tests)
   tests = test_width_mixed(run, tests)
   tests = test_width_churn(run, tests)
+  term::off()
 
   ' pipeline group (pipeline.mfb) — plan-87 chained collection HOF pipelines
   tests = test_pipeline_int(run, tests)

@@ -7348,7 +7348,7 @@ END FUNC
 /// `cargo llvm-cov --bin mfb`. Drive them in-process here.
 #[cfg(test)]
 mod lower_coverage_tests {
-    use super::helpers::{function, lower_src};
+    use super::helpers::{function, lower_src, try_lower_src};
 
     #[test]
     fn astrings_tier_a_and_tier_b_calls_lower_through_the_routing() {
@@ -7405,6 +7405,41 @@ mod lower_coverage_tests {
                RETURN 0\nEND FUNC\n",
         );
         let _ = function(&ir, "main");
+    }
+
+    #[test]
+    fn term_measure_text_with_attributed_string_routes_to_the_attr_companion() {
+        let ir = lower_src(
+            "IMPORT term\n\
+             IMPORT astrings\n\n\
+             FUNC main AS Integer\n  \
+               LET a AS AttributedString = astrings::fromString(\"hi\")\n  \
+               LET aw AS Integer = term::measureText(a)\n  \
+               LET sw AS Integer = term::measureText(\"plain\")\n  \
+               RETURN aw + sw\nEND FUNC\n",
+        );
+        let json = ir.to_json();
+        assert!(
+            json.contains("\"target\": \"#term_measureTextAttr\""),
+            "AttributedString measurement must route through the bridge"
+        );
+        assert!(
+            json.contains("\"target\": \"term.measureText\""),
+            "String measurement must stay on the native member"
+        );
+    }
+
+    #[test]
+    fn term_measure_text_internal_helpers_are_not_user_callable() {
+        for helper in ["measureTextRaw", "scalarWidthRaw"] {
+            let source = format!(
+                "IMPORT term\nFUNC main AS Integer\n  RETURN term::{helper}(\"x\")\nEND FUNC\n"
+            );
+            assert!(
+                try_lower_src(&source).is_none(),
+                "term::{helper} is internal-only and user source must not lower"
+            );
+        }
     }
 
     #[test]

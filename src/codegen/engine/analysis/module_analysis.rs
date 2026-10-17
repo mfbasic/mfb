@@ -1074,7 +1074,9 @@ fn value_uses_unicode_runtime_tables(
                     | "strings.graphemes"
                     | "strings.graphemeAt"
                     | "strings.graphemesCount"
-                    | "strings.displayWidth"
+                    | "term.measureText"
+                    | "term.measureTextRaw"
+                    | "term.scalarWidthRaw"
             ) && !unicode_string_call_is_static(target, args, constants, types, fields)
                 || args
                     .iter()

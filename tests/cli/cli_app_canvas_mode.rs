@@ -201,6 +201,15 @@ const TERM_TRAPS_IN_CANVAS_SOURCE: &str = "IMPORT app\n\
      IMPORT errorCode\n\
      FUNC main AS Integer\n\
     \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 LET measured AS Integer = term::measureText(\"x\") TRAP(measureErr)\n\
+    \x20   IF measureErr.code <> errorCode::ErrWrongMode THEN\n\
+    \x20     RETURN 62\n\
+    \x20   END IF\n\
+    \x20   RECOVER -1\n\
+    \x20 END TRAP\n\
+    \x20 IF measured <> -1 THEN\n\
+    \x20   RETURN 63\n\
+    \x20 END IF\n\
     \x20 term::moveTo(1, 1) TRAP(err)\n\
     \x20   IF err.code <> errorCode::ErrWrongMode THEN\n\
     \x20     RETURN 60\n\

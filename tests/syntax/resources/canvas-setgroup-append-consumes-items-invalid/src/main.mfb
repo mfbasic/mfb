@@ -1,0 +1,28 @@
+' bug-1092: `canvas::setGroup` consumes the resources reachable from `items`, and a
+' list BUILT with `collections::append` holds the resources its elements name. The
+' containment walk used to treat the `append` call as opaque, so `items` was recorded
+' as holding nothing, `img` was not moved by the install, and naming it afterwards
+' compiled clean -- while the group went on to close it. `img` reaches `items` only
+' through two appends, the second of which must ADD to what the first recorded.
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
+  RES img AS canvas::Image = canvas::createImage(1, 1, px)
+
+  LET a AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 8.0, height := 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  MUT items AS List OF canvas::DrawItem = []
+  items = collections::append(items, a)
+  items = collections::append(items, a)
+  canvas::setGroup("one", items)
+
+  ' `img` was moved into the group above. Naming it again is the use-after-move.
+  LET size AS canvas::Size = canvas::getSize(img)
+
+  RETURN 0
+END FUNC

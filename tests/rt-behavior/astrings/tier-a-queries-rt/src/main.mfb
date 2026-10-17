@@ -34,7 +34,6 @@ FUNC main AS Integer
   io::print("find " & toString(strings::find(a, "o")) & "/" & toString(strings::find(t, "o")))
   io::print("findMissing " & findCode(a, t))
   io::print("graphemesCount " & toString(strings::graphemesCount(a)) & "/" & toString(strings::graphemesCount(t)))
-  io::print("displayWidth " & toString(strings::displayWidth(a)) & "/" & toString(strings::displayWidth(t)))
   io::print("graphemeAt " & strings::graphemeAt(a, 6) & "/" & strings::graphemeAt(t, 6))
   io::print("split " & toString(len(strings::split(a, " "))) & "/" & toString(len(strings::split(t, " "))))
   io::print("graphemes " & toString(len(strings::graphemes(a))) & "/" & toString(len(strings::graphemes(t))))

@@ -36,7 +36,6 @@ mod func_byte_len;
 mod func_case_fold;
 mod func_contains;
 mod func_count;
-pub(crate) mod func_display_width;
 mod func_ends_with;
 mod func_ends_with_any;
 mod func_find;
@@ -101,8 +100,8 @@ trimming and case mapping (`trim`, `trimStart`, `trimEnd`, `trimChars`, `upper`,
 `lineBreaks`), tests and search (`startsWith`,
 `endsWith`, `contains`, `startsWithAny`, `endsWithAny`, `find`, `count`), slicing
 and reshaping (`left`, `right`, `mid`, `stripPrefix`, `stripSuffix`, `split`,
-`join`, `replace`, `repeat`, `padLeft`, `padRight`), terminal display width
-(`displayWidth`, `padLeftToWidth`, `padRightToWidth`), length and byte queries
+`join`, `replace`, `repeat`, `padLeft`, `padRight`), terminal-column padding
+(`padLeftToWidth`, `padRightToWidth`), length and byte queries
 (`byteLen`, `toBytes`), and the Unicode-scalar seam (`toScalars`, `fromScalars`,
 and the `Scalar` classifiers `isLetter`, `isDigit`, `isWhitespace`, `isUpper`,
 `isLower`).
@@ -144,9 +143,10 @@ negative width or count anywhere in the package, raises `ErrInvalidArgument`.
 **Padding comes in two units, and picking the wrong one is the package's
 sharpest edge.** `padLeft` and `padRight` pad to a count of Unicode scalar
 values — right for a fixed-length record field or a zero-padded number.
-`padLeftToWidth` and `padRightToWidth` pad to a count of terminal columns, the
-measure `displayWidth` reports — right for anything that has to line up on
-screen. The two agree only on text whose scalars are all one column wide, so a
+`padLeftToWidth` and `padRightToWidth` pad to the same terminal-column measure
+as `term::measureText`, without requiring the terminal surface to be active —
+right for anything that has to line up on screen. The two units agree only on
+text whose scalars are all one column wide, so a
 table built with `padLeft` goes crooked the moment a row carries CJK text, an
 emoji or a combining sequence.
 
@@ -235,7 +235,6 @@ pub(crate) fn register(r: &mut Registry) {
     func_pad_right_to_width::register(&mut pkg);
     func_grapheme_at::register(&mut pkg);
     func_graphemes_count::register(&mut pkg);
-    func_display_width::register(&mut pkg);
     func_gen_cat::register(&mut pkg);
     func_line_break_class::register(&mut pkg);
     func_line_breaks::register(&mut pkg);
@@ -330,7 +329,6 @@ pub(crate) fn is_tier_a_query(name: &str) -> bool {
         "strings.byteLen"
             | "strings.contains"
             | "strings.count"
-            | "strings.displayWidth"
             | "strings.endsWith"
             | "strings.endsWithAny"
             | "strings.find"

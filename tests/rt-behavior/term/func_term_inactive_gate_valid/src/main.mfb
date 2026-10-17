@@ -8,6 +8,7 @@
 IMPORT term
 IMPORT io
 IMPORT color
+IMPORT errorCode
 
 ' `term::terminalSize` RAISES while TUI mode is off — it does not report a size.
 ' -1 means the contract held. A function-level TRAP is how the raise is observed:
@@ -21,6 +22,18 @@ FUNC probeColumns() AS Integer
   END TRAP
 END FUNC
 
+FUNC probeMeasureText() AS Integer
+  LET width AS Integer = term::measureText("x")
+  RETURN width
+
+  TRAP(e)
+    IF e.code = errorCode::ErrUnsupported THEN
+      RETURN -1
+    END IF
+    RETURN -2
+  END TRAP
+END FUNC
+
 FUNC main AS Integer
   MUT log AS String = ""
 
@@ -29,6 +42,13 @@ FUNC main AS Integer
     log = log & "terminalSize=raised;"
   ELSE
     log = log & "terminalSize=size" & toString(before) & ";"
+  END IF
+
+  LET measured AS Integer = probeMeasureText()
+  IF measured = -1 THEN
+    log = log & "measureText=raised;"
+  ELSE
+    log = log & "measureText=" & toString(measured) & ";"
   END IF
 
   ' The three members that are NOT gated: they answer either way, and

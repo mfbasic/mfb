@@ -7,6 +7,9 @@ Wrote executable to tests/rt-error/crypto/crypto-ec-invalid/build/crypto-ec-inva
 [exit 0]
 $ tests/rt-error/crypto/crypto-ec-invalid/build/crypto-ec-invalid.out
 before
-Error: 7-705-0002
-Argument value is not valid for the requested operation.
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  Argument value is not valid for the requested operation.
+Location: src/main.mfb:12:23
+
 [exit 255]

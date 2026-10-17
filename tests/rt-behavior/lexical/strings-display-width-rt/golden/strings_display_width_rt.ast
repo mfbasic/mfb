@@ -4,8 +4,9 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 7 },
-    { "module": "strings", "line": 8 }
+    { "module": "io", "line": 4 },
+    { "module": "term", "line": 5 },
+    { "module": "astrings", "line": 6 }
     ],
     "items": [
     {
@@ -13,13 +14,13 @@
       "visibility": "public",
       "isolated": false,
       "name": "widthOf",
-      "line": 12,
+      "line": 8,
       "params": [
-      { "name": "value", "type": "String", "default": null, "line": 12 }
+      { "name": "value", "type": "String", "default": null, "line": 8 }
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "strings.displayWidth", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 13 }
+      { "kind": "return", "value": { "kind": "call", "callee": "term.measureText", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 9 }
       ]
     },
     {
@@ -27,27 +28,42 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 16,
+      "line": 12,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fold empty : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.displayWidth", "arguments": [{ "kind": "string", "value": "" }] }] } }] }, "line": 18 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fold ascii : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.displayWidth", "arguments": [{ "kind": "string", "value": "abc" }] }] } }] }, "line": 19 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fold cjk   : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.displayWidth", "arguments": [{ "kind": "string", "value": "日本語" }] }] } }] }, "line": 20 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fold nfc   : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.displayWidth", "arguments": [{ "kind": "string", "value": "café" }] }] } }] }, "line": 21 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fold nfd   : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.displayWidth", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cafe" }, "right": { "kind": "string", "value": "́" } }] }] } }] }, "line": 22 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fold emoji : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.displayWidth", "arguments": [{ "kind": "string", "value": "👨‍👩‍👧‍👦" }] }] } }] }, "line": 23 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fold comb  : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.displayWidth", "arguments": [{ "kind": "string", "value": "́" }] }] } }] }, "line": 24 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dyn empty  : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "string", "value": "" }] }] } }] }, "line": 27 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dyn ascii  : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "string", "value": "abc" }] }] } }] }, "line": 28 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dyn cjk    : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "string", "value": "日本語" }] }] } }] }, "line": 29 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dyn nfc    : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "string", "value": "café" }] }] } }] }, "line": 30 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dyn nfd    : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cafe" }, "right": { "kind": "string", "value": "́" } }] }] } }] }, "line": 31 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dyn emoji  : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "string", "value": "👨‍👩‍👧‍👦" }] }] } }] }, "line": 32 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dyn comb   : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "string", "value": "́" }] }] } }] }, "line": 33 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 34 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 35 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.on", "arguments": [] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "literalEmpty", "type": "Integer", "value": { "kind": "call", "callee": "term.measureText", "arguments": [{ "kind": "string", "value": "" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "literalAscii", "type": "Integer", "value": { "kind": "call", "callee": "term.measureText", "arguments": [{ "kind": "string", "value": "abc" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "literalCjk", "type": "Integer", "value": { "kind": "call", "callee": "term.measureText", "arguments": [{ "kind": "string", "value": "日本語" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "literalNfd", "type": "Integer", "value": { "kind": "call", "callee": "term.measureText", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cafe" }, "right": { "kind": "string", "value": "́" } }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "literalEmoji", "type": "Integer", "value": { "kind": "call", "callee": "term.measureText", "arguments": [{ "kind": "string", "value": "👨‍👩‍👧‍👦" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "literalZero", "type": "Integer", "value": { "kind": "call", "callee": "term.measureText", "arguments": [{ "kind": "string", "value": "́" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "attributed", "type": "AttributedString", "value": { "kind": "call", "callee": "astrings.fromString", "arguments": [{ "kind": "string", "value": "日本語" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "attributedCjk", "type": "Integer", "value": { "kind": "call", "callee": "term.measureText", "arguments": [{ "kind": "identifier", "value": "attributed" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "dynamicEmpty", "type": "Integer", "value": { "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "string", "value": "" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "dynamicAscii", "type": "Integer", "value": { "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "string", "value": "abc" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "dynamicCjk", "type": "Integer", "value": { "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "string", "value": "日本語" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "dynamicNfd", "type": "Integer", "value": { "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cafe" }, "right": { "kind": "string", "value": "́" } }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "dynamicEmoji", "type": "Integer", "value": { "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "string", "value": "👨‍👩‍👧‍👦" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "dynamicZero", "type": "Integer", "value": { "kind": "call", "callee": "widthOf", "arguments": [{ "kind": "string", "value": "́" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "term.off", "arguments": [] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "literal empty : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "literalEmpty" }] } }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "literal ascii : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "literalAscii" }] } }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "literal cjk   : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "literalCjk" }] } }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "literal nfd   : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "literalNfd" }] } }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "literal emoji : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "literalEmoji" }] } }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "literal zero  : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "literalZero" }] } }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "attributed cjk: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "attributedCjk" }] } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dynamic empty : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "dynamicEmpty" }] } }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dynamic ascii : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "dynamicAscii" }] } }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dynamic cjk   : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "dynamicCjk" }] } }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dynamic nfd   : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "dynamicNfd" }] } }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dynamic emoji : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "dynamicEmoji" }] } }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dynamic zero  : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "dynamicZero" }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 44 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 45 }
       ]
     }
     ]

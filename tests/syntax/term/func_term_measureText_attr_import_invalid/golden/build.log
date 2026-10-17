@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/term/func_term_measureText_attr_import_invalid
+   2 | 
+   3 | FUNC width(value AS AttributedString) AS Integer
+   4 |   RETURN term::measureText(value)
+     | ^
+tests/syntax/term/func_term_measureText_attr_import_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `term.measureText` with an `AttributedString` requires `IMPORT astrings`.
+[exit 1]

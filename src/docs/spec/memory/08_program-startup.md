@@ -228,16 +228,16 @@ fallible result (`x0` tag, `x1` value/code, `x2` message, `x3` source — owned 
 
 ## Error Path
 
-The error path (`entry_error`) prints the failure to stderr as
-`Error: <G-SSS-EEEE>\n<message>\n` — the label and the hyphenated code on one
-line, the message alone on the next. There is **no** inline separator string:
-the banner is built from `ENTRY_ERROR_PREFIX` and `ENTRY_ERROR_NEWLINE` only, and
-the same shape is shared with the cleanup-failure banner
-(`./mfb spec diagnostics error-codes`). It stashes the error code in the arena-state exit-status
-word at offset `32` and the message pointer in `x20`. When the program can record
-cleanup failures, the cleanup-failure audit (count/code/message at arena offsets
-`64`/`72`/`80`) is reported next. The process exit code is then forced to `255`.
-[[src/codegen/error/constants/error_constants.rs:ENTRY_ERROR_PREFIX_SYMBOL]]
+The error path (`entry_error`) calls the shared failed-thread reporter with the
+main MFB identity (`0`), error code, message and optional source. Its labeled
+stderr format is specified by `./mfb spec language error-model`. The source and
+message remain alive across the call; the reporter does not allocate from the
+arena. Native entry return-range and argument-allocation failures explicitly
+supply a null source. When enabled, the cleanup-failure audit follows the error
+report. The process exit code is then forced to `255`.
+[[src/codegen/engine/function/entry.rs:lower_program_entry]]
+[[src/codegen/engine/function/entry.rs:emit_entry_args_list_materialization]]
+[[src/codegen/error/report.rs:lower_error_report]]
 
 ## Teardown and Exit
 

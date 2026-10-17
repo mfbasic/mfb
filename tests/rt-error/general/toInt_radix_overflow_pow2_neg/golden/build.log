@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/general/toInt_radix_overflow_pow2_neg
 Wrote executable to tests/rt-error/general/toInt_radix_overflow_pow2_neg/build/func_general_toInt_radix_overflow_pow2_neg.out
 [exit 0]
 $ tests/rt-error/general/toInt_radix_overflow_pow2_neg/build/func_general_toInt_radix_overflow_pow2_neg.out
-Error: 7-705-0010
-Arithmetic overflow or numeric conversion outside the destination range.
+Thread:   0x00000000
+Error:    7-705-0010
+Message:  Arithmetic overflow or numeric conversion outside the destination range.
+Location: src/main.mfb:6:10
+
 [exit 255]

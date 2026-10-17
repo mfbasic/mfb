@@ -146,7 +146,7 @@ END FUNC
     assert_eq!(stdout, "");
     assert_eq!(
         stderr,
-        "Error: 1234\nbody failed\nCleanup failure: 7-703-0006\nResource close operation failed.\n"
+        "Thread:   0x00000000\nError:    1234\nMessage:  body failed\nLocation: src/main.mfb:6:8\n\nCleanup failure: 7-703-0006\nResource close operation failed.\n"
     );
 }
 

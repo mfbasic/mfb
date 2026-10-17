@@ -1,5 +1,5 @@
 ' bug-528 -- `strings::padLeft`/`padRight` count Unicode SCALARS.
-' `strings::displayWidth` counts terminal COLUMNS, over grapheme clusters.
+' `term::measureText` counts terminal COLUMNS, over grapheme clusters.
 ' There is no `padToDisplayWidth`, and neither man page's See-also mentions the
 ' other, so the obvious way to build a fixed-width table is also the wrong one.
 '
@@ -10,15 +10,21 @@
 
 IMPORT io
 IMPORT strings
+IMPORT term
 
-FUNC show(label AS String, s AS String) AS Nothing
-  io::print(label & " scalars=" & toString(len(s)) & " columns=" & toString(strings::displayWidth(s)) & "  [" & s & "]")
+FUNC show(label AS String, s AS String) AS String
+  RETURN label & " scalars=" & toString(len(s)) & " columns=" & toString(term::measureText(s)) & "  [" & s & "]"
 END FUNC
 
 FUNC main AS Integer
-  show("padLeft(\"x\", 3, emoji)     ", strings::padLeft("x", 3, "😀"))
-  show("padLeft(\"日本\", 4, \"-\")   ", strings::padLeft("日本", 4, "-"))
-  show("padLeft(NFD \"cafe\", 6, \".\")", strings::padLeft("cafe" & "́", 6, "."))
+  term::on()
+  LET emojiLine AS String = show("padLeft(\"x\", 3, emoji)     ", strings::padLeft("x", 3, "😀"))
+  LET cjkLine AS String = show("padLeft(\"日本\", 4, \"-\")   ", strings::padLeft("日本", 4, "-"))
+  LET nfdLine AS String = show("padLeft(NFD \"cafe\", 6, \".\")", strings::padLeft("cafe" & "́", 6, "."))
+  term::off()
+  io::print(emojiLine)
+  io::print(cjkLine)
+  io::print(nfdLine)
   io::print("")
 
   ' The table a caller actually wants to build.

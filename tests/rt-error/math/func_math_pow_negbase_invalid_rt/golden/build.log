@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/math/func_math_pow_negbase_invalid_rt
 Wrote executable to tests/rt-error/math/func_math_pow_negbase_invalid_rt/build/func_math_pow_negbase_invalid_rt.out
 [exit 0]
 $ tests/rt-error/math/func_math_pow_negbase_invalid_rt/build/func_math_pow_negbase_invalid_rt.out
-Error: 7-705-0013
-Floating-point operation produced a NaN result.
+Thread:   0x00000000
+Error:    7-705-0013
+Message:  Floating-point operation produced a NaN result.
+Location: src/main.mfb:10:22
+
 [exit 255]

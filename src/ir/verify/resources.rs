@@ -462,6 +462,20 @@ impl TypeEnv {
                     }
                     locals.insert(name.clone(), type_.clone());
                 }
+                // bug-1092: a reassignment records what the new value holds, exactly as
+                // the `Bind` above does — `items = collections::append(items, x)` is how
+                // a list acquires its resources, and only the initial `Bind` was read
+                // before. `held_resources` reads a named container's existing holdings
+                // (the `Local` arm), so a self-referential append yields the union of
+                // the old and new holdings; a value that does not name `name` replaces
+                // the entry. An empty result leaves the entry alone, matching `Bind`
+                // and codegen's twin `resource_containment`.
+                IrOp::Assign { name, value, .. } => {
+                    let held = self.held_resources(value, locals, contains);
+                    if !held.is_empty() {
+                        contains.insert(name.clone(), held);
+                    }
+                }
                 IrOp::If {
                     condition,
                     then_body,

@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/encoding/func_encoding_codepageEncode_unrepresentable
 Wrote executable to tests/rt-error/encoding/func_encoding_codepageEncode_unrepresentable/build/func_encoding_codepageEncode_unrepresentable.out
 [exit 0]
 $ tests/rt-error/encoding/func_encoding_codepageEncode_unrepresentable/build/func_encoding_codepageEncode_unrepresentable.out
-Error: 7-705-0003
-character not representable in this codepage
+Thread:   0x00000000
+Error:    7-705-0003
+Message:  character not representable in this codepage
+Location: builtins/encoding.mfb:1457:14
+
 [exit 255]

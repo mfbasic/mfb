@@ -1066,7 +1066,8 @@ impl TypeEnv {
     /// produce, so a resource named there is held by the result. An opaque **call** does
     /// not: a callee's return value does not in general hold its arguments, and
     /// recording that it might would move bindings the program still owns — a false
-    /// `TYPE_USE_AFTER_MOVE` on correct code.
+    /// `TYPE_USE_AFTER_MOVE` on correct code. The exception is the `collections` members
+    /// that build their result by placing an operand into it (bug-1092).
     ///
     /// That is the opposite approximation direction from the alias graph beside it, and
     /// deliberately so: a missed alias is a silent use-after-close, so `aliases`
@@ -1122,6 +1123,20 @@ impl TypeEnv {
             }
             IrValue::UnionWrap { value, .. } | IrValue::Checked { value, .. } => {
                 self.collect_held(value, locals, contains, out);
+            }
+            // bug-1092: the `collections` members that PLACE their operands into the
+            // collection they return (`append`, `prepend`, `insert`, …) — the one table
+            // `resource::builtin_placing_operand_indices`, shared with codegen's twin
+            // walk. Every other call stays opaque, for the reason above. A
+            // `MUT items = []` then `items = append(items, x)` reads `items` here as a
+            // `Local`, which contributes the set it already held — so the assignment's
+            // new holdings are the union, not a replacement.
+            IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
+                for &index in crate::codegen::resource::builtin_placing_operand_indices(target) {
+                    if let Some(arg) = args.get(index) {
+                        self.collect_held(arg, locals, contains, out);
+                    }
+                }
             }
             IrValue::WithUpdate {
                 target, updates, ..

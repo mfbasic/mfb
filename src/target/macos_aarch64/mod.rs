@@ -203,6 +203,7 @@ impl NativeBackend for Backend {
                 "term.on",
                 "term.off",
                 "term.isOn",
+                "term.measureText",
                 "term.setForeground",
                 "term.setBackground",
                 "term.setBold",

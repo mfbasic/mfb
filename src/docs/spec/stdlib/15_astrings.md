@@ -84,7 +84,7 @@ trimmed on write, removing a covering winner can reveal a lower-start loser.
 
 `strings::` functions split by whether they interrogate or modify the text:
 
-- **Tier-A (interrogators)** — `byteLen`, `contains`, `count`, `displayWidth`,
+- **Tier-A (interrogators)** — `byteLen`, `contains`, `count`,
   `startsWith`/`endsWith`(`Any`), `find`, `graphemes`, `graphemesCount`,
   `graphemeAt`, `split`, `toBytes`, `toScalars` — accept an `AttributedString` and
   return exactly what the `String` overload returns (same value, type, and errors),

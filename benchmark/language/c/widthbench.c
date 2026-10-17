@@ -1,7 +1,7 @@
 /* GROUP: width — the C oracle for width.mfb (plan-87 Theme 1, the first
- * benchmark of strings::displayWidth).
+ * benchmark of term::measureText).
  *
- * displayWidth segments a string into UAX #29 extended grapheme clusters and
+ * term::measureText segments a string into UAX #29 extended grapheme clusters and
  * sums each cluster's terminal column width (0/1/2). Over the *controlled*
  * corpus these benchmarks use, that total is reproduced here by a small
  * per-scalar width table plus a one-scalar lookahead:
@@ -50,7 +50,7 @@ static int is_wide(uint32_t cp) {
 }
 
 /* Walk the UTF-8 string; accumulate the display-column total and the grapheme
- * (cluster) count using the same rules mfb's displayWidth/graphemesCount apply
+ * (cluster) count using the same rules mfb's measureText/graphemesCount apply
  * to this corpus. */
 static void dw_scan(const char *s, long *cols, long *clusters) {
   long c = 0, g = 0;
@@ -135,7 +135,7 @@ static void test_width_mixed(void) {
   free(base);
 }
 
-/* ----- width churn: displayWidth over many fresh short strings ------------ */
+/* ----- width churn: measureText over many fresh short strings ------------- */
 
 static void test_width_churn(void) {
   const char *cjk = "\346\227\245\346\234\254"; /* U+65E5 U+672C — two wide ideographs */

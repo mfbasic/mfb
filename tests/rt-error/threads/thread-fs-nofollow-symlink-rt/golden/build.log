@@ -8,6 +8,14 @@ uses fs_thread_workers - [Unsigned]
 Wrote executable to tests/rt-error/threads/thread-fs-nofollow-symlink-rt/build/thread_fs_nofollow_symlink_rt.out
 [exit 0]
 $ tests/rt-error/threads/thread-fs-nofollow-symlink-rt/build/thread_fs_nofollow_symlink_rt.out
-Error: 7-703-0003
-Filesystem access was denied.
+Thread:   <worker-1>
+Error:    7-703-0003
+Message:  Filesystem access was denied.
+Location: src/lib.mfb:14:23
+
+Thread:   0x00000000
+Error:    7-703-0003
+Message:  Filesystem access was denied.
+Location: src/lib.mfb:14:23
+
 [exit 255]

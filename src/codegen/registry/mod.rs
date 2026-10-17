@@ -5543,6 +5543,33 @@ mod tests {
         }
     }
 
+    /// bug-1092: every row of `PLACING_OPERANDS` names a real `collections` member whose
+    /// every implementation has all the listed argument positions — a typo or a stale
+    /// index would otherwise silently disable the containment edge.
+    #[test]
+    fn the_placing_operands_name_real_members() {
+        for (target, indices) in crate::codegen::resource::PLACING_OPERANDS {
+            let (package_name, member) = target.split_once('.').expect("qualified member");
+            let package = registry()
+                .packages()
+                .iter()
+                .find(|p| p.import_name() == package_name)
+                .unwrap_or_else(|| panic!("{target}: no such package"));
+            let function = package
+                .function(member)
+                .unwrap_or_else(|| panic!("{target}: not a member of the package"));
+            for imp in function.implementations.iter() {
+                for &index in *indices {
+                    assert!(
+                        index < imp.params.len(),
+                        "{target}: placed operand {index} is past the {} declared parameters",
+                        imp.params.len(),
+                    );
+                }
+            }
+        }
+    }
+
     /// **Every registry row satisfies the shape its `add_*` builder asserts.**
     ///
     /// bug-550: `add_record`, `add_union`, `add_enum`, `add_function` and

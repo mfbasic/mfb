@@ -13,8 +13,9 @@ const INTRO: &str = r#"Pad a string on the left to a given terminal column width
 
 const DESC: &str = r#"`strings::padLeftToWidth` returns a new `String` in which copies of `padChar` are
 prepended to `value` until the result fills as much of `columns` terminal columns
-as whole copies of `padChar` allow. Width is measured by
-`strings::displayWidth`, so this is the member that lines a table up on screen.
+as whole copies of `padChar` allow. It uses the same column rules as
+`term::measureText` without requiring an active terminal surface, so this is the
+member that lines a table up on screen.
 
 `strings::padLeft` measures the same argument in **Unicode scalar values**, which
 is the right unit for a fixed-length record field or a zero-padded number and the
@@ -70,7 +71,7 @@ IMPORT strings
 
 FUNC main() AS Integer
   LET padded AS String = strings::padLeftToWidth("x", 6, "😀")
-  io::print(toString(strings::displayWidth(padded)))
+  io::print("[" & padded & "]")
   io::print(strings::padLeftToWidth("日本語", 4))
   RETURN 0
 END FUNC
@@ -95,7 +96,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "columns",
-                    desc: "The target width of the result in TERMINAL COLUMNS, as `strings::displayWidth` measures them — not scalars and not bytes. Must be `0` or greater; `0` never pads. The result never exceeds it.",
+                    desc: "The target width of the result in TERMINAL COLUMNS, using the same measure as `term::measureText` — not scalars and not bytes. Must be `0` or greater; `0` never pads. The result never exceeds it.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

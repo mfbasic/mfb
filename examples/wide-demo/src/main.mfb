@@ -39,8 +39,10 @@ FUNC main() AS Integer
 
   ' Widest display width across every entry (title included) sets the inner field.
   MUT maxWidth AS Integer = 0
+  MUT widths AS List OF Integer = []
   FOR EACH line IN display
-    LET w AS Integer = strings::displayWidth(line)
+    LET w AS Integer = term::measureText(line)
+    widths = collections::append(widths, w)
     IF w > maxWidth THEN maxWidth = w
   NEXT
 
@@ -56,7 +58,7 @@ FUNC main() AS Integer
     LET line AS String = collections::get(display, i)
     IF i = 0 THEN
       term::setForeground(color::rgb(255, 255, 0))
-      term::drawText(1, (right - strings::displayWidth(line)) / 2, line)
+      term::drawText(1, (right - collections::get(widths, i)) / 2, line)
     ELSE
       term::setForeground(color::rgb(200, 200, 255))
       term::drawText(i + 2, 2, line)
@@ -82,9 +84,10 @@ FUNC main() AS Integer
   ' AFTER term::off — while TUI mode is on, io::print draws into the shadow grid (and is
   ' discarded when term::off leaves the alternate screen), so it must print to the
   ' restored terminal to be seen.
-  io::print("displayWidth checks (columns):")
-  FOR EACH line IN display
-    io::print("  " & line & " = " & toString(strings::displayWidth(line)))
+  io::print("measureText checks (columns):")
+  FOR i = 0 TO count - 1
+    LET line AS String = collections::get(display, i)
+    io::print("  " & line & " = " & toString(collections::get(widths, i)))
   NEXT
 
   RETURN 0

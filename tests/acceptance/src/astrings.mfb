@@ -440,7 +440,6 @@ TESTING
         LET a AS AttributedString = astrings::addAttribute(astrings::fromString("hello world"), 0, 4, astrings::bold())
         expectInteger(strings::byteLen(a), 11)
         expectInteger(strings::graphemesCount(a), 11)
-        expectInteger(strings::displayWidth(a), 11)
         expectInteger(len(strings::toScalars(a)), 11)
         expectInteger(len(strings::toBytes(a)), 11)
         expectInteger(toInt(collections::get(strings::toBytes(a), 0)), 104)
@@ -478,7 +477,6 @@ TESTING
         u = astrings::addAttribute(u, 0, 3, astrings::bold())
         u = astrings::addAttribute(u, 1, 2, astrings::font("Serif"))
         expectInteger(strings::byteLen(u), strings::byteLen(plain))
-        expectInteger(strings::displayWidth(u), strings::displayWidth(plain))
         expectInteger(strings::graphemesCount(u), strings::graphemesCount(plain))
         expectString(strings::graphemeAt(u, 2), strings::graphemeAt(plain, 2))
       END TCASE

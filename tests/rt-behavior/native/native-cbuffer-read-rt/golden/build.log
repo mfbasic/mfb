@@ -22,6 +22,8 @@ short VVZXWFla
 bad_len 0
 past_len 0
 at_cap_len 26
-Error: 7-705-0002
-Argument value is not valid for the requested operation.
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  Argument value is not valid for the requested operation.
+
 [exit 255]

@@ -17,6 +17,16 @@
 //! | 8 × `inflate` / 8 × `mid` | 41.1 | 13.6 | 24 |
 //! | 200 × tiny `inflate` / 8 × `mid` | 23.5 | 1.15 | 5 |
 //!
+//! The arena zero-fill change (`4bb55ea8c`) subsequently sped up the allocating
+//! reference. A/B on the same machine at its parent and HEAD, using this PROGRAM:
+//! CRC medians were 926/926 us, while reference medians were 179/62 us (2.89x).
+//! Inflate improved from 2420 to 2027 us and tiny inflate from 203 to 90 us.
+//! Scale only the now-invalid CRC/inflate bounds by that reference speedup
+//! (rounded down to 18.5/68); the tiny bound still holds. The original pre-fix
+//! ratios scaled by the same factor are 28.3/118.8, so these bounds still reject
+//! the bug-774 regressions. Code-shape assertions below remain independent of
+//! allocator performance.
+//!
 //! Every bound is at least 1.5x below the pre-fix ratio.
 //!
 //! **Shape.** On every target: the CRC loop's constant-count shifts carry no range
@@ -120,7 +130,7 @@ fn crc32_and_inflate_run_within_their_bounds_of_a_native_copy() {
             .collect()
     };
     let reference = median(times("ref ")) as f64;
-    for (label, bound) in [("crc ", 6.5), ("inflate ", 24.0), ("tiny ", 5.0)] {
+    for (label, bound) in [("crc ", 18.5), ("inflate ", 68.0), ("tiny ", 5.0)] {
         let runs = times(label);
         assert_eq!(runs.len(), 5, "{stdout}");
         let ratio = median(runs.clone()) as f64 / reference;

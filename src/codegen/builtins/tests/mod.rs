@@ -74,6 +74,7 @@ mod registry_bodies;
 mod resource_union_default;
 mod shape_refusals;
 mod strings_fold;
+mod term_measure_text;
 mod term_read;
 mod thread_send_scalar;
 mod threads;

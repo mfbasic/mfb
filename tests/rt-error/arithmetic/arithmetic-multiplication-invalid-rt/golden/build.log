@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/arithmetic/arithmetic-multiplication-invalid-rt
 Wrote executable to tests/rt-error/arithmetic/arithmetic-multiplication-invalid-rt/build/arithmetic_multiplication_invalid_rt.out
 [exit 0]
 $ tests/rt-error/arithmetic/arithmetic-multiplication-invalid-rt/build/arithmetic_multiplication_invalid_rt.out
-Error: 7-705-0010
-Arithmetic overflow or numeric conversion outside the destination range.
+Thread:   0x00000000
+Error:    7-705-0010
+Message:  Arithmetic overflow or numeric conversion outside the destination range.
+Location: src/main.mfb:4:12
+
 [exit 255]

@@ -114,13 +114,19 @@ pub(crate) const TIMEOUT_UNBOUNDED_SENTINEL: &str = "9223372036854775808";
 // Entry-point & cleanup-failure diagnostic strings
 // ===========================================================================
 
-// Untrapped-error / cleanup-failure banners share one shape (doc
-// `diagnostics 02_error-codes.md`): `<label> <G-SSS-EEEE>\n<message>\n`. The code
-// is printed on the label line (canonical hyphenated form) and the message stands
-// alone on the next line, so there is no inline separator string — both paths emit
-// `ENTRY_ERROR_NEWLINE` between the code and the message.
-pub(crate) const ENTRY_ERROR_PREFIX: &str = "Error: ";
+// Failed-thread diagnostics label the runtime thread identity, code, message
+// and optional origin. Worker results remain available to their parent.
+pub(crate) const ENTRY_ERROR_THREAD: &str = "Thread:   0x";
+pub(crate) const ENTRY_ERROR_THREAD_SYMBOL: &str = "_mfb_str_entry_error_thread";
+pub(crate) const ENTRY_ERROR_PREFIX: &str = "Error:    ";
 pub(crate) const ENTRY_ERROR_PREFIX_SYMBOL: &str = "_mfb_str_entry_error_prefix";
+pub(crate) const ENTRY_ERROR_MESSAGE_PREFIX: &str = "Message:  ";
+pub(crate) const ENTRY_ERROR_MESSAGE_PREFIX_SYMBOL: &str = "_mfb_str_entry_error_message_prefix";
+pub(crate) const ENTRY_ERROR_LOCATION_PREFIX: &str = "Location: ";
+pub(crate) const ENTRY_ERROR_LOCATION_PREFIX_SYMBOL: &str = "_mfb_str_entry_error_location_prefix";
+pub(crate) const ENTRY_ERROR_LOCATION_SEPARATOR: &str = ":";
+pub(crate) const ENTRY_ERROR_LOCATION_SEPARATOR_SYMBOL: &str =
+    "_mfb_str_entry_error_location_separator";
 pub(crate) const ENTRY_ERROR_NEWLINE: &str = "\n";
 pub(crate) const ENTRY_ERROR_NEWLINE_SYMBOL: &str = "_mfb_str_entry_error_newline";
 pub(crate) const CLEANUP_FAILURE_PREFIX: &str = "Cleanup failure: ";

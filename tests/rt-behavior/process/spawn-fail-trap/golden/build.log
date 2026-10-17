@@ -6,6 +6,9 @@ $ mfb build tests/rt-behavior/process/spawn-fail-trap
 Wrote executable to tests/rt-behavior/process/spawn-fail-trap/build/process_spawn_fail_trap.out
 [exit 0]
 $ tests/rt-behavior/process/spawn-fail-trap/build/process_spawn_fail_trap.out
-Error: 7-708-0001
-Child process could not be spawned (fork/exec failed, or the program was not found).
+Thread:   0x00000000
+Error:    7-708-0001
+Message:  Child process could not be spawned (fork/exec failed, or the program was not found).
+Location: src/main.mfb:7:11
+
 [exit 255]

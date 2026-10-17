@@ -80,7 +80,7 @@ fn prelude(data: &Path) -> String {
          \x20 io::print(toString(t))\n\
          \x20 RETURN 0\n\
          END FUNC\n",
-        data.display()
+        common::mfb_path_literal(data)
     )
 }
 
@@ -141,6 +141,7 @@ fn check(case: &str, body: &str, per_iteration: u64) {
     fs::create_dir_all(&dir).expect("create data dir");
     let data: PathBuf = dir.join("data.txt");
     fs::write(&data, "hello\n").expect("write data");
+    let body = body.replace("$DATA_FILE", &common::mfb_path_literal(&data));
     let source = format!("{}{}", prelude(&data), body);
     let exe = common::debug_report::build_debug(&format!("member_float_{case}"), &source);
     for n in [10, 40] {
@@ -289,7 +290,7 @@ fn a_member_floated_before_an_early_return_or_through_an_inline_trap() {
         "FUNC once() AS Integer\n\
          \x20 MUT hs AS List OF RES Handle = []\n\
          \x20 FOR j = 1 TO 3\n\
-         \x20   RES s AS fs::File = fs::openFile(\"/tmp/g933/data.txt\") TRAP(e)\n\
+         \x20   RES s AS fs::File = fs::openFile(\"$DATA_FILE\") TRAP(e)\n\
          \x20     RETURN -1\n\
          \x20   END TRAP\n\
          \x20   hs = collections::append(hs, s)\n\

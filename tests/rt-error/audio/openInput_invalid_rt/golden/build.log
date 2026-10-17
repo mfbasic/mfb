@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/audio/openInput_invalid_rt
 Wrote executable to tests/rt-error/audio/openInput_invalid_rt/build/func_audio_openInput_invalid_rt.out
 [exit 0]
 $ tests/rt-error/audio/openInput_invalid_rt/build/func_audio_openInput_invalid_rt.out
-Error: 7-705-0002
-Argument value is not valid for the requested operation.
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  Argument value is not valid for the requested operation.
+Location: src/main.mfb:4:34
+
 [exit 255]

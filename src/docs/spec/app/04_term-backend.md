@@ -382,7 +382,24 @@ point. `term::drawText` also has an `AttributedString` overload (a source compan
 applying the per-scalar **bold**, **underline**, **foreground** and **background**
 the value carries (the four the cell model can represent) and ignoring every other
 attribute (italic/strike/overline/font/size); it restores the ambient
-bold/underline/fg/bg afterwards, and it needs no new backend code. A single builtin, **`term::sync()`**, is the *only*
+bold/underline/fg/bg afterwards, and it needs no new backend code.
+
+`term::measureText` is the query counterpart to `drawText`: it returns the
+number of grid columns the text occupies without changing any cell, cursor,
+attribute, or presented frame. It accepts `String`, or `AttributedString` when
+`astrings` is imported; attributes do not affect the answer. Its shared grapheme
+walk selects the first non-zero scalar width in each cluster and contributes one
+column for a cluster containing only zero-width scalars, exactly matching grid
+placement. The public ABI function first enforces `app::Mode.Console`, then
+requires an active terminal, raising `ErrWrongMode` before `ErrUnsupported` when
+both conditions are false. Compiler-internal ungated measurement and raw scalar
+width operations serve string padding without granting user source a way around
+those gates. [[src/codegen/builtins/term/func_measure_text.rs:measure_text_of]]
+[[src/codegen/builtins/term/func_measure_text.rs:lower_measure_text]]
+[[src/codegen/builtins/term/helper_astrings_bridge.rs:BODY]]
+[[src/resolver/resolution.rs:resolve_package_qualified_name]]
+
+A single builtin, **`term::sync()`**, is the *only*
 operation that presents a frame: on the console it diffs the just-drawn back buffer
 against the last-presented front buffer and writes only the changed cells (minimal
 cursor moves + coalesced SGR runs + glyphs); in app mode it coalesces the frame

@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/astrings/attribute-bounds-rt
 Wrote executable to tests/rt-error/astrings/attribute-bounds-rt/build/attribute_bounds_rt.out
 [exit 0]
 $ tests/rt-error/astrings/attribute-bounds-rt/build/attribute_bounds_rt.out
-Error: 7-705-0001
-attribute range out of bounds
+Thread:   0x00000000
+Error:    7-705-0001
+Message:  attribute range out of bounds
+Location: builtins/astrings.mfb:187:10
+
 [exit 255]

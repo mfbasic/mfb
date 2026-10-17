@@ -357,7 +357,8 @@ impl CodeBuilder<'_> {
     ///
     /// Structural only, and for the same reason the verifier's containment walk is
     /// (`ir::verify::link`): a constructor or literal *places* its operands into the
-    /// value it builds, and an opaque call does not. Deactivating a cleanup for a local
+    /// value it builds, and an opaque call does not — except the `collections` members
+    /// `builtin_placing_operand_indices` names (bug-1092). Deactivating a cleanup for a local
     /// that merely fed a call would leave a resource this scope still owns unclosed — a
     /// leak, where the opposite error is only a redundant close of something the callee
     /// already closed, which is a defined no-op.
@@ -382,6 +383,16 @@ impl CodeBuilder<'_> {
             }
             NirValue::UnionWrap { value, .. } | NirValue::Checked { value, .. } => {
                 Self::collect_consumed_locals(value, out);
+            }
+            // bug-1092: the `collections` members that PLACE their operands into the
+            // collection they return (`append`, `prepend`, `insert`, …). Every other
+            // call stays opaque, for the reason above.
+            NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
+                for &index in crate::codegen::resource::builtin_placing_operand_indices(target) {
+                    if let Some(arg) = args.get(index) {
+                        Self::collect_consumed_locals(arg, out);
+                    }
+                }
             }
             NirValue::WithUpdate {
                 target, updates, ..

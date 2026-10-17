@@ -30,11 +30,12 @@
 '   - single line only (flex-wrap is not honored yet; every line is nowrap)
 '   - cross axis: children start at the cross origin; column children stretch to
 '     the content width, row children keep their measured height (no align yet)
-' Text is measured by strings::displayWidth (columns) times the glyph width, and
+' Text is measured by `term::measureText` (columns) times the glyph width, and
 ' wrapped to the available px width to size a leaf box's height.
 
 IMPORT collections
 IMPORT strings
+IMPORT term
 
 ' The computed geometry of one element: an absolute border box in **CSS px**,
 ' (x, y) is the top-left corner measured from the viewport origin; width/height is
@@ -149,7 +150,7 @@ END FUNC
 
 ' The one-line px width of a text run: its column count times the glyph width `cw`.
 FUNC textWidth(s AS String, cw AS Integer) AS Integer
-  RETURN strings::displayWidth(collapseWs(s)) * cw
+  RETURN term::measureText(collapseWs(s)) * cw
 END FUNC
 
 ' The px height a text run occupies when word-wrapped to `widthPx` px: its line count
@@ -162,7 +163,7 @@ FUNC textHeight(s AS String, widthPx AS Integer, cw AS Integer, linePx AS Intege
   MUT lines AS Integer = 1
   MUT cur AS Integer = 0
   FOR EACH word IN strings::split(t, " ")
-    LET ww AS Integer = strings::displayWidth(word)
+    LET ww AS Integer = term::measureText(word)
     IF cur = 0 THEN
       cur = ww
     ELSEIF cur + 1 + ww <= w THEN
@@ -443,7 +444,7 @@ FUNC tailCols(s AS String, n AS Integer) AS String
   MUT i AS Integer = len(gs) - 1
   DO WHILE i >= 0
     LET g AS String = collections::get(gs, i)
-    LET gw AS Integer = strings::displayWidth(g)
+    LET gw AS Integer = term::measureText(g)
     IF used + gw > n THEN EXIT DO
     out = g & out
     used = used + gw
@@ -462,7 +463,7 @@ END FUNC
 ' the value the app stores keeps ordinary spaces.
 FUNC fieldContent(raw AS String, n AS Integer) AS String
   LET shown AS String = strings::replace(tailCols(raw, n), " ", "\u{A0}")
-  LET w AS Integer = strings::displayWidth(shown)
+  LET w AS Integer = term::measureText(shown)
   IF w >= n THEN RETURN shown
   RETURN shown & strings::repeat("-", n - w)
 END FUNC
@@ -991,7 +992,7 @@ FUNC minContentW(n AS Node, cw AS Integer) AS Integer
   LET t AS String = collapseWs(gatherText(n))
   MUT mx AS Integer = 0
   FOR EACH w IN strings::split(t, " ")
-    mx = maxI(mx, strings::displayWidth(w))
+    mx = maxI(mx, term::measureText(w))
   NEXT
   RETURN mx * cw
 END FUNC

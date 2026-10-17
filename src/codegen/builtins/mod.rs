@@ -1506,11 +1506,7 @@ mod tests {
         // The POSITIVE half: the neighbours that genuinely cannot fail keep their
         // infallible verdict. A fix that made every `strings` member fallible
         // would pass the assertions above and fail here.
-        for name in [
-            "strings.byteLen",
-            "strings.contains",
-            "strings.displayWidth",
-        ] {
+        for name in ["strings.byteLen", "strings.contains"] {
             assert!(
                 inline_builtin_is_infallible(name, &[], &NoTypeKinds),
                 "{name} raises nothing trappable and must stay infallible"

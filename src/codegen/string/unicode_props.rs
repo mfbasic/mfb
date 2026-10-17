@@ -543,7 +543,7 @@ impl CodeBuilder<'_> {
     /// `charwidth` field packed into `flags` bits 4–5 (plan-70-A). The runtime
     /// computes `(flags >> 4) & 0b11`; `ambiguous_width` (bit 6) is carried in the
     /// table but not read here (policy: East-Asian Ambiguous = narrow). This is
-    /// the per-scalar width primitive `strings::displayWidth` and every renderer
+    /// the per-scalar width primitive `term::scalarWidthRaw` and every renderer
     /// (plan-70-B..F) consume.
     pub(crate) fn emit_unicode_property_charwidth(
         &mut self,

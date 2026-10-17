@@ -45,23 +45,30 @@ column). Each scalar's column width comes from the embedded utf8proc property
 table's `charwidth` field (`(flags >> 4) & 0b11`, see
 `./mfb spec unicode tables-and-algorithms`): Wide and Fullwidth scalars are 2 columns,
 most scalars are 1, and a zero-width scalar (a combining mark, ZWSP, ZWJ) is 0.
-`strings::displayWidth(s)` sums the per-grapheme width, and a grapheme's width is
-the width of its **first non-zero-width scalar**, so it is 0, 1 or 2 columns
-regardless of its scalar count: a grapheme made only of zero-width scalars — a
-lone combining mark, ZWSP, or ZWJ — is `0`. `"café"` (NFD) is 4, `"日本語"` is 6,
-`"👨‍👩‍👧‍👦"` is 2. [[src/codegen/builtins/strings/func_display_width.rs:lower]] The `term::` backends lay one
-grapheme per cell at this width, with one exception: for terminal placement only,
-a grapheme made only of zero-width scalars occupies one cell, not zero. `term::drawText` reserves a trailing cell for a wide grapheme and clips the
-run if that grapheme would cross the right edge; it does not wrap.
+`term::measureText(s)` sums one width per grapheme. A grapheme contributes the
+width of its **first non-zero-width scalar**, or one column when every scalar in
+the grapheme has raw width zero. The result is therefore 1 or 2 columns for each
+non-empty grapheme regardless of its scalar count. `"café"` (NFD) is 4,
+`"日本語"` is 6, `"👨‍👩‍👧‍👦"` is 2, and a lone combining mark, ZWSP, or ZWJ is 1.
+The public function requires an active `term` surface in `app::Mode.Console`;
+the mode check precedes the active-surface check, so Canvas/None raises
+`ErrWrongMode` even when the terminal is inactive, while inactive Console raises
+`ErrUnsupported`. [[src/codegen/builtins/term/func_measure_text.rs:lower_measure_text]]
+[[src/codegen/builtins/term/func_measure_text.rs:measure_text_of]]
+The `term::` backends lay one grapheme per cell at the same width.
+`term::drawText` reserves a trailing cell for a wide grapheme and clips the run
+if that grapheme would cross the right edge; it does not wrap.
 [[src/codegen/term/core/term.rs:emit_draw_text]]
-[[src/codegen/builtins/strings/func_display_width.rs:displayWidth]]
-[[src/unicode/runtime_tables.rs:charwidth]]
+[[src/codegen/string/unicode_props.rs:emit_unicode_property_charwidth]]
 
 `strings::padLeft`/`padRight` target a scalar count. `padLeftToWidth` and
 `padRightToWidth` compute a number of padding copies from display widths:
-`max(0, (columns - displayWidth(value)) / displayWidth(padChar))`, with integer
-division. Both pairs reject a negative target or a `padChar` that is not exactly
-one scalar. The column-counted pair additionally rejects zero-width padding,
+`max(0, (columns - measureTextRaw(value)) / scalarWidthRaw(padChar))`, with
+integer division. These are compiler-internal, ungated operations: padding does
+not require `term::on()`. The value measurement uses the same zero-only clamp as
+`term::measureText`, while pad-character validation reads the scalar's raw width.
+Both pairs reject a negative target or a `padChar` that is not exactly one
+scalar. The column-counted pair additionally rejects zero-width padding,
 even when the input already meets the target. Rejection raises
 `ErrInvalidArgument` (`77050002`). Neither pair truncates an input that already
 exceeds the target. For a positive gap, the column-counted pair adds whole copies;
@@ -69,7 +76,8 @@ a two-column pad scalar leaves an odd remainder unfilled. The calculation uses
 the widths of the input and pad separately; it does not remeasure the concatenated
 result, whose grapheme boundaries can change at the joins.
 [[src/codegen/builtins/strings/helper_pad_to_width.rs:__strings_padToWidthCopies]]
-[[src/codegen/builtins/strings/gen_pad.rs:pad_measure]]
+[[src/codegen/builtins/term/func_measure_text.rs:scalar_width_of]]
+[[src/codegen/collection/assign/string_self_update.rs:emit_pad_to_width_measure]]
 
 ## Scalar / byte mapping
 

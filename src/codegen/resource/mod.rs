@@ -163,6 +163,54 @@ pub(crate) fn builtin_consuming_parameter_index(target: &str) -> Option<usize> {
         .find_map(|imp| imp.params.iter().position(|p| p.name == entry.parameter))
 }
 
+/// The argument indices of a `collections` member whose RESULT holds those operands
+/// (bug-1092): the members that build a collection by *placing* an element or another
+/// collection into it, so a resource the operand holds is held by the result too.
+///
+/// The two containment walks (`codegen::resource_containment` and
+/// `ir::verify::link`'s `held_resources`) otherwise treat every call as opaque — a
+/// callee's return value does not in general hold its arguments, and a spurious edge
+/// moves bindings the program still owns. These members are the exception, and the
+/// table is the one place both walks read, so they cannot disagree.
+///
+/// Only operands that are actually placed are listed — never an index, a count, a map
+/// key or a `preferB` flag. Members that only keep a SUBSET of their operand (`filter`,
+/// `take`, `remove`, `intersection`, …) stay opaque: claiming the result holds
+/// everything the operand did would drop cleanups for resources the group never
+/// received. `set` lists its element but not the replaced one, which the result no longer
+/// holds — the over-approximation (it still names `value`) is the same one `append` makes
+/// of a list it extends, and cannot cause a leak the caller's own scope would not.
+pub(crate) fn builtin_placing_operand_indices(target: &str) -> &'static [usize] {
+    // `flatten` is a generic MFB-bodied member, so the call that reaches the walks names
+    // its monomorphised instance (`#collections_flatten$canvas$DrawItem`).
+    let target = if target.starts_with("#collections_flatten$") {
+        "collections.flatten"
+    } else {
+        target
+    };
+    PLACING_OPERANDS
+        .iter()
+        .find(|(member, _)| *member == target)
+        .map_or(&[], |(_, indices)| *indices)
+}
+
+/// `(member, placed argument indices)` for [`builtin_placing_operand_indices`]. A table so
+/// `the_placing_operands_name_real_members` can check every row against the registry.
+pub(crate) const PLACING_OPERANDS: &[(&str, &[usize])] = &[
+    // (list|set, element-or-collection): both operands are placed.
+    ("collections.append", &[0, 1]),
+    ("collections.prepend", &[0, 1]),
+    ("collections.add", &[0, 1]),
+    ("collections.union", &[0, 1]),
+    ("collections.merge", &[0, 1]),
+    ("collections.repeat", &[0, 1]),
+    // (list|map, index|key, item): the index/key is not placed.
+    ("collections.insert", &[0, 2]),
+    ("collections.set", &[0, 2]),
+    // (list of lists): the inner lists' elements are placed into the result.
+    ("collections.flatten", &[0]),
+];
+
 /// Whether `type_name` is a built-in resource that may cross a thread boundary.
 ///
 /// plan-156-D: a parent `Thread` view is sendable — its record moves to the

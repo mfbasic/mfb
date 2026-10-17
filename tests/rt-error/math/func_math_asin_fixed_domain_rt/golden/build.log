@@ -6,6 +6,9 @@ $ mfb build tests/rt-error/math/func_math_asin_fixed_domain_rt
 Wrote executable to tests/rt-error/math/func_math_asin_fixed_domain_rt/build/math_asin_fixed_domain_rt.out
 [exit 0]
 $ tests/rt-error/math/func_math_asin_fixed_domain_rt/build/math_asin_fixed_domain_rt.out
-Error: 7-705-0002
-Argument value is not valid for the requested operation.
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  Argument value is not valid for the requested operation.
+Location: src/main.mfb:5:25
+
 [exit 255]

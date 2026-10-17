@@ -6,6 +6,9 @@ $ mfb build tests/rt-behavior/process/detach-then-use
 Wrote executable to tests/rt-behavior/process/detach-then-use/build/process_detach_then_use.out
 [exit 0]
 $ tests/rt-behavior/process/detach-then-use/build/process_detach_then_use.out
-Error: 7-703-0004
-Resource handle is already closed.
+Thread:   0x00000000
+Error:    7-703-0004
+Message:  Resource handle is already closed.
+Location: src/main.mfb:9:22
+
 [exit 255]

@@ -7,6 +7,9 @@ Wrote executable to tests/rt-error/threads/callee-transfer-no-cleanup-failure-rt
 [exit 0]
 $ tests/rt-error/threads/callee-transfer-no-cleanup-failure-rt/build/callee_transfer_no_cleanup_failure_rt.out
 w=0
-Error: 7-705-0002
-boom
+Thread:   0x00000000
+Error:    7-705-0002
+Message:  boom
+Location: src/main.mfb:21:8
+
 [exit 255]

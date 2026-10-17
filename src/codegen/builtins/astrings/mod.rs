@@ -135,7 +135,7 @@ no styling. `repeat` is the one exception: every copy carries the styling of the
 original. `upper`, `lower`, `caseFold`, and `normalizeNfc` return the changed
 text with no styling.
 
-The readers include `byteLen`, `contains`, `count`, `displayWidth`, `startsWith`,
+The readers include `byteLen`, `contains`, `count`, `startsWith`,
 `endsWith`, `find`, `graphemes`, and `split`; the text-changing functions include
 `left`, `right`, `mid`, the `trim` family, `stripPrefix`/`stripSuffix`, the four
 padding functions, `repeat`, and `replace`. `a & b` joins two `AttributedString`

@@ -21,8 +21,9 @@ multi-byte `padChar` therefore contributes one toward the width per copy while
 adding several bytes.
 
 Scalar count is not screen width, and this is the sharp edge of the pair.
-`strings::displayWidth` measures **terminal columns**, and
-`strings::padRightToWidth` pads to that measure instead:
+`term::measureText` measures **terminal columns**, and
+`strings::padRightToWidth` pads to the same measure without requiring an active
+terminal surface:
 `padRight("日本", 4, "-")` is four scalars but six columns, so a table
 built with `padRight` does not line up as soon as a row carries CJK text, an
 emoji, or a combining sequence. Reach for `padRight` when the unit really is

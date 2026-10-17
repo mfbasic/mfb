@@ -14,10 +14,11 @@ use crate::codegen::registry::{HelperGate, RegistryHelper, RegistryPackage};
 #[rustfmt::skip]
 const BODY: &str =
 r#"REM MFBASIC strings display-width padding companion (bug-528). Column-counted
-REM padding: strings::padLeft counts Unicode scalar values, strings::displayWidth
+REM padding: strings::padLeft counts Unicode scalar values, term::measureTextRaw
 REM counts terminal columns, and these two members close the gap between them.
 
 IMPORT strings
+IMPORT term
 
 REM How many whole copies of padChar fit in the gap between value's display width
 REM and `columns`. Rejects the inputs that have no answer: a negative target, a
@@ -31,11 +32,11 @@ FUNC __strings_padToWidthCopies(value AS String, columns AS Integer, padChar AS 
   IF len(padChar) <> 1 THEN
     FAIL error(77050002, "Argument value is not valid for the requested operation.")
   END IF
-  LET unit AS Integer = strings::displayWidth(padChar)
+  LET unit AS Integer = term::scalarWidthRaw(padChar)
   IF unit < 1 THEN
     FAIL error(77050002, "Argument value is not valid for the requested operation.")
   END IF
-  LET have AS Integer = strings::displayWidth(value)
+  LET have AS Integer = term::measureTextRaw(value)
   IF have >= columns THEN
     RETURN 0
   END IF

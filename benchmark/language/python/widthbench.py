@@ -1,13 +1,13 @@
 """Unicode display-width benchmarks (group `width`).
 
 Mirrors benchmark/language/mfb/src/width.mfb, the first benchmark of
-strings::displayWidth (plan-87 Theme 1). Python has no display-width builtin, so
+term::measureText (plan-178). Python has no terminal-width builtin, so
 dw_scan hand-rolls the same width logic mfb applies over this *controlled*
 corpus: a per-scalar width table (combining marks U+0300..U+036F and ZWJ U+200D
 are 0; East-Asian-Wide/emoji are 2; else 1) plus a one-scalar lookahead that
 collapses a ZWJ sequence (ZWJ and the scalar after it count 0) and a combining
 mark into their lead cluster. Over this corpus that reproduces mfb's
-displayWidth/graphemesCount exactly.
+measureText/graphemesCount exactly.
 
 The combining mark in the mixed corpus is unambiguously decomposed as the two
 UTF-8 bytes for "e" + U+0301 (not a precomposed "e-acute").

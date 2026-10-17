@@ -51,7 +51,9 @@ pub(crate) mod registry;
 /// **The twin of `ir::verify::link`'s `held_resources`, and structurally identical to
 /// it.** They are two lists because `IrValue` and `NirValue` are distinct types; an arm
 /// added to one and not the other compiles. If you add a value form that PLACES its
-/// operands into the value it builds, add it to both.
+/// operands into the value it builds, add it to both. The `collections` calls that place
+/// their operands (bug-1092) are one table, `resource::builtin_placing_operand_indices`,
+/// which both read.
 pub(crate) fn resource_containment(
     ops: &[crate::target::shared::nir::NirOp],
 ) -> std::collections::HashMap<String, Vec<String>> {
@@ -69,8 +71,25 @@ pub(crate) fn resource_containment(
                     crate::codegen::engine::builder::CodeBuilder::collect_consumed_locals(
                         value, &mut held,
                     );
+                    // bug-1092: `items = collections::append(items, x)` names `items`
+                    // itself, so the new value holds what `items` held already PLUS `x`.
+                    // Replacing the entry would drop the first append's resources on the
+                    // second; extend it instead. (Only an `Assign` can name its own
+                    // target — a `Bind` is the first binding of the name.)
+                    let self_referential = matches!(op, NirOp::Assign { .. })
+                        && held.iter().any(|held_name| held_name == name);
                     held.retain(|held_name| held_name != name);
-                    if !held.is_empty() {
+                    if self_referential {
+                        let entry = out.entry(name.clone()).or_default();
+                        for held_name in held {
+                            if !entry.contains(&held_name) {
+                                entry.push(held_name);
+                            }
+                        }
+                        if entry.is_empty() {
+                            out.remove(name);
+                        }
+                    } else if !held.is_empty() {
                         out.insert(name.clone(), held);
                     }
                 }
@@ -99,4 +118,56 @@ pub(crate) fn resource_containment(
     let mut out = std::collections::HashMap::new();
     walk(ops, &mut out);
     out
+}
+
+#[cfg(test)]
+mod resource_containment_tests {
+    use super::resource_containment;
+    use crate::target::shared::nir::{NirOp, NirSourceLoc, NirValue};
+    use crate::types::ParameterType;
+
+    fn local(name: &str) -> NirValue {
+        NirValue::Local(name.to_string())
+    }
+    fn append(list: &str, element: NirValue) -> NirValue {
+        NirValue::Call {
+            target: "collections.append".to_string(),
+            args: vec![local(list), element],
+            loc: NirSourceLoc::default(),
+        }
+    }
+    fn assign(name: &str, value: NirValue) -> NirOp {
+        NirOp::Assign {
+            name: name.to_string(),
+            value,
+        }
+    }
+
+    /// bug-1092: `items = append(items, a)` then `items = append(items, b)` leaves `items`
+    /// holding BOTH — the second assignment extends the entry rather than replacing it —
+    /// and an opaque call still contributes nothing.
+    #[test]
+    fn append_assignments_accumulate_and_opaque_calls_do_not() {
+        let ops = vec![
+            NirOp::Bind {
+                mutable: true,
+                name: "items".to_string(),
+                type_: ParameterType::parse("List OF canvas.DrawItem"),
+                value: None,
+            },
+            assign("items", append("items", local("a"))),
+            assign("items", append("items", local("b"))),
+            assign(
+                "other",
+                NirValue::Call {
+                    target: "collections.filter".to_string(),
+                    args: vec![local("items"), local("p")],
+                    loc: NirSourceLoc::default(),
+                },
+            ),
+        ];
+        let held = resource_containment(&ops);
+        assert_eq!(held.get("items"), Some(&vec!["a".to_string(), "b".to_string()]));
+        assert!(!held.contains_key("other"), "filter keeps a subset and stays opaque");
+    }
 }
