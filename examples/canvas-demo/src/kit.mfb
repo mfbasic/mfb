@@ -309,11 +309,11 @@ FUNC trail(points AS List OF vector::Float2, colors AS List OF color::Color, p A
 END FUNC
 
 FUNC label(font AS canvas::Font, size AS Float, text AS String, x AS Float, baseline AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", position := pt(x, baseline), text := text, font := font, fontSize := size, paint := canvas::fill(c), transform := none()]
+  RETURN canvas::Text[id := "", position := pt(x, baseline), text := text, fonts := [font], fontSize := size, letterSpacing := 0.0, paint := canvas::fill(c), transform := none()]
 END FUNC
 
 FUNC labelP(font AS canvas::Font, size AS Float, text AS String, x AS Float, baseline AS Float, p AS canvas::Paint) AS canvas::DrawItem
-  RETURN canvas::Text[id := "", position := pt(x, baseline), text := text, font := font, fontSize := size, paint := p, transform := none()]
+  RETURN canvas::Text[id := "", position := pt(x, baseline), text := text, fonts := [font], fontSize := size, letterSpacing := 0.0, paint := p, transform := none()]
 END FUNC
 
 ' A soft round glow: a disc whose radial ramp falls away quickly from `c` and

@@ -2,17 +2,17 @@
 //! `Image` or `Font` resource (plan-116-I §4.2).
 //!
 //! Neither is user-callable. They exist so the renderer can keep reading a plain
-//! integer once `Picture.image` and `Text.font` hold the **resource itself** rather
-//! than an `ImageRef`/`FontRef` record: `t.font.id` becomes
-//! `canvas::fontHandle(t.font)` and nothing downstream of it changes.
+//! integer once `Picture.image` and `Text.fonts` hold the **resources themselves** rather
+//! than `ImageRef`/`FontRef` records: what was `t.font.id` is `canvas::fontHandle(f)` for
+//! each `f` in `t.fonts` (`__canvas_textHandles`), and nothing downstream changes.
 //!
 //! **A destroyed resource answers `0`; it does not raise.** That is the whole
 //! difference from `imageRef`/`fontRef`, which these replace, and it is what the
 //! letter's lifetime rule requires: a scene may still hold a `Picture` whose image the
 //! program has since destroyed, and that item must render as *nothing* rather than
 //! taking the frame down. `0` is already the renderer's "no such backend object"
-//! answer — `__canvas_fontBlob(0)` returns an empty list and the glyph run draws
-//! nothing — so the bridge reports the absence in the vocabulary the caller already
+//! answer — a `0` handle's face index reads `0` and the glyph run passes the font
+//! over — so the bridge reports the absence in the vocabulary the caller already
 //! handles, instead of inventing a raise the render loop would have to trap.
 //!
 //! The read order is the resource system's, not this file's invention: `closed` is

@@ -2404,10 +2404,10 @@ normal build has none of the three.
 
 An `Image` is an ordinary resource, closing when it leaves scope or with
 `canvas::destroyImage`. An item that draws one names it directly:
-`canvas::Picture.image` is a `RES canvas::Image`, and `canvas::Text.font` is a
-`RES canvas::Font`. A `Picture` whose shape is a `Text` names that text's font as well
-— it draws nothing, but it holds the font, and the group ownership rules below count
-it.
+`canvas::Picture.image` is a `RES canvas::Image`, and `canvas::Text.fonts` is a
+`List OF RES canvas::Font`, whose every element is the resource itself. A `Picture`
+whose shape is a `Text` names that text's fonts as well — it draws nothing, but it holds
+them, and the group ownership rules below count them.
 
 ### A tile selects an image rectangle
 
@@ -2588,7 +2588,7 @@ program does not close it:
 ```
 FUNC installPanel() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("ui.ttf")
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 8.0, y := 24.0], text := "Ready", font := face, fontSize := 18.0, paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 8.0, y := 24.0], text := "Ready", fonts := [face], fontSize := 18.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 230, 230)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [label])
 END FUNC
 ```
@@ -2619,6 +2619,15 @@ rebuilt every frame from one long-lived font therefore keeps drawing: the font i
 named by the new items as well as the old, so it stays usable. There is still no
 reference count; the question asked is "does anything drawn right now name this?",
 and it is asked only when a replaced group's items are being discarded.
+
+A `Text` names every font in its `fonts` list, and each is decided on its own: the
+retired items' fonts that nothing live names close, and the ones still named stay
+open. A font the list repeats closes once, because a closed font's `canvas::fontHandle`
+reads `0` and the second visit passes it over. The move checker sees every listed font
+too: its containment walk goes through the `Text` constructor into the list literal,
+so naming any font of a handed-off `Text` again is `2-203-0055`.
+[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_closeTextFonts]]
+[[src/ir/verify/link.rs:collect_held]]
 
 One consequence follows from the field being a resource rather than a plain value:
 **a `List OF canvas::DrawItem` cannot cross a thread's data plane.** A `Picture` or
@@ -2703,18 +2712,88 @@ loop or an out-of-bounds read.
 A string becomes glyphs in exactly one function, `__canvas_shapeRun(fonts, text)`,
 which takes font **handles** in fallback order and returns flat
 `(fontIndex, glyphId, advanceUnits)` triples, one per codepoint. Each codepoint takes
-the first font whose `cmap` maps it to a glyph other than `0`; one no font maps is
-glyph `0` (`.notdef`) of the first font.
+the first font whose `cmap` maps it to a glyph other than `0`. A closed font maps
+nothing and is passed over, so a codepoint no font maps is glyph `0` (`.notdef`) of the
+first **open** font, and with no font open every codepoint is glyph 0 at advance 0 and
+draws nothing.
 [[src/codegen/builtins/canvas/helper_font.rs:SHAPE_RUN]] `canvas::measureText`, the
 filled glyph run, the stroked text edges, and the `MFB_CANVAS_GEO_VERIFY` reference for
 the glyph run all read that run, and none of them looks up a glyph or an advance
 itself. The `canvas` unit test `canvas_text_has_one_glyph_walk` enforces this over the
 assembled source. [[src/codegen/builtins/canvas/mod.rs:canvas_text_has_one_glyph_walk]]
-Today each caller passes a one-font list.
+A `Text` passes its `fonts` list, as handles (`__canvas_textHandles`), and the
+single-font `measureText` passes a one-element list.
+
+Each glyph's record is six words, read by the `__CANVAS_RUN_*` column names and never
+by position: `fontIndex`, `glyphId`, `advanceUnits`, `scalarIndex` (the zero-based
+Unicode scalar index of the first codepoint the glyph came from), `gapAfter`, and
+`componentCount` (see "Ligatures"). `gapAfter`
+is 1 on the last glyph of every grapheme but the final one, with graphemes taken from
+`strings::graphemes`. That one column decides where letter-spacing goes and where a
+caret can stand, so both agree with drawing by construction.
+[[src/codegen/builtins/canvas/helper_font.rs:SHAPE_RUN]] `letterSpacing`, on
+`canvas::Text` and as `measureText`'s optional last argument, adds its pixels to the pen
+after every `gapAfter` glyph: between graphemes, never after the last. It is added only
+when it is not `0.0`, and the `Text` hash folds it only then, so an unspaced item draws,
+measures and keys the cache exactly as before.
+
+`TextMetrics` also carries the first font's decoration lines: `underlineOffset` and
+`strikeoutOffset`, in pixels down from the baseline to the line's top edge (OpenType's
+`post.underlinePosition` and `OS/2.yStrikeoutPosition` both name the top), and their
+thicknesses. They are read at load into face-index words 10–13 (layout version 3),
+which hold −32768 when the table is missing or gives a non-positive thickness. Such a
+font gets the defaults, the medians of the 638 TrueType faces plan-162 measured: an
+underline 0.10 em below the baseline and 0.05 em thick, and a strikeout 0.26 em above
+it at the underline's thickness.
+[[src/codegen/builtins/canvas/helper_font.rs:__canvas_faceLine]]
+
+### Ligatures
+
+Face-index layout version 4 adds two sections, each read once at load: header word 14 is
+the ligature section and word 15 the ligature-caret section, 0 for none.
+[[src/codegen/builtins/canvas/helper_liga.rs:LIGA_SECTION]] The ligatures are the `GSUB`
+`liga` feature's lookups of type 4 (LigatureSubst format 1), directly or through type 7
+(Extension). They are found by the kerning walk with the `GSUB` table, so the script and
+LangSys choice is the same, and no other feature or lookup type is read. The carets
+are `GDEF`'s LigCaretList, each boundary's x in font units. A ligature with a format-2
+(contour point) caret has none.
+
+`__canvas_shapeRun` substitutes after glyph selection and before kerning, and only when
+`letterSpacing` is `0.0`. [[src/codegen/builtins/canvas/helper_liga.rs:LIGA_READ]] For
+each font and lookup in turn, walking left to right over that font's glyphs: the first
+subtable covering a glyph, and in it the first ligature whose components follow,
+replaces them with the ligature glyph. That is HarfBuzz's rule, and since fonts list
+longer ligatures first it is the longest match. A ligature never spans two fonts. The
+glyph's record takes its first component's `scalarIndex`, and the run's sixth column,
+`componentCount`, holds how many codepoints it stands for: 1 for every other glyph.
+`gapAfter` is set when a glyph's codepoints end exactly at a grapheme boundary, so a
+ligature carries its last component's.
+
+`canvas::caretStops` puts a stop at every grapheme boundary inside a ligature too. Its
+`x` is the `GDEF` caret for that component boundary when the font gives one, otherwise
+`advance × k / componentCount`.
+
+`canvas::caretStops` projects the same run. One `CaretStop` (`index`, `x`) at 0, then
+one after every `gapAfter` glyph, at the next glyph's scalar index and at the pen
+position the draw paths reach there, spacing included. The last is the scalar count, at
+`__canvas_measureHandles`'s width itself, so it equals `measureText`'s `width` bit for
+bit. An empty string is the one stop `(0, 0.0)`.
+[[src/codegen/builtins/canvas/func_caret_stops.rs:CARET_STOPS_HANDLES]]
+
+Each glyph is scaled by its own font's `size / unitsPerEm`, and a font with no `head`
+has no scale: its glyphs draw nothing and advance nothing. `measureText` sums each font's
+advances as an Integer in that font's units and scales each sum once, so a one-element
+list is exactly the old single-font width. Its `ascent` and `descent`, and a drawn run's
+ink box and text box, are the largest of the fonts that supplied a glyph (the first
+drawable font's for an empty string). Its `lineGap` is `fonts[0]`'s. The filled run and
+the stroked edges fetch a font's file for outlines only when the run moves to another
+font. [[src/codegen/builtins/canvas/func_measure_text.rs:MEASURE_HANDLES]]
+[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_runLine]] A `Text`'s
+cache hash folds the number of fonts and then each handle in order.
 
 Advances stay in font units, because the callers deliberately convert them
 differently. `measureText` sums the advances as Integers and scales once.
-[[src/codegen/builtins/canvas/func_measure_text.rs:MEASURE_TEXT]] The filled run and
+[[src/codegen/builtins/canvas/func_measure_text.rs:MEASURE_HANDLES]] The filled run and
 its verify reference add a scaled Float per glyph and snap each glyph's pen to a whole
 pixel, because a glyph is a cached bitmap placed on integer pixels. The stroked edges
 add the same Floats but do not snap, because edges are exact geometry.
@@ -2727,7 +2806,7 @@ it.
 instead, so that a scene naming a closed font draws nothing rather than stopping.
 [[src/codegen/builtins/canvas/func_measure_text.rs:lower_font_open_handle]]
 
-The bytes behind a handle come from the process-global font table that `loadFont`
+The bytes and face index behind a handle come from the process-global font table that `loadFont`
 registers into and `destroyFont` clears. It is a chain of sixteen-slot chunks. The
 worker links in a new arena chunk only when every slot is taken, and chunks never move
 and are never freed, so the graphics thread walks the chain without a lock. A slot's
@@ -2736,6 +2815,86 @@ load-acquire on AArch64. [[src/codegen/builtins/canvas/gen_font_table.rs:emit_re
 [[src/codegen/builtins/canvas/gen_font_table.rs:emit_lookup_font]] Every live font
 therefore draws and measures, however many are open. The table was once sixteen fixed
 slots, and a seventeenth font's glyphs silently drew nothing (bug-756).
+
+## A font is parsed once
+
+`loadFont` parses the part of a font every string needs into a **face index** once,
+on the worker, as it loads: a flat `List OF Integer` holding a layout version,
+`head.unitsPerEm` (0 for a font with no `head`), the `hhea` ascender, descender (as
+stored, negative) and lineGap, then the `cmap` as sorted, disjoint
+`(firstCp, lastCp, delta)` runs and the `hmtx` advance column.
+[[src/codegen/builtins/canvas/helper_font.rs:__canvas_faceIndex]] The `Font` record
+owns the block at `FONT_FACE`, beside the bytes at `FONT_BYTES`, and the font-table
+slot publishes it with them as a third word.
+[[src/codegen/builtins/canvas/gen_font.rs:FONT_FACE]] The index lives as long as the
+bytes do: no close frees either, because the graphics thread reads both in place and a
+frame may still be drawing when the font closes.
+
+The index is built **by** the byte readers, so it says exactly what they say. A format-4
+run is a span over which the one segment evaluator both use answers with one constant
+`gid - cp`, taking each codepoint from the first segment whose endCode reaches it. A
+format-12 run is a group. A format-12 table whose groups overlap or go backwards keeps
+"the first group that contains the codepoint", settled by an O(n log n) paint, so a
+hostile table costs a sort at load. A codepoint in no run maps to glyph 0, and a glyph
+at or past the advance count takes the last advance.
+[[src/codegen/builtins/canvas/helper_font.rs:__canvas_cmap4Segment]]
+[[src/codegen/builtins/canvas/helper_font.rs:__canvas_cmap12Painted]]
+
+**Text reads the index in place, one word at a time, through the internal
+`canvas::faceAt(handle, i)`, and never through a copy of the font file.** It never
+allocates and never hands the block to MFBASIC: a block bound to an MFBASIC name is
+freed by that name's scope-drop, and the font's next reader then reads freed memory.
+An unregistered handle, or an `i` outside the block, reads `0`, so a closed font has no
+runs, no advances and a zero `unitsPerEm`, which is the answer the empty file it used to
+read as gave. [[src/codegen/builtins/canvas/gen_font_table.rs:lower_face_at]]
+`__canvas_shapeRun`, `measureText`, the run header's ink box and every text box read
+glyphs, advances and metrics this way. The only per-glyph reads that still need the file
+are the outlines: the filled run's rasteriser and the stroked edges each fetch it once
+per geometry-cache miss.
+[[src/codegen/builtins/canvas/helper_font.rs:FACE_READ]]
+
+A `--debug` build's `MFB_CANVAS_FACE_DUMP` writes each loaded font's index, and
+`MFB_CANVAS_FACE_CHECK` holds every index reader to the byte lookup it replaced, for
+every Unicode scalar and glyph id, and lists the kerning of every pair of the first 64
+glyph ids (`./mfb spec tooling debug-report`).
+[[src/codegen/builtins/canvas/helper_font.rs:FACE_DUMP_DEBUG]]
+
+### Kerning
+
+The face index's layout version 2 adds a kerning section, read once at load and
+pointed at by header word 9 (0 for a font with no kerning).
+[[src/codegen/builtins/canvas/helper_kern.rs:KERN_SECTION]] A font with a `GPOS` `kern`
+feature uses it and nothing else. The feature is taken from the `DFLT` script's default
+LangSys, else `latn`'s, else the first script's, whichever enables `kern` first. Its
+lookups apply in lookup-index order, and only types 2 (PairPos, formats 1 and 2) and 9
+(Extension wrapping a type 2) are read. A font without a `GPOS` `kern` feature uses its
+`kern` table: version 0, and only format-0 subtables marked horizontal and neither
+minimum nor cross-stream, each acting as a lookup of its own. Apple's version-1 `kern`
+is not read. [[src/codegen/builtins/canvas/helper_kern.rs:LAYOUT_FEATURE]]
+
+Of each ValueRecord only `XAdvance` is kept; the record's size is two bytes per set bit
+of the format's low byte, and device and variation offsets are counted, never followed.
+[[src/codegen/builtins/canvas/helper_kern.rs:__canvas_valueSize]] A hostile count costs
+reads, not a loop: each is clipped to what the file holds, and a class matrix past the
+end of the file is dropped.
+
+`__canvas_shapeRun` applies the section after every codepoint has its glyph, font by
+font and lookup by lookup, along the pairs whose two glyphs come from the same font.
+This follows HarfBuzz, which is the oracle the tests hold the result to:
+
+- Within a lookup, the first subtable that applies wins. Format 1 applies when the right
+  glyph is in the left glyph's pair set. Format 2 applies whenever the left glyph is
+  covered and both classes are in range, a zero cell included.
+- Across lookups, adjustments add. A `kern` subtable with its override bit replaces what
+  the pair has gathered instead.
+- `value1.XAdvance` adds to the left glyph's advance and `value2.XAdvance` to the right
+  glyph's.
+- After a pair whose second ValueRecord is non-empty, the walk resumes past the right
+  glyph.
+
+[[src/codegen/builtins/canvas/helper_kern.rs:KERN_READ]] Adjustments are in font units,
+so `measureText` and both draw paths take them through the run with no change of their
+own, and a font with no kerning shapes exactly as before.
 
 ## System fonts are an OS query, then an ordinary load
 

@@ -63,8 +63,8 @@ References:
 
 | What | Count | Command |
 |---|---|---|
-| System fonts carrying `GPOS` / `kern` | UNMEASURED | Phase 1 probe over `canvas::listSystemFonts()`, printing which tables each face has |
-| Pair-table sizes (format 1 pairs, format 2 class matrix cells) | UNMEASURED | same probe |
+| System fonts carrying `GPOS` / `kern` | Of 638 TrueType faces: 355 have `GPOS`, 250 of them a `kern` feature (DFLT → latn → first script); 267 have a `kern` table, 133 of those with no `GPOS` `kern`. `kern` versions: 211 version 0, 56 Apple version 1. Every version-0 subtable is format 0 with coverage low byte 1 (horizontal only): 231 subtables. `kern`-feature lookup shapes (type, format, via Extension) → faces: (2,1) 181, (2,2) 124, (2,1,ext) 16, (2,2,ext) 15, plus non-pair types the letter ignores ((8,·) 50, (4,1) 9, (7,2) 3, (1,1) 2). 158 faces use more than one pair subtable | `python3 -I /tmp/p162/probe.py` over `/System/Library/Fonts`, `/Library/Fonts`, `~/Library/Fonts`, `/System/Library/AssetsV2`, summarised from `/tmp/p162/probe.json` (2026-10-14) |
+| Pair-table sizes (format 1 pairs, format 2 class matrix cells) | max 46,098 format-1 pairs in one face; max 1,129,208 format-2 class-matrix cells in one face | same probe |
 
 ## 3. Design Overview
 
@@ -147,21 +147,27 @@ in font units, so every caller's pixel arithmetic (bug-756) is unchanged.
 
 ### Phase 1 — measure real fonts
 
-- [ ] `/tmp` probe: for each `canvas::listSystemFonts()` face, print whether it has
+- [x] `/tmp` probe: for each `canvas::listSystemFonts()` face, print whether it has
       `GPOS`, whether `GPOS` has a `kern` feature, the lookup types and subtable
       formats it uses (including Extension-wrapped ones), and whether it has a `kern`
       table and which versions/formats. Record the counts in §2 with the command.
-- [ ] Pick the real-font oracle face for Phase 4: one with format 2 through an
+      Done by the shared plan-162 probe (`/tmp/p162/probe.py`); counts in §2.
+- [x] Pick the real-font oracle face for Phase 4: one with format 2 through an
       Extension lookup, if any is installed. Record its name and file hash.
+      `/System/Library/Fonts/SFNS.ttf` (SF Pro, TrueType outlines, upem 2048): `kern`
+      through Extension lookups, formats 1 and 2, 11 pair subtables, 43,926 format-1
+      pairs and 24,742 class cells. SHA-256
+      `1c81ead87ca36eee7d51dbe816c3202ba8052fc88228a46de930339c4ec1df22`.
 
 Acceptance: §2's UNMEASURED rows hold numbers and commands.
   Check: `grep -c UNMEASURED planning/plan-162-B-kerning.md` → 0 outside this task list
   (est. 1 min).
-Commit: —
+  Result: → 1, the line above.
+Commit: ba9d8c543
 
 ### Phase 2 — fixtures
 
-- [ ] `tests/canvas/rt_canvas_font.rs`: extend the fixture builder with two outline
+- [x] `tests/canvas/rt_canvas_font.rs`: extend the fixture builder with two outline
       glyphs (`A`, `V`) with distinct advances, plus:
   - (a) a `GPOS` with a format 1 pair `A,V = −120` behind the `kern` feature;
   - (b) a `GPOS` with a format 2 class pair, wrapped in an Extension lookup;
@@ -169,52 +175,105 @@ Commit: —
   - (d) both `GPOS` (−120) and `kern` (−80), to test precedence;
   - (e) a ValueFormat carrying `XPlacement` + `XAdvance` + `YAdvance` + a device
     offset.
-- [ ] RED tests: `measureText("AV")` width = `(adv(A) − 120 + adv(V)) × scale` for
+
+  `kerning_font` is the square font with glyph 2 given the square outline too, and a
+  `cmap` of `A` → 1 (advance 250), `V` → 2 (advance 300). The builders `layout_table`,
+  `lookup`, `pair_pos1`, `pair_pos2`, `extension`, `class_def1`/`class_def2` and
+  `kern_table` write each structure field by field. Every format-1 pair set holds
+  `A,A` = −30 before `A,V`, so a wrong ValueRecord size corrupts `A,V`. (e) also has a
+  non-zero `valueFormat2` (placements only).
+- [x] RED tests: `measureText("AV")` width = `(adv(A) − 120 + adv(V)) × scale` for
       (a), (b) and (e); −80 for (c); −120 for (d). `"VA"` is unkerned in all five.
+      `kern_pairs_measure_at_the_kerned_width`, all five fixtures in one program, at
+      size 1000 (scale 1), also asserting `AA`.
 
 Acceptance: the fixtures load and the RED tests fail today with the unkerned width.
   Check: `cargo test --test rt_canvas_font kern` → the five width tests fail on the
   kerning term only (est. 3 min).
-Commit: —
+  Result: FAILED as predicted. Every fixture loaded and measured unkerned:
+  `left: [("gpos1", [550000, 550000, 500000]), …]` against
+  `right: [("gpos1", [430000, 550000, 470000]), …]`. `VA` already matches (550000);
+  `AV` and `AA` differ by exactly the kerning term.
+Commit: 683a2d4ee
 
 ### Phase 3 — build the kerning section
 
-- [ ] New `src/codegen/builtins/canvas/helper_kern.rs`, registered with the canvas
+- [x] New `src/codegen/builtins/canvas/helper_kern.rs`, registered with the canvas
       helpers: the `GPOS` walk (script/LangSys/feature selection per the Non-goals
       rule), types 2 and 9, Coverage 1/2, ClassDef 1/2, ValueRecord sizing (§4.2), and
-      the `kern` v0 f0 reader.
-- [ ] `__canvas_faceIndex` appends the section and writes version 2.
-- [ ] `__canvas_faceKern(font, left, right) AS Integer` over `canvas::faceAt`.
+      the `kern` v0 f0 reader. The feature walk, `__canvas_layoutLookups(b, table,
+      feature)`, takes the table offset and the feature tag, so `GSUB` (plan-162-F) can
+      call it unchanged. Every file-supplied count is clipped to the file
+      (`__canvas_clipCount`), and a class matrix past the end of the file is dropped.
+- [x] `__canvas_faceIndex` appends the section and writes version 2. Header word 9 is
+      the section's offset; the header is now 10 words.
+- [x] `__canvas_faceKern(font, left, right) AS Integer` over `canvas::faceAt`. It sits
+      in the `--debug` half: shaping applies lookups along the run
+      (`__canvas_kernRun`, Correction 2), so `__canvas_faceKern`'s one caller is the face
+      check's `kern=` field (Correction 4). Both go through the shared
+      `__canvas_kernLookup`.
 
 Acceptance: `__canvas_faceKern` returns the fixture values, and 0 for unkerned pairs.
   Check: `cargo test --test rt_canvas_font face_kern` → pass (est. 3 min).
-Commit: —
+  Result: `face_kern_reads_each_fixtures_pairs` → ok. gpos1, both and wide list
+  `1:1:-30:0,1:2:-120:0`; gpos2ext lists `1:2:-120:0`; kern lists
+  `1:1:-30:0,1:2:-80:0`. The kerning-free fixture lists nothing, with word 9 = 0, and
+  every fixture's sweep stays at zero mismatches. The plan-A index tests moved to
+  version 2 (ten-word header, word 9 = 0, 19 words), as §4.1 predicts, and pass
+  (`face_index_of_*`, `a_load_destroy_cycle_keeps_only_the_fonts_own_blocks`).
+Commit: f46561429 (Phase 4's first task landed here too, Correction 5)
 
 ### Phase 4 — apply in `__canvas_shapeRun`, docs
 
-- [ ] `__canvas_shapeRun`: add the pair term per §4.4.
-- [ ] Phase 2 tests go GREEN. Add pixel tests showing the second glyph's lit column
+- [x] `__canvas_shapeRun`: add the pair term per §4.4. A second loop over the fonts,
+      after glyph selection, runs `__canvas_kernRun` for each (Correction 2's walk).
+      `kern_pairs_measure_at_the_kerned_width` → ok: (a) `AV` 430000, `VA` 550000, `AA`
+      470000, and so on for all five.
+- [x] Phase 2 tests go GREEN. Add pixel tests showing the second glyph's lit column
       moves by the kerned amount on the fill path and on the stroke path.
-- [ ] Real-font oracle: in the Phase 1 face, `measureText("AVAWATo")` equals the width
+      `kern_pairs_measure_at_the_kerned_width` → ok, and
+      `a_kerned_pair_draws_at_the_kerned_distance_filled_and_stroked` → ok: `AV`'s
+      rightmost lit column is exactly 12 px left of the unkerned font's (−120 units ×
+      0.1), under `canvas::fill` and under `canvas::stroke(…, 2.0)`.
+- [x] Real-font oracle: in the Phase 1 face, `measureText("AVAWATo")` equals the width
       HarfBuzz reports with only `kern` enabled (`hb-shape --features=-liga,-clig,-calt,kern`,
       summed advances, scaled). The expected value is recorded in the test with the
       command that produced it. Skip with a logged reason if the face isn't installed.
-- [ ] Man pages: `canvas::measureText` DESC and `canvas::loadFont` DESC. Replace "no
+      `a_real_font_kerns_as_harfbuzz_does` → ok: SFNS at size 2048 measures 8314 units,
+      HarfBuzz 12.2.0's 1141+1132+1171+1762+1101+920+1087 (9364 with `-kern`). It skips,
+      logged, on a missing file or any SHA-256 but the recorded one. Wider sweep,
+      `python3 -I /tmp/p162/oracle.py`: 24 faces (8 Extension-wrapped `GPOS`, 8 direct
+      `GPOS`, 8 `kern`-table-only) × 5 strings = 120 cases, **0 mismatches** against
+      HarfBuzz's kerning (Correction 6 explains why the comparison factors out
+      tracking).
+- [x] Man pages: `canvas::measureText` DESC and `canvas::loadFont` DESC. Replace "no
       kerning" with what is applied: pair kerning from `GPOS` `kern`, or the legacy
       `kern` table. Say plainly that complex shaping is still not done. Check with
       `mfb man canvas measureText` and `scripts/man-census.sh --memory-scope`
-      → 0 unclassified.
-- [ ] Spec `06_canvas.md`: a "Kerning" subsection covering the feature/script selection
-      and precedence, citing `helper_kern.rs` symbols.
-- [ ] GPU: `scripts/test-canvas-vulkan.sh` on the Vulkan box, plus the Metal
+      → 0 unclassified. Both pages render (`mfb man canvas measureText`, `mfb man canvas
+      loadFont`'s new "Kerning." paragraph); census → `unclassified memory-vocabulary
+      hits: 0`.
+- [x] Spec `06_canvas.md`: a "Kerning" subsection covering the feature/script selection
+      and precedence, citing `helper_kern.rs` symbols. `### Kerning` under "A font is
+      parsed once", citing `KERN_SECTION`, `LAYOUT_FEATURE`, `__canvas_valueSize` and
+      `KERN_READ`. `cargo test --bin mfb spec` → 46 passed, and `mfb spec app canvas`
+      leaks no `[[`.
+- [x] GPU: `scripts/test-canvas-vulkan.sh` on the Vulkan box, plus the Metal
       `rt_canvas_metal` suite locally. Glyph placement is on the CPU, so this confirms
-      only that nothing else moved.
+      only that nothing else moved. Metal: `cargo test --test rt_canvas_metal` → 71
+      passed. Vulkan: `scripts/test-canvas-vulkan.sh target/debug/mfb --box 2226 --target linux-aarch64` → "canvas Vulkan runtime tests passed", 24 `ok` lines, 0 failures, `vulkanReady=TRUE` (`/tmp/p162/b4-vulkan.log`) (Correction 7).
 
 Acceptance: kerned pairs measure and draw kerned, unkerned fonts are byte-identical,
 and the docs are true.
   Check: `cargo test --test rt_canvas_font --test rt_canvas_golden` → pass and
   `git status --short tests/golden/canvas` → empty (est. 6 min).
-Commit: —
+  Result: 44 + 28 passed, 0 failed (`/tmp/p162/b4-accept.log`), and
+  `git status --short tests/golden/canvas` → empty. Runtime proof (Validation Plan,
+  Correction 8): the caption `"AVAWATo Typography, Ltd."` in `canvas-demo`'s bundled
+  `Lato-Regular.ttf` at size 2000 (its em) measures 25,113 units with `main`'s compiler
+  and 23,898 with this one, which is HarfBuzz's 23,898 kerned / 25,113 unkerned.
+  `Cinzel.ttf` measures 29,140 → 27,600 (size 2000, em 1000).
+Commit: 6ceb5f502 (and 33bcf7493, the rustfmt sort of `mod helper_kern`)
 
 ## Validation Plan
 
@@ -238,7 +297,52 @@ Commit: —
 
 ## Corrections
 
-(empty)
+1. **The kerning section has lookups that contain subtables, not one flat subtable
+   list.** §3 states the rule correctly: "the first subtable … wins" inside a lookup,
+   and adjustments add across lookups. A flat `[subtableCount, off…]` list cannot say
+   where one lookup ends, so §4.1's layout is corrected to
+   `[lookupCount, lookupOff…]`, each lookup `[subtableCount, subtableOff…]`.
+2. **A pair adjusts both glyphs, and a second-glyph value record moves the walk on.**
+   §4.4 added one term to the left glyph. HarfBuzz, the oracle Phase 4 is held to,
+   applies `value2.XAdvance` to the right glyph, and when `valueFormat2 ≠ 0` it skips
+   the right glyph as the next pair's left (`PairPosFormat1/2::apply`, `if (len2)
+   skippy_iter.idx++`). So each pair entry stores `(second, xAdvance1, xAdvance2)`. A
+   class matrix stores the second column only when `valueFormat2` has `XAdvance`. Each
+   subtable carries a "skips the second glyph" flag, and the walk is per lookup:
+   `i += 2` after such a pair, `i += 1` otherwise. With `valueFormat2 = 0`, which is
+   every pair in §2's census bar a handful, this is exactly §4.4.
+3. **Format 2 stops its lookup even at a zero value.** Once the left glyph is covered
+   and both classes are in range, the subtable applies whatever the matrix holds, 0
+   included, and no later subtable of that lookup is tried. Format 1 applies only when
+   the right glyph is in the left glyph's pair set. The text in §3, "has an entry for
+   the right glyph", reads that way for both formats once a class-0 cell counts as an
+   entry.
+4. **`__canvas_faceKern` is reached through the `--debug` face check.** No program can
+   call an `internal_only` helper. Phase 3's check reads it through
+   `MFB_CANVAS_FACE_CHECK`, whose line gains `kern=left:right:x1:x2,…`: every non-zero
+   pair among the first 64 glyph ids, which covers a fixture font whole.
+
+5. **Phase 3 and Phase 4's first task share a commit.** Applying the section in
+   `__canvas_shapeRun` is four lines over `__canvas_kernRun`, and Phase 3's reader is
+   the same `__canvas_kernLookup`. They were verified together: the face check pins
+   the section, and the RED width test going green pins the shaping.
+
+6. **The real-font oracle compares kerning, not tracking.** HarfBuzz also applies a
+   font's AAT `trak` table, at a 12 pt default point size, on the variable Apple faces
+   that carry one. A first sweep "failed" 30 of 120 cases in SF Compact, SF Pro
+   Rounded, New York, SF Camera and SF Armenian Rounded by exactly a constant per glyph
+   (+92 units in SF Pro Rounded, +40 in SF Compact, +12 in New York). `hb-shape
+   --font-ptem=6/12/48/200` turns SF Pro Rounded's `H` into 1606/1524/1447/1432, and
+   1432 is its `hmtx` advance, which is what this build draws. Tracking is not in any
+   letter's scope. The oracle therefore checks Σ `hmtx` + (HarfBuzz kerned − HarfBuzz
+   unkerned) at one point size. `SFNS.ttf`, the test's face, tracks by 0 at 12 pt, so its
+   raw HarfBuzz sum is the expected value as recorded.
+7. **The Vulkan box is 2226, not 2228.** On 2026-10-14 `ssh -p 2228` → `Connection
+   refused`, as were 2222–2225 and 2227. 2226 (Debian 12 aarch64, lavapipe ICD) was up
+   and the script supports it: `--box 2226 --target linux-aarch64`.
+8. **`examples/emoji` does not exist.** The Validation Plan's runtime proof names it,
+   but `ls examples/` has no `emoji`. The proof uses `examples/canvas-demo`'s bundled
+   Lato and Cinzel instead.
 
 ## Summary
 

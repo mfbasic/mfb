@@ -486,28 +486,16 @@ END FUNC
 ' the baseline to its descent below -- which is the box a `Text` is hit on. A font that
 ' is closed, or a run with no glyph, emits nothing.
 FUNC __canvas_particleTextBox(t AS Text) AS Nothing
-  LET font AS Integer = canvas::fontHandle(t.font)
-  LET b AS List OF Byte = __canvas_fontBlob(font)
-  IF len(b) = 0 THEN
+  LET handles AS List OF Integer = __canvas_textHandles(t)
+  LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
+  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text, t.letterSpacing)
+  IF len(shaped) < __CANVAS_RUN_STRIDE OR NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN
   END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
-  IF upem <= 0 THEN
-    RETURN
-  END IF
-  LET shaped AS List OF Integer = __canvas_shapeRun([font], t.text)
-  IF len(shaped) < 3 THEN
-    RETURN
-  END IF
-  LET scale AS Float = t.fontSize / toFloat(upem)
-  MUT advance AS Float = 0.0
-  MUT c AS Integer = 0
-  WHILE c * 3 < len(shaped)
-    advance = advance + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
-    c = c + 1
-  END WHILE
-  LET up AS Float = toFloat(__canvas_fontAscent(b)) * scale
-  LET down AS Float = toFloat(0 - __canvas_fontDescent(b)) * scale
+  LET advance AS Float = __canvas_runPen(shaped, scales, 0.0, t.letterSpacing)
+  LET line AS List OF Float = __canvas_runLine(handles, scales, shaped)
+  LET up AS Float = collections::getOr(line, 0, 0.0)
+  LET down AS Float = collections::getOr(line, 1, 0.0)
   __CANVAS_PARTICLE_EKIND = 2
   __CANVAS_PARTICLE_E0 = advance
   __CANVAS_PARTICLE_E1 = up + down
@@ -1411,13 +1399,13 @@ FUNC __canvas_particleBlocks(ps AS ParticleSystem) AS Integer
   RETURN blocks
 END FUNC
 
-' The font a shape names, or 0: a `Text`'s.
-FUNC __canvas_particleFont(item AS DrawItem) AS Integer
+' Whether a shape names the font `handle`: a `Text` that lists it.
+FUNC __canvas_particleFont(item AS DrawItem, handle AS Integer) AS Boolean
   MATCH item
     CASE Text(t)
-      RETURN canvas::fontHandle(t.font)
+      RETURN __canvas_textNamesFont(t, handle)
     CASE ELSE
-      RETURN 0
+      RETURN FALSE
   END MATCH
 END FUNC
 
@@ -1427,10 +1415,10 @@ FUNC __canvas_particleNamesFont(ps AS ParticleSystem, handle AS Integer) AS Bool
   IF handle = 0 THEN
     RETURN FALSE
   END IF
-  IF __canvas_particleFont(__canvas_particleDrawn(ps.item)) = handle THEN
+  IF __canvas_particleFont(__canvas_particleDrawn(ps.item), handle) THEN
     RETURN TRUE
   END IF
-  RETURN __canvas_particleFont(__canvas_particleEmitterItem(ps.emitter)) = handle
+  RETURN __canvas_particleFont(__canvas_particleEmitterItem(ps.emitter), handle)
 END FUNC
 
 ' Close the font of a `Text` in a retired group buffer's system, when nothing live
@@ -1438,10 +1426,7 @@ END FUNC
 FUNC __canvas_particleCloseText(item AS DrawItem, scene AS List OF DrawItem) AS Nothing
   MATCH item
     CASE Text(t)
-      LET fh AS Integer = canvas::fontHandle(t.font)
-      IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
-        canvas::destroyFont(t.font)
-      END IF
+      __canvas_closeTextFonts(t, scene)
     CASE ELSE
   END MATCH
 END FUNC

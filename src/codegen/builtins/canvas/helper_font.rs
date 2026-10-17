@@ -7,11 +7,15 @@
 //! per-platform font library would end that. Reading `glyf` ourselves keeps the same
 //! code on every target, which is the whole point.
 //!
-//! **Everything here takes the font's bytes, not a parsed handle.** A TrueType file is
-//! already an indexed database — `loca` indexes `glyf`, `cmap` indexes by codepoint —
-//! so a parse step would only copy the index into a second index. The lookups are a
-//! handful of big-endian reads each; what is worth caching is the *rasterised glyph*,
-//! which is plan-98-G Phase 2's job.
+//! **Text reads a parsed face index by handle; only the loader reads the bytes.** A
+//! TrueType file is already an indexed database, and the first design read it in place
+//! for that reason. But the bytes are the worker's resource, so every text path had to
+//! copy the whole file to read four numbers and a `cmap` (`canvas::fontBlobUnchecked`
+//! records why it copies), once per string. plan-162-A parses the part every string
+//! needs — metrics, `cmap`, advances — once, at load (`__canvas_faceIndex`), and text
+//! code reads it a word at a time through `canvas::faceAt`. The byte readers below are
+//! what builds the index; outlines (`helper_glyph.rs`) are the one per-glyph read that
+//! still needs the file.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
@@ -129,39 +133,12 @@ FUNC __canvas_fontLineGap(b AS List OF Byte) AS Integer
   RETURN __canvas_beS16(b, hhea + 8)
 END FUNC"#;
 
-/// A glyph's advance width, in font units.
-///
-/// `hmtx` holds `numberOfHMetrics` pairs and then degenerates into a bare array of
-/// left-side bearings — every glyph past that point shares the *last* pair's advance.
-/// That tail is not an edge case: it is how monospaced and CJK fonts store thousands of
-/// equal-width glyphs in four bytes, so a reader that indexes `hmtx` naively walks off
-/// the table on the most ordinary fonts there are.
-#[rustfmt::skip]
-const FONT_ADVANCE: &str =
-r#"FUNC __canvas_glyphAdvance(b AS List OF Byte, gid AS Integer) AS Integer
-  LET hhea AS Integer = __canvas_fontTable(b, "hhea")
-  LET hmtx AS Integer = __canvas_fontTable(b, "hmtx")
-  IF hhea < 0 OR hmtx < 0 THEN
-    RETURN 0
-  END IF
-  LET count AS Integer = __canvas_beU16(b, hhea + 34)
-  IF count = 0 THEN
-    RETURN 0
-  END IF
-  MUT index AS Integer = gid
-  IF index >= count THEN
-    index = count - 1
-  END IF
-  RETURN __canvas_beU16(b, hmtx + index * 4)
-END FUNC"#;
-
-/// Codepoint to glyph id, through whichever `cmap` subtable the font offers.
+/// The `cmap` rules the face index is built from: which subtable a font offers, and how
+/// one format-4 segment and the format-12 group count are read.
 ///
 /// Format 12 is preferred over format 4 because format 4 is 16-bit and cannot name a
 /// codepoint above U+FFFF at all; a font that has both is telling us the wide table is
-/// the complete one. Both are searched linearly for the same reason the table directory
-/// is — the ranges are few, and a wrong binary search here silently returns the wrong
-/// glyph rather than failing.
+/// the complete one.
 ///
 /// Glyph `0` is `.notdef` and is the defined answer for "this font has no glyph for
 /// that codepoint". Returning it rather than failing is deliberate: a missing glyph
@@ -194,6 +171,579 @@ r#"FUNC __canvas_cmapSubtable(b AS List OF Byte) AS Integer
   RETURN best
 END FUNC
 
+' How many format-12 groups a scan may read. `numGroups` is a u32 the file controls, and
+' a group is twelve bytes, so the subtable's own `length` and the end of the file each
+' bound how many the scan can be asked for (bug-509, DEC-54). Past the file every
+' "group" reads as zeros through `getOr` and can match nothing but U+0000 -- to glyph 0,
+' the not-found answer -- so stopping there changes no lookup. Past `length` the bytes
+' are some other table's, which is not a cmap at all; FreeType refuses the whole
+' subtable for that, this keeps the groups the table does declare. Unbounded, one
+' unmapped character was a scan of 4,294,967,295 groups: 583 s of CPU.
+FUNC __canvas_cmap12Groups(b AS List OF Byte, subtable AS Integer) AS Integer
+  MUT groups AS Integer = __canvas_beU32(b, subtable + 12)
+  LET byLength AS Integer = (__canvas_beU32(b, subtable + 4) - 16) / 12
+  LET byFile AS Integer = (len(b) - subtable - 16) / 12
+  IF groups > byLength THEN
+    groups = byLength
+  END IF
+  IF groups > byFile THEN
+    groups = byFile
+  END IF
+  RETURN groups
+END FUNC
+
+' Segment `i`'s answer for `cp`, given that `i` is the first segment whose endCode is at
+' or past `cp`: the one rule the face index's run builder and the `--debug` per-codepoint
+' lookup `__canvas_cmap4` share, so the two cannot disagree on an `idRangeOffset` segment.
+FUNC __canvas_cmap4Segment(b AS List OF Byte, subtable AS Integer, i AS Integer, cp AS Integer) AS Integer
+  LET segX2 AS Integer = __canvas_beU16(b, subtable + 6)
+  LET endCodes AS Integer = subtable + 14
+  LET startCodes AS Integer = endCodes + segX2 + 2
+  LET idDeltas AS Integer = startCodes + segX2
+  LET idRanges AS Integer = idDeltas + segX2
+  LET start AS Integer = __canvas_beU16(b, startCodes + i * 2)
+  IF cp < start THEN
+    RETURN 0
+  END IF
+  LET rangeOffset AS Integer = __canvas_beU16(b, idRanges + i * 2)
+  LET delta AS Integer = __canvas_beS16(b, idDeltas + i * 2)
+  IF rangeOffset = 0 THEN
+    RETURN __canvas_wrap16(cp + delta)
+  END IF
+  LET at AS Integer = idRanges + i * 2 + rangeOffset + (cp - start) * 2
+  LET g AS Integer = __canvas_beU16(b, at)
+  IF g = 0 THEN
+    RETURN 0
+  END IF
+  RETURN __canvas_wrap16(g + delta)
+END FUNC
+
+FUNC __canvas_wrap16(v AS Integer) AS Integer
+  MUT r AS Integer = v MOD 65536
+  IF r < 0 THEN
+    r = r + 65536
+  END IF
+  RETURN r
+END FUNC"#;
+
+/// The face index (plan-162-A): everything text needs from a font but its outlines,
+/// parsed **once**, when the font loads, into a flat `List OF Integer` the `Font`
+/// resource owns (`gen_font.rs:FONT_FACE`) and the font table publishes beside the bytes.
+///
+/// Layout version 2, header words then sections at the offsets the header names:
+///
+/// | Word | Meaning |
+/// |---|---|
+/// | 0 | layout version (2) |
+/// | 1 | `head.unitsPerEm`, or 0 for a font with no `head` |
+/// | 2, 3, 4 | `hhea` ascender, descender (stored negative, as in the file), lineGap |
+/// | 5, 6 | cmap run count `R`, and the word the runs start at |
+/// | 7, 8 | advance count `H` (`numberOfHMetrics`), and the word they start at |
+/// | 9 | the kerning section's first word, or 0 for a font with no kerning (plan-162-B, `helper_kern.rs`) |
+/// | 10, 11 | `post.underlinePosition` (the underline's top edge, negative below the baseline) and `post.underlineThickness` (plan-162-D) |
+/// | 12, 13 | `OS/2.yStrikeoutPosition` (the strikeout's top edge, above the baseline) and `OS/2.yStrikeoutSize` |
+///
+/// | 14, 15 | the ligature section's and the ligature-caret section's first words, or 0 (plan-162-F, `helper_liga.rs`) |
+///
+/// Words 10-13 hold −32768, "the font says nothing", for a missing table or a zero
+/// thickness: a font that gives a zero-thickness line has given no usable line, and the
+/// reader substitutes its documented default instead.
+///
+/// Each later letter of plan-162 appends its section and bumps the version: 1 was the
+/// metrics, `cmap` and advances alone, 2 added kerning, 3 the decoration lines, 4 the
+/// ligatures and their carets.
+///
+/// A cmap **run** is `(firstCp, lastCp, delta)`: every codepoint in it maps to
+/// `cp + delta`, the runs are sorted by `firstCp` and never overlap, and a codepoint in
+/// none maps to glyph 0. The advances are `hmtx`'s advance column; a glyph at or past
+/// `H` takes word `H - 1`, which is `__canvas_glyphAdvance`'s shared trailing advance.
+///
+/// **It is built by the byte readers, not beside them.** The metric words are the
+/// `__canvas_font*` answers, a format-4 run is a span of codepoints over which
+/// `__canvas_cmap4Segment` -- the evaluator `__canvas_cmap4` itself calls -- answers with
+/// one constant `gid - cp`, and a format-12 run is a group, read with the same
+/// `__canvas_cmap12Groups` bound. So the index says exactly what the per-call readers
+/// said, for every codepoint, and `rt_canvas_font`'s `face_index` sweep holds it to that.
+///
+/// Format 4 is resolved by the rule `__canvas_cmap4` scans by: a codepoint belongs to
+/// the **first** segment whose endCode reaches it, so segment `i` answers exactly the
+/// codepoints above every earlier segment's endCode and at or below its own. Walking the
+/// segments in file order with that high-water mark visits each of the 65,536 codepoints
+/// at most once, whatever order a malformed file puts its segments in.
+///
+/// Format 12 is "the first group that contains it". Every real font lists its groups
+/// sorted and disjoint (all 105 format-12 faces plan-162-A Phase 1 measured), and then a
+/// run is a group. A file whose groups overlap or go backwards takes
+/// `__canvas_cmap12Painted`, which settles the same rule in O(n log n): a hostile table
+/// costs a sort at load, never a quadratic loop (bug-509's principle).
+#[rustfmt::skip]
+const FACE_INDEX: &str =
+r#"LET __CANVAS_FACE_UPEM AS Integer = 1
+LET __CANVAS_FACE_ASCENT AS Integer = 2
+LET __CANVAS_FACE_DESCENT AS Integer = 3
+LET __CANVAS_FACE_LINEGAP AS Integer = 4
+LET __CANVAS_FACE_RUNS AS Integer = 5
+LET __CANVAS_FACE_RUNS_AT AS Integer = 6
+LET __CANVAS_FACE_ADVANCES AS Integer = 7
+LET __CANVAS_FACE_ADVANCES_AT AS Integer = 8
+LET __CANVAS_FACE_KERN AS Integer = 9
+LET __CANVAS_FACE_UNDERLINE AS Integer = 10
+LET __CANVAS_FACE_UNDERLINE_SIZE AS Integer = 11
+LET __CANVAS_FACE_STRIKEOUT AS Integer = 12
+LET __CANVAS_FACE_STRIKEOUT_SIZE AS Integer = 13
+LET __CANVAS_FACE_UNSET AS Integer = 0 - 32768
+LET __CANVAS_FACE_LIGA AS Integer = 14
+LET __CANVAS_FACE_CARETS AS Integer = 15
+LET __CANVAS_FACE_HEADER AS Integer = 16
+
+FUNC __canvas_faceIndex(b AS List OF Byte) AS List OF Integer
+  LET runs AS List OF Integer = __canvas_cmapRuns(b)
+  LET advances AS List OF Integer = __canvas_faceAdvances(b)
+  LET kerning AS List OF Integer = __canvas_kernSection(b)
+  LET ligatures AS List OF Integer = __canvas_ligaSection(b)
+  LET carets AS List OF Integer = __canvas_caretSection(b)
+  ' Each optional section's first word, or 0 when the font has none of it.
+  MUT at AS Integer = __CANVAS_FACE_HEADER + len(runs) + len(advances)
+  MUT kernAt AS Integer = 0
+  IF len(kerning) > 0 THEN
+    kernAt = at
+  END IF
+  at = at + len(kerning)
+  MUT ligaAt AS Integer = 0
+  IF len(ligatures) > 0 THEN
+    ligaAt = at
+  END IF
+  at = at + len(ligatures)
+  MUT caretAt AS Integer = 0
+  IF len(carets) > 0 THEN
+    caretAt = at
+  END IF
+  MUT out AS List OF Integer = [4, __canvas_fontUnitsPerEm(b), __canvas_fontAscent(b), __canvas_fontDescent(b), __canvas_fontLineGap(b), len(runs) / 3, __CANVAS_FACE_HEADER, len(advances), __CANVAS_FACE_HEADER + len(runs), kernAt]
+  out = collections::append(out, __canvas_faceLine(b, "post", 8, 10))
+  out = collections::append(out, __canvas_faceLine(b, "OS/2", 28, 26))
+  out = collections::append(out, ligaAt)
+  out = collections::append(out, caretAt)
+  out = collections::append(out, runs)
+  out = collections::append(out, advances)
+  out = collections::append(out, kerning)
+  out = collections::append(out, ligatures)
+  out = collections::append(out, carets)
+  RETURN out
+END FUNC
+
+' A decoration line from table `tag`: `[position, thickness]`, signed font units read at
+' `positionAt` and `sizeAt`, or both unset when the table is missing or too short, or
+' the thickness is not positive.
+FUNC __canvas_faceLine(b AS List OF Byte, tag AS String, positionAt AS Integer, sizeAt AS Integer) AS List OF Integer
+  LET table AS Integer = __canvas_fontTable(b, tag)
+  IF table < 0 OR table + __canvas_maxI(positionAt, sizeAt) + 2 > len(b) THEN
+    RETURN [__CANVAS_FACE_UNSET, __CANVAS_FACE_UNSET]
+  END IF
+  LET size AS Integer = __canvas_beS16(b, table + sizeAt)
+  IF size <= 0 THEN
+    RETURN [__CANVAS_FACE_UNSET, __CANVAS_FACE_UNSET]
+  END IF
+  RETURN [__canvas_beS16(b, table + positionAt), size]
+END FUNC
+
+FUNC __canvas_faceAdvances(b AS List OF Byte) AS List OF Integer
+  MUT out AS List OF Integer = []
+  LET hhea AS Integer = __canvas_fontTable(b, "hhea")
+  LET hmtx AS Integer = __canvas_fontTable(b, "hmtx")
+  IF hhea < 0 OR hmtx < 0 THEN
+    RETURN out
+  END IF
+  LET count AS Integer = __canvas_beU16(b, hhea + 34)
+  MUT i AS Integer = 0
+  WHILE i < count
+    out = collections::append(out, __canvas_beU16(b, hmtx + i * 4))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC __canvas_cmapRuns(b AS List OF Byte) AS List OF Integer
+  LET subtable AS Integer = __canvas_cmapSubtable(b)
+  IF subtable < 0 THEN
+    RETURN []
+  END IF
+  LET kind AS Integer = __canvas_beU16(b, subtable)
+  IF kind = 12 THEN
+    RETURN __canvas_cmap12Runs(b, subtable)
+  END IF
+  IF kind = 4 THEN
+    RETURN __canvas_cmap4Runs(b, subtable)
+  END IF
+  RETURN []
+END FUNC
+
+FUNC __canvas_cmap4Runs(b AS List OF Byte, subtable AS Integer) AS List OF Integer
+  LET segX2 AS Integer = __canvas_beU16(b, subtable + 6)
+  LET segs AS Integer = segX2 / 2
+  LET endCodes AS Integer = subtable + 14
+  LET startCodes AS Integer = endCodes + segX2 + 2
+  MUT runs AS List OF Integer = []
+  ' The highest codepoint an earlier segment already answers.
+  MUT answered AS Integer = 0 - 1
+  MUT i AS Integer = 0
+  WHILE i < segs
+    LET last AS Integer = __canvas_beU16(b, endCodes + i * 2)
+    IF last > answered THEN
+      ' Below `start` the segment answers 0, which is no run.
+      MUT cp AS Integer = answered + 1
+      LET start AS Integer = __canvas_beU16(b, startCodes + i * 2)
+      IF cp < start THEN
+        cp = start
+      END IF
+      WHILE cp <= last
+        LET g AS Integer = __canvas_cmap4Segment(b, subtable, i, cp)
+        IF g <> 0 THEN
+          LET n AS Integer = len(runs)
+          IF n > 0 AND collections::getOr(runs, n - 2, 0 - 2) = cp - 1 AND collections::getOr(runs, n - 1, 0) = g - cp THEN
+            runs = collections::set(runs, n - 2, cp)
+          ELSE
+            runs = collections::append(runs, cp)
+            runs = collections::append(runs, cp)
+            runs = collections::append(runs, g - cp)
+          END IF
+        END IF
+        cp = cp + 1
+      END WHILE
+      answered = last
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN runs
+END FUNC
+
+FUNC __canvas_cmap12Runs(b AS List OF Byte, subtable AS Integer) AS List OF Integer
+  LET groups AS Integer = __canvas_cmap12Groups(b, subtable)
+  MUT runs AS List OF Integer = []
+  ' The highest codepoint a group has claimed so far.
+  MUT claimed AS Integer = 0 - 1
+  MUT i AS Integer = 0
+  WHILE i < groups
+    LET g AS Integer = subtable + 16 + i * 12
+    LET first AS Integer = __canvas_beU32(b, g)
+    LET last AS Integer = __canvas_beU32(b, g + 4)
+    ' A group whose last is before its first contains nothing, as `__canvas_cmap12` reads it.
+    IF first <= last THEN
+      IF first <= claimed THEN
+        RETURN __canvas_cmap12Painted(b, subtable, groups)
+      END IF
+      runs = collections::append(runs, first)
+      runs = collections::append(runs, last)
+      runs = collections::append(runs, __canvas_beU32(b, g + 8) - first)
+      claimed = last
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN runs
+END FUNC
+
+' Format 12 whose groups overlap or go backwards: each codepoint still belongs to the
+' first group that contains it. The groups' ends cut the codepoint line into pieces no
+' group boundary crosses; the groups then paint the pieces in file order, and a piece
+' keeps the first paint it gets. `onward` is the next unpainted piece at or after each
+' piece -- a union-find with path compression -- so every piece is painted once and a
+' group whose range is already painted costs almost nothing to skip.
+FUNC __canvas_cmap12Painted(b AS List OF Byte, subtable AS Integer, groups AS Integer) AS List OF Integer
+  MUT marks AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < groups
+    LET g AS Integer = subtable + 16 + i * 12
+    LET first AS Integer = __canvas_beU32(b, g)
+    LET last AS Integer = __canvas_beU32(b, g + 4)
+    IF first <= last THEN
+      marks = collections::append(marks, first)
+      marks = collections::append(marks, last + 1)
+    END IF
+    i = i + 1
+  END WHILE
+  LET cuts AS List OF Integer = __canvas_sortedDistinct(marks)
+  LET pieces AS Integer = len(cuts) - 1
+  MUT owner AS List OF Integer = []
+  MUT onward AS List OF Integer = []
+  MUT k AS Integer = 0
+  WHILE k <= pieces
+    owner = collections::append(owner, 0 - 1)
+    onward = collections::append(onward, k)
+    k = k + 1
+  END WHILE
+  i = 0
+  WHILE i < groups
+    LET g AS Integer = subtable + 16 + i * 12
+    LET first AS Integer = __canvas_beU32(b, g)
+    LET last AS Integer = __canvas_beU32(b, g + 4)
+    IF first <= last THEN
+      LET stop AS Integer = __canvas_cutAt(cuts, last + 1)
+      MUT at AS Integer = __canvas_cutAt(cuts, first)
+      MUT painting AS Boolean = TRUE
+      WHILE painting
+        MUT root AS Integer = at
+        WHILE collections::getOr(onward, root, pieces) <> root
+          root = collections::getOr(onward, root, pieces)
+        END WHILE
+        MUT walk AS Integer = at
+        WHILE walk <> root
+          LET up AS Integer = collections::getOr(onward, walk, pieces)
+          onward = collections::set(onward, walk, root)
+          walk = up
+        END WHILE
+        IF root < stop THEN
+          owner = collections::set(owner, root, i)
+          onward = collections::set(onward, root, root + 1)
+          at = root + 1
+        ELSE
+          painting = FALSE
+        END IF
+      END WHILE
+    END IF
+    i = i + 1
+  END WHILE
+  MUT runs AS List OF Integer = []
+  k = 0
+  WHILE k < pieces
+    LET o AS Integer = collections::getOr(owner, k, 0 - 1)
+    IF o >= 0 THEN
+      LET g AS Integer = subtable + 16 + o * 12
+      LET delta AS Integer = __canvas_beU32(b, g + 8) - __canvas_beU32(b, g)
+      LET lo AS Integer = collections::getOr(cuts, k, 0)
+      LET hi AS Integer = collections::getOr(cuts, k + 1, 0) - 1
+      LET n AS Integer = len(runs)
+      IF n > 0 AND collections::getOr(runs, n - 2, 0 - 2) = lo - 1 AND collections::getOr(runs, n - 1, 0) = delta THEN
+        runs = collections::set(runs, n - 2, hi)
+      ELSE
+        runs = collections::append(runs, lo)
+        runs = collections::append(runs, hi)
+        runs = collections::append(runs, delta)
+      END IF
+    END IF
+    k = k + 1
+  END WHILE
+  RETURN runs
+END FUNC
+
+' `xs` ascending with repeats dropped: a bottom-up merge sort, then one pass. Written
+' here rather than through `collections::sort`, whose body the canvas helpers cannot
+' reach -- it is injected only for a program that calls it.
+FUNC __canvas_sortedDistinct(xs AS List OF Integer) AS List OF Integer
+  LET n AS Integer = len(xs)
+  MUT from AS List OF Integer = xs
+  MUT width AS Integer = 1
+  WHILE width < n
+    MUT into AS List OF Integer = []
+    MUT lo AS Integer = 0
+    WHILE lo < n
+      LET mid AS Integer = __canvas_minI(lo + width, n)
+      LET hi AS Integer = __canvas_minI(lo + width * 2, n)
+      MUT a AS Integer = lo
+      MUT c AS Integer = mid
+      WHILE a < mid OR c < hi
+        IF c >= hi OR (a < mid AND collections::getOr(from, a, 0) <= collections::getOr(from, c, 0)) THEN
+          into = collections::append(into, collections::getOr(from, a, 0))
+          a = a + 1
+        ELSE
+          into = collections::append(into, collections::getOr(from, c, 0))
+          c = c + 1
+        END IF
+      END WHILE
+      lo = hi
+    END WHILE
+    from = into
+    width = width * 2
+  END WHILE
+  MUT out AS List OF Integer = []
+  FOR EACH x IN from
+    IF len(out) = 0 OR collections::getOr(out, len(out) - 1, 0) <> x THEN
+      out = collections::append(out, x)
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' The index of `v` in the sorted, distinct `cuts`, which holds it.
+FUNC __canvas_cutAt(cuts AS List OF Integer, v AS Integer) AS Integer
+  MUT lo AS Integer = 0
+  MUT hi AS Integer = len(cuts) - 1
+  WHILE lo < hi
+    LET mid AS Integer = (lo + hi) / 2
+    IF collections::getOr(cuts, mid, 0) < v THEN
+      lo = mid + 1
+    ELSE
+      hi = mid
+    END IF
+  END WHILE
+  RETURN lo
+END FUNC"#;
+
+/// Reading the face index by font **handle**, through `canvas::faceAt`, which reads one
+/// word in place and never copies the block (`gen_font_table.rs:lower_face_at`).
+///
+/// A handle with no published font reads `0` everywhere — no runs, no advances, a zero
+/// `unitsPerEm` — which is what the byte readers answered for the empty file
+/// `__canvas_fontBlob` handed them. So every reader keeps its old answer for a closed or
+/// never-loaded font without a check of its own.
+#[rustfmt::skip]
+const FACE_READ: &str =
+r#"FUNC __canvas_faceMetric(font AS Integer, word AS Integer) AS Integer
+  RETURN canvas::faceAt(font, word)
+END FUNC
+
+' A glyph's advance in font units: `__canvas_glyphAdvance`'s rule, the last advance
+' shared by every glyph past it.
+FUNC __canvas_faceAdvance(font AS Integer, gid AS Integer) AS Integer
+  LET count AS Integer = canvas::faceAt(font, __CANVAS_FACE_ADVANCES)
+  IF count <= 0 THEN
+    RETURN 0
+  END IF
+  MUT index AS Integer = gid
+  IF index >= count THEN
+    index = count - 1
+  END IF
+  RETURN canvas::faceAt(font, canvas::faceAt(font, __CANVAS_FACE_ADVANCES_AT) + index)
+END FUNC
+
+' Codepoint to glyph id: a binary search for the last run starting at or before `cp`.
+FUNC __canvas_faceGlyph(font AS Integer, cp AS Integer) AS Integer
+  LET at AS Integer = canvas::faceAt(font, __CANVAS_FACE_RUNS_AT)
+  MUT lo AS Integer = 0
+  MUT hi AS Integer = canvas::faceAt(font, __CANVAS_FACE_RUNS) - 1
+  MUT found AS Integer = 0 - 1
+  WHILE lo <= hi
+    LET mid AS Integer = (lo + hi) / 2
+    IF canvas::faceAt(font, at + mid * 3) <= cp THEN
+      found = mid
+      lo = mid + 1
+    ELSE
+      hi = mid - 1
+    END IF
+  END WHILE
+  IF found < 0 THEN
+    RETURN 0
+  END IF
+  IF cp > canvas::faceAt(font, at + found * 3 + 1) THEN
+    RETURN 0
+  END IF
+  RETURN cp + canvas::faceAt(font, at + found * 3 + 2)
+END FUNC"#;
+
+/// The face index's `--debug` windows: a normal build's `__canvas_faceDump` and
+/// `__canvas_faceCheck` do nothing.
+#[rustfmt::skip]
+const FACE_DUMP: &str =
+r#"FUNC __canvas_faceDump(index AS List OF Integer) AS Nothing
+END FUNC
+
+FUNC __canvas_faceCheck(font AS Integer) AS Nothing
+END FUNC
+
+FUNC __canvas_shapeDump(run AS List OF Integer) AS Nothing
+END FUNC"#;
+
+/// A `--debug` build run with `MFB_CANVAS_FACE_DUMP=<file>` appends one line per loaded
+/// font -- `face` and then every word of its index -- which is the only way a test can
+/// see a structure the program never hands back (the `MFB_CANVAS_STATS` precedent).
+/// `MFB_CANVAS_FACE_CHECK` runs `__canvas_faceCheck`, and the byte lookups it compares
+/// against live here too, since nothing else calls them.
+#[rustfmt::skip]
+const FACE_DUMP_DEBUG: &str =
+r#"FUNC __canvas_faceDump(index AS List OF Integer) AS Nothing
+  LET path AS String = os::getEnvOr("MFB_CANVAS_FACE_DUMP", "")
+  IF len(path) = 0 THEN
+    RETURN
+  END IF
+  MUT line AS String = "face"
+  FOR EACH word IN index
+    line = line & " " & toString(word)
+  NEXT
+  fs::appendText(path, line & "\n") TRAP(err)
+    RETURN
+  END TRAP
+END FUNC
+
+' `MFB_CANVAS_SHAPE_DUMP=<file>`: every run `canvas::measureText` shapes, as `shape` and
+' then its words, `__CANVAS_RUN_STRIDE` per glyph (plan-162-D, -F).
+FUNC __canvas_shapeDump(run AS List OF Integer) AS Nothing
+  LET path AS String = os::getEnvOr("MFB_CANVAS_SHAPE_DUMP", "")
+  IF len(path) = 0 THEN
+    RETURN
+  END IF
+  MUT line AS String = "shape"
+  FOR EACH word IN run
+    line = line & " " & toString(word)
+  NEXT
+  fs::appendText(path, line & "\n") TRAP(err)
+    RETURN
+  END TRAP
+END FUNC
+
+' `MFB_CANVAS_FACE_CHECK=<file>`: `canvas::measureText` holds the index readers to the
+' byte readers they replaced, for the font it was asked to measure -- every Unicode scalar
+' through `__canvas_faceGlyph` against `__canvas_glyphIndex`, every 16-bit glyph id (and
+' past it, for a format-12 font whose ids run higher) through `__canvas_faceAdvance`
+' against `__canvas_glyphAdvance`, and the four metrics -- and appends the mismatch
+' counts. A run-merging off-by-one shows up only on the one codepoint it moves, so
+' nothing short of the whole range is a check.
+FUNC __canvas_faceCheck(font AS Integer) AS Nothing
+  LET path AS String = os::getEnvOr("MFB_CANVAS_FACE_CHECK", "")
+  IF len(path) = 0 THEN
+    RETURN
+  END IF
+  LET b AS List OF Byte = __canvas_fontBlob(font)
+  MUT glyphs AS Integer = 0
+  MUT mapped AS Integer = 0
+  MUT highest AS Integer = 0
+  MUT cp AS Integer = 0
+  WHILE cp <= 1114111
+    IF cp < 55296 OR cp > 57343 THEN
+      LET want AS Integer = __canvas_glyphIndex(b, cp)
+      IF __canvas_faceGlyph(font, cp) <> want THEN
+        glyphs = glyphs + 1
+      END IF
+      IF want <> 0 THEN
+        mapped = mapped + 1
+      END IF
+      IF want > highest THEN
+        highest = want
+      END IF
+    END IF
+    cp = cp + 1
+  END WHILE
+  MUT advances AS Integer = 0
+  MUT gid AS Integer = 0
+  LET lastGid AS Integer = __canvas_maxI(65535, highest)
+  WHILE gid <= lastGid
+    IF __canvas_faceAdvance(font, gid) <> __canvas_glyphAdvance(b, gid) THEN
+      advances = advances + 1
+    END IF
+    gid = gid + 1
+  END WHILE
+  MUT metrics AS Integer = 0
+  IF __canvas_faceMetric(font, __CANVAS_FACE_UPEM) <> __canvas_fontUnitsPerEm(b) THEN
+    metrics = metrics + 1
+  END IF
+  IF __canvas_faceMetric(font, __CANVAS_FACE_ASCENT) <> __canvas_fontAscent(b) THEN
+    metrics = metrics + 1
+  END IF
+  IF __canvas_faceMetric(font, __CANVAS_FACE_DESCENT) <> __canvas_fontDescent(b) THEN
+    metrics = metrics + 1
+  END IF
+  IF __canvas_faceMetric(font, __CANVAS_FACE_LINEGAP) <> __canvas_fontLineGap(b) THEN
+    metrics = metrics + 1
+  END IF
+  LET line AS String = "faceCheck glyphMismatches=" & toString(glyphs) & " advanceMismatches=" & toString(advances) & " metricMismatches=" & toString(metrics) & " mapped=" & toString(mapped) & " glyphIds=" & toString(lastGid + 1) & " runs=" & toString(__canvas_faceMetric(font, __CANVAS_FACE_RUNS)) & " kern=" & __canvas_faceKernText(font) & "\n"
+  fs::appendText(path, line) TRAP(err)
+    RETURN
+  END TRAP
+END FUNC
+
+' The per-call byte lookups text read before the face index (plan-162-A), kept as the
+' oracle `__canvas_faceCheck` holds the index to and nothing else: a codepoint's glyph
+' through a linear scan of the chosen subtable, and a glyph's `hmtx` advance, where
+' every glyph past `numberOfHMetrics` shares the last pair's advance (how monospaced and
+' CJK fonts store thousands of equal widths in four bytes). A normal build has no
+' caller for them, so only a `--debug` build carries them.
 FUNC __canvas_glyphIndex(b AS List OF Byte, cp AS Integer) AS Integer
   LET subtable AS Integer = __canvas_cmapSubtable(b)
   IF subtable < 0 THEN
@@ -210,23 +760,7 @@ FUNC __canvas_glyphIndex(b AS List OF Byte, cp AS Integer) AS Integer
 END FUNC
 
 FUNC __canvas_cmap12(b AS List OF Byte, subtable AS Integer, cp AS Integer) AS Integer
-  ' `numGroups` is a u32 the file controls, and a group is twelve bytes, so the
-  ' subtable's own `length` and the end of the file each bound how many the scan can
-  ' be asked for (bug-509, DEC-54). Past the file every "group" reads as zeros through
-  ' `getOr` and can match nothing but U+0000 -- to glyph 0, the not-found answer -- so
-  ' stopping there changes no lookup. Past `length` the bytes are some other table's,
-  ' which is not a cmap at all; FreeType refuses the whole subtable for that, this
-  ' keeps the groups the table does declare. Unbounded, one unmapped character was a
-  ' scan of 4,294,967,295 groups: 583 s of CPU.
-  MUT groups AS Integer = __canvas_beU32(b, subtable + 12)
-  LET byLength AS Integer = (__canvas_beU32(b, subtable + 4) - 16) / 12
-  LET byFile AS Integer = (len(b) - subtable - 16) / 12
-  IF groups > byLength THEN
-    groups = byLength
-  END IF
-  IF groups > byFile THEN
-    groups = byFile
-  END IF
+  LET groups AS Integer = __canvas_cmap12Groups(b, subtable)
   MUT i AS Integer = 0
   WHILE i < groups
     LET g AS Integer = subtable + 16 + i * 12
@@ -247,39 +781,31 @@ FUNC __canvas_cmap4(b AS List OF Byte, subtable AS Integer, cp AS Integer) AS In
   LET segX2 AS Integer = __canvas_beU16(b, subtable + 6)
   LET segs AS Integer = segX2 / 2
   LET endCodes AS Integer = subtable + 14
-  LET startCodes AS Integer = endCodes + segX2 + 2
-  LET idDeltas AS Integer = startCodes + segX2
-  LET idRanges AS Integer = idDeltas + segX2
   MUT i AS Integer = 0
   WHILE i < segs
     IF cp <= __canvas_beU16(b, endCodes + i * 2) THEN
-      LET start AS Integer = __canvas_beU16(b, startCodes + i * 2)
-      IF cp < start THEN
-        RETURN 0
-      END IF
-      LET rangeOffset AS Integer = __canvas_beU16(b, idRanges + i * 2)
-      LET delta AS Integer = __canvas_beS16(b, idDeltas + i * 2)
-      IF rangeOffset = 0 THEN
-        RETURN __canvas_wrap16(cp + delta)
-      END IF
-      LET at AS Integer = idRanges + i * 2 + rangeOffset + (cp - start) * 2
-      LET g AS Integer = __canvas_beU16(b, at)
-      IF g = 0 THEN
-        RETURN 0
-      END IF
-      RETURN __canvas_wrap16(g + delta)
+      RETURN __canvas_cmap4Segment(b, subtable, i, cp)
     END IF
     i = i + 1
   END WHILE
   RETURN 0
 END FUNC
 
-FUNC __canvas_wrap16(v AS Integer) AS Integer
-  MUT r AS Integer = v MOD 65536
-  IF r < 0 THEN
-    r = r + 65536
+FUNC __canvas_glyphAdvance(b AS List OF Byte, gid AS Integer) AS Integer
+  LET hhea AS Integer = __canvas_fontTable(b, "hhea")
+  LET hmtx AS Integer = __canvas_fontTable(b, "hmtx")
+  IF hhea < 0 OR hmtx < 0 THEN
+    RETURN 0
   END IF
-  RETURN r
+  LET count AS Integer = __canvas_beU16(b, hhea + 34)
+  IF count = 0 THEN
+    RETURN 0
+  END IF
+  MUT index AS Integer = gid
+  IF index >= count THEN
+    index = count - 1
+  END IF
+  RETURN __canvas_beU16(b, hmtx + index * 4)
 END FUNC"#;
 
 /// Text to glyphs: the **only** place a string becomes glyph ids and advances (bug-756).
@@ -287,56 +813,143 @@ END FUNC"#;
 /// `measureText`, the filled glyph run, the stroked text edges and the verify-mode
 /// reference all read this one run, which is what makes "measuring and drawing use the
 /// same glyph walk" (`canvas::measureText`) true by construction rather than by four
-/// copies agreeing. Kerning, spacing, ligatures and the parse-once face index
-/// (plan-162) change this body and none of its callers.
+/// copies agreeing. Kerning, spacing and ligatures (plan-162) change this body and none
+/// of its callers.
+///
+/// **Kerning** (plan-162-B) runs after every codepoint has its glyph: font by font,
+/// `__canvas_kernRun` adds each pair adjustment of that font's `GPOS` `kern` feature,
+/// or of its legacy `kern` table, to the advances, and only between two glyphs from the
+/// same font. The adjustment stays in font units, so no caller's pixel arithmetic
+/// changes, and measuring and drawing pick it up together.
 ///
 /// `fonts` is a list of font **handles**, and list order is fallback order: each
 /// codepoint takes the first font whose `cmap` maps it to a glyph other than `0`, and
 /// one no font maps is glyph `0` — `.notdef` — of `fonts[0]`, exactly what a one-font
-/// walk draws for it. The result is flat `(fontIndex, glyphId, advanceUnits)` triples,
-/// one per codepoint, in order. Advances stay in font units: the callers scale them
+/// walk draws for it. The result is flat records of `__CANVAS_RUN_STRIDE` words, one per
+/// glyph, in order (plan-162-D): `fontIndex`, `glyphId`, `advanceUnits`, the zero-based
+/// **scalar index** of the first codepoint the glyph came from, `gapAfter` — 1 on the
+/// last glyph of every grapheme but the final one, which is where letter-spacing goes
+/// and where a caret can stop — and `componentCount`, how many codepoints the glyph
+/// stands for: 1, or more for a ligature (plan-162-F). Callers read the columns by the `__CANVAS_RUN_*` names, never
+/// by position. Advances stay in font units: the callers scale them
 /// differently on purpose (`measureText` sums Integers and scales once; the draw paths
 /// accumulate scaled Floats, snapped or not), and doing it here would change pixels.
 ///
-/// It walks **font by font**, so each font's bytes are fetched and bound once per call.
-/// A font file is hundreds of kilobytes, and reading it out of a `List OF List OF Byte`
-/// per codepoint would copy it per codepoint. `fonts[0]` shapes every codepoint, `.notdef`
-/// included, and each later font replaces only the triples still at glyph `0` that it
-/// maps. That is the first-font-that-maps rule, and with one font it is exactly the old
-/// `cmap` + `hmtx` walk. An empty `fonts` shapes nothing. A handle with no published font
-/// reads as an empty file, whose every lookup answers `0`.
+/// It reads each font's **face index** by handle (`__canvas_faceGlyph`,
+/// `__canvas_faceAdvance`, plan-162-A) and never fetches the file. It walks font by font:
+/// `fonts[0]` shapes every codepoint, `.notdef` included, and each later font replaces
+/// only the triples still at glyph `0` that it maps. That is the first-font-that-maps
+/// rule, and with one font it is exactly the old `cmap` + `hmtx` walk. An empty `fonts`
+/// shapes nothing. A handle with no published font — a closed font — has no index, so it
+/// maps nothing and is passed over: a codepoint no font maps takes glyph `0` of the
+/// **first open** font, and when no font is open, glyph 0 at advance 0 of `fonts[0]`,
+/// which draws nothing (plan-162-C).
 #[rustfmt::skip]
 const SHAPE_RUN: &str =
-r#"FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF Integer
+r#"LET __CANVAS_RUN_FONT AS Integer = 0
+LET __CANVAS_RUN_GLYPH AS Integer = 1
+LET __CANVAS_RUN_ADVANCE AS Integer = 2
+LET __CANVAS_RUN_SCALAR AS Integer = 3
+LET __CANVAS_RUN_GAP AS Integer = 4
+LET __CANVAS_RUN_COMPONENTS AS Integer = 5
+LET __CANVAS_RUN_STRIDE AS Integer = 6
+
+FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String, spacing AS Float) AS List OF Integer
   LET cps AS List OF Integer = encoding::utf32Encode(text)
   LET n AS Integer = len(cps)
+  ' The first open font shapes every codepoint, `.notdef` included; with none open,
+  ' `fonts[0]` does, and every lookup through its missing index answers 0.
+  MUT base AS Integer = 0
+  MUT k AS Integer = len(fonts) - 1
+  WHILE k >= 0
+    IF canvas::fontRegistered(collections::getOr(fonts, k, 0)) THEN
+      base = k
+    END IF
+    k = k - 1
+  END WHILE
   MUT run AS List OF Integer = []
-  MUT which AS Integer = 0
-  FOR EACH f IN fonts
-    LET b AS List OF Byte = __canvas_fontBlob(f)
+  LET first AS Integer = collections::getOr(fonts, base, 0)
+  IF len(fonts) > 0 THEN
     MUT c AS Integer = 0
     WHILE c < n
-      LET cp AS Integer = collections::getOr(cps, c, 0)
-      IF which = 0 THEN
-        LET gid AS Integer = __canvas_glyphIndex(b, cp)
-        run = collections::append(run, 0)
-        run = collections::append(run, gid)
-        run = collections::append(run, __canvas_glyphAdvance(b, gid))
-      ELSE
-        IF collections::getOr(run, c * 3 + 1, 0) = 0 THEN
-          LET gid AS Integer = __canvas_glyphIndex(b, cp)
-          IF gid <> 0 THEN
-            run = collections::set(run, c * 3, which)
-            run = collections::set(run, c * 3 + 1, gid)
-            run = collections::set(run, c * 3 + 2, __canvas_glyphAdvance(b, gid))
-          END IF
-        END IF
-      END IF
+      LET gid AS Integer = __canvas_faceGlyph(first, collections::getOr(cps, c, 0))
+      run = collections::append(run, base)
+      run = collections::append(run, gid)
+      run = collections::append(run, __canvas_faceAdvance(first, gid))
+      run = collections::append(run, c)
+      run = collections::append(run, 0)
+      run = collections::append(run, 1)
       c = c + 1
     END WHILE
+  END IF
+  ' Every later font, in list order, takes the codepoints still at glyph 0 that it maps.
+  ' A font before `base` is closed, and a closed one maps nothing, so neither is asked.
+  MUT which AS Integer = 0
+  FOR EACH f IN fonts
+    IF which > base AND canvas::fontRegistered(f) THEN
+      MUT c AS Integer = 0
+      WHILE c < n
+        LET at AS Integer = c * __CANVAS_RUN_STRIDE
+        IF collections::getOr(run, at + __CANVAS_RUN_GLYPH, 0) = 0 THEN
+          LET gid AS Integer = __canvas_faceGlyph(f, collections::getOr(cps, c, 0))
+          IF gid <> 0 THEN
+            run = collections::set(run, at + __CANVAS_RUN_FONT, which)
+            run = collections::set(run, at + __CANVAS_RUN_GLYPH, gid)
+            run = collections::set(run, at + __CANVAS_RUN_ADVANCE, __canvas_faceAdvance(f, gid))
+          END IF
+        END IF
+        c = c + 1
+      END WHILE
+    END IF
     which = which + 1
   NEXT
+  ' Ligatures (plan-162-F), font by font, before kerning, so a ligature kerns with its
+  ' neighbours. Only with no letter-spacing: spacing would pull a ligature's letters
+  ' apart, and one glyph cannot be.
+  IF spacing = 0.0 THEN
+    which = 0
+    FOR EACH f IN fonts
+      run = __canvas_ligaRun(f, which, run)
+      which = which + 1
+    NEXT
+  END IF
+  which = 0
+  FOR EACH f IN fonts
+    run = __canvas_kernRun(f, which, run)
+    which = which + 1
+  NEXT
+  ' Grapheme boundaries: a glyph has a gap after it when the codepoints it stands for end
+  ' exactly at a boundary inside the text. A ligature ends where its last component does.
+  LET boundary AS List OF Boolean = __canvas_graphemeEnds(text, n)
+  MUT g AS Integer = 0
+  WHILE g * __CANVAS_RUN_STRIDE < len(run)
+    LET at AS Integer = g * __CANVAS_RUN_STRIDE
+    LET reach AS Integer = collections::getOr(run, at + __CANVAS_RUN_SCALAR, 0) + collections::getOr(run, at + __CANVAS_RUN_COMPONENTS, 1)
+    IF reach < n AND collections::getOr(boundary, reach, FALSE) THEN
+      run = collections::set(run, at + __CANVAS_RUN_GAP, 1)
+    END IF
+    g = g + 1
+  END WHILE
   RETURN run
+END FUNC
+
+' `n + 1` flags, TRUE at every scalar index where a grapheme of `text` ends (and the
+' next begins). Built by appending in order -- index 0, then each grapheme's scalars
+' with TRUE on its last -- so no index is ever written out of range.
+FUNC __canvas_graphemeEnds(text AS String, n AS Integer) AS List OF Boolean
+  MUT ends AS List OF Boolean = [FALSE]
+  FOR EACH g IN strings::graphemes(text)
+    MUT k AS Integer = len(encoding::utf32Encode(g))
+    WHILE k > 1
+      ends = collections::append(ends, FALSE)
+      k = k - 1
+    END WHILE
+    ends = collections::append(ends, TRUE)
+  NEXT
+  WHILE len(ends) <= n
+    ends = collections::append(ends, FALSE)
+  END WHILE
+  RETURN ends
 END FUNC"#;
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
@@ -344,6 +957,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_fontBytes", FONT_BYTES_READ));
     pkg.add_helper(RegistryHelper::always("canvas_fontTable", FONT_TABLE));
     pkg.add_helper(RegistryHelper::always("canvas_fontMetrics", FONT_METRICS));
-    pkg.add_helper(RegistryHelper::always("canvas_glyphAdvance", FONT_ADVANCE));
     pkg.add_helper(RegistryHelper::always("canvas_fontCmap", FONT_CMAP));
+    pkg.add_helper(RegistryHelper::always("canvas_faceIndex", FACE_INDEX));
+    pkg.add_helper(RegistryHelper::always("canvas_faceRead", FACE_READ));
+    for helper in RegistryHelper::debug_split("canvas_faceDump", FACE_DUMP, FACE_DUMP_DEBUG) {
+        pkg.add_helper(helper);
+    }
 }

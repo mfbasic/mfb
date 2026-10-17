@@ -452,7 +452,7 @@ FUNC main() AS Nothing
     io::print("font failed")
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "A", font := face, fontSize := 200.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "A", fonts := [face], fontSize := 200.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("label", [label])
   canvas::present([canvas::Group[id := "", position := vector::Float2[x := 400.0, y := 300.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "label"]])
   io::print("done")
@@ -522,8 +522,8 @@ FUNC main() AS Nothing
     io::print("font failed")
     RETURN
   END TRAP
-  LET filled AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 220.0], text := "A", font := face, fontSize := 200.0, paint := WITH canvas::fill({fill}){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET outlined AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 400.0, y := 220.0], text := "A", font := face, fontSize := 200.0, paint := WITH canvas::stroke({stroke}, 6.0){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET filled AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 220.0], text := "A", fonts := [face], fontSize := 200.0, letterSpacing := 0.0, paint := WITH canvas::fill({fill}){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET outlined AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 400.0, y := 220.0], text := "A", fonts := [face], fontSize := 200.0, letterSpacing := 0.0, paint := WITH canvas::stroke({stroke}, 6.0){t}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([filled, outlined])
   io::print("done")
 END FUNC
@@ -733,7 +733,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "A", font := face, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "A", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -808,7 +808,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("composite.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "B", font := face, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "B", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -869,7 +869,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AA", font := face, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AA", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#,
@@ -907,13 +907,13 @@ const WALK_PENS: [&str; 2] = ["100.25", "152.75"];
 fn walk_scene(paint: &str, whole_string: bool) -> String {
     let items = if whole_string {
         format!(
-            "[canvas::Text[id := \"\", position := vector::Float2[x := {}, y := 200.0], text := \"{WALK_TEXT}\", font := face, fontSize := {WALK_SIZE}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]",
+            "[canvas::Text[id := \"\", position := vector::Float2[x := {}, y := 200.0], text := \"{WALK_TEXT}\", fonts := [face], fontSize := {WALK_SIZE}, letterSpacing := 0.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]",
             WALK_PENS[0]
         )
     } else {
         let one = |x: &str| {
             format!(
-                "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 200.0], text := \"A\", font := face, fontSize := {WALK_SIZE}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+                "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 200.0], text := \"A\", fonts := [face], fontSize := {WALK_SIZE}, letterSpacing := 0.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
             )
         };
         format!("[{}, {}]", one(WALK_PENS[0]), one(WALK_PENS[1]))
@@ -1078,7 +1078,7 @@ fn every_live_font_draws_however_many_are_loaded() {
         }
         let text = |x: &str, font: &str| {
             format!(
-                "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 200.0], text := \"A\", font := {font}, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+                "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 200.0], text := \"A\", fonts := [{font}], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
             )
         };
         source.push_str(&format!(
@@ -1180,7 +1180,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "A", font := face, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "A", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   ' Destroyed BEFORE the present, so the frame is rendered from a scene whose font is
   ' already gone — the ordering the guard exists for.
   canvas::destroyFont(face)
@@ -1213,7 +1213,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 300.0], text := "AAAA", font := face, fontSize := 120.0, paint := canvas::fill(color::rgb(220, 40, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 300.0], text := "AAAA", fonts := [face], fontSize := 120.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(220, 40, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;
@@ -1287,7 +1287,7 @@ FUNC main() AS Nothing
     RETURN
   END TRAP
   LET under AS canvas::DrawItem = canvas::Rectangle[id := "", position := vector::Float2[x := 80.0, y := 150.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 300.0, height := 200.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(40, 60, 90)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 300.0], text := "AAAA", font := face, fontSize := 120.0, paint := canvas::fill(color::rgba(220, 40, 160, 150)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 300.0], text := "AAAA", fonts := [face], fontSize := 120.0, letterSpacing := 0.0, paint := canvas::fill(color::rgba(220, 40, 160, 150)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET tail AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 600.0, y := 200.0], radius := 60.0, paint := canvas::fill(color::rgb(120, 220, 60)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([under, label, tail])
 END FUNC
@@ -1355,7 +1355,7 @@ FUNC scene(face AS canvas::Font, base AS Float) AS List OF canvas::DrawItem
     LET size AS Float = base + toFloat(i) * 0.2
     LET x AS Float = 4.0 + toFloat(i MOD 20) * 45.0
     LET y AS Float = 36.0 + toFloat(i / 20) * 40.0
-    LET glyph AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := "A", font := face, fontSize := size, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET glyph AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := x, y := y], text := "A", fonts := [face], fontSize := size, letterSpacing := 0.0, paint := white, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     items = collections::append(items, glyph)
     i = i + 1
   END WHILE
@@ -1461,7 +1461,7 @@ FUNC main() AS Nothing
   END TRAP
   LET t AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 400.0, ty := 80.0]
   LET p AS canvas::Paint = canvas::fill(color::rgb(255, 255, 255))
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 60.0], text := "AAAA", font := face, fontSize := 60.0, paint := p, transform := t]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 60.0], text := "AAAA", fonts := [face], fontSize := 60.0, letterSpacing := 0.0, paint := p, transform := t]
   canvas::present([label])
 END FUNC
 "#;
@@ -1477,7 +1477,7 @@ FUNC main() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 60.0], text := "AAAA", font := face, fontSize := 60.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 60.0], text := "AAAA", fonts := [face], fontSize := 60.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;
@@ -1637,7 +1637,7 @@ FUNC main() AS Nothing
   WHILE i < 200
     ' The x moves each frame so the scene differs and the present is not skipped —
     ' a skipped present would exercise nothing.
-    LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 10.0 + toFloat(i), y := 40.0], text := "A", font := face, fontSize := 24.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 10.0 + toFloat(i), y := 40.0], text := "A", fonts := [face], fontSize := 24.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::present([label])
     i = i + 1
   END WHILE
@@ -1760,7 +1760,7 @@ FUNC main() AS Nothing
     io::print("load failed " & toString(e.code))
     RETURN
   END TRAP
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 600.0], text := "A", font := face, fontSize := {size}, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 600.0], text := "A", fonts := [face], fontSize := {size}, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
   io::print("presented")
 END FUNC
@@ -2024,7 +2024,7 @@ IMPORT color
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("FONTFILE")
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AB", font := face, fontSize := 100.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AB", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::present([label])
 END FUNC
 "#;
@@ -2271,4 +2271,2040 @@ END FUNC
 "#,
     );
     assert_eq!(lines, vec!["bold is wider".to_string()]);
+}
+
+// ---------------------------------------------------------------------------------------
+// plan-162-A: the parse-once face index.
+//
+// `canvas::loadFont` parses the metrics, the `cmap` and the advances once, into a flat
+// `List OF Integer` the `Font` resource owns. Nothing hands that list back to a program,
+// so a `--debug` build run with `MFB_CANVAS_FACE_DUMP=<file>` appends one `face …` line per
+// load: the window these tests read it through (the `MFB_CANVAS_STATS` precedent).
+
+/// Build `source` as a `--debug` app with `files` beside it, run it headless with `env`
+/// (`{project}` in a value is the project directory), and return its stdout, its stderr
+/// and the project directory, which the caller removes. Panics on a non-zero exit.
+fn run_debug_files(
+    name: &str,
+    source: &str,
+    files: &[(&str, Vec<u8>)],
+    env: &[(&str, String)],
+) -> (String, String, std::path::PathBuf) {
+    let project = common::temp_project(name, source);
+    for (file, bytes) in files {
+        std::fs::write(project.join(file), bytes).expect("write a fixture file");
+    }
+    let binary = common::build_app_debug(&project, name);
+    let mut command = Command::new(&binary);
+    command.current_dir(&project).env("MFB_HEADLESS", "1");
+    for (key, value) in env {
+        command.env(
+            key,
+            value.replace("{project}", &project.display().to_string()),
+        );
+    }
+    let out = command
+        .output()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(
+        out.status.success(),
+        "program {}:\n{stdout}\n{stderr}",
+        common::exit_description(&out.status),
+    );
+    (stdout, stderr, project)
+}
+
+/// The face index of every font `source` loads from `files`, one `Vec` per load.
+fn face_dumps(name: &str, source: &str, files: &[(&str, Vec<u8>)]) -> Vec<Vec<i64>> {
+    let (_, _, project) = run_debug_files(
+        name,
+        source,
+        files,
+        &[("MFB_CANVAS_FACE_DUMP", "{project}/face.txt".to_string())],
+    );
+    let text = std::fs::read_to_string(project.join("face.txt")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&project);
+    text.lines()
+        .map(|line| {
+            let mut words = line.split(' ');
+            assert_eq!(
+                words.next(),
+                Some("face"),
+                "a dump line is `face …`: {line}"
+            );
+            words.map(|w| w.parse().expect("an index word")).collect()
+        })
+        .collect()
+}
+
+/// `font` with the table directory's `from` tag renamed `to`, so `__canvas_fontTable`
+/// no longer finds it: the cheapest way to build "a font with no `head`".
+fn rename_table(font: &[u8], from: &[u8; 4], to: &[u8; 4]) -> Vec<u8> {
+    let mut out = font.to_vec();
+    let tables = u16::from_be_bytes([font[4], font[5]]) as usize;
+    let at = (0..tables)
+        .map(|i| 12 + i * 16)
+        .find(|&rec| &font[rec..rec + 4] == from)
+        .expect("the fixture carries the table");
+    out[at..at + 4].copy_from_slice(to);
+    out
+}
+
+const LOAD_FIXTURE: &str = r#"IMPORT app
+IMPORT canvas
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+END FUNC
+"#;
+
+/// The fixture's index, word for word, from its own tables: `head.unitsPerEm` 1000,
+/// `hhea` 800 / −200 / 100, a format-12 `cmap` mapping `A`→1 and `B`→2 (two runs of
+/// delta −64), three `hmtx` advances, no kerning (word 9 is 0), and no `post` or `OS/2`
+/// (words 10-13 unset, −32768), no ligatures or carets (14-15). Layout version 4, whose
+/// header is sixteen words (plan-162-B added word 9, -D words 10-13, -F 14-15).
+#[test]
+fn face_index_of_the_fixture_is_its_own_tables() {
+    let dumps = face_dumps(
+        "canvas_face_index_fixture",
+        LOAD_FIXTURE,
+        &[("fixture.ttf", minimal_truetype())],
+    );
+    assert_eq!(
+        dumps,
+        vec![vec![
+            4, 1000, 800, -200, 100, // version, unitsPerEm, ascent, descent, lineGap
+            2, 16, 3, 22, // R at word 16, H at word 22
+            0,  // no kerning section
+            -32768, -32768, -32768, -32768, // no underline, no strikeout
+            0, 0, // no ligatures, no carets
+            65, 65, -64, 66, 66, -64, // the runs
+            500, 250, 300, // the advances
+        ]],
+    );
+}
+
+/// A font with no `head` has no scale: word 1 is 0, which every reader takes as "draws
+/// and measures as nothing" — the answer `__canvas_fontUnitsPerEm` gives it. The rest of
+/// the index is still the font's.
+#[test]
+fn face_index_of_a_font_with_no_head_has_no_units_per_em() {
+    let headless = rename_table(&minimal_truetype(), b"head", b"hxad");
+    let dumps = face_dumps(
+        "canvas_face_index_no_head",
+        LOAD_FIXTURE,
+        &[("fixture.ttf", headless)],
+    );
+    assert_eq!(
+        dumps,
+        vec![vec![
+            4, 0, 800, -200, 100, 2, 16, 3, 22, 0, -32768, -32768, -32768, -32768, 0, 0, 65, 65,
+            -64, 66, 66, -64, 500, 250, 300
+        ]],
+    );
+}
+
+/// `font` with table `tag`'s contents replaced by `data`, the directory and every table
+/// offset rebuilt so the file stays well formed.
+fn replace_table(font: &[u8], tag: &[u8; 4], data: &[u8]) -> Vec<u8> {
+    let count = u16::from_be_bytes([font[4], font[5]]) as usize;
+    let be32 = |at: usize| u32::from_be_bytes([font[at], font[at + 1], font[at + 2], font[at + 3]]);
+    let mut tables: Vec<([u8; 4], Vec<u8>)> = (0..count)
+        .map(|i| {
+            let rec = 12 + i * 16;
+            let mut t = [0u8; 4];
+            t.copy_from_slice(&font[rec..rec + 4]);
+            let (at, len) = (be32(rec + 8) as usize, be32(rec + 12) as usize);
+            (t, font[at..at + len].to_vec())
+        })
+        .collect();
+    let slot = tables
+        .iter_mut()
+        .find(|(t, _)| t == tag)
+        .expect("the fixture carries the table");
+    slot.1 = data.to_vec();
+    let mut out = font[..12].to_vec();
+    let mut offset = 12 + 16 * count;
+    let mut body = Vec::new();
+    for (t, bytes) in &tables {
+        out.extend(t);
+        out.extend(0u32.to_be_bytes());
+        out.extend((offset as u32).to_be_bytes());
+        out.extend((bytes.len() as u32).to_be_bytes());
+        let padded = bytes.len().div_ceil(4) * 4;
+        body.extend(bytes);
+        body.resize(body.len() + padded - bytes.len(), 0);
+        offset += padded;
+    }
+    out.extend(body);
+    out
+}
+
+/// A `cmap` holding one subtable, built from its body.
+fn cmap_with(platform: u16, encoding: u16, subtable: Vec<u8>) -> Vec<u8> {
+    let mut cmap = Vec::new();
+    cmap.extend(0u16.to_be_bytes()); // version
+    cmap.extend(1u16.to_be_bytes()); // numTables
+    cmap.extend(platform.to_be_bytes());
+    cmap.extend(encoding.to_be_bytes());
+    cmap.extend(12u32.to_be_bytes()); // the subtable follows this one record
+    cmap.extend(subtable);
+    cmap
+}
+
+/// A format-4 segment: `start..=end`, `delta`, and either no glyph array (the glyph is
+/// `cp + delta`, mod 65536) or one entry per codepoint (an `idRangeOffset` segment).
+struct Segment {
+    start: u16,
+    end: u16,
+    delta: i16,
+    glyphs: Option<Vec<u16>>,
+}
+
+/// A format-4 subtable with `segments` in exactly the order given — sorted or not.
+fn cmap4(segments: &[Segment]) -> Vec<u8> {
+    let segs = segments.len();
+    let mut ends = Vec::new();
+    let mut starts = Vec::new();
+    let mut deltas = Vec::new();
+    let mut ranges = Vec::new();
+    let mut array: Vec<u8> = Vec::new();
+    for (i, seg) in segments.iter().enumerate() {
+        ends.extend(seg.end.to_be_bytes());
+        starts.extend(seg.start.to_be_bytes());
+        deltas.extend(seg.delta.to_be_bytes());
+        match &seg.glyphs {
+            None => ranges.extend(0u16.to_be_bytes()),
+            Some(glyphs) => {
+                // Bytes from this segment's own `idRangeOffset` word to its glyphs.
+                let offset = (segs - i) * 2 + array.len();
+                ranges.extend((offset as u16).to_be_bytes());
+                for g in glyphs {
+                    array.extend(g.to_be_bytes());
+                }
+            }
+        }
+    }
+    let mut body = Vec::new();
+    body.extend(4u16.to_be_bytes()); // format
+    let length = 16 + segs * 8 + array.len();
+    body.extend((length as u16).to_be_bytes());
+    body.extend(0u16.to_be_bytes()); // language
+    body.extend(((segs * 2) as u16).to_be_bytes());
+    body.extend([0u8; 6]); // searchRange, entrySelector, rangeShift — unread
+    body.extend(ends);
+    body.extend(0u16.to_be_bytes()); // reservedPad
+    body.extend(starts);
+    body.extend(deltas);
+    body.extend(ranges);
+    body.extend(array);
+    body
+}
+
+/// A format-12 subtable whose groups are `(first, last, startGlyph)` in the order given.
+fn cmap12(groups: &[(u32, u32, u32)]) -> Vec<u8> {
+    let mut body = Vec::new();
+    body.extend(12u16.to_be_bytes());
+    body.extend(0u16.to_be_bytes());
+    body.extend(((16 + 12 * groups.len()) as u32).to_be_bytes());
+    body.extend(0u32.to_be_bytes()); // language
+    body.extend((groups.len() as u32).to_be_bytes());
+    for (first, last, glyph) in groups {
+        body.extend(first.to_be_bytes());
+        body.extend(last.to_be_bytes());
+        body.extend(glyph.to_be_bytes());
+    }
+    body
+}
+
+/// Run the `--debug` face self-check over `font`: `measureText` with
+/// `MFB_CANVAS_FACE_CHECK` set compares the index readers with the byte readers for every
+/// scalar and glyph id. Returns the `faceCheck …` line and the font's index.
+fn face_check(name: &str, font: Vec<u8>) -> (String, Vec<i64>) {
+    let source = r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+  io::print(toString(canvas::measureText(f, 10.0, "A").width))
+END FUNC
+"#;
+    let (_, _, project) = run_debug_files(
+        name,
+        source,
+        &[("fixture.ttf", font)],
+        &[
+            ("MFB_CANVAS_FACE_CHECK", "{project}/check.txt".to_string()),
+            ("MFB_CANVAS_FACE_DUMP", "{project}/face.txt".to_string()),
+        ],
+    );
+    let check = std::fs::read_to_string(project.join("check.txt")).unwrap_or_default();
+    let face = std::fs::read_to_string(project.join("face.txt")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&project);
+    let index = face
+        .split_whitespace()
+        .skip(1)
+        .map(|w| w.parse().expect("an index word"))
+        .collect();
+    (check.trim().to_string(), index)
+}
+
+/// Assert a self-check line found no mismatch, and return its `mapped=` count.
+fn assert_check_clean(check: &str) -> i64 {
+    for field in [
+        "glyphMismatches=0",
+        "advanceMismatches=0",
+        "metricMismatches=0",
+    ] {
+        assert!(
+            check.split(' ').any(|f| f == field),
+            "the index disagrees with the byte readers: `{check}`"
+        );
+    }
+    check
+        .split(' ')
+        .find_map(|f| f.strip_prefix("mapped="))
+        .and_then(|n| n.parse().ok())
+        .unwrap_or_else(|| panic!("no `mapped=` in `{check}`"))
+}
+
+/// The fixture's index answers what its bytes do, for every scalar and glyph id.
+#[test]
+fn face_index_answers_the_fixture_exactly() {
+    let (check, _) = face_check("canvas_face_index_sweep_fixture", minimal_truetype());
+    assert_eq!(
+        assert_check_clean(&check),
+        2,
+        "`A` and `B` are mapped: `{check}`"
+    );
+}
+
+/// Format 4, every way a segment can answer: delta segments, a delta that wraps past
+/// 65,535, `idRangeOffset` segments whose array holds a `0` (unmapped) amid real ids, a
+/// segment starting above the end of the one before (the gap reads 0), and a segment
+/// listed after one whose endCode already covers it — so `__canvas_cmap4`'s "first
+/// segment whose endCode reaches the codepoint" rule, not the file order, decides who
+/// answers.
+#[test]
+fn face_index_answers_a_format_4_cmap_exactly() {
+    let segments = [
+        Segment {
+            start: 0x41,
+            end: 0x5a,
+            delta: -0x40,
+            glyphs: None,
+        },
+        // An array segment: `0` is unmapped, the rest get the delta added.
+        Segment {
+            start: 0x60,
+            end: 0x66,
+            delta: 3,
+            glyphs: Some(vec![9, 0, 9, 10, 11, 0, 40]),
+        },
+        // Wraps: 0xfff0 + 0x20 = 0x10010 → glyph 0x10, and 0xfffe → 0x1e.
+        Segment {
+            start: 0xfff0,
+            end: 0xfffe,
+            delta: 0x20,
+            glyphs: None,
+        },
+        // Shadowed: its endCode (0x50) is below 0x5a, so the first segment answers it.
+        Segment {
+            start: 0x48,
+            end: 0x50,
+            delta: 100,
+            glyphs: None,
+        },
+        // Reaches back below the wrap segment's start; only 0xffff is its own.
+        Segment {
+            start: 0x70,
+            end: 0xffff,
+            delta: 1,
+            glyphs: None,
+        },
+    ];
+    let font = replace_table(
+        &minimal_truetype(),
+        b"cmap",
+        &cmap_with(3, 1, cmap4(&segments)),
+    );
+    let (check, index) = face_check("canvas_face_index_sweep_cmap4", font);
+    // 26 letters, 5 of the array's 7, 15 wrapped, and 0xffff + 1 = 0x10000, which wraps to
+    // glyph 0: unmapped.
+    assert_eq!(assert_check_clean(&check), 26 + 5 + 15, "`{check}`");
+    let runs = index[5] as usize;
+    let at = index[6] as usize;
+    assert_eq!(
+        &index[at..at + runs * 3],
+        &[
+            0x41,
+            0x5a,
+            -0x40, // the letters
+            0x60,
+            0x60,
+            -0x54, // 0x60 → 12
+            0x62,
+            0x64,
+            -0x56, // 0x62..0x64 → 12..14: one delta, one run
+            0x66,
+            0x66,
+            -0x3b, // 0x66 → 43
+            0xfff0,
+            0xfffe,
+            0x20 - 0x10000, // the wrapped run, delta mod 65536
+        ],
+        "format-4 runs",
+    );
+}
+
+/// Format 12 whose groups overlap, go backwards and include an empty one: still "the
+/// first group that contains the codepoint", settled by `__canvas_cmap12Painted`.
+#[test]
+fn face_index_answers_an_unsorted_overlapping_format_12_cmap_exactly() {
+    let groups = [
+        (100, 200, 1000),
+        (150, 300, 2000), // 150..200 is the first group's
+        (50, 120, 3000),  // only 50..99 is its own
+        (400, 399, 5),    // empty: last before first
+        (250, 260, 7000), // inside the second group: none of it is its own
+        (500, 600, 10),
+        (90, 95, 4000), // inside the third group: none of it is its own
+    ];
+    let font = replace_table(
+        &minimal_truetype(),
+        b"cmap",
+        &cmap_with(3, 10, cmap12(&groups)),
+    );
+    let (check, index) = face_check("canvas_face_index_sweep_cmap12_painted", font);
+    assert_eq!(
+        assert_check_clean(&check),
+        (200 - 50 + 1) + (300 - 200) + (600 - 500 + 1),
+        "`{check}`"
+    );
+    let runs = index[5] as usize;
+    let at = index[6] as usize;
+    assert_eq!(
+        &index[at..at + runs * 3],
+        &[50, 99, 2950, 100, 200, 900, 201, 300, 1850, 500, 600, -490],
+        "painted format-12 runs",
+    );
+}
+
+/// A real font holds its index to its bytes for every scalar and glyph id: a format-4
+/// face with hundreds of runs and `idRangeOffset` segments, and a format-12 face. The
+/// fixture fonts above pin each rule; these pin the rules against what shipping fonts
+/// actually contain. macOS only, where the files are known to exist.
+#[cfg(target_os = "macos")]
+#[test]
+fn face_index_answers_real_system_fonts_exactly() {
+    for (name, path) in [
+        (
+            "canvas_face_index_sweep_arial",
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+        ),
+        (
+            "canvas_face_index_sweep_bamum",
+            "/System/Library/Fonts/Supplemental/NotoSansBamum-Regular.ttf",
+        ),
+    ] {
+        let Ok(font) = std::fs::read(path) else {
+            eprintln!("skipping {path}: not installed on this host");
+            continue;
+        };
+        let (check, _) = face_check(name, font);
+        assert!(assert_check_clean(&check) > 0, "{path}: `{check}`");
+    }
+}
+
+/// `arena.0.live_bytes` at exit for `cycles` load/destroy cycles of the fixture font.
+fn live_after_cycles(cycles: usize) -> u64 {
+    let source = r#"IMPORT app
+IMPORT canvas
+
+FUNC cycle() AS Nothing
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+  canvas::destroyFont(f)
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  MUT i AS Integer = 0
+  WHILE i < {N}
+    cycle()
+    i = i + 1
+  END WHILE
+END FUNC
+"#
+    .replace("{N}", &cycles.to_string());
+    let name = format!("canvas_face_index_cycles_{cycles}");
+    let (_, stderr, project) =
+        run_debug_files(&name, &source, &[("fixture.ttf", minimal_truetype())], &[]);
+    let _ = std::fs::remove_dir_all(&project);
+    let lines = common::debug_report::arena_lines(&name, &stderr);
+    common::debug_report::counter(&name, &lines, 0, "live_bytes")
+}
+
+/// A load/destroy cycle leaves behind exactly what a closed font keeps — its bytes, its
+/// face index and its record, none of which a close frees (`.ai/canvas-threading.md` §7)
+/// — and nothing the index's construction allocated along the way. `live_bytes` is an
+/// exact count, so the growth must be exactly those three blocks: each collection is its
+/// 40-byte header plus its payload, the record is `RESOURCE_RECORD_SIZE` (112), and the
+/// pool rounds every request to 16 bytes (`mfb man debug pools`). A builder that leaked one
+/// intermediate list per load — the cmap runs, the advances, the header — breaks it.
+#[test]
+fn a_load_destroy_cycle_keeps_only_the_fonts_own_blocks() {
+    const FEW: usize = 40;
+    const MANY: usize = 80;
+    let font = minimal_truetype().len() as u64;
+    let words = 25u64; // the fixture's index, `face_index_of_the_fixture_is_its_own_tables`
+    let round = |n: u64| n.div_ceil(16) * 16;
+    let per_cycle = round(40 + font) + round(40 + 8 * words) + 112;
+    let few = live_after_cycles(FEW);
+    let many = live_after_cycles(MANY);
+    let grew = many.saturating_sub(few);
+    assert_eq!(
+        grew,
+        per_cycle * (MANY - FEW) as u64,
+        "{FEW} cycles left {few} live bytes and {MANY} left {many}; each cycle must keep \
+         exactly a closed font's bytes, index and record, {per_cycle} bytes",
+    );
+}
+
+// ---------------------------------------------------------------------------------------
+// plan-162-B: kerning — `GPOS` pair adjustment and the legacy `kern` table.
+//
+// The fixture is the square font with glyph 2 given the same square outline, and a
+// `cmap` mapping `A` → 1 (advance 250) and `V` → 2 (advance 300). Each table builder
+// below writes the OpenType structure it names, field by field, so a fixture states the
+// font a kerning case needs rather than borrowing a system font's.
+
+fn be16(v: u16) -> [u8; 2] {
+    v.to_be_bytes()
+}
+
+/// Glyph 1's record — a square — so another glyph id can carry the same outline.
+fn square_record(square: [i16; 4]) -> Vec<u8> {
+    let [x0, y0, x1, y1] = square;
+    let mut glyf = Vec::new();
+    glyf.extend(be16(1));
+    for v in square {
+        glyf.extend(be16(v as u16));
+    }
+    glyf.extend(be16(3));
+    glyf.extend(be16(0));
+    glyf.extend([0x01u8; 4]);
+    for dx in [x0, x1 - x0, 0, x0 - x1] {
+        glyf.extend(be16(dx as u16));
+    }
+    for dy in [y0, 0, y1 - y0, 0] {
+        glyf.extend(be16(dy as u16));
+    }
+    glyf
+}
+
+/// The glyph id `A` maps to in [`kerning_font`]: advance 250.
+const GID_A: u16 = 1;
+/// The glyph id `V` maps to in [`kerning_font`]: advance 300.
+const GID_V: u16 = 2;
+
+/// `font` with each `(tag, data)` table replaced, or added when it is absent; the
+/// directory is kept in tag order, as a real font's is.
+fn with_tables(font: &[u8], tables: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let mut out = font.to_vec();
+    for (tag, data) in tables {
+        let count = u16::from_be_bytes([out[4], out[5]]) as usize;
+        let present = (0..count).any(|i| &out[12 + i * 16..12 + i * 16 + 4] == *tag);
+        if !present {
+            // Add an empty table record in sorted position, then fill it.
+            let mut records: Vec<([u8; 4], Vec<u8>)> = (0..count)
+                .map(|i| {
+                    let rec = 12 + i * 16;
+                    let be32 = |at: usize| {
+                        u32::from_be_bytes([out[at], out[at + 1], out[at + 2], out[at + 3]])
+                            as usize
+                    };
+                    let mut t = [0u8; 4];
+                    t.copy_from_slice(&out[rec..rec + 4]);
+                    (
+                        t,
+                        out[be32(rec + 8)..be32(rec + 8) + be32(rec + 12)].to_vec(),
+                    )
+                })
+                .collect();
+            records.push((**tag, Vec::new()));
+            records.sort_by(|a, b| a.0.cmp(&b.0));
+            let mut rebuilt = out[..4].to_vec();
+            rebuilt.extend(be16(records.len() as u16));
+            rebuilt.extend([0u8; 6]);
+            let mut offset = 12 + 16 * records.len();
+            let mut body = Vec::new();
+            for (t, bytes) in &records {
+                rebuilt.extend(t);
+                rebuilt.extend(0u32.to_be_bytes());
+                rebuilt.extend((offset as u32).to_be_bytes());
+                rebuilt.extend((bytes.len() as u32).to_be_bytes());
+                let padded = bytes.len().div_ceil(4) * 4;
+                body.extend(bytes);
+                body.resize(body.len() + padded - bytes.len(), 0);
+                offset += padded;
+            }
+            rebuilt.extend(body);
+            out = rebuilt;
+        }
+        out = replace_table(&out, tag, data);
+    }
+    out
+}
+
+/// The kerning base font, plus `tables`.
+fn kerning_font(tables: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let square = [100, 0, 400, 300];
+    let base = truetype_fixture_with(1000, 2, square, &square_record(square));
+    let cmap = cmap_with(
+        3,
+        10,
+        cmap12(&[
+            (b'A' as u32, b'A' as u32, GID_A as u32),
+            (b'V' as u32, b'V' as u32, GID_V as u32),
+        ]),
+    );
+    let mut all: Vec<(&[u8; 4], Vec<u8>)> = vec![(b"cmap", cmap)];
+    all.extend(tables.iter().map(|(t, d)| (*t, d.clone())));
+    with_tables(&base, &all)
+}
+
+/// Bytes in a ValueRecord of `format`: two per set bit of the low byte.
+fn value_size(format: u16) -> usize {
+    2 * (format & 0x00ff).count_ones() as usize
+}
+
+/// A ValueRecord of `format` whose fields, in format-bit order, are `fields`.
+fn value_record(format: u16, fields: &[i16]) -> Vec<u8> {
+    assert_eq!(
+        fields.len() * 2,
+        value_size(format),
+        "one field per format bit"
+    );
+    fields.iter().flat_map(|v| v.to_be_bytes()).collect()
+}
+
+/// Coverage format 1: the sorted glyph array.
+fn coverage1(glyphs: &[u16]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(glyphs.len() as u16));
+    for g in glyphs {
+        out.extend(be16(*g));
+    }
+    out
+}
+
+/// ClassDef format 2: `(start, end, class)` ranges.
+fn class_def2(ranges: &[(u16, u16, u16)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(be16(2));
+    out.extend(be16(ranges.len() as u16));
+    for (start, end, class) in ranges {
+        out.extend(be16(*start));
+        out.extend(be16(*end));
+        out.extend(be16(*class));
+    }
+    out
+}
+
+/// ClassDef format 1: consecutive glyphs from `start`, one class each.
+fn class_def1(start: u16, classes: &[u16]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(start));
+    out.extend(be16(classes.len() as u16));
+    for c in classes {
+        out.extend(be16(*c));
+    }
+    out
+}
+
+/// One PairValueRecord: the second glyph, then its two ValueRecords.
+type PairRecord = (u16, Vec<u8>, Vec<u8>);
+
+/// PairPos format 1 over `firsts` (one pair set each, in coverage order).
+fn pair_pos1(firsts: &[u16], vf1: u16, vf2: u16, sets: &[Vec<PairRecord>]) -> Vec<u8> {
+    assert_eq!(firsts.len(), sets.len());
+    let header = 10 + 2 * sets.len();
+    let mut sets_bytes: Vec<Vec<u8>> = Vec::new();
+    for set in sets {
+        let mut b = Vec::new();
+        b.extend(be16(set.len() as u16));
+        for (second, v1, v2) in set {
+            assert_eq!(v1.len(), value_size(vf1));
+            assert_eq!(v2.len(), value_size(vf2));
+            b.extend(be16(*second));
+            b.extend(v1);
+            b.extend(v2);
+        }
+        sets_bytes.push(b);
+    }
+    let mut offsets = Vec::new();
+    let mut at = header;
+    for b in &sets_bytes {
+        offsets.push(at);
+        at += b.len();
+    }
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(at as u16)); // coverage after the sets
+    out.extend(be16(vf1));
+    out.extend(be16(vf2));
+    out.extend(be16(sets.len() as u16));
+    for o in offsets {
+        out.extend(be16(o as u16));
+    }
+    for b in sets_bytes {
+        out.extend(b);
+    }
+    out.extend(coverage1(firsts));
+    out
+}
+
+/// PairPos format 2: a coverage, two ClassDefs and the `class1 × class2` matrix of
+/// `(value1, value2)` records.
+fn pair_pos2(
+    firsts: &[u16],
+    vf1: u16,
+    vf2: u16,
+    class1: Vec<u8>,
+    class2: Vec<u8>,
+    matrix: &[Vec<(Vec<u8>, Vec<u8>)>],
+) -> Vec<u8> {
+    let c1 = matrix.len();
+    let c2 = matrix[0].len();
+    let header = 16;
+    let cell = value_size(vf1) + value_size(vf2);
+    let records = c1 * c2 * cell;
+    let coverage = coverage1(firsts);
+    let cov_at = header + records;
+    let cd1_at = cov_at + coverage.len();
+    let cd2_at = cd1_at + class1.len();
+    let mut out = Vec::new();
+    out.extend(be16(2));
+    out.extend(be16(cov_at as u16));
+    out.extend(be16(vf1));
+    out.extend(be16(vf2));
+    out.extend(be16(cd1_at as u16));
+    out.extend(be16(cd2_at as u16));
+    out.extend(be16(c1 as u16));
+    out.extend(be16(c2 as u16));
+    for row in matrix {
+        assert_eq!(row.len(), c2);
+        for (v1, v2) in row {
+            assert_eq!(v1.len() + v2.len(), cell);
+            out.extend(v1);
+            out.extend(v2);
+        }
+    }
+    out.extend(coverage);
+    out.extend(class1);
+    out.extend(class2);
+    out
+}
+
+/// An Extension subtable (lookup type 9) wrapping `subtable` of `kind`.
+fn extension(kind: u16, subtable: Vec<u8>) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(kind));
+    out.extend(8u32.to_be_bytes());
+    out.extend(subtable);
+    out
+}
+
+/// A lookup of `kind` holding `subtables`.
+fn lookup(kind: u16, subtables: &[Vec<u8>]) -> Vec<u8> {
+    let header = 6 + 2 * subtables.len();
+    let mut out = Vec::new();
+    out.extend(be16(kind));
+    out.extend(be16(0)); // lookupFlag
+    out.extend(be16(subtables.len() as u16));
+    let mut at = header;
+    for s in subtables {
+        out.extend(be16(at as u16));
+        at += s.len();
+    }
+    for s in subtables {
+        out.extend(s);
+    }
+    out
+}
+
+/// A `GPOS` (or `GSUB`) table: one script, `script`, whose default LangSys enables one
+/// feature, `feature`, over every lookup in `lookups`, in order.
+fn layout_table(script: &[u8; 4], feature: &[u8; 4], lookups: &[Vec<u8>]) -> Vec<u8> {
+    // ScriptList: one record, its Script, the Script's default LangSys.
+    let mut script_list = Vec::new();
+    script_list.extend(be16(1));
+    script_list.extend(script);
+    script_list.extend(be16(8)); // Script at 8
+    script_list.extend(be16(4)); // Script: defaultLangSys at 4
+    script_list.extend(be16(0)); // langSysCount
+    script_list.extend(be16(0)); // LangSys: lookupOrder
+    script_list.extend(be16(0xffff)); // requiredFeatureIndex: none
+    script_list.extend(be16(1));
+    script_list.extend(be16(0)); // featureIndex 0
+                                 // FeatureList: one record and its Feature.
+    let mut feature_list = Vec::new();
+    feature_list.extend(be16(1));
+    feature_list.extend(feature);
+    feature_list.extend(be16(8));
+    feature_list.extend(be16(0)); // featureParams
+    feature_list.extend(be16(lookups.len() as u16));
+    for i in 0..lookups.len() {
+        feature_list.extend(be16(i as u16));
+    }
+    // LookupList.
+    let mut lookup_list = Vec::new();
+    lookup_list.extend(be16(lookups.len() as u16));
+    let mut at = 2 + 2 * lookups.len();
+    for l in lookups {
+        lookup_list.extend(be16(at as u16));
+        at += l.len();
+    }
+    for l in lookups {
+        lookup_list.extend(l);
+    }
+    let script_at = 10;
+    let feature_at = script_at + script_list.len();
+    let lookup_at = feature_at + feature_list.len();
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(0));
+    out.extend(be16(script_at as u16));
+    out.extend(be16(feature_at as u16));
+    out.extend(be16(lookup_at as u16));
+    out.extend(script_list);
+    out.extend(feature_list);
+    out.extend(lookup_list);
+    out
+}
+
+/// A version-0 `kern` table with one format-0 subtable of `coverage`.
+fn kern_table(coverage: u16, pairs: &[(u16, u16, i16)]) -> Vec<u8> {
+    let mut sub = Vec::new();
+    sub.extend(be16(0)); // version
+    sub.extend(be16((14 + 6 * pairs.len()) as u16));
+    sub.extend(be16(coverage));
+    sub.extend(be16(pairs.len() as u16));
+    sub.extend([0u8; 6]); // searchRange, entrySelector, rangeShift
+    for (l, r, v) in pairs {
+        sub.extend(be16(*l));
+        sub.extend(be16(*r));
+        sub.extend(v.to_be_bytes());
+    }
+    let mut out = Vec::new();
+    out.extend(be16(0));
+    out.extend(be16(1));
+    out.extend(sub);
+    out
+}
+
+const X_PLACEMENT: u16 = 0x0001;
+const Y_PLACEMENT: u16 = 0x0002;
+const X_ADVANCE: u16 = 0x0004;
+const Y_ADVANCE: u16 = 0x0008;
+const X_ADVANCE_DEVICE: u16 = 0x0040;
+
+/// (a) `GPOS` format 1 under `kern`: `A,A` = −30 and `A,V` = −120 in one pair set, so a
+/// misread record size moves `A,V` onto garbage.
+fn gpos_format1() -> Vec<u8> {
+    let set = vec![
+        (GID_A, value_record(X_ADVANCE, &[-30]), vec![]),
+        (GID_V, value_record(X_ADVANCE, &[-120]), vec![]),
+    ];
+    layout_table(
+        b"DFLT",
+        b"kern",
+        &[lookup(2, &[pair_pos1(&[GID_A], X_ADVANCE, 0, &[set])])],
+    )
+}
+
+/// (b) `GPOS` format 2 inside an Extension lookup: `A` is class 1 on the left, `V` class
+/// 1 on the right, and only that cell is −120.
+fn gpos_format2_extension() -> Vec<u8> {
+    let zero = || (value_record(X_ADVANCE, &[0]), vec![]);
+    let matrix = vec![
+        vec![zero(), zero()],
+        vec![zero(), (value_record(X_ADVANCE, &[-120]), vec![])],
+    ];
+    let sub = pair_pos2(
+        &[GID_A],
+        X_ADVANCE,
+        0,
+        class_def1(GID_A, &[1]),
+        class_def2(&[(GID_V, GID_V, 1)]),
+        &matrix,
+    );
+    layout_table(b"DFLT", b"kern", &[lookup(9, &[extension(2, sub)])])
+}
+
+/// (c) only a `kern` table: `A,A` = −30, `A,V` = −80.
+fn kern_only() -> Vec<u8> {
+    kern_table(0x0001, &[(GID_A, GID_A, -30), (GID_A, GID_V, -80)])
+}
+
+/// (e) a first ValueRecord carrying `XPlacement`, `XAdvance`, `YAdvance` and an
+/// `XAdvDevice` offset (junk, never followed), and a second carrying placements only.
+fn gpos_wide_value_records() -> Vec<u8> {
+    let vf1 = X_PLACEMENT | X_ADVANCE | Y_ADVANCE | X_ADVANCE_DEVICE;
+    let vf2 = X_PLACEMENT | Y_PLACEMENT;
+    let set = vec![
+        (
+            GID_A,
+            value_record(vf1, &[55, -30, 33, -1]),
+            value_record(vf2, &[7, 7]),
+        ),
+        (
+            GID_V,
+            value_record(vf1, &[55, -120, 33, -1]),
+            value_record(vf2, &[9, 9]),
+        ),
+    ];
+    layout_table(
+        b"DFLT",
+        b"kern",
+        &[lookup(2, &[pair_pos1(&[GID_A], vf1, vf2, &[set])])],
+    )
+}
+
+/// The five kerning fixtures, by name.
+fn kerning_fixtures() -> Vec<(&'static str, Vec<u8>)> {
+    vec![
+        ("gpos1", kerning_font(&[(b"GPOS", gpos_format1())])),
+        (
+            "gpos2ext",
+            kerning_font(&[(b"GPOS", gpos_format2_extension())]),
+        ),
+        ("kern", kerning_font(&[(b"kern", kern_only())])),
+        (
+            "both",
+            kerning_font(&[(b"GPOS", gpos_format1()), (b"kern", kern_only())]),
+        ),
+        (
+            "wide",
+            kerning_font(&[(b"GPOS", gpos_wide_value_records())]),
+        ),
+    ]
+}
+
+/// `measureText(…, 1000.0, s).width` for each string in `texts`, per fixture, in
+/// thousandths of a pixel. At size 1000 in a 1000-unit em the scale is 1, so a width is
+/// its advances in font units, exactly.
+fn kerned_widths(name: &str, texts: &[&str]) -> Vec<(String, Vec<i64>)> {
+    let fixtures = kerning_fixtures();
+    let mut source = String::from(
+        "IMPORT app\nIMPORT canvas\nIMPORT io\n\nFUNC widthOf(path AS String, s AS String) AS Integer\n  RES f AS canvas::Font = canvas::loadFont(path)\n  RETURN toInt(canvas::measureText(f, 1000.0, s).width * 1000.0)\nEND FUNC\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n",
+    );
+    for (fixture, _) in &fixtures {
+        let mut line = format!("  io::print(\"{fixture}\"");
+        for t in texts {
+            line.push_str(&format!(
+                " & \" \" & toString(widthOf(\"{fixture}.ttf\", \"{t}\"))"
+            ));
+        }
+        line.push_str(")\n");
+        source.push_str(&line);
+    }
+    source.push_str("END FUNC\n");
+    let files: Vec<(String, Vec<u8>)> = fixtures
+        .into_iter()
+        .map(|(n, f)| (format!("{n}.ttf"), f))
+        .collect();
+    let files: Vec<(&str, Vec<u8>)> = files.iter().map(|(n, f)| (n.as_str(), f.clone())).collect();
+    run_files(name, &source, &files)
+        .into_iter()
+        .map(|line| {
+            let mut words = line.split(' ');
+            let fixture = words.next().unwrap_or_default().to_string();
+            (
+                fixture,
+                words.map(|w| w.parse().expect("a width")).collect(),
+            )
+        })
+        .collect()
+}
+
+/// `AV` measures `adv(A) + kern(A, V) + adv(V)`; `VA` is unkerned in every fixture; `AA`
+/// takes the pair-set record before `A,V`, so a wrong ValueRecord size breaks one of the
+/// two. `GPOS` wins over `kern` when a font has both.
+#[test]
+fn kern_pairs_measure_at_the_kerned_width() {
+    let widths = kerned_widths("canvas_kern_widths", &["AV", "VA", "AA"]);
+    let unkerned_av = (250 + 300) * 1000;
+    let expect = |kern_av: i64, kern_aa: i64| {
+        vec![
+            unkerned_av + kern_av * 1000,
+            unkerned_av,
+            (500 + kern_aa) * 1000,
+        ]
+    };
+    assert_eq!(
+        widths,
+        vec![
+            ("gpos1".to_string(), expect(-120, -30)),
+            ("gpos2ext".to_string(), expect(-120, 0)),
+            ("kern".to_string(), expect(-80, -30)),
+            ("both".to_string(), expect(-120, -30)),
+            ("wide".to_string(), expect(-120, -30)),
+        ],
+    );
+}
+
+/// The kerning section, read back pair by pair: the `--debug` face check's `kern=` field
+/// lists `left:right:x1:x2` for every glyph pair with a non-zero adjustment. Format 2
+/// lists only its one non-zero cell; `GPOS` hides the `kern` table in "both"; the wide
+/// ValueRecords read the same values as the narrow ones.
+#[test]
+fn face_kern_reads_each_fixtures_pairs() {
+    let expected = [
+        ("gpos1", "1:1:-30:0,1:2:-120:0"),
+        ("gpos2ext", "1:2:-120:0"),
+        ("kern", "1:1:-30:0,1:2:-80:0"),
+        ("both", "1:1:-30:0,1:2:-120:0"),
+        ("wide", "1:1:-30:0,1:2:-120:0"),
+    ];
+    for ((name, font), (want_name, want)) in kerning_fixtures().into_iter().zip(expected) {
+        assert_eq!(name, want_name);
+        let (check, index) = face_check(&format!("canvas_face_kern_{name}"), font);
+        assert_check_clean(&check);
+        let kern = check
+            .split(' ')
+            .find_map(|f| f.strip_prefix("kern="))
+            .unwrap_or_else(|| panic!("no `kern=` in `{check}`"));
+        assert_eq!(kern, want, "{name}: `{check}`");
+        assert_eq!(index[0], 4, "{name}: layout version");
+        assert!(index[9] > 0, "{name}: a kerning section");
+    }
+    let (check, index) = face_check("canvas_face_kern_none", minimal_truetype());
+    assert!(
+        check.ends_with("kern="),
+        "a font with no kerning lists no pair: `{check}`"
+    );
+    assert_eq!(index[9], 0, "and has no section");
+}
+
+/// The rightmost lit column of `"AV"` drawn at size 100 in `font` with `paint`.
+fn av_right_edge(name: &str, font: Vec<u8>, paint: &str) -> usize {
+    let source = format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("kerned.ttf")
+  canvas::present([canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "AV", fonts := [face], fontSize := 100.0, letterSpacing := 0.0, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+END FUNC
+"#
+    );
+    let (frame, _) = render_env_files(name, &source, &[], &[("kerned.ttf", font)]);
+    let runs = lit_column_runs(&frame);
+    assert!(!runs.is_empty(), "{name}: `AV` drew nothing");
+    runs.last().unwrap().1
+}
+
+/// The drawn `V` moves left by exactly the kerned amount — −120 units at size 100 in a
+/// 1000-unit em is 12 px — on the filled glyph run and on the stroked edges, the two draw
+/// paths that place glyphs. Both read the one shaped run (bug-756), so a kern applied to
+/// `measureText` alone would leave the drawn `V` where it was.
+#[test]
+fn a_kerned_pair_draws_at_the_kerned_distance_filled_and_stroked() {
+    for (paint, label) in [
+        ("canvas::fill(color::rgb(255, 255, 255))", "fill"),
+        ("canvas::stroke(color::rgb(255, 255, 255), 2.0)", "stroke"),
+    ] {
+        let plain = av_right_edge(
+            &format!("canvas_kern_draw_plain_{label}"),
+            kerning_font(&[]),
+            paint,
+        );
+        let kerned = av_right_edge(
+            &format!("canvas_kern_draw_kerned_{label}"),
+            kerning_font(&[(b"GPOS", gpos_format1())]),
+            paint,
+        );
+        assert_eq!(
+            plain - kerned,
+            12,
+            "{label}: the kerned `V` must end 12 px left of the unkerned one ({plain} → {kerned})",
+        );
+    }
+}
+
+/// A shipping font kerns as HarfBuzz does. `SFNS.ttf` (SF Pro) carries its `kern`
+/// feature as `GPOS` PairPos formats 1 and 2 inside Extension lookups. At size 2048, its
+/// `unitsPerEm`, the width is the summed advances in font units. The expected value is
+/// HarfBuzz 12.2.0's: `hb-shape --features=-liga,-clig,-calt,kern --no-glyph-names
+/// --no-clusters /System/Library/Fonts/SFNS.ttf "AVAWATo"` → advances
+/// 1141+1132+1171+1762+1101+920+1087 = 8314 (9364 with `-kern`). The face's SHA-256 was
+/// `1c81ead87ca36eee7d51dbe816c3202ba8052fc88228a46de930339c4ec1df22` when this was
+/// recorded, and a different build of the font can kern differently, so the test skips,
+/// logged, on any other file.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_real_font_kerns_as_harfbuzz_does() {
+    const PATH: &str = "/System/Library/Fonts/SFNS.ttf";
+    const SHA256: &str = "1c81ead87ca36eee7d51dbe816c3202ba8052fc88228a46de930339c4ec1df22";
+    let Ok(bytes) = std::fs::read(PATH) else {
+        eprintln!("skipping: {PATH} is not installed");
+        return;
+    };
+    let digest = Command::new("shasum")
+        .args(["-a", "256", PATH])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    if !digest.starts_with(SHA256) {
+        eprintln!(
+            "skipping: {PATH} is not the recorded build ({} bytes, `{digest}`)",
+            bytes.len()
+        );
+        return;
+    }
+    let lines = run(
+        "canvas_kern_sfns",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("/System/Library/Fonts/SFNS.ttf")
+  io::print(toString(toInt(canvas::measureText(f, 2048.0, "AVAWATo").width * 1000.0)))
+END FUNC
+"#,
+    );
+    assert_eq!(lines, vec!["8314000".to_string()]);
+}
+
+// ---------------------------------------------------------------------------------------
+// plan-162-C: a list of fonts, in fallback order.
+//
+// Two fixtures with disjoint `cmap`s: the "latin" one is the kerning base font without
+// kerning (`A` → 1, advance 250; `V` → 2, advance 300; em 1000; ascent 800, descent 200,
+// lineGap 100), and the "fallback" one maps `B` → 1 (advance 250) and `C` → 2 (advance
+// 300) in a 2000-unit em with ascent 1800, descent 600 and lineGap 50 — so at size 1000
+// its glyphs are half as wide per unit and its line is taller. Its glyphs' outline is a
+// 1600 × 600 block, where the latin font's is 300 × 300, so the two draw differently.
+
+/// The fallback fixture: `B` and `C`, em 2000, a taller line.
+fn fallback_font() -> Vec<u8> {
+    // A wider square than the latin font's, so a glyph drawn from it is told apart by
+    // its pixels: 0..1600 units, which is 0..80 px at size 100.
+    let square = [0, 0, 1600, 600];
+    let base = truetype_fixture_with(2000, 2, square, &square_record(square));
+    let cmap = cmap_with(3, 10, cmap12(&[(b'B' as u32, b'C' as u32, 1)]));
+    let mut hhea = vec![0u8; 36];
+    hhea[4..6].copy_from_slice(&be16(1800));
+    hhea[6..8].copy_from_slice(&be16((-600i16) as u16));
+    hhea[8..10].copy_from_slice(&be16(50));
+    hhea[34..36].copy_from_slice(&be16(3));
+    with_tables(&base, &[(b"cmap", cmap), (b"hhea", hhea)])
+}
+
+/// Run `body` (statements inside `main`, with `latin` and `fallback` loaded) and return
+/// what it printed.
+fn run_two_fonts(name: &str, body: &str) -> Vec<String> {
+    let source = format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT encoding
+IMPORT io
+
+' A close behind a resource parameter consumes nothing at the caller, so the caller can
+' still name the font, and using it raises at run time (`.ai/canvas-threading.md` R3b).
+FUNC closeIt(f AS canvas::Font) AS Nothing
+  canvas::destroyFont(f)
+END FUNC
+
+FUNC thousandths(m AS canvas::TextMetrics) AS String
+  RETURN toString(toInt(m.width * 1000.0)) & " " & toString(toInt(m.ascent * 1000.0)) & " " & toString(toInt(m.descent * 1000.0)) & " " & toString(toInt(m.lineGap * 1000.0)) & " " & toString(toInt(m.height * 1000.0))
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES latin AS canvas::Font = canvas::loadFont("latin.ttf")
+  RES fallback AS canvas::Font = canvas::loadFont("fallback.ttf")
+{body}
+END FUNC
+"#
+    );
+    run_files(
+        name,
+        &source,
+        &[
+            ("latin.ttf", kerning_font(&[])),
+            ("fallback.ttf", fallback_font()),
+        ],
+    )
+}
+
+/// The width is summed per font in that font's own units and scale: `A` and `V` from
+/// the first font (250 + 300 units at scale 1), `B` from the second (250 units at scale
+/// 0.5), and `X`, which neither maps, is the first font's glyph 0 (500 units). Ascent and
+/// descent are the largest of the fonts that supplied a glyph; lineGap is the first
+/// font's.
+#[test]
+fn measure_text_over_a_font_list_sums_each_font_at_its_own_scale() {
+    let lines = run_two_fonts(
+        "canvas_measure_list_mixed",
+        r#"  io::print(thousandths(canvas::measureText([latin, fallback], 1000.0, "AVB")))
+  io::print(thousandths(canvas::measureText([latin, fallback], 1000.0, "AV")))
+  io::print(thousandths(canvas::measureText([latin, fallback], 1000.0, "X")))
+  io::print(thousandths(canvas::measureText([fallback, latin], 1000.0, "BA")))
+  io::print(thousandths(canvas::measureText([latin, fallback], 1000.0, "")))"#,
+    );
+    assert_eq!(
+        lines,
+        vec![
+            // 550 + 125 wide; the fallback's 900 / 300 line box; the latin lineGap.
+            "675000 900000 300000 100000 1300000",
+            // Only the first font supplied a glyph: its own box.
+            "550000 800000 200000 100000 1100000",
+            // Neither maps `X`: the first font's glyph 0, 500 units.
+            "500000 800000 200000 100000 1100000",
+            // Order is fallback order: `B` from the first-listed font, `A` from the
+            // second; the line gap is the first font's, 50 units at scale 0.5.
+            "375000 900000 300000 25000 1225000",
+            // An empty string measures the first font's line.
+            "0 800000 200000 100000 1100000",
+        ],
+    );
+}
+
+/// `measureText([f], …)` is `measureText(f, …)`, field for field, and an empty list or a
+/// closed font in the list raises what the single form would.
+#[test]
+fn measure_text_over_a_one_font_list_is_the_single_font_form() {
+    let lines = run_two_fonts(
+        "canvas_measure_list_single",
+        r#"  io::print(thousandths(canvas::measureText([latin], 37.0, "AVAV")) & " / " & thousandths(canvas::measureText(latin, 37.0, "AVAV")))
+  io::print(thousandths(canvas::measureText([fallback], 13.0, "BCX")) & " / " & thousandths(canvas::measureText(fallback, 13.0, "BCX")))
+  LET none AS List OF RES canvas::Font = []
+  LET empty AS canvas::TextMetrics = canvas::measureText(none, 10.0, "A") TRAP(e)
+    io::print("empty: " & toString(e.code))
+    RECOVER canvas::measureText(latin, 10.0, "A")
+  END TRAP
+  closeIt(fallback)
+  LET closed AS canvas::TextMetrics = canvas::measureText([latin, fallback], 10.0, "A") TRAP(e)
+    io::print("closed: " & toString(e.code))
+    RECOVER canvas::measureText(latin, 10.0, "A")
+  END TRAP"#,
+    );
+    let same = |line: &String| {
+        let (a, b) = line.split_once(" / ").expect("two measurements");
+        a == b
+    };
+    assert_eq!(lines.len(), 4, "{lines:?}");
+    assert!(
+        same(&lines[0]) && same(&lines[1]),
+        "a one-font list must measure as the font: {lines:?}"
+    );
+    assert_eq!(
+        lines[2], "empty: 77050002",
+        "an empty list is ErrInvalidArgument"
+    );
+    assert_eq!(
+        lines[3], "closed: 77030004",
+        "a closed font in the list is ErrResourceClosed"
+    );
+}
+
+/// The lit column runs of `text` drawn at size 100 from x = 100 in `fonts`, a list over
+/// the bindings `latin` and `fallback`. `close_latin` closes the first behind a resource
+/// parameter before drawing.
+fn two_font_columns(name: &str, text: &str, fonts: &str, close_latin: bool) -> Vec<(usize, usize)> {
+    let close = if close_latin {
+        "  closeIt(latin)\n"
+    } else {
+        ""
+    };
+    let source = format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+FUNC closeIt(f AS canvas::Font) AS Nothing
+  canvas::destroyFont(f)
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES latin AS canvas::Font = canvas::loadFont("latin.ttf")
+  RES fallback AS canvas::Font = canvas::loadFont("fallback.ttf")
+{close}  canvas::present([canvas::Text[id := "", position := vector::Float2[x := 100.0, y := 200.0], text := "{text}", fonts := {fonts}, fontSize := 100.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
+END FUNC
+"#
+    );
+    let (frame, _) = render_env_files(
+        name,
+        &source,
+        &[],
+        &[
+            ("latin.ttf", kerning_font(&[])),
+            ("fallback.ttf", fallback_font()),
+        ],
+    );
+    lit_column_runs(&frame)
+}
+
+/// Each glyph draws from the first font that has it. `A` is the latin font's square,
+/// columns 110..139 (100..400 units at 0.1); `B`, which only the fallback has, starts
+/// at the pen after `A` (250 units → 125) and is the fallback's 0..1600-unit block at 0.05:
+/// columns 125..204. Drawn from the latin font instead, `B` would be its `.notdef` —
+/// no outline — and the ink would end at 139.
+#[test]
+fn a_two_font_string_draws_each_glyph_from_its_own_font() {
+    let both = two_font_columns("canvas_fallback_draw", "AB", "[latin, fallback]", false);
+    assert_eq!(
+        both,
+        vec![(110, 204)],
+        "`A` from the latin font, `B` from the fallback"
+    );
+    let latin_only = two_font_columns("canvas_fallback_draw_one", "AB", "[latin]", false);
+    assert_eq!(
+        latin_only,
+        vec![(110, 139)],
+        "with one font `B` is its empty `.notdef`"
+    );
+}
+
+/// A closed font is passed over: with the latin font closed, `A` is the fallback's
+/// `.notdef` (no outline, advance 500 units → 25 px) and `B` draws from the fallback at
+/// pen 125: columns 125..204, and nothing at the latin square's 110..139.
+#[test]
+fn closing_the_first_font_draws_the_string_from_the_next() {
+    let runs = two_font_columns("canvas_fallback_closed", "AB", "[latin, fallback]", true);
+    assert_eq!(runs, vec![(125, 204)]);
+}
+
+// ---------------------------------------------------------------------------------------
+// plan-162-D: the five-column shaped run — `scalarIndex` and `gapAfter` — and what is
+// built on it. A `--debug` build run with `MFB_CANVAS_SHAPE_DUMP=<file>` appends every run
+// `measureText` shapes as `shape` and its words.
+
+/// The run's columns, as `__CANVAS_RUN_*` number them.
+const RUN_STRIDE: usize = 6;
+const RUN_SCALAR: usize = 3;
+const RUN_GAP: usize = 4;
+
+/// Shape each codepoint list in `cases` (with `measureText`), and return, per case, the
+/// program's own `strings::graphemes` count, its scalar count, and the dumped run.
+fn shaped_runs(name: &str, cases: &[&[u32]]) -> Vec<(usize, usize, Vec<i64>)> {
+    let mut body = String::new();
+    for cps in cases {
+        let list: Vec<String> = cps.iter().map(|c| c.to_string()).collect();
+        body.push_str(&format!(
+            "  probe(f, encoding::utf32Decode([{}]))\n",
+            list.join(", ")
+        ));
+    }
+    let source = format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT encoding
+IMPORT strings
+IMPORT io
+
+FUNC probe(f AS canvas::Font, s AS String) AS Nothing
+  io::print(toString(len(strings::graphemes(s))) & " " & toString(len(encoding::utf32Encode(s))))
+  LET m AS canvas::TextMetrics = canvas::measureText(f, 10.0, s)
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+{body}END FUNC
+"#
+    );
+    let (stdout, _, project) = run_debug_files(
+        name,
+        &source,
+        &[("fixture.ttf", minimal_truetype())],
+        &[("MFB_CANVAS_SHAPE_DUMP", "{project}/shape.txt".to_string())],
+    );
+    let dump = std::fs::read_to_string(project.join("shape.txt")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&project);
+    let counts: Vec<(usize, usize)> = stdout
+        .lines()
+        .map(|l| {
+            let (g, s) = l.split_once(' ').expect("two counts");
+            (g.parse().expect("a count"), s.parse().expect("a count"))
+        })
+        .collect();
+    let runs: Vec<Vec<i64>> = dump
+        .lines()
+        .map(|l| {
+            l.split(' ')
+                .skip(1)
+                .map(|w| w.parse().expect("a run word"))
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        counts.len(),
+        cases.len(),
+        "one count line per case:\n{stdout}"
+    );
+    assert_eq!(runs.len(), cases.len(), "one shaped run per case:\n{dump}");
+    counts
+        .into_iter()
+        .zip(runs)
+        .map(|((g, s), r)| (g, s, r))
+        .collect()
+}
+
+/// The run marks grapheme boundaries exactly as `strings::graphemes` draws them: one
+/// `gapAfter` per boundary inside the string (so `graphemes − 1` of them, none after the
+/// last), on the last glyph of each grapheme; and `scalarIndex` walks the string's
+/// scalars in order, ending at the last. The cases are the ones a naive "one gap per
+/// codepoint" or "per space" rule gets wrong: combining marks, a ZWJ family, CRLF,
+/// regional-indicator flags, Hangul jamo, an emoji with a skin-tone modifier, a
+/// Devanagari conjunct, a lone combining mark at the start, and the empty string.
+#[test]
+fn shape_run_marks_every_grapheme_boundary_and_scalar() {
+    let cases: &[&[u32]] = &[
+        &[101, 0x301, 120],                                          // é (e + acute), x
+        &[0x1F469, 0x200D, 0x1F469, 0x200D, 0x1F467, 97],            // family ZWJ, a
+        &[65, 13, 10, 66],                                           // A CRLF B
+        &[0x1F1EF, 0x1F1F5, 0x1F1FA, 0x1F1F8],                       // two flags
+        &[0x1100, 0x1161, 0x11A8, 0x1100],                           // Hangul LVT, L
+        &[72, 0x308, 0x1F44D, 0x1F3FD, 13, 10, 0x915, 0x94D, 0x937], // mixed
+        &[0x301, 65],                                                // lone mark first
+        &[],                                                         // empty
+    ];
+    for (i, (graphemes, scalars, run)) in shaped_runs("canvas_shape_run_graphemes", cases)
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            run.len() % RUN_STRIDE,
+            0,
+            "case {i}: whole records: {run:?}"
+        );
+        let glyphs = run.len() / RUN_STRIDE;
+        assert_eq!(
+            glyphs, scalars,
+            "case {i}: one glyph per scalar until ligatures"
+        );
+        let gaps = (0..glyphs)
+            .filter(|g| run[g * RUN_STRIDE + RUN_GAP] == 1)
+            .count();
+        assert_eq!(
+            gaps,
+            graphemes.saturating_sub(1),
+            "case {i}: one gap per inner grapheme boundary: {run:?}"
+        );
+        if glyphs > 0 {
+            assert_eq!(
+                run[(glyphs - 1) * RUN_STRIDE + RUN_GAP],
+                0,
+                "case {i}: no gap after the last grapheme"
+            );
+            let scalar = |g: usize| run[g * RUN_STRIDE + RUN_SCALAR];
+            assert!(
+                (1..glyphs).all(|g| scalar(g) >= scalar(g - 1)),
+                "case {i}: scalarIndex must not go backwards: {run:?}"
+            );
+            assert_eq!(
+                scalar(glyphs - 1),
+                scalars as i64 - 1,
+                "case {i}: ends on the last scalar"
+            );
+        }
+    }
+}
+
+/// The rightmost lit column of `"AV"` drawn at size 100 from x = 100 in the unkerned
+/// two-glyph font, presented once per spacing in `spacings` (the dump is the last frame).
+fn spaced_right_edge(name: &str, paint: &str, spacings: &[&str]) -> usize {
+    let presents: String = spacings
+        .iter()
+        .map(|s| format!("  canvas::present([canvas::Text[id := \"\", position := vector::Float2[x := 100.0, y := 200.0], text := \"AV\", fonts := [face], fontSize := 100.0, letterSpacing := {s}, paint := {paint}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\n"))
+        .collect();
+    let source = format!(
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  RES face AS canvas::Font = canvas::loadFont(\"plain.ttf\")\n{presents}END FUNC\n"
+    );
+    let (frame, _) = render_env_files(name, &source, &[], &[("plain.ttf", kerning_font(&[]))]);
+    let runs = lit_column_runs(&frame);
+    assert!(!runs.is_empty(), "{name}: `AV` drew nothing");
+    runs.last().unwrap().1
+}
+
+/// `letterSpacing` moves the second grapheme by exactly the spacing, on the filled run
+/// and the stroked edges, positive or negative.
+#[test]
+fn letter_spacing_moves_the_next_character_by_the_spacing() {
+    for (paint, label) in [
+        ("canvas::fill(color::rgb(255, 255, 255))", "fill"),
+        ("canvas::stroke(color::rgb(255, 255, 255), 2.0)", "stroke"),
+    ] {
+        let plain = spaced_right_edge(&format!("canvas_spacing_plain_{label}"), paint, &["0.0"]);
+        let wide = spaced_right_edge(&format!("canvas_spacing_wide_{label}"), paint, &["7.0"]);
+        let tight = spaced_right_edge(
+            &format!("canvas_spacing_tight_{label}"),
+            paint,
+            &["0.0 - 5.0"],
+        );
+        assert_eq!(wide, plain + 7, "{label}: +7 px of spacing");
+        assert_eq!(tight + 5, plain, "{label}: -5 px of spacing");
+    }
+}
+
+/// A change of spacing alone, between two presents of an otherwise identical `Text`,
+/// draws the new spacing: the cache key folds it, so the run is rebuilt.
+#[test]
+fn a_spacing_only_change_redraws() {
+    let fill = "canvas::fill(color::rgb(255, 255, 255))";
+    let fresh = spaced_right_edge("canvas_spacing_fresh", fill, &["9.0"]);
+    let changed = spaced_right_edge("canvas_spacing_changed", fill, &["0.0", "9.0"]);
+    assert_eq!(
+        changed, fresh,
+        "the second present must draw at the new spacing"
+    );
+}
+
+/// `measureText`'s spacing adds once per grapheme boundary, never after the last:
+/// `"AVA"` (250 + 300 + 250 units) is three graphemes, so `+10.0` adds 20 px and `-4.0`
+/// takes 8; a combining mark joins its base, so `A` + U+0301 (250 + `.notdef`'s 500) is
+/// one grapheme and spacing adds nothing to it.
+#[test]
+fn measure_text_spacing_adds_between_graphemes_only() {
+    let lines = run_two_fonts(
+        "canvas_measure_spacing",
+        r#"  io::print(toString(toInt(canvas::measureText(latin, 1000.0, "AVA").width)))
+  io::print(toString(toInt(canvas::measureText(latin, 1000.0, "AVA", 10.0).width)))
+  io::print(toString(toInt(canvas::measureText([latin, fallback], 1000.0, "AVA", 0.0 - 4.0).width)))
+  io::print(toString(toInt(canvas::measureText(latin, 1000.0, "A" & encoding::utf32Decode([769]), 10.0).width)))
+  io::print(toString(toInt(canvas::measureText(latin, 1000.0, "A" & encoding::utf32Decode([769])).width)))"#,
+    );
+    assert_eq!(lines, vec!["800", "820", "792", "750", "750"]);
+}
+
+/// A `post` table with `underlinePosition` and `underlineThickness`, and an `OS/2` table
+/// with `yStrikeoutSize` and `yStrikeoutPosition` (the only `OS/2` fields read).
+fn decorated_font(underline: (i16, i16), strikeout: (i16, i16)) -> Vec<u8> {
+    let mut post = vec![0u8; 32];
+    post[0..4].copy_from_slice(&0x0003_0000u32.to_be_bytes());
+    post[8..10].copy_from_slice(&underline.0.to_be_bytes());
+    post[10..12].copy_from_slice(&underline.1.to_be_bytes());
+    let mut os2 = vec![0u8; 96];
+    os2[0..2].copy_from_slice(&be16(4));
+    os2[26..28].copy_from_slice(&strikeout.1.to_be_bytes());
+    os2[28..30].copy_from_slice(&strikeout.0.to_be_bytes());
+    with_tables(&minimal_truetype(), &[(b"OS/2", os2), (b"post", post)])
+}
+
+/// The four decoration metrics at size 1000 in a 1000-unit em (scale 1), in pixels:
+/// `underlineOffset underlineThickness strikeoutOffset strikeoutThickness`.
+fn decoration(name: &str, font: Vec<u8>) -> String {
+    let lines = run_files(
+        name,
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+  LET m AS canvas::TextMetrics = canvas::measureText(f, 1000.0, "A")
+  io::print(toString(toInt(m.underlineOffset)) & " " & toString(toInt(m.underlineThickness)) & " " & toString(toInt(m.strikeoutOffset)) & " " & toString(toInt(m.strikeoutThickness)))
+END FUNC
+"#,
+        &[("fixture.ttf", font)],
+    );
+    lines.join("\n")
+}
+
+/// The font's own lines, measured down from the baseline to each line's top edge:
+/// `post.underlinePosition` −150 is 150 px below, 60 thick; `OS/2.yStrikeoutPosition`
+/// 280 is 280 px above, 45 thick. A font with neither table gets the defaults — 0.10 em
+/// below at 0.05 em, and 0.26 em above at the underline's thickness — and a zero
+/// thickness counts as no line at all.
+#[test]
+fn decoration_metrics_come_from_post_and_os2_or_the_defaults() {
+    assert_eq!(
+        decoration(
+            "canvas_decoration_font",
+            decorated_font((-150, 60), (280, 45))
+        ),
+        "150 60 -280 45"
+    );
+    assert_eq!(
+        decoration("canvas_decoration_none", minimal_truetype()),
+        "100 50 -260 50"
+    );
+    assert_eq!(
+        decoration(
+            "canvas_decoration_zero",
+            decorated_font((-150, 0), (280, 0))
+        ),
+        "100 50 -260 50",
+        "a zero thickness is no line"
+    );
+    assert_eq!(
+        decoration(
+            "canvas_decoration_underline_only",
+            decorated_font((-120, 70), (280, 0))
+        ),
+        "120 70 -260 70",
+        "no strikeout: the default position, at the font's underline thickness"
+    );
+}
+
+/// 50 strings over `A`, `V` (a kerned pair in the gpos1 fixture), a space (`.notdef`),
+/// and `A` + U+0301 (two scalars, one grapheme), each with one of three spacings. For
+/// every one, `caretStops`' last `x` is `measureText`'s `width` exactly, and its indices
+/// are exactly the grapheme starts `strings::graphemes` gives, plus the length.
+#[test]
+fn caret_stops_agree_with_measuring_and_with_graphemes() {
+    let mut seed: u32 = 162;
+    let mut next = || {
+        seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        (seed >> 16) as usize
+    };
+    let pieces: [&[u32]; 4] = [&[65], &[86], &[32], &[65, 0x301]];
+    let spacings = ["0.0", "3.5", "0.0 - 1.25"];
+    let mut body = String::new();
+    for _ in 0..50 {
+        let len = next() % 7;
+        let mut cps: Vec<String> = Vec::new();
+        for _ in 0..len {
+            for cp in pieces[next() % pieces.len()] {
+                cps.push(cp.to_string());
+            }
+        }
+        let spacing = spacings[next() % spacings.len()];
+        body.push_str(&format!(
+            "  check(f, encoding::utf32Decode([{}]), {spacing})\n",
+            cps.join(", ")
+        ));
+    }
+    let source = format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT encoding
+IMPORT strings
+IMPORT io
+
+FUNC check(f AS canvas::Font, s AS String, spacing AS Float) AS Nothing
+  LET stops AS List OF canvas::CaretStop = canvas::caretStops(f, 37.0, s, spacing)
+  LET width AS Float = canvas::measureText(f, 37.0, s, spacing).width
+  MUT want AS String = "0"
+  MUT at AS Integer = 0
+  FOR EACH g IN strings::graphemes(s)
+    at = at + len(encoding::utf32Encode(g))
+    want = want & "," & toString(at)
+  NEXT
+  MUT got AS String = ""
+  MUT lastX AS Float = 0.0 - 1.0
+  FOR EACH stop IN stops
+    IF len(got) > 0 THEN
+      got = got & ","
+    END IF
+    got = got & toString(stop.index)
+    lastX = stop.x
+  NEXT
+  io::print(toString(lastX = width) & " " & toString(got = want))
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("kerned.ttf")
+{body}END FUNC
+"#
+    );
+    let lines = run_files(
+        "canvas_caret_stops_agree",
+        &source,
+        &[("kerned.ttf", kerning_font(&[(b"GPOS", gpos_format1())]))],
+    );
+    assert_eq!(lines.len(), 50);
+    for (i, line) in lines.iter().enumerate() {
+        assert_eq!(
+            line, "TRUE TRUE",
+            "string {i}: last stop = width, indices = grapheme starts"
+        );
+    }
+}
+
+/// Stops sit where the characters after them are drawn: in the gpos1 fixture at size
+/// 1000, `AV` kerns to 250 − 120 = 130 for `A`, so the stop before `V` is at 130, and the
+/// end at 130 + 300. An empty string is one stop, `0` at 0; a closed font raises
+/// `ErrResourceClosed` and an empty list `ErrInvalidArgument`.
+#[test]
+fn caret_stops_place_kerned_characters_and_refuse_closed_fonts() {
+    let lines = run_files(
+        "canvas_caret_stops_edges",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC closeIt(f AS canvas::Font) AS Nothing
+  canvas::destroyFont(f)
+END FUNC
+
+FUNC show(stops AS List OF canvas::CaretStop) AS String
+  MUT out AS String = ""
+  FOR EACH stop IN stops
+    out = out & toString(stop.index) & ":" & toString(toInt(stop.x)) & " "
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("kerned.ttf")
+  RES g AS canvas::Font = canvas::loadFont("kerned.ttf")
+  io::print(show(canvas::caretStops(f, 1000.0, "AV")))
+  io::print(show(canvas::caretStops([g, f], 1000.0, "AV", 10.0)))
+  io::print(show(canvas::caretStops(f, 1000.0, "")))
+  LET none AS List OF RES canvas::Font = []
+  LET a AS List OF canvas::CaretStop = canvas::caretStops(none, 10.0, "A") TRAP(e)
+    io::print("empty: " & toString(e.code))
+    RECOVER []
+  END TRAP
+  closeIt(g)
+  LET b AS List OF canvas::CaretStop = canvas::caretStops([g, f], 10.0, "A") TRAP(e)
+    io::print("closed: " & toString(e.code))
+    RECOVER []
+  END TRAP
+END FUNC
+"#,
+        &[("kerned.ttf", kerning_font(&[(b"GPOS", gpos_format1())]))],
+    );
+    assert_eq!(
+        lines,
+        vec![
+            "0:0 1:130 2:430 ",
+            "0:0 1:140 2:440 ",
+            "0:0 ",
+            "empty: 77050002",
+            "closed: 77030004",
+        ]
+    );
+}
+
+// ---------------------------------------------------------------------------------------
+// plan-162-F: standard ligatures (`GSUB` `liga`).
+//
+// The ligature fixture: `f` → 1 (advance 300, a 100 × 300 bar), `i` → 2 (200, 80 × 200),
+// `l` → 3 (250, 80 × 400), and two ligature glyphs no codepoint maps: `fi` → 4 (450, a
+// 400 × 100 slab) and `ffi` → 5 (700, a 650 × 100 slab), so a drawn ligature is told
+// apart from its components by its pixels. `liga` lists `ffi` before `fi`, longest
+// first, as fonts do. `GDEF` gives `ffi` carets at 230 and 470; `fi` has none.
+
+const GID_F: u16 = 1;
+const GID_I: u16 = 2;
+const GID_L: u16 = 3;
+const GID_FI: u16 = 4;
+const GID_FFI: u16 = 5;
+
+/// LigatureSubst format 1 over `firsts`, one ligature set each: `(ligature, rest)`,
+/// where `rest` is the components after the first.
+fn ligature_subst(firsts: &[u16], sets: &[Vec<(u16, Vec<u16>)>]) -> Vec<u8> {
+    let mut set_bytes: Vec<Vec<u8>> = Vec::new();
+    for set in sets {
+        let mut ligs: Vec<Vec<u8>> = Vec::new();
+        for (lig, rest) in set {
+            let mut b = Vec::new();
+            b.extend(be16(*lig));
+            b.extend(be16(rest.len() as u16 + 1));
+            for g in rest {
+                b.extend(be16(*g));
+            }
+            ligs.push(b);
+        }
+        let mut b = Vec::new();
+        b.extend(be16(ligs.len() as u16));
+        let mut at = 2 + 2 * ligs.len();
+        for l in &ligs {
+            b.extend(be16(at as u16));
+            at += l.len();
+        }
+        for l in ligs {
+            b.extend(l);
+        }
+        set_bytes.push(b);
+    }
+    let header = 6 + 2 * sets.len();
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    let total: usize = set_bytes.iter().map(Vec::len).sum();
+    out.extend(be16((header + total) as u16)); // coverage after the sets
+    out.extend(be16(sets.len() as u16));
+    let mut at = header;
+    for b in &set_bytes {
+        out.extend(be16(at as u16));
+        at += b.len();
+    }
+    for b in set_bytes {
+        out.extend(b);
+    }
+    out.extend(coverage1(firsts));
+    out
+}
+
+/// A `GDEF` with only a LigCaretList: per ligature glyph, format-1 caret coordinates.
+fn gdef_carets(ligatures: &[(u16, Vec<i16>)]) -> Vec<u8> {
+    let mut glyphs: Vec<Vec<u8>> = Vec::new();
+    for (_, carets) in ligatures {
+        let mut b = Vec::new();
+        b.extend(be16(carets.len() as u16));
+        let mut at = 2 + 2 * carets.len();
+        for _ in carets {
+            b.extend(be16(at as u16));
+            at += 4;
+        }
+        for c in carets {
+            b.extend(be16(1));
+            b.extend(c.to_be_bytes());
+        }
+        glyphs.push(b);
+    }
+    let firsts: Vec<u16> = ligatures.iter().map(|(g, _)| *g).collect();
+    let cov = coverage1(&firsts);
+    let mut list = Vec::new();
+    let header = 4 + 2 * glyphs.len();
+    list.extend(be16(header as u16)); // coverage right after the offsets
+    list.extend(be16(glyphs.len() as u16));
+    let mut at = header + cov.len();
+    for g in &glyphs {
+        list.extend(be16(at as u16));
+        at += g.len();
+    }
+    list.extend(cov);
+    for g in glyphs {
+        list.extend(g);
+    }
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(0)); // version 1.0
+    out.extend(be16(0)); // glyphClassDef
+    out.extend(be16(0)); // attachList
+    out.extend(be16(12)); // ligCaretList
+    out.extend(be16(0)); // markAttachClassDef
+    out.extend(list);
+    out
+}
+
+/// The ligature fixture, with `extra` tables (a `GSUB`, a `GDEF`) added.
+fn ligature_font(extra: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let outlines: [[i16; 4]; 5] = [
+        [0, 0, 100, 300],
+        [0, 0, 80, 200],
+        [0, 0, 80, 400],
+        [0, 0, 400, 100],
+        [0, 0, 650, 100],
+    ];
+    let mut glyf = Vec::new();
+    let mut loca = vec![0u16, 0]; // glyph 0: no outline
+    for o in outlines {
+        glyf.extend(square_record(o));
+        loca.push((glyf.len() / 2) as u16);
+    }
+    let loca: Vec<u8> = loca.iter().flat_map(|v| v.to_be_bytes()).collect();
+    let mut hmtx = Vec::new();
+    for advance in [500u16, 300, 200, 250, 450, 700] {
+        hmtx.extend(be16(advance));
+        hmtx.extend(be16(0));
+    }
+    let mut hhea = vec![0u8; 36];
+    hhea[4..6].copy_from_slice(&be16(800));
+    hhea[6..8].copy_from_slice(&be16((-200i16) as u16));
+    hhea[34..36].copy_from_slice(&be16(6));
+    let cmap = cmap_with(
+        3,
+        10,
+        cmap12(&[
+            (b'f' as u32, b'f' as u32, GID_F as u32),
+            (b'i' as u32, b'i' as u32, GID_I as u32),
+            (b'l' as u32, b'l' as u32, GID_L as u32),
+        ]),
+    );
+    let mut tables: Vec<(&[u8; 4], Vec<u8>)> = vec![
+        (b"cmap", cmap),
+        (b"glyf", glyf),
+        (b"hhea", hhea),
+        (b"hmtx", hmtx),
+        (b"loca", loca),
+    ];
+    tables.extend(extra.iter().map(|(t, d)| (*t, d.clone())));
+    with_tables(&minimal_truetype(), &tables)
+}
+
+/// `liga`: on `f`, `ffi` (f, f, i) before `fi` (f, i).
+fn gsub_liga() -> Vec<u8> {
+    let set = vec![(GID_FFI, vec![GID_F, GID_I]), (GID_FI, vec![GID_I])];
+    layout_table(
+        b"DFLT",
+        b"liga",
+        &[lookup(4, &[ligature_subst(&[GID_F], &[set])])],
+    )
+}
+
+fn ligating_font() -> Vec<u8> {
+    ligature_font(&[
+        (b"GSUB", gsub_liga()),
+        (b"GDEF", gdef_carets(&[(GID_FFI, vec![230, 470])])),
+    ])
+}
+
+/// Widths at size 1000 in a 1000-unit em, so in font units: `ffi` is the one `ffi`
+/// glyph (700), `fil` is `fi` + `l` (450 + 250), and with letter-spacing there are no
+/// ligatures, so `fi` is `f` + `i` + the one gap (300 + 200 + 1).
+#[test]
+fn liga_measures_ligatures_and_not_with_spacing() {
+    let lines = run_files(
+        "canvas_liga_widths",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("liga.ttf")
+  io::print(toString(toInt(canvas::measureText(f, 1000.0, "ffi").width)))
+  io::print(toString(toInt(canvas::measureText(f, 1000.0, "fil").width)))
+  io::print(toString(toInt(canvas::measureText(f, 1000.0, "fi", 1.0).width)))
+END FUNC
+"#,
+        &[("liga.ttf", ligating_font())],
+    );
+    assert_eq!(lines, vec!["700", "700", "501"]);
+}
+
+/// The lit column runs of `text` drawn at size 100 from x = 100 in the ligature font.
+fn liga_columns(name: &str, text: &str, spacing: &str) -> Vec<(usize, usize)> {
+    let source = format!(
+        "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\n\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  RES face AS canvas::Font = canvas::loadFont(\"liga.ttf\")\n  canvas::present([canvas::Text[id := \"\", position := vector::Float2[x := 100.0, y := 200.0], text := \"{text}\", fonts := [face], fontSize := 100.0, letterSpacing := {spacing}, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])\nEND FUNC\n"
+    );
+    let (frame, _) = render_env_files(name, &source, &[], &[("liga.ttf", ligating_font())]);
+    lit_column_runs(&frame)
+}
+
+/// The drawn `fi` is the one `fi` glyph — a 400-unit slab, columns 100..139 at 0.1 — not
+/// an `f` bar (100..109) and an `i` bar after it. With spacing on, it is those two.
+#[test]
+fn liga_draws_the_ligature_glyph() {
+    assert_eq!(
+        liga_columns("canvas_liga_draw", "fi", "0.0"),
+        vec![(100, 139)]
+    );
+    assert_eq!(
+        liga_columns("canvas_liga_draw_spaced", "fi", "1.0"),
+        vec![(100, 109), (131, 138)],
+        "spacing turns the ligature off: f at 100, i at 100 + 30 + 1"
+    );
+}
+
+/// Carets inside a ligature: `ffi` has `GDEF` carets at 230 and 470, so its stops are
+/// there; `fi` has none, so its one inner stop is half its 450 advance. The run carries
+/// the ligature glyph with its component count, after which `l` follows.
+#[test]
+fn liga_carets_split_the_ligature() {
+    let lines = run_debug_files(
+        "canvas_liga_carets",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC show(stops AS List OF canvas::CaretStop) AS String
+  MUT out AS String = ""
+  FOR EACH stop IN stops
+    out = out & toString(stop.index) & ":" & toString(toInt(stop.x)) & " "
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("liga.ttf")
+  io::print(show(canvas::caretStops(f, 1000.0, "ffi")))
+  io::print(show(canvas::caretStops(f, 1000.0, "fil")))
+  io::print(toString(toInt(canvas::measureText(f, 1000.0, "ffil").width)))
+END FUNC
+"#,
+        &[("liga.ttf", ligating_font())],
+        &[("MFB_CANVAS_SHAPE_DUMP", "{project}/shape.txt".to_string())],
+    );
+    let (stdout, _, project) = lines;
+    let dump = std::fs::read_to_string(project.join("shape.txt")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&project);
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        vec!["0:0 1:230 2:470 3:700 ", "0:0 1:225 2:450 3:700 ", "950"]
+    );
+    // The `ffil` run: the `ffi` ligature (glyph 5, advance 700, scalar 0, a gap after
+    // it, 3 components), then `l` (glyph 3, 250, scalar 3, no gap, 1 component).
+    let last = dump.lines().last().expect("a shaped run");
+    assert_eq!(last, "shape 0 5 700 0 1 3 0 3 250 3 0 1");
+}
+
+/// A shipping font ligates as HarfBuzz does. `SFCamera.ttf` carries `liga` as `GSUB`
+/// type-4 lookups, and `office fluffy` forms two ligatures in it. The expected glyph ids
+/// and width are HarfBuzz 12.2.0's, from `hb-shape --features=liga,kern,-clig,-calt
+/// --no-glyph-names --no-clusters /System/Library/Fonts/SFCamera.ttf "office fluffy"` →
+/// glyphs 176 147 233 129 137 2 234 202 147 147 218. The width is the glyphs' `hmtx`
+/// advances plus HarfBuzz's kerning, kern on minus kern off (the tracking HarfBuzz also
+/// applies from `trak` cancels in the difference; plan-162-B Correction 6): 11158 units
+/// at size 2048, the face's em. The run's glyph column is read through
+/// `MFB_CANVAS_SHAPE_DUMP`. Skipped, logged, when the file is missing or a different
+/// build of the font.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_real_font_ligates_as_harfbuzz_does() {
+    const PATH: &str = "/System/Library/Fonts/SFCamera.ttf";
+    const SHA256: &str = "1c89c9953b2ade5ecef874ff42885dc86beb27d5cd47f52d1759c7f7fece82fc";
+    let digest = Command::new("shasum")
+        .args(["-a", "256", PATH])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    if !digest.starts_with(SHA256) {
+        eprintln!("skipping: {PATH} is missing or not the recorded build (`{digest}`)");
+        return;
+    }
+    let (stdout, _, project) = run_debug_files(
+        "canvas_liga_sfcamera",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("/System/Library/Fonts/SFCamera.ttf")
+  io::print(toString(toInt(canvas::measureText(f, 2048.0, "office fluffy").width * 1000.0)))
+END FUNC
+"#,
+        &[],
+        &[("MFB_CANVAS_SHAPE_DUMP", "{project}/shape.txt".to_string())],
+    );
+    let dump = std::fs::read_to_string(project.join("shape.txt")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&project);
+    assert_eq!(stdout.trim(), "11158000");
+    let words: Vec<i64> = dump
+        .split_whitespace()
+        .skip(1)
+        .map(|w| w.parse().expect("a run word"))
+        .collect();
+    let glyphs: Vec<i64> = words.chunks(RUN_STRIDE).map(|g| g[1]).collect();
+    assert_eq!(
+        glyphs,
+        vec![176, 147, 233, 129, 137, 2, 234, 202, 147, 147, 218]
+    );
 }

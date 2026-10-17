@@ -281,30 +281,18 @@ END FUNC
 ' it to are no part of where it is hit. A run with no glyph is no record, as it is for
 ' the renderer (`__canvas_glyphRunHeader`).
 FUNC __canvas_textBoxHeader(t AS Text) AS List OF Float
-  LET font AS Integer = canvas::fontHandle(t.font)
-  LET b AS List OF Byte = __canvas_fontBlob(font)
-  IF len(b) = 0 THEN
+  LET handles AS List OF Integer = __canvas_textHandles(t)
+  LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
+  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text, t.letterSpacing)
+  IF len(shaped) < __CANVAS_RUN_STRIDE OR NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN __canvas_emptyHeader()
   END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
-  IF upem <= 0 THEN
-    RETURN __canvas_emptyHeader()
-  END IF
-  LET shaped AS List OF Integer = __canvas_shapeRun([font], t.text)
-  IF len(shaped) < 3 THEN
-    RETURN __canvas_emptyHeader()
-  END IF
-  LET scale AS Float = t.fontSize / toFloat(upem)
   LET x0 AS Float = __canvas_textX(t)
   LET baseline AS Float = __canvas_textY(t)
-  MUT pen AS Float = x0
-  MUT c AS Integer = 0
-  WHILE c * 3 < len(shaped)
-    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
-    c = c + 1
-  END WHILE
-  LET y0 AS Float = baseline - toFloat(__canvas_fontAscent(b)) * scale
-  LET y1 AS Float = baseline + toFloat(0 - __canvas_fontDescent(b)) * scale
+  LET pen AS Float = __canvas_runPen(shaped, scales, x0, t.letterSpacing)
+  LET line AS List OF Float = __canvas_runLine(handles, scales, shaped)
+  LET y0 AS Float = baseline - collections::getOr(line, 0, 0.0)
+  LET y1 AS Float = baseline + collections::getOr(line, 1, 0.0)
   MUT out AS List OF Float = __canvas_blankHeader()
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_TEXT))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))

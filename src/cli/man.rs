@@ -2211,7 +2211,9 @@ mod tests {
         let canvas = render_types_markdown(registry().resolve_package("canvas").unwrap());
         for want in [
             "`color::Color`",
-            "`RES canvas::Font`",
+            // plan-162-C: `Text.fonts` is a list of fonts; the element is still the
+            // package-qualified resource.
+            "`List OF RES canvas::Font`",
             "`RES canvas::Image`",
         ] {
             assert!(canvas.contains(want), "canvas types page lacks {want}");

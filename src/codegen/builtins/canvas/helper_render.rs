@@ -2272,18 +2272,12 @@ const CLOSE_RETIRED: &str = r#"FUNC __canvas_closeRetired(gone AS List OF DrawIt
           canvas::destroyImage(t.image)
         END IF
       CASE Text(t)
-        LET fh AS Integer = canvas::fontHandle(t.font)
-        IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
-          canvas::destroyFont(t.font)
-        END IF
-      ' plan-172-K: an `AutoPaint` around a `Text` names that text's font.
+        __canvas_closeTextFonts(t, scene)
+      ' plan-172-K: an `AutoPaint` around a `Text` names that text's fonts.
       CASE AutoPaint(a)
         MATCH a.shape
           CASE Text(t)
-            LET fh AS Integer = canvas::fontHandle(t.font)
-            IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
-              canvas::destroyFont(t.font)
-            END IF
+            __canvas_closeTextFonts(t, scene)
           CASE ELSE
         END MATCH
       ' plan-150-A: a particle system names the font of a `Text` it has for a template
@@ -2356,14 +2350,14 @@ FUNC __canvas_listNamesFont(live AS List OF DrawItem, handle AS Integer) AS Bool
   FOR EACH item IN live
     MATCH item
       CASE Text(t)
-        IF canvas::fontHandle(t.font) = handle THEN
+        IF __canvas_textNamesFont(t, handle) THEN
           RETURN TRUE
         END IF
       ' plan-172-K: and so does an `AutoPaint` around one.
       CASE AutoPaint(a)
         MATCH a.shape
           CASE Text(t)
-            IF canvas::fontHandle(t.font) = handle THEN
+            IF __canvas_textNamesFont(t, handle) THEN
               RETURN TRUE
             END IF
           CASE ELSE

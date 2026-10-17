@@ -1559,6 +1559,14 @@ const UNREACHABLE_VIA_CALLEE: &[(&str, &str, &str)] = &[
     ("canvas", "loadSystemFont", "ErrIndexOutOfRange"),
     ("canvas", "loadSystemFont", "ErrInvalidFormat"),
     ("canvas", "measureText", "ErrIndexOutOfRange"),
+    // plan-162-D: `caretStops` reaches the same `collections::set` calls `measureText`
+    // does, through the shaped run and `__canvas_measureHandles`. Each writes an index
+    // the code just bounded: `__canvas_shapeRun` writes `c * __CANVAS_RUN_STRIDE + col`
+    // for `c < n` into the run it built with exactly `n` records; `__canvas_kernRun`
+    // writes records `i` and `i + 1` under `WHILE i + 1 < n`; `__canvas_measureHandles`
+    // writes `sums`/`used` at a run's `fontIndex`, which is always an index into the
+    // `handles` list both were sized from. `caretStops` itself only appends.
+    ("canvas", "caretStops", "ErrIndexOutOfRange"),
     // color
     ("color", "toPacked", "ErrInvalidArgument"),
     ("color", "fromPacked", "ErrInvalidArgument"),

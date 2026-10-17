@@ -806,33 +806,26 @@ FUNC __canvas_autoTextBox(header AS List OF Float, t AS Text) AS List OF Float
   IF toInt(collections::getOr(header, __CANVAS_GEO_GRADIENT_COUNT, 0.0)) >= 2 THEN
     RETURN header
   END IF
-  LET font AS Integer = canvas::fontHandle(t.font)
-  LET b AS List OF Byte = __canvas_fontBlob(font)
-  IF len(b) = 0 THEN
+  LET handles AS List OF Integer = __canvas_textHandles(t)
+  LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
+  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text, t.letterSpacing)
+  ' The line the run sits on; for an empty string, the first drawable font's. No such
+  ' font -- every font closed, or none with a scale -- and there is no box.
+  LET line AS List OF Float = __canvas_runLine(handles, scales, shaped)
+  IF collections::getOr(line, 2, 0.0) = 0.0 THEN
     RETURN header
   END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
-  IF upem <= 0 THEN
-    RETURN header
-  END IF
-  LET shaped AS List OF Integer = __canvas_shapeRun([font], t.text)
-  LET scale AS Float = t.fontSize / toFloat(upem)
   LET x0 AS Float = __canvas_textX(t)
   LET baseline AS Float = __canvas_textY(t)
-  MUT pen AS Float = x0
-  MUT c AS Integer = 0
-  WHILE c * 3 < len(shaped)
-    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
-    c = c + 1
-  END WHILE
+  LET pen AS Float = __canvas_runPen(shaped, scales, x0, t.letterSpacing)
   MUT out AS List OF Float = header
   IF kind = __CANVAS_GEO_POLYGON THEN
     out = collections::set(out, __CANVAS_GEO_GRADIENT_KIND, toFloat(__CANVAS_GEO_TEXT_BOX_MARK))
   END IF
   out = collections::set(out, __CANVAS_GEO_TEXT_BOX, x0)
-  out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 1, baseline - toFloat(__canvas_fontAscent(b)) * scale)
+  out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 1, baseline - collections::getOr(line, 0, 0.0))
   out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 2, pen)
-  out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 3, baseline + toFloat(0 - __canvas_fontDescent(b)) * scale)
+  out = collections::set(out, __CANVAS_GEO_TEXT_BOX + 3, baseline + collections::getOr(line, 1, 0.0))
   RETURN out
 END FUNC
 

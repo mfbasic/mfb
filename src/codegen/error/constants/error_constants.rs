@@ -707,7 +707,7 @@ pub(crate) const CANVAS_SCENE_SYMBOL: &str = "_mfb_rt_canvas_scene";
 /// ordinary process memory, and it is only the *allocator state* that is per-thread —
 /// but the graphics thread has no way to find the block from the `FontRef` integer a
 /// scene carries. This table is that map: `handle` (the resource record's address,
-/// which is what a `FontRef` holds) to the byte block.
+/// which is what a `FontRef` holds) to the byte block and the face index.
 ///
 /// It is a **chain of fixed chunks**, not one fixed table (bug-756). It was sixteen
 /// slots and nothing more, so a seventeenth font open at once loaded and measured and
@@ -717,15 +717,17 @@ pub(crate) const CANVAS_SCENE_SYMBOL: &str = "_mfb_rt_canvas_scene";
 /// previous chunk's `next` word. This symbol is the first chunk; the rest are arena
 /// blocks of the same layout.
 pub(crate) const CANVAS_FONTS_SYMBOL: &str = "_mfb_rt_canvas_fonts";
-/// Slots per chunk. Each is `handle` then `block`, so 16 bytes.
+/// Slots per chunk. Each is `handle`, `block` and `face`, so 24 bytes.
 pub(crate) const CANVAS_FONT_SLOTS: usize = 16;
-/// A slot's two words.
+/// A slot's three words: the handle, the font file's byte block, and its face index
+/// (plan-162-A, `gen_font.rs:FONT_FACE`).
 pub(crate) const CANVAS_FONT_SLOT_HANDLE: usize = 0;
 pub(crate) const CANVAS_FONT_SLOT_BLOCK: usize = 8;
+pub(crate) const CANVAS_FONT_SLOT_FACE: usize = 16;
 /// Bytes per slot. There is no count word: a zero `handle` is the empty slot, and
 /// scanning sixteen words to find one is cheaper than keeping a count consistent
 /// between two threads.
-pub(crate) const CANVAS_FONT_SLOT_BYTES: usize = 16;
+pub(crate) const CANVAS_FONT_SLOT_BYTES: usize = 24;
 /// The chunk's last word: the next chunk's address, or zero at the end of the chain.
 pub(crate) const CANVAS_FONT_CHUNK_NEXT: usize = CANVAS_FONT_SLOTS * CANVAS_FONT_SLOT_BYTES;
 /// Bytes per chunk: the slots, then `next`.
@@ -1673,6 +1675,9 @@ pub(crate) const UNICODE_GENCAT_RANGES_SYMBOL: &str = "_mfb_unicode_gencat_range
 pub(crate) const UNICODE_GENCAT_NAMES_SYMBOL: &str = "_mfb_unicode_gencat_names";
 pub(crate) const UNICODE_SCRIPT_RANGES_SYMBOL: &str = "_mfb_unicode_script_ranges";
 pub(crate) const UNICODE_SCRIPT_NAMES_SYMBOL: &str = "_mfb_unicode_script_names";
+// plan-162-E: the UAX #14 Line_Break run table. One object only: a run's value is the
+// class (with its flag bits) itself, so there is no name table to point into.
+pub(crate) const UNICODE_LINEBREAK_RANGES_SYMBOL: &str = "_mfb_unicode_linebreak_ranges";
 
 // ===========================================================================
 // Threads

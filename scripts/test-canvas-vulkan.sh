@@ -131,7 +131,7 @@ FUNC main() AS Nothing
   ' byte-identical frame and no assertion here could see it. At alpha 160 a second
   ' composite is arithmetically different from one, so a duplicated glyph draw becomes a
   ' pixel difference against the oracle. That is what makes `tail` below a real gate.
-  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 300.0, y := 560.0], text := "AAAA", font := face, fontSize := 90.0, paint := canvas::fill(color::rgba(220, 40, 160, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 300.0, y := 560.0], text := "AAAA", fonts := [face], fontSize := 90.0, letterSpacing := 0.0, paint := canvas::fill(color::rgba(220, 40, 160, 160)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   ' plan-116-A: a shape AFTER the glyph run, and the scene's only reason for it.
   '
   ' The item block now rides a per-frame buffer indexed by instance, and consecutive
@@ -186,7 +186,7 @@ FUNC main() AS Nothing
   LET scaleT AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 1.0, tx := 250.0, ty := 560.0]
   LET scaleDot AS canvas::DrawItem = canvas::Circle[id := "", position := vector::Float2[x := 0.0, y := 0.0], radius := 18.0, paint := canvas::fillStroke(color::rgb(90, 200, 255), color::rgb(255, 255, 255), 6.0), transform := scaleT]
   LET textT AS canvas::Transform = canvas::Transform[a := 0.0, b := 1.0, c := 0.0 - 1.0, d := 0.0, tx := 700.0, ty := 460.0]
-  LET rotText AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 0.0, y := 0.0], text := "AA", font := face, fontSize := 40.0, paint := canvas::fill(color::rgb(200, 255, 120)), transform := textT]
+  LET rotText AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 0.0, y := 0.0], text := "AA", fonts := [face], fontSize := 40.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(200, 255, 120)), transform := textT]
   ' plan-116-D: the same line twice, butt and round, so the SPIR-V cap arm actually
   ' runs. Without a butt one the branch is compiled into the blob and never taken, and
   ' the oracle comparison would agree everywhere the scene looks. Thick and short,
@@ -250,7 +250,7 @@ FUNC main() AS Nothing
   ' later draw one block along (the next item drawn under its neighbour's pipeline, the
   ' last reading a block never written). "AAAA" above has no space, which is how that
   ' stayed invisible here; Metal's picture scene is where it was found.
-  LET spaced AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 470.0, y := 636.0], text := "A A", font := face, fontSize := 20.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET spaced AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 470.0, y := 636.0], text := "A A", fonts := [face], fontSize := 20.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET scene AS List OF canvas::DrawItem = [box, rounded, line, faint, spaced, head, eyeL, eyeR, smile, tri, arrow, label, tail, ground, blendMul, blendScr, blendAdd, blendStroke, clippedBox, rotBox, scaleDot, rotText, capButt, capRound, capArc, ell, gradBar, gradOrb, gradTri, picPlain, picStrip, picScaled, picEdge, picTint, picFade]
   canvas::present(scene)
   ' plan-98-G: `canvas::didResize` is TRUE exactly once per size change. Reported from

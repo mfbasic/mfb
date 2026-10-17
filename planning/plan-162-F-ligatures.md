@@ -48,16 +48,15 @@ References:
   `fontIndex, glyphId, advanceUnits, scalarIndex, gapAfter` (plan-162-D).
 - plan-162-B's `helper_kern.rs` walks `GPOS` ScriptList, FeatureList and LookupList.
   `GSUB`'s header is structurally identical up to the lookup level.
-- Geometry consumers index glyphs by ordinal (`offset + __CANVAS_GEO_HEADER + c * 3` in
-  `__canvas_geoRunReference`). **UNVERIFIED:** that no consumer assumes
-  glyph count = codepoint count. Phase 1 task.
+- Geometry consumers index glyphs by ordinal. *Three places assume glyph count =
+  codepoint count, and everything else counts glyphs* (audit in Phase 1, 2026-10-17).
 
 ### Measured populations
 
 | What | Count | Command |
 |---|---|---|
-| System fonts with a `GSUB` `liga` feature; ligature sets per font | UNMEASURED | Phase 1 probe |
-| Fonts with a `GDEF` LigCaretList | UNMEASURED | same probe |
+| System fonts with a `GSUB` `liga` feature; ligature sets per font | 147 of 638 TrueType faces; at most 110 ligature sets in one face. `liga`-feature lookup shapes (type, format, via Extension) → faces: (4,1) 144, (4,1,ext) 1, and non-ligature types this letter skips: (6,3) 12, (1,1) 4, (6,2) 2, (2,1) 1 | `python3 -I /tmp/p162/probe.py`, summarised from `/tmp/p162/probe.json` (2026-10-14) |
+| Fonts with a `GDEF` LigCaretList | 65 | same probe |
 
 ## 3. Design Overview
 
@@ -101,59 +100,123 @@ Rejected alternatives:
 
 ### Phase 1 — measure and audit
 
-- [ ] Probe the system fonts for `liga` and `GDEF` carets. Record the counts.
-- [ ] Audit every consumer of the run and of `__CANVAS_GEO_TEXT` records for a
+- [x] Probe the system fonts for `liga` and `GDEF` carets. Record the counts. The
+      shared plan-162 probe; counts in §2.
+- [x] Audit every consumer of the run and of `__CANVAS_GEO_TEXT` records for a
       glyph = codepoint assumption:
       `grep -rn "__CANVAS_RUN_\|__CANVAS_GEO_TEXT" src/codegen/builtins/canvas/`. Write a
-      verdict per site here.
+      verdict per site here. 13 files. Verdicts:
+      - `helper_font.rs:__canvas_shapeRun`: **assumes it.** The grapheme-gap pass sets
+        `gapAfter` on glyph `(reach - 1)`, the glyph at the grapheme's last scalar. Phase 3
+        maps graphemes to glyphs through the `scalarIndex` column instead.
+      - `func_caret_stops.rs:__canvas_caretStopsHandles`: **assumes one glyph per grapheme
+        start.** A stop lands only after a `gapAfter` glyph, so a ligature covering two
+        graphemes would lose the stop between them. Phase 3's interior split.
+      - `scalarIndex` itself (`helper_font.rs`) is `c`, the codepoint ordinal. A ligature
+        glyph takes its first component's.
+      - `func_measure_text.rs:__canvas_measureHandles`: sums per glyph and counts
+        `gapAfter`s; the end index comes from `utf32Encode(text)`, not the run. No
+        assumption. Spacing turns ligatures off, so no gap is lost.
+      - `helper_kern.rs:__canvas_kernRun`: adjacent glyphs. No assumption.
+      - `helper_geometry.rs` (glyph run, edges, verify reference, `runDrawable`,
+        `runLine`, `runPen`, run header): iterate the run's glyphs, and the record's own
+        glyph count is slot 20. No assumption (`chars` there already means glyphs).
+      - `helper_hit.rs`, `helper_particles.rs`, `helper_autopaint.rs`: through
+        `runPen`/`runLine`. No assumption.
+      - `helper_glyph_cache.rs`, `helper_items.rs`, `helper_render.rs`: read a text
+        record's slot 20 glyph count and its entries. No assumption.
+      - `helper_geometry/tests`, `helper_render/tests`: unit tests of the above.
 
 Acceptance: every site has a verdict and every UNMEASURED row has a number.
   Check: `grep -c "UNMEASURED\|UNVERIFIED" planning/plan-162-F-ligatures.md` → 0
   outside this list (est. 1 min).
-Commit: —
+  Result: → 2, both lines of this acceptance text.
+Commit: 14dbd04ee
 
 ### Phase 2 — `GSUB` build and fixture
 
-- [ ] Refactor plan-162-B's walk to take a table tag. `GPOS` output must be unchanged
-      (plan-162-B's tests pass).
-- [ ] `helper_liga.rs`: type 4 and type 7, plus `GDEF` carets, in face index v4.
-- [ ] Fixture: glyphs `f`, `i`, `l` and ligatures `fi`, `ffi`, with a `GDEF` caret on
-      `ffi` only.
-- [ ] RED tests: `measureText("ffi")` = `adv(ffi)`, `"fil"` = `adv(fi) + adv(l)`, and
+- [x] ~~Refactor plan-162-B's walk to take a table tag. `GPOS` output must be unchanged
+      (plan-162-B's tests pass).~~ — moot: plan-162-B wrote it parameterised already.
+      `__canvas_layoutLookups(b, table, feature)` takes the table's offset and the
+      feature tag (`helper_kern.rs`), and `__canvas_ligaSection` calls it with `GSUB`'s
+      and `"liga"`. `kern_pairs_measure_at_the_kerned_width` and
+      `face_kern_reads_each_fixtures_pairs` → ok.
+- [x] `helper_liga.rs`: type 4 and type 7, plus `GDEF` carets, in face index v4.
+      `__canvas_ligaSection` and `__canvas_caretSection` (header words 14 and 15;
+      the header is 16 words, version 4). The run gains its sixth column,
+      `componentCount` (1 for every glyph until Phase 3 substitutes). The plan-A index
+      tests moved to v4 as predicted, and the run-dump test to stride 6.
+      `canvas_text_has_one_glyph_walk` admits `__canvas_ligaRun` (Correction 1).
+- [x] Fixture: glyphs `f`, `i`, `l` and ligatures `fi`, `ffi`, with a `GDEF` caret on
+      `ffi` only. `ligature_font` / `ligating_font`: each glyph a distinct bar or slab,
+      advances 300/200/250/450/700, `liga` listing `ffi` before `fi`, `GDEF` carets
+      230 and 470 on `ffi`.
+- [x] RED tests: `measureText("ffi")` = `adv(ffi)`, `"fil"` = `adv(fi) + adv(l)`, and
       `"fi"` with `letterSpacing 1.0` = `adv(f) + adv(i) + 1.0`.
 
 Acceptance: the fixture loads, the RED tests fail on the ligature term, and plan-162-B's
 kerning tests still pass.
   Check: `cargo test --test rt_canvas_font kern liga` → kern passes, liga fails as
   predicted (est. 3 min).
-Commit: —
+  Result: `kern_pairs_measure_at_the_kerned_width` and `face_kern_reads_each_fixtures_pairs`
+  ok. `liga_measures_ligatures_and_not_with_spacing` FAILED as predicted:
+  `left: ["800", "750", "501"]`, `right: ["700", "700", "501"]`. The spaced case already
+  holds; the two ligature widths differ by exactly the ligature term.
+Commit: 3957a3526
 
 ### Phase 3 — apply, carets, docs
 
-- [ ] `__canvas_shapeRun`: the substitution per §3.2, plus the `componentCount` column.
-- [ ] `caretStops`: the interior split per §3.3.
-- [ ] Tests:
+- [x] `__canvas_shapeRun`: the substitution per §3.2, plus the `componentCount` column.
+      `__canvas_ligaRun` runs per font after glyph selection and before kerning, only when
+      the new `spacing` argument is 0.0; every caller passes its `letterSpacing`.
+      `gapAfter` is now set through `scalarIndex + componentCount` and the grapheme ends
+      (`__canvas_graphemeEnds`), which fixes the Phase 1 audit's
+      glyph-per-codepoint assumption.
+- [x] `caretStops`: the interior split per §3.3. Every glyph is walked; a ligature's
+      inner grapheme boundaries get a stop at `__canvas_faceCaret` or at
+      `advance × k / componentCount`.
+- [x] Tests:
   - the RED tests go GREEN;
   - the drawn `fi` shows one glyph's outline, checked by a pixel column unique to the
     ligature outline;
   - the caret stops for `"ffi"` sit at the `GDEF` coordinates, and for `"fi"` at the
     halves;
   - the last stop equals the width.
-- [ ] Real-font oracle: the Phase 1 face compared with HarfBuzz
+
+  `liga_measures_ligatures_and_not_with_spacing` (`700 700 501`),
+  `liga_draws_the_ligature_glyph` (`fi` lights one run, columns 100..139; spaced,
+  `(100,109), (131,138)`), and `liga_carets_split_the_ligature` (`ffi` →
+  `0:0 1:230 2:470 3:700`, `fil` → `0:0 1:225 2:450 3:700`, `ffil` = 950, run
+  `shape 0 5 700 0 1 3 0 3 250 3 0 1`). All ok. The last stop is the width by
+  construction, which `caret_stops_agree_with_measuring_and_with_graphemes` keeps
+  holding.
+- [x] Real-font oracle: the Phase 1 face compared with HarfBuzz
       (`hb-shape --features=liga,kern,-clig,-calt`), glyph IDs and summed advances for
-      `"office fluffy"`, recorded with the command.
-- [ ] Man: `measureText`, `Text` and `caretStops` (ligatures, and the spacing rule).
+      `"office fluffy"`, recorded with the command. SF Pro, the plan-B face, forms no
+      ligature in that string in HarfBuzz or here (13 identical glyphs, width 9,607),
+      so the test uses `SFCamera.ttf` (Correction 3):
+      `a_real_font_ligates_as_harfbuzz_does` → ok, glyphs
+      `176 147 233 129 137 2 234 202 147 147 218` and width 11,158 units, both
+      HarfBuzz 12.2.0's. Sweep `python3 -I /tmp/p162/liga_oracle.py` over the 20
+      `liga` faces × 3 strings: every case HarfBuzz ligates through type 4 matches; the 7
+      that differ are out of scope (Correction 4).
+- [x] Man: `measureText`, `Text` and `caretStops` (ligatures, and the spacing rule).
       `loadFont` DESC: the shaping sentence now lists pair kerning and standard
       ligatures, and still says complex scripts are unsupported. Check with
-      `scripts/man-census.sh --memory-scope` → 0 unclassified.
-- [ ] Spec `06_canvas.md`: the ligature rule, the `componentCount` column, and the caret
-      split.
+      `scripts/man-census.sh --memory-scope` → 0 unclassified. `loadFont`'s
+      "Kerning and ligatures." paragraph, `measureText`'s width paragraph and its
+      spacing note, the `Text` record and `letterSpacing` field, and `caretStops`'
+      ligature stops. Census → 0.
+- [x] Spec `06_canvas.md`: the ligature rule, the `componentCount` column, and the caret
+      split. A "Ligatures" subsection, and the run-column paragraph now lists six
+      words. `cargo test --bin mfb spec` → 46 passed, no leaked `[[`.
 
 Acceptance: ligatures draw, measure and caret consistently. Unligated fonts are
 byte-identical.
   Check: `cargo test --test rt_canvas_font --test rt_canvas_golden --test rt_canvas_geo_native`
   → pass and `git status --short tests/golden/canvas` → empty (est. 6 min).
-Commit: —
+  Result: rt_canvas_font 59, rt_canvas_geo_native 4, rt_canvas_golden 28 passed, 0 failed (`/tmp/p162/f3-accept.log`); `git status --short tests/golden/canvas` → empty.
+Commit: b9e3cf7e7
 
 ## Validation Plan
 
@@ -176,7 +239,30 @@ Commit: —
 
 ## Corrections
 
-(empty)
+1. **`canvas_text_has_one_glyph_walk` admits `__canvas_ligaRun`.** The bug-756 test
+   allows the per-glyph readers only in `__canvas_shapeRun` (and the `--debug` face
+   check). Substitution reads the ligature glyph's advance, so it is a reader. It is
+   also a stage of the run itself, called only from `__canvas_shapeRun`, so the rule's
+   intent, "one walk turns text into glyphs", is kept. AGENTS.md proof: (1) bug-756;
+   (2) "only the shaping walk turns codepoints into glyph ids or advances"; (3) nothing
+   else depends on it; (4) the guard names functions, and the shaping walk now spans
+   two of them.
+2. **"No ligatures across a grapheme with `gapAfter`" means "none when spacing is on".**
+   Read literally it would forbid every ligature, because `f` and `i` are two graphemes
+   and `f` carries `gapAfter`. The rule it serves is §Non-goals' "with `letterSpacing
+   <> 0.0` there are no ligatures at all", which is what is implemented: ligatures form
+   across grapheme boundaries only when the spacing is 0.
+
+3. **The oracle face is SF Camera, not SF Pro.** The Phase 1 face (plan-162-B's oracle
+   SF Pro) has 110 ligature sets but none for `fi`/`ff`/`fl`: HarfBuzz shapes `office
+   fluffy` there as 13 separate glyphs, and so does this build. `SFCamera.ttf` ligates
+   the string twice in HarfBuzz, so it is the face that tests substitution.
+4. **Ligatures outside `liga` type 4 differ from HarfBuzz, as scoped.** Of 60 sweep
+   cases, 7 differ, all for reasons the Non-goals exclude. STIX Two Text (6 cases) forms
+   its `fi`/`ffl` ligatures through chaining-contextual lookups (type 6) under `liga`.
+   Trattatello's final `y` (1 case) is substituted with `liga` turned off as well
+   (`hb-shape --features=-liga,…` still gives glyph 1730), so it comes from the font's
+   `morx` or another always-on feature, not `liga`.
 
 ## Summary
 

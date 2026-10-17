@@ -1400,21 +1400,16 @@ FUNC __canvas_appendGradientTail(base AS List OF Float, paint AS Paint) AS List 
 END FUNC
 
 FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
-  LET font AS Integer = canvas::fontHandle(t.font)
-  LET b AS List OF Byte = __canvas_fontBlob(font)
-  IF len(b) = 0 THEN
-    RETURN []
-  END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
-  IF upem <= 0 THEN
-    RETURN []
-  END IF
-  LET scale AS Float = t.fontSize / toFloat(upem)
+  LET handles AS List OF Integer = __canvas_textHandles(t)
+  LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
   ' Shaped once, before pass one. The run is a plain local list of glyph ids and
   ' advances, and it holds no cache index, so the eviction pass one can trigger -- which
   ' renumbers entries, see below -- cannot make it stale.
-  LET shaped AS List OF Integer = __canvas_shapeRun([font], t.text)
-  LET chars AS Integer = len(shaped) / 3
+  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text, t.letterSpacing)
+  IF NOT __canvas_runDrawable(shaped, scales) THEN
+    RETURN []
+  END IF
+  LET chars AS Integer = len(shaped) / __CANVAS_RUN_STRIDE
 
   ' Pass one rasterises, recording each entry in the GLOBAL pin list rather than in a
   ' local. A run being built is not yet in the geometry cache, so the pin scan cannot
@@ -1425,9 +1420,18 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
   ' whether or not their glyph was dropped. The list is global precisely so
   ' `__canvas_glyphEvict` can pin AND renumber it.
   __CANVAS_GLYPH_PINS = []
+  ' The file, for the outlines `__canvas_glyphEntry` rasterises on a miss: the one read
+  ' that needs it, everything else coming from the face index (plan-162-A). It is
+  ' fetched again only when the run moves to another font (plan-162-C), so a one-font
+  ' run fetches it once.
+  MUT b AS List OF Byte = []
+  MUT bFont AS Integer = 0 - 1
   MUT c AS Integer = 0
   WHILE c < chars
-    LET gid AS Integer = collections::getOr(shaped, c * 3 + 1, 0)
+    LET which AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0)
+    LET font AS Integer = collections::getOr(handles, which, 0)
+    LET scale AS Float = collections::getOr(scales, which, 0.0)
+    LET gid AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GLYPH, 0)
     ' Rasterise here, at cache-fill time, not at draw time. The draw path owns a live
     ' 2.3 MB surface local and `collections::set` is in-place only while nothing else
     ' allocates underneath it, so every allocation belongs on this side of the seam --
@@ -1438,47 +1442,202 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
     ' `append(__CANVAS_GLYPH_PINS, __canvas_glyphEntry(...))` appends to whichever list
     ' the argument evaluation had already resolved, which is the one eviction just
     ' replaced.
-    LET entry AS Integer = __canvas_glyphEntry(b, font, gid, t.fontSize, scale)
+    ' A glyph from a font with no scale -- one with no `head` -- has no outline to
+    ' draw and is no entry; it stays -1 in the pin list, which eviction passes over.
+    MUT entry AS Integer = 0 - 1
+    IF scale > 0.0 THEN
+      IF which <> bFont THEN
+        b = __canvas_fontBlob(font)
+        bFont = which
+      END IF
+      entry = __canvas_glyphEntry(b, font, gid, t.fontSize, scale)
+    END IF
     __CANVAS_GLYPH_PINS = collections::append(__CANVAS_GLYPH_PINS, entry)
     c = c + 1
   END WHILE
 
-  ' Pass two reads the entries back, after any renumbering.
+  ' Pass two reads the entries back, after any renumbering. A glyph with no entry
+  ' contributes no triple (and, at scale 0, no advance).
   MUT run AS List OF Float = []
   MUT pen AS Float = __canvas_textX(t)
   c = 0
   WHILE c < chars
-    run = collections::append(run, toFloat(collections::getOr(__CANVAS_GLYPH_PINS, c, 0 - 1)))
-    run = collections::append(run, toFloat(toInt(pen + 0.5)))
-    run = collections::append(run, toFloat(toInt(__canvas_textY(t) + 0.5)))
-    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
+    LET scale AS Float = collections::getOr(scales, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0), 0.0)
+    IF scale > 0.0 THEN
+      run = collections::append(run, toFloat(collections::getOr(__CANVAS_GLYPH_PINS, c, 0 - 1)))
+      run = collections::append(run, toFloat(toInt(pen + 0.5)))
+      run = collections::append(run, toFloat(toInt(__canvas_textY(t) + 0.5)))
+    END IF
+    pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * scale
+    IF t.letterSpacing <> 0.0 AND collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GAP, 0) = 1 THEN
+      pen = pen + t.letterSpacing
+    END IF
     c = c + 1
   END WHILE
   RETURN run
 END FUNC
 
-' A `Text` names one font, so every triple of its shaped run has font index 0 and `b`
-' is the file its outlines come from.
+' A `Text`'s fonts as handles, in fallback order: 0 for a closed one, which reads as no
+' font at all (`canvas::fontHandle`).
+FUNC __canvas_textHandles(t AS Text) AS List OF Integer
+  MUT out AS List OF Integer = []
+  FOR EACH f IN t.fonts
+    out = collections::append(out, canvas::fontHandle(f))
+  NEXT
+  RETURN out
+END FUNC
+
+' Each font's scale at `size`, `size / unitsPerEm`: 0.0 for one that cannot be drawn --
+' closed (its face index reads 0) or with no `head`.
+FUNC __canvas_fontScales(handles AS List OF Integer, size AS Float) AS List OF Float
+  MUT out AS List OF Float = []
+  FOR EACH h IN handles
+    LET upem AS Integer = __canvas_faceMetric(h, __CANVAS_FACE_UPEM)
+    IF upem > 0 THEN
+      out = collections::append(out, size / toFloat(upem))
+    ELSE
+      out = collections::append(out, 0.0)
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' Does the shaped run draw anything: a glyph from a font with a scale? A run with none
+' -- no font open, or only fonts with no `head` -- is no record at all.
+FUNC __canvas_runDrawable(shaped AS List OF Integer, scales AS List OF Float) AS Boolean
+  MUT c AS Integer = 0
+  WHILE c * __CANVAS_RUN_STRIDE < len(shaped)
+    IF collections::getOr(scales, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0), 0.0) > 0.0 THEN
+      RETURN TRUE
+    END IF
+    c = c + 1
+  END WHILE
+  RETURN FALSE
+END FUNC
+
+' The line a shaped run sits on, `[ascent, descent, found]` in pixels (descent positive,
+' `found` 1.0 or 0.0): the largest ascent and descent of the drawable fonts that
+' supplied a glyph -- `measureText`'s rule for a list -- or, for an empty run, the first
+' drawable font's. With one font that is that font's own line.
+FUNC __canvas_runLine(handles AS List OF Integer, scales AS List OF Float, shaped AS List OF Integer) AS List OF Float
+  MUT used AS List OF Boolean = []
+  FOR EACH h IN handles
+    used = collections::append(used, FALSE)
+  NEXT
+  MUT c AS Integer = 0
+  WHILE c * __CANVAS_RUN_STRIDE < len(shaped)
+    used = collections::set(used, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0), TRUE)
+    c = c + 1
+  END WHILE
+  IF len(shaped) = 0 THEN
+    MUT k AS Integer = 0
+    WHILE k < len(handles)
+      IF collections::getOr(scales, k, 0.0) > 0.0 THEN
+        used = collections::set(used, k, TRUE)
+        k = len(handles)
+      END IF
+      k = k + 1
+    END WHILE
+  END IF
+  MUT ascent AS Float = 0.0
+  MUT descent AS Float = 0.0
+  MUT found AS Boolean = FALSE
+  MUT k AS Integer = 0
+  WHILE k < len(handles)
+    LET scale AS Float = collections::getOr(scales, k, 0.0)
+    IF scale > 0.0 AND collections::getOr(used, k, FALSE) THEN
+      LET h AS Integer = collections::getOr(handles, k, 0)
+      LET up AS Float = toFloat(__canvas_faceMetric(h, __CANVAS_FACE_ASCENT)) * scale
+      LET down AS Float = toFloat(0 - __canvas_faceMetric(h, __CANVAS_FACE_DESCENT)) * scale
+      IF found THEN
+        ascent = __canvas_maxF(ascent, up)
+        descent = __canvas_maxF(descent, down)
+      ELSE
+        ascent = up
+        descent = down
+        found = TRUE
+      END IF
+    END IF
+    k = k + 1
+  END WHILE
+  MUT flag AS Float = 0.0
+  IF found THEN
+    flag = 1.0
+  END IF
+  RETURN [ascent, descent, flag]
+END FUNC
+
+' Does a `Text` list the font `handle`? A closed font's handle reads 0, which names
+' nothing, so a 0 never matches.
+FUNC __canvas_textNamesFont(t AS Text, handle AS Integer) AS Boolean
+  IF handle = 0 THEN
+    RETURN FALSE
+  END IF
+  FOR EACH f IN t.fonts
+    IF canvas::fontHandle(f) = handle THEN
+      RETURN TRUE
+    END IF
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' Close every font a retired `Text` lists that nothing live still names (plan-162-C):
+' the group ownership rule (`.ai/canvas-threading.md` R17b, R18), font by font. A font
+' the list repeats closes once -- once closed, its handle reads 0 and it is passed over.
+FUNC __canvas_closeTextFonts(t AS Text, scene AS List OF DrawItem) AS Nothing
+  FOR EACH f IN t.fonts
+    LET fh AS Integer = canvas::fontHandle(f)
+    IF fh <> 0 AND NOT __canvas_anythingNamesFont(scene, fh) THEN
+      canvas::destroyFont(f)
+    END IF
+  NEXT
+END FUNC
+
+' The pen's travel along a shaped run, from `x0`: each advance at its font's scale, and
+' `spacing` at every grapheme boundary when it is not 0 (plan-162-D).
+FUNC __canvas_runPen(shaped AS List OF Integer, scales AS List OF Float, x0 AS Float, spacing AS Float) AS Float
+  MUT pen AS Float = x0
+  MUT c AS Integer = 0
+  WHILE c * __CANVAS_RUN_STRIDE < len(shaped)
+    pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * collections::getOr(scales, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0), 0.0)
+    IF spacing <> 0.0 AND collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GAP, 0) = 1 THEN
+      pen = pen + spacing
+    END IF
+    c = c + 1
+  END WHILE
+  RETURN pen
+END FUNC
+
+' Each glyph's outline comes from the file of the font its triple names -- the only
+' thing a file is fetched for -- fetched again only when the run moves to another font.
 FUNC __canvas_textEdges(t AS Text) AS List OF Float
   __CANVAS_RING_MARKS = []
-  LET font AS Integer = canvas::fontHandle(t.font)
-  LET b AS List OF Byte = __canvas_fontBlob(font)
-  IF len(b) = 0 THEN
+  LET handles AS List OF Integer = __canvas_textHandles(t)
+  LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
+  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text, t.letterSpacing)
+  IF NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN []
   END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
-  IF upem <= 0 THEN
-    RETURN []
-  END IF
-  LET scale AS Float = t.fontSize / toFloat(upem)
-  LET shaped AS List OF Integer = __canvas_shapeRun([font], t.text)
+  MUT b AS List OF Byte = []
+  MUT bFont AS Integer = 0 - 1
   MUT edges AS List OF Float = []
   MUT pen AS Float = __canvas_textX(t)
   MUT c AS Integer = 0
   __CANVAS_RING_MARKING = TRUE
-  WHILE c * 3 < len(shaped)
-    edges = __canvas_glyphEdges(b, collections::getOr(shaped, c * 3 + 1, 0), scale, pen, __canvas_textY(t), edges)
-    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
+  WHILE c * __CANVAS_RUN_STRIDE < len(shaped)
+    LET which AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0)
+    LET scale AS Float = collections::getOr(scales, which, 0.0)
+    IF scale > 0.0 THEN
+      IF which <> bFont THEN
+        b = __canvas_fontBlob(collections::getOr(handles, which, 0))
+        bFont = which
+      END IF
+      edges = __canvas_glyphEdges(b, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GLYPH, 0), scale, pen, __canvas_textY(t), edges)
+    END IF
+    pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * scale
+    IF t.letterSpacing <> 0.0 AND collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GAP, 0) = 1 THEN
+      pen = pen + t.letterSpacing
+    END IF
     c = c + 1
   END WHILE
   __CANVAS_RING_MARKING = FALSE
@@ -1740,21 +1899,22 @@ FUNC __canvas_glyphRunHeader(t AS Text, run AS List OF Float) AS List OF Float
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_TEXT))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER + len(run)))
   out = __canvas_paintHeader(out, t.paint, __canvas_textTransform(t), __canvas_textX(t), __canvas_textY(t))
-  ' Slots 2 and 3 carry the font handle and the em size: a glyph run needs both to
-  ' rasterise, and they are the shape parameters no other kind uses for text.
-  out = collections::set(out, 2, toFloat(canvas::fontHandle(t.font)))
+  ' Slots 2 and 3 carry the first font's handle and the em size. Nothing reads slot 2
+  ' back (plan-162-A Phase 1): each glyph's entry already names its font's raster.
+  LET handles AS List OF Integer = __canvas_textHandles(t)
+  out = collections::set(out, 2, toFloat(collections::getOr(handles, 0, 0)))
   out = collections::set(out, 3, t.fontSize)
   out = collections::set(out, 20, toFloat(glyphs))
   ' The ink box comes from the metrics rather than from the outlines: this header is
   ' built on a cache miss, when the glyphs have not been rasterised yet, and an
   ' ascent/descent box always contains the ink. It is only used to clip and to
   ' invalidate, so a box that is too large costs nothing and one that is too small
-  ' would clip the glyphs it was meant to bound.
-  LET b AS List OF Byte = __canvas_fontBlob(canvas::fontHandle(t.font))
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
-  LET scale AS Float = t.fontSize / toFloat(__canvas_maxI(upem, 1))
-  LET ascent AS Float = toFloat(__canvas_fontAscent(b)) * scale
-  LET descent AS Float = toFloat(0 - __canvas_fontDescent(b)) * scale
+  ' would clip the glyphs it was meant to bound. With several fonts it is the tallest
+  ' of the ones the run draws from.
+  LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
+  LET line AS List OF Float = __canvas_runLine(handles, scales, __canvas_shapeRun(handles, t.text, t.letterSpacing))
+  LET ascent AS Float = collections::getOr(line, 0, 0.0)
+  LET descent AS Float = collections::getOr(line, 1, 0.0)
   MUT minX AS Float = collections::getOr(run, 1, __canvas_textX(t))
   MUT maxX AS Float = minX
   MUT i AS Integer = 0
@@ -1974,9 +2134,20 @@ FUNC __canvas_hashItem(item AS DrawItem) AS Integer
       ' overflows `toInt` for a 48-bit address. `__canvas_hashStep` reduces it first.
       MUT h AS Integer = __canvas_hashStart(7)
       h = __canvas_hashFloat(__canvas_hashFloat(__canvas_hashFloat(h, t.position.x), t.position.y), t.fontSize)
-      h = __canvas_hashStep(h, canvas::fontHandle(t.font))
+      ' Every font, in order, after their count: `[a, b]` and `[b, a]` draw different
+      ' glyphs, and `[a]` and `[a, a]` must not collide by accident of the fold.
+      h = __canvas_hashStep(h, len(t.fonts))
+      FOR EACH f IN t.fonts
+        h = __canvas_hashStep(h, canvas::fontHandle(f))
+      NEXT
       h = __canvas_hashText(h, t.text)
       h = __canvas_hashText(h, t.id)
+      ' plan-162-D: the spacing moves every glyph after the first, so it keys the cache --
+      ' a spacing-only change must rebuild. Folded only when set, so an unspaced `Text`
+      ' keeps the key it always had.
+      IF t.letterSpacing <> 0.0 THEN
+        h = __canvas_hashFloat(h, t.letterSpacing)
+      END IF
       RETURN __canvas_hashPaint(h, t.paint, t.transform)
     CASE Ellipse(e)
       MUT h AS Integer = __canvas_hashStart(8)
@@ -2192,33 +2363,38 @@ END FUNC
 ' from the record at `offset` and kept only if the cache entry it names holds this
 ' glyph's key (else -2, which no run holds).
 FUNC __canvas_geoRunReference(t AS Text, offset AS Integer) AS List OF Float
-  LET font AS Integer = canvas::fontHandle(t.font)
-  LET b AS List OF Byte = __canvas_fontBlob(font)
-  IF len(b) = 0 THEN
+  LET handles AS List OF Integer = __canvas_textHandles(t)
+  LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
+  LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text, t.letterSpacing)
+  IF NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN []
   END IF
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
-  IF upem <= 0 THEN
-    RETURN []
-  END IF
-  LET scale AS Float = t.fontSize / toFloat(upem)
-  LET shaped AS List OF Integer = __canvas_shapeRun([font], t.text)
   MUT run AS List OF Float = []
   MUT pen AS Float = __canvas_textX(t)
+  ' The record's triples are only the drawn glyphs', so the stored one is counted apart.
+  MUT at AS Integer = 0
   MUT c AS Integer = 0
-  WHILE c * 3 < len(shaped)
-    LET gid AS Integer = collections::getOr(shaped, c * 3 + 1, 0)
-    MUT entry AS Integer = 0 - 2
-    IF offset >= 0 THEN
-      LET stored AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_HEADER + c * 3, 0.0 - 2.0))
-      IF stored >= 0 AND collections::getOr(__CANVAS_GLYPH_KEYS, stored, 0 - 1) = __canvas_glyphKey(font, __canvas_sizeQ(t.fontSize), gid) THEN
-        entry = stored
+  WHILE c * __CANVAS_RUN_STRIDE < len(shaped)
+    LET which AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0)
+    LET scale AS Float = collections::getOr(scales, which, 0.0)
+    IF scale > 0.0 THEN
+      LET gid AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GLYPH, 0)
+      MUT entry AS Integer = 0 - 2
+      IF offset >= 0 THEN
+        LET stored AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_HEADER + at * 3, 0.0 - 2.0))
+        IF stored >= 0 AND collections::getOr(__CANVAS_GLYPH_KEYS, stored, 0 - 1) = __canvas_glyphKey(collections::getOr(handles, which, 0), __canvas_sizeQ(t.fontSize), gid) THEN
+          entry = stored
+        END IF
       END IF
+      run = collections::append(run, toFloat(entry))
+      run = collections::append(run, toFloat(toInt(pen + 0.5)))
+      run = collections::append(run, toFloat(toInt(__canvas_textY(t) + 0.5)))
+      at = at + 1
     END IF
-    run = collections::append(run, toFloat(entry))
-    run = collections::append(run, toFloat(toInt(pen + 0.5)))
-    run = collections::append(run, toFloat(toInt(__canvas_textY(t) + 0.5)))
-    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
+    pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * scale
+    IF t.letterSpacing <> 0.0 AND collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GAP, 0) = 1 THEN
+      pen = pen + t.letterSpacing
+    END IF
     c = c + 1
   END WHILE
   RETURN run

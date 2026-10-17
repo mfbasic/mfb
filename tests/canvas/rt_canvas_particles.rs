@@ -202,7 +202,7 @@ FUNC main() AS Nothing
   LET e2 AS canvas::Shape = WITH polygon { contours := [ring] }
   LET e3 AS canvas::Shape = WITH circle { radius := 25.0 }
   LET e4 AS canvas::Shape = WITH arc { radius := 30.0, endAngle := 3.14159 }
-  LET e5 AS canvas::Shape = canvas::Text[id := "", position := origin(), text := "AB", font := fnt, fontSize := 24.0, paint := canvas::fill(color::rgb(0, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET e5 AS canvas::Shape = canvas::Text[id := "", position := origin(), text := "AB", fonts := [fnt], fontSize := 24.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(0, 0, 0)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   LET e6 AS canvas::Shape = WITH ellipse { radiusX := 30.0, radiusY := 12.0 }
   LET e7 AS canvas::Shape = WITH polyLine { points := ring }
   LET e8 AS canvas::Shape = WITH polyCurve { curves := [bend] }
@@ -1045,7 +1045,7 @@ fn a_text_template_is_placed_scaled_and_tinted() {
     let (frame, _) = draw(
         "canvas_particle_text",
         &scene(
-            "  RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    RETURN\n  END TRAP\n  LET label AS canvas::AutoShape = canvas::Text[id := \"\", position := at(0.0, 0.0), text := \"A\", font := face, fontSize := 40.0, paint := canvas::fill(white()), transform := none()]\n  canvas::present([single(label, 300.0, 200.0, 0.0, 2.0, color::rgb(255, 128, 0))])\n",
+            "  RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    RETURN\n  END TRAP\n  LET label AS canvas::AutoShape = canvas::Text[id := \"\", position := at(0.0, 0.0), text := \"A\", fonts := [face], fontSize := 40.0, letterSpacing := 0.0, paint := canvas::fill(white()), transform := none()]\n  canvas::present([single(label, 300.0, 200.0, 0.0, 2.0, color::rgb(255, 128, 0))])\n",
         ),
         &[],
     );
@@ -1463,7 +1463,7 @@ fn a_text_particles_record_is_still_cached_and_its_glyphs_drawn() {
     let (frame, stats) = draw(
         "canvas_particle_text_cached",
         &scene(
-            "  RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    RETURN\n  END TRAP\n  LET label AS canvas::AutoShape = canvas::Text[id := \"\", position := at(0.0, 0.0), text := \"AB\", font := face, fontSize := 30.0, paint := canvas::fill(white()), transform := none()]\n  MUT lip AS canvas::Line\n  LET emitter AS canvas::Shape = WITH lip { startAt := at(0.0 - 400.0, 0.0), endAt := at(360.0, 0.0) }\n  MUT motion AS canvas::Motion\n  MUT emission AS canvas::Emission\n  LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(450.0, 320.0), item := label, emitter := emitter, emission := WITH emission { mode := canvas::EmissionMode.Burst, maxParticles := 40, burst := 40, lifetime := 10.0 }, motion := WITH motion { speed := 200.0, spread := 3.2 }, appearance := look(white(), white(), 1.0), seed := 5, time := 1.0]\n  canvas::present([ps])\n",
+            "  RES face AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    RETURN\n  END TRAP\n  LET label AS canvas::AutoShape = canvas::Text[id := \"\", position := at(0.0, 0.0), text := \"AB\", fonts := [face], fontSize := 30.0, letterSpacing := 0.0, paint := canvas::fill(white()), transform := none()]\n  MUT lip AS canvas::Line\n  LET emitter AS canvas::Shape = WITH lip { startAt := at(0.0 - 400.0, 0.0), endAt := at(360.0, 0.0) }\n  MUT motion AS canvas::Motion\n  MUT emission AS canvas::Emission\n  LET ps AS canvas::DrawItem = canvas::ParticleSystem[position := at(450.0, 320.0), item := label, emitter := emitter, emission := WITH emission { mode := canvas::EmissionMode.Burst, maxParticles := 40, burst := 40, lifetime := 10.0 }, motion := WITH motion { speed := 200.0, spread := 3.2 }, appearance := look(white(), white(), 1.0), seed := 5, time := 1.0]\n  canvas::present([ps])\n",
         ),
         &[],
     );

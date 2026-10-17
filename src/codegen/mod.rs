@@ -38,7 +38,7 @@ pub(crate) mod registry;
 /// plan-116-J: for each local bound in `ops`, the locals it structurally **holds**.
 ///
 /// A whole-function pre-pass, in the shape `promotable_vector_locals` established, read
-/// by `deactivate_consumed_cleanups`. `LET tag = canvas::Text[…, font := face, …]` gives
+/// by `deactivate_consumed_cleanups`. `LET tag = canvas::Text[…, fonts := [face], …]` gives
 /// `tag -> ["face"]`, so that handing `[tag]` to a consuming parameter can find the close
 /// obligation that has to be dropped — `face`, whose name appears nowhere in the
 /// argument.
@@ -167,7 +167,13 @@ mod resource_containment_tests {
             ),
         ];
         let held = resource_containment(&ops);
-        assert_eq!(held.get("items"), Some(&vec!["a".to_string(), "b".to_string()]));
-        assert!(!held.contains_key("other"), "filter keeps a subset and stays opaque");
+        assert_eq!(
+            held.get("items"),
+            Some(&vec!["a".to_string(), "b".to_string()])
+        );
+        assert!(
+            !held.contains_key("other"),
+            "filter keeps a subset and stays opaque"
+        );
     }
 }

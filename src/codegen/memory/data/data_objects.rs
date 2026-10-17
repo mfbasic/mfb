@@ -953,6 +953,17 @@ pub(crate) fn unicode_runtime_data_objects(
             ));
         }
     }
+    // plan-162-E: the Line_Break runs carry their value, so they are the one object.
+    if keep(UNICODE_LINEBREAK_RANGES_SYMBOL) {
+        let table = crate::unicode::range_tables::linebreak();
+        objects.push(raw_data_object(
+            UNICODE_LINEBREAK_RANGES_SYMBOL,
+            "mfb.unicode.range.v1 { u32 lastCodepoint; u32 value } (UAX #14 Line_Break)",
+            table.runs.len() * 8,
+            table.values_hex(),
+            4,
+        ));
+    }
     if keep(UNICODE_COMBINATIONS_SECOND_SYMBOL) {
         objects.push(raw_data_object(
             UNICODE_COMBINATIONS_SECOND_SYMBOL,
@@ -1909,13 +1920,14 @@ mod tests {
     #[test]
     fn unicode_runtime_data_objects_emit_only_referenced_tables() {
         let all = unicode_runtime_data_objects(None);
-        assert_eq!(all.len(), 17, "None must emit every unicode table");
+        assert_eq!(all.len(), 18, "None must emit every unicode table");
         let every: HashSet<&str> = all.iter().map(|o| o.symbol.as_str()).collect();
         for added in [
             UNICODE_GENCAT_RANGES_SYMBOL,
             UNICODE_GENCAT_NAMES_SYMBOL,
             UNICODE_SCRIPT_RANGES_SYMBOL,
             UNICODE_SCRIPT_NAMES_SYMBOL,
+            UNICODE_LINEBREAK_RANGES_SYMBOL,
         ] {
             assert!(every.contains(added), "None must emit `{added}`");
         }
@@ -1948,6 +1960,8 @@ mod tests {
             UNICODE_GENCAT_NAMES_SYMBOL,
             UNICODE_SCRIPT_RANGES_SYMBOL,
             UNICODE_SCRIPT_NAMES_SYMBOL,
+            // plan-162-E: 22 KB of line-break runs only `strings::lineBreaks` reads.
+            UNICODE_LINEBREAK_RANGES_SYMBOL,
         ] {
             assert!(
                 !emitted.contains(dead),

@@ -9,6 +9,16 @@
   },
   "types": [
   {
+    "kind": "type",
+    "line": 7,
+    "visibility": "export",
+    "name": "strings.LineBreak",
+    "fields": [
+    { "visibility": null, "line": 8, "name": "index", "type": "Integer" },
+    { "visibility": null, "line": 9, "name": "mandatory", "type": "Boolean" }
+    ]
+  },
+  {
     "kind": "enum",
     "line": 1,
     "visibility": "export",

@@ -5,7 +5,8 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
-    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryHelper,
+    RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;
@@ -24,13 +25,50 @@ grid by `size / unitsPerEm`. `descent` is a **positive** distance below the base
 The font file stores it negative — `hhea.descender` measures downward — and the sign
 is flipped here so no caller has to remember which convention it is holding.
 
-`width` is the sum of the glyphs' advance widths. This build does no kerning,
-ligatures or complex shaping (see `canvas::loadFont`), so the width is exact for what
-it will actually draw — measuring and drawing use the same glyph walk, which is the
-property that matters more than absolute typographic fidelity.
+`width` is the sum of the glyphs' advance widths, with the font's **pair kerning** and
+**standard ligatures** applied: in `"AV"`, a font that tucks the `V` under the `A`
+measures the pair narrower than the two letters apart, and in `"fi"`, a font with an
+`fi` ligature measures that one glyph. Both come from the font itself (see
+`canvas::loadFont` for which tables are read); a font without them measures the plain
+advances. Complex shaping is not done. Measuring and drawing use the same glyph walk,
+kerning and ligatures included, so the width is exactly what a `canvas::Text` with the
+same font, size and string draws.
 
-A font with no `head` table measures as all zeroes rather than failing. A closed
-font is different: measuring it raises `ErrResourceClosed`. Text already in a
+**Measuring in a list of fonts.** Pass a `List OF RES canvas::Font` instead of one font
+and each character is measured in the first font in the list that has a glyph for it,
+so a string mixing Latin and CJK text measures in `[latinFace, cjkFace]` with every CJK
+character taken from the second font. List order is fallback order. A character none of
+the fonts has is measured as the first font's missing-glyph box. Each font's characters
+are scaled by that font's own design grid, so fonts with different `unitsPerEm` mix
+correctly. `ascent` and `descent` are the largest of the fonts that supplied a
+character, or the first font's for an empty string, so the line is tall enough for all
+of them. `lineGap` is the first font's. Kerning applies only between two characters
+from the same font. A one-font list measures exactly as that font alone does. An empty
+list raises `ErrInvalidArgument`.
+
+**Letter-spacing.** The optional `letterSpacing` adds that many pixels after every
+character but the last, where a character is what a reader sees as one — a letter with
+its accents, a whole emoji sequence — so `"AVA"` with `letterSpacing` 2.0 is 4 pixels
+wider, never 6. It matches `canvas::Text.letterSpacing`, and a text item and a
+measurement with the same spacing agree. A negative spacing measures narrower. Any
+spacing other than `0.0` turns ligatures off, because spaced letters cannot share one
+glyph. To place
+a caret or hit-test a click inside the text, use `canvas::caretStops`, which takes the
+same arguments.
+
+**Underline and strikeout.** `underlineOffset` and `strikeoutOffset` are where the first
+font in the list puts those lines, as pixels from the baseline down to the line's top
+edge: an underline's offset is positive (below the baseline) and a strikeout's negative
+(across the letters). `underlineThickness` and `strikeoutThickness` are their
+thicknesses. A font that does not give a line gets a standard one: an underline 0.1 em
+below the baseline and 0.05 em thick, and a strikeout 0.26 em above it with the
+underline's thickness. Draw either as a `canvas::Line` along the band's middle, at
+`offset + thickness / 2` below the baseline with `thickness` as its stroke width, as
+the example below does.
+
+A font with no `head` table measures as all zeroes rather than failing; in a list, it
+adds nothing. A closed font is different: measuring it raises `ErrResourceClosed`, and so
+does a list with a closed font anywhere in it. Text already in a
 presented scene still draws (as nothing) after its font is closed; only
 measurement needs the font open.
 
@@ -39,13 +77,29 @@ measurement needs the font open.
 const EX: &str = r#"```
 IMPORT app
 IMPORT canvas
+IMPORT color
 IMPORT io
+IMPORT vector
 
 FUNC main() AS Nothing
   app::setMode(app::Mode.Canvas)
   RES face AS canvas::Font = canvas::loadFont("DejaVuSans.ttf")
   LET m AS canvas::TextMetrics = canvas::measureText(face, 24.0, "hello")
   io::print("width " & toString(m.width) & " height " & toString(m.height))
+  ' The same string measured in a list: here a list of one font, which measures exactly
+  ' as the font alone. Add more fonts after it and each character is measured in the
+  ' first one that has it.
+  LET inList AS canvas::TextMetrics = canvas::measureText([face], 24.0, "hello")
+  io::print("same width " & toString(inList.width = m.width))
+  ' Two pixels between characters: four gaps in "hello", so 8 pixels wider.
+  LET spaced AS canvas::TextMetrics = canvas::measureText(face, 24.0, "hello", 2.0)
+  io::print("spaced width " & toString(spaced.width))
+  ' Underline the text drawn at (20, 60): a line along the middle of the font's band.
+  LET y AS Float = 60.0 + m.underlineOffset + m.underlineThickness / 2.0
+  LET underline AS canvas::DrawItem = canvas::Line[id := "", position := vector::Float2[x := 20.0, y := y], startAt := vector::Float2[x := 0.0, y := 0.0], endAt := vector::Float2[x := m.width, y := 0.0], paint := canvas::stroke(color::rgb(255, 255, 255), m.underlineThickness), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET label AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 20.0, y := 60.0], text := "hello", fonts := [face], fontSize := 24.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  canvas::present([label, underline])
+  io::print("underline at y " & toString(y) & ", " & toString(m.underlineThickness) & " thick")
 END FUNC
 ```"#;
 
@@ -56,34 +110,140 @@ END FUNC
 /// run's advances in font units, scaled once; the draw paths add scaled Floats glyph by
 /// glyph, and the two are not interchangeable to the last bit.
 ///
-/// The handle comes from `canvas::fontOpenHandle`, which is what keeps a closed font an
+/// Each handle comes from `canvas::fontOpenHandle`, which is what keeps a closed font an
 /// `ErrResourceClosed` rather than the all-zero metrics an unpublished handle would read
-/// as. The `head`/`hhea` metrics still read the font file through `__canvas_fontBlob`
-/// until plan-162-A's face index answers them by handle.
+/// as. The single-font form measures the one-element list, so there is one metric
+/// computation (plan-162-C), `__canvas_measureHandles`.
 #[rustfmt::skip]
 const MEASURE_TEXT: &str =
-r#"FUNC __canvas_measureText(font AS canvas::Font, size AS Float, text AS String) AS TextMetrics
-  LET handle AS Integer = canvas::fontOpenHandle(font)
-  LET b AS List OF Byte = __canvas_fontBlob(handle)
-  LET upem AS Integer = __canvas_fontUnitsPerEm(b)
-  IF upem <= 0 THEN
-    RETURN TextMetrics[width := 0.0, height := 0.0, ascent := 0.0, descent := 0.0, lineGap := 0.0]
+r#"FUNC __canvas_measureText(font AS canvas::Font, size AS Float, text AS String, letterSpacing AS Float) AS TextMetrics
+  RETURN __canvas_measureHandles([canvas::fontOpenHandle(font)], size, text, letterSpacing)
+END FUNC"#;
+
+/// `canvas::measureText(fonts, size, text)` — the list form (plan-162-C). An empty list is
+/// `ErrInvalidArgument` (77050002, spelled as a literal for the reason
+/// `__canvas_loadFontBytes` gives); any closed font in it is `ErrResourceClosed`, as the
+/// single form raises for its one font.
+#[rustfmt::skip]
+const MEASURE_TEXT_FONTS: &str =
+r#"FUNC __canvas_measureTextFonts(fonts AS List OF RES canvas::Font, size AS Float, text AS String, letterSpacing AS Float) AS TextMetrics
+  IF len(fonts) = 0 THEN
+    FAIL error(77050002, "measureText needs at least one font")
   END IF
-  LET scale AS Float = size / toFloat(upem)
-  LET run AS List OF Integer = __canvas_shapeRun([handle], text)
-  MUT advance AS Integer = 0
-  MUT i AS Integer = 2
-  WHILE i < len(run)
-    advance = advance + collections::getOr(run, i, 0)
-    i = i + 3
+  MUT handles AS List OF Integer = []
+  FOR EACH f IN fonts
+    handles = collections::append(handles, canvas::fontOpenHandle(f))
+  NEXT
+  RETURN __canvas_measureHandles(handles, size, text, letterSpacing)
+END FUNC"#;
+
+/// The metrics of `text` shaped in the fonts `handles` names, in fallback order.
+///
+/// The width is summed **per font**: each font's advances as an Integer in its own units,
+/// scaled once by its own `size / unitsPerEm`, and the fonts' widths then added. The draw
+/// paths add scaled Floats glyph by glyph, and the two are not interchangeable to the
+/// last bit, so a one-font list is exactly the old single-font sum. A font with no `head`
+/// has no scale and adds nothing.
+///
+/// `ascent` and `descent` are the largest of the fonts that supplied a glyph — `fonts[0]`
+/// for an empty string — so a line holding a fallback font's taller glyphs is tall enough
+/// for them. `lineGap` is `fonts[0]`'s. `height` is their sum, as before. A one-element
+/// list whose font has no `head` measures all zeroes.
+///
+/// The decoration lines (plan-162-D) are `fonts[0]`'s: one underline needs one position.
+/// Offsets run down from the baseline to the line's top edge. A font that gives no line
+/// gets the defaults the plan measured as the median of 638 installed faces: underline
+/// 0.10 em below the baseline and 0.05 em thick, strikeout 0.26 em above it at the
+/// underline's thickness.
+///
+/// `spacing` (plan-162-D) adds once per grapheme boundary inside the string — every
+/// glyph the run marks `gapAfter` — so `width` grows by `(graphemes - 1) * spacing` and
+/// no trailing gap is measured. It is added only when it is not `0.0`, so a zero spacing
+/// leaves the width bit-identical.
+#[rustfmt::skip]
+const MEASURE_HANDLES: &str =
+r#"FUNC __canvas_measureHandles(handles AS List OF Integer, size AS Float, text AS String, spacing AS Float) AS TextMetrics
+  __canvas_faceCheck(collections::getOr(handles, 0, 0))
+  LET run AS List OF Integer = __canvas_shapeRun(handles, text, spacing)
+  __canvas_shapeDump(run)
+  LET fonts AS Integer = len(handles)
+  MUT sums AS List OF Integer = []
+  MUT used AS List OF Boolean = []
+  MUT k AS Integer = 0
+  WHILE k < fonts
+    sums = collections::append(sums, 0)
+    used = collections::append(used, len(run) = 0 AND k = 0)
+    k = k + 1
   END WHILE
-  LET ascent AS Float = toFloat(__canvas_fontAscent(b)) * scale
-  ' `hhea.descender` is negative in the file -- it measures downward from the
-  ' baseline -- and `TextMetrics.descent` is documented as a positive number, so the
-  ' sign is flipped here rather than left for every caller to remember.
-  LET descent AS Float = toFloat(0 - __canvas_fontDescent(b)) * scale
-  LET lineGap AS Float = toFloat(__canvas_fontLineGap(b)) * scale
-  RETURN TextMetrics[width := toFloat(advance) * scale, height := ascent + descent + lineGap, ascent := ascent, descent := descent, lineGap := lineGap]
+  MUT gaps AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < len(run)
+    gaps = gaps + collections::getOr(run, i + __CANVAS_RUN_GAP, 0)
+    LET which AS Integer = collections::getOr(run, i + __CANVAS_RUN_FONT, 0)
+    sums = collections::set(sums, which, collections::getOr(sums, which, 0) + collections::getOr(run, i + __CANVAS_RUN_ADVANCE, 0))
+    used = collections::set(used, which, TRUE)
+    i = i + __CANVAS_RUN_STRIDE
+  END WHILE
+  MUT width AS Float = 0.0
+  MUT ascent AS Float = 0.0
+  MUT descent AS Float = 0.0
+  MUT measured AS Boolean = FALSE
+  k = 0
+  WHILE k < fonts
+    LET h AS Integer = collections::getOr(handles, k, 0)
+    LET upem AS Integer = __canvas_faceMetric(h, __CANVAS_FACE_UPEM)
+    IF upem > 0 AND collections::getOr(used, k, FALSE) THEN
+      LET scale AS Float = size / toFloat(upem)
+      LET part AS Float = toFloat(collections::getOr(sums, k, 0)) * scale
+      LET up AS Float = toFloat(__canvas_faceMetric(h, __CANVAS_FACE_ASCENT)) * scale
+      ' `hhea.descender` is negative in the file -- it measures downward from the
+      ' baseline -- and `TextMetrics.descent` is documented as a positive number, so the
+      ' sign is flipped here rather than left for every caller to remember.
+      LET down AS Float = toFloat(0 - __canvas_faceMetric(h, __CANVAS_FACE_DESCENT)) * scale
+      IF measured THEN
+        width = width + part
+        ascent = __canvas_maxF(ascent, up)
+        descent = __canvas_maxF(descent, down)
+      ELSE
+        width = part
+        ascent = up
+        descent = down
+        measured = TRUE
+      END IF
+    END IF
+    k = k + 1
+  END WHILE
+  MUT lineGap AS Float = 0.0
+  LET first AS Integer = collections::getOr(handles, 0, 0)
+  LET firstUpem AS Integer = __canvas_faceMetric(first, __CANVAS_FACE_UPEM)
+  IF firstUpem > 0 THEN
+    lineGap = toFloat(__canvas_faceMetric(first, __CANVAS_FACE_LINEGAP)) * (size / toFloat(firstUpem))
+  END IF
+  IF NOT measured THEN
+    RETURN TextMetrics[width := 0.0, height := 0.0, ascent := 0.0, descent := 0.0, lineGap := 0.0, underlineOffset := 0.0, underlineThickness := 0.0, strikeoutOffset := 0.0, strikeoutThickness := 0.0]
+  END IF
+  MUT underlineOffset AS Float = 0.10 * size
+  MUT underlineThickness AS Float = 0.05 * size
+  MUT strikeoutOffset AS Float = 0.0 - 0.26 * size
+  IF firstUpem > 0 THEN
+    LET firstScale AS Float = size / toFloat(firstUpem)
+    IF __canvas_faceMetric(first, __CANVAS_FACE_UNDERLINE_SIZE) <> __CANVAS_FACE_UNSET THEN
+      underlineOffset = toFloat(0 - __canvas_faceMetric(first, __CANVAS_FACE_UNDERLINE)) * firstScale
+      underlineThickness = toFloat(__canvas_faceMetric(first, __CANVAS_FACE_UNDERLINE_SIZE)) * firstScale
+    END IF
+  END IF
+  MUT strikeoutThickness AS Float = underlineThickness
+  IF firstUpem > 0 THEN
+    LET firstScale AS Float = size / toFloat(firstUpem)
+    IF __canvas_faceMetric(first, __CANVAS_FACE_STRIKEOUT_SIZE) <> __CANVAS_FACE_UNSET THEN
+      strikeoutOffset = toFloat(0 - __canvas_faceMetric(first, __CANVAS_FACE_STRIKEOUT)) * firstScale
+      strikeoutThickness = toFloat(__canvas_faceMetric(first, __CANVAS_FACE_STRIKEOUT_SIZE)) * firstScale
+    END IF
+  END IF
+  IF spacing <> 0.0 AND gaps > 0 THEN
+    width = width + toFloat(gaps) * spacing
+  END IF
+  RETURN TextMetrics[width := width, height := ascent + descent + lineGap, ascent := ascent, descent := descent, lineGap := lineGap, underlineOffset := underlineOffset, underlineThickness := underlineThickness, strikeoutOffset := strikeoutOffset, strikeoutThickness := strikeoutThickness]
 END FUNC"#;
 
 /// `canvas::fontOpenHandle(font) AS Integer` — the font's handle, or `ErrResourceClosed`.
@@ -169,33 +329,97 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: None,
         internal_only: false,
-        implementations: vec![Implementation {
-            params: vec![
-                Parameter {
-                    name: "font",
-                    desc: "The font to measure in.",
-                    aliases: &[],
-                    ty: ParameterType::named(super::FONT_TYPE_ID),
-                    default: DefaultValue::None,
-                },
-                Parameter {
-                    name: "size",
-                    desc: "The em size in pixels.",
-                    aliases: &[],
-                    ty: ParameterType::Float,
-                    default: DefaultValue::None,
-                },
-                Parameter {
-                    name: "text",
-                    desc: "The string to measure.",
-                    aliases: &[],
-                    ty: ParameterType::String,
-                    default: DefaultValue::None,
-                },
-            ],
-            return_type: ParameterType::named("TextMetrics"),
-            errors: vec!["ErrResourceClosed", "ErrOutOfMemory"],
-            body: Body::mfb(MEASURE_TEXT, "__canvas_measureText"),
-        }],
+        implementations: vec![
+            Implementation {
+                params: vec![
+                    Parameter {
+                        name: "font",
+                        desc: "The font to measure in.",
+                        aliases: &[],
+                        ty: ParameterType::named(super::FONT_TYPE_ID),
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "size",
+                        desc: "The em size in pixels.",
+                        aliases: &[],
+                        ty: ParameterType::Float,
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "text",
+                        desc: "The string to measure.",
+                        aliases: &[],
+                        ty: ParameterType::String,
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "letterSpacing",
+                        desc: "Extra pixels after every character but the last, as \
+                               `canvas::Text.letterSpacing` adds them. Optional; \
+                               `0.0` adds none, and a negative value measures \
+                               characters closer.",
+                        aliases: &[],
+                        ty: ParameterType::Float,
+                        default: DefaultValue::Fill {
+                            type_name: ParameterType::Float,
+                            expr: "0.0",
+                        },
+                    },
+                ],
+                return_type: ParameterType::named("TextMetrics"),
+                errors: vec!["ErrResourceClosed", "ErrOutOfMemory"],
+                body: Body::mfb(MEASURE_TEXT, "__canvas_measureText"),
+            },
+            Implementation {
+                params: vec![
+                    Parameter {
+                        name: "fonts",
+                        desc: "The fonts to measure in, in fallback order: each character \
+                               is measured in the first font that has it. Must not be \
+                               empty.",
+                        aliases: &[],
+                        ty: ParameterType::list_of(ParameterType::res(ParameterType::named(
+                            super::FONT_TYPE_ID,
+                        ))),
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "size",
+                        desc: "The em size in pixels.",
+                        aliases: &[],
+                        ty: ParameterType::Float,
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "text",
+                        desc: "The string to measure.",
+                        aliases: &[],
+                        ty: ParameterType::String,
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "letterSpacing",
+                        desc: "Extra pixels after every character but the last, as \
+                               `canvas::Text.letterSpacing` adds them. Optional; \
+                               `0.0` adds none, and a negative value measures \
+                               characters closer.",
+                        aliases: &[],
+                        ty: ParameterType::Float,
+                        default: DefaultValue::Fill {
+                            type_name: ParameterType::Float,
+                            expr: "0.0",
+                        },
+                    },
+                ],
+                return_type: ParameterType::named("TextMetrics"),
+                errors: vec!["ErrInvalidArgument", "ErrResourceClosed", "ErrOutOfMemory"],
+                body: Body::mfb(MEASURE_TEXT_FONTS, "__canvas_measureTextFonts"),
+            },
+        ],
     });
+    pkg.add_helper(RegistryHelper::always(
+        "canvas_measureHandles",
+        MEASURE_HANDLES,
+    ));
 }

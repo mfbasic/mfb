@@ -34,7 +34,7 @@ FUNC install() AS Nothing
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN
   END TRAP
-  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("held", [tag])
 END FUNC
 
@@ -58,7 +58,7 @@ FUNC main AS Integer
   RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
     RETURN 1
   END TRAP
-  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("held", [tag])
   canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "held"]])
   RETURN 0
@@ -159,7 +159,7 @@ FUNC main AS Integer
     RETURN 1
   END TRAP
   FOR i = 1 TO 6
-    LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
     canvas::setGroup("panel", [tag])
     canvas::present([canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"], canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := toFloat(i)], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]])
   NEXT
@@ -454,7 +454,7 @@ IMPORT io
 IMPORT os
 
 FUNC install(face AS canvas::Font) AS Nothing
-  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", font := face, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 40.0, y := 120.0], text := "AA", fonts := [face], fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
   canvas::setGroup("panel", [tag])
 END FUNC
 
@@ -617,6 +617,159 @@ fn two_hundred_owning_cycles_return_group_bytes_to_baseline() {
     );
 }
 
+// ---------------------------------------------------------------------------------------
+// plan-162-C: a `Text` names a LIST of fonts, and a group takes over closing every one of
+// them, by the same rules as one: close what nothing live names (R17b), close a font the
+// list repeats once, and keep a font the rebuilt group still names (R18).
+
+/// The font probe `main` runs after the group is gone: `measureText` raises
+/// `ErrResourceClosed` on a closed font, which is the one direct observable of a close.
+const FONT_PROBE: &str = r#"FUNC isOpen(f AS canvas::Font) AS Boolean
+  LET m AS canvas::TextMetrics = canvas::measureText(f, 10.0, "A") TRAP(e)
+    RETURN FALSE
+  END TRAP
+  RETURN TRUE
+END FUNC
+
+FUNC frame(x AS Float) AS canvas::DrawItem
+  RETURN canvas::Rectangle[id := "", position := vector::Float2[x := x, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 4.0, height := 4.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(1, 1, 1)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+END FUNC
+
+FUNC panel() AS canvas::DrawItem
+  RETURN canvas::Group[id := "", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := "panel"]
+END FUNC
+
+FUNC textIn(fonts AS List OF RES canvas::Font, y AS Float) AS canvas::DrawItem
+  RETURN canvas::Text[id := "", position := vector::Float2[x := 40.0, y := y], text := "AA", fonts := fonts, fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+END FUNC
+"#;
+
+/// A program that installs `[a, b]` (or `{list}`) in a group, replaces the group with one
+/// that names neither, presents three frames past the retirement, and prints whether each
+/// font is still open. `{scene}` is extra live items presented every frame.
+fn list_program(install_list: &str, scene: &str) -> String {
+    format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT io
+
+{FONT_PROBE}
+FUNC install(a AS canvas::Font, b AS canvas::Font) AS Nothing
+  canvas::setGroup("panel", [textIn({install_list}, 120.0)])
+END FUNC
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  RES a AS canvas::Font = canvas::loadFont("fixture.ttf")
+  RES b AS canvas::Font = canvas::loadFont("fixture.ttf")
+  LET keep AS List OF canvas::DrawItem = {scene}
+  install(a, b)
+  IF NOT isOpen(a) OR NOT isOpen(b) THEN
+    io::print("CLOSED-TOO-EARLY")
+    RETURN 2
+  END IF
+  canvas::present(collections::append(keep, panel()))
+  canvas::setGroup("panel", [frame(0.0)])
+  canvas::present(collections::append(keep, collections::append([panel()], frame(10.0))))
+  canvas::present(collections::append(keep, collections::append([panel()], frame(20.0))))
+  canvas::present(collections::append(keep, collections::append([panel()], frame(30.0))))
+  io::print("a=" & toString(isOpen(a)) & " b=" & toString(isOpen(b)))
+  RETURN 0
+END FUNC
+"#
+    )
+    .replace("IMPORT io\n", "IMPORT io\nIMPORT collections\n")
+}
+
+/// Retiring a group whose `Text` lists two fonts closes **both**: nothing live names
+/// either, and the group took over closing them.
+#[test]
+fn retiring_a_group_closes_every_font_its_text_lists() {
+    let (out, _) = run_for(
+        "canvas_group_own_font_list",
+        &list_program("[a, b]", "[]"),
+        true,
+    );
+    assert!(
+        out.contains("a=FALSE b=FALSE"),
+        "both fonts of the retired `Text` must close; a `TRUE` is a font the group took \
+         and nothing will ever close\n{out}",
+    );
+}
+
+/// A font the live scene still names stays open even though the retired group's `Text`
+/// listed it beside one that closes: the rule is per font, not per item.
+#[test]
+fn retiring_a_group_keeps_a_listed_font_the_scene_still_names() {
+    let (out, _) = run_for(
+        "canvas_group_own_font_list_shared",
+        &list_program("[a, b]", "[textIn([b], 300.0)]"),
+        true,
+    );
+    assert!(
+        out.contains("a=FALSE b=TRUE"),
+        "`a` is named by nothing live and must close; `b` is still in the presented scene \
+         and must stay open, or the scene's text vanishes a frame later\n{out}",
+    );
+}
+
+/// A list that repeats a font closes it once. A second close would raise
+/// `ErrResourceClosed` inside the retirement walk; the program finishing and printing
+/// the verdict is the proof it did not.
+#[test]
+fn a_font_listed_twice_closes_once() {
+    let (out, _) = run_for(
+        "canvas_group_own_font_list_repeat",
+        &list_program("[a, a]", "[]"),
+        true,
+    );
+    assert!(
+        out.contains("a=FALSE b=TRUE"),
+        "the repeated font closes, once, and the unlisted one is untouched\n{out}",
+    );
+}
+
+/// R18 with a list: a group rebuilt every frame from the same two fonts closes neither
+/// and keeps drawing.
+#[test]
+fn a_group_rebuilt_each_frame_from_a_font_list_keeps_drawing() {
+    let source = format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT io
+
+{FONT_PROBE}
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  RES a AS canvas::Font = canvas::loadFont("fixture.ttf")
+  RES b AS canvas::Font = canvas::loadFont("fixture.ttf")
+  FOR i = 1 TO 6
+    canvas::setGroup("panel", [textIn([a, b], 120.0)])
+    canvas::present([panel(), frame(toFloat(i))])
+  NEXT
+  io::print("a=" & toString(isOpen(a)) & " b=" & toString(isOpen(b)))
+  RETURN 0
+END FUNC
+"#
+    );
+    let (out, stats) = run_for("canvas_group_own_font_list_rebuild", &source, true);
+    assert!(stats.len() >= 6, "one stats line per present: {stats:?}");
+    for (i, line) in stats.iter().enumerate() {
+        assert!(
+            field(line, "glyphs") > 0,
+            "frame {i} lost its glyphs: a rebuild closed a font the new items still list\n{line}",
+        );
+    }
+    assert!(
+        out.contains("a=TRUE b=TRUE"),
+        "neither font may close\n{out}"
+    );
+}
+
 /// The fixture directory this file assumes exists, so a rename of `common`'s helper is
 /// a compile error here rather than a runtime "font failed to load" that would look
 /// like an ownership bug.
@@ -649,7 +802,7 @@ fn the_font_fixture_is_a_real_truetype() {
 /// One `Text` item (`AA`) at column `x` naming font binding `font`.
 fn text_item(font: &str, x: &str) -> String {
     format!(
-        "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 120.0], text := \"AA\", font := {font}, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+        "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 120.0], text := \"AA\", fonts := [{font}], fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
     )
 }
 
@@ -676,7 +829,7 @@ fn open_face(name: &str) -> String {
     format!("  RES {name} AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    RETURN@\n  END TRAP\n")
 }
 
-/// Loop-built list: `items = collections::append(items, Text[font := face])`.
+/// Loop-built list: `items = collections::append(items, Text[fonts := [face]])`.
 fn loop_built_body() -> String {
     format!(
         "{}  MUT items AS List OF canvas::DrawItem = []\n  FOR i = 0 TO 1\n    items = collections::append(items, {})\n  NEXT\n  canvas::setGroup(\"held\", items)\n",
@@ -722,9 +875,15 @@ fn glyphs_for(name: &str, body: &str, dropped: bool) -> u32 {
 /// Each control must draw something; the dropped variant must draw exactly the same.
 fn assert_owned_like_control(tag: &str, body: &str, why: &str) {
     let held = glyphs_for(&format!("cgo_ctl_{tag}"), body, false);
-    assert!(held > 0, "control `{tag}` draws no glyphs with the binding alive: group text is broken");
+    assert!(
+        held > 0,
+        "control `{tag}` draws no glyphs with the binding alive: group text is broken"
+    );
     let owned = glyphs_for(&format!("cgo_own_{tag}"), body, true);
-    assert_eq!(owned, held, "bug-1092 {tag}: {why} (control drew {held}, dropped drew {owned})");
+    assert_eq!(
+        owned, held,
+        "bug-1092 {tag}: {why} (control drew {held}, dropped drew {owned})"
+    );
 }
 
 #[test]
@@ -732,7 +891,7 @@ fn a_loop_built_list_keeps_its_font_past_the_scope() {
     assert_owned_like_control(
         "loop",
         &loop_built_body(),
-        "`items = collections::append(items, Text[font := face])` places the font, so \
+        "`items = collections::append(items, Text[fonts := [face]])` places the font, so \
          `setGroup` must take it over; fewer glyphs means scope-drop closed it",
     );
 }
@@ -766,6 +925,9 @@ fn the_other_placing_collections_members_keep_their_font() {
         ("flatten", "collections::flatten([[one], [one]])"),
     ] {
         let g = glyphs_for(&format!("cgo_app_{tag}"), &sibling_body(expr), true);
-        assert!(g > 0, "bug-1092: collections::{tag} places `one`, so the font must survive");
+        assert!(
+            g > 0,
+            "bug-1092: collections::{tag} places `one`, so the font must survive"
+        );
     }
 }

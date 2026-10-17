@@ -169,7 +169,7 @@ FUNC main() AS Nothing
       IF big THEN
         size = 200.0
       END IF
-      it = canvas::Text[id := "", position := at(cx - r, cy + r * 0.5), text := "Ag", font := face, fontSize := size, paint := paint, transform := none()]
+      it = canvas::Text[id := "", position := at(cx - r, cy + r * 0.5), text := "Ag", fonts := [face], fontSize := size, letterSpacing := 0.0, paint := paint, transform := none()]
     ELSEIF kind = "polyline" THEN
       it = canvas::PolyLine[id := "", position := at(0.0, 0.0), points := zigzag(cx, cy, r), colors := [color::rgb(255, 0, 0), color::rgb(255, 128, 0), color::rgb(255, 255, 0), color::rgb(0, 255, 0), color::rgb(0, 255, 255), color::rgb(0, 0, 255), color::rgb(128, 0, 255), color::rgb(255, 0, 255)], paint := ink, transform := none()]
     ELSEIF kind = "polycurve" THEN

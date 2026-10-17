@@ -14,7 +14,9 @@
 //! TrueType file *is* the glyph database — `loca` indexes `glyf` by glyph id — so
 //! decoding up front would mean deciding in advance which glyphs a program will draw.
 //! The record keeps the file; the per-glyph raster cache is where repeated work is
-//! actually saved.
+//! actually saved. Beside it the record keeps the font's **face index** (`FONT_FACE`):
+//! the small part of the file every string needs — metrics, `cmap`, advances — parsed
+//! once at load, so measuring and shaping never copy the file.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::error::constants::*;
@@ -27,6 +29,17 @@ use crate::codegen::error::constants::*;
 /// per-record *close function pointer* here.
 pub(crate) const FONT_BYTES: usize = RESOURCE_TAIL_START;
 
+/// Pointer to the font's **face index** (plan-162-A): the `List OF Integer` block
+/// `__canvas_faceIndex` built from the bytes at load, holding the metrics, the `cmap`
+/// runs and the advances, so text reads them by handle instead of copying the file.
+///
+/// It lives exactly as long as `FONT_BYTES` does — no close frees either
+/// (`.ai/canvas-threading.md` §7, "close never frees"), because the graphics thread
+/// reads both in place, from a frame that may still be in flight when the font closes.
+pub(crate) const FONT_FACE: usize = RESOURCE_TAIL_START + 8;
+
 // The tail must fit the canonical envelope, and must not overlap the header.
 const _: () = assert!(FONT_BYTES == RESOURCE_TAIL_START);
 const _: () = assert!(FONT_BYTES + 8 <= RESOURCE_RECORD_SIZE_BYTES);
+const _: () = assert!(FONT_FACE == FONT_BYTES + 8);
+const _: () = assert!(FONT_FACE + 8 <= RESOURCE_RECORD_SIZE_BYTES);

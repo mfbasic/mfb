@@ -49,7 +49,7 @@ FUNC main() AS Nothing
   LET bar AS canvas::DrawItem = canvas::Rectangle[id := "", position := at(0.0, 0.0), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 160.0, height := 70.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(0, 0, 0)) { gradient := ramp }, transform := none()]
   LET band AS canvas::DrawItem = canvas::Rectangle[id := "", position := at(0.0, 80.0), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 160.0, height := 30.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := WITH canvas::fill(color::rgb(255, 255, 255)) { clip := [[at(40.0, 0.0), at(120.0, 0.0), at(120.0, 30.0), at(40.0, 30.0)]] }, transform := none()]
   LET dot AS canvas::DrawItem = canvas::Circle[id := "", position := at(30.0, 140.0), radius := 22.0, paint := canvas::fillStroke(color::rgb(0, 170, 220), color::rgb(255, 255, 255), 5.0), transform := none()]
-  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := at(70.0, 155.0), text := "AA", font := face, fontSize := 46.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := none()]
+  LET tag AS canvas::DrawItem = canvas::Text[id := "", position := at(70.0, 155.0), text := "AA", fonts := [face], fontSize := 46.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := none()]
   canvas::setGroup("panel", [bar, band, dot, tag])
 
   ' A ring around its own origin, to be scaled unevenly.

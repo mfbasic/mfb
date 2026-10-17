@@ -13,5 +13,11 @@ longer matches, so never hand-edit an artifact: change the generator and re-run 
 - **gen_unicode_script_table.py** → `src/codegen/string/unicode/unicode_script_ranges.txt`:
   Script-property runs behind `\p{Script=…}`. It imports `gen_regex_scripts.runs()`
   from this directory, so the two tables cannot disagree; keep the two files together.
+- **gen_linebreak_table.py** → `src/codegen/string/unicode/unicode_linebreak_ranges.txt`:
+  UAX #14 Line_Break classes behind `strings::lineBreakClass` (plan-162-E), with LB1's
+  default resolutions applied and the East-Asian-width, Extended_Pictographic-unassigned
+  and Pi/Pf flags the rules need. Reads only vendored files (`third_party/unicode/`
+  LineBreak, EastAsianWidth and emoji-data at 16.0.0) and the committed general-category
+  artifact, so any Python 3 reproduces it.
 
     python3 tools/unicode-tables/<generator> > <artifact>

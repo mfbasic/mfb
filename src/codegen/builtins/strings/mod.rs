@@ -51,6 +51,8 @@ mod func_is_upper;
 mod func_is_whitespace;
 mod func_join;
 mod func_left;
+mod func_line_break_class;
+mod func_line_breaks;
 mod func_lower;
 mod func_mid;
 pub(crate) mod func_normalize_nfc;
@@ -94,7 +96,8 @@ const INTRO: &str = r#"Unicode-aware helpers for `String` values"#;
 const DESC: &str = r#"The `strings` package provides package-qualified helpers for `String` values:
 trimming and case mapping (`trim`, `trimStart`, `trimEnd`, `trimChars`, `upper`,
 `lower`, `caseFold`), Unicode normalization and segmentation (`normalizeNfc`,
-`graphemes`, `graphemeAt`, `graphemesCount`), tests and search (`startsWith`,
+`graphemes`, `graphemeAt`, `graphemesCount`, and the line-break opportunities of
+`lineBreaks`), tests and search (`startsWith`,
 `endsWith`, `contains`, `startsWithAny`, `endsWithAny`, `find`, `count`), slicing
 and reshaping (`left`, `right`, `mid`, `stripPrefix`, `stripSuffix`, `split`,
 `join`, `replace`, `repeat`, `padLeft`, `padRight`), terminal-column padding
@@ -125,7 +128,9 @@ index to `graphemeAt`. The
 grapheme helpers `graphemes`, `graphemeAt`, and `graphemesCount` are the
 exception: they operate on user-perceived extended grapheme clusters. `byteLen`
 reports the length of the UTF-8 encoding in bytes, and `toBytes` returns those
-raw UTF-8 bytes one element per byte. Case-insensitive comparison should use
+raw UTF-8 bytes one element per byte. `lineBreaks` returns where text may wrap, by the
+Unicode line-breaking rules, as scalar positions that feed straight into `mid` and
+`left`. Case-insensitive comparison should use
 `caseFold` rather than `upper` or `lower`, and content that may combine
 characters differently can be normalized with `normalizeNfc` before comparison.
 
@@ -231,6 +236,8 @@ pub(crate) fn register(r: &mut Registry) {
     func_grapheme_at::register(&mut pkg);
     func_graphemes_count::register(&mut pkg);
     func_gen_cat::register(&mut pkg);
+    func_line_break_class::register(&mut pkg);
+    func_line_breaks::register(&mut pkg);
     func_trim_chars::register(&mut pkg);
     func_to_bytes::register(&mut pkg);
 

@@ -26,8 +26,8 @@
 //! close them, because `add_resource` derives a runtime call from its close op.
 //! Until then — and in every published scene thereafter — an item names a resource
 //! **directly**: `canvas::Picture.image` is a `RES canvas::Image` and
-//! `canvas::Text.font` a `RES canvas::Font`. The scene draws through the resource you
-//! still own; close it and that item draws nothing.
+//! `canvas::Text.fonts` a `List OF RES canvas::Font` (plan-162-C). The scene draws
+//! through the resources you still own; close one and the item draws nothing from it.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::registry::{
@@ -37,6 +37,7 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 mod func_blit_surface;
+mod func_caret_stops;
 mod func_carried_hashes;
 mod func_create_image;
 mod func_destroy_font;
@@ -101,6 +102,8 @@ mod helper_glyph_cache;
 mod helper_hit;
 mod helper_items;
 mod helper_joins;
+mod helper_kern;
+mod helper_liga;
 mod helper_paint_defaults;
 mod helper_particles;
 mod helper_picture;
@@ -209,9 +212,11 @@ shape": every field the caller did not name is already inert. The transparent
 colour is the all-zero `color::Color`, so this holds for `fill` and `stroke` too.
 
 An item that draws an image or text holds the resource itself — `canvas::Picture.image`
-is a `RES canvas::Image` and `canvas::Text.font` a `RES canvas::Font`. A published scene
-may still outlive what it names: closing an image or font a scene still draws makes that
-item draw nothing, rather than failing the frame.
+is a `RES canvas::Image` and `canvas::Text.fonts` a list of `RES canvas::Font`, in
+fallback order. A published scene may still outlive what it names: closing an image a
+scene still draws makes that item draw nothing, and closing a font makes its text draw
+from the next font in its list, or nothing when none is left, rather than failing the
+frame.
 
 `Image` is a resource, so it is bound with `RES` and named
 **package-qualified**, exactly like `fs::File`:
@@ -267,6 +272,10 @@ pub(crate) fn register(r: &mut Registry) {
         "fs",
         "encoding",
         "bits",
+        // plan-162-D: `__canvas_shapeRun` marks grapheme boundaries with
+        // `strings::graphemes`, the segmentation `strings` already ships (utf8proc's
+        // properties), rather than a second copy of it here.
+        "strings",
         // plan-172-B: every coordinate pair is a `vector::Float2`. Injected by
         // `vector`'s late pass, because a canvas program need not import it. This is
         // the largest import here by far: `vector` has no gated helpers, so its whole
@@ -475,6 +484,35 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "lineGap",
                 ty: ParameterType::Float,
                 description: "The font's recommended extra leading between lines, in pixels.",
+            },
+            RecordProp {
+                name: "underlineOffset",
+                ty: ParameterType::Float,
+                description: "Where the font puts an underline: pixels from the baseline \
+                              down to the underline's top edge (negative is above the \
+                              baseline). Draw it as a band `underlineThickness` tall \
+                              below that edge. A font that gives no underline gets one \
+                              0.1 em below the baseline.",
+            },
+            RecordProp {
+                name: "underlineThickness",
+                ty: ParameterType::Float,
+                description: "The underline's thickness in pixels; 0.05 em for a font \
+                              that gives none.",
+            },
+            RecordProp {
+                name: "strikeoutOffset",
+                ty: ParameterType::Float,
+                description: "Where the font puts a strikeout line: pixels from the \
+                              baseline down to its top edge, so it is negative — the line \
+                              crosses the letters above the baseline. A font that gives \
+                              none gets one 0.26 em above the baseline.",
+            },
+            RecordProp {
+                name: "strikeoutThickness",
+                ty: ParameterType::Float,
+                description: "The strikeout line's thickness in pixels; the underline's \
+                              thickness for a font that gives none.",
             },
         ],
     });
@@ -795,7 +833,7 @@ pub(crate) fn register(r: &mut Registry) {
     // through a plain `Integer` handle instead.
     //
     // plan-114-D lifted that ban and plan-116-I removed the workaround. `Picture.image`
-    // and `Text.font` now hold the **resource itself**. What the handle bought — a
+    // and `Text.fonts` (a list since plan-162-C) now hold the **resources themselves**. What the handle bought — a
     // published scene having no opinion on the resource's lifetime — is preserved
     // rather than given up: the renderer reads the backend id through
     // `canvas::imageHandle`/`fontHandle`, which answer `0` for a destroyed resource
@@ -1321,9 +1359,20 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Text",
         export: true,
-        description: "A run of text drawn in a font at a size. `position` is the \
-                      start of the baseline, not the top-left corner — use \
-                      `canvas::measureText` to lay text out without drawing it.",
+        description: "A run of text drawn at a size in a list of fonts. Each \
+                      character is drawn in the first font in `fonts` that has it, so \
+                      a line mixing scripts draws each from a font that covers it, and \
+                      `canvas::measureText` over the same list measures what is drawn. \
+                      The fonts' pair kerning and standard ligatures (`fi`, `fl`) \
+                      are applied, the ligatures only when `letterSpacing` is \
+                      `0.0`. Glyph outlines come from the fonts' TrueType `glyf` \
+                      tables only: \
+                      colour and bitmap glyphs (most emoji fonts) draw nothing. Arabic, \
+                      Indic and other scripts that need complex shaping draw one glyph \
+                      per character in reading order, unjoined; a font is chosen per \
+                      character, not per cluster. `position` is the start of the \
+                      baseline, not the top-left corner — use `canvas::measureText` to \
+                      lay text out without drawing it.",
         props: vec![
             id_prop(),
             RecordProp {
@@ -1339,17 +1388,32 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "The text to draw.",
             },
             RecordProp {
-                name: "font",
-                ty: ParameterType::res(ParameterType::named("canvas.Font")),
-                description: "The font to draw it in. The item holds the font \
-                              itself — you still close it, and closing it while a \
-                              scene still names it draws nothing rather than \
-                              failing.",
+                name: "fonts",
+                ty: ParameterType::list_of(ParameterType::res(ParameterType::named("canvas.Font"))),
+                description: "The fonts to draw it in, in fallback order: each \
+                              character is drawn in the first font in the list that \
+                              has it, so `[latinFace, cjkFace]` draws Latin text from \
+                              the first and CJK from the second. One font is a list of \
+                              one, `[face]`. The item holds the fonts themselves — you \
+                              still close them, and a closed font in the list is \
+                              passed over; with none open the text draws nothing \
+                              rather than failing.",
             },
             RecordProp {
                 name: "fontSize",
                 ty: ParameterType::Float,
                 description: "The em size in pixels.",
+            },
+            RecordProp {
+                name: "letterSpacing",
+                ty: ParameterType::Float,
+                description: "Extra space in pixels after every character but the \
+                              last, where a character is what a reader sees as one: \
+                              a letter with its accents, a whole emoji sequence. \
+                              `0.0`, the zero value, adds none; a negative value draws \
+                              characters closer. Any other value turns the font's \
+                              ligatures off. `canvas::measureText` takes the same \
+                              spacing, so it measures what is drawn.",
             },
             paint_prop(),
             transform_prop(),
@@ -2385,9 +2449,9 @@ pub(crate) fn register(r: &mut Registry) {
     // member leaves a call the catalog cannot route
     // (`catalog_is_consistent`: "canvas.destroyImage: None (expected Some(Canvas))").
     //
-    // `Picture` and `Text` name these directly: since plan-116-I their `image` and
-    // `font` fields are `RES canvas::Image` and `RES canvas::Font`. The value handles
-    // that used to stand in for them are gone.
+    // `Picture` and `Text` name these directly: since plan-116-I `Picture.image` is a
+    // `RES canvas::Image`, and since plan-162-C `Text.fonts` is a `List OF RES
+    // canvas::Font`. The value handles that used to stand in for them are gone.
 
     pkg.add_resource(RegistryResource {
         name: IMAGE_TYPE,
@@ -2465,6 +2529,7 @@ pub(crate) fn register(r: &mut Registry) {
     func_load_font::register(&mut pkg);
     func_system_fonts::register(&mut pkg);
     func_measure_text::register(&mut pkg);
+    func_caret_stops::register(&mut pkg);
     func_destroy_font::register(&mut pkg);
     func_get_size::register(&mut pkg);
     func_nurbs_to_beziers::register(&mut pkg);
@@ -2487,6 +2552,8 @@ pub(crate) fn register(r: &mut Registry) {
     helper_shapes::register(&mut pkg);
     helper_draw::register(&mut pkg);
     helper_font::register(&mut pkg);
+    helper_kern::register(&mut pkg);
+    helper_liga::register(&mut pkg);
     helper_font_name::register(&mut pkg);
     helper_glyph::register(&mut pkg);
     helper_damage::register(&mut pkg);
@@ -2915,9 +2982,11 @@ mod tests {
             .resolve_package("canvas")
             .expect("canvas package");
 
-        for (owner, field_name, resource) in [
-            ("Picture", "image", "canvas.Image"),
-            ("Text", "font", "canvas.Font"),
+        for (owner, field_name, resource, in_list) in [
+            ("Picture", "image", "canvas.Image", false),
+            // plan-162-C: a `Text` names a LIST of fonts, and each element is still the
+            // resource itself, not a copy.
+            ("Text", "fonts", "canvas.Font", true),
         ] {
             let variant = pkg
                 .records()
@@ -2929,10 +2998,15 @@ mod tests {
                 .iter()
                 .find(|p| p.name == field_name)
                 .unwrap_or_else(|| panic!("{owner} should have a `{field_name}` field"));
+            let held = ParameterType::res(ParameterType::named(resource));
+            let expected = if in_list {
+                ParameterType::list_of(held)
+            } else {
+                held
+            };
             assert_eq!(
-                field.ty,
-                ParameterType::res(ParameterType::named(resource)),
-                "`{owner}.{field_name}` must be `RES {resource}`. A bare \
+                field.ty, expected,
+                "`{owner}.{field_name}` must be `RES {resource}` (in a list for `Text`). A bare \
                  `Named(\"{resource}\")` renders the same and is a VALUE field — it \
                  would copy the resource record instead of aliasing the live one",
             );
@@ -2981,8 +3055,11 @@ mod tests {
 
     /// Every variable only a `--debug` build's canvas source reads: the reporting hooks
     /// and the switches a test sets to drive or observe a headless run.
-    const DEBUG_ONLY_VARIABLES: [&str; 9] = [
+    const DEBUG_ONLY_VARIABLES: [&str; 12] = [
         "MFB_CANVAS_STATS",
+        "MFB_CANVAS_FACE_DUMP",
+        "MFB_CANVAS_FACE_CHECK",
+        "MFB_CANVAS_SHAPE_DUMP",
         "MFB_CANVAS_DUMP",
         "MFB_CANVAS_POINTER",
         "MFB_CANVAS_AUTO_WINDOW_MS",
@@ -3072,9 +3149,22 @@ mod tests {
                 if code.starts_with('\'') {
                     continue;
                 }
+                // plan-162-A: the face-index readers are the per-glyph readers too —
+                // `__canvas_shapeRun` reads through them — so they are held to the same
+                // rule. `__canvas_faceCheck` is the one other caller: the `--debug`
+                // oracle that holds each index reader to the byte reader it replaced,
+                // for every codepoint. It turns no text into glyphs. plan-162-F:
+                // `__canvas_ligaRun` is a stage of the shaped run itself — called only by
+                // `__canvas_shapeRun`, it reads the ligature glyph's advance as it
+                // substitutes — so it is the run, not a second walk beside it.
                 let calls = code.contains("__canvas_glyphIndex(")
-                    || code.contains("__canvas_glyphAdvance(");
-                if calls && current != "__canvas_shapeRun" && !offenders.contains(&current) {
+                    || code.contains("__canvas_glyphAdvance(")
+                    || code.contains("__canvas_faceGlyph(")
+                    || code.contains("__canvas_faceAdvance(");
+                let allowed = current == "__canvas_shapeRun"
+                    || current == "__canvas_ligaRun"
+                    || current == "__canvas_faceCheck";
+                if calls && !allowed && !offenders.contains(&current) {
                     offenders.push(current.clone());
                 }
             }
