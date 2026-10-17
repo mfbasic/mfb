@@ -59,7 +59,9 @@ hyphen is a place a line may break, nothing more.
 
 Wrapping is your loop: walk the breaks, measure the text from the line's start to each
 one, and break at the last one that still fits — with `canvas::measureText` for drawn
-text, or with a character count for a terminal, as the example does."#;
+text, or with a character count for a terminal, as the example does.
+
+`ErrOutOfMemory` means the program ran out of memory."#;
 
 const EX: &str = r#"```
 IMPORT collections
@@ -171,52 +173,62 @@ FUNC __strings_lineBreaks(text AS String) AS List OF strings::LineBreak
   RETURN collections::append(breaks, strings::LineBreak[index := n, mandatory := TRUE])
 END FUNC
 
-REM LB1, LB9 and LB10: the scalars as units.
+REM LB1, LB9 and LB10: the scalars as units. The unit being built is held in locals
+REM and appended only when the next one starts, so a mark joining it updates a local
+REM rather than writing back into the list.
 FUNC __strings_lbUnits(scalars AS List OF Scalar) AS List OF Integer
   MUT units AS List OF Integer = []
+  MUT open AS Boolean = FALSE
+  MUT uClass AS Integer = 0
+  MUT uFlags AS Integer = 0
+  MUT uCp AS Integer = 0
+  MUT uStart AS Integer = 0
+  MUT uZwj AS Integer = 0
   MUT i AS Integer = 0
   FOR EACH sc IN scalars
     LET cp AS Integer = toInt(sc)
     LET value AS Integer = strings::lineBreakClass(cp)
     LET cls AS Integer = value MOD 64
     LET mark AS Boolean = cls = __STRINGS_LB_CM OR cls = __STRINGS_LB_ZWJ
-    LET last AS Integer = len(units) - __STRINGS_LB_STRIDE
-    MUT absorbed AS Boolean = FALSE
-    IF mark AND last >= 0 THEN
-      LET base AS Integer = collections::getOr(units, last, 0)
-      IF base <> __STRINGS_LB_BK AND base <> __STRINGS_LB_CR AND base <> __STRINGS_LB_LF AND base <> __STRINGS_LB_NL AND base <> __STRINGS_LB_SP AND base <> __STRINGS_LB_ZW THEN
-        ' LB9: the mark joins the unit before it, which keeps that unit's class.
-        MUT ends AS Integer = 0
-        IF cls = __STRINGS_LB_ZWJ THEN
-          ends = 1
-        END IF
-        units = collections::set(units, last + 4, ends)
-        absorbed = TRUE
-      END IF
+    MUT zwj AS Integer = 0
+    IF cls = __STRINGS_LB_ZWJ THEN
+      zwj = 1
     END IF
-    IF NOT absorbed THEN
+    IF mark AND open AND uClass <> __STRINGS_LB_BK AND uClass <> __STRINGS_LB_CR AND uClass <> __STRINGS_LB_LF AND uClass <> __STRINGS_LB_NL AND uClass <> __STRINGS_LB_SP AND uClass <> __STRINGS_LB_ZW THEN
+      ' LB9: the mark joins the unit before it, which keeps that unit's class.
+      uZwj = zwj
+    ELSE
+      IF open THEN
+        units = __strings_lbPush(units, uClass, uFlags, uCp, uStart, uZwj)
+      END IF
+      open = TRUE
+      uStart = i
+      uZwj = zwj
       IF mark THEN
         ' LB10: a mark with nothing to join is a letter A.
-        units = collections::append(units, __STRINGS_LB_AL)
-        units = collections::append(units, 0)
-        units = collections::append(units, 65)
-        units = collections::append(units, i)
-        MUT ends AS Integer = 0
-        IF cls = __STRINGS_LB_ZWJ THEN
-          ends = 1
-        END IF
-        units = collections::append(units, ends)
+        uClass = __STRINGS_LB_AL
+        uFlags = 0
+        uCp = 65
       ELSE
-        units = collections::append(units, cls)
-        units = collections::append(units, value / 64)
-        units = collections::append(units, cp)
-        units = collections::append(units, i)
-        units = collections::append(units, 0)
+        uClass = cls
+        uFlags = value / 64
+        uCp = cp
       END IF
     END IF
     i = i + 1
   NEXT
+  IF open THEN
+    units = __strings_lbPush(units, uClass, uFlags, uCp, uStart, uZwj)
+  END IF
   RETURN units
+END FUNC
+
+FUNC __strings_lbPush(units AS List OF Integer, cls AS Integer, flags AS Integer, cp AS Integer, start AS Integer, zwj AS Integer) AS List OF Integer
+  MUT out AS List OF Integer = collections::append(units, cls)
+  out = collections::append(out, flags)
+  out = collections::append(out, cp)
+  out = collections::append(out, start)
+  RETURN collections::append(out, zwj)
 END FUNC
 
 REM Word `field` of unit `k`; a unit past either end reads -1 (sot or eot).
@@ -563,7 +575,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::list_of(ParameterType::named("LineBreak")),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory"],
             body: Body::Rewrite("__strings_lineBreaks"),
         }],
     });

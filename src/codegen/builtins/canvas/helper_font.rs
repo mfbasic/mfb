@@ -934,19 +934,21 @@ FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String, spacing AS Floa
 END FUNC
 
 ' `n + 1` flags, TRUE at every scalar index where a grapheme of `text` ends (and the
-' next begins).
+' next begins). Built by appending in order -- index 0, then each grapheme's scalars
+' with TRUE on its last -- so no index is ever written out of range.
 FUNC __canvas_graphemeEnds(text AS String, n AS Integer) AS List OF Boolean
-  MUT ends AS List OF Boolean = []
-  MUT i AS Integer = 0
-  WHILE i <= n
-    ends = collections::append(ends, FALSE)
-    i = i + 1
-  END WHILE
-  MUT reach AS Integer = 0
+  MUT ends AS List OF Boolean = [FALSE]
   FOR EACH g IN strings::graphemes(text)
-    reach = reach + len(encoding::utf32Encode(g))
-    ends = collections::set(ends, reach, TRUE)
+    MUT k AS Integer = len(encoding::utf32Encode(g))
+    WHILE k > 1
+      ends = collections::append(ends, FALSE)
+      k = k - 1
+    END WHILE
+    ends = collections::append(ends, TRUE)
   NEXT
+  WHILE len(ends) <= n
+    ends = collections::append(ends, FALSE)
+  END WHILE
   RETURN ends
 END FUNC"#;
 
