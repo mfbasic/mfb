@@ -168,7 +168,7 @@ not: `mfb dbg` keeps it, and `show report` prints it once the program has ended
 | `list arena` | `l arena` | lists the program's memory pools |
 | `list breakpoint` | `l breakpoint` | lists the breakpoints |
 | `list watchpoint` | `l watchpoint` | lists the watchpoints |
-| `list env` | `l env` | lists the environment the next `restart` gives |
+| `list env` | `l env` | lists the environment variables: each one's value now and after the next `restart` |
 | `show mem <where> [<size>]` | | shows the raw bytes of memory |
 | `show error [<thread>]` | | shows the error a thread has raised and not yet handled |
 | `show report` | | shows the report the program wrote as it ended |

@@ -450,7 +450,7 @@ Then, repeatedly:
 | `backtrace [<count>] [<id>]`, `bt …` | prints thread `<id>`'s frames (default the current thread), the innermost `<count>` (default all) |
 | `backtrace all`, `bt all` | prints every thread's frames |
 | `restart`, `rs` | starts a launched program again |
-| `list env` | prints the environment a launched program gets when it restarts |
+| `list env` | prints a launched program's environment variables: each one's current value and its value after the next restart |
 | `env s <name> <value>`, `env set …` | gives `<name>` the value `<value>` for the next restart |
 | `env r <name>`, `env remove …` | takes `<name>` away for the next restart |
 | `env clear` | takes every variable away for the next restart |
@@ -1549,13 +1549,16 @@ no NUL (`environment::check_name`, `check_value`). The backends hand the
 environment to the new process as its `envp`, one `<name>=<value>` per
 variable in order (`environment::entries`).
 
-`list env` prints the environment the next restart gives, as
-`<name> | <value>` under the header `Name | Value`, in byte order of the names
-(a repeated name once per copy), each through the terminal sanitizer; with
-none, `no environment variables`. When it differs from the one the running
-program was launched with, a blank line and this line follow:
-`Changed since the program started: it gets these when it restarts.`
-A restart that succeeds makes it the running program's.
+`list env` prints one row per name that the running program's environment
+(the one it was launched with) or the next restart's has, as
+`<name> | <current> | <after restart>` under the header
+`Name | Current | After restart`, in byte order of the names, each cell
+through the terminal sanitizer. `<current>` is the running program's value and
+`<after restart>` the next restart's; a cell is empty where that environment
+does not have the name, and a name an environment repeats shows its first
+value. With no name on either side it prints `no environment variables`. A
+restart that succeeds makes the next restart's environment the running
+program's. [[src/debugger/environment.rs:Session]]
 
 ### Addresses
 

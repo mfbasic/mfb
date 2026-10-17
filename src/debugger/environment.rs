@@ -117,30 +117,41 @@ impl Session {
         Ok(vec![line])
     }
 
-    /// The `list env` lines: the environment the next restart gives, as
-    /// `<name> | <value>` in name order under a header, with a note when it
-    /// is not the one the running program has.
+    /// The `list env` lines: every variable the running program has or the
+    /// next restart gives, in name order under a header, as `<name> |
+    /// <current> | <after restart>`; a cell is empty where that side does not
+    /// have the variable.
     pub(crate) fn lines(&self) -> Vec<String> {
-        let mut variables = self.next.iter().collect::<Vec<_>>();
-        variables.sort_by(|one, other| one.0.cmp(&other.0));
-        let rows = variables
+        // Each name once; a name repeated in an environment shows its first
+        // value, the one `getenv` finds.
+        let mut names = self
+            .running
+            .iter()
+            .chain(&self.next)
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>();
+        names.sort();
+        names.dedup();
+        let value = |environment: &Environment, name: &OsString| {
+            environment
+                .iter()
+                .find(|(other, _)| other == name)
+                .map(|(_, value)| safe(&value.to_string_lossy()).into_owned())
+                .unwrap_or_default()
+        };
+        let rows = names
             .into_iter()
-            .map(|(name, value)| {
+            .map(|name| {
                 vec![
                     safe(&name.to_string_lossy()).into_owned(),
-                    safe(&value.to_string_lossy()).into_owned(),
+                    value(&self.running, name),
+                    value(&self.next, name),
                 ]
             })
             .collect::<Vec<_>>();
-        let mut lines = super::prompt::table(&["Name", "Value"], rows);
+        let mut lines = super::prompt::table(&["Name", "Current", "After restart"], rows);
         if lines.is_empty() {
             lines.push("no environment variables".to_string());
-        }
-        if self.next != self.running {
-            lines.push(String::new());
-            lines.push(
-                "Changed since the program started: it gets these when it restarts.".to_string(),
-            );
         }
         lines
     }
@@ -215,7 +226,11 @@ mod tests {
         let session = Session::new(environment(&[("PATH", "/bin"), ("HOME", "/home/me")]));
         assert_eq!(
             session.lines(),
-            ["Name | Value", "HOME | /home/me", "PATH | /bin"]
+            [
+                "Name | Current  | After restart",
+                "HOME | /home/me | /home/me",
+                "PATH | /bin     | /bin",
+            ]
         );
         assert_eq!(
             session.next(),
@@ -235,20 +250,28 @@ mod tests {
             session.next(),
             environment(&[("A", "x y"), ("B", "2"), ("C", "")])
         );
+        // A repeated name shows its first value; one only the restart gives
+        // has no current value.
         assert_eq!(
             session.lines(),
             [
-                "Name | Value",
-                "A    | x y",
-                "B    | 2",
-                "C    | ",
-                "",
-                "Changed since the program started: it gets these when it restarts.",
+                "Name | Current | After restart",
+                "A    | 1       | x y",
+                "B    | 2       | 2",
+                "C    |         | ",
             ]
         );
-        // Once restarted, the program has them: no note.
+        // Once restarted, the program has them.
         session.restarted();
-        assert_eq!(session.lines().last().unwrap(), "C    | ");
+        assert_eq!(
+            session.lines(),
+            [
+                "Name | Current | After restart",
+                "A    | x y     | x y",
+                "B    | 2       | 2",
+                "C    |         | ",
+            ]
+        );
     }
 
     #[test]
@@ -274,12 +297,13 @@ mod tests {
             session.change(Change::Clear).unwrap(),
             ["Cleared the environment; the program starts with none when it restarts."]
         );
+        // What the program has, and nothing after the restart.
         assert_eq!(
             session.lines(),
             [
-                "no environment variables",
-                "",
-                "Changed since the program started: it gets these when it restarts.",
+                "Name | Current | After restart",
+                "A    | 1       | ",
+                "B    | 2       | ",
             ]
         );
         assert_eq!(
@@ -291,7 +315,18 @@ mod tests {
         );
         // Back to the first, which is not what the program restarted with.
         assert_eq!(session.next(), environment(&[("A", "1")]));
-        assert_eq!(session.lines().len(), 4);
+        assert_eq!(
+            session.lines(),
+            [
+                "Name | Current | After restart",
+                "A    | 1       | 1",
+                "B    | 2       | ",
+            ]
+        );
+        // Nothing on either side.
+        session.change(Change::Clear).unwrap();
+        session.restarted();
+        assert_eq!(session.lines(), ["no environment variables"]);
     }
 
     #[test]

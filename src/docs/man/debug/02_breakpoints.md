@@ -347,9 +347,10 @@ stays as it was until the restart.
 - `env clear` removes them all: the program starts with no environment at all.
 - `env reset` goes back to the environment the session started the program
   with.
-- `list env` shows the environment the next restart gives, sorted by name.
-  When that is not the one the running program has, a line under the list
-  says so.
+- `list env` shows the variables, sorted by name, in three columns: the name,
+  its value in the running program (`Current`), and the value it gets at the
+  next restart (`After restart`). A cell is empty where the variable is not
+  set.
 
 A name holds no `=`, and names are case-sensitive: `env r path` does not
 remove `PATH`. `env` works only on a program `mfb dbg` started, since one it
@@ -450,25 +451,24 @@ printf 'env s LOG_LEVEL debug\nenv r TERM\nlist env\nrestart\nlist env\nq\n' | e
 ```
 
 ```
-Launched examples/debug/build/debug.out as process 49471; paused before its first instruction.
+Launched examples/debug/build/debug.out as process 2580; paused before its first instruction.
 DBG> env s LOG_LEVEL debug
 Set LOG_LEVEL=debug; the program gets it when it restarts.
 DBG> env r TERM
 Removed TERM; the program goes without it when it restarts.
 DBG> list env
-Name      | Value
-HOME      | /Users/me
-LOG_LEVEL | debug
-
-Changed since the program started: it gets these when it restarts.
+Name      | Current        | After restart
+HOME      | /Users/me      | /Users/me
+LOG_LEVEL |                | debug
+TERM      | xterm-256color | 
 DBG> restart
-Restarted the program as process 49493; paused before its first instruction.
+Restarted the program as process 2582; paused before its first instruction.
 DBG> list env
-Name      | Value
-HOME      | /Users/me
-LOG_LEVEL | debug
+Name      | Current   | After restart
+HOME      | /Users/me | /Users/me
+LOG_LEVEL | debug     | debug
 DBG> q
-Killed process 49493.
+Killed process 2582.
 ```
 
 ## See also

@@ -138,8 +138,11 @@ Each listing starts with a line naming its columns; ' | ' separates them.
   watchpoint    The watchpoints: <address> <size> <value>
                 <value> is the bytes' value now; a <commands> column follows
                 when any has commands.
-  env           The environment the program gets when it restarts, in name
-                order: <name> <value> (a program the debugger launched).";
+  env           The environment variables, in name order (a program the
+                debugger launched): <name> <current> <after restart>
+                <current> is the running program's value, <after restart>
+                the one 'env' has set for the next restart; a cell is
+                empty where the variable is not set.";
 
 /// What a bare `list reg` prints under its registers, and all it prints once
 /// the program has ended.
@@ -3255,14 +3258,20 @@ x0       | 0x000000000000002c | (44)
         assert_eq!(
             out,
             format!(
-                "{PROMPT}Name | Value\nHOME | /h\nPATH | /bin\n\
+                "{PROMPT}Name | Current | After restart\n\
+                 HOME | /h      | /h\n\
+                 PATH | /bin    | /bin\n\
                  {PROMPT}Set GREETING=hello,  world ; the program gets it when it restarts.\n\
                  {PROMPT}Removed HOME; the program goes without it when it restarts.\n\
-                 {PROMPT}Name     | Value\nGREETING | hello,  world \nPATH     | /bin\n\n\
-                 Changed since the program started: it gets these when it restarts.\n\
+                 {PROMPT}Name     | Current | After restart\n\
+                 GREETING |         | hello,  world \n\
+                 HOME     | /h      | \n\
+                 PATH     | /bin    | /bin\n\
                  {PROMPT}Restarted the program as process 43; paused before its first \
                  instruction.\n\
-                 {PROMPT}Name     | Value\nGREETING | hello,  world \nPATH     | /bin\n\
+                 {PROMPT}Name     | Current        | After restart\n\
+                 GREETING | hello,  world  | hello,  world \n\
+                 PATH     | /bin           | /bin\n\
                  {PROMPT}Cleared the environment; the program starts with none when it \
                  restarts.\n\
                  {PROMPT}Reset the environment to the one the session started the program \

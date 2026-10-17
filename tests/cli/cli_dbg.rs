@@ -1129,11 +1129,20 @@ mod native {
         session.send("env r MFB_DBG_GREETING\n");
         session.until_prompt();
         session.send("list env\n");
+        // The running program has it; the next restart does not.
         let listed = session.until_prompt();
+        let row = listed
+            .lines()
+            .find(|line| line.starts_with("MFB_DBG_GREETING "))
+            .unwrap_or_else(|| panic!("no MFB_DBG_GREETING row in {listed}"))
+            .split(" | ")
+            .map(str::trim_end)
+            .collect::<Vec<_>>();
+        assert_eq!(row, ["MFB_DBG_GREETING", "hello,  world", ""], "{listed}");
         assert!(
-            !listed.contains("MFB_DBG_GREETING")
-                && listed
-                    .contains("Changed since the program started: it gets these when it restarts."),
+            listed.contains("Name ")
+                && listed.contains(" | Current ")
+                && listed.contains(" | After restart"),
             "{listed}"
         );
         session.send("restart\n");
