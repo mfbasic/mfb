@@ -118,6 +118,12 @@ END FUNC"#;
 /// for them. `lineGap` is `fonts[0]`'s. `height` is their sum, as before. A one-element
 /// list whose font has no `head` measures all zeroes.
 ///
+/// The decoration lines (plan-162-D) are `fonts[0]`'s: one underline needs one position.
+/// Offsets run down from the baseline to the line's top edge. A font that gives no line
+/// gets the defaults the plan measured as the median of 638 installed faces: underline
+/// 0.10 em below the baseline and 0.05 em thick, strikeout 0.26 em above it at the
+/// underline's thickness.
+///
 /// `spacing` (plan-162-D) adds once per grapheme boundary inside the string — every
 /// glyph the run marks `gapAfter` — so `width` grows by `(graphemes - 1) * spacing` and
 /// no trailing gap is measured. It is added only when it is not `0.0`, so a zero spacing
@@ -182,12 +188,30 @@ r#"FUNC __canvas_measureHandles(handles AS List OF Integer, size AS Float, text 
     lineGap = toFloat(__canvas_faceMetric(first, __CANVAS_FACE_LINEGAP)) * (size / toFloat(firstUpem))
   END IF
   IF NOT measured THEN
-    RETURN TextMetrics[width := 0.0, height := 0.0, ascent := 0.0, descent := 0.0, lineGap := 0.0]
+    RETURN TextMetrics[width := 0.0, height := 0.0, ascent := 0.0, descent := 0.0, lineGap := 0.0, underlineOffset := 0.0, underlineThickness := 0.0, strikeoutOffset := 0.0, strikeoutThickness := 0.0]
+  END IF
+  MUT underlineOffset AS Float = 0.10 * size
+  MUT underlineThickness AS Float = 0.05 * size
+  MUT strikeoutOffset AS Float = 0.0 - 0.26 * size
+  IF firstUpem > 0 THEN
+    LET firstScale AS Float = size / toFloat(firstUpem)
+    IF __canvas_faceMetric(first, __CANVAS_FACE_UNDERLINE_SIZE) <> __CANVAS_FACE_UNSET THEN
+      underlineOffset = toFloat(0 - __canvas_faceMetric(first, __CANVAS_FACE_UNDERLINE)) * firstScale
+      underlineThickness = toFloat(__canvas_faceMetric(first, __CANVAS_FACE_UNDERLINE_SIZE)) * firstScale
+    END IF
+  END IF
+  MUT strikeoutThickness AS Float = underlineThickness
+  IF firstUpem > 0 THEN
+    LET firstScale AS Float = size / toFloat(firstUpem)
+    IF __canvas_faceMetric(first, __CANVAS_FACE_STRIKEOUT_SIZE) <> __CANVAS_FACE_UNSET THEN
+      strikeoutOffset = toFloat(0 - __canvas_faceMetric(first, __CANVAS_FACE_STRIKEOUT)) * firstScale
+      strikeoutThickness = toFloat(__canvas_faceMetric(first, __CANVAS_FACE_STRIKEOUT_SIZE)) * firstScale
+    END IF
   END IF
   IF spacing <> 0.0 AND gaps > 0 THEN
     width = width + toFloat(gaps) * spacing
   END IF
-  RETURN TextMetrics[width := width, height := ascent + descent + lineGap, ascent := ascent, descent := descent, lineGap := lineGap]
+  RETURN TextMetrics[width := width, height := ascent + descent + lineGap, ascent := ascent, descent := descent, lineGap := lineGap, underlineOffset := underlineOffset, underlineThickness := underlineThickness, strikeoutOffset := strikeoutOffset, strikeoutThickness := strikeoutThickness]
 END FUNC"#;
 
 /// `canvas::fontOpenHandle(font) AS Integer` — the font's handle, or `ErrResourceClosed`.

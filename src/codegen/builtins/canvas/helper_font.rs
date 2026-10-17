@@ -240,9 +240,15 @@ END FUNC"#;
 /// | 5, 6 | cmap run count `R`, and the word the runs start at |
 /// | 7, 8 | advance count `H` (`numberOfHMetrics`), and the word they start at |
 /// | 9 | the kerning section's first word, or 0 for a font with no kerning (plan-162-B, `helper_kern.rs`) |
+/// | 10, 11 | `post.underlinePosition` (the underline's top edge, negative below the baseline) and `post.underlineThickness` (plan-162-D) |
+/// | 12, 13 | `OS/2.yStrikeoutPosition` (the strikeout's top edge, above the baseline) and `OS/2.yStrikeoutSize` |
+///
+/// Words 10-13 hold −32768, "the font says nothing", for a missing table or a zero
+/// thickness: a font that gives a zero-thickness line has given no usable line, and the
+/// reader substitutes its documented default instead.
 ///
 /// Each later letter of plan-162 appends its section and bumps the version: 1 was the
-/// metrics, `cmap` and advances alone.
+/// metrics, `cmap` and advances alone, 2 added kerning, 3 the decoration lines.
 ///
 /// A cmap **run** is `(firstCp, lastCp, delta)`: every codepoint in it maps to
 /// `cp + delta`, the runs are sorted by `firstCp` and never overlap, and a codepoint in
@@ -278,7 +284,12 @@ LET __CANVAS_FACE_RUNS_AT AS Integer = 6
 LET __CANVAS_FACE_ADVANCES AS Integer = 7
 LET __CANVAS_FACE_ADVANCES_AT AS Integer = 8
 LET __CANVAS_FACE_KERN AS Integer = 9
-LET __CANVAS_FACE_HEADER AS Integer = 10
+LET __CANVAS_FACE_UNDERLINE AS Integer = 10
+LET __CANVAS_FACE_UNDERLINE_SIZE AS Integer = 11
+LET __CANVAS_FACE_STRIKEOUT AS Integer = 12
+LET __CANVAS_FACE_STRIKEOUT_SIZE AS Integer = 13
+LET __CANVAS_FACE_UNSET AS Integer = 0 - 32768
+LET __CANVAS_FACE_HEADER AS Integer = 14
 
 FUNC __canvas_faceIndex(b AS List OF Byte) AS List OF Integer
   LET runs AS List OF Integer = __canvas_cmapRuns(b)
@@ -289,11 +300,28 @@ FUNC __canvas_faceIndex(b AS List OF Byte) AS List OF Integer
   IF len(kerning) > 0 THEN
     kernAt = body
   END IF
-  MUT out AS List OF Integer = [2, __canvas_fontUnitsPerEm(b), __canvas_fontAscent(b), __canvas_fontDescent(b), __canvas_fontLineGap(b), len(runs) / 3, __CANVAS_FACE_HEADER, len(advances), __CANVAS_FACE_HEADER + len(runs), kernAt]
+  MUT out AS List OF Integer = [3, __canvas_fontUnitsPerEm(b), __canvas_fontAscent(b), __canvas_fontDescent(b), __canvas_fontLineGap(b), len(runs) / 3, __CANVAS_FACE_HEADER, len(advances), __CANVAS_FACE_HEADER + len(runs), kernAt]
+  out = collections::append(out, __canvas_faceLine(b, "post", 8, 10))
+  out = collections::append(out, __canvas_faceLine(b, "OS/2", 28, 26))
   out = collections::append(out, runs)
   out = collections::append(out, advances)
   out = collections::append(out, kerning)
   RETURN out
+END FUNC
+
+' A decoration line from table `tag`: `[position, thickness]`, signed font units read at
+' `positionAt` and `sizeAt`, or both unset when the table is missing or too short, or
+' the thickness is not positive.
+FUNC __canvas_faceLine(b AS List OF Byte, tag AS String, positionAt AS Integer, sizeAt AS Integer) AS List OF Integer
+  LET table AS Integer = __canvas_fontTable(b, tag)
+  IF table < 0 OR table + __canvas_maxI(positionAt, sizeAt) + 2 > len(b) THEN
+    RETURN [__CANVAS_FACE_UNSET, __CANVAS_FACE_UNSET]
+  END IF
+  LET size AS Integer = __canvas_beS16(b, table + sizeAt)
+  IF size <= 0 THEN
+    RETURN [__CANVAS_FACE_UNSET, __CANVAS_FACE_UNSET]
+  END IF
+  RETURN [__canvas_beS16(b, table + positionAt), size]
 END FUNC
 
 FUNC __canvas_faceAdvances(b AS List OF Byte) AS List OF Integer

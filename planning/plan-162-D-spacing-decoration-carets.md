@@ -196,19 +196,31 @@ Commit: 78cef082d
 Acceptance: measured and drawn spacing agree.
   Check: `cargo test --test rt_canvas_font spacing` → pass (est. 3 min).
   Result: 3 passed, 0 failed.
-Commit: — (this commit)
+Commit: d15df3399
 
 ### Phase 4 — decoration metrics
 
-- [ ] Face index v3: four words (plan-162-A §4.1 versioning).
-- [ ] `TextMetrics`: four new fields in `mod.rs`, computed in the `measureText` body
-      from fonts[0], with defaults per Open Decisions when flagged.
-- [ ] Tests: a fixture with `post`/`OS/2` values gives exact pixels, and a fixture with
+- [x] Face index v3: four words (plan-162-A §4.1 versioning). Header words 10–13
+      (`__canvas_faceLine`); the header is 14 words. The plan-A index tests moved to v3,
+      as their own comment predicts.
+- [x] `TextMetrics`: four new fields in `mod.rs`, computed in the `measureText` body
+      from fonts[0], with defaults per Open Decisions when flagged. Offsets run down
+      from the baseline to the line's **top edge**, as OpenType defines both positions
+      (Correction 5). Defaults, locked to §2's measured medians: underline 0.10 em below
+      at 0.05 em, strikeout 0.26 em above (not the 0.3 the Open Decision guessed) at the
+      underline's thickness.
+- [x] Tests: a fixture with `post`/`OS/2` values gives exact pixels, and a fixture with
       neither gives the documented defaults.
+      `decoration_metrics_come_from_post_and_os2_or_the_defaults` → ok: `150 60 -280 45`
+      from the tables, `100 50 -260 50` from none, the same for zero thicknesses, and
+      `120 70 -260 70` with an underline but no strikeout.
 
 Acceptance: metrics match the fixture tables.
   Check: `cargo test --test rt_canvas_font decoration` → pass (est. 3 min).
-Commit: —
+  Result: `decoration` 1 passed. With it, the v3-dependent `face_index_of_*`,
+  `face_kern_reads_each_fixtures_pairs` and the exact live-bytes test (now 23 index
+  words) passed: 5 passed, 0 failed.
+Commit: — (this commit)
 
 ### Phase 5 — caret stops, docs
 
@@ -275,6 +287,12 @@ Commit: —
    \`canvas.Text\` has 7 argument(s), expected 8`), so adding the field is a source
    change at every construction site. All 78 were updated with `letterSpacing := 0.0`
    (`/tmp/p162/edits/d3migrate.py`, inserted after `fontSize := …`).
+
+5. **A decoration offset is to the line's top edge.** OpenType defines
+   `post.underlinePosition` and `OS/2.yStrikeoutPosition` as the top of the stroke. So
+   the metrics report the distance down to the top edge, and a program draws the band
+   `thickness` tall below it. The man pages say so, and their example centres a
+   `canvas::Line` at `offset + thickness / 2`.
 
 ## Summary
 

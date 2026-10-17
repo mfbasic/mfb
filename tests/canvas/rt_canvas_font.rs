@@ -2363,8 +2363,9 @@ END FUNC
 
 /// The fixture's index, word for word, from its own tables: `head.unitsPerEm` 1000,
 /// `hhea` 800 / −200 / 100, a format-12 `cmap` mapping `A`→1 and `B`→2 (two runs of
-/// delta −64), three `hmtx` advances, and no kerning (word 9 is 0). Layout version 2,
-/// whose header is ten words (plan-162-B added word 9).
+/// delta −64), three `hmtx` advances, no kerning (word 9 is 0), and no `post` or `OS/2`
+/// (words 10-13 unset, −32768). Layout version 3, whose header is fourteen words
+/// (plan-162-B added word 9, plan-162-D words 10-13).
 #[test]
 fn face_index_of_the_fixture_is_its_own_tables() {
     let dumps = face_dumps(
@@ -2375,9 +2376,10 @@ fn face_index_of_the_fixture_is_its_own_tables() {
     assert_eq!(
         dumps,
         vec![vec![
-            2, 1000, 800, -200, 100, // version, unitsPerEm, ascent, descent, lineGap
-            2, 10, 3, 16, // R at word 10, H at word 16
+            3, 1000, 800, -200, 100, // version, unitsPerEm, ascent, descent, lineGap
+            2, 14, 3, 20, // R at word 14, H at word 20
             0,  // no kerning section
+            -32768, -32768, -32768, -32768, // no underline, no strikeout
             65, 65, -64, 66, 66, -64, // the runs
             500, 250, 300, // the advances
         ]],
@@ -2398,7 +2400,8 @@ fn face_index_of_a_font_with_no_head_has_no_units_per_em() {
     assert_eq!(
         dumps,
         vec![vec![
-            2, 0, 800, -200, 100, 2, 10, 3, 16, 0, 65, 65, -64, 66, 66, -64, 500, 250, 300
+            3, 0, 800, -200, 100, 2, 14, 3, 20, 0, -32768, -32768, -32768, -32768, 65, 65, -64, 66,
+            66, -64, 500, 250, 300
         ]],
     );
 }
@@ -2757,7 +2760,7 @@ fn a_load_destroy_cycle_keeps_only_the_fonts_own_blocks() {
     const FEW: usize = 40;
     const MANY: usize = 80;
     let font = minimal_truetype().len() as u64;
-    let words = 19u64; // the fixture's index, `face_index_of_the_fixture_is_its_own_tables`
+    let words = 23u64; // the fixture's index, `face_index_of_the_fixture_is_its_own_tables`
     let round = |n: u64| n.div_ceil(16) * 16;
     let per_cycle = round(40 + font) + round(40 + 8 * words) + 112;
     let few = live_after_cycles(FEW);
@@ -3280,7 +3283,7 @@ fn face_kern_reads_each_fixtures_pairs() {
             .find_map(|f| f.strip_prefix("kern="))
             .unwrap_or_else(|| panic!("no `kern=` in `{check}`"));
         assert_eq!(kern, want, "{name}: `{check}`");
-        assert_eq!(index[0], 2, "{name}: layout version");
+        assert_eq!(index[0], 3, "{name}: layout version");
         assert!(index[9] > 0, "{name}: a kerning section");
     }
     let (check, index) = face_check("canvas_face_kern_none", minimal_truetype());
@@ -3789,4 +3792,75 @@ fn measure_text_spacing_adds_between_graphemes_only() {
   io::print(toString(toInt(canvas::measureText(latin, 1000.0, "A" & encoding::utf32Decode([769])).width)))"#,
     );
     assert_eq!(lines, vec!["800", "820", "792", "750", "750"]);
+}
+
+/// A `post` table with `underlinePosition` and `underlineThickness`, and an `OS/2` table
+/// with `yStrikeoutSize` and `yStrikeoutPosition` (the only `OS/2` fields read).
+fn decorated_font(underline: (i16, i16), strikeout: (i16, i16)) -> Vec<u8> {
+    let mut post = vec![0u8; 32];
+    post[0..4].copy_from_slice(&0x0003_0000u32.to_be_bytes());
+    post[8..10].copy_from_slice(&underline.0.to_be_bytes());
+    post[10..12].copy_from_slice(&underline.1.to_be_bytes());
+    let mut os2 = vec![0u8; 96];
+    os2[0..2].copy_from_slice(&be16(4));
+    os2[26..28].copy_from_slice(&strikeout.1.to_be_bytes());
+    os2[28..30].copy_from_slice(&strikeout.0.to_be_bytes());
+    with_tables(&minimal_truetype(), &[(b"OS/2", os2), (b"post", post)])
+}
+
+/// The four decoration metrics at size 1000 in a 1000-unit em (scale 1), in pixels:
+/// `underlineOffset underlineThickness strikeoutOffset strikeoutThickness`.
+fn decoration(name: &str, font: Vec<u8>) -> String {
+    let lines = run_files(
+        name,
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+  LET m AS canvas::TextMetrics = canvas::measureText(f, 1000.0, "A")
+  io::print(toString(toInt(m.underlineOffset)) & " " & toString(toInt(m.underlineThickness)) & " " & toString(toInt(m.strikeoutOffset)) & " " & toString(toInt(m.strikeoutThickness)))
+END FUNC
+"#,
+        &[("fixture.ttf", font)],
+    );
+    lines.join("\n")
+}
+
+/// The font's own lines, measured down from the baseline to each line's top edge:
+/// `post.underlinePosition` −150 is 150 px below, 60 thick; `OS/2.yStrikeoutPosition`
+/// 280 is 280 px above, 45 thick. A font with neither table gets the defaults — 0.10 em
+/// below at 0.05 em, and 0.26 em above at the underline's thickness — and a zero
+/// thickness counts as no line at all.
+#[test]
+fn decoration_metrics_come_from_post_and_os2_or_the_defaults() {
+    assert_eq!(
+        decoration(
+            "canvas_decoration_font",
+            decorated_font((-150, 60), (280, 45))
+        ),
+        "150 60 -280 45"
+    );
+    assert_eq!(
+        decoration("canvas_decoration_none", minimal_truetype()),
+        "100 50 -260 50"
+    );
+    assert_eq!(
+        decoration(
+            "canvas_decoration_zero",
+            decorated_font((-150, 0), (280, 0))
+        ),
+        "100 50 -260 50",
+        "a zero thickness is no line"
+    );
+    assert_eq!(
+        decoration(
+            "canvas_decoration_underline_only",
+            decorated_font((-120, 70), (280, 0))
+        ),
+        "120 70 -260 70",
+        "no strikeout: the default position, at the font's underline thickness"
+    );
 }

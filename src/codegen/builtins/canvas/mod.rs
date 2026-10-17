@@ -483,6 +483,35 @@ pub(crate) fn register(r: &mut Registry) {
                 ty: ParameterType::Float,
                 description: "The font's recommended extra leading between lines, in pixels.",
             },
+            RecordProp {
+                name: "underlineOffset",
+                ty: ParameterType::Float,
+                description: "Where the font puts an underline: pixels from the baseline \
+                              down to the underline's top edge (negative is above the \
+                              baseline). Draw it as a band `underlineThickness` tall \
+                              below that edge. A font that gives no underline gets one \
+                              0.1 em below the baseline.",
+            },
+            RecordProp {
+                name: "underlineThickness",
+                ty: ParameterType::Float,
+                description: "The underline's thickness in pixels; 0.05 em for a font \
+                              that gives none.",
+            },
+            RecordProp {
+                name: "strikeoutOffset",
+                ty: ParameterType::Float,
+                description: "Where the font puts a strikeout line: pixels from the \
+                              baseline down to its top edge, so it is negative — the line \
+                              crosses the letters above the baseline. A font that gives \
+                              none gets one 0.26 em above the baseline.",
+            },
+            RecordProp {
+                name: "strikeoutThickness",
+                ty: ParameterType::Float,
+                description: "The strikeout line's thickness in pixels; the underline's \
+                              thickness for a font that gives none.",
+            },
         ],
     });
 
