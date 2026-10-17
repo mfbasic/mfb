@@ -1,4 +1,4 @@
-# bug-1082: `scripts/test-appimage.sh` fails three checks on box 2226, the only glibc GTK box that was up
+# bug-1095: `scripts/test-appimage.sh` fails three checks on box 2226, the only glibc GTK box that was up
 
 Last updated: 2026-10-12
 Effort: small (<1h)
