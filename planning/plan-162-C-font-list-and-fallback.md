@@ -344,6 +344,15 @@ Commit: d2a8c3420
 - Runtime proof: `examples/emoji` switched to a two-font list (a UI face, then a CJK
   face from `listSystemFonts`), with a caption mixing both. Take a screenshot per
   platform, then build and run the Vulkan script heredocs.
+  Runtime proof (2026-10-17): `/tmp/p162/proof` wraps a mixed English/Japanese paragraph
+  with `strings::lineBreaks` + `canvas::measureText([latin, cjk], …)` (Arial, STHeiti
+  Light), draws each line as a `Text` over `[latin, cjk]`, underlines the first line
+  from `underlineOffset`/`underlineThickness`, and draws a caret at its sixth
+  `caretStops` stop. The dumped frame (`MFB_CANVAS_DUMP`, converted to PNG) shows Latin
+  from Arial and kana/kanji from STHeiti, `AVAWATo` kerned, lines broken between CJK
+  characters and never inside `“quotes”`/`(brackets)`, the underline exactly the first
+  line's measured width (502.62 px), and the caret between `Wrapp` and `ing` (scalar 5,
+  x 81.96).
 - Doc sync: man (`measureText`, `Text`, `loadFont`) and spec `06_canvas.md`.
 - Final gate: `cargo test` (full), `scripts/artifact-gate.sh`, and
   `scripts/test-canvas-vulkan.sh` on the Vulkan box (est. 45 min).

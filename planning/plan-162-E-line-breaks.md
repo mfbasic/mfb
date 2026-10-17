@@ -202,6 +202,15 @@ Commit: c4a3bf5c4 (Phases 2 and 3)
   ending in a hard line break; a lone combining mark at position 0.
 - Runtime proof: a `/tmp` canvas program wrapping a mixed English/CJK paragraph into a
   column with `lineBreaks` + `measureText([latin, cjk], …)`. Take a screenshot.
+  Runtime proof (2026-10-17): `/tmp/p162/proof` wraps a mixed English/Japanese paragraph
+  with `strings::lineBreaks` + `canvas::measureText([latin, cjk], …)` (Arial, STHeiti
+  Light), draws each line as a `Text` over `[latin, cjk]`, underlines the first line
+  from `underlineOffset`/`underlineThickness`, and draws a caret at its sixth
+  `caretStops` stop. The dumped frame (`MFB_CANVAS_DUMP`, converted to PNG) shows Latin
+  from Arial and kana/kanji from STHeiti, `AVAWATo` kerned, lines broken between CJK
+  characters and never inside `“quotes”`/`(brackets)`, the underline exactly the first
+  line's measured width (502.62 px), and the caret between `Wrapp` and `ing` (scalar 5,
+  x 81.96).
 - Doc sync: man and spec, as above.
 - Final gate: `cargo test` (full), `scripts/check-generated.sh` and
   `scripts/artifact-gate.sh` (est. 35 min).

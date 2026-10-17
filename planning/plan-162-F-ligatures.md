@@ -216,7 +216,7 @@ byte-identical.
   Check: `cargo test --test rt_canvas_font --test rt_canvas_golden --test rt_canvas_geo_native`
   → pass and `git status --short tests/golden/canvas` → empty (est. 6 min).
   Result: rt_canvas_font 59, rt_canvas_geo_native 4, rt_canvas_golden 28 passed, 0 failed (`/tmp/p162/f3-accept.log`); `git status --short tests/golden/canvas` → empty.
-Commit: — (this commit)
+Commit: b9e3cf7e7
 
 ## Validation Plan
 
