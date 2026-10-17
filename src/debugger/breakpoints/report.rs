@@ -488,7 +488,10 @@ mod tests {
                 stop: StepStop::Finished,
             }])
         }
-        fn restart(&mut self) -> Result<u32, String> {
+        fn restart(
+            &mut self,
+            _: &[(std::ffi::OsString, std::ffi::OsString)],
+        ) -> Result<u32, String> {
             self.next = 0;
             self.sitting = false;
             self.moved = false;
@@ -544,6 +547,7 @@ mod tests {
         prompt::run(
             program,
             Program { app: false },
+            Some(Vec::new()),
             &mut input.as_bytes(),
             &mut out,
             &mut err,

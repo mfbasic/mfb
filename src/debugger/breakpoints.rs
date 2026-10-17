@@ -927,27 +927,7 @@ impl Breakpoints {
         hear: &mut Hear,
     ) -> Result<Ended, String> {
         loop {
-            let landed = std::mem::take(&mut self.landed);
-            // A thread `jump` has moved since is no longer where it landed.
-            let threads = if landed.is_empty() {
-                Vec::new()
-            } else {
-                inferior.threads()?
-            };
-            let landed = landed
-                .into_iter()
-                .filter(|(thread, address)| {
-                    threads
-                        .get(*thread)
-                        .is_some_and(|facts| facts.pc == *address)
-                })
-                .collect::<Vec<_>>();
-            let (stop, own) = if landed.is_empty() {
-                self.run_once(inferior)?
-            } else {
-                let entry = inferior.entry()?;
-                self.settle(inferior, RunStop::Breakpoints(landed), entry, None)?
-            };
+            let (stop, own) = self.run_once(inferior)?;
             let Some(stop) = stop else {
                 if own.is_empty() {
                     continue;
@@ -1002,7 +982,7 @@ impl Breakpoints {
             }
             _ => None,
         };
-        let stop = inferior.run()?;
+        let stop = self.run_inferior(inferior, temporary)?;
         if let (Some(entry), false) = (temporary, matches!(stop, RunStop::Exited(_))) {
             inferior.remove_breakpoint(entry)?;
         }
@@ -1059,7 +1039,7 @@ impl Breakpoints {
                 }
             }
             RunStop::Watchpoints(threads) => {
-                Ok((self.watched_writes(inferior, &threads)?, Vec::new()))
+                Ok((self.watched_writes(inferior, &threads, None)?, Vec::new()))
             }
             other => Ok((Some(other), Vec::new())),
         }
@@ -1110,14 +1090,70 @@ impl Breakpoints {
         (user, own)
     }
 
+    /// Run the program, as [`Inferior::run`] does, without passing a watched
+    /// write unseen. A thread a step left on a breakpoint is a hit there
+    /// before anything runs. With watchpoints set, a thread paused on a
+    /// breakpoint (one the session holds, or `own`, one the caller placed for
+    /// this run) is first stepped off it here, where its write is seen: the
+    /// backend's `run` steps such a thread with watchpoints off.
+    fn run_inferior(
+        &mut self,
+        inferior: &mut dyn Inferior,
+        own: Option<u64>,
+    ) -> Result<RunStop, String> {
+        let landed = self.take_landed(inferior)?;
+        if !landed.is_empty() {
+            return Ok(RunStop::Breakpoints(landed));
+        }
+        if !self.watches.is_empty() {
+            let paused = inferior
+                .threads()?
+                .iter()
+                .enumerate()
+                .filter(|(_, facts)| self.armed(facts.pc) || own == Some(facts.pc))
+                .map(|(thread, _)| thread)
+                .collect::<Vec<_>>();
+            if !paused.is_empty() {
+                if let Some(stop) = self.watched_writes(inferior, &paused, own)? {
+                    return Ok(stop);
+                }
+                let landed = self.take_landed(inferior)?;
+                if !landed.is_empty() {
+                    return Ok(RunStop::Breakpoints(landed));
+                }
+            }
+        }
+        inferior.run()
+    }
+
+    /// The threads a step left on a breakpoint, each still there (a `jump`
+    /// since moves one away), with the breakpoint's address.
+    fn take_landed(&mut self, inferior: &mut dyn Inferior) -> Result<Vec<(usize, u64)>, String> {
+        let landed = std::mem::take(&mut self.landed);
+        if landed.is_empty() {
+            return Ok(landed);
+        }
+        let threads = inferior.threads()?;
+        Ok(landed
+            .into_iter()
+            .filter(|(thread, address)| {
+                threads
+                    .get(*thread)
+                    .is_some_and(|facts| facts.pc == *address)
+            })
+            .collect())
+    }
+
     /// Step each of `threads`, stopped before a watched write, over the write:
     /// a `Changed` stop for every watchpoint whose bytes it changed, or `None`
     /// when it changed none. A step that ends otherwise is that stop. A thread
-    /// the step leaves on a breakpoint the session holds stops there next.
+    /// the step leaves on a breakpoint the session holds, or on `own`, stops
+    /// there next.
     fn watched_writes(
         &mut self,
         inferior: &mut dyn Inferior,
         threads: &[usize],
+        own: Option<u64>,
     ) -> Result<Option<RunStop>, String> {
         let mut changes = Vec::new();
         for &thread in threads {
@@ -1151,7 +1187,7 @@ impl Breakpoints {
                 }
             }
             if let Some(now) = inferior.threads()?.get(thread).map(|facts| facts.pc) {
-                if self.armed(now) {
+                if self.armed(now) || own == Some(now) {
                     self.landed.push((thread, now));
                 }
             }
@@ -1216,12 +1252,15 @@ impl Breakpoints {
         if ours {
             inferior.insert_breakpoint(raise.back)?;
         }
+        let back = ours.then_some(raise.back);
         let stop = loop {
-            let stop = match inferior.run()? {
-                RunStop::Watchpoints(threads) => match self.watched_writes(inferior, &threads)? {
-                    Some(stop) => stop,
-                    None => continue,
-                },
+            let stop = match self.run_inferior(inferior, back)? {
+                RunStop::Watchpoints(threads) => {
+                    match self.watched_writes(inferior, &threads, back)? {
+                        Some(stop) => stop,
+                        None => continue,
+                    }
+                }
                 stop => stop,
             };
             let RunStop::Breakpoints(hits) = &stop else {
@@ -1757,7 +1796,10 @@ mod tests {
                 stop: StepStop::Finished,
             }])
         }
-        fn restart(&mut self) -> Result<u32, String> {
+        fn restart(
+            &mut self,
+            _: &[(std::ffi::OsString, std::ffi::OsString)],
+        ) -> Result<u32, String> {
             Err("restart needs a program the debugger launched".to_string())
         }
         fn entry(&mut self) -> Result<Option<u64>, String> {
@@ -2196,6 +2238,66 @@ mod tests {
                 "0x0000000000008008 | 1     | 8    | 0x0000000000000006 (6)",
             ]
         );
+    }
+
+    #[test]
+    fn a_watched_write_under_the_breakpoint_a_thread_is_paused_on_is_a_stop() {
+        // Thread 0 is paused on a breakpoint on the store itself: running on
+        // runs the store first, and the change it makes is the stop, before
+        // the program runs.
+        let mut program = Program::new(vec![RunStop::Exited(Exit::Status(0))]);
+        program.bound = true;
+        program.memory[8] = 5;
+        program.writes = vec![vec![(MEMORY + 8, 6)]];
+        let mut breakpoints = Breakpoints::default();
+        breakpoints
+            .set(&mut program, &Target::Address(STORE), None, &[])
+            .unwrap();
+        breakpoints.watch(&mut program, MEMORY + 8, 8, &[]).unwrap();
+        let (_, stop) = run(&mut breakpoints, &mut program).unwrap();
+        assert_eq!(
+            stop,
+            RunStop::Changed(vec![Change {
+                thread: 0,
+                pc: STORE,
+                address: MEMORY + 8,
+                size: 8,
+                old: 5,
+                new: 6,
+            }])
+        );
+        assert_eq!(program.runs, 0);
+        let (_, stop) = run(&mut breakpoints, &mut program).unwrap();
+        assert_eq!(stop, RunStop::Exited(Exit::Status(0)));
+    }
+
+    #[test]
+    fn a_watched_write_on_the_way_to_the_raiser_that_lands_on_a_breakpoint_stops_there() {
+        // A watched raise runs on to the raiser; a watched write on the way
+        // changes nothing but leaves the thread on the user's breakpoint,
+        // which stops it before the program runs again.
+        let mut program = Program::new(vec![
+            RunStop::Breakpoints(vec![(0, PARK)]),
+            RunStop::Watchpoints(vec![0]),
+            RunStop::Breakpoints(vec![(0, RAISER)]),
+        ]);
+        program.bound = true;
+        program.raised = vec![77_050_010];
+        program.memory[8] = 5;
+        program.writes = vec![vec![(MEMORY + 8, 5)]];
+        let mut breakpoints = Breakpoints::default();
+        breakpoints
+            .watch_errors(&mut program, ErrorCodes::Any, &[])
+            .unwrap();
+        breakpoints
+            .set(&mut program, &Target::Address(STORE + 4), None, &[])
+            .unwrap();
+        breakpoints.watch(&mut program, MEMORY + 8, 8, &[]).unwrap();
+        let (_, stop) = run(&mut breakpoints, &mut program).unwrap();
+        assert_eq!(stop, RunStop::Breakpoints(vec![(0, STORE + 4)]));
+        assert_eq!(program.runs, 2);
+        // The raiser's breakpoint of the run's own is gone.
+        assert_eq!(program.inserted, [PARK, STORE + 4]);
     }
 
     #[test]

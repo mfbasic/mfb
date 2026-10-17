@@ -648,7 +648,10 @@ mod tests {
         fn step(&mut self, _: &[usize], _: u64) -> Result<Vec<Step>, String> {
             Err("not stepped".to_string())
         }
-        fn restart(&mut self) -> Result<u32, String> {
+        fn restart(
+            &mut self,
+            _: &[(std::ffi::OsString, std::ffi::OsString)],
+        ) -> Result<u32, String> {
             Err("restart needs a program the debugger launched".to_string())
         }
         fn entry(&mut self) -> Result<Option<u64>, String> {

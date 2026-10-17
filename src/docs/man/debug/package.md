@@ -150,6 +150,9 @@ not: `mfb dbg` keeps it, and `show report` prints it once the program has ended
 | `run` | `r` | runs the program until a breakpoint or its end (Ctrl-C pauses it) |
 | `finish` | `f` | runs until the current function returns |
 | `restart` | `rs` | starts the program again |
+| `env s <name> <value>` | `env set …` | sets an environment variable for the next `restart` |
+| `env r <name>` | `env remove …` | removes one for the next `restart` |
+| `env clear`, `env reset` | | removes them all, or goes back to the ones the session started with |
 | `step [<count>] [<thread>]` | `s …` | runs one thread one instruction, or `<count>` |
 | `step-all [<count>]` | `sa …` | runs every thread one instruction, or `<count>` |
 | `disassemble` | `dis` | shows the machine code of the current function |
@@ -165,6 +168,7 @@ not: `mfb dbg` keeps it, and `show report` prints it once the program has ended
 | `list arena` | `l arena` | lists the program's memory pools |
 | `list breakpoint` | `l breakpoint` | lists the breakpoints |
 | `list watchpoint` | `l watchpoint` | lists the watchpoints |
+| `list env` | `l env` | lists the environment variables: each one's value now and after the next `restart` |
 | `show mem <where> [<size>]` | | shows the raw bytes of memory |
 | `show error [<thread>]` | | shows the error a thread has raised and not yet handled |
 | `show report` | | shows the report the program wrote as it ended |
@@ -176,7 +180,7 @@ not: `mfb dbg` keeps it, and `show report` prints it once the program has ended
 ## Topics
 
 - `start` — start or attach to a program, end the session, and drive it from a script.
-- `breakpoints` — stop in a function, or only when a test holds there, or when memory changes; run commands at a stop, finish a function, start over.
+- `breakpoints` — stop in a function, or only when a test holds there, or when memory changes; run commands at a stop, finish a function, start over, change the environment.
 - `stepping` — run one instruction at a time, move a thread, and read the machine code.
 - `backtraces` — see the calls that led to where each thread is.
 - `inspecting` — list the functions, threads and registers, and read memory.

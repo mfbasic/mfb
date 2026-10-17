@@ -7,8 +7,8 @@ attaches to a program, pauses it, lists its functions, threads, registers and
 arenas, single-steps one thread or all of them, runs it to software
 breakpoints (each perhaps with a test) and hardware watchpoints (running
 commands at a stop), moves a thread and sets its registers, disassembles it,
-and unwinds its threads' calls; it is the seam later debugger features build
-on.
+unwinds its threads' calls, and changes the environment a launched program
+gets when it restarts; it is the seam later debugger features build on.
 
 The developer-facing guide is `./mfb man debug`.
 
@@ -67,7 +67,8 @@ Symbol classification, the reading of the runtime's thread table and arena
 registry (`src/debugger/runtime.rs`), breakpoint resolution, pending
 placement and tests, the watchpoints' change test and commands at a stop
 (`src/debugger/breakpoints.rs`), locations and their values
-(`src/debugger/location.rs`), the listings' format, the prompt and the CLI are
+(`src/debugger/location.rs`), the environment a restart gives
+(`src/debugger/environment.rs`), the listings' format, the prompt and the CLI are
 platform-neutral.
 [[src/debugger/mod.rs:Backend]] [[src/debugger/mod.rs:Inferior]]
 
@@ -103,8 +104,9 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
 [[src/debugger/macos.rs:MacOs]]
 
 - **Launch.** `posix_spawn` with `POSIX_SPAWN_START_SUSPENDED` (`0x0080`), the
-  operand as `argv[0]`, the arguments after `--`, and this process's
-  environment and stdio. The kernel creates the task suspended, so no
+  operand as `argv[0]`, the arguments after `--`, the session's environment
+  (`envp`; at launch this process's own, `std::env::vars_os`, see `env`), and
+  this process's stdio. The kernel creates the task suspended, so no
   instruction runs before the prompt — not even `dyld`'s. The launched program
   is a child of `mfb` in a process group of its own (`POSIX_SPAWN_SETPGROUP`,
   group 0), so a Ctrl-C typed at the terminal reaches `mfb` and not the
@@ -191,7 +193,9 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   ordinary instruction that is merely slow (its code paging in, a loaded
   machine) is waited for, not reported as waiting. A
   `task_suspend` that fails ends every stepping thread as `Exited`. Afterwards
-  every hold is given back and the program's own exception handlers put back.
+  every hold is given back and the program's own exception handlers put back,
+  and — unless the program ended — every breakpoint is written again and the
+  stepped threads' watchpoints turned back on, a step that failed included.
   [[src/debugger/macos.rs:ExceptionPort]] [[src/debugger/macos.rs:Task]]
 - **Breakpoints.** `insert_breakpoint` saves the 4 bytes at the address and
   writes `brk #0` (`0xd4200000`): the page (`getpagesize()`, aligned down) is
@@ -239,8 +243,9 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   when `waitpid(WNOHANG)` reaps it (exit status or signal); an attached one
   when `pid_for_task` fails or `kill(pid, 0)` finds no process
   (`Exit::Unknown`). After that the session refuses every command but `help`,
-  `list`, `list breakpoint`, a bare `list reg`, `show report`, `restart` and
-  `quit`, and `quit` reports `AlreadyExited`.
+  `list`, `list breakpoint`, `list watchpoint`, a bare `list reg`, `list env`,
+  `env`, `show report`, `restart` and `quit`, and `quit` reports
+  `AlreadyExited`.
 - **Libraries.** `function_at` and `library_functions` read the loader's image
   list (`task_info(TASK_DYLD_INFO)` → `dyld_all_image_infos.infoArray`), and
   for each image but the executable its Mach-O header in memory: `__TEXT`'s
@@ -256,8 +261,8 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   [[src/debugger/macos.rs:Library]]
 - **Restart.** `restart` refuses an attached program. For a launched one it
   kills and reaps the process (unless it has already ended), releases its task
-  port, spawns the program again with the same arguments exactly as `launch`
-  does, and forgets everything about the old process: the load offset, the
+  port, spawns the program again with the same arguments and the environment
+  the session gives it (`env`) exactly as `launch` does, and forgets everything about the old process: the load offset, the
   breakpoints and watchpoints written into it, its exit, its libraries, and
   the executable's symbols (read again, so a rebuilt file is seen).
 - **Ctrl-C.** For the session's length `mfb` handles `SIGINT` with a handler
@@ -284,7 +289,8 @@ needs no signing: a process may trace its own children, and others as
 
 - **Launch.** `fork`; the child puts itself in a process group of its own
   (`setpgid(0, 0)`), stops itself (`SIGSTOP`), and `execve`s the program with
-  the arguments after `--` and this process's environment and stdio; a failed
+  the arguments after `--`, the session's environment (as on macOS), and this
+  process's stdio; a failed
   `execve` reports its errno through a close-on-exec pipe (`cannot launch
   '<path>': <error>`). The parent waits for the stop, seizes the child
   (`PTRACE_SEIZE` with `PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC |
@@ -382,7 +388,8 @@ needs no signing: a process may trace its own children, and others as
   the flag interrupts every thread and answers `RunStop::Interrupted`.
   [[src/debugger/linux.rs:on_interrupt]]
 - **Restart.** The old process is killed and reaped, the program launched
-  again, and everything about the old process forgotten, as on macOS.
+  again with the session's environment, and everything about the old process
+  forgotten, as on macOS.
 
 ## The prompt
 
@@ -443,6 +450,11 @@ Then, repeatedly:
 | `backtrace [<count>] [<id>]`, `bt …` | prints thread `<id>`'s frames (default the current thread), the innermost `<count>` (default all) |
 | `backtrace all`, `bt all` | prints every thread's frames |
 | `restart`, `rs` | starts a launched program again |
+| `list env` | prints a launched program's environment variables: each one's current value and its value after the next restart |
+| `env s <name> <value>`, `env set …` | gives `<name>` the value `<value>` for the next restart |
+| `env r <name>`, `env remove …` | takes `<name>` away for the next restart |
+| `env clear` | takes every variable away for the next restart |
+| `env reset` | gives the next restart the environment the session started with |
 | `disassemble`, `dis` | disassembles the current function |
 | `dis <count>` | disassembles `<count>` instructions from the current `pc`; a negative count, that many before it and then the `pc` |
 | `dis -<back> <length>` | disassembles `<length>` instructions from `<back>` before the current `pc` |
@@ -458,7 +470,7 @@ Then, repeatedly:
 | an unknown command | `unknown command '<name>'; type 'help' for the list of commands` |
 | `help` or `quit` with arguments | `'<name>' takes no arguments` |
 | `list <what>` for an unknown `<what>` | `cannot list '<what>'; type 'list' for what can be listed` |
-| `list thread`/`arena`/`breakpoint`/`watchpoint` with an argument | `too many arguments to '<name> <what>'` |
+| `list thread`/`arena`/`breakpoint`/`watchpoint`/`env` with an argument | `too many arguments to '<name> <what>'` |
 | `list func <filter>...` that keeps no function | `no function matches '<filter>...'; type 'list func' for the functions` (the type codes first, then the names) |
 | `step <count> <id>` where `<id>` is not a `usize` | `'<id>' is not a thread id; type 'list thread' for the threads` |
 | `list reg` naming a register the thread does not have | `no register '<name>'; type 'list reg' for the groups` |
@@ -512,7 +524,8 @@ Then, repeatedly:
 | a `jump` value that cannot be worked out | `cannot set <register>: <reason>` |
 | `nzcv` given bits but 31–28 | `cannot set nzcv to 0x<value>: it holds only the flags, bits 28 to 31 (0x00000000f0000000)` |
 | `fpsr` or `fpcr` given more than 32 bits | `cannot set <register> to 0x<value>: it holds 32 bits` |
-| a stop's command that is not `list`, `show`, `backtrace`, `disassemble`, `jump` or a bare `breakerror` | `'<command>' cannot run at a stop: a stop runs list, show, backtrace, disassemble, jump and a bare breakerror` |
+| a stop's command that is not `list`, `show`, `backtrace`, `disassemble`, `jump`, `finish`, a bare `breakerror` or `run` | `'<command>' cannot run at a stop: a stop runs list, show, backtrace, disassemble, jump, finish, a bare breakerror and, last, run` |
+| `list env` as a stop's command | `'list env' cannot run at a stop: the environment it lists is the one the program gets when it restarts` |
 | a stop's command that does not parse | the command's own refusal |
 | `breakerror` with commands but no code | `'<name>' needs an error code, a name or 'any' before its commands` |
 | `breakerror clear` with commands | `'<name> clear' takes no commands` |
@@ -544,7 +557,17 @@ Then, repeatedly:
 | an arena id not a `usize` | `'<id>' is not an arena id; type 'list arena' for the arenas` |
 | a block number not a `usize` | `'<block>' is not a block number` |
 | an offset or size not a `u64` (decimal, or hex after `0x`) | `'<word>' is not a number` |
-| any command but `help`, `list`, `list breakpoint`, a bare `list reg`, `show report`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
+| `env` or `list env` on a program attached to | `'env' needs a program the debugger launched; this one was attached to` (`'list env'` for `list env`) |
+| `env` alone | `'env' needs what to do: env s <name> <value>, env r <name>, env clear or env reset; 'list env' shows the environment` |
+| `env s` with no name | `'env s' needs a name and a value: env s <name> <value>` (the verb as given) |
+| `env r` with no name | `'env r' needs a name: env r <name>` (the verb as given) |
+| `env r` with more than a name | `too many arguments to 'env r'` (the verb as given) |
+| an `env` name holding `=` or a NUL | `'<name>' is not a variable name: a name holds no '=' and no NUL` |
+| an `env s` value holding a NUL | `a variable's value cannot hold a NUL` |
+| `env r` of a name the environment does not have | `no variable '<name>' is in the environment; type 'list env' for it` |
+| `env clear` or `env reset` with arguments | `'env <verb>' takes no arguments` |
+| `env <verb>` but `s`, `set`, `r`, `remove`, `clear` or `reset` | `cannot 'env <verb>'; env s, env r, env clear and env reset are what env does` |
+| any command but `help`, `list`, `list breakpoint`, `list watchpoint`, a bare `list reg`, `list env`, `env`, `show report`, `restart`, `quit` after the program ended | `the program has exited; type 'quit' to end the session` |
 
 Every listing below — and `show type`'s element table — is laid out by
 `prompt::table`: a header line naming its columns, then one line per row; the
@@ -1162,10 +1185,22 @@ watchpoint whose bytes changed is a `Changed` stop (`RunStop::Changed`, one
 `Change` per watchpoint, the write's `pc` the instruction that wrote it); a
 write that changed none runs on, unseen. Several threads stopped at once are
 stepped in turn. A step that raises an exception or ends the program is that
-stop instead. A thread the step leaves on one of the user's breakpoints stops
-there at the next `run`, before anything runs. Only stores the thread makes
-are seen: the kernel writing the memory (a `read` into it) is not. After the
-stop the current thread is the writer, its `pc` past the write.
+stop instead. A thread the step leaves on a breakpoint the session holds (or
+on the one a `breakerror` run places at the raiser's return) stops there at
+the next `run`, before anything runs. Only stores the thread makes are seen:
+the kernel writing the memory (a `read` into it) is not. After the stop the
+current thread is the writer, its `pc` past the write.
+[[src/debugger/breakpoints.rs:Breakpoints]]
+
+A write by the instruction under a breakpoint is seen too. While any
+watchpoint is set, every `run` — and the run on to a watched raise's raiser —
+first steps each thread whose `pc` is on a breakpoint the session holds (or
+the run's own: the entry point's, the raiser's return) over that one
+instruction the same way, reading every watchpoint's bytes before and after:
+a change is the `Changed` stop, before the program runs at all, with the
+breakpoint's address as the write's `pc`. The backend's own `run` would step
+such a thread off its breakpoint with its watchpoints off and the write would
+pass unseen. With no watchpoint set, the backend steps it as before.
 
 `list watchpoint` prints `<address> | <count> | <size> | <value>` per
 watchpoint under the header `Address | Count | Size | Value`, in address order,
@@ -1186,7 +1221,10 @@ bare `breakerror` — `jump`, which moves the stopped thread, `finish` (`f`),
 or `run` (`r`). `run` must be the last command (`'<run>' must be the last
 command of a stop: '<command>' follows it`); any other command is refused
 with `'<command>' cannot run at a stop: a stop runs list, show, backtrace,
-disassemble, jump, finish, a bare breakerror and, last, run`.
+disassemble, jump, finish, a bare breakerror and, last, run`. `list env` is
+refused too, with `'<command>' cannot run at a stop: the environment it lists
+is the one the program gets when it restarts`: it describes the next restart,
+not the stop.
 
 A stop prints its lines, then runs the commands of each breakpoint,
 watchpoint or watched error it stopped for in turn, each with its own thread
@@ -1477,7 +1515,50 @@ and the debug report's (`show report`) included; the report the session held is
 forgotten. A number in a test (`[0x…]`) is not moved to the new process's
 layout. Every watchpoint is dropped first, as Watchpoints says. The
 current thread is 0 again, and the session runs on even after the program had
-ended.
+ended. The program starts with the environment `env` has made for it, the
+debugger's own until `env` changes it. [[src/debugger/prompt.rs:restart]]
+
+### `env`
+
+[[src/debugger/environment.rs:Session]] [[src/cli/dbg.rs:session]] The session
+holds, for a program the debugger launched, the environment the next `restart`
+gives it: at first the one it launched the program with, the debugger's own
+(`std::env::vars_os`, in its order). The `env` commands change only that one:
+the running program keeps the environment it started with, which lives in its
+own memory under its C library (`os::getEnv` and the others read it there),
+and nothing writes into it. A program the debugger attached to was not started
+by it and cannot restart, so it has no environment here: `env` and `list env`
+refuse it. Both work once the program has ended.
+
+- `env s <name> <value>` (`env set`): `<value>` is the rest of the line after
+  the name and the whitespace after it, its inner and trailing spaces kept
+  (only the line ending is dropped), and may be empty. A name already there
+  keeps its place and takes the value, a repeat of it dropped; a new one goes
+  last. Prints:
+  `Set <name>=<value>; the program gets it when it restarts.`
+- `env r <name>` (`env remove`): takes away every copy of `<name>`. Prints:
+  `Removed <name>; the program goes without it when it restarts.`
+- `env clear`: takes every variable away. Prints:
+  `Cleared the environment; the program starts with none when it restarts.`
+- `env reset`: back to the environment the session launched the program with.
+  Prints:
+  `Reset the environment to the one the session started the program with; the program gets it when it restarts.`
+
+A name is case-sensitive, not empty, and holds no `=` and no NUL; a value holds
+no NUL (`environment::check_name`, `check_value`). The backends hand the
+environment to the new process as its `envp`, one `<name>=<value>` per
+variable in order (`environment::entries`).
+
+`list env` prints one row per name that the running program's environment
+(the one it was launched with) or the next restart's has, as
+`<name> | <current> | <after restart>` under the header
+`Name | Current | After restart`, in byte order of the names, each cell
+through the terminal sanitizer. `<current>` is the running program's value and
+`<after restart>` the next restart's; a cell is empty where that environment
+does not have the name, and a name an environment repeats shows its first
+value. With no name on either side it prints `no environment variables`. A
+restart that succeeds makes the next restart's environment the running
+program's. [[src/debugger/environment.rs:Session]]
 
 ### Addresses
 

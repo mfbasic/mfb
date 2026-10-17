@@ -236,7 +236,6 @@ extern "C" {
         argv: *const *const c_char,
         envp: *const *const c_char,
     ) -> c_int;
-    fn _NSGetEnviron() -> *const *const *const c_char;
     fn kill(pid: c_int, signal: c_int) -> c_int;
     fn waitpid(pid: c_int, status: *mut c_int, options: c_int) -> c_int;
     fn proc_pidpath(pid: c_int, buffer: *mut c_void, size: u32) -> c_int;
@@ -362,8 +361,13 @@ impl Backend for MacOs {
         Ok(PathBuf::from(OsString::from_vec(buffer)))
     }
 
-    fn launch(&self, program: &Path, args: &[OsString]) -> Result<Box<dyn Inferior>, String> {
-        let (pid, task) = spawn(program, args)?;
+    fn launch(
+        &self,
+        program: &Path,
+        args: &[OsString],
+        environment: &[(OsString, OsString)],
+    ) -> Result<Box<dyn Inferior>, String> {
+        let (pid, task) = spawn(program, args, environment)?;
         Ok(Box::new(Task::new(pid, task, Some(args.to_vec()), program)))
     }
 
@@ -382,9 +386,13 @@ impl Backend for MacOs {
     }
 }
 
-/// Start `program` with `args`, suspended before its first instruction, in a
-/// process group of its own, and take its task port.
-fn spawn(program: &Path, args: &[OsString]) -> Result<(u32, MachPort), String> {
+/// Start `program` with `args` and `environment`, suspended before its first
+/// instruction, in a process group of its own, and take its task port.
+fn spawn(
+    program: &Path,
+    args: &[OsString],
+    environment: &[(OsString, OsString)],
+) -> Result<(u32, MachPort), String> {
     let c_string = |value: &[u8]| {
         CString::new(value).map_err(|_| {
             format!(
@@ -400,13 +408,19 @@ fn spawn(program: &Path, args: &[OsString]) -> Result<(u32, MachPort), String> {
     }
     let mut argv = owned.iter().map(|arg| arg.as_ptr()).collect::<Vec<_>>();
     argv.push(ptr::null());
+    let entries = super::environment::entries(environment)
+        .map_err(|message| format!("cannot launch '{}': {message}", super::shown(program)))?;
+    let mut envp = entries
+        .iter()
+        .map(|entry| entry.as_ptr())
+        .collect::<Vec<_>>();
+    envp.push(ptr::null());
 
     let mut attr: SpawnAttr = ptr::null_mut();
     let mut pid: c_int = 0;
     // SAFETY: `attr` is initialized before use and destroyed after; `path`,
-    // `argv` (NUL-terminated) and the strings it points at outlive the call;
-    // `_NSGetEnviron` returns the live, NUL-terminated environment of this
-    // process.
+    // `argv` and `envp` (each NUL-terminated) and the strings they point at
+    // outlive the call.
     let status = unsafe {
         let init = posix_spawnattr_init(&mut attr);
         if init != 0 {
@@ -428,7 +442,7 @@ fn spawn(program: &Path, args: &[OsString]) -> Result<(u32, MachPort), String> {
                     ptr::null(),
                     &attr,
                     argv.as_ptr(),
-                    *_NSGetEnviron(),
+                    envp.as_ptr(),
                 )
             };
             posix_spawnattr_destroy(&mut attr);
@@ -2085,17 +2099,23 @@ impl Inferior for Task {
             }
         }
         drop(port);
-        let steps = steps?;
-        if steps.iter().any(|step| step.stop == StepStop::Exited) {
-            self.exited = Some(self.check_exit().unwrap_or(Exit::Unknown));
-        } else {
-            self.reinsert()?;
-            self.pause_watchpoints(&stepping, true)?;
+        if let Ok(steps) = &steps {
+            if steps.iter().any(|step| step.stop == StepStop::Exited) {
+                self.exited = Some(self.check_exit().unwrap_or(Exit::Unknown));
+                return Ok(steps.clone());
+            }
         }
+        // A step that failed part way still puts every breakpoint and
+        // watchpoint back: the session holds them as set.
+        let restored = self
+            .reinsert()
+            .and_then(|()| self.pause_watchpoints(&stepping, true));
+        let steps = steps?;
+        restored?;
         Ok(steps)
     }
 
-    fn restart(&mut self) -> Result<u32, String> {
+    fn restart(&mut self, environment: &[(OsString, OsString)]) -> Result<u32, String> {
         if !self.launched {
             return Err(
                 "restart needs a program the debugger launched; this one was attached to"
@@ -2106,7 +2126,7 @@ impl Inferior for Task {
             kill_and_reap(self.pid);
         }
         release(self.task);
-        let (pid, task) = spawn(&self.program, &self.args)?;
+        let (pid, task) = spawn(&self.program, &self.args, environment)?;
         self.pid = pid;
         self.task = task;
         // A new process: nothing of the old one carries over, and the file is

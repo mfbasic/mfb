@@ -755,6 +755,35 @@ mod native {
         build_debug(&project, "debug")
     }
 
+    /// A `--debug` build of a program that prints `[<value>]` for the
+    /// environment variable `MFB_DBG_GREETING`, or `[unset]`.
+    fn greeting_program() -> PathBuf {
+        let project = std::env::temp_dir().join(format!("mfb_dbg_env_{}", unique_nonce()));
+        std::fs::create_dir_all(project.join("src")).unwrap();
+        std::fs::write(
+            project.join("project.json"),
+            r#"{
+  "name": "greeting",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            project.join("src").join("main.mfb"),
+            "IMPORT io\nIMPORT os\n\nFUNC main() AS Nothing\n  \
+             io::print(\"[\" & os::getEnvOr(\"MFB_DBG_GREETING\", \"unset\") & \"]\")\n\
+             END FUNC\n",
+        )
+        .unwrap();
+        build_debug(&project, "greeting")
+    }
+
     /// How a `--debug` build that exits with status 0 ends: its report is
     /// kept for `show report`.
     const EXITED: &str =
@@ -1069,6 +1098,109 @@ mod native {
         assert_eq!(
             body(&session.until_prompt()),
             ["Value: 0x0000000000000012 (18)"]
+        );
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+    }
+
+    /// `env` changes the environment the program gets when it restarts, and
+    /// the running program keeps its own.
+    #[test]
+    fn env_gives_a_restarted_program_its_changes() {
+        let mfb = signed_mfb();
+        let binary = greeting_program();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap()]);
+        session.until_prompt();
+        session.send("env s MFB_DBG_GREETING hello,  world\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["Set MFB_DBG_GREETING=hello,  world; the program gets it when it restarts."]
+        );
+        session.send("restart\n");
+        session.until_prompt();
+        session.send("run\n");
+        let ran = body(&session.until_prompt());
+        assert_eq!(
+            ran.first().map(String::as_str),
+            Some("[hello,  world]"),
+            "{ran:?}"
+        );
+        session.send("env r MFB_DBG_GREETING\n");
+        session.until_prompt();
+        session.send("list env\n");
+        // The running program has it; the next restart does not.
+        let listed = session.until_prompt();
+        let row = listed
+            .lines()
+            .find(|line| line.starts_with("MFB_DBG_GREETING "))
+            .unwrap_or_else(|| panic!("no MFB_DBG_GREETING row in {listed}"))
+            .split(" | ")
+            .map(str::trim_end)
+            .collect::<Vec<_>>();
+        assert_eq!(row, ["MFB_DBG_GREETING", "hello,  world", ""], "{listed}");
+        assert!(
+            listed.contains("Name ")
+                && listed.contains(" | Current ")
+                && listed.contains(" | After restart"),
+            "{listed}"
+        );
+        session.send("restart\n");
+        session.until_prompt();
+        session.send("run\n");
+        let ran = body(&session.until_prompt());
+        assert_eq!(ran.first().map(String::as_str), Some("[unset]"), "{ran:?}");
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+    }
+
+    /// A write by the instruction under the breakpoint a thread is paused on
+    /// is seen: `countPrimes` saves `lr` with its second instruction, and a
+    /// breakpoint there, then `run`, stops for the write before anything else.
+    #[test]
+    fn a_watched_write_under_the_breakpoint_a_thread_is_paused_on_is_seen() {
+        let mfb = signed_mfb();
+        let binary = debug_example();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
+        session.until_prompt();
+        session.send("bp countPrimes\n");
+        session.until_prompt();
+        session.send("run\n");
+        session.until_prompt();
+        session.send("dis 1\n");
+        let first = body(&session.until_prompt());
+        let frame = first[1]
+            .split("sub    sp, sp, #")
+            .nth(1)
+            .unwrap_or_else(|| panic!("no frame in {first:?}"));
+        session.send("list reg lr\n");
+        let lr = table_rows(&session.until_prompt(), REGISTER_COLUMNS)[0][1].clone();
+        session.send(&format!("wp sp-{frame}\n"));
+        session.until_prompt();
+        session.send("bp countPrimes+4\n");
+        session.until_prompt();
+        session.send("bp r countPrimes\n");
+        session.until_prompt();
+        session.send("run\n");
+        let stopped = body(&session.until_prompt());
+        assert!(
+            stopped.len() == 1
+                && stopped[0].starts_with("--[BP] T: 0 P: 0x")
+                && stopped[0].ends_with(" F: (countPrimes) _mfb_fn_countPrimes+0x4"),
+            "{stopped:?}"
+        );
+        session.send("run\n");
+        let changed = body(&session.until_prompt());
+        assert!(
+            changed.len() == 1
+                && changed[0].starts_with("--[WP] T: 0 P: 0x")
+                && changed[0].contains(" F: (countPrimes) _mfb_fn_countPrimes+0x4 ")
+                && changed[0].ends_with(&format!(
+                    " -> {lr} ({})",
+                    i64::from_str_radix(&lr[2..], 16).unwrap()
+                )),
+            "{changed:?} {lr}"
         );
         session.send("q\n");
         let (code, _) = session.finish();
