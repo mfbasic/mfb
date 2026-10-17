@@ -802,7 +802,7 @@ fn the_font_fixture_is_a_real_truetype() {
 /// One `Text` item (`AA`) at column `x` naming font binding `font`.
 fn text_item(font: &str, x: &str) -> String {
     format!(
-        "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 120.0], text := \"AA\", font := {font}, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+        "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 120.0], text := \"AA\", fonts := [{font}], fontSize := 64.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
     )
 }
 
@@ -829,7 +829,7 @@ fn open_face(name: &str) -> String {
     format!("  RES {name} AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    RETURN@\n  END TRAP\n")
 }
 
-/// Loop-built list: `items = collections::append(items, Text[font := face])`.
+/// Loop-built list: `items = collections::append(items, Text[fonts := [face]])`.
 fn loop_built_body() -> String {
     format!(
         "{}  MUT items AS List OF canvas::DrawItem = []\n  FOR i = 0 TO 1\n    items = collections::append(items, {})\n  NEXT\n  canvas::setGroup(\"held\", items)\n",
@@ -885,7 +885,7 @@ fn a_loop_built_list_keeps_its_font_past_the_scope() {
     assert_owned_like_control(
         "loop",
         &loop_built_body(),
-        "`items = collections::append(items, Text[font := face])` places the font, so \
+        "`items = collections::append(items, Text[fonts := [face]])` places the font, so \
          `setGroup` must take it over; fewer glyphs means scope-drop closed it",
     );
 }
