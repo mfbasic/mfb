@@ -167,7 +167,13 @@ mod resource_containment_tests {
             ),
         ];
         let held = resource_containment(&ops);
-        assert_eq!(held.get("items"), Some(&vec!["a".to_string(), "b".to_string()]));
-        assert!(!held.contains_key("other"), "filter keeps a subset and stays opaque");
+        assert_eq!(
+            held.get("items"),
+            Some(&vec!["a".to_string(), "b".to_string()])
+        );
+        assert!(
+            !held.contains_key("other"),
+            "filter keeps a subset and stays opaque"
+        );
     }
 }

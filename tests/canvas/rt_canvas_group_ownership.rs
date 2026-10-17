@@ -875,9 +875,15 @@ fn glyphs_for(name: &str, body: &str, dropped: bool) -> u32 {
 /// Each control must draw something; the dropped variant must draw exactly the same.
 fn assert_owned_like_control(tag: &str, body: &str, why: &str) {
     let held = glyphs_for(&format!("cgo_ctl_{tag}"), body, false);
-    assert!(held > 0, "control `{tag}` draws no glyphs with the binding alive: group text is broken");
+    assert!(
+        held > 0,
+        "control `{tag}` draws no glyphs with the binding alive: group text is broken"
+    );
     let owned = glyphs_for(&format!("cgo_own_{tag}"), body, true);
-    assert_eq!(owned, held, "bug-1092 {tag}: {why} (control drew {held}, dropped drew {owned})");
+    assert_eq!(
+        owned, held,
+        "bug-1092 {tag}: {why} (control drew {held}, dropped drew {owned})"
+    );
 }
 
 #[test]
@@ -919,6 +925,9 @@ fn the_other_placing_collections_members_keep_their_font() {
         ("flatten", "collections::flatten([[one], [one]])"),
     ] {
         let g = glyphs_for(&format!("cgo_app_{tag}"), &sibling_body(expr), true);
-        assert!(g > 0, "bug-1092: collections::{tag} places `one`, so the font must survive");
+        assert!(
+            g > 0,
+            "bug-1092: collections::{tag} places `one`, so the font must survive"
+        );
     }
 }
