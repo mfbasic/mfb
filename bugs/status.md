@@ -295,7 +295,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | [ ]  | 987    | LOW      | the Windows test scripts still default to the retired box 2230 (owner decided: repoint to box 206) |
 | [ ]  | 1014   | LOW      | `field_kinds.tsv` is not what `field_kinds_gen.py` generates |
 | [ ]  | 1033   | LOW      | the man example `variable::guide#2` does not build |
-| [ ]  | 1082   | LOW      | `scripts/test-appimage.sh` fails three checks on box 2226 with a correct compiler: two need `readelf`, which the box lacks, and the liveness check assumes ssh cannot reach a display |
+| [ ]  | 1095   | LOW      | `scripts/test-appimage.sh` fails three checks on box 2226 with a correct compiler: two need `readelf`, which the box lacks, and the liveness check assumes ssh cannot reach a display |
 
 ## Spec and man drift
 
