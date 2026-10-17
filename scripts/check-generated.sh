@@ -58,6 +58,9 @@ if python3 tools/vector-gen/check_vector_bodies.py; then :; else status=1; fi
 check tools/unicode-tables/gen_unicode_gencat_table.py src/codegen/string/unicode/unicode_gencat_ranges.txt
 check tools/unicode-tables/gen_unicode_script_table.py src/codegen/string/unicode/unicode_script_ranges.txt
 check tools/unicode-tables/gen_regex_scripts.py src/codegen/string/unicode/unicode_script_names.mfb
+# plan-162-E: the UAX #14 Line_Break classes behind `strings::lineBreakClass`, from the
+# vendored Unicode 16.0.0 LineBreak, EastAsianWidth and emoji-data files.
+check tools/unicode-tables/gen_linebreak_table.py src/codegen/string/unicode/unicode_linebreak_ranges.txt
 # plan-123: the `Codepage` enum and the 27 WHATWG legacy single-byte tables are
 # derived from the vendored index files under tools/codepage-index/. Nobody can
 # review 3,342 mappings by eye, so the artifact is never hand-edited -- this gate

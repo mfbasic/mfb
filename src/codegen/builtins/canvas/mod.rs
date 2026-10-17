@@ -37,6 +37,7 @@ use crate::codegen::registry::{
 use crate::types::ParameterType;
 
 mod func_blit_surface;
+mod func_caret_stops;
 mod func_carried_hashes;
 mod func_create_image;
 mod func_destroy_font;
@@ -60,7 +61,6 @@ mod func_installed_layers;
 mod func_item_hash;
 pub(crate) mod func_load_font;
 mod func_load_image;
-mod func_caret_stops;
 mod func_measure_text;
 mod func_metal_draw;
 mod func_metal_present;

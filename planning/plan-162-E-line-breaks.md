@@ -66,8 +66,8 @@ References:
 
 | What | Count | Command |
 |---|---|---|
-| Line_Break ranges after merging adjacent same-class runs | UNMEASURED | Phase 1: generator dry run, `wc -l` |
-| `LineBreakTest-16.0.0.txt` cases | UNMEASURED | Phase 1: `grep -c "^[^#]" third_party/unicode/LineBreakTest-16.0.0.txt` |
+| Line_Break ranges after merging adjacent same-class runs | 2,787 runs (class + flag value) | `python3 -I tools/unicode-tables/gen_linebreak_table.py > …` → stderr `2787 runs, Unicode 16.0.0` |
+| `LineBreakTest-16.0.0.txt` cases | 16,672 | `grep -c "^[^#]" third_party/unicode/LineBreakTest-16.0.0.txt` |
 
 ## 3. Design Overview
 
@@ -114,16 +114,27 @@ Rejected alternatives:
 
 ### Phase 1 — data and measurement
 
-- [ ] Vendor the four UCD files at 16.0.0 into `third_party/unicode/`, with their
-      license note beside the existing Scripts file.
-- [ ] `tools/unicode-tables/gen_linebreak_table.py`, plus a README entry in
+- [x] Vendor the four UCD files at 16.0.0 into `third_party/unicode/`, with their
+      license note beside the existing Scripts file. Downloaded 2026-10-17 from
+      `https://www.unicode.org/Public/16.0.0/ucd/…`, saved as `LineBreak-16.0.0.txt`,
+      `EastAsianWidth-16.0.0.txt`, `emoji-data-16.0.0.txt` and
+      `LineBreakTest-16.0.0.txt`. Each file's own header confirms 16.0.0. No licence
+      note existed for `Scripts-16.0.0.txt` either, so `third_party/unicode/README.md`
+      (sources, SHA-256s) and `LICENSE.txt` (Unicode License v3) now cover all five.
+- [x] `tools/unicode-tables/gen_linebreak_table.py`, plus a README entry in
       `tools/unicode-tables/README.md`, plus a `check` line in
-      `scripts/check-generated.sh`.
-- [ ] Record the range count and the test-case count (§2) with their commands.
+      `scripts/check-generated.sh`. It applies LB1 (AI/SG/XX→AL, SA→CM for Mn/Mc else
+      AL, CJ→NS) and packs flags into each run's value: +64 East Asian F/W/H, +128
+      Extended_Pictographic ∧ Cn, +256/+512 Pi/Pf on QU. General category comes from
+      the committed `unicode_gencat_ranges.txt`, so no interpreter table is read
+      (Correction 1).
+- [x] Record the range count and the test-case count (§2) with their commands.
 
 Acceptance: the artifact regenerates identically.
   Check: `scripts/check-generated.sh` → 0 diffs (est. 1 min).
-Commit: —
+  Result: exit 0, including `ok: src/codegen/string/unicode/unicode_linebreak_ranges.txt
+  matches tools/unicode-tables/gen_linebreak_table.py`.
+Commit: — (this commit)
 
 ### Phase 2 — class lookup
 
@@ -177,7 +188,13 @@ Commit: —
 
 ## Corrections
 
-(empty)
+1. **`genCat` is a rodata range table now, not an IF-chain.** §2 and Phase 2 name
+   "the same generated 4,099-arm IF-chain" as the precedent. plan-118-B replaced it:
+   `strings::genCat` lowers through `lower_unicode_range_member`, a bisection over a
+   `(u32 lastCodepoint, u32 nameIndex)` rodata table (`src/unicode/range_tables.rs`).
+   `lineBreakClass` follows that path instead, returning the run's value as an
+   `Integer` rather than a name. It bisects the 2,787 runs in 12 steps, where an
+   IF-chain would compare up to 2,787 times per character.
 
 ## Summary
 

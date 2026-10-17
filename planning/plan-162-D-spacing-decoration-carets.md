@@ -259,7 +259,7 @@ Acceptance: caret stops agree with measuring and drawing.
   Check: `cargo test --test rt_canvas_font caret --test cli_canvas_man_examples_compile`
   → pass (est. 4 min).
   Result: `caret` 2 passed; `cli_canvas_man_examples_compile` 3 passed.
-Commit: — (this commit)
+Commit: a1049a79a
 
 ## Validation Plan
 
