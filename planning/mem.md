@@ -23,6 +23,12 @@ reuses the §15 resource model's opacity, non-owning, no-copy, no-store-in-colle
 and thread rules *for free*, and makes the block the single audited trust boundary,
 exactly like `LINK`.
 
+As with every existing resource, there is **one resource identity** and every `RES`
+binding or function parameter is an alias to it. A `LAYOUT` resource and the memory it
+describes are never copied or moved as `LET`/`MUT` values. Returning or transferring a
+resource can change its cleanup scope or which aliases remain valid, but it never creates
+another resource or relocates the underlying memory.
+
 ```basic
 ' Compile error: UartRegs is opaque outside its MEMORY block (NATIVE_CPTR_ESCAPE-style)
 FUNC getUartStatusTest(RES r AS UartRegs) AS Integer
@@ -83,17 +89,31 @@ END FUNC
    (pass-only through the block's `FUNC`s, exactly like `UartRegs` in the compile-error
    example).
 
-9. **Low-`n`-bytes placement — one marshaling rule, `n = 8` is the degenerate case.**
-   A field/`PEEK` of `n` bytes places those `n` source bytes into the low `n` bytes of the
-   destination `Integer`; the high `8 − n` bytes are zero. For `n < 8` (`CUInt8/16/32`) the
-   result is therefore always non-negative. For **`n = 8`** (`CUInt64` / `PEEK … FOR 8`)
-   there are no high bytes left to zero — the read is an **exact 64-bit bit-copy**, so a
-   value with bit 63 set reads back as a *negative* `Integer`. The bit **pattern** is
-   preserved, not the unsigned magnitude: `Integer` is MFB's only 64-bit carrier and it is
-   signed, so full-width reads are bit patterns, and any code needing unsigned semantics on
-   them uses `bits::` (which operates on the raw pattern) rather than a signed compare. This
-   also settles the `PEEK`-section open question: the bound is **`≤`** — `FOR 8` is allowed,
-   with the sign caveat above.
+9. **Low-n-bytes placement (reads) / extraction (writes) — one marshaling rule, n = 8 is the degenerate case.**
+    - A field/`PEEK` of `n` bytes places those `n` source bytes into the low `n` bytes of the
+      destination `Integer`; the high `8 − n` bytes are zero. For `n < 8` (`CUInt8/16/32`) the
+      result is therefore always non-negative. For **`n = 8`** (`CUInt64` / `PEEK … FOR 8`)
+      there are no high bytes left to zero — the read is an **exact 64-bit bit-copy**, so a
+      value with bit 63 set reads back as a *negative* `Integer`. The bit **pattern** is
+      preserved, not the unsigned magnitude: `Integer` is MFB's only 64-bit carrier and it is
+      signed, so full-width reads are bit patterns, and any code needing unsigned semantics on
+      them uses `bits::` (which operates on the raw pattern) rather than a signed compare. This
+      also settles the `PEEK`-section open question: the bound is **`≤`** — `FOR 8` is allowed,
+      with the sign caveat above.
+    - A field write or `POKE … FOR n = value` stores the **low `n` bytes** of the source
+      `Integer`'s bit pattern; the high `8 − n` bytes are **discarded** (truncation, no range
+      check). This is the exact inverse of the read rule: reads *zero-fill* the high bytes,
+      writes *drop* them. So `r.control = 0x1_0005` on a `CUInt16` field writes `0x0005`, and
+      `POKE … FOR 1 = 0x1FF` writes `0xFF`. A negative value writes its two's-complement
+      low bytes (`POKE … FOR 2 = -1` writes `0xFFFF`). For **`n = 8`** nothing is dropped:
+      the write is an **exact 64-bit bit-copy**, so a negative `Integer` writes a pattern
+      with bit 63 set. This makes reads and writes round-trip on the bit pattern:
+      `POKE … FOR n = v` then `PEEK … FOR n` yields `bits::band(v, 2^(8n) − 1)` for
+      `n < 8`, and `v` exactly for `n = 8`. Byte order of the stored bytes is
+      little-endian per #13.
+    - Compile-time diagnostic for constants. If the value is a constant that doesn't fit in
+      n bytes (like FOR 1 = 0x1FF), this this is a compile error or warning. It catchestypos
+      without adding any runtime cost. Silent truncation would still apply to runtime values.
 
 9b. **Access width equals field width — no splitting.** A `CUInt64` field is *one* 64-bit
    bus access. A device that permits only 32-bit MMIO must be modeled with two `CUInt32`
@@ -128,16 +148,9 @@ END FUNC
     - **Source is portable.** Because the semantics are fixed LE rather than "whatever
       the host is," the same `MEMORY` source behaves identically across targets — no
       `app::endianness` branching needed on the common path.
-    - **Big-endian *wire* data still needs an explicit swap.** Network protocols / some
-      device formats that are big-endian on the wire are byteswapped by the developer
-      via `bits::` — the same under any model, and now the *only* place a swap appears.
-    - **Build the translation seam *now*, even with no BE target.** The LE guarantee is
-      a contract, not "we happen to be LE." Every `PEEK`/`POKE`/`LAYOUT`-field access must
-      route through a single host-order → little-endian translation point (in-place /
-      a per-access hook), which is the identity no-op on today's LE targets. Pre-planning
-      this means adding a big-endian backend later is a localized change (flip the hook
-      to emit `REV*`), not a tree-wide retrofit of every access site. Do **not** hardcode
-      the assumption that host order == LE at each call site.
+    - **Endianness Enforcement** is little-endian and the compiler emits the necessary
+      REV swap instructions automatically for targets that require it. The same code
+      works on all systems without needing endian or target checks.
 
 14. **Grammar is settled; `PEEK` is an expression, `POKE` is a statement.** The `OVERLAY`
     / `VIEW` / `PEEK` / `POKE` forms as written in the sketches are the intended grammar
@@ -268,6 +281,166 @@ END FUNC
     `PEEK(addr)` is a *function* (it yields a value) and `POKE addr, val` is a *statement*
     (it does not) — the same expression/statement split #14 arrives at independently. The
     asymmetry now needs no defending; it is what the names have always meant.
+
+## Open decisions
+
+1.  Signed field types. Are CInt8/16/32 allowed in a LAYOUT? If yes, a read needs sign-extension,
+    which #9's zero-extend rule doesn't cover. If no, say so.
+
+    *Recomendation:* Allow `CInt8`/`CInt16`/`CInt32`/`CInt64`. Reads of widths below 8
+    sign-extend into `Integer`; an 8-byte read remains the same exact bit-copy as `CUInt64`.
+    Writes keep #9's low-byte truncation rule, since signedness affects interpretation, not the
+    bus transaction.
+
+2.  Explicit offsets, reserved gaps, aliased registers. Real register maps have holes, and some
+    put registers at a stride (the 16550 often has byte registers every 4 bytes). Some share an
+    offset: the 16550's RBR and THR are one address, read vs. write. Natural alignment plus
+    auto-padding can't express any of that. You probably need per-field AT offset and/or reserved
+    fields, plus a position on overlapping fields.
+
+    *Recomendation:* Allow an optional constant byte offset on every register field (`AT n`). An
+    omitted offset continues from the preceding field with natural padding; an explicit offset
+    moves the cursor and therefore expresses both gaps and strides without fake reserved fields.
+    Permit overlap only when every overlapping field has an explicit offset, so aliasing is
+    deliberate and visible in source; retain the natural-alignment check for each field.
+
+3.  Register arrays. How do you declare N identical channel or descriptor blocks inside a LAYOUT?
+
+    *Recomendation:* Add fixed-count arrays of nested `LAYOUT`s with a constant optional stride.
+    The element layout supplies register widths and offsets, while `COUNT` and `STRIDE` describe
+    repetition; require the stride to be at least the element size and suitably aligned. Do not
+    reuse `MEM` or heap `List` semantics for register arrays.
+
+4.  Runtime base alignment. #11 checks alignment only for a literal base. For a runtime base,
+    is it checked at OVERLAY (ErrValue?) or trusted?
+
+    *Recomendation:* Check it once when `OVERLAY` is constructed and raise `ErrValue` before the
+    resource becomes live. `--mem` should authorize raw access, not turn a cheap, deterministic
+    alignment check into undefined behavior.
+
+5.  Mutating and returning a RES. attachDisplay assigns r.pixels = … on a RES-bound local and
+    then does RETURN r. Three things need defining:
+
+    *Recomendation:* Apply the existing resource semantics unchanged. `r` and every parameter or
+    other `RES` binding that refers to it are aliases to the same resource identity; there is no
+    unique local owner and no copied descriptor. **Only code inside the declaring `MEMORY` block
+    may access or assign `r.pixels`**; such an assignment mutates that one resource in place, so
+    the new view is immediately visible through every valid alias. Outside the block the resource
+    is opaque, exactly like every other resource, and can only be passed through the block's
+    `FUNC`s. The resource itself remains unavailable to `LET`/`MUT`.
+
+6.  Does returning it move it out without running CLOSE BY?
+
+    *Recomendation:* No resource or memory moves. `RETURN r` returns another reference to the same
+    identity and does not run `CLOSE BY`. If the returning scope currently carries cleanup
+    responsibility for a freshly produced resource, that responsibility is released to and
+    adopted by the caller under §15; returning a resource received from the caller leaves its
+    already-outer cleanup scope unchanged.
+
+7.  Can a MEM field be reassigned more than once, and is that allowed outside the producer?
+
+    *Recomendation:* Yes, through any valid alias used inside the declaring `MEMORY` block, just
+    as existing resource `STATE` can be mutated through a parameter alias. Reassignment replaces
+    the view metadata on the one shared resource and every alias observes it; it does not copy or
+    move the resource or the mapped memory. Outside the declaring block the `LAYOUT` is opaque,
+    so its `MEM` field cannot be read or assigned there.
+
+8.  Trap vs. recoverable error. Are ErrBounds and ErrValue fatal traps or ordinary MFB errors
+    the caller can handle? This matters inside CLOSE BY: what happens if the close function itself
+    faults?
+
+    *Recomendation:* Raise ordinary MFB failures, catchable with `TRAP`, for `ErrBounds` and
+    `ErrValue`. Apply the existing resource-cleanup rule to `CLOSE BY`: an explicit close
+    propagates its failure normally, while a failure during implicit drop is recorded as cleanup
+    diagnostic/audit metadata and cannot replace the error or return already in flight.
+
+9.  RMW atomicity. r.control = bits::bor(r.control, 1) is two accesses, not an atomic operation.
+    State that, and decide whether threads or interrupt handlers can race on it.
+
+    *Recomendation:* Specify that every source-level read and write is individually volatile but
+    a read-modify-write sequence through any alias is never atomic. Multiple aliases still reach
+    the same register and do not create independent copies. Keep overlays non-sendable by
+    default, and make interrupt synchronization the driver's responsibility; v1 should direct
+    atomic updates to device-provided set/clear registers or an external synchronization
+    primitive rather than inventing generic MMIO atomics.
+
+10. FENCE strength. On aarch64, DMB orders accesses but doesn't wait for them to complete. Before
+    waiting on an interrupt or a device-side effect you need DSB. Is one FENCE enough for v1, or
+    do you need a "completion" variant?
+
+    *Recomendation:* Give the single v1 `FENCE` the strongest portable completion semantics:
+    prior memory/device accesses complete before later execution continues. Lower it to `DSB SY`
+    on AArch64, `mfence` on x86-64, and the appropriate I/O-inclusive fence on RISC-V. A lighter
+    ordering-only form can be added later if measured driver performance justifies the extra
+    distinction.
+
+11. Threading. Is an overlay THREAD_SENDABLE by default, never, or opt-in? Two threads holding
+    one register block is a classic bug.
+
+    *Recomendation:* Use the existing resource policy: never sendable by default, with an explicit
+    `THREAD_SENDABLE` opt-in on the `LAYOUT` (or its producer contract). A successful
+    `thread::transfer` changes which thread may access the same resource identity and invalidates
+    sender-side aliases; it does not copy or relocate the resource or mapped memory. The opt-in
+    does not make register operations atomic.
+
+12. Read-only and write-only fields. Promote this from the TODO into an explicit decision
+    (in v1 or deferred). Writing to a read-only status register is a common mistake that would
+    be cheap to catch.
+
+    *Recomendation:* Include access modes in v1 and require every register field to declare
+    `READ`, `WRITE`, or `READ WRITE`. Reject the forbidden operation at compile time. Keep
+    read-to-clear and write-one-to-clear as documented device semantics rather than pretending
+    the type system can enforce their side effects.
+
+13. VIEW address validity. Is VIEW AT 0 FOR 4096 legal? Is addr + len overflow checked?
+
+    *Recomendation:* Treat the address as an unsigned 64-bit bit pattern: reject address zero for
+    every non-empty view, reject a negative length, and check `addr + len - 1` for unsigned
+    overflow before constructing the view. Allow `VIEW AT 0 FOR 0` as the canonical empty/null
+    view so it matches the unwired representation in #21.
+
+14. Subviews. With no slicing (#10), how does a helper get "rows 10–20" of a buffer? Does it
+    pass the whole MEM plus an offset, or is a bounded sub-VIEW allowed?
+
+    *Recomendation:* Allow a bounded subview derived from an existing `MEM`, with explicit offset
+    and length and the same overflow-free bounds check as `PEEK`/`POKE`. The subview is only
+    pointer-and-length metadata referring into the same memory, never a second resource or a copy
+    of the memory; it is valid only while the resource remains open and stays `MEMORY`-local.
+    This gives helpers least-authority windows without exposing another arbitrary raw address.
+
+15. Block structure and visibility.
+    - Can a file or package have more than one MEMORY block?
+    - Can a block see another block's LAYOUT internals?
+    - Can block FUNCs be private (helpers) as well as exported?
+
+    *Recomendation:* Allow multiple `MEMORY` blocks, but make each one a separate opacity boundary:
+    only the declaring block can inspect its `LAYOUT`s. Apply normal package visibility to wrapper
+    functions—private by default, explicitly exportable—and require any `LAYOUT` named by an
+    exported signature to be nameable as an opaque type by callers.
+
+16. --mem propagation details. Does a merely transitive import with the flag set fail the build,
+    or only direct imports? Should the error name the package chain?
+
+    *Recomendation:* Require `--mem` when any package in the complete transitive import graph has
+    the raw-memory bit. Report the first or shortest deterministic import chain from the root to
+    every offending package so the capability requirement is explainable rather than appearing
+    to originate in an unrelated direct dependency.
+
+17. Testing without hardware. Is there a way to OVERLAY or VIEW over an ordinary allocated
+    buffer, so drivers can be unit-tested in CI?
+
+    *Recomendation:* Provide a test-only stable native region resource backed by guarded pages (or
+    an equivalent non-moving allocation) and expose its base and length to `OVERLAY`/`VIEW`.
+    Exercise the real volatile and bounds-checking lowering against that memory; do not add a fake
+    MEMORY backend whose behavior could diverge from production. Keep codegen/assembly tests for
+    one-access and barrier guarantees that ordinary RAM cannot validate.
+
+18. Inline MEM AT … FOR const sugar. It's mentioned as "possible sugar" in the mixed-overlay
+    notes, so either list it as open or drop it.
+
+    *Recomendation:* Drop the sugar from v1. `WITH pixels = VIEW AT … FOR …` already expresses the
+    case unambiguously, and a second spelling adds grammar and initialization-order questions
+    without enabling new hardware. Reconsider it only after real drivers show repeated boilerplate.
 
 ## Why not unify register-maps and windows through `CPtr`
 
