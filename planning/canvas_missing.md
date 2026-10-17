@@ -137,12 +137,17 @@ TYPE canvas::Mesh
   colors    AS List OF color::Color
 END TYPE
 
+UNION canvas::Texture
+  canvas::Image
+  Nothing
+END UNION
+
 TYPE canvas::Object3D
-  id        AS String
-  position  AS vector::Float2
-  mesh      AS canvas::Mesh
-  texture   AS RES canvas::Image
-  transform AS canvas::Transform
+  id         AS String
+  position   AS vector::Float2
+  mesh       AS canvas::Mesh
+  texture    AS canvas::Texture
+  transform  AS canvas::Transform
 END TYPE
 ```
 
