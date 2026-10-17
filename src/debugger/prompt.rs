@@ -13,6 +13,7 @@ use std::io::{BufRead, Write};
 use super::backtrace;
 use super::breakpoints::{self, Breakpoints, Ended, ErrorCodes, Finish, Target, REPORT_HINT};
 use super::disassemble::{self, Request, Window};
+use super::environment::{self, Environment};
 use super::location::{self, is_register, Condition, Location};
 use super::names::{classify, stop_name, Collisions, Origin};
 use super::runtime::{self, Arena, Block, Role, ARENA_STATE_FIELDS};
@@ -65,6 +66,12 @@ Commands:
   run, r          Run the program until a breakpoint or its end (Ctrl-C pauses)
   finish, f       Run until the current function returns
   restart, rs     Start the program again (a program the debugger launched)
+  env             Change the environment the program gets when it restarts
+                  (a program the debugger launched; the running one keeps
+                  its own): env s|set <name> <value> sets one, its value the
+                  rest of the line; env r|remove <name> removes one; env
+                  clear removes them all; env reset goes back to the one the
+                  session started with; list env shows it
   disassemble, dis
                   Disassemble the current function; dis <count> instructions
                   from the current one (negative: before it), or dis -<back>
@@ -130,7 +137,9 @@ Each listing starts with a line naming its columns; ' | ' separates them.
                 column when any has commands.
   watchpoint    The watchpoints: <address> <size> <value>
                 <value> is the bytes' value now; a <commands> column follows
-                when any has commands.";
+                when any has commands.
+  env           The environment the program gets when it restarts, in name
+                order: <name> <value> (a program the debugger launched).";
 
 /// What a bare `list reg` prints under its registers, and all it prints once
 /// the program has ended.
@@ -215,6 +224,9 @@ enum Command {
         to: Location,
         registers: Vec<(String, Location)>,
     },
+    /// `env s|r|clear|reset ...`: change the environment the next restart
+    /// gives.
+    Env(environment::Change),
     Quit,
     Empty,
 }
@@ -369,6 +381,8 @@ enum Listing {
     Arenas,
     Breakpoints,
     Watchpoints,
+    /// `list env`: the environment the next restart gives.
+    Environment,
 }
 
 /// Which functions `list func` shows: those of any of `types` and matching any
@@ -481,6 +495,7 @@ fn parse(line: &str) -> Result<Command, String> {
         ("list" | "l", ["arena"]) => Ok(Command::List(Some(Listing::Arenas))),
         ("list" | "l", ["breakpoint"]) => Ok(Command::List(Some(Listing::Breakpoints))),
         ("list" | "l", ["watchpoint"]) => Ok(Command::List(Some(Listing::Watchpoints))),
+        ("list" | "l", ["env"]) => Ok(Command::List(Some(Listing::Environment))),
         ("list" | "l", ["reg", rest @ ..]) => {
             // Commas separate registers as well as spaces: `x0, x1,x2`.
             let words = rest
@@ -502,7 +517,7 @@ fn parse(line: &str) -> Result<Command, String> {
                 picks: picks.iter().map(|word| RegisterPick::parse(word)).collect(),
             })))
         }
-        ("list" | "l", ["thread" | "arena" | "breakpoint" | "watchpoint", ..]) => {
+        ("list" | "l", ["thread" | "arena" | "breakpoint" | "watchpoint" | "env", ..]) => {
             Err(format!("too many arguments to '{name} {}'", arguments[0]))
         }
         ("list" | "l", [other, ..]) => Err(format!(
@@ -727,10 +742,59 @@ fn parse(line: &str) -> Result<Command, String> {
         ("restart" | "rs", _) => Err(format!("'{name}' takes no arguments")),
         ("run" | "r", []) => Ok(Command::Run),
         ("run" | "r", _) => Err(format!("'{name}' takes no arguments")),
+        ("env", []) => Err(
+            "'env' needs what to do: env s <name> <value>, env r <name>, env clear or env \
+             reset; 'list env' shows the environment"
+                .to_string(),
+        ),
+        ("env", [verb @ ("s" | "set")]) => Err(format!(
+            "'env {verb}' needs a name and a value: env {verb} <name> <value>"
+        )),
+        ("env", ["s" | "set", variable, ..]) => {
+            environment::check_name(variable)?;
+            // The value is the rest of the line, spaces and all.
+            let value = after_words(line, 3);
+            environment::check_value(value)?;
+            Ok(Command::Env(environment::Change::Set {
+                name: variable.to_string(),
+                value: value.to_string(),
+            }))
+        }
+        ("env", [verb @ ("r" | "remove")]) => {
+            Err(format!("'env {verb}' needs a name: env {verb} <name>"))
+        }
+        ("env", ["r" | "remove", variable]) => {
+            environment::check_name(variable)?;
+            Ok(Command::Env(environment::Change::Remove(
+                variable.to_string(),
+            )))
+        }
+        ("env", [verb @ ("r" | "remove"), ..]) => {
+            Err(format!("too many arguments to 'env {verb}'"))
+        }
+        ("env", ["clear"]) => Ok(Command::Env(environment::Change::Clear)),
+        ("env", ["reset"]) => Ok(Command::Env(environment::Change::Reset)),
+        ("env", [verb @ ("clear" | "reset"), ..]) => {
+            Err(format!("'env {verb}' takes no arguments"))
+        }
+        ("env", [other, ..]) => Err(format!(
+            "cannot 'env {other}'; env s, env r, env clear and env reset are what env does"
+        )),
         _ => Err(format!(
             "unknown command '{name}'; type 'help' for the list of commands"
         )),
     }
+}
+
+/// What `line` holds after its first `count` words and the spaces after
+/// them, less the line's end: an argument that may hold spaces.
+fn after_words(line: &str, count: usize) -> &str {
+    let mut rest = line.trim_end_matches(['\r', '\n']);
+    for _ in 0..count {
+        rest = rest.trim_start();
+        rest = &rest[rest.find(char::is_whitespace).unwrap_or(rest.len())..];
+    }
+    rest.trim_start()
 }
 
 /// How many bytes a watchpoint covers when no size is given: an `Integer`.
@@ -839,6 +903,7 @@ const COMMAND_NAMES: &[&str] = &[
     "s",
     "step-all",
     "sa",
+    "env",
 ];
 
 /// Whether `word` names a command.
@@ -865,6 +930,13 @@ fn stop_commands(words: &[&str]) -> Result<Vec<String>, String> {
             ));
         }
         match parse(command)? {
+            // The environment is the next restart's, not the stop's.
+            Command::List(Some(Listing::Environment)) => {
+                return Err(format!(
+                    "'{command}' cannot run at a stop: the environment it lists is the one \
+                     the program gets when it restarts"
+                ))
+            }
             Command::List(_)
             | Command::ShowMemory { .. }
             | Command::ShowType { .. }
@@ -1143,6 +1215,9 @@ fn list(
         None => Ok(LIST_USAGE.lines().map(str::to_string).collect()),
         Some(Listing::Breakpoints) => Ok(breakpoints.lines()),
         Some(Listing::Watchpoints) => Ok(breakpoints.watch_lines(inferior)),
+        // The prompt lists the session's environment itself, and
+        // `stop_commands` refuses it at a stop.
+        Some(Listing::Environment) => unreachable!("'list env' is the prompt's to answer"),
         Some(Listing::Functions(filter)) => {
             let lines = function_lines(&inferior.functions()?, &filter);
             if lines.is_empty() && filter != FunctionFilter::default() {
@@ -1211,6 +1286,11 @@ fn list(
             }
         }
     }
+}
+
+/// Why `what` refuses a program the debugger attached to.
+fn launched_only(what: &str) -> String {
+    format!("'{what}' needs a program the debugger launched; this one was attached to")
 }
 
 fn no_thread(id: usize, count: usize) -> String {
@@ -1821,8 +1901,9 @@ fn finish_lines(
 fn restart(
     inferior: &mut dyn Inferior,
     breakpoints: &mut Breakpoints,
+    environment: &[(std::ffi::OsString, std::ffi::OsString)],
 ) -> Result<Vec<String>, String> {
-    let pid = inferior.restart()?;
+    let pid = inferior.restart(environment)?;
     let mut lines = vec![format!(
         "Restarted the program as process {pid}; paused before its first instruction."
     )];
@@ -2146,6 +2227,7 @@ fn places(inferior: &mut dyn Inferior) -> Result<Vec<String>, String> {
 pub(crate) fn run(
     inferior: &mut dyn Inferior,
     program: Program,
+    environment: Option<Environment>,
     input: &mut dyn BufRead,
     out: &mut dyn Write,
     err: &mut dyn Write,
@@ -2155,6 +2237,9 @@ pub(crate) fn run(
     let mut line = String::new();
     let mut breakpoints = Breakpoints::default();
     breakpoints.watch_report(inferior, &mut Vec::new())?;
+    // A launched program's environment, which `env` changes for the next
+    // restart; none for a program attached to.
+    let mut environment = environment.map(environment::Session::new);
     // The thread `dis` shows: the last one a `run` or `step` stopped.
     let mut current = MAIN_THREAD;
     // Once the program has ended only `help`, `list`, `list breakpoint`, a bare
@@ -2199,11 +2284,29 @@ pub(crate) fn run(
             Ok(Command::List(Some(Listing::CommonRegisters { .. }))) if exited => {
                 Ok(LIST_REG_USAGE.lines().map(str::to_string).collect())
             }
-            Ok(Command::Restart) => restart(inferior, &mut breakpoints).inspect(|_| {
+            Ok(Command::Restart) => restart(
+                inferior,
+                &mut breakpoints,
+                environment.as_ref().map_or(&[], environment::Session::next),
+            )
+            .inspect(|_| {
                 exited = false;
                 current = MAIN_THREAD;
                 faults.clear();
+                if let Some(environment) = &mut environment {
+                    environment.restarted();
+                }
             }),
+            // The environment is for the next restart: it changes even once
+            // the program has ended.
+            Ok(Command::List(Some(Listing::Environment))) => environment
+                .as_ref()
+                .map(environment::Session::lines)
+                .ok_or_else(|| launched_only("list env")),
+            Ok(Command::Env(change)) => environment
+                .as_mut()
+                .ok_or_else(|| launched_only("env"))
+                .and_then(|environment| environment.change(change)),
             Ok(Command::ShowReport) => Ok(breakpoints.report_lines(exited)),
             Ok(_) if exited => {
                 Err("the program has exited; type 'quit' to end the session".to_string())
@@ -2356,6 +2459,11 @@ mod tests {
         x0: Option<u64>,
         /// Memory a `[…]` can read: 8-byte words by address.
         words: Vec<(u64, u64)>,
+        /// The environment a launched program started with; `None` for one
+        /// attached to, which cannot restart.
+        environment: Option<Environment>,
+        /// The environment each restart was given.
+        restarts: Vec<Environment>,
     }
 
     impl Recorder {
@@ -2374,6 +2482,8 @@ mod tests {
                 sets: Vec::new(),
                 x0: None,
                 words: Vec::new(),
+                environment: None,
+                restarts: Vec::new(),
             }
         }
     }
@@ -2540,8 +2650,17 @@ mod tests {
                 })
                 .collect())
         }
-        fn restart(&mut self) -> Result<u32, String> {
-            Err("restart needs a program the debugger launched".to_string())
+        /// A launched program (one with an `environment`) restarts as
+        /// process 43, recording the environment it was given.
+        fn restart(
+            &mut self,
+            environment: &[(std::ffi::OsString, std::ffi::OsString)],
+        ) -> Result<u32, String> {
+            if self.environment.is_none() {
+                return Err("restart needs a program the debugger launched".to_string());
+            }
+            self.restarts.push(environment.to_vec());
+            Ok(43)
         }
         fn entry(&mut self) -> Result<Option<u64>, String> {
             Ok(Some(0x1000))
@@ -2578,9 +2697,11 @@ mod tests {
     fn drive(inferior: &mut Recorder, input: &str, echo: bool) -> (String, String) {
         let mut out = Vec::new();
         let mut err = Vec::new();
+        let environment = inferior.environment.clone();
         run(
             inferior,
             CONSOLE,
+            environment,
             &mut input.as_bytes(),
             &mut out,
             &mut err,
@@ -3110,6 +3231,118 @@ x0       | 0x000000000000002c | (44)
         assert_eq!(
             err,
             "error: restart needs a program the debugger launched\n"
+        );
+    }
+
+    fn variables(pairs: &[(&str, &str)]) -> Environment {
+        pairs
+            .iter()
+            .map(|(name, value)| (name.into(), value.into()))
+            .collect()
+    }
+
+    #[test]
+    fn env_changes_what_the_next_restart_gives_and_list_env_shows_it() {
+        let mut inferior = Recorder::new(Ending::Killed);
+        inferior.environment = Some(variables(&[("PATH", "/bin"), ("HOME", "/h")]));
+        let (out, err) = drive(
+            &mut inferior,
+            "list env\nenv s GREETING  hello,  world \nenv r HOME\nlist env\nrestart\n\
+             list env\nenv clear\nenv reset\nrestart\nq\n",
+            false,
+        );
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "{PROMPT}Name | Value\nHOME | /h\nPATH | /bin\n\
+                 {PROMPT}Set GREETING=hello,  world ; the program gets it when it restarts.\n\
+                 {PROMPT}Removed HOME; the program goes without it when it restarts.\n\
+                 {PROMPT}Name     | Value\nGREETING | hello,  world \nPATH     | /bin\n\n\
+                 Changed since the program started: it gets these when it restarts.\n\
+                 {PROMPT}Restarted the program as process 43; paused before its first \
+                 instruction.\n\
+                 {PROMPT}Name     | Value\nGREETING | hello,  world \nPATH     | /bin\n\
+                 {PROMPT}Cleared the environment; the program starts with none when it \
+                 restarts.\n\
+                 {PROMPT}Reset the environment to the one the session started the program \
+                 with; the program gets it when it restarts.\n\
+                 {PROMPT}Restarted the program as process 43; paused before its first \
+                 instruction.\n\
+                 {PROMPT}Killed process 42.\n"
+            )
+        );
+        assert_eq!(
+            inferior.restarts,
+            [
+                variables(&[("PATH", "/bin"), ("GREETING", "hello,  world ")]),
+                variables(&[("PATH", "/bin"), ("HOME", "/h")]),
+            ]
+        );
+    }
+
+    #[test]
+    fn env_works_once_the_program_has_ended() {
+        let mut inferior = Recorder::new(Ending::AlreadyExited);
+        inferior.environment = Some(Vec::new());
+        inferior.runs = vec![RunStop::Exited(Exit::Status(0))];
+        let (_, err) = drive(
+            &mut inferior,
+            "run\nenv s A 1\nlist env\nrestart\nq\n",
+            false,
+        );
+        assert_eq!(err, "");
+        assert_eq!(inferior.restarts, [variables(&[("A", "1")])]);
+    }
+
+    #[test]
+    fn env_needs_a_launched_program() {
+        let (_, err, _) = session("env s A 1\nlist env\nq\n", Ending::Detached, false);
+        assert_eq!(
+            err,
+            "error: 'env' needs a program the debugger launched; this one was attached to\n\
+             error: 'list env' needs a program the debugger launched; this one was attached to\n"
+        );
+    }
+
+    #[test]
+    fn env_refuses_what_it_cannot_do() {
+        let mut inferior = Recorder::new(Ending::Killed);
+        inferior.environment = Some(variables(&[("A", "1")]));
+        let (_, err) = drive(
+            &mut inferior,
+            "env\nenv s\nenv set A=B 1\nenv r\nenv remove A B\nenv r B\nenv clear now\n\
+             env reset x\nenv frob\nlist env x\nbp 0x1000 list env\nq\n",
+            false,
+        );
+        assert_eq!(
+            err,
+            "error: 'env' needs what to do: env s <name> <value>, env r <name>, env clear or \
+             env reset; 'list env' shows the environment\n\
+             error: 'env s' needs a name and a value: env s <name> <value>\n\
+             error: 'A=B' is not a variable name: a name holds no '=' and no NUL\n\
+             error: 'env r' needs a name: env r <name>\n\
+             error: too many arguments to 'env remove'\n\
+             error: no variable 'B' is in the environment; type 'list env' for it\n\
+             error: 'env clear' takes no arguments\n\
+             error: 'env reset' takes no arguments\n\
+             error: cannot 'env frob'; env s, env r, env clear and env reset are what env does\n\
+             error: too many arguments to 'list env'\n\
+             error: 'list env' cannot run at a stop: the environment it lists is the one the \
+             program gets when it restarts\n"
+        );
+    }
+
+    #[test]
+    fn env_s_takes_the_rest_of_the_line_as_the_value() {
+        assert_eq!(after_words("env s A  b c \r\n", 3), "b c ");
+        assert_eq!(after_words("  env\tset A\n", 3), "");
+        assert_eq!(
+            parse("env set A x=1 y\n"),
+            Ok(Command::Env(environment::Change::Set {
+                name: "A".to_string(),
+                value: "x=1 y".to_string(),
+            }))
         );
     }
 

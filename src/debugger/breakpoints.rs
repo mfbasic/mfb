@@ -1796,7 +1796,10 @@ mod tests {
                 stop: StepStop::Finished,
             }])
         }
-        fn restart(&mut self) -> Result<u32, String> {
+        fn restart(
+            &mut self,
+            _: &[(std::ffi::OsString, std::ffi::OsString)],
+        ) -> Result<u32, String> {
             Err("restart needs a program the debugger launched".to_string())
         }
         fn entry(&mut self) -> Result<Option<u64>, String> {

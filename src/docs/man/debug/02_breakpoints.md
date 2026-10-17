@@ -329,10 +329,32 @@ program has ended was never reached; `restart` sets the counts back to 0.
 ### Starting over
 
 `restart` starts the program again from the beginning, with the same
-arguments, and keeps your breakpoints and the errors you watch for; it removes
-your watchpoints. It works on a program `mfb dbg`
-started, even after it has ended, and picks up a program you rebuilt in the
-meantime.
+arguments and the environment `env` gives it, and keeps your breakpoints and
+the errors you watch for; it removes your watchpoints. It works on a program
+`mfb dbg` started, even after it has ended, and picks up a program you rebuilt
+in the meantime.
+
+### Changing the environment
+
+`env` changes the environment variables the program gets the next time you
+`restart` it. A program `mfb dbg` starts gets the same environment as `mfb dbg`
+itself. The running program is never changed: what `os::getEnv` reads in it
+stays as it was until the restart.
+
+- `env s <name> <value>` (or `env set`) sets a variable. The value is the rest
+  of the line after the name, spaces included, and may be empty.
+- `env r <name>` (or `env remove`) removes one.
+- `env clear` removes them all: the program starts with no environment at all.
+- `env reset` goes back to the environment the session started the program
+  with.
+- `list env` shows the environment the next restart gives, sorted by name.
+  When that is not the one the running program has, a line under the list
+  says so.
+
+A name holds no `=`, and names are case-sensitive: `env r path` does not
+remove `PATH`. `env` works only on a program `mfb dbg` started, since one it
+attached to cannot restart, and it still works once the program has ended,
+ready for the `restart`. A stop cannot run `list env`.
 
 ## Examples
 
@@ -416,6 +438,37 @@ Address            | Count | Symbol             | Written name
 0x0000000104bd1374 | 0     | _mfb_fn_formatLine | formatLine
 DBG> q
 Killed process 89965.
+```
+
+Give the program `LOG_LEVEL` and take away `TERM` for its next start. Here
+`mfb dbg` itself starts with only `HOME` and `TERM` (`env -i`, which needs the
+full path to `mfb`), so the list stays short:
+
+```sh macos
+mfb build --debug -O0 examples/debug
+printf 'env s LOG_LEVEL debug\nenv r TERM\nlist env\nrestart\nlist env\nq\n' | env -i HOME=/Users/me TERM=xterm-256color "$(command -v mfb)" dbg examples/debug/build/debug.out -- 2 500
+```
+
+```
+Launched examples/debug/build/debug.out as process 49471; paused before its first instruction.
+DBG> env s LOG_LEVEL debug
+Set LOG_LEVEL=debug; the program gets it when it restarts.
+DBG> env r TERM
+Removed TERM; the program goes without it when it restarts.
+DBG> list env
+Name      | Value
+HOME      | /Users/me
+LOG_LEVEL | debug
+
+Changed since the program started: it gets these when it restarts.
+DBG> restart
+Restarted the program as process 49493; paused before its first instruction.
+DBG> list env
+Name      | Value
+HOME      | /Users/me
+LOG_LEVEL | debug
+DBG> q
+Killed process 49493.
 ```
 
 ## See also

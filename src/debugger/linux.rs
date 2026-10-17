@@ -36,7 +36,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::ffi::{c_char, c_int, c_long, c_void, CString, OsString};
 use std::fs::File;
 use std::io;
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::ptr;
@@ -204,8 +204,13 @@ impl Backend for LinuxAarch64 {
         })
     }
 
-    fn launch(&self, program: &Path, args: &[OsString]) -> Result<Box<dyn Inferior>, String> {
-        let pid = spawn(program, args)?;
+    fn launch(
+        &self,
+        program: &Path,
+        args: &[OsString],
+        environment: &[(OsString, OsString)],
+    ) -> Result<Box<dyn Inferior>, String> {
+        let pid = spawn(program, args, environment)?;
         Tracee::new(pid, Some(args.to_vec()), program, vec![pid]).map(|tracee| {
             let boxed: Box<dyn Inferior> = Box::new(tracee);
             boxed
@@ -305,9 +310,13 @@ fn seize_all(pid: c_int) -> Result<Vec<c_int>, String> {
     }
 }
 
-/// Start `program` with `args`, paused at its `execve` before the loader
-/// runs, in a process group of its own, and seize it.
-fn spawn(program: &Path, args: &[OsString]) -> Result<c_int, String> {
+/// Start `program` with `args` and `environment`, paused at its `execve`
+/// before the loader runs, in a process group of its own, and seize it.
+fn spawn(
+    program: &Path,
+    args: &[OsString],
+    environment: &[(OsString, OsString)],
+) -> Result<c_int, String> {
     let shown = super::shown(program);
     let c_string = |value: &[u8]| {
         CString::new(value)
@@ -320,15 +329,9 @@ fn spawn(program: &Path, args: &[OsString]) -> Result<c_int, String> {
     }
     let mut argv = owned.iter().map(|arg| arg.as_ptr()).collect::<Vec<_>>();
     argv.push(ptr::null());
-    let environment = std::env::vars_os()
-        .filter_map(|(key, value)| {
-            let mut entry = key.into_vec();
-            entry.push(b'=');
-            entry.extend(value.into_vec());
-            CString::new(entry).ok()
-        })
-        .collect::<Vec<_>>();
-    let mut envp = environment
+    let entries = super::environment::entries(environment)
+        .map_err(|message| format!("cannot launch '{shown}': {message}"))?;
+    let mut envp = entries
         .iter()
         .map(|entry| entry.as_ptr())
         .collect::<Vec<_>>();
@@ -1792,7 +1795,7 @@ impl Inferior for Tracee {
         steps
     }
 
-    fn restart(&mut self) -> Result<u32, String> {
+    fn restart(&mut self, environment: &[(OsString, OsString)]) -> Result<u32, String> {
         if !self.launched {
             return Err(
                 "restart needs a program the debugger launched; this one was attached to"
@@ -1802,7 +1805,7 @@ impl Inferior for Tracee {
         if self.check_exit().is_none() {
             kill_and_reap(self.pid);
         }
-        let pid = spawn(&self.program, &self.args)?;
+        let pid = spawn(&self.program, &self.args, environment)?;
         let fresh = Tracee::new(pid, Some(self.args.clone()), &self.program, vec![pid])?;
         // The new session keeps this one's saved SIGINT action, not the
         // handler `new` just read back.

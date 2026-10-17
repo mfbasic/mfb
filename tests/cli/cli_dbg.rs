@@ -755,6 +755,35 @@ mod native {
         build_debug(&project, "debug")
     }
 
+    /// A `--debug` build of a program that prints `[<value>]` for the
+    /// environment variable `MFB_DBG_GREETING`, or `[unset]`.
+    fn greeting_program() -> PathBuf {
+        let project = std::env::temp_dir().join(format!("mfb_dbg_env_{}", unique_nonce()));
+        std::fs::create_dir_all(project.join("src")).unwrap();
+        std::fs::write(
+            project.join("project.json"),
+            r#"{
+  "name": "greeting",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            project.join("src").join("main.mfb"),
+            "IMPORT io\nIMPORT os\n\nFUNC main() AS Nothing\n  \
+             io::print(\"[\" & os::getEnvOr(\"MFB_DBG_GREETING\", \"unset\") & \"]\")\n\
+             END FUNC\n",
+        )
+        .unwrap();
+        build_debug(&project, "greeting")
+    }
+
     /// How a `--debug` build that exits with status 0 ends: its report is
     /// kept for `show report`.
     const EXITED: &str =
@@ -1070,6 +1099,48 @@ mod native {
             body(&session.until_prompt()),
             ["Value: 0x0000000000000012 (18)"]
         );
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+    }
+
+    /// `env` changes the environment the program gets when it restarts, and
+    /// the running program keeps its own.
+    #[test]
+    fn env_gives_a_restarted_program_its_changes() {
+        let mfb = signed_mfb();
+        let binary = greeting_program();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap()]);
+        session.until_prompt();
+        session.send("env s MFB_DBG_GREETING hello,  world\n");
+        assert_eq!(
+            body(&session.until_prompt()),
+            ["Set MFB_DBG_GREETING=hello,  world; the program gets it when it restarts."]
+        );
+        session.send("restart\n");
+        session.until_prompt();
+        session.send("run\n");
+        let ran = body(&session.until_prompt());
+        assert_eq!(
+            ran.first().map(String::as_str),
+            Some("[hello,  world]"),
+            "{ran:?}"
+        );
+        session.send("env r MFB_DBG_GREETING\n");
+        session.until_prompt();
+        session.send("list env\n");
+        let listed = session.until_prompt();
+        assert!(
+            !listed.contains("MFB_DBG_GREETING")
+                && listed
+                    .contains("Changed since the program started: it gets these when it restarts."),
+            "{listed}"
+        );
+        session.send("restart\n");
+        session.until_prompt();
+        session.send("run\n");
+        let ran = body(&session.until_prompt());
+        assert_eq!(ran.first().map(String::as_str), Some("[unset]"), "{ran:?}");
         session.send("q\n");
         let (code, _) = session.finish();
         assert_eq!(code, Some(0));

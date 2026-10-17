@@ -153,7 +153,7 @@ impl Inferior for Paused {
     fn step(&mut self, _: &[usize], _: u64) -> Result<Vec<Step>, String> {
         Err("not stepped".to_string())
     }
-    fn restart(&mut self) -> Result<u32, String> {
+    fn restart(&mut self, _: &[(OsString, OsString)]) -> Result<u32, String> {
         Err("restart needs a program the debugger launched".to_string())
     }
     fn entry(&mut self) -> Result<Option<u64>, String> {
@@ -221,7 +221,12 @@ impl Backend for Recorded {
         self.calls.borrow_mut().push(format!("executable_of {pid}"));
         self.executable.clone()
     }
-    fn launch(&self, program: &Path, args: &[OsString]) -> Result<Box<dyn Inferior>, String> {
+    fn launch(
+        &self,
+        program: &Path,
+        args: &[OsString],
+        _: &[(OsString, OsString)],
+    ) -> Result<Box<dyn Inferior>, String> {
         self.calls
             .borrow_mut()
             .push(format!("launch {} {args:?}", program.display()));

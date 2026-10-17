@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 use crate::cli::help::dbg_help;
 use crate::cli::CommandError;
+use crate::debugger::environment::Environment;
 use crate::debugger::{check_debuggable, host_backend, prompt, shown, Backend, Inferior};
 
 #[cfg(test)]
@@ -120,18 +121,20 @@ fn session(
     err: &mut dyn Write,
     echo: bool,
 ) -> Result<(), CommandError> {
-    let (mut inferior, banner, facts) = match request {
+    let (mut inferior, banner, facts, environment) = match request {
         Request::Launch { program, args } => {
             let facts = check_debuggable(&program).map_err(CommandError::Failed)?;
+            // A launched program starts with the debugger's own environment.
+            let environment = std::env::vars_os().collect::<Environment>();
             let inferior = backend
-                .launch(&program, &args)
+                .launch(&program, &args, &environment)
                 .map_err(CommandError::Failed)?;
             let banner = format!(
                 "Launched {} as process {}; paused before its first instruction.",
                 shown(&program),
                 inferior.pid()
             );
-            (inferior, banner, facts)
+            (inferior, banner, facts, Some(environment))
         }
         Request::Attach { pid } => {
             let program = backend.executable_of(pid).map_err(CommandError::Failed)?;
@@ -140,14 +143,15 @@ fn session(
                 .attach(pid, &program)
                 .map_err(CommandError::Failed)?;
             let banner = format!("Attached to process {pid} ({}); paused.", shown(&program));
-            (inferior, banner, facts)
+            (inferior, banner, facts, None)
         }
     };
     writeln!(out, "{banner}").map_err(|e| CommandError::Failed(format!("cannot write: {e}")))?;
     if let Some(note) = debug_build_note(inferior.as_mut()) {
         writeln!(out, "{note}").map_err(|e| CommandError::Failed(format!("cannot write: {e}")))?;
     }
-    prompt::run(inferior.as_mut(), facts, input, out, err, echo).map_err(CommandError::Failed)
+    prompt::run(inferior.as_mut(), facts, environment, input, out, err, echo)
+        .map_err(CommandError::Failed)
 }
 
 /// The note printed after the banner when the program carries no function

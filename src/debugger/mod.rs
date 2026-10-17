@@ -19,6 +19,7 @@ pub(crate) mod breakpoints;
 pub(crate) mod disassemble;
 #[cfg(any(all(target_os = "linux", target_arch = "aarch64"), test))]
 mod elf;
+pub(crate) mod environment;
 pub(crate) mod location;
 pub(crate) mod names;
 pub(crate) mod prompt;
@@ -46,9 +47,14 @@ use crate::terminal_safe::safe;
 pub(crate) trait Backend {
     /// The executable file the running process `pid` was started from.
     fn executable_of(&self, pid: u32) -> Result<PathBuf, String>;
-    /// Start `program` with `args`, attached and paused before its first
-    /// instruction runs.
-    fn launch(&self, program: &Path, args: &[OsString]) -> Result<Box<dyn Inferior>, String>;
+    /// Start `program` with `args` and `environment`, attached and paused
+    /// before its first instruction runs.
+    fn launch(
+        &self,
+        program: &Path,
+        args: &[OsString],
+        environment: &[(OsString, OsString)],
+    ) -> Result<Box<dyn Inferior>, String>;
     /// Attach to the running process `pid`, whose executable is `program`,
     /// and pause every thread in it.
     fn attach(&self, pid: u32, program: &Path) -> Result<Box<dyn Inferior>, String>;
@@ -98,10 +104,11 @@ pub(crate) trait Inferior {
     /// process is paused again afterwards. A thread that stops early sits out
     /// the remaining rounds. Answers one [`Step`] per thread, in order.
     fn step(&mut self, threads: &[usize], count: u64) -> Result<Vec<Step>, String>;
-    /// Kill a program the debugger launched and start it again, the same
-    /// way, paused before its first instruction; every breakpoint is gone.
-    /// Answers the new process id. A program attached to cannot restart.
-    fn restart(&mut self) -> Result<u32, String>;
+    /// Kill a program the debugger launched and start it again, with the
+    /// same arguments and with `environment`, paused before its first
+    /// instruction; every breakpoint is gone. Answers the new process id. A
+    /// program attached to cannot restart.
+    fn restart(&mut self, environment: &[(OsString, OsString)]) -> Result<u32, String>;
     /// The live address of the program's entry point (where the loader hands
     /// over once every library is loaded and bound), when the file names one.
     fn entry(&mut self) -> Result<Option<u64>, String>;
