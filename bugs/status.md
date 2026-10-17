@@ -25,8 +25,8 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 * SECURITY rows (980, 1017, 1042, 952, 954+947, 955, 918): not scheduled; they wait for the owner.
 * MED 1082: blocked on hardware and a design decision (its doc). Not scheduled.
 * **Phase 1 (MED, table order):** 1085, 1087, 1088, 1091, 1089, 965, 985, 1015, 964, plus 966
-  (965 and 964 are "after 966"). 1087 waits on an owner decision (extend bug-996's rule to
-  Metal); 1091 is perf and runs alone in round 2.
+  (965 and 964 are "after 966"). 1087 (owner: bug-996's rule extends to Metal) and 1091 are perf and
+  run alone in round 2.
 * Later phases: the rest of MED, then LOW, in table order.
 
 ## Resources and STATE

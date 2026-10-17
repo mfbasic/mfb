@@ -10,8 +10,9 @@ Regression Test: `tools/canvas-bench/bench.sh <mfb> coldstart` (exists; reports 
 
 ## Cause (coordinator, bug-staging-24)
 
-- WAITING ON THE OWNER. `mfb spec app canvas` states "Metal builds its pipeline on the graphics thread at the first GPU frame in every case"; the owner's bug-996 rule ("the pipeline is never on a frame's critical path; software until it exists; `MFB_CANVAS_GPU=1` keeps blocking") was ruled for Vulkan, and this doc lists its extension to Metal as not decided.
-- Where (if extended): `helper_render.rs`'s first-frame `canvas::metalReady` call (`render_loop_tail!`), which builds the pipeline inline; the build would move off the frame's path as bug-996's Vulkan hand-off does.
+- OWNER RULING 2026-10-17: bug-996's rule extends to Metal. The Metal pipeline is never on a frame's critical path: frames draw in software until it exists, then Metal frames begin; `MFB_CANVAS_GPU=1` keeps blocking. `mfb spec app canvas`'s "Metal builds its pipeline on the graphics thread at the first GPU frame in every case" is replaced by that rule.
+- Rule: as above, the one bug-996 states for Vulkan (`mfb spec app canvas`, "The Vulkan pipeline is never on a frame's critical path").
+- Where: `helper_render.rs`'s first-frame `canvas::metalReady` call (`render_loop_tail!`), which builds the pipeline inline; Fix: build it off the frame's path through the same hand-off shape bug-996 gave Vulkan (`vulkan_handoff`), with the frame drawn in software while it is not ready. Perf: runs alone.
 
 Found during `bug-staging-23` (2026-10-12) by bs23-agent-c while auditing Metal for bug-996,
 and placed in a later phase. bug-996 took the Vulkan pipeline off the first frame's path;
