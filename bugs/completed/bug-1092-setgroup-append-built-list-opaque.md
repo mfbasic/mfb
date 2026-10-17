@@ -23,7 +23,7 @@ holds what those operands hold, accumulated across repeated `items = f(items, x)
 `setGroup` of it takes all of that over (no scope-exit close, later naming refused), while
 every other call stays opaque.
 
-## STATUS: FIXED (see commits below)
+## STATUS: FIXED (b0e3fe802)
 
 Shipped as designed: one table (`resource::PLACING_OPERANDS`) read by both walks, the
 codegen pass extends (union) on a self-referential `Assign`, and the verifier - which
@@ -105,11 +105,11 @@ re-deriving containment from the callee body (needs inter-procedural analysis).
 
 ### Phase 1 - failing tests
 - [x] Runtime tests and verifier fixture added; 5 runtime tests failed, fixture compiled clean.
-Commit: with the fix (single itemized test+fix commit).
+Commit: b0e3fe802 (tests and fix landed together).
 
 ### Phase 2 - the fix
 - [x] Table + both walks + verifier Assign recording.
-Commit: see git log (`bug-1092`).
+Commit: b0e3fe802.
 
 ### Phase 3 - validation
 - [x] `cargo test --no-fail-fast`, `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
