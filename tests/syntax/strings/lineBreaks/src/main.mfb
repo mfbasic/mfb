@@ -1,0 +1,8 @@
+IMPORT strings
+
+FUNC main AS Integer
+  LET missing AS List OF strings::LineBreak = strings::lineBreaks()
+  LET wrongType AS List OF strings::LineBreak = strings::lineBreaks(12)
+  LET tooMany AS List OF strings::LineBreak = strings::lineBreaks("a", "b")
+  RETURN 0
+END FUNC

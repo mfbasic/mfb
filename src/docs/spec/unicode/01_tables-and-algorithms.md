@@ -61,8 +61,8 @@ classes, `\p{Script}` tests, shorthand classes and word test (through the intern
 These sources are versioned independently. Grapheme properties, combining classes,
 composition pairs and display widths come from vendored utf8proc. Decomposition
 and case mapping come from the Rust dependencies and Rust's `char` mappings.
-General category and Script remain pinned to Unicode 16.0.0 independently of
-those sources. Updating one source does not update the others; the compiler does
+General category, Script and Line_Break (below) remain pinned to Unicode 16.0.0
+independently of those sources. Updating one source does not update the others; the compiler does
 not enforce a shared Unicode version.
 [[src/unicode/runtime_tables.rs:parse_tables]]
 [[src/unicode/range_tables.rs:GENCAT_RANGES]]
@@ -427,6 +427,42 @@ entry count. A mismatch triggers a null load. This is an end-of-pass
 invariant check, not a bounds check before each write; it cannot undo an
 out-of-bounds write that already occurred.
 [[src/codegen/error/emission/builder_error_emission.rs:emit_write_cursor_assert]]
+
+## Runtime algorithm: line breaking (UAX #14)
+
+`strings::lineBreaks(text)` implements the Unicode Line Breaking Algorithm, UAX #14
+for Unicode 16.0.0, **untailored**. [[src/codegen/builtins/strings/func_line_breaks.rs:LINE_BREAKS]]
+
+Each scalar's class comes from the internal `strings::lineBreakClass`. That is a third
+pinned range table, `unicode_linebreak_ranges.txt`, generated from the vendored
+`LineBreak`, `EastAsianWidth` and `emoji-data` files at 16.0.0 and the committed
+general-category runs. [[src/unicode/range_tables.rs:linebreak]]
+[[src/codegen/builtins/strings/func_line_break_class.rs:lower]] It is the same
+bisection as the category table's, but each run's second word is the value itself, so
+there is no names table: `(u32 lastCodepoint, u32 value)`, emitted only when a function
+reads it. [[src/codegen/string/unicode_props.rs:emit_unicode_range_value]]
+
+The value is the class after LB1's default resolutions — AI, SG and XX are AL, SA is
+CM for Mn or Mc and AL otherwise, CJ is NS — numbered in the generator's order, plus
+64 for East_Asian_Width F, W or H (LB19a, LB21a, LB30), 128 for Extended_Pictographic
+on an unassigned scalar (LB30b), and 256 or 512 for a QU that is Pi or Pf (LB15a,
+LB15b, LB19). [[tools/unicode-tables/gen_linebreak_table.py:CLASSES]] CB is kept and
+broken around (LB20). Class SA therefore breaks only at spaces and punctuation: no
+dictionary segmentation is done for Thai, Lao, Khmer or Myanmar.
+
+LB9 and LB10 are applied first, by cutting the text into units: a base and the CM and
+ZWJ scalars it absorbs (any base but BK, CR, LF, NL, SP or ZW), or a lone CM or ZWJ
+treated as U+0041. Every later rule reads units, so its look-behinds — `SP*`,
+`(SY | IS)*`, regional-indicator parity — skip combining marks. Positions inside a unit
+never break. A unit that ends in ZWJ forbids a break after it (LB8a). Each position
+between units then runs LB4 to LB31 in order, and the first rule that matches decides
+it.
+
+The result lists each break as `(index, mandatory)`, in Unicode scalars. Position 0 is
+never reported (LB2). The end of the text is always reported, as mandatory (LB3).
+`mandatory` is set after BK, CR (not before its LF), LF and NL. An empty string has no
+breaks. `tests/runtime/rt_strings_line_breaks.rs` runs all 16,672 cases of the vendored
+`LineBreakTest-16.0.0.txt` in one program and requires every one to agree.
 
 ## See Also
 

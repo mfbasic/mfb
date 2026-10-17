@@ -1,0 +1,70 @@
+{
+  "project": "line_breaks_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "encoding", "line": 4 },
+    { "module": "io", "line": 5 },
+    { "module": "strings", "line": 6 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "show",
+      "line": 8,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 8 },
+      { "name": "s", "type": "String", "default": null, "line": 8 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ":" } }, "line": 9 },
+      {
+        "kind": "forEach",
+        "name": "b",
+        "iterable": { "kind": "call", "callee": "strings.lineBreaks", "arguments": [{ "kind": "identifier", "value": "s" }] },
+        "line": 10,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "index" }] } }, "line": 11 },
+        {
+          "kind": "if",
+          "condition": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "mandatory" },
+          "line": 12,
+          "then": [
+          { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "!" } }, "line": 13 }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "out" }] }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 19,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "prose" }, { "kind": "string", "value": "Hello world, (tax-free)." }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "cjk" }, { "kind": "string", "value": "日本語のテキスト。" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "number" }, { "kind": "string", "value": "cost $(12.35) now" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hard" }, { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "a" }, "right": { "kind": "call", "callee": "encoding.utf32Decode", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "13" }, { "kind": "number", "value": "10" }] }] } }, "right": { "kind": "string", "value": "b" } }, "right": { "kind": "call", "callee": "encoding.utf32Decode", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "10" }] }] } }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "mark first" }, { "kind": "call", "callee": "encoding.utf32Decode", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "769" }, { "kind": "number", "value": "65" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "66" }] }] }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "nbsp" }, { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "10" }, "right": { "kind": "call", "callee": "encoding.utf32Decode", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "160" }] }] } }, "right": { "kind": "string", "value": "kg of" } }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "empty" }, { "kind": "string", "value": "" }] }, "line": 33 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 34 }
+      ]
+    }
+    ]
+  }
+  ]
+}

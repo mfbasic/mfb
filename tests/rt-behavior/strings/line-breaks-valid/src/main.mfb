@@ -1,0 +1,35 @@
+' strings::lineBreaks (plan-162-E): break opportunities by UAX #14, each with its
+' scalar index and whether it is mandatory (`!`). The full Unicode conformance file is
+' tests/runtime/rt_strings_line_breaks.rs; this pins the documented edges.
+IMPORT encoding
+IMPORT io
+IMPORT strings
+
+FUNC show(label AS String, s AS String) AS Nothing
+  MUT out AS String = label & ":"
+  FOR EACH b IN strings::lineBreaks(s)
+    out = out & " " & toString(b.index)
+    IF b.mandatory THEN
+      out = out & "!"
+    END IF
+  NEXT
+  io::print(out)
+END FUNC
+
+FUNC main AS Integer
+  ' Spaces, punctuation that must not start a line, a hyphen, brackets.
+  show("prose", "Hello world, (tax-free).")
+  ' No space needed between CJK ideographs; none before the closing full stop.
+  show("cjk", "日本語のテキスト。")
+  ' A number keeps its prefix, separators and brackets: $(12.35) is one unit.
+  show("number", "cost $(12.35) now")
+  ' Hard breaks are mandatory, and CR LF is one.
+  show("hard", "a" & encoding::utf32Decode([13, 10]) & "b" & encoding::utf32Decode([10]))
+  ' A combining mark at the start is treated as a letter (LB10) and joins nothing.
+  show("mark first", encoding::utf32Decode([769, 65, 32, 66]))
+  ' A no-break space holds its neighbours together.
+  show("nbsp", "10" & encoding::utf32Decode([160]) & "kg of")
+  ' The empty string has no breaks at all.
+  show("empty", "")
+  RETURN 0
+END FUNC

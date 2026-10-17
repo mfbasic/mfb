@@ -1669,6 +1669,9 @@ pub(crate) const UNICODE_GENCAT_RANGES_SYMBOL: &str = "_mfb_unicode_gencat_range
 pub(crate) const UNICODE_GENCAT_NAMES_SYMBOL: &str = "_mfb_unicode_gencat_names";
 pub(crate) const UNICODE_SCRIPT_RANGES_SYMBOL: &str = "_mfb_unicode_script_ranges";
 pub(crate) const UNICODE_SCRIPT_NAMES_SYMBOL: &str = "_mfb_unicode_script_names";
+// plan-162-E: the UAX #14 Line_Break run table. One object only: a run's value is the
+// class (with its flag bits) itself, so there is no name table to point into.
+pub(crate) const UNICODE_LINEBREAK_RANGES_SYMBOL: &str = "_mfb_unicode_linebreak_ranges";
 
 // ===========================================================================
 // Threads

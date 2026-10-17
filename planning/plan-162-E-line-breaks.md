@@ -134,40 +134,66 @@ Acceptance: the artifact regenerates identically.
   Check: `scripts/check-generated.sh` → 0 diffs (est. 1 min).
   Result: exit 0, including `ok: src/codegen/string/unicode/unicode_linebreak_ranges.txt
   matches tools/unicode-tables/gen_linebreak_table.py`.
-Commit: — (this commit)
+Commit: 551fbb2bd
 
 ### Phase 2 — class lookup
 
-- [ ] `src/codegen/builtins/strings/func_line_break_class.rs`: `internal_only`,
-      generated from the artifact following `func_gen_cat.rs`.
-- [ ] Test: for every scalar, the class equals the generator's resolved class, via a
-      dump from a `--debug` scratch program compared to the artifact.
+- [x] `src/codegen/builtins/strings/func_line_break_class.rs`: `internal_only`,
+      generated from the artifact following `func_gen_cat.rs`. `Body::abi_inline` over
+      the new `emit_unicode_range_value` (the bisection `genCat` uses, factored out;
+      `genCat` now calls it), reading `_mfb_unicode_linebreak_ranges`, which is emitted
+      only when relocated against (`unicode_runtime_data_objects`, test updated to 18
+      objects).
+- [x] Test: for every scalar, the class equals the generator's resolved class, via a
+      dump from a `--debug` scratch program compared to the artifact. Done in Rust
+      (Correction 2): `range_tables::tests::linebreak_matches_the_ucd_for_every_scalar`
+      re-derives each scalar's value from the vendored UCD files, independently of the
+      Python generator, and compares all 1,114,112 with the bisection;
+      `binary_search_matches_a_linear_scan_for_every_scalar` covers the line-break table
+      too. At run time the emitted lookup is exercised by the conformance file below.
+      `cargo test --bin mfb range_tables` → 8 passed.
 
 Acceptance: an exact class for every scalar.
   Check: `cargo test --test <strings rt suite> line_break_class` → pass (est. 3 min).
   Record the suite name when adding it.
-Commit: —
+  Result: the check is `cargo test --bin mfb range_tables` → 8 passed (Correction 2).
+  The runtime suite is `rt_strings_line_breaks`.
+Commit: (with Phase 3, Correction 3)
 
 ### Phase 3 — algorithm, API and docs
 
-- [ ] `func_line_breaks.rs`: the `LineBreak` record, `strings::lineBreaks`, and the
-      MFBASIC body implementing LB2–LB31.
-- [ ] Conformance test: parse `LineBreakTest-16.0.0.txt` in the Rust test, build one
+- [x] `func_line_breaks.rs`: the `LineBreak` record, `strings::lineBreaks`, and the
+      MFBASIC body implementing LB2–LB31. A `Body::Rewrite` to `__strings_lineBreaks`,
+      in a chunk gated `WhenUsed(["lineBreaks"])`, so a program that doesn't call it
+      doesn't compile it. Rules run over LB9 units (§3, Correction 4).
+- [x] Conformance test: parse `LineBreakTest-16.0.0.txt` in the Rust test, build one
       MFBASIC program that runs every case and prints the break positions, and compare.
-      This is one build, not one per case.
-- [ ] Man: `strings::lineBreaks` (with a wrapping example using a fixed-width measure,
+      This is one build, not one per case. `tests/runtime/rt_strings_line_breaks.rs`
+      (`rt_strings_line_breaks`). The cases go to the program as a data file, and the
+      test asserts there are 16,672 of them.
+- [x] Fixtures (`.ai/compiler.md`): `tests/rt-behavior/strings/line-breaks-valid`
+      (prose, CJK, `$(12.35)`, CR LF, a leading combining mark, NBSP, empty) and
+      `tests/syntax/strings/lineBreaks` (no argument, wrong type, too many).
+      `scripts/test-accept.sh … line-breaks-valid lineBreaks` → passed.
+- [x] Man: `strings::lineBreaks` (with a wrapping example using a fixed-width measure,
       so it runs without canvas, and a cross-reference to `canvas::measureText`) and
       the `strings` package intro. Check with
       `scripts/man-run-examples.sh strings --run` and
-      `scripts/man-census.sh --memory-scope` → 0 unclassified.
-- [ ] Spec: add a UAX #14 subsection to `src/docs/spec/unicode/01_tables-and-algorithms.md`
+      `scripts/man-census.sh --memory-scope` → 0 unclassified. The example wraps a
+      sentence to 20 characters with `mid`. `man-run-examples.sh strings --run
+      lineBreaks` → 1 built, 1 ran, 0 failed, printing four lines of at most 20
+      characters. The package overview names `lineBreaks`. Census → 0.
+- [x] Spec: add a UAX #14 subsection to `src/docs/spec/unicode/01_tables-and-algorithms.md`
       (version, LB1 resolutions, untailored, SA handling), citing the generator and
-      the helper.
+      the helper. "Runtime algorithm: line breaking (UAX #14)", plus Line_Break in the
+      version-pinning sentence. `cargo test --bin mfb spec` → 46 passed.
 
 Acceptance: 100% conformance.
   Check: `cargo test --test <strings rt suite> line_break_conformance` → every case
   passes (est. 4 min).
-Commit: —
+  Result: `cargo test --test rt_strings_line_breaks` → `line_break_conformance` ok, all
+  16,672 cases agree, 1.9 s.
+Commit: — (this commit)
 
 ## Validation Plan
 
@@ -195,6 +221,23 @@ Commit: —
    `lineBreakClass` follows that path instead, returning the run's value as an
    `Integer` rather than a name. It bisects the 2,787 runs in 12 steps, where an
    IF-chain would compare up to 2,787 times per character.
+2. **The every-scalar class check runs in Rust, not from a `--debug` dump.** A
+   `strings` chunk can reach neither `fs` nor `os` (`strings` imports nothing), and an
+   `internal_only` member can't be called from user code or from another package's
+   chunk. A per-scalar dump would mean giving `strings` new imports that every program
+   using it would carry. The check therefore compares, for all 1,114,112 scalars, an
+   independent Rust re-derivation from the UCD files with `RangeTable::lookup`, the
+   reference implementation of the emitted bisection (the plan-118-B precedent for
+   `genCat`). The emitted code is the bisection `genCat` already runs, and the
+   conformance program exercises it at run time.
+3. **Phases 2 and 3 share a commit.** The class lookup has no runtime consumer but
+   `lineBreaks`, so both were verified together: the Rust sweep, then the conformance
+   file.
+4. **The rules are evaluated over LB9 units.** LB9 says a combining sequence takes its
+   base's class "in all of the following rules", with the marks ignored. The text is
+   therefore cut into units first, and every rule's look-behind walks units. Positions
+   inside a unit cannot break, because LB9 never absorbs after the classes LB4–LB8
+   break after. The design is unchanged from §3; the conformance file confirms it.
 
 ## Summary
 
