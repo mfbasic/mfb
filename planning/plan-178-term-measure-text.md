@@ -418,6 +418,45 @@ Commit: `26316691e`
   AST/IR/log artifacts. Every existing correction was applied from the retained
   pre-edit actual, and the three new diagnostic logs came from focused compiler
   runs.
+- The broad ABI-exhaustiveness test found that the first inline registrations of
+  `term::measureTextRaw` and `term::scalarWidthRaw` retagged their source
+  arguments as String before validation, accepting invalid argument types. The
+  inline lowering now preserves the source type; only the ABI function path
+  applies its ABI argument type. The focused exhaustive test passes.
+- The full all-target gate found that the browser paint-soak fixture now reaches
+  the gated public `term::measureText` through browser layout. Its protected
+  behavior is allocation flatness across 2,000 and 4,000 paints, not inactive
+  terminal use, so the fixture now activates one TUI lifecycle around both runs;
+  the focused soak test passes.
+- The same gate exposed a pre-existing macOS fixture defect on untouched `main`:
+  Apple LibreSSL 3.3.6 exits a TLS 1.3 `s_client` session at stdin EOF without
+  the `close_notify` the fixture requires. Pinning that test peer to TLS 1.2
+  produces the measured orderly close without changing the protected live-write
+  or departed-peer behavior; the corrected focused test passes.
+- A later all-target rerun exposed a second pre-existing test race in
+  `cli_dbg::native::an_attached_threaded_program_lists_its_threads_and_arenas`:
+  its fixed one-second startup sleep could expire before a CPU-starved child had
+  published its worker. The fixture now attach/list/detach polls the runtime
+  registry until that worker state exists, preserving the test's thread and
+  arena assertions; both the focused case and the complete 19-test `cli_dbg`
+  target pass.
+- The all-target environment initially resolved `openssl` to Apple LibreSSL
+  3.3.6, but `rt_tls_connect_allow_self_signed` deliberately requires
+  `s_server -naccept`, which LibreSSL does not implement. The already-installed
+  OpenSSL 3.6.2 at `/Users/justinzaun/local/brew/bin/openssl` supports the option;
+  pinning that directory first in `PATH` makes all four certificate-policy cases
+  pass and is required for the final all-target invocation.
+- `scripts/test-appimage.sh target/debug/mfb --libc both` exited successfully but
+  skipped both real runtime checks because ports 2228 (glibc) and 2227 (musl)
+  were unreachable. This is recorded as unavailable external validation, not as
+  proof that either Linux libc runtime passed.
+- The definitive final gate used
+  `PATH="/Users/justinzaun/local/brew/bin:$PATH" cargo test --all-targets --quiet`
+  and exited 0; its complete output is retained in
+  `target/plan178-cargo-test-final-3.log`. The final
+  `cargo fmt --all --check`, `cargo build`, and `git diff --check` invocations
+  also exited 0, with output retained in the corresponding
+  `target/plan178-final-*.log` files.
 
 ## Summary
 
