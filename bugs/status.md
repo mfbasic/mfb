@@ -128,12 +128,12 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 980    | SECURITY | the HTTP chunked decoder accepts framing llhttp (and RFC 9112) rejects (builds on 859's rule) |
 | [ ]  | 1017   | SECURITY | on Windows, `http::respondPath` still answers 403 vs 404 by existence for a `..\` traversal (bug-862's oracle, through a backslash) |
+| [ ]  | 1042   | SECURITY | `net::toUrl` does no IDNA (UTS #46) host processing: a non-ASCII or `xn--` host is stored as written (what bug-979 left; owner decided: a documented difference for now) |
 | [ ]  | 876    | MED      | `tcp::connect`/`tcp::listen`/`udp::bind` accept any Integer port and silently use its low 16 bits |
 | [ ]  | 865    | LOW      | http server emits the handler's stale reason phrase (`418 OK` from the spec's own teapot example) and any status integer verbatim (`HTTP/1.1 -5 OK`, `1000`, `0`) |
 | [ ]  | 866    | LOW      | `http` route `:name` binds an empty segment — `/t/:id` matches `/t//` with `id = ""` |
 | [ ]  | 867    | LOW      | the http server's 8 KiB-line and 100-field caps are enforced only after the head is complete |
 | [ ]  | 872    | LOW      | an IPv6-literal URL parses but cannot be used (the connect half) |
-| [ ]  | 1042   | LOW      | `net::toUrl` does no IDNA (UTS #46) host processing: a non-ASCII or `xn--` host is stored as written (what bug-979 left; owner decided: a documented difference for now) |
 | [ ]  | 986    | LOW      | an http client HEAD request waits for the server to close when the response carries a non-zero Content-Length (owner decided: a `method` field on `http::PendingState`) |
 | [ ]  | 1003   | LOW      | the `http::pump` man example can hang forever: it fetches a live remote (example.com) with no deadline (flake) |
 
@@ -291,7 +291,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 1059   | MED      | two GPU text tests in `rt_canvas_font` fail with main's compiler on the development Mac (6 of 6 runs on 2026-10-11; they passed in the batch 20 gate hours earlier and 5 of 5 times on 2026-10-12; cause not traced; the same two tests as 1024 in "Canvas and graphics") |
+| [ ]  | 1059   | MED      | two GPU text tests in `rt_canvas_font` fail with main's compiler on the development Mac (6 of 6 runs on 2026-10-11; they passed in the batch 20 gate hours earlier and 5 of 5 times on 2026-10-12; cause not traced; the same two tests as bug-1024, closed in `bugs/completed/`) |
 | [ ]  | 987    | LOW      | the Windows test scripts still default to the retired box 2230 (owner decided: repoint to box 206) |
 | [ ]  | 1014   | LOW      | `field_kinds.tsv` is not what `field_kinds_gen.py` generates |
 | [ ]  | 1033   | LOW      | the man example `variable::guide#2` does not build |
