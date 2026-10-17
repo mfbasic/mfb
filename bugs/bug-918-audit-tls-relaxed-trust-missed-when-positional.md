@@ -8,6 +8,12 @@ Class: Security
 Status: Open
 Regression Test: tests/cli/audit-tls-relaxed-trust-positional (new; name suggested)
 
+## Cause
+
+- Rule: an argument binds to a parameter by name OR by position (`mfb spec language` call binding); audit rows keyed on a parameter must bind arguments the way the compiler does.
+- Where: `src/audit/collect/source.rs:relaxes_certificate_trust` matches only `CallArg::Named { name: "allowSelfSigned" }`; `CallArg::Positional(_) => false`.
+- Fix: bind the call's arguments to the parameter names of each `tls::connect` overload from the registry descriptor (the compiler's own parameter table), then test the argument bound to `allowSelfSigned` for a literal `TRUE`; no hard-coded slot numbers. Deletes the hard-wired positional arm and its comment.
+
 `mfb audit` reports a `tls::connect` call that hard-codes `allowSelfSigned := TRUE`
 as the `AUDIT-TLS-RELAXED-TRUST` warning. The same relaxation written as a plain
 positional argument, `tls::connect("h", 443, 1000, "h", TRUE)`, compiles to the

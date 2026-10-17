@@ -8,6 +8,12 @@ Class: Security (request smuggling / desync surface) — owner-confirmed
 Status: Open
 Regression Test: `tools/oracles/url/run.sh <mfb> chunk-client chunk-server` with zero class-a/c divergences; plus fixtures for each repro
 
+## Cause
+
+- Rule: RFC 9112 §7.1 chunked grammar (`chunk-size [chunk-ext] CRLF data CRLF ... last-chunk trailer-section CRLF`), which `mfb spec stdlib http` §Chunked transfer decoding promises and the owner ruled must be enforced to llhttp's strictness.
+- Where: the grammar is written TWICE, loosely, in `src/codegen/builtins/http/helper_chunked_scan.rs:__http_chunkedScan` (framing/completeness) and `helper_dechunk_bytes.rs:__http_dechunkBytes` (decoding); both `strings::trim` the size, skip the post-data CRLF unchecked, and stop at `size = 0` without reading the trailer section.
+- Fix: one walker that enforces the whole grammar and returns where the message ends (or "need more bytes"); `chunkedScan` and `dechunkBytes` both become calls to it (one walks, one collects). The client's `__http_frameComplete`/`finish` and the server's `__http_frameAdvance` compare that end against the bytes held, so bytes after the message are refused. Deletes the duplicated size-line parsing and the `strings::trim`.
+
 **Owner decision (2026-10-05): match Node's (llhttp's) strictness for all of these, on both the
 client response path and the server request path.** Each malformed framing is
 `ErrInvalidFormat` (77050003), as `mfb spec stdlib http` already promises for "malformed framing".

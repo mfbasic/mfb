@@ -9,6 +9,12 @@ Status: Open
 Coordinator note: measured by the review agent against a local `mfb-repo` on 127.0.0.1 only; the coordinator did not re-run it.
 Regression Test: (proposed) repository/src/server.rs `signing_rejects_an_ident_publish_would_reject`
 
+## Cause
+
+- Rule: REPO-17: every ident/version the registry accepts (and therefore logs) passes `wire/src/validation.rs:validate_ident`/`validate_version`; `/publish` enforces it.
+- Where: `repository/src/server.rs:signing` re-validates the ident shape ad hoc (`#` split, non-empty package part, ≤255 / 1–64 bytes) instead of calling those validators, then `Store::record_signing_request` logs it.
+- Fix: call `validate_ident` + `validate_version` in `signing` (after the owner check, before `record_signing_request`) and delete the ad-hoc length/shape checks they subsume; `01_repository-protocol.md` "Attestation Issuance" states the REPO-17 rule instead of the byte limits.
+
 `validate_registry_package_name` / `validate_version` (REPO-17) exist to "keep control
 characters, quotes, `#`, `/`, whitespace, and the SQL `LIKE` wildcard `%` out of the
 [transparency-log] payload entirely". `/publish` enforces them (`Store::publish_package_version`

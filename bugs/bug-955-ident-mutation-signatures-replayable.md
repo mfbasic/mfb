@@ -9,6 +9,12 @@ Status: Open
 Coordinator note: measured by the review agent against a local `mfb-repo` on 127.0.0.1 only; the coordinator did not re-run it.
 Regression Test: (proposed) repository/src/server.rs `a_release_state_signature_cannot_be_replayed`
 
+## Cause
+
+- Rule: an ident-authorized mutation's signature must be fresh: it signs a one-time server-issued challenge that the server consumes on use (owner decision 2026-10-05), exactly as `/machines/revoke` already does ("a signature can neither be replayed nor redirected").
+- Where: `repository/src/crypto.rs:release_state_message`, `org_role_message`, `token_revoke_message` (and the token-issue message) carry no challenge; `server.rs:release_state`/`org_members`/`revoke_token`/token issue verify only the signature.
+- Fix: route these through the same challenge issue/consume path `/machines/revoke` uses: the message gains the challenge term, the handler consumes the challenge before applying, and the `mfb repo` client fetches one per mutation. Signing-domain strings bump (`-v2`) in `03_signing.md`; `01_repository-protocol.md` documents the challenge field per request. No new mechanism: the machine-revoke challenge store is reused.
+
 **Owner decision (2026-10-05):** every ident-authorized mutation (release state/yank, org role, token revoke, and any
 other signed mutation without a nonce) signs a one-time server-issued challenge, as auth already
 does. The server consumes the challenge on use, so a captured signature cannot be replayed. The

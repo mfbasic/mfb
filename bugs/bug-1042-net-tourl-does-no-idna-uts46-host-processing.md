@@ -8,6 +8,12 @@ Class: Security (parser differential) / Correctness
 Status: Open
 Regression Test: `tools/oracles/url/run.sh <mfb> parse` (+ `wpt`) with the groups `parse/lenient/host-idna-invalid`, `parse/strict/host-idna-mapped` and `parse/host-idna-mapped` back in class a, reporting zero entries
 
+## Cause
+
+- Rule: WHATWG URL host parsing runs UTS #46 "domain to ASCII" (CheckHyphens=false, CheckBidi=true, CheckJoiners=true, UseSTD3ASCIIRules=false, Transitional=false, VerifyDnsLength=false) on the percent-decoded host of a special URL, before the forbidden-code-point check and the IPv4 test. `mfb spec stdlib url` §Host validation currently says "Not implemented: IDNA" (the owner's 2026-10-10 interim ruling); the Goal of this doc removes that.
+- Where: `src/codegen/builtins/net/helper_host.rs:__net_host`, between the percent-decode and the forbidden-character loop.
+- Fix: one `domain to ASCII` step there (map + NFC via `strings::normalizeNFC`, Punycode decode/validate of `xn--` labels, Punycode encode of non-ASCII labels); the IPv4 test then sees the mapped text, so `１２７.0.0.1` and `０Ｘｃ０．０２５０．０１` canonicalize through the existing `__net_ipv4Host`. The IDNA mapping table is generated from a vendored `IdnaMappingTable-16.0.0.txt` by a generator under `tools/unicode-tables/` run by `scripts/check-generated.sh`. Deletes the spec's "Not implemented: IDNA" note and the `xn--` exception in §Host validation.
+
 WHATWG runs UTS #46 `domain to ASCII` on an http(s) host: it maps (fullwidth to ASCII,
 case folding), refuses what the tables forbid, and encodes non-ASCII labels as `xn--`
 Punycode. `net::toUrl` does none of it. This is what bug-979 left. **Owner decision

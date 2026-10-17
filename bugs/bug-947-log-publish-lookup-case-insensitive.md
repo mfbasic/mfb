@@ -8,6 +8,10 @@ Class: Correctness
 Status: Open
 Regression Test: (proposed) repository/src/store.rs `publish_log_lookup_is_case_sensitive`
 
+## Cause
+
+- Fixed together with bug-954 (owner decision on bug-954: "This also covers bug-947"): `Store::publish_log_entry` matches by `LIKE` on the payload text, which folds ASCII case for both ident and version. The fix looks the entry up by canonical ident (bug-954's key) and byte-exact version, without `LIKE`; see bug-954's Cause.
+
 `Store::publish_log_entry` finds a release's publish log entry with
 `payload LIKE '{"ident":<i>,"version":<v>,%' ESCAPE '\'`. SQLite `LIKE` is
 **case-insensitive for ASCII** by default, so the REPO-14 escaping fix still

@@ -8,6 +8,12 @@ Class: Security
 Status: Open
 Regression Test: (proposed) a Windows row for `func_http_respondPath_valid`, or a unit test of `__http_pathEscapesRoot` with `\` separators, run on box 206
 
+## Cause
+
+- Rule: a path component boundary is the target OS's directory separator: `/` everywhere and also `\` on Windows (`mfb spec stdlib os` §appResourcePath: "A component boundary is `/` on every target and **also** `\` on Windows"), the same rule `os::appResourcePath`'s `..` refusal already follows.
+- Where: `src/codegen/builtins/http/helper_path_escapes_root.rs:__http_pathEscapesRoot` splits `rel` on `/` only (and its absolute check tests only a leading `/`).
+- Fix: split on the target's separator set (`/`, plus `\` when `os::name() = "windows"`) and treat a rooted Windows path (leading `\`, or a drive `X:`) as absolute, so `respondPath` refuses every escape before any filesystem probe on every target. POSIX keeps `\` as an ordinary filename byte. Nothing special-cased to delete; the bug-862/983 comments get the Windows sentence.
+
 bug-862 made `http::respondPath` reject a `..` escape lexically, before any filesystem probe, so a
 traversal is `403` whether or not its target exists. The lexical check (`__http_pathEscapesRoot`)
 splits the relative path on `/` only. Windows also accepts `\` as a separator, so `..\name` is one

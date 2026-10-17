@@ -8,6 +8,12 @@ Class: Security
 Status: Open
 Regression Test: (proposed) repository/src/server.rs `a_case_variant_ident_is_the_same_package`
 
+## Cause
+
+- Rule: identity is case-insensitive (owner decision 2026-10-05; `04_owner-names.md` "Case Folding"): two idents that fold to the same `fold_owner(owner)#fold(package)` are one package; display keeps the registered spelling.
+- Where: `repository/src/store.rs` keys packages on the exact `packages.ident` string (`package_owner` and every lookup use `p.ident = ?1`); `server.rs:validate_package_request`/`require_package_owner` fall back to folding the prefix only on a miss.
+- Fix: one canonical identity key (a folded-ident column with the UNIQUE constraint, filled by a migration) that every store lookup by ident uses, so a case variant resolves to the existing package; the exact-string lookups go. Migration: a registry already holding two case variants of one ident is reported and refuses to start (one of the owner's two allowed resolutions; nothing is silently dropped). This also fixes bug-947's ident half: `/log/publish` looks the release up by canonical ident and byte-exact version (no `LIKE`), so `1.0.0-RC` and `1.0.0-rc` stay distinct.
+
 **Owner decision (2026-10-05):** identity is case-insensitive. Owner and package names compare case-insensitively
 for uniqueness, registration, publish, transfer, lookup and the transparency log. `Alice` and
 `alice` are the same owner, and `Alice#toolbox` resolves to the existing `alice#toolbox`. Display

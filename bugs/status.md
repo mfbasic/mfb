@@ -16,6 +16,16 @@ Check that every open bug has exactly one row:
 python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.glob('bugs/bug-*.md')];b=re.findall(r'^\|\s*\[.\]\s*\|\s*(\d+)\s',open('bugs/status.md').read(),re.M);print(len(a),sorted(set(a)^set(b))+[n for n in set(b) if b.count(n)>1])"
 ```
 
+## Phases (bug-staging-24)
+
+The list of a running phase is fixed when its first agent starts; nothing joins it.
+Bugs found during a phase are filed into a later phase.
+
+* **Phase 1 (running): SECURITY**, in table order: 980, 1017, 1042, 952, 954 (with 947,
+  which the owner's bug-954 decision folds into the same fix), 955, 918.
+* Phase 2 (next): HIGH: 688, 765 (perf; run alone).
+* Later phases: MED, then LOW, in table order.
+
 ## Resources and STATE
 
 | Done | Number | Priority | Description |
