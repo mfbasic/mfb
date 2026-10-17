@@ -193,7 +193,7 @@ Acceptance: 100% conformance.
   passes (est. 4 min).
   Result: `cargo test --test rt_strings_line_breaks` → `line_break_conformance` ok, all
   16,672 cases agree, 1.9 s.
-Commit: — (this commit)
+Commit: c4a3bf5c4 (Phases 2 and 3)
 
 ## Validation Plan
 

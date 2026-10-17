@@ -48,16 +48,15 @@ References:
   `fontIndex, glyphId, advanceUnits, scalarIndex, gapAfter` (plan-162-D).
 - plan-162-B's `helper_kern.rs` walks `GPOS` ScriptList, FeatureList and LookupList.
   `GSUB`'s header is structurally identical up to the lookup level.
-- Geometry consumers index glyphs by ordinal (`offset + __CANVAS_GEO_HEADER + c * 3` in
-  `__canvas_geoRunReference`). **UNVERIFIED:** that no consumer assumes
-  glyph count = codepoint count. Phase 1 task.
+- Geometry consumers index glyphs by ordinal. *Three places assume glyph count =
+  codepoint count, and everything else counts glyphs* (audit in Phase 1, 2026-10-17).
 
 ### Measured populations
 
 | What | Count | Command |
 |---|---|---|
-| System fonts with a `GSUB` `liga` feature; ligature sets per font | UNMEASURED | Phase 1 probe |
-| Fonts with a `GDEF` LigCaretList | UNMEASURED | same probe |
+| System fonts with a `GSUB` `liga` feature; ligature sets per font | 147 of 638 TrueType faces; at most 110 ligature sets in one face. `liga`-feature lookup shapes (type, format, via Extension) → faces: (4,1) 144, (4,1,ext) 1, and non-ligature types this letter skips: (6,3) 12, (1,1) 4, (6,2) 2, (2,1) 1 | `python3 -I /tmp/p162/probe.py`, summarised from `/tmp/p162/probe.json` (2026-10-14) |
+| Fonts with a `GDEF` LigCaretList | 65 | same probe |
 
 ## 3. Design Overview
 
@@ -101,16 +100,38 @@ Rejected alternatives:
 
 ### Phase 1 — measure and audit
 
-- [ ] Probe the system fonts for `liga` and `GDEF` carets. Record the counts.
-- [ ] Audit every consumer of the run and of `__CANVAS_GEO_TEXT` records for a
+- [x] Probe the system fonts for `liga` and `GDEF` carets. Record the counts. The
+      shared plan-162 probe; counts in §2.
+- [x] Audit every consumer of the run and of `__CANVAS_GEO_TEXT` records for a
       glyph = codepoint assumption:
       `grep -rn "__CANVAS_RUN_\|__CANVAS_GEO_TEXT" src/codegen/builtins/canvas/`. Write a
-      verdict per site here.
+      verdict per site here. 13 files. Verdicts:
+      - `helper_font.rs:__canvas_shapeRun`: **assumes it.** The grapheme-gap pass sets
+        `gapAfter` on glyph `(reach - 1)`, the glyph at the grapheme's last scalar. Phase 3
+        maps graphemes to glyphs through the `scalarIndex` column instead.
+      - `func_caret_stops.rs:__canvas_caretStopsHandles`: **assumes one glyph per grapheme
+        start.** A stop lands only after a `gapAfter` glyph, so a ligature covering two
+        graphemes would lose the stop between them. Phase 3's interior split.
+      - `scalarIndex` itself (`helper_font.rs`) is `c`, the codepoint ordinal. A ligature
+        glyph takes its first component's.
+      - `func_measure_text.rs:__canvas_measureHandles`: sums per glyph and counts
+        `gapAfter`s; the end index comes from `utf32Encode(text)`, not the run. No
+        assumption. Spacing turns ligatures off, so no gap is lost.
+      - `helper_kern.rs:__canvas_kernRun`: adjacent glyphs. No assumption.
+      - `helper_geometry.rs` (glyph run, edges, verify reference, `runDrawable`,
+        `runLine`, `runPen`, run header): iterate the run's glyphs, and the record's own
+        glyph count is slot 20. No assumption (`chars` there already means glyphs).
+      - `helper_hit.rs`, `helper_particles.rs`, `helper_autopaint.rs`: through
+        `runPen`/`runLine`. No assumption.
+      - `helper_glyph_cache.rs`, `helper_items.rs`, `helper_render.rs`: read a text
+        record's slot 20 glyph count and its entries. No assumption.
+      - `helper_geometry/tests`, `helper_render/tests`: unit tests of the above.
 
 Acceptance: every site has a verdict and every UNMEASURED row has a number.
   Check: `grep -c "UNMEASURED\|UNVERIFIED" planning/plan-162-F-ligatures.md` → 0
   outside this list (est. 1 min).
-Commit: —
+  Result: → 1, the line above.
+Commit: — (this commit)
 
 ### Phase 2 — `GSUB` build and fixture
 
