@@ -558,6 +558,23 @@ Commit: 4607fad9e
    caller for them. "Delete the per-call path" is therefore done for the normal build,
    and the debug build keeps the path only as the oracle.
 
+10. **The full suite found two census gaps that no phase listed.**
+    `tests/canvas/rt_canvas_debug_hooks.rs::a_normal_build_names_only_the_headless_renderer_and_sync_variables`
+    pins the exact `--debug` variable set. The three hooks this plan added
+    (`MFB_CANVAS_FACE_CHECK`, `MFB_CANVAS_FACE_DUMP`, `MFB_CANVAS_SHAPE_DUMP`) are
+    documented as `--debug` hooks in `mfb spec tooling debug-report`, and the normal
+    build still names none of them. Only the three names were added to the list.
+    `tests/guards/inplace_self_update_census.rs::every_package_record_type_has_a_field_kind_line`
+    wanted a `field_kinds.tsv` row for the two new records, `canvas::CaretStop` and
+    `strings::LineBreak`. Both rows were taken verbatim from `field_kinds_gen.py`
+    (InlinedFixed, `arm` everywhere, like `canvas::TextMetrics`) and inserted by hand,
+    because a full regenerate would revert earlier hand-flipped sites. Verified:
+    `MFB_SELF_UPDATE_FILTER='canvas::CaretStop|strings::LineBreak' cargo test --test
+    rt_inplace_self_update every_field_kind_meets_its_expectation -- --ignored` → 1
+    passed. `cargo test --test inplace_self_update_census --test rt_canvas_debug_hooks`
+    → 2 + 3 passed.
+
+
 ## Summary
 
 The risk is not the parsing. It reuses the existing readers and is proven equal over

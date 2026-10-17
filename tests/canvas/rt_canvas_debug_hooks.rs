@@ -185,10 +185,13 @@ fn a_normal_build_names_only_the_headless_renderer_and_sync_variables() {
         "MFB_CANVAS_DAMAGE",
         "MFB_CANVAS_DISPLAY_HZ",
         "MFB_CANVAS_DUMP",
+        "MFB_CANVAS_FACE_CHECK",
+        "MFB_CANVAS_FACE_DUMP",
         "MFB_CANVAS_FRAME_HOLD_MS",
         "MFB_CANVAS_GEO_VERIFY",
         "MFB_CANVAS_GLYPH_BUDGET",
         "MFB_CANVAS_POINTER",
+        "MFB_CANVAS_SHAPE_DUMP",
         "MFB_CANVAS_STATS",
         "MFB_TRANSCRIPT_DUMP",
     ];
