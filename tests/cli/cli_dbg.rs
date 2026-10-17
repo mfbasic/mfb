@@ -1075,6 +1075,58 @@ mod native {
         assert_eq!(code, Some(0));
     }
 
+    /// A write by the instruction under the breakpoint a thread is paused on
+    /// is seen: `countPrimes` saves `lr` with its second instruction, and a
+    /// breakpoint there, then `run`, stops for the write before anything else.
+    #[test]
+    fn a_watched_write_under_the_breakpoint_a_thread_is_paused_on_is_seen() {
+        let mfb = signed_mfb();
+        let binary = debug_example();
+        let mut session = Session::start(&mfb, &[binary.to_str().unwrap(), "--", "2", "500"]);
+        session.until_prompt();
+        session.send("bp countPrimes\n");
+        session.until_prompt();
+        session.send("run\n");
+        session.until_prompt();
+        session.send("dis 1\n");
+        let first = body(&session.until_prompt());
+        let frame = first[1]
+            .split("sub    sp, sp, #")
+            .nth(1)
+            .unwrap_or_else(|| panic!("no frame in {first:?}"));
+        session.send("list reg lr\n");
+        let lr = table_rows(&session.until_prompt(), REGISTER_COLUMNS)[0][1].clone();
+        session.send(&format!("wp sp-{frame}\n"));
+        session.until_prompt();
+        session.send("bp countPrimes+4\n");
+        session.until_prompt();
+        session.send("bp r countPrimes\n");
+        session.until_prompt();
+        session.send("run\n");
+        let stopped = body(&session.until_prompt());
+        assert!(
+            stopped.len() == 1
+                && stopped[0].starts_with("--[BP] T: 0 P: 0x")
+                && stopped[0].ends_with(" F: (countPrimes) _mfb_fn_countPrimes+0x4"),
+            "{stopped:?}"
+        );
+        session.send("run\n");
+        let changed = body(&session.until_prompt());
+        assert!(
+            changed.len() == 1
+                && changed[0].starts_with("--[WP] T: 0 P: 0x")
+                && changed[0].contains(" F: (countPrimes) _mfb_fn_countPrimes+0x4 ")
+                && changed[0].ends_with(&format!(
+                    " -> {lr} ({})",
+                    i64::from_str_radix(&lr[2..], 16).unwrap()
+                )),
+            "{changed:?} {lr}"
+        );
+        session.send("q\n");
+        let (code, _) = session.finish();
+        assert_eq!(code, Some(0));
+    }
+
     /// A watchpoint stops the program when a thread changes the watched
     /// bytes. `countPrimes` opens its frame with `sub sp, sp, #<n>` and then
     /// saves `lr` at the new `sp`: a watchpoint at `sp - <n>`, set at the

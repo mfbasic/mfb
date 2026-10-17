@@ -191,7 +191,9 @@ by the debugger passes through the terminal sanitizer.[[src/debugger/mod.rs:show
   ordinary instruction that is merely slow (its code paging in, a loaded
   machine) is waited for, not reported as waiting. A
   `task_suspend` that fails ends every stepping thread as `Exited`. Afterwards
-  every hold is given back and the program's own exception handlers put back.
+  every hold is given back and the program's own exception handlers put back,
+  and — unless the program ended — every breakpoint is written again and the
+  stepped threads' watchpoints turned back on, a step that failed included.
   [[src/debugger/macos.rs:ExceptionPort]] [[src/debugger/macos.rs:Task]]
 - **Breakpoints.** `insert_breakpoint` saves the 4 bytes at the address and
   writes `brk #0` (`0xd4200000`): the page (`getpagesize()`, aligned down) is
@@ -1162,10 +1164,23 @@ watchpoint whose bytes changed is a `Changed` stop (`RunStop::Changed`, one
 `Change` per watchpoint, the write's `pc` the instruction that wrote it); a
 write that changed none runs on, unseen. Several threads stopped at once are
 stepped in turn. A step that raises an exception or ends the program is that
-stop instead. A thread the step leaves on one of the user's breakpoints stops
-there at the next `run`, before anything runs. Only stores the thread makes
-are seen: the kernel writing the memory (a `read` into it) is not. After the
-stop the current thread is the writer, its `pc` past the write.
+stop instead. A thread the step leaves on a breakpoint the session holds (or
+on the one a `breakerror` run places at the raiser's return) stops there at
+the next `run`, before anything runs. Only stores the thread makes are seen:
+the kernel writing the memory (a `read` into it) is not. After the stop the
+current thread is the writer, its `pc` past the write.
+[[src/debugger/breakpoints.rs:Breakpoints]]
+
+A write by the instruction under a breakpoint is seen too. While any
+watchpoint is set, every `run` — and the run on to a watched raise's raiser —
+first steps each thread whose `pc` is on a breakpoint the session holds (or
+the run's own: the entry point's, the raiser's return) over that one
+instruction the same way, reading every watchpoint's bytes before and after:
+a change is the `Changed` stop, before the program runs at all, with the
+breakpoint's address as the write's `pc`. The backend's own `run` would step
+such a thread off its breakpoint with its watchpoints off and the write would
+pass unseen. With no watchpoint set, the backend steps it as before.
+
 
 `list watchpoint` prints `<address> | <count> | <size> | <value>` per
 watchpoint under the header `Address | Count | Size | Value`, in address order,

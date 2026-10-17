@@ -2085,13 +2085,19 @@ impl Inferior for Task {
             }
         }
         drop(port);
-        let steps = steps?;
-        if steps.iter().any(|step| step.stop == StepStop::Exited) {
-            self.exited = Some(self.check_exit().unwrap_or(Exit::Unknown));
-        } else {
-            self.reinsert()?;
-            self.pause_watchpoints(&stepping, true)?;
+        if let Ok(steps) = &steps {
+            if steps.iter().any(|step| step.stop == StepStop::Exited) {
+                self.exited = Some(self.check_exit().unwrap_or(Exit::Unknown));
+                return Ok(steps.clone());
+            }
         }
+        // A step that failed part way still puts every breakpoint and
+        // watchpoint back: the session holds them as set.
+        let restored = self
+            .reinsert()
+            .and_then(|()| self.pause_watchpoints(&stepping, true));
+        let steps = steps?;
+        restored?;
         Ok(steps)
     }
 
