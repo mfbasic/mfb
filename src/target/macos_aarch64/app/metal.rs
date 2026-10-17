@@ -2020,6 +2020,9 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float sw = fx(item.gradient.z), sh = fx(item.gradient.w);\n",
     "  int u = tileTexel(sx * dw + (q.x - x0) * sw, dw);\n",
     "  int v = tileTexel(sy * dh + (q.y - y0) * sh, dh);\n",
+    // bug-1093: clamp to the texels the source rectangle touches, before the image test.
+    "  u = clamp(u, int(floor(sx)), int(ceil(sx + sw)) - 1);\n",
+    "  v = clamp(v, int(floor(sy)), int(ceil(sy + sh)) - 1);\n",
     "  if (u < 0 || v < 0 || u >= iw || v >= ih) { return int4(0); }\n",
     "  uint word = as_type<uint>(edges[METAL_GLYPH_BASE + item.arc.z + v * iw + u]);\n",
     "  return int4(int(word & 255u), int((word >> 8) & 255u),\n",

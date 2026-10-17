@@ -2424,9 +2424,18 @@ The source rectangle is in image pixels and maps directly onto the destination
 rectangle in canvas coordinates. At destination-local point `p`, the sampled image
 coordinate is `srcPosition + p * srcSize / size`, selected by the canvas nearest-pixel
 rule. A coordinate outside `[0, imageWidth) × [0, imageHeight)` contributes transparent
-RGBA; the renderer does not clamp it or stretch the in-bounds remainder. Fractional
-source values are allowed. A nonpositive source or destination extent, or a closed or
-unavailable image, draws nothing.
+RGBA; the renderer does not stretch the in-bounds remainder to fill the rest.
+Fractional source values are allowed.
+
+Every pixel the destination covers, fully or partly, takes its colour from inside the
+source rectangle. A pixel the destination covers only partly (an edge at a fractional
+position, or under a group transform) has its centre outside the destination, so its
+mapped coordinate falls outside the source; the texel index is first clamped to the
+texels the source touches, `[floor(srcX), ceil(srcX + srcW) - 1]` and the same for Y,
+and only then tested against the image. The pixel therefore shows the source's own edge
+texel at its coverage, never the neighbouring cell of an atlas, while a source that runs
+past the image is still transparent where it does. A nonpositive source or destination
+extent, or a closed or unavailable image, draws nothing.
 
 Tile carries a distinct geometry kind. Its destination uses the rectangle header and
 its four source values follow the fixed header as a tile-only tail; both GPU emitters

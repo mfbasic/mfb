@@ -1820,6 +1820,9 @@ ivec4 tileColour(vec2 q) {
     float sh = fx(item.gradient.w);
     int u = tileTexel(sx * dw + (q.x - x0) * sw, dw);
     int v = tileTexel(sy * dh + (q.y - y0) * sh, dh);
+    // bug-1093: clamp to the texels the source rectangle touches, before the image test.
+    u = clamp(u, int(floor(sx)), int(ceil(sx + sw)) - 1);
+    v = clamp(v, int(floor(sy)), int(ceil(sy + sh)) - 1);
     if (u < 0 || v < 0 || u >= iw || v >= ih) { return ivec4(0); }
     int word = edges.values[GLYPH_BASE + item.arc.z + v * iw + u];
     return ivec4(word & 255, (word >> 8) & 255, (word >> 16) & 255, (word >> 24) & 255);
