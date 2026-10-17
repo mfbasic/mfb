@@ -1,0 +1,22 @@
+' bug-1092 non-goal: a list built with `collections::append` that is NEVER handed to a
+' consuming parameter does not move the resources it holds. `img` is still the
+' caller's: naming it afterwards is valid and its scope still closes it.
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT collections
+
+FUNC main AS Integer
+  app::setMode(app::Mode.Canvas)
+  LET px AS List OF Byte = [toByte(1), toByte(2), toByte(3), toByte(4)]
+  RES img AS canvas::Image = canvas::createImage(1, 1, px)
+
+  LET a AS canvas::DrawItem = canvas::Picture[id := "", shape := canvas::Rectangle[id := "", position := vector::Float2[x := 0.0, y := 0.0], bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 8.0, height := 8.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], clip := canvas::PictureClip.ClipOnly, fit := canvas::PictureFit.Stretch, image := img]
+  MUT items AS List OF canvas::DrawItem = []
+  items = collections::append(items, a)
+  canvas::present(items)
+
+  LET size AS canvas::Size = canvas::getSize(img)
+  RETURN 0
+END FUNC

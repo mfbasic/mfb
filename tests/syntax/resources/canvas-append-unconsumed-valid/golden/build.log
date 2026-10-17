@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/canvas-append-unconsumed-valid
+Wrote AST to tests/syntax/resources/canvas-append-unconsumed-valid/canvas_append_unconsumed_valid.ast
+Wrote IR to tests/syntax/resources/canvas-append-unconsumed-valid/canvas_append_unconsumed_valid.ir
+[exit 0]

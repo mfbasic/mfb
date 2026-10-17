@@ -2587,6 +2587,16 @@ END FUNC
 `installPanel` returns and its bindings go out of scope, and the group keeps
 drawing. Presenting a `canvas::Group` naming `"panel"` still shows the text.
 
+"Naming" is structural: the items list holds a resource if a constructor, a list/set/map
+literal, a union wrap, a `WITH` update, or one of the `collections` members that build
+their result by *placing* an operand into it — `append`, `prepend`, `insert`, `set`,
+`add`, `union`, `merge`, `repeat`, `flatten` — put it there. A list grown by
+`items = collections::append(items, label)` in a loop therefore holds everything every
+appended item names, and handing it to `setGroup` takes all of it over. Any other call
+is opaque: a function's result is not assumed to hold its arguments, so
+`collections::filter(items, keep)` neither moves nor hands over what `items` named.
+[[src/codegen/resource/mod.rs:builtin_placing_operand_indices]] [[src/codegen/mod.rs:resource_containment]] [[src/ir/verify/link.rs:collect_held]]
+
 The compiler enforces the hand-off rather than leaving it to a convention: after
 `canvas::setGroup`, naming the same font again is `2-203-0055`. If two groups need
 one image, build the image twice. This is deliberately stricter than a runtime

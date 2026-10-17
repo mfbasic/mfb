@@ -633,3 +633,139 @@ fn the_font_fixture_is_a_real_truetype() {
     );
     let _ = Path::new(".");
 }
+
+// ---------------------------------------------------------------------------------------
+// bug-1092: a list BUILT with `collections::append` (and its element-placing siblings)
+// holds the resources its elements name, so handing it to `setGroup` consumes them.
+//
+// The three programs below each build the group's list from `Text` items and let `install`
+// return, dropping every binding. Before bug-1092 the containment walk treated the
+// `append` call as opaque, recorded no `items -> face` edge, and scope-drop closed the
+// font: the group installed fine and drew no glyphs, silently. Each has a control whose
+// font binding stays alive in `main`, which is what makes a zero glyph count mean
+// "closed too early" rather than "group text never renders".
+// ---------------------------------------------------------------------------------------
+
+/// One `Text` item (`AA`) at column `x` naming font binding `font`.
+fn text_item(font: &str, x: &str) -> String {
+    format!(
+        "canvas::Text[id := \"\", position := vector::Float2[x := {x}, y := 120.0], text := \"AA\", font := {font}, fontSize := 64.0, paint := canvas::fill(color::rgb(230, 60, 170)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+    )
+}
+
+const PRESENT_HELD: &str = "canvas::present([canvas::Group[id := \"\", position := vector::Float2[x := 0.0, y := 0.0], transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], name := \"held\"]])";
+
+/// `body` is the group-building code; `install_scope` decides whether it runs inside a
+/// function that returns (the binding is dropped) or inline in `main` (it stays alive).
+fn append_program(body: &str, dropped: bool) -> String {
+    let header = "IMPORT app\nIMPORT canvas\nIMPORT vector\nIMPORT color\nIMPORT collections\n\n";
+    if dropped {
+        let body = body.replace("RETURN@", "RETURN");
+        format!(
+            "{header}FUNC install() AS Nothing\n{body}END FUNC\n\nFUNC main AS Integer\n  app::setMode(app::Mode.Canvas)\n  install()\n  {PRESENT_HELD}\n  RETURN 0\nEND FUNC\n"
+        )
+    } else {
+        let body = body.replace("RETURN@", "RETURN 1");
+        format!(
+            "{header}FUNC main AS Integer\n  app::setMode(app::Mode.Canvas)\n{body}  {PRESENT_HELD}\n  RETURN 0\nEND FUNC\n"
+        )
+    }
+}
+
+fn open_face(name: &str) -> String {
+    format!("  RES {name} AS canvas::Font = canvas::loadFont(\"fixture.ttf\") TRAP(e)\n    RETURN@\n  END TRAP\n")
+}
+
+/// Loop-built list: `items = collections::append(items, Text[font := face])`.
+fn loop_built_body() -> String {
+    format!(
+        "{}  MUT items AS List OF canvas::DrawItem = []\n  FOR i = 0 TO 1\n    items = collections::append(items, {})\n  NEXT\n  canvas::setGroup(\"held\", items)\n",
+        open_face("face"),
+        text_item("face", "40.0 + toFloat(i) * 120.0"),
+    )
+}
+
+/// A `LET` item appended to a list.
+fn let_item_body() -> String {
+    format!(
+        "{}  LET one AS canvas::DrawItem = {}\n  MUT items AS List OF canvas::DrawItem = []\n  items = collections::append(items, one)\n  items = collections::append(items, one)\n  canvas::setGroup(\"held\", items)\n",
+        open_face("face"),
+        text_item("face", "40.0"),
+    )
+}
+
+/// Two appends of two DIFFERENT resources into one list: the second assignment must add
+/// to what `items` already held, not replace it.
+fn two_resources_body() -> String {
+    format!(
+        "{}{}  MUT items AS List OF canvas::DrawItem = []\n  items = collections::append(items, {})\n  items = collections::append(items, {})\n  canvas::setGroup(\"held\", items)\n",
+        open_face("first"),
+        open_face("second"),
+        text_item("first", "40.0"),
+        text_item("second", "160.0"),
+    )
+}
+
+/// The element-placing siblings of `append`, each building the list from one font.
+fn sibling_body(expr: &str) -> String {
+    format!(
+        "{}  LET one AS canvas::DrawItem = {}\n  LET items AS List OF canvas::DrawItem = {expr}\n  canvas::setGroup(\"held\", items)\n",
+        open_face("face"),
+        text_item("face", "40.0"),
+    )
+}
+
+fn glyphs_for(name: &str, body: &str, dropped: bool) -> u32 {
+    glyph_count(&stats_for(name, &append_program(body, dropped)))
+}
+
+/// Each control must draw something; the dropped variant must draw exactly the same.
+fn assert_owned_like_control(tag: &str, body: &str, why: &str) {
+    let held = glyphs_for(&format!("cgo_ctl_{tag}"), body, false);
+    assert!(held > 0, "control `{tag}` draws no glyphs with the binding alive: group text is broken");
+    let owned = glyphs_for(&format!("cgo_own_{tag}"), body, true);
+    assert_eq!(owned, held, "bug-1092 {tag}: {why} (control drew {held}, dropped drew {owned})");
+}
+
+#[test]
+fn a_loop_built_list_keeps_its_font_past_the_scope() {
+    assert_owned_like_control(
+        "loop",
+        &loop_built_body(),
+        "`items = collections::append(items, Text[font := face])` places the font, so \
+         `setGroup` must take it over; fewer glyphs means scope-drop closed it",
+    );
+}
+
+#[test]
+fn an_appended_let_item_keeps_its_font_past_the_scope() {
+    assert_owned_like_control(
+        "let",
+        &let_item_body(),
+        "a `LET` item appended to the list places the font it names",
+    );
+}
+
+#[test]
+fn two_appended_resources_are_both_kept() {
+    assert_owned_like_control(
+        "two",
+        &two_resources_body(),
+        "the second `items = append(items, ...)` must ADD to what `items` already held; \
+         replacing it drops the first font",
+    );
+}
+
+#[test]
+fn the_other_placing_collections_members_keep_their_font() {
+    for (tag, expr) in [
+        ("prepend", "collections::prepend([], one)"),
+        ("insert", "collections::insert([one], 0, one)"),
+        ("set", "collections::set([one], 0, one)"),
+        ("repeat", "collections::repeat([], one, 2)"),
+        ("flatten", "collections::flatten([[one], [one]])"),
+    ] {
+        let g = glyphs_for(&format!("cgo_app_{tag}"), &sibling_body(expr), true);
+        assert!(g > 0, "bug-1092: collections::{tag} places `one`, so the font must survive");
+    }
+}

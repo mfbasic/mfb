@@ -1,0 +1,38 @@
+{
+  "project": "canvas_append_unconsumed_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "app", "line": 4 },
+    { "module": "canvas", "line": 5 },
+    { "module": "vector", "line": 6 },
+    { "module": "color", "line": 7 },
+    { "module": "collections", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "app.setMode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "app.Mode" }, "member": "Canvas" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "px", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "1" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "2" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "3" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "4" }] }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "img", "type": "canvas.Image", "value": { "kind": "call", "callee": "canvas.createImage", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "identifier", "value": "px" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "canvas.DrawItem", "value": { "kind": "constructor", "type": "canvas.Picture", "arguments": [{ "kind": "named", "name": "id", "value": { "kind": "string", "value": "" } }, { "kind": "named", "name": "shape", "value": { "kind": "constructor", "type": "canvas.Rectangle", "arguments": [{ "kind": "named", "name": "id", "value": { "kind": "string", "value": "" } }, { "kind": "named", "name": "position", "value": { "kind": "constructor", "type": "vector.Float2", "arguments": [{ "kind": "named", "name": "x", "value": { "kind": "number", "value": "0.0" } }, { "kind": "named", "name": "y", "value": { "kind": "number", "value": "0.0" } }] } }, { "kind": "named", "name": "bind", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "canvas.BindTo" }, "member": "TopLeft" } }, { "kind": "named", "name": "size", "value": { "kind": "constructor", "type": "canvas.Size", "arguments": [{ "kind": "named", "name": "width", "value": { "kind": "number", "value": "8.0" } }, { "kind": "named", "name": "height", "value": { "kind": "number", "value": "8.0" } }] } }, { "kind": "named", "name": "radiusTL", "value": { "kind": "number", "value": "0.0" } }, { "kind": "named", "name": "radiusTR", "value": { "kind": "number", "value": "0.0" } }, { "kind": "named", "name": "radiusBL", "value": { "kind": "number", "value": "0.0" } }, { "kind": "named", "name": "radiusBR", "value": { "kind": "number", "value": "0.0" } }, { "kind": "named", "name": "paint", "value": { "kind": "call", "callee": "canvas.fill", "arguments": [{ "kind": "call", "callee": "color.rgb", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "255" }] }] } }, { "kind": "named", "name": "transform", "value": { "kind": "constructor", "type": "canvas.Transform", "arguments": [{ "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.0" }] } }] } }, { "kind": "named", "name": "clip", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "canvas.PictureClip" }, "member": "ClipOnly" } }, { "kind": "named", "name": "fit", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "canvas.PictureFit" }, "member": "Stretch" } }, { "kind": "named", "name": "image", "value": { "kind": "identifier", "value": "img" } }] }, "line": 15 },
+      { "kind": "binding", "mutable": true, "name": "items", "type": "List OF canvas.DrawItem", "value": { "kind": "list", "values": [] }, "line": 16 },
+      { "kind": "assignment", "name": "items", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "items" }, { "kind": "identifier", "value": "a" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "canvas.present", "arguments": [{ "kind": "identifier", "value": "items" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "size", "type": "canvas.Size", "value": { "kind": "call", "callee": "canvas.getSize", "arguments": [{ "kind": "identifier", "value": "img" }] }, "line": 20 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 21 }
+      ]
+    }
+    ]
+  }
+  ]
+}
