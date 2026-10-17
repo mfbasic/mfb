@@ -44,7 +44,7 @@ References:
 |---|---|---|
 | plan-176-C is complete and archived | `ls planning/plan-176-C-* planning/completed/plan-176-C-*` → only `planning/completed/plan-176-C-tests-runtime-b.md` | NOT MET (2026-10-14) |
 | The guard and the oracle exist (plan-176-A) | `cargo test --test file_size_budget` → passes; `python3 -I tools/loc-census/census.py --file tests/canvas/rt_canvas_rasteriser.rs` → `0 4575` | NOT MET (2026-10-14; lands with A) |
-| This letter's files have no uncommitted changes (bug-1092's edits to the ownership test and the canvas spec are committed first) | `git status --porcelain -- tests/canvas src/docs/spec/app/06_canvas.md scripts/remote-common.sh scripts/test-canvas-vulkan.sh scripts/man-run-examples.sh planning/plan-162-B-kerning.md bugs/bug-1091-every-text-geometry-build-copies-the-whole-font-file.md .ai/testing-gates.md tests/guards/file_size_ceilings.txt` → empty | NOT MET (2026-10-14: ` M src/docs/spec/app/06_canvas.md`, ` M tests/canvas/rt_canvas_group_ownership.rs`) |
+| This letter's files have no uncommitted changes (bug-1092's edits to the ownership test and the canvas spec are committed first) | `git status --porcelain -- tests/canvas src/docs/spec/app/06_canvas.md scripts/remote-common.sh scripts/test-canvas-vulkan.sh scripts/man-run-examples.sh planning/completed/plan-162-B-kerning.md bugs/bug-1091-every-text-geometry-build-copies-the-whole-font-file.md .ai/testing-gates.md tests/guards/file_size_ceilings.txt` → empty | NOT MET (2026-10-14: ` M src/docs/spec/app/06_canvas.md`, ` M tests/canvas/rt_canvas_group_ownership.rs`) |
 | rt_canvas_group_ownership still measures as mapped once committed | `python3 -I tools/loc-census/census.py --file tests/canvas/rt_canvas_group_ownership.rs` → `0 589`; `grep -cE '^\s*#\[test' tests/canvas/rt_canvas_group_ownership.rs` → `15` | MET for the on-disk file (2026-10-14: `/tmp/loc/census.py` → 589, grep → 15) |
 
 Everything below is written against the world where these hold.
@@ -366,7 +366,7 @@ Sweeps: citations: `src/docs/spec/app/06_canvas.md:1593` `a_group_with_a_matrix_
 - `tests/canvas/rt_canvas_font/collection_faces.rs` (145) — 2 tests: load_font_chooses_a_collection_face_by_name, a_system_collection_face_loads_by_post_script_name; local helpers: ERR_FACE_NOT_FOUND, with_table, name_table, utf16be, named_face
 - `tests/canvas/rt_canvas_font/collections.rs` (83) — 2 tests: a_collection_loads_its_first_face, a_collection_that_runs_past_its_end_is_refused; local helpers: DRAW_A
 Surface: root declares 9 topic + 2 support module(s) as `#[path = "rt_canvas_font/<name>.rs"] mod <name>;`; target name `rt_canvas_font` unchanged. none for root/topic items (private root items are visible to child modules; topics start with `use super::*;`). Support files: their items become `pub(super)` (counts above); root adds `use <support>::*;` per support file (2).
-Sweeps: citations: none (`grep -rnoE "tests/canvas/rt_canvas_font.rs(::|:)\w+" src/docs .ai scripts AGENTS.md .github`) | include_str!/include_bytes! in moved code: none | prose refs naming the fixture BUILDER, which moves to `fixture.rs`, are repointed to `tests/canvas/rt_canvas_font/fixture.rs`: `scripts/remote-common.sh:47`, `scripts/test-canvas-vulkan.sh:88`, and `scripts/man-run-examples.sh:260` (which says `tests/rt_canvas_font.rs`, a path that does not exist today: `ls tests/rt_canvas_font.rs` → No such file — a pre-existing stale reference fixed here); live planning/bug docs: `planning/plan-162-B-kerning.md:59` (`tests/canvas/rt_canvas_font.rs:truetype_fixture`) and `:164` ("extend the fixture builder" in `tests/canvas/rt_canvas_font.rs`) → `tests/canvas/rt_canvas_font/fixture.rs`; `bugs/bug-1091-every-text-geometry-build-copies-the-whole-font-file.md:130` ("Add a test to `tests/canvas/rt_canvas_font.rs`") → `tests/canvas/rt_canvas_font/transforms_and_cache.rs`, the topic holding the sibling glyph-cache test `two_hundred_presents_through_one_font_leave_the_glyph_cache_where_they_found_it`. `bugs/bug-1091-…:41` cites `tests/canvas/rt_canvas_hit.rs:FIXTURE_TTF`, which stays in the `rt_canvas_hit` root — valid. Archived docs under `bugs/completed/` and `planning/completed/` (e.g. `bugs/completed/bug-757-composite-glyphs-draw-nothing.md`) are history and are not edited.
+Sweeps: citations: none (`grep -rnoE "tests/canvas/rt_canvas_font.rs(::|:)\w+" src/docs .ai scripts AGENTS.md .github`) | include_str!/include_bytes! in moved code: none | prose refs naming the fixture BUILDER, which moves to `fixture.rs`, are repointed to `tests/canvas/rt_canvas_font/fixture.rs`: `scripts/remote-common.sh:47`, `scripts/test-canvas-vulkan.sh:88`, and `scripts/man-run-examples.sh:260` (which says `tests/rt_canvas_font.rs`, a path that does not exist today: `ls tests/rt_canvas_font.rs` → No such file — a pre-existing stale reference fixed here); live planning/bug docs: `planning/completed/plan-162-B-kerning.md:59` (`tests/canvas/rt_canvas_font.rs:truetype_fixture`) and `:164` ("extend the fixture builder" in `tests/canvas/rt_canvas_font.rs`) → `tests/canvas/rt_canvas_font/fixture.rs`; `bugs/bug-1091-every-text-geometry-build-copies-the-whole-font-file.md:130` ("Add a test to `tests/canvas/rt_canvas_font.rs`") → `tests/canvas/rt_canvas_font/transforms_and_cache.rs`, the topic holding the sibling glyph-cache test `two_hundred_presents_through_one_font_leave_the_glyph_cache_where_they_found_it`. `bugs/bug-1091-…:41` cites `tests/canvas/rt_canvas_hit.rs:FIXTURE_TTF`, which stays in the `rt_canvas_hit` root — valid. Archived docs under `bugs/completed/` and `planning/completed/` (e.g. `bugs/completed/bug-757-composite-glyphs-draw-nothing.md`) are history and are not edited.
 
 #### 4.16 `tests/canvas/rt_canvas_curves.rs` — 2432 test LOC, 40 tests
 
@@ -536,12 +536,12 @@ Three files: the font fixture builder moves (so its prose references are repoint
       `scripts/remote-common.sh:47` and `scripts/test-canvas-vulkan.sh:88` (both say
       `tests/canvas/rt_canvas_font.rs`); `scripts/man-run-examples.sh:260` (says
       `tests/rt_canvas_font.rs`, pre-existing stale: `ls tests/rt_canvas_font.rs` → No such file);
-      `planning/plan-162-B-kerning.md:59` (`tests/canvas/rt_canvas_font.rs:truetype_fixture`) and
+      `planning/completed/plan-162-B-kerning.md:59` (`tests/canvas/rt_canvas_font.rs:truetype_fixture`) and
       `:164` (the fixture-builder task).
 - [ ] `bugs/bug-1091-every-text-geometry-build-copies-the-whole-font-file.md:130`: "Add a test to
       `tests/canvas/rt_canvas_font.rs`" → "Add a test to `tests/canvas/rt_canvas_font/transforms_and_cache.rs`",
       the topic that holds the sibling glyph-cache test.
-- [ ] Reference sweep: `grep -rn 'rt_canvas_font\.rs' scripts planning/plan-162-B-kerning.md bugs/bug-1091-*.md`
+- [ ] Reference sweep: `grep -rn 'rt_canvas_font\.rs' scripts planning/completed/plan-162-B-kerning.md bugs/bug-1091-*.md`
       → no output (target-name mentions such as `cargo test --test rt_canvas_font` carry no `.rs`).
 - [ ] `rt_canvas_curves.rs` → root + support `driver.rs`, `curve_model.rs`, `scene.rs` (both `impl Scene` blocks), `nurbs_model.rs` + eleven topics (§4.16).
 - [ ] `rt_canvas_particles.rs` → root + support `render.rs` + five topics (§4.17), and the
@@ -601,7 +601,7 @@ Commit: —
   `GROUPS`/`POLYLINES` `sed` extraction) are checked in Phase 3 without a Linux run, because the
   extracted text is unchanged.
 - Doc sync: `src/docs/spec/app/06_canvas.md` (six citations), `.ai/testing-gates.md:314`,
-  three `scripts/` comments, `planning/plan-162-B-kerning.md`, and
+  three `scripts/` comments, `planning/completed/plan-162-B-kerning.md`, and
   `bugs/bug-1091-every-text-geometry-build-copies-the-whole-font-file.md`. No `mfb spec` contract
   changes, only where its evidence lives. Citation count check:
   `grep -c '\[\[tests/canvas/' src/docs/spec/app/06_canvas.md` → `6` before Phase 2 and after Phase 5.
