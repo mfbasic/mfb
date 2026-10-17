@@ -240,6 +240,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | [ ]  | 947    | MED      | `/log/publish` returns another release's entry for idents/versions that differ only in ASCII case |
 | [ ]  | 948    | MED      | owner names of 241–255 bytes pass validation but cannot register (246+) or ever rotate their ident (241–245) |
 | [ ]  | 949    | MED      | an empty `MFB_HOME` (or empty `HOME`) puts the private key store in the current directory |
+| [ ]  | 1094   | MED      | a builtin package's code and globals are linked once per importing package even when identical: `color` used by a package and its program is in the binary twice (45 + 45 functions, 132,096 bytes release); `browser.out` carries 668,700 duplicate bytes. Each copy also has its own builtin globals - possible split `canvas` state (unverified) |
 | [ ]  | 856    | LOW      | §15 requires compiled cleanup metadata for drop-close failures, but the `.mfp` cleanup table is always empty, so `pkg info`'s secondary-close audit line can never fire (owner decided: remove the `.mfp` cleanup table and its `FUNCTION_TABLE` fields (format bump); derive the audit) |
 | [ ]  | 907    | LOW      | a package whose IR enum members disagree with its TYPE_TABLE is accepted, and `toString(<enum>)` then returns another member's name |
 | [ ]  | 908    | LOW      | FUNCTION_TABLE parameter whose `paramFlags` and `defaultConst` disagree is accepted — ABI hash says "has default", importer says "no default" |
