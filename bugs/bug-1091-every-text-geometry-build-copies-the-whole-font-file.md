@@ -8,6 +8,12 @@ Class: Other (performance)
 Status: Open
 Regression Test: none yet — Phase 1 below adds one
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: the font table is read in place, by the table's own load-acquire read path (`.ai/canvas-threading.md` §13: fixed chunks, published name-last, readable without a lock); a text build needs bytes of the font, not an owned copy of the whole file.
+- Where: `gen_font_table.rs:lower_font_blob_unchecked` ends in `copy_flat_block` (an owned `List OF Byte` per call), and every text builder calls `__canvas_fontBlob` (several times a build: `helper_geometry.rs`, `helper_font.rs`, and the readers listed below).
+- Fix: the doc's Fix Design shape 1 (read in place): internal native readers over (font handle, offset) on the table's read path, with an unregistered font reading as "no font" as an empty blob does today; the builders use them and the whole-file copy goes from the per-build path. Phase 1's copy count is still taken first; if it shows the copies come from the compiler snapshotting a list argument, STOP and report (that is a different rule). Perf: runs alone; the measure is arena bytes, which load does not move.
+
 Building the geometry record of one `canvas::Text` costs about 390 µs with a system
 font, and nearly all of it is copying the font file. `canvas::fontBlobUnchecked` answers
 an owned copy of the font's bytes, and the text builders ask for it on every build —

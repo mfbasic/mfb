@@ -9,6 +9,12 @@ Status: Open
 Coordinator note: measured by the review agent only (Linux runs in podman, or a macOS window screenshot); the coordinator did not re-run it.
 Regression Test: (proposed) a GTK app-mode grid test next to `tests/runtime/rt_gtk_term_utf8_grid.rs` asserting that `io::write("a漢b")` stamps row 0 as `a`,`漢`,TRAIL,`b` and `term::drawText(0,0,"c漢d")` stamps `c`,`漢`,TRAIL,`d`
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: an emitted load clobbers only its destination; a helper that silently clobbers a scratch register breaks every caller holding a value there (`.ai/codegen-invariants.md`, register clobbers).
+- Where: `src/target/linux_gtk/mod.rs:Asm::load_state` (and `store_state`) materialize the state address in `abi::SCRATCH[0]`; the wide-glyph edge check in `term_draw.rs:emit_term_write_helper` holds `col + 1` there, so the compare reads the address.
+- Fix: `load_state` builds the address in `dst` itself (`dst` is the base of its own load), so it clobbers nothing else, and every call site is safe; audit `store_state`'s callers for the same hazard (it cannot reuse `src`) and fix any that hold a value in `SCRATCH[0]` across it. Delete the "(clobbers the first scratch-pool register)" caveat that no longer holds. Emitted GTK code moves (every `load_state`), so the linux app `.ncodesum`/`.app.ncode` goldens are expected to change.
+
 On the Linux GTK app backend (linux-aarch64 and linux-x86_64, both measured), any
 width-2 cluster (CJK, emoji) written while TUI mode is on is mis-placed regardless of
 where the cursor is:

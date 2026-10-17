@@ -9,6 +9,12 @@ Status: Open
 Coordinator note: measured by the review agent only (Linux runs in podman, or a macOS window screenshot); the coordinator did not re-run it.
 Regression Test: (proposed) GTK/Xvfb run of `setMode(Console); io::print("A")` asserts `A` is in the transcript buffer and not on stdout; and `setMode(None); io::print("C")` asserts `C` is on stdout
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: when `app::setMode(m)` returns, the surface has been reconciled and `io::` writes follow `m`'s routing (`05_presentation-mode.md` "The surface-reconcile seam" and the "Mode-gated I/O" table); macOS meets it by marshalling the reconcile with `waitUntilDone:YES`.
+- Where: `src/target/linux_gtk/bootstrap.rs:emit_reconcile_seam` posts the reconcile with `g_idle_add` and returns at once (`07_window.md`: "fire-and-forget, like the mode reconcile").
+- Fix: the GTK seam waits for the posted reconcile to finish (the idle signals completion, the worker blocks until it does), the same contract as macOS; headless stays state-only. The spec's "fire-and-forget, like the mode reconcile" goes for the mode reconcile. Check the Windows `WM_APP_RECONCILE` arm and say in the doc whether it is synchronous (fix it the same way if not).
+
 On the Linux GTK backend the mode reconcile is posted with `g_idle_add` and
 `app::setMode` returns immediately. The io write helper routes on `ST_TEXT_BUFFER`
 at the moment of the write, so output written right after the call follows the

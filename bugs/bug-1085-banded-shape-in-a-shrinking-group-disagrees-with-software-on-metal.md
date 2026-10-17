@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: none yet
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: the band index is exact only while every one of the five samples lies within the band's reach of the centre: `r = half + 0.5 + 1.5·F`, `F` the Frobenius norm of the COMPOSED inverse the shader samples with (`emit_band_index`'s own doc, and `metal.rs:shapeCoverage`'s comment: "like the shape's it does not cover a group's matrix, which the band index never sees").
+- Where: `emit_band_index` (`src/target/macos_aarch64/app/metal.rs`, `src/codegen/runtime/canvas/vulkan.rs`) builds `F` from the item's inverse only; a block is built once a pass and may be drawn under several group matrices, so the builder cannot know the composed `F`.
+- Fix: the band header records the `F` its reach was built for; the shader's band lookup (`edgeDistance`'s band path, the path clip's too, Metal and GLSL line for line) takes the band only when the pixel's composed norm (`norm`, already computed in `shapeCoverage`) is within it, and otherwise walks every edge, which is exact (the band-count-0 path that already exists). Deletes the "does not cover a group's matrix" caveat from both comments and from `mfb spec app canvas`. SPIR-V regenerates (`MFB_SPIRV_PORT=2226 scripts/regen-spirv.sh`).
+
 Found during `bug-staging-23` (2026-10-12) and placed in a later phase.
 
 **The single correct behavior a fix produces:** the scene below draws on the GPU within

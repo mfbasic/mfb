@@ -9,6 +9,12 @@ Status: Open
 Coordinator note: measured by the review agent only (Linux runs in podman, or a macOS window screenshot); the coordinator did not re-run it.
 Regression Test: (proposed) macOS headless: `setMode(Console); term::on(); setMode(Canvas); setMode(Console); io::print(toString(term::isOn()))` prints `FALSE`; GUI: the same then `io::print("X")` shows `X` in the transcript
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: every `setMode` that changes the mode tears the surface down "with an implicit `term::off` so no raw/grid state survives a mode switch" (`src/docs/spec/app/05_presentation-mode.md`, "The surface-reconcile seam"); a same-mode `setMode` is not a change and keeps the TUI (this doc's Correct behavior).
+- Where: the one place every backend passes through, `src/codegen/builtins/app/func_set_mode.rs:lower_set_mode`, stores the mode and calls `emit_app_mode_reconcile`; no backend's seam runs term-off.
+- Fix: `lower_set_mode`, when the new mode differs from the current one, runs `term::off`'s own lowering (final present, restore, `active = 0`) before the reconcile, on every backend at once; no per-backend copy. The `types.rs` doc on `emit_app_mode_reconcile` then states what the seam really does.
+
 The presentation-mode spec says the reconcile tears the surface down "with an implicit
 `term::off` so no raw/grid state survives a mode switch". No backend's reconcile seam
 does that: the term-state `active` slot stays `1` across `Console → Canvas/None →

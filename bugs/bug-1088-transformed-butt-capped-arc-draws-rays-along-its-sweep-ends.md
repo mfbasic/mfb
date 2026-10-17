@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: none yet
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: "Each cap is defined on the signed distance the coverage rule already uses, so a cap edge is antialiased exactly as any other edge is" (`mfb spec app canvas`, `cap`); a butt LINE follows it (`max(d − half, −t·|v|, (t−1)·|v|)`, `helper_shapes.rs:__canvas_segmentDistanceButt`).
+- Where: a butt ARC breaks it: `helper_draw.rs` (the `__CANVAS_GEO_ARC` arm) answers `1000000.0` for any point outside the sweep, a jump rather than a distance, and both shaders mirror it (`metal.rs`, `mfb_canvas.frag`: "out of sweep it jumps to 1e6"). Under a transform the central-difference gradient across that jump is what lights the rays.
+- Fix: a butt arc's distance is the band intersected with the sweep wedge as signed half-plane distances through the two sweep-end radii (`max` of the two for a sweep ≤ 180°, `min` for a reflex one), `max`'d with `|ρ − r| − half`, exactly as the butt line takes its end planes; the same expression in the software oracle and both shaders. That makes an arc 1-Lipschitz, so the "a transformed arc takes no shortcut" exception and the 1e6 sentinel are deleted. Round and Square arcs union their end shapes with this band as they do now. Expected pixel change: a butt arc's ends become antialiased (they are hard cuts today); goldens that hold a butt arc move.
+
 Found during `bug-staging-23` (2026-10-12) by bs23-agent-d, re-run by the coordinator with main's compiler (`7011bb534`), and placed in a later phase.
 
 **The single correct behavior a fix produces:** the scene below draws the quarter-ring and

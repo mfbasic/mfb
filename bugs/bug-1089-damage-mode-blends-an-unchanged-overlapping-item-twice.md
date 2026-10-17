@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: none yet
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: damage mode changes no pixel: a partial redraw keeps the previous frame outside the damage rectangle and repaints only inside it (`.ai/canvas-threading.md` `MFB_CANVAS_DAMAGE`; `tests/canvas/rt_canvas_damage.rs`).
+- Where: `helper_render.rs:__canvas_renderScene` clears only the damage rectangle, then calls `__canvas_drawGeometry` over each meeting item's WHOLE box, so an unchanged item's pixels outside the rectangle are blended a second time over the kept frame.
+- Fix: the partial redraw draws each item clipped to the damage rectangle (the rectangle is the draw's scissor, passed to `__canvas_drawGeometry`'s pixel loop bounds), so nothing outside the cleared area is touched. Nothing special-cased to delete.
+
 Found during `bug-staging-23` (2026-10-12) by bs23-agent-d, re-run by the coordinator with main's compiler (`7011bb534`), and placed in a later phase.
 
 `MFB_CANVAS_DAMAGE` promises to change no pixel (`.ai/canvas-threading.md`;

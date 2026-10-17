@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: (proposed) the bug-982 GTK app-mode row in `scripts/test-appimage.sh`, run again with a program that calls `app::setMode(app::Mode.Console)` first, asserting one `event` line per mouse action
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: one window, however it is built: the window `setMode`'s reconcile builds is the window `activate` builds (the same rule bug-962 applied to the term drawing area through `emit_term_area_setup`, which runs in both start modes).
+- Where: `src/target/linux_gtk/` `emit_reconcile_build_helper` does not attach the press/release/motion/scroll controllers the `activate` path attaches.
+- Fix: move the controller attach into the setup both paths already share (or a shared helper both call), so there is one attach; delete the `activate`-only copy. After bug-1015.
+
 **bug-982 is fixed** (bugs/completed). Its proof found that `term::pollMouse` only drains the
 ring: the decoder runs on the stdin read path, so the repro must read stdin (e.g. one
 `io::readKey(0)` per loop, as bug-758's does) or it logs no `event` line even when the

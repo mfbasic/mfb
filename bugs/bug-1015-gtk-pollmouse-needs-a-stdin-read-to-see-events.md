@@ -8,6 +8,12 @@ Class: Correctness (platform parity)
 Status: Open
 Regression Test: (proposed) a GTK app-mode row in `scripts/test-appimage.sh`: `term::enableMouse(TRUE)` + a `term::pollMouse` loop with NO stdin read, driven by xdotool click/move/scroll under Xvfb, asserting at least one event per action
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: `pollMouse` returns the events the window received, whether or not the program reads stdin (owner decision 2026-10-10), on every platform.
+- Where: the mouse handlers on GTK and Windows (`src/target/win_x86_64/app/mouse.rs`) write SGR reports into the worker's input stream, and the only decoder runs on the `io` read path (`src/codegen/builtins/io/gen_read_family.rs`, around `mouse_decode::emit_drain_pending`); `term::pollMouse`/`canvas::pollMouse` only dequeue the ring (`src/codegen/io/mouse/ring.rs:emit_dequeue`). This doc's own Windows measurement shows the cause is shared.
+- Fix: `pollMouse` drains and decodes pending input itself before it dequeues, through the same drain the read family uses, keeping every non-mouse byte for the next `io` read; fixes every platform at once. No per-platform delivery path is added.
+
 **Owner decision (2026-10-10): GTK mouse events come from the window, like macOS and Windows.**
 `term::pollMouse` must return the events the window received, whether or not the program ever
 reads stdin.

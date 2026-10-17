@@ -21,11 +21,13 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 The list of a running phase is fixed when its first agent starts; nothing joins it.
 Bugs found during a phase are filed into a later phase. Order is High to Low, top to bottom.
 
-* **Phase 1: HIGH**, in table order: 688, 765 (perf; each runs alone, one agent).
-* Phase 2: MED, in table order.
-* Then LOW, in table order.
-* SECURITY rows (980, 1017, 1042, 952, 954+947, 955, 918) are not scheduled: they wait for the
-  owner.
+* HIGH 688 and 765: ON HOLD (owner, 2026-10-17). Not scheduled.
+* SECURITY rows (980, 1017, 1042, 952, 954+947, 955, 918): not scheduled; they wait for the owner.
+* MED 1082: blocked on hardware and a design decision (its doc). Not scheduled.
+* **Phase 1 (MED, table order):** 1085, 1087, 1088, 1091, 1089, 965, 985, 1015, 964, plus 966
+  (965 and 964 are "after 966"). 1087 waits on an owner decision (extend bug-996's rule to
+  Metal); 1091 is perf and runs alone in round 2.
+* Later phases: the rest of MED, then LOW, in table order.
 
 ## Resources and STATE
 
