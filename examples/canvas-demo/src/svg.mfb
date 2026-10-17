@@ -6,15 +6,19 @@
 ' transforms, and <linearGradient>/<radialGradient> with their stops,
 ' gradientTransform, spreadMethod, focal point and gradientUnits.
 '
-' Every SVG feature lands on a canvas feature directly, which is the point of
-' plan-163: a path's subpaths become a Polygon's contours, fill-rule becomes
-' Polygon.rule, the element's transform becomes Paint.transform, and a
-' gradient becomes a canvas::Gradient in the element's own user space - its
-' gradientTransform its transform, spreadMethod its spread, fx/fy its focal
-' offset. Curves are flattened to points; nothing else is approximated. The
-' one thing left out is a stroke painted with a gradient: canvas paints an
-' item's outline with its gradient only together with its interior, so an
-' SVG outline-only gradient has no canvas equivalent and is not drawn.
+' Every SVG feature lands on a canvas feature directly. A path's segments are
+' canvas::BezierCurve values as they stand - a cubic (C, S) is a four-point
+' curve, a quadratic (Q, T) a three-point one, a line (L, H, V) a two-point one
+' - and an elliptical arc (A) is split into rational quadratics, which trace an
+' ellipse exactly. A filled path is a canvas::CurvePolygon whose contours are
+' its subpaths and whose rule is its fill-rule; an open subpath that is
+' stroked is a canvas::PolyCurve, so it is not closed back to its start. The
+' element's transform is the shape's transform, so a drawing zoomed by that
+' transform is redrawn smooth at every size; and a gradient becomes a
+' canvas::Gradient in the element's own user space - its gradientTransform its
+' transform, spreadMethod its spread, fx/fy its focal offset. Nothing is
+' flattened to points. The one thing left out is a stroke painted with a
+' gradient, which none of the bundled files uses.
 '
 ' The text is read as a list of character codes and walked by index, so the
 ' reader never re-scans a string.
@@ -60,16 +64,16 @@ TYPE SvgPaintSpec
   dashes AS List OF Float
 END TYPE
 
-' The rings of one element, and which of them were closed. An open subpath
-' is filled as if closed (as SVG fills it) but stroked without its closing
-' edge.
-TYPE Rings
-  rings AS List OF List OF vector::Float2
+' The subpaths of one element, each a chain of curves, and which of them were
+' closed. An open subpath is filled as if closed (as SVG fills it) but stroked
+' without its closing edge.
+TYPE Contours
+  curves AS List OF List OF canvas::BezierCurve
   closed AS List OF Boolean
 END TYPE
 
 TYPE SvgShape
-  contours AS List OF List OF vector::Float2
+  contours AS List OF List OF canvas::BezierCurve
   closed AS List OF Boolean
   paint AS SvgPaintSpec
   transform AS canvas::Transform
@@ -88,8 +92,12 @@ TYPE SvgImage
   vh AS Float
   shapes AS List OF SvgShape
   gradients AS List OF SvgGradient
-  points AS Integer
+  curves AS Integer
 END TYPE
+
+FUNC emptySvg AS SvgImage
+  RETURN SvgImage[vx := 0.0, vy := 0.0, vw := 1.0, vh := 1.0, shapes := [], gradients := [], curves := 0]
+END FUNC
 
 ' ---------------------------------------------------------------------------
 ' Character codes
@@ -236,6 +244,34 @@ FUNC unit AS canvas::Transform
   RETURN matrix(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
 END FUNC
 
+' outer after inner: a point goes through `inner` first.
+FUNC compose(outer AS canvas::Transform, inner AS canvas::Transform) AS canvas::Transform
+  LET o AS canvas::Transform = concrete(outer)
+  LET i AS canvas::Transform = concrete(inner)
+  RETURN canvas::Transform[a := o.a * i.a + o.c * i.b, b := o.b * i.a + o.d * i.b, c := o.a * i.c + o.c * i.d, d := o.b * i.c + o.d * i.d, tx := o.a * i.tx + o.c * i.ty + o.tx, ty := o.b * i.tx + o.d * i.ty + o.ty]
+END FUNC
+
+' The all-zero transform means the identity; spelt out, so it can be composed.
+FUNC concrete(t AS canvas::Transform) AS canvas::Transform
+  IF t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0 THEN RETURN unit()
+  RETURN t
+END FUNC
+
+FUNC invert(t0 AS canvas::Transform) AS canvas::Transform
+  LET t AS canvas::Transform = concrete(t0)
+  LET det AS Float = t.a * t.d - t.b * t.c
+  IF math::abs(det) < 1.0e-12 THEN RETURN t
+  LET ia AS Float = t.d / det
+  LET ib AS Float = -t.b / det
+  LET ic AS Float = -t.c / det
+  LET id AS Float = t.a / det
+  RETURN canvas::Transform[a := ia, b := ib, c := ic, d := id, tx := -(ia * t.tx + ic * t.ty), ty := -(ib * t.tx + id * t.ty)]
+END FUNC
+
+FUNC translate(x AS Float, y AS Float) AS canvas::Transform
+  RETURN matrix(1.0, 0.0, 0.0, 1.0, x, y)
+END FUNC
+
 ' A transform attribute: a list of functions applied right to left.
 FUNC parseTransform(text AS String) AS canvas::Transform
   MUT result AS canvas::Transform = unit()
@@ -354,15 +390,16 @@ END FUNC
 ' Paths
 ' ---------------------------------------------------------------------------
 
-FUNC curveSteps(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, x3 AS Float, y3 AS Float) AS Integer
-  LET l AS Float = dist(x0, y0, x1, y1) + dist(x1, y1, x2, y2) + dist(x2, y2, x3, y3)
-  RETURN math::max(3, math::min(24, (math::round(l * 0.6))))
-END FUNC
-
-' The points of an elliptical arc from (x1, y1) to (x2, y2), by the
-' endpoint-to-centre conversion of SVG 1.1 appendix F.6.5, excluding the start.
-FUNC arcPts(x1 AS Float, y1 AS Float, rx0 AS Float, ry0 AS Float, angleDeg AS Float, large AS Boolean, sweep AS Boolean, x2 AS Float, y2 AS Float) AS List OF vector::Float2
-  IF rx0 = 0.0 OR ry0 = 0.0 THEN RETURN [pt(x2, y2)]
+' An elliptical arc from (x1, y1) to (x2, y2), by the endpoint-to-centre
+' conversion of SVG 1.1 appendix F.6.5, as rational quadratic curves of at most
+' a quarter turn each. A circular arc of angle d is three points - its ends and
+' the corner where their tangents meet - with the corner weighted cos(d / 2);
+' the ellipse is that circle stretched and turned, and stretching and turning
+' a rational curve is stretching and turning its points, so the curves trace
+' the ellipse exactly. The first and last points are the arc's own ends, so the
+' chain stays joined.
+FUNC arcCurvesSvg(x1 AS Float, y1 AS Float, rx0 AS Float, ry0 AS Float, angleDeg AS Float, large AS Boolean, sweep AS Boolean, x2 AS Float, y2 AS Float) AS List OF canvas::BezierCurve
+  IF rx0 = 0.0 OR ry0 = 0.0 THEN RETURN [straight(x1, y1, x2, y2)]
   MUT rx AS Float = math::abs(rx0)
   MUT ry AS Float = math::abs(ry0)
   LET phi AS Float = angleDeg * math::pi / 180.0
@@ -391,22 +428,39 @@ FUNC arcPts(x1 AS Float, y1 AS Float, rx0 AS Float, ry0 AS Float, angleDeg AS Fl
   MUT da AS Float = math::atan2((-y1p - cyp) / ry, (-x1p - cxp) / rx) - a1
   IF sweep AND da < 0.0 THEN da = da + TAU
   IF NOT sweep AND da > 0.0 THEN da = da - TAU
-  LET steps AS Integer = math::max(4, math::min(48, (math::round(math::abs(da) * math::max(rx, ry) * 0.5))))
-  MUT out AS List OF vector::Float2 = []
-  FOR i = 1 TO steps
-    LET a AS Float = a1 + da * toFloat(i) / toFloat(steps)
-    out = collections::append(out, pt(cx + co * rx * math::cos(a) - si * ry * math::sin(a), cy + si * rx * math::cos(a) + co * ry * math::sin(a)))
+  LET n AS Integer = math::max(1, math::ceil(math::abs(da) / (math::pi / 2.0) - 0.000001))
+  LET d AS Float = da / toFloat(n)
+  LET w AS Float = math::cos(d / 2.0)
+  MUT out AS List OF canvas::BezierCurve = []
+  MUT px AS Float = x1
+  MUT py AS Float = y1
+  FOR i = 1 TO n
+    LET m AS Float = a1 + d * (toFloat(i) - 0.5)
+    LET e AS Float = a1 + d * toFloat(i)
+    ' The corner, on the unit circle's tangent lines, then stretched and turned.
+    LET ux AS Float = math::cos(m) / w
+    LET uy AS Float = math::sin(m) / w
+    MUT ex AS Float = cx + co * rx * math::cos(e) - si * ry * math::sin(e)
+    MUT ey AS Float = cy + si * rx * math::cos(e) + co * ry * math::sin(e)
+    IF i = n THEN
+      ex = x2
+      ey = y2
+    END IF
+    out = collections::append(out, canvas::BezierCurve[points := [pt(px, py), pt(cx + co * rx * ux - si * ry * uy, cy + si * rx * ux + co * ry * uy), pt(ex, ey)], weights := [1.0, w, 1.0]])
+    px = ex
+    py = ey
   NEXT
   RETURN out
 END FUNC
 
-' Path data to contours: each M starts a new ring, curves are flattened.
-FUNC parsePath(d AS String) AS Rings
+' Path data to contours: each M starts a new subpath, and every segment is the
+' curve it names.
+FUNC parsePath(d AS String) AS Contours
   LET cs AS List OF Integer = codes(d)
   LET n AS Integer = len(cs)
-  MUT rings AS List OF List OF vector::Float2 = []
+  MUT chains AS List OF List OF canvas::BezierCurve = []
   MUT closed AS List OF Boolean = []
-  MUT ring AS List OF vector::Float2 = []
+  MUT chain AS List OF canvas::BezierCurve = []
   MUT i AS Integer = 0
   MUT cmd AS Integer = 0
   MUT x AS Float = 0.0
@@ -438,12 +492,12 @@ FUNC parsePath(d AS String) AS Rings
         oy = y
       END IF
       IF op = 90 THEN
-        ' Z: close the ring; the next command starts from its first point.
-        IF len(ring) > 1 THEN
-          rings = collections::append(rings, [ring])
+        ' Z: close the subpath; the next command starts from its first point.
+        IF len(chain) > 0 THEN
+          chains = collections::append(chains, [chain])
           closed = collections::append(closed, TRUE)
         END IF
-        ring = []
+        chain = []
         x = sx
         y = sy
         lastCmd = op
@@ -458,11 +512,11 @@ FUNC parsePath(d AS String) AS Rings
           LET ny AS Float = oy + b.value
           i = b.after
           IF op = 77 THEN
-            IF len(ring) > 1 THEN
-              rings = collections::append(rings, [ring])
+            IF len(chain) > 0 THEN
+              chains = collections::append(chains, [chain])
               closed = collections::append(closed, FALSE)
             END IF
-            ring = [pt(nx, ny)]
+            chain = []
             sx = nx
             sy = ny
             ' Further pairs after an M are line-tos.
@@ -478,62 +532,51 @@ FUNC parsePath(d AS String) AS Rings
               cx = 2.0 * x - qx
               cy = 2.0 * y - qy
             END IF
-            ring = collections::append(ring, quadPts(x, y, cx, cy, nx, ny, 8))
+            chain = collections::append(chain, quad(x, y, cx, cy, nx, ny))
             qx = cx
             qy = cy
           ELSE
-            ring = collections::append(ring, pt(nx, ny))
+            chain = collections::append(chain, straight(x, y, nx, ny))
           END IF
           x = nx
           y = ny
-        ELSEIF op = 72 THEN
-          x = a.value
-          IF rel THEN x = ox + a.value
-          ring = collections::append(ring, pt(x, y))
+        ELSEIF op = 72 OR op = 86 THEN
+          MUT nx AS Float = x
+          MUT ny AS Float = y
+          IF op = 72 THEN nx = ox + a.value
+          IF op = 86 THEN ny = oy + a.value
+          chain = collections::append(chain, straight(x, y, nx, ny))
+          x = nx
+          y = ny
           i = a.after
-        ELSEIF op = 86 THEN
-          y = a.value
-          IF rel THEN y = oy + a.value
-          ring = collections::append(ring, pt(x, y))
-          i = a.after
-        ELSEIF op = 67 THEN
-          LET b AS NumRead = readNumber(cs, a.after)
-          LET c2 AS NumRead = readNumber(cs, b.after)
-          LET d2 AS NumRead = readNumber(cs, c2.after)
-          LET e AS NumRead = readNumber(cs, d2.after)
-          LET f AS NumRead = readNumber(cs, e.after)
-          LET x1 AS Float = ox + a.value
-          LET y1 AS Float = oy + b.value
-          LET x2 AS Float = ox + c2.value
-          LET y2 AS Float = oy + d2.value
-          LET x3 AS Float = ox + e.value
-          LET y3 AS Float = oy + f.value
-          ring = collections::append(ring, cubicPts(x, y, x1, y1, x2, y2, x3, y3, curveSteps(x, y, x1, y1, x2, y2, x3, y3)))
-          qx = x2
-          qy = y2
-          x = x3
-          y = y3
-          i = f.after
-        ELSEIF op = 83 THEN
-          LET b AS NumRead = readNumber(cs, a.after)
-          LET c2 AS NumRead = readNumber(cs, b.after)
-          LET d2 AS NumRead = readNumber(cs, c2.after)
+        ELSEIF op = 67 OR op = 83 THEN
+          ' C x1 y1 x2 y2 x y, or S x2 y2 x y with the first control point the
+          ' reflection of the last one.
           MUT x1 AS Float = x
           MUT y1 AS Float = y
-          IF lastCmd = 67 OR lastCmd = 83 THEN
+          MUT r AS NumRead = a
+          IF op = 67 THEN
+            LET b AS NumRead = readNumber(cs, a.after)
+            x1 = ox + a.value
+            y1 = oy + b.value
+            r = readNumber(cs, b.after)
+          ELSEIF lastCmd = 67 OR lastCmd = 83 THEN
             x1 = 2.0 * x - qx
             y1 = 2.0 * y - qy
           END IF
-          LET x2 AS Float = ox + a.value
-          LET y2 AS Float = oy + b.value
-          LET x3 AS Float = ox + c2.value
-          LET y3 AS Float = oy + d2.value
-          ring = collections::append(ring, cubicPts(x, y, x1, y1, x2, y2, x3, y3, curveSteps(x, y, x1, y1, x2, y2, x3, y3)))
+          LET r2 AS NumRead = readNumber(cs, r.after)
+          LET r3 AS NumRead = readNumber(cs, r2.after)
+          LET r4 AS NumRead = readNumber(cs, r3.after)
+          LET x2 AS Float = ox + r.value
+          LET y2 AS Float = oy + r2.value
+          LET x3 AS Float = ox + r3.value
+          LET y3 AS Float = oy + r4.value
+          chain = collections::append(chain, cubic(x, y, x1, y1, x2, y2, x3, y3))
           qx = x2
           qy = y2
           x = x3
           y = y3
-          i = d2.after
+          i = r4.after
         ELSEIF op = 81 THEN
           LET b AS NumRead = readNumber(cs, a.after)
           LET c2 AS NumRead = readNumber(cs, b.after)
@@ -542,7 +585,7 @@ FUNC parsePath(d AS String) AS Rings
           LET y1 AS Float = oy + b.value
           LET x2 AS Float = ox + c2.value
           LET y2 AS Float = oy + d2.value
-          ring = collections::append(ring, quadPts(x, y, x1, y1, x2, y2, 8))
+          chain = collections::append(chain, quad(x, y, x1, y1, x2, y2))
           qx = x1
           qy = y1
           x = x2
@@ -558,7 +601,7 @@ FUNC parsePath(d AS String) AS Rings
           LET ey AS NumRead = readNumber(cs, ex.after)
           LET nx AS Float = ox + ex.value
           LET ny AS Float = oy + ey.value
-          ring = collections::append(ring, arcPts(x, y, a.value, b.value, rot.value, fl.large, fl.sweep, nx, ny))
+          chain = collections::append(chain, arcCurvesSvg(x, y, a.value, b.value, rot.value, fl.large, fl.sweep, nx, ny))
           x = nx
           y = ny
           i = ey.after
@@ -569,11 +612,11 @@ FUNC parsePath(d AS String) AS Rings
       END IF
     END IF
   LOOP
-  IF len(ring) > 1 THEN
-    rings = collections::append(rings, [ring])
+  IF len(chain) > 0 THEN
+    chains = collections::append(chains, [chain])
     closed = collections::append(closed, FALSE)
   END IF
-  RETURN Rings[rings := rings, closed := closed]
+  RETURN Contours[curves := chains, closed := closed]
 END FUNC
 
 TYPE Flags
@@ -664,29 +707,29 @@ FUNC attrNum(t AS Tag, key AS String, fallback AS Float) AS Float
   RETURN numberOr(attr(t, key), fallback)
 END FUNC
 
-' The rings of a basic shape element, or none.
-FUNC shapeRings(t AS Tag) AS Rings
+' The contours of a basic shape element, or none.
+FUNC shapeContours(t AS Tag) AS Contours
   MATCH t.name
     CASE "path" : RETURN parsePath(attr(t, "d"))
     CASE "circle"
       LET r AS Float = attrNum(t, "r", 0.0)
-      RETURN Rings[rings := [ovalRing(attrNum(t, "cx", 0.0), attrNum(t, "cy", 0.0), r, r, math::max(16, math::min(64, (math::round(r * 2.0)))), 0.0)], closed := [TRUE]]
+      RETURN Contours[curves := [ovalCurves(attrNum(t, "cx", 0.0), attrNum(t, "cy", 0.0), r, r)], closed := [TRUE]]
     CASE "ellipse"
-      LET rx AS Float = attrNum(t, "rx", 0.0)
-      LET ry AS Float = attrNum(t, "ry", 0.0)
-      RETURN Rings[rings := [ovalRing(attrNum(t, "cx", 0.0), attrNum(t, "cy", 0.0), rx, ry, math::max(16, math::min(64, (math::round((rx + ry) * 1.5)))), 0.0)], closed := [TRUE]]
+      RETURN Contours[curves := [ovalCurves(attrNum(t, "cx", 0.0), attrNum(t, "cy", 0.0), attrNum(t, "rx", 0.0), attrNum(t, "ry", 0.0))], closed := [TRUE]]
     CASE "rect"
-      RETURN Rings[rings := [rectRing(attrNum(t, "x", 0.0), attrNum(t, "y", 0.0), attrNum(t, "width", 0.0), attrNum(t, "height", 0.0))], closed := [TRUE]]
+      LET x AS Float = attrNum(t, "x", 0.0)
+      LET y AS Float = attrNum(t, "y", 0.0)
+      RETURN Contours[curves := [straights(collections::append(rectRing(x, y, attrNum(t, "width", 0.0), attrNum(t, "height", 0.0)), pt(x, y)))], closed := [TRUE]]
     CASE "line"
-      RETURN Rings[rings := [[pt(attrNum(t, "x1", 0.0), attrNum(t, "y1", 0.0)), pt(attrNum(t, "x2", 0.0), attrNum(t, "y2", 0.0))]], closed := [FALSE]]
+      RETURN Contours[curves := [[straight(attrNum(t, "x1", 0.0), attrNum(t, "y1", 0.0), attrNum(t, "x2", 0.0), attrNum(t, "y2", 0.0))]], closed := [FALSE]]
     CASE "polygon", "polyline"
       LET ns AS List OF Float = numbers(attr(t, "points"))
       MUT ring AS List OF vector::Float2 = []
       FOR k = 0 TO len(ns) / 2 - 1
         ring = collections::append(ring, pt(collections::get(ns, k * 2), collections::get(ns, k * 2 + 1)))
       NEXT
-      RETURN Rings[rings := [ring], closed := [t.name = "polygon"]]
-    CASE ELSE : RETURN Rings[rings := [], closed := []]
+      RETURN Contours[curves := [straights(ring)], closed := [t.name = "polygon"]]
+    CASE ELSE : RETURN Contours[curves := [], closed := []]
   END MATCH
 END FUNC
 
@@ -733,10 +776,10 @@ FUNC parseSvg(text AS String) AS SvgImage
   MUT transforms AS List OF canvas::Transform = [unit()]
   ' The viewBox is held as a list rather than as four Float locals: on
   ' windows-x86_64 a Float kept in a register across a call to a function
-  ' that uses math::sin, math::cos or math::pow can be overwritten (bug-994),
-  ' and this one lives across every element the loop reads.
+  ' that uses math::sin, math::cos or math::pow could be overwritten (bug-994,
+  ' since fixed), and this one lives across every element the loop reads.
   MUT viewBox AS List OF Float = [0.0, 0.0, 100.0, 100.0]
-  MUT points AS Integer = 0
+  MUT curves AS Integer = 0
   MUT i AS Integer = 0
   DO WHILE i < n
     IF collections::get(cs, i) <> C_LT THEN
@@ -788,24 +831,24 @@ FUNC parseSvg(text AS String) AS SvgImage
       ELSEIF tag.name = "stop" AND inGradient THEN
         current = WITH current { stops := collections::append(current.stops, stopFrom(tag)) }
       ELSE
-        LET found AS Rings = shapeRings(tag)
-        IF len(found.rings) > 0 THEN
-          FOR EACH r IN found.rings
-            points = points + len(r)
+        LET found AS Contours = shapeContours(tag)
+        IF len(found.curves) > 0 THEN
+          FOR EACH chain IN found.curves
+            curves = curves + len(chain)
           NEXT
-          shapes = collections::append(shapes, SvgShape[contours := found.rings, closed := found.closed, paint := elementPaint(inherited, tag.attrs), transform := compose(outer, parseTransform(attr(tag, "transform"))), fill := canvas::fill(color::white), hasFill := FALSE, stroke := canvas::fill(color::white), hasStroke := FALSE])
+          shapes = collections::append(shapes, SvgShape[contours := found.curves, closed := found.closed, paint := elementPaint(inherited, tag.attrs), transform := compose(outer, parseTransform(attr(tag, "transform"))), fill := canvas::fill(clear()), hasFill := FALSE, stroke := canvas::fill(clear()), hasStroke := FALSE])
         END IF
       END IF
     END IF
   LOOP
-  LET img AS SvgImage = SvgImage[vx := collections::get(viewBox, 0), vy := collections::get(viewBox, 1), vw := collections::get(viewBox, 2), vh := collections::get(viewBox, 3), shapes := shapes, gradients := grads, points := points]
+  LET img AS SvgImage = SvgImage[vx := collections::get(viewBox, 0), vy := collections::get(viewBox, 1), vw := collections::get(viewBox, 2), vh := collections::get(viewBox, 3), shapes := shapes, gradients := grads, curves := curves]
   RETURN WITH img { shapes := collections::transform(shapes, LAMBDA(sh AS SvgShape) -> resolve(img, sh)) }
 END FUNC
 
 ' Work out a shape's canvas paints from its SVG paint.
 FUNC resolve(img AS SvgImage, s AS SvgShape) AS SvgShape
   LET p AS SvgPaintSpec = s.paint
-  MUT fill AS canvas::Paint = canvas::fill(rgba(0, 0, 0, 0))
+  MUT fill AS canvas::Paint = canvas::fill(clear())
   MUT hasFill AS Boolean = FALSE
   IF strings::startsWith(p.fill, "url(") THEN
     fill = WITH canvas::fill(color::white) { gradient := canvasGradient(findGradient(img, refId(p.fill)), s.contours, p.opacity * p.fillOpacity) }
@@ -814,10 +857,10 @@ FUNC resolve(img AS SvgImage, s AS SvgShape) AS SvgShape
     fill = canvas::fill(fade(svgColor(p.fill), p.opacity * p.fillOpacity))
     hasFill = TRUE
   END IF
-  ' A stroke painted with a gradient is not drawn: canvas paints a stroke with
-  ' the item's one gradient only together with its fill.
+  ' A stroke painted with a gradient is left out: none of the bundled files
+  ' uses one.
   LET hasStroke AS Boolean = p.stroke <> "none" AND p.stroke <> "" AND p.strokeWidth > 0.0 AND NOT strings::startsWith(p.stroke, "url(")
-  MUT stroke AS canvas::Paint = canvas::fill(rgba(0, 0, 0, 0))
+  MUT stroke AS canvas::Paint = canvas::fill(clear())
   IF hasStroke THEN stroke = WITH canvas::stroke(fade(svgColor(p.stroke), p.opacity * p.strokeOpacity), p.strokeWidth) { cap := p.cap, join := p.join, miterLimit := p.miter, dashes := p.dashes }
   RETURN WITH s { fill := fill, hasFill := hasFill, stroke := stroke, hasStroke := hasStroke }
 END FUNC
@@ -837,13 +880,16 @@ FUNC findGradient(img AS SvgImage, id AS String) AS SvgGradient
   RETURN gradientFrom(Tag[name := "", attrs := Map OF String TO String {}, closing := FALSE, selfClosing := FALSE, after := 0])
 END FUNC
 
-FUNC bounds(rings AS List OF List OF vector::Float2) AS Box
+' The box around a shape's outline, for a gradient in objectBoundingBox units.
+' A curve lies inside the hull of its control points but does not usually
+' reach it, so the box is taken from points along the curves themselves.
+FUNC bounds(contours AS List OF List OF canvas::BezierCurve) AS Box
   MUT x0 AS Float = 1.0e9
   MUT y0 AS Float = 1.0e9
   MUT x1 AS Float = -1.0e9
   MUT y1 AS Float = -1.0e9
-  FOR EACH r IN rings
-    FOR EACH p IN r
+  FOR EACH chain IN contours
+    FOR EACH p IN flattenAll(chain, 0.05)
       x0 = math::min(x0, p.x)
       y0 = math::min(y0, p.y)
       x1 = math::max(x1, p.x)
@@ -855,49 +901,80 @@ END FUNC
 
 ' The canvas gradient for an SVG gradient used by a shape: in the shape's own
 ' user space, or its bounding box for objectBoundingBox units.
-FUNC canvasGradient(g AS SvgGradient, rings AS List OF List OF vector::Float2, opacity AS Float) AS canvas::Gradient
+FUNC canvasGradient(g AS SvgGradient, contours AS List OF List OF canvas::BezierCurve, opacity AS Float) AS canvas::Gradient
   MUT tr AS canvas::Transform = g.transform
   IF g.boundingBox THEN
-    LET b AS Box = bounds(rings)
+    LET b AS Box = bounds(contours)
     tr = compose(matrix(b.w, 0.0, 0.0, b.h, b.x, b.y), g.transform)
   END IF
   LET stops AS List OF canvas::GradientStop = collections::transform(g.stops, LAMBDA(s AS canvas::GradientStop) -> gstop(s.offset, fade(s.color, opacity)))
-  IF g.isLinear THEN
-    RETURN canvas::Gradient[kind := canvas::GradientKind.Linear, startPoint := pt(g.x1, g.y1), endPoint := pt(g.x2, g.y2), stops := stops, spread := g.spread, transform := tr, focalOffset := pt(0.0, 0.0), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
-  END IF
-  RETURN canvas::Gradient[kind := canvas::GradientKind.Radial, startPoint := pt(g.cx, g.cy), endPoint := pt(g.cx + g.r, g.cy), stops := stops, spread := g.spread, transform := tr, focalOffset := pt(g.fx - g.cx, g.fy - g.cy), focalRadius := 0.0, strokeApply := canvas::GradientApply.FillOnly]
+  IF g.isLinear THEN RETURN WITH linear(g.x1, g.y1, g.x2, g.y2, stops) { spread := g.spread, transform := tr }
+  RETURN WITH radial(g.cx, g.cy, g.r, stops) { spread := g.spread, transform := tr, focalOffset := pt(g.fx - g.cx, g.fy - g.cy) }
 END FUNC
 
 FUNC refId(value AS String) AS String
   RETURN strings::stripSuffix(strings::stripPrefix(strings::trim(value), "url(#"), ")")
 END FUNC
 
-' The picture of an SVG image, placed by `view` (from viewBox units to the
-' window). `outline` draws every contour as a thin line with its points
-' marked instead - the wireframe view.
-FUNC svgItems(img AS SvgImage, view AS canvas::Transform, outline AS Boolean, t AS Float) AS List OF canvas::DrawItem
+' The picture of an SVG image, every shape carried into place by `view` (from
+' viewBox units to the window) composed with its own transform. Because the
+' transform is each shape's own, enlarging `view` redraws the curves smooth at
+' the new size. `clip`, in window coordinates, confines the picture (empty for
+' none): a clip is in its item's own coordinates, so each shape is given it
+' carried back through the inverse of its transform. `wire` draws every
+' contour as the canvas receives it instead: each curve's outline, and the
+' control points that shape it.
+FUNC svgItems(img AS SvgImage, view AS canvas::Transform, wire AS Boolean, clip AS List OF List OF vector::Float2) AS List OF canvas::DrawItem
   MUT out AS List OF canvas::DrawItem = []
   FOR EACH s IN img.shapes
     LET tr AS canvas::Transform = compose(view, s.transform)
-    IF outline THEN
-      out = collections::append(out, placed(shape(s.contours, s.paint.rule, WITH canvas::stroke(rgba(120, 220, 255, 200), 0.35) { join := canvas::JoinStyle.Round }), tr))
+    LET local AS List OF List OF vector::Float2 = localRings(clip, tr)
+    IF wire THEN
+      out = collections::append(out, wireItems(s, tr, local))
     ELSE
-      IF s.hasFill THEN out = collections::append(out, placed(shape(s.contours, s.paint.rule, s.fill), tr))
-      IF s.hasStroke THEN
-        ' The outline: closed rings as one stroked, unfilled Polygon; each open
-        ' subpath as a PolyLine, so it is not closed back to its start.
-        LET sp AS canvas::Paint = s.stroke
-        MUT shut AS List OF List OF vector::Float2 = []
-        FOR k = 0 TO len(s.contours) - 1
-          IF collections::get(s.closed, k) THEN
-            shut = collections::append(shut, [collections::get(s.contours, k)])
-          ELSE
-            out = collections::append(out, placed(path(collections::get(s.contours, k), sp), tr))
-          END IF
-        NEXT
-        IF len(shut) > 0 THEN out = collections::append(out, placed(shape(shut, s.paint.rule, sp), tr))
-      END IF
+      IF s.hasFill THEN out = collections::append(out, curveShapeT(0.0, 0.0, s.contours, s.paint.rule, tr, WITH s.fill { clip := local }))
+      IF s.hasStroke THEN out = collections::append(out, strokeItems(s, tr, WITH s.stroke { clip := local }))
     END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' Rings given in window coordinates, carried into the coordinates of an item
+' whose transform is `t`.
+FUNC localRings(rings AS List OF List OF vector::Float2, t AS canvas::Transform) AS List OF List OF vector::Float2
+  IF len(rings) = 0 THEN RETURN rings
+  LET inv AS canvas::Transform = invert(t)
+  RETURN collections::transform(rings, LAMBDA(r AS List OF vector::Float2) -> collections::transform(r, LAMBDA(p AS vector::Float2) -> applyT(inv, p)))
+END FUNC
+
+' A shape's outline: its closed subpaths as one stroked, unfilled
+' CurvePolygon, and each open one as a PolyCurve, so it is not closed back to
+' its start.
+FUNC strokeItems(s AS SvgShape, tr AS canvas::Transform, p AS canvas::Paint) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  MUT shut AS List OF List OF canvas::BezierCurve = []
+  FOR k = 0 TO len(s.contours) - 1
+    IF collections::get(s.closed, k) THEN
+      shut = collections::append(shut, [collections::get(s.contours, k)])
+    ELSE
+      out = collections::append(out, curvePathT(0.0, 0.0, collections::get(s.contours, k), tr, p))
+    END IF
+  NEXT
+  IF len(shut) > 0 THEN out = collections::append(out, curveShapeT(0.0, 0.0, shut, s.paint.rule, tr, p))
+  RETURN out
+END FUNC
+
+' The wireframe of one shape: its contours outlined, and over them each
+' contour's control polygon - every curve's control points joined in order,
+' the handles a drawing program shows.
+FUNC wireItems(s AS SvgShape, tr AS canvas::Transform, clip AS List OF List OF vector::Float2) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = [curveShapeT(0.0, 0.0, s.contours, s.paint.rule, tr, WITH canvas::stroke(rgba(120, 220, 255, 220), 0.35) { join := canvas::JoinStyle.Round, clip := clip })]
+  FOR EACH chain IN s.contours
+    MUT handles AS List OF vector::Float2 = []
+    FOR EACH c IN chain
+      handles = collections::append(handles, c.points)
+    NEXT
+    out = collections::append(out, canvas::PolyLine[id := "", position := pt(0.0, 0.0), points := handles, colors := [], paint := WITH canvas::stroke(rgba(255, 190, 90, 150), 0.2) { dashes := [0.8, 0.6], clip := clip }, transform := tr])
   NEXT
   RETURN out
 END FUNC

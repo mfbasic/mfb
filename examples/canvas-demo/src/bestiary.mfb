@@ -3,15 +3,17 @@
 ' An illuminated book of the creatures of the wood. Each page's creature is a
 ' real SVG file - Google's Noto emoji artwork, under resources/svg - read at
 ' runtime by svg.mfb, an SVG reader written in MFBASIC, and drawn through the
-' canvas: subpaths as Polygon contours under the file's own fill rule,
-' transforms as Paint transforms, gradients as canvas gradients in the
-' element's own space. The Grove's sigil on the left-hand page is an SVG drawn
-' for this demo to use the rest: a focal radial gradient, a rotated, reflected
-' linear one, an evenodd ring, arcs and a dashed stroke.
+' canvas as curves: every path segment a canvas::BezierCurve, every filled
+' path a CurvePolygon under the file's own fill rule. The Grove's sigil on the
+' left-hand page is an SVG drawn for this demo to use the rest: a focal radial
+' gradient, a rotated, reflected linear one, an evenodd ring, arcs and a dashed
+' stroke; it is installed once as a group and turned by its node.
 '
 ' Turn the pages with the arrows; zoom into the creature with the wheel and
-' drag it about; press W to see the drawing as the canvas sees it - every
-' contour of every shape, outlined.
+' drag it about. The zoom is each shape's own transform, so the curves are
+' drawn afresh at every size and stay smooth however close you come. Press W
+' to see the drawing as the canvas sees it - every contour outlined, and the
+' control points that bend it.
 
 IMPORT canvas
 IMPORT vector
@@ -48,13 +50,14 @@ END FUNC
 
 TYPE BestiaryState
   t AS Float
+  fx AS Float             ' the motes' clock
+  w AS Float              ' the size the pages were installed for
+  h AS Float
   page AS Integer
   turnFrom AS Integer     ' the page being turned away from, or -1
   turn AS Float           ' 0..1 through the turn
   turnDir AS Integer      ' 1 forward, -1 back
   cache AS Map OF Integer TO SvgImage
-  sigil AS SvgImage
-  ready AS Boolean
   zoom AS Float
   panX AS Float
   panY AS Float
@@ -62,16 +65,11 @@ TYPE BestiaryState
   lastX AS Float
   lastY AS Float
   wire AS Boolean
-  hoverL AS Float
-  hoverR AS Float
+  beastKey AS String      ' which page, at which size and in which view, the resting creature was installed for
 END TYPE
 
-FUNC emptySvg AS SvgImage
-  RETURN SvgImage[vx := 0.0, vy := 0.0, vw := 1.0, vh := 1.0, shapes := [], gradients := [], points := 0]
-END FUNC
-
 FUNC bestiaryNew AS BestiaryState
-  RETURN BestiaryState[t := 0.0, page := 0, turnFrom := -1, turn := 0.0, turnDir := 1, cache := Map OF Integer TO SvgImage {}, sigil := emptySvg(), ready := FALSE, zoom := 1.0, panX := 0.0, panY := 0.0, dragging := FALSE, lastX := 0.0, lastY := 0.0, wire := FALSE, hoverL := 0.0, hoverR := 0.0]
+  RETURN BestiaryState[t := 0.0, fx := 0.0, w := 0.0, h := 0.0, page := 0, turnFrom := -1, turn := 0.0, turnDir := 1, cache := withPage(Map OF Integer TO SvgImage {}, 0), zoom := 1.0, panX := 0.0, panY := 0.0, dragging := FALSE, lastX := 0.0, lastY := 0.0, wire := FALSE, beastKey := ""]
 END FUNC
 
 FUNC loadSvg(name AS String) AS SvgImage
@@ -82,6 +80,19 @@ END FUNC
 FUNC withPage(cache AS Map OF Integer TO SvgImage, page AS Integer) AS Map OF Integer TO SvgImage
   IF collections::hasKey(cache, page) THEN RETURN cache
   RETURN collections::set(cache, page, loadSvg(collections::get(beasts(), page).file))
+END FUNC
+
+' The size the sigil's group is built at, across: as large as it is ever
+' drawn, so every node that places it shrinks it - curves in a group are drawn
+' at the size the group was built at.
+LET SIGIL_SIZE AS Float = 200.0
+
+' The Grove's sigil, centred on (0, 0), SIGIL_SIZE across. The title screen's
+' card and the book both draw it.
+FUNC installSigil AS Nothing
+  LET img AS SvgImage = loadSvg("sigil")
+  LET k AS Float = SIGIL_SIZE / math::max(img.vw, img.vh)
+  canvas::setGroup("sigil", svgItems(img, compose(matrix(k, 0.0, 0.0, k, 0.0, 0.0), translate(-img.vx - img.vw / 2.0, -img.vy - img.vh / 2.0)), FALSE, []))
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -102,9 +113,16 @@ FUNC bookAt(w AS Float, h AS Float) AS Book
   RETURN Book[x := (w - bw) / 2.0, y := h * 0.07, w := bw, h := bh, spine := w / 2.0]
 END FUNC
 
-FUNC arrowBox(b AS Book, right AS Boolean) AS Box
-  IF right THEN RETURN Box[x := b.x + b.w - 70.0, y := b.y + b.h - 64.0, w := 48.0, h := 40.0]
-  RETURN Box[x := b.x + 22.0, y := b.y + b.h - 64.0, w := 48.0, h := 40.0]
+' The frame on the right-hand page that the creature is drawn in.
+FUNC frameBox(b AS Book) AS Box
+  LET px AS Float = b.spine + b.w * 0.05
+  RETURN Box[x := px, y := b.y + b.h * 0.07, w := b.x + b.w * 0.93 - px, h := b.h * 0.78]
+END FUNC
+
+' The centre of the arrow button on one side of the book.
+FUNC arrowAt(b AS Book, right AS Boolean) AS vector::Float2
+  IF right THEN RETURN pt(b.x + b.w - 46.0, b.y + b.h - 44.0)
+  RETURN pt(b.x + 46.0, b.y + b.h - 44.0)
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -112,10 +130,12 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 FUNC bestiaryStep(s AS BestiaryState, inp AS Input, dt AS Float) AS BestiaryState
-  LET b AS Book = bookAt(inp.w, inp.h)
   LET count AS Integer = len(beasts())
-  MUT st AS BestiaryState = WITH s { t := s.t + dt }
-  IF NOT s.ready THEN st = WITH st { ready := TRUE, sigil := loadSvg("sigil"), cache := withPage(s.cache, 0) }
+  MUT st AS BestiaryState = WITH s { t := s.t + dt, fx := s.fx + inp.pdt, w := inp.w, h := inp.h }
+  IF s.w <> inp.w OR s.h <> inp.h THEN
+    installSigil()
+    bestiaryInstall(bookAt(inp.w, inp.h), inp.w, inp.h)
+  END IF
   ' Turning.
   IF st.turnFrom >= 0 THEN
     LET u AS Float = st.turn + dt / 0.75
@@ -125,25 +145,21 @@ FUNC bestiaryStep(s AS BestiaryState, inp AS Input, dt AS Float) AS BestiaryStat
       st = WITH st { turn := u }
     END IF
   END IF
-  LET overL AS Boolean = inBox(arrowBox(b, FALSE), inp.mx, inp.my)
-  LET overR AS Boolean = inBox(arrowBox(b, TRUE), inp.mx, inp.my)
   MUT dir AS Integer = 0
-  IF keyPressed(inp, "right") OR (inp.pressed AND overR) THEN dir = 1
-  IF keyPressed(inp, "left") OR (inp.pressed AND overL) THEN dir = -1
+  IF keyPressed(inp, "right") OR inp.clicked = "page-next" THEN dir = 1
+  IF keyPressed(inp, "left") OR inp.clicked = "page-prev" THEN dir = -1
   IF dir <> 0 AND st.turnFrom < 0 THEN
     LET nextPage AS Integer = (st.page + dir + count) MOD count
     st = WITH st { turnFrom := st.page, page := nextPage, turn := 0.0, turnDir := dir, cache := withPage(st.cache, nextPage), zoom := 1.0, panX := 0.0, panY := 0.0 }
   END IF
   IF keyPressed(inp, "w") THEN st = WITH st { wire := NOT st.wire }
-  ' Zoom about the mouse, and drag to pan.
+  ' Zoom with the wheel, and drag the creature about in its frame.
   MUT zoom AS Float = st.zoom
   IF inp.wheel <> 0 THEN zoom = clampF(zoom * math::pow(1.15, toFloat(inp.wheel)), 0.6, 8.0)
   MUT dragging AS Boolean = st.dragging
   MUT panX AS Float = st.panX
   MUT panY AS Float = st.panY
-  IF inp.pressed AND NOT overL AND NOT overR AND inp.mx > b.spine THEN
-    dragging = TRUE
-  END IF
+  IF inp.clicked = "creature" THEN dragging = TRUE
   IF NOT inp.down THEN dragging = FALSE
   IF dragging THEN
     panX = panX + inp.mx - st.lastX
@@ -154,11 +170,11 @@ FUNC bestiaryStep(s AS BestiaryState, inp AS Input, dt AS Float) AS BestiaryStat
     panX = 0.0
     panY = 0.0
   END IF
-  MUT hl AS Float = 0.0
-  MUT hr AS Float = 0.0
-  IF overL THEN hl = 1.0
-  IF overR THEN hr = 1.0
-  RETURN WITH st { zoom := zoom, dragging := dragging, panX := panX, panY := panY, lastX := inp.mx, lastY := inp.my, hoverL := approach(st.hoverL, hl, 12.0, dt), hoverR := approach(st.hoverR, hr, 12.0, dt) }
+  ' The creature at rest is a group, installed when its page, the window or
+  ' the view changes.
+  LET key AS String = toString(st.page) & "/" & toString(st.wire) & "/" & toString(inp.w) & "x" & toString(inp.h)
+  IF key <> st.beastKey THEN installBeast(bookAt(inp.w, inp.h), collections::getOr(st.cache, st.page, emptySvg()), st.wire)
+  RETURN WITH st { zoom := zoom, dragging := dragging, panX := panX, panY := panY, lastX := inp.mx, lastY := inp.my, beastKey := key }
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -173,49 +189,63 @@ FUNC rubric AS color::Color
   RETURN hex("#8e1f16")
 END FUNC
 
-' A page of parchment, shaded towards the spine.
-FUNC parchmentPage(x AS Float, y AS Float, w AS Float, h AS Float, spineSide AS Float) AS List OF canvas::DrawItem
-  MUT out AS List OF canvas::DrawItem = [rect(x, y, w, h, gradP(radial(x + w * 0.5, y + h * 0.45, math::max(w, h) * 0.75, [gstop(0.0, hex("#f6ead0")), gstop(0.7, hex("#ecd9ae")), gstop(1.0, hex("#d8bf8a"))])))]
+' A page of parchment, shaded towards the spine, `opacity` as opaque as it is:
+' laid over a page's printing, a half-transparent sheet of it is how the
+' printing fades as a turning leaf narrows.
+FUNC parchmentPage(x AS Float, y AS Float, w AS Float, h AS Float, spineSide AS Float, opacity AS Float) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = [rect(x, y, w, h, faded(gradP(radial(w * 0.5, h * 0.45, math::max(w, h) * 0.75, [gstop(0.0, hex("#f6ead0")), gstop(0.7, hex("#ecd9ae")), gstop(1.0, hex("#d8bf8a"))])), opacity))]
   ' The gutter: a Multiply ramp darkening the page towards the spine.
-  LET gx AS Float = x + w * spineSide
-  out = collections::append(out, rect(x, y, w, h, WITH gradP(linear(gx, 0.0, x + w * (1.0 - spineSide) * 0.6 + gx * 0.4, 0.0, [gstop(0.0, hex("#9a8060")), gstop(0.3, hex("#e4d6b8")), gstop(1.0, color::white)])) { blend := canvas::BlendMode.Multiply }))
+  LET gx AS Float = w * spineSide
+  out = collections::append(out, rect(x, y, w, h, faded(WITH gradP(linear(gx, 0.0, w * (1.0 - spineSide) * 0.6 + (x + gx) * 0.4, 0.0, [gstop(0.0, hex("#9a8060")), gstop(0.3, hex("#e4d6b8")), gstop(1.0, color::white)])) { blend := canvas::BlendMode.Multiply }, opacity)))
   ' Foxing: faint age spots.
   FOR i = 0 TO 9
-    out = collections::append(out, circle(x + hash01(i + toInt(spineSide * 10.0) * 50 + 1400) * w, y + hash01(i + 1410) * h, w * hashRange(i + 1420, 0.01, 0.04), WITH fillP(rgba(150, 110, 60, 18)) { blend := canvas::BlendMode.Multiply }))
+    out = collections::append(out, circle(x + hash01(i + toInt(spineSide * 10.0) * 50 + 1400) * w, y + hash01(i + 1410) * h, w * hashRange(i + 1420, 0.01, 0.04), faded(WITH fillP(rgba(150, 110, 60, 18)) { blend := canvas::BlendMode.Multiply }, opacity)))
   NEXT
   RETURN out
 END FUNC
 
-' A gilded frame: a solid rule, a dashed inner rule, and a flourish at each corner.
-FUNC frame(x AS Float, y AS Float, w AS Float, h AS Float) AS List OF canvas::DrawItem
+' A gilded frame: a solid rule, a dashed inner rule, and a flourish at each
+' corner - two cubic curves curling out of it.
+FUNC frame(fb AS Box) AS List OF canvas::DrawItem
   LET g AS color::Color = hex("#a87a2e")
-  MUT out AS List OF canvas::DrawItem = [rect(x, y, w, h, WITH canvas::stroke(g, 2.0) { join := canvas::JoinStyle.Miter })]
-  out = collections::append(out, rect(x + 7.0, y + 7.0, w - 14.0, h - 14.0, WITH canvas::stroke(fade(g, 0.8), 1.0) { dashes := [6.0, 3.0, 1.0, 3.0] }))
+  MUT out AS List OF canvas::DrawItem = [rect(fb.x, fb.y, fb.w, fb.h, WITH canvas::stroke(g, 2.0) { join := canvas::JoinStyle.Miter }), rect(fb.x + 7.0, fb.y + 7.0, fb.w - 14.0, fb.h - 14.0, WITH canvas::stroke(fade(g, 0.8), 1.0) { dashes := [6.0, 3.0, 1.0, 3.0] })]
   FOR k = 0 TO 3
-    LET cx AS Float = x + toFloat(k MOD 2) * w
-    LET cy AS Float = y + toFloat(k / 2) * h
     LET sx AS Float = 1.0 - 2.0 * toFloat(k MOD 2)
     LET sy AS Float = 1.0 - 2.0 * toFloat(k / 2)
-    out = collections::append(out, path(collections::prepend(cubicPts(cx, cy, cx + sx * 26.0, cy + sy * 2.0, cx + sx * 30.0, cy + sy * 20.0, cx + sx * 14.0, cy + sy * 22.0, 12), pt(cx, cy)), WITH strokeP(g, 1.6) { cap := canvas::CapStyle.Round }))
-    out = collections::append(out, path(collections::prepend(cubicPts(cx, cy, cx + sx * 2.0, cy + sy * 26.0, cx + sx * 20.0, cy + sy * 30.0, cx + sx * 22.0, cy + sy * 14.0, 12), pt(cx, cy)), WITH strokeP(g, 1.6) { cap := canvas::CapStyle.Round }))
+    LET cx AS Float = fb.x + toFloat(k MOD 2) * fb.w
+    LET cy AS Float = fb.y + toFloat(k / 2) * fb.h
+    out = collections::append(out, curvePath(cx, cy, [cubic(0.0, 0.0, sx * 26.0, sy * 2.0, sx * 30.0, sy * 20.0, sx * 14.0, sy * 22.0)], strokeP(g, 1.6)))
+    out = collections::append(out, curvePath(cx, cy, [cubic(0.0, 0.0, sx * 2.0, sy * 26.0, sx * 20.0, sy * 30.0, sx * 22.0, sy * 14.0)], strokeP(g, 1.6)))
     out = collections::append(out, circle(cx + sx * 4.0, cy + sy * 4.0, 3.0, fillP(g)))
   NEXT
   RETURN out
 END FUNC
 
-' The left-hand page: the sigil, the creature's name and lore, and what the
-' reader made of its file.
-FUNC leftPage(f AS Fonts, b AS Book, beast AS Beast, img AS SvgImage, sigil AS SvgImage, index AS Integer, t AS Float) AS List OF canvas::DrawItem
+' What never changes: the desk, the book's cover and its two blank pages,
+' and the frame on the right-hand page.
+FUNC bestiaryInstall(b AS Book, w AS Float, h AS Float) AS Nothing
+  MUT desk AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(downward(h, [gstop(0.0, hex("#2a1a10")), gstop(1.0, hex("#140c08"))])))]
+  FOR i = 0 TO 30
+    LET gy AS Float = hash01(i + 1500) * h
+    desk = collections::append(desk, pathAt(0.0, gy, [pt(0.0, 0.0), pt(w * 0.3, hashRange(i + 1510, -8.0, 8.0)), pt(w * 0.7, hashRange(i + 1520, -8.0, 8.0)), pt(w, 0.0)], canvas::stroke(rgba(255, 200, 150, 10), hashRange(i + 1530, 1.0, 3.0))))
+  NEXT
+  desk = collections::append(desk, rrect(b.x - 14.0, b.y - 10.0, b.w + 28.0, b.h + 22.0, 10.0, WITH gradP(downward(b.h, [gstop(0.0, hex("#5a2414")), gstop(1.0, hex("#3a140a"))])) { stroke := hex("#1a0804"), strokeWidth := 2.0 }))
+  canvas::setGroup("book-desk", desk)
+  canvas::setGroup("book-left", parchmentPage(b.x, b.y, b.spine - b.x, b.h, 1.0, 1.0))
+  canvas::setGroup("book-right", parchmentPage(b.spine, b.y, b.x + b.w - b.spine, b.h, 0.0, 1.0))
+  canvas::setGroup("book-frame", frame(frameBox(b)))
+END FUNC
+
+' The left-hand page's printing: the sigil, the creature's name and lore, and
+' what the reader made of its file.
+FUNC leftPage(f AS Fonts, b AS Book, beast AS Beast, img AS SvgImage, index AS Integer, t AS Float) AS List OF canvas::DrawItem
   LET px AS Float = b.x + b.w * 0.07
   LET pw AS Float = b.spine - px - b.w * 0.05
   LET cx AS Float = px + pw / 2.0
-  MUT out AS List OF canvas::DrawItem = []
-  ' The sigil, gently turning.
+  ' The sigil, gently turning: one node.
   LET ss AS Float = math::min(b.h * 0.2, pw * 0.4)
   LET sy AS Float = b.y + b.h * 0.06
-  LET turnA AS Float = math::sin(t * 0.4) * 0.08
-  LET view AS canvas::Transform = compose(place(cx, sy + ss / 2.0, turnA, ss / sigil.vw), translate(-sigil.vw / 2.0, -sigil.vh / 2.0))
-  out = collections::append(out, svgItems(sigil, view, FALSE, t))
+  MUT out AS List OF canvas::DrawItem = [nodeT("sigil", cx, sy + ss / 2.0, turnScale(math::sin(t * 0.4) * 0.08, ss / SIGIL_SIZE, ss / SIGIL_SIZE))]
   MUT y AS Float = sy + ss + b.h * 0.07
   LET nameSize AS Float = math::min(30.0, pw * 0.075)
   FOR EACH l IN wrap(f.display, nameSize, beast.name, pw)
@@ -226,171 +256,176 @@ FUNC leftPage(f AS Fonts, b AS Book, beast AS Beast, img AS SvgImage, sigil AS S
   y = y + nameSize * 0.6 + 14.0
   out = collections::append(out, divider(cx, y, pw * 0.3, 1.0))
   y = y + 28.0
-  ' The lore, with an illuminated capital: the first letter large, in red
-  ' with a gold outline, and the first lines indented around it.
+  out = collections::append(out, lore(f, beast.lore, px, pw, y))
+  ' The page number and the reader's tally, at the foot.
+  LET foot AS Float = b.y + b.h - 30.0
+  out = collections::append(out, centered(f.body, 12.0, beast.file & ".svg  ·  " & toString(len(img.shapes)) & " shapes  ·  " & toString(img.curves) & " curves  ·  " & toString(len(img.gradients)) & " gradients", cx, foot - 22.0, fillP(fade(ink(), 0.7))))
+  RETURN collections::append(out, centered(f.heading, 14.0, toString(index * 2 + 1), cx, foot, fillP(fade(ink(), 0.8))))
+END FUNC
+
+' The lore, with an illuminated capital: the first letter large, in red with
+' a gold outline, and the first lines indented around it.
+FUNC lore(f AS Fonts, text AS String, px AS Float, pw AS Float, y0 AS Float) AS List OF canvas::DrawItem
+  MUT y AS Float = y0
   LET body AS Float = math::min(17.0, pw * 0.042)
   LET capSize AS Float = body * 3.6
-  LET first AS String = strings::left(beast.lore, 1)
-  LET rest AS String = strings::mid(beast.lore, 1, len(beast.lore) - 1)
+  LET first AS String = strings::left(text, 1)
+  LET rest AS String = strings::mid(text, 1, len(text) - 1)
   LET capW AS Float = textWidth(f.display, capSize, first) + 10.0
-  out = collections::append(out, rrect(px - 4.0, y - body * 1.1, capW + 4.0, capSize * 0.98, 4.0, WITH fillP(hex("#f3d98a")) { stroke := hex("#a87a2e"), strokeWidth := 1.2 }))
-  out = collections::append(out, labelP(f.display, capSize, first, px + 2.0, y - body * 1.1 + capSize * 0.8, WITH fillP(rubric()) { stroke := hex("#5a1008"), strokeWidth := 0.6 }))
+  MUT out AS List OF canvas::DrawItem = [rrect(px - 4.0, y - body * 1.1, capW + 4.0, capSize * 0.98, 4.0, fillStrokeP(hex("#f3d98a"), hex("#a87a2e"), 1.2))]
+  out = collections::append(out, labelP(f.display, capSize, first, px + 2.0, y - body * 1.1 + capSize * 0.8, fillStrokeP(rubric(), hex("#5a1008"), 0.6)))
   LET lineH AS Float = body * 1.45
   ' Wrap the first three lines short of the capital, then the rest full width.
   LET narrow AS List OF String = wrap(f.italic, body, rest, pw - capW)
-  MUT shown AS Integer = 0
   MUT used AS String = ""
   FOR i = 0 TO math::min(2, len(narrow) - 1)
     out = collections::append(out, label(f.italic, body, collections::get(narrow, i), px + capW, y, ink()))
     used = used & collections::get(narrow, i) & " "
     y = y + lineH
-    shown = shown + 1
   NEXT
   IF len(narrow) > 3 THEN
     LET cut AS Integer = math::min(len(strings::trim(used)), len(rest))
-    LET remaining AS String = strings::trim(strings::mid(rest, cut, len(rest) - cut))
-    FOR EACH l IN wrap(f.italic, body, remaining, pw)
+    FOR EACH l IN wrap(f.italic, body, strings::trim(strings::mid(rest, cut, len(rest) - cut)), pw)
       out = collections::append(out, label(f.italic, body, l, px, y, ink()))
       y = y + lineH
     NEXT
   END IF
-  ' The page number and the reader's tally, at the foot.
-  LET foot AS Float = b.y + b.h - 30.0
-  out = collections::append(out, centered(f.body, 12.0, beast.file & ".svg  ·  " & toString(len(img.shapes)) & " shapes  ·  " & toString(img.points) & " points  ·  " & toString(len(img.gradients)) & " gradients", cx, foot - 22.0, fillP(fade(ink(), 0.7))))
-  out = collections::append(out, centered(f.heading, 14.0, toString(index * 2 + 1), cx, foot, fillP(fade(ink(), 0.8))))
   RETURN out
 END FUNC
 
-' The right-hand page: the creature in its frame.
-FUNC rightPage(f AS Fonts, b AS Book, img AS SvgImage, index AS Integer, zoom AS Float, panX AS Float, panY AS Float, wire AS Boolean, t AS Float) AS List OF canvas::DrawItem
-  LET px AS Float = b.spine + b.w * 0.05
-  LET pw AS Float = b.x + b.w * 0.93 - px
-  LET fy AS Float = b.y + b.h * 0.07
-  LET fh AS Float = b.h * 0.78
-  MUT out AS List OF canvas::DrawItem = frame(px, fy, pw, fh)
-  ' A soft glow behind the creature, and the creature itself, clipped to the
-  ' inside of the frame so a zoomed drawing stays on its page.
-  LET cx AS Float = px + pw / 2.0 + panX
-  LET cy AS Float = fy + fh / 2.0 + panY
-  out = collections::append(out, rect(px + 8.0, fy + 8.0, pw - 16.0, fh - 16.0, gradP(radial(px + pw / 2.0, fy + fh / 2.0, pw * 0.6, [gstop(0.0, rgba(255, 245, 210, 160)), gstop(1.0, rgba(255, 245, 210, 0))]))))
-  LET size AS Float = math::min(pw, fh) * 0.82 * zoom
-  LET bob AS Float = math::sin(t * 1.2) * 3.0
-  LET view AS canvas::Transform = compose(place(cx, cy + bob, 0.0, size / math::max(img.vw, img.vh)), translate(-img.vx - img.vw / 2.0, -img.vy - img.vh / 2.0))
-  LET clip AS List OF List OF vector::Float2 = [rectRing(px + 9.0, fy + 9.0, pw - 18.0, fh - 18.0)]
-  ' A shadow under it on the page.
-  out = collections::append(out, ellipse(px + pw / 2.0 + panX, cy + size * 0.46, size * 0.3, size * 0.035, 0.0, WITH fillP(rgba(90, 60, 30, 50)) { clip := clip }))
-  ' Every item of the creature gets the frame's clip. The clip is in window
-  ' coordinates, but an item's clip is in its own - so it is mapped back
-  ' through the inverse of the creature's transform first.
-  LET creature AS List OF canvas::DrawItem = svgItems(img, view, wire, t)
-  out = collections::append(out, clipItems(creature, clip))
-  out = collections::append(out, centered(f.heading, 14.0, toString(index * 2 + 2), px + pw / 2.0, b.y + b.h - 30.0, fillP(fade(ink(), 0.8))))
-  IF wire THEN out = collections::append(out, centered(f.bold, 11.0, "W  -  AS THE CANVAS SEES IT: EVERY CONTOUR OUTLINED", px + pw / 2.0, fy + fh + 18.0, fillP(rubric())))
+' The creature's size in the frame at a zoom of 1, and the transform from its
+' viewBox to a frame of that size centred on (0, 0).
+FUNC beastView(b AS Book, img AS SvgImage, zoom AS Float) AS canvas::Transform
+  LET fb AS Box = frameBox(b)
+  LET k AS Float = math::min(fb.w, fb.h) * 0.82 * zoom / math::max(img.vw, img.vh)
+  RETURN compose(matrix(k, 0.0, 0.0, k, 0.0, 0.0), translate(-img.vx - img.vw / 2.0, -img.vy - img.vh / 2.0))
+END FUNC
+
+' The creature at rest - unzoomed and where it belongs, which is inside its
+' frame - installed as a group about its own middle, so the curves are built
+' once and a frame only moves the node that bobs it.
+FUNC installBeast(b AS Book, img AS SvgImage, wire AS Boolean) AS Nothing
+  canvas::setGroup("beast", svgItems(img, beastView(b, img, 1.0), wire, []))
+END FUNC
+
+' The right-hand page's printing: the creature in its frame. At rest it is the
+' installed group, bobbing gently. Zoomed by `zoom` or moved by (panX, panY),
+' it is drawn afresh and held still: every shape carries the zoom in its own
+' transform, so its curves are redrawn smooth at the new size, and every shape
+' is clipped to the inside of the frame, so a zoomed drawing stays on its page.
+' `resting` is FALSE for a page on a turning leaf, which is not the page the
+' group was installed for.
+FUNC rightPage(f AS Fonts, b AS Book, img AS SvgImage, index AS Integer, zoom AS Float, panX AS Float, panY AS Float, wire AS Boolean, resting AS Boolean, t AS Float) AS List OF canvas::DrawItem
+  LET fb AS Box = frameBox(b)
+  LET still AS Boolean = zoom = 1.0 AND panX = 0.0 AND panY = 0.0
+  MUT bob AS Float = 0.0
+  IF still AND resting THEN bob = math::sin(t * 1.2) * 3.0
+  LET cx AS Float = fb.x + fb.w / 2.0 + panX
+  LET cy AS Float = fb.y + fb.h / 2.0 + panY + bob
+  ' A soft glow behind the creature, and a shadow under it on the page.
+  MUT out AS List OF canvas::DrawItem = [rect(fb.x + 8.0, fb.y + 8.0, fb.w - 16.0, fb.h - 16.0, gradP(radial(fb.w / 2.0 - 8.0, fb.h / 2.0 - 8.0, fb.w * 0.6, [gstop(0.0, rgba(255, 245, 210, 160)), gstop(1.0, rgba(255, 245, 210, 0))])))]
+  LET size AS Float = math::min(fb.w, fb.h) * 0.82 * zoom
+  LET clip AS List OF List OF vector::Float2 = [rectRing(fb.x + 9.0, fb.y + 9.0, fb.w - 18.0, fb.h - 18.0)]
+  LET sx AS Float = fb.x + fb.w / 2.0 + panX
+  LET sy AS Float = cy + size * 0.46
+  out = collections::append(out, ellipse(sx, sy, size * 0.3, size * 0.035, 0.0, WITH fillP(rgba(90, 60, 30, 50)) { clip := [ringFrom(collections::get(clip, 0), sx, sy)] }))
+  IF still AND resting THEN
+    out = collections::append(out, node("beast", cx, cy))
+  ELSE
+    LET view AS canvas::Transform = compose(translate(cx, cy), beastView(b, img, zoom))
+    out = collections::append(out, svgItems(img, view, wire, clip))
+  END IF
+  out = collections::append(out, centered(f.heading, 14.0, toString(index * 2 + 2), fb.x + fb.w / 2.0, b.y + b.h - 30.0, fillP(fade(ink(), 0.8))))
+  IF wire THEN out = collections::append(out, centered(f.bold, 11.0, "W  -  AS THE CANVAS SEES IT: EVERY CURVE OUTLINED, ITS CONTROL POINTS JOINED", fb.x + fb.w / 2.0, fb.y + fb.h + 18.0, fillP(rubric())))
   RETURN out
 END FUNC
 
-' Clip a picture to a ring given in window coordinates. Each item's clip is
-' in its own coordinates, so the ring goes through the inverse of the item's
-' transform.
-FUNC clipItems(items AS List OF canvas::DrawItem, ring AS List OF List OF vector::Float2) AS List OF canvas::DrawItem
-  RETURN collections::transform(items, LAMBDA(d AS canvas::DrawItem) -> clipItem(d, ring))
-END FUNC
-
-FUNC invert(t0 AS canvas::Transform) AS canvas::Transform
-  LET t AS canvas::Transform = concrete(t0)
-  LET det AS Float = t.a * t.d - t.b * t.c
-  IF math::abs(det) < 1.0e-12 THEN RETURN t
-  LET ia AS Float = t.d / det
-  LET ib AS Float = -t.b / det
-  LET ic AS Float = -t.c / det
-  LET id AS Float = t.a / det
-  RETURN canvas::Transform[a := ia, b := ib, c := ic, d := id, tx := -(ia * t.tx + ic * t.ty), ty := -(ib * t.tx + id * t.ty)]
-END FUNC
-
-FUNC localRing(ring AS List OF List OF vector::Float2, t AS canvas::Transform) AS List OF List OF vector::Float2
-  LET inv AS canvas::Transform = invert(t)
-  RETURN collections::transform(ring, LAMBDA(r AS List OF vector::Float2) -> collections::transform(r, LAMBDA(p AS vector::Float2) -> applyT(inv, p)))
-END FUNC
-
-FUNC clipItem(d AS canvas::DrawItem, ring AS List OF List OF vector::Float2) AS canvas::DrawItem
-  MATCH d
-    CASE canvas::Polygon(v) : RETURN WITH v { paint := WITH v.paint { clip := localRing(ring, v.transform) } }
-    CASE canvas::PolyLine(v) : RETURN WITH v { paint := WITH v.paint { clip := localRing(ring, v.transform) } }
-    CASE ELSE : RETURN d
-  END MATCH
+' One leaf of the book, `side` 0 the left-hand page and 1 the right: its
+' parchment and its printing.
+FUNC leaf(f AS Fonts, b AS Book, s AS BestiaryState, page AS Integer, side AS Integer, faded_ AS Float) AS List OF canvas::DrawItem
+  LET img AS SvgImage = collections::getOr(s.cache, page, emptySvg())
+  IF side = 0 THEN
+    MUT out AS List OF canvas::DrawItem = parchmentPage(b.x, b.y, b.spine - b.x, b.h, 1.0, 1.0)
+    out = collections::append(out, leftPage(f, b, collections::get(beasts(), page), img, page, s.t))
+    IF faded_ > 0.0 THEN out = collections::append(out, parchmentPage(b.x, b.y, b.spine - b.x, b.h, 1.0, faded_))
+    RETURN out
+  END IF
+  MUT out AS List OF canvas::DrawItem = parchmentPage(b.spine, b.y, b.x + b.w - b.spine, b.h, 0.0, 1.0)
+  out = collections::append(out, rightPage(f, b, img, page, 1.0, 0.0, 0.0, s.wire, FALSE, s.t))
+  IF faded_ > 0.0 THEN out = collections::append(out, parchmentPage(b.spine, b.y, b.x + b.w - b.spine, b.h, 0.0, faded_))
+  RETURN out
 END FUNC
 
 FUNC bestiaryDraw(s AS BestiaryState, f AS Fonts, w AS Float, h AS Float) AS List OF canvas::DrawItem
   LET t AS Float = s.t
   LET b AS Book = bookAt(w, h)
   LET all AS List OF Beast = beasts()
-  ' The desk: dark wood with a little grain, lit by a candle off to the right.
-  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(linear(0.0, 0.0, 0.0, h, [gstop(0.0, hex("#2a1a10")), gstop(1.0, hex("#140c08"))])))]
-  FOR i = 0 TO 30
-    LET gy AS Float = hash01(i + 1500) * h
-    out = collections::append(out, path([pt(0.0, gy), pt(w * 0.3, gy + hashRange(i + 1510, -8.0, 8.0)), pt(w * 0.7, gy + hashRange(i + 1520, -8.0, 8.0)), pt(w, gy)], canvas::stroke(rgba(255, 200, 150, 10), hashRange(i + 1530, 1.0, 3.0))))
-  NEXT
-  out = collections::append(out, glow(w * 0.95, h * 0.15, h * 0.9, rgba(255, 170, 80, 45)))
-  ' The book: its leather cover, then the two pages.
-  out = collections::append(out, rrect(b.x - 14.0, b.y - 10.0, b.w + 28.0, b.h + 22.0, 10.0, WITH gradP(linear(0.0, b.y, 0.0, b.y + b.h, [gstop(0.0, hex("#5a2414")), gstop(1.0, hex("#3a140a"))])) { stroke := hex("#1a0804"), strokeWidth := 2.0 }))
-  out = collections::append(out, parchmentPage(b.x, b.y, b.spine - b.x, b.h, 1.0))
-  out = collections::append(out, parchmentPage(b.spine, b.y, b.x + b.w - b.spine, b.h, 0.0))
-  out = collections::append(out, rect(b.spine - 1.0, b.y, 2.0, b.h, fillP(rgba(60, 30, 10, 120))))
+  ' The desk, lit by a candle off to the right, the book's cover and its two
+  ' blank pages.
+  MUT out AS List OF canvas::DrawItem = [node("book-desk", 0.0, 0.0), glow(w * 0.95, h * 0.15, h * 0.9, rgba(255, 170, 80, 45)), node("book-left", 0.0, 0.0), node("book-right", 0.0, 0.0), rect(b.spine - 1.0, b.y, 2.0, b.h, fillP(rgba(60, 30, 10, 120))), node("book-frame", 0.0, 0.0)]
 
   LET page AS Integer = s.page
   LET img AS SvgImage = collections::getOr(s.cache, page, emptySvg())
   IF s.turnFrom < 0 THEN
-    out = collections::append(out, leftPage(f, b, collections::get(all, page), img, s.sigil, page, t))
-    out = collections::append(out, rightPage(f, b, img, page, s.zoom, s.panX, s.panY, s.wire, t))
+    out = collections::append(out, leftPage(f, b, collections::get(all, page), img, page, t))
+    out = collections::append(out, rightPage(f, b, img, page, s.zoom, s.panX, s.panY, s.wire, TRUE, t))
   ELSE
-    ' Turning: the leaf swings about the spine. Its width is the cosine of
-    ' its angle, so the old page folds to nothing and the new one unfolds, and
-    ' a shading ramp darkens it as it stands on edge.
+    ' Turning: the leaf swings about the spine. It is installed as a group and
+    ' drawn by a node whose X scale is the cosine of its angle about the
+    ' spine, so the old page folds to nothing and the new one unfolds; its
+    ' printing fades under a sheet of parchment as it narrows, since glyphs
+    ' squeezed to a sliver would break up rather than shrink, and a shading
+    ' ramp darkens it as it stands on edge.
     LET old AS Integer = s.turnFrom
-    LET oldImg AS SvgImage = collections::getOr(s.cache, old, emptySvg())
     LET u AS Float = easeInOut(s.turn)
-    LET sx AS Float = math::abs(math::cos(u * math::pi))
-    LET squash AS canvas::Transform = canvas::Transform[a := math::max(sx, 0.001), b := 0.0, c := 0.0, d := 1.0, tx := b.spine * (1.0 - math::max(sx, 0.001)), ty := 0.0]
-    LET shade AS Float = 1.0 - sx
-    ' The leaf's printing fades as it narrows: glyphs are sampled point by
-    ' point, so text squeezed to a sliver would break up rather than shrink.
+    LET sx AS Float = math::max(math::abs(math::cos(u * math::pi)), 0.001)
     LET fold AS Float = clamp01((1.0 - sx) * 1.6)
-    IF s.turnDir > 0 THEN
-      ' Forward: the old right page folds over onto the left.
-      out = collections::append(out, leftPage(f, b, collections::get(all, old), oldImg, s.sigil, old, t))
-      out = collections::append(out, rightPage(f, b, img, page, 1.0, 0.0, 0.0, s.wire, t))
-      IF u < 0.5 THEN
-        out = collections::append(out, restyle(parchmentPage(b.spine, b.y, b.x + b.w - b.spine, b.h, 0.0), squash, 0.0))
-        out = collections::append(out, restyle(rightPage(f, b, oldImg, old, 1.0, 0.0, 0.0, s.wire, t), squash, fold))
-      ELSE
-        out = collections::append(out, restyle(parchmentPage(b.x, b.y, b.spine - b.x, b.h, 1.0), squash, 0.0))
-        out = collections::append(out, restyle(leftPage(f, b, collections::get(all, page), img, s.sigil, page, t), squash, fold))
-      END IF
-    ELSE
-      out = collections::append(out, leftPage(f, b, collections::get(all, page), img, s.sigil, page, t))
-      out = collections::append(out, rightPage(f, b, oldImg, old, 1.0, 0.0, 0.0, s.wire, t))
-      IF u < 0.5 THEN
-        out = collections::append(out, restyle(parchmentPage(b.x, b.y, b.spine - b.x, b.h, 1.0), squash, 0.0))
-        out = collections::append(out, restyle(leftPage(f, b, collections::get(all, old), oldImg, s.sigil, old, t), squash, fold))
-      ELSE
-        out = collections::append(out, restyle(parchmentPage(b.spine, b.y, b.x + b.w - b.spine, b.h, 0.0), squash, 0.0))
-        out = collections::append(out, restyle(rightPage(f, b, img, page, 1.0, 0.0, 0.0, s.wire, t), squash, fold))
-      END IF
+    ' Underneath: the pages the leaf uncovers - turning forward, the old
+    ' left-hand page and the new right-hand one; back, the reverse. On top:
+    ' the leaf - the page turning away until it stands on edge, then the page
+    ' arriving.
+    MUT left AS Integer = old
+    MUT right AS Integer = page
+    MUT leafPage AS Integer = old
+    MUT leafSide AS Integer = 1
+    IF s.turnDir < 0 THEN
+      left = page
+      right = old
+      leafSide = 0
     END IF
-    out = collections::append(out, rect(b.x, b.y, b.w, b.h, fillP(rgba(40, 20, 0, (math::round(60.0 * shade))))))
+    IF u >= 0.5 THEN
+      leafPage = page
+      leafSide = 1 - leafSide
+    END IF
+    out = collections::append(out, leftPage(f, b, collections::get(all, left), collections::getOr(s.cache, left, emptySvg()), left, t))
+    out = collections::append(out, rightPage(f, b, collections::getOr(s.cache, right, emptySvg()), right, 1.0, 0.0, 0.0, s.wire, right = page, t))
+    canvas::setGroup("book-leaf", leaf(f, b, s, leafPage, leafSide, fold))
+    out = collections::append(out, nodeT("book-leaf", b.spine, 0.0, canvas::Transform[a := sx, b := 0.0, c := 0.0, d := 1.0, tx := -b.spine * sx, ty := 0.0]))
+    out = collections::append(out, rect(b.x, b.y, b.w, b.h, fillP(rgba(40, 20, 0, math::round(60.0 * (1.0 - sx))))))
   END IF
 
-  ' The arrows to turn the pages.
-  FOR side = 0 TO 1
-    LET ab AS Box = arrowBox(b, side = 1)
-    MUT hv AS Float = s.hoverL
-    IF side = 1 THEN hv = s.hoverR
-    LET acx AS Float = ab.x + ab.w / 2.0
-    LET acy AS Float = ab.y + ab.h / 2.0
-    LET dir AS Float = toFloat(side * 2 - 1)
-    out = collections::append(out, circle(acx, acy, 18.0 + 2.0 * hv, WITH fillP(rgba(168, 122, 46, 30 + (math::round(60.0 * hv)))) { stroke := hex("#a87a2e"), strokeWidth := 1.4 }))
-    out = collections::append(out, path([pt(acx - dir * 4.0, acy - 8.0), pt(acx + dir * 5.0, acy), pt(acx - dir * 4.0, acy + 8.0)], WITH strokeP(rubric(), 2.6) { join := canvas::JoinStyle.Miter, cap := canvas::CapStyle.Square }))
-  NEXT
-  out = collections::append(out, motes(0.0, 0.0, w, h, 14, t, hex("#ffd8a0"), 1.2, 7))
-  RETURN collections::append(out, vignette(w, h, 170))
+  out = collections::append(out, motes(0.0, 0.0, w, h, 14, s.fx, hex("#ffd8a0"), 1.2, 7))
+  out = collections::append(out, vignette(w, h, 170))
+  ' On top: the creature's frame, which a drag starts in, and the two arrows -
+  ' each an AutoPaint whose fill and rim brighten under the mouse.
+  LET fb AS Box = frameBox(b)
+  out = collections::append(out, canvas::Rectangle[id := "creature", position := pt(fb.x, fb.y), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := fb.w, height := fb.h], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(clear()), transform := none()])
+  out = collections::append(out, arrowButton(b, FALSE))
+  RETURN collections::append(out, arrowButton(b, TRUE))
+END FUNC
+
+' An arrow button: a gold ring with a red chevron, which the mouse lights up.
+FUNC arrowButton(b AS Book, right AS Boolean) AS List OF canvas::DrawItem
+  LET c AS vector::Float2 = arrowAt(b, right)
+  MUT dir AS Float = -1.0
+  MUT id AS String = "page-prev"
+  IF right THEN
+    dir = 1.0
+    id = "page-next"
+  END IF
+  LET rest AS canvas::Paint = fillStrokeP(rgba(168, 122, 46, 30), hex("#a87a2e"), 1.4)
+  LET ring AS canvas::DrawItem = canvas::AutoPaint[shape := canvas::Circle[id := id, position := c, radius := 18.0, paint := rest, transform := none()], useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := TRUE, enterPaint := rest, exitPaint := rest, hoverPaint := fillStrokeP(rgba(168, 122, 46, 90), hex("#d8a64a"), 2.0), pressedPaint := fillStrokeP(rgba(168, 122, 46, 150), hex("#d8a64a"), 2.4)]
+  ' The chevron is drawn before the ring, so the ring is what the mouse finds,
+  ' and the ring's fill is translucent, so the chevron shows through it.
+  RETURN [pathAt(c.x, c.y, [pt(-dir * 4.0, -8.0), pt(dir * 5.0, 0.0), pt(-dir * 4.0, 8.0)], WITH strokeP(rubric(), 2.6) { join := canvas::JoinStyle.Miter, cap := canvas::CapStyle.Square }), ring]
 END FUNC

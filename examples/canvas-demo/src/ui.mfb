@@ -1,6 +1,12 @@
 ' ui - the fonts, the input snapshot, text layout, and the pieces of interface
 ' every screen shares: buttons, the intro panel shown before each scene, the
 ' hint line along the bottom, and the fade between screens.
+'
+' Nothing here tests the mouse against a rectangle. Whatever can be clicked
+' carries an id, and canvas::MouseEvent.overID - worked out by the canvas from
+' the very outlines it draws - says which one the mouse is over. A button's
+' hover and press are a canvas::AutoPaint, which the window repaints by itself
+' as the mouse comes and goes.
 
 IMPORT canvas
 IMPORT collections
@@ -26,12 +32,15 @@ TYPE Input
   h AS Float
   mx AS Float               ' where the mouse is
   my AS Float
+  over AS String            ' the id path of what the mouse is over (MouseEvent.overID)
+  clicked AS String         ' the id path the left button went down on this frame, or ""
   down AS Boolean           ' the left button is held
   pressed AS Boolean        ' the left button went down this frame
   released AS Boolean       ' the left button came up this frame
   rightDown AS Boolean
   rightPressed AS Boolean
   wheel AS Integer          ' wheel clicks this frame, positive away from the user
+  pdt AS Float              ' the step for a particle system's clock: seconds since the last frame, at most a tenth
   keys AS List OF String    ' keys pressed (or repeating) this frame
   held AS List OF String    ' keys held down now
 END TYPE
@@ -39,7 +48,7 @@ END TYPE
 ' The same input with every action removed: what a scene sees while the intro
 ' panel is in front of it, so it keeps animating without reacting.
 FUNC idleInput(inp AS Input) AS Input
-  RETURN WITH inp { down := FALSE, pressed := FALSE, released := FALSE, rightDown := FALSE, rightPressed := FALSE, wheel := 0, keys := [], held := [] }
+  RETURN WITH inp { over := "", clicked := "", down := FALSE, pressed := FALSE, released := FALSE, rightDown := FALSE, rightPressed := FALSE, wheel := 0, keys := [], held := [] }
 END FUNC
 
 FUNC keyPressed(inp AS Input, name AS String) AS Boolean
@@ -69,6 +78,20 @@ FUNC keyName(k AS io::Key) AS String
       RETURN strings::lower(k.grapheme)
     CASE ELSE : RETURN ""
   END MATCH
+END FUNC
+
+' The number at the end of an id such as "card-7" when the id starts with
+' `prefix`, or -1. An id path names the groups around an item first, so only
+' the part after the last "::" is looked at.
+FUNC idNumber(path AS String, prefix AS String) AS Integer
+  LET parts AS List OF String = strings::split(path, "::")
+  IF len(parts) = 0 THEN RETURN -1
+  LET last AS String = collections::get(parts, len(parts) - 1)
+  IF NOT strings::startsWith(last, prefix) THEN RETURN -1
+  LET n AS Integer = toInt(strings::stripPrefix(last, prefix)) TRAP(e)
+    RECOVER -1
+  END TRAP
+  RETURN n
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -135,6 +158,10 @@ TYPE Tracked
   width AS Float
 END TYPE
 
+FUNC noTracked AS Tracked
+  RETURN Tracked[glyphs := [], xs := [], width := 0.0]
+END FUNC
+
 FUNC layoutTracked(font AS canvas::Font, size AS Float, text AS String, track AS Float) AS Tracked
   MUT glyphs AS List OF String = []
   MUT xs AS List OF Float = []
@@ -164,94 +191,61 @@ END FUNC
 
 ' A soft halo behind a line of text: the text again, nudged a pixel or two in
 ' eight directions and added on at low strength.
-FUNC glowText(font AS canvas::Font, size AS Float, text AS String, x AS Float, baseline AS Float, c AS color::Color, radius AS Float) AS List OF canvas::DrawItem
+FUNC glowText(font AS canvas::Font, size AS Float, text AS String, x AS Float, baseline AS Float, c AS color::Color, radius AS Float, opacity AS Float) AS List OF canvas::DrawItem
   MUT out AS List OF canvas::DrawItem = []
   FOR i = 0 TO 7
     LET a AS Float = toFloat(i) * TAU / 8.0
-    out = collections::append(out, labelP(font, size, text, x + math::cos(a) * radius, baseline + math::sin(a) * radius, glowP(fade(c, 0.16))))
+    out = collections::append(out, labelP(font, size, text, x + math::cos(a) * radius, baseline + math::sin(a) * radius, glowP(fade(c, 0.16 * opacity))))
   NEXT
   RETURN out
-END FUNC
-
-' ---------------------------------------------------------------------------
-' Restyling a finished picture
-' ---------------------------------------------------------------------------
-
-' The all-zero transform means "identity"; spell it out so it can be composed.
-FUNC concrete(t AS canvas::Transform) AS canvas::Transform
-  IF t.a = 0.0 AND t.b = 0.0 AND t.c = 0.0 AND t.d = 0.0 AND t.tx = 0.0 AND t.ty = 0.0 THEN RETURN canvas::Transform[a := 1.0, b := 0.0, c := 0.0, d := 1.0, tx := 0.0, ty := 0.0]
-  RETURN t
-END FUNC
-
-' outer after inner: a point goes through `inner` first.
-FUNC compose(outer AS canvas::Transform, inner AS canvas::Transform) AS canvas::Transform
-  LET o AS canvas::Transform = concrete(outer)
-  LET i AS canvas::Transform = concrete(inner)
-  RETURN canvas::Transform[a := o.a * i.a + o.c * i.b, b := o.b * i.a + o.d * i.b, c := o.a * i.c + o.c * i.d, d := o.b * i.c + o.d * i.d, tx := o.a * i.tx + o.c * i.ty + o.tx, ty := o.b * i.tx + o.d * i.ty + o.ty]
-END FUNC
-
-FUNC restylePaint(p AS canvas::Paint, fadeBy AS Float) AS canvas::Paint
-  RETURN WITH p { transparency := 1.0 - (1.0 - clamp01(p.transparency)) * (1.0 - clamp01(fadeBy)) }
-END FUNC
-
-' The same picture moved by `t` and faded by `fadeBy` (0 leaves it, 1 hides it)
-' - how the intro panel grows into place without being built twice. Every kind
-' of item carries its own paint, so this is one MATCH over the union.
-FUNC restyle(items AS List OF canvas::DrawItem, t AS canvas::Transform, fadeBy AS Float) AS List OF canvas::DrawItem
-  RETURN collections::transform(items, LAMBDA(d AS canvas::DrawItem) -> restyleItem(d, t, fadeBy))
-END FUNC
-
-FUNC restyleItem(d AS canvas::DrawItem, t AS canvas::Transform, fadeBy AS Float) AS canvas::DrawItem
-  MATCH d
-    CASE canvas::Rectangle(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
-    CASE canvas::Line(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
-    CASE canvas::Polygon(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
-    CASE canvas::Circle(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
-    CASE canvas::Arc(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
-    CASE canvas::Text(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
-    CASE canvas::Ellipse(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := pivoted(compose(t, v.transform), t, v.position) }
-    ' A group, a picture and an AutoPaint carry no paint of their own to restyle -- it
-    ' is their items' or their shape's -- and no panel this is used on holds one.
-    CASE canvas::Group(v) : RETURN v
-    CASE canvas::Picture(v) : RETURN v
-    CASE canvas::AutoPaint(v) : RETURN v
-    CASE canvas::ParticleSystem(v) : RETURN v
-    CASE canvas::Tile(v) : RETURN v
-    CASE canvas::PolyLine(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
-    CASE canvas::PolyCurve(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
-    CASE canvas::CurvePolygon(v) : RETURN WITH v { paint := restylePaint(v.paint, fadeBy), transform := compose(t, v.transform) }
-  END MATCH
 END FUNC
 
 ' ---------------------------------------------------------------------------
 ' Buttons
 ' ---------------------------------------------------------------------------
 
-FUNC inside(px AS Float, py AS Float, x AS Float, y AS Float, w AS Float, h AS Float) AS Boolean
-  RETURN px >= x AND px <= x + w AND py >= y AND py <= y + h
+' What makes a button react: a rounded rectangle laid over the button's face
+' and its label, invisible until the mouse is on it. It is an AutoPaint, so the
+' window swaps its paint for `hover` while the mouse rests on it and for
+' `press` while the button is held on it, with none of this program's code
+' running. It is drawn last because only the topmost item under the mouse
+' reacts - a label on top of it would take the mouse away from it - and its
+' id is what canvas::MouseEvent.overID reports for a click on the button.
+FUNC hotspot(id AS String, x AS Float, y AS Float, w AS Float, h AS Float, r AS Float, hover AS canvas::Paint, press AS canvas::Paint) AS canvas::DrawItem
+  LET rest AS canvas::Paint = canvas::fill(clear())
+  RETURN canvas::AutoPaint[shape := canvas::Rectangle[id := id, position := pt(x, y), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := w, height := h], radiusTL := r, radiusTR := r, radiusBL := r, radiusBR := r, paint := rest, transform := none()], useEnter := FALSE, useExit := FALSE, useHover := TRUE, usePressed := TRUE, enterPaint := rest, exitPaint := rest, hoverPaint := hover, pressedPaint := press]
 END FUNC
 
-' A pill button: outlined at rest, filled gold as `hover` goes to 1.
+' The paints a gold-rimmed control lights up with: a warm wash screened over
+' the face and its label, and a brighter rim; pressed, the face darkens.
+FUNC hoverWash(rim AS Float) AS canvas::Paint
+  RETURN WITH canvas::fill(rgba(255, 236, 190, 16)) { blend := canvas::BlendMode.Screen, stroke := alpha(gold(), 0.95), strokeWidth := rim }
+END FUNC
+
+FUNC pressWash(rim AS Float) AS canvas::Paint
+  RETURN WITH canvas::fill(rgba(150, 120, 80, 255)) { blend := canvas::BlendMode.Multiply, stroke := gold(), strokeWidth := rim }
+END FUNC
+
 ' The label for a button of height h, laid out.
 FUNC buttonLabel(f AS Fonts, text AS String, h AS Float) AS Tracked
   RETURN layoutTracked(f.bold, h * 0.42, strings::upper(text), h * 0.42 * 0.18)
 END FUNC
 
-FUNC button(f AS Fonts, text AS Tracked, x AS Float, y AS Float, w AS Float, h AS Float, hover AS Float, primary AS Boolean) AS List OF canvas::DrawItem
+' A pill button: a face, its label, and the hotspot that lights them up.
+' `primary` is the solid gold one; the others are outlined.
+FUNC button(f AS Fonts, id AS String, text AS Tracked, x AS Float, y AS Float, w AS Float, h AS Float, primary AS Boolean, opacity AS Float) AS List OF canvas::DrawItem
   LET size AS Float = h * 0.42
-  MUT fillTop AS color::Color = mixC(rgba(232, 199, 122, 30), rgba(232, 199, 122, 70), hover)
-  MUT fillBottom AS color::Color = mixC(rgba(232, 199, 122, 10), rgba(232, 199, 122, 40), hover)
-  MUT ink AS color::Color = mixC(gold(), parchment(), hover)
+  MUT fillTop AS color::Color = rgba(232, 199, 122, 30)
+  MUT fillBottom AS color::Color = rgba(232, 199, 122, 10)
+  MUT ink AS color::Color = gold()
   IF primary THEN
-    fillTop = mixC(hex("#f2d792"), hex("#fff0c4"), hover)
-    fillBottom = mixC(hex("#c99a4a"), hex("#e2b45e"), hover)
+    fillTop = hex("#f2d792")
+    fillBottom = hex("#c99a4a")
     ink = hex("#1c1408")
   END IF
-  MUT out AS List OF canvas::DrawItem = []
-  IF hover > 0.01 THEN out = collections::append(out, glow(x + w / 2.0, y + h / 2.0, w * 0.75, alpha(gold(), 0.18 * hover)))
-  out = collections::append(out, rrect(x, y, w, h, h / 2.0, WITH gradP(linear(x, y, x, y + h, [gstop(0.0, fillTop), gstop(1.0, fillBottom)])) { stroke := alpha(gold(), 0.55 + 0.45 * hover), strokeWidth := 1.2 }))
-  out = collections::append(out, drawTrackedCentered(f.bold, size, text, x + w / 2.0, y + h / 2.0 + size * 0.36, fillP(ink)))
-  RETURN out
+  MUT out AS List OF canvas::DrawItem = [rrect(x, y, w, h, h / 2.0, faded(WITH gradP(downward(h, [gstop(0.0, fillTop), gstop(1.0, fillBottom)])) { stroke := alpha(gold(), 0.55), strokeWidth := 1.2 }, opacity))]
+  out = collections::append(out, drawTrackedCentered(f.bold, size, text, x + w / 2.0, y + h / 2.0 + size * 0.36, faded(fillP(ink), opacity)))
+  RETURN collections::append(out, hotspot(id, x, y, w, h, h / 2.0, hoverWash(1.6), pressWash(1.6)))
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -262,11 +256,14 @@ END FUNC
 FUNC divider(cx AS Float, y AS Float, halfW AS Float, a AS Float) AS List OF canvas::DrawItem
   LET c AS color::Color = gold()
   LET d AS Float = 4.5
-  RETURN [
-    rect(cx - halfW, y - 0.6, halfW - d * 2.0, 1.2, gradP(linear(cx - halfW, 0.0, cx - d * 2.0, 0.0, [gstop(0.0, fade(c, 0.0)), gstop(1.0, fade(c, 0.7 * a))]))),
-    rect(cx + d * 2.0, y - 0.6, halfW - d * 2.0, 1.2, gradP(linear(cx + d * 2.0, 0.0, cx + halfW, 0.0, [gstop(0.0, fade(c, 0.7 * a)), gstop(1.0, fade(c, 0.0))]))),
-    polyAt(cx, y, [pt(0.0, -d), pt(d, 0.0), pt(0.0, d), pt(-d, 0.0)], fillP(fade(c, a)))
-  ]
+  LET arm AS Float = halfW - d * 2.0
+  MUT out AS List OF canvas::DrawItem = [rect(cx - halfW, y - 0.6, arm, 1.2, gradP(linear(0.0, 0.0, arm, 0.0, [gstop(0.0, fade(c, 0.0)), gstop(1.0, fade(c, 0.7 * a))])))]
+  out = collections::append(out, rect(cx + d * 2.0, y - 0.6, arm, 1.2, gradP(linear(0.0, 0.0, arm, 0.0, [gstop(0.0, fade(c, 0.7 * a)), gstop(1.0, fade(c, 0.0))]))))
+  RETURN collections::append(out, diamond(cx, y, d, fade(c, a)))
+END FUNC
+
+FUNC diamond(x AS Float, y AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
+  RETURN polyAt(x, y, [pt(0.0, -r), pt(r, 0.0), pt(0.0, r), pt(-r, 0.0)], fillP(c))
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -370,98 +367,110 @@ FUNC panelLayout(text AS PanelText, w AS Float, h AS Float) AS PanelLayout
   RETURN PanelLayout[x := px, y := py, w := pw, h := ph, bx := px + (pw - bw) / 2.0, by := py + ph - PANEL_PAD * k - bh, bw := bw, bh := bh]
 END FUNC
 
-FUNC overBegin(lay AS PanelLayout, mx AS Float, my AS Float) AS Boolean
-  RETURN inside(mx, my, lay.bx, lay.by, lay.bw, lay.bh)
-END FUNC
-
 FUNC bullet(x AS Float, y AS Float, r AS Float, c AS color::Color) AS canvas::DrawItem
-  RETURN polyAt(x, y, [pt(0.0, -r), pt(r, 0.0), pt(0.0, r), pt(-r, 0.0)], fillP(c))
+  RETURN diamond(x, y, r, c)
 END FUNC
 
-' The panel itself, at full size and opacity; drawIntro animates it in.
-FUNC introPanel(f AS Fonts, info AS DemoInfo, text AS PanelText, lay AS PanelLayout, hover AS Float, t AS Float) AS List OF canvas::DrawItem
-  LET k AS Float = text.k
+' The panel's frame and title block, `a` as opaque as it will be.
+FUNC panelFrame(f AS Fonts, info AS DemoInfo, lay AS PanelLayout, k AS Float, a AS Float) AS List OF canvas::DrawItem
   LET x AS Float = lay.x
   LET y AS Float = lay.y
   LET pw AS Float = lay.w
   LET cx AS Float = x + pw / 2.0
-  LET left AS Float = x + PANEL_PAD * k
-  MUT out AS List OF canvas::DrawItem = []
   ' Shadow, body and a double gold border.
-  out = collections::append(out, rrect(x - 6.0, y + 10.0, pw + 12.0, lay.h + 8.0, 20.0, fillP(rgba(0, 0, 0, 110))))
-  out = collections::append(out, rrect(x, y, pw, lay.h, 16.0, WITH gradP(linear(x, y, x, y + lay.h, [gstop(0.0, panelTop()), gstop(1.0, panelBottom())])) { stroke := alpha(gold(), 0.7), strokeWidth := 1.4 }))
-  out = collections::append(out, rrect(x + 7.0, y + 7.0, pw - 14.0, lay.h - 14.0, 11.0, canvas::stroke(alpha(gold(), 0.22), 1.0)))
-  ' A sheen across the top edge, drifting slowly.
-  LET sheenX AS Float = x + pw * fract(t * 0.07)
-  out = collections::append(out, rrect(x, y, pw, 3.0, 1.5, WITH glowP(color::white) { gradient := linear(sheenX - 140.0, 0.0, sheenX + 140.0, 0.0, [gstop(0.0, rgba(255, 230, 170, 0)), gstop(0.5, rgba(255, 230, 170, 120)), gstop(1.0, rgba(255, 230, 170, 0))]) }))
+  MUT out AS List OF canvas::DrawItem = [rrect(x - 6.0, y + 10.0, pw + 12.0, lay.h + 8.0, 20.0, faded(fillP(rgba(0, 0, 0, 110)), a))]
+  out = collections::append(out, rrect(x, y, pw, lay.h, 16.0, faded(WITH gradP(downward(lay.h, [gstop(0.0, panelTop()), gstop(1.0, panelBottom())])) { stroke := alpha(gold(), 0.7), strokeWidth := 1.4 }, a)))
+  out = collections::append(out, rrect(x + 7.0, y + 7.0, pw - 14.0, lay.h - 14.0, 11.0, faded(canvas::stroke(alpha(gold(), 0.22), 1.0), a)))
   ' The medallion with the scene's numeral.
-  MUT yy AS Float = y + (PANEL_PAD + 20.0) * k
+  LET yy AS Float = y + (PANEL_PAD + 20.0) * k
   LET mr AS Float = 22.0 * k
-  out = collections::append(out, circle(cx, yy, mr, WITH gradP(focal(cx, yy, mr, -mr * 0.27, -mr * 0.36, [gstop(0.0, hex("#3a4e6a")), gstop(1.0, hex("#101a28"))])) { stroke := gold(), strokeWidth := 1.5 }))
-  out = collections::append(out, centered(f.heading, 17.0 * k, info.numeral, cx, yy + 6.0 * k, fillP(gold())))
-  yy = yy + (32.0 + PANEL_TITLE) * k
+  out = collections::append(out, circle(cx, yy, mr, faded(WITH gradP(focal(0.0, 0.0, mr, -mr * 0.27, -mr * 0.36, [gstop(0.0, hex("#3a4e6a")), gstop(1.0, hex("#101a28"))])) { stroke := gold(), strokeWidth := 1.5 }, a)))
+  out = collections::append(out, centered(f.heading, 17.0 * k, info.numeral, cx, yy + 6.0 * k, faded(fillP(gold()), a)))
+  LET ty AS Float = yy + (32.0 + PANEL_TITLE) * k
   LET ts AS Float = PANEL_TITLE * k
-  out = collections::append(out, glowText(f.heading, ts, info.title, cx - textWidth(f.heading, ts, info.title) / 2.0, yy, gold(), 1.6))
-  out = collections::append(out, centered(f.heading, ts, info.title, cx, yy, fillP(parchment())))
-  yy = yy + 14.0 * k
+  out = collections::append(out, glowText(f.heading, ts, info.title, cx - textWidth(f.heading, ts, info.title) / 2.0, ty, gold(), 1.6, a))
+  RETURN collections::append(out, centered(f.heading, ts, info.title, cx, ty, faded(fillP(parchment()), a)))
+END FUNC
+
+' One block of bulleted lines; returns the items, and where the next block starts in `after`.
+FUNC bulletBlock(font AS canvas::Font, size AS Float, block AS List OF String, left AS Float, y AS Float, lineH AS Float, k AS Float, ink AS color::Color, dot AS color::Color, a AS Float) AS List OF canvas::DrawItem
+  MUT out AS List OF canvas::DrawItem = []
+  FOR i = 0 TO len(block) - 1
+    LET ly AS Float = y + toFloat(i + 1) * lineH * k
+    IF i = 0 THEN out = collections::append(out, bullet(left + 4.0 * k, ly - 5.0 * k, 3.5 * k, fade(dot, a)))
+    out = collections::append(out, labelP(font, size, collections::get(block, i), left + 20.0 * k, ly, faded(fillP(ink), a)))
+  NEXT
+  RETURN out
+END FUNC
+
+' The panel itself at full size, `a` as opaque as it will be.
+FUNC introPanel(f AS Fonts, info AS DemoInfo, text AS PanelText, lay AS PanelLayout, a AS Float) AS List OF canvas::DrawItem
+  LET k AS Float = text.k
+  LET pw AS Float = lay.w
+  LET cx AS Float = lay.x + pw / 2.0
+  LET left AS Float = lay.x + PANEL_PAD * k
+  MUT out AS List OF canvas::DrawItem = panelFrame(f, info, lay, k, a)
+  MUT yy AS Float = lay.y + (PANEL_PAD + 20.0 + 32.0 + PANEL_TITLE + 14.0) * k
   FOR EACH l IN text.flavor
     yy = yy + 22.0 * k
-    out = collections::append(out, centered(f.italic, PANEL_FLAVOR * k, l, cx, yy, fillP(muted())))
+    out = collections::append(out, centered(f.italic, PANEL_FLAVOR * k, l, cx, yy, faded(fillP(muted()), a)))
   NEXT
   yy = yy + 20.0 * k
-  out = collections::append(out, divider(cx, yy, pw * 0.36, 1.0))
-  yy = yy + 6.0 * k
+  out = collections::append(out, divider(cx, yy, pw * 0.36, a))
   ' What the scene shows of the canvas.
-  yy = yy + 22.0 * k
-  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL * k, text.onCanvas, left, yy, fillP(gold())))
+  yy = yy + 28.0 * k
+  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL * k, text.onCanvas, left, yy, faded(fillP(gold()), a)))
   yy = yy + 6.0 * k
   FOR EACH block IN text.primary
-    FOR i = 0 TO len(block) - 1
-      yy = yy + 21.0 * k
-      IF i = 0 THEN out = collections::append(out, bullet(left + 4.0 * k, yy - 5.0 * k, 3.5 * k, gold()))
-      out = collections::append(out, label(f.body, PANEL_PRIMARY * k, collections::get(block, i), left + 20.0 * k, yy, parchment()))
-    NEXT
-    yy = yy + 6.0 * k
+    out = collections::append(out, bulletBlock(f.body, PANEL_PRIMARY * k, block, left, yy, 21.0, k, parchment(), gold(), a))
+    yy = yy + (toFloat(len(block)) * 21.0 + 6.0) * k
   NEXT
   ' And what it shows of the language.
   yy = yy + 22.0 * k
-  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL * k, text.inLanguage, left, yy, fillP(alpha(muted(), 0.9))))
+  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL * k, text.inLanguage, left, yy, faded(fillP(alpha(muted(), 0.9)), a)))
   yy = yy + 4.0 * k
   FOR EACH block IN text.secondary
-    FOR i = 0 TO len(block) - 1
-      yy = yy + 19.0 * k
-      IF i = 0 THEN out = collections::append(out, bullet(left + 4.0 * k, yy - 4.5 * k, 3.5 * k, alpha(muted(), 0.8)))
-      out = collections::append(out, label(f.body, PANEL_SECONDARY * k, collections::get(block, i), left + 20.0 * k, yy, muted()))
-    NEXT
-    yy = yy + 4.0 * k
+    out = collections::append(out, bulletBlock(f.body, PANEL_SECONDARY * k, block, left, yy, 19.0, k, muted(), alpha(muted(), 0.8), a))
+    yy = yy + (toFloat(len(block)) * 19.0 + 4.0) * k
   NEXT
   ' Controls.
   yy = yy + 18.0 * k
   LET boxH AS Float = (math::max(toFloat(len(text.controls)) * 19.0, 19.0) + 14.0) * k
-  out = collections::append(out, rrect(left - 8.0 * k, yy - 4.0 * k, pw - PANEL_PAD * k * 2.0 + 16.0 * k, boxH, 8.0 * k, WITH fillP(rgba(255, 255, 255, 10)) { stroke := rgba(255, 255, 255, 22), strokeWidth := 1.0 }))
-  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL * k, text.controlsLabel, left + 4.0 * k, yy + 15.0 * k, fillP(gold())))
+  out = collections::append(out, rrect(left - 8.0 * k, yy - 4.0 * k, pw - PANEL_PAD * k * 2.0 + 16.0 * k, boxH, 8.0 * k, faded(WITH fillP(rgba(255, 255, 255, 10)) { stroke := rgba(255, 255, 255, 22), strokeWidth := 1.0 }, a)))
+  out = collections::append(out, drawTracked(f.bold, PANEL_LABEL * k, text.controlsLabel, left + 4.0 * k, yy + 15.0 * k, faded(fillP(gold()), a)))
   FOR i = 0 TO len(text.controls) - 1
-    out = collections::append(out, label(f.body, PANEL_SECONDARY * k, collections::get(text.controls, i), left + 108.0 * k, yy + (15.0 + toFloat(i) * 19.0) * k, parchment()))
+    out = collections::append(out, labelP(f.body, PANEL_SECONDARY * k, collections::get(text.controls, i), left + 108.0 * k, yy + (15.0 + toFloat(i) * 19.0) * k, faded(fillP(parchment()), a)))
   NEXT
   ' Begin.
-  out = collections::append(out, button(f, text.begin, lay.bx, lay.by, lay.bw, lay.bh, hover, TRUE))
-  out = collections::append(out, centered(f.body, 11.5 * k, "Enter  ·  Space  ·  Click", cx, lay.by + lay.bh + 18.0 * k, fillP(alpha(muted(), 0.6))))
+  out = collections::append(out, button(f, "begin", text.begin, lay.bx, lay.by, lay.bw, lay.bh, TRUE, a))
+  RETURN collections::append(out, centered(f.body, 11.5 * k, "Enter  ·  Space  ·  Click", cx, lay.by + lay.bh + 18.0 * k, faded(fillP(alpha(muted(), 0.6)), a)))
+END FUNC
+
+' The panel animated in (or out): `open` runs 0 -> 1 as it appears. It is
+' installed as a group whose node grows it from 94% about its middle and
+' lifts it into place while it fades in; once open, the node draws it at
+' exactly its own size. The sheen along its top edge drifts every frame, so it
+' is drawn outside the group rather than re-installing the panel for it.
+FUNC drawIntro(f AS Fonts, info AS DemoInfo, text AS PanelText, lay AS PanelLayout, w AS Float, h AS Float, open AS Float, t AS Float) AS List OF canvas::DrawItem
+  LET a AS Float = easeOutCubic(open)
+  canvas::setGroup("intro-panel", introPanel(f, info, text, lay, a))
+  LET cx AS Float = lay.x + lay.w / 2.0
+  LET cy AS Float = lay.y + lay.h / 2.0
+  MUT s AS Float = 1.0
+  IF open < 1.0 THEN s = 0.94 + 0.06 * easeOutBack(open)
+  LET rise AS Float = (1.0 - a) * 24.0
+  ' The node sits at the panel's middle; the group's origin is the window's,
+  ' so the scale is taken about the middle and then moved back out to it.
+  LET tr AS canvas::Transform = canvas::Transform[a := s, b := 0.0, c := 0.0, d := s, tx := -cx * s, ty := -cy * s]
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, fillP(rgba(4, 7, 12, math::round(150.0 * a)))), nodeT("intro-panel", cx, cy + rise, tr)]
+  IF open >= 1.0 THEN out = collections::append(out, sheen(lay, t))
   RETURN out
 END FUNC
 
-' The panel animated in (or out): `open` runs 0 -> 1 as it appears. It rises
-' and grows from 94% while it fades in, all by restyling the finished items;
-' once it is open it is drawn at exactly its own size.
-FUNC drawIntro(f AS Fonts, info AS DemoInfo, text AS PanelText, lay AS PanelLayout, w AS Float, h AS Float, open AS Float, hover AS Float, t AS Float) AS List OF canvas::DrawItem
-  LET a AS Float = easeOutCubic(open)
-  LET dim AS canvas::DrawItem = rect(0.0, 0.0, w, h, fillP(rgba(4, 7, 12, math::round(150.0 * a))))
-  LET panel AS List OF canvas::DrawItem = introPanel(f, info, text, lay, hover, t)
-  IF open >= 1.0 THEN RETURN collections::append([dim], panel)
-  LET s AS Float = 0.94 + 0.06 * easeOutBack(open)
-  LET cx AS Float = lay.x + lay.w / 2.0
-  LET cy AS Float = lay.y + lay.h / 2.0
-  LET tr AS canvas::Transform = canvas::Transform[a := s, b := 0.0, c := 0.0, d := s, tx := cx - cx * s, ty := cy - cy * s + (1.0 - a) * 24.0]
-  RETURN collections::append([dim], restyle(panel, tr, 1.0 - a))
+' A highlight running along the panel's top edge, drifting slowly.
+FUNC sheen(lay AS PanelLayout, t AS Float) AS canvas::DrawItem
+  LET sx AS Float = lay.w * fract(t * 0.07)
+  RETURN rrect(lay.x, lay.y, lay.w, 3.0, 1.5, WITH glowP(color::white) { gradient := linear(sx - 140.0, 0.0, sx + 140.0, 0.0, [gstop(0.0, rgba(255, 230, 170, 0)), gstop(0.5, rgba(255, 230, 170, 120)), gstop(1.0, rgba(255, 230, 170, 0))]) })
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -477,12 +486,10 @@ FUNC sceneChrome(f AS Fonts, info AS DemoInfo, w AS Float, h AS Float, visible A
   LET hw AS Float = textWidth(f.body, 13.0, hint)
   LET title AS String = info.numeral & "  ·  " & info.title
   LET tw AS Float = textWidth(f.heading, 15.0, title)
-  RETURN [
-    rrect(16.0, 14.0, tw + 30.0, 32.0, 16.0, WITH fillP(rgba(8, 12, 20, toInt(150.0 * visible))) { stroke := alpha(gold(), 0.35 * visible), strokeWidth := 1.0 }),
-    label(f.heading, 15.0, title, 31.0, 35.5, alpha(parchment(), visible)),
-    rrect((w - hw) / 2.0 - 18.0, h - 44.0, hw + 36.0, 28.0, 14.0, fillP(rgba(8, 12, 20, toInt(140.0 * visible)))),
-    label(f.body, 13.0, hint, (w - hw) / 2.0, h - 25.5, alpha(muted(), visible))
-  ]
+  MUT out AS List OF canvas::DrawItem = [rrect(16.0, 14.0, tw + 30.0, 32.0, 16.0, WITH fillP(rgba(8, 12, 20, toInt(150.0 * visible))) { stroke := alpha(gold(), 0.35 * visible), strokeWidth := 1.0 })]
+  out = collections::append(out, label(f.heading, 15.0, title, 31.0, 35.5, alpha(parchment(), visible)))
+  out = collections::append(out, rrect((w - hw) / 2.0 - 18.0, h - 44.0, hw + 36.0, 28.0, 14.0, fillP(rgba(8, 12, 20, toInt(140.0 * visible)))))
+  RETURN collections::append(out, label(f.body, 13.0, hint, (w - hw) / 2.0, h - 25.5, alpha(muted(), visible)))
 END FUNC
 
 FUNC blackout(w AS Float, h AS Float, amount AS Float) AS List OF canvas::DrawItem

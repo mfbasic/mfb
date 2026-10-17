@@ -8,10 +8,14 @@
 '
 ' The spirit world is a second picture of the same wood, every item of it
 ' clipped by Paint.clip to the lantern's circle, so it is only ever seen
-' through the light - text included. The darkness is one rectangle over
-' everything with a radial gradient whose clear centre follows the lantern.
-' The lantern itself swings on its handle like a pendulum, driven by how the
-' mouse moves.
+' through the light - text included. A clip is in its item's own coordinates,
+' so each item is given the circle as seen from where it stands. The darkness
+' is one rectangle over everything with a radial gradient whose clear centre
+' follows the light. The lantern is built once, around the top of its handle,
+' and swings there like a pendulum on its node's transform, driven by how the
+' mouse moves. A spirit can be clicked only where the light is on it: its
+' hotspot is clipped to the light too, and a clip cuts an item for the mouse
+' as it does for the eye.
 
 IMPORT canvas
 IMPORT vector
@@ -37,6 +41,7 @@ TYPE LanternState
   radius AS Float
   spirits AS List OF Spirit
   done AS Float        ' seconds since the last spirit was freed, or -1
+  h AS Float           ' the window height the lantern was installed for
 END TYPE
 
 FUNC lanternNew AS LanternState
@@ -49,12 +54,13 @@ FUNC lanternNew AS LanternState
     LET a AS Float = toFloat(i) / 7.0 * TAU
     spirits = collections::append(spirits, Spirit[x := h.x, y := h.y, freed := -1.0, starX := 0.5 + math::cos(a) * 0.14, starY := 0.2 + math::sin(a) * 0.1])
   NEXT
-  RETURN LanternState[t := 0.0, lx := -1.0, ly := -1.0, vx := 0.0, swing := 0.0, swingV := 0.0, radius := 0.0, spirits := spirits, done := -1.0]
+  RETURN LanternState[t := 0.0, lx := -1.0, ly := -1.0, vx := 0.0, swing := 0.0, swingV := 0.0, radius := 0.0, spirits := spirits, done := -1.0, h := 0.0]
 END FUNC
 
 FUNC lanternStep(s AS LanternState, inp AS Input, dt AS Float) AS LanternState
   LET w AS Float = inp.w
   LET h AS Float = inp.h
+  IF s.h <> h THEN installLantern(h * 0.05)
   MUT tx AS Float = inp.mx
   MUT ty AS Float = inp.my
   IF tx < 0.0 THEN
@@ -78,22 +84,18 @@ FUNC lanternStep(s AS LanternState, inp AS Input, dt AS Float) AS LanternState
   MUT radius AS Float = s.radius
   IF radius <= 0.0 THEN radius = h * 0.2
   radius = clampF(radius + toFloat(inp.wheel) * h * 0.015, h * 0.1, h * 0.38)
-  ' Clicking a spirit inside the light frees it.
+  ' Clicking a spirit frees it. Its hotspot is clipped to the light's circle,
+  ' so the canvas only reports one the light is on.
+  LET clickedOn AS Integer = idNumber(inp.clicked, "spirit-")
   MUT spirits AS List OF Spirit = []
-  MUT freedNow AS Boolean = FALSE
-  FOR EACH sp IN s.spirits
-    IF sp.freed < 0.0 THEN
-      LET sx AS Float = sp.x * w
-      LET sy AS Float = sp.y * h
-      LET lit AS Boolean = dist(sx, sy, nx, ny) < radius * 0.9
-      IF inp.pressed AND lit AND dist(sx, sy, inp.mx, inp.my) < h * 0.06 THEN
-        spirits = collections::append(spirits, WITH sp { freed := 0.0 })
-        freedNow = TRUE
-      ELSE
-        spirits = collections::append(spirits, sp)
-      END IF
-    ELSE
+  FOR i = 0 TO len(s.spirits) - 1
+    LET sp AS Spirit = collections::get(s.spirits, i)
+    IF sp.freed >= 0.0 THEN
       spirits = collections::append(spirits, WITH sp { freed := sp.freed + dt })
+    ELSEIF i = clickedOn THEN
+      spirits = collections::append(spirits, WITH sp { freed := 0.0 })
+    ELSE
+      spirits = collections::append(spirits, sp)
     END IF
   NEXT
   MUT done AS Float = s.done
@@ -104,37 +106,147 @@ FUNC lanternStep(s AS LanternState, inp AS Input, dt AS Float) AS LanternState
     spirits = collections::transform(spirits, LAMBDA(sp AS Spirit) -> WITH sp { freed := -1.0 })
     done = -1.0
   END IF
-  RETURN LanternState[t := s.t + dt, lx := nx, ly := ny, vx := vx, swing := swing, swingV := swingV, radius := radius, spirits := spirits, done := done]
+  RETURN LanternState[t := s.t + dt, lx := nx, ly := ny, vx := vx, swing := swing, swingV := swingV, radius := radius, spirits := spirits, done := done, h := h]
 END FUNC
 
 ' ---------------------------------------------------------------------------
 ' Drawing
 ' ---------------------------------------------------------------------------
 
+' Where the light is: its centre and radius, and its circle as points about
+' its centre, made once a frame for the clips that need it.
+TYPE Light
+  x AS Float
+  y AS Float
+  r AS Float
+  ring AS List OF vector::Float2
+END TYPE
+
+FUNC lightAt(x AS Float, y AS Float, r AS Float) AS Light
+  RETURN Light[x := x, y := y, r := r, ring := ovalRing(0.0, 0.0, r, r)]
+END FUNC
+
+' Whether anything within `reach` of (x, y) is in the light at all. What is
+' wholly in the dark is not drawn.
+FUNC inLight(l AS Light, x AS Float, y AS Float, reach AS Float) AS Boolean
+  RETURN dist(l.x, l.y, x, y) < l.r + reach
+END FUNC
+
+' A paint seen only through the light, for an item positioned at (x, y),
+' turned by `angle`, reaching no further than `reach` from there. Only an item
+' across the light's edge is clipped - one wholly inside it needs no clip - and
+' its clip is the light's circle in the item's own coordinates: seen from where
+' the item stands, and turned back by the item's turn.
+FUNC seenAt(p AS canvas::Paint, l AS Light, x AS Float, y AS Float, angle AS Float, reach AS Float) AS canvas::Paint
+  IF dist(l.x, l.y, x, y) + reach <= l.r THEN RETURN p
+  LET dx AS Float = l.x - x
+  LET dy AS Float = l.y - y
+  LET co AS Float = math::cos(angle)
+  LET si AS Float = math::sin(angle)
+  RETURN WITH p { clip := [ringFrom(l.ring, -(dx * co + dy * si), -(dy * co - dx * si))] }
+END FUNC
+
 ' A moth-spirit: two pairs of glowing wings and a bright body, fluttering.
-FUNC moth(x AS Float, y AS Float, s AS Float, t AS Float, p AS canvas::Paint, c AS color::Color) AS List OF canvas::DrawItem
+' Seen only through the light `l` when one is given (r above 0).
+FUNC moth(x AS Float, y AS Float, s AS Float, t AS Float, l AS Light, c AS color::Color) AS List OF canvas::DrawItem
   LET flap AS Float = 0.55 + 0.45 * math::sin(t * 9.0)
   MUT out AS List OF canvas::DrawItem = []
   FOR side = -1 TO 1 STEP 2
     LET sd AS Float = toFloat(side)
-    out = collections::append(out, ellipse(x + sd * s * 0.55 * flap, y - s * 0.2, s * 0.6 * flap, s * 0.42, sd * 0.5, WITH p { fill := fade(c, 0.55), blend := canvas::BlendMode.Add, stroke := fade(c, 0.9), strokeWidth := 1.2 }))
-    out = collections::append(out, ellipse(x + sd * s * 0.38 * flap, y + s * 0.28, s * 0.36 * flap, s * 0.28, -sd * 0.6, WITH p { fill := fade(c, 0.4), blend := canvas::BlendMode.Add }))
+    out = collections::append(out, mothPart(x + sd * s * 0.55 * flap, y - s * 0.2, s * 0.6 * flap, s * 0.42, sd * 0.5, WITH fillStrokeP(fade(c, 0.55), fade(c, 0.9), 1.2) { blend := canvas::BlendMode.Add }, l))
+    out = collections::append(out, mothPart(x + sd * s * 0.38 * flap, y + s * 0.28, s * 0.36 * flap, s * 0.28, -sd * 0.6, glowP(fade(c, 0.4)), l))
   NEXT
-  out = collections::append(out, ellipse(x, y, s * 0.1, s * 0.4, 0.0, WITH p { fill := color::white }))
-  RETURN out
+  RETURN collections::append(out, mothPart(x, y, s * 0.1, s * 0.4, 0.0, fillP(color::white), l))
 END FUNC
 
-' The spirit stag: an outline of light, drawn as a few PolyLines.
-FUNC stag(x AS Float, y AS Float, s AS Float, p AS canvas::Paint) AS List OF canvas::DrawItem
+FUNC mothPart(x AS Float, y AS Float, rx AS Float, ry AS Float, angle AS Float, p AS canvas::Paint, l AS Light) AS canvas::DrawItem
+  IF l.r <= 0.0 THEN RETURN ellipse(x, y, rx, ry, angle, p)
+  RETURN ellipse(x, y, rx, ry, angle, seenAt(p, l, x, y, angle, math::max(rx, ry) + 1.0))
+END FUNC
+
+' The spirit stag at (x, y), `s` its size: an outline of light, drawn as a few
+' PolyLines measured from where it stands, each twice - a wide faint glow and
+' a bright thin line.
+FUNC stag(x AS Float, y AS Float, s AS Float, l AS Light) AS List OF canvas::DrawItem
   LET body AS List OF vector::Float2 = [pt(-0.9, 0.0), pt(-0.6, -0.25), pt(0.2, -0.28), pt(0.55, -0.45), pt(0.75, -0.95), pt(0.95, -0.98), pt(1.0, -0.85), pt(0.82, -0.75), pt(0.7, -0.3), pt(0.45, 0.0), pt(0.5, 0.75), pt(0.4, 0.75), pt(0.3, 0.08), pt(-0.5, 0.08), pt(-0.6, 0.75), pt(-0.7, 0.75), pt(-0.75, 0.05), pt(-0.9, 0.0)]
   LET antler1 AS List OF vector::Float2 = [pt(0.8, -0.98), pt(0.7, -1.4), pt(0.55, -1.6), pt(0.6, -1.85)]
   LET antler2 AS List OF vector::Float2 = [pt(0.7, -1.4), pt(0.9, -1.6), pt(1.0, -1.8)]
   LET antler3 AS List OF vector::Float2 = [pt(0.9, -0.98), pt(1.05, -1.3), pt(1.25, -1.45)]
+  IF NOT inLight(l, x, y, s * 2.0) THEN RETURN []
+  LET wide AS canvas::Paint = seenAt(WITH strokeP(rgba(140, 255, 230, 70), s * 0.09) { blend := canvas::BlendMode.Add }, l, x, y, 0.0, s * 2.0)
+  LET thin AS canvas::Paint = seenAt(WITH strokeP(rgba(220, 255, 250, 230), s * 0.025) { blend := canvas::BlendMode.Add }, l, x, y, 0.0, s * 2.0)
   MUT out AS List OF canvas::DrawItem = []
   FOR EACH line_ IN [body, antler1, antler2, antler3]
-    LET pts AS List OF vector::Float2 = collections::transform(line_, LAMBDA(q AS vector::Float2) -> pt(x + q.x * s, y + q.y * s))
-    out = collections::append(out, path(pts, WITH p { stroke := rgba(140, 255, 230, 70), strokeWidth := s * 0.09, blend := canvas::BlendMode.Add, cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Round }))
-    out = collections::append(out, path(pts, WITH p { stroke := rgba(220, 255, 250, 230), strokeWidth := s * 0.025, blend := canvas::BlendMode.Add, cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Round }))
+    LET pts AS List OF vector::Float2 = collections::transform(line_, LAMBDA(q AS vector::Float2) -> pt(q.x * s, q.y * s))
+    out = collections::append(out, pathAt(x, y, pts, wide))
+    out = collections::append(out, pathAt(x, y, pts, thin))
+  NEXT
+  RETURN out
+END FUNC
+
+' The lantern, built once around the top of its handle, `s` pixels to a unit:
+' the hoop, the cap, the glowing glass and its bar, and the base.
+FUNC installLantern(s AS Float) AS Nothing
+  LET frameP AS canvas::Paint = fillP(hex("#3a2a1c"))
+  MUT out AS List OF canvas::DrawItem = [arc(0.0, -s * 1.1, s * 0.35, math::pi, TAU, strokeP(hex("#2a2018"), s * 0.08))]
+  out = collections::append(out, rrect(-s * 0.45, -s * 0.85, s * 0.9, s * 0.18, s * 0.06, frameP))
+  out = collections::append(out, poly([pt(-s * 0.38, -s * 0.67), pt(s * 0.38, -s * 0.67), pt(s * 0.32, s * 0.5), pt(-s * 0.32, s * 0.5)], WITH gradP(radial(0.0, 0.0, s * 0.6, [gstop(0.0, hex("#fff6d0")), gstop(0.5, hex("#ffc060")), gstop(1.0, hex("#c06a20"))])) { stroke := hex("#2a2018"), strokeWidth := s * 0.06, join := canvas::JoinStyle.Miter }))
+  out = collections::append(out, line(0.0, -s * 0.67, 0.0, s * 0.5, strokeP(hex("#2a2018"), s * 0.05)))
+  out = collections::append(out, rrect(-s * 0.45, s * 0.5, s * 0.9, s * 0.18, s * 0.06, frameP))
+  canvas::setGroup("lantern", out)
+END FUNC
+
+' The wood's trunk i: where it stands and how wide it is.
+FUNC trunkX(i AS Integer, w AS Float) AS Float
+  RETURN w * (0.06 + 0.22 * toFloat(i)) + hashRange(i + 1700, -20.0, 20.0)
+END FUNC
+
+FUNC spiritWorld(s AS LanternState, f AS Fonts, w AS Float, h AS Float, l AS Light) AS List OF canvas::DrawItem
+  LET t AS Float = s.t
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, seenAt(WITH fillP(rgba(30, 90, 110, 70)) { blend := canvas::BlendMode.Screen }, l, 0.0, 0.0, 0.0, w + h))]
+  out = collections::append(out, stag(w * 0.5, h * 0.66, h * 0.12, l))
+  ' Runes on every trunk.
+  FOR i = 0 TO 4
+    LET tx AS Float = trunkX(i, w)
+    LET ry AS Float = h * hashRange(i + 1720, 0.3, 0.5)
+    LET rs AS Float = h * 0.025
+    IF inLight(l, tx, ry, rs * 4.0) THEN
+      LET rune AS canvas::Paint = WITH strokeP(rgba(150, 255, 220, 230), 2.5) { join := canvas::JoinStyle.Miter, blend := canvas::BlendMode.Add }
+      out = collections::append(out, pathAt(tx, ry, [pt(-rs, -rs), pt(0.0, rs), pt(rs, -rs)], seenAt(rune, l, tx, ry, 0.0, rs * 2.0)))
+      out = collections::append(out, line(tx, ry - rs * 1.8, tx, ry + rs * 1.8, seenAt(rune, l, tx, ry - rs * 1.8, 0.0, rs * 4.0)))
+      out = collections::append(out, circle(tx, ry, rs * 4.0, seenAt(WITH glowP(color::white) { gradient := radial(0.0, 0.0, rs * 4.0, [gstop(0.0, rgba(120, 255, 210, 90)), gstop(1.0, rgba(120, 255, 210, 0))]) }, l, tx, ry, 0.0, rs * 4.0)))
+    END IF
+  NEXT
+  ' Glowing fungus along the ground and stones of a hidden path.
+  FOR i = 0 TO 23
+    LET fx AS Float = hash01(i + 1800) * w
+    LET fy AS Float = h * hashRange(i + 1810, 0.72, 0.97)
+    LET fs AS Float = h * hashRange(i + 1820, 0.008, 0.02)
+    IF inLight(l, fx, fy, fs * 2.5) THEN
+      LET hue AS color::Color = mixC(hex("#7affd8"), hex("#c88aff"), hash01(i + 1830))
+      out = collections::append(out, line(fx, fy, fx, fy - fs * 1.5, seenAt(WITH canvas::stroke(fade(hue, 0.7), fs * 0.3) { blend := canvas::BlendMode.Add }, l, fx, fy, 0.0, fs * 2.0)))
+      out = collections::append(out, ellipse(fx, fy - fs * 1.6, fs, fs * 0.55, 0.0, seenAt(glowP(hue), l, fx, fy - fs * 1.6, 0.0, fs)))
+    END IF
+  NEXT
+  FOR i = 0 TO 8
+    LET u AS Float = toFloat(i) / 8.0
+    LET px AS Float = w * (0.15 + 0.7 * u)
+    LET py AS Float = h * (0.9 - 0.12 * math::sin(u * math::pi))
+    IF inLight(l, px, py, h * 0.025) THEN out = collections::append(out, ellipse(px, py, h * 0.025, h * 0.01, 0.0, seenAt(glowP(rgba(200, 240, 255, 120)), l, px, py, 0.0, h * 0.025)))
+  NEXT
+  ' Words carved in the old language, readable only in the light.
+  LET verse AS String = "What the dark keeps, the light remembers"
+  LET vw AS Float = textWidth(f.heading, h * 0.035, verse)
+  LET vx AS Float = (w - vw) / 2.0
+  IF inLight(l, w / 2.0, h * 0.43, vw / 2.0 + h * 0.04) THEN out = collections::append(out, labelP(f.heading, h * 0.035, verse, vx, h * 0.44, seenAt(glowP(rgba(170, 255, 230, 220)), l, vx, h * 0.44, 0.0, vw + h * 0.04)))
+  ' The spirits still hiding.
+  FOR EACH sp IN s.spirits
+    LET sx AS Float = sp.x * w
+    LET sy AS Float = sp.y * h + math::sin(t * 2.0 + sp.x * 10.0) * h * 0.008
+    IF sp.freed < 0.0 AND inLight(l, sx, sy, h * 0.06) THEN
+      out = collections::append(out, moth(sx, sy, h * 0.03, t + sp.x * 7.0, l, hex("#ffe08a")))
+      out = collections::append(out, circle(sx, sy, h * 0.06, seenAt(WITH glowP(color::white) { gradient := radial(0.0, 0.0, h * 0.06, [gstop(0.0, rgba(255, 220, 140, 110)), gstop(1.0, rgba(255, 220, 140, 0))]) }, l, sx, sy, 0.0, h * 0.06)))
+    END IF
   NEXT
   RETURN out
 END FUNC
@@ -144,70 +256,31 @@ FUNC lanternDraw(s AS LanternState, f AS Fonts, w AS Float, h AS Float) AS List 
   LET lx AS Float = s.lx
   LET ly AS Float = s.ly
   LET r AS Float = math::max(s.radius, h * 0.1)
-  ' The light's circle, as a clip: the spirit world is drawn only inside it.
-  LET light AS List OF List OF vector::Float2 = [ovalRing(lx, ly, r, r, 48, 0.0)]
-  LET seen AS canvas::Paint = WITH canvas::fill(color::white) { clip := light }
+  LET l AS Light = lightAt(lx, ly, r)
 
   ' The ordinary wood at night.
-  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(linear(0.0, 0.0, 0.0, h, [gstop(0.0, hex("#060a18")), gstop(0.6, hex("#0f1a2a")), gstop(1.0, hex("#0a120e"))])))]
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(downward(h, [gstop(0.0, hex("#060a18")), gstop(0.6, hex("#0f1a2a")), gstop(1.0, hex("#0a120e"))])))]
   out = collections::append(out, starField(w, h * 0.5, 120, t, 0.8, 99))
   out = collections::append(out, glow(w * 0.82, h * 0.14, h * 0.3, rgba(150, 180, 255, 40)))
   out = collections::append(out, circle(w * 0.82, h * 0.14, h * 0.035, fillP(hex("#dfe8ff"))))
   out = collections::append(out, pineRow(w, h * 0.62, h * 0.3, 22, 81, fillP(hex("#16243a"))))
   out = collections::append(out, poly(ridge(w, h + 10.0, h * 0.7, h * 0.03, 83, 0.4, 40), fillP(hex("#122018"))))
-  ' A stream crossing the clearing.
+  ' A stream crossing the clearing: a smooth curve through a few points.
   MUT stream AS List OF vector::Float2 = []
-  FOR i = 0 TO 30
-    LET u AS Float = toFloat(i) / 30.0
-    stream = collections::append(stream, pt(-20.0 + (w + 40.0) * u, h * 0.78 + math::sin(u * 7.0) * h * 0.03))
-  NEXT
-  out = collections::append(out, path(stream, WITH strokeP(hex("#1e3a52"), h * 0.035) { cap := canvas::CapStyle.Butt }))
-  ' Big trunks in front.
-  FOR i = 0 TO 4
-    LET tx AS Float = w * (0.06 + 0.22 * toFloat(i)) + hashRange(i + 1700, -20.0, 20.0)
-    LET tw AS Float = h * hashRange(i + 1710, 0.05, 0.08)
-    out = collections::append(out, poly([pt(tx - tw, h + 5.0), pt(tx - tw * 0.6, h * 0.2), pt(tx - tw * 0.5, -10.0), pt(tx + tw * 0.5, -10.0), pt(tx + tw * 0.6, h * 0.25), pt(tx + tw, h + 5.0)], gradP(linear(tx - tw, 0.0, tx + tw, 0.0, [gstop(0.0, hex("#0a0f14")), gstop(0.7, hex("#1a2430")), gstop(1.0, hex("#0a0f14"))]))))
-  NEXT
-
-  ' The spirit world, seen only through the light.
-  out = collections::append(out, rect(0.0, 0.0, w, h, WITH seen { fill := rgba(30, 90, 110, 70), blend := canvas::BlendMode.Screen }))
-  out = collections::append(out, stag(w * 0.5, h * 0.66, h * 0.12, seen))
-  ' Runes on every trunk.
-  FOR i = 0 TO 4
-    LET tx AS Float = w * (0.06 + 0.22 * toFloat(i)) + hashRange(i + 1700, -20.0, 20.0)
-    LET ry AS Float = h * hashRange(i + 1720, 0.3, 0.5)
-    LET rs AS Float = h * 0.025
-    LET rc AS color::Color = rgba(150, 255, 220, 230)
-    out = collections::append(out, path([pt(tx - rs, ry - rs), pt(tx, ry + rs), pt(tx + rs, ry - rs)], WITH seen { stroke := rc, strokeWidth := 2.5, cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Miter, blend := canvas::BlendMode.Add }))
-    out = collections::append(out, line(tx, ry - rs * 1.8, tx, ry + rs * 1.8, WITH seen { stroke := rc, strokeWidth := 2.5, cap := canvas::CapStyle.Round, blend := canvas::BlendMode.Add }))
-    out = collections::append(out, circle(tx, ry, rs * 4.0, WITH seen { blend := canvas::BlendMode.Add, gradient := radial(tx, ry, rs * 4.0, [gstop(0.0, rgba(120, 255, 210, 90)), gstop(1.0, rgba(120, 255, 210, 0))]) }))
-  NEXT
-  ' Glowing fungus along the ground and stones of a hidden path.
-  FOR i = 0 TO 23
-    LET fx AS Float = hash01(i + 1800) * w
-    LET fy AS Float = h * hashRange(i + 1810, 0.72, 0.97)
-    LET fs AS Float = h * hashRange(i + 1820, 0.008, 0.02)
-    LET hue AS color::Color = mixC(hex("#7affd8"), hex("#c88aff"), hash01(i + 1830))
-    out = collections::append(out, line(fx, fy, fx, fy - fs * 1.5, WITH seen { stroke := fade(hue, 0.7), strokeWidth := fs * 0.3, blend := canvas::BlendMode.Add }))
-    out = collections::append(out, ellipse(fx, fy - fs * 1.6, fs, fs * 0.55, 0.0, WITH seen { fill := hue, blend := canvas::BlendMode.Add }))
-  NEXT
   FOR i = 0 TO 8
     LET u AS Float = toFloat(i) / 8.0
-    out = collections::append(out, ellipse(w * (0.15 + 0.7 * u), h * (0.9 - 0.12 * math::sin(u * math::pi)), h * 0.025, h * 0.01, 0.0, WITH seen { fill := rgba(200, 240, 255, 120), blend := canvas::BlendMode.Add }))
+    stream = collections::append(stream, pt(-20.0 + (w + 40.0) * u, math::sin(u * 7.0) * h * 0.03))
   NEXT
-  ' Words carved in the old language, readable only in the light.
-  LET verse AS String = "What the dark keeps, the light remembers"
-  out = collections::append(out, labelP(f.heading, h * 0.035, verse, (w - textWidth(f.heading, h * 0.035, verse)) / 2.0, h * 0.44, WITH seen { fill := rgba(170, 255, 230, 220), blend := canvas::BlendMode.Add }))
-  ' The spirits still hiding.
-  FOR EACH sp IN s.spirits
-    IF sp.freed < 0.0 THEN
-      LET bob AS Float = math::sin(t * 2.0 + sp.x * 10.0) * h * 0.008
-      out = collections::append(out, moth(sp.x * w, sp.y * h + bob, h * 0.03, t + sp.x * 7.0, seen, hex("#ffe08a")))
-      out = collections::append(out, circle(sp.x * w, sp.y * h + bob, h * 0.06, WITH seen { blend := canvas::BlendMode.Add, gradient := radial(sp.x * w, sp.y * h + bob, h * 0.06, [gstop(0.0, rgba(255, 220, 140, 110)), gstop(1.0, rgba(255, 220, 140, 0))]) }))
-    END IF
+  out = collections::append(out, curvePath(0.0, h * 0.78, smoothCurves(stream), canvas::stroke(hex("#1e3a52"), h * 0.035)))
+  ' Big trunks in front.
+  FOR i = 0 TO 4
+    LET tw AS Float = h * hashRange(i + 1710, 0.05, 0.08)
+    out = collections::append(out, polyAt(trunkX(i, w), 0.0, [pt(-tw, h + 5.0), pt(-tw * 0.6, h * 0.2), pt(-tw * 0.5, -10.0), pt(tw * 0.5, -10.0), pt(tw * 0.6, h * 0.25), pt(tw, h + 5.0)], gradP(linear(-tw, 0.0, tw, 0.0, [gstop(0.0, hex("#0a0f14")), gstop(0.7, hex("#1a2430")), gstop(1.0, hex("#0a0f14"))]))))
   NEXT
-  ' The edge of the light, where the two worlds meet: a slowly turning ring of
-  ' dashes.
+
+  ' The spirit world, seen only through the light, and the edge of the light
+  ' where the two worlds meet: a slowly turning ring of dashes.
+  out = collections::append(out, spiritWorld(s, f, w, h, l))
   out = collections::append(out, circle(lx, ly, r, WITH canvas::stroke(rgba(170, 255, 230, 70), 1.5) { dashes := [r * 0.06, r * 0.04], dashOffset := t * 20.0, blend := canvas::BlendMode.Add }))
 
   ' The darkness: one rectangle whose radial ramp is clear at the lantern and
@@ -218,17 +291,18 @@ FUNC lanternDraw(s AS LanternState, f AS Fonts, w AS Float, h AS Float) AS List 
 
   ' Freed spirits rise to the sky and become stars; once all seven are
   ' there, they are joined into their constellation.
+  LET none_ AS Light = Light[x := 0.0, y := 0.0, r := 0.0, ring := []]
   FOR EACH sp IN s.spirits
     IF sp.freed >= 0.0 THEN
       LET u AS Float = easeInOut(clamp01(sp.freed / 2.2))
       LET sx AS Float = lerp(sp.x * w, sp.starX * w, u)
       LET sy AS Float = lerp(sp.y * h, sp.starY * h, u) - math::sin(u * math::pi) * h * 0.15
       IF u < 1.0 THEN
-        out = collections::append(out, moth(sx, sy, h * 0.03 * (1.0 - u * 0.6), t, canvas::fill(color::white), hex("#ffe08a")))
+        out = collections::append(out, moth(sx, sy, h * 0.03 * (1.0 - u * 0.6), t, none_, hex("#ffe08a")))
         out = collections::append(out, glow(sx, sy, h * 0.08, rgba(255, 220, 140, 140)))
       ELSE
         LET tw AS Float = 0.75 + 0.25 * math::sin(t * 3.0 + sp.starX * 20.0)
-        out = collections::append(out, glow(sx, sy, h * 0.03, rgba(255, 236, 180, (math::round(200.0 * tw)))))
+        out = collections::append(out, glow(sx, sy, h * 0.03, rgba(255, 236, 180, math::round(200.0 * tw))))
         out = collections::append(out, circle(sx, sy, 2.5, fillP(color::white)))
       END IF
     END IF
@@ -239,19 +313,13 @@ FUNC lanternDraw(s AS LanternState, f AS Fonts, w AS Float, h AS Float) AS List 
     FOR EACH sp IN s.spirits
       ring = collections::append(ring, pt(sp.starX * w, sp.starY * h))
     NEXT
-    ring = collections::append(ring, collections::get(ring, 0))
-    out = collections::append(out, path(ring, WITH canvas::stroke(rgba(255, 236, 180, (math::round(140.0 * a))), 1.4) { dashes := [6.0, 5.0], cap := canvas::CapStyle.Round, blend := canvas::BlendMode.Add }))
+    out = collections::append(out, poly(ring, WITH canvas::stroke(rgba(255, 236, 180, math::round(140.0 * a)), 1.4) { dashes := [6.0, 5.0], cap := canvas::CapStyle.Round, blend := canvas::BlendMode.Add }))
     out = collections::append(out, centered(f.display, h * 0.05, "The Lantern", w / 2.0, h * 0.4, fillP(fade(hex("#f6e3b4"), a))))
     out = collections::append(out, centered(f.italic, h * 0.025, "Seven spirits set free. Press R to hide them again.", w / 2.0, h * 0.4 + h * 0.05, fillP(fade(parchment(), a))))
   END IF
 
-  ' The lantern, swinging on its handle under the mouse.
-  LET tr AS canvas::Transform = place(lx, ly - r * 0.02, s.swing, h * 0.05)
-  out = collections::append(out, placed(arc(0.0, -1.1, 0.35, math::pi, TAU, strokeP(hex("#2a2018"), 0.08)), tr))
-  out = collections::append(out, placed(rrect(-0.45, -0.85, 0.9, 0.18, 0.06, fillP(hex("#3a2a1c"))), tr))
-  out = collections::append(out, placed(poly([pt(-0.38, -0.67), pt(0.38, -0.67), pt(0.32, 0.5), pt(-0.32, 0.5)], WITH gradP(radial(0.0, 0.0, 0.6, [gstop(0.0, hex("#fff6d0")), gstop(0.5, hex("#ffc060")), gstop(1.0, hex("#c06a20"))])) { stroke := hex("#2a2018"), strokeWidth := 0.06, join := canvas::JoinStyle.Miter }), tr))
-  out = collections::append(out, placed(line(0.0, -0.67, 0.0, 0.5, strokeP(hex("#2a2018"), 0.05)), tr))
-  out = collections::append(out, placed(rrect(-0.45, 0.5, 0.9, 0.18, 0.06, fillP(hex("#3a2a1c"))), tr))
+  ' The lantern, swinging on its handle under the mouse: one node, turned.
+  out = collections::append(out, nodeT("lantern", lx, ly - r * 0.02, turn(s.swing)))
   out = collections::append(out, glow(lx, ly, h * 0.07, rgba(255, 220, 150, 200)))
 
   ' The tally.
@@ -259,7 +327,19 @@ FUNC lanternDraw(s AS LanternState, f AS Fonts, w AS Float, h AS Float) AS List 
   FOR EACH sp IN s.spirits
     IF sp.freed >= 0.0 THEN freed = freed + 1
   NEXT
-  out = collections::append(out, rrect(w - 220.0, 16.0, 200.0, 44.0, 22.0, WITH fillP(rgba(10, 14, 24, 170)) { stroke := alpha(gold(), 0.4), strokeWidth := 1.0 }))
+  out = collections::append(out, rrect(w - 220.0, 16.0, 200.0, 44.0, 22.0, fillStrokeP(rgba(10, 14, 24, 170), alpha(gold(), 0.4), 1.0)))
   out = collections::append(out, label(f.body, 16.0, "Spirits freed  " & toString(freed) & " / 7", w - 200.0, 44.0, parchment()))
+
+  ' Last of all, since the lantern is always under the mouse and only the
+  ' topmost item there is reported: each hidden spirit's hotspot, unseen, cut
+  ' to the light so it can only be clicked in it.
+  FOR i = 0 TO len(s.spirits) - 1
+    LET sp AS Spirit = collections::get(s.spirits, i)
+    IF sp.freed < 0.0 THEN
+      LET sx AS Float = sp.x * w
+      LET sy AS Float = sp.y * h
+      out = collections::append(out, canvas::Circle[id := "spirit-" & toString(i), position := pt(sx, sy), radius := h * 0.06, paint := seenAt(canvas::fill(clear()), lightAt(lx, ly, r * 0.9), sx, sy, 0.0, h * 0.06), transform := none()])
+    END IF
+  NEXT
   RETURN out
 END FUNC

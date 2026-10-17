@@ -8,6 +8,11 @@
 ' Bezier arcs - every position is a function of time, so the scene has no
 ' simulation state at all beyond the clock.
 '
+' The archway is a curved shape: its outline a run of broken stones and its
+' opening a true round arch, one CurvePolygon under EvenOdd. It never changes
+' but for which face the sun lights, so both versions are installed as groups
+' with their mortar, moss and ivy, and a frame names one.
+'
 ' Drag anywhere (or turn the wheel) to scrub the time of day.
 
 IMPORT canvas
@@ -18,19 +23,23 @@ IMPORT math
 
 TYPE DawnState
   t AS Float           ' seconds since the scene opened
+  fx AS Float          ' the dust's and the fireflies' clock
   clock AS Float       ' time of day, 0..1 from midnight to midnight
   dragging AS Boolean
   lastX AS Float
   scrubbed AS Float    ' seconds since the user last scrubbed
+  w AS Float           ' the window size the groups were installed for
+  h AS Float
 END TYPE
 
 LET DAWN_DAY_SECONDS AS Float = 56.0
 
 FUNC dawnNew AS DawnState
-  RETURN DawnState[t := 0.0, clock := 0.205, dragging := FALSE, lastX := 0.0, scrubbed := 100.0]
+  RETURN DawnState[t := 0.0, fx := 0.0, clock := 0.205, dragging := FALSE, lastX := 0.0, scrubbed := 100.0, w := 0.0, h := 0.0]
 END FUNC
 
 FUNC dawnStep(s AS DawnState, inp AS Input, dt AS Float) AS DawnState
+  IF s.w <> inp.w OR s.h <> inp.h THEN dawnInstall(inp.w, inp.h)
   MUT clock AS Float = s.clock
   MUT dragging AS Boolean = s.dragging
   MUT lastX AS Float = s.lastX
@@ -51,7 +60,7 @@ FUNC dawnStep(s AS DawnState, inp AS Input, dt AS Float) AS DawnState
     clock = clock + toFloat(inp.wheel) * 0.01
     scrubbed = 0.0
   END IF
-  RETURN DawnState[t := s.t + dt, clock := fract(clock), dragging := dragging, lastX := lastX, scrubbed := scrubbed]
+  RETURN DawnState[t := s.t + dt, fx := s.fx + inp.pdt, clock := fract(clock), dragging := dragging, lastX := lastX, scrubbed := scrubbed, w := inp.w, h := inp.h]
 END FUNC
 
 ' The sun's height: 1 at noon, 0 on the horizon at 06:00 and 18:00, -1 at
@@ -108,99 +117,106 @@ END FUNC
 ' The archway
 ' ---------------------------------------------------------------------------
 
-' The ruin's outline and its opening, as two rings: drawn under EvenOdd the
-' opening is a hole, and the same two rings clip the mortar lines to the stone.
-FUNC archOuter(cx AS Float, baseY AS Float, s AS Float) AS List OF vector::Float2
+' The ruin's outline around its own foot, (0, 0) the middle of its base, `s`
+' its size: a run of uneven stones along the broken top, the right-hand corner
+' fallen.
+FUNC archOuter(s AS Float) AS List OF vector::Float2
   LET hw AS Float = s * 0.5
-  LET top AS Float = baseY - s * 1.02
-  ' Broken top edge: a run of uneven stones, with the right-hand corner fallen.
-  MUT ring AS List OF vector::Float2 = [pt(cx - hw, baseY), pt(cx - hw, top + s * 0.12), pt(cx - hw + s * 0.04, top + s * 0.1), pt(cx - hw + s * 0.05, top + s * 0.04)]
+  LET top AS Float = -s * 1.02
+  MUT ring AS List OF vector::Float2 = [pt(-hw, 0.0), pt(-hw, top + s * 0.12), pt(-hw + s * 0.04, top + s * 0.1), pt(-hw + s * 0.05, top + s * 0.04)]
   FOR i = 0 TO 8
-    LET u AS Float = toFloat(i) / 8.0
-    LET x AS Float = cx - hw + s * 0.06 + u * (s * 0.8)
+    LET x AS Float = -hw + s * 0.06 + toFloat(i) / 8.0 * s * 0.8
     LET dy AS Float = hashRange(400 + i, -0.035, 0.0) * s
     ring = collections::append(ring, [pt(x, top + dy), pt(x + s * 0.085, top + dy)])
   NEXT
-  ring = collections::append(ring, [pt(cx + hw - s * 0.12, top + s * 0.07), pt(cx + hw - s * 0.06, top + s * 0.16), pt(cx + hw, top + s * 0.2), pt(cx + hw, baseY)])
-  RETURN ring
+  RETURN collections::append(ring, [pt(hw - s * 0.12, top + s * 0.07), pt(hw - s * 0.06, top + s * 0.16), pt(hw, top + s * 0.2), pt(hw, 0.0)])
 END FUNC
 
-' The opening, wound the other way round: a round arch on two straight jambs.
-FUNC archInner(cx AS Float, baseY AS Float, s AS Float) AS List OF vector::Float2
+' The opening: two straight jambs and a round arch between them - half an
+' ellipse, one rational curve a quarter, so it is round however large the
+' archway is drawn.
+FUNC archOpening(s AS Float) AS List OF canvas::BezierCurve
   LET iw AS Float = s * 0.3
-  LET springY AS Float = baseY - s * 0.58
-  MUT ring AS List OF vector::Float2 = [pt(cx + iw, baseY + 2.0), pt(cx + iw, springY)]
-  FOR i = 1 TO 23
-    LET a AS Float = toFloat(i) / 24.0 * math::pi
-    ring = collections::append(ring, pt(cx + iw * math::cos(a), springY - iw * 1.05 * math::sin(a)))
-  NEXT
-  RETURN collections::append(ring, [pt(cx - iw, springY), pt(cx - iw, baseY + 2.0)])
+  LET springY AS Float = -s * 0.58
+  MUT chain AS List OF canvas::BezierCurve = [straight(iw, 2.0, iw, springY)]
+  chain = collections::append(chain, arcCurves(0.0, springY, iw, iw * 1.05, 0.0, -math::pi))
+  RETURN collections::append(chain, straight(-iw, springY, -iw, 2.0))
 END FUNC
 
-FUNC archway(cx AS Float, baseY AS Float, s AS Float, clock AS Float, sx AS Float) AS List OF canvas::DrawItem
-  LET outer AS List OF vector::Float2 = archOuter(cx, baseY, s)
-  LET inner AS List OF vector::Float2 = archInner(cx, baseY, s)
-  LET rings AS List OF List OF vector::Float2 = [outer, inner]
-  ' The lit face is the one towards the sun.
-  MUT litLeft AS Float = 1.0
-  IF sx > cx THEN litLeft = 0.0
+' A line from (x1, y1) to (x2, y2) measured from (x, y).
+FUNC lineAt(x AS Float, y AS Float, x1 AS Float, y1 AS Float, x2 AS Float, y2 AS Float, p AS canvas::Paint) AS canvas::DrawItem
+  RETURN canvas::Line[id := "", position := pt(x, y), startAt := pt(x1, y1), endAt := pt(x2, y2), paint := p, transform := none()]
+END FUNC
+
+' The archway, built around its foot, its lit face on the left when `litLeft`
+' is 1 and on the right when it is 0.
+FUNC archway(s AS Float, litLeft AS Float) AS List OF canvas::DrawItem
+  LET outer AS List OF vector::Float2 = archOuter(s)
+  LET opening AS List OF canvas::BezierCurve = archOpening(s)
   LET lit AS color::Color = hex("#a59a88")
   LET dark AS color::Color = hex("#5b5450")
-  LET x0 AS Float = cx - s * 0.5
-  LET x1 AS Float = cx + s * 0.5
+  LET x0 AS Float = -s * 0.5
+  LET x1 AS Float = s * 0.5
   LET g AS canvas::Gradient = linear(x0, 0.0, x1, 0.0, [gstop(0.0, mixC(dark, lit, litLeft)), gstop(0.5, mixC(dark, lit, 0.55)), gstop(1.0, mixC(lit, dark, litLeft))])
-  MUT out AS List OF canvas::DrawItem = [shape(rings, canvas::FillRule.EvenOdd, WITH gradP(g) { stroke := hex("#3c3633"), strokeWidth := 2.0, join := canvas::JoinStyle.Miter })]
-  ' Mortar courses and joints, clipped to the stone by the same two rings - so
-  ' the lines stop at the opening and at the broken top without being cut to
+  MUT out AS List OF canvas::DrawItem = [curveShape(0.0, 0.0, [straights(collections::append(outer, collections::get(outer, 0))), opening], canvas::FillRule.EvenOdd, WITH gradP(g) { stroke := hex("#3c3633"), strokeWidth := 2.0, join := canvas::JoinStyle.Miter })]
+  ' Mortar courses and joints, clipped to the stone: a clip is points, so the
+  ' opening's curve is flattened for it - the one place the arch needs points.
+  ' Every line is measured from the archway's foot, as the clip is, so the
+  ' lines stop at the opening and at the broken top without being cut to
   ' length by hand.
+  LET rings AS List OF List OF vector::Float2 = [outer, flattenAll(opening, 0.25)]
   LET mortar AS canvas::Paint = WITH canvas::stroke(rgba(40, 34, 32, 150), 1.6) { clip := rings, clipRule := canvas::FillRule.EvenOdd }
   LET course AS Float = s * 0.085
   MUT row AS Integer = 0
-  MUT y AS Float = baseY - course
-  DO WHILE y > baseY - s * 1.05
-    out = collections::append(out, line(x0, y, x1, y, mortar))
-    LET offset AS Float = toFloat(row MOD 2) * s * 0.07
-    MUT x AS Float = x0 + offset + s * 0.05
+  MUT y AS Float = -course
+  DO WHILE y > -s * 1.05
+    out = collections::append(out, lineAt(0.0, 0.0, x0, y, x1, y, mortar))
+    MUT x AS Float = x0 + toFloat(row MOD 2) * s * 0.07 + s * 0.05
     DO WHILE x < x1
-      out = collections::append(out, line(x, y, x, y + course, mortar))
-      x = x + s * hashRange(row * 17 + math::floor(x), 0.11, 0.16)
+      out = collections::append(out, lineAt(0.0, 0.0, x, y, x, y + course, mortar))
+      x = x + s * hashRange(row * 17 + math::floor(x + s * 0.5), 0.11, 0.16)
     LOOP
     y = y - course
     row = row + 1
   LOOP
   ' Voussoirs: the wedge stones around the arch, radiating from its centre.
   LET iw AS Float = s * 0.3
-  LET springY AS Float = baseY - s * 0.58
+  LET springY AS Float = -s * 0.58
   FOR i = 0 TO 9
     LET a AS Float = math::pi + toFloat(i) / 9.0 * math::pi
     LET c AS Float = math::cos(a)
     LET sn AS Float = math::sin(a)
-    out = collections::append(out, line(cx + iw * c, springY + iw * 1.05 * sn, cx + (iw + s * 0.11) * c, springY + (iw * 1.05 + s * 0.11) * sn, WITH mortar { strokeWidth := 2.2 }))
+    out = collections::append(out, lineAt(0.0, 0.0, iw * c, springY + iw * 1.05 * sn, (iw + s * 0.11) * c, springY + (iw * 1.05 + s * 0.11) * sn, WITH mortar { strokeWidth := 2.2 }))
   NEXT
-  ' A carved rune on the keystone, glowing faintly at night.
-  LET night AS Float = 1.0 - daylight(clock)
+  ' The keystone.
   LET ky AS Float = springY - iw * 1.05 - s * 0.055
-  out = collections::append(out, poly([pt(cx - s * 0.045, ky - s * 0.06), pt(cx + s * 0.045, ky - s * 0.06), pt(cx + s * 0.032, ky + s * 0.055), pt(cx - s * 0.032, ky + s * 0.055)], WITH fillP(mixC(dark, lit, 0.7)) { stroke := hex("#3c3633"), strokeWidth := 1.5 }))
-  LET runeP AS canvas::Paint = WITH strokeP(mixC(hex("#4a4038"), hex("#9ff6ff"), night), 2.0) { blend := canvas::BlendMode.Normal }
-  out = collections::append(out, path([pt(cx, ky - s * 0.04), pt(cx, ky + s * 0.04)], runeP))
-  out = collections::append(out, path([pt(cx - s * 0.02, ky - s * 0.025), pt(cx, ky - s * 0.005), pt(cx + s * 0.02, ky - s * 0.025)], runeP))
-  IF night > 0.05 THEN out = collections::append(out, glow(cx, ky, s * 0.12, alpha(hex("#7fe8ff"), night * 0.55)))
+  out = collections::append(out, polyAt(0.0, ky, [pt(-s * 0.045, -s * 0.06), pt(s * 0.045, -s * 0.06), pt(s * 0.032, s * 0.055), pt(-s * 0.032, s * 0.055)], fillStrokeP(mixC(dark, lit, 0.7), hex("#3c3633"), 1.5)))
   ' Moss along the top, and ivy trailing down the left pillar.
   FOR i = 0 TO 11
     LET u AS Float = toFloat(i) / 11.0
-    LET mx AS Float = cx - s * 0.46 + u * s * 0.82
-    out = collections::append(out, ellipse(mx, baseY - s * 1.02 + hashRange(i + 70, -0.01, 0.02) * s, s * hashRange(i + 90, 0.04, 0.07), s * 0.022, 0.0, fillP(mixC(hex("#3f6a2c"), hex("#6f9a3c"), hash01(i + 5)))))
+    out = collections::append(out, ellipse(-s * 0.46 + u * s * 0.82, -s * 1.02 + hashRange(i + 70, -0.01, 0.02) * s, s * hashRange(i + 90, 0.04, 0.07), s * 0.022, 0.0, fillP(mixC(hex("#3f6a2c"), hex("#6f9a3c"), hash01(i + 5)))))
   NEXT
   MUT ivy AS List OF vector::Float2 = []
   FOR i = 0 TO 14
     LET u AS Float = toFloat(i) / 14.0
-    ivy = collections::append(ivy, pt(cx - s * 0.43 + math::sin(u * 7.0) * s * 0.03, baseY - s * 1.0 + u * s * 0.62))
+    ivy = collections::append(ivy, pt(-s * 0.43 + math::sin(u * 7.0) * s * 0.03, -s * 1.0 + u * s * 0.62))
   NEXT
-  out = collections::append(out, path(ivy, strokeP(hex("#2f5424"), 2.5)))
+  out = collections::append(out, curvePath(0.0, 0.0, smoothCurves(ivy), strokeP(hex("#2f5424"), 2.5)))
   FOR i = 0 TO 13
     LET p AS vector::Float2 = collections::get(ivy, i)
     out = collections::append(out, ellipse(p.x + hashRange(i + 300, -6.0, 6.0), p.y, s * 0.022, s * 0.013, hashRange(i + 310, -1.0, 1.0), fillP(mixC(hex("#3d7a2c"), hex("#7cae48"), hash01(i + 320)))))
   NEXT
+  RETURN out
+END FUNC
+
+' A carved rune on the keystone, glowing faintly at night: the one part of the
+' archway that changes with the hour, so it is drawn over the installed group.
+FUNC archRune(cx AS Float, baseY AS Float, s AS Float, clock AS Float) AS List OF canvas::DrawItem
+  LET night AS Float = 1.0 - daylight(clock)
+  LET ky AS Float = baseY - s * 0.58 - s * 0.3 * 1.05 - s * 0.055
+  LET runeP AS canvas::Paint = strokeP(mixC(hex("#4a4038"), hex("#9ff6ff"), night), 2.0)
+  MUT out AS List OF canvas::DrawItem = [pathAt(cx, ky, [pt(0.0, -s * 0.04), pt(0.0, s * 0.04)], runeP), pathAt(cx, ky, [pt(-s * 0.02, -s * 0.025), pt(0.0, -s * 0.005), pt(s * 0.02, -s * 0.025)], runeP)]
+  IF night > 0.05 THEN out = collections::append(out, glow(cx, ky, s * 0.12, alpha(hex("#7fe8ff"), night * 0.55)))
   RETURN out
 END FUNC
 
@@ -216,10 +232,16 @@ FUNC dawnPerches(w AS Float, h AS Float) AS List OF vector::Float2
   RETURN [pt(ax - s * 0.3, ay - s * 1.04), pt(ax + s * 0.2, ay - s * 1.05), pt(w * 0.165, h * 0.545), pt(w * 0.84, h * 0.47), pt(ax + h * 0.25, ay - h * 0.012), pt(w * 0.33, h * 0.885)]
 END FUNC
 
+FUNC dawnBirdBack(index AS Integer) AS color::Color
+  IF index = 0 THEN RETURN hex("#7a4f2e")
+  IF index = 1 THEN RETURN hex("#3f5f8a")
+  RETURN hex("#6a6a3a")
+END FUNC
+
 ' A songbird's place at time `t`: perched for a while, then a flight along a
 ' quadratic Bezier arc to the next perch. Returns the items to draw. The
 ' schedule is pure arithmetic on `t`, so no state is kept for it.
-FUNC songbirdAt(w AS Float, h AS Float, t AS Float, index AS Integer, back AS color::Color, breast AS color::Color) AS List OF canvas::DrawItem
+FUNC songbirdAt(w AS Float, h AS Float, t AS Float, index AS Integer) AS List OF canvas::DrawItem
   LET perches AS List OF vector::Float2 = dawnPerches(w, h)
   LET n AS Integer = len(perches)
   LET cycle AS Float = 7.0 + toFloat(index) * 1.3
@@ -228,19 +250,16 @@ FUNC songbirdAt(w AS Float, h AS Float, t AS Float, index AS Integer, back AS co
   LET k AS Integer = math::floor(local / cycle)
   LET u AS Float = local - toFloat(k) * cycle
   LET pa AS vector::Float2 = collections::get(perches, math::floor(hash01(k * 7 + index * 131) * toFloat(n)) MOD n)
-  MUT toIdx AS Integer = math::floor(hash01((k + 1) * 7 + index * 131) * toFloat(n)) MOD n
-  LET pb AS vector::Float2 = collections::get(perches, toIdx)
+  LET pb AS vector::Float2 = collections::get(perches, math::floor(hash01((k + 1) * 7 + index * 131) * toFloat(n)) MOD n)
   LET size AS Float = h * 0.03
   IF u < cycle - flight THEN
     ' Perched: an occasional hop and a cock of the head.
     LET hop AS Float = math::max(0.0, math::sin(u * 3.0 + toFloat(index)))
-    LET hopY AS Float = -math::pow(hop, 12.0) * size * 0.35
     MUT dir AS Float = 1.0
     IF math::sin(u * 0.9 + toFloat(index) * 2.0) < 0.0 THEN dir = -1.0
-    RETURN songbird(pa.x, pa.y + hopY, size, dir, math::sin(u * 2.3 + toFloat(index)) * 0.35, back, breast)
+    RETURN songbird("dawn" & toString(index), pa.x, pa.y - math::pow(hop, 12.0) * size * 0.35, size, dir, math::sin(u * 2.3 + toFloat(index)) * 0.35)
   END IF
-  LET f AS Float = (u - (cycle - flight)) / flight
-  LET e AS Float = easeInOut(f)
+  LET e AS Float = easeInOut((u - (cycle - flight)) / flight)
   LET cx AS Float = (pa.x + pb.x) / 2.0
   LET cy AS Float = math::min(pa.y, pb.y) - h * 0.14 - math::abs(pb.x - pa.x) * 0.12
   LET v AS Float = 1.0 - e
@@ -249,47 +268,61 @@ FUNC songbirdAt(w AS Float, h AS Float, t AS Float, index AS Integer, back AS co
   ' The arc's tangent gives the heading.
   LET dx AS Float = 2.0 * v * (cx - pa.x) + 2.0 * e * (pb.x - cx)
   LET dy AS Float = 2.0 * v * (cy - pa.y) + 2.0 * e * (pb.y - cy)
-  LET heading AS Float = math::atan2(dy, dx + 0.0001)
-  RETURN bird(x, y, heading, size * 1.5, math::sin(t * 38.0 + toFloat(index)), 0.8, back, mixC(back, color::black, 0.35))
+  LET back AS color::Color = dawnBirdBack(index)
+  RETURN bird(x, y, math::atan2(dy, dx + 0.0001), size * 1.5, math::sin(t * 38.0 + toFloat(index)), 0.8, back, mixC(back, color::black, 0.35))
 END FUNC
 
 ' The hawk: a slow Lissajous circuit of the sky, gliding, with a few beats of
 ' its wings now and then.
-FUNC hawk(w AS Float, h AS Float, t AS Float, tint AS color::Color, day AS Float) AS List OF canvas::DrawItem
+FUNC hawk(w AS Float, h AS Float, t AS Float, tint AS color::Color, day AS Float) AS canvas::DrawItem
   LET a AS Float = t * 0.11
   LET x AS Float = w * (0.5 + 0.38 * math::sin(a))
   LET y AS Float = h * (0.22 + 0.08 * math::sin(a * 2.0 + 0.6))
-  LET dx AS Float = 0.38 * w * math::cos(a)
-  LET dy AS Float = 0.16 * h * math::cos(a * 2.0 + 0.6)
-  LET heading AS Float = math::atan2(dy, dx)
+  LET heading AS Float = math::atan2(0.16 * h * math::cos(a * 2.0 + 0.6), 0.38 * w * math::cos(a))
   LET beats AS Float = math::pow(math::max(0.0, math::sin(t * 0.37)), 6.0)
-  LET flap AS Float = math::sin(t * 7.0) * beats
   ' Seen from below against the sky, the hawk is a silhouette at night and
   ' shows its pale underside by day.
   LET under AS color::Color = mixC(hex("#1a1420"), mixC(hex("#a88a6a"), tint, 0.3), clamp01(day * 1.4))
-  RETURN raptor(x, y, heading, h * 0.09, flap, mixC(hex("#2e2018"), tint, 0.18 * day), under)
+  RETURN raptor(x, y, heading, h * 0.09, math::sin(t * 7.0) * beats, mixC(hex("#2e2018"), tint, 0.18 * day), under)
 END FUNC
 
-' A bare branch from (x0, y0) to (x1, y1): a tapering curve with two twigs.
+' A bare branch from (x0, y0) to (x1, y1): one curved limb that tapers by
+' being drawn thick then thin, and two twigs.
 FUNC branch(x0 AS Float, y0 AS Float, x1 AS Float, y1 AS Float, h AS Float) AS List OF canvas::DrawItem
   LET bark AS color::Color = hex("#2a1d14")
-  LET mx AS Float = (x0 + x1) / 2.0
-  LET my AS Float = (y0 + y1) / 2.0 + h * 0.02
-  MUT pts AS List OF vector::Float2 = [pt(x0, y0)]
-  pts = collections::append(pts, quadPts(x0, y0, mx, my, x1, y1, 10))
-  LET tx AS Float = x0 + (x1 - x0) * 0.6
-  LET ty AS Float = y0 + (y1 - y0) * 0.6 + h * 0.012
-  RETURN [path(pts, WITH strokeP(bark, h * 0.009) { cap := canvas::CapStyle.Round }), path([pt(tx, ty), pt(tx + (x1 - x0) * 0.2, ty - h * 0.05)], strokeP(bark, h * 0.004)), path([pt(mx, my), pt(mx + (x1 - x0) * 0.15, my + h * 0.035)], strokeP(bark, h * 0.004))]
+  LET mx AS Float = (x1 - x0) / 2.0
+  LET my AS Float = (y1 - y0) / 2.0 + h * 0.02
+  LET tx AS Float = (x1 - x0) * 0.6
+  LET ty AS Float = (y1 - y0) * 0.6 + h * 0.012
+  MUT out AS List OF canvas::DrawItem = [curvePath(x0, y0, [quad(0.0, 0.0, mx, my, x1 - x0, y1 - y0)], strokeP(bark, h * 0.009))]
+  out = collections::append(out, pathAt(x0, y0, [pt(tx, ty), pt(tx + (x1 - x0) * 0.2, ty - h * 0.05)], strokeP(bark, h * 0.004)))
+  RETURN collections::append(out, pathAt(x0, y0, [pt(mx, my), pt(mx + (x1 - x0) * 0.15, my + h * 0.035)], strokeP(bark, h * 0.004)))
 END FUNC
 
+' A pine drawn twice: once a few pixels towards the sun in the colour of the
+' light, then in silhouette on top, which leaves a rim of light on the side
+' the sun is on. The same outline, moved by its position.
 FUNC rimmedPine(cx AS Float, baseY AS Float, h AS Float, w AS Float, seed AS Integer, body AS color::Color, rim AS color::Color, dx AS Float) AS List OF canvas::DrawItem
-  LET ring AS List OF vector::Float2 = pineRing(cx, baseY, h, w, seed)
-  RETURN [poly(shiftPts(ring, dx, -1.0), fillP(rim)), poly(ring, fillP(body))]
+  LET ring AS List OF vector::Float2 = pineRing(h, w, seed)
+  RETURN [polyAt(cx + dx, baseY - 1.0, ring, fillP(rim)), polyAt(cx, baseY, ring, fillP(body))]
 END FUNC
 
 ' ---------------------------------------------------------------------------
 ' The scene
 ' ---------------------------------------------------------------------------
+
+' What is drawn the same at every hour: the archway (with its lit face either
+' way), the branches the songbirds use, and the songbirds themselves.
+FUNC dawnInstall(w AS Float, h AS Float) AS Nothing
+  canvas::setGroup("dawn-arch-0", archway(h * 0.36, 0.0))
+  canvas::setGroup("dawn-arch-1", archway(h * 0.36, 1.0))
+  MUT branches AS List OF canvas::DrawItem = branch(w * 0.07, h * 0.6, w * 0.175, h * 0.545, h)
+  branches = collections::append(branches, branch(w * 0.95, h * 0.52, w * 0.83, h * 0.47, h))
+  canvas::setGroup("dawn-branches", branches)
+  installSongbird("dawn0", dawnBirdBack(0), hex("#e8a35a"))
+  installSongbird("dawn1", dawnBirdBack(1), hex("#d8c8a8"))
+  installSongbird("dawn2", dawnBirdBack(2), hex("#f2d86a"))
+END FUNC
 
 FUNC dawnDraw(s AS DawnState, w AS Float, h AS Float) AS List OF canvas::DrawItem
   LET clock AS Float = s.clock
@@ -304,7 +337,7 @@ FUNC dawnDraw(s AS DawnState, w AS Float, h AS Float) AS List OF canvas::DrawIte
   LET horizonY AS Float = h * 0.6
 
   ' Sky, stars and the moon.
-  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(linear(0.0, 0.0, 0.0, horizonY + h * 0.1, [gstop(0.0, top), gstop(0.62, mixC(top, horizon, 0.55)), gstop(1.0, horizon)])))]
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(downward(horizonY + h * 0.1, [gstop(0.0, top), gstop(0.62, mixC(top, horizon, 0.55)), gstop(1.0, horizon)])))]
   out = collections::append(out, starField(w, horizonY, 140, t, clamp01(1.0 - day * 1.6), 7))
   LET mclock AS Float = fract(clock + 0.5)
   IF sunElevation(mclock) > -0.1 THEN
@@ -313,9 +346,7 @@ FUNC dawnDraw(s AS DawnState, w AS Float, h AS Float) AS List OF canvas::DrawIte
     LET mr AS Float = h * 0.035
     LET moonA AS Float = clamp01(1.0 - day * 1.3)
     out = collections::append(out, glow(mx, my, mr * 5.0, alpha(hex("#a8c4ff"), 0.35 * moonA)))
-    ' The crescent is the full disc with a second disc cut out of it: two rings,
-    ' and a ring inside another is a hole under EvenOdd only where they overlap.
-    out = collections::append(out, shape([ovalRing(mx, my, mr, mr, 48, 0.0), ovalRing(mx + mr * 0.45, my - mr * 0.2, mr * 0.88, mr * 0.88, 48, 0.0)], canvas::FillRule.EvenOdd, fillP(alpha(hex("#f2eedc"), moonA))))
+    out = collections::append(out, crescent(mx, my, mr, 0.45, -0.2, 0.88, fillP(alpha(hex("#f2eedc"), moonA))))
   END IF
 
   ' The sun, with its bloom.
@@ -324,7 +355,7 @@ FUNC dawnDraw(s AS DawnState, w AS Float, h AS Float) AS List OF canvas::DrawIte
     LET sunCol AS color::Color = mixC(hex("#ff8a4a"), hex("#fff6dc"), clamp01(e * 2.5))
     out = collections::append(out, glow(sx, sy, h * 0.55, alpha(sunCol, 0.35 + gold * 0.25)))
     out = collections::append(out, glow(sx, sy, sr * 3.0, alpha(sunCol, 0.8)))
-    out = collections::append(out, circle(sx, sy, sr, gradP(focal(sx, sy, sr, -sr * 0.2, -sr * 0.2, [gstop(0.0, color::white), gstop(1.0, sunCol)]))))
+    out = collections::append(out, circle(sx, sy, sr, gradP(focal(0.0, 0.0, sr, -sr * 0.2, -sr * 0.2, [gstop(0.0, color::white), gstop(1.0, sunCol)]))))
   END IF
 
   ' Clouds, lit from beneath at dawn and dusk.
@@ -339,36 +370,37 @@ FUNC dawnDraw(s AS DawnState, w AS Float, h AS Float) AS List OF canvas::DrawIte
   LET fogFar AS color::Color = mixC(hex("#4b5d7a"), horizon, 0.62)
   LET fogMid AS color::Color = mixC(hex("#33465a"), horizon, 0.38)
   out = collections::append(out, poly(ridge(w, h, horizonY - h * 0.02, h * 0.1, 3, 0.8, 60), gradP(linear(0.0, horizonY - h * 0.12, 0.0, h * 0.75, [gstop(0.0, fogFar), gstop(1.0, mixC(fogFar, hex("#1d2a3a"), 0.4))]))))
-  out = collections::append(out, rect(0.0, horizonY - h * 0.06, w, h * 0.16, gradP(linear(0.0, horizonY - h * 0.06, 0.0, horizonY + h * 0.1, [gstop(0.0, fade(horizon, 0.0)), gstop(0.5, fade(horizon, 0.55)), gstop(1.0, fade(horizon, 0.0))]))))
+  out = collections::append(out, rect(0.0, horizonY - h * 0.06, w, h * 0.16, gradP(downward(h * 0.16, [gstop(0.0, fade(horizon, 0.0)), gstop(0.5, fade(horizon, 0.55)), gstop(1.0, fade(horizon, 0.0))]))))
   out = collections::append(out, poly(ridge(w, h, horizonY + h * 0.05, h * 0.08, 9, 1.0, 70), gradP(linear(0.0, horizonY, 0.0, h * 0.8, [gstop(0.0, fogMid), gstop(1.0, mixC(fogMid, hex("#121c26"), 0.5))]))))
   out = collections::append(out, pineRow(w, horizonY + h * 0.13, h * 0.13, 30, 21, fillP(mixC(hex("#1f3a33"), horizon, 0.42))))
-  out = collections::append(out, rect(0.0, horizonY + h * 0.06, w, h * 0.12, gradP(linear(0.0, horizonY + h * 0.06, 0.0, horizonY + h * 0.18, [gstop(0.0, fade(horizon, 0.0)), gstop(0.6, fade(horizon, 0.35)), gstop(1.0, fade(horizon, 0.0))]))))
+  out = collections::append(out, rect(0.0, horizonY + h * 0.06, w, h * 0.12, gradP(downward(h * 0.12, [gstop(0.0, fade(horizon, 0.0)), gstop(0.6, fade(horizon, 0.35)), gstop(1.0, fade(horizon, 0.0))]))))
   out = collections::append(out, pineRow(w, horizonY + h * 0.22, h * 0.2, 14, 33, fillP(mixC(hex("#183026"), horizon, 0.22))))
 
   ' The clearing: a grassy rise with the archway on it.
   LET groundY AS Float = h * 0.86
   out = collections::append(out, poly(ridge(w, h + 10.0, groundY - h * 0.02, h * 0.035, 12, 0.3, 40), gradP(linear(0.0, groundY - h * 0.06, 0.0, h, [gstop(0.0, hex("#5f8a3a")), gstop(0.35, hex("#3d6a2a")), gstop(1.0, hex("#1e3a1a"))]))))
-  out = collections::append(out, archway(w * 0.6, groundY, h * 0.36, clock, sx))
+  MUT lit AS String = "1"
+  IF sx > w * 0.6 THEN lit = "0"
+  out = collections::append(out, node("dawn-arch-" & lit, w * 0.6, groundY))
+  out = collections::append(out, archRune(w * 0.6, groundY, h * 0.36, clock))
   ' Fallen stones at the foot of the arch.
   out = collections::append(out, ellipse(w * 0.6 + h * 0.25, groundY + 4.0, h * 0.035, h * 0.018, 0.2, fillP(hex("#7d746a"))))
   out = collections::append(out, ellipse(w * 0.6 - h * 0.22, groundY + 6.0, h * 0.025, h * 0.014, -0.3, fillP(hex("#6c645c"))))
 
-  ' Grass in the foreground, swaying.
+  ' Grass in the foreground, swaying. A blade is three points, not a curve: at
+  ' a pixel and a half wide the bend reads the same, and ninety-one curves
+  ' re-made every frame cost 0.6 ms of the graphics thread's frame where the
+  ' polylines cost next to nothing (measured headless on Metal, best of three).
   FOR i = 0 TO 90
     LET gx AS Float = hash01(i + 900) * w
-    LET gy AS Float = groundY + hashRange(i + 950, -0.01, 0.12) * h
     LET gh AS Float = h * hashRange(i + 990, 0.025, 0.06)
     LET sway AS Float = math::sin(t * 1.3 + gx * 0.02) * gh * 0.25
-    out = collections::append(out, path([pt(gx, gy), pt(gx + sway * 0.4, gy - gh * 0.5), pt(gx + sway, gy - gh)], strokeP(mixC(hex("#4c7a2a"), hex("#86b04c"), hash01(i + 1000)), 1.6)))
+    out = collections::append(out, pathAt(gx, groundY + hashRange(i + 950, -0.01, 0.12) * h, [pt(0.0, 0.0), pt(sway * 0.4, -gh * 0.5), pt(sway, -gh)], strokeP(mixC(hex("#4c7a2a"), hex("#86b04c"), hash01(i + 1000)), 1.6)))
   NEXT
 
-  ' The tall pines that frame the clearing.
-  ' Two bare branches reach out of them for the songbirds to sit on.
-  out = collections::append(out, branch(w * 0.07, h * 0.6, w * 0.175, h * 0.545, h))
-  out = collections::append(out, branch(w * 0.95, h * 0.52, w * 0.83, h * 0.47, h))
-  ' Each is drawn twice: once a few pixels towards the sun in the colour of the
-  ' light, then in silhouette on top, which leaves a rim of light on the side
-  ' the sun is on.
+  ' The tall pines that frame the clearing, and two bare branches reaching out
+  ' of them for the songbirds to sit on.
+  out = collections::append(out, node("dawn-branches", 0.0, 0.0))
   LET frameCol AS color::Color = hex("#0f2219")
   LET rim AS color::Color = fade(mixC(horizon, hex("#ffd9a0"), gold), 0.12 + 0.3 * gold)
   LET rimDx AS Float = clampF((sx - w * 0.5) / w * 5.0, -2.0, 2.0)
@@ -377,19 +409,18 @@ FUNC dawnDraw(s AS DawnState, w AS Float, h AS Float) AS List OF canvas::DrawIte
   out = collections::append(out, rimmedPine(w * 0.95, h * 1.05, h * 1.1, h * 0.44, 11, frameCol, rim, rimDx))
 
   ' Songbirds and the hawk.
-  out = collections::append(out, songbirdAt(w, h, t, 0, hex("#7a4f2e"), hex("#e8a35a")))
-  out = collections::append(out, songbirdAt(w, h, t, 1, hex("#3f5f8a"), hex("#d8c8a8")))
-  out = collections::append(out, songbirdAt(w, h, t, 2, hex("#6a6a3a"), hex("#f2d86a")))
+  FOR i = 0 TO 2
+    out = collections::append(out, songbirdAt(w, h, t, i))
+  NEXT
   out = collections::append(out, hawk(w, h, t, horizon, day))
 
   ' The grade: a Multiply wash by the light of the hour, strongest near the
   ' ground, so the land darkens and cools at night and warms at dawn while the
   ' sky keeps its own colours.
-  LET land AS color::Color = landLight(clock)
-  out = collections::append(out, rect(0.0, 0.0, w, h, WITH gradP(linear(0.0, h * 0.2, 0.0, h * 0.7, [gstop(0.0, color::white), gstop(1.0, land)])) { blend := canvas::BlendMode.Multiply }))
+  out = collections::append(out, rect(0.0, 0.0, w, h, WITH gradP(linear(0.0, h * 0.2, 0.0, h * 0.7, [gstop(0.0, color::white), gstop(1.0, landLight(clock))])) { blend := canvas::BlendMode.Multiply }))
 
   ' Light: shafts from the sun through the canopy, strongest in the golden
-  ' hour, with dust drifting in them.
+  ' hour, with dust drifting in them; and fireflies at night.
   IF gold > 0.02 AND e > -0.1 THEN
     FOR i = 0 TO 5
       LET spread AS Float = (toFloat(i) - 2.5) * 0.075 + math::sin(t * 0.21 + toFloat(i)) * 0.012
@@ -397,10 +428,9 @@ FUNC dawnDraw(s AS DawnState, w AS Float, h AS Float) AS List OF canvas::DrawIte
       LET a AS Float = gold * hashRange(i + 20, 0.12, 0.3) * (0.7 + 0.3 * math::sin(t * 0.5 + toFloat(i) * 1.7))
       out = collections::append(out, beam(sx, sy, dir, h * hashRange(i + 60, 1.0, 1.5), h * hashRange(i + 40, 0.025, 0.05), hex("#ffd59a"), a))
     NEXT
-    out = collections::append(out, motes(0.0, h * 0.3, w, h * 0.6, 40, t, alpha(hex("#ffe2b0"), gold), 1.6, 77))
+    out = collections::append(out, motes(0.0, h * 0.3, w, h * 0.6, 40, s.fx, alpha(hex("#ffe2b0"), gold), 1.6, 77))
   END IF
-  ' Fireflies at night.
-  IF day < 0.5 THEN out = collections::append(out, motes(0.0, h * 0.62, w, h * 0.34, 26, t, alpha(hex("#d8ff7a"), (0.5 - day) * 2.0), 2.0, 91))
+  IF day < 0.5 THEN out = collections::append(out, motes(0.0, h * 0.62, w, h * 0.34, 26, s.fx, alpha(hex("#d8ff7a"), (0.5 - day) * 2.0), 2.0, 91))
 
   ' A vignette to hold the eye in the middle.
   out = collections::append(out, vignette(w, h, 150))
@@ -412,9 +442,7 @@ END FUNC
 FUNC dawnClockBar(w AS Float, h AS Float, clock AS Float, scrubbed AS Float) AS List OF canvas::DrawItem
   LET a AS Float = 0.35 + 0.65 * clamp01(1.0 - (scrubbed - 1.5) / 1.5)
   LET y AS Float = h - 26.0
-  LET x0 AS Float = w * 0.3
-  LET x1 AS Float = w * 0.7
-  LET x AS Float = x0 + (x1 - x0) * clock
+  LET x AS Float = w * 0.3 + w * 0.4 * clock
   LET marker AS color::Color = mixC(hex("#c8d4ff"), hex("#ffd27a"), daylight(clock))
-  RETURN [line(x0, y, x1, y, WITH canvas::stroke(alpha(color::white, 0.25 * a), 2.0) { cap := canvas::CapStyle.Round, dashes := [2.0, 6.0] }), circle(x, y, 6.0, fillP(alpha(marker, a))), glow(x, y, 18.0, alpha(marker, 0.5 * a))]
+  RETURN [line(w * 0.3, y, w * 0.7, y, WITH canvas::stroke(alpha(color::white, 0.25 * a), 2.0) { cap := canvas::CapStyle.Round, dashes := [2.0, 6.0] }), circle(x, y, 6.0, fillP(alpha(marker, a))), glow(x, y, 18.0, alpha(marker, 0.5 * a))]
 END FUNC

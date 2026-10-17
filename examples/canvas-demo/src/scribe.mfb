@@ -7,12 +7,14 @@
 ' is carved the same way, in the cap, join and dash style chosen in the
 ' toolbox.
 '
-' Every stroke here is a canvas::PolyLine. The carving is a dash pattern of one
-' dash as long as the part already cut and one gap longer than the stroke, so
-' a growing dash reveals the line; the groove is the same line drawn three
-' times - a light edge, a dark edge, and the cut between them; the toolbox
-' shows the caps (Butt, Round, Square), the joins (Miter, Bevel, Round) and a
-' marching dash pattern.
+' Every stroke here is a canvas::PolyLine: a carving keeps its corners, and
+' the joins - Miter, Bevel and Round - are what the corners show. The carving
+' is a dash pattern of one dash as long as the part already cut and one gap
+' longer than the stroke, so a growing dash reveals the line; the groove is
+' the same line drawn three times - a light edge and a dark edge, each moved a
+' pixel or so by its position, and the cut between them. The hall and the
+' stone never change, so they are installed once; the stone and the toolbox's
+' buttons carry ids, so the canvas says what the mouse is on.
 
 IMPORT canvas
 IMPORT vector
@@ -31,6 +33,7 @@ END TYPE
 
 TYPE ScribeState
   t AS Float
+  fx AS Float             ' the embers' clock
   w AS Float
   h AS Float
   carvings AS List OF Carving
@@ -40,11 +43,10 @@ TYPE ScribeState
   cap AS canvas::CapStyle
   join AS canvas::JoinStyle
   dashed AS Boolean
-  hover AS Integer        ' which toolbox button is under the mouse, or -1
 END TYPE
 
 FUNC scribeNew AS ScribeState
-  RETURN ScribeState[t := 0.0, w := 0.0, h := 0.0, carvings := [], queue := [], nextAt := 0.8, drawing := [], cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Miter, dashed := FALSE, hover := -1]
+  RETURN ScribeState[t := 0.0, fx := 0.0, w := 0.0, h := 0.0, carvings := [], queue := [], nextAt := 0.8, drawing := [], cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Miter, dashed := FALSE]
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -175,8 +177,10 @@ FUNC scribeStep(s AS ScribeState, inp AS Input, dt AS Float) AS ScribeState
   MUT carvings AS List OF Carving = collections::transform(s.carvings, LAMBDA(c AS Carving) -> WITH c { age := c.age + dt })
   MUT queue AS List OF List OF vector::Float2 = s.queue
   MUT nextAt AS Float = s.nextAt
-  ' On arrival, and after a resize, the name is queued to carve.
+  ' On arrival, and after a resize, the hall is installed and the name is
+  ' queued to carve.
   IF s.w <> w OR s.h <> h THEN
+    canvas::setGroup("scribe-hall", scribeHall(w, h))
     carvings = []
     queue = nameStrokes(stone)
     nextAt = t + 0.6
@@ -189,26 +193,20 @@ FUNC scribeStep(s AS ScribeState, inp AS Input, dt AS Float) AS ScribeState
     nextAt = t + carveSeconds(l) * 0.75
   END IF
 
-  ' The toolbox.
-  MUT hover AS Integer = -1
-  FOR i = 0 TO 6
-    IF inBox(toolBox(i, h), inp.mx, inp.my) THEN hover = i
-  NEXT
+  ' The toolbox: a click on a button, as the canvas reports it.
+  LET tool AS Integer = idNumber(inp.clicked, "tool-")
   MUT cap AS canvas::CapStyle = s.cap
   MUT join AS canvas::JoinStyle = s.join
   MUT dashed AS Boolean = s.dashed
-  IF inp.pressed AND hover >= 0 THEN
-    IF hover < 3 THEN cap = capOf(hover)
-    IF hover >= 3 AND hover < 6 THEN join = joinOf(hover)
-    IF hover = 6 THEN dashed = NOT dashed
-  END IF
+  IF tool >= 0 AND tool < 3 THEN cap = capOf(tool)
+  IF tool >= 3 AND tool < 6 THEN join = joinOf(tool)
+  IF tool = 6 THEN dashed = NOT dashed
   IF keyPressed(inp, "d") THEN dashed = NOT dashed
   IF keyPressed(inp, "c") THEN carvings = []
 
-  ' Drawing on the stone.
+  ' Drawing on the stone: a stroke starts where the button goes down on it.
   MUT drawing AS List OF vector::Float2 = s.drawing
-  LET onStone AS Boolean = inp.mx > stone.x AND inp.mx < stone.x + stone.w AND inp.my > stone.y AND inp.my < stone.y + stone.h
-  IF inp.pressed AND hover < 0 AND onStone THEN drawing = [pt(inp.mx, inp.my)]
+  IF inp.clicked = "stone" THEN drawing = [pt(inp.mx, inp.my)]
   IF inp.down AND len(drawing) > 0 THEN
     LET last AS vector::Float2 = collections::get(drawing, len(drawing) - 1)
     IF dist(last.x, last.y, inp.mx, inp.my) > 3.0 THEN drawing = collections::append(drawing, pt(clampF(inp.mx, stone.x, stone.x + stone.w), clampF(inp.my, stone.y, stone.y + stone.h)))
@@ -220,7 +218,7 @@ FUNC scribeStep(s AS ScribeState, inp AS Input, dt AS Float) AS ScribeState
   END IF
   ' The stone holds a few dozen carvings; the oldest wear away first.
   IF len(carvings) > 60 THEN carvings = collections::drop(carvings, len(carvings) - 60)
-  RETURN ScribeState[t := t, w := w, h := h, carvings := carvings, queue := queue, nextAt := nextAt, drawing := drawing, cap := cap, join := join, dashed := dashed, hover := hover]
+  RETURN ScribeState[t := t, fx := s.fx + inp.pdt, w := w, h := h, carvings := carvings, queue := queue, nextAt := nextAt, drawing := drawing, cap := cap, join := join, dashed := dashed]
 END FUNC
 
 ' How long the chisel takes along a stroke of this length.
@@ -233,25 +231,23 @@ END FUNC
 ' ---------------------------------------------------------------------------
 
 ' A carving: the groove in three passes, plus the ember while it is being cut.
-FUNC carve(c AS Carving, width AS Float, t AS Float) AS List OF canvas::DrawItem
+FUNC carve(c AS Carving, width AS Float) AS List OF canvas::DrawItem
   LET cut AS Float = clamp01(c.age / carveSeconds(c.length))
   LET shown AS Float = c.length * cut
   ' A solid stroke is revealed by one dash as long as what is cut so far; a
-  ' dashed one marches its own pattern and is clipped to what is cut by the
-  ' same trick applied to its dash offset.
+  ' dashed one, once cut, marches its own pattern.
   MUT dashes AS List OF Float = [shown + 0.01, c.length + width * 4.0]
   IF c.dashed AND cut >= 1.0 THEN dashes = [width * 2.2, width * 1.6]
-  LET base AS canvas::Paint = WITH canvas::stroke(color::white, width) { cap := c.cap, join := c.join, miterLimit := 6.0, dashes := dashes, dashOffset := 0.0 }
-  MUT out AS List OF canvas::DrawItem = []
-  out = collections::append(out, trail(shiftPts(c.points, -1.2, -1.2), [], WITH base { stroke := rgba(200, 196, 186, 120) }))
-  out = collections::append(out, trail(shiftPts(c.points, 1.5, 1.5), [], WITH base { stroke := rgba(10, 10, 14, 200) }))
-  out = collections::append(out, trail(c.points, [], WITH base { stroke := hex("#2b2a30"), strokeWidth := width * 0.78 }))
+  LET base AS canvas::Paint = WITH canvas::stroke(color::white, width) { cap := c.cap, join := c.join, miterLimit := 6.0, dashes := dashes }
+  ' The light edge up and to the left, the dark one down and to the right: the
+  ' same points, moved by the PolyLine's position.
+  MUT out AS List OF canvas::DrawItem = [pathAt(-1.2, -1.2, c.points, WITH base { stroke := rgba(200, 196, 186, 120) }), pathAt(1.5, 1.5, c.points, WITH base { stroke := rgba(10, 10, 14, 200) }), path(c.points, WITH base { stroke := hex("#2b2a30"), strokeWidth := width * 0.78 })]
   ' The ember: a hot line along the cut, cooling over a few seconds, and a
   ' bright spark where the chisel is.
   LET heat AS Float = clamp01(1.0 - (c.age - carveSeconds(c.length)) / 2.5)
   IF heat > 0.0 THEN
-    out = collections::append(out, trail(c.points, [], WITH base { stroke := fade(hex("#ff7a2a"), 0.35 * heat), strokeWidth := width * 2.6, blend := canvas::BlendMode.Add }))
-    out = collections::append(out, trail(c.points, [], WITH base { stroke := fade(hex("#ffd27a"), heat), strokeWidth := width * 0.45, blend := canvas::BlendMode.Add }))
+    out = collections::append(out, path(c.points, WITH base { stroke := fade(hex("#ff7a2a"), 0.35 * heat), strokeWidth := width * 2.6, blend := canvas::BlendMode.Add }))
+    out = collections::append(out, path(c.points, WITH base { stroke := fade(hex("#ffd27a"), heat), strokeWidth := width * 0.45, blend := canvas::BlendMode.Add }))
   END IF
   IF cut < 1.0 THEN
     LET tip AS vector::Float2 = pointAlong(c.points, shown)
@@ -274,7 +270,37 @@ FUNC pointAlong(points AS List OF vector::Float2, d AS Float) AS vector::Float2
   RETURN collections::get(points, len(points) - 1)
 END FUNC
 
-' One toolbox button and the sample it shows.
+' The hall and the stone: dark, lit warm from a brazier off to the left, the
+' floor's flagstones in perspective, and the stone with lichen and grain on it,
+' clipped to it. Each lichen patch is positioned at its own centre, so its clip
+' - the stone's outline - is made around the stone as seen from there.
+FUNC scribeHall(w AS Float, h AS Float) AS List OF canvas::DrawItem
+  LET stone AS StoneBox = stoneAt(w, h)
+  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(radial(w * 0.2, h * 0.7, w, [gstop(0.0, hex("#3a2a20")), gstop(0.5, hex("#17131a")), gstop(1.0, hex("#08070c"))])))]
+  FOR i = 0 TO 12
+    LET u AS Float = toFloat(i) / 12.0
+    out = collections::append(out, line(w * 0.5 + (u - 0.5) * w * 0.4, h * 0.86, w * 0.5 + (u - 0.5) * w * 2.2, h, canvas::stroke(rgba(255, 220, 180, 14), 1.0)))
+  NEXT
+  out = collections::append(out, rect(0.0, h * 0.86, w, 1.0, fillP(rgba(255, 220, 180, 30))))
+  LET ring AS List OF vector::Float2 = stoneRing(stone)
+  out = collections::append(out, polyAt(10.0, 14.0, ring, fillP(rgba(0, 0, 0, 120))))
+  out = collections::append(out, poly(ring, WITH gradP(focal(stone.x + stone.w * 0.3, stone.y + stone.h * 0.4, stone.w, -stone.w * 0.2, -stone.h * 0.1, [gstop(0.0, hex("#6a6660")), gstop(0.6, hex("#45423f")), gstop(1.0, hex("#26252a"))])) { stroke := hex("#8a847a"), strokeWidth := 2.0, join := canvas::JoinStyle.Bevel }))
+  FOR i = 0 TO 40
+    LET gx AS Float = stone.x + hash01(i + 1300) * stone.w
+    LET gy AS Float = stone.y + hash01(i + 1310) * stone.h
+    ' A clip is turned with its item, so the outline is turned back by the
+    ' patch's own angle to stay where the stone is.
+    LET a AS Float = hashRange(i + 1340, -0.5, 0.5)
+    LET co AS Float = math::cos(a)
+    LET si AS Float = math::sin(a)
+    LET around AS List OF vector::Float2 = collections::transform(stoneRing(WITH stone { x := stone.x - gx, y := stone.y - gy }), LAMBDA(p AS vector::Float2) -> pt(p.x * co + p.y * si, p.y * co - p.x * si))
+    out = collections::append(out, ellipse(gx, gy, stone.w * hashRange(i + 1320, 0.01, 0.05), stone.w * hashRange(i + 1330, 0.005, 0.02), a, WITH fillP(mixC(rgba(120, 140, 90, 50), rgba(30, 28, 30, 70), hash01(i + 1350))) { clip := [around] }))
+  NEXT
+  RETURN out
+END FUNC
+
+' One toolbox button and the sample it shows, with its id on the button's
+' face for the canvas to report.
 FUNC toolButton(f AS Fonts, i AS Integer, s AS ScribeState, h AS Float) AS List OF canvas::DrawItem
   LET b AS Box = toolBox(i, h)
   MUT on AS Boolean = FALSE
@@ -282,70 +308,57 @@ FUNC toolButton(f AS Fonts, i AS Integer, s AS ScribeState, h AS Float) AS List 
   IF i >= 3 AND i < 6 THEN on = s.join = joinOf(i)
   IF i = 6 THEN on = s.dashed
   MUT ring AS color::Color = rgba(255, 255, 255, 40)
-  IF s.hover = i THEN ring = alpha(gold(), 0.6)
-  IF on THEN ring = gold()
-  MUT out AS List OF canvas::DrawItem = [rrect(b.x, b.y, b.w, b.h, 10.0, WITH fillP(rgba(20, 22, 30, 200)) { stroke := ring, strokeWidth := 1.5 })]
-  LET sw AS Float = b.h * 0.2
   MUT lit AS Float = 0.0
-  IF on THEN lit = 1.0
+  IF on THEN
+    ring = gold()
+    lit = 1.0
+  END IF
+  MUT out AS List OF canvas::DrawItem = [rrect(b.x, b.y, b.w, b.h, 10.0, fillStrokeP(rgba(20, 22, 30, 200), ring, 1.5))]
+  LET sw AS Float = b.h * 0.2
   LET ink AS color::Color = mixC(hex("#c9c2b2"), hex("#ffe0a0"), lit)
+  LET y AS Float = b.y + b.h * 0.42
   IF i < 3 THEN
     ' A thick line with a thin guide showing where its ends really are: the
     ' cap is everything past the guide.
-    LET y AS Float = b.y + b.h * 0.42
-    LET x0 AS Float = b.x + b.w * 0.3
-    LET x1 AS Float = b.x + b.w * 0.7
-    out = collections::append(out, line(x0, y, x1, y, WITH canvas::stroke(ink, sw) { cap := capOf(i) }))
-    out = collections::append(out, line(x0, y, x1, y, canvas::stroke(hex("#e2554a"), 1.2)))
+    out = collections::append(out, line(b.x + b.w * 0.3, y, b.x + b.w * 0.7, y, WITH canvas::stroke(ink, sw) { cap := capOf(i) }))
+    out = collections::append(out, line(b.x + b.w * 0.3, y, b.x + b.w * 0.7, y, canvas::stroke(hex("#e2554a"), 1.2)))
   ELSEIF i < 6 THEN
     ' A sharp V, so the corner shows how it is joined.
-    out = collections::append(out, path([pt(b.x + b.w * 0.28, b.y + b.h * 0.24), pt(b.x + b.w * 0.5, b.y + b.h * 0.62), pt(b.x + b.w * 0.72, b.y + b.h * 0.24)], WITH canvas::stroke(ink, sw) { join := joinOf(i), miterLimit := 8.0 }))
+    out = collections::append(out, pathAt(b.x + b.w * 0.5, b.y + b.h * 0.62, [pt(-b.w * 0.22, -b.h * 0.38), pt(0.0, 0.0), pt(b.w * 0.22, -b.h * 0.38)], WITH canvas::stroke(ink, sw) { join := joinOf(i), miterLimit := 8.0 }))
   ELSE
-    LET y AS Float = b.y + b.h * 0.42
     out = collections::append(out, line(b.x + b.w * 0.18, y, b.x + b.w * 0.82, y, WITH canvas::stroke(ink, sw * 0.7) { cap := canvas::CapStyle.Round, dashes := [sw * 1.2, sw * 1.1], dashOffset := -s.t * 30.0 }))
   END IF
   LET names AS List OF String = ["Butt", "Round", "Square", "Miter", "Bevel", "Round", "Dashes"]
-  out = collections::append(out, centered(f.body, 10.5, collections::get(names, i), b.x + b.w / 2.0, b.y + b.h - 6.0, fillP(mixC(muted(), parchment(), lit))))
-  RETURN out
+  RETURN collections::append(out, centered(f.body, 10.5, collections::get(names, i), b.x + b.w / 2.0, b.y + b.h - 6.0, fillP(mixC(muted(), parchment(), lit))))
 END FUNC
 
 FUNC scribeDraw(s AS ScribeState, f AS Fonts, w AS Float, h AS Float) AS List OF canvas::DrawItem
-  LET t AS Float = s.t
   LET stone AS StoneBox = stoneAt(w, h)
-  ' The hall: dark, lit warm from a brazier off to the left.
-  MUT out AS List OF canvas::DrawItem = [rect(0.0, 0.0, w, h, gradP(radial(w * 0.2, h * 0.7, w, [gstop(0.0, hex("#3a2a20")), gstop(0.5, hex("#17131a")), gstop(1.0, hex("#08070c"))])))]
-  ' Floor flagstones in perspective.
-  FOR i = 0 TO 12
-    LET u AS Float = toFloat(i) / 12.0
-    out = collections::append(out, line(w * 0.5 + (u - 0.5) * w * 0.4, h * 0.86, w * 0.5 + (u - 0.5) * w * 2.2, h, canvas::stroke(rgba(255, 220, 180, 14), 1.0)))
-  NEXT
-  out = collections::append(out, rect(0.0, h * 0.86, w, 1.0, fillP(rgba(255, 220, 180, 30))))
-  ' The stone, its face lit from the left, its edge picked out.
-  LET ring AS List OF vector::Float2 = stoneRing(stone)
-  out = collections::append(out, poly(shiftPts(ring, 10.0, 14.0), fillP(rgba(0, 0, 0, 120))))
-  out = collections::append(out, poly(ring, WITH gradP(focal(stone.x + stone.w * 0.3, stone.y + stone.h * 0.4, stone.w, -stone.w * 0.2, -stone.h * 0.1, [gstop(0.0, hex("#6a6660")), gstop(0.6, hex("#45423f")), gstop(1.0, hex("#26252a"))])) { stroke := hex("#8a847a"), strokeWidth := 2.0, join := canvas::JoinStyle.Bevel }))
-  ' Lichen and grain on the stone, clipped to it.
-  FOR i = 0 TO 40
-    LET gx AS Float = stone.x + hash01(i + 1300) * stone.w
-    LET gy AS Float = stone.y + hash01(i + 1310) * stone.h
-    out = collections::append(out, ellipse(gx, gy, stone.w * hashRange(i + 1320, 0.01, 0.05), stone.w * hashRange(i + 1330, 0.005, 0.02), hashRange(i + 1340, -0.5, 0.5), WITH fillP(mixC(rgba(120, 140, 90, 50), rgba(30, 28, 30, 70), hash01(i + 1350))) { clip := [ring] }))
-  NEXT
+  MUT out AS List OF canvas::DrawItem = [node("scribe-hall", 0.0, 0.0)]
   ' The carvings.
   LET width AS Float = math::max(4.0, h * 0.011)
   FOR EACH c IN s.carvings
-    out = collections::append(out, carve(c, width, t))
+    out = collections::append(out, carve(c, width))
   NEXT
   ' The stroke being drawn: a faint scratch along the chisel's path.
-  IF len(s.drawing) > 1 THEN out = collections::append(out, trail(s.drawing, [], WITH canvas::stroke(rgba(255, 210, 150, 160), 2.0) { cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Round, dashes := [6.0, 4.0], dashOffset := -t * 40.0 }))
-  ' The brazier's flicker over the whole hall.
-  LET flick AS Float = 0.8 + 0.2 * math::sin(t * 9.0) * math::sin(t * 13.7)
+  IF len(s.drawing) > 1 THEN out = collections::append(out, path(s.drawing, WITH canvas::stroke(rgba(255, 210, 150, 160), 2.0) { cap := canvas::CapStyle.Round, join := canvas::JoinStyle.Round, dashes := [6.0, 4.0], dashOffset := -s.t * 40.0 }))
+  ' The brazier's flicker over the whole hall, and its embers drifting up.
+  LET flick AS Float = 0.8 + 0.2 * math::sin(s.t * 9.0) * math::sin(s.t * 13.7)
   out = collections::append(out, glow(-w * 0.02, h * 0.75, h * 0.7 * flick, rgba(255, 140, 60, 70)))
-  out = collections::append(out, motes(0.0, h * 0.4, w * 0.4, h * 0.5, 14, t, hex("#ffb060"), 1.4, 17))
+  out = collections::append(out, motes(0.0, h * 0.4, w * 0.4, h * 0.5, 14, s.fx, hex("#ffb060"), 1.4, 17))
   ' The toolbox.
   out = collections::append(out, centered(f.bold, 10.5, "CAPS", toolBox(0, h).x + toolBox(0, h).w / 2.0, toolBox(0, h).y - 8.0, fillP(gold())))
   out = collections::append(out, centered(f.bold, 10.5, "JOINS", toolBox(3, h).x + toolBox(3, h).w / 2.0, toolBox(3, h).y - 8.0, fillP(gold())))
   FOR i = 0 TO 6
     out = collections::append(out, toolButton(f, i, s, h))
   NEXT
-  RETURN collections::append(out, vignette(w, h, 200))
+  out = collections::append(out, vignette(w, h, 200))
+  ' On top of everything, what answers the mouse: the stone's outline, unseen,
+  ' and a hotspot over each button that lights its rim.
+  out = collections::append(out, canvas::Polygon[id := "stone", position := pt(0.0, 0.0), contours := [stoneRing(stone)], rule := canvas::FillRule.NonZero, paint := canvas::fill(clear()), transform := none()])
+  FOR i = 0 TO 6
+    LET b AS Box = toolBox(i, h)
+    out = collections::append(out, hotspot("tool-" & toString(i), b.x, b.y, b.w, b.h, 10.0, hoverWash(1.5), pressWash(1.5)))
+  NEXT
+  RETURN out
 END FUNC
