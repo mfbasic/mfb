@@ -130,24 +130,39 @@ Rejected alternatives:
 Acceptance: every site has a verdict and every UNMEASURED row has a number.
   Check: `grep -c "UNMEASURED\|UNVERIFIED" planning/plan-162-F-ligatures.md` → 0
   outside this list (est. 1 min).
-  Result: → 1, the line above.
-Commit: — (this commit)
+  Result: → 2, both lines of this acceptance text.
+Commit: 14dbd04ee
 
 ### Phase 2 — `GSUB` build and fixture
 
-- [ ] Refactor plan-162-B's walk to take a table tag. `GPOS` output must be unchanged
-      (plan-162-B's tests pass).
-- [ ] `helper_liga.rs`: type 4 and type 7, plus `GDEF` carets, in face index v4.
-- [ ] Fixture: glyphs `f`, `i`, `l` and ligatures `fi`, `ffi`, with a `GDEF` caret on
-      `ffi` only.
-- [ ] RED tests: `measureText("ffi")` = `adv(ffi)`, `"fil"` = `adv(fi) + adv(l)`, and
+- [x] ~~Refactor plan-162-B's walk to take a table tag. `GPOS` output must be unchanged
+      (plan-162-B's tests pass).~~ — moot: plan-162-B wrote it parameterised already.
+      `__canvas_layoutLookups(b, table, feature)` takes the table's offset and the
+      feature tag (`helper_kern.rs`), and `__canvas_ligaSection` calls it with `GSUB`'s
+      and `"liga"`. `kern_pairs_measure_at_the_kerned_width` and
+      `face_kern_reads_each_fixtures_pairs` → ok.
+- [x] `helper_liga.rs`: type 4 and type 7, plus `GDEF` carets, in face index v4.
+      `__canvas_ligaSection` and `__canvas_caretSection` (header words 14 and 15;
+      the header is 16 words, version 4). The run gains its sixth column,
+      `componentCount` (1 for every glyph until Phase 3 substitutes). The plan-A index
+      tests moved to v4 as predicted, and the run-dump test to stride 6.
+      `canvas_text_has_one_glyph_walk` admits `__canvas_ligaRun` (Correction 1).
+- [x] Fixture: glyphs `f`, `i`, `l` and ligatures `fi`, `ffi`, with a `GDEF` caret on
+      `ffi` only. `ligature_font` / `ligating_font`: each glyph a distinct bar or slab,
+      advances 300/200/250/450/700, `liga` listing `ffi` before `fi`, `GDEF` carets
+      230 and 470 on `ffi`.
+- [x] RED tests: `measureText("ffi")` = `adv(ffi)`, `"fil"` = `adv(fi) + adv(l)`, and
       `"fi"` with `letterSpacing 1.0` = `adv(f) + adv(i) + 1.0`.
 
 Acceptance: the fixture loads, the RED tests fail on the ligature term, and plan-162-B's
 kerning tests still pass.
   Check: `cargo test --test rt_canvas_font kern liga` → kern passes, liga fails as
   predicted (est. 3 min).
-Commit: —
+  Result: `kern_pairs_measure_at_the_kerned_width` and `face_kern_reads_each_fixtures_pairs`
+  ok. `liga_measures_ligatures_and_not_with_spacing` FAILED as predicted:
+  `left: ["800", "750", "501"]`, `right: ["700", "700", "501"]`. The spaced case already
+  holds; the two ligature widths differ by exactly the ligature term.
+Commit: — (this commit)
 
 ### Phase 3 — apply, carets, docs
 
@@ -197,7 +212,19 @@ Commit: —
 
 ## Corrections
 
-(empty)
+1. **`canvas_text_has_one_glyph_walk` admits `__canvas_ligaRun`.** The bug-756 test
+   allows the per-glyph readers only in `__canvas_shapeRun` (and the `--debug` face
+   check). Substitution reads the ligature glyph's advance, so it is a reader. It is
+   also a stage of the run itself, called only from `__canvas_shapeRun`, so the rule's
+   intent, "one walk turns text into glyphs", is kept. AGENTS.md proof: (1) bug-756;
+   (2) "only the shaping walk turns codepoints into glyph ids or advances"; (3) nothing
+   else depends on it; (4) the guard names functions, and the shaping walk now spans
+   two of them.
+2. **"No ligatures across a grapheme with `gapAfter`" means "none when spacing is on".**
+   Read literally it would forbid every ligature, because `f` and `i` are two graphemes
+   and `f` carries `gapAfter`. The rule it serves is §Non-goals' "with `letterSpacing
+   <> 0.0` there are no ligatures at all", which is what is implemented: ligatures form
+   across grapheme boundaries only when the spacing is 0.
 
 ## Summary
 

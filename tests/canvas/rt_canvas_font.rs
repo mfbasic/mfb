@@ -2364,8 +2364,8 @@ END FUNC
 /// The fixture's index, word for word, from its own tables: `head.unitsPerEm` 1000,
 /// `hhea` 800 / −200 / 100, a format-12 `cmap` mapping `A`→1 and `B`→2 (two runs of
 /// delta −64), three `hmtx` advances, no kerning (word 9 is 0), and no `post` or `OS/2`
-/// (words 10-13 unset, −32768). Layout version 3, whose header is fourteen words
-/// (plan-162-B added word 9, plan-162-D words 10-13).
+/// (words 10-13 unset, −32768), no ligatures or carets (14-15). Layout version 4, whose
+/// header is sixteen words (plan-162-B added word 9, -D words 10-13, -F 14-15).
 #[test]
 fn face_index_of_the_fixture_is_its_own_tables() {
     let dumps = face_dumps(
@@ -2376,10 +2376,11 @@ fn face_index_of_the_fixture_is_its_own_tables() {
     assert_eq!(
         dumps,
         vec![vec![
-            3, 1000, 800, -200, 100, // version, unitsPerEm, ascent, descent, lineGap
-            2, 14, 3, 20, // R at word 14, H at word 20
+            4, 1000, 800, -200, 100, // version, unitsPerEm, ascent, descent, lineGap
+            2, 16, 3, 22, // R at word 16, H at word 22
             0,  // no kerning section
             -32768, -32768, -32768, -32768, // no underline, no strikeout
+            0, 0, // no ligatures, no carets
             65, 65, -64, 66, 66, -64, // the runs
             500, 250, 300, // the advances
         ]],
@@ -2400,8 +2401,8 @@ fn face_index_of_a_font_with_no_head_has_no_units_per_em() {
     assert_eq!(
         dumps,
         vec![vec![
-            3, 0, 800, -200, 100, 2, 14, 3, 20, 0, -32768, -32768, -32768, -32768, 65, 65, -64, 66,
-            66, -64, 500, 250, 300
+            4, 0, 800, -200, 100, 2, 16, 3, 22, 0, -32768, -32768, -32768, -32768, 0, 0, 65, 65,
+            -64, 66, 66, -64, 500, 250, 300
         ]],
     );
 }
@@ -2760,7 +2761,7 @@ fn a_load_destroy_cycle_keeps_only_the_fonts_own_blocks() {
     const FEW: usize = 40;
     const MANY: usize = 80;
     let font = minimal_truetype().len() as u64;
-    let words = 23u64; // the fixture's index, `face_index_of_the_fixture_is_its_own_tables`
+    let words = 25u64; // the fixture's index, `face_index_of_the_fixture_is_its_own_tables`
     let round = |n: u64| n.div_ceil(16) * 16;
     let per_cycle = round(40 + font) + round(40 + 8 * words) + 112;
     let few = live_after_cycles(FEW);
@@ -3283,7 +3284,7 @@ fn face_kern_reads_each_fixtures_pairs() {
             .find_map(|f| f.strip_prefix("kern="))
             .unwrap_or_else(|| panic!("no `kern=` in `{check}`"));
         assert_eq!(kern, want, "{name}: `{check}`");
-        assert_eq!(index[0], 3, "{name}: layout version");
+        assert_eq!(index[0], 4, "{name}: layout version");
         assert!(index[9] > 0, "{name}: a kerning section");
     }
     let (check, index) = face_check("canvas_face_kern_none", minimal_truetype());
@@ -3597,7 +3598,7 @@ fn closing_the_first_font_draws_the_string_from_the_next() {
 // `measureText` shapes as `shape` and its words.
 
 /// The run's columns, as `__CANVAS_RUN_*` number them.
-const RUN_STRIDE: usize = 5;
+const RUN_STRIDE: usize = 6;
 const RUN_SCALAR: usize = 3;
 const RUN_GAP: usize = 4;
 
@@ -3996,4 +3997,193 @@ END FUNC
             "closed: 77030004",
         ]
     );
+}
+
+// ---------------------------------------------------------------------------------------
+// plan-162-F: standard ligatures (`GSUB` `liga`).
+//
+// The ligature fixture: `f` → 1 (advance 300, a 100 × 300 bar), `i` → 2 (200, 80 × 200),
+// `l` → 3 (250, 80 × 400), and two ligature glyphs no codepoint maps: `fi` → 4 (450, a
+// 400 × 100 slab) and `ffi` → 5 (700, a 650 × 100 slab), so a drawn ligature is told
+// apart from its components by its pixels. `liga` lists `ffi` before `fi`, longest
+// first, as fonts do. `GDEF` gives `ffi` carets at 230 and 470; `fi` has none.
+
+const GID_F: u16 = 1;
+const GID_I: u16 = 2;
+const GID_L: u16 = 3;
+const GID_FI: u16 = 4;
+const GID_FFI: u16 = 5;
+
+/// LigatureSubst format 1 over `firsts`, one ligature set each: `(ligature, rest)`,
+/// where `rest` is the components after the first.
+fn ligature_subst(firsts: &[u16], sets: &[Vec<(u16, Vec<u16>)>]) -> Vec<u8> {
+    let mut set_bytes: Vec<Vec<u8>> = Vec::new();
+    for set in sets {
+        let mut ligs: Vec<Vec<u8>> = Vec::new();
+        for (lig, rest) in set {
+            let mut b = Vec::new();
+            b.extend(be16(*lig));
+            b.extend(be16(rest.len() as u16 + 1));
+            for g in rest {
+                b.extend(be16(*g));
+            }
+            ligs.push(b);
+        }
+        let mut b = Vec::new();
+        b.extend(be16(ligs.len() as u16));
+        let mut at = 2 + 2 * ligs.len();
+        for l in &ligs {
+            b.extend(be16(at as u16));
+            at += l.len();
+        }
+        for l in ligs {
+            b.extend(l);
+        }
+        set_bytes.push(b);
+    }
+    let header = 6 + 2 * sets.len();
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    let total: usize = set_bytes.iter().map(Vec::len).sum();
+    out.extend(be16((header + total) as u16)); // coverage after the sets
+    out.extend(be16(sets.len() as u16));
+    let mut at = header;
+    for b in &set_bytes {
+        out.extend(be16(at as u16));
+        at += b.len();
+    }
+    for b in set_bytes {
+        out.extend(b);
+    }
+    out.extend(coverage1(firsts));
+    out
+}
+
+/// A `GDEF` with only a LigCaretList: per ligature glyph, format-1 caret coordinates.
+fn gdef_carets(ligatures: &[(u16, Vec<i16>)]) -> Vec<u8> {
+    let mut glyphs: Vec<Vec<u8>> = Vec::new();
+    for (_, carets) in ligatures {
+        let mut b = Vec::new();
+        b.extend(be16(carets.len() as u16));
+        let mut at = 2 + 2 * carets.len();
+        for _ in carets {
+            b.extend(be16(at as u16));
+            at += 4;
+        }
+        for c in carets {
+            b.extend(be16(1));
+            b.extend(c.to_be_bytes());
+        }
+        glyphs.push(b);
+    }
+    let firsts: Vec<u16> = ligatures.iter().map(|(g, _)| *g).collect();
+    let cov = coverage1(&firsts);
+    let mut list = Vec::new();
+    let header = 4 + 2 * glyphs.len();
+    list.extend(be16(header as u16)); // coverage right after the offsets
+    list.extend(be16(glyphs.len() as u16));
+    let mut at = header + cov.len();
+    for g in &glyphs {
+        list.extend(be16(at as u16));
+        at += g.len();
+    }
+    list.extend(cov);
+    for g in glyphs {
+        list.extend(g);
+    }
+    let mut out = Vec::new();
+    out.extend(be16(1));
+    out.extend(be16(0)); // version 1.0
+    out.extend(be16(0)); // glyphClassDef
+    out.extend(be16(0)); // attachList
+    out.extend(be16(12)); // ligCaretList
+    out.extend(be16(0)); // markAttachClassDef
+    out.extend(list);
+    out
+}
+
+/// The ligature fixture, with `extra` tables (a `GSUB`, a `GDEF`) added.
+fn ligature_font(extra: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let outlines: [[i16; 4]; 5] = [
+        [0, 0, 100, 300],
+        [0, 0, 80, 200],
+        [0, 0, 80, 400],
+        [0, 0, 400, 100],
+        [0, 0, 650, 100],
+    ];
+    let mut glyf = Vec::new();
+    let mut loca = vec![0u16, 0]; // glyph 0: no outline
+    for o in outlines {
+        glyf.extend(square_record(o));
+        loca.push((glyf.len() / 2) as u16);
+    }
+    let loca: Vec<u8> = loca.iter().flat_map(|v| v.to_be_bytes()).collect();
+    let mut hmtx = Vec::new();
+    for advance in [500u16, 300, 200, 250, 450, 700] {
+        hmtx.extend(be16(advance));
+        hmtx.extend(be16(0));
+    }
+    let mut hhea = vec![0u8; 36];
+    hhea[4..6].copy_from_slice(&be16(800));
+    hhea[6..8].copy_from_slice(&be16((-200i16) as u16));
+    hhea[34..36].copy_from_slice(&be16(6));
+    let cmap = cmap_with(
+        3,
+        10,
+        cmap12(&[
+            (b'f' as u32, b'f' as u32, GID_F as u32),
+            (b'i' as u32, b'i' as u32, GID_I as u32),
+            (b'l' as u32, b'l' as u32, GID_L as u32),
+        ]),
+    );
+    let mut tables: Vec<(&[u8; 4], Vec<u8>)> = vec![
+        (b"cmap", cmap),
+        (b"glyf", glyf),
+        (b"hhea", hhea),
+        (b"hmtx", hmtx),
+        (b"loca", loca),
+    ];
+    tables.extend(extra.iter().map(|(t, d)| (*t, d.clone())));
+    with_tables(&minimal_truetype(), &tables)
+}
+
+/// `liga`: on `f`, `ffi` (f, f, i) before `fi` (f, i).
+fn gsub_liga() -> Vec<u8> {
+    let set = vec![(GID_FFI, vec![GID_F, GID_I]), (GID_FI, vec![GID_I])];
+    layout_table(
+        b"DFLT",
+        b"liga",
+        &[lookup(4, &[ligature_subst(&[GID_F], &[set])])],
+    )
+}
+
+fn ligating_font() -> Vec<u8> {
+    ligature_font(&[
+        (b"GSUB", gsub_liga()),
+        (b"GDEF", gdef_carets(&[(GID_FFI, vec![230, 470])])),
+    ])
+}
+
+/// Widths at size 1000 in a 1000-unit em, so in font units: `ffi` is the one `ffi`
+/// glyph (700), `fil` is `fi` + `l` (450 + 250), and with letter-spacing there are no
+/// ligatures, so `fi` is `f` + `i` + the one gap (300 + 200 + 1).
+#[test]
+fn liga_measures_ligatures_and_not_with_spacing() {
+    let lines = run_files(
+        "canvas_liga_widths",
+        r#"IMPORT app
+IMPORT canvas
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("liga.ttf")
+  io::print(toString(toInt(canvas::measureText(f, 1000.0, "ffi").width)))
+  io::print(toString(toInt(canvas::measureText(f, 1000.0, "fil").width)))
+  io::print(toString(toInt(canvas::measureText(f, 1000.0, "fi", 1.0).width)))
+END FUNC
+"#,
+        &[("liga.ttf", ligating_font())],
+    );
+    assert_eq!(lines, vec!["700", "700", "501"]);
 }

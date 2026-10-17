@@ -103,6 +103,7 @@ mod helper_hit;
 mod helper_items;
 mod helper_joins;
 mod helper_kern;
+mod helper_liga;
 mod helper_paint_defaults;
 mod helper_particles;
 mod helper_picture;
@@ -2548,6 +2549,7 @@ pub(crate) fn register(r: &mut Registry) {
     helper_draw::register(&mut pkg);
     helper_font::register(&mut pkg);
     helper_kern::register(&mut pkg);
+    helper_liga::register(&mut pkg);
     helper_font_name::register(&mut pkg);
     helper_glyph::register(&mut pkg);
     helper_damage::register(&mut pkg);
@@ -3147,12 +3149,17 @@ mod tests {
                 // `__canvas_shapeRun` reads through them — so they are held to the same
                 // rule. `__canvas_faceCheck` is the one other caller: the `--debug`
                 // oracle that holds each index reader to the byte reader it replaced,
-                // for every codepoint. It turns no text into glyphs.
+                // for every codepoint. It turns no text into glyphs. plan-162-F:
+                // `__canvas_ligaRun` is a stage of the shaped run itself — called only by
+                // `__canvas_shapeRun`, it reads the ligature glyph's advance as it
+                // substitutes — so it is the run, not a second walk beside it.
                 let calls = code.contains("__canvas_glyphIndex(")
                     || code.contains("__canvas_glyphAdvance(")
                     || code.contains("__canvas_faceGlyph(")
                     || code.contains("__canvas_faceAdvance(");
-                let allowed = current == "__canvas_shapeRun" || current == "__canvas_faceCheck";
+                let allowed = current == "__canvas_shapeRun"
+                    || current == "__canvas_ligaRun"
+                    || current == "__canvas_faceCheck";
                 if calls && !allowed && !offenders.contains(&current) {
                     offenders.push(current.clone());
                 }

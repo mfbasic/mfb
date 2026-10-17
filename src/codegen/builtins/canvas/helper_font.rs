@@ -243,12 +243,15 @@ END FUNC"#;
 /// | 10, 11 | `post.underlinePosition` (the underline's top edge, negative below the baseline) and `post.underlineThickness` (plan-162-D) |
 /// | 12, 13 | `OS/2.yStrikeoutPosition` (the strikeout's top edge, above the baseline) and `OS/2.yStrikeoutSize` |
 ///
+/// | 14, 15 | the ligature section's and the ligature-caret section's first words, or 0 (plan-162-F, `helper_liga.rs`) |
+///
 /// Words 10-13 hold −32768, "the font says nothing", for a missing table or a zero
 /// thickness: a font that gives a zero-thickness line has given no usable line, and the
 /// reader substitutes its documented default instead.
 ///
 /// Each later letter of plan-162 appends its section and bumps the version: 1 was the
-/// metrics, `cmap` and advances alone, 2 added kerning, 3 the decoration lines.
+/// metrics, `cmap` and advances alone, 2 added kerning, 3 the decoration lines, 4 the
+/// ligatures and their carets.
 ///
 /// A cmap **run** is `(firstCp, lastCp, delta)`: every codepoint in it maps to
 /// `cp + delta`, the runs are sorted by `firstCp` and never overlap, and a codepoint in
@@ -289,23 +292,42 @@ LET __CANVAS_FACE_UNDERLINE_SIZE AS Integer = 11
 LET __CANVAS_FACE_STRIKEOUT AS Integer = 12
 LET __CANVAS_FACE_STRIKEOUT_SIZE AS Integer = 13
 LET __CANVAS_FACE_UNSET AS Integer = 0 - 32768
-LET __CANVAS_FACE_HEADER AS Integer = 14
+LET __CANVAS_FACE_LIGA AS Integer = 14
+LET __CANVAS_FACE_CARETS AS Integer = 15
+LET __CANVAS_FACE_HEADER AS Integer = 16
 
 FUNC __canvas_faceIndex(b AS List OF Byte) AS List OF Integer
   LET runs AS List OF Integer = __canvas_cmapRuns(b)
   LET advances AS List OF Integer = __canvas_faceAdvances(b)
   LET kerning AS List OF Integer = __canvas_kernSection(b)
-  LET body AS Integer = __CANVAS_FACE_HEADER + len(runs) + len(advances)
+  LET ligatures AS List OF Integer = __canvas_ligaSection(b)
+  LET carets AS List OF Integer = __canvas_caretSection(b)
+  ' Each optional section's first word, or 0 when the font has none of it.
+  MUT at AS Integer = __CANVAS_FACE_HEADER + len(runs) + len(advances)
   MUT kernAt AS Integer = 0
   IF len(kerning) > 0 THEN
-    kernAt = body
+    kernAt = at
   END IF
-  MUT out AS List OF Integer = [3, __canvas_fontUnitsPerEm(b), __canvas_fontAscent(b), __canvas_fontDescent(b), __canvas_fontLineGap(b), len(runs) / 3, __CANVAS_FACE_HEADER, len(advances), __CANVAS_FACE_HEADER + len(runs), kernAt]
+  at = at + len(kerning)
+  MUT ligaAt AS Integer = 0
+  IF len(ligatures) > 0 THEN
+    ligaAt = at
+  END IF
+  at = at + len(ligatures)
+  MUT caretAt AS Integer = 0
+  IF len(carets) > 0 THEN
+    caretAt = at
+  END IF
+  MUT out AS List OF Integer = [4, __canvas_fontUnitsPerEm(b), __canvas_fontAscent(b), __canvas_fontDescent(b), __canvas_fontLineGap(b), len(runs) / 3, __CANVAS_FACE_HEADER, len(advances), __CANVAS_FACE_HEADER + len(runs), kernAt]
   out = collections::append(out, __canvas_faceLine(b, "post", 8, 10))
   out = collections::append(out, __canvas_faceLine(b, "OS/2", 28, 26))
+  out = collections::append(out, ligaAt)
+  out = collections::append(out, caretAt)
   out = collections::append(out, runs)
   out = collections::append(out, advances)
   out = collections::append(out, kerning)
+  out = collections::append(out, ligatures)
+  out = collections::append(out, carets)
   RETURN out
 END FUNC
 
@@ -641,7 +663,7 @@ r#"FUNC __canvas_faceDump(index AS List OF Integer) AS Nothing
 END FUNC
 
 ' `MFB_CANVAS_SHAPE_DUMP=<file>`: every run `canvas::measureText` shapes, as `shape` and
-' then its words, five per glyph (plan-162-D).
+' then its words, `__CANVAS_RUN_STRIDE` per glyph (plan-162-D, -F).
 FUNC __canvas_shapeDump(run AS List OF Integer) AS Nothing
   LET path AS String = os::getEnvOr("MFB_CANVAS_SHAPE_DUMP", "")
   IF len(path) = 0 THEN
@@ -805,9 +827,10 @@ END FUNC"#;
 /// one no font maps is glyph `0` — `.notdef` — of `fonts[0]`, exactly what a one-font
 /// walk draws for it. The result is flat records of `__CANVAS_RUN_STRIDE` words, one per
 /// glyph, in order (plan-162-D): `fontIndex`, `glyphId`, `advanceUnits`, the zero-based
-/// **scalar index** of the codepoint the glyph came from, and `gapAfter` — 1 on the last
-/// glyph of every grapheme but the final one, which is where letter-spacing goes and
-/// where a caret can stop. Callers read the columns by the `__CANVAS_RUN_*` names, never
+/// **scalar index** of the first codepoint the glyph came from, `gapAfter` — 1 on the
+/// last glyph of every grapheme but the final one, which is where letter-spacing goes
+/// and where a caret can stop — and `componentCount`, how many codepoints the glyph
+/// stands for: 1, or more for a ligature (plan-162-F). Callers read the columns by the `__CANVAS_RUN_*` names, never
 /// by position. Advances stay in font units: the callers scale them
 /// differently on purpose (`measureText` sums Integers and scales once; the draw paths
 /// accumulate scaled Floats, snapped or not), and doing it here would change pixels.
@@ -828,7 +851,8 @@ LET __CANVAS_RUN_GLYPH AS Integer = 1
 LET __CANVAS_RUN_ADVANCE AS Integer = 2
 LET __CANVAS_RUN_SCALAR AS Integer = 3
 LET __CANVAS_RUN_GAP AS Integer = 4
-LET __CANVAS_RUN_STRIDE AS Integer = 5
+LET __CANVAS_RUN_COMPONENTS AS Integer = 5
+LET __CANVAS_RUN_STRIDE AS Integer = 6
 
 FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF Integer
   LET cps AS List OF Integer = encoding::utf32Encode(text)
@@ -854,6 +878,7 @@ FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF Inte
       run = collections::append(run, __canvas_faceAdvance(first, gid))
       run = collections::append(run, c)
       run = collections::append(run, 0)
+      run = collections::append(run, 1)
       c = c + 1
     END WHILE
   END IF
