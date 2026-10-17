@@ -573,6 +573,30 @@ Commit: 4607fad9e
     rt_inplace_self_update every_field_kind_meets_its_expectation -- --ignored` → 1
     passed. `cargo test --test inplace_self_update_census --test rt_canvas_debug_hooks`
     → 2 + 3 passed.
+11. **Final gate for all of plan-162 (§5), as run.** The library tests passed on
+    74fae394a: `cargo test --no-fail-fast` gave 4,993 passed, 0 failed. A tool restart
+    killed that run in the integration tests, so they were rerun with `cargo test
+    --no-fail-fast --test '*'`. That run covered 355 result lines and 4 failing targets:
+    the two census gaps in item 10, the artifact gate (19 diffs, below), and
+    `rt_compress_bounds::decode_time_is_linear_in_output_size`. The compress test is a
+    timing check that failed under load (4n runs 24–80 ms) and passes alone, 2/2.
+    The artifact gate's 19 diffs were 10 `strings`/`regex` `.ncodesum` sentinels, a
+    bug fixed in plan-162-E Corrections item 5, plus 9 files in three canvas fixtures
+    that follow 74fae394a's append-only `__canvas_graphemeEnds`, synced in d86437c5e.
+    After both fixes, `scripts/artifact-gate.sh target/release/mfb all` gives 0 diffs
+    on 2,356 goldens.
+    `scripts/man-examples-gate.sh` ran during the suite and 5 of its 1,130 examples hit
+    the 60 s run timeout (`app::getFullscreen`, `bits::bswap64`, and three `canvas`
+    examples). Rerun alone at the default timeout, `man-run-examples.sh` passes `app`
+    6/6, `bits` 37/37 and `canvas` 38/38, and the `bswap64` binary ran 500/500 times
+    without failing.
+    `scripts/check-generated.sh` passes 8/8. `scripts/test-canvas-vulkan.sh
+    target/debug/mfb --box 2226 --target linux-aarch64` exits 0 with 24 `ok` lines.
+    `cargo fmt --all` (both workspaces) is clean after 5c32b6281. The full library
+    suite was not rerun after 549f410eb. That commit's only source change brings the
+    lookup's codegen back to main's bytes, and the artifact gate proves that. Its unit
+    tests (`cargo test --bin mfb -- unicode gen_cat script_of genCat scriptOf`) pass
+    31/31.
 
 
 ## Summary
