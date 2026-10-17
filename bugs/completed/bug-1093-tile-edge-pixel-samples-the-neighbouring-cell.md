@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: (to add) tests/canvas/rt_canvas_tile.rs — a tile at a fractional destination, sheet rows either side of its source a different colour
+Status: Closed
+Regression Test: tests/canvas/rt_canvas_tile.rs (`a_tile_edge_pixel_samples_inside_its_source_rectangle`); tests/canvas/rt_canvas_metal.rs (`a_tile_edge_pixel_samples_inside_its_source_rectangle_on_metal`); tests/canvas/scenes/tile_edge.mfb; scripts/test-canvas-gpu-rows.sh row `tile_edge` (Vulkan vs software oracle)
 
 A `canvas::Tile` selects a rectangle of an image (`srcPosition`, `srcSize`) and draws
 it into a destination rectangle (`position`, `size`). When an edge of the destination
@@ -36,6 +36,13 @@ References:
 - plan-173 (atlas tiles); its Corrections.
 - Found while rewriting `examples/canvas-demo` (scene VI's coins bob by a fraction of a
   pixel; the demo now places them on whole pixels, citing this bug).
+
+## STATUS: FIXED (429d048b8)
+
+Shipped as designed: all three samplers (software `__canvas_drawGeometry`, the Vulkan and
+Metal `tileColour`) clamp the texel index to `[floor(src), ceil(src + size) - 1]` per axis
+before the image-bounds test. Regressions in 75d52c8ee. The spec's tile paragraph
+(`mfb spec app`) states the edge rule.
 
 ## Failing Reproduction
 
