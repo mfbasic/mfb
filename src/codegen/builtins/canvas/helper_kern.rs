@@ -608,7 +608,7 @@ FUNC __canvas_kernRun(font AS Integer, which AS Integer, run AS List OF Integer)
     RETURN run
   END IF
   MUT out AS List OF Integer = run
-  LET n AS Integer = len(run) / 3
+  LET n AS Integer = len(run) / __CANVAS_RUN_STRIDE
   MUT added AS List OF Integer = []
   MUT c AS Integer = 0
   WHILE c < n
@@ -622,15 +622,17 @@ FUNC __canvas_kernRun(font AS Integer, which AS Integer, run AS List OF Integer)
     MUT i AS Integer = 0
     WHILE i + 1 < n
       MUT stride AS Integer = 1
-      IF collections::getOr(out, i * 3, 0 - 1) = which AND collections::getOr(out, i * 3 + 3, 0 - 1) = which THEN
-        IF __canvas_kernLookup(font, lk, collections::getOr(out, i * 3 + 1, 0), collections::getOr(out, i * 3 + 4, 0)) THEN
+      LET left AS Integer = i * __CANVAS_RUN_STRIDE
+      LET right AS Integer = left + __CANVAS_RUN_STRIDE
+      IF collections::getOr(out, left + __CANVAS_RUN_FONT, 0 - 1) = which AND collections::getOr(out, right + __CANVAS_RUN_FONT, 0 - 1) = which THEN
+        IF __canvas_kernLookup(font, lk, collections::getOr(out, left + __CANVAS_RUN_GLYPH, 0), collections::getOr(out, right + __CANVAS_RUN_GLYPH, 0)) THEN
           MUT x1 AS Integer = __CANVAS_KERN_X1
           IF __canvas_bitOf(__CANVAS_KERN_FLAGS, 1) = 1 THEN
             x1 = x1 - collections::getOr(added, i, 0)
           END IF
-          out = collections::set(out, i * 3 + 2, collections::getOr(out, i * 3 + 2, 0) + x1)
+          out = collections::set(out, left + __CANVAS_RUN_ADVANCE, collections::getOr(out, left + __CANVAS_RUN_ADVANCE, 0) + x1)
           added = collections::set(added, i, collections::getOr(added, i, 0) + x1)
-          out = collections::set(out, i * 3 + 5, collections::getOr(out, i * 3 + 5, 0) + __CANVAS_KERN_X2)
+          out = collections::set(out, right + __CANVAS_RUN_ADVANCE, collections::getOr(out, right + __CANVAS_RUN_ADVANCE, 0) + __CANVAS_KERN_X2)
           IF __canvas_bitOf(__CANVAS_KERN_FLAGS, 0) = 1 THEN
             stride = 2
           END IF

@@ -586,6 +586,9 @@ r#"FUNC __canvas_faceDump(index AS List OF Integer) AS Nothing
 END FUNC
 
 FUNC __canvas_faceCheck(font AS Integer) AS Nothing
+END FUNC
+
+FUNC __canvas_shapeDump(run AS List OF Integer) AS Nothing
 END FUNC"#;
 
 /// A `--debug` build run with `MFB_CANVAS_FACE_DUMP=<file>` appends one line per loaded
@@ -602,6 +605,22 @@ r#"FUNC __canvas_faceDump(index AS List OF Integer) AS Nothing
   END IF
   MUT line AS String = "face"
   FOR EACH word IN index
+    line = line & " " & toString(word)
+  NEXT
+  fs::appendText(path, line & "\n") TRAP(err)
+    RETURN
+  END TRAP
+END FUNC
+
+' `MFB_CANVAS_SHAPE_DUMP=<file>`: every run `canvas::measureText` shapes, as `shape` and
+' then its words, five per glyph (plan-162-D).
+FUNC __canvas_shapeDump(run AS List OF Integer) AS Nothing
+  LET path AS String = os::getEnvOr("MFB_CANVAS_SHAPE_DUMP", "")
+  IF len(path) = 0 THEN
+    RETURN
+  END IF
+  MUT line AS String = "shape"
+  FOR EACH word IN run
     line = line & " " & toString(word)
   NEXT
   fs::appendText(path, line & "\n") TRAP(err)
@@ -756,8 +775,12 @@ END FUNC"#;
 /// `fonts` is a list of font **handles**, and list order is fallback order: each
 /// codepoint takes the first font whose `cmap` maps it to a glyph other than `0`, and
 /// one no font maps is glyph `0` — `.notdef` — of `fonts[0]`, exactly what a one-font
-/// walk draws for it. The result is flat `(fontIndex, glyphId, advanceUnits)` triples,
-/// one per codepoint, in order. Advances stay in font units: the callers scale them
+/// walk draws for it. The result is flat records of `__CANVAS_RUN_STRIDE` words, one per
+/// glyph, in order (plan-162-D): `fontIndex`, `glyphId`, `advanceUnits`, the zero-based
+/// **scalar index** of the codepoint the glyph came from, and `gapAfter` — 1 on the last
+/// glyph of every grapheme but the final one, which is where letter-spacing goes and
+/// where a caret can stop. Callers read the columns by the `__CANVAS_RUN_*` names, never
+/// by position. Advances stay in font units: the callers scale them
 /// differently on purpose (`measureText` sums Integers and scales once; the draw paths
 /// accumulate scaled Floats, snapped or not), and doing it here would change pixels.
 ///
@@ -772,7 +795,14 @@ END FUNC"#;
 /// which draws nothing (plan-162-C).
 #[rustfmt::skip]
 const SHAPE_RUN: &str =
-r#"FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF Integer
+r#"LET __CANVAS_RUN_FONT AS Integer = 0
+LET __CANVAS_RUN_GLYPH AS Integer = 1
+LET __CANVAS_RUN_ADVANCE AS Integer = 2
+LET __CANVAS_RUN_SCALAR AS Integer = 3
+LET __CANVAS_RUN_GAP AS Integer = 4
+LET __CANVAS_RUN_STRIDE AS Integer = 5
+
+FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF Integer
   LET cps AS List OF Integer = encoding::utf32Encode(text)
   LET n AS Integer = len(cps)
   ' The first open font shapes every codepoint, `.notdef` included; with none open,
@@ -794,6 +824,8 @@ r#"FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF I
       run = collections::append(run, base)
       run = collections::append(run, gid)
       run = collections::append(run, __canvas_faceAdvance(first, gid))
+      run = collections::append(run, c)
+      run = collections::append(run, 0)
       c = c + 1
     END WHILE
   END IF
@@ -804,12 +836,13 @@ r#"FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF I
     IF which > base AND canvas::fontRegistered(f) THEN
       MUT c AS Integer = 0
       WHILE c < n
-        IF collections::getOr(run, c * 3 + 1, 0) = 0 THEN
+        LET at AS Integer = c * __CANVAS_RUN_STRIDE
+        IF collections::getOr(run, at + __CANVAS_RUN_GLYPH, 0) = 0 THEN
           LET gid AS Integer = __canvas_faceGlyph(f, collections::getOr(cps, c, 0))
           IF gid <> 0 THEN
-            run = collections::set(run, c * 3, which)
-            run = collections::set(run, c * 3 + 1, gid)
-            run = collections::set(run, c * 3 + 2, __canvas_faceAdvance(f, gid))
+            run = collections::set(run, at + __CANVAS_RUN_FONT, which)
+            run = collections::set(run, at + __CANVAS_RUN_GLYPH, gid)
+            run = collections::set(run, at + __CANVAS_RUN_ADVANCE, __canvas_faceAdvance(f, gid))
           END IF
         END IF
         c = c + 1
@@ -821,6 +854,16 @@ r#"FUNC __canvas_shapeRun(fonts AS List OF Integer, text AS String) AS List OF I
   FOR EACH f IN fonts
     run = __canvas_kernRun(f, which, run)
     which = which + 1
+  NEXT
+  ' Grapheme boundaries: the last glyph of each grapheme but the final one has a gap
+  ' after it. One glyph per codepoint, so a grapheme's last glyph is the one at its last
+  ' scalar.
+  MUT reach AS Integer = 0
+  FOR EACH g IN strings::graphemes(text)
+    reach = reach + len(encoding::utf32Encode(g))
+    IF reach < n THEN
+      run = collections::set(run, (reach - 1) * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GAP, 1)
+    END IF
   NEXT
   RETURN run
 END FUNC"#;

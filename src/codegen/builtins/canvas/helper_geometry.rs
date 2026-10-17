@@ -1409,7 +1409,7 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
   IF NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN []
   END IF
-  LET chars AS Integer = len(shaped) / 3
+  LET chars AS Integer = len(shaped) / __CANVAS_RUN_STRIDE
 
   ' Pass one rasterises, recording each entry in the GLOBAL pin list rather than in a
   ' local. A run being built is not yet in the geometry cache, so the pin scan cannot
@@ -1428,10 +1428,10 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
   MUT bFont AS Integer = 0 - 1
   MUT c AS Integer = 0
   WHILE c < chars
-    LET which AS Integer = collections::getOr(shaped, c * 3, 0)
+    LET which AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0)
     LET font AS Integer = collections::getOr(handles, which, 0)
     LET scale AS Float = collections::getOr(scales, which, 0.0)
-    LET gid AS Integer = collections::getOr(shaped, c * 3 + 1, 0)
+    LET gid AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GLYPH, 0)
     ' Rasterise here, at cache-fill time, not at draw time. The draw path owns a live
     ' 2.3 MB surface local and `collections::set` is in-place only while nothing else
     ' allocates underneath it, so every allocation belongs on this side of the seam --
@@ -1462,13 +1462,13 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
   MUT pen AS Float = __canvas_textX(t)
   c = 0
   WHILE c < chars
-    LET scale AS Float = collections::getOr(scales, collections::getOr(shaped, c * 3, 0), 0.0)
+    LET scale AS Float = collections::getOr(scales, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0), 0.0)
     IF scale > 0.0 THEN
       run = collections::append(run, toFloat(collections::getOr(__CANVAS_GLYPH_PINS, c, 0 - 1)))
       run = collections::append(run, toFloat(toInt(pen + 0.5)))
       run = collections::append(run, toFloat(toInt(__canvas_textY(t) + 0.5)))
     END IF
-    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
+    pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * scale
     c = c + 1
   END WHILE
   RETURN run
@@ -1503,8 +1503,8 @@ END FUNC
 ' -- no font open, or only fonts with no `head` -- is no record at all.
 FUNC __canvas_runDrawable(shaped AS List OF Integer, scales AS List OF Float) AS Boolean
   MUT c AS Integer = 0
-  WHILE c * 3 < len(shaped)
-    IF collections::getOr(scales, collections::getOr(shaped, c * 3, 0), 0.0) > 0.0 THEN
+  WHILE c * __CANVAS_RUN_STRIDE < len(shaped)
+    IF collections::getOr(scales, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0), 0.0) > 0.0 THEN
       RETURN TRUE
     END IF
     c = c + 1
@@ -1522,8 +1522,8 @@ FUNC __canvas_runLine(handles AS List OF Integer, scales AS List OF Float, shape
     used = collections::append(used, FALSE)
   NEXT
   MUT c AS Integer = 0
-  WHILE c * 3 < len(shaped)
-    used = collections::set(used, collections::getOr(shaped, c * 3, 0), TRUE)
+  WHILE c * __CANVAS_RUN_STRIDE < len(shaped)
+    used = collections::set(used, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0), TRUE)
     c = c + 1
   END WHILE
   IF len(shaped) = 0 THEN
@@ -1594,8 +1594,8 @@ END FUNC
 FUNC __canvas_runPen(shaped AS List OF Integer, scales AS List OF Float, x0 AS Float) AS Float
   MUT pen AS Float = x0
   MUT c AS Integer = 0
-  WHILE c * 3 < len(shaped)
-    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * collections::getOr(scales, collections::getOr(shaped, c * 3, 0), 0.0)
+  WHILE c * __CANVAS_RUN_STRIDE < len(shaped)
+    pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * collections::getOr(scales, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0), 0.0)
     c = c + 1
   END WHILE
   RETURN pen
@@ -1617,17 +1617,17 @@ FUNC __canvas_textEdges(t AS Text) AS List OF Float
   MUT pen AS Float = __canvas_textX(t)
   MUT c AS Integer = 0
   __CANVAS_RING_MARKING = TRUE
-  WHILE c * 3 < len(shaped)
-    LET which AS Integer = collections::getOr(shaped, c * 3, 0)
+  WHILE c * __CANVAS_RUN_STRIDE < len(shaped)
+    LET which AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0)
     LET scale AS Float = collections::getOr(scales, which, 0.0)
     IF scale > 0.0 THEN
       IF which <> bFont THEN
         b = __canvas_fontBlob(collections::getOr(handles, which, 0))
         bFont = which
       END IF
-      edges = __canvas_glyphEdges(b, collections::getOr(shaped, c * 3 + 1, 0), scale, pen, __canvas_textY(t), edges)
+      edges = __canvas_glyphEdges(b, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GLYPH, 0), scale, pen, __canvas_textY(t), edges)
     END IF
-    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
+    pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * scale
     c = c + 1
   END WHILE
   __CANVAS_RING_MARKING = FALSE
@@ -2358,11 +2358,11 @@ FUNC __canvas_geoRunReference(t AS Text, offset AS Integer) AS List OF Float
   ' The record's triples are only the drawn glyphs', so the stored one is counted apart.
   MUT at AS Integer = 0
   MUT c AS Integer = 0
-  WHILE c * 3 < len(shaped)
-    LET which AS Integer = collections::getOr(shaped, c * 3, 0)
+  WHILE c * __CANVAS_RUN_STRIDE < len(shaped)
+    LET which AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0)
     LET scale AS Float = collections::getOr(scales, which, 0.0)
     IF scale > 0.0 THEN
-      LET gid AS Integer = collections::getOr(shaped, c * 3 + 1, 0)
+      LET gid AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GLYPH, 0)
       MUT entry AS Integer = 0 - 2
       IF offset >= 0 THEN
         LET stored AS Integer = toInt(collections::getOr(__CANVAS_GEO_DATA, offset + __CANVAS_GEO_HEADER + at * 3, 0.0 - 2.0))
@@ -2375,7 +2375,7 @@ FUNC __canvas_geoRunReference(t AS Text, offset AS Integer) AS List OF Float
       run = collections::append(run, toFloat(toInt(__canvas_textY(t) + 0.5)))
       at = at + 1
     END IF
-    pen = pen + toFloat(collections::getOr(shaped, c * 3 + 2, 0)) * scale
+    pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * scale
     c = c + 1
   END WHILE
   RETURN run

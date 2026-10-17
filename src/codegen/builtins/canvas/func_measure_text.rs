@@ -122,6 +122,7 @@ const MEASURE_HANDLES: &str =
 r#"FUNC __canvas_measureHandles(handles AS List OF Integer, size AS Float, text AS String) AS TextMetrics
   __canvas_faceCheck(collections::getOr(handles, 0, 0))
   LET run AS List OF Integer = __canvas_shapeRun(handles, text)
+  __canvas_shapeDump(run)
   LET fonts AS Integer = len(handles)
   MUT sums AS List OF Integer = []
   MUT used AS List OF Boolean = []
@@ -133,10 +134,10 @@ r#"FUNC __canvas_measureHandles(handles AS List OF Integer, size AS Float, text 
   END WHILE
   MUT i AS Integer = 0
   WHILE i < len(run)
-    LET which AS Integer = collections::getOr(run, i, 0)
-    sums = collections::set(sums, which, collections::getOr(sums, which, 0) + collections::getOr(run, i + 2, 0))
+    LET which AS Integer = collections::getOr(run, i + __CANVAS_RUN_FONT, 0)
+    sums = collections::set(sums, which, collections::getOr(sums, which, 0) + collections::getOr(run, i + __CANVAS_RUN_ADVANCE, 0))
     used = collections::set(used, which, TRUE)
-    i = i + 3
+    i = i + __CANVAS_RUN_STRIDE
   END WHILE
   MUT width AS Float = 0.0
   MUT ascent AS Float = 0.0

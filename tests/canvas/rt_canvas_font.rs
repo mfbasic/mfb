@@ -3586,3 +3586,140 @@ fn closing_the_first_font_draws_the_string_from_the_next() {
     let runs = two_font_columns("canvas_fallback_closed", "AB", "[latin, fallback]", true);
     assert_eq!(runs, vec![(125, 204)]);
 }
+
+// ---------------------------------------------------------------------------------------
+// plan-162-D: the five-column shaped run — `scalarIndex` and `gapAfter` — and what is
+// built on it. A `--debug` build run with `MFB_CANVAS_SHAPE_DUMP=<file>` appends every run
+// `measureText` shapes as `shape` and its words.
+
+/// The run's columns, as `__CANVAS_RUN_*` number them.
+const RUN_STRIDE: usize = 5;
+const RUN_SCALAR: usize = 3;
+const RUN_GAP: usize = 4;
+
+/// Shape each codepoint list in `cases` (with `measureText`), and return, per case, the
+/// program's own `strings::graphemes` count, its scalar count, and the dumped run.
+fn shaped_runs(name: &str, cases: &[&[u32]]) -> Vec<(usize, usize, Vec<i64>)> {
+    let mut body = String::new();
+    for cps in cases {
+        let list: Vec<String> = cps.iter().map(|c| c.to_string()).collect();
+        body.push_str(&format!(
+            "  probe(f, encoding::utf32Decode([{}]))\n",
+            list.join(", ")
+        ));
+    }
+    let source = format!(
+        r#"IMPORT app
+IMPORT canvas
+IMPORT encoding
+IMPORT strings
+IMPORT io
+
+FUNC probe(f AS canvas::Font, s AS String) AS Nothing
+  io::print(toString(len(strings::graphemes(s))) & " " & toString(len(encoding::utf32Encode(s))))
+  LET m AS canvas::TextMetrics = canvas::measureText(f, 10.0, s)
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES f AS canvas::Font = canvas::loadFont("fixture.ttf")
+{body}END FUNC
+"#
+    );
+    let (stdout, _, project) = run_debug_files(
+        name,
+        &source,
+        &[("fixture.ttf", minimal_truetype())],
+        &[("MFB_CANVAS_SHAPE_DUMP", "{project}/shape.txt".to_string())],
+    );
+    let dump = std::fs::read_to_string(project.join("shape.txt")).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&project);
+    let counts: Vec<(usize, usize)> = stdout
+        .lines()
+        .map(|l| {
+            let (g, s) = l.split_once(' ').expect("two counts");
+            (g.parse().expect("a count"), s.parse().expect("a count"))
+        })
+        .collect();
+    let runs: Vec<Vec<i64>> = dump
+        .lines()
+        .map(|l| {
+            l.split(' ')
+                .skip(1)
+                .map(|w| w.parse().expect("a run word"))
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        counts.len(),
+        cases.len(),
+        "one count line per case:\n{stdout}"
+    );
+    assert_eq!(runs.len(), cases.len(), "one shaped run per case:\n{dump}");
+    counts
+        .into_iter()
+        .zip(runs)
+        .map(|((g, s), r)| (g, s, r))
+        .collect()
+}
+
+/// The run marks grapheme boundaries exactly as `strings::graphemes` draws them: one
+/// `gapAfter` per boundary inside the string (so `graphemes − 1` of them, none after the
+/// last), on the last glyph of each grapheme; and `scalarIndex` walks the string's
+/// scalars in order, ending at the last. The cases are the ones a naive "one gap per
+/// codepoint" or "per space" rule gets wrong: combining marks, a ZWJ family, CRLF,
+/// regional-indicator flags, Hangul jamo, an emoji with a skin-tone modifier, a
+/// Devanagari conjunct, a lone combining mark at the start, and the empty string.
+#[test]
+fn shape_run_marks_every_grapheme_boundary_and_scalar() {
+    let cases: &[&[u32]] = &[
+        &[101, 0x301, 120],                                          // é (e + acute), x
+        &[0x1F469, 0x200D, 0x1F469, 0x200D, 0x1F467, 97],            // family ZWJ, a
+        &[65, 13, 10, 66],                                           // A CRLF B
+        &[0x1F1EF, 0x1F1F5, 0x1F1FA, 0x1F1F8],                       // two flags
+        &[0x1100, 0x1161, 0x11A8, 0x1100],                           // Hangul LVT, L
+        &[72, 0x308, 0x1F44D, 0x1F3FD, 13, 10, 0x915, 0x94D, 0x937], // mixed
+        &[0x301, 65],                                                // lone mark first
+        &[],                                                         // empty
+    ];
+    for (i, (graphemes, scalars, run)) in shaped_runs("canvas_shape_run_graphemes", cases)
+        .into_iter()
+        .enumerate()
+    {
+        assert_eq!(
+            run.len() % RUN_STRIDE,
+            0,
+            "case {i}: whole records: {run:?}"
+        );
+        let glyphs = run.len() / RUN_STRIDE;
+        assert_eq!(
+            glyphs, scalars,
+            "case {i}: one glyph per scalar until ligatures"
+        );
+        let gaps = (0..glyphs)
+            .filter(|g| run[g * RUN_STRIDE + RUN_GAP] == 1)
+            .count();
+        assert_eq!(
+            gaps,
+            graphemes.saturating_sub(1),
+            "case {i}: one gap per inner grapheme boundary: {run:?}"
+        );
+        if glyphs > 0 {
+            assert_eq!(
+                run[(glyphs - 1) * RUN_STRIDE + RUN_GAP],
+                0,
+                "case {i}: no gap after the last grapheme"
+            );
+            let scalar = |g: usize| run[g * RUN_STRIDE + RUN_SCALAR];
+            assert!(
+                (1..glyphs).all(|g| scalar(g) >= scalar(g - 1)),
+                "case {i}: scalarIndex must not go backwards: {run:?}"
+            );
+            assert_eq!(
+                scalar(glyphs - 1),
+                scalars as i64 - 1,
+                "case {i}: ends on the last scalar"
+            );
+        }
+    }
+}

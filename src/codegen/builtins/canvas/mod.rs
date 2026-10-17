@@ -270,6 +270,10 @@ pub(crate) fn register(r: &mut Registry) {
         "fs",
         "encoding",
         "bits",
+        // plan-162-D: `__canvas_shapeRun` marks grapheme boundaries with
+        // `strings::graphemes`, the segmentation `strings` already ships (utf8proc's
+        // properties), rather than a second copy of it here.
+        "strings",
         // plan-172-B: every coordinate pair is a `vector::Float2`. Injected by
         // `vector`'s late pass, because a canvas program need not import it. This is
         // the largest import here by far: `vector` has no gated helpers, so its whole
@@ -3004,10 +3008,11 @@ mod tests {
 
     /// Every variable only a `--debug` build's canvas source reads: the reporting hooks
     /// and the switches a test sets to drive or observe a headless run.
-    const DEBUG_ONLY_VARIABLES: [&str; 11] = [
+    const DEBUG_ONLY_VARIABLES: [&str; 12] = [
         "MFB_CANVAS_STATS",
         "MFB_CANVAS_FACE_DUMP",
         "MFB_CANVAS_FACE_CHECK",
+        "MFB_CANVAS_SHAPE_DUMP",
         "MFB_CANVAS_DUMP",
         "MFB_CANVAS_POINTER",
         "MFB_CANVAS_AUTO_WINDOW_MS",

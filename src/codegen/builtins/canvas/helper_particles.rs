@@ -489,7 +489,7 @@ FUNC __canvas_particleTextBox(t AS Text) AS Nothing
   LET handles AS List OF Integer = __canvas_textHandles(t)
   LET scales AS List OF Float = __canvas_fontScales(handles, t.fontSize)
   LET shaped AS List OF Integer = __canvas_shapeRun(handles, t.text)
-  IF len(shaped) < 3 OR NOT __canvas_runDrawable(shaped, scales) THEN
+  IF len(shaped) < __CANVAS_RUN_STRIDE OR NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN
   END IF
   LET advance AS Float = __canvas_runPen(shaped, scales, 0.0)

@@ -141,24 +141,36 @@ Acceptance: §2 rows are measured.
   Check: `grep -c UNMEASURED planning/plan-162-D-spacing-decoration-carets.md` → 0
   outside this list (est. 1 min).
   Result: → 1, the line above.
-Commit: — (this commit)
+Commit: 1a87d0917
 
 ### Phase 2 — the five-column run
 
-- [ ] `helper_font.rs:__canvas_shapeRun`: add the `scalarIndex` and `gapAfter` columns
+- [x] `helper_font.rs:__canvas_shapeRun`: add the `scalarIndex` and `gapAfter` columns
       from `strings::graphemes`, and define the `__CANVAS_RUN_*` column constants and
-      the stride.
-- [ ] Migrate the four callers to the constants. There is no spacing yet, so
-      `gapAfter` is ignored.
-- [ ] Tests: a property test over strings mixing combining marks, ZWJ emoji sequences,
+      the stride. canvas now imports `strings` (Correction 1).
+- [x] Migrate the four callers to the constants. There is no spacing yet, so
+      `gapAfter` is ignored. Every reader of a shaped run: the three geometry builders,
+      the run helpers (`__canvas_runDrawable`/`runLine`/`runPen`), the hit and particle
+      boxes, `__canvas_kernRun`, and `__canvas_measureHandles` (Correction 2).
+- [x] Tests: a property test over strings mixing combining marks, ZWJ emoji sequences,
       CRLF and flags. The number of glyphs with `gapAfter = 1` must be
       `graphemesCount(s) − 1`, and `scalarIndex` must be non-decreasing and end at
       `len(toScalars(s)) − 1`.
+      `shape_run_marks_every_grapheme_boundary_and_scalar` → ok, over combining marks, a
+      ZWJ family, CRLF, two flags, Hangul jamo, a skin-tone emoji, a Devanagari conjunct,
+      a leading combining mark and the empty string. The run is read through the new
+      `--debug` `MFB_CANVAS_SHAPE_DUMP` (spec `tooling/09_debug-report.md`).
 
 Acceptance: identical pixels, and the property test passes.
   Check: `cargo test --test rt_canvas_font shape_run --test rt_canvas_golden` → pass and
   `git status --short tests/golden/canvas` → empty (est. 5 min).
-Commit: —
+  Result: `shape_run` → 1 passed; `rt_canvas_golden` → 28 passed;
+  `git status --short tests/golden/canvas` → empty. A full `rt_canvas_font` run made
+  alongside a separate 210 s test run had 3 of its 30-second-watchdog tests
+  (`a_cmap_group_count_*`, `a_glyph_whose_bitmap_would_exceed_the_raster_cap_is_skipped`)
+  time out. Run alone, the three pass in 10.8 s together; they are wall-clock bounded,
+  and the box was loaded (Correction 3).
+Commit: — (this commit)
 
 ### Phase 3 — letter-spacing
 
@@ -233,7 +245,20 @@ Commit: —
 
 ## Corrections
 
-(empty)
+1. **canvas imports `strings`.** `strings::graphemes` is unreachable from canvas's
+   injected source until `canvas` lists `strings` in `add_imports`
+   (`error[2-201-0014 SYMBOL_UNKNOWN_IMPORT]: Package \`strings\` is used but not
+   imported`). The import itself costs 32 bytes: a one-`present` canvas program built by
+   `main`'s compiler is 3,409,096 bytes, and 3,409,128 with `IMPORT strings` and a
+   `strings::graphemes` call. The same program built on this branch after plan-162-A–D's
+   helpers is 3,821,896 bytes (+412,800, the new MFBASIC: face index, kerning, measure,
+   run helpers).
+2. **More than four callers read the run.** By Phase 2 the run is read in 9 places
+   (§ the task above); all go through `__CANVAS_RUN_*`.
+3. **Wall-clock watchdog tests flake under load.** Three `rt_canvas_font` tests bound a
+   hostile font's run with a 30 s timeout. They timed out once while another test binary
+   ran in parallel and passed alone (10.8 s for all three). The checks below run the
+   suite alone.
 
 ## Summary
 
