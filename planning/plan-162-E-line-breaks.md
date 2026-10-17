@@ -247,6 +247,18 @@ Commit: c4a3bf5c4 (Phases 2 and 3)
    therefore cut into units first, and every rule's look-behind walks units. Positions
    inside a unit cannot break, because LB9 never absorbs after the classes LB4–LB8
    break after. The design is unchanged from §3; the conformance file confirms it.
+5. **"Expected to change: nothing existing" was false at first, and is true now.**
+   The final artifact gate found the `strings` and `regex` `codegen_cover_rt`
+   `.ncodesum` sentinels moved on all 5 targets (10 diffs). Splitting
+   `emit_unicode_range_value` out of `emit_unicode_range_lookup` made the lookup
+   allocate two temporaries of its own before the bisection's, so every
+   `genCat`/`scriptOf` caller got different vreg numbering. Both packages route
+   through `lower_unicode_range_member`, and nothing else moved. The fix is a shared
+   `emit_unicode_range_search` that hands back its own `addr`/`scratch`, so the lookup
+   emits its old instruction sequence. Verified: `scripts/artifact-gate.sh
+   target/release/mfb strings` and `… regex` each give 0 diffs on 7 goldens.
+   `line_break_conformance` passes 1/1, and `cargo test --bin mfb -- unicode gen_cat
+   script_of genCat scriptOf` passes 31/31.
 
 ## Summary
 

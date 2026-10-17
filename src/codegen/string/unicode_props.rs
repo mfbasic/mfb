@@ -364,10 +364,9 @@ impl CodeBuilder<'_> {
         name_stride: usize,
     ) {
         let output: abi::Reg = output.into();
-        let addr = self.temporary_vreg();
-        let scratch = self.temporary_vreg();
+        let (addr, scratch) = self.emit_unicode_range_search(codepoint, runs_symbol, runs);
         // `RUNS[lo].nameIndex`, then `NAMES + index * stride`.
-        self.emit_unicode_range_value(codepoint, &addr, runs_symbol, runs);
+        self.emit(abi::load_u32(&addr, &addr, 4));
         self.emit(abi::move_immediate(
             &scratch,
             "Integer",
@@ -379,8 +378,8 @@ impl CodeBuilder<'_> {
     }
 
     /// The bisection `emit_unicode_range_lookup` runs, answering the found run's second
-    /// word itself: its name index there, and the property value for a table whose runs
-    /// carry the value (`strings::lineBreakClass`, plan-162-E).
+    /// word itself: the property value, for a table whose runs carry the value rather
+    /// than a name index (`strings::lineBreakClass`, plan-162-E).
     pub(crate) fn emit_unicode_range_value(
         &mut self,
         codepoint: impl Into<abi::Reg>,
@@ -388,8 +387,22 @@ impl CodeBuilder<'_> {
         runs_symbol: &str,
         runs: usize,
     ) {
-        let codepoint: abi::Reg = codepoint.into();
         let output: abi::Reg = output.into();
+        let (addr, _) = self.emit_unicode_range_search(codepoint, runs_symbol, runs);
+        self.emit(abi::load_u32(output, &addr, 4));
+    }
+
+    /// The lower-bound bisection both lookups share. It leaves `&RUNS[lo]` in the
+    /// returned `addr` and hands back its `scratch` as well, so the name lookup reuses
+    /// both rather than allocating two more temporaries. That keeps the lookup's code
+    /// byte-identical to what it was before `emit_unicode_range_value` existed.
+    fn emit_unicode_range_search(
+        &mut self,
+        codepoint: impl Into<abi::Reg>,
+        runs_symbol: &str,
+        runs: usize,
+    ) -> (VirtualRegister, VirtualRegister) {
+        let codepoint: abi::Reg = codepoint.into();
         let low = self.temporary_vreg();
         let high = self.temporary_vreg();
         let mid = self.temporary_vreg();
@@ -429,11 +442,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_label));
 
         self.emit(abi::label(&found));
-        // `RUNS[lo]`'s second word.
+        // `&RUNS[lo]`; the caller reads the run's second word.
         self.emit(abi::shift_left_immediate(addr, low, 3));
         self.emit_load_data_address(scratch, runs_symbol);
         self.emit(abi::add_registers(addr, addr, scratch));
-        self.emit(abi::load_u32(output, addr, 4));
+        (*addr, *scratch)
     }
 
     /// The shared body of the `genCat` / `scriptOf` internal members: look the
