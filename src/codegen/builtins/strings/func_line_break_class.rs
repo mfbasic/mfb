@@ -23,7 +23,8 @@ pub(crate) fn lower(
     args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    if args.len() != 1 {
+    // The codepoint is an `Integer`; anything else has no layout this lookup reads.
+    if args.len() != 1 || args[0].type_ != ParameterType::Integer {
         return Err("strings.lineBreakClass: no native lowering for these arguments".into());
     }
     let result = builder.allocate_register();

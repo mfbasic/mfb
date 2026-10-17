@@ -2722,6 +2722,9 @@ pub(crate) const FIELD_KIND_TABLE: &[(&str, FieldKindRow)] = &[
     ("canvas.MouseEvent", SIZE_VARIES),
     ("canvas.Size", FieldKindRow::Arm('F')),
     ("canvas.TextMetrics", FieldKindRow::Arm('F')),
+    // plan-162-D/E: two scalar fields each, the TextMetrics shape.
+    ("canvas.CaretStop", FieldKindRow::Arm('F')),
+    ("strings.LineBreak", FieldKindRow::Arm('F')),
     ("canvas.FrameStats", FieldKindRow::Arm('F')),
     ("canvas.Transform", FieldKindRow::Arm('F')),
     ("canvas.GradientStop", FieldKindRow::Arm('F')),
