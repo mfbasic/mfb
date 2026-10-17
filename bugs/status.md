@@ -19,12 +19,13 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 ## Phases (bug-staging-24)
 
 The list of a running phase is fixed when its first agent starts; nothing joins it.
-Bugs found during a phase are filed into a later phase.
+Bugs found during a phase are filed into a later phase. Order is High to Low, top to bottom.
 
-* **Phase 1 (running): SECURITY**, in table order: 980, 1017, 1042, 952, 954 (with 947,
-  which the owner's bug-954 decision folds into the same fix), 955, 918.
-* Phase 2 (next): HIGH: 688, 765 (perf; run alone).
-* Later phases: MED, then LOW, in table order.
+* **Phase 1: HIGH**, in table order: 688, 765 (perf; each runs alone, one agent).
+* Phase 2: MED, in table order.
+* Then LOW, in table order.
+* SECURITY rows (980, 1017, 1042, 952, 954+947, 955, 918) are not scheduled: they wait for the
+  owner.
 
 ## Resources and STATE
 
