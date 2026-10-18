@@ -24,8 +24,8 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 * HIGH 688 and 765: ON HOLD (owner, 2026-10-17). Not scheduled.
 * SECURITY rows (980, 1017, 1042, 952, 954+947, 955, 918): not scheduled; they wait for the owner.
 * MED 1082: blocked on hardware and a design decision (its doc). Not scheduled.
-* **Phase 1 (MED), landing now:** 966, 965, 1015, 985, 964 (merged to staging).
-* **Phase 2 (MED), next landing:** 1085, 1088, 1089 (agent round 2 under review), then 1087
+* Phase 1 (MED): 966, 965, 1015, 985, 964 - on main (0dc51751f).
+* **Phase 2 (MED), next landing:** 1085, 1088, 1089 (merged to staging), then 1087
   (owner: bug-996's rule extends to Metal) and 1091, perf, run alone. Moved out of phase 1 so
   they do not hold its merge.
 * Later phases: the rest of MED, then LOW, in table order.
@@ -45,14 +45,12 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [*]  | 688    | HIGH     | Vulkan canvas parity with Metal: V1 to V4 fixed and Windows presents through a swapchain. The 10,000-item render on the Intel GPU (box 206) is down from 106 to 58 ms a frame for squares and circles and from 108 to 92 for the sweep's polygon quads (bug-staging-23: the coverage shader's centre sample is straight-line code), still as large as the program's own 94 ms a present, so not closed; what is left is the size of the one live shader and the polygon edge walk. The cold pipeline compile went from 35 s to 67 s (bug-996 takes it off the first frame). Linux present is bug-1082 |
 | [*]  | 765    | HIGH     | Canvas renders 100,000 color-changing dots under 30 PPS / 30 FPS. The frame cap is gone (2026-10-12: a frame past one frame buffer is drawn in passes, every frame a GPU frame on Metal and Vulkan): 15 to 19 FPS on Metal, 4 to 5 on box 206. Left: the worker's copy and compare, geometry rebuilt on a fill-only change (planning/plan-175-A), the per-frame block upload, and the Intel GPU's own draw time |
 | [ ]  | 1082   | MED      | on Linux a windowed Vulkan canvas frame is read back and blitted, never presented through a swapchain (split from 688; blocked on a real-GPU Linux box and the GTK4 surface decision) |
-| [ ]  | 1085   | MED      | a banded shape or path clip (32 or more edges) inside a `canvas::Group` whose matrix shrinks disagrees with the software oracle on Metal |
 | [ ]  | 1087   | MED      | on macOS the first canvas frame of a newly built app waits about 5 s for the Metal pipeline (4,745 ms against 18 ms on a second launch); bug-996's shape on Metal |
-| [ ]  | 1088   | MED      | a butt-capped `canvas::Arc` under a magnifying transform draws dotted rays from its centre along the ends of its sweep (lit pixels at x 161..455 for a radius-50 ring), software and Metal |
 | [ ]  | 1091   | MED      | building one `canvas::Text` geometry record copies the whole font file several times: about 389 µs a record with Arial (773 KB) against 7.9 µs with a 304-byte font, so 1,000 moving text items are 389 ms a frame (found by plan-150-B; `tools/particle-bench` `TEMPLATE=text`) |
-| [ ]  | 1089   | MED      | with `MFB_CANVAS_DAMAGE=1` an unchanged item overlapping a changed one is blended twice along its edge (worst=32, 0.0762% of the frame) |
 | [ ]  | 1086   | LOW      | the Vulkan canvas path reads a frame back without testing `vkQueueSubmit`'s or `vkQueueWaitIdle`'s result (Metal's twin fixed under 1024) |
 | [ ]  | 1090   | LOW      | under a huge magnification the zero-gradient coverage fallback lights a stray column of pixels far from the shape (191 pixels at x = 450 for two off-surface squares at a 14,000 times transform); software and Metal |
 | [ ]  | 1101   | LOW      | a macOS `--app` run with `MFB_MACAPP_HEADLESS=1` draws on the GPU even with `MFB_HEADLESS` set, which the spec says draws in software |
+| [ ]  | 1103   | LOW      | a banded polygon drawn under a group matrix renders about 1.4x slower on Metal since bug-1085 (owner accepted the cost; speed-up wanted) |
 
 * Partial fix landed: 10,000 squares 110 → 58 ms on box 206. Render is still about 93 ms at 10,000 moving quads.
 * Frames draw in passes, so 100,000 dots run on the GPU: 20 FPS on Metal, 4 to 5 on box 206. `planning/plan-175-A-canvas-geometry-identity-split.md` has all four decisions recorded.

@@ -175,3 +175,9 @@ pixels, first at (206, 372)), `app-mouse-surface` ir/nir/nplan and four ncode,
 `app-window-surface` macos ncode, `resources/canvas-append-unconsumed-valid` and
 `resources/loop-body-resource-reference-valid` `.ir`. No other pixel reference moves
 (`rt_canvas_golden` 26 passed).
+
+## Owner rulings (2026-10-17, bug-staging-24 review)
+
+- A butt arc whose `endAngle` is before (or equal to) its `startAngle` draws nothing, as a
+  zero-length butt line does (option (a); the HTML-canvas wrap-around was not chosen).
+- A sweep of a whole turn or more draws the whole ring.
