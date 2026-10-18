@@ -1,0 +1,28 @@
+# The cross-product sweeps `scripts/test-fast.sh` leaves to the full tier.
+#
+# One libtest `--skip` substring per line: `<substring>  <why>`. The substring is
+# everything up to the first run of two spaces; a `#` line or a blank line is
+# ignored. Each entry must match at least one test in the landing tier's binaries,
+# or test-fast.sh fails, so an entry for a renamed or deleted test cannot linger.
+#
+# What belongs here: a test whose cost is a sweep (every corpus fixture, every
+# backend, every optimizer level, every grid cell) rather than one behavior. They
+# still run in the full tier (`scripts/test-full.sh`, nightly) and on CI. A test
+# that is merely slow because it re-does work every call is a speedup to make, not
+# an entry. Seconds are one optimized run's `--report-time` on a loaded 12-core
+# macOS host, 2026-10-17.
+
+builtins_codegen::optimizer::the_whole_corpus_survives_the_top_of_the_dial  corpus x top optimizer level (542 s)
+builtins_codegen::optimizer::the_corpus_survives_every_optimization_level  corpus x every level (112 s)
+builtins_codegen::optimizer::raising_the_level_changes_the_emitted_code  corpus x level pairs (86 s)
+nir_fault::a_corrupted_value_is_refused_rather_than_lowered  corruption x corpus (367 s)
+builtins_codegen::corpus::  every corpus fixture x CodeTarget::ALL (328 s and up)
+builtins_codegen::diagnostics::the_syntax_corpus  the syntax corpus x every backend (266 s, 177 s)
+cli::build::tests::builtin_codegen_corpora_lower_in_process  byte-identity fixtures x registered targets (234 s)
+builtins_codegen::nir_dump::the_n  NIR dump of the corpus, two sweeps (217 s each)
+app_surface::the_scene_group_lowers_on_every_app_capable_backend  every app-capable backend (122 s)
+app_surface::the_canvas_surface_lowers_on_every_app_capable_backend  every app-capable backend (96 s)
+canvas::the_canvas_program_lowers_on_every_app_capable_backend  every app-capable backend (73 s)
+self_update::tests::every_arm_row_fires_at_every_enabled_site  self-update arm x site grid (62 s)
+fixture_projects::every_package_bearing_fixture_lowers_on_every_backend  package fixtures x every backend (70 s)
+entry::every_entry_symbol_is_defined_by_the_plan_that_names_it  every entry symbol x every plan
