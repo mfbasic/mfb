@@ -1,6 +1,6 @@
 # plan-176-T: Built-ins code, part C (net, process, regex, tls, vector)
 
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 Effort: large (3h–1d)
 Depends on: plan-176-S
 
@@ -18,7 +18,8 @@ phase. Every phase is gated by byte-identical codegen.
 
 Single outcome: after T lands, `cargo test --test file_size_budget` prints no row for any of the
 nine files or the files they become, and `tests/guards/file_size_ceilings.txt` has no `ceiling`
-row for any of them. T adds no `exempt` row.
+row for any of them. The rule (owner, 2026-10-18): code ≤ 1000, inline test ≤ 250, test-only file
+≤ 1000 non-comment non-blank LOC; there are no exemptions.
 
 References:
 
@@ -105,18 +106,18 @@ so every line range below is valid at HEAD.
 | `src/codegen/builtins/regex/mod.rs` | code | 1003 | 169 (stays inline) | 1294 |
 | `src/codegen/builtins/tls/gen_macos/client.rs` | code | 2025 | 0 | 2392 |
 | `src/codegen/builtins/tls/gen_macos/server.rs` | code | 2041 | 0 | 2448 |
-| `src/codegen/builtins/tls/gen_openssl.rs` | code | 2976 | 301 at planning; moved to `gen_openssl/tests/` by plan-176-H | 3812 |
+| `src/codegen/builtins/tls/gen_openssl.rs` | code | 2976 | 301 at planning; moved to `gen_openssl/tests/mod.rs` by plan-176-H | 3812 |
 | `src/codegen/builtins/tls/gen_schannel_server.rs` | code | 1005 | 0 | 1243 |
 | `src/codegen/builtins/vector/builder_simd_float_math.rs` | code | 2147 | 47 (stays inline) | 2850 |
 
 State left by earlier letters:
 - plan-176-H moves `gen_openssl.rs`'s `mod error_path_release_tests { … }` (lines 3435-3812, 9
-  tests) to `tls/gen_openssl/tests/{mod,connect_and_accept,read_and_listen}.rs` and declares it in
+  tests) to one test-only file `tls/gen_openssl/tests/mod.rs` (≤ 1000, so not split) and declares it in
   `gen_openssl.rs` as `#[cfg(test)] #[path = "gen_openssl/tests/mod.rs"] mod error_path_release_tests;`
   (H map). Lines 1-3434 are unchanged by H. T map's own test split of that module is superseded.
-- plan-176-H splits `tls/gen_macos/tests.rs` (23 tests) into `gen_macos/tests/{mod,read_platform,release_paths,cancel_drains,gates_and_symbols}.rs`
-  and `src/codegen/builtins/tests/platform_failure.rs` into `platform_failure/{mod,forwarding}.rs`.
-  Both import through `gen_macos::`/`super::*` only (`grep -rn "client::\|server::" src/codegen/builtins/tls`
+- `tls/gen_macos/tests.rs` (23 tests, 884 LOC) is a test-only file ≤ 1000, so no letter splits it.
+  plan-176-H splits `src/codegen/builtins/tests/platform_failure.rs` (1088 LOC, over 1000) into parts
+  ≤ 900 whose names H chooses. Both import through `gen_macos::`/`super::*` only (`grep -rn "client::\|server::" src/codegen/builtins/tls`
   → only `client.rs:2`), so T's moves need no test edit.
 - plan-176-S repoints `vector/builder_simd_float_math.rs:2535`'s comment to `gen_math/`; that
   line moves with `lower_simd_float_binary` into `dispatch.rs` here.
@@ -229,7 +230,7 @@ and nothing `no_cross_member_os_seam_dispatcher` keys on (no `_os_seam`, no `fun
   `gen_schannel_read_close.rs`).
 - *A plain `mod error_path_release_tests;` in `gen_openssl/mod.rs`* — would look for
   `gen_openssl/error_path_release_tests.rs`, outside the `tests/` directory H created (the coverage
-  gate ignores `tests/` directories, plan-176-A §2). The `#[path]` attribute keeps H's files.
+  gate ignores `tests/` directories, plan-176-A §2). The `#[path]` attribute keeps H's file.
 - *Re-pointing `bugs/*.md`* — bug documents record the tree of their time.
 
 ## 4. Detailed Design
@@ -340,7 +341,7 @@ Citations 6: `[[…/builder_simd_float_math.rs]]` whole-file (`architecture/18_m
 Surface/visibility: 0 `pub(super)` edits. All 8 lowerers have outside users (`gen_shared.rs`
 `openssl::lower_tls_{connect,listen,accept,read,write,poll,close,close_listener}_openssl`,
 `resource/tests/mod.rs:170,175`), served by the re-exports. The 9 tests in
-`gen_openssl/tests/` (`use super::*;`, `super` = `gen_openssl`) reach the re-exported lowerers and
+`gen_openssl/tests/mod.rs` (`use super::*;`, `super` = `gen_openssl`) reach the re-exported lowerers and
 `tls::gen_shared` helpers through the `mod.rs` glob chain; they call no private item of a part
 (`emit_monotonic_ms` stays private in `accept.rs`). `tls/mod.rs:33 pub(crate) mod gen_openssl;` and
 `gen_shared.rs:556 use super::gen_openssl as openssl;` are unchanged. Citations 4
@@ -404,14 +405,14 @@ Each item is done in the phase that moves its target (phase in brackets).
 | `.ai/build-tooling.md:46`, `:50` | `src/codegen/builtins/vector/builder_simd_float_math.rs`; "to both files" | `…/builder_simd_float_math/mod.rs`; add: "The allows on `builder_simd_float_math/mod.rs` cover its part files, because child modules inherit lint levels." | 2 |
 | `src/codegen/builtins/math/gen_pow.rs:8`, `:41` | `builder_simd_float_math.rs` | `builder_simd_float_math/mod.rs` (:8, the allow block) and `builder_simd_float_math/` (:41, the kernels) | 2 |
 | `tools/math-kernels/gen_coeffs.py:444` | `builder_simd_float_math.rs::emit_atan_core` | `builder_simd_float_math/inverse_trig.rs::emit_atan_core` (comment only; the tool reads no source) | 2 |
-| `src/codegen/builtins/tests/platform_failure/mod.rs` header (plan-176-H moved it; locate with `grep -rn "tls/gen_openssl.rs" src`) | "`tls/gen_openssl.rs` has 80 by itself" | "`tls/gen_openssl/` has 80 by itself" | 3 |
+| the `platform_failure` test module's header (plan-176-H splits `tests/platform_failure.rs` into parts; locate with `grep -rn "tls/gen_openssl.rs" src`) | "`tls/gen_openssl.rs` has 80 by itself" | "`tls/gen_openssl/` has 80 by itself" | 3 |
 | `tests/codegen/codegen_tls_c_return_x86_64.rs:1` | `src/codegen/builtins/tls/gen_openssl.rs` | `src/codegen/builtins/tls/gen_openssl/` | 3 |
 | `tests/net/rt_tls_connect_allow_self_signed.rs:65` | "(`gen_openssl.rs`'s note on `X509_VERIFY_PARAM_set1_ip`)" | "(`gen_openssl/connect.rs`'s note …)" | 3 |
 | `tests/codegen/codegen_helper_scratch_release.rs:452` | "OpenSSL (`gen_openssl.rs`)" | "OpenSSL (`gen_openssl/`)" | 3 |
 | `src/codegen/builtins/tls/gen_openssl.rs:2552` (→ `gen_openssl/io.rs`) | "Mirrors the guard in `gen_macos/client.rs`." | "… in `gen_macos/client/read.rs`." (the guard is at `client.rs:1331`, inside `lower_tls_read_macos`) | 4 |
 | `src/target/macos_aarch64/tls.rs:143` | `gen_macos/client.rs:lower_tls_write_macos` | `gen_macos/client/write.rs:lower_tls_write_macos` | 4 |
 | `src/codegen/builtins/tls/gen_macos/server.rs:28` (→ `server/mod.rs`) | "the connect-path drain (`client.rs`, bug-380)" | "… (`client/connect.rs`, bug-380)" (the drain is at `client.rs:874`, inside `lower_tls_connect_macos`) | 4 |
-| `gen_macos/tests/…` (plan-176-H moved `tests.rs:565`; locate with `grep -rn "bug-380, \`client.rs\`" src`) | "(bug-380, `client.rs`)" | "(bug-380, `client/connect.rs`)" | 4 |
+| `src/codegen/builtins/tls/gen_macos/tests.rs:565` (not moved by any letter) | "(bug-380, `client.rs`)" | "(bug-380, `client/connect.rs`)" | 4 |
 | `src/codegen/builtins/tls/mod.rs:226-228` — **pre-existing stale** line citations (§2) | "`tls::listen` (gen_macos/server.rs) … `tls::connect` (client.rs:628-630) nor `tls::accept` (server.rs:1650-1652)" | "`tls::listen` (`gen_macos/server/listen/start.rs`, `emit_listen_start`) … `tls::connect` (`gen_macos/client/connect.rs`, `lower_tls_connect_macos`) nor `tls::accept` (`gen_macos/server/accept.rs`, `lower_tls_accept_macos`)" — written in Phase 4 with `server/listen.rs` for listen, and Phase 5 sets the `listen/start.rs` path | 4, 5 |
 
 `tests/guards/no_operator_strings.rs:630` stays (a historical note about a removed entry). The
@@ -651,7 +652,7 @@ locals; `scratch` is borrowed `&` by the phases and moved only after the last ca
    `TIGHTEN` for a file that keeps its path); then `MFB_LOC_TIGHTEN=1 cargo test --test file_size_budget`
    and commit `tests/guards/file_size_ceilings.txt` with the phase (est. 1 min, guess).
 9. Every new file: `python3 -I tools/loc-census/census.py --file <path>` → code ≤ 900 (≤ 1000 for
-   `gen_openssl/connect.rs`, §3), test ≤ 250.
+   `gen_openssl/connect.rs`, §3), inline test ≤ 250.
 10. The phase's sweep command (§4.9) → no hit naming an old path of the phase.
 
 ### Phase 1 — process backends and regex prose (pure motion)
@@ -697,7 +698,7 @@ Commit: —
 
 - [ ] `tls/gen_openssl.rs` → `tls/gen_openssl/{mod,connect,listen,accept,io,close}.rs` per §4.6;
       the test declaration becomes `#[cfg(test)] #[path = "tests/mod.rs"] mod error_path_release_tests;`
-      (H's files under `gen_openssl/tests/` stay where they are); the 8 `pub(crate) use` re-exports.
+      (H's `gen_openssl/tests/mod.rs` stays where it is); the 8 `pub(crate) use` re-exports.
 - [ ] `tls/gen_schannel_server.rs` → itself + new `tls/gen_schannel_accept.rs` per §4.7 (no `//!`,
       no inner attributes); header comment updated; `include!("gen_schannel_accept.rs");` after
       `gen_schannel.rs:288`.
@@ -779,16 +780,18 @@ Commit: —
 
 ## Decisions
 
-- Rule: code ≤ 1000, test ≤ 250 non-comment non-blank LOC; scope `.rs`/`.mfb` under `src/`,
-  `packages/`, `examples/`, `repository/`, `tests/` — owner, 2026-10-14.
-- Inline test code counts against the 250 test budget; over 250 it moves to its own module —
-  owner, 2026-10-14. In T: `gen_openssl`'s 301 test LOC moved in plan-176-H; the others (102, 101,
-  169, 47) stay inline.
-- Generated files are exempt; the guard warns with a banner and never fails; a new module is
-  always an acceptable split — owner, 2026-10-14.
+- Rule revised — owner, 2026-10-18 (replaces the 2026-10-14 code ≤ 1000 / test ≤ 250 rule): three
+  kinds, non-comment non-blank LOC, scope `.rs`/`.mfb` under `src/`, `packages/`, `examples/`,
+  `repository/`, `tests/`: `code` (a non-test-only file's code) ≤ 1000 → split into modules;
+  `inline` (`#[cfg(test)]` / `TESTING … END TESTING` LOC inside a non-test-only file) ≤ 250 → moved
+  out to a test-only file (one `tests/mod.rs` unless > 1000); `test` (a test-only file's total) ≤ 1000
+  → split into modules. Parts target ≤ 900. Ceiling rows are `ceiling <code|inline|test> <n> <path>`.
+  No exemptions; only `GENERATED`-banner files are skipped; the guard warns with a banner and never
+  fails; a new module is always an acceptable split. In T: `gen_openssl`'s 301 inline test LOC moved
+  to `gen_openssl/tests/mod.rs` in plan-176-H; the others (102, 101, 169, 47) stay inline.
 - A single function over the code limit is decomposed by extract-method refactoring, gated by
-  byte-identical `.ncode` — owner, 2026-10-14. In T: `lower_tls_listen_macos` (§4.10). T has no
-  exemptions; the T map's exemption note for `server/listen.rs` is superseded.
+  byte-identical `.ncode` — owner, 2026-10-14. In T: `lower_tls_listen_macos` (§4.10). There are no
+  exemptions (rule revised 2026-10-18); the T map's exemption note for `server/listen.rs` is superseded.
 - The extract-method refactor is its own phase, after every pure-motion phase — author (Phase 5).
 - `lower_tls_listen_macos`'s state travels as `ListenEnv` (read-only) and `ListenScratch` (owned)
   plus `ins`/`rel`/`vregs`; its consts move to `listen/mod.rs`'s module level; the identity phase
@@ -804,6 +807,8 @@ Commit: —
 
 ## Corrections
 
+- 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule restated in intro, common step 9 and Decisions; H's OpenSSL tests are one `gen_openssl/tests/mod.rs`, `gen_macos/tests.rs` (884) is no longer split, `platform_failure.rs` part names are H's.
+
 ## Summary
 
 The risk is in Phase 5. It moves 1007 lines of the macOS listen lowering into three consecutive
@@ -813,5 +818,5 @@ reordered, and the `tls` golden on `macos-aarch64` plus four runtime listener te
 Phases 1–4 are pure motion whose hazards are bookkeeping: 20 spec citations, 22 comment and doc
 mentions plus two already-stale line citations, one `#[path]` re-base for plan-176-H's OpenSSL tests, and one
 `include!` chain. Untouched: every emitted byte, every crate path callers use, every test name,
-`lower_tls_connect_openssl` (964, under the limit), the test modules plan-176-H moved, and the bug
+`lower_tls_connect_openssl` (964, under the limit), the test module plan-176-H moved, and the bug
 documents.

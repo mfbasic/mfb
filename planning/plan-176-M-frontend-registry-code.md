@@ -1,49 +1,57 @@
 # plan-176-M: Frontend and registry code
 
-Last updated: 2026-10-14
+Last updated: 2026-10-18
 Effort: large (3h–1d)
 Depends on: plan-176-L
 
-M splits the over-budget CODE files of the compiler front end — the lexer, the AST parser and
-serializer, HIR, the resolver, the monomorphizer — and the builtin registry
-(`src/codegen/registry/mod.rs`). Each `foo.rs` becomes `foo/mod.rs` plus part files; the files
-that are already `mod.rs` gain sibling parts. The work is pure code motion: items move between
-files, an `impl` is cut into one block per file, and private items that now cross a file
-boundary get `pub(super)` (or `pub(in crate::<parent>)` where a method moves one level deeper,
-§3). One file, `src/rules/table.rs`, is a single data literal with no code-motion split; it
-gets an `exempt` row. The test modules of these files were moved by letters G, H and K and
-stay declared in the new `mod.rs` files.
+M splits the over-limit CODE files of the compiler front end — the lexer, the AST parser and
+serializer, HIR, the resolver, the monomorphizer, the diagnostic rule table — and the builtin
+registry (`src/codegen/registry/mod.rs`). Each `foo.rs` becomes `foo/mod.rs` plus part files;
+the files that are already `mod.rs` gain sibling parts. Seven of the eight files are pure code
+motion: items move between files, an `impl` is cut into one block per file, and private items
+that now cross a file boundary get `pub(super)` (or `pub(in crate::<parent>)` where a method
+moves one level deeper, §3). The eighth, `src/rules/table.rs`, is one `const RULES: &[Rule]`
+data literal; it becomes three per-category `&[Rule]` slices under `src/rules/table/`, which one
+accessor, `table::rules()`, walks in the original order (§4.8). The test modules of these files
+were moved by letters G, H and K and stay declared in the new `mod.rs` files.
 
 The single outcome: after M lands, `cargo test --test file_size_budget` shows no row for any of
-M's files and `tests/guards/file_size_ceilings.txt` has no `ceiling` row for them; its only
-M row is `exempt code src/rules/table.rs # …`.
+M's files and `tests/guards/file_size_ceilings.txt` has no `ceiling` row for them.
 
 References:
 
-- `planning/plan-176-A-file-size-guard.md` — the rule, §Decisions, "Splitting an over-budget
+- `planning/plan-176-A-file-size-guard.md` — the rule, §Decisions, "Splitting an over-limit
   file" (`.ai/build-tooling.md`).
 - `planning/plan-176-G-ir-monomorph-tests.md`, `planning/plan-176-H-codegen-builtins-engine-tests.md`,
-  `planning/plan-176-K-frontend-tooling-tests.md` — where the test modules went.
+  `planning/plan-176-K-frontend-tooling-tests.md` — where the test modules went (K also moves
+  `src/rules/mod.rs`'s inline tests, six of which read the rule table, §4.8).
 - `.ai/compiler.md`, `.ai/codegen-invariants.md` (names `src/ast/expr.rs`, `src/lexer.rs`,
   `src/monomorph/lower.rs`, `registry/mod.rs`), `.ai/resources-packages.md` (names
-  `registry::build()`), `.ai/man-content.md` (names the registry vocabulary test),
-  `.ai/testing-gates.md` (artifact gate), `.ai/build-tooling.md`.
+  `registry::build()` and `rules/table.rs:962`), `.ai/man-content.md` (names the registry
+  vocabulary test), `.ai/testing-gates.md` (artifact gate), `.ai/build-tooling.md`,
+  `.ai/specifications.md` (spec prose changes with the contract, §4.8).
 - Spec topics whose citations move: `language/02_lexical-structure.md`,
   `language/03`, `04_types.md`, `05`, `06`, `08_error-model.md`, `11_operators.md`, `13`,
-  `17`, `18_builtin-functions.md`; `architecture/05`, `09_modules.md`,
-  `12_monomorphization.md`, `19_internal-naming.md`, `21_type-name-encoding.md`,
-  `22_type-inference.md`; `stdlib/12_bits.md`, `15`, `17`, `18`; and the 18 topics that cite
-  `src/codegen/registry/mod.rs` (`grep -rlE "\[\[src/codegen/registry/mod.rs" src/docs/spec`).
-- Guard: `tests/guards/no_type_strings.rs` (`is_excluded_from_scan`, and `BOUNDARY_FILES` in
-  `tests/guards/no_type_strings/allowlists.rs` after plan-176-E).
+  `14_memory-semantics.md`, `15_resource-management.md`, `16_threads.md`, `17`,
+  `18_builtin-functions.md`; `architecture/05`, `09_modules.md`, `12_monomorphization.md`,
+  `19_internal-naming.md`, `21_type-name-encoding.md`, `22_type-inference.md`;
+  `diagnostics/01_rule-codes.md`, `diagnostics/spec.md`; `memory/03_heap-values.md`;
+  `stdlib/12_bits.md`, `15`, `17`, `18`; `tooling/02_source-selection.md`, `tooling/05_fmt.md`;
+  and the topics that cite `src/codegen/registry/mod.rs`
+  (`grep -rlE "\[\[src/codegen/registry/mod.rs" src/docs/spec`).
+- Guard: `tests/guards/no_type_strings.rs` (`is_excluded_from_scan` and `BOUNDARY_FILES` stay in the root
+  file; plan-176-E moves `boundary_list_is_closed` to `tests/guards/no_type_strings/self_checks.rs`).
+- Open bugs this plan closes items of: `bugs/bug-840-language-spec-stale-citations-and-keyword-example.md`
+  (the five `table.rs` line cites), `bugs/bug-883-rule-codes-spec-drift-and-unemitted-rules.md`
+  (the "All 252 `RULES` entries" count, on a line §4.8 rewrites anyway).
 
 ## Prerequisites
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-L is complete and archived | `ls planning/plan-176-L-* planning/completed/plan-176-L-*` → only `planning/completed/…` | NOT MET (2026-10-14) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-14) |
-| M's files have no uncommitted changes | `git status --porcelain -- src/ast src/hir src/monomorph src/resolver src/rules src/lexer.rs src/codegen/registry tests/guards tools/loc-census` → empty | NOT MET (2026-10-14): ` M src/codegen/registry/mod.rs` |
+| plan-176-L is complete and archived | `ls planning/plan-176-L-* planning/completed/plan-176-L-*` → only `planning/completed/…` | NOT MET (2026-10-18) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-18): `tests/guards/file_size_budget.rs` absent |
+| M's files have no uncommitted changes | `git status --porcelain -- src/ast src/hir src/monomorph src/resolver src/rules src/lexer.rs src/codegen/registry tests/guards tools/loc-census src/docs/spec .ai/resources-packages.md src/manifest/config.rs` → empty | MET (2026-10-18) |
 
 Everything below is written against the world where these hold.
 
@@ -59,49 +67,54 @@ Everything below is written against the world where these hold.
 
 ## 1. Goal
 
-- Every M file and part is ≤ 1000 code LOC and ≤ 250 test LOC
-  (`python3 -I tools/loc-census/census.py --file <path>`), except `src/rules/table.rs`, which
-  carries an `exempt code` row with its reason in the ceiling file and in
-  `tools/loc-census/census.py`'s `EXEMPT` table.
+- Every M file and part is within the three limits of plan-176-A: ≤ 1000 code LOC, ≤ 250
+  inline test LOC, and (for a test-only file) ≤ 1000 LOC
+  (`python3 -I tools/loc-census/census.py --file <path>`). M creates no test-only file.
 - The compiler's output is byte-identical: `sh scripts/artifact-gate.sh target/release/mfb all`
-  reports no diff.
+  reports no diff, and the diagnostics pinned by the `build.log` goldens are unchanged.
+- The rule table is the same 270 rules in the same order (§4.8 order check).
 - Every spec citation of a moved symbol names the file that defines it, and the stale/dangling
   citations listed in §2 name a real symbol.
 
 ### Non-goals (explicit constraints)
 
-- No logic edit; no diagnostic text, rule code, AST/IR JSON shape or emitted byte changes.
-- No test added, removed or renamed.
+- No logic edit; no diagnostic text, rule code, AST/IR JSON shape or emitted byte changes. The
+  one piece of new code is the rule-table accessor `table::rules()` and its `PARTS` slice
+  (§4.8), which the rule's "no exemptions" decision forces.
+- No test added, removed or renamed. The six rule-table tests change only the expression that
+  yields the rules (§4.8); every assertion stays.
 - Every `crate::…` path callers use is unchanged (`crate::lexer::lookup_keyword`,
   `crate::hir::HirFile`, `crate::codegen::registry::registry`, …) via glob re-exports.
 - No visibility widened beyond what a move forces: `pub(super)` for a part item used by a
   sibling/`mod.rs`/tests, `pub(in crate::<parent>)` for the 12 methods listed in §3.
-- `src/rules/table.rs` is not edited (its citations resolve by text in that file).
 
 ## 2. Current State
 
-Counts: `python3 -I /tmp/loc/span.py <file>` on the working tree of `17a9b5799`
-(`(code, test)`); after plan-176-A, `python3 -I tools/loc-census/census.py --file <path>`.
-Part LOC: the split map's `xref.py` sum of code lines over the listed ranges (parts sum to the
-file total). Cites: `grep -rnoE "\[\[<path>(:[^]]+)?\]\]" src/docs/spec | wc -l`.
+Counts: `python3 -I /tmp/loc/census.py "$PWD"` at `ce7a995ca` (fields `code`, `test` in
+`/tmp/loc/census.json`); after plan-176-A, `python3 -I tools/loc-census/census.py --file <path>`.
+Part LOC: `python3 -I /tmp/loc/rw-M/rsum.py <file> <part>=<ranges>…` at `ce7a995ca` (sums the
+census counter's code lines over the listed line ranges; parts sum to the file total). Cites:
+`grep -rnoE "\[\[<path>(:[^]]+)?\]\]" src/docs/spec | wc -l` at `ce7a995ca`.
 
 | File | Code | Test (owner) | Parts after M | Cites |
 |---|---|---|---|---|
-| `src/ast/expr.rs` | 1047 | 155 (stays inline) | mod + 1 | 12 |
+| `src/ast/expr.rs` | 1083 | 155 (stays inline) | mod + 1 | 13 |
 | `src/ast/serialize.rs` | 1570 | 51 (stays inline) | mod + 3 | 0 |
-| `src/codegen/registry/mod.rs` | 3093 | 2695 (H) | mod + 8 | 34 |
+| `src/codegen/registry/mod.rs` | 3108 | 2695 (H) | mod + 8 | 35 |
 | `src/hir/mod.rs` | 1002 | 192 (stays inline) | mod + 1 | 2 |
 | `src/lexer.rs` | 1199 | 555 (K) | mod + 2 | 15 |
-| `src/monomorph/lower.rs` | 2378 | 1282 (G) | mod + 4 | 31 |
-| `src/resolver/resolution.rs` | 1514 | 737 (K) | mod + 3 | 27 |
-| `src/rules/table.rs` | 1617 | 0 | exempt | 30 |
+| `src/monomorph/lower.rs` | 2521 | 1292 (G) | mod + 4 | 33 |
+| `src/resolver/resolution.rs` | 1496 | 737 (K) | mod + 3 | 27 |
+| `src/rules/table.rs` | 1623 | 0 | mod + 3 | 30 |
 
 After H, `src/codegen/registry/mod.rs` keeps `mod qualification_tests` (79 test LOC) and the
 cfg(test) helper fns inside the unify range (`self_update_shaped`,
 `is_string_self_update_type`, `strip_res`, `resolve_bound`, `occurs`, `types_coincide`,
 `resolve_call`; 117 test LOC), plus `#[cfg(test)] mod tests;` and
-`#[cfg(test)] #[path = "tests/raw_result_block_ownership/mod.rs"] mod raw_result_block_ownership;`
-(H map). After G/K, `lower.rs`, `lexer.rs`, `resolution.rs` hold `#[cfg(test)] mod tests;`.
+`#[cfg(test)] #[path = "tests/raw_result_block_ownership.rs"] mod raw_result_block_ownership;`
+(plan-176-H §4: `tests/mod.rs` + `selection_and_thread_probes.rs` + `rendering_and_gates.rs`,
+and the single file `tests/raw_result_block_ownership.rs`). After G/K, `lower.rs`, `lexer.rs`, `resolution.rs` hold `#[cfg(test)] mod tests;`.
+After K, `src/rules/mod.rs` holds `#[cfg(test)] mod tests;` (K's `src/rules/tests/`).
 
 ### Verified properties
 
@@ -127,34 +140,70 @@ cfg(test) helper fns inside the unify range (`self_update_shaped`,
   `git log -S 'rel == "src/lexer.rs"'`). After the move the lexer code is under `src/lexer/`,
   which `rel == "src/lexer.rs"` does not match, so the scan would newly flag the lexer's
   spellings. `src/ast/` subdirectories stay covered by its prefix rule.
-- **`src/rules/table.rs` has no code-motion split.** It is `use super::{Rule, Severity};` plus
-  one item, `pub(super) const RULES: &[Rule] = &[ … ];` (lines 3-1712, 1616 LOC, 269 `Rule`
-  literals). A `&[T]` const cannot be assembled from several files without new code: a
-  `const fn` concatenation needs `Rule: Copy` (not derived) and a placeholder element; a
-  slice-of-slices changes the seven `RULES` uses in `src/rules/mod.rs` (427, 467, 519, 534,
-  564, 705, 716). It is data, not a function, so the extract-method decision does not apply.
+- **The rule table is one literal with one reader.** `src/rules/table.rs` is
+  `use super::{Rule, Severity};`, a blank line, and one item,
+  `pub(super) const RULES: &[Rule] = &[ … ];` (lines 3-1721; 270 `Rule` literals:
+  `grep -c '^    Rule {' src/rules/table.rs` → `270`). `Rule` (`src/rules/mod.rs`) derives
+  nothing, so it is not `Copy`. Its only importer is `src/rules/mod.rs`
+  (`mod table; use table::RULES;`; `grep -rn 'RULES' src | grep '\.rs:' | grep -v '^src/rules/'`
+  → no hits). Seven uses: production `rule_for` (`RULES.iter().find(..)`, the only path from
+  `show_diagnostic`, `show_general_diagnostic`, `is_error`, `code_and_name` to the table) and
+  six tests — `dead_import_missing_package_name_is_gone` (`.iter().any`),
+  `rule_names_are_unique` (`.iter().map`), `rule_codes_are_unique` (`for rule in RULES`),
+  `every_rule_is_documented_in_the_spec` (`.iter().filter`),
+  `code_and_name_resolves_representative_rules` and
+  `is_error_partitions_the_whole_table_by_severity` (`for rule in RULES`). Lookup is by name and
+  names are unique (`rule_names_are_unique`), so no output depends on table order; the split
+  keeps the order anyway. Nothing renders the table: `mfb man` has no path to it
+  (`grep -rn 'RULES\|table\.rs' src/docs/man` → no hits) and the spec's rule listing
+  (`diagnostics/01_rule-codes.md`) is hand-written prose that
+  `every_rule_is_documented_in_the_spec` checks against the table.
+- **The code-range runs are clean seams.** `python3 -I /tmp/loc/rw-M/runs.py` lists the table's
+  runs by code prefix: `2-200` 4-68, `1-100`/`1-101`/`1-102` 69-204, `2-201` 205-326, `2-203`
+  327-1262 (143 rules, 858 code LOC), then `2-200-0011…0101`, `2-205`, `3-302`, `3-304`,
+  `5-500`, `6-603`, `6-605`, `1-103`, `2-205`, `1-102-0010…0012`, `2-208` in 1263-1720. Lines
+  327 and 1263 are `    Rule {` with no comment above them (`sed -n '326,327p;1262,1263p'`), so
+  every reserved-row/dropped-rule comment stays with its rule.
+- **A slice of slices plus an iterator accessor compiles clean and keeps order.** Probe
+  `/tmp/loc/rw-M/probe/m2.rs` (edition 2021, the crate's): `table/mod.rs`-shaped module with
+  `use super::super::{Rule, Severity};`, two parts each `use super::*;` +
+  `pub(super) const RULES: &[Rule]`, `const PARTS: &[&[Rule]] = &[a::RULES, b::RULES];` and
+  `pub(super) fn rules() -> impl Iterator<Item = &'static Rule> { PARTS.iter().flat_map(|part| part.iter()) }`.
+  `rustc --edition 2021 -D warnings` → no warning (the parent's `Severity` import, used only
+  by the parts through the glob, is not flagged); the binary printed `["1", "3"]` (part order);
+  `rustc --test` → `1 passed`, with the test module reaching `table::rules()` through
+  `use super::*;`.
+- **Spec citations are checked by file only.** `spec_citations_resolve` (`src/docs/spec/mod.rs`)
+  fails only when a cited *file* is missing ("Deliberately file-level only"), so a symbol that
+  leaves a still-existing file is caught only by the §4 sweep check.
 - **Stale or dangling citations** (pre-existing, fixed in M):
   - `[[src/lexer.rs:262]]` (`architecture/19_internal-naming.md:17`) and
     `[[src/lexer.rs:752]]` (`:50`): line 262 is `self.advance();` in `lex_all`, 752 is
     `value.push(self.peek());` in `lex_number`; the claim (the `internalize` rewrite) is at
     `src/lexer.rs:982` inside `lex_identifier_or_keyword` (`grep -n internalize src/lexer.rs`).
-  - `[[src/rules/table.rs:312]]`, `[[…:318]]` (`language/08_error-model.md:150`, backing
+  - `[[src/rules/table.rs:312]]`, `[[…:318]]` (`language/08_error-model.md:147`, backing
     `TYPE_PROPAGATE_REQUIRES_TRAP` / `TYPE_FAIL_REQUIRES_ERROR`); `[[…:480]]`, `[[…:486]]`
-    (`language/04_types.md:413`, backing "may not construct … update … with WITH"); `[[…:642]]`
-    (`language/04_types.md:212`, backing `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`). Lines
-    312/318/480/486 are `severity: Severity::Error,` of other rules and 642 is the "map value
-    type" message (`for l in 312 318 480 486 642; do sed -n ${l}p src/rules/table.rs; done`).
-    The rules are at 383 (`TYPE_FAIL_REQUIRES_ERROR`), 389 (`TYPE_PROPAGATE_REQUIRES_TRAP`), 551
-    (`TYPE_READ_ONLY_RECORD_UPDATE`), 557 (`TYPE_READ_ONLY_RECORD_CONSTRUCTOR`), 729
-    (`TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`) (`grep -n 'name: "…"' src/rules/table.rs`).
-  - `[[src/resolver/resolution.rs:resolve_type_name]]` (`language/08_error-model.md:138`): no
-    such fn (`grep -rn "fn resolve_type_name" src` → only a test fn in
-    `src/codegen/builtins/general/mod.rs:978`). The claim ("`Unknown` and any active template
-    parameter are always resolved") is `resolve_leaf`:
-    `src/resolver/resolution.rs:1625` `if type_.is_named("Unknown") || self.active_template_params.contains(name)`.
+    (`language/04_types.md:430`, backing "may not construct … update … with WITH"); `[[…:642]]`
+    (`language/04_types.md:223`, backing `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`). Lines
+    312/318/480/486 are `severity: Severity::Error,` of other rules and 642 is `    Rule {`
+    (`for l in 312 318 480 486 642; do sed -n ${l}p src/rules/table.rs; done`). The rules are
+    at 383 (`TYPE_FAIL_REQUIRES_ERROR`), 389 (`TYPE_PROPAGATE_REQUIRES_TRAP`), 551
+    (`TYPE_READ_ONLY_RECORD_UPDATE`), 557 (`TYPE_READ_ONLY_RECORD_CONSTRUCTOR`), 734
+    (`TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`) (`grep -n 'name: "…"' src/rules/table.rs`),
+    all in the `2-203` run. This is bug-840 item 1.
+  - `.ai/resources-packages.md:11` says the spec self-contradicts through §15.1 and rule
+    `TYPE_RESOURCE_BORROW_INVALIDATE` (2-203-0086, `rules/table.rs:962`). `a6f4bf282` ("resources:
+    remove "borrow"") renamed the rule to `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` and removed the
+    §15.1 vocabulary (`grep -n -i borrow src/docs/spec/language/15_resource-management.md` → no
+    hits; `grep -n -A1 '"2-203-0086"' src/rules/table.rs` → line 1141, now a reserved row).
+  - `diagnostics/01_rule-codes.md:222` says "All 252 `RULES` entries are listed"; the table
+    holds 270 (`grep -c '^    Rule {' src/rules/table.rs`) and the page's table has 271 code
+    rows including the synthetic `0-000-0000`
+    (`grep -cE '^\| \`[0-9]-[0-9]{3}-[0-9]{4}\` \|' src/docs/spec/diagnostics/01_rule-codes.md`).
+    This is bug-883 §A item 1.
   - `[[src/codegen/registry/mod.rs:call_return_type]]` (`stdlib/12_bits.md:21`): the registry
     defines `call_return_type_typed` (`src/codegen/registry/mod.rs:2595`);
-    `call_return_type` is `src/codegen/builtins/mod.rs:667`, which delegates to it, and the same
+    `call_return_type` is `src/codegen/builtins/mod.rs`, which delegates to it, and the same
     line already cites `[[src/codegen/builtins/mod.rs:resolve_call_return_type]]`.
 
 ## 3. Design Overview
@@ -162,7 +211,7 @@ cfg(test) helper fns inside the unify range (`self_update_shaped`,
 Convention (plan-176-A): `mod.rs` keeps the module header, the core types/entry points and the
 test declarations; parts by responsibility, each starting `use super::*;`; `mod.rs` declares
 `mod <part>;` and, for free items, `pub(crate) use <part>::*;` (`pub use` for the `pub` lexer
-API). Line ranges are source lines as of `17a9b5799`; item NAMES are authoritative (the test
+API). Line ranges are source lines as of `ce7a995ca`; item NAMES are authoritative (the test
 letters removed only trailing modules, below every listed range).
 
 **Widenings to `pub(in crate::<parent>)` (12, forced by the depth trap, §2):**
@@ -184,18 +233,29 @@ Gate class: provably-neutral code motion in the compiler → byte-identity. Per 
 `cargo build --release`, then `sh scripts/artifact-gate.sh target/release/mfb <builtin>` for the
 builtins named in the phase (each regenerates that fixture set's `.ast`, `.ir` and every
 target's native dumps and diffs them against the goldens; est. 1 min each), plus the moved
-modules' unit tests. Once at the end: `sh scripts/artifact-gate.sh target/release/mfb all`.
-A diff is root-caused (objdump / `diff` ONE fixture's artifact), fixed, and the gate rerun; it
-never stops the plan.
+modules' unit tests. Diagnostics are pinned by `build.log` goldens the artifact gate does not
+diff; phases that move diagnostic producers (the rule table, the resolver) run
+`scripts/test-accept.sh` on the invalid fixtures. Once at the end:
+`sh scripts/artifact-gate.sh target/release/mfb all`. A diff is root-caused (objdump / `diff`
+ONE fixture's artifact), fixed, and the gate rerun; it never stops the plan.
 
 Risk concentrates in the registry (eight parts, every builtin call resolves through it, and
-the H-left cfg(test) helpers ride along into `unify.rs`) and the monomorphizer (one 2314-LOC
-`impl` cut into five blocks). Both are the last two phases.
+the H-left cfg(test) helpers ride along into `unify.rs`) and the monomorphizer (one 2442-LOC
+`impl` cut into five blocks). Both are the last two phases. The rule table is the one place M
+writes new code; the order check (§4.8) proves the parts reproduce the literal line for line.
 
 Rejected alternatives:
-- *Splitting `RULES` by a `const fn` concatenation or a slice of slices* — new code to satisfy a
-  size rule, against "no logic edit"; the owner's exception for single over-limit units covers
-  it (`exempt`).
+- *A `const fn` that concatenates the parts into one `[Rule; N]`* — needs `Rule: Copy` (a derive
+  on a public type for a size rule) and a placeholder element to initialise the array; more new
+  code than the accessor for no reader-visible gain (lookup is by name).
+- *A `macro_rules!` per part spliced into one literal* (the `concat!` pattern of
+  `/tmp/loc/probe_concat` works for `&str` only) — a macro cannot expand to a comma-separated
+  run of array elements, so it needs a tt-munching chain; the rules would sit inside macro
+  bodies rustfmt does not format and readers do not grep as data.
+- *A `static RULES: OnceLock<Vec<Rule>>` built at first use* — a runtime allocation and an
+  initialisation path where today there is a `const`.
+- *Splitting `2-203` further (e.g. at the resource/thread rules) for more headroom* — 861 LOC
+  is under the 900 part target; three parts by code range is the fewest that fit.
 - *Leaving the twelve methods `pub(super)` and moving their callers instead* — moves code out
   of the parent modules, a second split nobody needs.
 - *`pub(crate)` for the widened methods* — reaches further than today; `pub(in crate::<parent>)`
@@ -211,35 +271,37 @@ Rejected alternatives:
 path, the list below is the sweep: `spec_citations_resolve` cannot see a symbol leave a file
 that still exists).
 
-### 4.1 `src/ast/expr.rs` → `src/ast/expr/` (1047)
+### 4.1 `src/ast/expr.rs` → `src/ast/expr/` (1083)
 
-All code is `impl<'a> FileParser<'a>` (28-1348, 1041 LOC), cut into two blocks.
-- `mod.rs` (731): 1-27 (`use super::pipeline::…`, `use super::*`, `use crate::operators::…`,
+All code is `impl<'a> FileParser<'a>` (28-1395), cut into two blocks.
+- `mod.rs` (732): 1-50 (`use super::pipeline::…`, `use super::*`, `use crate::operators::…`,
   `MAX_EXPR_DEPTH`, `MAX_TYPE_DEPTH`, `MAX_PIPELINE_COPIED_NODES`); an impl block with 194-877
   (`enter_expr`, `leave_expr`, `note_expr_tree_depth`, `latch_hostile_expression`,
   `parse_expression`, `parse_pipeline`, `parse_or`, `parse_and`, `parse_not`,
   `parse_comparison`, `parse_concat`, `parse_addition`, `parse_multiplication`,
   `parse_power`, `parse_unary`, `parse_with_update`, `parse_member_access`,
   `parse_call_or_constructor`, `parse_argument_list`, `parse_constructor_argument_list`,
-  `parse_primary`), 1182-1227 (`parse_lambda`), 1248-1348 (`parse_list_literal`,
+  `parse_primary`), 1228-1273 (`parse_lambda`), 1294-1395 (`parse_list_literal`,
   `parse_map_literal`, `parse_set_literal`); `mod type_names;`; the inline
   `#[cfg(test)] mod tests` (155 test LOC) stays inline.
-- `type_names.rs` (316): an impl block with 51-193 (`normalize_qualified_builtin_type`,
+- `type_names.rs` (352): an impl block with 51-193 (`normalize_qualified_builtin_type`,
   `normalize_qualified_type_name`, `package_exports_type`, `qualify_own_builtin_type`),
-  878-1181 (`parse_qualified_name`, `finish_qualified_name`, `enter_type`, `leave_type`,
-  `parse_type_name`, `parse_type_name_inner`, `parse_thread_type_name`,
-  `parse_resource_plane_type`, `parse_optional_element_state`, `parse_function_type_name`),
-  1228-1247 (`parse_type_base_name`). (Named so it does not read as the sibling
-  `src/ast/types.rs`.)
+  878-1227 (`parse_qualified_name`, `finish_qualified_name`, `enter_type`, `leave_type`,
+  `parse_type_name`, `parse_type_name_inner`, `parse_template_argument_list`,
+  `parse_thread_type_name`, `parse_resource_plane_type`, `parse_optional_element_state`,
+  `parse_function_type_name`, `parse_function_type_params`), 1274-1293
+  (`parse_type_base_name`). (Named so it does not read as the sibling `src/ast/types.rs`.)
 
 Nothing re-exported (inherent methods). 9 widenings (§3); new `pub(super)`: 0 (`enter_type`,
-`leave_type`, `parse_type_name_inner`, … are used only inside `type_names.rs`;
-`MAX_TYPE_DEPTH` stays in `mod.rs`).
-Citations (12 cites, 10 symbols): → `src/ast/expr/mod.rs` — `parse_argument_list`,
+`leave_type`, `parse_type_name_inner`, `parse_template_argument_list`,
+`parse_function_type_params`, … are used only inside `type_names.rs`:
+`grep -rn 'parse_template_argument_list\|parse_function_type_params' src | grep '\.rs:'` → only
+`src/ast/expr.rs` lines inside 878-1227; `MAX_TYPE_DEPTH` stays in `mod.rs`).
+Citations (13 cites, 11 symbols): → `src/ast/expr/mod.rs` — `parse_argument_list`,
 `parse_list_literal` (`language/02_lexical-structure.md`), `parse_member_access`,
 `parse_power`, `parse_unary` (`language/11_operators.md`); → `src/ast/expr/type_names.rs` —
 `finish_qualified_name`, `parse_optional_element_state`, `parse_thread_type_name`,
-`parse_type_base_name`, `parse_type_name` (`architecture/21_type-name-encoding.md`).
+`parse_type_base_name`, `parse_type_name` (3), `parse_type_name_inner`.
 Guards: `no_type_strings` `rel.starts_with("src/ast/")` covers the subdirectory;
 `no_operator_strings`' `is_test_file` does not match `type_names.rs`.
 Prose/comments: `.ai/codegen-invariants.md:85` "`src/ast/expr.rs`'s precedence ladder" →
@@ -295,7 +357,7 @@ New `pub(super)`: 0 (all node types and fields are `pub(crate)`). The boundary g
 
 ### 4.4 `src/lexer.rs` → `src/lexer/` (1199; K created `src/lexer/tests/`)
 
-- `mod.rs` (543): 1-347 (`TokenKind`, `DocRaw`, `DocRawLine`, `Keyword`, `Token`,
+- `mod.rs` (540): 1-347 (`TokenKind`, `DocRaw`, `DocRawLine`, `Keyword`, `Token`,
   `lex_with`, `Lexer`, `OpenBracket`, `begins_statement_only`, an `impl Lexer` block with
   `lex_all`) and 932-1254 in the same block (`lex_identifier_or_keyword`,
   `try_capture_doc_block`, `lex_newline`, `next_line_statement_keyword`, `open_bracket`,
@@ -306,7 +368,7 @@ New `pub(super)`: 0 (all node types and fields are `pub(crate)`). The boundary g
   `recover_string_literal`, `lex_scalar`, `recover_scalar_literal`, `lex_unicode_escape`,
   `lex_number`, `exponent_follows`, `is_base_digit`, `underscore_is_line_continuation`,
   `scan_base_digits`, `lex_radix_number`).
-- `keywords.rs` (177; 1255-1449): `lookup_keyword`, `is_end_line`, `is_doc_attr_rest`,
+- `keywords.rs` (180; 1255-1453): `lookup_keyword`, `is_end_line`, `is_doc_attr_rest`,
   `keyword`, `keyword_lexeme`.
 
 `pub use keywords::*;` keeps `crate::lexer::{lookup_keyword, keyword_lexeme, is_end_line,
@@ -334,58 +396,59 @@ the two stale line cites `[[src/lexer.rs:262]]`, `[[src/lexer.rs:752]]`
 (`architecture/19_internal-naming.md:17,50`) → `[[src/lexer/mod.rs:lex_identifier_or_keyword]]`
 (§2).
 
-### 4.5 `src/resolver/resolution.rs` → `src/resolver/resolution/` (1514)
+### 4.5 `src/resolver/resolution.rs` → `src/resolver/resolution/` (1496)
 
-`impl Resolver` (3-1768) cut into four blocks.
+`impl Resolver` (3-1742, 1489 code LOC) cut into four blocks.
 - `mod.rs` (378): 1-13 (`use super::*`, `resolve`), 479-897 (`resolve_file`,
   `resolve_resource_decl`, `resolve_func_alias`, `resolve_link_block`, `resolve_binding`,
   `resolve_type_decl`, `resolve_member_field`, `resolve_function`); `mod docs; mod body;
   mod types; use types::peel_res;` (free fn); `#[cfg(test)] mod tests;` (K).
 - `docs.rs` (422; 14-478): `resolve_doc_blocks`, `validate_doc_block`, `note_doc_target`,
   `check_doc_named`.
-- `body.rs` (531; 898-1491): `resolve_block`, `resolve_statement`, `resolve_nested_block`,
+- `body.rs` (526; 898-1484): `resolve_block`, `resolve_statement`, `resolve_nested_block`,
   `resolve_match_pattern`, `resolve_expression`, `resolve_callable`,
   `resolve_parameter_default`, `report_default_names_parameter`, `check_new_local`,
   `resolve_identifier`.
-- `types.rs` (183; 1492-1775): `resolve_type`, `resolve_leaf`, `report_unknown_type`,
-  `report_result_not_user_visible`, `resolve_package_qualified_name`, free fn `peel_res`.
+- `types.rs` (170; 1485-1749): `resolve_type`, `resolve_leaf`, `report_unknown_type`,
+  `resolve_package_qualified_name`, free fn `peel_res`.
 
 2 widenings (§3); `resolve` stays in `mod.rs`. pub(super) (6): `resolve_block`,
 `resolve_expression`, `resolve_parameter_default` (body); `resolve_type`,
 `resolve_package_qualified_name`, `peel_res` (types).
-Citations (27 cites, 14 symbols; `language/04, 05, 06, 08, 13, 17, 18`, `architecture/05, 21`,
+Citations (27 cites, 12 symbols; `language/04, 05, 06, 08, 13, 17, 18`, `architecture/05, 21`,
 `stdlib/15, 17, 18`): → `mod.rs` — `resolve_func_alias`, `resolve_function`,
 `resolve_resource_decl`, `resolve_type_decl`; → `body.rs` — `check_new_local`,
-`resolve_callable`, `resolve_expression`, `resolve_match_pattern`, `resolve_nested_block`,
+`resolve_callable`, `resolve_expression`, `resolve_nested_block`,
 `resolve_parameter_default`, `resolve_statement`; → `types.rs` —
-`resolve_package_qualified_name`, `resolve_type`. Dangling
-`[[src/resolver/resolution.rs:resolve_type_name]]` (`language/08_error-model.md:138`) →
-`[[src/resolver/resolution/types.rs:resolve_leaf]]` (§2).
+`resolve_package_qualified_name`, `resolve_type` (10).
 `tests/guards/no_type_strings.rs:422` (doc comment: `resolver/resolution.rs`'s `types` /
 `resources` declaration indexes) → `resolver/resolution/docs.rs` (comment only; no allowlist
 entry).
 
-### 4.6 `src/monomorph/lower.rs` → `src/monomorph/lower/` (2378; G created `lower/tests/`)
+### 4.6 `src/monomorph/lower.rs` → `src/monomorph/lower/` (2521; G created `lower/tests/`)
 
-`impl Monomorphizer` (68-2963, 2314 LOC) cut into five blocks.
-- `mod.rs` (439): 1-67 (`use super::*`, `use crate::operators…`, `strip_qualifier_prefixes`,
-  `impl TypeKinds for Monomorphizer`); an impl block with `new` (69-290), `run`,
-  `into_project` (530-749), `report`, `charge_instantiation`,
-  `report_instantiation_too_deep` (2894-2963); `mod resolve; mod instantiate; mod body;
+`impl Monomorphizer` (92-3153, 2442 code LOC) cut into five blocks.
+- `mod.rs` (452): 1-67 (`use super::*`, `use crate::operators…`, `strip_qualifier_prefixes`,
+  `impl TypeKinds for Monomorphizer` with `is_enum`, `union_accepts`); an impl block with `new`
+  (93-325), `run`, `into_project` (580-804), `report`, `charge_instantiation`,
+  `report_instantiation_too_deep` (3085-3154); `mod resolve; mod instantiate; mod body;
   mod types; use types::expected_element_type;`; `#[cfg(test)] mod tests;` (G).
-- `resolve.rs` (451): 291-529 (`collections_internal_callee`, `resolve_imported_overload`,
-  `types_compatible`, `normalize_type`), 1145-1498 (`resolve_overload`, `template_name`,
-  `sole_file_sibling`, `resolve_function_reference`, `resolve_builtin_override_reference`,
-  `resolve_general_builtin_override`, `single_signature_params`).
-- `instantiate.rs` (368): 750-1144 (`lower_type`, `lower_binding`, `lower_function`,
-  `lower_function_inner`, `arg_types_in_param_order`, `unique_concrete_symbol`,
-  `instantiate_function`, `user_instantiation_site`), 1499-1559 (`instantiate_type`,
-  `lower_field`).
-- `body.rs` (745; 1560-2406): `lower_statements`, `lower_statement` (324 LOC),
-  `lower_expression` (381 LOC), `lower_constructor_arg`.
-- `types.rs` (375): 2407-2893 (`leaf_symbol`, `concrete_type`, `template_view`,
+- `resolve.rs` (461): 326-579 (`collections_internal_callee`, `imported_overload_set`,
+  `resolve_imported_overload`, `types_compatible`, `normalize_type`), 1334-1687
+  (`resolve_overload`, `template_name`, `sole_file_sibling`, `resolve_function_reference`,
+  `resolve_builtin_override_reference`, `resolve_general_builtin_override`,
+  `single_signature_params`).
+- `instantiate.rs` (490): 68-91 (free items `TemplateBindFailure`, `template_identity`, used only
+  by `instantiate_function` and its helpers); 805-1333 (`lower_type`, `lower_binding`,
+  `lower_function`, `lower_function_inner`, `arg_types_in_param_order`,
+  `unique_concrete_symbol`, `instantiate_function`, `bind_template`,
+  `report_binding_failure`, `most_specific`, `user_instantiation_site`), 1688-1748
+  (`instantiate_type`, `lower_field`).
+- `body.rs` (742; 1749-2592): `lower_statements`, `lower_statement` (324 LOC),
+  `lower_expression` (378 LOC), `lower_constructor_arg`.
+- `types.rs` (376): 2593-3084 (`leaf_symbol`, `concrete_type`, `template_view`,
   `template_spellings`, `union_pattern_type`, `collect_union_instantiations`,
-  `record_fields`, `builtin_call_return_type`, `expression_type`), 2964-2974 (free fn
+  `record_fields`, `builtin_call_return_type`, `expression_type`), 3155-3165 (free fn
   `expected_element_type`).
 
 No re-exports of methods; `monomorph/mod.rs` uses only `Monomorphizer::{new, run,
@@ -396,20 +459,22 @@ resolve — `collections_internal_callee`, `resolve_imported_overload`, `types_c
 `lower_binding`, `lower_function`, `arg_types_in_param_order`, `instantiate_function`,
 `instantiate_type`; body — `lower_statements`, `lower_expression`; types — `concrete_type`,
 `template_view`, `union_pattern_type`, `record_fields`, `expression_type`,
-`expected_element_type`. `Monomorphizer`'s fields are defined in `monomorph/mod.rs`, an
-ancestor, so they stay visible.
-Citations (31 cites, 19 symbols; `architecture/12, 22`, `language/03, 04, 06, 18`): →
+`expected_element_type`. `imported_overload_set`, `bind_template`, `report_binding_failure`,
+`most_specific`, `TemplateBindFailure`, `template_identity` stay private (callers in the same
+part: `grep -n 'imported_overload_set\|bind_template\|report_binding_failure\|most_specific\|TemplateBindFailure\|template_identity' src/monomorph/lower.rs`).
+`Monomorphizer`'s fields are defined in `monomorph/mod.rs`, an ancestor, so they stay visible.
+Citations (33 cites, 20 symbols; `architecture/12, 22`, `language/03, 04, 06, 18`): →
 `mod.rs` — `Monomorphizer::new`, `into_project`; → `resolve.rs` —
-`collections_internal_callee`, `normalize_type`, `resolve_builtin_override_reference`,
-`resolve_function_reference`, `resolve_general_builtin_override`,
-`resolve_imported_overload`, `resolve_overload`, `single_signature_params`, `template_name`,
-`types_compatible`; → `instantiate.rs` — `instantiate_function`, `instantiate_type`,
-`lower_type`, `user_instantiation_site`; → `types.rs` — `collect_union_instantiations`,
-`expression_type`, `union_pattern_type`. `.ai/codegen-invariants.md:808` "`lower_expression`
-in `src/monomorph/lower.rs`" → `src/monomorph/lower/body.rs`. `no_type_strings` lists only
-`src/monomorph/mod.rs` (untouched).
+`collections_internal_callee`, `imported_overload_set`, `normalize_type`,
+`resolve_builtin_override_reference`, `resolve_function_reference`,
+`resolve_general_builtin_override`, `resolve_imported_overload`, `resolve_overload`,
+`single_signature_params`, `template_name`, `types_compatible`; → `instantiate.rs` —
+`instantiate_function`, `instantiate_type`, `lower_type`, `user_instantiation_site`; →
+`types.rs` — `collect_union_instantiations`, `expression_type`, `union_pattern_type`.
+`.ai/codegen-invariants.md:808` "`lower_expression` in `src/monomorph/lower.rs`" →
+`src/monomorph/lower/body.rs`. `no_type_strings` lists only `src/monomorph/mod.rs` (untouched).
 
-### 4.7 `src/codegen/registry/mod.rs` + 8 parts (3093)
+### 4.7 `src/codegen/registry/mod.rs` + 8 parts (3108)
 
 - `mod.rs` (417): 1-38 (`use` header); 105-145 (`AbiInline`, `AbiFunction`, `MfbFastPath`
   aliases); 1563-2169 (`ResolvedFunc`, `ResolvedType`, `Registry` + its whole impl:
@@ -418,7 +483,7 @@ in `src/monomorph/lower.rs`" → `src/monomorph/lower/body.rs`. `no_type_strings
   `qualified_builtin_type`, …; `registry()`, `BuiltinRecordLayout`,
   `builtin_record_layouts`); 2315-2361 (`build()`); the 8 `mod` lines and
   `pub(crate) use <part>::*;` for each; H's `mod qualification_tests` (inline, 79 test LOC),
-  `#[cfg(test)] mod tests;` and the `#[path = "tests/raw_result_block_ownership/mod.rs"]`
+  `#[cfg(test)] mod tests;` and the `#[path = "tests/raw_result_block_ownership.rs"]`
   declaration (the path is relative to `registry/`, unchanged).
 - `descriptors.rs` (427): 39-104 (`AbiCtx`); 146-1128, the descriptor data model:
   `DefaultValue`, `ConsumingParameter`, `Parameter`, `Body` + impl, `HelperGate`,
@@ -432,17 +497,17 @@ in `src/monomorph/lower.rs`" → `src/monomorph/lower/body.rs`. `no_type_strings
   `add_function`, `add_constant`, …).
 - `qualify.rs` (103; 2170-2314): `qualify_type_leaves`, `qualify_type_leaves_for_source`,
   `qualify_type_leaves_inner`.
-- `lookup.rs` (609): 2362-2649 (`RuntimeCall`, `runtime_specs`, `push_runtime_call`,
+- `lookup.rs` (625): 2362-2649 (`RuntimeCall`, `runtime_specs`, `push_runtime_call`,
   `qualify_runtime_call`, `find_constant`, `is_package_constant`, `constant_type_name`,
   `constant_value`, `constant_components`, `errorcode_constant`, `runtime_error*`,
-  `general_override_target`, `call_return_type_typed`, `alias_call_return_type`); 3531-4292
+  `general_override_target`, `call_return_type_typed`, `alias_call_return_type`); 3531-4311
   (`resolved_return_type`, `rewrite_target*`, `rewrite_owner`, `abi_inline_lower`,
   `natively_called_helpers`, `abi_function_lower`, `is_abi_function_call`,
   `native_member_declares_error`, `mfb_fast_path`, `public_member_for_rewrite`,
   `native_bare_target`, `callback_member*`, `function_has_unary_callback`,
   `argument_types*`, `agreed_argument_type`, `resolved_parameter_type*`,
   `contains_unknown`, `expected_arguments`, `overloads_disagree_on_layout`,
-  `call_param_name*`, `default_argument_padding`).
+  `call_param_name*`, `default_argument_padding`, `call_carries_its_fill_defaults`).
 - `unify.rs` (474 code + 117 cfg(test); 2650-3530): `leaf_matches`, `union_has_member`,
   `value_type_accepts`, `registry_union_accepts`, `is_resource_type_name`, `unify`,
   `unify_with_kinds`, `VarPosition`, `Position` + impl, `converts_to_union_form`,
@@ -452,14 +517,16 @@ in `src/monomorph/lower.rs`" → `src/monomorph/lower/body.rs`. `no_type_strings
   `strip_res`, `resolve_bound`, `occurs`, `types_coincide`, `resolve_call`) — they travel
   with the code they sit between; `raw_result_block_ownership`'s `use super::runtime_specs;`
   still resolves through `mod.rs`'s glob.
-- `late_pass.rs` (142; 4293-4501): `ProjectView` + impl (`of_hir`, `references_any`, …),
+- `late_pass.rs` (141; 4312-4519): `ProjectView` + impl (`of_hir`, `references_any`, …),
   `note_type`, `inject_late_pass`, `inject_late_pass_hir`, `late_pass_files`, `short_callee`.
-- `ast_scan.rs` (356; 4502-4872): `item_types`, `params_types`, `group_types`, `stmt_types`,
+- `ast_scan.rs` (356; 4520-4890): `item_types`, `params_types`, `group_types`, `stmt_types`,
   `expr_types`, `item_callees`, `group_callees`, `stmt_callees`, `expr_callees`.
-- `hir_scan.rs` (326; 4873-5207): `hir_item_types`, `hir_params_types`, `hir_stmt_types`,
+- `hir_scan.rs` (326; 4891-5225): `hir_item_types`, `hir_params_types`, `hir_stmt_types`,
   `hir_expr_types`, `hir_item_callees`, `hir_stmt_callees`, `hir_expr_callees`.
 
-Every `crate::codegen::registry::X` stays valid through the 8 globs. pub(super) (21):
+Every `crate::codegen::registry::X` stays valid through the 8 globs (including
+`call_carries_its_fill_defaults`, called as `crate::codegen::registry::…` from
+`src/codegen/engine/value/builder_values.rs`). pub(super) (21):
 `RegistryRecord::render`, `RegistryUnion::render`, `RegistryEnum::render`,
 `RegistryPackage::always_helper_bodies`, `qualify_type_leaves`,
 `qualify_type_leaves_for_source`, `qualify_type_leaves_inner`, `leaf_matches`, `unify`,
@@ -467,7 +534,7 @@ Every `crate::codegen::registry::X` stays valid through the 8 globs. pub(super) 
 `note_type`, `short_callee`, `item_types`, `group_types`, `item_callees`, `group_callees`,
 `hir_item_types`, `hir_item_callees`; plus private descriptor fields read by `Registry`'s impl
 or by `package.rs` (visibility rule; most are already `pub(crate)`).
-Citations (34; 33 symbol cites over 26 symbols + the file cite in
+Citations (35; 33 symbol cites over 25 symbols, the test-fn cite and the file cite in
 `architecture/09_modules.md`, which stays valid): stay in `mod.rs` — `augment_project`,
 `is_builtin_type`, `is_member`; → `descriptors.rs` — `EnumAdvisory`, `HelperGate`,
 `debug_split`; → `unify.rs` — `VarPosition`, `leaf_matches`, `resolve_call` (cfg(test)
@@ -476,7 +543,7 @@ helper), `resource_base_eq`, `unify_at`, `unify_with_kinds`, `union_has_member`,
 `default_argument_padding`, `find_constant`, `general_override_target`,
 `native_bare_target`, `resolved_parameter_type`; → `late_pass.rs` — `late_pass_files`,
 `references_any`; → `qualify.rs` — `qualify_type_leaves_inner`. The test-fn cite
-`range_and_index_parameters_use_the_documented_vocabulary` (`language/18`) was repointed by H.
+`range_and_index_parameters_use_the_documented_vocabulary` (`language/18`) is repointed by H.
 Dangling `[[src/codegen/registry/mod.rs:call_return_type]]` (`stdlib/12_bits.md:21`) →
 `[[src/codegen/registry/lookup.rs:call_return_type_typed]]` (§2).
 Prose/comments: `.ai/codegen-invariants.md:836` `general_override_target`
@@ -492,21 +559,114 @@ never interchange", the comment at old 3176 inside `unify_at`) → `registry/uni
 `RegistryOverride::arg_type`) → `registry/descriptors.rs` (comment only).
 `.ai/resources-packages.md:372` (`build()` in `registry/mod.rs`) stays valid.
 
-### 4.8 `src/rules/table.rs` — exempt (1617)
+### 4.8 `src/rules/table.rs` → `src/rules/table/` (1623)
 
-Not split (§2). Edits in the same commit:
-- `tests/guards/file_size_ceilings.txt`: the `ceiling code 1617 src/rules/table.rs` row is
-  replaced by
-  `exempt code src/rules/table.rs # one const RULES: &[Rule] data literal (269 Rule entries); Rule is not Copy, so the slice cannot be assembled from several files without new code`.
-- `tools/loc-census/census.py` `EXEMPT` table: the same path, kind `code` and reason.
-- Stale line cites (§2): `language/08_error-model.md:150` `[[src/rules/table.rs:312]] [[src/rules/table.rs:318]]`
-  → `[[src/rules/table.rs:TYPE_PROPAGATE_REQUIRES_TRAP]] [[src/rules/table.rs:TYPE_FAIL_REQUIRES_ERROR]]`;
-  `language/04_types.md:413` `:480` `:486` → `TYPE_READ_ONLY_RECORD_CONSTRUCTOR`,
-  `TYPE_READ_ONLY_RECORD_UPDATE`; `language/04_types.md:212` `:642` →
-  `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`.
+Three category parts, cut at the two clean seams of §2 (lines 327 and 1263), plus a `mod.rs`
+that orders them. Part LOC = sum of the old range + 3 header/footer code lines
+(`python3 -I /tmp/loc/rw-M/cnt.py`: 4-326 → 312, 327-1262 → 858, 1263-1720 → 450).
+- `front_end.rs` (315; old 4-326, 52 rules: `grep -c '^    Rule {'` over the range):
+  `PROJECT_JSON_MISSING` (2-200-0001) … `SYMBOL_SHADOWS_TOP_LEVEL_BINDING` (2-201-0022) — the
+  first `project.json` rules (2-200-0001…0010), source/lex/parse (1-100, 1-101, 1-102) and
+  import/symbol (2-201).
+- `type_check.rs` (861; old 327-1262, 143 rules): `TYPE_BINARY_OPERATOR_MISMATCH` (2-203-0001)
+  … `TYPE_INSTANTIATION_BUDGET_EXCEEDED` (2-203-0135) — every `2-203` rule. (Not `types.rs`,
+  which would read as `crate::types`.)
+- `tooling.rs` (453; old 1263-1720, 75 rules): `PROJECT_ENTRY_INVALID` (2-200-0011) …
+  `TESTING_EXPECT_TYPE_MISMATCH` (2-208-0008) — the later `project.json` rules, `BUILD_FAILED`,
+  `FMT_CHECK_FAILED`, package/native/verify/target/link/lockfile/registry rules (2-205-0022/0023,
+  3-302, 3-304, 5-500, 6-603, 6-605), doc-comment rules (1-103, 2-205-0001…0021), TESTING
+  parse rules (1-102-0010…0012) and `2-208`.
 
-The runtime message in `src/rules/mod.rs:436` naming `src/rules/table.rs` and the comment in
-`src/manifest/config.rs:165` stay valid.
+Each part is the old file's shape: `use super::*;`, a blank line,
+`pub(super) const RULES: &[Rule] = &[`, the old lines verbatim (every comment stays with its
+rule), `];`.
+
+`table/mod.rs` (8 code LOC):
+
+```rust
+//! The diagnostic rule table: one `&[Rule]` per category, walked in a fixed order.
+use super::{Rule, Severity};
+
+mod front_end;
+mod tooling;
+mod type_check;
+
+/// The parts in table order. Lookup is by name, so the order is the listing order only.
+const PARTS: &[&[Rule]] = &[front_end::RULES, type_check::RULES, tooling::RULES];
+
+/// Every rule, in table order.
+pub(super) fn rules() -> impl Iterator<Item = &'static Rule> {
+    PARTS.iter().flat_map(|part| part.iter())
+}
+```
+
+`src/rules/mod.rs` keeps `mod table;` and drops `use table::RULES;`. The seven uses read
+`table::rules()` (the test module reaches `table` through `use super::*;`, §2 probe):
+- `rule_for`: `RULES.iter().find(|rule| rule.name == rule_name)` →
+  `table::rules().find(|rule| rule.name == rule_name)`.
+- In K's `src/rules/tests/` (named by test, since K owns the file layout):
+  `dead_import_missing_package_name_is_gone` `!RULES.iter().any(..)` → `!table::rules().any(..)`;
+  `rule_names_are_unique` `RULES.iter().map(..)` → `table::rules().map(..)`;
+  `rule_codes_are_unique`, `code_and_name_resolves_representative_rules`,
+  `is_error_partitions_the_whole_table_by_severity` `for rule in RULES` →
+  `for rule in table::rules()`; `every_rule_is_documented_in_the_spec`
+  `RULES.iter().filter(..)` → `table::rules().filter(..)`.
+  Test-edit justification: (1) the tests were written with the table (`9cbb67c7c` split
+  `rules.rs` into `rules/`; bug-40, bug-216, plan-46, bug-883 added the drift guards). (2)
+  They protect: every rule is defined once, uniquely coded, documented, and resolvable. (3)
+  Dependents: none outside `src/rules/` (`grep -rn 'RULES' src | grep '\.rs:'`). (4) The
+  edit is forced, not a re-baseline: `RULES` as one slice no longer exists; each test keeps
+  every assertion over the same 270 rules in the same order (the order check below).
+- Comments/messages naming the single slice: the `code_and_name` doc ("not defined in
+  `RULES`") → "not in the rule table"; the `rule_for` comment ("absent from `RULES`") → "absent
+  from the rule table"; the `debug_assert!` text
+  `"diagnostic rule `{rule_name}` is not defined in RULES (src/rules/table.rs)"` →
+  `"… is not defined in RULES (src/rules/table/)"` — the `RULES` word stays, so
+  `unknown_rule_name_trips_the_debug_assert`'s `#[should_panic(expected = "not defined in RULES")]`
+  is unchanged, and each part's const is still named `RULES`; the
+  `every_rule_is_documented_in_the_spec` doc ("Every rule in `RULES`") → "Every rule in the
+  table". `src/manifest/config.rs:165` "The `src/rules/table.rs` rule name." → "The rule name
+  (`src/rules/table/`)."
+
+**Order check (before the commit):**
+`diff <(git show HEAD:src/rules/table.rs | sed -n '4,1720p') <(for p in front_end type_check tooling; do sed '1,3d;$d' src/rules/table/$p.rs; done)`
+→ no output (the three bodies concatenated are the old literal, line for line); and
+`grep -c '^    Rule {' src/rules/table/*.rs` → `front_end.rs:52`, `tooling.rs:75`,
+`type_check.rs:143`.
+
+**Spec citations (30 cites):**
+- `[[src/rules/table.rs:RULES]]` (13: `diagnostics/01_rule-codes.md` ×10, `diagnostics/spec.md`
+  ×1, `language/04_types.md:221`, `tooling/02_source-selection.md:190`) →
+  `[[src/rules/table/mod.rs:rules]]`.
+- Rule-name cites (12) → the part defining the rule: `type_check.rs` — `TYPE_USE_AFTER_MOVE`
+  (`language/14`), `TYPE_RESOURCE_REQUIRES_RES` (`language/15`, `16`), `TYPE_STATE_MISMATCH` ×2,
+  `TYPE_RESOURCE_RETURN_ORDER`, `TYPE_THREAD_RESOURCE_PLANE_REQUIRED` (`language/15`, `16`),
+  `TYPE_THREAD_WORKER_NOT_TRANSFERABLE` (`language/16`), `TYPE_MIXED_RESOURCE_UNION`
+  (`memory/03`); `front_end.rs` — `MFB_PARSE_PARAMETER_RES` (`language/15`); `tooling.rs` —
+  `FMT_CHECK_FAILED` (`tooling/05`).
+- Stale line cites (5, §2) → rule-name cites in `type_check.rs`:
+  `language/08_error-model.md:147` `[[src/rules/table.rs:312]] [[src/rules/table.rs:318]]` →
+  `[[src/rules/table/type_check.rs:TYPE_PROPAGATE_REQUIRES_TRAP]] [[src/rules/table/type_check.rs:TYPE_FAIL_REQUIRES_ERROR]]`;
+  `language/04_types.md:430` `:480` `:486` → `TYPE_READ_ONLY_RECORD_CONSTRUCTOR`,
+  `TYPE_READ_ONLY_RECORD_UPDATE`; `language/04_types.md:223` `:642` →
+  `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`. Record the fix in bug-840 (item 1) in the same
+  commit.
+
+**Spec prose (the registry's shape is stated in `diagnostics/01_rule-codes.md`; it changes with
+the code, `.ai/specifications.md`):** `:3` "drawn from the `RULES` registry" → "drawn from the
+rule registry"; `:11-12` "the registry `RULES` is a flat `&[Rule]` slice" → "the registry is
+three `&[Rule]` slices, one per category file under `src/rules/table/`, which
+`table::rules()` walks in a fixed order; lookup is by name"; `:55` "as it actually appears in
+`RULES`" → "in the registry"; `:62` and `:223`, `:616` "not in/a member of `RULES`" → "not in
+the registry"; `:222` "All 252 `RULES` entries are listed" → "All 270 registry entries are
+listed" (the measured count, `cat src/rules/table/*.rs | grep -c '^    Rule {'` → `270`;
+bug-883 §A item 1 — record it there in the same commit).
+
+**Other prose:** `.ai/resources-packages.md:11` — the closing sentence "The spec
+self-contradicts: … — reading it back uncritically is how the drift recurs." → "`a6f4bf282`
+removed the borrow half (§15.1's vocabulary and the rule `TYPE_RESOURCE_BORROW_INVALIDATE`,
+now the reserved `TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, 2-203-0086,
+`src/rules/table/type_check.rs`); reading borrow vocabulary back in is how the drift recurs."
 
 ## Phases
 
@@ -546,7 +706,7 @@ Common gate:
 
 - [ ] Split `src/hir/mod.rs` → `mod.rs` + `nodes.rs` per §4.3; repoint 2 citations.
 - [ ] Split `src/ast/serialize.rs` per §4.2; repoint the 3 comments.
-- [ ] Split `src/ast/expr.rs` per §4.1 (9 widenings); repoint 12 citations,
+- [ ] Split `src/ast/expr.rs` per §4.1 (9 widenings); repoint 13 citations,
       `.ai/codegen-invariants.md:85,836` (the `ast/expr` half), the comments in
       `src/operators.rs`, `src/types.rs`, `src/ast/tests/`.
 - [ ] G5.
@@ -564,24 +724,39 @@ Commit: —
       stale line cites.
 - [ ] `tests/guards/no_type_strings.rs` `is_excluded_from_scan` + its doc bullet (§4.4,
       justification there); `.ai/codegen-invariants.md:54`.
-- [ ] `src/rules/table.rs` exemption: ceiling file row and `tools/loc-census/census.py`
-      `EXEMPT` entry (§4.8).
-- [ ] The five stale `[[src/rules/table.rs:<line>]]` cites → rule-name cites (§4.8).
+- [ ] Before the table edit: `target/release/mfb spec diagnostics rule-codes > /tmp/m_spec_before.txt`
+      and `target/release/mfb man > /tmp/m_man_before.txt` (release build of the phase's
+      starting commit).
+- [ ] Split `src/rules/table.rs` → `src/rules/table/{mod,front_end,type_check,tooling}.rs` per
+      §4.8; run the order check → no output.
+- [ ] `src/rules/mod.rs`: drop `use table::RULES;`, `rule_for` → `table::rules()`, the
+      comments and the `debug_assert!` path (§4.8); the six tests in K's `src/rules/tests/`
+      → `table::rules()`; `src/manifest/config.rs:165`.
+- [ ] Repoint the 30 `src/rules/table.rs` citations (13 `RULES`, 12 rule-name, 5 stale line)
+      and the `diagnostics/01_rule-codes.md` prose (§4.8); record bug-840 item 1 and bug-883
+      §A item 1 in their bug files.
+- [ ] `.ai/resources-packages.md:11` (§4.8).
 - [ ] G5.
 
-Acceptance: tokens are byte-identical, the lexer is still outside the type-string scan, and the
-rules table is exempt by hand-reviewed reason.
-  Check: G1; `cargo test -p mfb --bin mfb lexer:: rules::` → 0 failed; G2 for `general`,
-  `strings`, `money` (literal, escape and number lexing); `grep -rnE '\[\[src/(lexer\.rs|rules/table\.rs:[0-9])' src/docs/spec`
-  → 0; `python3 -I tools/loc-census/census.py --seed | grep 'src/rules/table.rs'` → the
-  `exempt code` row; `cargo test --test file_size_budget 2>&1 | grep 'src/rules/table.rs'` → no
-  row; G3; G4; G6 (est. 12 min).
+Acceptance: tokens are byte-identical, the lexer is still outside the type-string scan, and
+every diagnostic resolves to the same rule.
+  Check: G1; `cargo test -p mfb --bin mfb lexer:: rules::` → 0 failed (the 20 `rules::` tests
+  include the six table tests); G2 for `general`, `strings`, `money` (literal, escape and number
+  lexing); every diagnostic still renders the same code/severity/message — the invalid fixtures'
+  `build.log` goldens: `bash scripts/test-accept.sh target/release/mfb /tmp/m_accept_p2 '*invalid*'`
+  → no golden diff (est. 12 min); `target/release/mfb man | diff /tmp/m_man_before.txt -` → no
+  output; `target/release/mfb spec diagnostics rule-codes | diff /tmp/m_spec_before.txt -` →
+  only the §4.8 prose lines and lines containing `src/rules/table`;
+  `grep -rnE '\[\[src/(lexer\.rs|rules/table\.rs)' src/docs/spec` → 0;
+  `python3 -I tools/loc-census/census.py --file src/rules/table/type_check.rs` → `861 0`;
+  `cargo test --test file_size_budget 2>&1 | grep 'src/rules/table'` → no row; G3; G4; G6
+  (est. 25 min).
 Commit: —
 
 ### Phase 3 — Resolver
 
-- [ ] Split `src/resolver/resolution.rs` per §4.5 (2 widenings); repoint 27 citations and the
-      dangling `resolve_type_name` cite; the `no_type_strings.rs:422` comment.
+- [ ] Split `src/resolver/resolution.rs` per §4.5 (2 widenings); repoint 27 citations; the
+      `no_type_strings.rs:422` comment.
 - [ ] G5.
 
 Acceptance: name resolution and its diagnostics are byte-identical.
@@ -596,7 +771,7 @@ Commit: —
 ### Phase 4 — Monomorphizer
 
 - [ ] Split `src/monomorph/lower.rs` per §4.6 (five impl blocks, 1 widening, 23
-      `pub(super)`); repoint 31 citations and `.ai/codegen-invariants.md:808`.
+      `pub(super)`); repoint 33 citations and `.ai/codegen-invariants.md:808`.
 - [ ] G5.
 
 Acceptance: instantiation and overload selection are byte-identical.
@@ -609,7 +784,7 @@ Commit: —
 
 - [ ] Split `src/codegen/registry/mod.rs` into `mod.rs` + the 8 parts per §4.7 (the H-left
       cfg(test) helpers go to `unify.rs`).
-- [ ] Repoint the 30 moved-symbol citations and the dangling `call_return_type` cite.
+- [ ] Repoint the 27 moved-symbol citations and the dangling `call_return_type` cite.
 - [ ] Prose/comments per §4.7 (`.ai/codegen-invariants.md:836` registry half,
       `src/cli/man.rs:666`, `src/codegen/builtins/vector/mod.rs:549`, the `src/ir` test comment,
       `builder_value_semantics.rs:1711`, `no_type_strings.rs:929`).
@@ -624,54 +799,83 @@ Commit: —
 ## Validation Plan
 
 - Tests: no test added or removed (G1 per phase). Unit tests of every moved module run in
-  their phase.
+  their phase. The six rule-table tests change only how they obtain the rules (§4.8).
 - Coverage check: pure motion inside `src/` — the moved lines keep their coverage counts; the
-  denominators move between files. No coverage exception names an M file
+  denominators move between files. The new `table::rules()` runs on every diagnostic and in
+  every rule-table test. No coverage exception names an M file
   (`grep -nE 'src/(ast|hir|lexer|monomorph|resolver|rules|codegen/registry)' scripts/coverage-exceptions.txt`
   → 0).
 - Runtime proof / final gate (once, after Phase 5): `cargo build --release` and
   `sh scripts/artifact-gate.sh target/release/mfb all` → no diff (est. 15–20 min; code motion
   in the front end and the registry can change emission for any fixture on any target, and
   only the full gate covers every fixture on every target). Diagnostics from the lexer,
-  parser and resolver are pinned by `build.log` goldens the artifact gate does not diff:
-  `bash scripts/test-accept.sh target/release/mfb /tmp/m_accept '*invalid*'` → no golden diff
-  (est. 12 min). Then G1, G3, G4 and
+  parser, resolver and the rule table are pinned by `build.log` goldens the artifact gate
+  does not diff: `bash scripts/test-accept.sh target/release/mfb /tmp/m_accept '*invalid*'` →
+  no golden diff (est. 12 min). Then G1, G3, G4 and
   `cargo test --test file_size_budget` → banner 0 rows (est. 8 min). A diff is root-caused on
   one fixture and fixed; the gate is rerun. The full workspace suite runs once, in
   plan-176-V.
-- Doc sync: spec citations listed in §4 (path-only changes plus the 8 stale/dangling
-  repairs); `.ai/codegen-invariants.md:54,85,808,836`. No observable contract changes.
+- Doc sync: spec citations listed in §4 (path-only changes plus the stale/dangling repairs);
+  `diagnostics/01_rule-codes.md` prose on the registry's shape and count (§4.8);
+  `.ai/codegen-invariants.md:54,85,808,836`; `.ai/resources-packages.md:11`. The only spec
+  contract that changes is the registry's described shape (one slice → three parts walked in
+  order); no diagnostic changes.
 
 ## Decisions
 
-- Rule: code ≤ 1000, test ≤ 250 non-comment non-blank LOC; scope `.rs`/`.mfb` under `src/`
-  `packages/` `examples/` `repository/` `tests/` — owner, 2026-10-14.
-- Inline test code counts against the 250 test budget — owner, 2026-10-14. Inline modules
-  under 250 stay inline: `ast/expr` (155), `ast/serialize` (51), `hir` (192),
+- Rule revised — owner, 2026-10-18. Three kinds, three limits, all non-comment non-blank LOC
+  (counting rules unchanged from plan-176-A §2); scope `.rs`/`.mfb` under `src/` `packages/`
+  `examples/` `repository/` `tests/`:
+
+  | Kind | Applies to | Limit | Over the limit → |
+  |---|---|---|---|
+  | `code` | code LOC of a file that is not a test-only file | 1000 | split the file into modules |
+  | `inline` | inline test LOC (`#[cfg(test)]` items / MFBASIC `TESTING … END TESTING`) in a file that is not test-only | 250 | move the tests into their own test-only file(s) |
+  | `test` | total LOC of a test-only file | 1000 | split the test-only file into modules |
+
+  Ceiling rows are `ceiling <code|inline|test> <n> <path>`; parts target ≤ 900 of their kind.
+  Inline modules within 250 stay inline: `ast/expr` (155), `ast/serialize` (51), `hir` (192),
   `registry::qualification_tests` (79); `unify.rs` carries 117 cfg(test) LOC.
-- Generated files exempt; the guard warns, never fails; a new module is always an acceptable
-  split — owner, 2026-10-14.
+- No exemptions; the guard warns (banner), never fails; only `GENERATED`-banner files are
+  skipped; a new module is always an acceptable split — owner, 2026-10-18 / 2026-10-14.
+- A single indivisible unit over its limit gets a real split — owner, 2026-10-18. M's one such
+  unit is `RULES`: three per-category `&[Rule]` parts walked by `table::rules()` in the old
+  order (§4.8), the fewest parts that keep each ≤ 900.
 - A single function over the code limit is decomposed by extract-method gated by byte identity
-  — owner, 2026-10-14. No M function is over 1000 (largest: `lower_expression` 381), so M does
+  — owner, 2026-10-14. No M function is over 1000 (largest: `lower_expression` 378), so M does
   no extraction.
-- `src/rules/table.rs` is exempt (code kind): one `const RULES: &[Rule]` data literal; `Rule`
-  is not `Copy`; no concatenation without new code. It is data, not a function — author,
-  2026-10-14 (brief).
 - Guards that classify by file name are updated in the same commit as the move, with the
   4-point justification — author, 2026-10-14 (`no_type_strings` lexer clause, §4.4).
 - Pre-existing defects found by the map are fixed here: the two lexer line cites, five rules
-  line cites, `resolve_type_name`, `call_return_type` — author, 2026-10-14.
+  line cites (bug-840 item 1), `call_return_type`, the stale `.ai/resources-packages.md:11`
+  borrow sentence, the "All 252" count (bug-883 §A item 1) — author, 2026-10-18.
 - Byte identity is the gate for compiler code motion; the full artifact gate runs once at the
   end — brief, 2026-10-14.
-- Glob-cycle imports compile without warnings — verified (`/tmp/loc/probe2`).
+- Glob-cycle imports compile without warnings — verified (`/tmp/loc/probe2`); the rule-table
+  accessor shape compiles clean and keeps order — verified (`/tmp/loc/rw-M/probe/m2.rs`).
 
 ## Corrections
+
+- 2026-10-18 — Rule revised by the owner: test-only files limit 1000 (was 250), inline tests
+  250, no exemptions. Dropped 0 files (M has no test-only file; every inline block it keeps is
+  ≤ 250). `src/rules/table.rs` is no longer exempt: it is split into three category parts plus
+  an ordering `mod.rs` (§4.8), its `exempt` row and `EXEMPT` entry are gone, and its 30 spec
+  citations, the `diagnostics/01_rule-codes.md` shape prose and the `.ai/resources-packages.md`
+  cite move with it. Counts and line ranges re-taken at `ce7a995ca`: `expr.rs` 1083 (new
+  `parse_template_argument_list`, `parse_function_type_params` → `type_names.rs`),
+  `lower.rs` 2521 (new `union_accepts` → `mod.rs`, `imported_overload_set` → `resolve.rs`,
+  `TemplateBindFailure`, `template_identity`, `bind_template`, `report_binding_failure`,
+  `most_specific` → `instantiate.rs`), registry 3108 (`call_carries_its_fill_defaults` →
+  `lookup.rs`), `resolution.rs` 1496 (`report_result_not_user_visible` was deleted upstream;
+  the dangling `resolve_type_name` cite is already gone). The registry's H test declarations follow H's revised layout
+  (`#[path = "tests/raw_result_block_ownership.rs"]`).
 
 ## Summary
 
 M is code motion through the compiler front end and the registry, proven by byte-identical
-artifacts. The real risks are the visibility depth trap (12 methods that must become
-`pub(in crate::<parent>)`, not `pub(super)`), the lexer's exact-path guard exemption, and the
-registry split that every builtin call passes through — which is why it lands last, behind the
-full artifact gate. `src/rules/table.rs` stays one file with a reviewed `exempt` row, and eight
-stale citations get real symbols on the way.
+artifacts, plus one real data split: the rule table becomes three category slices that
+`table::rules()` walks in the original order, proven line for line by the order check and by
+the invalid-fixture `build.log` goldens. The real risks are the visibility depth trap (12
+methods that must become `pub(in crate::<parent>)`, not `pub(super)`), the lexer's exact-path
+guard exemption, and the registry split that every builtin call passes through — which is why
+it lands last, behind the full artifact gate. Stale citations get real symbols on the way.

@@ -1,23 +1,36 @@
 # plan-176-A: File-size budget guard, oracle and ceilings
 
-Last updated: 2026-10-14
+Last updated: 2026-10-18
 Overall Effort: huge (>3d) — 22 sub-plans, A–V
 Effort: large (3h–1d)
 Depends on: nothing
 
 plan-176 enforces one rule across the tree:
 
-> No code file is over **1000 LOC** and no test file is over **250 LOC**, unless there
-> is no logical place to split it. Comments and blank lines are not LOC. A split is done
-> by creating a new module.
+> **Code and code + test files:** over **1000** lines of code → split the file. Over **250**
+> lines of inline tests → move the tests out into their own test-only file(s). (So a mixed
+> file holds at most 1000 code + 250 inline test = 1250.)
+>
+> **Test-only files:** over **1000** lines of tests → split the test-only file.
+>
+> **All files:** comments (and blank lines) do not count. Splitting files into modules is
+> always acceptable.
+
+The guard therefore measures three kinds:
+
+| Kind | What is counted | Limit |
+|---|---|---|
+| `code` | code LOC of a file that is not a test-only file | 1000 |
+| `inline` | inline test LOC (`#[cfg(test)]` items, MFBASIC `TESTING … END TESTING`) inside a file that is not a test-only file | 250 |
+| `test` | all LOC of a test-only file | 1000 |
 
 This sub-plan builds the enforcement and the measurement every later letter uses: a guard
 test that counts LOC exactly, a checked-in ceiling file that can only go down, an independent
 oracle that cross-checks the guard, and the written rule. When it is done, `cargo test --test
 file_size_budget` prints a loud banner naming every file that is over its limit and not
-covered by a ceiling or exemption. It also names every file that grew past its ceiling, and
+covered by a ceiling. It also names every file that grew past its ceiling, and
 every ceiling that can be lowered. Sub-plans B–V then bring the ceilings down until the file is
-empty apart from its exemptions.
+empty. There are no exemptions apart from generated files.
 
 The single outcome of A: on the tree at the commit that lands A, the guard reports **zero**
 NEW, GREW, STALE and TIGHTEN rows. That proves its counts equal the oracle's for every
@@ -44,18 +57,16 @@ None. A adds files and two doc paragraphs and touches no compiler code.
 
 Every later letter has the same prerequisite shape: **its own files have no uncommitted
 changes** (`git status --porcelain -- <its paths>` → empty), so a pure move never captures
-someone else's work in progress. At planning time, four letters have a file in the dirty tree.
-Each of those letters lists the file in its own Prerequisites:
-`src/codegen/registry/mod.rs` (H for its inline tests, M for its code),
-`src/ir/verify/resources.rs` (N) and `tests/canvas/rt_canvas_group_ownership.rs` (D).
-(`git status --porcelain` on 2026-10-14, intersected with `/tmp/loc/groups.json`.)
+someone else's work in progress. On 2026-10-18 no in-scope file is dirty
+(`git status --porcelain` at `ce7a995ca` lists only `planning/baremetal.md` and
+`debugger-report.md`).
 
 ## 1. Goal
 
 - `cargo test --test file_size_budget` exists, always passes, and writes a banner to the
   terminal (raw stderr, so libtest's capture does not swallow it) listing every violation row.
 - `tests/guards/file_size_ceilings.txt` holds one ceiling per over-limit (file, kind) at its
-  current count, plus the exemptions decided in this plan, each with its reason.
+  current count. It has no exemption rows.
 - `tools/loc-census/` holds the Python oracle that produced the seed. On the A commit, the
   guard's count equals the oracle's for every in-scope file.
 - `MFB_LOC_TIGHTEN=1 cargo test --test file_size_budget` rewrites the ceiling file. It lowers
@@ -84,7 +95,9 @@ finds no file-size rule.
 | Rust `.rs` | blank lines; `//`, `///`, `//!` to end of line; `/* … */` including nested, including `/** */` and `/*! */`. Comment markers inside string, raw-string (`r"…"`, `r#"…"#`, `br…`, `cr…`), byte-string and char literals are NOT comments. | the whole file if a path component is `tests`, or it is a module declared under `#[cfg(test)]` (and that module's subtree), or it begins with `#![cfg(test)]`. Otherwise, the lines of every item under a `#[cfg(test)]` / `#[cfg(all(test, …))]` attribute (extent rule below). |
 | MFBASIC `.mfb` | blank lines; lines whose first token is `'`; lines whose first token is `REM` followed by whitespace or end of line; every line from a statement-leading `DOC` line (optionally followed by uppercase attribute words) through its `END DOC` line. | the whole file if a path component is `tests` or the file name starts with `test_`. Otherwise, the lines from `TESTING` through `END TESTING` inclusive. |
 
-Code LOC = LOC − test LOC. Limits: code **1000**, test **250**.
+Code LOC = LOC − test LOC. For a test-only file (the "whole file" cases in the table), every
+LOC is kind `test`, limit **1000**. For any other file, code LOC is kind `code`, limit **1000**,
+and its test LOC is kind `inline`, limit **250**.
 
 **Extent of a `#[cfg(test)]` item** (Rust, scanned over code text after comments and literals
 are blanked). Starting at the attribute, with `d` = the bracket depth there, counting `(`, `[`
@@ -118,22 +131,23 @@ its first three lines. The only other case-insensitive hits are lowercase prose,
 ### Measured populations
 
 All counts come from the planning oracle (`/tmp/loc/census.py`, which becomes
-`tools/loc-census/census.py` in Phase 1) run on the working tree of `17a9b5799`:
-`python3 -I /tmp/loc/census.py "$PWD"` (22 s), then summarized from `census.json`.
+`tools/loc-census/census.py` in Phase 1) run on the tree at `ce7a995ca` (2026-10-18):
+`python3 -I /tmp/loc/census.py "$PWD"` (14 s), then summarized from `census.json` by kind.
+The letters' line ranges were mapped at `17a9b5799`; item names are authoritative.
 
 | What | Count |
 |---|---|
-| In-scope `.rs` + `.mfb` files | 4438 |
+| In-scope `.rs` + `.mfb` files | 4470 |
 | Generated (auto-exempt) | 9 |
-| Files with code LOC > 1000 | 98 (97 `.rs`, 1 `.mfb`), 75,345 LOC over the limit |
-| Test files with test LOC > 250 | 206 (180 `.rs`, 26 `.mfb`), 144,713 test LOC |
-| Non-test files whose inline test LOC > 250 | 71 (all `.rs`), 59,868 inline test LOC |
-| Ceiling rows to seed (code + test rows; 5 of the 206 test files are exemptions, see §Decisions) | 98 + 201 + 71 = 370 |
+| `code` > 1000 | 98 files (97 `.rs`, 1 `.mfb`), 76,383 LOC over the limit |
+| `inline` > 250 | 71 files (all `.rs`), 60,191 inline test LOC |
+| `test` > 1000 (test-only files) | 30 files (all `.rs`), 67,935 test LOC |
+| Ceiling rows to seed | 98 + 71 + 30 = 199 |
 
-Largest offenders (same run): code `src/codegen/runtime/canvas/vulkan.rs` 7300,
-`src/ir/lower.rs` 5140, `src/codegen/engine/control/builder_control.rs` 4392; test files
-`src/ir/verify/tests.rs` 8465, `tests/runtime/rt_scope_drop_leaks.rs` 5476,
-`tests/canvas/rt_canvas_rasteriser.rs` 4575; inline `repository/src/server.rs` 7487.
+Largest offenders (same run): `code` `src/codegen/runtime/canvas/vulkan.rs` 7309,
+`src/ir/lower.rs` 5222, `src/codegen/engine/control/builder_control.rs` 4466; `test`
+`src/ir/verify/tests.rs` 8495, `src/ir/tests.rs` 6386, `tests/runtime/rt_scope_drop_leaks.rs`
+5476; `inline` `repository/src/server.rs` 7487.
 
 The seed is re-taken from the oracle when Phase 2 runs (§Phase 2). The numbers above are the
 planning snapshot that sized the letters, not values to type in.
@@ -177,7 +191,8 @@ Three pieces:
 
 1. **Oracle** — `tools/loc-census/census.py` (Python, stdlib only). This is the planning census
    made permanent. It emits per-file `(path, code, test, generated, testfile)` JSON and,
-   with `--seed`, the ceiling-file body.
+   with `--seed`, the ceiling-file body (kind `test` for a test-only file, else `code` and
+   `inline`).
 2. **Guard** — `tests/guards/file_size_budget.rs` (target root) plus submodules under
    `tests/guards/file_size_budget/`. It walks the scope, counts with its own Rust
    implementation of the same rules, compares against the ceiling file, writes the banner, and
@@ -185,7 +200,7 @@ Three pieces:
 3. **Ceiling file** — `tests/guards/file_size_ceilings.txt`.
 
 Two independent implementations of the counting rules (Python oracle, Rust guard) agreeing on
-4438 files is the correctness check for both. The risk is in the Rust lexer's edge cases (raw
+4470 files is the correctness check for both. The risk is in the Rust lexer's edge cases (raw
 strings, lifetimes vs char literals, nested block comments, `REM` as an identifier prefix).
 The unit tests in Phase 1 pin each edge case, and the Phase 2 agreement run pins the whole tree.
 
@@ -204,12 +219,13 @@ Rejected alternatives:
   the union of the heuristic and the principled rule classified every file the same as the
   principled rule plus the `tests` component (oracle diff run, 0 differing files).
 - *Ceilings that `MFB_LOC_TIGHTEN` can add or raise* — that would turn the ratchet into a
-  rubber stamp. New entries are added only by hand in review: an exemption with a reason, or
-  never.
+  rubber stamp. New entries are never added.
+- *Hand-written exemptions* — the rule has none; an over-limit file is split. Only generated
+  files are exempt, and that is detected, not listed.
 
 ## 4. The guard
 
-### 4.1 Files (each ≤ 250 test LOC, by its own count)
+### 4.1 Files (test-only files, each ≤ 1000 test LOC by its own count)
 
 | File | Contents |
 |---|---|
@@ -223,16 +239,17 @@ Rejected alternatives:
 ### 4.2 Ceiling file format
 
 ```
-# tests/guards/file_size_ceilings.txt — plan-176. Limits: code 1000, test 250 (non-comment, non-blank LOC).
-# ceiling <code|test> <n> <path>        an over-limit file may not grow past n; MFB_LOC_TIGHTEN=1 lowers n.
-# exempt  <code|test> <path> # <reason> no logical place to split; reviewed by hand.
-ceiling code 7300 src/codegen/runtime/canvas/vulkan.rs
-ceiling test 748 src/codegen/runtime/canvas/vulkan.rs
-exempt test tests/syntax/parser/parser_tgroup_depth/src/main.mfb # nests TGROUP to the parser's 256 statement-depth limit; the depth IS the test
+# tests/guards/file_size_ceilings.txt — plan-176. Limits (non-comment, non-blank LOC):
+#   code 1000, inline 250 (inline tests in a code file), test 1000 (test-only file).
+# ceiling <code|inline|test> <n> <path>  an over-limit file may not grow past n; MFB_LOC_TIGHTEN=1 lowers n.
+ceiling code 7309 src/codegen/runtime/canvas/vulkan.rs
+ceiling inline 748 src/codegen/runtime/canvas/vulkan.rs
+ceiling test 8495 src/ir/verify/tests.rs
 ```
 
-Rows are sorted by path, then kind. `#` lines and blank lines are ignored. An `exempt` line
-without a `# reason` is a parse error, reported as a banner row (the guard still does not fail).
+Rows are sorted by path, then kind. `#` lines and blank lines are ignored. Any other line
+(including an unknown kind) is a parse error, reported as a `STALE` banner row (the guard
+still does not fail).
 
 ### 4.3 Rows and the banner
 
@@ -243,7 +260,6 @@ limit:
 |---|---|
 | `n ≤ L`, no entry | — |
 | `n ≤ L`, ceiling entry | `TIGHTEN` (entry now removable) |
-| `n > L`, exempt entry | — |
 | `n > L`, ceiling `c`, `n == c` | — |
 | `n > L`, ceiling `c`, `n < c` | `TIGHTEN` (lower to `n`) |
 | `n > L`, ceiling `c`, `n > c` | **`GREW`** |
@@ -255,11 +271,13 @@ If any row exists, the driver writes this to `std::io::stderr().lock()` with `wr
 ```
 ################################################################################
 ##  FILE SIZE BUDGET (plan-176): 2 over, 1 grew, 3 can tighten                 ##
-##  code ≤ 1000, test ≤ 250 non-comment LOC. Split into a new module.         ##
+##  code ≤ 1000, inline tests ≤ 250, test-only file ≤ 1000 non-comment LOC.    ##
+##  Split into a new module; move inline tests out to a test-only file.        ##
 ################################################################################
   NEW      code 1043 > 1000  src/codegen/foo.rs
-  GREW     test  262 > 250 (ceiling 255)  tests/runtime/rt_x.rs
-  TIGHTEN  code  4100 (ceiling 4392)  src/codegen/engine/control/builder_control.rs
+  NEW      inline 262 > 250  src/codegen/foo.rs
+  GREW     test 1262 > 1000 (ceiling 1255)  tests/runtime/rt_x.rs
+  TIGHTEN  code  4100 (ceiling 4466)  src/codegen/engine/control/builder_control.rs
   run `MFB_LOC_TIGHTEN=1 cargo test --test file_size_budget` to lower ceilings.
 ################################################################################
 ```
@@ -273,6 +291,7 @@ One `#[test]` per case, asserting the per-line classification of a short literal
 `"//"` on the same line; nested `/* /* */ */` spanning lines; `/// doc` and `//! doc`;
 code then trailing `// comment` (Code); a `#[cfg(test)] mod tests { … }` block
 (test lines); `#[cfg(test)] mod tests;` (one test line); `#![cfg(test)]` file (all test);
+kind assignment (a `tests/` path → `test` only; a mixed file → `code` and `inline`);
 MFBASIC `'` line, `REM x`, `REMAINDER = 1` (Code), `DOC INTERNAL … END DOC`, a `TESTING`
 block, a line in a `test_x.mfb` file; a generated banner in line 3 (generated) vs line 4 (not);
 and one case per `#[cfg(test)]` extent shape in §2 (module, `&[` const table, `use`, `mod x;`,
@@ -309,8 +328,7 @@ which is correct and harmless (it never fails).
       of lines A..B (1-based, inclusive). B–V use these modes to re-measure a part before
       and after a move. `--seed` prints the
       `ceiling` rows (sorted, §4.2 format) for every (file, kind) over its limit that is not
-      generated and not in the `EXEMPT` table at the top of the script. That table holds
-      exactly the §Decisions exemptions with their reasons, and they are printed as `exempt` rows.
+      generated. The script has no exemption table.
 - [ ] `tools/loc-census/README.md`: what it is (the independent oracle for
       `tests/guards/file_size_budget.rs`), the counting rules table from §2, usage, and that
       it is not a gate.
@@ -332,8 +350,7 @@ Commit: —
 - [ ] `python3 -I tools/loc-census/census.py --seed > tests/guards/file_size_ceilings.txt`,
       then prepend the §4.2 header comment.
 - [ ] `tests/guards/file_size_budget/ceilings.rs`: `MFB_LOC_TIGHTEN=1` rewrite (lower `n`,
-      drop entries for files now within limit or missing, keep `exempt` rows of existing files
-      verbatim, never add, never raise), with a `lex_cases.rs` case that feeds an in-memory
+      drop entries for files now within limit or missing, never add, never raise), with a `lex_cases.rs` case that feeds an in-memory
       ceiling table plus counts and asserts the rewritten text.
 
 Acceptance: the seeded tree is clean and the ratchet only goes down.
@@ -347,21 +364,22 @@ Commit: —
 
 ### Phase 3 — Write the rule down
 
-- [ ] `AGENTS.md`, "Always": one bullet — *File size: code ≤ 1000, test ≤ 250 non-comment
-      LOC (`.rs`/`.mfb` under `src/ packages/ examples/ repository/ tests/`; inline
-      `#[cfg(test)]`/`TESTING` count as test). Over → split into a new module by
-      responsibility. `cargo test --test file_size_budget` prints a banner;
-      `tests/guards/file_size_ceilings.txt` ceilings only go down
-      (`MFB_LOC_TIGHTEN=1`). Exempt only when no logical split exists, by hand, with a
-      reason. Generated files (`GENERATED` in the first three lines) are exempt. Mechanics:
+- [ ] `AGENTS.md`, "Always": one bullet — *File size (non-comment, non-blank LOC; `.rs`/`.mfb`
+      under `src/ packages/ examples/ repository/ tests/`): a code file ≤ 1000 code and ≤ 250
+      inline tests (`#[cfg(test)]`/`TESTING`); a test-only file ≤ 1000. Over 1000 code → split
+      into modules; over 250 inline → move the tests to their own test-only file; test-only
+      file over 1000 → split it. `cargo test --test file_size_budget` prints a banner;
+      `tests/guards/file_size_ceilings.txt` ceilings only go down (`MFB_LOC_TIGHTEN=1`). No
+      exemptions except generated files (`GENERATED` in the first three lines). Mechanics:
       `.ai/build-tooling.md`.*
 - [ ] `.ai/build-tooling.md`: new section "## Splitting an over-budget file (plan-176)" with
       the conventions every letter uses. Code: `foo.rs` → `foo/mod.rs` + parts, `mod.rs`
       re-exports the surface, ≤ 900 per part, pure motion, sweep `[[foo.rs:` citations and
-      `tests/guards` allowlists, inherit `scripts/coverage-exceptions.txt` entries. Integration
-      tests: root stays, `#[path = "<name>/<topic>.rs"] mod <topic>;`. src tests:
-      `foo/tests/mod.rs`. Gates: `-- --list` count before == after; byte-identity for code.
-      Then tighten.
+      `tests/guards` allowlists, inherit `scripts/coverage-exceptions.txt` entries. Inline tests
+      over 250: move to `foo/tests/mod.rs` (one file unless it is over 1000). Test-only files
+      over 1000: root stays, `#[path = "<name>/<topic>.rs"] mod <topic>;` (integration) or
+      `tests/<topic>.rs` submodules (src), ≤ 900 per part. Gates: `-- --list` count before ==
+      after; byte-identity for code. Then tighten.
 - [ ] `AGENTS.md` "Read before that kind of work": extend the existing `.ai/build-tooling.md`
       line's description with ", file-size splits (plan-176)".
 
@@ -387,49 +405,27 @@ Commit: —
   — decided by the owner, 2026-10-14. `benchmark/`, `tools/`, `spikes/` and `scripts/` are out.
 - Comments and blank lines are not LOC. Doc comments (`///`, `//!`, `DOC … END DOC`) are
   comments — owner (comments) and author (doc comments are comments), 2026-10-14.
-- Inline test code counts against the 250 test budget, not the file's 1000. Over 250, it moves
-  out to its own module, and that module splits further as needed — owner, 2026-10-14.
+- **The rule (owner, 2026-10-18; replaces the 2026-10-14 "test ≤ 250" rule).** Code and
+  code + test files: over 1000 code LOC → split the file; over 250 inline test LOC → move the
+  tests out into their own test-only file(s). Test-only files: over 1000 → split the file.
+  A mixed file is therefore at most 1000 + 250 = 1250. Kinds `code`/`inline`/`test` (§2).
+- **No exemptions** — owner, 2026-10-18. Every over-limit file is split. The five input
+  fixtures exempted on 2026-10-14 (the three parser depth `main.mfb` files, `float_fixed.mfb`,
+  `frame_skip_nested_lists.mfb`) are test-only files of 253–607 LOC, under the 1000 limit
+  (census run above), so they need neither an exemption nor a split. The letters' former
+  test-side exemptions are resolved in each letter (Corrections, 2026-10-18).
 - Generated files are exempt — owner, 2026-10-14. Detection is the `GENERATED` banner (§2).
+  This is detection, not an exemption list.
 - Over-limit files produce a loud banner, not a failure — owner, 2026-10-14.
 - Splitting by making a new module is always acceptable, for code and tests — owner, 2026-10-14.
-- Exemptions (author, 2026-10-14). The input text itself is the subject of each of these
-  tests, so there is no logical split:
-  - `tests/syntax/parser/parser_tgroup_depth/src/main.mfb`,
-    `tests/syntax/parser/parser_inline_trap_depth/src/main.mfb`,
-    `tests/syntax/parser/parser_statement_block_depth/src/main.mfb` — each nests one
-    construct to the parser's 256 statement-depth limit; a split file cannot nest across files.
-  - `tests/codegen/regalloc_eviction/float_fixed.mfb` — `include_str!`'d whole by
-    `tests/codegen/codegen_regalloc_eviction.rs:FLOAT_FIXED` as a single `main.mfb`. It is the
-    benchmark body verbatim (bug-760 C), compiled for its whole-function register pressure.
-  - `tests/canvas/scenes/frame_skip_nested_lists.mfb` — a single-source scene shared with
-    `scripts/test-canvas-gpu-rows.sh`, which compiles each `scenes/*.mfb` as one file.
-  - Each further exemption below is recorded in the Decisions of the letter that creates the
-    file, *and* added to `file_size_ceilings.txt` and the oracle's `EXEMPT` table in that
-    letter's commit.
 - A single **function** over the code limit is decomposed by extract-method refactoring, gated
   by byte-identical `.ncode` on every target — decided by the owner, 2026-10-14. This covers
   `lower_module_for_platform` (1801), canvas `register` (2093), `lower_ops_inner` (1313),
   `lower_value_inner` (1224), `emit_vulkan_draw_scene` (1060) and `lower_tls_listen_macos`
   (1007); the designs are in letters S, T, U and V.
-- A single **test-side unit** over 250 LOC gets its own file and an `exempt` row: an embedded
-  MFBASIC program, a const table or fixture list, one `#[test]` fn, or one trait impl — decided
-  by the owner, 2026-10-14. The input is what the test is about. Natural extractions are still
-  done first: a raw-string program moves to an `include_str!` `.mfb` file (D), and nested helper
-  fns are hoisted out of a long test (D). The exempt files, by letter:
-  - B: `rt_big_int/powers.rs`, `rt_closure_single_owner/cases.rs` (`rt_big_int/word_boundaries.rs`
-    is not exempt: its program moves to an `include_str!` `.mfb` file, which takes both files under 250)
-  - C: `rt_resource_last_holder/map_iteration.rs`, `rt_self_update_cost/value_program.rs`
-  - E: `cli_repo_install/garbage_collection.rs`, `cli_repo_publish/signing_and_metadata.rs`
-  - F: `tests/rt-behavior/lexical/literal-spans-lines-valid/src/main.mfb`
-  - H: `builtins/tests/corpus/fixture_list.rs`, `builtins/tests/diagnostics/fixture_list.rs`,
-    `builtins/tests/platform_failure/forwarding.rs`
-  - J: the `SELF_UPDATE_TABLE` file, the aarch64 decode `table()` file,
-    `src/codegen/io/input/corpus.rs`, and the vulkan `layout_tables_are_self_consistent` file
-- `src/rules/table.rs` (1617 code LOC) is exempt — author, 2026-10-14. It is one
-  `const RULES: &[Rule]` data literal, and `Rule` is not `Copy`, so it cannot be concatenated
-  from parts without new code. It is data, not a function, so the extract-method decision does
-  not reach it. The exempt row is added in M.
-- The guard is a test file and obeys its own 250 limit (§4.1) — author.
+- `src/rules/table.rs` (1623 code LOC, one `const RULES: &[Rule]` literal) is split into
+  parts like any other code file — owner rule, 2026-10-18. The design is in M.
+- The guard is a set of test-only files and obeys its own 1000 limit (§4.1) — author.
 - Per-file coverage is not a plan-176 gate — author, 2026-10-17. Measured at `7a4b09970`:
   `sh scripts/coverage.sh --bins` in a detached worktree (59 min; 4989 unit tests passed), then
   `sh scripts/coverage-check.sh` → exit 1. 241 `src/` files are already below the 98% per-file
@@ -441,8 +437,15 @@ Commit: —
 
 ## Corrections
 
+- 2026-10-18 — Rule revised by the owner: inline tests ≤ 250 in a code file, test-only files
+  ≤ 1000 (was 250), code ≤ 1000, no exemptions. A now measures three kinds
+  (`code`/`inline`/`test`), the ceiling file has no `exempt` rows and the oracle no `EXEMPT`
+  table, and the seed is 199 rows (was 370). Re-measured at `ce7a995ca`. Letters B–F shrink
+  to the 18 test-only files over 1000 plus `examples/money-demo/src/main.mfb`; G–K keep every
+  inline move but split a moved block only when it is over 1000; M splits `src/rules/table.rs`.
+
 ## Summary
 
 The engineering risk is in the Rust lexer's edge cases. Two independent implementations
-agreeing over 4438 files, plus targeted cases, contain it. Nothing in the compiler, the
+agreeing over 4470 files, plus targeted cases, contain it. Nothing in the compiler, the
 goldens or any test's behavior changes in A.

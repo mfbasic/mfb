@@ -1,6 +1,6 @@
 # plan-176-R: Builtins code, part A (audio, big, canvas geometry and helpers)
 
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 Effort: large (3h–1d)
 Depends on: plan-176-Q
 
@@ -18,7 +18,9 @@ instead gains sibling fragments. `helper_geometry`'s one 954-LOC `GEO_HEADER` st
 
 Single outcome: after R lands, `cargo test --test file_size_budget` shows no row for any of the
 ten R paths or their parts, and `tests/guards/file_size_ceilings.txt` has no `ceiling` row for
-any of them. R adds no `exempt` row.
+any of them. The rule (owner, 2026-10-18): code ≤ 1000, inline test ≤ 250 and test-only file
+≤ 1000 non-comment non-blank LOC, parts target ≤ 900; there are no exemptions (only `GENERATED`
+files are skipped).
 
 References:
 
@@ -39,7 +41,7 @@ References:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-176-Q archived | `ls planning/plan-176-Q-* planning/completed/plan-176-Q-*` → only `planning/completed/` matches | NOT MET (2026-10-17) |
-| plan-176-D's canvas test splits have landed (D precedes Q) | `ls tests/canvas/rt_canvas_curves/driver.rs tests/canvas/rt_canvas_picture_fit/driver.rs tests/canvas/rt_canvas_particles/model.rs` → all exist | NOT MET (2026-10-17) |
+| plan-176-D's canvas test splits have landed (D precedes Q) | `ls -d tests/canvas/rt_canvas_curves tests/canvas/rt_canvas_particles` → both directories exist | NOT MET (2026-10-17) |
 | The guard exists | `cargo test --test file_size_budget` passes | NOT MET (2026-10-17) |
 | R's files and every file R's sweeps edit have no uncommitted changes | `git status --porcelain -- src/codegen/builtins/audio src/codegen/builtins/big src/codegen/builtins/canvas src/codegen/runtime/canvas/curve_shader.rs src/codegen/runtime/canvas/mod.rs src/docs/spec/app/06_canvas.md src/docs/spec/stdlib/19_big.md tests/canvas tests/guards scripts/test-canvas-vulkan.sh .ai` → empty | NOT MET (2026-10-17: ` M src/docs/spec/app/06_canvas.md`, ` M tests/canvas/rt_canvas_group_ownership.rs`) |
 
@@ -56,7 +58,7 @@ Everything below assumes these rows hold.
 
 ## 1. Goal
 
-- Every file the ten splits produce holds ≤ 1000 code LOC and ≤ 250 test LOC. The target is
+- Every file the ten splits produce holds ≤ 1000 code LOC and ≤ 250 inline test LOC. The target is
   ≤ 900 code per part (A's convention). The largest part is `helper_picture/item.rs` at 757.
 - Native output and the text of every registered MFBASIC helper are byte-identical. Proof:
   `sh scripts/artifact-gate.sh target/release/mfb all` passes with no golden touched, and the R-BID
@@ -143,11 +145,12 @@ the new file adds.
     `LET __CANVAS_PIECE_STEPS` (1269, `CURVE_NEAREST`). All three go to `helper_curves/pieces.rs`.
   - `rt_canvas_curves`'s `chunk("helper_curves.rs", "pub(super) const CURVE_X: &str =\nr#\"")` calls
     (`CURVE_BASE`, `CURVE_REDUCE`, `CURVE_VALID`, `CURVE_CHAIN`, `CURVE_NEAREST`). D moved them into
-    `tests/canvas/rt_canvas_curves/driver.rs`.
+    one of its `tests/canvas/rt_canvas_curves/` parts (`grep -rln 'chunk("helper_curves.rs"' tests/canvas`).
   - `rt_canvas_particles`'s `helper_source("helper_particles.rs", "pub(super) const MODEL: &str =\nr#\"")`
-    (D moved it into `tests/canvas/rt_canvas_particles/model.rs`).
-  - `rt_canvas_picture_fit`'s `chunk("helper_picture.rs", "PICTURE_GEOMETRY")` (D moved it into
-    `tests/canvas/rt_canvas_picture_fit/driver.rs`).
+    (D moved it into one of its `tests/canvas/rt_canvas_particles/` parts;
+    `grep -rln 'helper_source("helper_particles.rs"' tests/canvas`).
+  - `rt_canvas_picture_fit`'s `chunk("helper_picture.rs", "PICTURE_GEOMETRY")` in
+    `tests/canvas/rt_canvas_picture_fit.rs` (within the test-only limit; D does not split it).
   - All three test helpers read `CARGO_MANIFEST_DIR/src/codegen/builtins/canvas/<arg>` at run time,
     so the argument `"helper_curves/pieces.rs"` works unchanged.
   - The vector body checker (`tools/vector-gen/check_vector_bodies.py`) globs only
@@ -376,10 +379,10 @@ The four `pub(crate)` fns do not call each other (xref: no cross-group use).
   declaration unchanged).
 - `canvas/helper_picture/item.rs` (757): 465–1236 (`PICTURE`).
 - Visibility: `PICTURE` → `pub(super)`.
-- Source-reading test: in `tests/canvas/rt_canvas_picture_fit/driver.rs`,
+- Source-reading test: in `tests/canvas/rt_canvas_picture_fit.rs`,
   `chunk("helper_picture.rs", "PICTURE_GEOMETRY")` → `chunk("helper_picture/geometry.rs", "PICTURE_GEOMETRY")`.
-  The test doc `//! (`src/codegen/builtins/canvas/helper_picture.rs:PICTURE_GEOMETRY`)` (root
-  `tests/canvas/rt_canvas_picture_fit.rs`) → `…/helper_picture/geometry.rs:PICTURE_GEOMETRY`.
+  The test doc `//! (`src/codegen/builtins/canvas/helper_picture.rs:PICTURE_GEOMETRY`)` (same
+  file) → `…/helper_picture/geometry.rs:PICTURE_GEOMETRY`.
 - Citations (4, `06_canvas.md`): `PICTURE` (:977, :2435, :2448) → `item.rs`; `PICTURE_GEOMETRY`
   (:2480) → `geometry.rs`.
 - Prose: `.ai/canvas-threading.md:1626` (`helper_picture.rs` → `helper_picture/`).
@@ -397,7 +400,7 @@ The four `pub(crate)` fns do not call each other (xref: no cross-group use).
 - `canvas/helper_particles/damage.rs` (252): 928–1197 (`DAMAGE`).
 - `canvas/helper_particles/hooks.rs` (254): 1198–1453 (`HOOKS_BODY`).
 - Visibility: `EXPAND`, `DRAW`, `DAMAGE`, `HOOKS_BODY` → `pub(super)`.
-- Source-reading test: in `tests/canvas/rt_canvas_particles/model.rs`,
+- Source-reading test: in D's `tests/canvas/rt_canvas_particles/` part holding it (§2 grep),
   `helper_source("helper_particles.rs", "pub(super) const MODEL: &str =\nr#\"")` →
   `helper_source("helper_particles/model.rs", …)`. Its comment `(`helper_particles.rs:MODEL`)`
   (`grep -rn 'helper_particles.rs:MODEL' tests/canvas`) → `helper_particles/model.rs:MODEL`.
@@ -435,7 +438,7 @@ which is exactly where they are used (`grep -rnwE "CURVE_(BASE|REDUCE|VALID|CHAI
 - `src/codegen/runtime/canvas/curve_shader.rs:145`:
   `include_str!("../../builtins/canvas/helper_curves.rs")` →
   `include_str!("../../builtins/canvas/helper_curves/pieces.rs")`; its `//!` line 5 → `helper_curves/`.
-- Source-reading test: in `tests/canvas/rt_canvas_curves/driver.rs`, the `chunk` file argument for
+- Source-reading test: in D's `tests/canvas/rt_canvas_curves/` part holding the `chunk` calls (§2 grep), the `chunk` file argument for
   `CURVE_BASE`, `CURVE_VALID`, `CURVE_NEAREST` → `"helper_curves/pieces.rs"`, and for `CURVE_REDUCE`,
   `CURVE_CHAIN` → `"helper_curves/reduce.rs"`. The opener literals do not change. The root doc
   `tests/canvas/rt_canvas_curves.rs:5` (`src/codegen/builtins/canvas/helper_curves.rs:CURVE_BASE`, …)
@@ -489,7 +492,7 @@ which is exactly where they are used (`grep -rnwE "CURVE_(BASE|REDUCE|VALID|CHAI
 - Prose: `src/codegen/runtime/canvas/mod.rs:1040` (`helper_geometry.rs`'s → `helper_geometry/`'s)
   and `:1262` (`__CANVAS_GEO_HEADER` (`helper_geometry.rs`) → `helper_geometry/mod.rs`);
   `canvas/helper_items/mod.rs` `//!` line 4 (→ `helper_geometry/`); `rt_canvas_group_ownership.rs`'s
-  `//!` mention (D's root; `grep -rn 'helper_geometry.rs' tests/canvas`) and the
+  `//!` mention (`grep -rn 'helper_geometry.rs' tests/canvas`) and the
   `rt_canvas_rasteriser` doc mention (D moved it; same grep) → `helper_geometry/`;
   `.ai/canvas-threading.md:1356` and `.ai/testing-gates.md:582` → `helper_geometry/`. The `'` lines
   inside `helper_geometry`'s own raw strings (old l.144, 169, 690, 1067, 1563, 1581, 1702, 2013,
@@ -597,7 +600,7 @@ which is exactly where they are used (`grep -rnwE "CURVE_(BASE|REDUCE|VALID|CHAI
 
 ### 4.9 Sizes after the split
 
-`python3 -I tools/loc-census/census.py --file <new path>` → code ≤ 900, test ≤ 250 for every file
+`python3 -I tools/loc-census/census.py --file <new path>` → code ≤ 900, inline test ≤ 250 for every file
 above. Largest: `helper_picture/item.rs` 757 and `func_geo_build/paint.rs` 653 (planning sums
 plus their header lines).
 
@@ -682,12 +685,12 @@ Commit: —
 
 - [ ] `helper_items.rs` → `helper_items/{mod,geo_read,draw_geometry}.rs` per §4.4.
 - [ ] `helper_picture.rs` → `helper_picture/{mod,geometry,item}.rs` per §4.4, and the
-      `rt_canvas_picture_fit/driver.rs` `chunk` argument + root doc.
+      `rt_canvas_picture_fit.rs` `chunk` argument + doc.
 - [ ] `helper_particles.rs` → `helper_particles/{mod,model,expand,damage,hooks}.rs` per §4.4, the
-      `rt_canvas_particles/model.rs` `helper_source` argument + comment, and the
+      `rt_canvas_particles/` part's `helper_source` argument + comment, and the
       `scripts/test-canvas-vulkan.sh:818` message.
 - [ ] `helper_curves.rs` → `helper_curves/{mod,pieces,reduce,build,draw}.rs` per §4.5, the
-      `curve_shader.rs` `include_str!`, and the `rt_canvas_curves/driver.rs` `chunk` arguments + root doc.
+      `curve_shader.rs` `include_str!`, and the `rt_canvas_curves/` part's `chunk` arguments + root doc.
 - [ ] Repoint the 7 + 4 + 8 + 11 `06_canvas.md` citations, and the prose listed in §4.4–4.5.
 
 Acceptance: the four helper files are split, and the helper text is byte-identical. The three
@@ -787,11 +790,13 @@ Commit: —
 
 ## Decisions
 
-- Rule: code ≤ 1000, test ≤ 250 non-comment non-blank LOC; scope `.rs`/`.mfb` under `src/
-  packages/ examples/ repository/ tests/`. Owner, 2026-10-14.
-- Inline test code counts against the 250 test budget. Over 250 it moves out. Owner, 2026-10-14.
-  (R's inline modules are all ≤ 95 and stay.)
-- Generated files are exempt. The guard warns with a banner and never fails. A new module is
+- Rule revised — owner, 2026-10-18: three kinds, non-comment non-blank LOC, scope `.rs`/`.mfb`
+  under `src/ packages/ examples/ repository/ tests/`: `code` (a file that is not test-only)
+  ≤ 1000 → split into modules; `inline` (`#[cfg(test)]` / `TESTING … END TESTING` LOC in such a
+  file) ≤ 250 → moved to a test-only file; `test` (a test-only file's total) ≤ 1000 → split into
+  modules. Parts target ≤ 900. Ceiling rows are `ceiling <code|inline|test> <n> <path>`. No
+  exemptions. (R's inline modules are all ≤ 95 and stay.)
+- Generated (`GENERATED` banner) files are skipped. The guard warns with a banner and never fails. A new module is
   always an acceptable split. Owner, 2026-10-14.
 - A single function over the code limit is decomposed by extract-method only in letters S–V. R has
   none (largest fn: `emit_div_mod_magnitude`, 501). Owner, 2026-10-14.
@@ -807,9 +812,11 @@ Commit: —
   lives in `/tmp`). Author.
 - Prose is repointed in Rust comments, tests, scripts and `.ai/`. Text inside raw-string MFBASIC
   consts and shader sources is not edited (byte-identity of helper text). Author.
-- R adds no exemption. Author.
+- R adds no exemption (there are none, owner 2026-10-18). Author.
 
 ## Corrections
+
+- 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text and Decisions restated; D's test-part paths (`rt_canvas_curves/driver.rs`, `rt_canvas_particles/model.rs`) replaced by grep-located parts, and `rt_canvas_picture_fit.rs` (no longer split by D) edited in place; prerequisite command updated.
 
 ## Summary
 

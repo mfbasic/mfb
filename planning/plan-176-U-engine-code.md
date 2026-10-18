@@ -1,6 +1,6 @@
 # plan-176-U: Engine code
 
-Last updated: 2026-10-14
+Last updated: 2026-10-18
 Effort: large (3h–1d)
 Depends on: plan-176-T
 
@@ -17,8 +17,9 @@ after all pure-motion phases. Every phase is gated by byte-identical codegen.
 
 Single outcome: after U lands, `cargo test --test file_size_budget` prints no row for any file
 under `src/codegen/engine/{analysis,builder,control,convert,function,operators,value}/`, and
-`tests/guards/file_size_ceilings.txt` has no `ceiling` row for any of the nine files. U adds no
-`exempt` row.
+`tests/guards/file_size_ceilings.txt` has no `ceiling <code|inline|test>` row for any of the nine
+files. There are no exemptions (rule revised by the owner, 2026-10-18; only `GENERATED` files are
+exempt automatically).
 
 References:
 
@@ -64,7 +65,8 @@ Everything below is written against the world where these hold.
 ## 1. Goal
 
 - Each of the nine files is replaced by a directory module (`builder/mod.rs` gains sibling
-  files) whose every file is ≤ 900 code LOC by `python3 -I tools/loc-census/census.py --file <path>`.
+  files) whose every file is ≤ 900 code LOC and ≤ 250 inline test LOC by
+  `python3 -I tools/loc-census/census.py --file <path>`.
 - No function under `src/codegen/engine/` is over 1000 code LOC. The three oversize functions
   are decomposed exactly as §4.10–§4.12 specify; the largest function afterwards is
   `lower_bind_op` (490 LOC, guess from region counts; re-measured in Phase 5).
@@ -103,13 +105,14 @@ LOC from `/tmp/loc/groups.json` (planning census `python3 -I /tmp/loc/census.py 
 | `src/codegen/engine/value/builder_values.rs` | code | 3053 | 111 | 6 | 4852 |
 | `src/codegen/engine/function/function_lowering.rs` | code | 1707 | 0 | 0 | 2158 |
 | `src/codegen/engine/operators/builder_numeric.rs` | code | 1582 | 0 | 0 | 1923 |
-| `src/codegen/engine/analysis/borrow_get.rs` | code | 1373 | 522 at planning; moved to `borrow_get/tests/` by plan-176-H | 27 | 2298 |
+| `src/codegen/engine/analysis/borrow_get.rs` | code | 1373 | 522 at planning; moved to `borrow_get/tests/mod.rs` by plan-176-H | 27 | 2298 |
 | `src/codegen/engine/convert/builder_conversions.rs` | code | 1207 | 0 | 0 | 1460 |
 | `src/codegen/engine/analysis/module_analysis.rs` | code | 1122 | 0 | 0 | 1217 |
 | `src/codegen/engine/function/entry.rs` | code | 1061 | 0 | 0 | 1430 |
 
 State left by earlier letters: plan-176-H moves `borrow_get.rs`'s inline `mod tests` (lines
-1704–2298) to `analysis/borrow_get/tests/` and leaves `#[cfg(test)] mod tests;` at the end of
+1704–2298) to the one test-only file `analysis/borrow_get/tests/mod.rs` (522 LOC, under the
+1000 test-only limit, so not split) and leaves `#[cfg(test)] mod tests;` at the end of
 `borrow_get.rs`; lines 1–1703 are unchanged by H. No earlier letter edits the other eight files.
 All line ranges below are "as of 17a9b5799"; item and test NAMES are authoritative if lines drift.
 
@@ -348,7 +351,7 @@ Hazards:
   architecture/06_native:368 stay. Phase 7 repoints again (§4.12).
 - `.ai/testing-gates.md:136` (`standard_error_messages()` at `builder/mod.rs`) →
   `builder/error_messages.rs`.
-- Guards: `tests/guards/no_type_strings.rs:428–436` (+ self-test strings 1378/1387) name
+- Guards: `tests/guards/no_type_strings.rs:428–436` (+ self-test strings, in `tests/guards/no_type_strings/self_checks.rs` after plan-176-E: `grep -n TypeModel` there) name
   `TypeModel` fields declared in `builder/mod.rs`; `TypeModel` stays there — no change.
   `architecture_guards.rs:257`, `no_operator_strings.rs:129,625` name `code_impl.rs` (untouched).
 
@@ -372,7 +375,7 @@ stay in `mod.rs`). Visibility, 9 private methods → `pub(super)`:
 (ownership → pending_temps), `lower_value_inner` (lower_inner → pending_temps),
 `lower_checked_value`, `lower_inline_conversion_raw`, `try_abi_inline_lower`, `try_mfb_fast_path`,
 `lower_inline_builtin_raw`, `lower_inline_infallible_raw` (inline_calls → lower_inner).
-Tests: both inline test modules are < 250 and stay inline; 6 `#[test]` before = 6 after
+Tests: both inline test modules are < 250 inline test LOC and stay inline; 6 `#[test]` before = 6 after
 (4 in `mod.rs`, 2 in `ownership.rs`).
 
 Hazards — spec citations (28 = 27 symbol + 1 whole-file), Phase 3 destinations:
@@ -462,7 +465,7 @@ builder only calls it; `gen_fmod.rs` is in no plan-176 letter: `grep -c gen_fmod
 | `borrow_get/mod.rs` | 535 | 1–260 (uses, `ContainerRef` + impl, `ElementBinding`, `ElementSite`, `ElementBinding` impl, `element_update_with`, `BorrowGets`, `Rebound`, `ReboundRole`, `BorrowGets` impl, `copied_item`); 878–1339 (`collect_borrow_gets` and the bug-784 rename machinery it drives: `rebound_names`, `RenameState` + impl, `rename_ops`, `rename_value`, `pair_ops`, `for_each_bind`); `mod predicates; mod by_name;`; the `#[cfg(test)] mod tests;` line plan-176-H left |
 | `borrow_get/predicates.rs` | 403 + hdr | 261–719 (`op_key`, `builtin`, `get_call`, `pure_index`, `same_index`, `index_locals`, `write_back_of`, `is_with_over`, `for_each_block`, `Reads`, `reads_in`, `writes_any`, `local_reads_are_lookups`, `container_untouched`, `single_expression_update`, `is_element_get`, `children_mut`, `bind_single_expression_element`) |
 | `borrow_get/by_name.rs` | 435 + hdr | 720–877 (`SiteCheck`, `SiteTally`, `impl SiteCheck` — used only by `collect_borrow_gets_by_name`); 1340–1703 `collect_borrow_gets_by_name` (304) |
-| `borrow_get/tests/` | — | plan-176-H's files, unchanged; `mod tests;` in `borrow_get/mod.rs` resolves to the same directory |
+| `borrow_get/tests/mod.rs` | — | plan-176-H's test-only file, unchanged; `mod tests;` in `borrow_get/mod.rs` resolves to the same file |
 
 (`sum.py borrow_get.rs 1-260 878-1339` = 535; `261-719` = 403; `720-877 1340-1703` = 435.)
 
@@ -1234,16 +1237,19 @@ Commit: —
 
 ## Decisions
 
-- Rule: code ≤ 1000, test ≤ 250 non-comment non-blank LOC; scope `.rs`/`.mfb` under `src/`,
-  `packages/`, `examples/`, `repository/`, `tests/` — owner, 2026-10-14.
-- Inline test code counts against the 250 test budget; over 250 it moves to its own module —
-  owner, 2026-10-14. U's two remaining inline test modules (103 and 111 test LOC by the U map)
-  stay inline.
-- Generated files are exempt; the guard warns with a banner and never fails; a new module is
-  always an acceptable split — owner, 2026-10-14.
+- Rule revised — owner, 2026-10-18 (replaces the 2026-10-14 "code ≤ 1000, test ≤ 250" rule).
+  Three kinds, non-comment non-blank LOC, scope `.rs`/`.mfb` under `src/`, `packages/`,
+  `examples/`, `repository/`, `tests/`: `code` ≤ 1000 (code LOC of a file that is not test-only;
+  over → split into modules); `inline` ≤ 250 (`#[cfg(test)]` / `TESTING … END TESTING` LOC inside
+  a file that is not test-only; over → moved to a test-only file, one `tests/mod.rs` unless
+  > 1000); `test` ≤ 1000 (total LOC of a test-only file; over → split). Parts target ≤ 900. No
+  exemptions: only `GENERATED` files are exempt automatically. Ceiling rows are
+  `ceiling <code|inline|test> <n> <path>`; the guard warns with a banner and never fails; a new
+  module is always an acceptable split. U's two remaining inline test modules (103 and 111
+  inline test LOC by the U map) are under 250 and stay inline; `borrow_get`'s 522 moved in H.
 - A single function over the code limit is decomposed by extract-method refactoring, gated by
   byte-identical `.ncode` — owner, 2026-10-14. In U: `lower_ops_inner` (§4.10),
-  `lower_value_inner` (§4.11), `lower_module_for_platform` (§4.12). U has no exemptions.
+  `lower_value_inner` (§4.11), `lower_module_for_platform` (§4.12). Nothing in U is exempt.
 - Each extract-method refactor is its own phase, after all pure-motion phases, gated by the
   scoped artifact gate plus the letter-end full gate — author, 2026-10-14.
 - Arm extraction uses whole-arm helpers that take the scrutinee and re-destructure it with
@@ -1258,6 +1264,8 @@ Commit: —
   — owner rule (AGENTS.md "never leave a bug"), applied by the author.
 
 ## Corrections
+
+- 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text (intro, Goal, Decisions) restated, `borrow_get`'s H-moved tests named as the single `borrow_get/tests/mod.rs`.
 
 ## Summary
 

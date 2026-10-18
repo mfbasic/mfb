@@ -1,6 +1,6 @@
 # plan-176-Q: Collection code
 
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 Effort: large (3h–1d)
 Depends on: plan-176-P
 
@@ -13,14 +13,16 @@ plan-176-J. Q moves only the code, and it takes J's test files as they stand.
 
 Single outcome: after Q lands, `cargo test --test file_size_budget` shows no row for any of the
 nine Q paths or their parts, and `tests/guards/file_size_ceilings.txt` has no `ceiling` row for
-any of them. Q adds no `exempt` row.
+any of them. The rule (owner, 2026-10-18): code ≤ 1000, inline test ≤ 250 and test-only file
+≤ 1000 non-comment non-blank LOC, parts target ≤ 900; there are no exemptions (only `GENERATED`
+files are skipped).
 
 References:
 
 - `planning/plan-176-A-file-size-guard.md`: §2 counting rules, §Decisions, and the
   `.ai/build-tooling.md` section "Splitting an over-budget file (plan-176)" that A writes.
 - `planning/plan-176-J-backend-codegen-tests.md`: the `self_update/tests/` and
-  `builder_collection_layout/*_tests.rs` layout Q starts from.
+  `builder_collection_layout/tests/` test-only modules Q starts from.
 - `.ai/collections.md`: List/Map/Set codegen. Its in-place mutation and self-update sections
   name these files, and §Phase tasks repoint them.
 - `.ai/codegen-invariants.md` (record layout: `record_field_is_inlined`, `emit_build_inlined_record`).
@@ -36,7 +38,7 @@ References:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-176-P archived | `ls planning/plan-176-P-* planning/completed/plan-176-P-*` → only `planning/completed/` matches | NOT MET (2026-10-17) |
-| plan-176-J's test moves for Q's files have landed (J precedes P) | `ls src/codegen/collection/assign/self_update/tests/mod.rs src/codegen/collection/layout/builder_collection_layout/res_field_record_layout_tests.rs` → both exist | NOT MET (2026-10-17) |
+| plan-176-J's test moves for Q's files have landed (J precedes P) | `ls src/codegen/collection/assign/self_update/tests/mod.rs src/codegen/collection/layout/builder_collection_layout/tests/mod.rs` → both exist | NOT MET (2026-10-17) |
 | The guard exists | `cargo test --test file_size_budget` passes | NOT MET (2026-10-17) |
 | Q's files and every file Q's sweeps edit have no uncommitted changes | `git status --porcelain -- src/codegen/collection src/docs/spec .ai src/optimizer/opt1/lencache.rs src/codegen/error/emission/park_error_helper.rs src/codegen/builtins/tests src/codegen/builtins/collections tests/runtime tests/codegen tests/guards/file_size_ceilings.txt` → empty | NOT MET (2026-10-17: ` M src/docs/spec/app/06_canvas.md`) |
 
@@ -54,7 +56,7 @@ Everything below assumes these rows hold.
 ## 1. Goal
 
 - Each of the nine files below is a directory module whose every file holds ≤ 1000 code LOC
-  and ≤ 250 test LOC (target ≤ 900 code per part, A's convention). The largest part is
+  and ≤ 250 inline test LOC (target ≤ 900 code per part, A's convention). The largest part is
   `map_mutate/set_in_place.rs` at 869 code LOC, plus its `use` and `impl` wrapper lines.
 - Native output is byte-identical: `sh scripts/artifact-gate.sh target/release/mfb all` passes
   with no golden touched.
@@ -65,7 +67,7 @@ Everything below assumes these rows hold.
 
 - No behavior change and no logic edit. The only non-motion edits are visibility widenings
   (`pub(super)`), `mod`/`use` lines, the `include_str!` path in
-  `tests/runtime/rt_inplace_self_update/scratch_arms.rs`, and comment/doc text.
+  `tests/runtime/rt_inplace_self_update.rs` (B's root), and comment/doc text.
 - Every crate path that callers use today keeps resolving. Examples:
   `collection::search::builder_search::MidStringRegs`,
   `collection::assign::self_update::module_self_updates_with`, and `layout::record_field_is_inlined`
@@ -90,7 +92,7 @@ by the planning census (`python3 -I /tmp/loc/census.py`; after A this is
 | `src/codegen/collection/assign/self_update.rs` | code | 1059 (census row 1930, see below) | 2 (`#[cfg(test)] mod tests;`) | 0 (J moved the 9) |
 | `src/codegen/collection/assign/string_self_update.rs` | code | 1805 | 133 inline (stays) | 2 |
 | `src/codegen/collection/compare/builder_collection_compare.rs` | code | 1192 | 128 inline (stays) | 3 |
-| `src/codegen/collection/layout/builder_collection_layout.rs` | code | 2592 | 6 (three `mod …_tests;` decls) | 0 (J moved the 19) |
+| `src/codegen/collection/layout/builder_collection_layout.rs` | code | 2592 | 2 (`#[cfg(test)] mod tests;`) | 0 (J moved the 19) |
 | `src/codegen/collection/list/list_mutate.rs` | code | 4202 | 0 | 0 |
 | `src/codegen/collection/map/map_mutate.rs` | code | 1293 | 0 | 0 |
 | `src/codegen/collection/search/builder_search.rs` | code | 1264 | 0 | 0 |
@@ -128,9 +130,10 @@ start. Item names are authoritative if lines drift. Per-part LOC =
 - **One integration test reads a Q file's source.**
   `tests/runtime/rt_inplace_self_update.rs:696`
   `include_str!("../../src/codegen/collection/assign/self_update.rs")` parses
-  `pub(crate) const SCRATCH_ARMS: &[&str] = &[`. Plan-176-B moves that test to
-  `tests/runtime/rt_inplace_self_update/scratch_arms.rs` with path `../../../src/…/self_update.rs`
-  (B map §rt_inplace_self_update, hazard 2). `SCRATCH_ARMS` goes to `self_update/scratch.rs`
+  `pub(crate) const SCRATCH_ARMS: &[&str] = &[`. Plan-176-B keeps that test, and
+  its `include_str!` with the path `../../src/…/self_update.rs`, in the root
+  `tests/runtime/rt_inplace_self_update.rs` (plan-176-B §4, cross-letter note; find it with
+  `grep -n scratch_arms_match_the_compiler tests/runtime/rt_inplace_self_update.rs`). `SCRATCH_ARMS` goes to `self_update/scratch.rs`
   verbatim, so the opener text still matches. No other test or src file `include_str!`s a Q file:
   `grep -rn 'include_str!' src tests | grep -E 'builder_inplace|self_update|collection_compare|collection_layout|list_mutate|map_mutate|builder_search'`
   → only that line and J's `field_expect.tsv` include.
@@ -183,7 +186,7 @@ Rejected alternatives:
 - *Q's own test layout for `self_update` (map Q §self_update "Layout (tests)").* Superseded: J
   owns the test side and lands first. Q keeps J's `tests/` tree untouched.
 - *Keeping `kind2_layout_tests` inline in `builder_collection_layout/mod.rs`.* Superseded for the
-  same reason: J moved it to `builder_collection_layout/kind2_layout_tests.rs`.
+  same reason: J moved it, with the other two layout test modules, to `builder_collection_layout/tests/mod.rs`.
 
 ## 4. Detailed Design
 
@@ -368,9 +371,10 @@ Rejected alternatives:
   `language/14_memory-semantics.md:24` and `language/12_collections.md:32` → `self_update/mod.rs`;
   `add_global_string_capacities` (`memory/05_collections.md:749`) → `global_capacity.rs`;
   `install_record_temps` (`memory/05_collections.md:658`) → `record_temps.rs`.
-- Functional path: `tests/runtime/rt_inplace_self_update/scratch_arms.rs` (B's file),
-  `include_str!("../../../src/codegen/collection/assign/self_update.rs")` →
-  `include_str!("../../../src/codegen/collection/assign/self_update/scratch.rs")`. The doc comment
+- Functional path: `tests/runtime/rt_inplace_self_update.rs` (B's root, holding
+  `scratch_arms_match_the_compiler`; §2 grep),
+  `include_str!("../../src/codegen/collection/assign/self_update.rs")` →
+  `include_str!("../../src/codegen/collection/assign/self_update/scratch.rs")`. The doc comment
   above it (`SCRATCH_ARMS` (`src/codegen/collection/assign/self_update.rs`)) changes to
   `…/self_update/scratch.rs`.
 - Prose: `.ai/collections.md:31` ("The seam is `src/codegen/collection/assign/self_update.rs`",
@@ -379,19 +383,21 @@ Rejected alternatives:
   (`self_update.rs:ops_hold_copying_sort` → `self_update/scratch.rs:ops_hold_copying_sort`);
   the `RETURN_NEVER` mention "in `self_update.rs`" in the `rt_inplace_self_update` tree (B moved
   it; `grep -rn 'RETURN_NEVER. in .self_update.rs' tests/runtime`) →
-  `self_update/tests/census/sites.rs` (J's file holding `RETURN_NEVER`);
+  J's `self_update/tests/` part holding `RETURN_NEVER`
+  (`grep -rln RETURN_NEVER src/codegen/collection/assign/self_update/tests`);
   `tests/runtime/inplace_self_update/field_kinds_gen.py:18` docstring
-  (`field_kind_class`, `self_update.rs` → `self_update/tests/census/field_kinds.rs`).
+  (`field_kind_class`, `self_update.rs` → J's part holding `field_kind_class`, same grep).
+  These two follow whatever path J's comment repoints wrote, if J already repointed them.
 - `.ai/collections.md:540`'s stale dispatch clause (§4.5) is fixed here.
 
-### 4.8 `layout/builder_collection_layout.rs` (2592 code; J's three test files stay)
+### 4.8 `layout/builder_collection_layout.rs` (2592 code; J's `tests/mod.rs` stays)
 
-- `layout/builder_collection_layout/mod.rs` (182 code + 6 test): 1–9 (`use`s) + 2643–2987 (free
+- `layout/builder_collection_layout/mod.rs` (182 code + 2 test): 1–9 (`use`s) + 2643–2987 (free
   list-layout fns: `list_element_is_fixed_width`, `push_collection_data_pointer_into`,
   `push_collection_data_base_from_capacity`, `list_entry_stride`, `list_block_kind`,
   `kind2_payload_size`, `byte_list_entry_stride`, `refined_list_literal_type`,
-  `emit_alloc_byte_list`, `byte_list_block_kind`) + J's three
-  `#[cfg(test)] mod {kind2_layout_tests, flatness_split_tests, res_field_record_layout_tests};`.
+  `emit_alloc_byte_list`, `byte_list_block_kind`) + J's
+  `#[cfg(test)] mod tests;` (→ `builder_collection_layout/tests/mod.rs`).
   Adds `mod payload_copy; mod records; mod construct; mod access; mod type_predicates;` and
   `pub(crate) use type_predicates::*;`. The glob re-exports the 17 `pub(crate)` free items
   (`field_is_inlined_union_box`, `graph_drop_kind_names`, `is_resource_nominal`,
@@ -403,7 +409,7 @@ Rejected alternatives:
   `layout::X` and `layout::builder_collection_layout::X` both resolve as today. The glob is
   chosen over a 17-name list so that every current `pub(crate)` item in the moved range keeps its
   path with no list to keep in sync. `refined_list_literal_type` stays private in mod.rs; its
-  users (`construct.rs`, `kind2_layout_tests`) are descendants.
+  users (`construct.rs`, the `kind2_layout_tests` code in `tests/mod.rs`) are descendants.
 - `…/payload_copy.rs` (582): impl 11–812 (`inline_collection_payload_size`,
   `is_pointer_collection_payload_type`, `collection_payload_alignment`, the 126-LOC fn after it,
   `list_element_padding_alignment`, `emit_align_offset_slot`, `emit_align_offset_register`,
@@ -437,8 +443,10 @@ Rejected alternatives:
   `recursive_transfer_types`, `thread_copy_symbol`).
 - `pub(super)` edits: 1: `base_resource_type` (type_predicates.rs; called by
   `inline_collection_payload_size` in payload_copy.rs).
-- J's three test files keep `use super::*;`. `super` is still `builder_collection_layout`, and the
-  glob re-export plus mod.rs's retained `use` block supply every name they use (§2 Verified).
+- J's `builder_collection_layout/tests/mod.rs` keeps `use super::*;` (its three inline modules
+  each `use super::*;` from it). `super` is still `builder_collection_layout`, and the glob
+  re-export plus mod.rs's retained `use` block supply every name they use (§2 Verified; a
+  child's `use super::*;` also sees the parent's imports, plan-176-U §2 probe2).
 - Citations (30, `grep -rnoE "\[\[src/codegen/collection/layout/builder_collection_layout.rs:[^]]+\]\]" src/docs/spec | wc -l` → 30):
   → `payload_copy.rs`: `collection_payload_alignment` (memory/05_collections.md:166, :188;
   memory/01_scalar-storage.md:17), `copy_collection_tight` (05_collections.md:6, :550, :565, :1206;
@@ -522,7 +530,7 @@ One `impl CodeBuilder<'_>` today (31–5089); every part reopens it. The largest
 ### 4.10 Measurements after the split
 
 For each new file, `python3 -I tools/loc-census/census.py --file <new path>` prints `code test`,
-with code ≤ 900 and test ≤ 250. The LOC in §4.1–4.9 are the planning `span.py` sums. A part
+with code ≤ 900 and inline test ≤ 250. The LOC in §4.1–4.9 are the planning `span.py` sums. A part
 adds 2–12 lines (`use super::*;`, the impl wrapper, `mod` lines). The closest to 900 is
 `set_in_place.rs` (869 + 3).
 
@@ -613,10 +621,10 @@ Commit: —
 - [ ] `src/codegen/collection/assign/self_update.rs` → `self_update/{mod,global_capacity,scratch,record_temps}.rs`
       per §4.7, with the two `pub(crate) use` re-export lines and the 2 `pub(super)` edits. J's
       `#[cfg(test)] mod tests;` line stays at the end of mod.rs.
-- [ ] `tests/runtime/rt_inplace_self_update/scratch_arms.rs` (plan-176-B's home of
-      `scratch_arms_match_the_compiler`): in the same commit as the split, repoint
-      `include_str!("../../../src/codegen/collection/assign/self_update.rs")` →
-      `include_str!("../../../src/codegen/collection/assign/self_update/scratch.rs")`, the part
+- [ ] `tests/runtime/rt_inplace_self_update.rs` (plan-176-B's root, holding
+      `scratch_arms_match_the_compiler`; §2 grep): in the same commit as the split, repoint
+      `include_str!("../../src/codegen/collection/assign/self_update.rs")` →
+      `include_str!("../../src/codegen/collection/assign/self_update/scratch.rs")`, the part
       holding `pub(crate) const SCRATCH_ARMS: &[&str] = &[`, and repoint the doc comment
       above the test the same way (§4.7). The test asserts that the names it parses from that
       declaration equal the harness's own `SCRATCH_ARMS`, and that the parsed list is non-empty.
@@ -637,8 +645,8 @@ Commit: —
 ### Phase 5: collection layout
 
 - [ ] `src/codegen/collection/layout/builder_collection_layout.rs` → `builder_collection_layout/{mod,payload_copy,records,construct,access,type_predicates}.rs`
-      per §4.8, with `pub(crate) use type_predicates::*;` and the 1 `pub(super)` edit. J's three
-      `mod …_tests;` declarations stay in mod.rs.
+      per §4.8, with `pub(crate) use type_predicates::*;` and the 1 `pub(super)` edit. J's
+      `#[cfg(test)] mod tests;` declaration stays in mod.rs.
 - [ ] Repoint the 30 spec citations.
 - [ ] Prose sweep per §4.8: `.ai/codegen-invariants.md:116` reworded, the 5 `.ai/collections.md` lines,
       `.ai/resources-packages.md:519`, `lencache.rs:9`, `park_error_helper.rs:379`,
@@ -693,17 +701,20 @@ Commit: —
 
 ## Decisions
 
-- Rule: code ≤ 1000, test ≤ 250 non-comment non-blank LOC; scope `.rs`/`.mfb` under `src/
-  packages/ examples/ repository/ tests/`. Owner, 2026-10-14.
-- Inline test code counts against the 250 test budget. Over 250 it moves to its own module and
-  splits further as needed. Owner, 2026-10-14. (Q's two remaining inline modules are 133 and 128.)
-- Generated files are exempt. The guard warns with a banner and never fails. A new module is
+- Rule revised — owner, 2026-10-18: three kinds, non-comment non-blank LOC, scope `.rs`/`.mfb`
+  under `src/ packages/ examples/ repository/ tests/`: `code` (a file that is not test-only)
+  ≤ 1000 → split into modules; `inline` (`#[cfg(test)]` / `TESTING … END TESTING` LOC in such a
+  file) ≤ 250 → moved to a test-only file; `test` (a test-only file's total) ≤ 1000 → split into
+  modules. Parts target ≤ 900. Ceiling rows are `ceiling <code|inline|test> <n> <path>`. No
+  exemptions. (Q's two remaining inline modules are 133 and 128.)
+- Generated (`GENERATED` banner) files are skipped. The guard warns with a banner and never fails. A new module is
   always an acceptable split. Owner, 2026-10-14.
 - A single function over the code limit is decomposed by extract-method refactoring only in
   letters S–V. Q has no function over 1000 (largest: `lower_map_set_in_place`, 869), so Q does no
   extraction. Owner, 2026-10-14.
-- Q adds no exemption. `SELF_UPDATE_TABLE` (the one test-side unit over 250 in a Q file) is J's
-  exempt row. Author, per the owner's test-unit rule.
+- Q adds no exemption (there are none, owner 2026-10-18). `SELF_UPDATE_TABLE` (880 LOC, the
+  largest test-side unit of a Q file) fits the 1000 test-only limit in J's `self_update/tests/`.
+  Author.
 - J owns the test side of `self_update.rs` and `builder_collection_layout.rs`, and Q takes J's
   layout unchanged. Author.
 - `builder_collection_layout/mod.rs` re-exports `type_predicates` by glob, not by list (§4.8). Author.
@@ -716,6 +727,8 @@ Commit: —
   `copy_flat_block` comment. Author, per AGENTS.md "never leave a bug".
 
 ## Corrections
+
+- 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text, Decisions, and references to J's layout test module (now one `builder_collection_layout/tests/mod.rs`), J's `self_update/tests/` parts and B's `rt_inplace_self_update` part reworded to stay true; `SELF_UPDATE_TABLE` is no longer an exemption.
 
 ## Summary
 

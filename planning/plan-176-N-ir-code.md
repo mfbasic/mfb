@@ -1,6 +1,6 @@
 # plan-176-N: IR code splits
 
-Last updated: 2026-10-14
+Last updated: 2026-10-18
 Effort: large (3h–1d)
 Depends on: plan-176-M
 
@@ -12,7 +12,7 @@ module paths callers use stay the same through re-exports. Nothing the compiler 
 
 The single outcome: after N lands, `cargo test --test file_size_budget` shows no row for any of
 the five files or the files they become, and `tests/guards/file_size_ceilings.txt` has no
-`ceiling` row for any of them. N adds no `exempt` row.
+`ceiling` row for any of them. There are no exemptions (rule revised 2026-10-18).
 
 References:
 
@@ -43,9 +43,11 @@ References:
 | N's files have no uncommitted changes | `git status --porcelain -- src/ir/lower.rs src/ir/shape.rs src/ir/binary.rs src/ir/verify/mod.rs src/ir/verify/resources.rs tests/guards/no_type_strings.rs tests/guards/no_operator_strings.rs .ai src/docs/spec` → empty | NOT MET (2026-10-14: ` M src/ir/verify/resources.rs`) |
 
 Everything below is written against the world where these hold. plan-176-G (an earlier letter)
-has already moved the inline test modules this letter's files carried over 250 test LOC:
-`src/ir/shape.rs`'s `#[cfg(test)] mod tests` is `#[cfg(test)] mod tests;` resolving to
-`src/ir/shape/tests/`, and `src/ir/tests.rs` is `src/ir/tests/`. G replaced only the trailing
+has already moved the inline test modules this letter's files carried over the 250 inline
+limit: `src/ir/shape.rs`'s `#[cfg(test)] mod tests` (1231 inline LOC, over the 1000 test-only
+limit once moved, so G splits it into parts) is `#[cfg(test)] mod tests;` resolving to
+`src/ir/shape/tests/`, and `src/ir/tests.rs` (6386, a test-only file over 1000) is
+`src/ir/tests/`. G replaced only the trailing
 test block, so every line range below 3761 in `shape.rs` is unchanged by G.
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
@@ -61,7 +63,8 @@ test block, so every line range below 3761 in `shape.rs` is unchanged by G.
 ## 1. Goal
 
 - Each of the five files becomes a directory module (`foo.rs` → `foo/mod.rs` + parts;
-  `verify/mod.rs` gains one sibling part `verify/env.rs`), every resulting file ≤ 1000 code LOC.
+  `verify/mod.rs` gains one sibling part `verify/env.rs`), every resulting file ≤ 1000 code LOC
+  and ≤ 250 inline test LOC.
 - `cargo test --test file_size_budget 2>&1 | grep -E 'src/ir/(lower|shape|binary|verify)'` → no row,
   and `grep -E 'src/ir/(lower|shape|binary)\.rs|src/ir/verify/(mod|resources)\.rs' tests/guards/file_size_ceilings.txt`
   → no `ceiling` row.
@@ -108,7 +111,7 @@ LOC: `python3 -I /tmp/loc/census.py` on the working tree of `17a9b5799` (row val
 | … of `src/ir/verify/resources.rs` | 27 | same pattern, `verify/resources` |
 | `mfb man` citations of these files | 0 | same pattern over `src/docs/man` |
 | Non-citation mentions of these paths in `src/docs` | 0 | `grep -rnE "(^\|[^a-z_/])(src/)?ir/lower\.rs" src/docs \| grep -v '\[\[src/ir/lower.rs'` (and per file) → empty |
-| Guard rows naming these paths | 14 in `no_type_strings.rs` (12 `TYPE_KEYED_TABLES` rows, 1 `BOUNDARY_FILES` row, 1 closed-list entry) + 1 self-test literal | `grep -n '"src/ir/\(lower\|shape\|binary\|verify/mod\)\.rs"' tests/guards/no_type_strings.rs` |
+| Guard rows naming these paths | 14 in `no_type_strings.rs` (12 `TYPE_KEYED_TABLES` rows, 1 `BOUNDARY_FILES` row, 1 closed-list entry) + 1 self-test literal; plan-176-E moves the closed list and the self-test to `tests/guards/no_type_strings/self_checks.rs` | `grep -n '"src/ir/\(lower\|shape\|binary\|verify/mod\)\.rs"' tests/guards/no_type_strings.rs` |
 | `scripts/coverage-exceptions.txt` entries for these paths | 0 | `grep -n "ir/lower\|ir/shape\|ir/binary\|ir/verify" scripts/coverage-exceptions.txt` → only a comment naming `verify/link.rs` |
 | `include_str!`/`include_bytes!`/`#[path]` in these files | 0 | `grep -nE "include_str\|include_bytes\|#\[path" <file>` |
 | Host-`cfg` gating (`target_os`, `windows`, `unix`) in these files | 0 | `grep -cE "#\[cfg\((target_os\|windows\|unix\|target_family)" <file>` → 0 each |
@@ -278,7 +281,7 @@ Hazards:
 - Guard `tests/guards/no_type_strings.rs`: `TYPE_KEYED_TABLES` rows `("src/ir/lower.rs", records|enums|variants|variant_unions|variant_fields)`
   (the `TypeIndex` fields, `grep -nE "\b(records|enums|variants|variant_unions|variant_fields)\s*:\s*HashMap<" src/ir/lower.rs`
   → 6646-6651, all in `mod.rs`) → `src/ir/lower/mod.rs`. The self-test in
-  `string_keyed_type_maps` cases, `string_keyed_type_maps("src/ir/lower.rs", "    binding_types: HashMap<String, X>,")`,
+  `tests/guards/no_type_strings/self_checks.rs` (`scanners_fire_on_their_own_needles`, moved there by plan-176-E) `string_keyed_type_maps` cases, `string_keyed_type_maps("src/ir/lower.rs", "    binding_types: HashMap<String, X>,")`,
   → `"src/ir/lower/mod.rs"`. Justification (AGENTS.md test rule): (1) written in `9174857b8`
   (plan-111-A Phase 1, the no-type-strings ratchet), rows extended in `4e67183c5` (plan-111-B);
   (2) protects: an identifier NOT on the curated list is not scanned even inside a listed file;
@@ -410,14 +413,14 @@ Hazards:
   → `value_codec.rs`: `encode_value` ×2, `decode_value_body`.
 - Guard (the gate fails without it): `tests/guards/no_type_strings.rs` `BOUNDARY_FILES` row
   `("src/ir/binary.rs", "IR wire/JSON decode reads types as text")` and the `"src/ir/binary.rs"`
-  entry of `boundary_list_is_closed` → replaced, in the same position in both lists, by four rows
+  entry of `boundary_list_is_closed` (in `tests/guards/no_type_strings/self_checks.rs` after plan-176-E) → replaced, in the same position in both lists, by four rows
   `src/ir/binary/mod.rs`, `src/ir/binary/link_codec.rs`, `src/ir/binary/op_codec.rs`,
   `src/ir/binary/value_codec.rs` (same reason text). `ParameterType::parse(` sites land in all
   four (`grep -nE "ParameterType::parse\(" src/ir/binary.rs`: mod 506, 828, 849, 867, 912, 959;
   link_codec 607, 623, 642, 643, 663, 676; op_codec 1165, 1228, 1240; value_codec 1530-1649).
   Justification: (1) written in `9174857b8` (plan-111-A Phase 1); (2) protects: only the named
   wire-decode boundary may parse type spellings; (3) dependents: `is_boundary_file`,
-  `boundary_list_is_closed`, the `BOUNDARY_FILES` justification test in the same file; (4) proof:
+  `boundary_list_is_closed`, the `BOUNDARY_FILES` justification test (`boundary_files_exist_and_are_justified`, in `tests/guards/no_type_strings/self_checks.rs`); (4) proof:
   the exempt file was exempt as a whole, and the four parts are exactly its code — the
   boundary group (#2) is unchanged and no other production file becomes exempt. The assertion
   message ("closed at five GROUPS") stays true. Prose 411, 424 (`ir/binary.rs`'s `seen_types`,
@@ -594,8 +597,8 @@ Commit: —
 - [ ] `git mv src/ir/binary.rs src/ir/binary/mod.rs`; create `link_codec.rs`, `op_codec.rs`,
       `value_codec.rs` with the §4.3 ranges; the 13 `pub(super)` edits; the three private `use`
       lines in `mod.rs`; the one added `use` line in `link_expr_op_tests`.
-- [ ] `tests/guards/no_type_strings.rs`: replace the `src/ir/binary.rs` row in `BOUNDARY_FILES`
-      and in `boundary_list_is_closed` with the four `src/ir/binary/…` rows, same position, same
+- [ ] `tests/guards/no_type_strings.rs`: replace the `src/ir/binary.rs` row in `BOUNDARY_FILES`,
+      and in `tests/guards/no_type_strings/self_checks.rs`: `boundary_list_is_closed`, with the four `src/ir/binary/…` rows, same position, same
       reason (§4.3 justification in the commit message); repoint prose 411, 424, 1078;
       `tests/guards/no_operator_strings.rs:79` prose.
 - [ ] Spec: rewrite all 40 `[[src/ir/binary.rs:…]]` citations per §4.3.
@@ -634,7 +637,7 @@ Acceptance: the shape checker reports the same diagnostics.
   → 0 failures (est. 5 min, guess). `sh scripts/artifact-gate.sh target/release/mfb general` → 0
   diffs (est. 1 min). `cargo test --test no_type_strings` → pass. `cargo check --all-targets` →
   no new warning; `spec_citations_resolve` → pass. `cargo test --test file_size_budget 2>&1 | grep 'src/ir/shape'`
-  → one `STALE` code row for `src/ir/shape.rs` before the tighten (G already removed its test
+  → one `STALE` code row for `src/ir/shape.rs` before the tighten (G already removed its inline
   row), none after (est. 2 min).
 Commit: —
 
@@ -649,7 +652,7 @@ Commit: —
       `VALUE_VISIT_MAX_DEPTH` + its doc link in `inline_trap.rs`).
 - [ ] `TypeIndex` doc comment: `` `ir/verify/mod.rs:1002` `` → `` `ir/verify/env.rs:infer_type_depth` ``.
 - [ ] `tests/guards/no_type_strings.rs`: the 5 `TYPE_KEYED_TABLES` rows → `src/ir/lower/mod.rs`;
-      the self-test literal → `"src/ir/lower/mod.rs"` (§4.1 justification in the commit message);
+      in `tests/guards/no_type_strings/self_checks.rs` the self-test literal → `"src/ir/lower/mod.rs"` (§4.1 justification in the commit message);
       prose 374, 398, 972, 993.
 - [ ] Spec: rewrite all 76 `[[src/ir/lower.rs…]]` citations per §4.1.
 - [ ] `.ai/collections.md:464`, `.ai/resources-packages.md:28, 254, 439, 441` per §4.1 (254 also
@@ -665,7 +668,7 @@ Acceptance: lowering produces byte-identical IR for every builtin family.
   `cargo check --all-targets` → no new warning; `spec_citations_resolve` → pass.
   `grep -rn "src/ir/lower\.rs\|ir/lower\.rs" src/docs .ai tests/guards` → none (est. 5 s).
   `cargo test --test file_size_budget 2>&1 | grep 'src/ir/lower'` → one `STALE` code row for
-  `src/ir/lower.rs` (its 57 test LOC are under 250, so it has no test ceiling) before the
+  `src/ir/lower.rs` (its 57 inline test LOC are under 250, so it has no inline ceiling) before the
   tighten, none after (est. 2 min).
 Commit: —
 
@@ -694,12 +697,15 @@ Commit: —
 
 ## Decisions
 
-- Rule: code ≤ 1000, test ≤ 250 non-comment non-blank LOC; scope `.rs`/`.mfb` under `src/`,
-  `packages/`, `examples/`, `repository/`, `tests/` — owner, 2026-10-14.
-- Inline test code counts against the 250 test budget; over 250 it moves to its own module —
-  owner, 2026-10-14. (G did this for `shape.rs`; N's remaining inline tests are each < 250.)
-- Generated files are exempt; the guard warns with a banner and never fails; a new module is
-  always an acceptable split — owner, 2026-10-14.
+- Rule revised — owner, 2026-10-18 (replaces the 2026-10-14 "code ≤ 1000, test ≤ 250" rule):
+  three kinds, non-comment non-blank LOC, scope `.rs`/`.mfb` under `src/`, `packages/`,
+  `examples/`, `repository/`, `tests/`: `code` (code LOC of a non-test-only file) ≤ 1000 → split
+  into modules; `inline` (`#[cfg(test)]` / `TESTING … END TESTING` LOC inside a non-test-only
+  file) ≤ 250 → move the tests to a test-only file; `test` (whole test-only file) ≤ 1000 → split
+  into modules. Parts target ≤ 900. No exemptions except `GENERATED` files; ceiling rows are
+  `ceiling <code|inline|test> <n> <path>`; the guard warns with a banner, never fails; a new
+  module is always an acceptable split. (G moved `shape.rs`'s inline tests; N's remaining
+  inline tests are each < 250.)
 - A single function over the code limit is decomposed by extract-method only in letters S–V —
   owner, 2026-10-14. No N item exceeds 900 LOC, so N does no extract-method.
 - Guard rows that name a moved file are updated in the same commit as the move, each with the
@@ -712,9 +718,10 @@ Commit: —
   today's reach — author.
 - `lower` parts are glob-imported into `lower/mod.rs` (`use <part>::*;`), verified collision-free
   (§2) — author.
-- N adds no `exempt` row.
 
 ## Corrections
+
+- 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text (intro, Goal, Decisions) restated, `test` ceiling/row wording for inline blocks now says `inline`, and the G-moved test directories are noted as staying split (each over 1000).
 
 ## Summary
 

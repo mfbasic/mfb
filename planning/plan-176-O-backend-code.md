@@ -1,6 +1,6 @@
 # plan-176-O: Backend code splits
 
-Last updated: 2026-10-14
+Last updated: 2026-10-18
 Effort: large (3h–1d)
 Depends on: plan-176-N
 
@@ -17,7 +17,8 @@ to also take a file under a directory with that prefix. Letters P–V rely on th
 
 The single outcome: after O lands, `cargo test --test file_size_budget` shows no row for any of
 the twelve files or the files they become, and `tests/guards/file_size_ceilings.txt` has no
-`ceiling` row for them. O adds no `exempt` row.
+`ceiling` row for them. The rule (owner, 2026-10-18): code ≤ 1000, inline test ≤ 250, test-only
+file ≤ 1000 non-comment non-blank LOC; there are no exemptions besides `GENERATED` files.
 
 References:
 
@@ -45,15 +46,17 @@ References:
 | O's files have no uncommitted changes | `git status --porcelain -- src/arch/aarch64/decode src/arch/aarch64/encode src/arch/riscv64/v128.rs src/arch/x86_64/encode src/binary_repr src/codegen/cleanup/owned src/codegen/debug src/codegen/link/thunk src/codegen/os/socket src/os/linux/link src/codegen/engine/tests tests/guards .ai src/docs/spec` → empty | MET for every path except `src/docs/spec` (2026-10-14: ` M src/docs/spec/app/06_canvas.md`, a file O does not edit) — NOT MET as a row |
 
 Everything below is written against the world where these hold. plan-176-J (an earlier letter)
-has already moved three inline test blocks this letter's files carried:
-`src/arch/riscv64/v128.rs`'s `mod tests` → `src/arch/riscv64/v128/tests/`,
-`src/codegen/link/thunk/link_thunk.rs`'s `mod tests` → `src/codegen/link/thunk/link_thunk/tests/`,
-and `src/arch/aarch64/decode/tests.rs` → `src/arch/aarch64/decode/tests/` (its
-`the_table_covers_every_form_the_encoder_emits` lives in `decode/tests/encoder_forms.rs` and
-reads `include_str!("../../encode/emitter.rs")`). J replaced only the trailing test blocks, so
-every non-test line range below is unchanged by J. plan-176-E and plan-176-H may have split
-`tests/guards/architecture_guards.rs` and `src/codegen/engine/tests/tests.rs`; Phase 1 locates its
-two scans by fn name.
+has already moved the two inline test blocks this letter's files carried over the 250 inline
+limit: `src/arch/riscv64/v128.rs`'s `mod tests` (913) → the test-only module
+`src/arch/riscv64/v128/tests/mod.rs`, and `src/codegen/link/thunk/link_thunk.rs`'s `mod tests`
+(551) → `src/codegen/link/thunk/link_thunk/tests/mod.rs` (each ≤ 1000, so one file). J replaced
+only the trailing test blocks, so every non-test line range below is unchanged by J. The
+test-only file `src/arch/aarch64/decode/tests.rs` (742 LOC) is under the 1000 test-only limit and
+no letter touches it: its `the_table_covers_every_form_the_encoder_emits` still reads
+`include_str!("../encode/emitter.rs")`. `tests/guards/architecture_guards.rs` (370) and
+`src/codegen/engine/tests/tests.rs` (404) are likewise under 1000 and unsplit; Phase 1 still
+locates its two scans by fn name (`python3 -I /tmp/loc/census.py "$PWD"` at ce7a995ca for the
+counts).
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue, and again
@@ -67,7 +70,8 @@ two scans by fn name.
 
 ## 1. Goal
 
-- Each of the twelve files becomes `foo/mod.rs` + parts, every resulting file ≤ 1000 code LOC.
+- Each of the twelve files becomes `foo/mod.rs` + parts, every resulting file ≤ 1000 code LOC
+  and ≤ 250 inline test LOC.
 - The two prefix-keyed scans take a file under a `builder_*`/`func_*`/`gen_*` directory.
 - `cargo test --test file_size_budget 2>&1 | grep -E '<the twelve paths>'` → no row, and the
   ceiling file has no `ceiling` row for them.
@@ -112,7 +116,7 @@ after plan-176-A, `python3 -I tools/loc-census/census.py --file <path>`. Test fn
 |---|---|---|
 | Spec citations, per file | vector 0, aarch64 emitter 12, v128 5, x86 emitter 15, reader 44, sections 18, writer 13, owned cleanup 17, debug arena 3, link_thunk 19, socket shared 0, elf 31 | `grep -rnoE "\[\[<path>(:[^]]+)?\]\]" src/docs/spec \| wc -l` per path |
 | `mfb man` citations, non-citation `src/docs` mentions | 0, 0 | same pattern over `src/docs/man`; `grep -rnE "(^\|[^a-z_/])(src/)?<path>" src/docs \| grep -v '\[\[<path>'` |
-| Guard rows naming these paths | `no_type_strings.rs`: 3 `BOUNDARY_FILES` + 3 closed-list + 1 `TYPE_KEYED_TABLES`; `no_operator_strings.rs`: 2 | `grep -n '"src/binary_repr/\|"src/codegen/link/thunk\|"src/arch/riscv64/v128' tests/guards/*.rs` |
+| Guard rows naming these paths | `no_type_strings.rs`: 3 `BOUNDARY_FILES` + 1 `TYPE_KEYED_TABLES`, and 3 closed-list entries in `tests/guards/no_type_strings/self_checks.rs` after plan-176-E; `no_operator_strings.rs`: 2 | `grep -n '"src/binary_repr/\|"src/codegen/link/thunk\|"src/arch/riscv64/v128' tests/guards/*.rs` |
 | Source-reading tests naming these files | 1 (`include_str!("../encode/emitter.rs")` in the aarch64 decode tests) | `grep -rn "include_str" src \| grep emitter` |
 | Files the engine overflow-label scan reads today | 747, holding 42 overflow labels | `find src/codegen -type f -name '*.rs' \( -name 'builder_*' -o -name 'func_*' -o -name 'gen_*' \) \| wc -l`; `… \| xargs grep -h 'abi::label(&' \| grep -c overflow` |
 | `.rs` files under a prefixed directory today (missed by both scans) | 7 (`src/codegen/builtins/tls/gen_macos/*` ×6, `src/codegen/error/emission/builder_error_emission/tests/mod.rs`), 0 overflow labels, 0 `_native(` | `find src/codegen -type f -name '*.rs' -path '*/builder_*/*' -o -type f -name '*.rs' -path '*/func_*/*' -o -type f -name '*.rs' -path '*/gen_*/*' \| wc -l`; per-file `grep -c` |
@@ -171,7 +175,7 @@ phase's check builds the same input with both binaries and `cmp`s.
 Risk: Phase 1 changes test and guard code (scan widening) — it must widen, never narrow, each
 scan. Among the splits, `link_thunk.rs` (2140 LOC, 12 visibility edits, 19 citations, the FFI
 marshalling of every `LINK` call) lands last. `lower_link_thunk` is one 921-LOC function; its
-file `lower_thunk.rs` is 922 LOC, under the 1000 limit (no guard row, no exemption).
+file `lower_thunk.rs` is 922 LOC, under the 1000 code limit (no guard row).
 
 Rejected alternatives:
 
@@ -277,8 +281,8 @@ The 1058-LOC `impl Encoder` (35-1302) splits into 4 `impl Encoder` blocks.
   `emitter/memory.rs`. Doc links `super::emitter::Encoder::patch_labels` (`relax.rs:6,38`) and
   `super::emitter::Encoder::emit_instruction` (`sizing.rs:4`) still resolve.
 - Source-reading test (must change): the decoder test
-  `the_table_covers_every_form_the_encoder_emits` (in `src/arch/aarch64/decode/tests/encoder_forms.rs`
-  after J) reads `include_str!("../../encode/emitter.rs")` → `include_str!("../../encode/emitter/mod.rs")`.
+  `the_table_covers_every_form_the_encoder_emits` (in the test-only file
+  `src/arch/aarch64/decode/tests.rs`) reads `include_str!("../encode/emitter.rs")` → `include_str!("../encode/emitter/mod.rs")`.
   Justification: (1) written in `1b6a632e6` ("arch/aarch64: decode, the encoder's counterpart");
   (2) protects: every mnemonic `emit_instruction` dispatches on has a decoder table row;
   (3) dependents: none (`grep -rn "encode/emitter" src tests` → this line); (4) proof:
@@ -369,11 +373,11 @@ The 1058-LOC `impl Encoder` (35-1302) splits into 4 `impl Encoder` blocks.
   `sed -n 1106,1405p … | grep -c` = 9). Private `decode_type_name_body` and `SectionKind` are used
   only in their own file or by children. `use super::*;` at line 1 stays in `reader/mod.rs`.
 - Guard (must change): `BOUNDARY_FILES` row `"src/binary_repr/reader.rs"` (the decoder half of
-  boundary #4) and its `boundary_list_is_closed` entry → three rows `src/binary_repr/reader/mod.rs`,
+  boundary #4) and its `boundary_list_is_closed` entry (in `tests/guards/no_type_strings/self_checks.rs` after plan-176-E) → three rows `src/binary_repr/reader/mod.rs`,
   `…/reader/type_decode.rs`, `…/reader/abi_index.rs` in the same position, same reason, in both.
   Justification: (1) written in `4c5cc03a7` (plan-111-G Phase 2); (2) protects: only the `.mfp`
   codec may convert type spellings; (3) dependents: `is_boundary_file`, `boundary_list_is_closed`,
-  the justification test in `no_type_strings.rs`; (4) proof: the old file was exempt as a whole,
+  the justification test `boundary_files_exist_and_are_justified` (in `tests/guards/no_type_strings/self_checks.rs`); (4) proof: the old file was exempt as a whole,
   and its three parts are exactly that code — group #4 is unchanged. Prose line 1736 → `reader/`.
 - Citations 44: `reader/mod.rs` — `encode_package_meta`, `read_package_meta` ×3,
   `package_identity_id`, `mfp_binary_repr_payload` ×6, `validate_container_manifest_identity` ×4,
@@ -636,8 +640,8 @@ Commit: —
 
 - [ ] §4.2: split `src/arch/aarch64/encode/emitter.rs` into `emitter/{mod,vector,scalar,memory}.rs`;
       80 `pub(super)` edits; rewrite the 12 citations.
-- [ ] §4.2: decoder test `include_str!("../../encode/emitter.rs")` →
-      `include_str!("../../encode/emitter/mod.rs")` (4-point justification in the commit message).
+- [ ] §4.2: decoder test `include_str!("../encode/emitter.rs")` →
+      `include_str!("../encode/emitter/mod.rs")` (4-point justification in the commit message).
 - [ ] §4.4: split `src/arch/x86_64/encode/emitter.rs` into `emitter/{mod,instruction,integer,sse}.rs`;
       widen `encode_instruction`; the re-export and two private globs; 37 `pub(super)` edits;
       rewrite the 15 citations.
@@ -666,8 +670,8 @@ Commit: —
       rewrite the 18 citations; `.ai/resources-packages.md:211`.
 - [ ] §4.7: split `writer.rs` into `writer/{mod,resource_scan,functions,type_payload}.rs`;
       20 widenings; the three globs; rewrite the 13 citations; `.ai/resources-packages.md:271`.
-- [ ] `tests/guards/no_type_strings.rs`: replace the three `binary_repr` rows in `BOUNDARY_FILES`
-      and in `boundary_list_is_closed` with their part files (§4.5–4.7), same order; prose
+- [ ] `tests/guards/no_type_strings.rs`: replace the three `binary_repr` rows in `BOUNDARY_FILES`,
+      and in `tests/guards/no_type_strings/self_checks.rs`: `boundary_list_is_closed`, with their part files (§4.5–4.7), same order; prose
       50, 940, 1064, 1736 (justifications in the commit message).
 - [ ] Tighten and commit the ceiling file.
 
@@ -726,8 +730,8 @@ the owned-cleanup parts.
   (est. 1 min each). `cargo test --test no_type_strings --test architecture_guards` → pass.
   `cargo check --all-targets` → no new warning; `spec_citations_resolve` → pass.
   `cargo test --test file_size_budget 2>&1 | grep -E 'builder_owned_cleanup|socket/shared|link_thunk'`
-  → one `STALE` code row per old path (three; J removed `link_thunk.rs`'s test ceiling and
-  `builder_owned_cleanup.rs`'s 78 test LOC never had one) before the
+  → one `STALE` code row per old path (three; J removed `link_thunk.rs`'s inline ceiling and
+  `builder_owned_cleanup.rs`'s 78 inline test LOC never had one) before the
   tighten, none after, and no `NEW` row (so `lower_thunk.rs`, 922, is under 1000) (est. 2 min).
 Commit: —
 
@@ -752,15 +756,16 @@ Commit: —
 
 ## Decisions
 
-- Rule: code ≤ 1000, test ≤ 250 non-comment non-blank LOC; scope `.rs`/`.mfb` under `src/`,
-  `packages/`, `examples/`, `repository/`, `tests/` — owner, 2026-10-14.
-- Inline test code counts against the 250 test budget and moves out over 250 (J did this for
-  `v128.rs` and `link_thunk.rs`) — owner, 2026-10-14.
-- Generated files exempt; the guard warns, never fails; a new module is always an acceptable
-  split — owner, 2026-10-14.
+- Rule revised — owner, 2026-10-18: three kinds, non-comment non-blank LOC, scope `.rs`/`.mfb`
+  under `src/`, `packages/`, `examples/`, `repository/`, `tests/`: `code` (a non-test-only file)
+  ≤ 1000 → split into modules; `inline` (`#[cfg(test)]`/`TESTING` LOC in a non-test-only file)
+  ≤ 250 → move to a test-only file (J did this for `v128.rs` and `link_thunk.rs`); `test` (a
+  test-only file) ≤ 1000 → split into modules. Parts target ≤ 900. Ceiling rows are
+  `ceiling <code|inline|test> <n> <path>`. No exemptions except `GENERATED` files; the guard
+  warns with a banner, never fails; a new module is always an acceptable split.
 - A single function over the code limit is decomposed by extract-method only in S–V — owner,
   2026-10-14. `lower_link_thunk` (921) is under the limit and stays whole in `lower_thunk.rs`
-  (922 LOC); no exemption row — author.
+  (922 LOC) — author.
 - The prefix-keyed scans (engine overflow-label test, `no_cross_member_os_seam_dispatcher`) take
   a file under a `builder_*`/`func_*`/`gen_*` directory, landed in O Phase 1 with a predicate
   test — decided by the parent planner, 2026-10-14. Letters P–V rely on it.
@@ -769,9 +774,11 @@ Commit: —
 - Pre-existing defects fixed here: the stale `.ai/codegen-invariants.md:98` path and
   `emit_closure_drop` name; the `builder_owned_cleanup.rs:201` comment line reference — author
   (AGENTS.md "never leave a bug").
-- O adds no `exempt` row.
+- No exemptions exist (rule revised 2026-10-18); O adds only the scan widening, no guard row.
 
 ## Corrections
+
+- 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text restated, J's moved blocks named as single `tests/mod.rs` files, `aarch64/decode/tests.rs` (742, no longer split by J) keeps its `include_str!("../encode/emitter.rs")` path, `architecture_guards.rs`/`engine/tests/tests.rs` noted unsplit.
 
 ## Summary
 

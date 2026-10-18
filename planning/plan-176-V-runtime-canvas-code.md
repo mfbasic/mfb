@@ -1,6 +1,6 @@
 # plan-176-V: Runtime canvas and thread code
 
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 Effort: large (3h–1d)
 Depends on: plan-176-U
 
@@ -18,10 +18,11 @@ on every target, and the only golden that sees it is one app-mode fixture.
 
 Single outcome: after V lands, `cargo test --test file_size_budget` prints no row for any file
 under `src/codegen/runtime/canvas/` or `src/codegen/runtime/thread/`, and
-`tests/guards/file_size_ceilings.txt` has no `ceiling` row for any of V's four files. V adds no
-`exempt` row. V's Validation Plan is also the final gate of all of plan-176: the full workspace
-suite, the full artifact gate, the canvas GPU box checks, and a ceiling file that holds only
-`exempt` rows.
+`tests/guards/file_size_ceilings.txt` has no `ceiling <code|inline|test>` row for any of V's four
+files. There are no exemptions (rule revised by the owner, 2026-10-18; only `GENERATED` files are
+exempt automatically). V's Validation Plan is also the final gate of all of plan-176: the full
+workspace suite, the full artifact gate, the canvas GPU box checks, and an empty ceiling file
+(no `ceiling` rows of any kind).
 
 References:
 
@@ -65,7 +66,7 @@ References:
 |---|---|---|
 | plan-176-U complete and archived | `ls planning/plan-176-U-* planning/completed/plan-176-U-*` → only `planning/completed/…` | NOT MET (2026-10-17) |
 | The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-17; lands in plan-176-A) |
-| plan-176-J moved `vulkan.rs`'s inline tests to `vulkan/tests/` and left `assert_layout` in `vulkan.rs` | `grep -c '^mod tests {' src/codegen/runtime/canvas/vulkan.rs` → `0`; `ls src/codegen/runtime/canvas/vulkan/tests/mod.rs` → exists; `grep -c 'fn assert_layout' src/codegen/runtime/canvas/vulkan.rs` → `1` | NOT MET (2026-10-17; J not landed) |
+| plan-176-J moved `vulkan.rs`'s inline tests to the one test-only file `vulkan/tests/mod.rs` and left `assert_layout` in `vulkan.rs` | `grep -c '^mod tests {' src/codegen/runtime/canvas/vulkan.rs` → `0`; `ls src/codegen/runtime/canvas/vulkan/tests/mod.rs` → exists; `grep -c 'fn assert_layout' src/codegen/runtime/canvas/vulkan.rs` → `1` | NOT MET (2026-10-17; J not landed) |
 | V's files have no uncommitted changes | `git status --porcelain -- src/codegen/runtime/canvas src/codegen/runtime/thread src/docs/spec/app/06_canvas.md src/docs/spec/tooling/01_project-manifest.md src/docs/spec/tooling/09_debug-report.md src/docs/spec/threading src/docs/spec/language/08_error-model.md src/docs/spec/language/15_resource-management.md .ai/canvas-threading.md .ai/arch-abi.md src/target/macos_aarch64/app src/target/win_x86_64/app src/codegen/builtins/canvas tests/canvas tests/codegen/codegen_canvas_vulkan_off_frame_path.rs tests/guards/file_size_ceilings.txt tools/loc-census` → empty | NOT MET (2026-10-17: ` M src/docs/spec/app/06_canvas.md`, the bug-1092 work in progress) |
 
 `assert_layout` must stay in the host because `vulkan_present.rs`'s own test module calls it 10
@@ -87,7 +88,7 @@ Everything below is written against the world where these hold.
 ## 1. Goal
 
 - Each of the four files becomes a directory module. `canvas/mod.rs` keeps its path and gains
-  sibling parts. Every resulting file is ≤ 900 code LOC by
+  sibling parts. Every resulting file is ≤ 900 code LOC and ≤ 250 inline test LOC by
   `python3 -I tools/loc-census/census.py --file <path>`.
 - No function under `src/codegen/runtime/` is over 1000 code LOC. `emit_vulkan_draw_scene` is
   decomposed exactly as §4.5 specifies. The largest function afterwards is `emit_ensure_swapchain`
@@ -100,8 +101,8 @@ Everything below is written against the world where these hold.
 - `vulkan_present.rs` lives at `src/codegen/runtime/canvas/vulkan/present/` and is declared by a
   plain `mod present;` in `vulkan/mod.rs`. No `#[path]` attribute remains in
   `src/codegen/runtime/canvas/` (`grep -rn '#\[path' src/codegen/runtime/canvas` → empty).
-- plan-176 as a whole is closed: the guard reports zero rows, and the ceiling file holds only
-  `exempt` rows (Validation Plan).
+- plan-176 as a whole is closed: the guard reports zero rows, and the ceiling file holds no
+  `ceiling` row of any kind (Validation Plan).
 
 ### Non-goals (explicit constraints)
 
@@ -138,9 +139,9 @@ Everything below is written against the world where these hold.
 
 ### Files (as of 17a9b5799; unchanged at a3c95fc07 except where noted)
 
-| File | Kind | Code LOC | Test LOC | `#[test]` | Lines (`wc -l`) |
+| File | Kind | Code LOC | Inline test LOC | `#[test]` | Lines (`wc -l`) |
 |---|---|---|---|---|---|
-| `src/codegen/runtime/canvas/vulkan.rs` | code | 7300 | 748 at planning; 31 after plan-176-J (`SPIRV_MAGIC` 2 + `assert_layout` 29) | 8, all in J's `vulkan/tests/` | 9862 |
+| `src/codegen/runtime/canvas/vulkan.rs` | code | 7300 | 748 at planning; 31 after plan-176-J (`SPIRV_MAGIC` 2 + `assert_layout` 29) | 8, all in J's `vulkan/tests/mod.rs` | 9862 |
 | `src/codegen/runtime/canvas/mod.rs` | code | 2260 | 201 (inline `mod tests` 178 by `span.py … 4056 4284`; `signal_redraw_arguments` 21 and the two-line cfg(test) `GEO_KIND_GROUP` at 1066–1067 make up the other 23) | 6 | 4284 |
 | `src/codegen/runtime/canvas/vulkan_present.rs` | code | 1848 | 164 (inline `mod tests`, lines 2063–2233) | 2 | 2233 |
 | `src/codegen/runtime/thread/runtime_helpers_thread.rs` | code | 1362 at a3c95fc07 (1344 at 17a9b5799) | 0 | 0 | 1664 |
@@ -463,9 +464,10 @@ up to the whole file:
 | `vulkan/draw_scene.rs` | 7308–8542 | graphics | `emit_vulkan_draw_scene` only; becomes `vulkan/draw_scene/` in Phase 5 (§4.5) | 1060 |
 | `vulkan/passes.rs` | 8543–8665 | graphics (multi-pass frame control) | `emit_branch_on_pass`, `emit_load_render_pass` | 113 |
 
-The test module is plan-176-J's `vulkan/tests/`. The `#[cfg(test)] mod tests;` line J left at
-the end of `vulkan.rs` moves into `vulkan/mod.rs`, and the directory `vulkan/tests/` is already
-in place. J's `include_str!("../../shaders/mfb_canvas.frag")` in `vulkan/tests/` resolves the
+The test module is plan-176-J's single test-only file `vulkan/tests/mod.rs` (748 LOC at planning,
+under the 1000 test-only limit, so J does not split it). The `#[cfg(test)] mod tests;` line J left
+at the end of `vulkan.rs` moves into `vulkan/mod.rs`, and `vulkan/tests/mod.rs` is already in
+place. J's `include_str!("../../shaders/mfb_canvas.frag")` in `vulkan/tests/mod.rs` resolves the
 same afterwards: `vulkan/tests/` does not move. The name `tests` does not collide: there is no
 other `tests` item in `vulkan`, and `present`'s inline `tests` is a different module.
 
@@ -1132,10 +1134,11 @@ This is the plan-176 final gate, run ONCE after Phase 5, on the commit that land
 - **File-size end state:**
   - `cargo test --test file_size_budget 2>&1 | grep -cE '^  (NEW|GREW|STALE|TIGHTEN)'` → `0`
     (est. 1 min).
-  - `grep -vE '^(#|$)' tests/guards/file_size_ceilings.txt | grep -vc '^exempt '` → `0`, so the
-    ceiling file holds only `exempt` rows.
-  - `grep -c '^exempt ' tests/guards/file_size_ceilings.txt` → `20`: 5 from A, 2 B, 2 C, 2 E,
-    1 F, 3 H, 4 J and 1 M, the Decisions lists of those letters.
+  - `grep -vcE '^(#|$)' tests/guards/file_size_ceilings.txt` → `0`, so the ceiling file holds
+    no `ceiling code|inline|test` row (there is no `exempt` row format; rule revised by the
+    owner, 2026-10-18). At planning (HEAD ce7a995ca, `python3 -I /tmp/loc/census.py "$PWD"`,
+    /tmp/loc/newrule.json) plan-176 started from 98 `code` > 1000, 71 `inline` > 250 and 30
+    `test` > 1000 files; all are gone.
   - `python3 -I tools/loc-census/census.py --seed | grep -c '^ceiling'` → `0`, so the oracle
     agrees (est. 30 s).
 - **Doc sync:** no `mfb spec` or `mfb man` contract changes. Only citations move:
@@ -1149,19 +1152,22 @@ This is the plan-176 final gate, run ONCE after Phase 5, on the commit that land
 
 ## Decisions
 
-- Rule: code ≤ 1000, test ≤ 250 non-comment non-blank LOC; scope is `.rs`/`.mfb` under `src/`,
-  `packages/`, `examples/`, `repository/`, `tests/`. Owner, 2026-10-14.
-- Inline test code counts against the 250 test budget; over 250 it moves to its own module.
-  Owner, 2026-10-14. In V, `canvas/mod.rs` (178 inline test LOC in `mod.rs`, the other 23 travel with `surface.rs` and `scene_layout.rs`) and `present/mod.rs`
-  (164) keep their inline tests. `vulkan.rs`'s 748 test LOC moved in J.
-- Generated files are exempt, the guard warns with a banner and never fails, and a new module
-  is always an acceptable split. Owner, 2026-10-14.
+- Rule revised. Owner, 2026-10-18 (replaces the 2026-10-14 "code ≤ 1000, test ≤ 250" rule).
+  Three kinds, non-comment non-blank LOC, scope `.rs`/`.mfb` under `src/`, `packages/`,
+  `examples/`, `repository/`, `tests/`: `code` ≤ 1000 (code LOC of a file that is not test-only;
+  over → split into modules); `inline` ≤ 250 (`#[cfg(test)]` / `TESTING … END TESTING` LOC inside
+  a file that is not test-only; over → moved to a test-only file, one `tests/mod.rs` unless
+  > 1000); `test` ≤ 1000 (total LOC of a test-only file; over → split). Parts target ≤ 900. No
+  exemptions: only `GENERATED` files are exempt automatically. Ceiling rows are
+  `ceiling <code|inline|test> <n> <path>`; the guard warns with a banner and never fails; a new
+  module is always an acceptable split. In V, `canvas/mod.rs` (178 inline test LOC in `mod.rs`,
+  the other 23 travel with `surface.rs` and `scene_layout.rs`) and `present/mod.rs` (164) keep
+  their inline tests, each under 250. `vulkan.rs`'s 748 inline test LOC moved in J to the one
+  test-only file `vulkan/tests/mod.rs`.
 - A single function over the code limit is decomposed by extract-method refactoring, gated by
   byte-identical `.ncode`. Owner, 2026-10-14. In V that is `emit_vulkan_draw_scene` (§4.5),
-  following `/tmp/loc/maps/V-extract.md`, which supersedes V.md's draw-scene exemption. V has
-  no exemptions.
-- A single test-side unit over 250 gets its own file and an `exempt` row. Owner, 2026-10-14.
-  V creates no such unit.
+  following `/tmp/loc/maps/V-extract.md`, which supersedes V.md's draw-scene exemption. Nothing
+  in V is exempt.
 - `vulkan_present.rs` moves to `src/codegen/runtime/canvas/vulkan/present/` (`mod.rs` +
   `wsi`, `swapchain`, `render_pass`, `teardown`, `submit`) when `vulkan.rs` becomes
   `vulkan/mod.rs`. The `#[path]` attribute is removed, and the module is an ordinary `mod
@@ -1180,10 +1186,12 @@ This is the plan-176 final gate, run ONCE after Phase 5, on the commit that land
 - Every stale prose, shader and MFBASIC-comment reference to the four old paths is repointed
   (§4.6). Owner rule (AGENTS.md, never leave a bug), applied by the author.
 - V's Validation Plan carries the plan-176 final gate: the full workspace suite, the full
-  artifact gate, the canvas GPU box scripts, and a ceiling file with only `exempt` rows. The
-  brief, 2026-10-14.
+  artifact gate, the canvas GPU box scripts, and an empty ceiling file. The brief, 2026-10-14;
+  end state revised for the owner's 2026-10-18 rule (no `exempt` rows exist).
 
 ## Corrections
+
+- 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text (intro, Goal, Decisions) restated, the 250 test-side `exempt` decision deleted, final gate now expects an empty ceiling file (was 20 `exempt` rows), J's vulkan tests named as the single `vulkan/tests/mod.rs`.
 
 ## Summary
 

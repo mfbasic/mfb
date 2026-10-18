@@ -1,6 +1,6 @@
 # plan-176-S: Built-ins code, part B (canvas, crypto, fs, math, money)
 
-Last updated: 2026-10-17
+Last updated: 2026-10-18
 Effort: large (3h–1d)
 Depends on: plan-176-R
 
@@ -19,7 +19,8 @@ byte-identical codegen.
 
 Single outcome: after S lands, `cargo test --test file_size_budget` prints no row for any of
 the ten files or the files they become, and `tests/guards/file_size_ceilings.txt` has no
-`ceiling` row for any of them. S adds no `exempt` row.
+`ceiling` row for any of them. The rule (owner, 2026-10-18): code ≤ 1000, inline test ≤ 250,
+test-only file ≤ 1000 non-comment non-blank LOC; there are no exemptions.
 
 References:
 
@@ -100,7 +101,7 @@ on 2026-10-17 with `python3 -I /tmp/loc/span.py <file>` → same values. After A
 | File | Kind | Code LOC | Test LOC | `wc -l` |
 |---|---|---|---|---|
 | `src/codegen/builtins/canvas/helper_render.rs` | code | 2183 | 2 (`mod tests;`) | 2425 |
-| `src/codegen/builtins/canvas/mod.rs` | code | 2307 | 408 at planning; moved to `canvas/tests/` by plan-176-H | 3132 |
+| `src/codegen/builtins/canvas/mod.rs` | code | 2307 | 408 at planning; moved to `canvas/tests/mod.rs` by plan-176-H | 3132 |
 | `src/codegen/builtins/crypto/func_generate.rs` | code | 1897 | 0 | 2085 |
 | `src/codegen/builtins/crypto/func_sign.rs` | code | 1635 | 0 | 1808 |
 | `src/codegen/builtins/crypto/func_verify.rs` | code | 1487 | 0 | 1684 |
@@ -112,12 +113,12 @@ on 2026-10-17 with `python3 -I /tmp/loc/span.py <file>` → same values. After A
 
 State left by earlier letters:
 - plan-176-H moves `canvas/mod.rs`'s inline `mod tests` (lines 2551-3132, 14 tests) to
-  `canvas/tests/{mod,variant_sets,resources_and_source}.rs`, leaves `#[cfg(test)] mod tests;`
+  one test-only file `canvas/tests/mod.rs` (≤ 1000, so not split), leaves `#[cfg(test)] mod tests;`
   at the end of `canvas/mod.rs`, and repoints the three test-symbol citations
   (`draw_item_variant_set_is_frozen`, `no_canvas_type_reaches_itself`,
   `canvas_text_has_one_glyph_walk`). Lines 1-2550 are unchanged by H. S does not touch the tests.
-- plan-176-H splits `canvas/helper_render/tests/mod.rs` into topic files; `helper_render.rs`'s
-  `#[cfg(test)] mod tests;` still resolves to `helper_render/tests/mod.rs`, and stays so after S.
+- `canvas/helper_render/tests/mod.rs` is a test-only file of 308 LOC (≤ 1000), so no letter splits
+  it; `helper_render.rs`'s `#[cfg(test)] mod tests;` resolves to it, and stays so after S.
 - No earlier letter edits the other eight files (`grep -l` over `/tmp/loc/maps/[A-R]*.md` for
   their basenames → no hits).
 
@@ -211,7 +212,7 @@ the three files are scanned.
 - *Exempt canvas `register` (2093) or `RENDER_METAL_TEMPLATE` (1464)* — the owner decided single
   functions over the limit are decomposed by extract-method (plan-176-A §Decisions), and the
   author decided the template uses the in-file `concat!` precedent (brief). The S map's
-  exemption notes are superseded by §4.1 and §4.10.
+  exemption notes are superseded by §4.1 and §4.10; since 2026-10-18 the rule has no exemptions at all.
 - *Split `RENDER_METAL_TEMPLATE` into separately registered helpers* — changes helper names and
   registration order, so the companion source changes. `concat!` keeps the text identical.
 - *Cut the template at other lines* — the three cuts (after 419, after 1035) are MFBASIC
@@ -251,7 +252,7 @@ Surface/visibility: 14 consts → `pub(super)` (`RENDER_SCENE`, `HASH_SCENE`, `E
 `TEST_SWITCHES`, `TEST_SWITCHES_DEBUG`, `RENDER_LOOP`, `PHASE_TIMERS`, `PHASE_TIMERS_DEBUG`,
 `POINTER_SCRIPT`, `POINTER_SCRIPT_DEBUG`, `RENDER_LOOP_DEBUG`, `DIRECT_PRESENT`,
 `DIRECT_PRESENT_DEBUG`, `CLOSE_RETIRED`); 3 macro `pub(super) use` re-exports. The test module
-(`helper_render/tests/`, reads `RENDER_SCENE, RENDER_METAL_TEMPLATE, RENDER_CAPS, RENDER_METAL,
+(`helper_render/tests/mod.rs`, reads `RENDER_SCENE, RENDER_METAL_TEMPLATE, RENDER_CAPS, RENDER_METAL,
 RENDER_LOOP, RENDER_LOOP_DEBUG` through `use super::*`) sees the moved consts through mod.rs's
 private `use` lines. The raw-string parts need no `use super::*;` (they reference nothing).
 
@@ -536,7 +537,7 @@ Each item is done in the phase that moves its target (phase in brackets).
 | `src/codegen/builtins/math/func_*.rs` (21 lines: `func_abs:48`, `func_log:47`, `func_clamp:73`, `func_max:48`, `func_seed:45`, `func_acos:45`, `func_cos:47`, `func_pow:58`, `func_atan:41`, `func_rand:62`, `func_sin:47`, `func_tan:55`, `func_round:45`, `func_atan2:48`, `func_log10:47`, `func_exp:47`, `func_floor:44`, `func_asin:44`, `func_ceil:43`, `func_min:48`, `func_sqrt:46`) | "`lower_math_call` carrier in `gen_math.rs`" | "… in `gen_math/mod.rs`" | 3 |
 | `src/codegen/builtins/vector/builder_simd_float_math.rs:2535` | `(`gen_math.rs`)` | `(`gen_math/`)` (names the module; plan-176-T then moves this line with its method) | 3 |
 | `src/codegen/builtins/math/func_cos.rs:37`, `func_sin.rs:37`, `func_atan.rs:31` | `` `money/gen_fixed_math.rs` `` | `` `money/gen_fixed_math/` `` (the comment names the module's error classes) | 3 |
-| `src/codegen/builtins/tests/declared_errors_all.rs:951` (plan-176-H may have moved it; locate with `grep -rn "money/gen_fixed_math.rs" src`) | `` `emit_fixed_log` (`money/gen_fixed_math.rs`) `` | `` … (`money/gen_fixed_math/exp_log.rs`) `` | 3 |
+| `src/codegen/builtins/tests/declared_errors_all.rs:951` (a 797-LOC test-only file, ≤ 1000, so no letter moves it) | `` `emit_fixed_log` (`money/gen_fixed_math.rs`) `` | `` … (`money/gen_fixed_math/exp_log.rs`) `` | 3 |
 | `src/codegen/string/format/float_parse_table.rs:10` | `src/codegen/builtins/money/gen_fixed_math.rs` | `src/codegen/builtins/money/gen_fixed_math/` | 3 |
 
 Each phase ends with a sweep command proving no live mention remains:
@@ -577,7 +578,7 @@ Each phase ends with a sweep command proving no live mention remains:
    → only the rows the phase names (a `STALE` row for each converted `foo.rs`, whose path is gone);
    then `MFB_LOC_TIGHTEN=1 cargo test --test file_size_budget` and commit
    `tests/guards/file_size_ceilings.txt` with the phase (est. 1 min, guess).
-9. Every new file: `python3 -I tools/loc-census/census.py --file <path>` → code ≤ 900, test ≤ 250.
+9. Every new file: `python3 -I tools/loc-census/census.py --file <path>` → code ≤ 900, inline test ≤ 250.
 10. The phase's sweep command (§4.11) → no hit naming an old path of the phase.
 
 ### Phase 1 — fs helper carriers (pure motion)
@@ -608,7 +609,7 @@ Commit: —
       the 12 `pub(super)` edits.
 - [ ] `crypto/func_sign.rs` → `crypto/func_sign/{mod,macos,linux,windows}.rs` per §4.3; 3 `pub(super)`.
 - [ ] `crypto/func_verify.rs` → `crypto/func_verify/{mod,macos,linux,windows}.rs` per §4.4; 3 `pub(super)`.
-- [ ] `tests/runtime/rt_debug_soak.rs:707` comment → `crypto/func_generate/mod.rs` (§4.11).
+- [ ] `tests/runtime/rt_debug_soak.rs` comment (`grep -n 'crypto/func_generate.rs' tests/runtime/rt_debug_soak.rs`; line 707 at `ce7a995ca`, B keeps it in the root) → `crypto/func_generate/mod.rs` (§4.11).
 
 Acceptance: EC key generation, signing and verification emit byte-identical code on every target
 (each backend's emitter is reached by its target's golden).
@@ -682,7 +683,7 @@ companion source it renders are unchanged, so every canvas program's code is byt
   Check: steps 1–6 and 8–9 of the common sequence; `cargo build --release` then
   `bash scripts/test-accept.sh target/release/mfb /tmp/s-accept app-mouse-surface` → passes with
   no artifact diff (est. 3 min, guess); `cargo test -p mfb --bin mfb codegen::builtins::canvas`
-  → the 14 canvas registry tests (`canvas/tests/`, incl. `draw_item_variant_set_is_frozen`,
+  → the 14 canvas registry tests (`canvas/tests/mod.rs`, incl. `draw_item_variant_set_is_frozen`,
   `reassembled_source_parses`, `canvas_types_are_builtin_types`) and the `helper_render` tests
   pass (est. 3 min, guess); `cargo test -p mfb --bin mfb registry` → passes (est. 3 min, guess);
   `target/release/mfb man canvas > /tmp/s-man-after.txt; diff /tmp/s-man-before.txt /tmp/s-man-after.txt`
@@ -715,16 +716,18 @@ Commit: —
 
 ## Decisions
 
-- Rule: code ≤ 1000, test ≤ 250 non-comment non-blank LOC; scope `.rs`/`.mfb` under `src/`,
-  `packages/`, `examples/`, `repository/`, `tests/` — owner, 2026-10-14.
-- Inline test code counts against the 250 test budget; over 250 it moves to its own module —
-  owner, 2026-10-14. In S: `canvas/mod.rs`'s 408 test LOC moved in plan-176-H;
-  `gen_fixed_math`'s 60 stay inline.
-- Generated files are exempt; the guard warns with a banner and never fails; a new module is
-  always an acceptable split — owner, 2026-10-14.
+- Rule revised — owner, 2026-10-18 (replaces the 2026-10-14 code ≤ 1000 / test ≤ 250 rule): three
+  kinds, non-comment non-blank LOC, scope `.rs`/`.mfb` under `src/`, `packages/`, `examples/`,
+  `repository/`, `tests/`: `code` (a non-test-only file's code) ≤ 1000 → split into modules;
+  `inline` (`#[cfg(test)]` / `TESTING … END TESTING` LOC inside a non-test-only file) ≤ 250 → moved
+  out to a test-only file (one `tests/mod.rs` unless > 1000); `test` (a test-only file's total) ≤ 1000
+  → split into modules. Parts target ≤ 900. Ceiling rows are `ceiling <code|inline|test> <n> <path>`.
+  No exemptions; only `GENERATED`-banner files are skipped; the guard warns with a banner and never
+  fails; a new module is always an acceptable split. In S: `canvas/mod.rs`'s inline tests moved to
+  `canvas/tests/mod.rs` in plan-176-H; `gen_fixed_math`'s 60 stay inline.
 - A single function over the code limit is decomposed by extract-method refactoring, gated by
   byte-identical `.ncode` — owner, 2026-10-14. In S: canvas `register` → five ordered
-  `types_*::register` sub-registrars (§4.10). S has no exemptions.
+  `types_*::register` sub-registrars (§4.10). There are no exemptions (rule revised 2026-10-18).
 - `RENDER_METAL_TEMPLATE` is rebuilt with `concat!` from three `macro_rules!` pieces cut at
   MFBASIC top-level boundaries — author, 2026-10-14, following the `RENDER_LOOP` precedent (§4.1).
 - The extract-method refactor is its own phase, after every pure-motion phase — author (Phase 5).
@@ -739,6 +742,8 @@ Commit: —
   applied by the author.
 
 ## Corrections
+
+- 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule restated in intro, common step 9 and Decisions; H's canvas tests are one `canvas/tests/mod.rs`, `helper_render/tests/mod.rs` (308) and `tests/declared_errors_all.rs` (797) are no longer moved or split by H.
 
 ## Summary
 

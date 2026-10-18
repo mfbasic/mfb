@@ -1,6 +1,6 @@
 # plan-176-L: Repository, debugger, CLI and manifest code
 
-Last updated: 2026-10-14
+Last updated: 2026-10-18
 Effort: large (3h–1d)
 Depends on: plan-176-K
 
@@ -10,12 +10,13 @@ manifest validator (`src/manifest/mod.rs`). Each `foo.rs` becomes `foo/mod.rs` p
 grouped by responsibility; `src/manifest/mod.rs` gains two sibling parts. The work is pure code
 motion: items move between files, `impl` blocks are cut into one block per file, and private
 items that now cross a file boundary become `pub(super)`. The test code of these files was
-already moved into `tests/` directories by letters I (repository) and K (the rest); L leaves
-those declarations in the new `mod.rs` files.
+already moved into `tests/` directories by letters I (repository) and K (the rest) — every one
+of them carried more than the 250 inline test LOC the rule allows; L leaves those declarations
+in the new `mod.rs` files.
 
 The single outcome: after L lands, `cargo test --test file_size_budget` shows no row for any of
 L's files (old or new paths) and `tests/guards/file_size_ceilings.txt` has no `ceiling` row for
-them. L adds no `exempt` row.
+them. There are no exemptions (rule revised 2026-10-18).
 
 References:
 
@@ -59,7 +60,7 @@ Everything below is written against the world where these hold.
 ## 1. Goal
 
 - Every file in §2's table and every part L creates is ≤ 1000 code LOC (largest planned part:
-  `repository/src/store/accounts.rs` 797) and ≤ 250 test LOC
+  `repository/src/store/accounts.rs` 797) and ≤ 250 inline test LOC
   (`python3 -I tools/loc-census/census.py --file <path>`).
 - Every external path keeps resolving: `mfb_repository::server::IndexResponse`,
   `crate::store::Store`, `crate::cli::pkg::install_vendor_blobs`,
@@ -130,7 +131,9 @@ After I and K, each host's test module is a `#[cfg(test)] mod tests;` declaratio
   (introduced by `e18cbb6fa`, 2026-09-12, bug-580) counts
   `INSERT INTO keys (owner_id, role, public_key` in `include_str!`'d store source and asserts 1
   (`grep -c "INSERT INTO keys (owner_id, role, public_key" repository/src/store.rs` → 1, in
-  `insert_key_tx`). After plan-176-I it lives in `repository/src/store/tests/key_roles.rs` and
+  `insert_key_tx`). After plan-176-I it lives in one of the `repository/src/store/tests/*.rs`
+  parts (the moved store tests are 3468 LOC, over the 1000 test-only limit, so I splits them;
+  `grep -rln key_insertion_has_exactly_one_writer repository/src/store/tests` names the part) and
   includes `../../store.rs`. After L that writer is in `store/accounts.rs`, and `store/mod.rs`
   holds 0.
 - **Coverage exceptions match by exact path.** `scripts/coverage-check.sh` compares each
@@ -150,7 +153,8 @@ After I and K, each host's test module is a `#[cfg(test)] mod tests;` declaratio
     `sed -n 253p src/cli/resolve.rs`). The described code is `add_package_from_file` (copies
     the ident from the `.mfp` header) and, today, `is_registry_dependency`
     (`src/cli/resolve.rs:573`, which replaced the `.filter(|dep| dep.ident.contains('#'))` the
-    spike comment quotes). After plan-176-E the `cli_repo_install` comment sits in one of
+    spike comment quotes). After plan-176-E (the file is 1241 LOC, over the 1000 test-only
+    limit, so E splits it into a directory) the comment sits in one of
     `tests/cli/cli_repo_install/*.rs` (`grep -rn 'src/cli/pkg.rs:566' tests/cli` finds it).
   - `src/docs/spec/tooling/10_debugger.md:69` names `src/debugger/breakpoints.rs` as a path.
   - `.ai/build-tooling.md:84` cites `src/manifest/mod.rs` "~1049" for `check_libraries`.
@@ -368,8 +372,8 @@ Citations (74 cites, 58 symbols, `package-manager/01`, `03`, `04`): wire — `Re
 `within_edit_distance_one`; plus fields of `PendingOfferRow`, `RootCeremony` and
 `LegacyLogEvent` used across files (visibility rule).
 
-**The writer test (`repository/src/store/tests/key_roles.rs`,
-`key_insertion_has_exactly_one_writer`).** Replace the single-file `include_str!` with a
+**The writer test (`key_insertion_has_exactly_one_writer`, in the `repository/src/store/tests/*.rs`
+part plan-176-I put it in).** Replace the single-file `include_str!` with a
 runtime read of every top-level `.rs` file in the store directory:
 
 ```rust
@@ -809,7 +813,7 @@ Commit: —
 
 - [ ] Split `repository/src/store.rs` per §4.3 (eight `impl Store` blocks).
 - [ ] Rewrite `key_insertion_has_exactly_one_writer`'s source read in
-      `repository/src/store/tests/key_roles.rs` per §4.3 (justification in §4.3).
+      its `repository/src/store/tests/*.rs` part per §4.3 (justification in §4.3).
 - [ ] Sweep the 39 citations.
 - [ ] G4.
 
@@ -847,12 +851,15 @@ Commit: —
 
 ## Decisions
 
-- Rule: code ≤ 1000, test ≤ 250 non-comment non-blank LOC; scope `.rs`/`.mfb` under `src/`
-  `packages/` `examples/` `repository/` `tests/` — owner, 2026-10-14.
-- Inline test code counts against the 250 test budget — owner, 2026-10-14 (I and K moved it;
-  `store/versions.rs` keeps 56 cfg(test) LOC of in-impl helpers, under 250).
-- Generated files exempt; the guard warns, never fails; a new module is always an acceptable
-  split — owner, 2026-10-14.
+- Rule revised — owner, 2026-10-18 (replaces the 2026-10-14 "code ≤ 1000, test ≤ 250" rule):
+  three kinds, non-comment non-blank LOC, scope `.rs`/`.mfb` under `src/` `packages/`
+  `examples/` `repository/` `tests/`: `code` (code LOC of a non-test-only file) ≤ 1000 → split
+  into modules; `inline` (`#[cfg(test)]` / `TESTING … END TESTING` LOC inside a non-test-only
+  file) ≤ 250 → move the tests to a test-only file; `test` (whole test-only file) ≤ 1000 → split
+  into modules. Parts target ≤ 900. No exemptions except `GENERATED` files; ceiling rows are
+  `ceiling <code|inline|test> <n> <path>`; the guard warns with a banner, never fails; a new
+  module is always an acceptable split. I and K moved these files' inline tests out;
+  `store/versions.rs` keeps 56 cfg(test) LOC of in-impl helpers, under the 250 inline limit.
 - A single function over the code limit is decomposed by extract-method — owner, 2026-10-14.
   None of L's functions is over 1000 (largest part 797), so L does no extraction.
 - Byte-identity is the gate for codegen code letters; L's files emit no code, so L's gate is
@@ -869,6 +876,8 @@ Commit: —
 - Glob-cycle imports compile without warnings — verified (`/tmp/loc/probe2`).
 
 ## Corrections
+
+- 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text (intro, Goal, Decisions) restated, and the store writer test is now located as "the `store/tests/*.rs` part I chose" instead of I's old `key_roles.rs` name.
 
 ## Summary
 

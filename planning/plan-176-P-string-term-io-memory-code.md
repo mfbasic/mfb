@@ -1,6 +1,6 @@
 # plan-176-P: String, term, I/O and memory code splits
 
-Last updated: 2026-10-14
+Last updated: 2026-10-18
 Effort: large (3h–1d)
 Depends on: plan-176-O
 
@@ -17,7 +17,8 @@ would leave `no_overflow_label_returns_through_the_result_tag_register` silently
 
 The single outcome: after P lands, `cargo test --test file_size_budget` shows no row for any of
 the ten files or the files they become, and `tests/guards/file_size_ceilings.txt` has no
-`ceiling` row for them. P adds no `exempt` row.
+`ceiling` row for them. The rule (owner, 2026-10-18): code ≤ 1000, inline test ≤ 250, test-only
+file ≤ 1000 non-comment non-blank LOC; there are no exemptions besides `GENERATED` files.
 
 References:
 
@@ -45,10 +46,11 @@ References:
 | P's files have no uncommitted changes | `git status --porcelain -- src/codegen/io/input/decode.rs src/codegen/io/stdin/stdin_broadcast.rs src/codegen/memory/arena/arena.rs src/codegen/memory/arena/builder_arena_transfer.rs src/codegen/memory/data/data_objects.rs src/codegen/memory/value/builder_value_semantics.rs src/codegen/string/repr/builder_strings.rs src/codegen/string/unicode_props.rs src/codegen/term/core/term.rs src/codegen/term/grid/term_grid.rs tests/codegen/codegen_trap_result_wrapper.rs .ai` → empty | MET (2026-10-14) |
 | The spec topics P edits have no uncommitted changes | `git status --porcelain -- src/docs/spec` → no line for a file P edits (the 22 above) | MET (2026-10-14: only ` M src/docs/spec/app/06_canvas.md`, not one of the 22) |
 
-Everything below is written against the world where these hold. plan-176-J (an earlier letter)
-splits `src/codegen/io/input/corpus.rs` (an exempt test file beside `decode.rs`); it does not
-touch `decode.rs`. No earlier letter moves an inline test block out of a P file: each P file's
-inline test LOC is < 250 (§2) and stays in its new `mod.rs`.
+Everything below is written against the world where these hold. The test-only file beside
+`decode.rs`, `src/codegen/io/input/corpus.rs` (903 LOC), is under the 1000 test-only limit, so no
+letter splits it and P does not touch it (`python3 -I /tmp/loc/census.py "$PWD"` at ce7a995ca).
+No earlier letter moves an inline test block out of a P file: each P file's inline test LOC is
+< 250 (§2) and stays in its new `mod.rs`.
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue, and again
@@ -62,7 +64,8 @@ inline test LOC is < 250 (§2) and stays in its new `mod.rs`.
 
 ## 1. Goal
 
-- Each of the ten files becomes `foo/mod.rs` + parts, every resulting file ≤ 1000 code LOC.
+- Each of the ten files becomes `foo/mod.rs` + parts, every resulting file ≤ 1000 code LOC
+  and ≤ 250 inline test LOC.
 - `cargo test --test file_size_budget 2>&1 | grep -E '<the ten paths>'` → no row; no `ceiling`
   row for them in the ceiling file.
 - `sh scripts/artifact-gate.sh target/release/mfb all` → 0 diffs.
@@ -611,12 +614,13 @@ Commit: —
 
 ## Decisions
 
-- Rule: code ≤ 1000, test ≤ 250 non-comment non-blank LOC; scope `.rs`/`.mfb` under `src/`,
-  `packages/`, `examples/`, `repository/`, `tests/` — owner, 2026-10-14.
-- Inline test code counts against the 250 test budget; P's inline test modules are each < 250
-  (80, 80, 174, 60) and stay inline — owner rule, 2026-10-14.
-- Generated files exempt; the guard warns, never fails; a new module is always an acceptable
-  split — owner, 2026-10-14.
+- Rule revised — owner, 2026-10-18: three kinds, non-comment non-blank LOC, scope `.rs`/`.mfb`
+  under `src/`, `packages/`, `examples/`, `repository/`, `tests/`: `code` (a non-test-only file)
+  ≤ 1000 → split into modules; `inline` (`#[cfg(test)]`/`TESTING` LOC in a non-test-only file)
+  ≤ 250 → move to a test-only file; `test` (a test-only file) ≤ 1000 → split into modules. Parts
+  target ≤ 900. Ceiling rows are `ceiling <code|inline|test> <n> <path>`. No exemptions except
+  `GENERATED` files; the guard warns with a banner, never fails; a new module is always an
+  acceptable split. P's inline test modules are each < 250 (80, 80, 174, 60) and stay inline.
 - A single function over the code limit is decomposed by extract-method only in S–V — owner,
   2026-10-14. No P function is over the limit (largest `lower_arena_alloc`, 707).
 - P relies on plan-176-O Phase 1's prefix-scan widening for its three `builder_*` splits —
@@ -626,9 +630,11 @@ Commit: —
 - Pre-existing defects fixed here: the stale `:145` line references (code comment and
   `.ai/resources-packages.md:608`) and the deleted `ERR_*_MESSAGE` constants named in
   `.ai/resources-packages.md:387` — author (AGENTS.md "never leave a bug").
-- P adds no `exempt` row.
+- No exemptions exist (rule revised 2026-10-18); P adds no guard row.
 
 ## Corrections
+
+- 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text restated; `io/input/corpus.rs` (903) is no longer an exempt file J splits — it stays whole and untouched.
 
 ## Summary
 
