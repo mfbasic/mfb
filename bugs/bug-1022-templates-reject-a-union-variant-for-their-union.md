@@ -10,23 +10,10 @@ Regression Test: (proposed) tests/rt-behavior/types/union-variant-template-call-
 
 ## Cause (coordinator, bug-staging-24)
 
-- Rule: a template call follows the same argument rules as a builtin generic call (the doc's Correct behavior, following the owner's bug-988/989 decisions): a `T` first bound from a collection argument is fixed by it, and a union variant (or `List OF <variant>`) converts to that `T` as the builtin path converts it.
-- Where: the template-instantiation inference in `src/monomorph/` binds `T` by first match without the builtin generic path's conversion step.
-- Fix: template inference uses the builtin generic call's binding and conversion rule (one rule, not a template copy); the doc's error cases stay errors.
-
-bug-988 and bug-989 (owner decisions, 2026-10-10) settled the union rules for the builtin
-collection members: a member fits a union bucket (it is wrapped; a collection of members is
-converted), a union never fits a member bucket, and the collection argument fixes `T`. Template
-functions go through monomorphization's own unifier, which was not changed, so they still
-reject every variant-for-union call.
-
-**Correct behavior:** a template call follows the same rules as a builtin generic call.
-- `T` first bound from a collection argument is fixed by it (`both(shapes, squares)`: `T` is
-  `Shape`, the `List OF Square` is converted; `both(squares, shapes)` stays an error).
-- `T` first bound from a bare value may be rebound to the union a later argument brings
-  (`pick(aSquare, shapes)`: `T` is `Shape`, the `Square` is wrapped), as `reduce` does.
-- The reverse direction stays a compile error in every form.
-
+- OWNER RULING 2026-10-18: template calls follow the SAME rules as builtin generic calls. The principle (owner): the final destination is the bucket: a value is fitted into the declared type it ends up in (a collection argument's element type for `append`-style members; the accumulator the callback declares for `reduce`, which is not an exception but the same rule); a member fits a union bucket (wrapped; a collection of members is converted), a union never fits a member bucket, and `T` is never widened to make a call fit.
+- Applied to templates: a collection argument fixes `T` in ANY position (so `addTo(aShape, squares)` is an error and `addTo(aSquare, shapes)` / `addAll(shapes, squares)` work); an empty `[]` fixes nothing and `T` comes from the other arguments (`addAll([], shapes)` keeps working, as `user-generic-unknown-refine-rt` / bug-442 pins).
+- Where: the template-instantiation inference in `src/monomorph/` (its own unifier, unchanged by bug-988/989). bs24-agent-h measured that the builtin binder as coded binds left-to-right, which differs from the principle only when a bare value precedes a collection (no builtin has that shape) and lacks the empty-list refinement.
+- Fix: ONE binding rule both use: collection arguments bind `T` first, empty collections bind nothing, then bare values must fit (wrapped into a union `T`); templates call it instead of their own unifier. The doc's examples above that contradict this (`pick(aShape, squares)` vs `addTo`) follow the principle: the collection decides.
 ## Failing Reproduction
 
 Measured by the coordinator on 2026-10-10, main 2f0052332 (`/tmp/main-dbg-target/release/mfb`).

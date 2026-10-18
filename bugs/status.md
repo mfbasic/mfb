@@ -31,10 +31,10 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
   847's run-time collision (owner 2026-10-18: raise ErrInvalidArgument) and 1009/1010/1011 -> phase 6.
 * **Phase 4 (MED, table order):** 1036, 1104, 905, 831, 845, 931, 932, 827, 863 merged to staging;
   864: owner ruled 2026-10-18 (Ed25519 refused everywhere, ErrInvalidArgument; EC everywhere) -> phase 6.
-* Phase 5 (MED): 876, 886, 891, 874, 1021 - on main (49ea4e33b); 945, 833, 913, 914 merged to staging.
-  1022 waits on the owner (its examples contradict the builtin rule it is to follow) -> moved out.
+* Phase 5 (MED): 876, 886, 891, 874, 1021, 945, 833, 913, 914 - on main.
+  1022: owner ruled 2026-10-18 (templates follow the builtin rules; the final destination is the bucket) -> phase 6.
 * **Phase 6 (next):** 864 first, then 1108 (bug-1021's diagnostic regression), then 1009 + 1010 + 1011 (one fix; owner 2026-10-18: reserve then shrink),
-  then 847's run-time half, then the next MED rows in table order.
+  then 847's run-time half, then 1022, then the next MED rows in table order.
 * Later phases: the rest of MED, then LOW, in table order.
 
 ## Resources and STATE
