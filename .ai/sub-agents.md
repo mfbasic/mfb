@@ -8,7 +8,7 @@
 | "Which of these is authoritative" call | Sonnet 5 | med | sources genuinely conflict → Opus |
 | Multi-step search where the match isn't obvious | Sonnet 5 | med | N tries fail to converge → Opus |
 | Writing / adjusting tests + goldens for a known change | Sonnet 5 | med | — |
-| Bug-NN: reproduce, RED test, fix, full-suite gate | Sonnet 5 | med | repro fails, or bug is concurrency / ABI / cross-module state → Opus |
+| Bug-NN: reproduce, RED test, fix, landing-tier gate (`scripts/test-fast.sh`) | Sonnet 5 | med | repro fails, or bug is concurrency / ABI / cross-module state → Opus |
 | Code review that must catch correctness bugs | Opus 5 | med | — (single pass, asymmetric cost — pay for it) |
 | Planning an implementation across the codebase | Opus 5 | high | — |
 | Following a plan-NN end to end (autonomous commits) | Opus 5 plan → Sonnet 5 steps | high / med | a step's diff surprises the plan → Opus takes the step |

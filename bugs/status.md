@@ -332,3 +332,4 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 944    | LOW      | tooling spec 07–10 drift: app-mode targets/texts stale, help screens disagree with the CLI, small CLI parser gaps |
 | [ ]  | 961    | LOW      | `mfb spec linker` drift — wrong macOS vendor rpath, wrong ELF stub registers, stale object-plan relocation kinds, dangling citations |
 | [ ]  | 974    | LOW      | `mfb spec app` (macOS runtime, Linux runtime, console-io, term-backend, presentation-mode, canvas) |
+| [ ]  | 1096   | LOW      | `mfb man os name` and `mfb spec stdlib os` say `os::name` is `"macos"` or `"linux"`; a Windows build returns `"windows"` |

@@ -2,12 +2,30 @@
 
 Reference for the MFB compiler's test/golden/gate harness — the codegen artifact-gate, byte-identity goldens, the acceptance/test-accept harness, and the concurrency and staleness hazards around them.
 
+## Test tiers
+
+Two tiers. Landing runs the first; nothing waits on the second.
+
+**Landing tier: `bash scripts/test-fast.sh`, in your own worktree, before every landing** (a bug fix, a plan phase, any merge to main). It runs fmt, `cargo check --workspace --all-targets`, the workspace's unit tests minus the cross-product sweeps listed in `scripts/test-fast-skips.txt`, and the guard binaries. Measured 2026-10-17 on the 12-core macOS host, under load: the unit tests run in 31 s with the skips and 639 s without (`--report-time`; the skipped sweeps are 17 of 5,005 tests). Add the targeted gates for what you changed:
+- the tests you wrote (the bug's RED test, the phase's new tests), by name;
+- `--artifact <builtin>` for a codegen change reaching that builtin (2 s for `collections`, `scripts/artifact-gate.sh target/release/mfb collections`);
+- `--accept <glob>` for the fixtures you touched;
+- `--test <binary>` for the integration binaries of the area you touched (`rt_canvas_*` for canvas, `rt_net_*` for net, …), `--test inplace_self_update_census` when the self-update arms change, and `--test script_selftests` when `scripts/test-accept.sh` or `scripts/remote-common.sh` change;
+- the sweep that covers your area, when you changed what it sweeps: each `test-fast-skips.txt` entry says what it crosses, so an optimizer change runs the optimizer entries (`cargo test --bin mfb builtins_codegen::optimizer::`), a NIR change the `nir_` ones;
+- ABI and cross-arch changes keep their box-execution gates (`.ai/remote_systems.md`).
+
+Green landing tier + green targeted gates = land.
+
+**Full tier: `bash scripts/test-full.sh [<rev>]`, in the background, never per landing.** `cargo test --workspace --no-fail-fast` (every sweep, and `golden`'s full artifact gate) at one commit, in a fresh detached worktree under `~/.cache/mfb-full-suite/`, one run per machine at a time. Run it on main's tip nightly or after a batch of merges, as one background command, and poll its log. A red record (`runs/<sha>.result`) is a bug: file it, then bisect between the last green record and this one. CI's `test` job runs the same suite on every push, but only once main is pushed and CI is green again; until then the local record is the backstop.
+
+Never run the full suite in the shared main checkout: it blocks every landing until it exits, and a fast-forward mid-run writes goldens underneath it.
+
 ## The artifact-gate (`scripts/artifact-gate.sh`)
 
 `scripts/artifact-gate.sh` is the codegen gate: it runs only execution-free `mfb build` dumps (`-ast -ir -br -nir -nplan -nobj -ncode -mir`; front-end + codegen, NO link, NO execution), diffs deterministic artifact goldens, and CANNOT be killed by a runtime test. Use it — not `test-accept.sh` — for any change that only affects codegen / IR / lowering. It needs an explicit `<mfb-exe> <builtin|all>` selector: a bare invocation prints usage and runs NOTHING.
 
 ### When to run it
-- Per individual piece / phase: use FAST targeted checks (seconds), NOT the full gate. The scoped gate `artifact-gate.sh <exe> <builtin>` (e.g. `collections`, ~1 min), plus `test-accept.sh` on the touched fixtures and `cargo test --bin mfb`. To prove blast radius is contained, rebuild ONE representative *unaffected* fixture (`byte-identity/strings`) and confirm its `.ncode` sha still matches its golden.
+- Per individual piece / phase: use FAST targeted checks (seconds), NOT the full gate. The scoped gate `artifact-gate.sh <exe> <builtin>` (e.g. `collections`: 2 s, measured 2026-10-17), plus `test-accept.sh` on the touched fixtures and the landing tier (`scripts/test-fast.sh`, "Test tiers" above). To prove blast radius is contained, rebuild ONE representative *unaffected* fixture (`byte-identity/strings`) and confirm its `.ncode` sha still matches its golden.
 - The full `artifact-gate.sh <exe> all` (~15–20 min) runs ONCE per major section/grouping boundary and at finalization — the authoritative tree-wide proof before merge. Do NOT run it per sub-phase. When waiting on it, kick it off in the background and do other work / give an ETA — don't chain 600s foreground until-loops that time out and re-block.
 
 ### Coverage & the `.ncodesum` goldens
@@ -73,7 +91,7 @@ perturbed (bug-659, the Fixed `exp`/`pow` overflow gate).
 - **Wait on a harness by its log, not by `pgrep -f <script>`.** Your wait loop's own command line matches the pattern, and so do other sessions' waiters. On a lock collision the scripts exit 98; retry on exactly 98, with backoff.
 - **Give each background run's log a unique name.** A same-named `/tmp` log from an earlier session reads as the current result until the new run truncates it.
 - **Starved or hung?** Test output is buffered per binary, so a starved run can print nothing for many minutes. Sample `ps -o time= -p <test-binary-pid>` a minute apart: rising CPU time means it is working.
-- **A full `cargo test` in the shared main checkout blocks landing anything until it exits**; a fast-forward mid-run writes goldens underneath it. Run long suites in a dedicated worktree.
+- **A full `cargo test` in the shared main checkout blocks landing anything until it exits**; a fast-forward mid-run writes goldens underneath it. The full tier is `scripts/test-full.sh`, which makes its own worktree ("Test tiers").
 - **`rt_inplace_self_update`'s two grid tests are `#[ignore]`d**, so a plain `cargo test` does not run them; `.github/workflows/coverage.yml`'s `test` job does, on every Unix row. After changing the self-update arms (`src/codegen/collection/assign/**`) or the arena, run them yourself: `cargo test --release --test rt_inplace_self_update -- --ignored` (hours; narrow with `MFB_SELF_UPDATE_FILTER` / `MFB_SELF_UPDATE_SITES` while iterating). A filter without `-- --ignored` runs nothing and passes.
 
 ### A/B two artifact baselines (Linux)
@@ -94,7 +112,7 @@ cargo test --no-fail-fast -- --skip artifact_gate_all > /tmp/run.log 2>&1; echo 
 grep -c '^failures:' /tmp/run.log     # must be 0
 ```
 
-`--skip artifact_gate_all` matters too: `tests/gate/golden.rs` holds exactly one test and it shells out to `scripts/artifact-gate.sh all`, so a plain `cargo test` **is** the full cross-target sweep.
+`--skip artifact_gate_all` matters too: `tests/gate/golden.rs` holds exactly one test and it shells out to `scripts/artifact-gate.sh all`, so a plain `cargo test` **is** the full cross-target sweep. That and the in-process sweeps are why a plain `cargo test` is the full tier, not a landing check ("Test tiers").
 
 **`cargo test` is also fail-fast across test binaries.** It stops after the first failing binary, so one red early binary (the artifact gate, routinely) hides every later `rt_*` binary while the summary shows a single failure. Always pass `--no-fail-fast`. A red CI row has the same shape: it names only its first failing binary. Count the binaries each run reached (`grep -cE 'tests.[a-z_0-9]+\.rs \(target' <job-log>`) and check `gh run view <id> --json jobs` before deciding a fix did nothing.
 
@@ -350,7 +368,7 @@ The plan-67 perf table used to be blamed for execution-acceptance noise ("a debu
 Whether a full `scripts/test-accept.sh <exe> <dir>` pass now reaches 0 mismatches is unmeasured since plan-130-B; record the baseline before treating a mismatch as a regression.
 
 **The real gates (use these):**
-- Full `cargo test` (behavior + IR + citation gates). Green = the executable proof.
+- The landing tier (`scripts/test-fast.sh`, "Test tiers") per change; the full tier (`scripts/test-full.sh`, the whole `cargo test`) on main's tip. Green = the executable proof.
 - `scripts/artifact-gate.sh target/release/mfb all` — codegen byte-identity, execution-free. Either profile of `mfb` works (the goldens carry no perf symbols); the release binary is the one the rt tests run, so prefer it (plan-130-B measured `0 diff(s)` with it).
 - For a NEW rt-behavior fixture: seed its goldens with the **release** mfb (`sync-goldens.sh target/release/mfb <glob>`) so the program output is deterministic (no perf table), and verify with `test-accept.sh target/release/mfb`. A new fixture needs its `golden/` dir pre-created with empty placeholder files (build.log + `<name>.ast`/`.ir`/`.run`) — sync-goldens only *refreshes* existing golden files, never creates them.
 
@@ -446,7 +464,7 @@ see `.ai/arch-abi.md`'s bug-544 entry.
 
 `mfb` has **no `src/lib.rs`** — it is a binary crate (`src/main.rs` with `mod arch;`). So all the compiler/codegen/native-encoder unit tests (e.g. `arch::x86_64::encode::tests::*`, `#[cfg(test)] mod tests;`) compile into the **bin** test target.
 
-**How to apply:** to run/filter a single compiler test fast, use `cargo test --bin mfb <filter>`. `cargo test --lib` runs the `mfb_repository` sub-crate's lib (~313 tests) and will report `0 tests / N filtered out` for any compiler test name — misleading, looks like the test vanished. Plain `cargo test` runs everything (bin + repository lib + `tests/rt_native_*` integration bins) and is the full-suite gate.
+**How to apply:** to run/filter a single compiler test fast, use `cargo test --bin mfb <filter>`. `cargo test --lib` runs the `mfb_repository` sub-crate's lib (~313 tests) and will report `0 tests / N filtered out` for any compiler test name — misleading, looks like the test vanished. Plain `cargo test` runs everything (bin + repository and wire libs + every integration bin) and is the full tier: run it through `scripts/test-full.sh`, and land on `scripts/test-fast.sh` ("Test tiers").
 
 ## A split can break ONLY the test build
 

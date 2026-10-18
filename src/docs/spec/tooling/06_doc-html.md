@@ -266,10 +266,13 @@ with the `No documentation is available.` body. This path is unique to
 ### `mfb doc [--out <file>] [location]`
 
 Renders from source. `location` defaults to the current directory (`.`). If it is
-a directory, the project manifest is validated and the project is parsed and
-resolved, and the renderer runs over the whole resolved project; if it is a single
+a directory, the project manifest is validated, the project is parsed, its
+source-directory package dependencies are rebuilt into `build/packages/` exactly as
+`mfb build` rebuilds them (so a stale cached `.mfp` never fails resolution), the
+project is resolved, and the renderer runs over the whole resolved project; a
+dependency that does not build is a resolution problem (exit `1`). If it is a single
 file, that file is parsed into a one-file project and its DOC blocks are validated.
-`--out` defaults to `doc.html`. [[src/resolver/mod.rs:resolve_project]] [[src/resolver/mod.rs:validate_project_docs]]
+`--out` defaults to `doc.html`. [[src/cli/build/mod.rs:build_source_dependency_interfaces]] [[src/resolver/mod.rs:resolve_project]] [[src/resolver/mod.rs:validate_project_docs]]
 
 [[src/cli/doc.rs:run_doc_command]] [[src/cli/doc.rs:build_source_doc_page]]
 
