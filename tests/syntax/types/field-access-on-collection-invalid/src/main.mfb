@@ -1,0 +1,20 @@
+' bug-846: a member access on a List / Set / Map value escaped the verifier and failed
+' in native lowering with an uncoded, unlocated internal error. Each is a located
+' TYPE_FIELD_ACCESS_REQUIRES_RECORD, as for a primitive or a union.
+IMPORT io
+
+FUNC main AS Nothing
+  LET l = [1, 2]
+  LET s = Set OF Integer { 1 }
+  LET m = Map OF String TO Integer { "a" := 1 }
+  io::print(l.foo)
+  IF l.foo = 3 THEN
+    io::print("l")
+  END IF
+  IF s.size = 1 THEN
+    io::print("s")
+  END IF
+  IF m.key = "a" THEN
+    io::print("m")
+  END IF
+END FUNC

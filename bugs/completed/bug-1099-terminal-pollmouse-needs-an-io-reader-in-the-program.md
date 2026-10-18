@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: none yet
+Status: Fixed
+Regression Test: `rt_native_term_runtime::native_term_poll_mouse_needs_no_io_reader_in_the_program`
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -67,3 +67,36 @@ to standard input; the subscription is decided from the program's runtime symbol
 (`src/codegen/io/input/mod.rs:program_uses_input_buffer` and the plan-15 stdin
 subscription). `term::enableMouse` turns reporting on without making the program a
 stdin reader.
+
+## Fix
+
+A mouse poll is now a stdin reader for every decision that an `io::` reader drives, from ONE
+source each: `src/codegen/io/input/mod.rs` gains `program_reads_mouse` (runtime symbols ending
+`_pollMouse`/`_pollMouseRaw`), which `program_uses_input_buffer` now includes (the input-buffer
+reservation and the decoder), and `STDIN_READER_CALLS` (with `term.pollMouse`), which the
+builder uses for the main-thread stdin subscription (`subscribe_stdin`) and the stdin broadcast
+log data object; the stdin helper functions (`uses_stdin`) key on `program_reads_mouse`.
+`term.pollMouse` also pulls the stdin-broadcast libc imports on macOS/Linux and the reader
+import set on Windows (`src/target/*/plan.rs`). The "a terminal program with none sees no
+mouse events" sentence is gone from `mfb man term pollMouse` and the specs say the new rule.
+
+RED before / GREEN after (runs the repro program, 2 SGR reports on stdin, expects `EVENTS:2`;
+before: `EVENTS:0`): `cargo test --release --test rt_native_term_runtime -- needs_no_io_reader`.
+
+Goldens expected to change: every fixture that calls `term::pollMouse` in a console or `--app`
+build (the arena entry frame gains the input-buffer region and the byte-identity/native
+artifacts gain the stdin log data object, stdin helpers, decoder and libc imports) --
+`tests/syntax/app/app-mouse-surface` and any acceptance/byte-identity program using
+`term::pollMouse`; programs without a mouse poll are unchanged. `canvas::pollMouse` programs
+(always `--app`) are unaffected by the stdin helpers but gain the input-buffer region
+(`program_uses_input_buffer` keys on `_pollMouseRaw`).
+
+Pin corrected (only the disproved line): `tests/codegen/codegen_mouse_arena_region.rs`
+`mouse_region_is_appended_and_moves_no_existing_arena_offset` asserted a mouse program adds
+exactly `MOUSE_STATE_SLOTS`. It protects "regions are appended, no existing offset moves"
+(plan-94-A, bug-690); only it depends on the count. Proof it was wrong: the owner rule in this
+bug's Cause note makes a mouse poll a stdin reader, and an `io::readLine` program reserves
+`INPUT_STATE_SLOTS`; the test now expects `MOUSE_STATE_SLOTS + INPUT_STATE_SLOTS` (the prefix
+and frame-growth claims are unchanged). Ran: `cargo test --release --test
+codegen_mouse_arena_region` (4 passed) and `bash scripts/test-fast.sh --test
+rt_native_term_runtime --test codegen_mouse_arena_region` (only that pin failed, then fixed).

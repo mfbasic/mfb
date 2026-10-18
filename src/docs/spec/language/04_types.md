@@ -260,6 +260,12 @@ field off the union itself — `s.radius` above — is `TYPE_FIELD_ACCESS_REQUIR
 the value may be any member, and members need not share a field, so there is nothing
 the access could denote.
 
+A `List`, `Set` or `Map` value is not a record either: a field access on one (`xs.size`) is
+`TYPE_FIELD_ACCESS_REQUIRES_RECORD`, reported at the access (bug-846). The one collection-shaped
+value with fields is the `MapEntry OF K TO V` a map loop binds, whose only fields are `key` and
+`value` (`mfb spec language control-flow`); any other is `TYPE_UNKNOWN_FIELD`.
+[[src/ir/verify/values.rs:check_member_access]]
+
 **A member is accepted where its union is expected, and never the reverse.** A
 value of a member type is a value of the union: `LET s AS Shape = Circle[radius :=
 2.0]`, a `Circle` passed to a `Shape` parameter, returned from a `Shape` function,

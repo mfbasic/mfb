@@ -1362,6 +1362,45 @@ fn native_term_poll_mouse_decodes_without_a_prior_read_and_keeps_the_keys() {
     );
 }
 
+/// bug-1099: a console program that polls the mouse and contains no `io` reader at
+/// all sees the events the terminal reported. The standard-input subscription and
+/// the input buffer used to be decided by the `io` readers alone, so this program's
+/// main thread was never subscribed and the pending-input drain was skipped
+/// (`EVENTS:0`). The mouse readers are stdin readers for that decision.
+const POLL_ONLY_SOURCE: &str = r#"
+IMPORT io
+IMPORT os
+IMPORT term
+
+FUNC main AS Integer
+  term::enableMouse(TRUE)
+  MUT seen AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 20
+    LET e AS term::MouseEvent = term::pollMouse()
+    IF e.kind <> term::MouseKind.None THEN
+      seen = seen + 1
+    END IF
+    os::sleep(20)
+    i = i + 1
+  END WHILE
+  io::print("EVENTS:" & toString(seen))
+  term::enableMouse(FALSE)
+  RETURN 0
+END FUNC
+"#;
+
+#[test]
+fn native_term_poll_mouse_needs_no_io_reader_in_the_program() {
+    let project = temp_project("native_term_poll_only", POLL_ONLY_SOURCE);
+    let executable = build_project(&project);
+    let out = run_with_stdin(&executable, b"\x1b[<0;5;5M\x1b[<0;5;5m");
+    assert!(
+        out.contains("EVENTS:2"),
+        "a program that only polls the mouse must still receive the reports, got {out:?}"
+    );
+}
+
 /// bug-1015, the `--app` window half: the same program in a headless app build,
 /// whose standard input is the stream the window's mouse handlers write their
 /// reports into. Headless is the run a test can feed byte-exactly; the windowed

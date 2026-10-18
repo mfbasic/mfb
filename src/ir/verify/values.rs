@@ -225,10 +225,12 @@ impl TypeEnv {
                     self.check_value_depth(v, locals, depth + 1);
                 }
                 // A `Set` element behaves like a Map key: it may carry neither a
-                // resource nor a thread (the former source checker's `infer_set_literal`).
-                if let ParameterType::SetOf(element) = type_ {
-                    self.check_collection_element_ownership(element, "element");
-                }
+                // resource nor a thread (the former source checker's
+                // `infer_set_literal`) and it must be comparable. The same check the
+                // `MapLiteral` arm applies to its key type, so every literal is
+                // checked whatever its annotation (bug-832); the explicit-annotation
+                // path in `ops.rs` reports the same finding once.
+                self.check_map_key_comparable(type_);
                 // A `Set OF T` element is laid out and read uniformly by the
                 // declared element type, so a crafted mismatch is a type
                 // confusion (mirrors the `List OF T` element check above).
@@ -253,6 +255,24 @@ impl TypeEnv {
                     self.check_value_depth(v, locals, depth + 1);
                 }
                 self.check_map_key_comparable(type_);
+                // A map never holds two entries with equal keys: a literal that
+                // names the same constant key twice is refused (bug-847, owner
+                // decision 2026-10-05). Keys that are not constants are not judged
+                // here.
+                let mut seen: HashSet<(bool, ParameterType, String)> = HashSet::new();
+                for (k, _) in entries {
+                    if let Some(key) = constant_key(k) {
+                        if !seen.insert(key) {
+                            self.emit(
+                                "TYPE_DUPLICATE_MAP_KEY",
+                                format!(
+                                    "Map literal names the key {} more than once; a map holds each key once.",
+                                    constant_key_text(k)
+                                ),
+                            );
+                        }
+                    }
+                }
                 if let ParameterType::MapOf(key_type, value_type) = type_ {
                     for (k, v) in entries {
                         self.check_literal_range(key_type, k);
@@ -825,10 +845,34 @@ impl TypeEnv {
             );
             return;
         }
+        // A `MapEntry OF K TO V` has exactly the fields `key` and `value`
+        // (`mfb spec language` control flow, map loops); any other is unknown.
+        // bug-846: this used to fall into the unchecked case below, and native
+        // lowering was the first to notice.
+        if matches!(target_type, ParameterType::MapEntryOf(_, _)) {
+            if !matches!(member, "key" | "value") {
+                self.emit(
+                    "TYPE_UNKNOWN_FIELD",
+                    format!("record `{type_name}` has no member `{member}`."),
+                );
+            }
+            return;
+        }
+        // A `List`, `Set` or `Map` is not a record: it has no fields to read.
+        if matches!(
+            target_type,
+            ParameterType::ListOf(_) | ParameterType::SetOf(_) | ParameterType::MapOf(_, _)
+        ) {
+            self.emit(
+                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+                format!("field access requires a record value, got `{type_name}`."),
+            );
+            return;
+        }
         // Only a record can be member-accessed. When the target resolves to a
         // record whose complete field set is known, the member must be present;
-        // otherwise (collections, unresolved includes, unknown types) the access is
-        // left unchecked.
+        // otherwise (unresolved includes, unknown types) the access is left
+        // unchecked.
         if let Some(fields) = self.record_fields(&target_type) {
             if !fields.contains(member) {
                 self.emit(
@@ -1060,10 +1104,22 @@ impl TypeEnv {
     /// key — the former source checker's map-key arm of `TYPE_REQUIRES_COMPARABLE` (an
     /// incomparable key breaks the map's hash/equality contract at runtime).
     pub(super) fn check_map_key_comparable(&self, type_: &ParameterType) {
+        self.check_map_key_rules(type_, true);
+    }
+
+    /// The annotated-binding form (bug-832): the declared type's comparability is
+    /// checked once, at the collection literal that initializes it
+    /// ([`check_map_key_comparable`](Self::check_map_key_comparable)), so this
+    /// repeats only the ownership/thread half.
+    pub(super) fn check_map_key_ownership(&self, type_: &ParameterType) {
+        self.check_map_key_rules(type_, false);
+    }
+
+    fn check_map_key_rules(&self, type_: &ParameterType, comparable: bool) {
         let t = resource_base_type(type_);
         match &t {
             ParameterType::ListOf(inner) => {
-                self.check_map_key_comparable(inner);
+                self.check_map_key_rules(inner, comparable);
                 // A `List` element may be a resource pointer (§15.6), a parent
                 // `Thread` included; only a `ThreadWorker` is forbidden — the
                 // TYPE_COLLECTION_OWNERSHIP_VIOLATION element arm.
@@ -1073,16 +1129,16 @@ impl TypeEnv {
             // key exactly as a Map key is (plan-63, §4.2). Same diagnostic *code* as
             // the map-key check (`TYPE_REQUIRES_COMPARABLE`), distinct message.
             ParameterType::SetOf(inner) => {
-                self.check_collection_element_comparable(inner, "element");
-                self.check_map_key_comparable(inner);
+                self.check_collection_element_comparable(inner, "element", comparable);
+                self.check_map_key_rules(inner, comparable);
             }
             ParameterType::MapOf(key, value) => {
                 // A resource/thread may never be a Map key (handles are not
                 // comparable and ordinary collections cannot own them) —
                 // the former source checker's TYPE_COLLECTION_OWNERSHIP_VIOLATION key arm.
-                self.check_collection_element_comparable(key, "key");
-                self.check_map_key_comparable(key);
-                self.check_map_key_comparable(value);
+                self.check_collection_element_comparable(key, "key", comparable);
+                self.check_map_key_rules(key, comparable);
+                self.check_map_key_rules(value, comparable);
                 // A `Map` value may be a resource pointer (§15.6) but never a
                 // `ThreadWorker` — the rule's value arm.
                 self.check_collection_element_worker_free(value, "value");
@@ -1130,13 +1186,18 @@ impl TypeEnv {
     /// plan-106-B: extracted from the two byte-identical arms
     /// `check_map_key_comparable` carried for `Set OF T` and `Map OF K TO V`.
     /// An empty or `Unknown` type is skipped, exactly as the string guards did.
-    fn check_collection_element_comparable(&self, type_: &ParameterType, role: &str) {
+    fn check_collection_element_comparable(
+        &self,
+        type_: &ParameterType,
+        role: &str,
+        comparable: bool,
+    ) {
         let name = type_.name();
         if name.is_empty() || matches!(type_, ParameterType::Unknown) {
             return;
         }
         self.check_collection_element_ownership(type_, role);
-        if !self.is_comparable(type_) {
+        if comparable && !self.is_comparable(type_) {
             let subject = if role == "element" {
                 "Set element type"
             } else {
@@ -1212,4 +1273,45 @@ impl TypeEnv {
     }
 
     // ===========================================================================
+}
+
+/// The identity of a map-literal key that is a compile-time constant: `(negated,
+/// type, canonical text)`. A key is a constant when it is a literal, or the
+/// negation of a numeric literal (`-3`); anything else has no identity before run
+/// time and is `None`. `Float` keys compare bitwise, so `-0.0` stays distinct from
+/// `0.0`; for every other numeric type negating zero is zero.
+fn constant_key(key: &IrValue) -> Option<(bool, ParameterType, String)> {
+    match key {
+        IrValue::Const { type_, value } => Some((false, type_.clone(), value.clone())),
+        IrValue::Unary {
+            op: UnaryOp::Negate,
+            operand,
+            ..
+        } => match operand.as_ref() {
+            IrValue::Const { type_, value } => {
+                let zero = value.chars().all(|c| matches!(c, '0' | '.'));
+                let negated = !(zero && *type_ != ParameterType::Float);
+                Some((negated, type_.clone(), value.clone()))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// How a constant map key reads in a diagnostic: the source spelling of the value.
+fn constant_key_text(key: &IrValue) -> String {
+    match key {
+        IrValue::Const {
+            type_: ParameterType::String,
+            value,
+        } => format!("{value:?}"),
+        IrValue::Const {
+            type_: ParameterType::Boolean,
+            value,
+        } => value.to_uppercase(),
+        IrValue::Const { value, .. } => value.clone(),
+        IrValue::Unary { operand, .. } => format!("-{}", constant_key_text(operand)),
+        _ => String::new(),
+    }
 }

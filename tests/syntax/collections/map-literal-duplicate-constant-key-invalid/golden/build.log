@@ -1,0 +1,32 @@
+$ mfb build -ast -ir tests/syntax/collections/map-literal-duplicate-constant-key-invalid
+   8 | 
+   9 | FUNC main AS Nothing
+  10 |   LET a = Map OF String TO Integer { "a" := 1, "a" := 2 }
+     | ^
+tests/syntax/collections/map-literal-duplicate-constant-key-invalid/src/main.mfb:10 error[2-203-0146 TYPE_DUPLICATE_MAP_KEY]: a map literal names the same constant key twice
+               Map literal names the key "a" more than once; a map holds each key once.
+   9 | FUNC main AS Nothing
+  10 |   LET a = Map OF String TO Integer { "a" := 1, "a" := 2 }
+  11 |   LET b = Map OF String TO Integer { "a" := 1, "b" := 2, "a" := 3 }
+     | ^
+tests/syntax/collections/map-literal-duplicate-constant-key-invalid/src/main.mfb:11 error[2-203-0146 TYPE_DUPLICATE_MAP_KEY]: a map literal names the same constant key twice
+               Map literal names the key "a" more than once; a map holds each key once.
+  10 |   LET a = Map OF String TO Integer { "a" := 1, "a" := 2 }
+  11 |   LET b = Map OF String TO Integer { "a" := 1, "b" := 2, "a" := 3 }
+  12 |   LET c = Map OF Integer TO Integer { 1 := 1, 1 := 2 }
+     | ^
+tests/syntax/collections/map-literal-duplicate-constant-key-invalid/src/main.mfb:12 error[2-203-0146 TYPE_DUPLICATE_MAP_KEY]: a map literal names the same constant key twice
+               Map literal names the key 1 more than once; a map holds each key once.
+  11 |   LET b = Map OF String TO Integer { "a" := 1, "b" := 2, "a" := 3 }
+  12 |   LET c = Map OF Integer TO Integer { 1 := 1, 1 := 2 }
+  13 |   LET d = Map OF Boolean TO Integer { TRUE := 1, FALSE := 0, TRUE := 5 }
+     | ^
+tests/syntax/collections/map-literal-duplicate-constant-key-invalid/src/main.mfb:13 error[2-203-0146 TYPE_DUPLICATE_MAP_KEY]: a map literal names the same constant key twice
+               Map literal names the key TRUE more than once; a map holds each key once.
+  12 |   LET c = Map OF Integer TO Integer { 1 := 1, 1 := 2 }
+  13 |   LET d = Map OF Boolean TO Integer { TRUE := 1, FALSE := 0, TRUE := 5 }
+  14 |   LET e = Map OF Integer TO Integer { -3 := 1, -3 := 2 }
+     | ^
+tests/syntax/collections/map-literal-duplicate-constant-key-invalid/src/main.mfb:14 error[2-203-0146 TYPE_DUPLICATE_MAP_KEY]: a map literal names the same constant key twice
+               Map literal names the key -3 more than once; a map holds each key once.
+[exit 1]

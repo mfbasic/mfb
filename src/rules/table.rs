@@ -842,6 +842,12 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "STATE can only be attached to a resource",
     },
+    Rule {
+        code: "2-203-0146",
+        name: "TYPE_DUPLICATE_MAP_KEY",
+        severity: Severity::Error,
+        message: "a map literal names the same constant key twice",
+    },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an
     // inline TRAP is legal on all of them. The code is now reused for

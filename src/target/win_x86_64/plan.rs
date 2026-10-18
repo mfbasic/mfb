@@ -343,8 +343,11 @@ impl NativePlanPlatform for Platform {
             ],
             // Phase C — io console input. isBuffered/setBuffered make no OS call
             // (fall through). The stdin-broadcast log rides heap + SRWLOCK/condvar.
+            //
+            // bug-1099: `term.pollMouse` is a stdin reader too -- a console program that
+            // only polls the mouse is subscribed and carries the broadcast log.
             "io.input" | "io.readLine" | "io.readRaw" | "io.readScalar" | "io.readGrapheme"
-            | "io.readKey" | "io.flush" => {
+            | "io.readKey" | "io.flush" | "term.pollMouse" => {
                 let mut imports = vec![
                     import("GetStdHandle", KERNEL32, required_by),
                     import("ReadFile", KERNEL32, required_by),
@@ -600,7 +603,7 @@ impl NativePlanPlatform for Platform {
             // dequeues, through the readers' own source read and wait (the app
             // window pipe: GetStdHandle/ReadFile, PeekNamedPipe gated on
             // GetFileType, WaitForSingleObject, Sleep).
-            "term.pollMouse" | "canvas.pollMouseRaw" => vec![
+            "canvas.pollMouseRaw" => vec![
                 import("QueryPerformanceCounter", KERNEL32, required_by),
                 import("QueryPerformanceFrequency", KERNEL32, required_by),
                 import("GetStdHandle", KERNEL32, required_by),

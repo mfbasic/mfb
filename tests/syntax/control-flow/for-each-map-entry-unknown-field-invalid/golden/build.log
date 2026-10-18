@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/syntax/control-flow/for-each-map-entry-unknown-field-invalid
+  12 |     END IF
+  13 |     io::print(e.foo)
+  14 |     LET z = e.foo
+     | ^
+tests/syntax/control-flow/for-each-map-entry-unknown-field-invalid/src/main.mfb:14 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `z` does not have a known type.
+  13 |     io::print(e.foo)
+  14 |     LET z = e.foo
+  15 |     io::print(toString(e.foo))
+     | ^
+tests/syntax/control-flow/for-each-map-entry-unknown-field-invalid/src/main.mfb:15 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `toString` has argument type(s) (Unknown), expected Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, List OF Byte, or an enum.
+   8 |   LET m = Map OF String TO Integer { "a" := 1 }
+   9 |   FOR EACH e IN m
+  10 |     IF e.foo = "x" THEN
+     | ^
+tests/syntax/control-flow/for-each-map-entry-unknown-field-invalid/src/main.mfb:10 error[2-203-0045 TYPE_UNKNOWN_FIELD]: record field does not exist
+               record `MapEntry OF String TO Integer` has no member `foo`.
+  11 |       io::print("eq")
+  12 |     END IF
+  13 |     io::print(e.foo)
+     | ^
+tests/syntax/control-flow/for-each-map-entry-unknown-field-invalid/src/main.mfb:13 error[2-203-0045 TYPE_UNKNOWN_FIELD]: record field does not exist
+               record `MapEntry OF String TO Integer` has no member `foo`.
+  12 |     END IF
+  13 |     io::print(e.foo)
+  14 |     LET z = e.foo
+     | ^
+tests/syntax/control-flow/for-each-map-entry-unknown-field-invalid/src/main.mfb:14 error[2-203-0045 TYPE_UNKNOWN_FIELD]: record field does not exist
+               record `MapEntry OF String TO Integer` has no member `foo`.
+  13 |     io::print(e.foo)
+  14 |     LET z = e.foo
+  15 |     io::print(toString(e.foo))
+     | ^
+tests/syntax/control-flow/for-each-map-entry-unknown-field-invalid/src/main.mfb:15 error[2-203-0045 TYPE_UNKNOWN_FIELD]: record field does not exist
+               record `MapEntry OF String TO Integer` has no member `foo`.
+[exit 1]

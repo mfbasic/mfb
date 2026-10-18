@@ -276,16 +276,17 @@ runs only on the source read, so before it dequeues, every `pollMouse`
 deadline of "now", until nothing more is ready. Reports are decoded into the
 ring; every other byte the pump delivers is appended to the input buffer, in
 order, so the next `io` read takes it unchanged (room is checked before each
-read, so a full buffer stops the drain without dropping a byte). A program with
-no input buffer has no `io` reader, and those bytes are discarded. It is skipped
-while mouse reporting is off, and in a console build with no input buffer —
-there the program has no stdin reader, hence no broadcast log or subscription to
-read through. End of input, a read error or an unsubscribed thread just end the
+read, so a full buffer stops the drain without dropping a byte). A program that
+polls the mouse is a stdin reader for the decision that subscribes the main
+thread and reserves the input buffer (`program_reads_mouse`, bug-1099), so a
+console program with no `io` reader still decodes its reports and holds its
+keystrokes in the buffer. It is skipped while mouse reporting is off. End of input, a read error or an unsubscribed thread just end the
 drain; the next `io` read meets them itself. Without this, a program that polled
 the mouse and never read keys decoded nothing on every backend: the window's
 reports sat unread in its input pipe.
 [[src/codegen/builtins/io/gen_read_family.rs:emit_decode_pending_input]]
 [[src/codegen/io/mouse/ring.rs:emit_dequeue]]
+[[src/codegen/io/input/mod.rs:program_reads_mouse]]
 
 Decoded events go into a 64-slot per-thread ring, each stamped with a monotonic
 reading. It **overwrites oldest-first when full**, and `pollMouse` **skips

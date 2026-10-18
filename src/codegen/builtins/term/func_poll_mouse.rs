@@ -39,10 +39,9 @@ Events arrive whether or not the program reads the keyboard: each call first
 decodes the input that is already waiting, without waiting for more. The
 keystrokes it has to read past to reach the mouse reports are kept, in order, for
 the program's next `io::` read, which returns them exactly as if nothing had
-looked at them. A program that uses no `io::` reader has nowhere to keep them, and
-they are discarded. In a terminal (not an `mfb build --app` window) standard input
-is only taken by a program that uses an `io::` reader, so a terminal program with
-none sees no mouse events.
+looked at them. A program that never reads the keyboard still sees the mouse
+events; the keystrokes are held, up to the buffer's 4096 bytes, and a full buffer
+stops the decoding until a read takes some.
 
 Events are **per-thread**. Each thread that reads standard input decodes what it
 reads, so a thread that has not called `thread::openStdIn` receives none; and two

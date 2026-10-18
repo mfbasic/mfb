@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (diagnostics)
 
-Status: Open
-Regression Test: tests/syntax/control-flow/for-each-map-entry-unknown-field-invalid (proposed)
+Status: Fixed
+Regression Test: tests/syntax/control-flow/for-each-map-entry-unknown-field-invalid, tests/syntax/types/field-access-on-collection-invalid
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -101,3 +101,24 @@ is the first to notice.
 ## Summary
 
 Verifier gap: the "left unchecked" fallthrough admits collection-typed targets.
+
+## Fix
+
+`src/ir/verify/values.rs:check_member_access`: before the record-field lookup, a `MapEntry OF K
+TO V` target resolves its fields (`key`, `value`; anything else is `TYPE_UNKNOWN_FIELD`), and a
+`List`/`Set`/`Map` target is `TYPE_FIELD_ACCESS_REQUIRES_RECORD`; both located at the access. The
+"left unchecked" bucket now holds only unresolved includes and unknown types. Spec:
+`src/docs/spec/language/04_types.md` (the collection sentence after the union paragraph).
+
+Tests (fixtures, goldens added): `control-flow/for-each-map-entry-unknown-field-invalid` (the
+`if`, `print`, `LET z`, `toString` rows) and `types/field-access-on-collection-invalid` (the
+List/Set/Map rows). RED on the pre-fix compiler: the Map-entry fixture reported only the cascades
+(`TYPE_UNKNOWN_VALUE`, `TYPE_CALL_ARGUMENT_MISMATCH`) and the collection fixture built to the
+bare `native code field access target ... is not a record or variant` error; GREEN: every access
+has its located, coded diagnostic.
+
+Remaining, by design and identical to a user record's unknown field (measured: `LET z = r.foo`
+on `TYPE R` gives the same pair): `ir::shape` still cascades `TYPE_UNKNOWN_VALUE` /
+`TYPE_CALL_ARGUMENT_MISMATCH` beside the `TYPE_UNKNOWN_FIELD` at the same line.
+
+Goldens expected to change: none existing (the new fixtures' own `golden/build.log` only).

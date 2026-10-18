@@ -30,7 +30,8 @@ an `--app` build is a keyboard without asking.
 
 Every reader reads through a per-thread **input buffer**, an arena-state region
 reserved only in a program that calls one of the readers
-(`INPUT_BUFFER_READERS`). Its layout:
+(`INPUT_BUFFER_READERS`) or polls the mouse (`program_reads_mouse`: the terminal
+delivers mouse reports on standard input). Its layout:
 
 | Offset | Field |
 |---|---|

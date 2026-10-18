@@ -6,7 +6,7 @@ Severity: MEDIUM
 Class: Correctness
 
 Status: Open
-Regression Test: tests/rt-behavior/collections/map-literal-duplicate-key-rt (to add)
+Regression Test: tests/syntax/collections/map-literal-duplicate-constant-key-invalid (constant-key half); the run-time half has none yet
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -133,3 +133,32 @@ first-wins — it disagrees with `collections::set` semantics.
 
 - Repeated key: last-wins insert (recommended) vs. compile-time error for equal
   constant keys.
+
+## Partial fix (constant keys only; the doc stays open)
+
+Done: `src/ir/verify/values.rs:check_value_depth`, `IrValue::MapLiteral` arm, now refuses a
+literal that names the same constant key twice with the new rule `TYPE_DUPLICATE_MAP_KEY`
+(`2-203-0146`, registered in `src/rules/table.rs` and `mfb spec diagnostics rule-codes`). A key
+is a constant when it is a literal or a negated numeric literal (`constant_key`); `Float` keys
+compare bitwise (`0.0` and `-0.0` stay distinct), `-0` equals `0` for the other numeric types.
+It applies to a local and to a module-level `LET G AS Map ... { "a" := 1, "a" := 2 }` alike
+(measured: both report). Spec: `src/docs/spec/language/12_collections.md` (the bullet naming the
+rule; it states that a run-time collision of non-constant keys is not yet specified).
+
+Limits: the diagnostic is located at the literal's statement line, not at the second key (the IR
+carries a line per statement, not per key). One report per repeated key occurrence.
+
+NOT done (waits on the owner, asked 2026-10-17): the run-time collision of non-constant keys
+(`ErrInvalidArgument` recommended, or last-wins). `lower_map_literal`
+(`src/codegen/collection/layout/builder_collection_layout.rs`) still writes one entry per slot
+with no equality test; nothing there was changed. The rt-behavior fixture in the Validation Plan
+belongs to that half.
+
+Test: fixture `tests/syntax/collections/map-literal-duplicate-constant-key-invalid` (String,
+Integer, Boolean and negated-Integer duplicates, plus distinct-key literals that must build).
+RED on the pre-fix compiler: all five duplicate literals built with no diagnostic. GREEN: five
+reports, one per literal, none for the distinct ones. Ran `bash scripts/test-fast.sh --accept
+'map-literal-duplicate-constant*'`.
+
+Goldens expected to change: none existing (a repeated constant key never compiled in a passing
+fixture except by mistake; the new fixture's own `golden/build.log` only).

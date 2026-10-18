@@ -173,7 +173,8 @@ timed wait before each source read asks this thread's log view first
 
 The region is reserved — appended past the mouse-state region, so no other
 arena-state offset moves — only in a program that calls one of the readers
-(`INPUT_BUFFER_READERS`). The buffer's layout, the decoder, the read engine and
+(`INPUT_BUFFER_READERS`) or polls the mouse (`program_reads_mouse`), which also
+subscribes the main thread to standard input. The buffer's layout, the decoder, the read engine and
 the readers' semantics are `./mfb spec stdlib io-input`.
 [[src/codegen/io/input/mod.rs:INPUT_BUFFER_READERS]]
 [[src/codegen/engine/builder/mod.rs]]

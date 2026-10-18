@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/types/field-access-on-collection-invalid
+   8 |   LET s = Set OF Integer { 1 }
+   9 |   LET m = Map OF String TO Integer { "a" := 1 }
+  10 |   io::print(l.foo)
+     | ^
+tests/syntax/types/field-access-on-collection-invalid/src/main.mfb:10 error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               field access requires a record value, got `List OF Integer`.
+   9 |   LET m = Map OF String TO Integer { "a" := 1 }
+  10 |   io::print(l.foo)
+  11 |   IF l.foo = 3 THEN
+     | ^
+tests/syntax/types/field-access-on-collection-invalid/src/main.mfb:11 error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               field access requires a record value, got `List OF Integer`.
+  12 |     io::print("l")
+  13 |   END IF
+  14 |   IF s.size = 1 THEN
+     | ^
+tests/syntax/types/field-access-on-collection-invalid/src/main.mfb:14 error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               field access requires a record value, got `Set OF Integer`.
+  15 |     io::print("s")
+  16 |   END IF
+  17 |   IF m.key = "a" THEN
+     | ^
+tests/syntax/types/field-access-on-collection-invalid/src/main.mfb:17 error[2-203-0034 TYPE_FIELD_ACCESS_REQUIRES_RECORD]: field access requires a record value
+               field access requires a record value, got `Map OF String TO Integer`.
+[exit 1]

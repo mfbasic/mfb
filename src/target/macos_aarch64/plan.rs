@@ -640,15 +640,23 @@ impl plan::NativePlanPlatform for Platform {
                 .collect(),
             // bug-1015: `pollMouse` decodes the input already waiting before it
             // dequeues, through the readers' source read (`_read`, EINTR-checked).
+            //
+            // bug-1099: a console `term.pollMouse` is a stdin reader like an `io`
+            // reader, so it also carries the broadcast log's imports.
             "term.pollMouse" | "canvas.pollMouseRaw" => {
-                ["_clock_gettime", "_poll", "_read", "___error"]
-                    .iter()
-                    .map(|symbol| PlatformImport {
-                        library: "libSystem".to_string(),
-                        symbol: (*symbol).to_string(),
-                        required_by: required_by.clone(),
-                    })
-                    .collect()
+                let mut imports: Vec<PlatformImport> =
+                    ["_clock_gettime", "_poll", "_read", "___error"]
+                        .iter()
+                        .map(|symbol| PlatformImport {
+                            library: "libSystem".to_string(),
+                            symbol: (*symbol).to_string(),
+                            required_by: required_by.clone(),
+                        })
+                        .collect();
+                if spec.call == "term.pollMouse" {
+                    stdin_broadcast_imports(&mut imports);
+                }
+                imports
             }
             // plan-94-C: the canvas members reach the same ring and the same
             // clock. `enableMouse` additionally runs the `MFB_MOUSE_INJECT`

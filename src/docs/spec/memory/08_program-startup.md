@@ -104,7 +104,8 @@ regions. The same offsets are passed to their emitters.
   [[src/codegen/error/constants/error_constants.rs:MOUSE_STATE_SLOTS]]
 
 - **Input buffer** — `INPUT_STATE_SLOTS` words, enabled by
-  `program_uses_input_buffer`: decoder state, a pending token and a 4096-byte
+  `program_uses_input_buffer` (an `io` reader, or a mouse poll —
+  `program_reads_mouse`): decoder state, a pending token and a 4096-byte
   byte buffer for look-ahead input readers.
   [[src/codegen/io/input/mod.rs:INPUT_STATE_SLOTS]]
   [[src/codegen/io/input/mod.rs:program_uses_input_buffer]]
