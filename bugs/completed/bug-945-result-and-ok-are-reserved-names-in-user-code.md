@@ -172,6 +172,9 @@ ir-section/functions, `threading` thread-runtime-helpers. Man: `types`, `errors`
 - `tests/syntax/functions/func_typesystem_ok_invalid`, `func_typesystem_result_invalid`,
   `func_typesystem_result_pattern_invalid` `build.log`: the retired rules give way to
   `SYMBOL_UNKNOWN_TYPE` for the undeclared `Ok`/`Result OF Integer`.
+- Every package fixture's `.info` golden (`package binary hash` / `content hash`;
+  measured on `package-simple` and `package-private-overload-export`), with its
+  `golden/*.mfp`.
 - Every package `golden/*.mfp` (rewritten by `sync-package-mfp.sh`, BINARY_REPR 7), and
   any `.ir`/native golden of a consumer whose package-identity id (a content hash
   over the package payload) changed with it.
