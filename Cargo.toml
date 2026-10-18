@@ -666,6 +666,10 @@ name = "rt_hof_transient_bytes"
 path = "tests/runtime/rt_hof_transient_bytes.rs"
 
 [[test]]
+name = "rt_collection_chunks_window_sizing"
+path = "tests/runtime/rt_collection_chunks_window_sizing.rs"
+
+[[test]]
 name = "rt_map_integer_key_probe_cost"
 path = "tests/runtime/rt_map_integer_key_probe_cost.rs"
 
