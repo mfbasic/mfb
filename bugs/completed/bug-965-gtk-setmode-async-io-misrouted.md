@@ -139,7 +139,10 @@ worker's next write after the idle.
   transcript `A-console-1`, `E-console-2`. RED with main's compiler
   (`MFB_APPIMAGE_DISPLAY=:77 scripts/test-appimage.sh /tmp/main-dbg-target/release/mfb
   --box 2226 --libc glibc --gui`: got `A-console-1 C-none E-console-2`), GREEN with the
-  fix. The other 4 FAILs of that run (`could not read DT_NEEDED` — 2226 has no
+  fix. (Correction: 2226 also runs a GNOME Wayland session, and without
+  `GDK_BACKEND=x11` GTK picked it over `DISPLAY=:77`, so the first runs above were
+  windowed on Wayland. Commit f9650a6a3 makes the row force X11; re-measured on X11:
+  main RED with the same output, fix GREEN.) The other 4 FAILs of that run (`could not read DT_NEEDED` — 2226 has no
   `readelf`; `never reached the GTK bootstrap`/`windowed run exited early` with empty
   output; `DT_RUNPATH ''`) are identical with main's compiler and are box-environment
   failures on 2226, not this change. 2228/2227 (the script's default x86-64 boxes)
