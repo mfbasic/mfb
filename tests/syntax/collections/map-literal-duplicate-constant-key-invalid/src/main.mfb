@@ -1,0 +1,21 @@
+' bug-847 (constant-key half): a map never holds two entries with equal keys, so a
+' `Map OF K TO V { ... }` literal that names the same CONSTANT key twice is a located
+' compile error (owner decision 2026-10-05), at the literal's line. Keys that merely
+' look alike but are distinct values -- different text, `+0.0` against `-0.0`
+' (compared bitwise), a different sign -- still build. Keys that are not constants are
+' not judged here.
+IMPORT io
+
+FUNC main AS Nothing
+  LET a = Map OF String TO Integer { "a" := 1, "a" := 2 }
+  LET b = Map OF String TO Integer { "a" := 1, "b" := 2, "a" := 3 }
+  LET c = Map OF Integer TO Integer { 1 := 1, 1 := 2 }
+  LET d = Map OF Boolean TO Integer { TRUE := 1, FALSE := 0, TRUE := 5 }
+  LET e = Map OF Integer TO Integer { -3 := 1, -3 := 2 }
+  LET ok1 = Map OF String TO Integer { "a" := 1, "A" := 2, "b" := 3 }
+  LET ok2 = Map OF Integer TO Integer { 1 := 1, -1 := 2, 2 := 3 }
+  LET ok3 = Map OF Float TO Integer { 0.0 := 1, -0.0 := 2 }
+  LET ok4 = Map OF Boolean TO Integer { TRUE := 1, FALSE := 0 }
+  io::print(toString(len(a) + len(b) + len(c) + len(d) + len(e)))
+  io::print(toString(len(ok1) + len(ok2) + len(ok3) + len(ok4)))
+END FUNC

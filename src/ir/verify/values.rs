@@ -255,6 +255,24 @@ impl TypeEnv {
                     self.check_value_depth(v, locals, depth + 1);
                 }
                 self.check_map_key_comparable(type_);
+                // A map never holds two entries with equal keys: a literal that
+                // names the same constant key twice is refused (bug-847, owner
+                // decision 2026-10-05). Keys that are not constants are not judged
+                // here.
+                let mut seen: HashSet<(bool, ParameterType, String)> = HashSet::new();
+                for (k, _) in entries {
+                    if let Some(key) = constant_key(k) {
+                        if !seen.insert(key) {
+                            self.emit(
+                                "TYPE_DUPLICATE_MAP_KEY",
+                                format!(
+                                    "Map literal names the key {} more than once; a map holds each key once.",
+                                    constant_key_text(k)
+                                ),
+                            );
+                        }
+                    }
+                }
                 if let ParameterType::MapOf(key_type, value_type) = type_ {
                     for (k, v) in entries {
                         self.check_literal_range(key_type, k);
@@ -1238,4 +1256,45 @@ impl TypeEnv {
     }
 
     // ===========================================================================
+}
+
+/// The identity of a map-literal key that is a compile-time constant: `(negated,
+/// type, canonical text)`. A key is a constant when it is a literal, or the
+/// negation of a numeric literal (`-3`); anything else has no identity before run
+/// time and is `None`. `Float` keys compare bitwise, so `-0.0` stays distinct from
+/// `0.0`; for every other numeric type negating zero is zero.
+fn constant_key(key: &IrValue) -> Option<(bool, ParameterType, String)> {
+    match key {
+        IrValue::Const { type_, value } => Some((false, type_.clone(), value.clone())),
+        IrValue::Unary {
+            op: UnaryOp::Negate,
+            operand,
+            ..
+        } => match operand.as_ref() {
+            IrValue::Const { type_, value } => {
+                let zero = value.chars().all(|c| matches!(c, '0' | '.'));
+                let negated = !(zero && *type_ != ParameterType::Float);
+                Some((negated, type_.clone(), value.clone()))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// How a constant map key reads in a diagnostic: the source spelling of the value.
+fn constant_key_text(key: &IrValue) -> String {
+    match key {
+        IrValue::Const {
+            type_: ParameterType::String,
+            value,
+        } => format!("{value:?}"),
+        IrValue::Const {
+            type_: ParameterType::Boolean,
+            value,
+        } => value.to_uppercase(),
+        IrValue::Const { value, .. } => value.clone(),
+        IrValue::Unary { operand, .. } => format!("-{}", constant_key_text(operand)),
+        _ => String::new(),
+    }
 }
