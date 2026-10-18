@@ -24,7 +24,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 * HIGH 688 and 765: ON HOLD (owner, 2026-10-17). Not scheduled.
 * SECURITY rows (980, 1017, 1042, 952, 954+947, 955, 918): not scheduled; they wait for the owner.
 * MED 1082: blocked on hardware and a design decision (its doc). Not scheduled.
-* **Phase 1 (MED, table order):** 1085, 1087, 1088, 1091, 1089, 965, 985, 1015, 964, plus 966
+* **Phase 1 (MED, table order; merged to staging: 966, 965, 1015, 985, 964):** 1085, 1087, 1088, 1091, 1089, 965, 985, 1015, 964, plus 966
   (965 and 964 are "after 966"). 1087 (owner: bug-996's rule extends to Metal) and 1091 are perf and
   run alone in round 2.
 * Later phases: the rest of MED, then LOW, in table order.
@@ -59,9 +59,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 965    | MED      | GTK `app::setMode` returns before the window is reconciled, so the next `io::print` goes to the wrong sink (stdout instead of the new transcript, or the hidden transcript instead of stdout) (after 966) |
-| [ ]  | 985    | MED      | a GTK window built by `app::setMode` never attaches the mouse controllers, so `term::pollMouse` gets no events (after 1015) |
-| [ ]  | 1015   | MED      | on GTK, `term::pollMouse` sees no mouse events unless the program also reads stdin (owner decided: events come from the window, like macOS/Windows) |
 | [ ]  | 960    | LOW      | `mfb build --app` bundles fail `codesign --verify` ("code has no resources but signature indicates they must be present") |
 | [ ]  | 972    | LOW      | closing an `--app` window (or Cmd-Q) ends a running program with exit status 0 and no teardown — buffered file output is lost, no `--debug` report (owner decided: new `app::shouldClose`) |
 | [ ]  | 997    | LOW      | Windows `--app` windows open at 400×300 (a 384×261 client) while macOS and Linux open at 900×640 |
@@ -70,8 +67,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 964    | MED      | GTK app `term::` treats every width-2 glyph as "at the right edge" (after 966) |
-| [ ]  | 966    | MED      | `app::setMode` does not perform the documented implicit `term::off` — TUI state survives a mode switch, and on macOS all later output is invisible |
 | [ ]  | 969    | LOW      | `term::getForeground` / `getBackground` (all app backends) and `term::isOn` (macOS) do not raise `ErrWrongMode` outside `Mode.Console`, though they declare it (after 966) |
 | [ ]  | 971    | LOW      | the SGR mouse decoder and the key decoder accept malformed/overflowing numeric parameters |
 | [ ]  | 973    | LOW      | in an `--app` window, `io::readKey` right after `io::readLine`/`io::input` (or a canvas `readLine`) first returns the Return key's `Release`, a release whose press was never reported |
