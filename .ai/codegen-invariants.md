@@ -67,7 +67,7 @@ The `string_keyed_type_maps` class is a **curated** `(file, identifier)` list, n
 
 Two more traps:
 
-- **It scans all of `src/` below the AST, including `src/cli/`.** A doc-renderer helper taking `type_name: &str` trips `str_type_params`. The guard is its own test binary, so `cargo test --bin mfb <filter>` stays green while the full suite fails. Pass the registry descriptor instead of raising a budget.
+- **It scans all of `src/` below the AST, including `src/cli/`.** A doc-renderer helper taking `type_name: &str` trips `str_type_params`. The guard is its own test binary, so `cargo test --bin mfb <filter>` stays green while it fails; `scripts/test-fast.sh` runs it. Pass the registry descriptor instead of raising a budget.
 - **`TYPE_KEYED_TABLES`'s failure text is half wrong.** Deleting a map from that list fails `curated_type_keyed_tables_all_exist` with "lower the `string_keyed_type_maps` budget", but a map that was already type-keyed has no budget row to lower. Check for the row first; if there is none, just delete the entry.
 
 ### User-generic limitations that are GRAMMAR, not bugs

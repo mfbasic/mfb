@@ -1276,23 +1276,22 @@ pub(crate) fn native_libraries_for_test(
 }
 
 /// Compile the dependencies a project declares by SOURCE DIRECTORY, the way the
-/// front end above does before anything resolves a package.
+/// front end above does before anything resolves a package, for a caller that
+/// reads only their *interfaces*.
 ///
-/// `testutil::fixture_project` ran every other front-end step and skipped this
-/// one, so a fixture whose dependency has no committed `.mfp` resolved only when
-/// some earlier build happened to have left one in `build/packages/` — and the
-/// standing remedy for a stale committed `.mfp` is exactly to declare the
-/// dependency by source directory, so that is not a rare fixture shape. The
-/// omission does not fail loudly either: `installed_package_files` reports the
-/// dependency as "must be installed", which reads as a broken fixture rather
-/// than a harness that never built it.
+/// Every path that resolves a project must run this first. The resolver reads
+/// each dependency's `.mfp` from `build/packages/`, and that cache is only as
+/// fresh as the last build. A stale one (left by an older compiler) fails
+/// resolution with `IMPORT_PACKAGE_INVALID`, while `mfb build` on the same project
+/// succeeds because it rebuilds the cache first. Callers: `mfb doc`, and
+/// `testutil::fixture_project` (a fixture whose dependency has no committed
+/// `.mfp` otherwise resolved only when some earlier build left one behind).
 ///
-/// Host target and `-O1`, because only the dependency's *interface* is read
-/// here: `fixture_project` hands the resulting `.mfp` to
-/// `external_package_function_types_from_files` and
-/// `imported_type_defs_from_files`, never to a backend.
-#[cfg(test)]
-pub(crate) fn build_source_dependencies_for_test(
+/// Host target, default level, quiet, unsigned allowed: the resulting `.mfp` is
+/// read for its interface (`external_package_function_types_from_files`,
+/// `imported_type_defs_from_files`, the resolver's import check), never handed
+/// to a backend.
+pub(crate) fn build_source_dependency_interfaces(
     location: &Path,
     manifest: &HashMap<String, JsonValue>,
 ) -> Result<(), ()> {

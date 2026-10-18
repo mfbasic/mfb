@@ -38,6 +38,31 @@ a `cargo test` target, another script, or a person.
   supported target into `target/examples/<example>/<target>/` and zips the tree to
   `target/examples.zip`. Usage: `bash scripts/build-examples.sh`. Run by: CI `examples`.
 
+## Test tiers
+
+The landing tier runs before every landing, in minutes; the full tier runs the whole
+suite at one commit, in the background. Policy: `.ai/testing-gates.md` "Test tiers".
+
+- **test-fast.sh** — The landing tier: fmt check, `cargo check --workspace
+  --all-targets`, the workspace's unit tests minus the sweeps in
+  `test-fast-skips.txt`, and the guard binaries, plus the targeted gates the change
+  names (`--test <binary>`, `--artifact <builtin>`, `--accept <name-glob>`). Runs
+  every step and reports each, exit 1 if any failed. Usage:
+  `bash scripts/test-fast.sh [--test <binary>]... [--artifact <builtin>]... [--accept <glob>]...`.
+  Run by: a person or agent before landing.
+- **test-fast-skips.txt** — The cross-product sweeps the landing tier skips, one
+  libtest `--skip` substring per line with the reason and measured cost. An entry that
+  matches no test fails `test-fast.sh`, so the list cannot rot. Run by: read by
+  `test-fast.sh`.
+- **test-full.sh** — The full tier: `cargo test --workspace --no-fail-fast` at one
+  commit in a fresh detached worktree under `$MFB_FULL_ROOT` (default
+  `~/.cache/mfb-full-suite`), one run per machine at a time (exit 98 otherwise),
+  sharing one target directory across runs, with a per-commit record in
+  `runs/<sha>.result`. Usage:
+  `bash scripts/test-full.sh [--with-ignored] [<rev>] [-- <cargo test args>]`.
+  Run by: a person or agent, in the background, on main's tip (nightly or after a
+  batch of merges).
+
 ## Golden maintenance
 
 - **regen-native-goldens.sh** — Rewrites every existing per-target native golden

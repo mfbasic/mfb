@@ -1038,7 +1038,7 @@ fn build_fixture_source_packages(
     if !built.insert(dir.to_path_buf()) {
         return Ok(());
     }
-    crate::cli::build::build_source_dependencies_for_test(dir, manifest)
+    crate::cli::build::build_source_dependency_interfaces(dir, manifest)
         .map_err(|()| format!("{name}: a package declared by source directory does not build"))
 }
 
@@ -1057,6 +1057,10 @@ pub fn fixture_project(name: &str) -> Result<FixtureProject, String> {
 
     let ast = crate::ast::manifest::parse_project(&project_name, &dir, &manifest)
         .map_err(|()| format!("{name}: the project does not parse"))?;
+    // Same order as `cli/build`: the source-directory packages are rebuilt
+    // before the resolver reads them, so a stale `.mfp` left in the fixture's
+    // gitignored `build/packages/` cannot fail resolution.
+    build_fixture_source_packages(&dir, &manifest, name)?;
     crate::resolver::resolve_project(&dir, &manifest, &ast)
         .map_err(|()| format!("{name}: the project does not resolve"))?;
     let augmented = crate::resolver::augment_project(&ast, false)
@@ -1065,7 +1069,6 @@ pub fn fixture_project(name: &str) -> Result<FixtureProject, String> {
         crate::monomorph::monomorphize_project(&dir, &crate::hir::elaborate(&augmented))
             .map_err(|()| format!("{name}: the project does not monomorphize"))?;
 
-    build_fixture_source_packages(&dir, &manifest, name)?;
     let packages = crate::manifest::package::installed_package_files(&dir, &manifest)
         .map_err(|err| format!("{name}: {err}"))?;
     let imported_resources = crate::manifest::package::imported_resource_closers(&dir, &manifest);

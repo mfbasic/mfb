@@ -466,7 +466,7 @@ path (unchanged).
 
 ### 4.6 `src/cli/build/mod.rs` → `src/cli/build/tests/` (142 tests)
 
-The two `#[cfg(test)] pub(crate) fn native_libraries_for_test` / `build_source_dependencies_for_test`
+The `#[cfg(test)] pub(crate) fn native_libraries_for_test` and `pub(crate) fn build_source_dependency_interfaces`
 (1269-1318; called by `src/testutil.rs`) stay in the host. Citations: 24, all name host code.
 `scripts/test-accept.sh:260` cites `src/cli/build/mod.rs:1488` — stale (§2); repointed in
 Phase 3.
