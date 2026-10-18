@@ -28,12 +28,12 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 * Phase 2 (MED): 1085, 1088, 1089 - on main (7bb985ed8). 1087 and 1091
   merged to staging (batch 3).
 * Phase 3 (MED): 1098, 1099, 832, 846, 847 (constant keys), 1007 + 1008 - on main (c60f81037).
-  847's run-time collision waits on the owner; 1009/1010/1011 ruled 2026-10-18 -> phase 6.
+  847's run-time collision (owner 2026-10-18: raise ErrInvalidArgument) and 1009/1010/1011 -> phase 6.
 * **Phase 4 (MED, table order):** 1036, 1104, 905, 831, 845, 931, 932, 827, 863 merged to staging;
   864: owner ruled 2026-10-18 (Ed25519 refused everywhere, ErrInvalidArgument; EC everywhere) -> phase 6.
 * **Phase 5 (MED, table order):** 876, 886, 891, 874, 945, 1021, 833, 913, 914, 1022.
 * **Phase 6 (next):** 864 first, then 1009 + 1010 + 1011 (one fix; owner 2026-10-18: reserve then shrink),
-  then the next MED rows in table order.
+  then 847's run-time half, then the next MED rows in table order.
 * Later phases: the rest of MED, then LOW, in table order.
 
 ## Resources and STATE

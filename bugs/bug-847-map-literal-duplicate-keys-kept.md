@@ -10,9 +10,9 @@ Regression Test: tests/syntax/collections/map-literal-duplicate-constant-key-inv
 
 ## Cause (coordinator, bug-staging-24)
 
-- Rule: a map never holds two entries with equal keys; a map literal naming the same constant key twice is a located compile error (owner decision 2026-10-05). The run-time collision of non-constant keys WAITS ON THE OWNER (asked 2026-10-17: raise `ErrInvalidArgument`, recommended, or last-wins).
+- Rule: a map never holds two entries with equal keys; a map literal naming the same constant key twice is a located compile error (owner decision 2026-10-05, done on bug-staging-24). OWNER RULING 2026-10-18: non-constant keys that turn out equal at run time RAISE `ErrInvalidArgument` (77050002) at the literal, and no map is built (not last-wins).
 - Where: no verifier rule checks constant-key uniqueness (`src/ir/verify/values.rs:check_value_depth`, `IrValue::MapLiteral` arm), and `builder_collection_layout.rs:lower_map_literal` writes one entry per slot with no equality test.
-- Fix: the MapLiteral arm refuses equal constant keys (located at the second key); the lowering then follows the owner's run-time ruling.
+- Fix (remaining half): `builder_collection_layout.rs:lower_map_literal` inserts each entry through the map's own key lookup (as `lower_set_literal` does) and raises `ErrInvalidArgument` when a key is already present, freeing what it built; `mfb spec memory`/language map-literal text and the literal's declared errors state it.
 
 **Owner decision (2026-10-05):** a map literal with a repeated key is a compile error. Insert/last-wins semantics is
 rejected. Where keys are compile-time constants, equal keys are a located diagnostic. The
