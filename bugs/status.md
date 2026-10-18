@@ -29,7 +29,8 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
   merged to staging (batch 3).
 * Phase 3 (MED): 1098, 1099, 832, 846, 847 (constant keys), 1007 + 1008 - on main (c60f81037).
   847's run-time collision and the 1009/1010/1011 capacity rule wait on the owner (moved out).
-* **Phase 4 (MED, table order):** 1036, 1104, 905, 831, 845, 931, 932, 827, 863, 864.
+* **Phase 4 (MED, table order):** 1036, 1104, 905, 831, 845, 931, 932, 827, 863 merged to staging;
+  864 waits on the owner (Ed25519 TLS server keys).
 * Later phases: the rest of MED, then LOW, in table order.
 
 ## Resources and STATE
@@ -78,8 +79,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1009   | MED      | fixed-width `collections::toSet` reserves by input length even when nearly every element is a duplicate |
 | [ ]  | 1010   | MED      | native `collections::merge` reserves for every input entry even when all keys overlap |
 | [ ]  | 1011   | MED      | reserved collection results retain source-sized capacity when outputs are smaller |
-| [ ]  | 1036   | MED      | a list reassigned inside a `FOR EACH` over it leaks every replaced block (owner decided: no intentional leaks; free them when the loop ends) |
-| [ ]  | 1104   | MED      | `collections::window` with a run-time stride near the Integer maximum raises an undeclared `ErrOverflow`, located inside the stdlib body (the generic body's `i = i + stride`) |
 | [ ]  | 1002   | LOW      | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` is reported twice for one collection declaration that holds a thread worker |
 | [ ]  | 1006   | LOW      | `collections::window` overflows while advancing past its last window for a large valid stride |
 
@@ -87,7 +86,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 905    | MED      | `strings::caseFold` (and regex `(?i)`) fold with Unicode 9.0 data — 184 scalars never fold |
 | [ ]  | 887    | LOW      | `AttributedString & String` fails with an unlocated diagnostic naming the internal helper `#astrings_concat` |
 | [ ]  | 888    | LOW      | `astrings::toMarkdown` renders an empty font name (documented as allowed) exactly like an omitted slot, so `font("")` + size reads as "font unchanged" |
 | [ ]  | 906    | LOW      | runtime grapheme segmentation treats 5,222 unassigned code points as Other — diverges from UAX #29 and from the folded path |
@@ -97,10 +95,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 831    | MED      | `toFixed(String)` parses through binary64 — wrong value near the top of the range, and rejects in-range text with ErrOverflow |
-| [ ]  | 845    | MED      | MATCH on a Float compares bit patterns, so `CASE 0.0` misses `-0.0` although `-0.0 = 0.0` is TRUE |
-| [ ]  | 931    | MED      | `math::pow(Fixed, Fixed)` raises ErrOverflow for a negative whole exponent whose result is tiny (`pow(2.0F, -31.0F)`, `pow(10.0F, -10.0F)`) |
-| [ ]  | 932    | MED      | `math::atan2(y, -0.0)` returns the wrong sign: `atan2(1.0, -0.0)` is -pi/2, `atan2(-1.0, -0.0)` is +pi/2 |
 | [ ]  | 837    | LOW      | `toString` argument-mismatch diagnostic lists accepted types without `Money` |
 | [ ]  | 839    | LOW      | `LET b AS Byte = -0` is `TYPE_BINDING_MISMATCH`, while the spec and the range checker treat `-0` as an in-range Byte literal (with 978) |
 | [ ]  | 878    | LOW      | `toString(Fixed, n)` does not round the exact Q32.32 value: it truncates at n >= 10 (not "trailing zeros") and over-rounds just below a midpoint at n < 10 (after 977) |
@@ -113,7 +107,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 827    | MED      | datetime::parse `f` token scales by run length, not digits read — ".12" under "fff" parses as 12 ms, ".1" under 9×f as 1 ns |
 | [ ]  | 828    | LOW      | json::parse depth cap admits 257 nested containers when the innermost is empty |
 | [ ]  | 829    | LOW      | csv::stringify → csv::parse drops a trailing single-empty-cell row and turns a zero-cell row into a one-cell row |
 | [ ]  | 869    | LOW      | `encoding::base64Decode` accepts excess `=` padding (`"AAAA===="`, `"AA======"`) |
@@ -122,7 +115,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 863    | MED      | `crypto::open(cipher, key, nonce, sealed, aad)` — the documented Sealed+aad overload fails to compile with an unlocated TYPE_CALL_ARGUMENT_MISMATCH |
 | [ ]  | 864    | MED      | `tls::listen` / `http::serverSSL` fail with ErrTlsFailed for an EC (P-256) PKCS#8 key on macOS |
 | [ ]  | 1107   | MED      | a program that calls `crypto::seal` and `crypto::open` ends with 4,592 bytes live (434 allocs / 421 frees) |
 | [ ]  | 871    | LOW      | `crypto::hmac(crypto::Hash.SHA1, key, "text")` reports CRYPTO_SHA1_INSECURE — the String-data overload misses the sound-use exemption |
