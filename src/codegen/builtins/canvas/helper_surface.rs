@@ -81,12 +81,12 @@ END FUNC"#;
 /// the `MFB_CANVAS_DISPLAY_HZ` override, else the rate the main thread published for
 /// the window's monitor, else `0.0`.
 ///
-/// `metalReady` is what actually builds the device, queue and pipeline the first
-/// time it is asked — the same call the renderer branch makes — so a stats line
-/// reporting `metalReady=TRUE` is evidence the whole setup ran on the graphics
-/// thread, not merely that a device was found.
-/// That asymmetry with `vulkanReady` is deliberate for now: Metal's first-use build
-/// is still on the frame path (bug-996 audited it and left it).
+/// `metalReady=` is the same question for Metal (bug-1087): TRUE only once the device,
+/// queue, library, every blend mode's pipeline and the frame buffer were all made, so
+/// it is evidence the whole setup ran, not merely that a device was found. The line asks
+/// `canvas::metalReady`, which starts no build and waits for none: FALSE throughout a
+/// software run and while a window's pipeline is still being built on its own thread,
+/// TRUE from the first line of a run with `MFB_CANVAS_GPU` set.
 #[rustfmt::skip]
 const PRESENT_SURFACE_DEBUG: &str =
 r#"FUNC __canvas_presentSurface(buffer AS List OF Byte, width AS Integer, height AS Integer) AS Nothing

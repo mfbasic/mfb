@@ -996,6 +996,21 @@ cmd_coldstart() {
       env MFB_HEADLESS=1 MFB_CANVAS_SYNC=1 MFB_CANVAS_GPU=0 "$bin" "$out" >/dev/null 2>&1 || true
       printf "%s  headless, MFB_CANVAS_GPU=0                | %s\n" "$name" "$(cs_line "$out")"
     done
+    # bug-1087: a real window under a third new name, default renderer -- the
+    # case a user sees, and the only one that reaches the off-frame-path build
+    # (headless is software unless MFB_CANVAS_GPU names it, which blocks). It
+    # opens a window on this Mac for the run.
+    name="cs${stamp}w"
+    local wdir="$WORK/$name"
+    bash "$GEN/coldstart.sh" "$wdir" "$name"
+    "$MFB" build -app "$wdir" >/dev/null 2>"$wdir/build.err" || { cat "$wdir/build.err" >&2; die "build failed: $wdir"; }
+    bin=$(bin_path "$wdir" "$name"); out="$wdir/line.out"
+    for launch in first second; do
+      rm -f "$out"
+      env MFB_CANVAS_SYNC=1 COLDSTART_WAIT_GPU=1 "$bin" "$out" >/dev/null 2>&1 || true
+      printf "%s  window, default renderer    %-6s launch | %s\n" "$name" "$launch" "$(cs_line "$out")"
+    done
+    rm -f "$out"
     return 0
   fi
   # Build and ship WITHOUT `build_app`: its warm-up is the run this measures.

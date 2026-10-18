@@ -995,6 +995,9 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         // the blit for the same reason — `MFB_CANVAS_GPU=1` is a runtime choice,
         // so any program that draws must carry the code that choice would run.
         functions.push(metal::emit_metal_init());
+        // bug-1087: the thread `canvas::metalBuild(0)` starts to run that setup off the
+        // frame path.
+        functions.push(metal::emit_metal_builder());
         functions.push(metal::emit_metal_draw(spec.debug_hooks));
         // bug-686 Phase 4: the direct present's main-thread layer bookkeeping — the
         // graphics-thread hop and the `mfbMetalLayer:` IMP it lands in.
@@ -1027,10 +1030,11 @@ pub(crate) fn emit_canvas_blit_seam(
     });
 }
 
-/// plan-98-E Phase 1: call the one-time Metal setup, leaving 1/0 in `c_return(0)`.
+/// plan-98-E Phase 1: call the Metal setup, leaving 1/0 in `c_return(0)`.
 ///
-/// A plain call with no argument staging: `_mfb_macapp_metal_init` takes none and is
-/// idempotent, so the caller's only job is to invoke it and read the answer.
+/// A plain call: the caller (`canvas::metalBuild`) has put the place argument in
+/// `c_arg(0)` (bug-1087), and `_mfb_macapp_metal_init` claims and starts the build at
+/// most once, so a second call is a load.
 pub(crate) fn emit_metal_init_seam(
     from_symbol: &str,
     instructions: &mut Vec<CodeInstruction>,

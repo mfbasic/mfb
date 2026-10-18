@@ -412,6 +412,10 @@ name = "codegen_canvas_vulkan_off_frame_path"
 path = "tests/codegen/codegen_canvas_vulkan_off_frame_path.rs"
 
 [[test]]
+name = "codegen_canvas_metal_off_frame_path"
+path = "tests/codegen/codegen_canvas_metal_off_frame_path.rs"
+
+[[test]]
 name = "codegen_win64_fp_callee_saved"
 path = "tests/codegen/codegen_win64_fp_callee_saved.rs"
 

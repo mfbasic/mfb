@@ -1827,6 +1827,26 @@ FUNC __canvas_vulkanReady() AS Boolean
   RETURN canvas::vulkanReady()
 END FUNC
 
+' bug-1087: bug-996's rule, on Metal. macOS compiles the shader the first time an app
+' name asks for it -- seconds for a name never run before -- so the first frame that
+' wants the GPU only STARTS the build on a thread of its own (`canvas::metalBuild(0)`),
+' every frame asks `canvas::metalReady()`, which is one load, and frames are software
+' until it answers TRUE. `MFB_CANVAS_GPU` builds here and now instead
+' (`canvas::metalBuild(1)`), so a test's every frame is a GPU frame.
+MUT __CANVAS_METAL_ASKED AS Boolean = FALSE
+
+FUNC __canvas_metalReady() AS Boolean
+  IF NOT __CANVAS_METAL_ASKED THEN
+    __CANVAS_METAL_ASKED = TRUE
+    IF len(os::getEnvOr("MFB_CANVAS_GPU", "")) > 0 THEN
+      canvas::metalBuild(1)
+    ELSE
+      canvas::metalBuild(0)
+    END IF
+  END IF
+  RETURN canvas::metalReady()
+END FUNC
+
 FUNC __canvas_renderLoop() AS Nothing
   ' plan-172-K: the wait is timed while an `AutoPaint` is inside an enter or exit window
   ' -- the one time-based redraw there is -- and untimed (0) otherwise. It answers 0
@@ -1938,7 +1958,9 @@ macro_rules! render_loop_tail {
   ' track which regions of it are stale (Correction 24).
   ' plan-155-B: the renderer ordinals are `canvas::Renderer`'s -- 0 Software, 1 Metal,
   ' 2 Vulkan. A GPU arm that declines leaves them for the next arm to set.
-  IF canvas::useGpu() AND canvas::metalReady() THEN
+  ' bug-996, bug-1087: each is FALSE while its pipeline is still being built, so this
+  ' frame is software.
+  IF canvas::useGpu() AND __canvas_metalReady() THEN
     IF __canvas_renderMetal(surfaceW, surfaceH) THEN
       __CANVAS_LAST_DREW = TRUE
       __CANVAS_LAST_RENDERER = 1
@@ -1946,7 +1968,6 @@ macro_rules! render_loop_tail {
       RETURN
     END IF
   END IF
-  ' bug-996: FALSE while the pipeline is still being built, so this frame is software.
   IF canvas::useGpu() AND __canvas_vulkanReady() THEN
     IF __canvas_renderVulkan(surfaceW, surfaceH) THEN
       __CANVAS_LAST_DREW = TRUE
@@ -1976,13 +1997,13 @@ END FUNC"#
 /// is set by `__canvas_wantGpu`), a pipeline exists (`canvas::metalReady` /
 /// `canvas::vulkanReady`), and the *scene* is one that renderer draws correctly.
 ///
-/// The second condition is asked every frame and is not the same kind of question on
-/// the two backends. `canvas::metalReady` builds the Metal pipeline the first time it
-/// is asked and remembers the answer. `canvas::vulkanReady` only reads whether the
-/// pipeline exists yet (bug-996): `__canvas_vulkanReady` starts the build on its own
-/// thread the first time and the frames before it finishes are software frames. So on
-/// Vulkan the renderer of a run can change once, from software to the GPU, at the
-/// first frame after the pipeline is ready.
+/// The second condition is asked every frame, and on both backends it only reads
+/// whether the pipeline exists yet (bug-996 for Vulkan, bug-1087 for Metal):
+/// `__canvas_metalReady` / `__canvas_vulkanReady` start the build on its own thread the
+/// first time and the frames before it finishes are software frames. So the renderer
+/// of a run can change once, from software to the GPU, at the first frame after the
+/// pipeline is ready. `MFB_CANVAS_GPU` set builds on the graphics thread at the first
+/// GPU frame instead, which then waits for it.
 ///
 /// The two are mutually exclusive in practice — `metalReady` is FALSE off macOS and
 /// `vulkanReady` FALSE on it — so the order between them never decides anything;

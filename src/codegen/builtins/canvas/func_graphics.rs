@@ -14,7 +14,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::codegen::runtime::canvas::metal::emit_metal_available;
+use crate::codegen::runtime::canvas::metal::{emit_metal_available, emit_metal_is_ready};
 use crate::codegen::runtime::canvas::vulkan::{emit_vulkan_build, emit_vulkan_ready};
 use crate::codegen::runtime::canvas::{
     emit_await_pickup, emit_display_milli_hz, emit_frame_counters, emit_frame_done,
@@ -549,44 +549,60 @@ pub(crate) fn lower_metal_available(
     })
 }
 
-/// `canvas::metalReady() AS Boolean` — is the Metal renderer built and usable?
+/// `canvas::metalReady() AS Boolean` — is the Metal pipeline built, now?
 ///
-/// Builds the device, command queue and render pipeline on the first call and
-/// reports whether they exist; every later call reports the remembered answer. It is
-/// the second half of the renderer branch's condition (`canvas::useGpu` is the
-/// first): asked for *and* actually available.
+/// bug-1087 (bug-996's rule, on Metal): a question only. It builds nothing and waits
+/// for nothing, so it is TRUE from the first frame after `canvas::metalBuild` has
+/// finished and FALSE until then; the build itself is `canvas::metalBuild`.
 ///
-/// A target with no Metal implementation has no seam, and reports `FALSE` — which is
-/// the honest answer and keeps `__canvas_renderFrame` one shape everywhere rather
-/// than a per-target `IF`.
+/// A target with no Metal implementation reports `FALSE`, which keeps
+/// `__canvas_renderFrame` one shape everywhere rather than a per-target `IF`.
 pub(crate) fn lower_metal_ready(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    match ctx
-        .platform
-        .emit_metal_init(&symbol, &mut builder.instructions, &mut builder.relocations)
+    let state = builder.temporary_vreg();
+    let value = builder.temporary_vreg();
+    emit_metal_is_ready(
+        &symbol,
+        ctx.platform,
+        abi::Reg::from(&state),
+        abi::Reg::from(&value),
+        &mut builder.instructions,
+        &mut builder.relocations,
+    );
+    Ok(ok_return(builder, symbol))
+}
+
+/// `canvas::metalBuild(place)` — see that the Metal device and pipeline are being
+/// built: on a thread of its own (`place` 0), or here and now (1).
+///
+/// The render loop calls it once, before it first asks `canvas::metalReady`
+/// (`__canvas_metalReady`). The claim, the thread and the build are the macOS
+/// backend's `_mfb_macapp_metal_init`, reached through the `emit_metal_init` hook with
+/// `place` in the first C argument register; its builder thread's entry calls the same
+/// function with 2. A target with no Metal backend does nothing.
+pub(crate) fn lower_metal_build(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let place = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the place argument"))?
+        .location
+        .clone();
+    builder.emit(abi::move_register(abi::c_arg(0), &place));
+    if let Some(result) =
+        ctx.platform
+            .emit_metal_init(&symbol, &mut builder.instructions, &mut builder.relocations)
     {
-        Some(result) => {
-            result?;
-            builder.emit(abi::move_register(RESULT_VALUE_REGISTER, abi::c_return(0)));
-        }
-        None => builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0")),
+        result?;
     }
-    builder.emit(abi::move_immediate(
-        RESULT_TAG_REGISTER,
-        "Integer",
-        RESULT_OK_TAG,
-    ));
-    builder.emit(abi::return_());
-    Ok(ValueResult {
-        origin: None,
-        type_: ParameterType::Nothing,
-        location: Operand::from("void"),
-        text: symbol,
-    })
+    Ok(ok_return(builder, symbol))
 }
 
 /// `canvas::vulkanReady() AS Boolean` — is the Vulkan pipeline built, now?
@@ -799,6 +815,26 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Nothing,
             errors: vec![],
             body: Body::abi_function(lower_vulkan_build),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "metalBuild",
+        intro: "",
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "place",
+                desc: "",
+                aliases: &[],
+                ty: ParameterType::Integer,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            body: Body::abi_function(lower_metal_build),
         }],
     });
     pkg.add_function(RegistryFunction {

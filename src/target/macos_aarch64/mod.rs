@@ -80,6 +80,7 @@ impl NativeBackend for Backend {
                 "canvas.vulkanBuild",
                 "canvas.vulkanDrawScene",
                 "canvas.metalReady",
+                "canvas.metalBuild",
                 "canvas.metalDrawScene",
                 "canvas.metalPresentScene",
                 "canvas.vulkanPresentScene",

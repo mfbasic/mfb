@@ -601,6 +601,7 @@ impl LinuxPlan<'_> {
             | "canvas.vulkanBuild"
             | "canvas.vulkanDrawScene"
             | "canvas.metalReady"
+            | "canvas.metalBuild"
             | "canvas.metalDrawScene"
             | "canvas.useGpu"
             | "canvas.surfaceWidth"

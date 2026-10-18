@@ -405,6 +405,41 @@ fn the_vulkan_arm_asks_through_the_wrapper() {
     }
 }
 
+/// bug-1087: the same seam for Metal. `canvas::metalBuild`'s argument is written in
+/// MFBASIC source and read by `_mfb_macapp_metal_init`, with no compiler between them.
+#[test]
+fn the_render_loop_starts_the_metal_build_where_the_handoff_says() {
+    use crate::codegen::runtime::canvas::metal::{
+        METAL_BUILD_ON_ITS_OWN_THREAD, METAL_BUILD_ON_THIS_THREAD,
+    };
+    for loop_source in [RENDER_LOOP, RENDER_LOOP_DEBUG] {
+        let start = loop_source
+            .find("FUNC __canvas_metalReady()")
+            .expect("the render loop has __canvas_metalReady");
+        let wrapper = &loop_source[start..];
+        let wrapper = &wrapper[..wrapper.find("\nEND FUNC").expect("an END FUNC")];
+        let named = wrapper
+            .find("IF len(os::getEnvOr(\"MFB_CANVAS_GPU\", \"\")) > 0 THEN")
+            .expect("the wrapper asks whether the GPU was named");
+        let here = wrapper
+            .find(&format!("canvas::metalBuild({METAL_BUILD_ON_THIS_THREAD})"))
+            .expect("a named GPU builds on this thread");
+        let elsewhere = wrapper
+            .find(&format!(
+                "canvas::metalBuild({METAL_BUILD_ON_ITS_OWN_THREAD})"
+            ))
+            .expect("the default builds on a thread of its own");
+        let otherwise = wrapper.find("\n    ELSE\n").expect("an ELSE");
+        assert!(named < here && here < otherwise && otherwise < elsewhere);
+        assert!(
+            wrapper.trim_end().ends_with("RETURN canvas::metalReady()"),
+            "the wrapper answers the question, it does not wait"
+        );
+        assert!(loop_source.contains("IF canvas::useGpu() AND __canvas_metalReady() THEN"));
+        assert!(!loop_source.contains("IF canvas::useGpu() AND canvas::metalReady() THEN"));
+    }
+}
+
 /// plan-173: viewport culling is ONE predicate, `__canvas_boundsMeetViewport`. The
 /// software walk gates its rasteriser call on it -- before the damage test, so a full
 /// frame skips an offscreen item too -- and the GPU draw-list split asks it for every

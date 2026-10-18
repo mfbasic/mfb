@@ -962,8 +962,9 @@ impl plan::NativePlanPlatform for Platform {
             })
             .collect(),
             // plan-98-D Phase 2: the graphics thread. A smaller set than `thread::`'s
-            // — the render loop has no message queue, no timed wait and no join, so
-            // it needs neither the timedwait/clock pair nor `pthread_detach`.
+            // — the render loop has no message queue and no join. `pthread_detach` is
+            // the Metal builder thread's (bug-1087): `_mfb_macapp_metal_init`, which
+            // every program that draws carries, starts it and never joins it.
             "canvas.startGraphics"
             | "canvas.signalRedraw"
             | "canvas.waitForRedraw"
@@ -979,6 +980,7 @@ impl plan::NativePlanPlatform for Platform {
             | "canvas.vulkanBuild"
             | "canvas.vulkanDrawScene"
             | "canvas.metalReady"
+            | "canvas.metalBuild"
             | "canvas.metalDrawScene"
             | "canvas.metalPresentScene"
             | "canvas.useGpu"
@@ -987,6 +989,7 @@ impl plan::NativePlanPlatform for Platform {
                 "_pthread_create",
                 "_pthread_attr_init",
                 "_pthread_attr_setstacksize",
+                "_pthread_detach",
                 "_pthread_join",
                 "_pthread_mutex_init",
                 "_pthread_mutex_lock",

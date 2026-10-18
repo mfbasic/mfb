@@ -157,6 +157,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "canvas.vulkanBuild",
     "canvas.vulkanDrawScene",
     "canvas.metalReady",
+    "canvas.metalBuild",
     "canvas.metalDrawScene",
     "canvas.metalPresentScene",
     "canvas.vulkanPresentScene",

@@ -328,7 +328,8 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Option<Result<(), String>> {
-        // plan-98-E Phase 1: device + queue + pipeline, built once and remembered.
+        // plan-98-E Phase 1: device + queue + pipeline, built once and remembered;
+        // bug-1087: claimed here, built on a thread of its own or on the caller.
         app::emit_metal_init_seam(symbol, instructions, relocations);
         Some(Ok(()))
     }
