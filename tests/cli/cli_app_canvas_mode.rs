@@ -15,8 +15,8 @@
 mod common;
 use common::temp_project;
 use std::fs;
-use std::path::PathBuf;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 /// Sets `Canvas`, reads it back, then leaves via `None` — exit 0 only if every
@@ -606,14 +606,23 @@ fn ncode_body(project: &Path, name: &str, symbol: &str) -> Vec<serde_json::Value
 /// TUI to turn off, so its `setMode` must not reference the helper at all.
 #[test]
 fn every_app_target_set_mode_calls_term_off_on_a_mode_change() {
-    for target in ["linux-aarch64", "linux-x86_64", "windows-x86_64", "macos-aarch64"] {
+    for target in [
+        "linux-aarch64",
+        "linux-x86_64",
+        "windows-x86_64",
+        "macos-aarch64",
+    ] {
         let (project, ok, log) = build_app(
             "app_mode_term_off_ncode",
             MODE_CHANGE_TERM_OFF_SOURCE,
             &["-target", target, "-ncode"],
         );
         assert!(ok, "{target}: -ncode build should succeed:\n{log}");
-        let body = ncode_body(&project, "app_mode_term_off_ncode", "_mfb_rt_app_app_setMode");
+        let body = ncode_body(
+            &project,
+            "app_mode_term_off_ncode",
+            "_mfb_rt_app_app_setMode",
+        );
         let call = body
             .iter()
             .position(|i| i["op"] == "bl" && i["target"] == "_mfb_rt_term_term_off")
@@ -634,7 +643,11 @@ fn every_app_target_set_mode_calls_term_off_on_a_mode_change() {
             &["-target", target, "-ncode"],
         );
         assert!(ok, "{target}: -ncode build should succeed:\n{log}");
-        let body = ncode_body(&project, "app_mode_no_term_ncode", "_mfb_rt_app_app_setMode");
+        let body = ncode_body(
+            &project,
+            "app_mode_no_term_ncode",
+            "_mfb_rt_app_app_setMode",
+        );
         assert!(
             !body.iter().any(|i| i["target"] == "_mfb_rt_term_term_off"),
             "{target}: a program with no term:: state must not call term::off"
