@@ -1427,12 +1427,9 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
   ' whether or not their glyph was dropped. The list is global precisely so
   ' `__canvas_glyphEvict` can pin AND renumber it.
   __CANVAS_GLYPH_PINS = []
-  ' The file, for the outlines `__canvas_glyphEntry` rasterises on a miss: the one read
-  ' that needs it, everything else coming from the face index (plan-162-A). It is
-  ' fetched again only when the run moves to another font (plan-162-C), so a one-font
-  ' run fetches it once.
-  MUT b AS List OF Byte = []
-  MUT bFont AS Integer = 0 - 1
+  ' The outlines `__canvas_glyphEntry` rasterises on a miss are read from the font file
+  ' in place, by handle (bug-1091): a build that hits the cache for every glyph reads no
+  ' byte of the file, and one that misses reads only that glyph's `loca` and `glyf`.
   MUT c AS Integer = 0
   WHILE c < chars
     LET which AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0)
@@ -1453,11 +1450,7 @@ FUNC __canvas_textGlyphRun(t AS Text) AS List OF Float
     ' draw and is no entry; it stays -1 in the pin list, which eviction passes over.
     MUT entry AS Integer = 0 - 1
     IF scale > 0.0 THEN
-      IF which <> bFont THEN
-        b = __canvas_fontBlob(font)
-        bFont = which
-      END IF
-      entry = __canvas_glyphEntry(b, font, gid, t.fontSize, scale)
+      entry = __canvas_glyphEntry(font, gid, t.fontSize, scale)
     END IF
     __CANVAS_GLYPH_PINS = collections::append(__CANVAS_GLYPH_PINS, entry)
     c = c + 1
@@ -1615,8 +1608,8 @@ FUNC __canvas_runPen(shaped AS List OF Integer, scales AS List OF Float, x0 AS F
   RETURN pen
 END FUNC
 
-' Each glyph's outline comes from the file of the font its triple names -- the only
-' thing a file is fetched for -- fetched again only when the run moves to another font.
+' Each glyph's outline is read in place from the file of the font its triple names
+' (bug-1091): by handle, never through a copy of the file.
 FUNC __canvas_textEdges(t AS Text) AS List OF Float
   __CANVAS_RING_MARKS = []
   LET handles AS List OF Integer = __canvas_textHandles(t)
@@ -1625,8 +1618,6 @@ FUNC __canvas_textEdges(t AS Text) AS List OF Float
   IF NOT __canvas_runDrawable(shaped, scales) THEN
     RETURN []
   END IF
-  MUT b AS List OF Byte = []
-  MUT bFont AS Integer = 0 - 1
   MUT edges AS List OF Float = []
   MUT pen AS Float = __canvas_textX(t)
   MUT c AS Integer = 0
@@ -1635,11 +1626,7 @@ FUNC __canvas_textEdges(t AS Text) AS List OF Float
     LET which AS Integer = collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_FONT, 0)
     LET scale AS Float = collections::getOr(scales, which, 0.0)
     IF scale > 0.0 THEN
-      IF which <> bFont THEN
-        b = __canvas_fontBlob(collections::getOr(handles, which, 0))
-        bFont = which
-      END IF
-      edges = __canvas_glyphEdges(b, collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GLYPH, 0), scale, pen, __canvas_textY(t), edges)
+      edges = __canvas_glyphEdges(collections::getOr(handles, which, 0), collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GLYPH, 0), scale, pen, __canvas_textY(t), edges)
     END IF
     pen = pen + toFloat(collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_ADVANCE, 0)) * scale
     IF t.letterSpacing <> 0.0 AND collections::getOr(shaped, c * __CANVAS_RUN_STRIDE + __CANVAS_RUN_GAP, 0) = 1 THEN

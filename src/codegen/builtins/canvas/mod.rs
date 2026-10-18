@@ -1728,10 +1728,10 @@ pub(crate) fn register(r: &mut Registry) {
                       There is no number of particles at which a system stops being \
                       drawn or is drawn differently — 140,000 are drawn, at 275 \
                       milliseconds a frame. A `canvas::Polygon` emitter adds about a \
-                      tenth to the time. A `canvas::Text` shape costs far more than \
-                      any other, and by the size of its font file rather than the \
-                      length of its text: 0.4 milliseconds a particle with a 770 KB \
-                      font, so keep text particles to a few dozen. Polling the mouse \
+                      tenth to the time. A `canvas::Text` shape of two letters \
+                      costs about twice a disc, whatever the size of its font: 7 \
+                      milliseconds a frame at 1,000 particles and 53 at 10,000. \
+                      Polling the mouse \
                       costs nothing extra however many particles there are.",
         props: vec![
             RecordProp {

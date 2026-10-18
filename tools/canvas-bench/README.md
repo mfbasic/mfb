@@ -354,10 +354,19 @@ On Windows there are two rows per name pair:
 Linux has the forced-GPU row and a software row (a GTK window needs the box's
 desktop session). Without `--target` it builds the macOS bundle under two
 never-used names and launches each twice with `MFB_CANVAS_GPU=1` (Metal's
-compiled pipeline is kept per application too), then once with `0`. The window
-row does not exist there: a macOS window cannot be opened headless. On this
-Mac the first launch of a new name read 5.6 s, 7.6 s and 13.2 s (the last two
-under load) and the second 24 to 37 ms; Metal still builds on the frame path.
+compiled pipeline is kept per application too), then once with `0`, and then
+(bug-1087) a third never-used name twice in a **real window on this Mac**, with
+the default renderer and `COLDSTART_WAIT_GPU=1`, so the program keeps presenting
+until a frame is drawn by Metal. Each line also reports `firstRenderer` and
+`firstGpuFrameMs` (start to the first GPU frame; -1 for none).
+
+This Mac, 2026-10-17, load average 24 to 28:
+
+```
+window, default renderer  first  launch | firstPresentMs=10508 firstRenderer=metal    firstGpuFrameMs=10508  (before bug-1087)
+window, default renderer  first  launch | firstPresentMs=630   firstRenderer=software firstGpuFrameMs=12991  (after)
+window, default renderer  second launch | firstPresentMs=30    firstRenderer=software firstGpuFrameMs=46     (after)
+```
 
 Box 206, 2026-10-12:
 

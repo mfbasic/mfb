@@ -643,6 +643,7 @@ impl NativePlanPlatform for Platform {
             | "canvas.vulkanDrawScene"
             | "canvas.vulkanPresentScene"
             | "canvas.metalReady"
+            | "canvas.metalBuild"
             | "canvas.metalDrawScene"
             | "canvas.useGpu"
             | "canvas.surfaceWidth"

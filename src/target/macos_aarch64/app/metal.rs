@@ -54,7 +54,10 @@ use crate::codegen::error::constants::error_constants::{
 use crate::codegen::runtime::canvas::curve_shader::{
     curve_shader, ShaderLanguage, CURVE_SHADER_MARK,
 };
-use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
+use crate::codegen::runtime::canvas::metal::{
+    LIB_METAL, METAL_BUILDING, METAL_BUILD_CLAIMED, METAL_BUILD_ON_THIS_THREAD, METAL_BUILT,
+    METAL_FAILED, METAL_UNTRIED, MTL_CREATE_DEVICE,
+};
 use crate::codegen::runtime::canvas::{
     emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
     emit_square_cap_reach, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT,
@@ -62,7 +65,7 @@ use crate::codegen::runtime::canvas::{
     ITEM_OFFSET_MISC_LO, ITEM_RESIDUAL_FIELDS, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
 };
 use crate::codegen::runtime::canvas::{
-    BLEND_MODE_COUNT, EDGE_RESIDUAL_SCALE, GRAPHICS_OFFSET_MTL_DEVICE,
+    BLEND_MODE_COUNT, EDGE_RESIDUAL_SCALE, GRAPHICS_OFFSET_ATTR, GRAPHICS_OFFSET_MTL_DEVICE,
     GRAPHICS_OFFSET_MTL_ITEM_BUFFER, GRAPHICS_OFFSET_MTL_ITEM_CONTENTS,
     GRAPHICS_OFFSET_MTL_PIPELINE, GRAPHICS_OFFSET_MTL_PIPELINE_MODES, GRAPHICS_OFFSET_MTL_QUEUE,
     GRAPHICS_OFFSET_MTL_READY, GRAPHICS_OFFSET_MTL_TEXTURE, GRAPHICS_OFFSET_MTL_TEX_HEIGHT,
@@ -2452,27 +2455,48 @@ const MTL_BLEND_FACTOR_DST_COLOR: &str = "6";
 /// `didModifyRange:` per frame and `Private` could not be written from the CPU at all.
 const MTL_RESOURCE_STORAGE_MODE_SHARED: &str = "0";
 
-/// `int _mfb_macapp_metal_init(void)` — build the device, queue and pipeline once.
+/// `int _mfb_macapp_metal_init(long place)` — see that the device, queue and pipeline
+/// are built, once (`canvas::metalBuild`).
 ///
-/// Returns 1 once the pipeline exists and 0 if any step failed, and remembers which
-/// in `GRAPHICS_OFFSET_MTL_READY` so a machine with no Metal device pays the probe
-/// and the shader compile once rather than per frame. Failure is a real outcome
-/// rather than an abort: no Metal device, or an MSL compile error, must fall back to
-/// the software renderer rather than take the program down.
+/// bug-1087 (bug-996's rule, on Metal): **the pipeline is never on a frame's critical
+/// path.** macOS compiles the MSL source the first time an application name asks for
+/// it (4.7 s headless, 5.6 to 13 s in a window, for a name never run before), so
+/// `place` says where the build runs (`runtime::canvas::metal`'s `METAL_BUILD_*`):
+///
+/// * `0`: claim the build (`GRAPHICS_OFFSET_MTL_READY` from untried to building) and
+///   start it on a thread of its own ([`METAL_BUILDER_SYMBOL`]), never waited for. The
+///   frames before it finishes are software frames.
+/// * `1`: claim it and run it here, to its end: a program that asked for the GPU by
+///   name (`MFB_CANVAS_GPU`), whose first frame is then a GPU frame.
+/// * `2`: run it; the thread that started this one made the claim.
+///
+/// A word already off untried (building, built, failed) is left alone, so the build is
+/// started at most once. The builder writes the object words with plain stores and the
+/// ready word last with a store-release; `canvas::metalReady` reads it with a
+/// load-acquire and the frame reads an object word only after it has read built.
+///
+/// Returns 1 when this call left the pipeline built and 0 otherwise. Failure is a real
+/// outcome rather than an abort: no Metal device, an MSL compile error or no thread to
+/// build on leaves the word failed and every frame software.
 ///
 /// The `error:` out-parameters are passed `NULL`. That is deliberate and not
 /// laziness: an `NSError**` would have to be read, formatted and routed somewhere
-/// from the graphics thread, which has no console, and the actionable signal — "the
-/// pipeline did not build, use software" — is already the return value.
+/// from a thread that has no console, and the actionable signal — "the pipeline did
+/// not build, use software" — is already the ready word.
+///
+/// No register a C caller keeps is changed except those this frame saves, so the
+/// builder's entry can call it directly; the entry still saves the whole bank, the rule
+/// that needs no audit of this body.
 pub(super) fn emit_metal_init() -> CodeFunction {
     let mut asm = Asm::new(METAL_INIT_SYMBOL);
     let frame = 64;
     let fail = format!("{METAL_INIT_SYMBOL}_fail");
     let done = format!("{METAL_INIT_SYMBOL}_done");
     let build = format!("{METAL_INIT_SYMBOL}_build");
+    let answered = format!("{METAL_INIT_SYMBOL}_answered");
     // `LOCAL[5]` joins the saved set for plan-116-B: the four-pipeline loop needs a
     // register that survives `local_address` to hold each handle between creating it
-    // and storing it. The frame is 64 bytes and offsets 48 and 56 were spare.
+    // and storing it. Offset 56 is the builder thread's `pthread_t`.
     let saves: [(Reg, usize); 6] = [
         (abi::LOCAL[0], 8),
         (abi::LOCAL[1], 16),
@@ -2481,6 +2505,7 @@ pub(super) fn emit_metal_init() -> CodeFunction {
         (abi::LOCAL[4], 40),
         (abi::LOCAL[5], 48),
     ];
+    let thread_slot = 56;
 
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
@@ -2493,23 +2518,69 @@ pub(super) fn emit_metal_init() -> CodeFunction {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
 
-    // Already tried? Report what happened last time. `ready` is 0 = untried,
-    // 1 = built, 2 = failed, so a failed probe is remembered as a fact rather than
-    // re-derived from `pipeline == 0` (which is also what "untried" looks like).
+    // The builder thread's own entry: the claim was made for it.
+    asm.push(abi::move_register(abi::LOCAL[2], abi::c_arg(0))); // place
+    asm.push(abi::compare_immediate(abi::LOCAL[2], METAL_BUILD_CLAIMED));
+    asm.push(abi::branch_eq(&build));
+
+    // Anyone else claims it, and leaves if it is already claimed: running, built or
+    // failed. Only the graphics thread gets here, and the builder does not exist yet.
     asm.local_address(abi::LOCAL[0], GRAPHICS_STATE_SYMBOL);
-    asm.push(abi::load_u64(
-        abi::LOCAL[1],
+    asm.push(abi::add_immediate(
+        abi::LOCAL[3],
         abi::LOCAL[0],
         GRAPHICS_OFFSET_MTL_READY,
     ));
-    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::load_acquire_u64(abi::LOCAL[1], abi::LOCAL[3]));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], METAL_UNTRIED));
+    asm.push(abi::branch_ne(&answered));
+    asm.push(abi::move_immediate(
+        abi::LOCAL[1],
+        "Integer",
+        METAL_BUILDING,
+    ));
+    asm.push(abi::store_release_u64(abi::LOCAL[1], abi::LOCAL[3]));
+    asm.push(abi::compare_immediate(
+        abi::LOCAL[2],
+        METAL_BUILD_ON_THIS_THREAD,
+    ));
     asm.push(abi::branch_eq(&build));
-    // Both answers are materialized before the compare that selects between them, so
-    // nothing sits between the `cmp` and its branch. Putting a `mov` there would work
-    // today — AArch64 `movz` leaves the flags alone — but it makes the branch depend
-    // on a property of an instruction chosen elsewhere.
+
+    // pthread_create(&thread, &graphics.attr, builder, NULL): the stack the graphics
+    // thread has (8 MiB, the attribute object `canvas::startGraphics` initialised and
+    // nothing writes after), since until bug-1087 the graphics thread is where this
+    // ran and a shader compiler is not small-stack code. Then pthread_detach: nobody
+    // joins it.
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        thread_slot,
+    ));
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
+        abi::LOCAL[0],
+        GRAPHICS_OFFSET_ATTR,
+    ));
+    asm.local_address(abi::c_arg(2), METAL_BUILDER_SYMBOL);
+    asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
+    asm.call_external("_pthread_create", LIB_SYSTEM);
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_ne(&fail));
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        thread_slot,
+    ));
+    asm.call_external("_pthread_detach", LIB_SYSTEM);
+    asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
+    asm.push(abi::branch(&done));
+
+    // Already claimed: report whether it is built. Both answers are materialized before
+    // the compare that selects between them, so nothing sits between the `cmp` and its
+    // branch.
+    asm.push(abi::label(&answered));
     asm.push(abi::move_immediate(abi::c_return(0), "Integer", "1"));
-    asm.push(abi::compare_immediate(abi::LOCAL[1], "1"));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], METAL_BUILT));
     asm.push(abi::branch_eq(&done));
     asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
     asm.push(abi::branch(&done));
@@ -2723,11 +2794,9 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     asm.push(abi::branch_eq(&fail));
     asm.push(abi::move_register(abi::LOCAL[4], abi::c_arg(0))); // contents
 
-    // Publish device, queue and pipeline for the frame path, and record success.
-    // The pipeline is stored last: a frame that races this sees a non-zero pipeline
-    // only once the device and queue it needs are already there — and now the frame
-    // buffer too, which the frame path dereferences without checking for the same
-    // reason it does not check the device.
+    // Publish device, queue, pipeline and frame buffer for the frame path, then the
+    // ready word. The frame path reads none of these until it has read built (bug-1087:
+    // they are written on the builder thread when the build runs there).
     asm.local_address(abi::c_arg(1), GRAPHICS_STATE_SYMBOL);
     asm.push(abi::store_u64(
         abi::LOCAL[3],
@@ -2754,23 +2823,27 @@ pub(super) fn emit_metal_init() -> CodeFunction {
         abi::c_arg(1),
         GRAPHICS_OFFSET_MTL_PIPELINE,
     ));
-    asm.push(abi::move_immediate(abi::LOCAL[0], "Integer", "1"));
-    asm.push(abi::store_u64(
-        abi::LOCAL[0],
+    // The ready word last, with a store-release: every store above is visible to a
+    // thread that reads built with a load-acquire.
+    asm.push(abi::move_immediate(abi::LOCAL[0], "Integer", METAL_BUILT));
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
         abi::c_arg(1),
         GRAPHICS_OFFSET_MTL_READY,
     ));
+    asm.push(abi::store_release_u64(abi::LOCAL[0], abi::c_arg(1)));
     asm.push(abi::move_immediate(abi::c_return(0), "Integer", "1"));
     asm.push(abi::branch(&done));
 
     asm.push(abi::label(&fail));
     asm.local_address(abi::c_arg(1), GRAPHICS_STATE_SYMBOL);
-    asm.push(abi::move_immediate(abi::LOCAL[0], "Integer", "2"));
-    asm.push(abi::store_u64(
-        abi::LOCAL[0],
+    asm.push(abi::move_immediate(abi::LOCAL[0], "Integer", METAL_FAILED));
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
         abi::c_arg(1),
         GRAPHICS_OFFSET_MTL_READY,
     ));
+    asm.push(abi::store_release_u64(abi::LOCAL[0], abi::c_arg(1)));
     asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
 
     asm.push(abi::label(&done));
@@ -2784,6 +2857,79 @@ pub(super) fn emit_metal_init() -> CodeFunction {
     CodeFunction {
         name: "macapp.metal.init".to_string(),
         symbol: METAL_INIT_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Integer".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// The Metal builder thread's start routine (bug-1087).
+pub(super) const METAL_BUILDER_SYMBOL: &str = "_mfb_macapp_metal_builder";
+
+/// `void *_mfb_macapp_metal_builder(void *)` — the builder thread's whole life: run the
+/// build `_mfb_macapp_metal_init` claimed for it, inside an autorelease pool of its
+/// own, and return.
+///
+/// It saves the C ABI's whole callee-saved integer bank (`x19`–`x29`) and the link
+/// register, the rule bug-996's Vulkan builder entry follows: the thread library is the
+/// caller, and the build is hand-written code that stages values in the scratch pool,
+/// whose high indices are callee-saved registers. The build uses no floating-point
+/// register. The pool is the thread's: a pthread has none, and the build's
+/// descriptor and string objects are autoreleased.
+///
+/// It pins no arena state and allocates nothing from an arena (`.ai/canvas-threading.md`
+/// §2): what it hands over is the graphics state's words.
+pub(super) fn emit_metal_builder() -> CodeFunction {
+    let mut asm = Asm::new(METAL_BUILDER_SYMBOL);
+    let kept = crate::arch::aarch64::regmodel::aapcs64_callee_saved_int_registers();
+    // lr, the eleven kept registers, the pool token: 13 words, rounded to 16 bytes.
+    let pool_slot = 8 * (1 + kept.len());
+    let frame = (pool_slot + 8).div_ceil(16) * 16;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    for (index, reg) in kept.iter().enumerate() {
+        asm.push(abi::store_u64(*reg, abi::stack_pointer(), 8 * (1 + index)));
+    }
+    asm.call_external("_objc_autoreleasePoolPush", LIB_OBJC);
+    asm.push(abi::store_u64(
+        abi::c_return(0),
+        abi::stack_pointer(),
+        pool_slot,
+    ));
+    asm.push(abi::move_immediate(
+        abi::c_arg(0),
+        "Integer",
+        METAL_BUILD_CLAIMED,
+    ));
+    asm.call_internal(METAL_INIT_SYMBOL);
+    asm.push(abi::load_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        pool_slot,
+    ));
+    asm.call_external("_objc_autoreleasePoolPop", LIB_OBJC);
+    asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (index, reg) in kept.iter().enumerate() {
+        asm.push(abi::load_u64(*reg, abi::stack_pointer(), 8 * (1 + index)));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.metal.builder".to_string(),
+        symbol: METAL_BUILDER_SYMBOL.to_string(),
         params: Vec::new(),
         returns: "Integer".to_string(),
         frame: CodeFrame {

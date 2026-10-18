@@ -202,6 +202,16 @@ impl RegisterModel for Aarch64RegisterModel {
     }
 }
 
+/// The AAPCS64 callee-saved integer bank with the frame pointer, `x19`–`x29`, in
+/// save-slot order: every register a hand-written thread start routine that runs
+/// hand-staged code owes the thread library (bug-1087, the canvas Metal builder's
+/// entry; the AArch64 twin of the x86-64 model's `sysv_nonvolatile_int_registers`).
+pub(crate) fn aapcs64_callee_saved_int_registers() -> Vec<crate::target::shared::abi::Reg> {
+    (19..=29)
+        .map(|n| crate::target::shared::abi::Reg::physical(&format!("x{n}")))
+        .collect()
+}
+
 /// Whether `reg` is a callee-saved FP register (`d8`–`d15`; the low 64 bits are
 /// callee-saved by the AArch64 PCS, §4.5/§4.6).
 pub(crate) fn is_fp_callee_saved(reg: &str) -> bool {

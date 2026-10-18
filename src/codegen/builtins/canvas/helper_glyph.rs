@@ -32,29 +32,29 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// "this glyph has no outline", which is exactly what a space is.
 #[rustfmt::skip]
 const GLYPH_LOCA: &str =
-r#"FUNC __canvas_locFormat(b AS List OF Byte) AS Integer
-  LET head AS Integer = __canvas_fontTable(b, "head")
+r#"FUNC __canvas_locFormat(font AS Integer) AS Integer
+  LET head AS Integer = __canvas_fontTableOf(font, "head")
   IF head < 0 THEN
     RETURN 0
   END IF
-  RETURN __canvas_beU16(b, head + 50)
+  RETURN __canvas_fontU16(font, head + 50)
 END FUNC
 
-FUNC __canvas_locaAt(b AS List OF Byte, loca AS Integer, index AS Integer) AS Integer
-  IF __canvas_locFormat(b) = 0 THEN
-    RETURN __canvas_beU16(b, loca + index * 2) * 2
+FUNC __canvas_locaAt(font AS Integer, loca AS Integer, index AS Integer) AS Integer
+  IF __canvas_locFormat(font) = 0 THEN
+    RETURN __canvas_fontU16(font, loca + index * 2) * 2
   END IF
-  RETURN __canvas_beU32(b, loca + index * 4)
+  RETURN __canvas_fontU32(font, loca + index * 4)
 END FUNC
 
-FUNC __canvas_glyphStart(b AS List OF Byte, gid AS Integer) AS Integer
-  LET loca AS Integer = __canvas_fontTable(b, "loca")
-  LET glyf AS Integer = __canvas_fontTable(b, "glyf")
+FUNC __canvas_glyphStart(font AS Integer, gid AS Integer) AS Integer
+  LET loca AS Integer = __canvas_fontTableOf(font, "loca")
+  LET glyf AS Integer = __canvas_fontTableOf(font, "glyf")
   IF loca < 0 OR glyf < 0 THEN
     RETURN 0 - 1
   END IF
-  LET from AS Integer = __canvas_locaAt(b, loca, gid)
-  LET stop AS Integer = __canvas_locaAt(b, loca, gid + 1)
+  LET from AS Integer = __canvas_locaAt(font, loca, gid)
+  LET stop AS Integer = __canvas_locaAt(font, loca, gid + 1)
   IF stop <= from THEN
     RETURN 0 - 1
   END IF
@@ -72,15 +72,15 @@ END FUNC"#;
 /// coordinates start wherever the flags stopped and MFBASIC returns one value.
 #[rustfmt::skip]
 const GLYPH_FLAGS: &str =
-r#"FUNC __canvas_glyphFlags(b AS List OF Byte, at AS Integer, points AS Integer) AS List OF Integer
+r#"FUNC __canvas_glyphFlags(font AS Integer, at AS Integer, points AS Integer) AS List OF Integer
   MUT flags AS List OF Integer = []
   MUT cursor AS Integer = at
   WHILE len(flags) < points
-    LET f AS Integer = __canvas_beU8(b, cursor)
+    LET f AS Integer = __canvas_fontU8(font, cursor)
     cursor = cursor + 1
     flags = collections::append(flags, f)
     IF (f / 8) MOD 2 = 1 THEN
-      MUT repeat AS Integer = __canvas_beU8(b, cursor)
+      MUT repeat AS Integer = __canvas_fontU8(font, cursor)
       cursor = cursor + 1
       WHILE repeat > 0 AND len(flags) < points
         flags = collections::append(flags, f)
@@ -99,7 +99,7 @@ END FUNC"#;
 /// case is why a naive two-case reader drifts: it consumes bytes that were never there.
 #[rustfmt::skip]
 const GLYPH_COORDS: &str =
-r#"FUNC __canvas_glyphCoords(b AS List OF Byte, at AS Integer, flags AS List OF Integer, points AS Integer, shortBit AS Integer, sameBit AS Integer) AS List OF Integer
+r#"FUNC __canvas_glyphCoords(font AS Integer, at AS Integer, flags AS List OF Integer, points AS Integer, shortBit AS Integer, sameBit AS Integer) AS List OF Integer
   MUT out AS List OF Integer = []
   MUT cursor AS Integer = at
   MUT value AS Integer = 0
@@ -109,7 +109,7 @@ r#"FUNC __canvas_glyphCoords(b AS List OF Byte, at AS Integer, flags AS List OF 
     LET isShort AS Boolean = (f / shortBit) MOD 2 = 1
     LET isSame AS Boolean = (f / sameBit) MOD 2 = 1
     IF isShort THEN
-      LET d AS Integer = __canvas_beU8(b, cursor)
+      LET d AS Integer = __canvas_fontU8(font, cursor)
       cursor = cursor + 1
       IF isSame THEN
         value = value + d
@@ -118,7 +118,7 @@ r#"FUNC __canvas_glyphCoords(b AS List OF Byte, at AS Integer, flags AS List OF 
       END IF
     ELSE
       IF NOT isSame THEN
-        value = value + __canvas_beS16(b, cursor)
+        value = value + __canvas_fontS16(font, cursor)
         cursor = cursor + 2
       END IF
     END IF
@@ -154,35 +154,35 @@ r#"LET __CANVAS_GLYPH_STEPS AS Integer = 6
 MUT __CANVAS_RING_MARKING AS Boolean = FALSE
 MUT __CANVAS_RING_MARKS AS List OF Integer = []
 
-FUNC __canvas_glyphEdges(b AS List OF Byte, gid AS Integer, scale AS Float, penX AS Float, penY AS Float, edges AS List OF Float) AS List OF Float
+FUNC __canvas_glyphEdges(font AS Integer, gid AS Integer, scale AS Float, penX AS Float, penY AS Float, edges AS List OF Float) AS List OF Float
   MUT out AS List OF Float = edges
-  LET start AS Integer = __canvas_glyphStart(b, gid)
+  LET start AS Integer = __canvas_glyphStart(font, gid)
   IF start < 0 THEN
     RETURN out
   END IF
-  LET contours AS Integer = __canvas_beS16(b, start)
+  LET contours AS Integer = __canvas_fontS16(font, start)
   IF contours < 0 THEN
     ' bug-757: a composite glyph (numberOfContours < 0) is a list of placed
     ' components. The simple path below stays byte-for-byte as it was; a composite
     ' walks its components through the affine reader instead.
-    RETURN __canvas_compositeEdges(b, start, scale, 0.0, penX, 0.0, 0.0 - scale, penY, out, 0)
+    RETURN __canvas_compositeEdges(font, start, scale, 0.0, penX, 0.0, 0.0 - scale, penY, out, 0)
   END IF
   IF contours = 0 THEN
     RETURN out
   END IF
   LET endsAt AS Integer = start + 10
-  LET points AS Integer = __canvas_beU16(b, endsAt + (contours - 1) * 2) + 1
-  LET instructions AS Integer = __canvas_beU16(b, endsAt + contours * 2)
+  LET points AS Integer = __canvas_fontU16(font, endsAt + (contours - 1) * 2) + 1
+  LET instructions AS Integer = __canvas_fontU16(font, endsAt + contours * 2)
   LET flagsAt AS Integer = endsAt + contours * 2 + 2 + instructions
-  LET flags AS List OF Integer = __canvas_glyphFlags(b, flagsAt, points)
+  LET flags AS List OF Integer = __canvas_glyphFlags(font, flagsAt, points)
   LET xsAt AS Integer = collections::getOr(flags, points, 0)
-  LET xs AS List OF Integer = __canvas_glyphCoords(b, xsAt, flags, points, 2, 16)
+  LET xs AS List OF Integer = __canvas_glyphCoords(font, xsAt, flags, points, 2, 16)
   LET ysAt AS Integer = collections::getOr(xs, points, 0)
-  LET ys AS List OF Integer = __canvas_glyphCoords(b, ysAt, flags, points, 4, 32)
+  LET ys AS List OF Integer = __canvas_glyphCoords(font, ysAt, flags, points, 4, 32)
   MUT contour AS Integer = 0
   MUT from AS Integer = 0
   WHILE contour < contours
-    LET last AS Integer = __canvas_beU16(b, endsAt + contour * 2)
+    LET last AS Integer = __canvas_fontU16(font, endsAt + contour * 2)
     out = __canvas_contourEdges(flags, xs, ys, from, last, scale, penX, penY, out)
     from = last + 1
     contour = contour + 1
@@ -211,23 +211,23 @@ END FUNC"#;
 const COMPOSITE_EDGES: &str =
 r#"LET __CANVAS_COMPOSITE_DEPTH AS Integer = 8
 
-FUNC __canvas_beS8(b AS List OF Byte, off AS Integer) AS Integer
-  LET v AS Integer = __canvas_beU8(b, off)
+FUNC __canvas_fontS8(font AS Integer, off AS Integer) AS Integer
+  LET v AS Integer = __canvas_fontU8(font, off)
   IF v >= 128 THEN
     RETURN v - 256
   END IF
   RETURN v
 END FUNC
 
-FUNC __canvas_f2dot14(b AS List OF Byte, off AS Integer) AS Float
-  RETURN toFloat(__canvas_beS16(b, off)) / 16384.0
+FUNC __canvas_f2dot14(font AS Integer, off AS Integer) AS Float
+  RETURN toFloat(__canvas_fontS16(font, off)) / 16384.0
 END FUNC
 
 FUNC __canvas_bit(value AS Integer, mask AS Integer) AS Boolean
   RETURN (value / mask) MOD 2 = 1
 END FUNC
 
-FUNC __canvas_compositeEdges(b AS List OF Byte, start AS Integer, a AS Float, bb AS Float, e AS Float, c AS Float, d AS Float, f AS Float, edges AS List OF Float, depth AS Integer) AS List OF Float
+FUNC __canvas_compositeEdges(font AS Integer, start AS Integer, a AS Float, bb AS Float, e AS Float, c AS Float, d AS Float, f AS Float, edges AS List OF Float, depth AS Integer) AS List OF Float
   MUT out AS List OF Float = edges
   IF depth >= __CANVAS_COMPOSITE_DEPTH THEN
     RETURN out
@@ -235,21 +235,21 @@ FUNC __canvas_compositeEdges(b AS List OF Byte, start AS Integer, a AS Float, bb
   MUT cursor AS Integer = start + 10
   MUT more AS Boolean = TRUE
   WHILE more
-    LET flags AS Integer = __canvas_beU16(b, cursor)
-    LET gid AS Integer = __canvas_beU16(b, cursor + 2)
+    LET flags AS Integer = __canvas_fontU16(font, cursor)
+    LET gid AS Integer = __canvas_fontU16(font, cursor + 2)
     cursor = cursor + 4
     MUT dx AS Float = 0.0
     MUT dy AS Float = 0.0
     IF __canvas_bit(flags, 1) THEN
       IF __canvas_bit(flags, 2) THEN
-        dx = toFloat(__canvas_beS16(b, cursor))
-        dy = toFloat(__canvas_beS16(b, cursor + 2))
+        dx = toFloat(__canvas_fontS16(font, cursor))
+        dy = toFloat(__canvas_fontS16(font, cursor + 2))
       END IF
       cursor = cursor + 4
     ELSE
       IF __canvas_bit(flags, 2) THEN
-        dx = toFloat(__canvas_beS8(b, cursor))
-        dy = toFloat(__canvas_beS8(b, cursor + 1))
+        dx = toFloat(__canvas_fontS8(font, cursor))
+        dy = toFloat(__canvas_fontS8(font, cursor + 1))
       END IF
       cursor = cursor + 2
     END IF
@@ -258,20 +258,20 @@ FUNC __canvas_compositeEdges(b AS List OF Byte, start AS Integer, a AS Float, bb
     MUT xy AS Float = 0.0
     MUT yy AS Float = 1.0
     IF __canvas_bit(flags, 8) THEN
-      xx = __canvas_f2dot14(b, cursor)
+      xx = __canvas_f2dot14(font, cursor)
       yy = xx
       cursor = cursor + 2
     ELSE
       IF __canvas_bit(flags, 64) THEN
-        xx = __canvas_f2dot14(b, cursor)
-        yy = __canvas_f2dot14(b, cursor + 2)
+        xx = __canvas_f2dot14(font, cursor)
+        yy = __canvas_f2dot14(font, cursor + 2)
         cursor = cursor + 4
       ELSE
         IF __canvas_bit(flags, 128) THEN
-          xx = __canvas_f2dot14(b, cursor)
-          yx = __canvas_f2dot14(b, cursor + 2)
-          xy = __canvas_f2dot14(b, cursor + 4)
-          yy = __canvas_f2dot14(b, cursor + 6)
+          xx = __canvas_f2dot14(font, cursor)
+          yx = __canvas_f2dot14(font, cursor + 2)
+          xy = __canvas_f2dot14(font, cursor + 4)
+          yy = __canvas_f2dot14(font, cursor + 6)
           cursor = cursor + 8
         END IF
       END IF
@@ -289,34 +289,34 @@ FUNC __canvas_compositeEdges(b AS List OF Byte, start AS Integer, a AS Float, bb
     LET nd AS Float = bb * xy + d * yy
     LET ne AS Float = a * dx + c * dy + e
     LET nf AS Float = bb * dx + d * dy + f
-    out = __canvas_affineGlyphEdges(b, gid, na, nb, nc, nd, ne, nf, out, depth + 1)
+    out = __canvas_affineGlyphEdges(font, gid, na, nb, nc, nd, ne, nf, out, depth + 1)
     more = __canvas_bit(flags, 32)
   END WHILE
   RETURN out
 END FUNC
 
-FUNC __canvas_affineGlyphEdges(b AS List OF Byte, gid AS Integer, a AS Float, bb AS Float, c AS Float, d AS Float, e AS Float, f AS Float, edges AS List OF Float, depth AS Integer) AS List OF Float
+FUNC __canvas_affineGlyphEdges(font AS Integer, gid AS Integer, a AS Float, bb AS Float, c AS Float, d AS Float, e AS Float, f AS Float, edges AS List OF Float, depth AS Integer) AS List OF Float
   MUT out AS List OF Float = edges
-  LET start AS Integer = __canvas_glyphStart(b, gid)
+  LET start AS Integer = __canvas_glyphStart(font, gid)
   IF start < 0 THEN
     RETURN out
   END IF
-  LET contours AS Integer = __canvas_beS16(b, start)
+  LET contours AS Integer = __canvas_fontS16(font, start)
   IF contours < 0 THEN
-    RETURN __canvas_compositeEdges(b, start, a, bb, e, c, d, f, out, depth)
+    RETURN __canvas_compositeEdges(font, start, a, bb, e, c, d, f, out, depth)
   END IF
   IF contours = 0 THEN
     RETURN out
   END IF
   LET endsAt AS Integer = start + 10
-  LET points AS Integer = __canvas_beU16(b, endsAt + (contours - 1) * 2) + 1
-  LET instructions AS Integer = __canvas_beU16(b, endsAt + contours * 2)
+  LET points AS Integer = __canvas_fontU16(font, endsAt + (contours - 1) * 2) + 1
+  LET instructions AS Integer = __canvas_fontU16(font, endsAt + contours * 2)
   LET flagsAt AS Integer = endsAt + contours * 2 + 2 + instructions
-  LET flags AS List OF Integer = __canvas_glyphFlags(b, flagsAt, points)
+  LET flags AS List OF Integer = __canvas_glyphFlags(font, flagsAt, points)
   LET xsAt AS Integer = collections::getOr(flags, points, 0)
-  LET xs AS List OF Integer = __canvas_glyphCoords(b, xsAt, flags, points, 2, 16)
+  LET xs AS List OF Integer = __canvas_glyphCoords(font, xsAt, flags, points, 2, 16)
   LET ysAt AS Integer = collections::getOr(xs, points, 0)
-  LET ys AS List OF Integer = __canvas_glyphCoords(b, ysAt, flags, points, 4, 32)
+  LET ys AS List OF Integer = __canvas_glyphCoords(font, ysAt, flags, points, 4, 32)
   ' Map every point once, so the contour walk reads surface coordinates.
   MUT px AS List OF Float = []
   MUT py AS List OF Float = []
@@ -331,7 +331,7 @@ FUNC __canvas_affineGlyphEdges(b AS List OF Byte, gid AS Integer, a AS Float, bb
   MUT contour AS Integer = 0
   MUT from AS Integer = 0
   WHILE contour < contours
-    LET last AS Integer = __canvas_beU16(b, endsAt + contour * 2)
+    LET last AS Integer = __canvas_fontU16(font, endsAt + contour * 2)
     out = __canvas_contourEdgesMapped(flags, px, py, from, last, out)
     from = last + 1
     contour = contour + 1

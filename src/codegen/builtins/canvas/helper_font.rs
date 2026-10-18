@@ -15,7 +15,8 @@
 //! needs — metrics, `cmap`, advances — once, at load (`__canvas_faceIndex`), and text
 //! code reads it a word at a time through `canvas::faceAt`. The byte readers below are
 //! what builds the index; outlines (`helper_glyph.rs`) are the one per-glyph read that
-//! still needs the file.
+//! still needs the file, and they read it in place by handle through `canvas::fontByte`
+//! (`FONT_HANDLE_READ`, bug-1091).
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
@@ -46,6 +47,63 @@ END FUNC
 
 FUNC __canvas_beU32(b AS List OF Byte, off AS Integer) AS Integer
   RETURN __canvas_beU16(b, off) * 65536 + __canvas_beU16(b, off + 2)
+END FUNC"#;
+
+/// The same big-endian readers over a font **handle**: every byte through
+/// `canvas::fontByte`, which reads the published file in place (bug-1091).
+///
+/// These are what the outline readers (`helper_glyph.rs`) use, so a geometry build reads
+/// the bytes of `loca` and `glyf` it needs instead of an owned copy of the whole file.
+/// A handle with no published font reads `0` everywhere — the answer the byte readers
+/// gave for the empty file `__canvas_fontBlob` handed them — so a font released mid-build
+/// draws nothing rather than reading a file the program has finished with.
+#[rustfmt::skip]
+const FONT_HANDLE_READ: &str =
+r#"FUNC __canvas_fontU8(font AS Integer, off AS Integer) AS Integer
+  RETURN canvas::fontByte(font, off)
+END FUNC
+
+FUNC __canvas_fontU16(font AS Integer, off AS Integer) AS Integer
+  RETURN canvas::fontByte(font, off) * 256 + canvas::fontByte(font, off + 1)
+END FUNC
+
+FUNC __canvas_fontS16(font AS Integer, off AS Integer) AS Integer
+  LET v AS Integer = __canvas_fontU16(font, off)
+  IF v >= 32768 THEN
+    RETURN v - 65536
+  END IF
+  RETURN v
+END FUNC
+
+FUNC __canvas_fontU32(font AS Integer, off AS Integer) AS Integer
+  RETURN __canvas_fontU16(font, off) * 65536 + __canvas_fontU16(font, off + 2)
+END FUNC
+
+' `__canvas_fontTable` over a handle: the directory at `0`, since a loaded font is
+' always a standalone face.
+FUNC __canvas_fontTableOf(font AS Integer, tag AS String) AS Integer
+  LET numTables AS Integer = __canvas_fontU16(font, 4)
+  LET size AS Integer = canvas::fontLength(font)
+  LET want AS List OF Integer = encoding::utf32Encode(tag)
+  MUT i AS Integer = 0
+  WHILE i < numTables
+    LET rec AS Integer = 12 + i * 16
+    IF rec + 16 <= size THEN
+      MUT same AS Boolean = TRUE
+      MUT k AS Integer = 0
+      WHILE k < 4
+        IF __canvas_fontU8(font, rec + k) <> collections::getOr(want, k, 0) THEN
+          same = FALSE
+        END IF
+        k = k + 1
+      END WHILE
+      IF same THEN
+        RETURN __canvas_fontU32(font, rec + 8)
+      END IF
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN 0 - 1
 END FUNC"#;
 
 /// The table directory: find a table by its four-character tag.
@@ -955,6 +1013,10 @@ END FUNC"#;
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("canvas_shapeRun", SHAPE_RUN));
     pkg.add_helper(RegistryHelper::always("canvas_fontBytes", FONT_BYTES_READ));
+    pkg.add_helper(RegistryHelper::always(
+        "canvas_fontHandleRead",
+        FONT_HANDLE_READ,
+    ));
     pkg.add_helper(RegistryHelper::always("canvas_fontTable", FONT_TABLE));
     pkg.add_helper(RegistryHelper::always("canvas_fontMetrics", FONT_METRICS));
     pkg.add_helper(RegistryHelper::always("canvas_fontCmap", FONT_CMAP));

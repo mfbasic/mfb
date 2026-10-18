@@ -85,7 +85,7 @@ END FUNC"#;
 /// do either.
 #[rustfmt::skip]
 const GLYPH_CACHE_BUILD: &str =
-r#"FUNC __canvas_glyphEntry(b AS List OF Byte, fontId AS Integer, gid AS Integer, size AS Float, scale AS Float) AS Integer
+r#"FUNC __canvas_glyphEntry(fontId AS Integer, gid AS Integer, size AS Float, scale AS Float) AS Integer
   LET sizeQ AS Integer = __canvas_sizeQ(size)
   LET key AS Integer = __canvas_glyphKey(fontId, sizeQ, gid)
   MUT i AS Integer = 0
@@ -114,7 +114,7 @@ r#"FUNC __canvas_glyphEntry(b AS List OF Byte, fontId AS Integer, gid AS Integer
   END IF
 
   ' Flatten at the origin: the pen offset is applied when the bitmap is blitted.
-  LET edges AS List OF Float = __canvas_glyphEdges(b, gid, scale, 0.0, 0.0, [])
+  LET edges AS List OF Float = __canvas_glyphEdges(fontId, gid, scale, 0.0, 0.0, [])
   LET count AS Integer = len(edges) / 5
   MUT x0 AS Integer = 0
   MUT y0 AS Integer = 0

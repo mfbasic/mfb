@@ -521,7 +521,7 @@ renderer is chosen. The choice is a runtime branch, not a build-time one, becaus
 every input to it is a runtime fact:
 
 ```
-IF canvas::useGpu() AND canvas::metalReady() THEN
+IF canvas::useGpu() AND __canvas_metalReady() THEN
   IF __canvas_renderMetal() THEN RETURN
 END IF
 __canvas_renderScene()
@@ -533,10 +533,12 @@ __canvas_renderScene()
   and must stay so**: it is the oracle the GPU backends are measured against, so it
   cannot become the thing being measured. What is settled once is the ASKING; which
   renderer draws a given frame is decided per frame by the other two conditions.
-* `canvas::metalReady` — did a pipeline build? It runs `_mfb_macapp_metal_init` on
-  first call and remembers the answer in `GRAPHICS_OFFSET_MTL_READY` as a tri-state
-  (untried / built / failed), so a host with no Metal device pays the device probe and
-  the MSL compile once, not per frame.
+* `__canvas_metalReady` — is a pipeline built yet? Its first call starts the build
+  (`canvas::metalBuild`: on a thread of its own, or on this one when `MFB_CANVAS_GPU`
+  is set); every call answers `canvas::metalReady`, one load of
+  `GRAPHICS_OFFSET_MTL_READY` (untried / built / failed / building, bug-1087 — §10.1's
+  rule), so a host with no Metal device pays the device probe and the MSL compile once,
+  off the frame path, and draws software meanwhile.
 * `__canvas_renderMetal` returning FALSE — is this *scene* one the GPU shader
   reproduces? It declines rather than draws wrongly. A backend that rendered a circle
   as its bounding box would still report success, and that is the failure mode this
@@ -554,8 +556,10 @@ __canvas_renderScene()
 Three consequences for anything added here later:
 
 * **The Metal objects live in the graphics-state block**, not in the app module's own
-  storage, for the reason in §2: the graphics thread creates them and is the only
-  thread that may touch them, and the arena is per-thread. `GRAPHICS_OFFSET_MTL_*`.
+  storage, for the reason in §2: the arena is per-thread, and a process-global word is
+  the only place the builder thread can leave them and the graphics thread find them.
+  After the ready word says built, only the graphics thread touches them.
+  `GRAPHICS_OFFSET_MTL_*`.
 * **The frame is rendered offscreen.** Where it goes next depends on who needs its
   pixels (bug-686 Phase 4). In a real window Metal GPU-copies it into the canvas view's
   `CAMetalLayer` sublayer's next drawable and presents it (`canvas::metalPresentScene`):
@@ -654,10 +658,19 @@ What to remember when touching it:
   every resize, and it compiles nothing: on box 206 the first GPU frame of a window,
   which creates the render target, the surface and the swapchain, took 24 to 29 ms
   against 2 to 3 ms for the frames around it.
-* **Metal has the same shape and is not fixed.** `canvas::metalReady` still builds the
-  pipeline on the graphics thread at the first GPU frame, and macOS keeps the compiled
-  form per application: 5.6 to 13 s on the first launch of an app name never run before
-  on this Mac, 24 to 83 ms on the second (`tools/canvas-bench/bench.sh <mfb> coldstart`).
+* **Metal has the same shape, and since bug-1087 the same rule.** macOS keeps the
+  compiled pipeline per application: 10 to 14 s on the first launch of an app name never
+  run before on this Mac, 24 to 83 ms on the second (`tools/canvas-bench/bench.sh <mfb>
+  coldstart`). `canvas::metalReady()` is one load-acquire of `GRAPHICS_OFFSET_MTL_READY`
+  (the same four states); `canvas::metalBuild(place)` is `_mfb_macapp_metal_init`, which
+  claims the word and starts `_mfb_macapp_metal_builder` (detached, the graphics
+  thread's 8 MiB attribute object, its own autorelease pool, the whole callee-saved bank
+  saved) or, with `MFB_CANVAS_GPU` set, builds on the graphics thread. The builder
+  writes device, queue, pipelines and the frame buffer with plain stores and the word
+  last with a store-release; `_mfb_macapp_metal_layer_apply` reads `MTL_DEVICE` only
+  from a GPU frame, so only after built. The ncode test is
+  `tests/codegen/codegen_canvas_metal_off_frame_path.rs`; the window row of `coldstart`
+  shows the software-then-Metal switch (a headless run cannot reach it, as below).
 * **A headless run cannot reach the on-a-thread build.** Headless is software unless
   `MFB_CANVAS_GPU` is set, and a set variable builds on the graphics thread. The
   software-then-GPU switch is a real window's to prove (box 206, `schtasks /it`); the

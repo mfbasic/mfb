@@ -65,3 +65,82 @@ pub(crate) fn emit_metal_available(
     instructions.push(abi::label(&done));
     Ok(())
 }
+
+/// Whether the target has a Metal renderer: macOS, the one target whose
+/// `emit_metal_init` hook is implemented.
+pub(crate) fn has_metal_backend(platform: &dyn CodegenPlatform) -> bool {
+    platform.family() == PlatformFamily::MacOS
+}
+
+/// bug-1087: `GRAPHICS_OFFSET_MTL_READY`'s states. The encoding is bug-996's Vulkan
+/// word's (`vulkan_handoff`), and so is the rule it carries: the Metal pipeline is never
+/// on a frame's critical path.
+///
+/// | value | meaning | written by |
+/// |---|---|---|
+/// | [`METAL_UNTRIED`] | nobody has asked for a GPU frame yet | the linker (zero) |
+/// | [`METAL_BUILDING`] | the build has been claimed and is running | the graphics thread, once |
+/// | [`METAL_BUILT`] | the device, queue, pipelines and frame buffer exist | the building thread, as its last store |
+/// | [`METAL_FAILED`] | no Metal here; software forever | the building thread, or the graphics thread when no thread could be started |
+///
+/// Only the graphics thread moves the word off `UNTRIED`, and before the builder thread
+/// exists, so there is one builder at most and no compare-and-swap. The builder writes
+/// every object word with plain stores and the ready word last, with a store-release;
+/// the graphics thread reads the ready word with a load-acquire, and an object word only
+/// after it has read `BUILT`.
+pub(crate) const METAL_UNTRIED: &str = "0";
+pub(crate) const METAL_BUILT: &str = "1";
+pub(crate) const METAL_FAILED: &str = "2";
+pub(crate) const METAL_BUILDING: &str = "3";
+
+/// `canvas::metalBuild`'s argument (and `_mfb_macapp_metal_init`'s): start the build on
+/// a thread of its own unless it has been started already.
+///
+/// Test-only as a name: the member compares against the two values below and treats
+/// every other as this one, so nothing emitted spells it. The render loop does, as a
+/// literal (`__canvas_metalReady`), and
+/// `the_render_loop_starts_the_metal_build_where_the_handoff_says` holds that literal
+/// to this.
+#[cfg(test)]
+pub(crate) const METAL_BUILD_ON_ITS_OWN_THREAD: &str = "0";
+/// Run the build on the calling thread, to its end, unless it has been started already:
+/// a program that asked for the GPU by name (`MFB_CANVAS_GPU`).
+pub(crate) const METAL_BUILD_ON_THIS_THREAD: &str = "1";
+/// Run the build: the claim was made by the thread that started this one. Only the
+/// builder thread's entry (`_mfb_macapp_metal_builder`) passes it.
+pub(crate) const METAL_BUILD_CLAIMED: &str = "2";
+
+/// `canvas::metalReady() AS Boolean` — is the Metal pipeline built, now?
+///
+/// bug-1087: one load-acquire and a compare. It starts nothing and waits for nothing,
+/// so the render branch asks it every frame and a `--debug` stats line asks it too. A
+/// target with no Metal backend answers FALSE.
+pub(crate) fn emit_metal_is_ready(
+    symbol: &str,
+    platform: &dyn CodegenPlatform,
+    state: abi::Reg,
+    value: abi::Reg,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    if !has_metal_backend(platform) {
+        instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+        return;
+    }
+    let built = format!("{symbol}_mtl_built");
+    let done = format!("{symbol}_mtl_answered");
+    super::state_base(symbol, state, instructions, relocations);
+    instructions.push(abi::add_immediate(
+        value,
+        state,
+        super::GRAPHICS_OFFSET_MTL_READY,
+    ));
+    instructions.push(abi::load_acquire_u64(value, value));
+    instructions.push(abi::compare_immediate(value, METAL_BUILT));
+    instructions.push(abi::branch_eq(&built));
+    instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+    instructions.push(abi::branch(&done));
+    instructions.push(abi::label(&built));
+    instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"));
+    instructions.push(abi::label(&done));
+}
