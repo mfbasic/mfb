@@ -1,0 +1,48 @@
+{
+  "project": "crypto_open_sealed_aad_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 },
+    { "module": "crypto", "line": 6 },
+    { "module": "strings", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "k", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.randomBytes", "arguments": [{ "kind": "number", "value": "32" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "n", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.randomBytes", "arguments": [{ "kind": "number", "value": "12" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "aad", "type": "List OF Byte", "value": { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "hdr" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "box", "type": "crypto.Sealed", "value": { "kind": "call", "callee": "crypto.seal", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "identifier", "value": "k" }, { "kind": "identifier", "value": "n" }, { "kind": "string", "value": "hi" }, { "kind": "identifier", "value": "aad" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "clear", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.open", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "identifier", "value": "k" }, { "kind": "identifier", "value": "n" }, { "kind": "identifier", "value": "box" }, { "kind": "identifier", "value": "aad" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "clear" }] }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "plain", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.open", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "identifier", "value": "k" }, { "kind": "identifier", "value": "n" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "box" }, "member": "ciphertext" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "box" }, "member": "tag" }, { "kind": "identifier", "value": "aad" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "plain" }] }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "box2", "type": "crypto.Sealed", "value": { "kind": "call", "callee": "crypto.seal", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "identifier", "value": "k" }, { "kind": "identifier", "value": "n" }, { "kind": "string", "value": "yo" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.open", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "identifier", "value": "k" }, { "kind": "identifier", "value": "n" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "box2" }, "member": "ciphertext" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "box2" }, "member": "tag" }] }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.open", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "identifier", "value": "k" }, { "kind": "identifier", "value": "n" }, { "kind": "identifier", "value": "box2" }] }] }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "bad", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 21,
+        "expression": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.open", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "crypto.SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "identifier", "value": "k" }, { "kind": "identifier", "value": "n" }, { "kind": "identifier", "value": "box" }, { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "x" }] }] }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "RAISED " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }, "line": 22 }
+        ]
+      }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "bad" }] }, "line": 24 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -4224,47 +4224,35 @@ pub(crate) fn call_param_name_overloads(qualified: &str) -> Option<Vec<Vec<&'sta
     )
 }
 
-/// The `(type, expr)` constants to append after `provided` real arguments so a
+/// The `(type, expr)` constants to append after the call's real arguments so a
 /// migrated call's injected body receives its full arity — the `Fill` params past
-/// `provided`. Empty when no migrated package owns `qualified`.
+/// the ones provided. Empty when no migrated package owns `qualified`.
+///
+/// The defaults appended are those of the overload the call RESOLVES to, decided
+/// by every provided argument's type (`arg_types`, one per argument written; an
+/// argument whose type is not known is [`ParameterType::Unknown`], which any
+/// parameter accepts): the same selection the resolver makes — strict first, then
+/// lenient dispatch. Two overloads can agree on the first arguments and still
+/// differ in what they default (`crypto::open`'s ciphertext/tag form and its
+/// `Sealed` form both take an optional trailing `aad`, at different positions).
+/// A call no overload accepts is padded with nothing, so the checker reports the
+/// call as written, at its own span.
 pub(crate) fn default_argument_padding(
     qualified: &str,
-    provided: usize,
-    first_argument: Option<&ParameterType>,
+    arg_types: &[ParameterType],
 ) -> Vec<(ParameterType, &'static str)> {
     let Some(resolved) = registry().resolve_func(qualified) else {
         return Vec::new();
     };
-    let implementations = &resolved.function.implementations;
-    // Which overload the call matched decides how many trailing `Fill` params it
-    // is missing, and of what type. Taking `implementations.first()` is only
-    // right for a single-implementation member: on an overloaded one (plan-110-D
-    // gave `tls::connect` a `net::Address` form beside its host/port form) it
-    // pads an Address call up to the host form's arity, producing a call with
-    // one argument too many that fails type checking. Select by the first
-    // argument's type when the caller can supply it, and require the overload to
-    // actually have room for the arguments already provided.
-    //
-    // Selection is by SPELLED NAME, not `leaf_matches`: the lenient matcher
-    // answers `true` for a scalar pattern against a nominal concrete (that
-    // coarseness is load-bearing for container-arg overload dispatch), so it
-    // would accept the host form's `String` for an `Address` argument and pick
-    // the wrong padding. A name comparison is exactly the question being asked.
-    let implementation = implementations
-        .iter()
-        .filter(|implementation| implementation.params.len() >= provided)
-        .find(
-            |implementation| match (first_argument, implementation.params.first()) {
-                (Some(argument), Some(param)) => param.ty.name() == argument.name(),
-                _ => false,
-            },
-        )
-        // No usable first-argument type: fall back to the historical choice, the
-        // first implementation. Preferring an overload the call fills exactly
-        // looks tempting but is wrong — `crypto::open`'s AEAD form has an
-        // exact-arity sibling at 5 arguments whose `aad` must still be padded
-        // (`aead_aad_default_padding`).
-        .or_else(|| implementations.first());
+    let function = resolved.function;
+    let provided = arg_types.len();
+    let call = CallShape {
+        args: arg_types.to_vec(),
+    };
+    let implementation = function
+        .resolve(&call)
+        .or_else(|| function.dispatch(&call))
+        .map(|selection| selection.implementation);
     let Some(implementation) = implementation else {
         return Vec::new();
     };

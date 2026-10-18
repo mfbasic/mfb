@@ -1,0 +1,25 @@
+' bug-863: the Sealed form of crypto::open with its optional aad written did not
+' compile: the call was padded with the ciphertext/tag form's aad default (chosen by
+' the first argument's type alone), giving six arguments no overload accepts. The
+' padding is now the resolved overload's.
+IMPORT io
+IMPORT crypto
+IMPORT strings
+
+FUNC main() AS Nothing
+  LET k AS List OF Byte = crypto::randomBytes(32)
+  LET n AS List OF Byte = crypto::randomBytes(12)
+  LET aad AS List OF Byte = strings::toBytes("hdr")
+  LET box AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.AES256GCM, k, n, "hi", aad)
+  LET clear AS List OF Byte = crypto::open(crypto::SymmetricCipher.AES256GCM, k, n, box, aad)
+  io::print(toString(clear))
+  LET plain AS List OF Byte = crypto::open(crypto::SymmetricCipher.AES256GCM, k, n, box.ciphertext, box.tag, aad)
+  io::print(toString(plain))
+  LET box2 AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.AES256GCM, k, n, "yo")
+  io::print(toString(crypto::open(crypto::SymmetricCipher.AES256GCM, k, n, box2.ciphertext, box2.tag)))
+  io::print(toString(crypto::open(crypto::SymmetricCipher.AES256GCM, k, n, box2)))
+  LET bad = toString(crypto::open(crypto::SymmetricCipher.AES256GCM, k, n, box, strings::toBytes("x"))) TRAP(e)
+    RECOVER "RAISED " & toString(e.code)
+  END TRAP
+  io::print(bad)
+END FUNC

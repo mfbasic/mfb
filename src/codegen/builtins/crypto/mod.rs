@@ -987,6 +987,7 @@ fn bytes() -> ParameterType {
 #[cfg(test)]
 mod tests {
     use crate::codegen::registry::{self, registry};
+    use crate::types::ParameterType;
 
     #[test]
     fn crypto_registered_on_the_clean_room_registry() {
@@ -1337,27 +1338,63 @@ mod tests {
         // AEAD `seal(cipher, key, nonce, data, [aad])` pads one trailing `aad` when
         // omitted (4 provided -> 1), none at 5.
         assert_eq!(
-            registry::default_argument_padding("crypto.seal", 4, None).len(),
+            registry::default_argument_padding("crypto.seal", &vec![ParameterType::Unknown; 4])
+                .len(),
             1
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.seal", 5, None).len(),
+            registry::default_argument_padding("crypto.seal", &vec![ParameterType::Unknown; 5])
+                .len(),
             0
         );
         // `open(cipher, key, nonce, ciphertext, tag, [aad])` pads one trailing `aad`
         // when omitted (5 provided -> 1), none at 6.
         assert_eq!(
-            registry::default_argument_padding("crypto.open", 5, None).len(),
+            registry::default_argument_padding("crypto.open", &vec![ParameterType::Unknown; 5])
+                .len(),
             1
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.open", 6, None).len(),
+            registry::default_argument_padding("crypto.open", &vec![ParameterType::Unknown; 6])
+                .len(),
             0
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.hash", 2, None).len(),
+            registry::default_argument_padding("crypto.hash", &vec![ParameterType::Unknown; 2])
+                .len(),
             0
         );
+    }
+
+    /// bug-863: the padding is the RESOLVED overload's. A `Sealed`-form `open` with
+    /// its `aad` written is complete (it was padded with the ciphertext/tag form's
+    /// `aad`, a sixth argument no overload accepts); without it, it gets one `aad`.
+    #[test]
+    fn open_pads_the_overload_its_arguments_select() {
+        let bytes = ParameterType::list_of(ParameterType::Byte);
+        let cipher = ParameterType::named("crypto.SymmetricCipher");
+        let sealed = ParameterType::named("crypto.Sealed");
+        let pad = |args: &[ParameterType]| registry::default_argument_padding("crypto.open", args);
+        let sealed_aad = [
+            cipher.clone(),
+            bytes.clone(),
+            bytes.clone(),
+            sealed.clone(),
+            bytes.clone(),
+        ];
+        assert_eq!(pad(&sealed_aad), Vec::new());
+        let sealed_only = [cipher.clone(), bytes.clone(), bytes.clone(), sealed];
+        let padded = pad(&sealed_only);
+        assert_eq!(padded.len(), 1);
+        assert_eq!(padded[0].0, bytes);
+        let tag_form = [
+            cipher,
+            bytes.clone(),
+            bytes.clone(),
+            bytes.clone(),
+            bytes.clone(),
+        ];
+        assert_eq!(pad(&tag_form).len(), 1);
     }
 
     /// Structural constant-time audit of the Keccak core (plan-109-B): the

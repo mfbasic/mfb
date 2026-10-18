@@ -1,12 +1,12 @@
 # bug-863: `crypto::open(cipher, key, nonce, sealed, aad)` — the documented Sealed+aad overload fails to compile with an unlocated TYPE_CALL_ARGUMENT_MISMATCH
 
-Last updated: 2026-10-05
+Last updated: 2026-10-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/crypto/crypto-open-sealed-aad-rt (to add)
+Status: Fixed
+Regression Test: tests/rt-behavior/crypto/crypto-open-sealed-aad-rt; crypto::tests::open_pads_the_overload_its_arguments_select
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -91,3 +91,35 @@ reported without the call's span.
 ## Blast Radius
 
 - `default_argument_padding` serves every registry member with optional trailing params and ≥ 2 overloads sharing a first-parameter type. Grep descriptors for `DefaultValue::Fill` on multi-overload members; `crypto::seal` (List OF Byte vs String data, both 5 params) also shares a first type but its overloads have equal shape, so they are unaffected (verified: `seal(..., aad)` with String data compiles).
+
+## Fix (bs24-agent-f, 2026-10-18)
+
+**Fix.** `default_argument_padding(qualified, arg_types)` now takes every provided
+argument's type (`Unknown` where lowering cannot type one) and pads the trailing
+`Fill` defaults of the overload the resolver selects for them: strict
+`RegistryFunction::resolve` first, then lenient `dispatch`, exactly the order
+`resolved_return_type`/`rewrite_target` use. The first-argument spelled-name match and
+its `crypto::open` comment are gone. `ir::lower` passes the types of the normalized
+arguments (extended with `Unknown` for an argument an earlier arm already appended).
+A call no overload accepts is padded with nothing, so `ir::shape` reports the call as
+written, at its span (measured: `open(cipher, k, n, box, 7)` reports
+`main.mfb:6 TYPE_CALL_ARGUMENT_MISMATCH`). The unlocated diagnostic came only from
+the over-padded six-argument call, which can no longer be produced.
+
+**RED → GREEN.** `test-accept 'rt-behavior/crypto/crypto-open-sealed-aad-rt'`: main's
+compiler fails to build (the unlocated six-argument mismatch); this branch prints
+`hi` (Sealed + aad), `hi` (explicit ct/tag/aad), `yo`, `yo` (both 4/5-argument forms
+padded with empty aad), and `RAISED 77050016` for a wrong aad. Unit test
+`crypto::tests::open_pads_the_overload_its_arguments_select` (Sealed+aad pads
+nothing, Sealed pads one `List OF Byte`, ct/tag pads one).
+
+**Spec.** `mfb spec language functions` gains the omitted-trailing-parameter rule;
+`mfb spec stdlib crypto` says `aad` defaults in both `open` forms.
+
+**Goldens expected to move.** None: a call some overload accepts is padded by that
+overload, which is the old first-argument choice for every call that compiled before
+(a different choice produced an argument count or type no overload accepts).
+
+**Found, not fixed (pre-existing, not this bug):** the `seal`/`open` program leaks
+on main too — without the Sealed+aad calls, main's compiler (`--debug`) ends with
+857 allocs / 844 frees / 4592 B live.
