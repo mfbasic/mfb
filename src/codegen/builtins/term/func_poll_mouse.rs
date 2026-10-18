@@ -35,6 +35,15 @@ longer than the queue keeps its newest events rather than its oldest. Both rules
 say the same thing — a program that stops polling for a moment resumes with what
 the user is doing now, not a replay of what they did while it was busy.
 
+Events arrive whether or not the program reads the keyboard: each call first
+decodes the input that is already waiting, without waiting for more. The
+keystrokes it has to read past to reach the mouse reports are kept, in order, for
+the program's next `io::` read, which returns them exactly as if nothing had
+looked at them. A program that uses no `io::` reader has nowhere to keep them, and
+they are discarded. In a terminal (not an `mfb build --app` window) standard input
+is only taken by a program that uses an `io::` reader, so a terminal program with
+none sees no mouse events.
+
 Events are **per-thread**. Each thread that reads standard input decodes what it
 reads, so a thread that has not called `thread::openStdIn` receives none; and two
 threads that have both subscribed each get their own copy of the same events

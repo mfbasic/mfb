@@ -1297,3 +1297,102 @@ END FUNC
          silence proves nothing, got {out:?}"
     );
 }
+
+/// bug-1015: `term::pollMouse` decodes the input that is already waiting itself,
+/// so a program sees mouse events whether or not it has read standard input — and
+/// the keystrokes the poll had to read past to reach the reports are kept, in
+/// order, for the program's next `io` read.
+///
+/// The decoder used to run only on the read path, so a poll before any read found
+/// an empty ring: the reports sat undecoded in front of it (`EVENTS:0`). The same
+/// one drain serves the console log and every `--app` window pipe; the console is
+/// the case a test can feed byte-exactly.
+const POLL_BEFORE_READ_SOURCE: &str = r#"
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT io
+IMPORT term
+
+FUNC main AS Integer
+  term::enableMouse(TRUE)
+  MUT events AS String = ""
+  MUT going AS Boolean = TRUE
+  WHILE going
+    LET e AS term::MouseEvent = term::pollMouse()
+    IF e.kind = term::MouseKind.None THEN
+      going = FALSE
+    ELSE
+      events = events & "[" & toString(e.row) & "," & toString(e.column) & "]"
+    END IF
+  END WHILE
+  io::print("EVENTS:" & events)
+  MUT bytes AS List OF Byte = []
+  MUT reading AS Boolean = TRUE
+  WHILE reading
+    LET b AS Byte = io::readRaw(0) TRAP(err)
+      RECOVER 0
+    END TRAP
+    IF b = 0 THEN
+      reading = FALSE
+    ELSE
+      bytes = collections::append(bytes, b)
+    END IF
+  END WHILE
+  io::print("CHARS:" & encoding::utf8Decode(bytes))
+  term::enableMouse(FALSE)
+  RETURN 0
+END FUNC
+"#;
+
+#[test]
+fn native_term_poll_mouse_decodes_without_a_prior_read_and_keeps_the_keys() {
+    let project = temp_project("native_term_poll_before_read", POLL_BEFORE_READ_SOURCE);
+    let executable = build_project(&project);
+    // Two reports with keystrokes before, between and after them.
+    let out = run_with_stdin(&executable, b"ab\x1b[<0;4;2Mcd\x1b[<0;7;5mef");
+    assert!(
+        out.contains("EVENTS:[1,3][4,6]"),
+        "pollMouse must decode the waiting reports itself, before any read, got {out:?}"
+    );
+    assert!(
+        out.contains("CHARS:abcdef"),
+        "the keystrokes pollMouse read past must reach the next io read intact \
+         and in order, got {out:?}"
+    );
+}
+
+/// bug-1015, the `--app` window half: the same program in a headless app build,
+/// whose standard input is the stream the window's mouse handlers write their
+/// reports into. Headless is the run a test can feed byte-exactly; the windowed
+/// GTK proof is `scripts/test-appimage.sh --gui`'s pollMouse row.
+#[cfg(unix)]
+#[test]
+fn app_term_poll_mouse_decodes_without_a_prior_read_and_keeps_the_keys() {
+    let name = "app_term_poll_before_read";
+    let project = temp_project(name, POLL_BEFORE_READ_SOURCE);
+    let binary = build_app_debug(&project, name);
+    let mut child = Command::new(&binary)
+        .env("MFB_HEADLESS", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn the headless app");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(b"ab\x1b[<0;4;2Mcd\x1b[<0;7;5mef")
+        .expect("feed stdin");
+    let run = child.wait_with_output().expect("wait");
+    let out = String::from_utf8_lossy(&run.stdout).to_string();
+    assert!(
+        out.contains("EVENTS:[1,3][4,6]"),
+        "an app pollMouse must decode the waiting reports itself, got {out:?}"
+    );
+    assert!(
+        out.contains("CHARS:abcdef"),
+        "the keystrokes it read past must reach the next io read, got {out:?}"
+    );
+}

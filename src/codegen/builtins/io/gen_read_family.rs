@@ -426,3 +426,175 @@ fn emit_pump_epilogue(
     ]);
     Ok(())
 }
+
+/// The frame slots [`emit_decode_pending_input`] uses (sp-relative), owned by the
+/// `pollMouse` body that calls it.
+#[derive(Clone, Copy)]
+pub(crate) struct PendingInputSlots {
+    /// The byte a source read lands in.
+    pub(crate) byte: usize,
+    /// [`crate::codegen::io::mouse::clock::MOUSE_CLOCK_SCRATCH_BYTES`] of clock
+    /// scratch — also the mouse decoder's, and the dequeue's.
+    pub(crate) clock: usize,
+    /// A `pollfd` for the wait.
+    pub(crate) pollfd: usize,
+    /// The wait's deadline (always "now": the drain never blocks).
+    pub(crate) deadline: usize,
+}
+
+impl PendingInputSlots {
+    /// Bytes of frame the slots take, from `base`.
+    pub(crate) const BYTES: usize =
+        8 + crate::codegen::io::mouse::clock::MOUSE_CLOCK_SCRATCH_BYTES + 8 + 8;
+
+    pub(crate) fn at(base: usize) -> PendingInputSlots {
+        let clock = base + 8;
+        let after_clock = clock + crate::codegen::io::mouse::clock::MOUSE_CLOCK_SCRATCH_BYTES;
+        PendingInputSlots {
+            byte: base,
+            clock,
+            pollfd: after_clock,
+            deadline: after_clock + 8,
+        }
+    }
+}
+
+/// Where a `pollMouse` finds pending input, and where it keeps the bytes that
+/// are not mouse reports.
+#[derive(Clone, Copy)]
+pub(crate) struct PendingInput {
+    pub(crate) app_mode: bool,
+    /// The input-buffer region (bug-699), in a program whose `io` readers read
+    /// through it.
+    pub(crate) input_state_offset: Option<usize>,
+    pub(crate) slots: PendingInputSlots,
+}
+
+/// bug-1015: decode every byte of input that is already waiting, without
+/// blocking, so a `pollMouse` sees the reports the surface has delivered whether
+/// or not the program ever reads standard input.
+///
+/// The mouse decoder runs only on the source read ([`emit_stdin_byte_read`]), so
+/// a program that polls the mouse and never reads keys used to decode nothing:
+/// the window's (or terminal's) SGR reports sat unread in front of the decoder,
+/// and `pollMouse` answered `MouseKind.None` forever, on every backend. This runs
+/// that SAME source read — the same mouse pump, the same wait — with a deadline
+/// of "now", until nothing more is ready:
+///
+/// - a report is decoded and enqueued by the pump, which then reads on;
+/// - every other byte the pump delivers (a key, a flushed non-report prefix) is
+///   appended to the input buffer, in order, so the program's next `io` read
+///   takes it exactly as if it had read it itself. The buffer is checked for
+///   room BEFORE the read, so a full buffer stops the drain with the byte still
+///   unread rather than dropping it. A program with no input buffer has no `io`
+///   reader at all, so there is no later read to keep its keystrokes for, and they
+///   are dropped;
+/// - end of input, a read error, or a thread with no stdin subscription stops the
+///   drain silently: the next `io` read meets the condition itself.
+///
+/// Skipped while mouse reporting is off (the pump would decode nothing), and in a
+/// console build without the input buffer: there the program has no stdin reader,
+/// so no broadcast log or subscription exists to read through, and its main thread
+/// is not subscribed (plan-15). An `--app` window always has its input pipe on
+/// fd 0.
+pub(crate) fn emit_decode_pending_input(
+    ctx: &mut EmitCtx,
+    pending: &PendingInput,
+    mouse_state_offset: usize,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    use crate::codegen::io::input::{
+        INPUT_BUFFER_CAPACITY, INPUT_STATE_BUF_OFFSET, INPUT_STATE_LEN_OFFSET,
+    };
+    if !pending.app_mode && pending.input_state_offset.is_none() {
+        return Ok(());
+    }
+    let symbol = ctx.symbol;
+    let l = |name: &str| format!("{symbol}_pending_{name}");
+    let head = l("head");
+    let done = l("done");
+    let s = pending.slots;
+
+    // Mouse reporting off: nothing to decode.
+    let mode_addr = vregs.next();
+    let mode = vregs.next();
+    push_symbol_address(
+        symbol,
+        MOUSE_MODE_SYMBOL,
+        &mode_addr,
+        ctx.instructions,
+        ctx.relocations,
+    );
+    let zero = vregs.next();
+    ctx.instructions.extend([
+        abi::load_u64(&mode, &mode_addr, 0),
+        abi::compare_immediate(&mode, "0"),
+        abi::branch_eq(&done),
+        // Deadline 0: every wait is a non-blocking readiness check.
+        abi::move_immediate(&zero, "Integer", "0"),
+        abi::store_u64(&zero, abi::stack_pointer(), s.deadline),
+        abi::label(&head),
+    ]);
+    if let Some(input_state_offset) = pending.input_state_offset {
+        let r = vregs.next();
+        let len = vregs.next();
+        let cap = vregs.next();
+        crate::codegen::io::stdin::field_addr(
+            &r,
+            crate::codegen::error::constants::ARENA_STATE_REGISTER,
+            input_state_offset,
+            ctx.instructions,
+        );
+        ctx.instructions.extend([
+            abi::load_u64(&len, &r, INPUT_STATE_LEN_OFFSET),
+            abi::move_immediate(&cap, "Integer", &INPUT_BUFFER_CAPACITY.to_string()),
+            abi::compare_registers(&len, &cap),
+            abi::branch_ge(&done),
+        ]);
+    }
+    let wait = ReadWait {
+        deadline_slot: s.deadline,
+        clock_scratch: s.clock,
+        pollfd_slot: s.pollfd,
+        timeout_label: done.clone(),
+    };
+    emit_stdin_byte_read(
+        ctx,
+        pending.app_mode,
+        s.byte,
+        &l("read_retry"),
+        &l("read_resume"),
+        &done,
+        &done,
+        Some(MousePump {
+            state_offset: mouse_state_offset,
+            clock_scratch: s.clock,
+        }),
+        Some(&wait),
+        vregs,
+    )?;
+    ctx.instructions.push(abi::branch_eq(&done));
+    if let Some(input_state_offset) = pending.input_state_offset {
+        let r = vregs.next();
+        let len = vregs.next();
+        let at = vregs.next();
+        let b = vregs.next();
+        crate::codegen::io::stdin::field_addr(
+            &r,
+            crate::codegen::error::constants::ARENA_STATE_REGISTER,
+            input_state_offset,
+            ctx.instructions,
+        );
+        ctx.instructions.extend([
+            abi::load_u64(&len, &r, INPUT_STATE_LEN_OFFSET),
+            abi::add_registers(&at, &r, &len),
+            abi::load_u8(&b, abi::stack_pointer(), s.byte),
+            abi::store_u8(&b, &at, INPUT_STATE_BUF_OFFSET),
+            abi::add_immediate(&len, &len, 1),
+            abi::store_u64(&len, &r, INPUT_STATE_LEN_OFFSET),
+        ]);
+    }
+    ctx.instructions
+        .extend([abi::branch(&head), abi::label(&done)]);
+    Ok(())
+}

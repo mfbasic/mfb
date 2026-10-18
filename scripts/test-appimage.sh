@@ -434,6 +434,65 @@ MFB
           fail "$libc: setMode io routing: expected C-none, A-console-1, E-console-2; got: $out"
         fi
       fi
+
+      # bug-1015: `term::pollMouse` sees the window's mouse events with NO stdin
+      # read in the program. Driven by xdotool on the X display (GDK_BACKEND=x11
+      # so GTK does not pick a Wayland session the box may also run): one click
+      # in the window must produce at least one event line. The decoder used to
+      # run only on the read path, so this logged 0.
+      if $ssh -n "command -v xdotool" >/dev/null 2>&1; then
+        local pproj="$work/$libc-pollmouse"
+        mkdir -p "$pproj/src"
+        cat > "$pproj/project.json" <<JSON
+{ "name": "pollmouse", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+        cat > "$pproj/src/main.mfb" <<'MFB'
+IMPORT term
+IMPORT os
+IMPORT fs
+
+FUNC main() AS Nothing
+  term::on()
+  term::enableMouse(TRUE)
+  fs::writeText("pollmouse.log", "start\n")
+  MUT i AS Integer = 0
+  WHILE i < 40
+    LET ev AS term::MouseEvent = term::pollMouse()
+    IF ev.kind <> term::MouseKind.None THEN
+      fs::appendText("pollmouse.log", "event\n")
+    END IF
+    os::sleep(100)
+    i = i + 1
+  END WHILE
+  fs::appendText("pollmouse.log", "done\n")
+END FUNC
+MFB
+        if ! "$MFB_EXE" build -q --app -target "$target" "$pproj" >/dev/null 2>&1; then
+          fail "$libc: build --app -target $target (pollMouse without a read)"
+        else
+          $scp "$pproj/build/pollmouse-$libc.AppImage" "test@127.0.0.1:$remote/pollmouse.AppImage" \
+            || fail "$libc: ship the pollMouse AppImage"
+          # shellcheck disable=SC2016,SC2086
+          out=$(timeout_run 30 $ssh -n "cd $remote && chmod +x pollmouse.AppImage && rm -f pollmouse.log && \
+            export DISPLAY=$display GDK_BACKEND=x11 && \
+            (./pollmouse.AppImage $run_flags >/dev/null 2>&1 &) && \
+            for i in \$(seq 1 50); do [ -f pollmouse.log ] && break; sleep 0.1; done; sleep 0.8; \
+            wid=\$(xdotool search --onlyvisible --name pollmouse | tail -1); \
+            eval \$(xdotool getwindowgeometry --shell \$wid); \
+            xdotool mousemove \$((X+100)) \$((Y+100)) click 1; \
+            for i in \$(seq 1 80); do grep -q done pollmouse.log && break; sleep 0.1; done; \
+            echo events=\$(grep -c ^event pollmouse.log)")
+          case "$out" in
+            *events=0*|"") fail "$libc: pollMouse without a read saw no event for a click: $out" ;;
+            *events=*) pass "$libc: pollMouse sees window events with no stdin read ($out)" ;;
+            *) fail "$libc: pollMouse row: unexpected output: $out" ;;
+          esac
+        fi
+      else
+        echo "skip: $libc pollMouse GUI row (no xdotool on the box)"
+      fi
     fi
   fi
 

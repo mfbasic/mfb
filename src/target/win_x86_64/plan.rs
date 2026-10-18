@@ -596,18 +596,25 @@ impl NativePlanPlatform for Platform {
                 // `emit_mouse_inject`), and `getenv` is a CRT function rather
                 // than a kernel32 export, so declaring it here does not link.
             ],
-            "term.pollMouse" => vec![
+            // bug-1015: `pollMouse` decodes the input already waiting before it
+            // dequeues, through the readers' own source read and wait (the app
+            // window pipe: GetStdHandle/ReadFile, PeekNamedPipe gated on
+            // GetFileType, WaitForSingleObject, Sleep).
+            "term.pollMouse" | "canvas.pollMouseRaw" => vec![
                 import("QueryPerformanceCounter", KERNEL32, required_by),
                 import("QueryPerformanceFrequency", KERNEL32, required_by),
+                import("GetStdHandle", KERNEL32, required_by),
+                import("ReadFile", KERNEL32, required_by),
+                import("GetFileType", KERNEL32, required_by),
+                import("PeekNamedPipe", KERNEL32, required_by),
+                import("WaitForSingleObject", KERNEL32, required_by),
+                import("Sleep", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
             ],
-            // plan-94-E: the canvas members reach the same ring and clock.
-            // `canvas.enableMouse` needs neither here — the ring allocation makes
-            // no call, and the `MFB_MOUSE_INJECT` affordance (which would stamp an
-            // event) is POSIX-only.
-            "canvas.pollMouseRaw" => vec![
-                import("QueryPerformanceCounter", KERNEL32, required_by),
-                import("QueryPerformanceFrequency", KERNEL32, required_by),
-            ],
+            // plan-94-E: `canvas.pollMouseRaw` shares the arm above (the same ring,
+            // clock and drain). `canvas.enableMouse` needs none here — the ring
+            // allocation makes no call, and the `MFB_MOUSE_INJECT` affordance
+            // (which would stamp an event) is POSIX-only.
             "canvas.systemFontTable" => vec![
                 import("DWriteCreateFactory", DWRITE, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),

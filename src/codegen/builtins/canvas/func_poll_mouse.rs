@@ -51,6 +51,11 @@ a tenth of a second is dropped rather than queued up, so a program that spends a
 long frame rendering resumes with where the mouse is now rather than replaying
 where it has been.
 
+Events arrive whether or not the program reads the keyboard: each call first
+takes in what the window has already reported, without waiting for more. Keys
+typed meanwhile are kept, in order, for the program's next `io::` read; a program
+that uses no `io::` reader has nowhere to keep them, and they are discarded.
+
 `position` is a `vector::Float2` in the same pixel coordinates every
 `canvas::DrawItem` uses — top-left origin, Y increasing downward. `shift`, `ctrl`
 and `alt` report which modifier keys were held. `button` says which button the
@@ -220,7 +225,17 @@ pub(crate) fn lower_poll_mouse(
     })?;
     let alloc_ok = builder.label("canvas_poll_mouse_alloc_ok");
     let done = builder.label("canvas_poll_mouse_done");
-    let clock_scratch = builder.allocate_stack_object("canvas_poll_clock", 16);
+    // bug-1015: the pending-input drain's slots (its clock scratch is the
+    // dequeue's too).
+    let pending_base = builder.allocate_stack_object(
+        "canvas_poll_pending",
+        crate::codegen::builtins::io::gen_read_family::PendingInputSlots::BYTES,
+    );
+    let pending = crate::codegen::builtins::io::gen_read_family::PendingInput {
+        app_mode: ctx.build_mode.is_app(),
+        input_state_offset: ctx.input_state_offset,
+        slots: crate::codegen::builtins::io::gen_read_family::PendingInputSlots::at(pending_base),
+    };
 
     // Drain first, then allocate: the arena call clobbers the argument and result
     // banks, so the five values are parked on the stack across it.
@@ -238,8 +253,7 @@ pub(crate) fn lower_poll_mouse(
             instructions: &mut builder.instructions,
             relocations: &mut builder.relocations,
         };
-        let event =
-            mouse_ring::emit_dequeue(mouse_state_offset, clock_scratch, &mut ctx2, &mut vregs)?;
+        let event = mouse_ring::emit_dequeue(mouse_state_offset, &pending, &mut ctx2, &mut vregs)?;
         for (slot, reg) in [
             (kind_slot, &event.kind),
             (button_slot, &event.button),

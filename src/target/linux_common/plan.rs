@@ -437,18 +437,18 @@ impl LinuxPlan<'_> {
                 self.libc_import("getenv", required_by),
                 self.libc_import("poll", required_by),
             ],
-            "term.pollMouse" => vec![
+            // bug-1015: `pollMouse` decodes the input already waiting before it
+            // dequeues, through the readers' source read (`read`, EINTR-checked).
+            "term.pollMouse" | "canvas.pollMouseRaw" => vec![
                 self.libc_import("clock_gettime", required_by),
                 self.libc_import("poll", required_by),
+                self.libc_import("read", required_by),
+                self.libc_import("__errno_location", required_by),
             ],
             // plan-94-D: the canvas members reach the same ring and clock.
             "canvas.enableMouse" => vec![
                 self.libc_import("clock_gettime", required_by),
                 self.libc_import("getenv", required_by),
-                self.libc_import("poll", required_by),
-            ],
-            "canvas.pollMouseRaw" => vec![
-                self.libc_import("clock_gettime", required_by),
                 self.libc_import("poll", required_by),
             ],
             // plan-148-C: fontconfig arrives through `dlopen`/`dlsym`, never a

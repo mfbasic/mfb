@@ -638,26 +638,22 @@ impl plan::NativePlanPlatform for Platform {
                     required_by: required_by.clone(),
                 })
                 .collect(),
-            "term.pollMouse" => ["_clock_gettime", "_poll"]
-                .iter()
-                .map(|symbol| PlatformImport {
-                    library: "libSystem".to_string(),
-                    symbol: (*symbol).to_string(),
-                    required_by: required_by.clone(),
-                })
-                .collect(),
+            // bug-1015: `pollMouse` decodes the input already waiting before it
+            // dequeues, through the readers' source read (`_read`, EINTR-checked).
+            "term.pollMouse" | "canvas.pollMouseRaw" => {
+                ["_clock_gettime", "_poll", "_read", "___error"]
+                    .iter()
+                    .map(|symbol| PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: (*symbol).to_string(),
+                        required_by: required_by.clone(),
+                    })
+                    .collect()
+            }
             // plan-94-C: the canvas members reach the same ring and the same
             // clock. `enableMouse` additionally runs the `MFB_MOUSE_INJECT`
             // affordance, whose decode path stamps an event.
             "canvas.enableMouse" => ["_clock_gettime", "_getenv", "_poll"]
-                .iter()
-                .map(|symbol| PlatformImport {
-                    library: "libSystem".to_string(),
-                    symbol: (*symbol).to_string(),
-                    required_by: required_by.clone(),
-                })
-                .collect(),
-            "canvas.pollMouseRaw" => ["_clock_gettime", "_poll"]
                 .iter()
                 .map(|symbol| PlatformImport {
                     library: "libSystem".to_string(),

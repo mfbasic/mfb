@@ -49,6 +49,12 @@ const PREVIOUS_GRID_OFFSET: usize = SCRATCH_END;
 const MOUSE_CLOCK_SCRATCH_OFFSET: usize = LOCALS_SIZE;
 const MOUSE_LOCALS_SIZE: usize =
     MOUSE_CLOCK_SCRATCH_OFFSET + crate::codegen::io::mouse::clock::MOUSE_CLOCK_SCRATCH_BYTES;
+// bug-1015: `term::pollMouse` decodes pending input before it dequeues, which
+// needs a byte, a clock scratch, a pollfd and a deadline slot past the ordinary
+// locals. Its own frame, for the same reason the mouse frame is its own.
+const POLL_MOUSE_PENDING_OFFSET: usize = LOCALS_SIZE;
+const POLL_MOUSE_LOCALS_SIZE: usize = POLL_MOUSE_PENDING_OFFSET
+    + crate::codegen::builtins::io::gen_read_family::PendingInputSlots::BYTES;
 
 const DARWIN_TIOCGWINSZ: &str = "1074295912";
 const LINUX_TIOCGWINSZ: &str = "21523";
@@ -533,10 +539,12 @@ pub(crate) fn lower_term_helper(
                     relocations: &mut relocations,
                 },
                 mouse_state_offset,
+                input_state_offset,
+                app_mode,
                 &done,
                 vregs,
             )?;
-            locals = MOUSE_LOCALS_SIZE;
+            locals = POLL_MOUSE_LOCALS_SIZE;
         }
         other => return Err(format!("unknown term runtime helper '{other}'")),
     }
@@ -1560,6 +1568,8 @@ pub(crate) fn emit_mouse_inject(
 fn emit_poll_mouse(
     ctx: &mut EmitCtx,
     mouse_state_offset: Option<usize>,
+    input_state_offset: Option<usize>,
+    app_mode: bool,
     done: &str,
     vregs: &mut Vregs,
 ) -> Result<(), String> {
@@ -1572,8 +1582,14 @@ fn emit_poll_mouse(
     let alloc_ok = format!("{symbol}_alloc_ok");
     let alloc_error = format!("{symbol}_alloc_error");
 
-    let event =
-        mouse_ring::emit_dequeue(mouse_state_offset, MOUSE_CLOCK_SCRATCH_OFFSET, ctx, vregs)?;
+    let pending = crate::codegen::builtins::io::gen_read_family::PendingInput {
+        app_mode,
+        input_state_offset,
+        slots: crate::codegen::builtins::io::gen_read_family::PendingInputSlots::at(
+            POLL_MOUSE_PENDING_OFFSET,
+        ),
+    };
+    let event = mouse_ring::emit_dequeue(mouse_state_offset, &pending, ctx, vregs)?;
 
     // Park the five values across the allocation call, which clobbers the argument
     // and result banks.

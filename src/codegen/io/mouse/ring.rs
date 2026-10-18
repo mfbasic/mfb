@@ -191,12 +191,26 @@ pub(crate) struct DequeuedRegs {
 /// the loop advances `tail` past them and they never cost anything again. Without
 /// that, a program that stopped polling for a second would pay to re-walk the same
 /// expired prefix on every subsequent poll.
+///
+/// **Pending input is decoded first** (bug-1015): the decoder runs only on the
+/// stdin source read, so before taking from the ring this runs that read itself
+/// over whatever input is already waiting
+/// ([`emit_decode_pending_input`](crate::codegen::builtins::io::gen_read_family::emit_decode_pending_input)).
+/// Every `pollMouse` dequeues through here, so none can answer from a ring the
+/// waiting reports never reached.
 pub(crate) fn emit_dequeue(
     mouse_state_offset: usize,
-    clock_scratch: usize,
+    pending: &crate::codegen::builtins::io::gen_read_family::PendingInput,
     ctx: &mut EmitCtx,
     vregs: &mut Vregs,
 ) -> Result<DequeuedRegs, String> {
+    crate::codegen::builtins::io::gen_read_family::emit_decode_pending_input(
+        ctx,
+        pending,
+        mouse_state_offset,
+        vregs,
+    )?;
+    let clock_scratch = pending.slots.clock;
     let symbol = ctx.symbol;
     let empty = format!("{symbol}_mouse_deq_empty");
     let scan = format!("{symbol}_mouse_deq_scan");

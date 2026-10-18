@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (platform parity)
 
-Status: Open
+Status: Fixed
 Regression Test: (proposed) a GTK app-mode row in `scripts/test-appimage.sh`: `term::enableMouse(TRUE)` + a `term::pollMouse` loop with NO stdin read, driven by xdotool click/move/scroll under Xvfb, asserting at least one event per action
 
 ## Cause (coordinator, bug-staging-24)
@@ -83,3 +83,63 @@ Windows" is not a fix.
   "pollMouse sees nothing".
 - macOS: bs18-agent-i could not measure synthetic mouse delivery on the host at all (no IMP
   reached `write`, `screencapture` returned black), so macOS delivery is unverified, not known good.
+
+## Fix
+
+- **What changed.** New `src/codegen/builtins/io/gen_read_family.rs:emit_decode_pending_input`
+  runs the read family's own source read (`emit_stdin_byte_read`, same mouse pump, same
+  `ReadWait`) with a deadline of "now" until nothing is ready: reports are decoded into
+  the ring by the pump; every other byte it delivers is appended to the input buffer
+  (room checked BEFORE each read, so a full buffer stops the drain without losing a
+  byte); EOF / read error / unsubscribed thread end the drain silently. It is called at
+  the top of `src/codegen/io/mouse/ring.rs:emit_dequeue`, which both `pollMouse` bodies
+  (`term::pollMouse`, `canvas::pollMouseRaw`) dequeue through, so no per-platform path
+  was added. Skipped while the mouse-mode word is 0, and in a console build with no
+  input buffer (no `io` reader ⇒ no broadcast log/subscription to read through; see
+  "Not fixed" below). A program with no input buffer (no `io` reader at all) has no
+  later read to keep keystrokes for; in an app build those bytes are discarded.
+  Frame slots: `term::pollMouse` gets its own `POLL_MOUSE_LOCALS_SIZE` (LOCALS_SIZE +
+  40); `canvas::pollMouseRaw` allocates a 40-byte stack object. Imports: the pollMouse
+  rows now declare the read primitives (linux `read`/`__errno_location`, macOS
+  `_read`/`___error`, Windows `GetStdHandle`/`ReadFile`/`GetFileType`/`PeekNamedPipe`/
+  `WaitForSingleObject`/`Sleep`/`GetLastError` — without them a reader-less Windows app
+  failed to build: "external relocation target 'GetFileType' is not imported").
+- **Tests (RED with `MFB_TEST_EXE=/tmp/main-dbg-target/release/mfb`, GREEN with the fix):**
+  - `tests/runtime/rt_native_term_runtime.rs`:
+    `native_term_poll_mouse_decodes_without_a_prior_read_and_keeps_the_keys` (console,
+    stdin `ab⟨report⟩cd⟨report⟩ef`, poll before any read: main `EVENTS:` → fixed
+    `EVENTS:[1,3][4,6]`, then `CHARS:abcdef`) and
+    `app_term_poll_mouse_decodes_without_a_prior_read_and_keeps_the_keys` (same program,
+    headless `--app`, stdin = the window input stream).
+  - `tests/canvas/rt_canvas_hit.rs:poll_mouse_decodes_the_window_reports_without_a_read`
+    (headless canvas, reports on stdin, no reader: main `over` → fixed `over [box] []`).
+  - `scripts/test-appimage.sh --gui` row "pollMouse sees window events with no stdin
+    read": main `events=0`, fixed `events=1` (`MFB_APPIMAGE_DISPLAY=:77 … --box 2226
+    --libc glibc --gui`).
+- **Measured on real windows.** GTK 2226 under Xvfb (`GDK_BACKEND=x11`), this doc's
+  program (no stdin read), xdotool: main click/move/scroll = 0/0/0 events; fixed
+  2/5/2. With readers (`k1015`: type `ab`, click, type `cd`, then `io::readKey(0)`):
+  main `events=0 keys=abcd`, fixed `events=2 keys=abcd` (keys kept in order).
+  Windows 206 headless app with the reports on stdin (`Start-Process
+  -RedirectStandardInput`): main `EVENTS:` / fixed `EVENTS:[1,3][4,6]`, `CHARS:abcdef`
+  both. The real-window Windows run (`bugs/repro/bug-1015/overid.*` via a `/it` task)
+  could NOT run: `query session` on 206 → "No session exists" (nobody logged in at the
+  console), task Last Result 267011 (never ran).
+- **Not fixed (reported to the coordinator, not this bug's scope):** a CONSOLE
+  (terminal) program that uses `term::pollMouse` but no `io::` reader never subscribes
+  stdin (no broadcast log is built, `subscribe_stdin` is keyed on the reader calls), so
+  it still sees no mouse events. The man page now states this limit.
+- **Checks run.** `cargo test --release --test rt_native_term_runtime` 22 passed;
+  `rt_canvas_hit` 15; `codegen_mouse_arena_region` 4; `codegen_helper_scratch_release`
+  12; `app_special_keys` 37; `rt_foreign_entry_callee_saved` 6; `architecture_guards` 8;
+  `no_type_strings` 7; `test_targets_registered` 4; `cargo test --release --bin mfb --
+  term:: mouse:: io::input:: gen_read canvas:: builtins::tests::` 138 passed (includes
+  the declared-errors sweep); `man-run-examples.sh term` 48/48, `canvas` 38/38;
+  `spec-census --citations/--render/--links app` clean. Cross-builds of reader-less,
+  reader and console probes for linux-aarch64/x86_64, windows-x86_64, macos-aarch64 ok.
+- **Goldens expected to change** (`scripts/artifact-gate.sh <mfb> all`):
+  `tests/syntax/app/app-mouse-surface/golden/app_mouse_surface.{macos-aarch64,linux-aarch64,linux-x86_64,windows-x86_64}.app.ncodesum`
+  (pollMouse bodies; on top of bug-966/965) and, new with this bug,
+  `app_mouse_surface.macos-aarch64.app.nplan` — localized: only added import rows
+  `_read`/`___error` requiredBy `_mfb_rt_term_term_pollMouse` and
+  `_mfb_rt_canvas_canvas_pollMouseRaw`. The fixture is the only one with a mouse member.

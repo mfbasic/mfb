@@ -751,3 +751,46 @@ fn hit_region_a_particle_system_is_never_hit() {
     );
     assert_over(&reports[0], &expected);
 }
+
+/// bug-1015: `canvas::pollMouse` sees the reports the window wrote into the input
+/// stream whether or not the program ever reads it. A headless run's standard input
+/// is that stream, so the reports are fed there — NOT through `MFB_MOUSE_INJECT`,
+/// which decodes inside `enableMouse` and so never needed the read path at all. The
+/// decoder used to run only on an `io` read, so this program, which has no reader,
+/// reported nothing (`over`), on every backend.
+#[test]
+fn poll_mouse_decodes_the_window_reports_without_a_read() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let source = format!(
+        "{PRELUDE}\nFUNC main() AS Nothing\n  app::setMode(app::Mode.Canvas)\n  \
+         canvas::present([rect(\"box\", 0.0, 0.0, 50.0, 50.0)])\n  report(\"over\")\nEND FUNC\n"
+    );
+    let name = "canvas_poll_without_read";
+    let project = common::temp_project(name, &source);
+    let binary = common::build_app_debug(&project, name);
+    let mut child = Command::new(&binary)
+        .current_dir(&project)
+        .env("MFB_HEADLESS", "1")
+        .env("MFB_CANVAS_SYNC", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let reports = format!("{}{}", press(0, 10, 10), press(0, 80, 80));
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(reports.as_bytes())
+        .expect("feed the reports");
+    let run = child.wait_with_output().expect("wait");
+    let stdout = String::from_utf8_lossy(&run.stdout).to_string();
+    assert!(run.status.success(), "program failed:\n{stdout}");
+    assert!(
+        stdout.contains("over [box] []"),
+        "pollMouse must decode both waiting reports with no read, got:\n{stdout}"
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
