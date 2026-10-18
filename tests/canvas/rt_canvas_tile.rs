@@ -357,7 +357,11 @@ fn a_tile_edge_pixel_samples_inside_its_source_rectangle() {
     let green = (0, 255, 0, 255);
     assert_eq!(pixel(&frame, 30, 10), green, "whole-pixel tile, first row");
     assert_eq!(pixel(&frame, 30, 29), green, "whole-pixel tile, last row");
-    assert_eq!(pixel(&frame, 30, 50), (0, 188, 0, 255), "half-covered top edge");
+    assert_eq!(
+        pixel(&frame, 30, 50),
+        (0, 188, 0, 255),
+        "half-covered top edge"
+    );
     assert_eq!(pixel(&frame, 30, 51), green);
     assert_eq!(
         pixel(&frame, 30, 70),
@@ -369,7 +373,14 @@ fn a_tile_edge_pixel_samples_inside_its_source_rectangle() {
     let top = pixel(&frame, 120, 10);
     assert_eq!(top.0, 0, "no red from row 0 above the source: {top:?}");
     let bottom = pixel(&frame, 120, 30);
-    assert_eq!(bottom.2, 0, "no blue from row 2 below the source: {bottom:?}");
+    assert_eq!(
+        bottom.2, 0,
+        "no blue from row 2 below the source: {bottom:?}"
+    );
     let left = pixel(&frame, 100, 20);
-    assert_eq!((left.0, left.2), (0, 0), "left edge pixel is green only: {left:?}");
+    assert_eq!(
+        (left.0, left.2),
+        (0, 0),
+        "left edge pixel is green only: {left:?}"
+    );
 }
