@@ -78,12 +78,11 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 832    | MED      | a `Set OF T { … }` literal skips the element-comparability check (non-comparable T accepted; ICE when non-empty with a List element) |
 | [ ]  | 846    | MED      | field access on a MapEntry / List / Map escapes the verifier and fails in native lowering with an uncoded, unlocated internal error |
 | [ ]  | 847    | MED      | a `Map OF K TO V { … }` literal with a repeated key builds a map holding that key twice |
-| [ ]  | 1007   | MED      | fixed-width `collections::chunks` fast path allocates each chunk at the requested size, even when it holds only a few elements |
-| [ ]  | 1008   | MED      | valid large constant `chunks`/`window` sizes and strides fail during native code generation (codegen panic) |
 | [ ]  | 1009   | MED      | fixed-width `collections::toSet` reserves by input length even when nearly every element is a duplicate |
 | [ ]  | 1010   | MED      | native `collections::merge` reserves for every input entry even when all keys overlap |
 | [ ]  | 1011   | MED      | reserved collection results retain source-sized capacity when outputs are smaller |
 | [ ]  | 1036   | MED      | a list reassigned inside a `FOR EACH` over it leaks every replaced block (owner decided: no intentional leaks; free them when the loop ends) |
+| [ ]  | 1104   | MED      | `collections::window` with a run-time stride near the Integer maximum raises an undeclared `ErrOverflow`, located inside the stdlib body (the generic body's `i = i + stride`) |
 | [ ]  | 1002   | LOW      | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` is reported twice for one collection declaration that holds a thread worker |
 | [ ]  | 1006   | LOW      | `collections::window` overflows while advancing past its last window for a large valid stride |
 
