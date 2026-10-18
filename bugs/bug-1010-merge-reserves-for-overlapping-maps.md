@@ -8,6 +8,10 @@ Class: Correctness (memory use / performance)
 Status: Open
 Regression Test: `tests/runtime/rt_merge_overlap_memory.rs` (proposed)
 
+## Cause (coordinator, bug-staging-24)
+
+- WAITING ON THE OWNER (asked 2026-10-17). `mfb spec memory` § Capacity Headroom and Growth states the opposite of this doc's Correct behavior ("A builder whose input only bounds its result allocates once at that bound: native `toSet` ... reserves `capacity = len(value)`"), and no owner ruling is recorded. Options put to the owner: (a) size to the result (grow as the generic path does), (b) reserve at the bound then shrink-to-fit before returning (recommended), (c) keep and close as intended. One rule covers 1009, 1010 and 1011.
+
 In measurements from `target/debug/mfb build --debug /tmp/mfb_collections_audit` followed by running `/tmp/mfb_collections_audit/build/collection_audit.out`, the native `collections::merge(a, b, TRUE)` fast path reserves capacity for `len(a) + len(b)` entries and both maps' payload bytes before checking key collisions. When the maps contain the same 10,000 String keys, the result contains only 10,000 entries, but the presized path allocates 720,000 more bytes and raises peak live arena memory by the same amount compared with an equivalent sequence of `collections::set` calls. The reservation is for entries that cannot be appended because every key from `b` overwrites a key already in `a`; on a memory-constrained process, this can cause avoidable `ErrOutOfMemory`.
 
 **Correct behavior:** the String-key/fixed-width-value accelerator must not reserve space for all of `b` when its keys overlap with `a`; result memory should track the union of keys and the payloads actually written.

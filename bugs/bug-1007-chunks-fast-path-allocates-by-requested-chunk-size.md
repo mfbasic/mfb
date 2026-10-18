@@ -8,6 +8,12 @@ Class: Other (memory / performance)
 Status: Open
 Regression Test: `tests/runtime/rt_collection_chunks_alloc_size.rs` (proposed; compare `--debug` allocation bytes for literal and dynamic sizes)
 
+## Cause (coordinator, bug-staging-24; one fix with bug-1008)
+
+- Rule: a builder whose input bounds its result allocates at most that bound (`mfb spec memory` § Capacity Headroom and Growth); `chunks`/`window` never hold more elements than the input, so the requested `size` is not a bound to reserve.
+- Where: `src/codegen/builtins/collections/func_chunks.rs:lower_collection_chunks_call` sizes every chunk's block at `COLLECTION_HEADER_SIZE + size * 8` (and `func_window.rs` its inner blocks at `size * 8`), computed at compile time from the constant `size`.
+- Fix: the fast paths size each chunk (and window) from the elements it actually holds, `min(size, remaining)` at run time, so the reservation tracks the input; that also removes bug-1008's unchecked compile-time `size * 8` and its immediates. Nothing special-cased by size.
+
 For fixed-width list elements and a compile-time `chunkSize`, the native `collections::chunks` fast path reserves every inner chunk block using the full requested size. A three-element list chunked with `1,000,000` therefore allocates about 8 MB for one inner block even though the returned chunk contains three elements and needs only a few dozen bytes. The result is correct, but an oversized chunk size can cause memory pressure or an out-of-memory error on a small input.
 
 **Correct behavior:** allocation for each chunk should be proportional to the number of elements actually stored in it. `chunks([1, 2, 3], 1000000)` should have allocation cost comparable to chunking the same list with a runtime-provided size of 1000000.

@@ -25,9 +25,11 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 * SECURITY rows (980, 1017, 1042, 952, 954+947, 955, 918): not scheduled; they wait for the owner.
 * MED 1082: blocked on hardware and a design decision (its doc). Not scheduled.
 * Phase 1 (MED): 966, 965, 1015, 985, 964 - on main (0dc51751f).
-* **Phase 2 (MED), next landing:** 1085, 1088, 1089 (merged to staging), then 1087
+* Phase 2 (MED): 1085, 1088, 1089 - on main (7bb985ed8). 1087
   (owner: bug-996's rule extends to Metal) and 1091, perf, run alone. Moved out of phase 1 so
   they do not hold its merge.
+* **Phase 3 (MED, table order):** 1098, 1099, 832, 846, 847, 1007 + 1008 (one fix), 1009, 1010,
+  1011. 847's run-time collision and the 1009/1010/1011 capacity rule wait on the owner.
 * Later phases: the rest of MED, then LOW, in table order.
 
 ## Resources and STATE
@@ -49,7 +51,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1091   | MED      | building one `canvas::Text` geometry record copies the whole font file several times: about 389 µs a record with Arial (773 KB) against 7.9 µs with a 304-byte font, so 1,000 moving text items are 389 ms a frame (found by plan-150-B; `tools/particle-bench` `TEMPLATE=text`) |
 | [ ]  | 1086   | LOW      | the Vulkan canvas path reads a frame back without testing `vkQueueSubmit`'s or `vkQueueWaitIdle`'s result (Metal's twin fixed under 1024) |
 | [ ]  | 1090   | LOW      | under a huge magnification the zero-gradient coverage fallback lights a stray column of pixels far from the shape (191 pixels at x = 450 for two off-surface squares at a 14,000 times transform); software and Metal |
-| [ ]  | 1101   | LOW      | a macOS `--app` run with `MFB_MACAPP_HEADLESS=1` draws on the GPU even with `MFB_HEADLESS` set, which the spec says draws in software |
 | [ ]  | 1103   | LOW      | a banded polygon drawn under a group matrix renders about 1.4x slower on Metal since bug-1085 (owner accepted the cost; speed-up wanted) |
 
 * Partial fix landed: 10,000 squares 110 → 58 ms on box 206. Render is still about 93 ms at 10,000 moving quads.

@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: none yet
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: `pollMouse` returns the events the surface received whether or not the program reads standard input (owner decision on bug-1015); in a terminal the surface's reports arrive on stdin.
+- Where: a console build subscribes its main thread to stdin (plan-15) and reserves the input buffer (`src/codegen/io/input/mod.rs:program_uses_input_buffer`, `INPUT_BUFFER_READERS`) only when an `io::` reader is in the program, so `emit_decode_pending_input` (`gen_read_family.rs`) skips a program that only polls the mouse.
+- Fix: a program that uses the mouse readers (`term::pollMouse`/`canvas::pollMouse`, the runtime symbols `term::enableMouse` brings in) is a stdin reader for that decision: it subscribes and reserves the buffer like an `io::` reader, and the drain then runs. Deletes the "a terminal program with none sees no mouse events" sentence bug-1015 added to `mfb man term pollMouse`.
+
 Found by bs24-agent-b while fixing bug-1015 (which made `pollMouse` decode pending input
 itself), reproduced by the bug-staging-24 coordinator, and placed in a later phase.
 bug-1015's fix documented this as a limit in `mfb man term pollMouse` ("a terminal program

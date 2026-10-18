@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/syntax/collections/set-literal-noncomparable-element-invalid (to add)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: a Set's element type must be comparable, as a Map's key type must (the verifier's `check_map_key_comparable`, applied to `IrValue::MapLiteral` and to explicit annotations).
+- Where: `src/ir/verify/values.rs:check_value_depth`, the `IrValue::SetLiteral` arm, calls only `check_collection_element_ownership`; the comparability half is never called, so an inferred `LET a = Set OF … {}` reaches neither check.
+- Fix: the SetLiteral arm applies the same comparability check the MapLiteral arm applies to its key type, so every Set literal is checked whatever its annotation; nothing is special-cased by element type.
+
 The spec requires a `Set OF T` element type to be comparable. That requirement is
 enforced for a declared `Set` type (`MUT a AS Set OF List OF Integer` gives
 `TYPE_REQUIRES_COMPARABLE`) and for `collections::toSet([[1]])`. A **set literal**

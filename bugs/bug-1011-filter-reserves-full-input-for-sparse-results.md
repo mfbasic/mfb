@@ -8,6 +8,10 @@ Class: Correctness (memory use / performance)
 Status: Open
 Regression Test: `tests/runtime/rt_reserved_collection_result_memory.rs` (proposed)
 
+## Cause (coordinator, bug-staging-24)
+
+- WAITING ON THE OWNER (asked 2026-10-17). `mfb spec memory` § Capacity Headroom and Growth states the opposite of this doc's Correct behavior ("A builder whose input only bounds its result allocates once at that bound: native `toSet` ... reserves `capacity = len(value)`"), and no owner ruling is recorded. Options put to the owner: (a) size to the result (grow as the generic path does), (b) reserve at the bound then shrink-to-fit before returning (recommended), (c) keep and close as intended. One rule covers 1009, 1010 and 1011.
+
 `lower_reserved_list` copies the source list's count and data length into the output's initial capacity. This over-reserves when `filter` keeps few or no elements, or when `transform` emits one element per input with a smaller payload. Callers that use `transform` internally inherit the same issue: `sortBy` can retain oversized temporary key payload capacity, and `groupBy` can over-reserve either projected list when its output payloads are smaller than the source. Measurements from `target/debug/mfb build --debug /tmp/mfb_collections_audit` followed by running `/tmp/mfb_collections_audit/build/collection_audit.out` show filtering 50,000 "x" strings with an always-`FALSE` predicate adds 2,850,048 bytes of allocation versus the same input without the filter. Transforming 1,000 strings of 4,096 bytes to empty strings raises peak live arena memory from 4,140,256 bytes for the input alone to 8,280,336 bytes, even though the result holds 1,000 empty strings. This can cause avoidable `ErrOutOfMemory` under memory pressure.
 
 The `groupBy` path has the same effect in both projections: on 1,000 strings of 4,096 bytes, an Integer key projection and an empty-String value projection produce one group but raise peak live arena memory to 12,412,912 bytes, versus 4,140,256 bytes for the input alone. This was measured with the same debug build and `--debug` arena counters.

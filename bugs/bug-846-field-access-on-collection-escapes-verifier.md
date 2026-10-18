@@ -8,6 +8,12 @@ Class: Correctness (diagnostics)
 Status: Open
 Regression Test: tests/syntax/control-flow/for-each-map-entry-unknown-field-invalid (proposed)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: a field access is checked against the target's type: `entry.key`/`entry.value` are a `MapEntry`'s only fields, anything else is `TYPE_UNKNOWN_FIELD` (`mfb spec language` §10, map loops); a member access on a non-record is `TYPE_FIELD_ACCESS_REQUIRES_RECORD`, as for primitives and unions.
+- Where: `src/ir/verify/values.rs`, the member-access check ending in `TYPE_UNKNOWN_FIELD`: after the primitive and union arms it checks only `record_fields`; collections and `MapEntry` fall into "left unchecked" and native lowering is the first to notice.
+- Fix: the check resolves fields for `MapEntry OF K TO V` (key, value) and refuses member access on `List`/`Map`/`Set` with the non-record diagnostic, located and coded; the "left unchecked" bucket for these types is deleted, so no such access reaches codegen.
+
 Reading a nonexistent field off a `FOR EACH` map entry (`e.foo`) or any field off a
 `List`/`Map` value (`l.foo`, `m.key`) is not rejected by the semantic verifier.
 Depending on context the user sees a misleading downstream diagnostic

@@ -8,6 +8,12 @@ Class: Correctness (platform parity)
 Status: Open
 Regression Test: none yet
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: a program whose `main` returns `Integer` `n` exits with code `n` (`mfb spec language` error model, the entry table: "`FUNC ... AS Integer` succeeds with `n` | Exit code `n`"); the console build and the macOS `--app` build do.
+- Where: `src/target/win_x86_64/app/mod.rs`, the Windows app bootstrap's `main_exit` label loads the immediate `0` and calls `ExitProcess`, so the worker's program-body result never reaches the process exit.
+- Fix: the bootstrap exits with the status the program body produced, handed over the same way the macOS app bootstrap does it (find that path and mirror it); delete the hard-coded `0`.
+
 Found by bs24-agent-b while proving bug-966 on box 206, reproduced by the bug-staging-24
 coordinator, and placed in a later phase.
 

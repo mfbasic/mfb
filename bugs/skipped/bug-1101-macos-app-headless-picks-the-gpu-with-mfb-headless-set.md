@@ -34,3 +34,14 @@ with, in turn:
 The last row contradicts the spec. Agent and coordinator runs that use
 `MFB_MACAPP_HEADLESS=1` for "software" frames without `MFB_CANVAS_GPU=0` are
 therefore GPU frames; the `rt_*` tests use `MFB_HEADLESS` and are not affected.
+
+## Withdrawn (2026-10-17): not a bug; the measurement was wrong
+
+bs24-agent-c found that nothing reads `MFB_MACAPP_HEADLESS`
+(`git grep MACAPP_HEADLESS -- src tests scripts tools .ai` finds nothing; the macOS app
+reads only `MFB_HEADLESS`, `src/target/macos_aarch64/app/mod.rs:STR_HEADLESS_ENV`). So
+"`MFB_MACAPP_HEADLESS=1`" is an ordinary windowed run, which selects the GPU as the spec
+says. The third row was the coordinator's error: `env $e` in zsh does not word-split `$e`,
+so that run set one variable named `MFB_MACAPP_HEADLESS` to `1 MFB_HEADLESS=1` and never set
+`MFB_HEADLESS`. With `MFB_HEADLESS=1` the app draws in software, as specified (row 2).
+Older bug docs that use `MFB_MACAPP_HEADLESS` describe windowed runs.

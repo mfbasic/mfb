@@ -8,6 +8,10 @@ Class: Correctness (compiler robustness)
 Status: Open
 Regression Test: `tests/runtime/rt_collection_large_constant_range_size.rs` (proposed; ensure valid huge size and stride constants do not panic in codegen)
 
+## Cause (coordinator, bug-staging-24)
+
+- One fix with bug-1007; see its Cause. The panic and the rejected immediates are the compile-time `size * 8` / `size`/`stride` immediates of the `chunks`/`window` fast paths, which bug-1007's run-time sizing removes; any constant still emitted is materialized through a register, not `add_immediate`.
+
 The public collection APIs accept any positive `Integer` chunk/window size and `window` stride. When those values are large constants, the native fast paths perform unchecked host-size arithmetic or emit them as backend immediates while constructing their layouts and loops. On macOS aarch64, a valid size of `2305843009213693952` panics the compiler in debug mode for both `collections::chunks` and `collections::window`, although the equivalent dynamic-size calls build and return the expected result. A valid String `window` stride of `1000000000` is rejected by the AArch64 immediate-decomposition guard, while the equivalent dynamic call succeeds.
 
 **Correct behavior:** compiling a program that passes a positive `Integer` size larger than the input length must not panic or reject valid source. `chunks([1, 2, 3], size)` should return one three-element chunk, and `window([1, 2, 3], size)` should return an empty list.
