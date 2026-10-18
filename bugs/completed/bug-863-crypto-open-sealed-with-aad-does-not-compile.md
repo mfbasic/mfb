@@ -123,3 +123,18 @@ overload, which is the old first-argument choice for every call that compiled be
 **Found, not fixed (pre-existing, not this bug):** the `seal`/`open` program leaks
 on main too — without the Sealed+aad calls, main's compiler (`--debug`) ends with
 857 allocs / 844 frees / 4592 B live.
+
+### Round 2 (coordinator review, 2026-10-18)
+
+The first fix selected with `resolve`/`dispatch` WITHOUT the caller's declared-type
+oracle, which is narrower than the resolver lowering itself uses: `collections::repeat(
+shapes, Square[9.0], 2)` (a union variant given for the `T` of `List OF Shape`) found
+no overload, was padded with nothing, and `func_repeat` indexed `args[3]` and panicked
+(`tests/rt-behavior/collections/union-variant-element-insert-rt`). Padding now calls
+`resolve_with_kinds`/`dispatch_with_kinds` with `ir::lower`'s `TypeIndex` — the same
+selection as `resolved_return_type`. And a call that reaches code generation without
+its `Fill` defaults is now an internal error, not a panic or a silent short call:
+`try_abi_inline_lower` checks `registry::call_carries_its_fill_defaults` (some overload
+takes the argument count with every `Fill` parameter present). Measured: that fixture
+and `crypto-open-sealed-aad-rt` pass; `bash scripts/test-fast.sh --accept
+'rt-behavior/collections/*' --accept 'rt-behavior/crypto/*'`: every step ok.

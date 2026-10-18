@@ -3854,6 +3854,16 @@ impl CodeBuilder<'_> {
                 )));
             }
         }
+        // bug-863: lowering pads every omitted `Fill` parameter with the default of
+        // the overload the call resolves to. A call missing one got past the front
+        // end unpadded, which is a front-end defect, not a short call.
+        if !crate::codegen::registry::call_carries_its_fill_defaults(target, args.len()) {
+            return Some(Err(format!(
+                "internal error: call '{target}' reached code generation with {} \
+                 argument(s) and its default parameters unpadded",
+                args.len()
+            )));
+        }
         // bug-760 B1: a hash lookup finds only live entries — a tombstone has no
         // bucket, and the lazy index build skips it; a key type that scans instead
         // never holds tombstones (`lower_map_remove_key_in_place`). So its map

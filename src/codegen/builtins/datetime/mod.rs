@@ -867,23 +867,47 @@ mod tests {
         // generic registry padder injects the right count; every other member (and
         // the arity constructors) pad nothing.
         assert_eq!(
-            registry::default_argument_padding(TIME, &vec![ParameterType::Unknown; 2]).len(),
+            registry::default_argument_padding(
+                TIME,
+                &vec![ParameterType::Unknown; 2],
+                &crate::codegen::builtins::NoTypeKinds
+            )
+            .len(),
             2
         );
         assert_eq!(
-            registry::default_argument_padding(TIME, &vec![ParameterType::Unknown; 3]).len(),
+            registry::default_argument_padding(
+                TIME,
+                &vec![ParameterType::Unknown; 3],
+                &crate::codegen::builtins::NoTypeKinds
+            )
+            .len(),
             1
         );
         assert_eq!(
-            registry::default_argument_padding(TIME, &vec![ParameterType::Unknown; 4]).len(),
+            registry::default_argument_padding(
+                TIME,
+                &vec![ParameterType::Unknown; 4],
+                &crate::codegen::builtins::NoTypeKinds
+            )
+            .len(),
             0
         );
         assert_eq!(
-            registry::default_argument_padding(TIME, &vec![ParameterType::Unknown; 5]).len(),
+            registry::default_argument_padding(
+                TIME,
+                &vec![ParameterType::Unknown; 5],
+                &crate::codegen::builtins::NoTypeKinds
+            )
+            .len(),
             0
         );
         assert_eq!(
-            registry::default_argument_padding(NOW, &vec![ParameterType::Unknown; 0]),
+            registry::default_argument_padding(
+                NOW,
+                &vec![ParameterType::Unknown; 0],
+                &crate::codegen::builtins::NoTypeKinds
+            ),
             Vec::new()
         );
     }
