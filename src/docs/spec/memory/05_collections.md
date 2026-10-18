@@ -387,6 +387,17 @@ value copies tighten the destination:
   native `toSet` (fixed-width elements) reserves `capacity = len(value)`, so a
   list with duplicates leaves `count < capacity` in the result.
   [[src/codegen/builtins/collections/func_to_set.rs:to_set_fast_path]]
+- A builder that splits its input sizes each piece from what it holds, never
+  from a requested size. The native constant-size `chunks` and `window` builds
+  size every inner list from `min(size, remaining)` at run time and pack the
+  inner blocks back to back in the outer's data region (`dataLength =
+  dataCapacity = Σ (header + held × 8)`), so a `size` larger than the input
+  reserves nothing for the unused remainder; `size` and `stride` are
+  materialized in registers, never folded into a compile-time byte count or an
+  add immediate.
+  [[src/codegen/builtins/collections/func_chunks.rs:lower_collection_chunks_call]]
+  [[src/codegen/builtins/collections/func_window.rs:lower_collection_window_call]]
+  [[src/codegen/builtins/collections/func_window.rs:lower_collection_window_string_call]]
 - A collection copied through `copy_flat_block` is **shrink-to-fit**:
   the destination has `capacity == count`
   and `dataCapacity == dataLength`. Entries and data are copied separately

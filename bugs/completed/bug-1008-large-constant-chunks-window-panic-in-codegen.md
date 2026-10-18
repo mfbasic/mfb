@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (compiler robustness)
 
-Status: Open
-Regression Test: `tests/runtime/rt_collection_large_constant_range_size.rs` (proposed; ensure valid huge size and stride constants do not panic in codegen)
+Status: Fixed
+Regression Test: `tests/runtime/rt_collection_chunks_window_sizing.rs`
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -16,6 +16,23 @@ The public collection APIs accept any positive `Integer` chunk/window size and `
 
 **Correct behavior:** compiling a program that passes a positive `Integer` size larger than the input length must not panic or reject valid source. `chunks([1, 2, 3], size)` should return one three-element chunk, and `window([1, 2, 3], size)` should return an empty list.
 Likewise, a positive constant stride larger than the input length must compile and return the same result as its dynamic equivalent.
+
+## Fix
+
+Fixed with bug-1007 (run-time block sizing). No compile-time `size * 8` remains in either fixed-width fast path, and
+`size`/`stride` are materialized through registers everywhere the fast paths used them as `add_immediate`,
+`subtract_immediate` or `compare_immediate` operands (fixed-width `chunks` count loop and clamp, fixed-width
+`window` count and copy bound, String `chunks` advance, String `window` loop). The String `window` loop now runs
+`while start <= n - size` and advances only while `stride <= (n - size) - start`, so it never forms `start + size`
+or `start + stride` past `n`. No size is special-cased. Regression test:
+`cargo test --release --test rt_collection_chunks_window_sizing -- large_constant_sizes_and_strides_compile_and_match_runtime_values`
+(each large constant case builds and prints the same contents as the same call with a run-time value).
+
+Goldens expected to change (not regenerated here; `mfb build` only, no rerun of the full suite):
+`tests/byte-identity/collections/golden/collections_codegen_cover_rt.{linux-aarch64,linux-riscv64,linux-x86_64,macos-aarch64,windows-x86_64}.ncodesum`
+— the fixture's `chunks(ints, 2)`, `window(ints, 2)` and `window(ints, 2, 1)` take the fixed-width fast paths, whose
+emitted code changed (run-time block sizing, `size` in a register). Every other fixture calling `chunks`/`window`
+keeps only `.ast`/`.ir`/`.run`/`build.log` goldens, which this codegen-only change does not reach.
 
 ## Failing Reproduction
 

@@ -82,7 +82,11 @@ impl CodeBuilder<'_> {
         let inner_layout = CollectionTypeLayout::from_type(&inner_type)
             .ok_or_else(|| format!("native window cannot resolve {inner_type}"))?;
         let _ = elem;
-        let inner_block_size = COLLECTION_HEADER_SIZE + (size as usize) * 8;
+        // Each window holds `min(size, n)` elements — exactly `size` whenever any
+        // window exists — so the block size is computed at run time from the
+        // input, never as a compile-time `size * 8` (bug-1007/bug-1008). `size`
+        // and `stride` are only materialized in registers, never as immediates.
+        let size_text = size.to_string();
         let source_slot = self.allocate_stack_object("window_source", 8);
         self.emit(abi::store_u64(
             &source.location,
@@ -91,37 +95,50 @@ impl CodeBuilder<'_> {
         ));
 
         let wc_slot = self.allocate_stack_object("window_count", 8);
+        let held_slot = self.allocate_stack_object("window_held", 8);
+        let block_slot = self.allocate_stack_object("window_block", 8);
         let result_slot = self.allocate_stack_object("window_result", 8);
         let n = self.temporary_vreg();
         let wc = self.temporary_vreg();
+        let held = self.temporary_vreg();
+        let block = self.temporary_vreg();
         let t = self.temporary_vreg();
-        // n = count(source); windowCount = n >= size ? (n - size)/stride + 1 : 0.
+        // n = count(source); held = min(size, n);
+        // windowCount = n >= size ? n - size + 1 : 0 (stride == 1, gated).
         self.emit(abi::load_u64(&n, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&n, &n, COLLECTION_OFFSET_COUNT));
         let wc_zero = self.label("window_wc_zero");
         let wc_done = self.label("window_wc_done");
-        // stride == 1 (gated), so windowCount = n - size + 1 (no division).
-        self.emit(abi::compare_immediate(&n, &size.to_string()));
+        self.emit(abi::move_immediate(&held, "Integer", &size_text));
+        self.emit(abi::compare_registers(&n, &held));
         self.emit(abi::branch_lt(&wc_zero));
-        self.emit(abi::subtract_immediate(&wc, &n, size as usize));
+        self.emit(abi::subtract_registers(&wc, &n, &held));
         self.emit(abi::add_immediate(&wc, &wc, 1));
         self.emit(abi::branch(&wc_done));
         self.emit(abi::label(&wc_zero));
         self.emit(abi::move_immediate(&wc, "Integer", "0"));
+        self.emit(abi::move_register(&held, &n));
         self.emit(abi::label(&wc_done));
         self.emit(abi::store_u64(&wc, abi::stack_pointer(), wc_slot));
+        self.emit(abi::store_u64(&held, abi::stack_pointer(), held_slot));
+        // innerBlockSize = HEADER + held*8 (held <= n, so it cannot wrap).
+        self.emit(abi::shift_left_immediate(&block, &held, 3));
+        self.emit(abi::add_immediate(&block, &block, COLLECTION_HEADER_SIZE));
+        self.emit(abi::store_u64(&block, abi::stack_pointer(), block_slot));
 
-        // alloc = HEADER + windowCount*ENTRY_SIZE + windowCount*innerBlockSize.
+        // alloc = HEADER + windowCount*(ENTRY_SIZE + innerBlockSize).
         let size_overflow = self.label("window_size_overflow");
-        let per = COLLECTION_ENTRY_SIZE + inner_block_size;
-        self.emit(abi::move_immediate(&t, "Integer", &per.to_string()));
-        self.emit_checked_size_multiply(abi::return_register(), &wc, &t, &size_overflow);
+        let bytes = self.temporary_vreg();
+        let total = self.temporary_vreg();
+        self.emit(abi::add_immediate(&t, &block, COLLECTION_ENTRY_SIZE));
+        self.emit_checked_size_multiply(&bytes, &wc, &t, &size_overflow);
         self.emit_checked_size_add_immediate(
-            abi::return_register(),
-            abi::return_register(),
+            &total,
+            &bytes,
             COLLECTION_HEADER_SIZE,
             &size_overflow,
         );
+        self.emit(abi::move_register(abi::return_register(), &total));
         let alloc_ok = self.label("window_alloc_ok");
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
@@ -147,13 +164,9 @@ impl CodeBuilder<'_> {
         let outer = self.temporary_vreg();
         self.emit(abi::load_u64(&outer, abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&wc, abi::stack_pointer(), wc_slot));
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
         let dlen = self.temporary_vreg();
-        self.emit(abi::move_immediate(
-            &t,
-            "Integer",
-            &inner_block_size.to_string(),
-        ));
-        self.emit(abi::multiply_registers(&dlen, &wc, &t));
+        self.emit(abi::multiply_registers(&dlen, &wc, &block));
         self.emit_write_list_header_from_registers(&outer_layout, &outer, &wc, &dlen);
 
         // Per-window construction.
@@ -209,37 +222,24 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
         self.emit(abi::store_u8(&tmp, &entry, COLLECTION_ENTRY_OFFSET_FLAGS));
-        self.emit(abi::move_immediate(
-            &tmp,
-            "Integer",
-            &inner_block_size.to_string(),
-        ));
-        self.emit(abi::multiply_registers(&tmp, &w, &tmp)); // w*innerBlockSize
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
+        self.emit(abi::multiply_registers(&tmp, &w, &block)); // w*innerBlockSize
         self.emit(abi::store_u64(
             &tmp,
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
-        self.emit(abi::move_immediate(
-            &t,
-            "Integer",
-            &inner_block_size.to_string(),
-        ));
         self.emit(abi::store_u64(
-            &t,
+            &block,
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        // inner = outerData + w*innerBlockSize; write kind-2 inner header (count=cap=size, dataLen=dataCap=size*8).
+        // inner = outerData + w*innerBlockSize; write kind-2 inner header (count=cap=held, dataLen=dataCap=held*8).
         self.emit(abi::add_registers(&inner, &outer_data, &tmp));
-        self.emit(abi::move_immediate(&cnt, "Integer", &size.to_string()));
-        self.emit(abi::move_immediate(
-            &t,
-            "Integer",
-            &((size as usize) * 8).to_string(),
-        ));
-        self.emit_write_list_header_from_registers(&inner_layout, &inner, &cnt, &t);
-        // Copy size elements from src_data + (w*stride)*8 into inner + HEADER.
+        self.emit(abi::load_u64(&held, abi::stack_pointer(), held_slot));
+        self.emit(abi::shift_left_immediate(&t, &held, 3));
+        self.emit_write_list_header_from_registers(&inner_layout, &inner, &held, &t);
+        // Copy held elements from src_data + (w*stride)*8 into inner + HEADER.
         self.emit(abi::move_immediate(&t, "Integer", &stride.to_string()));
         self.emit(abi::multiply_registers(&t, &w, &t)); // i = w*stride
         self.emit(abi::shift_left_immediate(&t, &t, 3)); // i*8
@@ -247,7 +247,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&dstp, &inner, COLLECTION_HEADER_SIZE));
         self.emit(abi::move_immediate(&cnt, "Integer", "0"));
         self.emit(abi::label(&copy_l));
-        self.emit(abi::compare_immediate(&cnt, &size.to_string()));
+        self.emit(abi::compare_registers(&cnt, &held));
         self.emit(abi::branch_ge(&copy_done));
         self.emit(abi::load_u64(&tmp, &srcp, 0));
         self.emit(abi::store_u64(&tmp, &dstp, 0));
@@ -314,22 +314,42 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&scratch, "Integer", &size.to_string()));
         self.emit(abi::store_u64(&scratch, abi::stack_pointer(), count_slot));
 
+        // `size` and `stride` are only materialized in registers: a large constant
+        // is not a valid add immediate (bug-1008). The loop compares `start`
+        // against `last = n - size` (the last start a full window fits at;
+        // negative when none does) and steps only while `stride <= last - start`,
+        // so neither `start + size` nor `start + stride` is formed past `n`.
+        let scratch3 = self.temporary_vreg();
+        let last_slot = self.allocate_stack_object("window_s_last", 8);
+        self.emit(abi::load_u64(&scratch2, abi::stack_pointer(), n_slot));
+        self.emit(abi::move_immediate(&scratch3, "Integer", &size.to_string()));
+        self.emit(abi::subtract_registers(&scratch2, &scratch2, &scratch3));
+        self.emit(abi::store_u64(&scratch2, abi::stack_pointer(), last_slot));
+
         let loop_l = self.label("window_s_loop");
         let done_l = self.label("window_s_done");
-        self.emit(abi::label(&loop_l));
-        // while start + size <= n
+        // while start <= n - size
         self.emit(abi::load_u64(&scratch, abi::stack_pointer(), start_slot));
-        self.emit(abi::add_immediate(&scratch, &scratch, size as usize));
-        self.emit(abi::load_u64(&scratch2, abi::stack_pointer(), n_slot));
+        self.emit(abi::load_u64(&scratch2, abi::stack_pointer(), last_slot));
         self.emit(abi::compare_registers(&scratch, &scratch2));
         self.emit(abi::branch_gt(&done_l));
+        self.emit(abi::label(&loop_l));
         // inner = source[start .. start+size]; append into outer; free inner.
         let inner_slot = self.emit_string_list_slice_block(source_slot, start_slot, count_slot)?;
         self.lower_list_append_in_place(outer_slot, inner_slot, &outer_type, &inner_type)?;
         self.emit_free_owned_kind0_list_block(inner_slot)?;
-        // start += stride
+        // if stride > last - start: no further window fits; else start += stride
         self.emit(abi::load_u64(&scratch, abi::stack_pointer(), start_slot));
-        self.emit(abi::add_immediate(&scratch, &scratch, stride as usize));
+        self.emit(abi::load_u64(&scratch2, abi::stack_pointer(), last_slot));
+        self.emit(abi::subtract_registers(&scratch2, &scratch2, &scratch));
+        self.emit(abi::move_immediate(
+            &scratch3,
+            "Integer",
+            &stride.to_string(),
+        ));
+        self.emit(abi::compare_registers(&scratch3, &scratch2));
+        self.emit(abi::branch_gt(&done_l));
+        self.emit(abi::add_registers(&scratch, &scratch, &scratch3));
         self.emit(abi::store_u64(&scratch, abi::stack_pointer(), start_slot));
         self.emit(abi::branch(&loop_l));
         self.emit(abi::label(&done_l));
