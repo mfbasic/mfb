@@ -4236,10 +4236,13 @@ pub(crate) fn call_param_name_overloads(qualified: &str) -> Option<Vec<Vec<&'sta
 /// differ in what they default (`crypto::open`'s ciphertext/tag form and its
 /// `Sealed` form both take an optional trailing `aad`, at different positions).
 /// A call no overload accepts is padded with nothing, so the checker reports the
-/// call as written, at its own span.
+/// call as written, at its own span; such a call never reaches code generation,
+/// whose [`call_carries_its_fill_defaults`] check turns an unpadded call that did
+/// into an internal error.
 pub(crate) fn default_argument_padding(
     qualified: &str,
     arg_types: &[ParameterType],
+    kinds: &dyn TypeKinds,
 ) -> Vec<(ParameterType, &'static str)> {
     let Some(resolved) = registry().resolve_func(qualified) else {
         return Vec::new();
@@ -4249,9 +4252,13 @@ pub(crate) fn default_argument_padding(
     let call = CallShape {
         args: arg_types.to_vec(),
     };
+    // The resolver's own selection, with the caller's declared-type oracle, so a
+    // union variant given for a `T` bound by `List OF <union>` selects exactly as
+    // it does in `resolved_return_type` (bug-863 round 2: `repeat(shapes,
+    // Square[…], 2)`).
     let implementation = function
-        .resolve(&call)
-        .or_else(|| function.dispatch(&call))
+        .resolve_with_kinds(&call, kinds)
+        .or_else(|| function.dispatch_with_kinds(&call, kinds))
         .map(|selection| selection.implementation);
     let Some(implementation) = implementation else {
         return Vec::new();
@@ -4267,6 +4274,29 @@ pub(crate) fn default_argument_padding(
             _ => None,
         })
         .collect()
+}
+
+/// Whether a call with `argc` arguments reaching code generation carries every
+/// `Fill` default its overload declares: some implementation takes `argc`
+/// arguments counting each `Fill` parameter as present (lowering pads it; only an
+/// `Optional` parameter may still be missing). `true` for a member the registry
+/// does not own.
+pub(crate) fn call_carries_its_fill_defaults(qualified: &str, argc: usize) -> bool {
+    let Some(resolved) = registry().resolve_func(qualified) else {
+        return true;
+    };
+    resolved
+        .function
+        .implementations
+        .iter()
+        .any(|implementation| {
+            let present = implementation
+                .params
+                .iter()
+                .filter(|param| !matches!(param.default, DefaultValue::Optional))
+                .count();
+            (present..=implementation.params.len()).contains(&argc)
+        })
 }
 
 /// The project facts the builtin-source injectors gate on: which packages the

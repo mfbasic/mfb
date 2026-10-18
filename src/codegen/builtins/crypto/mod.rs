@@ -1338,30 +1338,50 @@ mod tests {
         // AEAD `seal(cipher, key, nonce, data, [aad])` pads one trailing `aad` when
         // omitted (4 provided -> 1), none at 5.
         assert_eq!(
-            registry::default_argument_padding("crypto.seal", &vec![ParameterType::Unknown; 4])
-                .len(),
+            registry::default_argument_padding(
+                "crypto.seal",
+                &vec![ParameterType::Unknown; 4],
+                &crate::codegen::builtins::NoTypeKinds
+            )
+            .len(),
             1
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.seal", &vec![ParameterType::Unknown; 5])
-                .len(),
+            registry::default_argument_padding(
+                "crypto.seal",
+                &vec![ParameterType::Unknown; 5],
+                &crate::codegen::builtins::NoTypeKinds
+            )
+            .len(),
             0
         );
         // `open(cipher, key, nonce, ciphertext, tag, [aad])` pads one trailing `aad`
         // when omitted (5 provided -> 1), none at 6.
         assert_eq!(
-            registry::default_argument_padding("crypto.open", &vec![ParameterType::Unknown; 5])
-                .len(),
+            registry::default_argument_padding(
+                "crypto.open",
+                &vec![ParameterType::Unknown; 5],
+                &crate::codegen::builtins::NoTypeKinds
+            )
+            .len(),
             1
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.open", &vec![ParameterType::Unknown; 6])
-                .len(),
+            registry::default_argument_padding(
+                "crypto.open",
+                &vec![ParameterType::Unknown; 6],
+                &crate::codegen::builtins::NoTypeKinds
+            )
+            .len(),
             0
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.hash", &vec![ParameterType::Unknown; 2])
-                .len(),
+            registry::default_argument_padding(
+                "crypto.hash",
+                &vec![ParameterType::Unknown; 2],
+                &crate::codegen::builtins::NoTypeKinds
+            )
+            .len(),
             0
         );
     }
@@ -1374,7 +1394,13 @@ mod tests {
         let bytes = ParameterType::list_of(ParameterType::Byte);
         let cipher = ParameterType::named("crypto.SymmetricCipher");
         let sealed = ParameterType::named("crypto.Sealed");
-        let pad = |args: &[ParameterType]| registry::default_argument_padding("crypto.open", args);
+        let pad = |args: &[ParameterType]| {
+            registry::default_argument_padding(
+                "crypto.open",
+                args,
+                &crate::codegen::builtins::NoTypeKinds,
+            )
+        };
         let sealed_aad = [
             cipher.clone(),
             bytes.clone(),

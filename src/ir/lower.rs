@@ -5425,6 +5425,7 @@ fn lower_expression_unwrapped(
             let padding = crate::codegen::registry::default_argument_padding(
                 &canonical_callee,
                 &provided_types,
+                context.type_index,
             );
             for (type_, value) in &padding {
                 // plan-106-A: the `Fill` type arrives typed, so the empty-collection
