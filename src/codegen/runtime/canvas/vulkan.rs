@@ -71,18 +71,19 @@ use crate::codegen::runtime::canvas::{
     HEADER_POLYLINE_LAST, HEADER_RADIUS, HEADER_SLOTS, HEADER_STROKE_HALF, HEADER_STROKE_R,
     HEADER_TRANSFORM_IA, HEADER_TRANSFORM_IB, HEADER_TRANSFORM_IC, HEADER_TRANSFORM_ID,
     HEADER_TRANSFORM_ITX, HEADER_TRANSFORM_ITY, ITEM_ARC_CAP, ITEM_ARC_EDGE_BASE,
-    ITEM_ARC_GLYPH_HEIGHT, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_START, ITEM_BAND_TOP,
-    ITEM_BLOCK_SIZE, ITEM_ELLIPSE_GRADIENT_BASE, ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC,
-    ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_ELLIPSE, ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT,
-    ITEM_OFFSET_MISC, ITEM_OFFSET_MISC_LO, ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE,
-    ITEM_OFFSET_SURFACE, ITEM_OFFSET_TRANSFORM, ITEM_RESIDUAL_FIELDS, ITEM_SURFACE_BLEND,
-    ITEM_SURFACE_GRADIENT_KIND, PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS, TILE_SOURCE_H,
-    TILE_SOURCE_W, TILE_SOURCE_X, TILE_SOURCE_Y, VULKAN_BAND_BASE_WORDS, VULKAN_BUFFER_BYTES,
-    VULKAN_EDGE_RESIDUAL_BASE_WORDS, VULKAN_GLYPH_BASE_WORDS, VULKAN_GRADIENT_BASE_WORDS,
-    VULKAN_ITEM_BUFFER_BYTES, VULKAN_MAX_FRAME_BAND_WORDS, VULKAN_MAX_FRAME_EDGES,
-    VULKAN_MAX_FRAME_GLYPH_SAMPLES, VULKAN_MAX_FRAME_GRADIENT_STOPS, VULKAN_MAX_FRAME_ITEMS,
-    VULKAN_PICTURE_INDEX_OFFSET, VULKAN_PICTURE_INDEX_SLOTS, VULKAN_PICTURE_RECORDS,
-    VULKAN_PICTURE_RECORDS_OFFSET, VULKAN_SPEC_CONSTANTS,
+    ITEM_ARC_GLYPH_HEIGHT, ITEM_BAND_COUNT, ITEM_BAND_HEIGHT, ITEM_BAND_NORM, ITEM_BAND_START,
+    ITEM_BAND_TOP, ITEM_BLOCK_SIZE, ITEM_CLIP_BAND_NORM, ITEM_ELLIPSE_GRADIENT_BASE,
+    ITEM_ELLIPSE_GRADIENT_COUNT, ITEM_OFFSET_ARC, ITEM_OFFSET_ARC_CAPS, ITEM_OFFSET_ELLIPSE,
+    ITEM_OFFSET_FILL, ITEM_OFFSET_GRADIENT, ITEM_OFFSET_MISC, ITEM_OFFSET_MISC_LO,
+    ITEM_OFFSET_QUAD, ITEM_OFFSET_SHAPE, ITEM_OFFSET_STROKE, ITEM_OFFSET_SURFACE,
+    ITEM_OFFSET_TRANSFORM, ITEM_RESIDUAL_FIELDS, ITEM_SURFACE_BLEND, ITEM_SURFACE_GRADIENT_KIND,
+    PICTURE_RECORD_BYTES, PICTURE_SHADOW_SPLIT_BITS, TILE_SOURCE_H, TILE_SOURCE_W, TILE_SOURCE_X,
+    TILE_SOURCE_Y, VULKAN_BAND_BASE_WORDS, VULKAN_BUFFER_BYTES, VULKAN_EDGE_RESIDUAL_BASE_WORDS,
+    VULKAN_GLYPH_BASE_WORDS, VULKAN_GRADIENT_BASE_WORDS, VULKAN_ITEM_BUFFER_BYTES,
+    VULKAN_MAX_FRAME_BAND_WORDS, VULKAN_MAX_FRAME_EDGES, VULKAN_MAX_FRAME_GLYPH_SAMPLES,
+    VULKAN_MAX_FRAME_GRADIENT_STOPS, VULKAN_MAX_FRAME_ITEMS, VULKAN_PICTURE_INDEX_OFFSET,
+    VULKAN_PICTURE_INDEX_SLOTS, VULKAN_PICTURE_RECORDS, VULKAN_PICTURE_RECORDS_OFFSET,
+    VULKAN_SPEC_CONSTANTS,
 };
 use crate::codegen::runtime::canvas::{vulkan_handoff, GRAPHICS_OFFSET_ATTR};
 use crate::codegen::runtime::canvas::{
@@ -3809,7 +3810,7 @@ fn emit_item_block(
     for instruction in emit_item_stroke_sign(header, off_item, &positive, &signed) {
         builder.emit(instruction);
     }
-    // bug-735: `arc.x` = 0 and an arc's `reflex` flag in `arc.y`, decided in f64.
+    // bug-735: `arc.x` = 0 and an arc's sweep turn in `arc.y` (bug-1088), decided in f64.
     let set = builder.label("vk_item_reflex_set");
     let done = builder.label("vk_item_reflex_done");
     for instruction in emit_item_arc_flags(header, off_item, &set, &done) {
@@ -5277,6 +5278,8 @@ struct BandSet {
     count: usize,
     base: usize,
     header: usize,
+    /// bug-1085: the header's norm word (`ITEM_BAND_NORM`, `ITEM_CLIP_BAND_NORM`).
+    norm: usize,
     clip: bool,
 }
 
@@ -5284,6 +5287,7 @@ const ITEM_BANDS: BandSet = BandSet {
     count: ITEM_OFFSET_MISC + 12,
     base: ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
     header: ITEM_OFFSET_ARC_CAPS,
+    norm: ITEM_BAND_NORM,
     clip: false,
 };
 
@@ -5291,6 +5295,7 @@ const CLIP_BANDS: BandSet = BandSet {
     count: ITEM_OFFSET_CLIP_PATH + ITEM_CLIP_PATH_COUNT,
     base: ITEM_OFFSET_CLIP_PATH + ITEM_CLIP_PATH_BASE,
     header: ITEM_OFFSET_CLIP_BAND,
+    norm: ITEM_CLIP_BAND_NORM,
     clip: true,
 };
 
@@ -5323,13 +5328,19 @@ const CLIP_BANDS: BandSet = BandSet {
 ///   band; with `F = ‖M‖_F` (M the inverse matrix) `r = half + 0.5 + 2F` covers every
 ///   neighbour and every scale the shader can divide by — the argument is written out at
 ///   Metal's `emit_band_index`.
+/// * **Under a group's matrix** (bug-1085) the argument needs the COMPOSED norm `N`,
+///   which no builder can know (a block is drawn under every group matrix that names
+///   it). The reach is built for `F_built = max(F, √2)` (the identity's norm at least, so
+///   no group, an identity, a rotation or a magnifying group keeps the band), the header
+///   records it (`ITEM_BAND_NORM`, `ITEM_CLIP_BAND_NORM`), and the shader takes the band
+///   only when `1.5·N <= 2·F_built`, walking every edge otherwise.
 ///
 /// Plus a **1-unit guard** in shape space, for the float error of the shader's band
 /// lookup against these integer bands.
 ///
 /// ## Sizing
 ///
-/// Bands are 2 px tall untransformed, `√2·F` transformed, and taller when the span needs
+/// Bands are `√2·F_built` tall (2 px untransformed), and taller when the span needs
 /// more than `min(edges, BAND_MAX)` bands. If the list would pass `BAND_LIST_PER_EDGE`
 /// entries per edge the height doubles until it fits; at one band the list is every edge
 /// once. So one polygon never needs more than `BAND_WORDS_PER_EDGE` words per edge, which
@@ -5441,6 +5452,9 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: BandSet) {
     // r = half + 0.5 (the clamp) + 1 (the guard)
     builder.emit(abi::float_add_d(f[1], f[1], f[2]));
     builder.emit(abi::float_move_d_from_d(f[4], f[3]));
+    // F (f6) is 0 untransformed, before the floor below (bug-1085).
+    builder.emit(abi::move_immediate(s[4], "Integer", "0"));
+    builder.emit(abi::signed_convert_to_float_d(f[6], s[4]));
     let untransformed = builder.label("vk_band_untransformed");
     builder.emit(abi::load_double(f[5], s[0], HEADER_HAS_TRANSFORM * 8));
     builder.emit(abi::float_convert_to_signed_x(s[4], f[5]));
@@ -5452,8 +5466,6 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: BandSet) {
     // 896, mantissa shifted up 52 - 23 = 29. The sign is dropped (the term is squared);
     // a zero or subnormal term counts as 0, which the 1-unit guard dwarfs; an infinite
     // or NaN one gives the polygon no bands.
-    builder.emit(abi::move_immediate(s[4], "Integer", "0"));
-    builder.emit(abi::signed_convert_to_float_d(f[6], s[4]));
     for slot in [
         HEADER_TRANSFORM_IA,
         HEADER_TRANSFORM_IB,
@@ -5482,16 +5494,28 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: BandSet) {
         builder.emit(abi::label(&zero_term));
     }
     builder.emit(abi::float_sqrt_d(f[6], f[6]));
-    // r += 2F; the minimum height is sqrt(2)*F, about two surface pixels.
-    builder.emit(abi::float_add_d(f[7], f[6], f[6]));
-    builder.emit(abi::float_add_d(f[1], f[1], f[7]));
-    builder.emit(abi::float_sqrt_d(f[7], f[3]));
-    builder.emit(abi::float_multiply_d(f[4], f[6], f[7]));
     builder.emit(abi::label(&untransformed));
+    // bug-1085: the reach is built for F_built = max(F, sqrt 2), the identity's norm at
+    // least, so a pixel drawn under no group or under an identity, rotation or magnifying
+    // group keeps the band (`0.75 N <= F_built`) and only a shrinking group walks every
+    // edge. r += 2 F_built; the minimum height is sqrt(2) F_built, about two surface
+    // pixels (exactly 2 untransformed, the height it always had).
+    builder.emit(abi::float_sqrt_d(f[7], f[3]));
+    builder.emit(abi::float_max_d(f[6], f[6], f[7]));
+    builder.emit(abi::float_add_d(f[5], f[6], f[6]));
+    builder.emit(abi::float_add_d(f[1], f[1], f[5]));
+    builder.emit(abi::float_multiply_d(f[4], f[6], f[7]));
 
     // --- to 16.16, rounding UP: s4 = r, s5 = the minimum height ---------------------
     builder.emit(abi::move_immediate(s[4], "Integer", FIXED_POINT_SCALE));
     builder.emit(abi::signed_convert_to_float_d(f[7], s[4]));
+    // bug-1085: and F_built, rounded DOWN (it is positive, so truncation is the floor),
+    // into the header's norm word -- what the shader holds a pixel's composed norm to
+    // before it takes the band. A value too large for the word is a reach past the bound
+    // below, and `none` writes 0 over it.
+    builder.emit(abi::float_multiply_d(f[6], f[6], f[7]));
+    builder.emit(abi::float_convert_to_signed_x(s[6], f[6]));
+    builder.emit(abi::store_u32(s[6], sp(), at.item + set.norm));
     builder.emit(abi::float_multiply_d(f[1], f[1], f[7]));
     builder.emit(abi::float_ceil_to_signed_x(s[4], f[1]));
     builder.emit(abi::float_multiply_d(f[4], f[4], f[7]));
@@ -5759,6 +5783,7 @@ fn emit_band_index(builder: &mut CodeBuilder, at: &BandSlots, set: BandSet) {
     ] {
         builder.emit(abi::store_u32(s[4], sp(), block(field)));
     }
+    builder.emit(abi::store_u32(s[4], sp(), at.item + set.norm));
     builder.emit(abi::label(&done));
 }
 

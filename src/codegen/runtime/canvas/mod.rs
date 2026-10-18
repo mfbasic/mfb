@@ -646,6 +646,23 @@ pub(crate) const ITEM_BAND_TOP: usize = 0;
 pub(crate) const ITEM_BAND_HEIGHT: usize = 4;
 pub(crate) const ITEM_BAND_COUNT: usize = 8;
 pub(crate) const ITEM_BAND_START: usize = 12;
+/// bug-1085: a band header's fifth word, outside its `ivec4`: `F_built`, the norm its
+/// reach was built for, in 16.16 rounded DOWN. That is `max(F, sqrt 2)`, `F` the
+/// Frobenius norm of the item's own inverse (0 untransformed) -- the only inverse the
+/// builder can know, since a block is built once a pass and may be drawn under several
+/// group matrices -- floored at the identity's norm, so an identity, rotation or
+/// magnifying group keeps the band. The shaders take the band only for a pixel whose
+/// composed norm `N` the reach covers, `0.75 N <= F_built` (the builder adds `2 F_built`
+/// where the five-sample argument needs `1.5 N`), and otherwise walk every edge: only a
+/// group that shrinks past the floor does.
+///
+/// The polygon's is `capsLo.w`, the residual of `arcCaps.w`, which a band header has
+/// none of and only an arc reads; a path clip's is `gradFocal.w`, which nothing else
+/// writes, because a clip can be on an arc. Written by each backend's `emit_band_index`
+/// with the rest of the header (0 with no bands), and read only beside a band count
+/// above 0.
+pub(crate) const ITEM_BAND_NORM: usize = ITEM_OFFSET_CAPS_LO + 12;
+pub(crate) const ITEM_CLIP_BAND_NORM: usize = ITEM_OFFSET_GRADIENT_FOCAL + 12;
 /// An ellipse's rotation, as `cos, sin` in 16.16, then two unused words (plan-116-E).
 ///
 /// The twelfth `ivec4`. Two words would have fit in an existing block's spare, but
@@ -725,10 +742,11 @@ pub(crate) const ITEM_OFFSET_GRADIENT_INV: usize = 320;
 /// plan-163-D: a radial gradient's focal offset from its centre and focal radius, 16.16
 /// (`gradFocal`), already clamped by the builder.
 pub(crate) const ITEM_OFFSET_GRADIENT_FOCAL: usize = 352;
-/// The word inside `ITEM_OFFSET_ARC` holding an arc's `reflex` flag, 0 or 1 (bug-735):
-/// `endAngle - startAngle > PI`, decided by the emitter in the oracle's own f64
-/// (`__canvas_drawGeometry`), so the sweep test's union-or-intersection choice cannot
-/// differ from the oracle's. It replaced the 16.16 end angle, which the shaders turned
+/// The word inside `ITEM_OFFSET_ARC` holding an arc's sweep TURN (bug-735, widened by
+/// bug-1088): 0 when `endAngle - startAngle <= PI`, 1 when it is past `PI` (reflex), 2
+/// when it is a whole turn or more (`>= 2 PI`, the whole ring, which two sweep vectors
+/// cannot tell from a zero sweep), decided by the emitter in the oracle's own f64
+/// (`__canvas_arcTurn`), so the sweep's choice of wedge cannot differ from the oracle's. It replaced the 16.16 end angle, which the shaders turned
 /// into a sweep vector with GPU `cos`/`sin` -- transcendentals that do not match the
 /// oracle's deterministic Taylor pair. The sweep vectors now come from the arc's cap
 /// endpoints (`arcCaps` minus the centre, a positive multiple of `(cos, sin)`), so no
@@ -814,9 +832,11 @@ pub(crate) const ITEM_RESIDUAL_FIELDS: [(usize, usize, usize); 16] = [
     ),
 ];
 
-/// `PI` (`3.141592653589793`, the constant `__canvas_drawGeometry` compares an arc's
-/// sweep against) as its IEEE-754 double bit pattern.
+/// `PI` (`3.141592653589793`, the constant `__canvas_arcTurn` compares an arc's sweep
+/// against) as its IEEE-754 double bit pattern.
 const PI_F64_BITS: &str = "4614256656552045848";
+/// `2 PI` (`6.283185307179586`, `__canvas_arcTurn`'s whole turn), likewise (bug-1088).
+const TWO_PI_F64_BITS: &str = "4618760256179416344";
 
 /// bug-735: narrow one header slot to its 16.16 word at `block + word_at` and its
 /// residual `round((v * 65536 - word) * 2^31)` at `block + residual_at` (both offsets
@@ -887,9 +907,10 @@ pub(crate) fn emit_item_stroke_sign(
 }
 
 /// bug-735: the item block's `arc.x` (0) and `arc.y` (`ITEM_ARC_REFLEX`) at
-/// `block_at` from the stack pointer: `endAngle - startAngle > PI` in f64, the oracle's
-/// own test, for every kind -- only an arc reads it. `set` and `done` are two fresh
-/// labels. Clobbers `FP_SCRATCH[1..=2]` and `SCRATCH[1]`.
+/// `block_at` from the stack pointer: the sweep's turn, the oracle's own `__canvas_arcTurn`
+/// in f64 -- 2 for `endAngle - startAngle >= 2 PI`, 1 for `> PI`, else 0 (bug-1088) -- for
+/// every kind; only an arc reads it. `set` and `done` are two fresh labels (and `set`
+/// with `_whole` appended a third). Clobbers `FP_SCRATCH[1..=2]` and `SCRATCH[1]`.
 pub(crate) fn emit_item_arc_flags(
     header: abi::Reg,
     block_at: usize,
@@ -897,6 +918,7 @@ pub(crate) fn emit_item_arc_flags(
     done: &str,
 ) -> Vec<CodeInstruction> {
     let reflex_at = block_at + ITEM_OFFSET_ARC + ITEM_ARC_REFLEX;
+    let whole = format!("{set}_whole");
     vec![
         abi::move_immediate(abi::SCRATCH[1], "Integer", "0"),
         abi::store_u32(
@@ -908,10 +930,20 @@ pub(crate) fn emit_item_arc_flags(
         abi::load_double(abi::FP_SCRATCH[1], header, HEADER_AUX1 * 8),
         abi::load_double(abi::FP_SCRATCH[2], header, HEADER_AUX0 * 8),
         abi::float_subtract_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]),
+        abi::move_immediate(abi::SCRATCH[1], "Integer", TWO_PI_F64_BITS),
+        abi::float_move_d_from_x(abi::FP_SCRATCH[2], abi::SCRATCH[1]),
+        // `2 PI <= sweep` as `b.ls` (a NaN falls through): float `>=` has no portable
+        // branch after `float_compare_d`.
+        abi::float_compare_d(abi::FP_SCRATCH[2], abi::FP_SCRATCH[1]),
+        abi::branch_ls(&whole),
         abi::move_immediate(abi::SCRATCH[1], "Integer", PI_F64_BITS),
         abi::float_move_d_from_x(abi::FP_SCRATCH[2], abi::SCRATCH[1]),
         abi::float_compare_d(abi::FP_SCRATCH[1], abi::FP_SCRATCH[2]),
         abi::branch_gt(set),
+        abi::branch(done),
+        abi::label(&whole),
+        abi::move_immediate(abi::SCRATCH[1], "Integer", "2"),
+        abi::store_u32(abi::SCRATCH[1], abi::stack_pointer(), reflex_at),
         abi::branch(done),
         abi::label(set),
         abi::move_immediate(abi::SCRATCH[1], "Integer", "1"),

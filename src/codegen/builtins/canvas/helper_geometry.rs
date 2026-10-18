@@ -1032,6 +1032,12 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   IF a.radius <= 0.0 THEN
     RETURN __canvas_emptyHeader()
   END IF
+  ' bug-1088: a sweep of zero (or less: the end before the start) has no length, and a
+  ' butt end adds nothing past an end: like a zero-length butt line, it draws nothing. A
+  ' Round or Square one draws its two ends.
+  IF a.endAngle <= a.startAngle AND __canvas_capTag(placed.cap) = 0 THEN
+    RETURN __canvas_emptyHeader()
+  END IF
   MUT out AS List OF Float = __canvas_blankHeader()
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_ARC))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))
@@ -1054,8 +1060,9 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   out = collections::set(out, __CANVAS_GEO_CAPENDX, bx + a.radius * __canvas_cos(a.endAngle))
   out = collections::set(out, __CANVAS_GEO_CAPENDY, by + a.radius * __canvas_sin(a.endAngle))
   LET reach AS Float = a.radius + __canvas_capReach(half, __canvas_capTag(placed.cap)) + 1.0
-  ' An arc's box goes over whole: its distance jumps at the ends of its sweep, so no rim
-  ' bounds where it takes coverage under a transform (`__canvas_boundsHeader`).
+  ' An arc's box goes over whole, with no rim (`__canvas_boundsHeader`): the square about
+  ' its whole ring, not an extent of the swept part. It was chosen while the distance
+  ' jumped at the ends of the sweep, which bug-1088 removed; the box is unchanged.
   RETURN __canvas_boundsHeader(out, bx - reach, by - reach, bx + reach, by + reach, 0.0, 0.0, 0.0)
 END FUNC
 

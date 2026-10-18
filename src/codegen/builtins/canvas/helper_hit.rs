@@ -73,11 +73,11 @@ FUNC __canvas_hitDistance(offset AS Integer, kind AS Integer, qx AS Float, qy AS
   MUT sy AS Float = 0.0
   MUT ex AS Float = 0.0
   MUT ey AS Float = 0.0
-  MUT reflex AS Boolean = FALSE
+  MUT turn AS Integer = 0
   IF kind = __CANVAS_GEO_ARC THEN
     LET startAngle AS Float = __canvas_geoAt(offset, 20)
     LET endAngle AS Float = __canvas_geoAt(offset, 21)
-    reflex = (endAngle - startAngle) > 3.141592653589793
+    turn = __canvas_arcTurn(startAngle, endAngle)
     sx = __canvas_cos(startAngle)
     sy = __canvas_sin(startAngle)
     ex = __canvas_cos(endAngle)
@@ -88,7 +88,7 @@ FUNC __canvas_hitDistance(offset AS Integer, kind AS Integer, qx AS Float, qy AS
   IF kind = __CANVAS_GEO_PICTURE THEN
     distKind = __CANVAS_KIND_RECT
   END IF
-  RETURN __canvas_geoDistance(distKind, offset + __CANVAS_GEO_HEADER, toInt(__canvas_geoAt(offset, 20)), qx, qy, __canvas_geoAt(offset, 2), __canvas_geoAt(offset, 3), __canvas_geoAt(offset, 4), __canvas_geoAt(offset, 5), __canvas_geoAt(offset, 6), sx, sy, ex, ey, reflex, toInt(__canvas_geoAt(offset, __CANVAS_GEO_CAP)), __canvas_geoAt(offset, __CANVAS_GEO_CAPSTARTX), __canvas_geoAt(offset, __CANVAS_GEO_CAPSTARTY), __canvas_geoAt(offset, __CANVAS_GEO_CAPENDX), __canvas_geoAt(offset, __CANVAS_GEO_CAPENDY), __canvas_geoAt(offset, __CANVAS_GEO_ELLIPSE_COS), __canvas_geoAt(offset, __CANVAS_GEO_ELLIPSE_SIN), FALSE)
+  RETURN __canvas_geoDistance(distKind, offset + __CANVAS_GEO_HEADER, toInt(__canvas_geoAt(offset, 20)), qx, qy, __canvas_geoAt(offset, 2), __canvas_geoAt(offset, 3), __canvas_geoAt(offset, 4), __canvas_geoAt(offset, 5), __canvas_geoAt(offset, 6), sx, sy, ex, ey, turn, toInt(__canvas_geoAt(offset, __CANVAS_GEO_CAP)), __canvas_geoAt(offset, __CANVAS_GEO_CAPSTARTX), __canvas_geoAt(offset, __CANVAS_GEO_CAPSTARTY), __canvas_geoAt(offset, __CANVAS_GEO_CAPENDX), __canvas_geoAt(offset, __CANVAS_GEO_CAPENDY), __canvas_geoAt(offset, __CANVAS_GEO_ELLIPSE_COS), __canvas_geoAt(offset, __CANVAS_GEO_ELLIPSE_SIN), FALSE)
 END FUNC
 
 ' The test for the entry whose group matrix is current (`__canvas_enterGroupMatrix`).

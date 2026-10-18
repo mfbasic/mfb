@@ -148,6 +148,26 @@ FUNC __canvas_enterGroupMatrix(mat AS Integer) AS Nothing
   __CANVAS_GM = TRUE
 END FUNC
 
+' bug-1089: the pixel rectangle a draw may write, half-open -- the draw's scissor. A
+' partial redraw (damage mode) keeps the previous frame and clears only the damage
+' rectangle, so every item it draws must write inside that rectangle and nowhere else:
+' an unchanged item whose box runs outside it would otherwise blend its edge a second
+' time over the kept pixels. `__canvas_renderScene` makes the frame's rectangle current
+' (the whole surface for a full redraw) and `__canvas_drawGeometry` narrows every pixel
+' loop to it. Unbounded until set, so a draw outside the walk is clamped to the surface
+' alone.
+MUT __CANVAS_SCISSOR_X0 AS Integer = 0
+MUT __CANVAS_SCISSOR_Y0 AS Integer = 0
+MUT __CANVAS_SCISSOR_X1 AS Integer = 1073741824
+MUT __CANVAS_SCISSOR_Y1 AS Integer = 1073741824
+
+FUNC __canvas_enterScissor(x0 AS Integer, y0 AS Integer, x1 AS Integer, y1 AS Integer) AS Nothing
+  __CANVAS_SCISSOR_X0 = x0
+  __CANVAS_SCISSOR_Y0 = y0
+  __CANVAS_SCISSOR_X1 = x1
+  __CANVAS_SCISSOR_Y1 = y1
+END FUNC
+
 ' One edge of the surface box a geometry record occupies as the current draw entry
 ' places it: `k` is 0, 1, 2, 3 for x0, y0, x1, y1.
 '
@@ -518,6 +538,13 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   IF kind = __CANVAS_GEO_NONE THEN
     RETURN out
   END IF
+  ' bug-1089: the pixels this draw may write, inclusive -- the surface, narrowed to the
+  ' frame's scissor (`__CANVAS_SCISSOR_*`). Every loop below is bounded by these and by
+  ' nothing wider.
+  LET drawX0 AS Integer = __canvas_maxI(__CANVAS_SCISSOR_X0, 0)
+  LET drawY0 AS Integer = __canvas_maxI(__CANVAS_SCISSOR_Y0, 0)
+  LET drawX1 AS Integer = __canvas_minI(__CANVAS_SCISSOR_X1, width) - 1
+  LET drawY1 AS Integer = __canvas_minI(__CANVAS_SCISSOR_Y1, height) - 1
   ' A glyph run is blitted from the coverage cache rather than evaluated per pixel:
   ' the same arithmetic, done once per (font, size, glyph) instead of once per pixel
   ' per edge (plan-98-G Correction 12). Written out here rather than called as a helper
@@ -607,10 +634,10 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         LET cy2 AS Float = fb * bx0 + fd * by1 + fty + gdy
         LET cx3 AS Float = fa * bx1 + fc * by1 + ftx + gdx
         LET cy3 AS Float = fb * bx1 + fd * by1 + fty + gdy
-        LET loX AS Integer = __canvas_maxI(toInt(__canvas_minF(__canvas_minF(cx0, cx1), __canvas_minF(cx2, cx3))) - 1, 0)
-        LET loY AS Integer = __canvas_maxI(toInt(__canvas_minF(__canvas_minF(cy0, cy1), __canvas_minF(cy2, cy3))) - 1, 0)
-        LET hiX AS Integer = __canvas_minI(toInt(__canvas_maxF(__canvas_maxF(cx0, cx1), __canvas_maxF(cx2, cx3))) + 1, width - 1)
-        LET hiY AS Integer = __canvas_minI(toInt(__canvas_maxF(__canvas_maxF(cy0, cy1), __canvas_maxF(cy2, cy3))) + 1, height - 1)
+        LET loX AS Integer = __canvas_maxI(toInt(__canvas_minF(__canvas_minF(cx0, cx1), __canvas_minF(cx2, cx3))) - 1, drawX0)
+        LET loY AS Integer = __canvas_maxI(toInt(__canvas_minF(__canvas_minF(cy0, cy1), __canvas_minF(cy2, cy3))) - 1, drawY0)
+        LET hiX AS Integer = __canvas_minI(toInt(__canvas_maxF(__canvas_maxF(cx0, cx1), __canvas_maxF(cx2, cx3))) + 1, drawX1)
+        LET hiY AS Integer = __canvas_minI(toInt(__canvas_maxF(__canvas_maxF(cy0, cy1), __canvas_maxF(cy2, cy3))) + 1, drawY1)
         MUT ty AS Integer = loY
         WHILE ty <= hiY
           LET tRowBase AS Integer = ty * width * 4
@@ -663,12 +690,12 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
       MUT gRow AS Integer = 0
       WHILE gRow < gh
         LET sy AS Integer = gsy + gRow
-        IF sy >= 0 AND sy < height THEN
+        IF sy >= drawY0 AND sy <= drawY1 THEN
           LET gRowBase AS Integer = sy * width * 4
           MUT gCol AS Integer = 0
           WHILE gCol < gw
             LET sx AS Integer = gsx + gCol
-            IF sx >= 0 AND sx < width THEN
+            IF sx >= drawX0 AND sx <= drawX1 THEN
               MUT cover AS Integer = toInt(collections::getOr(__CANVAS_GLYPH_COV, gStart + gRow * gw + gCol, toByte(0)))
               IF tClipped THEN
                 cover = (cover * __canvas_glyphClip(offset, toFloat(sx) + 0.5 - gdx, toFloat(sy) + 0.5 - gdy, toFloat(sx) + 0.5 - gdx, toFloat(sy) + 0.5 - gdy)) / 255
@@ -825,11 +852,11 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   MUT sy AS Float = 0.0
   MUT ex AS Float = 0.0
   MUT ey AS Float = 0.0
-  MUT reflex AS Boolean = FALSE
+  MUT turn AS Integer = 0
   IF kind = __CANVAS_GEO_ARC THEN
     LET startAngle AS Float = __canvas_geoAt(offset, 20)
     LET endAngle AS Float = __canvas_geoAt(offset, 21)
-    reflex = (endAngle - startAngle) > 3.141592653589793
+    turn = __canvas_arcTurn(startAngle, endAngle)
     sx = __canvas_cos(startAngle)
     sy = __canvas_sin(startAngle)
     ex = __canvas_cos(endAngle)
@@ -852,10 +879,10 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   ' *into* and keep ones it was moved out of.
   ' plan-172-G: `__canvas_drawBound` is that sum for a translated entry, and the hull of
   ' the box through the groups' linear part for one with a matrix.
-  MUT firstX AS Integer = __canvas_maxI(toInt(__canvas_drawBound(offset, 0, gdx, gdy)), 0)
-  MUT lastX AS Integer = __canvas_minI(toInt(__canvas_drawBound(offset, 2, gdx, gdy)), width - 1)
-  MUT lastY AS Integer = __canvas_minI(toInt(__canvas_drawBound(offset, 3, gdx, gdy)), height - 1)
-  MUT y AS Integer = __canvas_maxI(toInt(__canvas_drawBound(offset, 1, gdx, gdy)), 0)
+  MUT firstX AS Integer = __canvas_maxI(toInt(__canvas_drawBound(offset, 0, gdx, gdy)), drawX0)
+  MUT lastX AS Integer = __canvas_minI(toInt(__canvas_drawBound(offset, 2, gdx, gdy)), drawX1)
+  MUT lastY AS Integer = __canvas_minI(toInt(__canvas_drawBound(offset, 3, gdx, gdy)), drawY1)
+  MUT y AS Integer = __canvas_maxI(toInt(__canvas_drawBound(offset, 1, gdx, gdy)), drawY0)
   LET clipped AS Boolean = __canvas_hasClip(offset)
   LET clipPath AS Boolean = __canvas_geoAt(offset, __CANVAS_GEO_CLIP_MODE) = 2.0
   LET transformed AS Boolean = __canvas_hasTransform(offset)
@@ -926,11 +953,11 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         LET ty AS Float = __canvas_invY(offset, px, py)
         qx = tx
         qy = ty
-        LET d0 AS Float = __canvas_geoDistance(distKind, tail, edges, tx, ty, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
-        LET dxp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
-        LET dxm AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
-        LET dyp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
-        LET dym AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET d0 AS Float = __canvas_geoDistance(distKind, tail, edges, tx, ty, p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dxp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dxm AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dyp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dym AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
         LET gx AS Float = dxp - dxm
         LET gy AS Float = dyp - dym
         LET g AS Float = math::sqrt(gx * gx + gy * gy)
@@ -940,7 +967,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         END IF
         distance = dRaw / dScale
       ELSE
-        dRaw = __canvas_geoDistance(distKind, tail, edges, px, py, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        dRaw = __canvas_geoDistance(distKind, tail, edges, px, py, p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
         distance = dRaw
       END IF
       LET idx AS Integer = rowBase + x * 4

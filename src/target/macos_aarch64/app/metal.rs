@@ -58,8 +58,8 @@ use crate::codegen::runtime::canvas::metal::{LIB_METAL, MTL_CREATE_DEVICE};
 use crate::codegen::runtime::canvas::{
     emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
     emit_square_cap_reach, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT,
-    ITEM_BAND_HEIGHT, ITEM_BAND_START, ITEM_BAND_TOP, ITEM_OFFSET_MISC_LO, ITEM_RESIDUAL_FIELDS,
-    METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
+    ITEM_BAND_HEIGHT, ITEM_BAND_NORM, ITEM_BAND_START, ITEM_BAND_TOP, ITEM_CLIP_BAND_NORM,
+    ITEM_OFFSET_MISC_LO, ITEM_RESIDUAL_FIELDS, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
 };
 use crate::codegen::runtime::canvas::{
     BLEND_MODE_COUNT, EDGE_RESIDUAL_SCALE, GRAPHICS_OFFSET_MTL_DEVICE,
@@ -190,7 +190,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int4 fill;\n",     // RGBA 0..255
     "  int4 stroke;\n",   // RGBA 0..255
     "  int4 misc;\n",     // kind, radius (16.16), strokeHalf (16.16), edgeCount
-    // glyph/picture height, arc reflex flag (bug-735) / polygon fill rule (plan-163-A),
+    // glyph/picture height, arc sweep turn (bug-735, bug-1088) / polygon fill rule (plan-163-A),
     // edgeBase, capStyle
     "  int4 arc;\n",
     "  int2 surface;\n",  // width, height (px)
@@ -794,11 +794,19 @@ const METAL_SHADER_BODY: &str = concat!(
     // `emit_band_index`; the table is (first, count) per band and the list follows it.
     // A point above the first band or below the last uses the end band, which the
     // emitter built to hold every edge that can matter there.
-    "static int2 polygonBand(constant MfbItem &item, constant int *edges, float y) {\n",
+    //
+    // bug-1085: `norm` is the pixel's composed inverse norm (0 for a pixel that takes
+    // its centre sample alone), and the band is taken only when its reach covers it:
+    // `0.75 norm <= F`, `F` the norm the reach was built for (`capsLo.w`,
+    // `ITEM_BAND_NORM`). A block is built once a pass and drawn under any group's
+    // matrix, so past that the edges a neighbour sample needs may be in no band of it,
+    // and every edge is walked instead -- exact, as with no index.
+    "static int2 polygonBand(constant MfbItem &item, constant int *edges, float y, float norm) {\n",
     "  int nb = item.arcCaps.z;\n",
     // plan-164-C: kinds 11 and 12 too -- their pieces are banded as edges.
     "  int bk = item.misc.x;\n",
     "  if ((bk != 4 && bk != 10 && bk != 11 && bk != 12) || nb <= 0) { return int2(-1, item.misc.w); }\n",
+    "  if (!(norm * 0.75 <= fx(item.capsLo.w))) { return int2(-1, item.misc.w); }\n",
     "  float k = floor((y - fx(item.arcCaps.x)) / fx(item.arcCaps.y));\n",
     "  int band = int(clamp(k, 0.0, float(nb - 1)));\n",
     "  int t = METAL_BAND_BASE + item.arcCaps.w;\n",
@@ -813,10 +821,13 @@ const METAL_SHADER_BODY: &str = concat!(
     // where it is the round dot. `t` is (segment + clamped t) / segments, continuous at a
     // corner, and the same walk sets both, so the colour's segment is the distance's.
     // plan-163-C: a path clip's band, the clip's twin of `polygonBand`: its band header
-    // in `clipBand`, or every clip edge (band count 0).
-    "static int2 clipBandAt(constant MfbItem &item, constant int *edges, float y) {\n",
+    // in `clipBand`, or every clip edge (band count 0) -- and, bug-1085, every clip edge
+    // for a pixel whose composed norm the band's reach does not cover (`gradFocal.w`,
+    // `ITEM_CLIP_BAND_NORM`).
+    "static int2 clipBandAt(constant MfbItem &item, constant int *edges, float y, float norm) {\n",
     "  int nb = item.clipBand.z;\n",
     "  if (nb <= 0) { return int2(-1, item.clipPath.y); }\n",
+    "  if (!(norm * 0.75 <= fx(item.gradFocal.w))) { return int2(-1, item.clipPath.y); }\n",
     "  float k = floor((y - fx(item.clipBand.x)) / fx(item.clipBand.y));\n",
     "  int band = int(clamp(k, 0.0, float(nb - 1)));\n",
     "  int t = METAL_BAND_BASE + item.clipBand.w;\n",
@@ -877,11 +888,12 @@ const METAL_SHADER_BODY: &str = concat!(
     // * circle (1): the centre distance minus the radius and the stroke radius;
     // * line (2): the segment distance, Round (1) minus the half-width, Butt (0) cut by the two
     //   end planes -- the half-width off BEFORE the planes (`__canvas_segmentDistanceButt`);
-    // * arc (3): the ring band inside the sweep, else 1e6, and a Round cap's two discs. The
-    //   sweep test is the oracle's two cross products, against `arcCaps - centre`, a positive
-    //   multiple of the oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved and
-    //   the sign agrees wherever it is decided by more than ~1e-13 px; `arc.y` is the
-    //   oracle's `reflex`, decided in f64 by the emitter;
+    // * arc (3): the ring band cut by the sweep -- `max` with the two end radii's signed
+    //   cone distance (the reflex complement of the gap's) -- and a Round cap's two discs
+    //   or a Square cap's two boxes (bug-1088). The planes are the oracle's two cross
+    //   products, against `arcCaps - centre`, the radius times the oracle's Taylor
+    //   `(cos, sin)`, divided by the radius, so no GPU trigonometry is involved; `arc.y` is
+    //   the oracle's `turn` (`__canvas_arcTurn`), decided in f64 by the emitter;
     // * ellipse (7): the oracle's 24-step bisection, every step in double-float. In fp32 a
     //   step's sign test took the other branch wherever `g` was within fp32's error of zero
     //   -- every late step, on every pixel -- which is what put the ellipse 8 pixels past
@@ -920,10 +932,35 @@ const METAL_SHADER_BODY: &str = concat!(
     "    float2 sy = dfSub(dfFixed(item.arcCaps.y, item.capsLo.y), cy);\n",
     "    float2 tx = dfSub(dfFixed(item.arcCaps.z, item.capsLo.z), cx);\n",
     "    float2 ty = dfSub(dfFixed(item.arcCaps.w, item.capsLo.w), cy);\n",
-    "    bool afterStart = !dfLess(dfMul(sx, dy), dfMul(sy, dx));\n",
-    "    bool beforeEnd = !dfLess(dfMul(ty, dx), dfMul(tx, dy));\n",
-    "    bool inSweep = item.arc.y != 0 ? (afterStart || beforeEnd) : (afterStart && beforeEnd);\n",
-    "    float2 band = inSweep ? dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius) : float2(1.0e6, 0.0);\n",
+    // bug-1088: the band cut by the sweep's wedge, the oracle's exact cone distance:
+    // inside both end half-planes and ahead of the centre along a radius, the nearer end
+    // line's distance, else the nearer end ray's; the reflex complement of the gap's cone;
+    // a whole turn (`arc.y` 2) the band alone. `s`, `t` are the radius times the oracle's
+    // unit vectors, so they are divided by it first.
+    "    float2 band = dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius);\n",
+    "    if (item.arc.y != 2) {\n",
+    "      float2 ux = dfDiv(sx, ex);\n",
+    "      float2 uy = dfDiv(sy, ex);\n",
+    "      float2 vx = dfDiv(tx, ex);\n",
+    "      float2 vy = dfDiv(ty, ex);\n",
+    "      float2 startPlane = dfSub(dfMul(uy, dx), dfMul(ux, dy));\n",
+    "      float2 endPlane = dfSub(dfMul(vx, dy), dfMul(vy, dx));\n",
+    "      float2 alongS = dfAdd(dfMul(dx, ux), dfMul(dy, uy));\n",
+    "      float2 alongE = dfAdd(dfMul(dx, vx), dfMul(dy, vy));\n",
+    "      float2 onS = dfMax(alongS, float2(0.0, 0.0));\n",
+    "      float2 onE = dfMax(alongE, float2(0.0, 0.0));\n",
+    "      float2 rays = dfMin(dfLength(dfSub(dx, dfMul(onS, ux)), dfSub(dy, dfMul(onS, uy))),\n",
+    "                          dfLength(dfSub(dx, dfMul(onE, vx)), dfSub(dy, dfMul(onE, vy))));\n",
+    "      bool ahead = !dfLess(alongS, float2(0.0, 0.0)) || !dfLess(alongE, float2(0.0, 0.0));\n",
+    "      float2 sweep = rays;\n",
+    "      if (item.arc.y == 1) {\n",
+    "        sweep = -rays;\n",
+    "        if (!dfLess(startPlane, float2(0.0, 0.0)) && !dfLess(endPlane, float2(0.0, 0.0)) && ahead) { sweep = dfMin(startPlane, endPlane); }\n",
+    "      } else if (!dfLess(float2(0.0, 0.0), startPlane) && !dfLess(float2(0.0, 0.0), endPlane) && ahead) {\n",
+    "        sweep = dfMax(startPlane, endPlane);\n",
+    "      }\n",
+    "      band = dfMax(band, sweep);\n",
+    "    }\n",
     // plan-163-B: a Square end is `__canvas_arcSquareCap` -- the half-width box past the
     // end along the tangent, `along` measured outward from the end.
     "    if (item.arc.w == 0) { return band; }\n",
@@ -989,8 +1026,8 @@ const METAL_SHADER_BODY: &str = concat!(
     // * rectangle, circle, line: the fp32 distance, moved toward zero by `slack` -- 2^-18 of
     //   the coordinates' magnitudes plus 2^-12 px, the bound `edgeSlack` uses (each is
     //   1-Lipschitz in its inputs, which the 16.16 words and the residual move by <= 2^-17);
-    // * arc: a lower bound only, `min(ring band, cap discs)` with the sweep ignored -- out of
-    //   sweep the oracle answers 1e6, never less than the band;
+    // * arc: a lower bound only, `min(ring band, cap discs)` with the sweep ignored -- the
+    //   oracle's band is `max(ring band, sweep planes)` (bug-1088), never less than the ring;
     // * ellipse: `rmin * |s - 1|` for `s = |(qx / rx, qy / ry)|`, a RIGOROUS bound on the
     //   distance to the ellipse (the ellipse and its scale by `s` are `rmin * |s - 1|` apart:
     //   map by `diag(1 / rx, 1 / ry)`, whose inverse stretches no vector by more than
@@ -1677,9 +1714,10 @@ const METAL_SHADER_BODY: &str = concat!(
     // matrix's Frobenius norm `F` (or the fallback 1.0), and a centre past
     // `half + 0.5 * max(F, 1)` is past the clamp whatever the four neighbours say --
     // they are then not evaluated. `F` is widened by 2^-8 for the ellipse's bisection,
-    // which is Lipschitz only to its own ~1e-4 px. An arc is not Lipschitz at all (out
-    // of sweep it jumps to 1e6), so a transformed arc takes no shortcut; neither does
-    // any neighbour sample, whose exact value the gradient needs. The clip's centre
+    // which is Lipschitz only to its own ~1e-4 px. An arc is 1-Lipschitz since bug-1088
+    // (its sweep is two signed half-planes, not a jump to 1e6), so it takes the shortcut
+    // like every other kind. No neighbour sample does, whose exact value the gradient
+    // needs. The clip's centre
     // sample takes the same shortcut at `0.5 * max(F, 1)` (bug-995, argued at
     // `clipReach` in `shapeCoverage` below).
     // plan-172-H: a rectangle clip's signed distance in double-float at the item's own
@@ -1708,23 +1746,26 @@ const METAL_SHADER_BODY: &str = concat!(
     "  float2 y = pt.zw;\n",
     "  bool itemMapped = hasTransform(item);\n",
     "  bool mapped = itemMapped || grouped;\n",
-    "  int2 band = polygonBand(item, edges, itemMapped ? dfMapY(item, x, y).x : y.x);\n",
     "  float2 half2 = dfFixed(item.misc.z, item.miscLo.y);\n",
     "  bool stroked = dfLess(float2(0.0, 0.0), half2);\n",
     "  float reach = 0.5 + max(half2.x, 0.0);\n",
     // bug-995: the clip's reach -- the shape's without the stroke half, and for any kind
     // (a clip's distance is 1-Lipschitz whatever the item is, an arc's too).
     "  float clipReach = 0.5;\n",
+    // bug-1085: the composed inverse's norm, which the band lookups hold to the norm the
+    // band's reach was built for; 0 for a pixel that takes its centre sample alone.
+    "  float norm = 0.0;\n",
     "  if (mapped) {\n",
     "    float2 c0 = itemMapped ? float2(as_type<float>(item.xform0.x), as_type<float>(item.xform0.y)) : float2(1.0, 0.0);\n",
     "    float2 c1 = itemMapped ? float2(as_type<float>(item.xform0.z), as_type<float>(item.xform0.w)) : float2(0.0, 1.0);\n",
     // The composed inverse's norm is at most the product of the two norms.
-    "    float norm = sqrt(dot(c0, c0) + dot(c1, c1));\n",
+    "    norm = sqrt(dot(c0, c0) + dot(c1, c1));\n",
     "    if (grouped) { norm = (itemMapped ? norm : 1.0) * length(gi); }\n",
     "    float frob = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;\n",
-    "    reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);\n",
+    "    reach = max(half2.x, 0.0) + 0.5 * max(frob, 1.0);\n",
     "    clipReach = 0.5 * max(frob, 1.0);\n",
     "  }\n",
+    "  int2 band = polygonBand(item, edges, itemMapped ? dfMapY(item, x, y).x : y.x, norm);\n",
     // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
     // distance (`joinedStroke`), which a miter can reach past `half` from the outline --
     // so the centre's shape distance cannot decide the neighbours there.
@@ -1749,10 +1790,10 @@ const METAL_SHADER_BODY: &str = concat!(
     //   of a composition is at most the product of the norms, which is `norm`, and
     //   `frob` widens it by 2^-8 for the float32 it is computed in.
     // * A path clip's samples walk the centre's band, which holds every edge within its
-    //   reach of the band (`emit_band_index`, `r >= 0.5 + 1.5 F` for the ITEM's inverse):
+    //   reach of the band (`emit_band_index`, `r >= 0.5 + 1.5 F`), or every clip edge
+    //   when that reach does not cover the composed `norm` (`clipBandAt`, bug-1085):
     //   the neighbours' crossings and nearest edges are in it, so what is sampled is
-    //   Lipschitz too. This is the shape's premise as well, and like the shape's it
-    //   does not cover a group's matrix, which the band index never sees.
+    //   Lipschitz too. This is the shape's premise as well (`polygonBand`).
     // * So with `clipReach = 0.5 * max(frob, 1)`, `|d5| > clipReach` gives
     //   `|d5 / cg| > 0.5 * max(frob, 1) / cg >= 0.5` when `cg` is the difference, and
     //   `|d5| > 0.5` when it is the fallback. Past 0.5 `dfCoverage` has clamped: 0
@@ -1767,7 +1808,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "  bool clipMapped = itemMapped || grouped;\n",
     // plan-172-H: a rectangle clip is sampled too, under a group matrix.
     "  bool clipSampled = clipMode == 2 || (clipMode == 1 && grouped);\n",
-    "  int2 cband = clipMode == 2 ? clipBandAt(item, edges, itemMapped ? dfMapY(item, x, y).x : y.x) : int2(-1, 0);\n",
+    "  int2 cband = clipMode == 2 ? clipBandAt(item, edges, itemMapped ? dfMapY(item, x, y).x : y.x, norm) : int2(-1, 0);\n",
     "  float2 d[10];\n",
     // bug-688: the shape's centre sample is taken here, outside the loop, and the loop is
     // entered only by a pixel that needs another sample -- the shape's four neighbours
@@ -2117,7 +2158,7 @@ const METAL_SHADER_BODY: &str = concat!(
     // the path -- the parameter of the nearest point, in shape space, from the same band
     // the distance used.
     "  if (item.misc.x == 10 && item.ellipse.z >= 2) {\n",
-    "    fillRgba = gradientAt(polylineScan(item, edges, polygonBand(item, edges, q.y), q).y, edges, item);\n",
+    "    fillRgba = gradientAt(polylineScan(item, edges, polygonBand(item, edges, q.y, 0.0), q).y, edges, item);\n",
     "  }\n",
     // bug-484: a picture's image replaces the fill COLOUR the same way, sampled at the
     // inverse-mapped point under a transform (plan-116-C section 4.5, as a glyph is).
@@ -5261,7 +5302,7 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
     ) {
         asm.push(instruction);
     }
-    // bug-735: `arc.x` = 0 and an arc's `reflex` flag in `arc.y`, decided in f64.
+    // bug-735: `arc.x` = 0 and an arc's sweep turn in `arc.y` (bug-1088), decided in f64.
     for instruction in emit_item_arc_flags(
         header,
         OFF_ITEM,
@@ -7483,6 +7524,8 @@ struct BandSet {
     count: usize,
     base: usize,
     header: usize,
+    /// bug-1085: the header's norm word (`ITEM_BAND_NORM`, `ITEM_CLIP_BAND_NORM`).
+    norm: usize,
     clip: bool,
     tag: &'static str,
 }
@@ -7491,6 +7534,7 @@ const ITEM_BANDS: BandSet = BandSet {
     count: OFF_ITEM + ITEM_OFFSET_MISC + 12,
     base: OFF_ITEM + ITEM_OFFSET_ARC + ITEM_ARC_EDGE_BASE,
     header: OFF_ITEM + ITEM_OFFSET_ARC_CAPS,
+    norm: OFF_ITEM + ITEM_BAND_NORM,
     clip: false,
     tag: "band",
 };
@@ -7499,6 +7543,7 @@ const CLIP_BANDS: BandSet = BandSet {
     count: OFF_ITEM + ITEM_OFFSET_CLIP_PATH + ITEM_CLIP_PATH_COUNT,
     base: OFF_ITEM + ITEM_OFFSET_CLIP_PATH + ITEM_CLIP_PATH_BASE,
     header: OFF_ITEM + ITEM_OFFSET_CLIP_BAND,
+    norm: OFF_ITEM + ITEM_CLIP_BAND_NORM,
     clip: true,
     tag: "clipband",
 };
@@ -7534,6 +7579,15 @@ const CLIP_BANDS: BandSet = BandSet {
 ///   since `r ≥ F/2`, which also keeps the band's own distance function continuous across
 ///   the neighbourhood, so its difference quotients stay at most `F` as well. The builder
 ///   uses `2·F`, the margin rounded up.
+/// * **Under a group's matrix** (bug-1085) the five points are `q ± M·G·(0.5, 0)` and
+///   `q ± M·G·(0, 0.5)`, so the same argument holds with the COMPOSED norm `N` in place
+///   of `F` — and the builder cannot know it: a block is built once a pass and drawn
+///   under every group matrix that names it. So the reach is built for
+///   `F_built = max(F, √2)`, the identity's norm at least (untransformed `F` is 0), the
+///   header records it (`ITEM_BAND_NORM`, `ITEM_CLIP_BAND_NORM`), and the shader takes
+///   the band only when `1.5·N <= 2·F_built` (`polygonBand`, `clipBandAt`); otherwise it
+///   walks every edge, which is exact. No group, an identity, a rotation or a magnifying
+///   group keeps the band; only one that shrinks past the floor walks.
 ///
 /// Plus a **1-unit guard** in shape space, for the float error of the shader's band
 /// lookup against these integer bands. `band.swift` (bug-686 section G) measured 0
@@ -7541,7 +7595,7 @@ const CLIP_BANDS: BandSet = BandSet {
 ///
 /// ## Sizing
 ///
-/// Bands are 2 px tall untransformed, `√2·F` (about two surface pixels) transformed, and
+/// Bands are `√2·F_built` tall (about two surface pixels; 2 px untransformed), and
 /// taller when the span needs more than `min(edges, BAND_MAX)` bands. If the list
 /// would pass `BAND_LIST_PER_EDGE` entries per edge — a shape whose edges each span
 /// most rows, like a star of long spikes — the height doubles until it fits; at one band
@@ -7656,6 +7710,9 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     // r = half + 0.5 (the clamp) + 1 (the guard)
     asm.push(abi::float_add_d(f[1], f[1], f[2]));
     asm.push(abi::float_move_d_from_d(f[4], f[3]));
+    // F (f6) is 0 untransformed, before the floor below (bug-1085).
+    asm.push(abi::move_immediate(s[4], "Integer", "0"));
+    asm.push(abi::signed_convert_to_float_d(f[6], s[4]));
     let untransformed = label("untransformed");
     asm.push(abi::load_double(f[5], s[0], HEADER_HAS_TRANSFORM * 8));
     asm.push(abi::float_convert_to_signed_x(s[4], f[5]));
@@ -7667,8 +7724,6 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     // 896, mantissa shifted up 52 - 23 = 29. The sign is dropped (the term is squared);
     // a zero or subnormal term counts as 0, under 1.2e-38 short of its true size, which
     // the 1-unit guard dwarfs; an infinite or NaN one gives the polygon no bands.
-    asm.push(abi::move_immediate(s[4], "Integer", "0"));
-    asm.push(abi::signed_convert_to_float_d(f[6], s[4]));
     for slot in [
         HEADER_TRANSFORM_IA,
         HEADER_TRANSFORM_IB,
@@ -7697,16 +7752,28 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
         asm.push(abi::label(&zero_term));
     }
     asm.push(abi::float_sqrt_d(f[6], f[6]));
-    // r += 2F; the minimum height is sqrt(2)*F, about two surface pixels.
-    asm.push(abi::float_add_d(f[7], f[6], f[6]));
-    asm.push(abi::float_add_d(f[1], f[1], f[7]));
-    asm.push(abi::float_sqrt_d(f[7], f[3]));
-    asm.push(abi::float_multiply_d(f[4], f[6], f[7]));
     asm.push(abi::label(&untransformed));
+    // bug-1085: the reach is built for F_built = max(F, sqrt 2), the identity's norm at
+    // least, so a pixel drawn under no group or under an identity, rotation or magnifying
+    // group keeps the band (`0.75 N <= F_built`) and only a shrinking group walks every
+    // edge. r += 2 F_built; the minimum height is sqrt(2) F_built, about two surface
+    // pixels (exactly 2 untransformed, the height it always had).
+    asm.push(abi::float_sqrt_d(f[7], f[3]));
+    asm.push(abi::float_max_d(f[6], f[6], f[7]));
+    asm.push(abi::float_add_d(f[5], f[6], f[6]));
+    asm.push(abi::float_add_d(f[1], f[1], f[5]));
+    asm.push(abi::float_multiply_d(f[4], f[6], f[7]));
 
     // --- to 16.16, rounding UP: s4 = r, s5 = the minimum height ---------------------
     asm.push(abi::move_immediate(s[4], "Integer", FIXED_POINT_SCALE));
     asm.push(abi::signed_convert_to_float_d(f[7], s[4]));
+    // bug-1085: and F_built, rounded DOWN (it is positive, so truncation is the floor),
+    // into the header's norm word -- what the shader holds a pixel's composed norm to
+    // before it takes the band. A value too large for the word is a reach past the bound
+    // below, and `none` writes 0 over it.
+    asm.push(abi::float_multiply_d(f[6], f[6], f[7]));
+    asm.push(abi::float_convert_to_signed_x(s[6], f[6]));
+    asm.push(abi::store_u32(s[6], abi::stack_pointer(), set.norm));
     asm.push(abi::float_multiply_d(f[1], f[1], f[7]));
     asm.push(abi::float_ceil_to_signed_x(s[4], f[1]));
     asm.push(abi::float_multiply_d(f[4], f[4], f[7]));
@@ -7968,6 +8035,7 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     ] {
         asm.push(abi::store_u32(s[4], abi::stack_pointer(), block(field)));
     }
+    asm.push(abi::store_u32(s[4], abi::stack_pointer(), set.norm));
     asm.push(abi::label(&done));
 }
 

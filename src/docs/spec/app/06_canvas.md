@@ -434,7 +434,16 @@ whether the frame is one pass or several, from one sum of what each block takes 
 region; the pass walk makes the same sum to find where a pass ends. There is no
 per-polygon edge limit below the region: a polygon's edges are indexed by horizontal
 band when the pass is built, so a pixel tests only the edges that can reach it, and the
-result is identical to testing them all. The region sizes are defined once, in Rust,
+result is identical to testing them all. That holds for a pixel whose samples all lie
+within a band's reach, and the reach is built for the item's own inverse: a block is
+built once a pass and drawn under every group matrix that names it, so the builder
+cannot know the inverse a pixel is sampled with. So every reach is built for
+`F_built = max(F, √2)`, `F` the Frobenius norm of the item's inverse (0 for an item with
+no transform of its own) floored at the identity's norm, the band header records
+`F_built`, and a pixel takes its band only when `1.5·N ≤ 2·F_built`, `N` the Frobenius
+norm of the composed inverse it samples with (0 for a pixel that takes one sample); any
+other pixel tests every edge. An item under no group, or under an identity, rotation or
+magnifying group, keeps its band; only a group that shrinks past the floor walks. The region sizes are defined once, in Rust,
 and generated into the MFBASIC source. So are the region bases the shaders read: Metal
 formats them into its shader source when it compiles it, and Vulkan's checked-in SPIR-V
 declares them as specialization constants that the pipeline sets from the same
@@ -444,6 +453,7 @@ constants, so drawing in passes rebuilds no pipeline.
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_SPEC_CONSTANTS]]
 [[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_band_index]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_BAND_NORM]]
 
 **A pass is told from a whole frame by one word of its draw list.** The emitters are
 handed a pass's blocks and draw entries as they are handed a frame's. Word 12 of the
@@ -509,9 +519,9 @@ rectangle, circle, segment (round, or butt with its two end planes), arc, ellips
 polygon and polyline distances, the polygon's signed crossing test (multiplied out, no
 division) summed under its fill rule, the inverse transform, the central-difference gradient, the stroke's
 half-width and the coverage rounding; the clip's rectangle or path distance too. The
-quantisation is the same `int(clamp(0.5 − d, 0, 1)·255 + 0.5)`. An arc's sweep test takes
-its direction vectors from its cap endpoints less its centre, a positive multiple of the
-oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved; whether the sweep is
+quantisation is the same `int(clamp(0.5 − d, 0, 1)·255 + 0.5)`. An arc's sweep planes take
+their direction vectors from its cap endpoints less its centre, divided by its radius,
+which gives back the oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved; whether the sweep is
 reflex is decided by the emitter in f64 and carried as a flag, in the item-block word a
 polygon uses for its fill rule instead (`arc.y`; only an arc reads it as the flag). An
 ellipse runs the
@@ -528,14 +538,12 @@ A first fp32 pass over the pixel's band finds the least upper bracket. Only edge
 lower bracket does not exceed it are evaluated in double-float, and only crossings too
 close to call against the same bound. Every other kind has an fp32 bound of the same
 kind: the rectangle, circle and line distance within the same bracket, the arc's ring
-and cap distances with the sweep ignored (out of sweep the oracle answers 1e6, never
-less), and for an ellipse `rmin·|s − 1|`, where `s` is the point's scale relative to the
+and cap distances with the sweep ignored (the sweep only raises the band's distance), and for an ellipse `rmin·|s − 1|`, where `s` is the point's scale relative to the
 ellipse and `rmin` the smaller radius, a true lower bound on the distance. A pixel whose
 bound is past `0.5 +` the stroke half-width is 0 or 255 by its sign whatever the exact
 distance, so it skips double-float. Under a transform only the centre sample may skip,
 against `half + 0.5·max(F, 1)`, `F` the inverse matrix's Frobenius norm, which bounds the
-gradient the coverage divides by; an arc, whose distance is not Lipschitz, never skips
-under a transform. On Metal, frames rendered with every one of these skips disabled were
+gradient the coverage divides by. On Metal, frames rendered with every one of these skips disabled were
 byte-identical to frames rendered with them, for every bug-735 and bug-687 oracle row
 (bug-735, "Phase 2 results").
 
@@ -673,10 +681,22 @@ is antialiased exactly as any other edge is:
   intersected with the slab between the two planes through its endpoints, perpendicular
   to the segment: as a distance, `max(d − half, −t·|v|, (t−1)·|v|)` with `t` the
   unclamped projection. The half-width is subtracted *before* the intersection, because
-  the planes bound the band and not the centre line. A **butt arc** is the band alone:
-  the sweep already ends it along a radius.
+  the planes bound the band and not the centre line. A **butt arc** is the ring band
+  intersected with the sweep's wedge the same way: `max(|ρ − r| − half, wedge)`, `ρ` the
+  distance from the centre and `wedge` the exact signed distance to the cone of the two
+  end radii. With `u_s`, `u_e` the unit vectors along the start and end radii, a point is
+  inside a sweep up to a half-turn when both half-plane distances `p_s = u_s.y·dx − u_s.x·dy`
+  (positive before the start) and `p_e = u_e.x·dy − u_e.y·dx` (positive past the end) are
+  at most 0 AND it lies ahead of the centre along one of the radii (`d·u_s ≥ 0` or
+  `d·u_e ≥ 0`): two half-planes through the centre also meet along the opposite ray when
+  the sweep is near 0. Inside, `wedge = max(p_s, p_e)`; outside, the distance to the
+  nearer end ray. A reflex sweep is the complement of its gap's cone, built from the same
+  two radii, and a sweep of a whole turn or more is the ring itself (the turn, 0, 1 or 2,
+  is decided from the angles in f64 and carried in `arc.y`). The distance is 1-Lipschitz,
+  so its ends are antialiased and a transformed arc's gradient never crosses a jump.
+  [[src/codegen/builtins/canvas/helper_draw.rs:GEO_DISTANCE]]
 * `Round` adds a half-disc of `half = strokeWidth / 2` centred on the endpoint. A **round
-  arc** is the band unioned with a disc of `half` at each sweep endpoint, the `min` of
+  arc** is the butt arc unioned with a disc of `half` at each sweep endpoint, the `min` of
   the three distances.
 * `Square` extends the stroke `half` past the endpoint and cuts it square there:
   `max(|perp| − half, −t·|v| − half, (t−1)·|v| − half)` against the original segment's
@@ -685,6 +705,12 @@ is antialiased exactly as any other edge is:
   endpoint along the tangent there. A `PolyLine` takes it on the outer ends of its first
   and last segments with length only.
   [[src/codegen/builtins/canvas/helper_shapes.rs:SEGMENT_DISTANCE_SQUARE]]
+
+**A zero-sweep arc** (`endAngle ≤ startAngle`: zero, or the end before the start) draws
+nothing under `Butt`, like a zero-length butt line: it has no length and a butt end adds
+nothing past an end. Under `Round` and `Square` it draws its two ends. A sweep of a whole
+turn or more draws the whole ring.
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
 
 **A zero-length line** draws nothing under `Butt`, a dot of `half` under `Round` and an
 axis-aligned square of side `2·half` under `Square` (SVG 2 §13.5.2). There is no
@@ -910,8 +936,8 @@ as the GPU shaders widen it: coverage is `0.5 − d/g`, and the gradient `g` the
 is divided by is at most `F`, so no pixel further than that from the stroked shape takes
 coverage. Under a uniform scale the rim is 0.71 px whatever the scale. Three boxes are
 mapped whole instead, with no rim to replace: a `Text` run's (its font metrics), a
-`Picture`'s (two units about its destination), and an `Arc`'s, whose distance is not
-Lipschitz. The untransformed box is unchanged, and `canvas::geoBuild` builds it bit for
+`Picture`'s (two units about its destination), and an `Arc`'s (the square about its
+whole ring). The untransformed box is unchanged, and `canvas::geoBuild` builds it bit for
 bit. [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
 
 Before any renderer submits or rasterises an item, that surface-space hull is tested
@@ -1036,7 +1062,8 @@ nothing. The builder takes one of two paths, in header slot 51:
 [[src/codegen/runtime/canvas/mod.rs:HEADER_CLIP_MODE]]
 
 **On the GPUs** the item block carries two `ivec4`s for it: `clipBand` at byte
-288 is a path clip's band header, the same shape as a polygon's in `arcCaps`, and
+288 is a path clip's band header, the same shape as a polygon's in `arcCaps` (its
+recorded norm in `gradFocal.w`, as the polygon's is in `capsLo.w`), and
 `clipPath` at 304 is (first clip edge, clip edge count, mode | rule << 2, a picture's
 `T`). The clip's edges go into the frame buffer's edge region after the item's own and count
 against the same region, one pass's, and they are banded by the same index builder
@@ -1051,6 +1078,7 @@ rectangle's, is 1-Lipschitz), so the quotient is past 0.5, where the coverage ha
 clamped; untransformed and outside a group matrix the reach is the 0.5 of the one sample
 there is.
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_BAND]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_CLIP_BAND_NORM]]
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_PATH]]
 [[src/target/macos_aarch64/app/metal.rs:emit_clip_buffer]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_clip_upload]]
@@ -1820,6 +1848,16 @@ and the record's own build (0.2 µs). A draw entry per particle — the template
 record under a per-particle matrix — was measured instead and not taken: about 1.9 µs a
 draw on Metal against 0.5 for a block of an instanced draw, which is what it would have
 saved.
+
+**A partial redraw writes only the pixels it cleared.** With damage on, a frame whose
+damage is not the whole surface keeps the previous frame, clears the damage rectangle to
+the surface's opaque black, and redraws every entry whose box meets it, each with the
+rectangle as its scissor: every pixel loop of the software rasteriser is bounded by it.
+An unchanged item whose box runs outside the rectangle therefore does not blend its edge
+a second time over the kept pixels (bug-1089), and the frame is the full redraw's byte for
+byte. [[src/codegen/builtins/canvas/helper_render.rs:RENDER_SCENE]]
+[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
+[[tests/canvas/rt_canvas_damage.rs:damage_does_not_blend_an_unchanged_overlapping_item_twice]]
 
 ### Damage takes a system as one unit
 

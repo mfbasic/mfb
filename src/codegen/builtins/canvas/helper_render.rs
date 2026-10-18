@@ -37,6 +37,10 @@ const RENDER_SCENE: &str =
 r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integer, width AS Integer, height AS Integer) AS Nothing
   LET full AS Boolean = __canvas_damageIsFull(damage, width, height)
   MUT buffer AS List OF Byte = []
+  ' bug-1089: every item is drawn through the frame's scissor -- the whole surface, or
+  ' the damage rectangle a partial redraw clears -- so a partial redraw writes no pixel
+  ' it did not clear (`__CANVAS_SCISSOR_*`).
+  __canvas_enterScissor(0, 0, width, height)
   IF full THEN
     buffer = canvas::newSurface(width, height)
   ELSE
@@ -49,6 +53,7 @@ r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integ
     LET y0 AS Integer = collections::getOr(damage, 1, 0)
     LET x1 AS Integer = collections::getOr(damage, 2, 0)
     LET y1 AS Integer = collections::getOr(damage, 3, 0)
+    __canvas_enterScissor(x0, y0, x1, y1)
     MUT y AS Integer = y0
     WHILE y < y1
       LET row AS Integer = y * width * 4
@@ -83,6 +88,7 @@ r#"FUNC __canvas_renderScene(offsets AS List OF Integer, damage AS List OF Integ
     di = di + 1
   END WHILE
   __canvas_enterGroupMatrix(0)
+  __canvas_enterScissor(0, 0, width, height)
   ' Kept only for damage mode, the one reader (`__canvas_damageFor` answers a full
   ' redraw otherwise): the assignment is a whole-frame copy -- 20 MB at 2880x1800,
   ' measured at 6 ms a frame -- paid on every frame for nothing (bug-686).

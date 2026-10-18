@@ -56,7 +56,14 @@
 # shear) and on untransformed items inside groups with a matrix, banded and not, with a
 # rectangle clip under a sheared group -- every pixel takes the five-sample clip path
 # unless its centre sample decides it, and that shortcut has to change no pixel. Compare
-# two builds' frames of it byte for byte with `--keep`.
+# two builds' frames of it byte for byte with `--keep`. `bandgroups` is bug-1085's: a
+# banded polygon and a banded path clip in groups that shrink by 20, and a banded polygon
+# with its own transform in one -- the band's reach does not cover the composed inverse
+# there, so the shader must walk every edge rather than take the band.
+# `magarcs` is bug-1088's: arcs of radius under 1 under transforms that magnify by 60 to
+# 100 -- butt, reflex, round, square, turned and dashed -- whose butt ends are signed
+# half-planes, antialiased, and whose 1-Lipschitz distance now takes the centre-sample
+# shortcut every other kind takes.
 # `texeledge` is bug-1079's: plain pictures whose texel boundaries are pixel centres, in
 # x and in y, where the texel taken used to hang on the last bit of the driver's
 # division (box 206's Intel driver drew the neighbouring row).
@@ -167,6 +174,8 @@ joins|joins_on_black|render
 dashes|dashes_on_black|render
 pathclips|path_clips_on_black|render
 xformclips|transformed_clips_on_black|render
+bandgroups|banded_in_shrinking_groups_on_black|render
+magarcs|magnified_arcs_on_black|render
 gradientsblack|gradients_on_black|render
 polygonsblack|large_polygons_on_black|render
 smallpolysblack|small_polygons_on_black|render
