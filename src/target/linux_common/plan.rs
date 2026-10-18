@@ -439,12 +439,21 @@ impl LinuxPlan<'_> {
             ],
             // bug-1015: `pollMouse` decodes the input already waiting before it
             // dequeues, through the readers' source read (`read`, EINTR-checked).
-            "term.pollMouse" | "canvas.pollMouseRaw" => vec![
-                self.libc_import("clock_gettime", required_by),
-                self.libc_import("poll", required_by),
-                self.libc_import("read", required_by),
-                self.libc_import("__errno_location", required_by),
-            ],
+            //
+            // bug-1099: a console `term.pollMouse` is a stdin reader like an `io`
+            // reader, so it also carries the broadcast log's imports.
+            "term.pollMouse" | "canvas.pollMouseRaw" => {
+                let mut imports = vec![
+                    self.libc_import("clock_gettime", required_by),
+                    self.libc_import("poll", required_by),
+                    self.libc_import("read", required_by),
+                    self.libc_import("__errno_location", required_by),
+                ];
+                if spec.call == "term.pollMouse" {
+                    stdin_broadcast_imports(&mut imports);
+                }
+                imports
+            }
             // plan-94-D: the canvas members reach the same ring and clock.
             "canvas.enableMouse" => vec![
                 self.libc_import("clock_gettime", required_by),

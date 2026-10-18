@@ -108,11 +108,46 @@ pub(crate) const INPUT_BUFFER_READERS: &[&str] = &[
     "_mfb_rt_io_io_input",
 ];
 
-/// Whether a program with these runtime symbols reserves the input buffer.
+/// The suffixes of the mouse readers' runtime symbols (`term::pollMouse`, and
+/// `canvas::pollMouse`'s raw native). In a terminal the surface's mouse reports
+/// arrive on standard input, so a program that polls the mouse is a stdin reader
+/// even when it contains no `io::` reader (bug-1099): `pollMouse` returns the
+/// events the surface received whether or not the program reads input.
+pub(crate) const MOUSE_READER_SUFFIXES: &[&str] = &["_pollMouse", "_pollMouseRaw"];
+
+/// The calls that make a console program a stdin reader: it subscribes its main
+/// thread to standard input (plan-15) and carries the broadcast log. The `io`
+/// readers, the `thread` subscription calls, and the terminal mouse poll
+/// (bug-1099).
+pub(crate) const STDIN_READER_CALLS: &[&str] = &[
+    "io.readLine",
+    "io.input",
+    "io.readRaw",
+    "io.readScalar",
+    "io.readGrapheme",
+    "io.readKey",
+    "term.pollMouse",
+    "thread.openStdIn",
+    "thread.closeStdIn",
+];
+
+/// Whether a program with these runtime symbols polls the mouse.
+pub(crate) fn program_reads_mouse(runtime_symbols: &[String]) -> bool {
+    runtime_symbols.iter().any(|symbol| {
+        MOUSE_READER_SUFFIXES
+            .iter()
+            .any(|suffix| symbol.ends_with(suffix))
+    })
+}
+
+/// Whether a program with these runtime symbols reserves the input buffer: it
+/// calls an [`INPUT_BUFFER_READERS`] reader or polls the mouse
+/// ([`program_reads_mouse`]).
 pub(crate) fn program_uses_input_buffer(runtime_symbols: &[String]) -> bool {
     runtime_symbols
         .iter()
         .any(|symbol| INPUT_BUFFER_READERS.contains(&symbol.as_str()))
+        || program_reads_mouse(runtime_symbols)
 }
 
 /// The readers that ask the decoder for whole grapheme clusters.

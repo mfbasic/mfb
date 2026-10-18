@@ -1789,21 +1789,10 @@ pub(crate) fn lower_module_for_platform(
     }
     // Process-global stdin broadcast log (plan-15): one zero-initialized writable
     // structure. Emitted whenever the module uses a stdin read builtin or
-    // `thread::openStdIn`/`closeStdIn`; app mode reads a window pipe, not fd 0.
+    // `thread::openStdIn`/`closeStdIn`, or polls the mouse (bug-1099); app mode
+    // reads a window pipe, not fd 0.
     if !module.build_mode.is_app()
-        && module_uses_any_call(
-            module,
-            &[
-                "io.readLine",
-                "io.input",
-                "io.readRaw",
-                "io.readScalar",
-                "io.readGrapheme",
-                "io.readKey",
-                "thread.openStdIn",
-                "thread.closeStdIn",
-            ],
-        )
+        && module_uses_any_call(module, crate::codegen::io::input::STDIN_READER_CALLS)
     {
         data_objects.push(stdin_log_data_object());
     }
@@ -2374,16 +2363,7 @@ pub(crate) fn lower_module_for_platform(
                     capture_args: module_uses_any_call(module, &["os.args", "os.prog"]),
                     subscribe_stdin: module_uses_any_call(
                         module,
-                        &[
-                            "io.readLine",
-                            "io.input",
-                            "io.readRaw",
-                            "io.readScalar",
-                            "io.readGrapheme",
-                            "io.readKey",
-                            "thread.openStdIn",
-                            "thread.closeStdIn",
-                        ],
+                        crate::codegen::io::input::STDIN_READER_CALLS,
                     ),
                     // `_main` IS the process entry here, so args arrive however
                     // the platform's raw entry delivers them.
@@ -2830,28 +2810,30 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_stdout_drain(&platform_imports, platform)?);
     }
     // Stdin broadcast log (plan-15): the shared reader/subscription helpers are
-    // emitted whenever the module uses a stdin read builtin or `thread::openStdIn`/
-    // `closeStdIn`. `_mfb_rt_stdin_next_byte` replaces the per-byte `read(0,…)` in
+    // emitted whenever the module uses a stdin read builtin, polls the mouse
+    // (bug-1099), or uses `thread::openStdIn`/`closeStdIn`.
+    // `_mfb_rt_stdin_next_byte` replaces the per-byte `read(0,…)` in
     // every stdin read site; subscribe/unsubscribe/recompute back the broadcast
     // registry and the compat main-thread subscription. App mode reads a window
     // pipe, not fd 0, so it is excluded.
     let uses_stdin = !module.build_mode.is_app()
-        && runtime_symbols.iter().any(|symbol| {
-            matches!(
-                symbol.as_str(),
-                "_mfb_rt_io_io_readLine"
-                    | "_mfb_rt_io_io_input"
-                    | "_mfb_rt_io_io_readChar"
-                    | "_mfb_rt_io_io_readByte"
-                    | "_mfb_rt_io_io_readRaw"
-                    | "_mfb_rt_io_io_readScalar"
-                    | "_mfb_rt_io_io_readGrapheme"
-                    | "_mfb_rt_io_io_readKey"
-                    | "_mfb_rt_io_io_pollInput"
-                    | "_mfb_rt_thread_thread_openStdIn"
-                    | "_mfb_rt_thread_thread_closeStdIn"
-            )
-        });
+        && (crate::codegen::io::input::program_reads_mouse(&runtime_symbols)
+            || runtime_symbols.iter().any(|symbol| {
+                matches!(
+                    symbol.as_str(),
+                    "_mfb_rt_io_io_readLine"
+                        | "_mfb_rt_io_io_input"
+                        | "_mfb_rt_io_io_readChar"
+                        | "_mfb_rt_io_io_readByte"
+                        | "_mfb_rt_io_io_readRaw"
+                        | "_mfb_rt_io_io_readScalar"
+                        | "_mfb_rt_io_io_readGrapheme"
+                        | "_mfb_rt_io_io_readKey"
+                        | "_mfb_rt_io_io_pollInput"
+                        | "_mfb_rt_thread_thread_openStdIn"
+                        | "_mfb_rt_thread_thread_closeStdIn"
+                )
+            }));
     if uses_stdin {
         code_functions.push(lower_stdin_recompute_base(&platform_imports, platform)?);
         code_functions.push(lower_stdin_next_byte(

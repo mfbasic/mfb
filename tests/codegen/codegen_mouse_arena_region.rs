@@ -21,8 +21,8 @@
 //!   1. The non-mouse program's zero-store offsets are a strict PREFIX of the mouse
 //!      program's. This is the real claim: not merely "the frame grew", but "every
 //!      slot that existed before is at the same byte offset it was at before".
-//!   2. The frame grows by exactly `MOUSE_STATE_SLOTS * 8` — the region is reserved
-//!      once, at its declared size, with nothing rounded in or padded out.
+//!   2. The frame grows by exactly `(MOUSE_STATE_SLOTS + INPUT_STATE_SLOTS) * 8` --
+//!      the regions are reserved once, at their declared size, with nothing rounded in or padded out.
 //!   3. `_mfb_rt_mouse_mode` — the process-global mode word a UI-thread handler
 //!      reads (§4.4b) — is emitted for the mouse program and ABSENT from the
 //!      non-mouse one, so a program that never asks for mouse keeps its exact
@@ -46,6 +46,12 @@ use serde_json::Value;
 /// parse length, drain position (added by plan-94-B), then the 32-byte
 /// partial-sequence buffer.
 const MOUSE_STATE_SLOTS: usize = 9;
+
+/// Slots in the input-buffer region -- mirrors `INPUT_STATE_SLOTS`
+/// (`src/codegen/io/input/mod.rs`): 24 bytes of decoder state, the 192-byte token
+/// record, a spare word and the 4096-byte buffer. A mouse poll reserves it too
+/// (bug-1099).
+const INPUT_STATE_SLOTS: usize = (24 + 192 + 8 + 4096) / 8;
 
 /// Uses `term::` and `app::`, so BOTH the term-state region and the
 /// presentation-mode word are reserved — the arrangement a mouse region has to
@@ -184,11 +190,14 @@ fn mouse_region_is_appended_and_moves_no_existing_arena_offset() {
          (plan-94-A §4.4a)."
     );
 
-    // (2) Exactly one region of exactly the declared size is added.
+    // (2) Exactly the declared regions are added: the mouse region, and -- since a
+    // `pollMouse` program is a stdin reader like an `io` reader (bug-1099) -- the
+    // input buffer, appended past it.
+    let added_slots = MOUSE_STATE_SLOTS + INPUT_STATE_SLOTS;
     assert_eq!(
         mouse_slots.len() - plain_slots.len(),
-        MOUSE_STATE_SLOTS,
-        "expected exactly MOUSE_STATE_SLOTS new zero-initialized slots"
+        added_slots,
+        "expected exactly MOUSE_STATE_SLOTS + INPUT_STATE_SLOTS new zero-initialized slots"
     );
     // AArch64 keeps `sp` 16-byte aligned, so the frame can only grow in 16-byte
     // steps. The frame is the arena state ROUNDED UP, so appending an R-byte region
@@ -197,12 +206,12 @@ fn mouse_region_is_appended_and_moves_no_existing_arena_offset() {
     // (bug-690 appended one 8-byte word, making B = 8 mod 16: 72 -> 64). Either
     // way it is within one alignment step of R, and no more.
     let growth = mouse_frame - plain_frame;
-    let region = MOUSE_STATE_SLOTS * 8;
+    let region = added_slots * 8;
     assert!(
         growth % 16 == 0 && growth + 16 > region && growth < region + 16,
         "entry frame should grow by exactly the mouse region's size, rounded to the \
          16-byte stack alignment: grew {growth} for a {}-byte region",
-        MOUSE_STATE_SLOTS * 8
+        added_slots * 8
     );
 
     // And they are genuinely past everything, not merely equal in count.

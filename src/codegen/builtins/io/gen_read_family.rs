@@ -486,17 +486,17 @@ pub(crate) struct PendingInput {
 ///   appended to the input buffer, in order, so the program's next `io` read
 ///   takes it exactly as if it had read it itself. The buffer is checked for
 ///   room BEFORE the read, so a full buffer stops the drain with the byte still
-///   unread rather than dropping it. A program with no input buffer has no `io`
-///   reader at all, so there is no later read to keep its keystrokes for, and they
-///   are dropped;
+///   unread rather than dropping it. Every program that polls the mouse has the
+///   input buffer ([`program_reads_mouse`](crate::codegen::io::input::program_reads_mouse)),
+///   so a program with no `io` reader holds its keystrokes there;
 /// - end of input, a read error, or a thread with no stdin subscription stops the
 ///   drain silently: the next `io` read meets the condition itself.
 ///
-/// Skipped while mouse reporting is off (the pump would decode nothing), and in a
-/// console build without the input buffer: there the program has no stdin reader,
-/// so no broadcast log or subscription exists to read through, and its main thread
-/// is not subscribed (plan-15). An `--app` window always has its input pipe on
-/// fd 0.
+/// Skipped while mouse reporting is off (the pump would decode nothing). A
+/// console program that polls the mouse is a stdin reader like an `io` reader
+/// (bug-1099): its main thread is subscribed (plan-15) and it has the input
+/// buffer, so the guard below on a missing buffer only skips a program with no
+/// mouse poll. An `--app` window always has its input pipe on fd 0.
 pub(crate) fn emit_decode_pending_input(
     ctx: &mut EmitCtx,
     pending: &PendingInput,
