@@ -1560,3 +1560,7 @@ path = "tests/runtime/rt_user_type_named_result_ok.rs"
 [[test]]
 name = "rt_user_generic_param_not_last"
 path = "tests/runtime/rt_user_generic_param_not_last.rs"
+
+[[test]]
+name = "rt_template_overloads"
+path = "tests/runtime/rt_template_overloads.rs"

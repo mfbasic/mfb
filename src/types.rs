@@ -399,6 +399,62 @@ impl ParameterType {
             | ParameterType::Unknown => self.clone(),
         }
     }
+    /// This type with every type variable ([`Var`](Self::Var)) renamed through
+    /// `rename`, at every depth — the [`map_nominals`](Self::map_nominals) walk for
+    /// variables. `rename` answers `None` to keep a variable.
+    ///
+    /// bug-913: two template declarations are the same overload when their
+    /// shapes agree up to the names of their type parameters (`FUNC f OF T(x AS
+    /// T)` and `FUNC f OF U(y AS U)`), so duplicate detection compares them with
+    /// each parameter renamed to its position.
+    pub(crate) fn rename_vars(&self, rename: &impl Fn(Symbol) -> Option<Symbol>) -> ParameterType {
+        let map = |t: &ParameterType| Box::new(t.rename_vars(rename));
+        match self {
+            ParameterType::Var(sym) => ParameterType::Var(rename(*sym).unwrap_or(*sym)),
+            ParameterType::UserOf(head, args) => {
+                ParameterType::UserOf(*head, args.iter().map(|a| a.rename_vars(rename)).collect())
+            }
+            ParameterType::ListOf(e) => ParameterType::ListOf(map(e)),
+            ParameterType::SetOf(e) => ParameterType::SetOf(map(e)),
+            ParameterType::ResultOf(e) => ParameterType::ResultOf(map(e)),
+            ParameterType::Res(e) => ParameterType::Res(map(e)),
+            ParameterType::MapOf(k, v) => ParameterType::MapOf(map(k), map(v)),
+            ParameterType::MapEntryOf(k, v) => ParameterType::MapEntryOf(map(k), map(v)),
+            ParameterType::Stateful { base, state } => ParameterType::Stateful {
+                base: map(base),
+                state: map(state),
+            },
+            ParameterType::Func(params, ret, isolated) => ParameterType::Func(
+                params.iter().map(|p| p.rename_vars(rename)).collect(),
+                map(ret),
+                *isolated,
+            ),
+            ParameterType::ThreadHandle {
+                worker,
+                msg,
+                res,
+                out,
+            } => ParameterType::ThreadHandle {
+                worker: *worker,
+                msg: map(msg),
+                res: map(res),
+                out: map(out),
+            },
+            ParameterType::AttributeString
+            | ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Integer
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::String
+            | ParameterType::C(_)
+            | ParameterType::Named(_)
+            | ParameterType::Arg(_)
+            | ParameterType::Unknown => self.clone(),
+        }
+    }
     /// The type a SPELLING denotes — a declaration's own name, or a value's
     /// recorded type where codegen still stores one as text.
     ///

@@ -127,17 +127,35 @@ single bounded diagnostic rather than re-reporting on every one of the
 
 For a call to a template function: [[src/monomorph/lower.rs:instantiate_function]]
 
-1. Look up the template by base name; non-template names return `None` (the call
-   falls through to overload resolution).
-2. Reject more arguments than parameters (`TYPE_CALL_ARITY_MISMATCH`). Fewer is
-   allowed (trailing defaults).
-3. **Unify** each declared parameter type against the actual argument type
-   (mapped through `template_view_type`, which re-expands an already-mangled
-   concrete type back to its `name OF args` view), binding template parameters in
-   `substitutions`. A failure reports `TYPE_CALL_ARGUMENT_MISMATCH`.
-4. Require every template parameter to be bound (the `collect::<Option<_>>` fails
-   to `None` otherwise — a parameter not reachable from any argument cannot be
-   inferred).
+1. Look up every template of the base name (a name may carry several: a template
+   overloads by signature like a plain `FUNC`, bug-913); non-template names return
+   `None` (the call falls through to overload resolution). A plain overload of the
+   name whose parameter types match the call exactly wins: `None` again.
+2. For each template, **bind** it (`bind_template`): more arguments than
+   parameters do not bind (`TYPE_CALL_ARITY_MISMATCH` for a lone template; fewer is
+   allowed — trailing defaults — but when the name has several candidates a
+   template whose unsupplied parameter has no default does not bind). **Unify**
+   each declared parameter type against the actual argument type (mapped through
+   `template_view_type`, which re-expands an already-mangled concrete type back to
+   its `name OF args` view), binding template parameters in `substitutions`; a
+   failure reports `TYPE_CALL_ARGUMENT_MISMATCH` for a lone template. Every
+   template parameter must be bound (a parameter not reachable from any argument
+   cannot be inferred). Named arguments are reordered into each template's own
+   parameter order first (bug-196).
+3. A name with one template and no plain overload reports its binding failure as
+   above. Otherwise the call selects among the templates that bind: none —
+   `TYPE_CALL_ARGUMENT_MISMATCH` when the name has no plain overload either (else
+   the plain overload set reports); one — that template; several — the **most
+   specific** (`most_specific`): template `a` is at least as specific as `b` when
+   `b`'s parameter patterns bind `a`'s own parameter types, so `f OF T(x AS List OF
+   T)` beats `f OF T(x AS T)` for `f([1])`. No single strictly most specific
+   template is `TYPE_OVERLOAD_AMBIGUOUS`.
+4. The instantiation key is `name<args>` for a name with one template, and
+   `name(<param types>)<return><args>` — the template's identity — for a name with
+   several, so two templates instantiated at the same arguments stay two concrete
+   functions (`unique_concrete_symbol` suffixes the second symbol). Each
+   instantiation symbol maps back to the called name in the bug-697 render table,
+   so a downstream diagnostic about the call names `f`, never `f$Integer`.
 5. Mangle the concrete name, charge one against the total-instantiation budget
    (`TYPE_INSTANTIATION_BUDGET_EXCEEDED` once exhausted) and reject expansion past
    the 256-frame depth limit (`TYPE_INSTANTIATION_TOO_DEEP`), then lower the body

@@ -1,12 +1,12 @@
 # bug-913: two template FUNCs sharing a name (or a template and a plain FUNC) — the earlier declaration is silently discarded, calls bind to the wrong body
 
-Last updated: 2026-10-05
+Last updated: 2026-10-18
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/syntax/monomorph/template-name-overload-invalid (new) — name suggested
+Status: Fixed (bs24-agent-h, bug-staging-24)
+Regression Test: tests/runtime/rt_template_overloads.rs (`cargo test --release --test rt_template_overloads`)
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -112,3 +112,39 @@ at the same args would share one concrete symbol even if both were kept.
 
 - `type_templates` in the same constructor is keyed the same way, but a second
   `TYPE Box OF T` is already `SYMBOL_DUPLICATE_TOP_LEVEL` (verified), so types are unaffected.
+
+## Fix
+
+`Monomorphizer::function_templates` keeps every template of a name (with its
+declaring file) instead of the last one, and `instantiate_function` enters the same
+overload resolution plain FUNCs do: a plain overload whose parameter types match the
+call exactly wins (the call then resolves through `resolve_overload`); otherwise each
+template is bound silently (`bind_template`, named arguments reordered per template)
+and the applicable ones compete — one wins outright, several pick the most specific
+(`most_specific`: `a` is at least as specific as `b` when `b`'s patterns bind `a`'s
+parameter types), and a tie is `TYPE_OVERLOAD_AMBIGUOUS`. A name with ONE template and
+no plain overload reports exactly as before (same rules, same messages). The
+instantiation key carries the template's identity (ordered parameter types + return)
+when a name has several, so two templates instantiated at the same arguments get two
+symbols (`f$Integer`, `f$Integer$2`); a single template's key, and so every existing
+mangled name, is unchanged.
+
+Duplicates: the resolver's signature key compares a template's type parameters by
+position (`ParameterType::rename_vars`), so `FUNC f OF T(x AS T)` beside
+`FUNC f OF U(y AS U)` is `SYMBOL_DUPLICATE_TOP_LEVEL` naming `f`.
+
+Also fixed (the doc's arity variant): a downstream arity diagnostic on a lone
+template's call named the mangled `f$Integer`; each function instantiation now maps
+back to the called name in the bug-697 render table (`template_spellings`).
+
+RED (before): `rt_template_overloads` — 3 of the 4 behaviour tests failed (printed
+`scalar` for `f([1])`; `TYPE_CALL_ARITY_MISMATCH` on the arity and plain-overload
+programs), and `template_overload_diagnostics_name_the_source_function` failed on the
+pre-fix compiler (the ambiguous program built). GREEN (after): 5/5.
+
+Spec: `language functions` (Overloading), `architecture monomorphization`
+(`instantiate_function`).
+
+Goldens expected to move: none (single-template keys and symbols are unchanged; no
+in-tree program declares two templates of one name or a template beside a plain FUNC
+of its name).

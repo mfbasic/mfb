@@ -42,7 +42,10 @@ struct Monomorphizer<'a> {
     source: &'a HirProject,
     /// plan-111-B: keyed by the template TYPE (a nominal).
     type_templates: HashMap<crate::types::ParameterType, HirTypeDecl>,
-    function_templates: HashMap<String, HirFunction>,
+    /// bug-913: every template FUNC of a name, each with its declaring file — a
+    /// template overloads by signature like a plain FUNC, so a name may carry
+    /// several, and none replaces another.
+    function_templates: HashMap<String, Vec<(HirFunction, String)>>,
     /// plan-111-B: keyed by the concrete TYPE — for an instantiation, the
     /// mangled nominal `instantiate_type` hands back.
     concrete_types: HashMap<crate::types::ParameterType, HirTypeDecl>,
@@ -90,6 +93,10 @@ struct Monomorphizer<'a> {
     /// `mangle_name` is lossy, so this detects a symbol collision between two
     /// distinct type-argument tuples and lets the loser be suffixed (bug-226).
     concrete_symbol_keys: HashMap<String, String>,
+    /// The source name each template FUNC instantiation's mangled symbol stands
+    /// for (`f$Integer` -> `f`), so a downstream diagnostic about the call names
+    /// what the user wrote (bug-697's render table, extended by bug-913).
+    function_instantiation_names: HashMap<String, String>,
     /// Import-binding names that refer to the built-in `collections` package
     /// (including aliases). A call `binding.member` with `binding` in this set
     /// and `member` a `collections::` function is rewritten to the internal
