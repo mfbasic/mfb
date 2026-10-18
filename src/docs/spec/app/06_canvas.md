@@ -437,11 +437,13 @@ band when the pass is built, so a pixel tests only the edges that can reach it, 
 result is identical to testing them all. That holds for a pixel whose samples all lie
 within a band's reach, and the reach is built for the item's own inverse: a block is
 built once a pass and drawn under every group matrix that names it, so the builder
-cannot know the inverse a pixel is sampled with. The band header therefore records the
-norm `F` its reach was built for (the Frobenius norm of the item's inverse, 0 for an item
-with no transform of its own), and a pixel takes its band only when `1.5·N ≤ 2·F`, `N`
-the Frobenius norm of the composed inverse it samples with (0 for a pixel that takes one
-sample); any other pixel tests every edge. The region sizes are defined once, in Rust,
+cannot know the inverse a pixel is sampled with. So every reach is built for
+`F_built = max(F, √2)`, `F` the Frobenius norm of the item's inverse (0 for an item with
+no transform of its own) floored at the identity's norm, the band header records
+`F_built`, and a pixel takes its band only when `1.5·N ≤ 2·F_built`, `N` the Frobenius
+norm of the composed inverse it samples with (0 for a pixel that takes one sample); any
+other pixel tests every edge. An item under no group, or under an identity, rotation or
+magnifying group, keeps its band; only a group that shrinks past the floor walks. The region sizes are defined once, in Rust,
 and generated into the MFBASIC source. So are the region bases the shaders read: Metal
 formats them into its shader source when it compiles it, and Vulkan's checked-in SPIR-V
 declares them as specialization constants that the pipeline sets from the same

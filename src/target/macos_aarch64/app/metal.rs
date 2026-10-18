@@ -7560,11 +7560,12 @@ const CLIP_BANDS: BandSet = BandSet {
 /// * **Under a group's matrix** (bug-1085) the five points are `q ± M·G·(0.5, 0)` and
 ///   `q ± M·G·(0, 0.5)`, so the same argument holds with the COMPOSED norm `N` in place
 ///   of `F` — and the builder cannot know it: a block is built once a pass and drawn
-///   under every group matrix that names it. So the header records the `F` the reach
-///   was built for (`ITEM_BAND_NORM`, `ITEM_CLIP_BAND_NORM`; 0 untransformed, where the
-///   reach covers the centre sample alone), and the shader takes the band only when
-///   `1.5·N <= 2·F` (`polygonBand`, `clipBandAt`); otherwise it walks every edge,
-///   which is exact.
+///   under every group matrix that names it. So the reach is built for
+///   `F_built = max(F, √2)`, the identity's norm at least (untransformed `F` is 0), the
+///   header records it (`ITEM_BAND_NORM`, `ITEM_CLIP_BAND_NORM`), and the shader takes
+///   the band only when `1.5·N <= 2·F_built` (`polygonBand`, `clipBandAt`); otherwise it
+///   walks every edge, which is exact. No group, an identity, a rotation or a magnifying
+///   group keeps the band; only one that shrinks past the floor walks.
 ///
 /// Plus a **1-unit guard** in shape space, for the float error of the shader's band
 /// lookup against these integer bands. `band.swift` (bug-686 section G) measured 0
@@ -7572,7 +7573,7 @@ const CLIP_BANDS: BandSet = BandSet {
 ///
 /// ## Sizing
 ///
-/// Bands are 2 px tall untransformed, `√2·F` (about two surface pixels) transformed, and
+/// Bands are `√2·F_built` tall (about two surface pixels; 2 px untransformed), and
 /// taller when the span needs more than `min(edges, BAND_MAX)` bands. If the list
 /// would pass `BAND_LIST_PER_EDGE` entries per edge — a shape whose edges each span
 /// most rows, like a star of long spikes — the height doubles until it fits; at one band
@@ -7687,7 +7688,7 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
     // r = half + 0.5 (the clamp) + 1 (the guard)
     asm.push(abi::float_add_d(f[1], f[1], f[2]));
     asm.push(abi::float_move_d_from_d(f[4], f[3]));
-    // F (f6) is 0 untransformed: the reach covers the centre sample alone (bug-1085).
+    // F (f6) is 0 untransformed, before the floor below (bug-1085).
     asm.push(abi::move_immediate(s[4], "Integer", "0"));
     asm.push(abi::signed_convert_to_float_d(f[6], s[4]));
     let untransformed = label("untransformed");
@@ -7729,17 +7730,22 @@ fn emit_band_index(asm: &mut Asm, set: BandSet) {
         asm.push(abi::label(&zero_term));
     }
     asm.push(abi::float_sqrt_d(f[6], f[6]));
-    // r += 2F; the minimum height is sqrt(2)*F, about two surface pixels.
-    asm.push(abi::float_add_d(f[7], f[6], f[6]));
-    asm.push(abi::float_add_d(f[1], f[1], f[7]));
-    asm.push(abi::float_sqrt_d(f[7], f[3]));
-    asm.push(abi::float_multiply_d(f[4], f[6], f[7]));
     asm.push(abi::label(&untransformed));
+    // bug-1085: the reach is built for F_built = max(F, sqrt 2), the identity's norm at
+    // least, so a pixel drawn under no group or under an identity, rotation or magnifying
+    // group keeps the band (`0.75 N <= F_built`) and only a shrinking group walks every
+    // edge. r += 2 F_built; the minimum height is sqrt(2) F_built, about two surface
+    // pixels (exactly 2 untransformed, the height it always had).
+    asm.push(abi::float_sqrt_d(f[7], f[3]));
+    asm.push(abi::float_max_d(f[6], f[6], f[7]));
+    asm.push(abi::float_add_d(f[5], f[6], f[6]));
+    asm.push(abi::float_add_d(f[1], f[1], f[5]));
+    asm.push(abi::float_multiply_d(f[4], f[6], f[7]));
 
     // --- to 16.16, rounding UP: s4 = r, s5 = the minimum height ---------------------
     asm.push(abi::move_immediate(s[4], "Integer", FIXED_POINT_SCALE));
     asm.push(abi::signed_convert_to_float_d(f[7], s[4]));
-    // bug-1085: and F, rounded DOWN (it is not negative, so truncation is the floor),
+    // bug-1085: and F_built, rounded DOWN (it is positive, so truncation is the floor),
     // into the header's norm word -- what the shader holds a pixel's composed norm to
     // before it takes the band. A value too large for the word is a reach past the bound
     // below, and `none` writes 0 over it.
