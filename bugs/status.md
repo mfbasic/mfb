@@ -124,6 +124,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 863    | MED      | `crypto::open(cipher, key, nonce, sealed, aad)` — the documented Sealed+aad overload fails to compile with an unlocated TYPE_CALL_ARGUMENT_MISMATCH |
 | [ ]  | 864    | MED      | `tls::listen` / `http::serverSSL` fail with ErrTlsFailed for an EC (P-256) PKCS#8 key on macOS |
+| [ ]  | 1107   | MED      | a program that calls `crypto::seal` and `crypto::open` ends with 4,592 bytes live (434 allocs / 421 frees) |
 | [ ]  | 871    | LOW      | `crypto::hmac(crypto::Hash.SHA1, key, "text")` reports CRYPTO_SHA1_INSECURE — the String-data overload misses the sound-use exemption |
 
 ## Networking and HTTP
@@ -230,6 +231,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 946    | MED      | `Operand::Raw` keeps operands as untyped strings — remove the arm and give every operand kind a typed variant (together with 930; do after the behaviour fixes so its diffs are measured on a stable tree) |
+| [ ]  | 1106   | MED      | the native encoder accepts a floating-point register as the source of an integer store (`str_u64` with `d0`) and stores another register's bits |
 | [ ]  | 930    | LOW      | the `.mir` dump documented as "target-neutral" contains the runtime helpers, which are hand-written per architecture with physical register names |
 | [ ]  | 1080   | LOW      | a defaulted record updated with `WITH` costs about 27 KB of machine code a statement (the program is right; the executable is large and slower to build) |
 | [ ]  | 1084   | LOW      | `toString` of a package enum read straight off a call result fails to build ("native code string literal has no data object"); binding the record first works |
