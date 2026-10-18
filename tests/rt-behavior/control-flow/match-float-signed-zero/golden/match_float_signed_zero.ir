@@ -1,0 +1,271 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "match_float_signed_zero",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 8,
+    "visibility": "public",
+    "name": "P",
+    "fields": [
+    { "visibility": null, "line": 9, "name": "x", "type": "Float" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "public",
+    "name": "Q",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "p", "type": "P" },
+    { "visibility": null, "line": 14, "name": "s", "type": "String" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "zeroArm",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 17, "type": "Float", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 18, "mutable": false, "name": "$match0", "type": "Float", "value": { "kind": "local", "name": "f" } },
+    {
+      "op": "match",
+      "line": 18,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 19,
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Float", "value": "0.0" } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 19, "value": { "kind": "const", "type": "String", "value": "zero" } }
+        ]
+      },
+      {
+        "line": 20,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 20, "value": { "kind": "const", "type": "String", "value": "other" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "listArm",
+    "line": 24,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 24, "type": "Float", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 25, "mutable": false, "name": "$match1", "type": "Float", "value": { "kind": "local", "name": "f" } },
+    {
+      "op": "match",
+      "line": 25,
+      "value": { "kind": "local", "name": "$match1" },
+      "cases": [
+      {
+        "line": 26,
+        "pattern": { "kind": "oneOf", "values": [{ "kind": "const", "type": "Float", "value": "1.0" }, { "kind": "const", "type": "Float", "value": "0.0" }] },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 26, "value": { "kind": "const", "type": "String", "value": "one or zero" } }
+        ]
+      },
+      {
+        "line": 27,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 27, "value": { "kind": "const", "type": "String", "value": "other" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "recordArm",
+    "line": 31,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 31, "type": "P", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 32, "mutable": false, "name": "$match2", "type": "P", "value": { "kind": "local", "name": "p" } },
+    {
+      "op": "match",
+      "line": 32,
+      "value": { "kind": "local", "name": "$match2" },
+      "cases": [
+      {
+        "line": 33,
+        "pattern": { "kind": "value", "value": { "kind": "constructor", "type": "P", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] } },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 33, "value": { "kind": "const", "type": "String", "value": "zero point" } }
+        ]
+      },
+      {
+        "line": 34,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "return", "line": 34, "value": { "kind": "const", "type": "String", "value": "other" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 38,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 39, "mutable": false, "name": "z", "type": "Float", "value": { "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "0.0" } } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "y", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "1.0" } } } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "z" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } }] }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "y" }, "right": { "kind": "const", "type": "Float", "value": "0.0" } }] } }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "zeroArm", "args": [{ "kind": "local", "name": "z" }] }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "zeroArm", "args": [{ "kind": "local", "name": "y" }] } }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "zeroArm", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] } }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "zeroArm", "args": [{ "kind": "const", "type": "Float", "value": "0.5" }] } }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "listArm", "args": [{ "kind": "local", "name": "y" }] }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "listArm", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] } }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "listArm", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "recordArm", "args": [{ "kind": "constructor", "type": "P", "args": [{ "kind": "local", "name": "y" }] }] }, "right": { "kind": "const", "type": "String", "value": " / " } }, "right": { "kind": "call", "type": "String", "target": "recordArm", "args": [{ "kind": "constructor", "type": "P", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] }] } }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "constructor", "type": "P", "args": [{ "kind": "local", "name": "y" }] }, "right": { "kind": "constructor", "type": "P", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] } }] }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "constructor", "type": "P", "args": [{ "kind": "local", "name": "y" }] }, "right": { "kind": "constructor", "type": "P", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] } }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "constructor", "type": "P", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] }, "right": { "kind": "constructor", "type": "P", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] } }] } }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "constructor", "type": "Q", "args": [{ "kind": "constructor", "type": "P", "args": [{ "kind": "local", "name": "y" }] }, { "kind": "const", "type": "String", "value": "a" }] }, "right": { "kind": "constructor", "type": "Q", "args": [{ "kind": "constructor", "type": "P", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] }, { "kind": "const", "type": "String", "value": "a" }] } }] }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "constructor", "type": "Q", "args": [{ "kind": "constructor", "type": "P", "args": [{ "kind": "local", "name": "y" }] }, { "kind": "const", "type": "String", "value": "a" }] }, "right": { "kind": "constructor", "type": "Q", "args": [{ "kind": "constructor", "type": "P", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] }, { "kind": "const", "type": "String", "value": "b" }] } }] } }] } },
+    { "op": "bind", "line": 47, "mutable": false, "name": "q", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.25" } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "$match3", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "+", "left": { "kind": "local", "name": "q" }, "right": { "kind": "const", "type": "Float", "value": "1.25" } } },
+    {
+      "op": "match",
+      "line": 48,
+      "value": { "kind": "local", "name": "$match3" },
+      "cases": [
+      {
+        "line": 49,
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Float", "value": "1.5" } },
+        "guard": null,
+        "body": [
+        { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "one and a half" }] } }
+        ]
+      },
+      {
+        "line": 50,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "other" }] } }
+        ]
+      }
+      ]
+    },
+    { "op": "bind", "line": 52, "mutable": false, "name": "$match4", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "*", "left": { "kind": "local", "name": "y" }, "right": { "kind": "const", "type": "Float", "value": "2.0" } } },
+    {
+      "op": "match",
+      "line": 52,
+      "value": { "kind": "local", "name": "$match4" },
+      "cases": [
+      {
+        "line": 53,
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "Float", "value": "0.0" } },
+        "guard": null,
+        "body": [
+        { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "zero product" }] } }
+        ]
+      },
+      {
+        "line": 54,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "other" }] } }
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

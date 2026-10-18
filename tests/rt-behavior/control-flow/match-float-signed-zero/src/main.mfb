@@ -1,0 +1,56 @@
+IMPORT io
+
+' bug-845: a literal arm matches exactly when the scrutinee `=` the pattern. A Float
+' arm compared bit patterns, so `CASE 0.0` missed `-0.0` although `-0.0 = 0.0` is
+' TRUE; record `=` and a record arm did the same for a Float field. A scrutinee held
+' in a Float register was also stored with a general-register store, so `CASE 1.5`
+' missed a computed `1.5`.
+TYPE P
+  x AS Float
+END TYPE
+
+TYPE Q
+  p AS P
+  s AS String
+END TYPE
+
+FUNC zeroArm(f AS Float) AS String
+  MATCH f
+    CASE 0.0 : RETURN "zero"
+    CASE ELSE : RETURN "other"
+  END MATCH
+END FUNC
+
+FUNC listArm(f AS Float) AS String
+  MATCH f
+    CASE 1.0, 0.0 : RETURN "one or zero"
+    CASE ELSE : RETURN "other"
+  END MATCH
+END FUNC
+
+FUNC recordArm(p AS P) AS String
+  MATCH p
+    CASE P[x := 0.0] : RETURN "zero point"
+    CASE ELSE : RETURN "other"
+  END MATCH
+END FUNC
+
+FUNC main() AS Nothing
+  LET z = -0.0
+  LET y = 0.0 * -1.0
+  io::print(toString(z = 0.0) & " " & toString(y = 0.0))
+  io::print(zeroArm(z) & " / " & zeroArm(y) & " / " & zeroArm(0.0) & " / " & zeroArm(0.5))
+  io::print(listArm(y) & " / " & listArm(1.0) & " / " & listArm(2.0))
+  io::print(recordArm(P[y]) & " / " & recordArm(P[1.0]))
+  io::print(toString(P[y] = P[0.0]) & " " & toString(P[y] <> P[0.0]) & " " & toString(P[1.0] = P[0.0]))
+  io::print(toString(Q[P[y], "a"] = Q[P[0.0], "a"]) & " " & toString(Q[P[y], "a"] = Q[P[0.0], "b"]))
+  LET q = 0.25
+  MATCH q + 1.25
+    CASE 1.5 : io::print("one and a half")
+    CASE ELSE : io::print("other")
+  END MATCH
+  MATCH y * 2.0
+    CASE 0.0 : io::print("zero product")
+    CASE ELSE : io::print("other")
+  END MATCH
+END FUNC

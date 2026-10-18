@@ -1,12 +1,12 @@
 # bug-845: MATCH on a Float compares bit patterns, so `CASE 0.0` misses `-0.0` although `-0.0 = 0.0` is TRUE
 
-Last updated: 2026-10-05
+Last updated: 2026-10-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/control-flow/match-float-signed-zero (proposed)
+Status: Fixed
+Regression Test: tests/rt-behavior/control-flow/match-float-signed-zero
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -114,3 +114,45 @@ registers) in `lower_match_compare`.
 ## Summary
 
 One-branch fix in native match dispatch; same family as bug-140.
+
+## Fix (bs24-agent-f, 2026-10-18)
+
+**One equality emitter, two relations.** `emit_comparable_values_match_branch` is
+the VALUE equality every `=`/`<>` on records and every `MATCH` literal or record arm
+uses; it now decides a `Float`, at any field depth, with the Float compare (`fmov` to
+`d` registers, `fcmp`, `b.eq`), as scalar `=` does. `lower_match_compare` routes a
+`Float` scrutinee through it (it used to `compare_registers` the bits). The
+collection-payload matchers (`contains`, set/map key matching), which the spec
+documents as bitwise for `Float`, call the new `emit_comparable_keys_match_branch`:
+the same walk with `FloatEquality::Bits`, so a record element's `Float` fields still
+match the key bytes a map or set hashes. No `Float` value-equality bit compare is
+left in that emitter. (`emit_values_content_equal_branch`, used only by the canvas
+present's "did the scene change" test, keeps its bitwise word compare; its doc
+comment now says it answers "same content", not `=`.)
+
+**Second defect found on the same path.** A `MATCH` scrutinee that lives in a Float
+register (`MATCH q + 1.25`, or a local the optimizer keeps `d`-native) was spilled
+with `store_u64` of the `d` register, which stored another register's bits:
+`MATCH z CASE 1.5` with `z = 1.5` took `CASE ELSE` on main too (measured with
+`/tmp/main-dbg-target/release/mfb`). The Match arm now spills with
+`store_value_at` (`str d` for a `d`-native Float), and `lower_match_compare` puts
+the pattern's bits in a GPR (`materialize_float`) before the compare stores them.
+
+**RED → GREEN.** `bash scripts/test-accept.sh <mfb> <out>
+'rt-behavior/control-flow/match-float-signed-zero'`: main's compiler prints
+`other / other / zero / other`, `other / one or zero / other`, `other / other`,
+`FALSE TRUE FALSE`, `FALSE FALSE`, `other` (mismatch); this branch matches the
+golden (`zero / zero / zero / other` … `one and a half`). `contains([P[-0.0]],
+P[0.0])` and `contains([-0.0], 0.0)` stay `FALSE` (bitwise, as documented).
+
+**Spec/man.** `mfb spec language types` §4.1 table gains the record/`MATCH` row and
+the key-matching note; `mfb spec language pattern-matching` states the arm's IEEE
+equality; `mfb man types comparisons` says the same for record fields and arms.
+
+**Goldens expected to move.** None beyond the new fixture: every
+`tests/byte-identity/*` macOS `.ncode` hashes to its committed `.ncodesum` with this
+compiler (no builtin emits a Float `MATCH` or a Float-field record `=`). Fixtures
+with a Float literal arm (`grep -rlE 'CASE -?[0-9]+\.[0-9]+' tests`) carry only
+`.ast`/`.ir`/`.run` goldens, which this change does not touch. The lowering is
+target-independent, so a byte-identity fixture whose macOS hash is unchanged emits no
+moved code on the other four targets either (guess: not measured per target).

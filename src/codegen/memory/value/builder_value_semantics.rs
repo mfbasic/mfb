@@ -1829,13 +1829,18 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_eq(label));
             }
             _ => {
+                // The pattern's bits in a GPR: the compare below stores them.
                 let pattern = self.lower_value(pattern)?;
-                // String (and other block-typed) scrutinees are block pointers, so
-                // `compare_registers` would test pointer identity — never true for a
-                // literal pattern whose block is distinct from the scrutinee's, so
-                // every such CASE was dead (bug-140). Route content-typed scrutinees
-                // through the byte-comparison helper; scalars keep the register test.
+                let pattern = self.materialize_float(pattern)?;
+                // An arm matches exactly when the scrutinee `=` the pattern, so
+                // every scrutinee whose `=` is not its register's bits goes through
+                // the value-equality emitter: a String (and other block-typed)
+                // scrutinee is a block pointer, which `compare_registers` would test
+                // for identity (bug-140), and a Float's `-0.0` and `0.0` are
+                // different bits that `=` calls equal (bug-845). The other scalars
+                // keep the register test.
                 if matched.type_ == ParameterType::String
+                    || matched.type_ == ParameterType::Float
                     || self.type_model.record_fields.contains_key(&matched.type_)
                 {
                     let not_equal = self.label("match_compare_not_equal");

@@ -4270,11 +4270,10 @@ impl CodeBuilder<'_> {
                     NirOp::Match { value, cases } => {
                         let matched = self.lower_value(value)?;
                         let matched_slot = self.allocate_stack_object("match_value", 8);
-                        self.emit(abi::store_u64(
-                            &matched.location,
-                            abi::stack_pointer(),
-                            matched_slot,
-                        ));
+                        // bug-845: a `d`-native `Float` scrutinee is stored from its
+                        // FP register; a GP store of it wrote some other register's
+                        // bits, so a `CASE 1.5` missed a scrutinee of `1.5`.
+                        self.store_value_at(&matched, abi::stack_pointer(), matched_slot);
                         let end_label = self.label("match_end");
                         for case in cases {
                             let matched_register = self.allocate_register();
