@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/syntax/collections/set-literal-noncomparable-element-invalid (to add)
+Status: Fixed
+Regression Test: tests/syntax/collections/set-literal-noncomparable-element-invalid
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -99,3 +99,30 @@ Then remove the now-redundant explicit ownership call, or keep it if
 
 This is a one-line verifier gap. The risk is double reporting on annotated bindings.
 Check the golden for an annotated set literal.
+
+## Fix
+
+`src/ir/verify/values.rs:check_value_depth`, `IrValue::SetLiteral` arm, now calls
+`check_map_key_comparable(type_)` exactly as the `MapLiteral` arm does (it recurses through
+`SetOf`, and `check_collection_element_comparable` covers the ownership half, so the separate
+ownership call is removed). Every set literal is therefore checked whatever its annotation; no
+element type is special-cased.
+
+Not met (flag for the coordinator): the Goal's "no double report when the binding is also
+annotated". An annotated binding whose initializer is a literal of the same type
+(`LET e AS Set OF List OF Integer = Set OF List OF Integer { }`) is reported by BOTH the literal
+arm and the explicit-annotation check in `ops.rs`; the same already happens for an annotated
+`Map` literal at HEAD (measured: `LET e AS Map OF List OF Integer TO Integer = Map OF ... { }`
+gives 2 reports). I tried skipping the `ops.rs` check for a same-type literal, but the pinned
+test `ir::verify::tests::rejects_a_resource_in_a_set_literal` ("Once for the declared type, once
+for the literal -- as the front end did", plan-107-B) expects exactly that double report for the
+ownership half, and a test is not edited without proof it is wrong; so the `ops.rs` change was
+reverted and the fixture does not pin the annotated shape either way.
+
+Test: fixture `tests/syntax/collections/set-literal-noncomparable-element-invalid` (four inferred
+shapes from the bug and comparable `Set OF P` / `Set OF
+Integer` literals that still build). RED on the pre-fix compiler: no report for any of the four shapes
+(0 of 4; the build only failed on a separate annotated line, since removed). GREEN: 4 reports, one per line. Ran `bash scripts/test-accept.sh <mfb>
+<dir> 'set-literal-noncomparable*'` and `bash scripts/test-fast.sh --accept ...`.
+
+Goldens expected to change: none beyond the new fixture's own `golden/build.log`.

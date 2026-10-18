@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/collections/set-literal-noncomparable-element-invalid
+  20 | 
+  21 | FUNC main AS Nothing
+  22 |   LET a = Set OF List OF Integer { [1], [1] }
+     | ^
+tests/syntax/collections/set-literal-noncomparable-element-invalid/src/main.mfb:22 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Set element type requires a comparable type, got `List OF Integer`.
+  21 | FUNC main AS Nothing
+  22 |   LET a = Set OF List OF Integer { [1], [1] }
+  23 |   LET b = Set OF U { P[1], P[1] }
+     | ^
+tests/syntax/collections/set-literal-noncomparable-element-invalid/src/main.mfb:23 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Set element type requires a comparable type, got `U`.
+  22 |   LET a = Set OF List OF Integer { [1], [1] }
+  23 |   LET b = Set OF U { P[1], P[1] }
+  24 |   LET c = Set OF Set OF Integer { }
+     | ^
+tests/syntax/collections/set-literal-noncomparable-element-invalid/src/main.mfb:24 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Set element type requires a comparable type, got `Set OF Integer`.
+  23 |   LET b = Set OF U { P[1], P[1] }
+  24 |   LET c = Set OF Set OF Integer { }
+  25 |   LET d = Set OF FUNC(Integer) AS Integer { }
+     | ^
+tests/syntax/collections/set-literal-noncomparable-element-invalid/src/main.mfb:25 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Set element type requires a comparable type, got `FUNC(Integer) AS Integer`.
+[exit 1]

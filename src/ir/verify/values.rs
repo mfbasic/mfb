@@ -225,10 +225,12 @@ impl TypeEnv {
                     self.check_value_depth(v, locals, depth + 1);
                 }
                 // A `Set` element behaves like a Map key: it may carry neither a
-                // resource nor a thread (the former source checker's `infer_set_literal`).
-                if let ParameterType::SetOf(element) = type_ {
-                    self.check_collection_element_ownership(element, "element");
-                }
+                // resource nor a thread (the former source checker's
+                // `infer_set_literal`) and it must be comparable. The same check the
+                // `MapLiteral` arm applies to its key type, so every literal is
+                // checked whatever its annotation (bug-832); the explicit-annotation
+                // path in `ops.rs` reports the same finding once.
+                self.check_map_key_comparable(type_);
                 // A `Set OF T` element is laid out and read uniformly by the
                 // declared element type, so a crafted mismatch is a type
                 // confusion (mirrors the `List OF T` element check above).

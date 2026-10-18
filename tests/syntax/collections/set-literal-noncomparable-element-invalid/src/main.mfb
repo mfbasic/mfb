@@ -1,0 +1,29 @@
+' bug-832: a `Set OF T { ... }` literal bound with an INFERRED type skipped the
+' element-comparability check, so a non-comparable `T` was accepted (and a
+' non-empty `Set OF List OF Integer` crashed codegen with an internal error).
+' Every set literal is checked at the literal, whatever its annotation, and
+' comparable elements still build.
+IMPORT io
+
+TYPE P
+  x AS Integer
+END TYPE
+
+TYPE Q
+  y AS Integer
+END TYPE
+
+UNION U
+  P
+  Q
+END UNION
+
+FUNC main AS Nothing
+  LET a = Set OF List OF Integer { [1], [1] }
+  LET b = Set OF U { P[1], P[1] }
+  LET c = Set OF Set OF Integer { }
+  LET d = Set OF FUNC(Integer) AS Integer { }
+  LET ok = Set OF P { P[1], P[1] }
+  LET ok2 = Set OF Integer { 1, 2 }
+  io::print(toString(len(a)))
+END FUNC
