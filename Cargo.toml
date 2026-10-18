@@ -677,6 +677,10 @@ name = "rt_math_atan2_negative_zero_x"
 path = "tests/runtime/rt_math_atan2_negative_zero_x.rs"
 
 [[test]]
+name = "rt_datetime_parse_fraction_scale"
+path = "tests/runtime/rt_datetime_parse_fraction_scale.rs"
+
+[[test]]
 name = "rt_collection_chunks_window_sizing"
 path = "tests/runtime/rt_collection_chunks_window_sizing.rs"
 

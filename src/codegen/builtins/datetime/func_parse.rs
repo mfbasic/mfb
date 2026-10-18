@@ -41,8 +41,10 @@ the time `00:00:00.000000000`. The recognized tokens are:
 - `h` / `hh` — hour on a 12-hour clock, 1-2 digits (combine with `a`)
 - `m` / `mm` — minute, 1-2 digits
 - `s` / `ss` — second, 1-2 digits
-- `fff`..`fffffffff` — fractional second; reads run-length digits and scales them
-  to nanoseconds (`fff` = milliseconds, `fffffffff` = nanoseconds)
+- `f`..`fffffffff` — fractional second; reads up to run-length digits and scales
+  what it read to nanoseconds, so `.12` under `fff` is 120 milliseconds and `.1`
+  under `fffffffff` is 100 milliseconds. A run longer than nine reads that many
+  digits and keeps the first nine
 - `a` — AM/PM marker, case-insensitive
 - `EEE` / `EEEE` — weekday name; skips zero or more ASCII letters without checking
   that they name a weekday

@@ -90,11 +90,17 @@ r#"FUNC __datetime_parseFields(value AS String, pattern AS String) AS __datetime
         vi = r.nextPos
       ELSEIF ch = "f" THEN
         LET r AS __datetime_NumRead = __datetime_readNum(value, vi, runLen)
+        ' bug-827: scale by the digits actually read (as parseIso does), not by the
+        ' run length; digits past the ninth are dropped.
         MUT frac AS Integer = r.value
-        MUT k AS Integer = runLen
+        MUT k AS Integer = r.nextPos - vi
         WHILE k < 9
           frac = frac * 10
           k = k + 1
+        END WHILE
+        WHILE k > 9
+          frac = frac / 10
+          k = k - 1
         END WHILE
         nanos = frac
         vi = r.nextPos

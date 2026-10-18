@@ -318,7 +318,7 @@ Field-read rules:
 * `yy` is interpreted as `2000 + value`.
 * `M` with run length ≥ 3 reads a month **name** (case-insensitive, full or
   3-letter abbreviation) via `monthFromName`; otherwise a 1–2 digit number.
-* `f` reads its run-length digits then *scales up* to 9-digit nanoseconds.
+* `f` reads up to its run-length digits, then scales the digits it actually read to 9-digit nanoseconds (`k` digits are `digits × 10^(9-k)` ns, as `parseIso` does), so `.12` under `fff` is 120 ms; digits past the ninth are dropped. [[src/codegen/builtins/datetime/helper_parse_fields.rs:__datetime_parseFields]]
 * `h` sets a 12-hour flag; `a` records AM/PM. `buildFromFields` then folds the
   12-hour clock: PM + hour < 12 adds 12; AM + hour 12 becomes 0.
 * `E` skips a weekday name (consumed but not validated against the date).
