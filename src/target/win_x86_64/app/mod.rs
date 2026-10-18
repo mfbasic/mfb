@@ -151,6 +151,10 @@ const EDIT_HWND_SYM: &str = "_mfb_winapp_edit_hwnd";
 /// Writable 8-byte global holding the main window HWND (the worker's finish helper
 /// reads it to signal the UI thread to quit).
 const MAIN_HWND_SYM: &str = "_mfb_winapp_main_hwnd";
+/// Writable 8-byte global holding the status the program body returned (bug-1098). The
+/// worker's finish helper stores it; `_main`'s `main_exit` hands it to `ExitProcess`.
+/// 0 until the program finishes, so a window closed by the user still exits 0.
+const EXIT_CODE_SYM: &str = "_mfb_winapp_exit_code";
 /// Writable 8-byte global holding the input pipe's WRITE handle. `_main` (UI
 /// thread) creates the pipe and stores the write end here; the EDIT subclass
 /// (`editproc`, also UI thread) writes each typed byte to it. The worker thread
@@ -1230,7 +1234,10 @@ fn emit_main(
         call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
     }
     ins.push(abi::label("main_exit"));
-    ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "0"));
+    // bug-1098: the status the worker's finish helper stored (0 if the window was closed
+    // before the program finished).
+    load_addr(abi::mfb_arg(0), EXIT_CODE_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     call_external(from, "ExitProcess", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::branch_self());
     ins.push(abi::return_());
@@ -2347,6 +2354,10 @@ fn emit_finish() -> CodeFunction {
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
     ins.push(abi::subtract_stack(0x28));
+    // The program body's status arrives in the first argument (as `ExitProcess` would
+    // take it). Publish it for the UI thread's `main_exit` before asking it to quit.
+    load_addr(abi::mfb_arg(1), EXIT_CODE_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(1), 0));
     load_addr(abi::mfb_arg(0), MAIN_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     // Headless has no window, and `PostMessageW(NULL, ...)` does not no-op: it posts
@@ -5948,6 +5959,7 @@ fn bootstrap_fixed_data_objects(title: &str) -> Vec<CodeDataObject> {
         // transcript EDIT HWND and the main window HWND, both 0 until built.
         writable_qword(EDIT_HWND_SYM),
         writable_qword(MAIN_HWND_SYM),
+        writable_qword(EXIT_CODE_SYM),
         // plan-98-A Phase 3: the presentation-mode reconcile's globals — the
         // canvas-mode HWND (0 outside canvas mode) and the unrouted-but-surviving
         // copy of the transcript EDIT HWND.
@@ -6218,6 +6230,24 @@ mod tests {
         let ft: Vec<&str> = finish.relocations.iter().map(|r| r.to.as_str()).collect();
         assert!(ft.contains(&"PostMessageW"), "finish signals the UI thread");
         assert!(ft.contains(&"ExitThread") && !ft.contains(&"ExitProcess"));
+    }
+
+    // bug-1098: the program body's Integer result must reach the process exit status.
+    // The worker's finish helper stores it in a global; `_main`'s `main_exit` reads it
+    // (it used to load the immediate 0).
+    #[test]
+    fn finish_hands_exit_status_to_main_exit() {
+        let fns = emit_app_program_entry(&spec(), &HashMap::new()).unwrap();
+        let reads = |sym: &str| -> bool {
+            fns.iter()
+                .find(|f| f.symbol == sym)
+                .unwrap()
+                .relocations
+                .iter()
+                .any(|r| r.to == EXIT_CODE_SYM)
+        };
+        assert!(reads(FINISH_SYMBOL), "finish stores the program's status");
+        assert!(reads(MAIN_SYMBOL), "main_exit exits with the stored status");
     }
 
     #[test]

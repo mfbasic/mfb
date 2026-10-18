@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (platform parity)
 
-Status: Open
-Regression Test: none yet
+Status: Fixed
+Regression Test: `target::win_x86_64::app::tests::finish_hands_exit_status_to_main_exit` (bin mfb) + box-206 run
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -39,3 +39,21 @@ END FUNC
 `src/target/win_x86_64/app/mod.rs`, the bootstrap's `main_exit` label: it loads the
 immediate `0` into the first argument and calls `ExitProcess`, so whatever the worker's
 program body returned never reaches the process exit.
+
+## Fix
+
+The worker's finish helper (`emit_finish`, `src/target/win_x86_64/app/mod.rs`) now stores the
+status it receives in `x0` (the program body's `Integer` result, the same register the macOS
+`_mfb_macapp_program_finish` takes) into a new writable global `_mfb_winapp_exit_code`
+(`EXIT_CODE_SYM`) before posting `WM_APP_QUIT`; the bootstrap's `main_exit` loads that global
+instead of the immediate `0` and calls `ExitProcess`. The global is 0 until the program
+finishes, so a window the user closes first still exits 0.
+
+Test: `cargo test --release --bin mfb -- win_x86_64::app::tests::finish_hands` (finish and
+`_main` both reference the global). Box 206 (the same program built `--app -target
+windows-x86_64` by main's compiler, then by this one, run via `Start-Process -Wait -PassThru`):
+before `0`, after `7`.
+
+Goldens expected to change: every Windows `--app` native artifact (`*.asm`/`.ncode`-class
+artifacts of the app bootstrap `_main` and `_mfb_winapp_program_finish`, and the data-object
+list gains `_mfb_winapp_exit_code`); the console and non-Windows artifacts are unchanged.
