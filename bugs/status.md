@@ -51,6 +51,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1089   | MED      | with `MFB_CANVAS_DAMAGE=1` an unchanged item overlapping a changed one is blended twice along its edge (worst=32, 0.0762% of the frame) |
 | [ ]  | 1086   | LOW      | the Vulkan canvas path reads a frame back without testing `vkQueueSubmit`'s or `vkQueueWaitIdle`'s result (Metal's twin fixed under 1024) |
 | [ ]  | 1090   | LOW      | under a huge magnification the zero-gradient coverage fallback lights a stray column of pixels far from the shape (191 pixels at x = 450 for two off-surface squares at a 14,000 times transform); software and Metal |
+| [ ]  | 1101   | LOW      | a macOS `--app` run with `MFB_MACAPP_HEADLESS=1` draws on the GPU even with `MFB_HEADLESS` set, which the spec says draws in software |
 
 * Partial fix landed: 10,000 squares 110 → 58 ms on box 206. Render is still about 93 ms at 10,000 moving quads.
 * Frames draw in passes, so 100,000 dots run on the GPU: 20 FPS on Metal, 4 to 5 on box 206. `planning/plan-175-A-canvas-geometry-identity-split.md` has all four decisions recorded.
@@ -223,6 +224,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
+| [ ]  | 1100   | MED      | `WITH r { z := … }` naming a field the record does not have passes every check and fails in native lowering with no code and no location |
 | [ ]  | 882    | LOW      | `LET x = []` binds `List OF Unknown` silently, and the first `collections::append(x, v)` then fails the build with an internal error |
 | [ ]  | 936    | LOW      | wrong-arity `collections::merge`/`partition` diagnostics print the internal monomorph name `#collections_merge$String$Integer` |
 | [ ]  | 937    | LOW      | one unknown record field produces cascading `TYPE_CALL_ARGUMENT_MISMATCH` (overloaded builtin) and a duplicated `TYPE_UNKNOWN_VALUE` |
