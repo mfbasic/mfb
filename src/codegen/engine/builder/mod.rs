@@ -533,6 +533,14 @@ pub(crate) struct CodeBuilder<'a> {
     /// to the whole-record rebuild. The MUT-record analogue of
     /// `for_each_iterable_state_fields`.
     pub(crate) for_each_iterable_record_fields: Vec<(String, String)>,
+    /// bug-1036: the live `FOR EACH` loops that walk a binding's OWN block (a plain
+    /// local the loop did not copy at entry, `for_each_iterable_locals`) and whose
+    /// body reassigns it. A reassignment cannot free the block such a loop still
+    /// reads, so it hands that block to the loop instead: it stores the pointer in
+    /// the loop's `deferred_slot`, which the loop frees on every exit (an
+    /// `OwnedValue` cleanup registered outside the body's scope). Outermost first,
+    /// so a block two nested loops walk goes to the one that ends last.
+    pub(crate) for_each_entry_blocks: Vec<ForEachEntryBlock>,
     /// `String` local name → stack slot tracking the spare payload capacity (bytes
     /// available past the current length) of the local's grown in-place self-append
     /// buffer (plan-02 §4.1 / D9). Zero means "tight" (no spare). The slot is a
@@ -818,6 +826,7 @@ impl<'a> CodeBuilder<'a> {
             for_each_iterable_locals: Vec::new(),
             for_each_iterable_state_fields: Vec::new(),
             for_each_iterable_record_fields: Vec::new(),
+            for_each_entry_blocks: Vec::new(),
             string_capacity_slots: HashMap::new(),
             self_update_scratch: None,
             self_update_scratch_env: None,
@@ -1195,6 +1204,18 @@ pub(crate) struct UnboxedTrapResult {
 /// unaliased, a single `arena_free(ptr, size)` reclaims the whole value; the
 /// size is recomputed from the static type at drop via
 /// `emit_inlined_block_size_from_ptr_slot`.
+/// bug-1036: one entry of [`CodeBuilder::for_each_entry_blocks`].
+#[derive(Clone, Debug)]
+pub(crate) struct ForEachEntryBlock {
+    /// The binding the loop walks.
+    pub(crate) name: String,
+    /// The loop's `for_each_collection` slot: the block it walks.
+    pub(crate) collection_slot: usize,
+    /// Null until a reassignment replaces that block; then the block, freed when the
+    /// loop ends.
+    pub(crate) deferred_slot: usize,
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct OwnedValueCleanup {
     /// Static type of the bound value (drives the runtime size computation).

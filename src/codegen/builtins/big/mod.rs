@@ -352,7 +352,7 @@ mod tests {
     fn endian_defaults_to_little() {
         use crate::codegen::registry::default_argument_padding;
         for (name, provided) in [("big.fromBytes", 2), ("big.toBytes", 1)] {
-            let padding = default_argument_padding(name, provided, None);
+            let padding = default_argument_padding(name, &vec![ParameterType::Unknown; provided]);
             assert_eq!(padding.len(), 1, "{name}");
             assert_eq!(padding[0].0, ParameterType::named(ENDIAN_TYPE_ID), "{name}");
             assert_eq!(padding[0].1, "0", "{name}");

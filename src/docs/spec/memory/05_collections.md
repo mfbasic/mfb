@@ -754,6 +754,13 @@ read `byteLength` bytes and hand on the tight form.
   the value `x` held when the loop began (a copy made once at entry); a call
   handed `x` while a callee or callback can write it receives the value at the
   call. [[src/codegen/engine/control/builder_control.rs:lower_for_each]]
+  A value the loop cannot copy (a type that reaches a type cycle) is walked in
+  `x`'s own block. A reassignment of `x` in the body does not free that block,
+  which the loop still reads: it hands it to the loop, which frees it once it is
+  done, on every exit (`EXIT FOR`, `RETURN`, an error, an outer loop's `EXIT FOR`
+  or `CONTINUE FOR`). Every other block a reassignment replaces is freed at the
+  reassignment, so the loop leaks nothing.
+  [[src/codegen/engine/control/builder_control.rs:emit_defer_walked_block]]
 - **No per-statement allocation.** State an operation needs per element lives in a
   per-function scratch block, grown geometrically; a lambda borrows the scratch of
   the function that created it. A global `String`'s spare capacity is kept in a

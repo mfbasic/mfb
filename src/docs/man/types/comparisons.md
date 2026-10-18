@@ -39,8 +39,9 @@ ordering is needed.
 
 `Float` comparisons follow IEEE 754: any ordered comparison involving `NaN` is
 false, `NaN = NaN` is false (and `NaN <> NaN` is true), and `+0.0 = -0.0` is
-true. (Map-key equality is a separate bitwise comparison and does not follow this
-rule.)
+true. The same holds for a `Float` field when two records are compared with `=`,
+and for a `MATCH` arm: `CASE 0.0` matches `-0.0`. (Map-key equality is a separate
+bitwise comparison and does not follow this rule.)
 
 Numeric comparisons use converted values. For example, Integer
 `9007199254740993` compares equal to Float `9007199254740992.0`: converting the

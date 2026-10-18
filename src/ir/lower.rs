@@ -5412,16 +5412,19 @@ fn lower_expression_unwrapped(
                     value: " ".to_string(),
                 });
             }
-            // The `Fill` trailing params of a migrated (clean-room registry) call.
-            // The first argument's type picks the overload on a member whose forms
-            // differ in shape (`tls::connect`'s host/port vs `net::Address`).
-            let first_argument_type = normalized_builtin
-                .first()
-                .and_then(|arg| expression_type(arg, locals, context));
+            // The `Fill` trailing params of a migrated (clean-room registry) call:
+            // those of the overload every provided argument's type resolves to.
+            // `args` may already carry a default an arm above appended (the
+            // astrings `padChar`); it is a provided argument here, of a type this
+            // selection need not know.
+            let mut provided_types: Vec<ParameterType> = normalized_builtin
+                .iter()
+                .map(|arg| expression_type(arg, locals, context).unwrap_or(ParameterType::Unknown))
+                .collect();
+            provided_types.resize(args.len(), ParameterType::Unknown);
             let padding = crate::codegen::registry::default_argument_padding(
                 &canonical_callee,
-                args.len(),
-                first_argument_type.as_ref(),
+                &provided_types,
             );
             for (type_, value) in &padding {
                 // plan-106-A: the `Fill` type arrives typed, so the empty-collection

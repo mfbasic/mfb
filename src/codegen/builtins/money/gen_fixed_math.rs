@@ -1529,6 +1529,96 @@ impl CodeBuilder<'_> {
     /// accepts) and the multiply loop itself emits different instructions — here it
     /// multiplies through a separate `product` register and moves it back, while
     /// `emit_fixed_pow` multiplies in place. No zero-diff extraction spans both.
+    /// bug-931: finish `base^n` for a negative whole `n` whose forward power has
+    /// just left the `Fixed` range. `power` holds `base^k` (in range, Q32.32) and
+    /// `count` the multiplies still to do, the one that overflowed included; the
+    /// result, `1 / base^|n|`, is at most two units, rounded to the nearest unit and
+    /// stored at `result_slot`.
+    ///
+    /// The rest of the power is carried as an unsigned Q36.28 magnitude, which holds
+    /// up to 2^36 to within 2^-28 — far finer than the half unit the rounding has to
+    /// decide. Past 2^34 the reciprocal is under a quarter unit, so the result is
+    /// 0 and the loop stops. The sign is `base`'s for an odd `|n|`.
+    fn emit_fixed_pow_tiny_reciprocal(
+        &mut self,
+        power: impl Into<Reg>,
+        base: impl Into<Reg>,
+        count: impl Into<Reg>,
+        n: impl Into<Reg>,
+        result_slot: usize,
+    ) -> Result<(), String> {
+        let (power, base, count, n): (Reg, Reg, Reg, Reg) =
+            (power.into(), base.into(), count.into(), n.into());
+        let saved = self.next_register;
+        let wide = self.allocate_register();
+        let magnitude = self.allocate_register();
+        let high = self.allocate_register();
+        let low = self.allocate_register();
+        let limit = self.allocate_register();
+        let looping = self.label("fixed_pow_tiny_loop");
+        let done = self.label("fixed_pow_tiny_done");
+        let zero = self.label("fixed_pow_tiny_zero");
+        let positive = self.label("fixed_pow_tiny_positive");
+        let stored = self.label("fixed_pow_tiny_stored");
+        // |power| as an unsigned word (`0 - i64::MIN` is 2^63, its magnitude), then
+        // Q32.32 -> Q36.28.
+        self.emit(abi::move_register(&wide, power));
+        self.emit_abs_i64(&wide)?;
+        self.emit(abi::shift_right_immediate(&wide, &wide, 4));
+        self.emit(abi::move_register(&magnitude, base));
+        self.emit_abs_i64(&magnitude)?;
+        // A product of 2^62 or more in Q36.28 (a power of at least 2^34) is the
+        // high word reaching 2^30.
+        self.emit(abi::move_immediate(
+            &limit,
+            "Integer",
+            &((1u64 << 30) - 1).to_string(),
+        ));
+        self.emit(abi::label(&looping));
+        self.emit(abi::compare_immediate(count, "0"));
+        self.emit(abi::branch_eq(&done));
+        self.emit(abi::unsigned_multiply_high_registers(
+            &high, &wide, &magnitude,
+        ));
+        self.emit(abi::multiply_registers(&low, &wide, &magnitude));
+        self.emit(abi::compare_registers(&high, &limit));
+        self.emit(abi::branch_hi(&zero));
+        self.emit(abi::shift_right_immediate(&low, &low, 32));
+        self.emit(abi::shift_left_immediate(&wide, &high, 32));
+        self.emit(abi::or_registers(&wide, &wide, &low));
+        self.emit(abi::subtract_immediate(count, count, 1));
+        self.emit(abi::branch(&looping));
+        // 1 / power in Q32.32 is 2^60 / wide; round to nearest by adding half the
+        // divisor. `wide` is at least 2^59 here (the power passed 2^31), so the
+        // quotient is at most 2 and the dividend stays below 2^62.
+        self.emit(abi::label(&done));
+        self.emit(abi::shift_right_immediate(&high, &wide, 1));
+        self.emit(abi::move_immediate(
+            &low,
+            "Integer",
+            &(1u64 << 60).to_string(),
+        ));
+        self.emit(abi::add_registers(&low, &low, &high));
+        self.emit(abi::unsigned_divide_registers(&high, &low, &wide));
+        // Negative exactly when `base` is negative and `|n|` is odd.
+        self.emit(abi::compare_immediate(base, "0"));
+        self.emit(abi::branch_ge(&positive));
+        self.emit(abi::move_register(&low, n));
+        self.emit(abi::move_immediate(&limit, "Integer", "1"));
+        self.emit(abi::and_registers(&low, &low, &limit));
+        self.emit(abi::compare_immediate(&low, "0"));
+        self.emit(abi::branch_eq(&positive));
+        self.emit_neg_i64(&high)?;
+        self.emit(abi::label(&positive));
+        self.emit(abi::store_u64(&high, abi::stack_pointer(), result_slot));
+        self.emit(abi::branch(&stored));
+        self.emit(abi::label(&zero));
+        self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), result_slot));
+        self.emit(abi::label(&stored));
+        self.next_register = saved;
+        Ok(())
+    }
+
     pub(crate) fn emit_fixed_pow_general(
         &mut self,
         base: impl Into<Reg>,
@@ -1608,10 +1698,24 @@ impl CodeBuilder<'_> {
         // (possibly enormous) |exponent| (bug-61). This never changes a result.
         self.emit(abi::compare_immediate(&result, "0"));
         self.emit(abi::branch_eq(&mul_done));
-        self.emit_fixed_multiply(&product, &result, &base_reg)?;
+        // bug-931: a forward product that leaves the `Fixed` range is an overflow
+        // only for a non-negative exponent. For a negative one the result is its
+        // reciprocal, which is in range (at most two units), so it is finished in
+        // a wider format below instead of raising.
+        let forward_out_of_range = self.label("fixed_pow_int_forward_out_of_range");
+        let reload = self.label("fixed_pow_int_reload");
+        self.emit_fixed_multiply_or_branch(&product, &result, &base_reg, &forward_out_of_range);
         self.emit(abi::move_register(&result, &product));
         self.emit(abi::subtract_immediate(&count, &count, 1));
         self.emit(abi::branch(&mul_loop));
+        self.emit(abi::label(&forward_out_of_range));
+        let negative_exponent = self.label("fixed_pow_int_tiny");
+        self.emit(abi::compare_immediate(&n, "0"));
+        self.emit(abi::branch_lt(&negative_exponent));
+        self.raise_error_bare("ErrOverflow")?;
+        self.emit(abi::label(&negative_exponent));
+        self.emit_fixed_pow_tiny_reciprocal(&result, &base_reg, &count, &n, integer_result_slot)?;
+        self.emit(abi::branch(&reload));
         self.emit(abi::label(&mul_done));
         // Negative exponent: reciprocal 1 / result.
         let nonneg = self.label("fixed_pow_int_nonneg");
@@ -1651,7 +1755,6 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             integer_result_slot,
         ));
-        let reload = self.label("fixed_pow_int_reload");
         self.emit(abi::branch(&reload));
         self.emit(abi::label(&nonneg));
         self.emit(abi::store_u64(

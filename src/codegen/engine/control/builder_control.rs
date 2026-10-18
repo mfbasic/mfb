@@ -3835,13 +3835,11 @@ impl CodeBuilder<'_> {
                             } else if !by_ref
                                 && (self.is_freeable_flat_value(&result.type_)
                                     || self.owns_graph(&result.type_))
-                                && !self.for_each_iterable_locals.iter().any(|n| n == name)
                                 // bug-430: a live `FOR EACH x IN name.field` holds an
                                 // alias into this record's block; freeing the block
                                 // mid-loop is a use-after-free (this rebuild is the
                                 // fallback the in-place record grow declines to for
-                                // exactly this reason). Leak the old block instead,
-                                // matching the `for_each_iterable_locals` case above.
+                                // exactly this reason). Leak the old block instead.
                                 && !self
                                     .for_each_iterable_record_fields
                                     .iter()
@@ -3862,17 +3860,18 @@ impl CodeBuilder<'_> {
                                 // value never aliases it (`lower_value_owned`
                                 // deep-copies aliasing sources; a call result is a
                                 // fresh block), so the free is sound and once-only.
-                                // A live `FOR EACH` iterable is excluded: its
-                                // iterator still reads the old block, so freeing it
-                                // mid-loop would be a use-after-free (mirrors the
-                                // `try_inplace_set_assign` guard). That old block
-                                // leaks, but the pattern is rare.
+                                // bug-1036: a live `FOR EACH` that walks this
+                                // binding's own block still reads it, so that one
+                                // block is handed to the loop, which frees it when
+                                // it ends (`emit_defer_walked_block`); any other
+                                // block the binding held is freed here.
                                 let slot = self.allocate_stack_object("reassign_value", 8);
                                 self.emit(abi::store_u64(
                                     &result.location,
                                     abi::stack_pointer(),
                                     slot,
                                 ));
+                                let walked = self.emit_defer_walked_block(name, stack_offset);
                                 self.emit_owned_value_drop(&OwnedValueCleanup {
                                     type_: result.type_.clone(),
                                     stack_offset,
@@ -3887,6 +3886,9 @@ impl CodeBuilder<'_> {
                                     loop_alias_slot: None,
                                     result_wrapper: None,
                                 })?;
+                                if let Some(walked) = walked {
+                                    self.emit(abi::label(&walked));
+                                }
                                 Some(slot)
                             } else {
                                 None
@@ -4268,11 +4270,10 @@ impl CodeBuilder<'_> {
                     NirOp::Match { value, cases } => {
                         let matched = self.lower_value(value)?;
                         let matched_slot = self.allocate_stack_object("match_value", 8);
-                        self.emit(abi::store_u64(
-                            &matched.location,
-                            abi::stack_pointer(),
-                            matched_slot,
-                        ));
+                        // bug-845: a `d`-native `Float` scrutinee is stored from its
+                        // FP register; a GP store of it wrote some other register's
+                        // bits, so a `CASE 1.5` missed a scrutinee of `1.5`.
+                        self.store_value_at(&matched, abi::stack_pointer(), matched_slot);
                         let end_label = self.label("match_end");
                         for case in cases {
                             let matched_register = self.allocate_register();
@@ -5422,6 +5423,50 @@ impl CodeBuilder<'_> {
             }
             _ => false,
         };
+        // bug-1036: a body that reassigns the binding this loop walks replaces the
+        // block the loop still reads. The reassignment cannot free it, so it hands
+        // it to this loop (`emit_defer_walked_block`), which frees it on every exit:
+        // the `OwnedValue` cleanup below sits outside the body's scope, so `RETURN`
+        // and the other function exits run it, an outer loop's `EXIT FOR` /
+        // `CONTINUE FOR` unwinds through it, and this loop's own end drops it at
+        // `end_label`. Registered exactly where the reassignment would have freed
+        // the block: an owned binding whose block it frees.
+        let entry_block = match iterable {
+            NirValue::Local(local_name) if pushed_iterable && ops_write_local(body, local_name) => {
+                self.locals
+                    .get(local_name)
+                    .filter(|local| {
+                        !local.by_ref
+                            && (self.is_freeable_flat_value(&local.type_)
+                                || self.owns_graph(&local.type_))
+                    })
+                    .map(|local| (local_name.clone(), local.type_.clone()))
+            }
+            _ => None,
+        };
+        let entry_block = entry_block.map(|(local_name, type_)| {
+            let deferred_slot = self.allocate_stack_object("for_each_replaced", 8);
+            self.emit(abi::store_u64(
+                abi::ZERO,
+                abi::stack_pointer(),
+                deferred_slot,
+            ));
+            self.for_each_entry_blocks.push(ForEachEntryBlock {
+                name: local_name,
+                collection_slot,
+                deferred_slot,
+            });
+            let cleanup = OwnedValueCleanup {
+                type_,
+                stack_offset: deferred_slot,
+                capacity_slot: None,
+                loop_alias_slot: None,
+                result_wrapper: None,
+            };
+            self.active_cleanups
+                .push(ActiveCleanup::OwnedValue(cleanup.clone()));
+            (self.active_cleanups.len() - 1, cleanup)
+        });
         // bug-430: `FOR EACH x IN resource.state.field` snapshots an ALIAS into the
         // STATE collection's inlined buffer, so record it — an in-place
         // `resource.state.field = append(...)` in the body must NOT reallocate+free
@@ -5763,8 +5808,54 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&end_label));
+        if let Some((index, cleanup)) = entry_block {
+            self.for_each_entry_blocks.pop();
+            debug_assert_eq!(index + 1, self.active_cleanups.len());
+            self.active_cleanups.remove(index);
+            self.emit_owned_value_drop(&cleanup)?;
+        }
         self.clear_local_constants();
         Ok(())
+    }
+
+    /// bug-1036: before a reassignment of `name` (slot `stack_offset`) frees the
+    /// block the binding held, hand that block to the outermost live `FOR EACH`
+    /// still walking it: store it in that loop's `deferred_slot` and branch to the
+    /// returned label, past the free, which the caller places after its drop. A
+    /// block no loop walks falls through to the free. `None` (nothing emitted) when
+    /// no live loop walks `name`'s own block.
+    pub(crate) fn emit_defer_walked_block(
+        &mut self,
+        name: &str,
+        stack_offset: usize,
+    ) -> Option<String> {
+        let loops: Vec<(usize, usize)> = self
+            .for_each_entry_blocks
+            .iter()
+            .filter(|entry| entry.name == name)
+            .map(|entry| (entry.collection_slot, entry.deferred_slot))
+            .collect();
+        if loops.is_empty() {
+            return None;
+        }
+        let deferred = self.label("reassign_old_walked");
+        for (collection_slot, deferred_slot) in loops {
+            let next = self.label("reassign_old_not_walked");
+            let old = self.temporary_vreg();
+            let walked = self.temporary_vreg();
+            self.emit(abi::load_u64(&old, abi::stack_pointer(), stack_offset));
+            self.emit(abi::load_u64(
+                &walked,
+                abi::stack_pointer(),
+                collection_slot,
+            ));
+            self.emit(abi::compare_registers(&old, &walked));
+            self.emit(abi::branch_ne(&next));
+            self.emit(abi::store_u64(&old, abi::stack_pointer(), deferred_slot));
+            self.emit(abi::branch(&deferred));
+            self.emit(abi::label(&next));
+        }
+        Some(deferred)
     }
 }
 

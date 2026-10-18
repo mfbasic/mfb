@@ -130,7 +130,8 @@ extensions); computation is portable-arithmetic only, identical across targets.
 - **AEAD** — AES-256-GCM (NIST SP 800-38D) and ChaCha20-Poly1305 (RFC 8439).
   `seal` returns ciphertext plus a 16-byte tag; `open` verifies the tag in
   constant time and **fails closed** with `ErrAuthenticationFailed`
-  (`77050016`), returning plaintext only on success. `aad` defaults to empty.
+  (`77050016`), returning plaintext only on success. `aad` defaults to empty, in
+  both `open` forms (ciphertext and tag, or a `Sealed`).
 - **Secure random and identifiers** — `randomBytes` (raw bytes), `randomInt`
   (uniform, unbiased, rejection-sampled, inclusive `[min, max]`; the `Integer` form
   rejects a span whose `max - min` overflows a signed 64-bit `Integer` with

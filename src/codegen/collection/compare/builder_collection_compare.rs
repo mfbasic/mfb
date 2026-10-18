@@ -50,6 +50,15 @@ struct ContentRoutine {
     returns: Vec<String>,
 }
 
+/// Which equality a comparable-value walk decides a `Float` by.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FloatEquality {
+    /// `=` / `<>` and `MATCH`: the Float compare, so `-0.0` equals `0.0`.
+    Value,
+    /// Collection element and key matching: the bits.
+    Bits,
+}
+
 /// The routines of one comparison, by the type each compares.
 struct ContentWalk {
     routines: Vec<ContentRoutine>,
@@ -139,9 +148,55 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(loop_label));
     }
 
+    /// VALUE equality (`=` / `<>`, a `MATCH` arm) of two comparable values of
+    /// `type_`: a scalar, a `String`, an enum, or a record of those. A `Float`, at
+    /// any depth, is compared as `=` compares it, so `-0.0` equals `0.0` (bug-845).
+    /// Branches to `equal_label` or `not_equal_label`; never falls through.
     pub(crate) fn emit_comparable_values_match_branch(
         &mut self,
         type_: &ParameterType,
+        left: impl Into<abi::Reg>,
+        right: impl Into<abi::Reg>,
+        equal_label: &str,
+        not_equal_label: &str,
+    ) -> Result<(), String> {
+        self.emit_comparable_match_branch(
+            type_,
+            FloatEquality::Value,
+            left,
+            right,
+            equal_label,
+            not_equal_label,
+        )
+    }
+
+    /// Collection element and key MATCHING (`contains`, a map key, a set member)
+    /// of two comparable values: the same walk as
+    /// [`Self::emit_comparable_values_match_branch`], but a `Float` matches only its
+    /// own bits (`mfb spec language types` §4.1), so it agrees with the key bytes a
+    /// map or set hashes.
+    pub(crate) fn emit_comparable_keys_match_branch(
+        &mut self,
+        type_: &ParameterType,
+        left: impl Into<abi::Reg>,
+        right: impl Into<abi::Reg>,
+        equal_label: &str,
+        not_equal_label: &str,
+    ) -> Result<(), String> {
+        self.emit_comparable_match_branch(
+            type_,
+            FloatEquality::Bits,
+            left,
+            right,
+            equal_label,
+            not_equal_label,
+        )
+    }
+
+    fn emit_comparable_match_branch(
+        &mut self,
+        type_: &ParameterType,
+        float: FloatEquality,
         left: impl Into<abi::Reg>,
         right: impl Into<abi::Reg>,
         equal_label: &str,
@@ -153,6 +208,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(right, abi::stack_pointer(), right_slot));
         self.emit_comparable_values_match_branch_from_slots(
             type_,
+            float,
             left_slot,
             right_slot,
             equal_label,
@@ -163,13 +219,12 @@ impl CodeBuilder<'_> {
     fn emit_comparable_values_match_branch_from_slots(
         &mut self,
         type_: &ParameterType,
+        float: FloatEquality,
         left_slot: usize,
         right_slot: usize,
         equal_label: &str,
         not_equal_label: &str,
     ) -> Result<(), String> {
-        // Scratch as vregs. No FP register is held here: bug-147 made the `Float`
-        // arm a bitwise integer compare (see the note on that arm below).
         let lcur_v = self.temporary_vreg();
         let tmp_v = self.temporary_vreg();
         let rcur_v = self.temporary_vreg();
@@ -186,11 +241,23 @@ impl CodeBuilder<'_> {
             ParameterType::Nothing => {
                 self.emit(abi::branch(equal_label));
             }
-            // bug-147: `Float` is compared BITWISE here (loaded bits via
-            // `compare_registers`), matching the packed-payload arms in
-            // `emit_collection_payload*` and the documented map-literal key
-            // semantics (0.0 != -0.0, NaN == NaN). Using `float_compare_d`
-            // gave inconsistent FP semantics for record-field Floats.
+            // bug-845: value equality decides a `Float` by the Float compare, as
+            // `=` does, so `-0.0` equals `0.0`. (A stored `Float` is finite, so
+            // NaN never reaches it.)
+            ParameterType::Float if float == FloatEquality::Value => {
+                let left_float = self.temporary_fp_vreg();
+                let right_float = self.temporary_fp_vreg();
+                self.emit(abi::load_u64(lval, abi::stack_pointer(), left_slot));
+                self.emit(abi::load_u64(rval, abi::stack_pointer(), right_slot));
+                self.emit(abi::float_move_d_from_x(&left_float, lval));
+                self.emit(abi::float_move_d_from_x(&right_float, rval));
+                self.emit(abi::float_compare_d(&left_float, &right_float));
+                self.emit(abi::branch_eq(equal_label));
+                self.emit(abi::branch(not_equal_label));
+            }
+            // A key match compares a `Float` by its bits (bug-147), as the
+            // packed-payload arms in `emit_collection_payload*` and a map's key
+            // bytes do (0.0 != -0.0).
             // Scalar joins here: a value operand is a full zero-extended register
             // spilled to an 8-byte slot, so the 64-bit equality compare is correct
             // (the packed 4-byte form is handled by the memory-read arms below).
@@ -268,6 +335,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::store_u64(rcur, abi::stack_pointer(), field_right_slot));
                     self.emit_comparable_values_match_branch_from_slots(
                         field_type,
+                        float,
                         field_left_slot,
                         field_right_slot,
                         &next_field,
@@ -355,8 +423,8 @@ impl CodeBuilder<'_> {
     /// entry and any unused data bytes hold whatever the arena handed out
     /// (`mfb spec memory collections`). So a list is compared count first and then
     /// element by element through its entries, a record field by field, and a union
-    /// by tag and then as the variant's record. A `Float` compares by its bits, as
-    /// everywhere in this module (bug-147).
+    /// by tag and then as the variant's record. A `Float` compares by its bits, as a
+    /// key match does (bug-147): this answers "is it the same content", not `=`.
     ///
     /// Each list element's bytes are tried first, since equal bytes are equal
     /// content; only an element whose bytes differ is walked by its type.
@@ -1073,7 +1141,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch(not_equal_label));
             }
             other if self.type_model.record_fields.contains_key(other) => {
-                self.emit_comparable_values_match_branch(
+                self.emit_comparable_keys_match_branch(
                     other,
                     &data,
                     value,
@@ -1194,7 +1262,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch(not_equal_label));
             }
             other if self.type_model.record_fields.contains_key(other) => {
-                self.emit_comparable_values_match_branch(
+                self.emit_comparable_keys_match_branch(
                     other,
                     cur,
                     value,
@@ -1326,7 +1394,7 @@ impl CodeBuilder<'_> {
             other if self.type_model.record_fields.contains_key(other) => {
                 self.emit(abi::compare_registers(left_length, right_length));
                 self.emit(abi::branch_ne(not_equal_label));
-                self.emit_comparable_values_match_branch(
+                self.emit_comparable_keys_match_branch(
                     other,
                     lcur,
                     rcur,

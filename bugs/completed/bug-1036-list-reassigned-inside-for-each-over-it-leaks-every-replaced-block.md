@@ -1,12 +1,12 @@
 # bug-1036: a list reassigned inside a `FOR EACH` over it leaks every replaced block
 
-Last updated: 2026-10-10
+Last updated: 2026-10-18
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (memory leak)
 
-Status: Open
-Regression Test: (proposed) a `--debug` alloc/free test over the program below asserting `alloc_calls == free_calls` and `live_bytes 0`
+Status: Fixed
+Regression Test: tests/runtime/rt_for_each_self_update.rs:a_for_each_over_a_graph_list_frees_every_block_its_body_replaces
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -175,3 +175,39 @@ FUNC once() AS Integer
   RETURN t + whichF("z", collections::get(hs, 20)) - 1
 END FUNC
 ```
+
+## Fix (bs24-agent-f, 2026-10-18)
+
+**Where the leak still lived.** Both programs above end at `live_bytes 0` on
+bug-staging-24 before this fix (`mfb build --debug`, N=10 and N=20): a `List OF RES …`
+is now a freeable-flat value, so a `FOR EACH` whose body writes it walks a copy made
+at entry (plan-142-F) and never reaches the guard. The guard is still reached by a
+binding the loop cannot copy: a graph-typed list (an element type that reaches a type
+cycle, `List OF Node` with `kids AS List OF Node`). Measured with this branch's
+compiler before the fix (`mfb build --debug`, the `List OF Node` program in the test):
+`N=10` 352 allocs / 272 frees / 6880 B live, `N=20` 13760 B live.
+
+**Fix.** `NirOp::Assign` no longer skips the old-value free for a live `FOR EACH`
+iterable. `lower_for_each` registers, for a loop that walks the binding's own block
+and whose body writes it (`ops_write_local`), a `for_each_replaced` slot (zeroed at
+entry) as an `OwnedValue` cleanup outside the body's scope, and records it in
+`for_each_entry_blocks`. The reassignment (`emit_defer_walked_block`) compares the
+old block with each live loop's walked block, outermost first: a match is stored in
+that loop's slot and the free is skipped; any other block is freed at once. The loop
+frees its slot at `end_label` (normal end, `EXIT FOR`); `RETURN`/`FAIL`/errors run the
+cleanup with the other active ones; an outer loop's `EXIT FOR`/`CONTINUE FOR`
+unwinds through it. The "leaks, but the pattern is rare" comment is gone.
+`try_inplace_set_assign`/`G7` still decline under such a loop (an in-place write
+would change the block the iterator reads); their fallback is this reassignment.
+
+**RED → GREEN.** `cargo test --release --test rt_for_each_self_update --
+a_for_each_over_a_graph_list_frees_every_block_its_body_replaces`: before, every
+case (append, replace, exit_for, continue_for, return, nested, nested_after_write)
+printed the right values and leaked (e.g. append 105 allocated / 73 freed / 2976 B
+live); after, all pass with alloc = free, 0 B live, 0 double frees.
+
+**Goldens expected to move.** None: the new code is emitted only for a `FOR EACH`
+over a plain, non-copied (graph-typed) local whose body assigns it, and a scan of
+every `tests/**/*.mfb` and builtin `.mfb` source finds no such loop (the five
+`FOR EACH x IN y` + `y = …` fixtures under `tests/rt-behavior/collections/` are
+freeable-flat lists, which take the entry copy).

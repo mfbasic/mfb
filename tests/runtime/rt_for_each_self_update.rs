@@ -162,10 +162,145 @@ const CASES: &[(&str, &str, &str)] = &[
 
 #[test]
 fn a_for_each_that_self_updates_its_binding_visits_the_entry_value_and_frees_everything() {
+    let failures = run_cases("for_each_self_update", HELPERS, CASES);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// bug-1036: a graph-typed list (`List OF Node`, a recursive value) is not copied at
+/// entry — the loop walks the binding's own block. Every block the body's
+/// reassignments replace is freed: the one the loop walks when the loop is done (on
+/// the normal exit, `EXIT FOR`, `CONTINUE FOR`, a `RETURN` from the body, and an inner
+/// loop over the same binding), every later one at its reassignment. Before, each
+/// replaced block leaked.
+const GRAPH_HELPERS: &str = "\
+IMPORT collections
+IMPORT io
+
+TYPE Node
+  kids AS List OF Node
+  tag AS Integer
+END TYPE
+
+FUNC mk(t AS Integer) AS Node
+  RETURN Node[kids := [Node[kids := [], tag := t]], tag := t]
+END FUNC
+
+FUNC tags(xs AS List OF Node) AS String
+  MUT s AS String = \"\"
+  FOR EACH n IN xs
+    s = s & toString(n.tag) & \" \"
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC grownUntil(stop AS Integer) AS List OF Node
+  MUT xs AS List OF Node = [mk(1), mk(2), mk(3)]
+  FOR EACH v IN xs
+    xs = collections::append(xs, mk(v.tag * 10))
+    IF v.tag = stop THEN
+      RETURN xs
+    END IF
+  NEXT
+  RETURN xs
+END FUNC
+";
+
+const GRAPH_CASES: &[(&str, &str, &str)] = &[
+    (
+        "append",
+        "MUT xs AS List OF Node = [mk(1), mk(2)]
+  MUT seen AS String = \"\"
+  FOR EACH v IN xs
+    seen = seen & toString(v.tag) & \" \"
+    xs = collections::append(xs, mk(v.tag * 10))
+    xs = collections::append(xs, mk(v.tag * 100))
+  NEXT
+  io::print(seen)
+  io::print(tags(xs))",
+        "1 2 \n1 2 10 100 20 200 ",
+    ),
+    (
+        "replace",
+        "MUT xs AS List OF Node = [mk(1), mk(2)]
+  MUT seen AS String = \"\"
+  FOR EACH v IN xs
+    seen = seen & toString(v.tag) & \" \"
+    xs = [mk(v.tag + 5)]
+  NEXT
+  io::print(seen)
+  io::print(tags(xs))",
+        "1 2 \n7 ",
+    ),
+    (
+        "exit_for",
+        "MUT xs AS List OF Node = [mk(1), mk(2), mk(3)]
+  FOR EACH v IN xs
+    xs = collections::append(xs, mk(v.tag * 10))
+    IF v.tag = 2 THEN
+      EXIT FOR
+    END IF
+  NEXT
+  io::print(tags(xs))",
+        "1 2 3 10 20 ",
+    ),
+    (
+        "continue_for",
+        "MUT xs AS List OF Node = [mk(1), mk(2), mk(3)]
+  FOR EACH v IN xs
+    xs = collections::append(xs, mk(v.tag * 10))
+    IF v.tag = 2 THEN
+      CONTINUE FOR
+    END IF
+    xs = collections::append(xs, mk(v.tag))
+  NEXT
+  io::print(tags(xs))",
+        "1 2 3 10 1 20 30 3 ",
+    ),
+    (
+        "return",
+        "io::print(tags(grownUntil(2)))
+  io::print(tags(grownUntil(9)))",
+        "1 2 3 10 20 \n1 2 3 10 20 30 ",
+    ),
+    (
+        "nested",
+        "MUT xs AS List OF Node = [mk(1), mk(2)]
+  FOR EACH v IN xs
+    FOR EACH w IN xs
+      xs = collections::append(xs, mk(v.tag * 10 + w.tag))
+    NEXT
+  NEXT
+  io::print(tags(xs))",
+        "1 2 11 12 21 22 31 32 ",
+    ),
+    (
+        "nested_after_write",
+        "MUT xs AS List OF Node = [mk(1), mk(2)]
+  FOR EACH v IN xs
+    xs = collections::append(xs, mk(v.tag * 100))
+    FOR EACH w IN xs
+      xs = collections::append(xs, mk(w.tag))
+      EXIT FOR
+    NEXT
+  NEXT
+  io::print(tags(xs))",
+        "1 2 100 1 200 1 ",
+    ),
+];
+
+#[test]
+fn a_for_each_over_a_graph_list_frees_every_block_its_body_replaces() {
+    let failures = run_cases("for_each_graph_self_update", GRAPH_HELPERS, GRAPH_CASES);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Build each case with `--debug`, run it, and return one line per case that printed
+/// the wrong thing, did not free every block it allocated, or freed one twice.
+fn run_cases(prefix: &str, helpers: &str, cases: &[(&str, &str, &str)]) -> Vec<String> {
     let mut failures = Vec::new();
-    for (name, body, want) in CASES {
-        let source = format!("{HELPERS}\nFUNC main() AS Integer\n  {body}\n  RETURN 0\nEND FUNC\n");
-        let project = common::temp_project(&format!("for_each_self_update_{name}"), &source);
+    for (name, body, want) in cases {
+        let source = format!("{helpers}\nFUNC main() AS Integer\n  {body}\n  RETURN 0\nEND FUNC\n");
+        let project = common::temp_project(&format!("{prefix}_{name}"), &source);
         let output = Command::new(common::mfb_exe())
             .arg("build")
             .arg("--debug")
@@ -199,18 +334,19 @@ fn a_for_each_that_self_updates_its_binding_visits_the_entry_value_and_frees_eve
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(u64::MAX)
         };
-        let (alloc, free, live) = (
+        let (alloc, free, live, skips) = (
             counter("alloc_calls"),
             counter("free_calls"),
             counter("live_bytes"),
+            counter("double_free_skips"),
         );
         let printed = out.trim_end_matches('\n');
-        if !run.status.success() || printed != *want || alloc != free || live != 0 {
+        if !run.status.success() || printed != *want || alloc != free || live != 0 || skips != 0 {
             failures.push(format!(
                 "{name}: printed {printed:?} (want {want:?}), {alloc} allocated / {free} freed / \
-                 {live} B live"
+                 {live} B live / {skips} double frees"
             ));
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    failures
 }

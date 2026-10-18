@@ -15,6 +15,33 @@ Regression Test: tests/rt-behavior/tls/tls-listen-ec-key-rt (to add, macOS)
 - Where: `src/codegen/builtins/tls/gen_macos/server.rs:emit_import_pem_item` calls `SecItemImport` with a NULL format (rejects EC/Ed25519 PKCS#8, measured); Windows imports `PKCS_RSA_PRIVATE_KEY` into `PROV_RSA_AES` only.
 - Fix: one PKCS#8 key-loading step per platform before import: decode `PrivateKeyInfo`, read the algorithm OID, and hand the platform the key in the form it imports (macOS: SEC1 `ECPrivateKey` for id-ecPublicKey, Ed25519 as the platform requires; Windows: the CNG/NCrypt key blob for EC); RSA unchanged.
 
+## Blocker (bs24-agent-f, 2026-10-18): Ed25519 needs an owner decision on the error
+
+Ed25519 cannot be a TLS server key on macOS or on Windows, so the parity rule says it
+is rejected on all three targets "with one consistent error". Which error is not
+settled, and Linux (OpenSSL) accepts an Ed25519 key today, so picking one changes an
+observable contract. Owner decision needed: the error code (an existing one, e.g.
+`ErrTlsFailed` 77070008 or `ErrInvalidArgument` 77050002, or a new key-specific code)
+and whether Linux must start rejecting Ed25519.
+
+Evidence (macOS 15, aarch64):
+- `grep -rl Ed25519 $(xcrun --show-sdk-path)/System/Library/Frameworks/Security.framework/Headers/`
+  finds nothing: `SecKey` has no Ed25519 key type, and the listener's identity is
+  `SecIdentityCreate(NULL, cert, SecKeyRef)`.
+- Windows: Schannel has no EdDSA server-certificate support (not measured on 206).
+
+EC P-256/P-384 is settled and implementable; measured facts for whoever does it
+(C probe `/tmp/f864/t.c`, `SecItemImport` with NULL format and type):
+- SEC1 DER (`openssl ec -outform DER`) imports: 0, one item (P-256 and P-384).
+- PKCS#8 DER imports: -25257.
+- The PKCS#8 inner `OCTET STRING` (an `ECPrivateKey` WITHOUT the `[0]` curve
+  parameters, which PKCS#8 keeps in the `AlgorithmIdentifier`) imports: -25257. So
+  the macOS unwrap must re-insert `[0] { curve OID }` from the AlgorithmIdentifier
+  into the SEC1 `SEQUENCE` before `SecItemImport`, not just strip the wrapper.
+- Windows needs a CNG path (`NCryptImportKey` with `NCRYPT_PKCS8_PRIVATE_KEY_BLOB`, key
+  bound to the certificate) beside today's CAPI `PROV_RSA_AES` import;
+  `crypto`'s `func_sign.rs` already imports EC keys through CNG.
+
 **Owner decision (2026-10-05): add support.** EC (P-256/P-384) and Ed25519 PKCS#8 keys must
 work as TLS server keys. On macOS the listener unwraps PKCS#8 `PrivateKeyInfo` to the
 older format `SecItemImport` accepts (SEC1 `ECPrivateKey` for id-ecPublicKey) before

@@ -1,0 +1,42 @@
+IMPORT io
+IMPORT math
+
+' bug-931: math::pow(Fixed, Fixed) with a negative whole exponent computed the
+' forward power base^|n| with the trapping Q32.32 multiply and only then took its
+' reciprocal, so once base^|n| left the Fixed range (>= 2^31) it raised
+' ErrOverflow although the true result, at most two units, is in range. The result
+' is the Fixed nearest base^n (0.00 below half a unit); ErrOverflow stays only for
+' a result that is out of range.
+FUNC probe(b AS Fixed, e AS Fixed) AS String
+  LET r = toString(math::pow(b, e), toByte(12)) TRAP(er)
+    RECOVER "RAISED " & toString(er.code)
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC main() AS Nothing
+  ' In range all the way: unchanged.
+  io::print("pow(2, -30)   = " & probe(2, -30))
+  io::print("pow(3, -5)    = " & probe(3, -5))
+  io::print("pow(10, -9)   = " & probe(10, -9))
+  io::print("pow(-2, -3)   = " & probe(-2, -3))
+  ' The forward power leaves the range; the result does not.
+  io::print("pow(2, -31)   = " & probe(2, -31))
+  io::print("pow(2, -32)   = " & probe(2, -32))
+  io::print("pow(2, -33)   = " & probe(2, -33))
+  io::print("pow(2, -34)   = " & probe(2, -34))
+  io::print("pow(2, -40)   = " & probe(2, -40))
+  io::print("pow(2, -64)   = " & probe(2, -64))
+  io::print("pow(10, -10)  = " & probe(10, -10))
+  io::print("pow(10, -11)  = " & probe(10, -11))
+  io::print("pow(3, -20)   = " & probe(3, -20))
+  io::print("pow(1.5, -55) = " & probe(1.5, -55))
+  io::print("pow(-2, -31)  = " & probe(-2, -31))
+  io::print("pow(-2, -32)  = " & probe(-2, -32))
+  io::print("pow(-3, -21)  = " & probe(-3, -21))
+  io::print("pow(2, -2000000000) = " & probe(2, -2000000000))
+  ' Out of range: still ErrOverflow.
+  io::print("pow(0.5, -40) = " & probe(0.5, -40))
+  io::print("pow(0, -1)    = " & probe(0, -1))
+  io::print("pow(2, 31)    = " & probe(2, 31))
+END FUNC

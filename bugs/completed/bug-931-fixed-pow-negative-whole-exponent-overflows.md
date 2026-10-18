@@ -1,12 +1,12 @@
 # bug-931: `math::pow(Fixed, Fixed)` raises ErrOverflow for a negative whole exponent whose result is tiny (`pow(2.0F, -31.0F)`, `pow(10.0F, -10.0F)`)
 
-Last updated: 2026-10-05
+Last updated: 2026-10-18
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/math/fixed-pow-negative-whole-exponent-small-result-rt (new; name suggested)
+Status: Fixed
+Regression Test: tests/rt-behavior/math/fixed-pow-negative-whole-exponent-small-result-rt
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -108,3 +108,38 @@ traps before the reciprocal would have brought the value back into range.
 - `builder_numeric::emit_fixed_pow` (`^` operator) — unaffected: rejects negative exponents.
 - Float `pow` (`gen_pow.rs:emit_pow_scalar`) — unaffected: `pow(2.0, -1074.0)` returns the subnormal
   correctly (measured in the B12 Float sweep, 0 ULP).
+
+## Fix (bs24-agent-f, 2026-10-18)
+
+**Correction to the reproduction's expected text.** `toString(x, toByte(12))` on a
+`Fixed` truncates, so 2^-31 (exactly two Q32.32 units, 4.6566e-10) prints
+`0.000000000465`, not `0.000000000466`; the in-range `pow(-2.0F, -31.0F)` already
+printed `-0.000000000465` before this fix. The value is right; the doc's text was not.
+
+**Fix.** In `emit_fixed_pow_general`'s integer-exponent loop the multiply is
+`emit_fixed_multiply_or_branch` (the non-raising core `emit_fixed_multiply` now wraps,
+emitting the same code). A forward power that leaves the `Fixed` range raises
+`ErrOverflow` only for `n ≥ 0`; for `n < 0` it goes to `emit_fixed_pow_tiny_reciprocal`,
+which carries the rest of the power as an unsigned Q36.28 magnitude (no range check
+as a `Fixed`), returns 0 once the power passes 2^34, and rounds `2^60 / power` once
+to the nearest unit (ties away), with the sign of `base` for an odd `|n|`. The
+in-range path (truncating reciprocal) is unchanged; `pow(0.5F, -40.0F)`,
+`pow(0.0F, -1.0F)` and `pow(2.0F, 31.0F)` still raise `ErrOverflow`.
+
+**RED → GREEN.** `bash scripts/test-accept.sh <mfb> <out>
+'rt-behavior/math/fixed-pow-negative-whole-exponent-small-result-rt'`: main's compiler
+mismatches (every tail case `RAISED 77050010`); this branch passes: `pow(2,-31)` =
+`0.000000000465` (2 units), `pow(2,-32)` / `pow(2,-33)` / `pow(3,-20)` /
+`pow(1.5,-55)` = 1 unit, `pow(2,-34)` / `-40` / `-64` / `pow(10,-10)` / `-11` /
+`pow(2,-2000000000)` = `0.000000000000`, `pow(-2,-32)` = 1 unit, in-range lines
+unchanged. Same output at `-O0` and `-O3`.
+
+**Goldens expected to move.** Every `.ncode`/`.ncodesum` of a program that calls
+`math::pow` on `Fixed` (the loop's emitted code and label numbering change) — at least
+`tests/byte-identity/math` (artifact kind `.ncodesum`, all five targets), reason: the
+new tail and branch. Measured: `bash scripts/test-fast.sh --artifact math --accept
+'<this fixture>'` — `artifact-math` reports exactly the five
+`byte-identity/math/math_codegen_cover_rt.<target>.ncode` sha256 diffs (the fixture
+calls `math::pow(Fixed, Fixed)`); every other step ok. `emit_fixed_multiply`'s own
+code is byte-identical: `scripts/artifact-gate.sh <mfb> money` (Fixed multiplies, no
+`pow`) reports 0 diffs.

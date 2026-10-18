@@ -649,6 +649,7 @@ mod helper_weekday_name;
 #[cfg(test)]
 mod tests {
     use crate::codegen::registry::{self, registry};
+    use crate::types::ParameterType;
 
     // Qualified-call names exercised by the tests (the mod-level consts were
     // retired — membership now answers through `registry::owning_package`).
@@ -865,11 +866,26 @@ mod tests {
         // `time`'s trailing `second`/`nanos` are `Fill { Integer, "0" }`, so the
         // generic registry padder injects the right count; every other member (and
         // the arity constructors) pad nothing.
-        assert_eq!(registry::default_argument_padding(TIME, 2, None).len(), 2);
-        assert_eq!(registry::default_argument_padding(TIME, 3, None).len(), 1);
-        assert_eq!(registry::default_argument_padding(TIME, 4, None).len(), 0);
-        assert_eq!(registry::default_argument_padding(TIME, 5, None).len(), 0);
-        assert_eq!(registry::default_argument_padding(NOW, 0, None), Vec::new());
+        assert_eq!(
+            registry::default_argument_padding(TIME, &vec![ParameterType::Unknown; 2]).len(),
+            2
+        );
+        assert_eq!(
+            registry::default_argument_padding(TIME, &vec![ParameterType::Unknown; 3]).len(),
+            1
+        );
+        assert_eq!(
+            registry::default_argument_padding(TIME, &vec![ParameterType::Unknown; 4]).len(),
+            0
+        );
+        assert_eq!(
+            registry::default_argument_padding(TIME, &vec![ParameterType::Unknown; 5]).len(),
+            0
+        );
+        assert_eq!(
+            registry::default_argument_padding(NOW, &vec![ParameterType::Unknown; 0]),
+            Vec::new()
+        );
     }
 
     #[test]

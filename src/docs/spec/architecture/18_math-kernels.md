@@ -157,6 +157,19 @@ reaches either seam.
 [[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_mul_saturating]]
 [[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_pow_general]]
 
+That loop multiplies `base` into the power `|n|` times. For `n ≥ 0` a power that
+leaves `Fixed` range raises `ErrOverflow`. For a negative `n` the result is the
+power's reciprocal, so a power past `2^31` is no overflow: the result is at most two
+units. The loop then carries the rest of the power as an unsigned Q36.28 magnitude,
+stops once it passes `2^34` (the result is `0.00`), and rounds `1 / power` once to
+the nearest unit, ties away from zero, with `base`'s sign for an odd `|n|`. So
+`pow(2.0F, -31.0F)` is two units, `pow(2.0F, -33.0F)` (half a unit) is one, and
+`pow(10.0F, -10.0F)` is `0.00`. A power that stays in range takes the truncating
+`1 / power` as before. `ErrOverflow` for a negative exponent remains only where the
+true result is out of range: a power that truncates to zero (`pow(0.5F, -40.0F)`,
+zero to a negative power).
+[[src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_pow_tiny_reciprocal]]
+
 ### The `Float` `acos` half-angle identity
 
 The **`Float`** `acos` kernel deliberately uses the half-angle identity rather than `π/2 − asin(x)`: the
