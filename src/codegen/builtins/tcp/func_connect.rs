@@ -84,7 +84,7 @@ END FUNC
 const TIMEOUT_DESC: &str = "Optional. The maximum time the connection attempt may take, in milliseconds. Omit to block until the connection resolves; `0` is one immediate attempt (`ErrTimeout` unless it completes at once); a positive value bounds the attempt and raises `ErrTimeout` when it elapses (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`.";
 const HOST_DESC: &str = "The peer's host name or textual IP address. Passed to the host resolver; a name with no address record raises an error.";
 const PORT_DESC: &str =
-    "The TCP port to connect to on the peer. Written directly into the resolved address.";
+    "The TCP port to connect to on the peer, `0` to `65535`. A port outside that range raises `ErrAddressInvalid` before any connection is attempted.";
 const ADDRESS_DESC: &str = "A destination supplying both the peer host and the peer port, typically from `net::lookup`. Replaces the separate `host` and `port` arguments.";
 
 /// `abi_function` body for `tcp::connect` — the `Address` overloads arrive under
@@ -123,6 +123,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ret(),
                 errors: vec![
+                    "ErrAddressInvalid",
                     "ErrAddressNotFound",
                     "ErrInvalidArgument",
                     "ErrNetworkFailed",
@@ -139,6 +140,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ret(),
                 errors: vec![
+                    "ErrAddressInvalid",
                     "ErrAddressNotFound",
                     "ErrInvalidArgument",
                     "ErrNetworkFailed",
@@ -151,6 +153,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![super::req("address", ADDRESS_DESC, &[], super::address())],
                 return_type: ret(),
                 errors: vec![
+                    "ErrAddressInvalid",
                     "ErrAddressNotFound",
                     "ErrInvalidArgument",
                     "ErrNetworkFailed",
@@ -166,6 +169,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ret(),
                 errors: vec![
+                    "ErrAddressInvalid",
                     "ErrAddressNotFound",
                     "ErrInvalidArgument",
                     "ErrNetworkFailed",

@@ -1,11 +1,12 @@
 //! The zero values the `Paint` constructors fill in for the fields a caller did
 //! not name.
 //!
-//! These exist because **MFBASIC named construction does not default unset
-//! fields** — `Paint[fill := c]` is a `TYPE_CONSTRUCTOR_ARITY_MISMATCH`, not a
-//! partially-specified record. So `Paint`'s "every field's zero value is that
-//! field's no-op" rule is delivered by `canvas::fill`/`stroke`/`fillStroke`
-//! writing those zeros explicitly, rather than by the constructor syntax.
+//! These exist because named construction used to require every field
+//! (`Paint[fill := c]` was a `TYPE_CONSTRUCTOR_ARITY_MISMATCH`). A by-field
+//! constructor now defaults the fields it omits (bug-1021), and those defaults
+//! equal these zeros; `canvas::fill`/`stroke`/`fillStroke` keep writing them
+//! explicitly so the "every field's zero value is that field's no-op" rule reads
+//! at the call rather than resting on the type's default.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 

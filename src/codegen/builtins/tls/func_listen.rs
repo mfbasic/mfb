@@ -107,7 +107,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
                 Parameter {
                     name: "port",
-                    desc: "The local TCP port to bind and listen on. `0` asks the OS to choose a free port, which `tls::localAddress` then reports.",
+                    desc: "The local TCP port to bind and listen on. `0` asks the OS to choose a free port, which `tls::localAddress` then reports. A port outside `0` to `65535` raises `ErrAddressInvalid`.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

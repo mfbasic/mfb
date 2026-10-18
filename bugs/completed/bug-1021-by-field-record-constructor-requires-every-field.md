@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (language surface; owner-confirmed)
 
-Status: Open
+Status: Fixed (bs24-agent-i)
 Regression Test: (proposed) tests/rt-behavior/types/record-constructor-partial-fields-rt (values of the omitted fields) and tests/syntax/types/record-constructor-partial-fields-invalid (the rejections below)
 
 ## Cause (coordinator, bug-staging-24)
@@ -68,10 +68,7 @@ Rules:
    the missing field or fields. Today `MUT h AS Held`, where `Held` has a `RES fs::File` field,
    reports `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE`; the constructor's error should be as specific.
    The implementer picks the rule (reuse or a new one) and registers it per `.ai/compiler.md`.
-3. **`Ck[]`** (no fields named) follows from the rule: it is the all-defaults record, the same
-   value as `MUT d AS Ck`. The owner asked for "partial fields"; the empty list is the
-   coordinator's reading of the limit case. **Confirm with the owner before shipping it** if
-   there is any doubt (a bare `Ck[]` could also be read as a mistake).
+3. **`Ck[]`** (no fields named) is NOT a by-field constructor (coordinator review, bug-staging-24): it names no field, so it is the zero-argument positional form and keeps `TYPE_CONSTRUCTOR_ARITY_MISMATCH`, which also keeps `json::JsonNull[]` refused as `tests/syntax/json/func_json_stringify_invalid` pins. The owner's rule is about a constructor that names some fields.
 4. A field named twice, an unknown field name, and a value of the wrong type keep today's
    diagnostics.
 5. Mixing positional and by-field arguments keeps today's behavior (measure it first; do not
@@ -109,3 +106,34 @@ defaults if not specified").
   `types` topic that shows record construction.
 - Existing goldens: any fixture that pins the partial by-field arity error changes on purpose
   (list them; the owner decision is the proof).
+
+## Fix
+
+One definition of "the default of type T": codegen's uninitialized-`MUT` default. `lower_constructor_args`
+(`src/ir/lower.rs`), by-field arm: a field the constructor does not name becomes a call to a synthesized
+function (`omitted_field_default`, one per record+field) whose body is `MUT <field> AS T` / `RETURN <field>`,
+so the value is exactly what codegen gives a binding with no initializer. The earlier lowering-side
+`default_value_expression` table and the verify arity hint were deleted. A type with no default is refused by
+the ordinary rule on that binding (`TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE`, "Mutable binding `<field>` cannot
+omit its initializer ..."), which names the field; for a resource field the resource-binding rule
+(`TYPE_RESOURCE_REQUIRES_RES`) also fires on the same binding. No package-format change. It fills only when
+every name written is a field, so a stray name keeps today's arity/argument diagnostics; positional lists are
+untouched. `Ck[]` is the all-defaults record (the coordinator's reading). Spec `language types`, man `types`,
+tour updated.
+
+Tests: `tests/runtime/rt_record_constructor_partial_fields.rs`, both RED on main's compiler, GREEN after
+(every primitive, String, enum, nested record, List/Map/Set, color::Color, AttributedString, generic record,
+union variant, collection literal, loop, at -O0 and -O3; omitted-field rows equal the `MUT d AS Ck` row).
+The earlier `Error`/`ErrorLoc` limitation is gone (codegen's table covers them). Untested: an imported non-builtin
+`.mfp` record, `--debug` alloc==free.
+
+Expected golden movement: `tests/syntax/types/types-duplicate-field-invalid/golden/build.log` loses its
+`TYPE_CONSTRUCTOR_ARITY_MISMATCH` block for `Point[x := 1, x := 2]` (y is now defaulted; the
+`TYPE_DUPLICATE_FIELD` block stays) — the owner decision is the proof.
+
+Second golden consequence of the single definition: `tests/syntax/json/func_json_stringify_invalid/golden/build.log`
+loses its `TYPE_CONSTRUCTOR_ARITY_MISMATCH` block for `json::JsonNull[]` ("old null shape"). `JsonNull`'s one field is
+`Nothing`, which is defaultable (codegen's uninitialized-`MUT` default; `is_defaultable` agrees), so `JsonNull[]` is now
+the all-defaults record under the owner's rule. The fixture pins `JsonNull[]` as REJECTED, so this needs an owner/coordinator
+call: accept the rule's consequence and correct that one block, or exclude `Nothing` (a special case, which I did not add).
+The previous round's separate table happened to answer "no default" for `Nothing`, which is why it did not show then.

@@ -1557,6 +1557,19 @@ impl CodeBuilder<'_> {
             return Some(type_);
         }
         match value {
+            // bug-874: `Color.Green` names a member of an enum TYPE — its target is the
+            // type's name, not a binding, so the operand walk above has no local to
+            // type. The member's type is the enum itself, the same table
+            // `lower_match_compare` resolves it through.
+            NirValue::MemberAccess { target, member } => match target.as_ref() {
+                NirValue::Local(type_name) if !self.locals.contains_key(type_name) => self
+                    .type_model
+                    .enum_members
+                    .keys()
+                    .find(|(enum_type, name)| name == member && enum_type.name() == *type_name)
+                    .map(|(enum_type, _)| enum_type.clone()),
+                _ => None,
+            },
             NirValue::Call { target, args, .. }
             | NirValue::CallResult { target, args, .. }
             | NirValue::RuntimeCall { target, args, .. } => {

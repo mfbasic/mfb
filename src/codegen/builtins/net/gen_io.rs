@@ -59,6 +59,7 @@ pub(crate) fn lower_net_lookup_helper(
     const LLIST_OFFSET: usize = 208;
 
     let resolve_fail = format!("{symbol}_resolve_fail");
+    let port_invalid = format!("{symbol}_port_invalid");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let addr_fail = format!("{symbol}_addr_fail");
     let count_loop = format!("{symbol}_count_loop");
@@ -84,6 +85,8 @@ pub(crate) fn lower_net_lookup_helper(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT_OFFSET),
     ]);
+    // bug-876: the port stamped into every result is 0..=65535 or ErrAddressInvalid.
+    emit_port_range_check(PORT_OFFSET, &port_invalid, &mut instructions, &mut vregs);
     emit_hints(
         HINTS_OFFSET,
         false,
@@ -246,8 +249,16 @@ pub(crate) fn lower_net_lookup_helper(
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
-        abi::label(&resolve_fail),
+        abi::label(&port_invalid),
     ]);
+    emit_fail(
+        symbol,
+        "ErrAddressInvalid",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&resolve_fail));
     emit_fail(
         symbol,
         "ErrAddressNotFound",

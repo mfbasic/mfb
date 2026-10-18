@@ -50,6 +50,8 @@ pub(super) struct LowerContext<'a> {
     /// union-collection conversion needed, by the lifted function's name, so a
     /// pair is emitted once however many positions convert it.
     union_converters: HashMap<(ParameterType, ParameterType), String>,
+    /// bug-1021: the synthesized default-value function per (record, omitted field).
+    field_defaults: HashMap<(ParameterType, String), String>,
     next_temp_id: usize,
     /// Declared return type of the function currently being lowered, used to
     /// implicitly wrap a `RETURN`ed member constructor into its union (so the
@@ -412,6 +414,7 @@ impl LowerFacts {
             lambdas: Vec::new(),
             next_lambda_id: 0,
             union_converters: HashMap::new(),
+            field_defaults: HashMap::new(),
             next_temp_id: 0,
             current_return_type: None,
             recover_targets: Vec::new(),
@@ -5834,8 +5837,8 @@ fn lower_expression_unwrapped(
                 .or_else(|| context.type_index.variant_fields.get(&canonical_type))
                 .or_else(|| context.type_index.variant_fields.get(constructor_type));
             IrValue::Constructor {
-                type_: canonical_type,
-                args: lower_constructor_args(arguments, fields, locals, context),
+                type_: canonical_type.clone(),
+                args: lower_constructor_args(&canonical_type, arguments, fields, locals, context),
             }
         }
         HirExpression::WithUpdate { target, updates } => {
@@ -6420,6 +6423,7 @@ fn union_converter(
 }
 
 fn lower_constructor_args(
+    record_type: &ParameterType,
     arguments: &[HirConstructorArg],
     fields: Option<&Vec<IrField>>,
     locals: &HashMap<String, ParameterType>,
@@ -6431,19 +6435,46 @@ fn lower_constructor_args(
             .map(|argument| lower_expression(constructor_arg_value(argument), locals, context))
             .collect();
     };
-    if arguments
-        .iter()
-        .all(|argument| matches!(argument, HirConstructorArg::Named { .. }))
+    // A by-field constructor names at least one field: `Ck[]` names none, so it is the
+    // zero-argument positional form and keeps its arity check (owner's rule covers a
+    // constructor that names SOME fields; coordinator review, bug-staging-24).
+    if !arguments.is_empty()
+        && arguments
+            .iter()
+            .all(|argument| matches!(argument, HirConstructorArg::Named { .. }))
     {
+        // bug-1021: a by-field constructor may name SOME of the fields; each field it
+        // leaves out takes its default — the value an uninitialized `MUT x AS T`
+        // holds. That only applies when every name written IS a field: a stray name
+        // keeps today's diagnostics (the arity and argument mismatches), not a
+        // silent default for the field it was meant to be. A field with no default
+        // is refused by the uninitialized-`MUT` rule on the synthesized default).
+        let names_a_field = |name: &str| fields.iter().any(|field| field.name == name);
+        let every_name_is_a_field = arguments.iter().all(|argument| match argument {
+            HirConstructorArg::Named { name, .. } => names_a_field(name),
+            HirConstructorArg::Positional(_) => false,
+        });
         return fields
             .iter()
             .filter_map(|field| {
-                arguments.iter().find_map(|argument| match argument {
-                    HirConstructorArg::Named { name, value, .. } if name == &field.name => Some(
-                        lower_expression_with_expected(value, Some(&field.type_), locals, context),
-                    ),
+                let named = arguments.iter().find_map(|argument| match argument {
+                    HirConstructorArg::Named { name, value, .. } if name == &field.name => {
+                        Some(value)
+                    }
                     _ => None,
-                })
+                });
+                match named {
+                    Some(value) => Some(lower_expression_with_expected(
+                        value,
+                        Some(&field.type_),
+                        locals,
+                        context,
+                    )),
+                    None if every_name_is_a_field => {
+                        Some(omitted_field_default(record_type, field, context))
+                    }
+                    None => None,
+                }
             })
             .collect();
     }
@@ -6460,6 +6491,62 @@ fn lower_constructor_args(
             )
         })
         .collect()
+}
+
+/// bug-1021: the value of a field a by-field constructor leaves out — the default of
+/// its type, exactly what an uninitialized `MUT x AS T` holds. There is ONE
+/// definition of that default, the one codegen materializes for a binding with no
+/// initializer, so this does not restate it: it calls a synthesized function whose
+/// whole body is `MUT <field> AS T` and `RETURN <field>`. A type with no default is
+/// refused by the ordinary uninitialized-`MUT` rule (`TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE`)
+/// on that binding, which carries the field's name.
+fn omitted_field_default(
+    record_type: &ParameterType,
+    field: &IrField,
+    context: &mut LowerContext<'_>,
+) -> IrValue {
+    let key = (record_type.clone(), field.name.clone());
+    let name = match context.field_defaults.get(&key) {
+        Some(name) => name.clone(),
+        None => {
+            let name = format!("$lambda{}", context.next_lambda_id);
+            context.next_lambda_id += 1;
+            let loc = context.current_loc;
+            context.field_defaults.insert(key, name.clone());
+            context.lambdas.push(IrFunction {
+                name: name.clone(),
+                visibility: "private".to_string(),
+                kind: "func".to_string(),
+                isolated: false,
+                params: Vec::new(),
+                returns: field.type_.clone(),
+                body: vec![
+                    IrOp::Bind {
+                        mutable: true,
+                        name: field.name.clone(),
+                        type_: field.type_.clone(),
+                        value: None,
+                        explicit_type: true,
+                        loc,
+                    },
+                    IrOp::Return {
+                        value: Some(IrValue::Local(field.name.clone())),
+                        loc,
+                    },
+                ],
+                file: context.current_file.clone(),
+                loc,
+                resource_owners: HashMap::new(),
+            });
+            name
+        }
+    };
+    IrValue::Call {
+        target: name,
+        args: Vec::new(),
+        type_: field.type_.clone(),
+        loc: context.current_loc,
+    }
 }
 
 fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpression {

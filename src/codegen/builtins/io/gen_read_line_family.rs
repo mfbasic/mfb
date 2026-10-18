@@ -107,6 +107,10 @@ const UTF8_HIGH: usize = BUFFER + 64;
 /// The bytes to append this round, and how many.
 const APPEND_PTR: usize = BUFFER + 72;
 const APPEND_LEN: usize = BUFFER + 80;
+/// bug-891: nonzero once the line in progress held an ill-formed byte. A line
+/// reader consumes the WHOLE line through its LF and raises `ErrEncoding` once
+/// when it ends (as `fs::readLine` does), so the next call starts at the next line.
+const BAD_LINE: usize = BUFFER + 88;
 const FRAME: usize = BUFFER + 96;
 
 /// Shared `abi_function` body for `io::input` (with a prompt) and `io::readLine`
@@ -159,6 +163,9 @@ pub(crate) fn lower_read_line_family(
     let input_error = l("input_error");
     let invalid_context = l("invalid_context");
     let encoding_error = l("encoding_error");
+    // bug-891: an ill-formed byte marks the line bad and the read goes on to its end.
+    let bad_in_line = l("bad_in_line");
+    let bad_resync = l("bad_resync");
     let alloc_error = l("alloc_error");
     let finish = l("finish");
     let append = l("append");
@@ -333,6 +340,7 @@ pub(crate) fn lower_read_line_family(
             abi::store_u64(v, abi::stack_pointer(), CAPACITY),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), LENGTH),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), UTF8_NEED),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), BAD_LINE),
         ]);
     }
     let slots = ReaderSlots::at(SLOTS);
@@ -409,7 +417,7 @@ pub(crate) fn lower_read_line_family(
         instructions.extend([
             abi::load_u64(outcome, abi::stack_pointer(), slots.outcome),
             abi::compare_immediate(outcome, &OUT_INVALID.to_string()),
-            abi::branch_eq(&encoding_error),
+            abi::branch_eq(&bad_in_line),
         ]);
         region(r, &mut instructions);
         instructions.extend([
@@ -505,10 +513,10 @@ pub(crate) fn lower_read_line_family(
             abi::label(&is_cont),
             abi::load_u64(t, abi::stack_pointer(), UTF8_LOW),
             abi::compare_registers(b, t),
-            abi::branch_lo(&encoding_error),
+            abi::branch_lo(&bad_resync),
             abi::load_u64(t, abi::stack_pointer(), UTF8_HIGH),
             abi::compare_registers(b, t),
-            abi::branch_hi(&encoding_error),
+            abi::branch_hi(&bad_resync),
             abi::subtract_immediate(need, need, 1),
             abi::store_u64(need, abi::stack_pointer(), UTF8_NEED),
             abi::move_immediate(t, "Integer", "128"),
@@ -546,7 +554,9 @@ pub(crate) fn lower_read_line_family(
             ]);
         }
         instructions.extend([
-            abi::branch(&encoding_error),
+            // Not a valid lead byte (80..C1, F5..FF): the line is bad, and the
+            // byte is dropped from it.
+            abi::branch(&bad_in_line),
             abi::label(&set_need),
             abi::store_u64(need, abi::stack_pointer(), UTF8_NEED),
             abi::store_u64(low, abi::stack_pointer(), UTF8_LOW),
@@ -562,6 +572,26 @@ pub(crate) fn lower_read_line_family(
             abi::store_u64(p, abi::stack_pointer(), APPEND_PTR),
             abi::move_immediate(one, "Integer", "1"),
             abi::store_u64(one, abi::stack_pointer(), APPEND_LEN),
+        ]);
+    }
+
+    // ---- an ill-formed byte: mark the line, keep reading it to its LF ---------
+    {
+        let one = vregs.next();
+        instructions.extend([
+            // The data-byte block above falls through into `append`.
+            abi::branch(&append),
+            // A continuation byte that broke its sequence: the sequence is over and
+            // THIS byte starts afresh (it may be a lead byte, or the LF itself).
+            abi::label(&bad_resync),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), UTF8_NEED),
+            abi::move_immediate(one, "Integer", "1"),
+            abi::store_u64(one, abi::stack_pointer(), BAD_LINE),
+            abi::branch(&l("byte")),
+            abi::label(&bad_in_line),
+            abi::move_immediate(one, "Integer", "1"),
+            abi::store_u64(one, abi::stack_pointer(), BAD_LINE),
+            abi::branch(&next),
         ]);
     }
 
@@ -661,6 +691,9 @@ pub(crate) fn lower_read_line_family(
             abi::load_u64(need, abi::stack_pointer(), UTF8_NEED),
             abi::compare_immediate(need, "0"),
             abi::branch_ne(&encoding_error),
+            abi::load_u64(need, abi::stack_pointer(), BAD_LINE),
+            abi::compare_immediate(need, "0"),
+            abi::branch_ne(&encoding_error),
             abi::load_u64(len, abi::stack_pointer(), LENGTH),
             abi::compare_immediate(len, "0"),
             abi::branch_eq(&l("eof_error")),
@@ -708,7 +741,12 @@ pub(crate) fn lower_read_line_family(
         let len = vregs.next();
         let at = vregs.next();
         let b = vregs.next();
+        let bad = vregs.next();
         instructions.extend([
+            // The whole line is consumed; a bad one is reported once, here.
+            abi::load_u64(bad, abi::stack_pointer(), BAD_LINE),
+            abi::compare_immediate(bad, "0"),
+            abi::branch_ne(&encoding_error),
             abi::load_u64(mode, abi::stack_pointer(), slots.mode),
             abi::compare_immediate(mode, &ENGINE_BYTE.to_string()),
             abi::branch_ne(&l("result")),

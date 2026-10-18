@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed (bs24-agent-i)
 Regression Test: tests/rt-behavior/tcp/port-out-of-range-rt (new) — name suggested
 
 ## Cause (coordinator, bug-staging-24)
@@ -76,3 +76,30 @@ bounds check, so every higher bit (and the sign) is discarded.
 ## Addendum (batch B06)
 
 - macOS `tls::listen` / `tls::connect` with port 70000 / 65536 / -1 do not wrap but raise `ErrNetworkFailed` (77070003) instead of `ErrAddressInvalid` — the transports disagree on the out-of-range-port error; the fix should give all of tcp/udp/tls one validated contract (measured by the review agent, `/tmp/hardening/B06/tlsport`).
+
+## Fix
+
+`emit_port_range_check` (`src/codegen/os/socket/shared.rs`) loads the saved `Integer` port, shifts it
+right 16 (logical, so a negative fails too) and branches to the caller's `ErrAddressInvalid` arm
+when the result is non-zero. It runs before `getaddrinfo` in every emitter that writes `sin_port`:
+`lower_net_endpoint_helper` (tcp connect/listen, host and Address overloads), `lower_net_bind_udp_helper`,
+`lower_net_send_to_helper`, `lower_net_lookup_helper`, and tls connect/listen on all three backends
+(OpenSSL, Schannel, macOS). Declared-error lists gained `ErrAddressInvalid` on `tcp::connect`,
+`udp::send` and `tls::connect`; spec topic `stdlib transports` and the port parameter prose were updated.
+
+Test: `tests/net/rt_port_out_of_range.rs` (`out_of_range_port_is_address_invalid_on_tcp_and_udp`
+RED on main's compiler with `MFB_TEST_EXE`: tcp/udp wrapped, tls/lookup gave 77070003/77070008/0;
+GREEN after; `in_range_ports_still_work` pins port 0).
+
+Expected golden movement: builtin artifacts for tcp, udp, net, tls (emitted helper code changed)
+and the `mfb man` pages for tcp connect/listen, udp bind/send, tls connect/listen, net lookup
+(declared errors and port prose). `user-built net::Address` with a bad port is not constructible from
+source, so the Address overloads are only reachable with lookup results (already range-checked).
+
+Also moved (declared errors, pinned by `tcp_tls_error_declaration_tests`, `declared_errors_all`,
+`mfb_body_declared_errors`): `http::read`/`write`/`startRead` now declare `ErrAddressInvalid`
+(a URL port out of range reaches the same check through tcp/tls connect). Artifact gates tcp/udp/net/tls
+show DIFFs by design (helper code moved): `byte-identity/{tcp,udp,net,tls}/*` goldens, all 5 targets;
+not regenerated (coordinator's job). Accepted unchanged: func_tcp_connect_valid,
+tcp-connect-timeout-convention-rt, func_tcp_connect_invalid, func_tcp_listen_valid,
+func_udp_bind_valid, func_udp_send_valid.

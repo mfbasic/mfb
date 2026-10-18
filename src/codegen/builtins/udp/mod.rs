@@ -326,6 +326,7 @@ mod tests {
                 "udp.send",
                 &[
                     &[
+                        "ErrAddressInvalid",
                         "ErrAddressNotFound",
                         "ErrInvalidArgument",
                         "ErrMessageTooLarge",
@@ -336,6 +337,7 @@ mod tests {
                         "ErrTimeout",
                     ],
                     &[
+                        "ErrAddressInvalid",
                         "ErrAddressNotFound",
                         "ErrMessageTooLarge",
                         "ErrNetworkFailed",

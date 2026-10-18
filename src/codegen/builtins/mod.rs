@@ -2108,6 +2108,7 @@ mod tcp_tls_error_declaration_tests {
                 (
                     "connect(String, Integer)",
                     &[
+                        "ErrAddressInvalid",
                         "ErrAddressNotFound",
                         "ErrInvalidArgument",
                         "ErrNetworkFailed",
@@ -2118,6 +2119,7 @@ mod tcp_tls_error_declaration_tests {
                 (
                     "connect(String, Integer, Integer)",
                     &[
+                        "ErrAddressInvalid",
                         "ErrAddressNotFound",
                         "ErrInvalidArgument",
                         "ErrNetworkFailed",
@@ -2128,6 +2130,7 @@ mod tcp_tls_error_declaration_tests {
                 (
                     "connect(net.Address)",
                     &[
+                        "ErrAddressInvalid",
                         "ErrAddressNotFound",
                         "ErrInvalidArgument",
                         "ErrNetworkFailed",
@@ -2138,6 +2141,7 @@ mod tcp_tls_error_declaration_tests {
                 (
                     "connect(net.Address, Integer)",
                     &[
+                        "ErrAddressInvalid",
                         "ErrAddressNotFound",
                         "ErrInvalidArgument",
                         "ErrNetworkFailed",
@@ -2291,6 +2295,7 @@ mod tcp_tls_error_declaration_tests {
                 (
                     "connect(String, Integer, Integer, String, Boolean)",
                     &[
+                        "ErrAddressInvalid",
                         "ErrAddressNotFound",
                         "ErrInvalidArgument",
                         "ErrNetworkFailed",
@@ -2302,6 +2307,7 @@ mod tcp_tls_error_declaration_tests {
                 (
                     "connect(net.Address, Integer, String, Boolean)",
                     &[
+                        "ErrAddressInvalid",
                         "ErrAddressNotFound",
                         "ErrInvalidArgument",
                         "ErrNetworkFailed",

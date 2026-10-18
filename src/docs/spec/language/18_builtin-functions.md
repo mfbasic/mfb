@@ -15,7 +15,7 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 | --- | --- | --- | --- |
 | `error(code, message)` | 2 | `Error` | `(Integer, String)` — builds the read-only `Error` record |
 | `len(value)` | 1 | `Integer` | `String`, `List OF T`, `Set OF T`, `Map OF K TO V` |
-| `typeName(value)` | 1 | `String` | any `T` (never reads the value) |
+| `typeName(value)` | 1 | `String` | any `T` (never reads the value); an enum member literal `Color.Green` is of type `Color`, so `typeName(Color.Green)` is `"Color"` |
 | `toString(value[, decimals])` | 1–2 | `String` | `Integer`/`Float`/`Fixed`/`Money`/`Boolean`/`String`/`Byte`/`Scalar`/`List OF Byte` (decoded as UTF-8), any enum (the bare member name); optional `Byte` precision for `Float`/`Fixed`/`Money` |
 | `toInt(value[, base])` | 1–2 | `Integer` | `String`, `Byte`, `Float`, `Fixed`, `Money`, `Scalar`, any enum (the member's 0-based declaration index; infallible); optional `Integer` `base` (2–36) for `String` radix parsing |
 | `toFloat(value)` | 1 | `Float` | `String`, `Integer`, `Fixed`, `Money` |

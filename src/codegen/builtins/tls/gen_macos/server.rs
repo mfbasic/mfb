@@ -507,6 +507,7 @@ pub(crate) fn lower_tls_listen_macos(
     let null_host = format!("{symbol}_null_host");
     let host_ready = format!("{symbol}_host_ready");
     let addr_invalid_fail = format!("{symbol}_addr_invalid_fail");
+    let port_invalid = format!("{symbol}_port_invalid");
     let inet_ntop_fail = format!("{symbol}_inet_ntop_fail");
     let inet_ntop_fail_buf_freed = format!("{symbol}_inet_ntop_fail_buf_freed");
     let resolved_buf_freed = format!("{symbol}_resolved_buf_freed");
@@ -562,6 +563,14 @@ pub(crate) fn lower_tls_listen_macos(
         abi::store_u64(abi::c_arg(2), abi::stack_pointer(), CERT),
         abi::store_u64(abi::c_arg(3), abi::stack_pointer(), KEY),
     ]);
+    // bug-876: a port outside 0..=65535 is ErrAddressInvalid, refused before any
+    // dlopen/alloc/resolution exactly as tcp::listen does.
+    crate::codegen::os::socket::shared::emit_port_range_check(
+        PORT,
+        &port_invalid,
+        &mut ins,
+        &mut vregs,
+    );
     // bug-462: NULL the four CoreFoundation cleanup slots before anything can
     // branch to `cert_fail`. That exit best-effort-releases each of them, guarded
     // on non-NULL -- a guard that only means anything once they hold NULL rather
@@ -1594,6 +1603,9 @@ pub(crate) fn lower_tls_listen_macos(
     )]);
     platform.emit_external_call("freeaddrinfo", symbol, platform_imports, &mut ins, &mut rel)?;
     ins.push(abi::label(&addr_invalid_fail));
+    emit_fail(symbol, "ErrAddressInvalid", &mut ins, &mut rel, &done);
+    // bug-876: out-of-range port; reached before any acquisition, so no cleanup.
+    ins.push(abi::label(&port_invalid));
     emit_fail(symbol, "ErrAddressInvalid", &mut ins, &mut rel, &done);
     ins.push(abi::label(&load_fail));
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);

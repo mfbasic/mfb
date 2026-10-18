@@ -155,7 +155,11 @@ because `END` is a reserved word.
   dropped, checked as UTF-8 as they arrive.
 
 Either way ill-formed UTF-8 raises `ErrEncoding` — a line reader reads data, and
-a silently dropped byte would be a shortened line. A line read that times out
+a silently dropped byte would be a shortened line. The whole line is still consumed through its LF (or the end of input) and
+`ErrEncoding` is raised once, when the line ends, so the next call starts at the
+next line and the tail of a bad line never comes back as a line of its own — the
+same answer `fs::readLine` gives. [[src/codegen/builtins/io/gen_read_line_family.rs:lower_read_line_family]]
+A line read that times out
 raises `ErrTimeout` and gives the part read so far back to the front of the
 buffer; a part longer than the buffer holds is finished without a deadline
 instead of lost. Under `term::on` the terminal is returned to cooked, echoing

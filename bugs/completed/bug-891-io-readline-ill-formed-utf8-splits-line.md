@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed (bs24-agent-i)
 Regression Test: tests/rt-behavior/io/<new> (stdin fixture `ok\nab\xffcd\nnext\n`)
 
 ## Cause (coordinator, bug-staging-24)
@@ -134,3 +134,20 @@ finds the whole line first and validates it afterwards.
 - `io::readLine`, `io::input` (console data and keystroke paths): fixed by this bug.
 - `--app` window path: same body (`lower_read_line_family`), so presumably affected. Not run.
 - `fs::readLine`: unaffected (validates the whole line).
+
+## Fix
+
+`lower_read_line_family` (`src/codegen/builtins/io/gen_read_line_family.rs`): an ill-formed byte (bad
+lead byte, a continuation byte that breaks its sequence, or a decoder `OUT_INVALID` on the keystroke
+path) now sets a `BAD_LINE` frame slot instead of branching to `encoding_error`; a broken sequence
+resets and the offending byte is re-examined afresh (it may be the LF). `finish` (LF/Enter) and the EOF
+arm raise `ErrEncoding` once if `BAD_LINE` is set, so the whole line is consumed first, as
+`fs::readLine` does. `io::input` shares the body. Spec `stdlib io-input` updated.
+
+Tests: `tests/runtime/rt_readline_ill_formed_line.rs` (`read_line_consumes_the_whole_ill_formed_line`,
+`input_consumes_the_whole_ill_formed_line` RED on main's compiler with `[cd]` returned as a line; GREEN
+after; `read_line_on_a_terminal_...` is the pty path, GREEN after; on main it failed inside the pty
+helper rather than on the assertion).
+Expected golden movement: `byte-identity/io/*` artifacts for all targets (helper body grew) and any
+fixture whose golden embeds the io::readLine/io::input helper.
+Artifact gate: byte-identity/io/io_codegen_cover_rt 5/7 goldens DIFF (expected; not regenerated); 4 accept fixtures clean.

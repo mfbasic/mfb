@@ -30,6 +30,14 @@ Addresses are IPv4. `net::lookup` returns only IPv4 results, the emitters use
 `AF_INET`, and an IPv6 literal is rejected with `ErrAddressInvalid` rather than
 silently mis-parsed. [[src/codegen/builtins/net/func_lookup.rs]]
 
+A port is an unsigned 16-bit number. Every host/port entry point (`tcp::connect`,
+`tcp::listen`, `udp::bind`, `udp::send`'s destination, `tls::connect`, `tls::listen`
+and `net::lookup`) raises `ErrAddressInvalid` for a port outside `0..65535` before any
+resolver or socket call; the port is never reduced to its low 16 bits, so `70000`
+does not reach port 4464 and `-1` does not reach 65535. Port `0` keeps its meaning
+"any free port" on `listen`/`bind`.
+[[src/codegen/os/socket/shared.rs:emit_port_range_check]]
+
 ## Handles, ownership, and close
 
 Each package owns its own resource types, package-qualified and mutually

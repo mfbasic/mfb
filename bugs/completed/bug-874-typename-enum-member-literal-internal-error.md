@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed (bs24-agent-i)
 Regression Test: tests/rt-behavior/general/typename-enum-member-literal-rt (new) — name suggested
 
 ## Cause (coordinator, bug-staging-24)
@@ -73,3 +73,17 @@ the error string. The node's own `type: "Color"` is never consulted.
 
 - The other two `typeName` arms in `builder_values.rs` (`lower_infallible_member`, line ~3660) share the same fold and are fixed together.
 - Any other consumer of `static_type_name` on an enum-member literal (overload/code-form selection in `lower_runtime_helper_call`) — latent, not observed.
+
+## Fix
+
+The Cause note says the value carries its own type; measured, the NIR `MemberAccess` has NO type field
+(`src/target/shared/nir/mod.rs`; only the IR JSON has it), so the type cannot be read off the node. The
+rule restored instead: a member of an enum TYPE name is of that enum, answered from the same
+`type_model.enum_members` table `lower_match_compare` uses. `static_type_name_for_fold`
+(`src/codegen/memory/value/builder_value_semantics.rs`) gains a `MemberAccess` arm for a target that is a
+type name (not a bound local) with a registered member; `static_type_name` itself is NOT widened (it gates
+in-place fast paths). All three `typeName` arms in `builder_values.rs` call the fold, so all follow.
+
+Test: `tests/runtime/rt_typename_enum_member_literal.rs` — RED on main's compiler ("cannot determine
+typeName argument type while lowering eval call io.print"), GREEN after (argument, binding, parenthesized,
+nested call argument). Expected golden movement: none known (fold-only, previously a build error).

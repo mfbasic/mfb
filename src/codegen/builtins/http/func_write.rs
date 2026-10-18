@@ -119,7 +119,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::fill("method", "Optional request method; uppercased before sending. Must be non-empty and contain no space or control byte. Defaults to `POST`.", ParameterType::String, "POST"),
             ],
             return_type: ParameterType::named(super::RESPONSE_TYPE),
-            errors: vec!["ErrAddressNotFound", "ErrConnectionClosed", "ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrNetworkFailed", "ErrNotFound", "ErrOutOfMemory", "ErrOverflow", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],
+            errors: vec!["ErrAddressInvalid", "ErrAddressNotFound", "ErrConnectionClosed", "ErrIndexOutOfRange", "ErrInvalidArgument", "ErrInvalidFormat", "ErrNetworkFailed", "ErrNotFound", "ErrOutOfMemory", "ErrOverflow", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],
             body: Body::mfb(BODY, "__http_write"),
         }],
     });

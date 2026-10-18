@@ -896,8 +896,9 @@ impl TypeEnv {
 
     /// The former source checker's constructor rules on a lowered `Constructor` value: the
     /// name must be a record TYPE (`TYPE_CONSTRUCTOR_REQUIRES_RECORD`), the
-    /// argument count must equal the field count exactly — records have no
-    /// field defaults — (`TYPE_CONSTRUCTOR_ARITY_MISMATCH`), and each argument
+    /// argument count must equal the field count exactly
+    /// (`TYPE_CONSTRUCTOR_ARITY_MISMATCH`; lowering has already supplied every
+    /// field a by-field constructor leaves out, bug-1021), and each argument
     /// must be compatible with its positional field
     /// (`TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH`). Lowering reorders named
     /// arguments into field order, so positional checking covers both forms.

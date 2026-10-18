@@ -83,7 +83,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::fill("method", "Optional request method; uppercased before sending. Must be non-empty and contain no space. Defaults to `GET`.", ParameterType::String, "GET"),
             ],
             return_type: super::stream_state(),
-            errors: vec!["ErrAddressNotFound", "ErrConnectionClosed", "ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],
+            errors: vec!["ErrAddressInvalid", "ErrAddressNotFound", "ErrConnectionClosed", "ErrInvalidArgument", "ErrNetworkFailed", "ErrOutOfMemory", "ErrResourceClosed", "ErrResourceMoved", "ErrTimeout", "ErrTlsFailed"],
             body: Body::mfb(BODY, "__http_startRead"),
         }],
     });

@@ -87,7 +87,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![
                 super::req("host", "The host name or textual IP address to resolve. Passed to the host resolver as written; a malformed or unresolvable value raises an error.", &[], ParameterType::String),
-                super::opt("port", "Optional, defaulting to `0`. The port recorded on every returned `net::Address`. It is stored on the results and does not influence resolution.", ParameterType::Integer),
+                super::opt("port", "Optional, defaulting to `0`. The port recorded on every returned `net::Address`. It is stored on the results and does not influence resolution, but it must lie in `0` to `65535`; any other value raises `ErrAddressInvalid`.", ParameterType::Integer),
             ],
             return_type: ParameterType::list_of(ParameterType::named(super::ADDRESS_TYPE_ID)),
             errors: vec!["ErrAddressInvalid", "ErrAddressNotFound", "ErrOutOfMemory"],

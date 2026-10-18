@@ -8,7 +8,7 @@ use crate::target::shared::abi;
 use crate::target::shared::abi::Reg;
 /// Emit the platform acquisition of the running executable's absolute path into
 /// the function frame (plan-55-B §4.1). macOS uses `_NSGetExecutablePath(buf,
-/// &size)`; Linux reads the `/proc/self/exe` symlink with `readlink`; Windows
+/// &size)` canonicalized by `realpath` (bug-886); Linux reads the `/proc/self/exe` symlink with `readlink`; Windows
 /// runs `GetModuleFileNameW` and marshals UTF-16→UTF-8 into an arena buffer
 /// (bug-454). Returns the buffer pointer in a fresh vreg, plus — on Linux only —
 /// the byte count `readlink` reported (the buffer is not NUL-terminated). macOS
@@ -37,12 +37,18 @@ pub(crate) fn emit_executable_path_into(
     let buf = vregs.next();
     match platform.family() {
         PlatformFamily::MacOS => {
-            // Frame: [0..BUF) path buffer, [BUF..BUF+8) uint32 size word (=BUF).
+            // bug-886: `_NSGetExecutablePath` reports the path the program was
+            // LAUNCHED by (a symlink, `.`/`..` components), not the file it is, so the
+            // result is canonicalized with `realpath` — the same answer Linux gets
+            // from `/proc/self/exe`. Frame: [0..CANON) the canonical path (`realpath`
+            // writes up to PATH_MAX, 1024), [CANON..BUF) the raw launch path,
+            // [BUF..BUF+8) the uint32 size word (= the raw buffer's size).
+            const CANON: usize = 1024;
             let size_word = vregs.next();
             ctx.instructions.extend([
-                abi::move_immediate(&size_word, "Integer", &EXE_PATH_BUF.to_string()),
+                abi::move_immediate(&size_word, "Integer", &(EXE_PATH_BUF - CANON).to_string()),
                 abi::store_u32(&size_word, abi::stack_pointer(), EXE_PATH_BUF),
-                abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0),
+                abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), CANON),
                 abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), EXE_PATH_BUF),
             ]);
             platform.emit_external_call(
@@ -57,6 +63,14 @@ pub(crate) fn emit_executable_path_into(
                 abi::branch_eq(&ok),
                 abi::branch(fail),
                 abi::label(&ok),
+                // realpath(raw, canonical): NULL on failure.
+                abi::add_immediate(abi::return_register(), abi::stack_pointer(), CANON),
+                abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 0),
+            ]);
+            platform.emit_realpath(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
+            ctx.instructions.extend([
+                abi::compare_immediate(abi::return_register(), "0"),
+                abi::branch_eq(fail),
                 abi::add_immediate(&buf, abi::stack_pointer(), 0),
             ]);
             Ok((buf, None))

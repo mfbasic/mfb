@@ -819,6 +819,10 @@ name = "rt_double_close_is_refused"
 path = "tests/net/rt_double_close_is_refused.rs"
 
 [[test]]
+name = "rt_port_out_of_range"
+path = "tests/net/rt_port_out_of_range.rs"
+
+[[test]]
 name = "rt_http_async_stream"
 path = "tests/net/rt_http_async_stream.rs"
 
@@ -1339,6 +1343,22 @@ path = "tests/runtime/rt_package_calls_software_curve_builtin.rs"
 [[test]]
 name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
+
+[[test]]
+name = "rt_typename_enum_member_literal"
+path = "tests/runtime/rt_typename_enum_member_literal.rs"
+
+[[test]]
+name = "rt_record_constructor_partial_fields"
+path = "tests/runtime/rt_record_constructor_partial_fields.rs"
+
+[[test]]
+name = "rt_readline_ill_formed_line"
+path = "tests/runtime/rt_readline_ill_formed_line.rs"
+
+[[test]]
+name = "rt_executable_path_resolved"
+path = "tests/runtime/rt_executable_path_resolved.rs"
 
 [[test]]
 name = "rt_arena_large_block_reuse"
