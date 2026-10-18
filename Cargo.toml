@@ -1345,6 +1345,10 @@ name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
 
 [[test]]
+name = "rt_executable_path_resolved"
+path = "tests/runtime/rt_executable_path_resolved.rs"
+
+[[test]]
 name = "rt_arena_large_block_reuse"
 path = "tests/runtime/rt_arena_large_block_reuse.rs"
 

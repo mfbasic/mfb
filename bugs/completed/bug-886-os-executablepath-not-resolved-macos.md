@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed (bs24-agent-i)
 Coordinator note: repro measured by the review agent only; the coordinator did not re-run it.
 Regression Test: tests/rt-behavior/os/func_os_executablePath_resolved_rt (to add)
 
@@ -110,3 +110,20 @@ caches the same prefix, so it is fixed by the same change.
 
 - `os::executablePath`, `os::appResourcePath` (copying and in-place arms) — fixed by this bug.
 - `os::appDataPath` & co. — unaffected (HOME/passwd based; measured).
+
+## Fix
+
+`emit_executable_path_into` (`src/codegen/builtins/os/gen_paths.rs`), macOS arm: `_NSGetExecutablePath`
+now writes the raw launch path into the upper part of the existing 4096-byte frame buffer and
+`platform.emit_realpath` canonicalizes it into the first 1024 bytes (PATH_MAX), which is the returned
+buffer; a NULL `realpath` takes the same `fail` exit. Frame size is unchanged. `os.executablePath` /
+`os.appResourcePath` macOS imports gain `DARWIN_REALPATH_SYMBOL` (`target/macos_aarch64/plan.rs`).
+The self-update prefix calls the `os.executablePath` helper, so it follows. Spec `stdlib os` and the
+`executablePath` man prose updated.
+
+Test: `tests/runtime/rt_executable_path_resolved.rs` — RED on main's compiler (symlink launch returned
+the link path), GREEN after (direct, symlinked and `../x/./prog` launches).
+Expected golden movement: byte-identity `os` and `general` artifacts for macos-aarch64 only (helper body
+and import list changed; Linux/Windows arms untouched), and any fixture whose golden embeds the
+macOS `os.executablePath`/`appResourcePath` helper.
+Artifact gate: byte-identity/os/os_codegen_cover_rt.macos-aarch64.ncode is the only DIFF (1/7); general clean; 5 accept fixtures clean.

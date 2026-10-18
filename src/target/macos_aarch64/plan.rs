@@ -475,11 +475,19 @@ impl plan::NativePlanPlatform for Platform {
                 .collect(),
             // plan-55-B: `os.appResourcePath` reuses the same exe-path acquisition as
             // `os.executablePath`, so it needs the identical libc import.
-            "os.executablePath" | "os.appResourcePath" => vec![PlatformImport {
-                library: "libSystem".to_string(),
-                symbol: "__NSGetExecutablePath".to_string(),
-                required_by: required_by.clone(),
-            }],
+            // bug-886: the raw launch path is canonicalized with `realpath`.
+            "os.executablePath" | "os.appResourcePath" => vec![
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: "__NSGetExecutablePath".to_string(),
+                    required_by: required_by.clone(),
+                },
+                PlatformImport {
+                    library: "libSystem".to_string(),
+                    symbol: crate::target::macos_aarch64::code::DARWIN_REALPATH_SYMBOL.to_string(),
+                    required_by: required_by.clone(),
+                },
+            ],
             "io.print" | "io.write" | "io.printError" | "io.writeError" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_write".to_string(),

@@ -96,7 +96,7 @@ pub(crate) fn lower_executable_path(
 
 const INTRO: &str = r#"The path to the running executable"#;
 const DESC: &str = r#"`os::executablePath` returns the filesystem path of the running binary as an
-`String`. On macOS it uses `_NSGetExecutablePath`; on Linux it reads the
+`String`. On macOS it resolves `_NSGetExecutablePath` through `realpath`, so a program launched through a symlink or a `..` path still reports its real location; on Linux it reads the
 `/proc/self/exe` symlink with `readlink`, which yields the absolute, symlink-
 resolved path; on Windows it calls `GetModuleFileNameW`, so the result is
 backslash-delimited (`C:\dir\app.exe`).
