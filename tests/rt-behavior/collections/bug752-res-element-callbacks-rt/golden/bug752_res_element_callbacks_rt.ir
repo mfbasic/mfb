@@ -381,41 +381,41 @@
   },
   {
     "name": "#collections_partition$RES$fs$File",
-    "line": 311,
+    "line": 315,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 311, "type": "List OF RES fs.File", "default": null },
-    { "name": "predicate", "line": 311, "type": "FUNC(RES fs.File) AS Boolean", "default": null }
+    { "name": "value", "line": 315, "type": "List OF RES fs.File", "default": null },
+    { "name": "predicate", "line": 315, "type": "FUNC(RES fs.File) AS Boolean", "default": null }
     ],
     "returns": "Partition$RES$fs$File",
     "body": [
-    { "op": "bind", "line": 318, "mutable": false, "name": "flags", "type": "List OF Boolean", "value": { "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "predicate" }] } },
-    { "op": "bind", "line": 319, "mutable": true, "name": "matched", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
-    { "op": "bind", "line": 320, "mutable": true, "name": "unmatched", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
-    { "op": "bind", "line": 321, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 322, "mutable": false, "name": "flags", "type": "List OF Boolean", "value": { "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "predicate" }] } },
+    { "op": "bind", "line": 323, "mutable": true, "name": "matched", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    { "op": "bind", "line": 324, "mutable": true, "name": "unmatched", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    { "op": "bind", "line": 325, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 322,
+      "line": 326,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
       "body": [
       {
         "op": "if",
-        "line": 324,
+        "line": 328,
         "condition": { "kind": "call", "type": "Boolean", "target": "collections.get", "args": [{ "kind": "local", "name": "flags" }, { "kind": "local", "name": "i" }] },
         "then": [
-        { "op": "assign", "line": 325, "name": "matched", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "matched" }, { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] } }
+        { "op": "assign", "line": 329, "name": "matched", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "matched" }, { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] } }
         ],
         "else": [
-        { "op": "assign", "line": 327, "name": "unmatched", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "unmatched" }, { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] } }
+        { "op": "assign", "line": 331, "name": "unmatched", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "unmatched" }, { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] } }
         ]
       },
-      { "op": "assign", "line": 329, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 333, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 331, "mutable": false, "name": "result", "type": "Partition$RES$fs$File", "value": { "kind": "constructor", "type": "Partition$RES$fs$File", "args": [{ "kind": "local", "name": "matched" }, { "kind": "local", "name": "unmatched" }] } },
-    { "op": "return", "line": 332, "value": { "kind": "local", "name": "result" } }
+    { "op": "bind", "line": 335, "mutable": false, "name": "result", "type": "Partition$RES$fs$File", "value": { "kind": "constructor", "type": "Partition$RES$fs$File", "args": [{ "kind": "local", "name": "matched" }, { "kind": "local", "name": "unmatched" }] } },
+    { "op": "return", "line": 336, "value": { "kind": "local", "name": "result" } }
     ]
   },
   {

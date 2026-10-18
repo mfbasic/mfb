@@ -358,37 +358,37 @@
   },
   {
     "name": "#collections_merge$String$RES$fs$File",
-    "line": 301,
+    "line": 305,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "a", "line": 301, "type": "Map OF String TO RES fs.File", "default": null },
-    { "name": "b", "line": 301, "type": "Map OF String TO RES fs.File", "default": null },
-    { "name": "preferB", "line": 301, "type": "Boolean", "default": null }
+    { "name": "a", "line": 305, "type": "Map OF String TO RES fs.File", "default": null },
+    { "name": "b", "line": 305, "type": "Map OF String TO RES fs.File", "default": null },
+    { "name": "preferB", "line": 305, "type": "Boolean", "default": null }
     ],
     "returns": "Map OF String TO RES fs.File",
     "body": [
-    { "op": "bind", "line": 302, "mutable": true, "name": "result", "type": "Map OF String TO RES fs.File", "value": { "kind": "local", "name": "a" } },
+    { "op": "bind", "line": 306, "mutable": true, "name": "result", "type": "Map OF String TO RES fs.File", "value": { "kind": "local", "name": "a" } },
     {
       "op": "forEach",
-      "line": 303,
+      "line": 307,
       "name": "e",
       "type": "MapEntry OF String TO fs.File",
       "iterable": { "kind": "local", "name": "b" },
       "body": [
       {
         "op": "if",
-        "line": 304,
+        "line": 308,
         "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "local", "name": "preferB" }, "right": { "kind": "unary", "type": "Boolean", "op": "NOT", "operand": { "kind": "call", "type": "Boolean", "target": "collections.hasKey", "args": [{ "kind": "local", "name": "result" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "e" }, "member": "key" }] } } },
         "then": [
-        { "op": "assign", "line": 305, "name": "result", "value": { "kind": "call", "type": "Map OF String TO RES fs.File", "target": "collections.set", "args": [{ "kind": "local", "name": "result" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "e" }, "member": "key" }, { "kind": "memberAccess", "type": "fs.File", "target": { "kind": "local", "name": "e" }, "member": "value" }] } }
+        { "op": "assign", "line": 309, "name": "result", "value": { "kind": "call", "type": "Map OF String TO RES fs.File", "target": "collections.set", "args": [{ "kind": "local", "name": "result" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "e" }, "member": "key" }, { "kind": "memberAccess", "type": "fs.File", "target": { "kind": "local", "name": "e" }, "member": "value" }] } }
         ],
         "else": [
         ]
       }
       ]
     },
-    { "op": "return", "line": 308, "value": { "kind": "local", "name": "result" } }
+    { "op": "return", "line": 312, "value": { "kind": "local", "name": "result" } }
     ]
   },
   {

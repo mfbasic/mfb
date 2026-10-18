@@ -470,19 +470,30 @@
       ]
     },
     { "op": "bind", "line": 278, "mutable": true, "name": "result", "type": "List OF List OF RES fs.File", "value": { "kind": "list", "type": "List OF List OF RES fs.File", "values": [] } },
-    { "op": "bind", "line": 279, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 279, "mutable": false, "name": "last", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] }, "right": { "kind": "local", "name": "size" } } },
+    { "op": "bind", "line": 280, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 280,
+      "line": 281,
       "loop": "while",
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "size" } }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "last" } },
       "body": [
-      { "op": "bind", "line": 281, "mutable": false, "name": "piece", "type": "List OF RES fs.File", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "#collections_slice$RES$fs$File", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "size" } }] } },
-      { "op": "assign", "line": 282, "name": "result", "value": { "kind": "call", "type": "List OF List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "piece" }] } },
-      { "op": "assign", "line": 283, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "stride" } } }
+      { "op": "bind", "line": 282, "mutable": false, "name": "piece", "type": "List OF RES fs.File", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "#collections_slice$RES$fs$File", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "size" } }] } },
+      { "op": "assign", "line": 283, "name": "result", "value": { "kind": "call", "type": "List OF List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "result" }, { "kind": "local", "name": "piece" }] } },
+      {
+        "op": "if",
+        "line": 284,
+        "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "stride" }, "right": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "last" }, "right": { "kind": "local", "name": "i" } } },
+        "then": [
+        { "op": "exitLoop", "line": 285, "loop": "while" }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 287, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "stride" } } }
       ]
     },
-    { "op": "return", "line": 285, "value": { "kind": "local", "name": "result" } }
+    { "op": "return", "line": 289, "value": { "kind": "local", "name": "result" } }
     ]
   },
   {
