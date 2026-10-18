@@ -68,6 +68,9 @@ pub(crate) fn lower_net_bind_udp_helper(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT_OFFSET),
     ]);
+    // bug-876: a port outside 0..=65535 is ErrAddressInvalid (the `resolve_fail`
+    // arm), refused before any resolver or socket call.
+    emit_port_range_check(PORT_OFFSET, &resolve_fail, &mut instructions, &mut vregs);
     emit_hints(
         HINTS_OFFSET,
         true,
@@ -690,6 +693,7 @@ pub(crate) fn lower_net_send_to_helper(
     let closed = format!("{symbol}_closed");
     let closed_moved = format!("{symbol}_closed_moved");
     let resolve_fail = format!("{symbol}_resolve_fail");
+    let port_invalid = format!("{symbol}_port_invalid");
     let send_retry = format!("{symbol}_send_retry");
     let send_eintr_skip = format!("{symbol}_send_eintr_skip");
     let send_fail = format!("{symbol}_send_fail");
@@ -728,6 +732,8 @@ pub(crate) fn lower_net_send_to_helper(
         abi::load_u64(&v9, abi::c_arg(1), 8),
         abi::store_u64(&v9, abi::stack_pointer(), PORT_OFFSET),
     ]);
+    // bug-876: refuse a destination port outside 0..=65535 before the resolver.
+    emit_port_range_check(PORT_OFFSET, &port_invalid, &mut instructions, &mut vregs);
     // bug-497 / bug-508: one payload view for every backend — the text form
     // as before, the byte form after a header check (`push_write_payload_view`).
     let bad_payload = format!("{symbol}_bad_payload");
@@ -893,6 +899,14 @@ pub(crate) fn lower_net_send_to_helper(
     emit_fail(
         symbol,
         "ErrMessageTooLarge",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&port_invalid));
+    emit_fail(
+        symbol,
+        "ErrAddressInvalid",
         &mut instructions,
         &mut relocations,
         &done,

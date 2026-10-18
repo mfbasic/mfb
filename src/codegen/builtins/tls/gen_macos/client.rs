@@ -51,6 +51,7 @@ pub(crate) fn lower_tls_connect_macos(
     let conn_fail = format!("{symbol}_conn_fail");
     let conn_timeout = format!("{symbol}_conn_timeout");
     let conn_invalid = format!("{symbol}_conn_invalid");
+    let port_invalid = format!("{symbol}_port_invalid");
     let wait_forever = format!("{symbol}_wait_forever");
     let wait_now = format!("{symbol}_wait_now");
     let deadline_ready = format!("{symbol}_deadline_ready");
@@ -85,6 +86,14 @@ pub(crate) fn lower_tls_connect_macos(
         crate::codegen::builtins::tls::gen_shared::connect_arg_prologue(
             address, &v9, HOST, PORT, TIMEOUT, SNAME, ALLOW,
         ),
+    );
+    // bug-876: a port outside 0..=65535 is ErrAddressInvalid, refused before any
+    // dlopen/alloc/connection work exactly as tcp::connect does.
+    crate::codegen::os::socket::shared::emit_port_range_check(
+        PORT,
+        &port_invalid,
+        &mut ins,
+        &mut vregs,
     );
     {
         // plan-73-D: reject a negative (non-sentinel) `timeoutMs` up front — before
@@ -943,6 +952,9 @@ pub(crate) fn lower_tls_connect_macos(
     emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.push(abi::label(&net_fail));
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
+    // bug-876: out-of-range port; reached before any acquisition, so no cleanup.
+    ins.push(abi::label(&port_invalid));
+    emit_fail(symbol, "ErrAddressInvalid", &mut ins, &mut rel, &done);
     // plan-73-D: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument. Reached
     // from the up-front check before any dlopen/alloc/connection, so no cleanup.
     ins.push(abi::label(&conn_invalid));

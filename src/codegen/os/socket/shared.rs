@@ -381,6 +381,27 @@ pub(crate) fn emit_cstring(
     ]);
 }
 
+/// bug-876: a port is an unsigned 16-bit number. Load the `Integer` port saved at
+/// `sp + port_off` and branch to `invalid` when it lies outside `0..=65535`
+/// (negative values have the sign bit set, so they fail the same `>> 16` test).
+/// Every host/port endpoint calls this BEFORE `getaddrinfo`, so the later
+/// two-byte `sin_port` store never discards high bits. Clobbers two vregs.
+pub(crate) fn emit_port_range_check(
+    port_off: usize,
+    invalid: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let port = vregs.next();
+    let high = vregs.next();
+    instructions.extend([
+        abi::load_u64(&port, abi::stack_pointer(), port_off),
+        abi::shift_right_immediate(&high, &port, 16),
+        abi::compare_immediate(&high, "0"),
+        abi::branch_ne(invalid),
+    ]);
+}
+
 /// Zero a 48-byte `addrinfo` hints block at `sp + hints_off` and set
 /// `ai_family = AF_INET`, `ai_socktype = socktype` (and `AI_PASSIVE` when
 /// `passive`). Clobbers `x9`.
@@ -739,6 +760,7 @@ fn lower_net_endpoint_helper(
     let op_fail = format!("{symbol}_op_fail");
     let connect_use_timeout = format!("{symbol}_connect_use_timeout");
     let connect_invalid = format!("{symbol}_connect_invalid");
+    let port_invalid = format!("{symbol}_port_invalid");
     let connect_ts_ok = format!("{symbol}_connect_ts_ok");
     let nb_connected = format!("{symbol}_nb_connected");
     let connect_poll_retry = format!("{symbol}_connect_poll_retry");
@@ -776,6 +798,8 @@ fn lower_net_endpoint_helper(
             abi::store_u64(abi::c_arg(2), abi::stack_pointer(), EXTRA_OFFSET),
         ]);
     }
+    // bug-876: refuse a port outside 0..=65535 before any resolver or socket call.
+    emit_port_range_check(PORT_OFFSET, &port_invalid, &mut instructions, &mut vregs);
     if !listen {
         // plan-73-C: validate the connect `timeoutMs` up front, before the resolver
         // or socket is allocated, so a rejection leaks nothing. The omitted overload
@@ -1222,6 +1246,16 @@ fn lower_net_endpoint_helper(
             &done,
         );
     }
+    // bug-876: a port outside 0..=65535, reached before any resolver/socket
+    // allocation, so there is nothing to release.
+    instructions.push(abi::label(&port_invalid));
+    emit_fail(
+        symbol,
+        "ErrAddressInvalid",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&op_fail));
     instructions.push(abi::load_u64(
         abi::return_register(),

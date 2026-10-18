@@ -75,7 +75,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ),
                 super::req(
                     "port",
-                    "The local UDP port to bind. `0` asks the OS to choose a free port, which `udp::localAddress` then reports.",
+                    "The local UDP port to bind. `0` asks the OS to choose a free port, which `udp::localAddress` then reports. A port outside `0` to `65535` raises `ErrAddressInvalid`.",
                     &[],
                     ParameterType::Integer,
                 ),

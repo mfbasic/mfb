@@ -322,6 +322,9 @@ pub(crate) fn lower_tls_listen(
         abi::store_u64(abi::c_arg(3), abi::stack_pointer(), KEY),
         abi::store_u64(abi::c_arg(4), abi::stack_pointer(), BACKLOG),
     ]);
+    // bug-876: a port outside 0..=65535 is ErrAddressInvalid (the `resolve_fail`
+    // arm), refused before getaddrinfo/socket exactly as tcp::listen does.
+    crate::codegen::os::socket::shared::emit_port_range_check(PORT, &resolve_fail, &mut ins, &mut vregs);
     // hints: zero 48 bytes, ai_flags=AI_PASSIVE|AF_INET, ai_socktype=SOCK_STREAM.
     for o in (0..48).step_by(8) {
         ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), HINTS + o));

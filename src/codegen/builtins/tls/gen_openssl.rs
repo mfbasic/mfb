@@ -62,6 +62,7 @@ pub(crate) fn lower_tls_connect_openssl(
     let net_fail_fd = format!("{symbol}_net_fail_fd");
     let connect_timeout = format!("{symbol}_connect_timeout");
     let connect_invalid = format!("{symbol}_connect_invalid");
+    let port_invalid = format!("{symbol}_port_invalid");
     let blocking_connect = format!("{symbol}_blocking_connect");
     let nb_connected = format!("{symbol}_nb_connected");
     let connected = format!("{symbol}_connected");
@@ -113,6 +114,14 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), CTX_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTOFLAG),
     ]);
+    // bug-876: a port outside 0..=65535 is ErrAddressInvalid, refused before
+    // getaddrinfo/socket exactly as tcp::connect does.
+    crate::codegen::os::socket::shared::emit_port_range_check(
+        PORT_OFFSET,
+        &port_invalid,
+        &mut instructions,
+        &mut vregs,
+    );
     {
         // plan-73-D: reject a negative (non-sentinel) `timeoutMs` up front — before
         // getaddrinfo/socket, so nothing leaks. The omitted overload pads the
@@ -1027,6 +1036,14 @@ pub(crate) fn lower_tls_connect_openssl(
         &mut relocations,
         &done,
     );
+    instructions.push(abi::label(&port_invalid));
+    emit_fail(
+        symbol,
+        "ErrAddressInvalid",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&resolve_fail));
     emit_fail(
         symbol,
@@ -1192,6 +1209,14 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::store_u64(abi::c_arg(3), abi::stack_pointer(), KEY_OFFSET),
         abi::store_u64(abi::c_arg(4), abi::stack_pointer(), BACKLOG_OFFSET),
     ]);
+    // bug-876: a port outside 0..=65535 is ErrAddressInvalid (the `resolve_fail`
+    // arm), refused before getaddrinfo/socket exactly as tcp::listen does.
+    crate::codegen::os::socket::shared::emit_port_range_check(
+        PORT_OFFSET,
+        &resolve_fail,
+        &mut instructions,
+        &mut vregs,
+    );
     // Zero a 48-byte hints block; ai_flags = AI_PASSIVE, ai_family = AF_INET,
     // ai_socktype = SOCK_STREAM — the bind/listen resolution mirrors
     // net::listenTcp (an empty host binds all interfaces via a NULL node).

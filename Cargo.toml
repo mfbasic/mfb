@@ -819,6 +819,10 @@ name = "rt_double_close_is_refused"
 path = "tests/net/rt_double_close_is_refused.rs"
 
 [[test]]
+name = "rt_port_out_of_range"
+path = "tests/net/rt_port_out_of_range.rs"
+
+[[test]]
 name = "rt_http_async_stream"
 path = "tests/net/rt_http_async_stream.rs"
 

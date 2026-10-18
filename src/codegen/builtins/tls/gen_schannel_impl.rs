@@ -302,6 +302,7 @@ pub(crate) fn lower_tls_connect(
     let alloc_fail = format!("{symbol}_alloc_fail");
     let connect_timeout = format!("{symbol}_connect_timeout");
     let connect_invalid = format!("{symbol}_connect_invalid");
+    let port_invalid = format!("{symbol}_port_invalid");
     let done = format!("{symbol}_done");
     let hs_loop = format!("{symbol}_hs_loop");
     let hs_read = format!("{symbol}_hs_read");
@@ -328,6 +329,9 @@ pub(crate) fn lower_tls_connect(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), REC),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), SNAMEW),
     ]);
+    // bug-876: a port outside 0..=65535 is ErrAddressInvalid, refused before any
+    // resolver/socket/connection work exactly as tcp::connect does.
+    crate::codegen::os::socket::shared::emit_port_range_check(PORT, &port_invalid, &mut ins, &mut vregs);
     {
         // plan-73-D: reject a negative (non-sentinel) `timeoutMs` up front — before
         // getaddrinfo/socket. The omitted overload pads the unbounded sentinel
@@ -767,6 +771,9 @@ pub(crate) fn lower_tls_connect(
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES));
     platform.emit_external_call("freeaddrinfo", symbol, imports, &mut ins, &mut rel)?;
     emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
+    // bug-876: out-of-range port; reached before any acquisition, so no cleanup.
+    ins.push(abi::label(&port_invalid));
+    emit_fail(symbol, "ErrAddressInvalid", &mut ins, &mut rel, &done);
     // A negative (non-sentinel) `timeoutMs` → ErrInvalidArgument (rejected up front,
     // before getaddrinfo/socket, so nothing to clean up).
     ins.push(abi::label(&connect_invalid));
