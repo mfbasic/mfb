@@ -116,7 +116,7 @@ END FUNC
 
 /// `zip` has TWO native paths, and both must fire.
 ///
-/// A `Pair OF String, String` is a variable-width record (two inlined Strings),
+/// A `Pair OF (String, String)` is a variable-width record (two inlined Strings),
 /// so it is built and appended one element at a time; a `Pair OF Integer,
 /// Integer` is fixed-width and copies straight into a pre-sized block. They are
 /// separate emitters, and the String fixture exercises only one of them — which

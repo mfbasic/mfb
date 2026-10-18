@@ -3599,9 +3599,6 @@ impl<'a> Walker<'a> {
         {
             return true;
         }
-        if type_.is_named("Ok") || type_.is_named("Result") {
-            return false;
-        }
         self.declared_record_constructible(type_)
     }
 
@@ -3665,7 +3662,7 @@ impl<'a> Walker<'a> {
             return false;
         };
         let variant = type_.name();
-        if matches!(variant.as_ref(), "Ok" | "Error" | "Err") {
+        if matches!(variant.as_ref(), "Error" | "Err") {
             return false;
         }
         // Correction G6: peel the STATE clause BEFORE asking "is this a

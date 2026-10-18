@@ -302,6 +302,7 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn parse_union_includes(&mut self) -> Vec<String> {
         let mut includes = Vec::new();
+        self.type_list_depth += 1;
         loop {
             // An included union may be a template instantiation
             // (`INCLUDES Opt OF T`), so it is read by the one type grammar, as a
@@ -313,27 +314,62 @@ impl<'a> FileParser<'a> {
                 break;
             }
         }
+        self.type_list_depth -= 1;
         includes
     }
 
+    /// A declaration's template parameters: `OF T`, or a parenthesized list
+    /// `OF (A, B)` (bug-833, the same spelling every use of the template takes).
     pub(super) fn parse_template_params(&mut self) -> Vec<String> {
         if !self.check_identifier_ci("OF") {
             return Vec::new();
         }
         self.advance();
+        if !self.match_kind(TokenKind::LParen) {
+            let Some(name) = self.consume_identifier("Expected template parameter name after OF.")
+            else {
+                self.synchronize();
+                return Vec::new();
+            };
+            if self.check_kind(&TokenKind::Comma) {
+                let token = self.peek().clone();
+                let mut names = vec![name];
+                while self.match_kind(TokenKind::Comma) {
+                    let Some(next) = self.consume_identifier("Expected template parameter name.")
+                    else {
+                        break;
+                    };
+                    names.push(next);
+                }
+                self.report(
+                    "MFB_PARSE_UNEXPECTED_TOKEN",
+                    &format!(
+                        "A template with more than one type parameter takes a parenthesized list: write `OF ({})`.",
+                        names.join(", ")
+                    ),
+                    &token,
+                );
+                return names;
+            }
+            return vec![name];
+        }
         let mut params = Vec::new();
         loop {
-            if let Some(name) =
-                self.consume_identifier("Expected template parameter name after OF.")
-            {
+            if let Some(name) = self.consume_identifier("Expected a template parameter name.") {
                 params.push(name);
             } else {
                 self.synchronize();
-                break;
+                return params;
             }
             if !self.match_kind(TokenKind::Comma) {
                 break;
             }
+        }
+        if !self.consume_kind(
+            TokenKind::RParen,
+            "Expected `)` after the template parameter names.",
+        ) {
+            self.synchronize();
         }
         params
     }
@@ -433,6 +469,13 @@ impl<'a> FileParser<'a> {
     }
 
     pub(super) fn parse_params(&mut self) -> Vec<Param> {
+        self.type_list_depth += 1;
+        let params = self.parse_params_list();
+        self.type_list_depth -= 1;
+        params
+    }
+
+    fn parse_params_list(&mut self) -> Vec<Param> {
         let mut params = Vec::new();
         if self.check_kind(&TokenKind::RParen) {
             return params;

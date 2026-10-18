@@ -556,7 +556,7 @@ pub(super) fn validate_value(
                 || type_value_names.constructors.contains(name)
                 || type_value_names.namespaces.contains(name)
                 || import_names.contains(name)
-                || matches!(name.as_str(), "Ok" | "Error")
+                || matches!(name.as_str(), "Error")
             {
                 Ok(())
             } else {

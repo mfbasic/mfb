@@ -34,9 +34,10 @@ Guarded arms do not contribute to compile-time coverage, since the guard can
 fail.
 
 A call used as a `MATCH` scrutinee auto-unwraps to its success value like any
-other call; `MATCH` never intercepts a failure. `CASE Ok`, `CASE Err`, and
-`CASE Error` are not valid arms (`TYPE_RESULT_NOT_MATCHABLE`) — to handle a
-call's error locally, use an inline `TRAP` instead (see `mfb man errors`).
+other call; `MATCH` never intercepts a failure, so `CASE Error(e)` over a value
+whose union does not carry `Error` is a pattern of the wrong type
+(`TYPE_MATCH_PATTERN_MISMATCH`). To handle a call's error locally, use an inline
+`TRAP` instead (see `mfb man errors`).
 
 ## Errors
 

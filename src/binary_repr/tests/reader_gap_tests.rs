@@ -291,7 +291,7 @@ fn abi_serializer_walks_composite_field_types() {
         fields: vec![
             field("l", "List OF Integer"),
             field("m", "Map OF String TO Integer"),
-            field("r", "Result OF Integer"),
+            field("r", "#Result OF Integer"),
             field("f", "FUNC(Integer) AS Boolean"),
             field("t", "Thread OF Integer TO String"),
             // A second List OF Integer forces the type_refs cache-hit path.

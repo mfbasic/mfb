@@ -201,7 +201,7 @@ FUNC main() AS Integer
     NEXT
   NEXT
 
-  ' zip (List OF Pair OF Integer, String)
+  ' zip (List OF Pair OF (Integer, String))
   FOR EACH p IN collections::zip(ints, strs)
     io::print(toString(p.first))
     io::print(p.second)

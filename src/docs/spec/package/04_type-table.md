@@ -62,7 +62,7 @@ Type kinds:
 3  = enum
 4  = List OF T
 5  = Map OF K TO V
-6  = Result OF T
+6  = #Result OF T
 7  = Thread OF Msg TO Out
 8  = function type
 9  = MapEntry OF K TO V
@@ -74,7 +74,7 @@ Type kinds:
 
 There is no distinct "native resource" or "standard resource" kind. `fs.File`, `tcp.Socket`, and `tcp.Listener` use the reserved IDs above. Other resource types, including native `LINK` resources, use **record** entries (kind `1`); its resource-ness — which blocks copying, construction, and field access — is recorded in `RESOURCE_TABLE`, not in the type kind.
 
-There are no open template declarations in package binary representation. `List`, `Set`, `Map`, `MapEntry`, `Result`, `Thread`, and `ThreadWorker` are compiler-owned templates, user templates are expanded by the source compiler, and the type table stores only concrete instantiations such as `List OF Integer`, `Result OF Vec3`, `ThreadWorker OF String TO Integer`, or a user-defined `Stack OF String`. Each distinct instantiation is interned once (keyed by a canonical `Name#id...` string) and reused.
+There are no open template declarations in package binary representation. `List`, `Set`, `Map`, `MapEntry`, `#Result`, `Thread`, and `ThreadWorker` are compiler-owned templates, user templates are expanded by the source compiler, and the type table stores only concrete instantiations such as `List OF Integer`, `#Result OF Vec3`, `ThreadWorker OF String TO Integer`, or a user-defined `Stack OF String`. Each distinct instantiation is interned once (keyed by a canonical `Name#id...` string) and reused.
 
 ## Record payload
 
@@ -160,13 +160,13 @@ A resource carrying a `STATE` payload (`./mfb spec language resource-management`
 
 The STATE is **not** an ABI distinction — a `File STATE Cursor` and a `File` are the same resource record, the payload being a pointer inside it — but it is a *signature* distinction, so it must round-trip: a consumer reads an imported function's signature from the ABI exports, so a return type encoded without its STATE would compile the exporter and silently degrade every importer to a bare handle. [[src/binary_repr/sections.rs:state_type]]
 
-## `Result OF T` payload
+## `#Result OF T` payload
 
 ```text
 successType     typeId
 ```
 
-The error member type is always built-in `Error`. The success member `Ok OF T` is compiler-owned and is not emitted as a user-constructible open declaration.
+The error member type is always built-in `Error`. The success member `#Ok` is compiler-owned and is not emitted as a declaration. In this table the kind, not the name, identifies the entry, and a user type named `Result` is an ordinary kind-1 record. The IR section's inline type strings do carry the `#Result` spelling (`./mfb spec package ir-section`, version 7).
 
 ## `Thread OF Msg TO Out` payload
 

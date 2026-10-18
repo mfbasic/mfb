@@ -120,7 +120,7 @@ trap           = "TRAP" [ "(" ident ")" ] block "END" "TRAP" ;
    `expr TRAP … END TRAP` attached to a LET/MUT binding, assignment, or
    bare-expression statement may likewise omit `(ident)`. *)
 
-templateParams = "OF" ident { "," ident } ;
+templateParams = "OF" ( ident | "(" ident { "," ident } ")" ) ;
 params         = param { "," param } ;
 (* A parameter carries no `RES`: it is a resource because its type is one
    (§15), and a `RES` before the name is MFB_PARSE_PARAMETER_RES. `STATE T`
@@ -134,20 +134,25 @@ returnType     = "AS" [ "RES" ] type [ "STATE" type ] ;
 type           = templateType | funcType | "(" type ")" | ident | qualifiedIdent ;
 typeList       = type { "," type } ;
 (* `RES` markers denote resource-transfer collections / thread planes (§15.6).
-   `Result OF type` is COMPILER-INTERNAL: it is the private fallible-outcome form
-   (§4.4, §8.8) and is never written in user source — the parser only emits it
-   during desugaring. *)
+   The private fallible-outcome form `#Result OF type` (§8.5b, §8.8) is not a
+   production: `#` cannot appear in a user identifier, and `Result OF type` in
+   source is an ordinary user template type. *)
 templateType
                = ( "Map" | "MapEntry" ) "OF" type "TO" [ "RES" ] type
                | ( "List" ) "OF" [ "RES" ] type
                | ( "Set" ) "OF" type                       (* elements comparable; no RES *)
-               | "Result" "OF" type                       (* internal only; not user-writable *)
                | ( "Thread" | "ThreadWorker" ) "OF" threadBody
-               | (ident | qualifiedIdent) "OF" type { "," type } ;
+               | (ident | qualifiedIdent) "OF" ( type | "(" type { "," type } ")" ) ;
 threadBody     = [ type ] [ "RES" type [ "STATE" type ] ] "TO" type [ "STATE" type ] ;
                (* message defaults to Nothing; a trailing STATE is the view's own,
                   never the output's (§15) *)
 funcType       = [ "ISOLATED" ] "FUNC" "(" [ typeList ] ")" "AS" type ;
+(* A template's argument list (and a declaration's templateParams) is ONE item,
+   or a parenthesized list of two or more: `Pair OF (A, B)`. A bare `OF T` never
+   reads past a comma, so the comma belongs to the enclosing list. Outside every
+   comma-separated list, a comma after a bare template argument is the retired
+   `Name OF A, B` spelling and is reported (`MFB_PARSE_UNEXPECTED_TOKEN`) with the
+   parenthesized form. *)
 
 typeDecl       = declVis "TYPE" ident [ templateParams ] { field } "END" "TYPE" ;
 field          = declVis ident "AS" [ "RES" ] type [ "STATE" type ] ;

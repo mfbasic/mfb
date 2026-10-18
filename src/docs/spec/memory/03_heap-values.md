@@ -66,7 +66,7 @@ stores, by field type:
   `recordBase + offset`; the offset is relative to the record base, so a whole-
   block `memcpy` is a correct deep copy and the inlined `String` comes along.
 - **flat composite** — a nested record, a data `Union`, a `List`/`Map`/`Set`, or a
-  `Result OF T` whose own payloads are all flat, plus the built-in
+  `#Result OF T` whose own payloads are all flat, plus the built-in
   flat records `Error`/`ErrorLoc`: inlined recursively as a `U64` block-relative
   offset into the data region, exactly like a `String`. The field read recovers
   `recordBase + offset`. Each nested block preserves its own internal relative
@@ -134,7 +134,8 @@ the size walk ends at the message rather than reading an absent `ErrorLoc`. [[sr
 
 ## `Result`
 
-`Result OF T` uses a `{tag, size, payload}` block — a two-variant data union
+`#Result OF T` (the internal fallible result, `./mfb spec language error-model`
+§8.5b) uses a `{tag, size, payload}` block — a two-variant data union
 `Ok(T)` / `Err(Error)`:
 
 ```text

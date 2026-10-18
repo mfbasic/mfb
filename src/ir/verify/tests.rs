@@ -777,7 +777,7 @@ fn rejects_result_value_with_fabricated_success_type() {
     let f = func_returns(
         "run",
         "Account",
-        vec![param("r", "Result OF Integer", None)],
+        vec![param("r", "#Result OF Integer", None)],
         body,
     );
     let err = check(&project(vec![f], vec![record("Account", &["balance"])]))
@@ -794,7 +794,7 @@ fn accepts_result_value_with_matching_success_type() {
     let f = func_returns(
         "run",
         "Integer",
-        vec![param("r", "Result OF Integer", None)],
+        vec![param("r", "#Result OF Integer", None)],
         body,
     );
     check(&project(vec![f], vec![])).expect("matching success type is valid");
@@ -2254,13 +2254,48 @@ fn rejects_match_pattern_not_a_variant() {
     );
 }
 
+// bug-945: `Ok` is an ordinary user name. A union member named `Ok` is matched
+// like any member, with no reserved-name rule in the way.
 #[test]
-fn rejects_result_case_not_matchable() {
+fn accepts_user_union_member_named_ok() {
+    let m = IrOp::Match {
+        value: IrValue::Local("o".to_string()),
+        cases: vec![
+            IrMatchCase {
+                pattern: IrMatchPattern::Value(IrValue::Local("Ok".to_string())),
+                guard: None,
+                body: vec![ret_none()],
+                loc: IrSourceLoc::default(),
+            },
+            IrMatchCase {
+                pattern: IrMatchPattern::Value(IrValue::Local("Bad".to_string())),
+                guard: None,
+                body: vec![ret_none()],
+                loc: IrSourceLoc::default(),
+            },
+        ],
+        loc: IrSourceLoc::default(),
+    };
+    let f = func_returns("run", "Nothing", vec![param("o", "Outcome", None)], vec![m]);
+    accept(&project(
+        vec![f],
+        vec![
+            union("Outcome", &["Ok", "Bad"]),
+            record("Ok", &["v"]),
+            record("Bad", &["why"]),
+        ],
+    ));
+}
+
+// bug-945: `CASE Error(e)` names the built-in `Error` record, so against a union
+// that does not carry it, it is the ordinary not-a-member mismatch.
+#[test]
+fn rejects_case_error_not_a_union_member() {
     let m = IrOp::Match {
         value: IrValue::Local("s".to_string()),
         cases: vec![
             IrMatchCase {
-                pattern: IrMatchPattern::Value(IrValue::Local("Ok".to_string())),
+                pattern: IrMatchPattern::Value(IrValue::Local("Error".to_string())),
                 guard: None,
                 body: vec![ret_none()],
                 loc: IrSourceLoc::default(),
@@ -2277,7 +2312,7 @@ fn rejects_result_case_not_matchable() {
     let f = func_returns("run", "Nothing", vec![param("s", "Shape", None)], vec![m]);
     expect_rule(
         &project(vec![f], vec![union("Shape", &["Circle", "Square"])]),
-        "TYPE_RESULT_NOT_MATCHABLE",
+        "TYPE_MATCH_PATTERN_MISMATCH",
     );
 }
 
@@ -2423,14 +2458,15 @@ fn accepts_valid_constructor() {
     accept(&project(vec![f], vec![record("Point", &["x", "y"])]));
 }
 
+// bug-945: a user record named `Ok` constructs like any record.
 #[test]
-fn rejects_construct_result_implicit() {
+fn accepts_construct_user_record_named_ok() {
     let body = vec![ret(IrValue::Constructor {
         type_: crate::types::ParameterType::parse("Ok"),
         args: vec![int_const("1")],
     })];
-    let f = func_returns("run", "Integer", vec![], body);
-    expect_rule(&project(vec![f], vec![]), "TYPE_RESULT_IS_IMPLICIT");
+    let f = func_returns("run", "Ok", vec![], body);
+    accept(&project(vec![f], vec![record("Ok", &["v"])]));
 }
 
 // --- with update -----------------------------------------------------------
@@ -3030,7 +3066,7 @@ fn os_call_with_valid_args_is_accepted() {
     let body = vec![eval(IrValue::Call {
         target: "os.getEnv".to_string(),
         args: vec![const_of("String", "HOME")],
-        type_: crate::types::ParameterType::parse("Result OF String"),
+        type_: crate::types::ParameterType::parse("#Result OF String"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Nothing", vec![], body);
@@ -3094,7 +3130,7 @@ fn accepts_collections_contains_comparable() {
 fn rejects_result_of_inner_mismatch() {
     let body = vec![bind(
         "r",
-        "Result OF Integer",
+        "#Result OF Integer",
         Some(IrValue::Local("b".to_string())),
         true,
         false,
@@ -3102,7 +3138,7 @@ fn rejects_result_of_inner_mismatch() {
     let f = func_returns(
         "run",
         "Nothing",
-        vec![param("b", "Result OF Byte", None)],
+        vec![param("b", "#Result OF Byte", None)],
         body,
     );
     expect_rule(&project(vec![f], vec![]), "TYPE_BINDING_MISMATCH");
@@ -6206,8 +6242,8 @@ fn accepts_result_of_return() {
     let body = vec![ret(IrValue::Local("r".to_string()))];
     let f = func_returns(
         "run",
-        "Result OF Integer",
-        vec![param("r", "Result OF Integer", None)],
+        "#Result OF Integer",
+        vec![param("r", "#Result OF Integer", None)],
         body,
     );
     accept(&project(vec![f], vec![]));
@@ -6618,7 +6654,7 @@ fn accepts_function_with_union_and_result_value_shapes() {
         "Nothing",
         vec![
             param("c", "Circle", None),
-            param("r", "Result OF Integer", None),
+            param("r", "#Result OF Integer", None),
         ],
         body,
     );
@@ -8876,7 +8912,7 @@ fn cause_walk_accepts_every_plain_sendable_shape() {
         "List OF Integer",
         "Set OF String",
         "Map OF String TO Integer",
-        "Result OF Integer",
+        "#Result OF Integer",
         "Error",
         "ErrorLoc",
         "Scalar",
@@ -9636,7 +9672,7 @@ fn inline_transfer(then_body: Vec<IrOp>, else_body: Vec<IrOp>, after: Vec<IrOp>)
         bind("f", "fs.File", None, true, false),
         bind(
             "$trap_res0",
-            "Result OF Nothing",
+            "#Result OF Nothing",
             Some(transfer_value(
                 crate::codegen::builtins::thread::TRANSFER_RESOURCE,
                 "f",
@@ -9695,7 +9731,7 @@ fn chain_transfer(handler: Vec<IrOp>, after: Vec<IrOp>) -> IrProject {
         ),
         bind(
             "$trap_res2",
-            "Result OF Integer",
+            "#Result OF Integer",
             Some(IrValue::CallResult {
                 target: "wait".to_string(),
                 args: vec![],
@@ -9710,7 +9746,7 @@ fn chain_transfer(handler: Vec<IrOp>, after: Vec<IrOp>) -> IrProject {
             vec![
                 bind(
                     "$trap_res3",
-                    "Result OF Nothing",
+                    "#Result OF Nothing",
                     Some(transfer_value(
                         crate::codegen::builtins::thread::TRANSFER_RESOURCE,
                         "f",

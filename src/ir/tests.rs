@@ -5265,10 +5265,10 @@ END FUNC
         assert!(j.contains("else"));
     }
 
-    // NOTE: the `Result OF …` MATCH lowering paths (Match-statement result-flag
-    // branch; `match_case_binding`'s Ok/Error arms) are unreachable from source:
-    // the front end rejects `CASE Ok`/`CASE Error` with TYPE_RESULT_NOT_MATCHABLE
-    // and forbids naming `Result OF …` in user code, so no clean program reaches
+    // NOTE: the internal `#Result OF …` MATCH lowering paths (Match-statement
+    // result-flag branch; `match_case_binding`'s `#Ok`/Error arms) are unreachable
+    // from source: a call scrutinee auto-unwraps to its value and no user
+    // identifier can spell `#Result`/`#Ok` (bug-945), so no clean program reaches
     // them. They remain covered only defensively.
 
     // ---- lambdas / captures ------------------------------------------------

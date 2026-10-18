@@ -451,10 +451,6 @@ pub(super) fn substitute_type_params(
     }
 }
 
-/// Read each imported package's exported functions and collect the overloaded
-/// ones (more than one export sharing a base name), keyed by the importer-facing
-/// `binding.base` name. Also returns the set of `binding.`/`package.` qualifier
-/// prefixes for argument-type normalization (plan-linker.md §12, overloads).
 /// The record layouts every imported package's `.mfp` exports, keyed by the bare
 /// declared nominal, so the monomorphizer types `record.field` on an imported
 /// record exactly as on a local one (bug-631). Resolves each import binding's
@@ -519,14 +515,21 @@ pub(super) fn collect_imported_enums(
         .collect()
 }
 
+/// Read each imported package's exported functions and collect the overloaded
+/// ones (more than one export sharing a base name), keyed by `package.base` —
+/// the PACKAGE, not an import binding: bindings are per file, so one alias may
+/// name different packages in different files, and a call is resolved through
+/// the calling file's own binding (`Monomorphizer::imported_overload_set`,
+/// bug-914). Also returns the set of `binding.`/`package.` qualifier prefixes for
+/// argument-type normalization (plan-linker.md §12, overloads).
 pub(super) fn collect_imported_overloads(
     project_dir: &Path,
     source: &HirProject,
 ) -> (HashMap<String, Vec<ImportedOverload>>, Vec<String>) {
     let mut overloads: HashMap<String, Vec<ImportedOverload>> = HashMap::new();
     let mut qualifiers: HashSet<String> = HashSet::new();
-    // Distinct (binding, package) pairs across all files.
-    let mut bindings: HashMap<String, String> = HashMap::new();
+    // Every package any file imports, under whichever binding.
+    let mut packages: HashSet<String> = HashSet::new();
     for file in &source.files {
         for (binding, package) in file.import_bindings() {
             // bug-632: only a BUILT-IN package's qualifier is stripped. An imported
@@ -538,10 +541,10 @@ pub(super) fn collect_imported_overloads(
                 qualifiers.insert(format!("{binding}."));
                 qualifiers.insert(format!("{package}."));
             }
-            bindings.insert(binding, package);
+            packages.insert(package);
         }
     }
-    for (binding, package) in &bindings {
+    for package in &packages {
         // bug-480: the shared resolver, so a source-directory dependency's
         // overload set is collected from the `.mfp` this build compiled into
         // `build/packages/` exactly as an installed one is.
@@ -577,7 +580,7 @@ pub(super) fn collect_imported_overloads(
             if exports.len() < 2 {
                 continue; // Non-overloaded imports resolve by their bare name.
             }
-            let entry = overloads.entry(format!("{binding}.{base}")).or_default();
+            let entry = overloads.entry(format!("{package}.{base}")).or_default();
             for export in exports {
                 entry.push(ImportedOverload {
                     param_types: export
@@ -587,13 +590,7 @@ pub(super) fn collect_imported_overloads(
                             crate::manifest::package::qualify_package_type(&param.type_, &owners)
                         })
                         .collect(),
-                    // Rewrite to the importer-facing `binding.name`, not
-                    // `package.name`: the post-monomorph resolver maps import
-                    // bindings (binding→package), so a `package.name` target is
-                    // unresolvable when the file imported under an alias
-                    // (`IMPORT pkg AS radio`). When the import is unaliased,
-                    // binding == package, so this is unchanged (bug-104).
-                    qualified_name: format!("{binding}.{}", export.name),
+                    export_name: export.name.clone(),
                     return_type: crate::manifest::package::qualify_package_type(
                         &export.return_type,
                         &owners,
@@ -969,7 +966,7 @@ mod tests {
         let cases = [
             ("List OF T", "List OF Integer"),
             ("Set OF T", "Set OF Integer"),
-            ("Result OF T", "Result OF String"),
+            ("#Result OF T", "#Result OF String"),
             ("Map OF T TO U", "Map OF String TO Integer"),
             ("MapEntry OF T TO U", "MapEntry OF String TO Integer"),
             ("Box OF T", "Box OF Integer"),
@@ -1021,7 +1018,7 @@ mod tests {
         let params = vec!["T".to_string(), "U".to_string()];
         let cases = [
             ("List OF T", "Integer"),
-            ("Result OF T", "Integer"),
+            ("#Result OF T", "Integer"),
             ("Map OF T TO U", "Integer"),
             ("Map OF T TO U", "Map OF Integer"),
             ("MapEntry OF T TO U", "Integer"),
@@ -1149,8 +1146,8 @@ mod tests {
         let mut substitutions = HashMap::new();
         substitutions.insert("T".to_string(), "Integer".to_string());
         assert_eq!(
-            substitute_str("Pair OF List OF T, T", &substitutions),
-            "Pair OF List OF Integer, Integer"
+            substitute_str("Pair OF (List OF T, T)", &substitutions),
+            "Pair OF (List OF Integer, Integer)"
         );
         assert_eq!(
             substitute_str("List OF T", &substitutions),
@@ -1175,7 +1172,7 @@ mod tests {
             "Set OF Integer",
             "Map OF Integer TO String",
             "MapEntry OF Integer TO String",
-            "Result OF Integer",
+            "#Result OF Integer",
             "Thread OF Integer TO String",
             "ThreadWorker OF Integer TO String",
             "FUNC(Integer) AS String",
@@ -1192,7 +1189,7 @@ mod tests {
         assert_eq!(substitute_str("T", &s), "Integer");
         assert_eq!(substitute_str("List OF T", &s), "List OF Integer");
         assert_eq!(substitute_str("Set OF T", &s), "Set OF Integer");
-        assert_eq!(substitute_str("Result OF T", &s), "Result OF Integer");
+        assert_eq!(substitute_str("#Result OF T", &s), "#Result OF Integer");
         assert_eq!(
             substitute_str("Map OF T TO U", &s),
             "Map OF Integer TO String"
@@ -1202,8 +1199,8 @@ mod tests {
             "MapEntry OF Integer TO String"
         );
         assert_eq!(
-            substitute_str("Pair OF T, U", &s),
-            "Pair OF Integer, String"
+            substitute_str("Pair OF (T, U)", &s),
+            "Pair OF (Integer, String)"
         );
         // Thread shape substitutes message and output slots.
         assert_eq!(
@@ -1502,7 +1499,7 @@ mod tests {
 
         let (overloads, qualifiers) =
             collect_imported_overloads(dir.path(), &crate::hir::elaborate(&project));
-        // Overload sets are keyed by `binding.base`.
+        // Overload sets are keyed by `package.base` (bug-914).
         assert!(
             overloads.contains_key("package_simple.score"),
             "keys: {:?}",
@@ -1510,10 +1507,8 @@ mod tests {
         );
         let score = &overloads["package_simple.score"];
         assert!(score.len() >= 2);
-        // Each collected overload carries the package-qualified mangled name.
-        assert!(score
-            .iter()
-            .all(|o| o.qualified_name.starts_with("package_simple.score")));
+        // Each collected overload carries the export's mangled name.
+        assert!(score.iter().all(|o| o.export_name.starts_with("score")));
         // bug-632: a USER package's qualifier is NOT captured — its types are
         // package-qualified on both sides of the overload match, so stripping the
         // qualifier would merge two packages' same-named types. Only a built-in

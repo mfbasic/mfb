@@ -127,17 +127,35 @@ single bounded diagnostic rather than re-reporting on every one of the
 
 For a call to a template function: [[src/monomorph/lower.rs:instantiate_function]]
 
-1. Look up the template by base name; non-template names return `None` (the call
-   falls through to overload resolution).
-2. Reject more arguments than parameters (`TYPE_CALL_ARITY_MISMATCH`). Fewer is
-   allowed (trailing defaults).
-3. **Unify** each declared parameter type against the actual argument type
-   (mapped through `template_view_type`, which re-expands an already-mangled
-   concrete type back to its `name OF args` view), binding template parameters in
-   `substitutions`. A failure reports `TYPE_CALL_ARGUMENT_MISMATCH`.
-4. Require every template parameter to be bound (the `collect::<Option<_>>` fails
-   to `None` otherwise — a parameter not reachable from any argument cannot be
-   inferred).
+1. Look up every template of the base name (a name may carry several: a template
+   overloads by signature like a plain `FUNC`, bug-913); non-template names return
+   `None` (the call falls through to overload resolution). A plain overload of the
+   name whose parameter types match the call exactly wins: `None` again.
+2. For each template, **bind** it (`bind_template`): more arguments than
+   parameters do not bind (`TYPE_CALL_ARITY_MISMATCH` for a lone template; fewer is
+   allowed — trailing defaults — but when the name has several candidates a
+   template whose unsupplied parameter has no default does not bind). **Unify**
+   each declared parameter type against the actual argument type (mapped through
+   `template_view_type`, which re-expands an already-mangled concrete type back to
+   its `name OF args` view), binding template parameters in `substitutions`; a
+   failure reports `TYPE_CALL_ARGUMENT_MISMATCH` for a lone template. Every
+   template parameter must be bound (a parameter not reachable from any argument
+   cannot be inferred). Named arguments are reordered into each template's own
+   parameter order first (bug-196).
+3. A name with one template and no plain overload reports its binding failure as
+   above. Otherwise the call selects among the templates that bind: none —
+   `TYPE_CALL_ARGUMENT_MISMATCH` when the name has no plain overload either (else
+   the plain overload set reports); one — that template; several — the **most
+   specific** (`most_specific`): template `a` is at least as specific as `b` when
+   `b`'s parameter patterns bind `a`'s own parameter types, so `f OF T(x AS List OF
+   T)` beats `f OF T(x AS T)` for `f([1])`. No single strictly most specific
+   template is `TYPE_OVERLOAD_AMBIGUOUS`.
+4. The instantiation key is `name<args>` for a name with one template, and
+   `name(<param types>)<return><args>` — the template's identity — for a name with
+   several, so two templates instantiated at the same arguments stay two concrete
+   functions (`unique_concrete_symbol` suffixes the second symbol). Each
+   instantiation symbol maps back to the called name in the bug-697 render table,
+   so a downstream diagnostic about the call names `f`, never `f$Integer`.
 5. Mangle the concrete name, charge one against the total-instantiation budget
    (`TYPE_INSTANTIATION_BUDGET_EXCEEDED` once exhausted) and reject expansion past
    the 256-frame depth limit (`TYPE_INSTANTIATION_TOO_DEEP`), then lower the body
@@ -200,7 +218,7 @@ unify(pattern, actual):
                                   Unknown actual never overwrites a concrete);
                                   two concrete actuals must agree
   List OF E                    -> recurse on element
-  Result OF S                  -> recurse on success type
+  #Result OF S                 -> recurse on success type
   Map OF K TO V                -> recurse on K and V
   MapEntry OF K TO V           -> recurse on K and V
   Thread/ThreadWorker(...)     -> kind must match; recurse message/resource/output
@@ -243,7 +261,7 @@ when a type cannot be determined locally.
 | string / number / boolean literal | `String` / `Integer` or `Float` (by `.`) / `Boolean` |
 | `NOTHING` | `Nothing` |
 | identifier | `context.locals`, then a concrete function's signature type, then the globals |
-| constructor | `Error`, `Ok`→`Result OF Unknown`, or a known record name |
+| constructor | `Error`, or a known record name (a user `Ok` is an ordinary record, bug-945) |
 | list literal | `List OF <first element>` else `List OF Unknown` |
 | map literal | `Map OF <key> TO <value>` |
 | member access | the record field's declared type |
@@ -414,21 +432,30 @@ metadata, since the importer has no AST for them.
 [[src/monomorph/helpers.rs:collect_imported_overloads]]
 
 `collect_imported_overloads` runs once at construction. For each distinct
-`(binding, package)` import pair it:
+imported package (under whichever binding a file imports it) it:
 
-1. Records the qualifier prefixes `binding.` and `package.` for later
-   normalization.
+1. Records the qualifier prefixes `binding.` and `package.` of a built-in import
+   for later normalization.
 2. Reads the package's exports.[[src/binary_repr/]]
-3. Keeps only `Func`/`Sub` exports, groups them by base name (split on `$`).
-4. Records `(param_types, package.mangledName, return_type, isolated)` **only**
-   for a base name with ≥2 exports — a non-overloaded import resolves by its bare
-   name and is skipped. A call selects by `param_types`; a value reference to the
-   set (`LET f AS FUNC(…) AS … = pkg::name`) also needs the return type and
-   isolation (see "Function-value references").
+3. Keeps only `Func` exports, groups them by base name (split on `$`).
+4. Records `(param_types, mangledName, return_type, isolated)` under
+   `package.base` **only** for a base name with ≥2 exports — a non-overloaded
+   import resolves by its bare name and is skipped. A call selects by
+   `param_types`; a value reference to the set (`LET f AS FUNC(…) AS … =
+   pkg::name`) also needs the return type and isolation (see "Function-value
+   references").
+
+The set is keyed by PACKAGE because import bindings are per file: one alias may
+name different packages in different files (bug-914). A `binding.member` callee
+reaches its set through the binding of the file being lowered
+(`imported_overload_set`, from each file's own import bindings; a global
+initializer is lowered in its own file), and the rewrite target is
+`binding.mangledName` with that same binding, which the post-monomorph resolver
+maps per file. [[src/monomorph/lower.rs:imported_overload_set]]
 
 `resolve_imported_overload(callee, arg_types)` then finds the candidate whose
-arity and per-position `types_compatible` match, returning the
-package-qualified mangled name the package merge expects.
+arity and per-position `types_compatible` match, returning that
+`binding.mangledName` target.
 [[src/monomorph/lower.rs:resolve_imported_overload]] `types_compatible` is token-wise
 equality with `Unknown` as a wildcard on either side.
 [[src/monomorph/lower.rs:types_compatible]] The match must be **unique**: because

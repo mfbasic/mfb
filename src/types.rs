@@ -171,9 +171,11 @@ pub(crate) enum ParameterType {
     /// `monomorph::helpers::unify_type` already handled this shape on strings; the
     /// variant lets a `ParameterType` represent it with no gap.
     MapEntryOf(Box<ParameterType>, Box<ParameterType>),
-    /// A `Result OF T` — a success-typed result. A single-child structural type,
-    /// mirroring `monomorph::helpers::unify_type`'s `Result OF` arm, so the middle-end
-    /// shape is representable without folding into an opaque [`Named`](Self::Named).
+    /// A `#Result OF T` — a fallible call's success-typed result. A single-child
+    /// structural type, mirroring `monomorph::helpers::unify_type`'s `#Result OF` arm,
+    /// so the middle-end shape is representable without folding into an opaque
+    /// [`Named`](Self::Named). Spelled [`RESULT_TYPE`] (`#Result`), a name no user
+    /// identifier can spell (bug-945): a user `TYPE Result` is an ordinary type.
     ResultOf(Box<ParameterType>),
     /// A `RES`-marked collection element (`List OF RES fs.File`) — the mandatory
     /// ownership-axis marker for a resource stored as a collection element (§15.6).
@@ -393,6 +395,62 @@ impl ParameterType {
             | ParameterType::String
             | ParameterType::C(_)
             | ParameterType::Var(_)
+            | ParameterType::Arg(_)
+            | ParameterType::Unknown => self.clone(),
+        }
+    }
+    /// This type with every type variable ([`Var`](Self::Var)) renamed through
+    /// `rename`, at every depth — the [`map_nominals`](Self::map_nominals) walk for
+    /// variables. `rename` answers `None` to keep a variable.
+    ///
+    /// bug-913: two template declarations are the same overload when their
+    /// shapes agree up to the names of their type parameters (`FUNC f OF T(x AS
+    /// T)` and `FUNC f OF U(y AS U)`), so duplicate detection compares them with
+    /// each parameter renamed to its position.
+    pub(crate) fn rename_vars(&self, rename: &impl Fn(Symbol) -> Option<Symbol>) -> ParameterType {
+        let map = |t: &ParameterType| Box::new(t.rename_vars(rename));
+        match self {
+            ParameterType::Var(sym) => ParameterType::Var(rename(*sym).unwrap_or(*sym)),
+            ParameterType::UserOf(head, args) => {
+                ParameterType::UserOf(*head, args.iter().map(|a| a.rename_vars(rename)).collect())
+            }
+            ParameterType::ListOf(e) => ParameterType::ListOf(map(e)),
+            ParameterType::SetOf(e) => ParameterType::SetOf(map(e)),
+            ParameterType::ResultOf(e) => ParameterType::ResultOf(map(e)),
+            ParameterType::Res(e) => ParameterType::Res(map(e)),
+            ParameterType::MapOf(k, v) => ParameterType::MapOf(map(k), map(v)),
+            ParameterType::MapEntryOf(k, v) => ParameterType::MapEntryOf(map(k), map(v)),
+            ParameterType::Stateful { base, state } => ParameterType::Stateful {
+                base: map(base),
+                state: map(state),
+            },
+            ParameterType::Func(params, ret, isolated) => ParameterType::Func(
+                params.iter().map(|p| p.rename_vars(rename)).collect(),
+                map(ret),
+                *isolated,
+            ),
+            ParameterType::ThreadHandle {
+                worker,
+                msg,
+                res,
+                out,
+            } => ParameterType::ThreadHandle {
+                worker: *worker,
+                msg: map(msg),
+                res: map(res),
+                out: map(out),
+            },
+            ParameterType::AttributeString
+            | ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Integer
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::String
+            | ParameterType::C(_)
+            | ParameterType::Named(_)
             | ParameterType::Arg(_)
             | ParameterType::Unknown => self.clone(),
         }
@@ -674,8 +732,11 @@ impl ParameterType {
                 ParameterType::parse(value),
             );
         }
-        // `Result OF T` — a single success-typed child, mirroring `List OF `/`Set OF `.
-        if let Some(success) = name.strip_prefix("Result OF ") {
+        // `#Result OF T` — a single success-typed child, mirroring `List OF `/`Set OF `.
+        if let Some(success) = name
+            .strip_prefix(RESULT_TYPE)
+            .and_then(|rest| rest.strip_prefix(" OF "))
+        {
             return ParameterType::result_of(ParameterType::parse(success));
         }
         // `ISOLATED FUNC(...)` (a capture-free worker entry — `thread::start`'s
@@ -702,18 +763,36 @@ impl ParameterType {
                 };
             }
         }
-        // A user generic (`Pair OF Integer, String`). Ordered LAST among the ` OF `
-        // shapes so every built-in constructor above claims its own spelling first;
-        // what reaches here is by definition a non-builtin head. The argument list
-        // splits on TOP-LEVEL commas — the one place that rule now lives (it used to
-        // be duplicated in `monomorph::helpers::split_top_level_commas`).
+        // A user generic (`Stack OF T`, `Pair OF (Integer, String)`). Ordered LAST
+        // among the ` OF ` shapes so every built-in constructor above claims its own
+        // spelling first; what reaches here is by definition a non-builtin head. A
+        // multi-argument list is one parenthesized group (bug-833, which `name`
+        // renders); the arguments split on its TOP-LEVEL commas — the one place
+        // that rule lives. A single group with no comma is a grouped argument.
         if let Some((head, rest)) = Self::split_user_generic(name) {
+            let mut args: Vec<String> = crate::codegen::builtins::split_top_level_commas(rest)
+                .into_iter()
+                .map(str::to_string)
+                .collect();
+            if let Some(group_len) = rest
+                .starts_with('(')
+                .then(|| type_prefix_len(rest))
+                .flatten()
+            {
+                let parts =
+                    crate::codegen::builtins::split_top_level_commas(&rest[1..group_len - 1]);
+                if parts.len() > 1 {
+                    // A trailing ` STATE T` abuts the final argument, exactly as
+                    // `with_state` attaches it.
+                    args = parts.into_iter().map(str::to_string).collect();
+                    if let Some(last) = args.last_mut() {
+                        last.push_str(&rest[group_len..]);
+                    }
+                }
+            }
             return ParameterType::user_of(
                 head,
-                crate::codegen::builtins::split_top_level_commas(rest)
-                    .into_iter()
-                    .map(ParameterType::parse)
-                    .collect(),
+                args.iter().map(|arg| ParameterType::parse(arg)).collect(),
             );
         }
         // A resource's own top-level ` STATE T` clause (plan-111-A). Ordered
@@ -771,7 +850,7 @@ impl ParameterType {
         // generic named `Map` would be wrong.
         if matches!(
             head,
-            "List" | "Set" | "Map" | "MapEntry" | "Result" | THREAD_TYPE | THREAD_WORKER_TYPE
+            "List" | "Set" | "Map" | "MapEntry" | RESULT_TYPE | THREAD_TYPE | THREAD_WORKER_TYPE
         ) {
             return None;
         }
@@ -1025,7 +1104,9 @@ impl ParameterType {
             ParameterType::MapEntryOf(key, value) => {
                 Cow::Owned(format!("MapEntry OF {} TO {}", key.name(), value.name()))
             }
-            ParameterType::ResultOf(success) => Cow::Owned(format!("Result OF {}", success.name())),
+            ParameterType::ResultOf(success) => {
+                Cow::Owned(format!("{RESULT_TYPE} OF {}", success.name()))
+            }
             ParameterType::Res(inner) => Cow::Owned(format!("RES {}", inner.name())),
             // Byte-identical to the spelling `parse` split, and to what
             // `with_state` produced as one opaque `Named` before the variant
@@ -1037,6 +1118,31 @@ impl ParameterType {
             }
             ParameterType::C(ctype) => Cow::Borrowed(ctype.name()),
             ParameterType::Named(elem) => Cow::Borrowed(elem.resolve()),
+            // bug-833: more than one argument is a parenthesized list, the
+            // spelling source writes, so a multi-argument template nests inside a
+            // function type's parameters or another template's arguments with no
+            // comma ambiguity.
+            //
+            // A ` STATE T` clause on the final argument is written after the
+            // list, where source writes it (`Pair OF (Integer, File) STATE S`);
+            // `parse` reads either placement as that same structure, the clause
+            // abutting the final argument exactly as `with_state` attaches it.
+            ParameterType::UserOf(name, args) if args.len() > 1 => {
+                let (last, init) = args.split_last().expect("more than one argument");
+                let (last, clause) = match last {
+                    ParameterType::Stateful { base, state } => {
+                        (base.name(), format!(" STATE {}", state.name()))
+                    }
+                    other => (other.name(), String::new()),
+                };
+                let mut rendered: Vec<Cow<'_, str>> = init.iter().map(|a| a.name()).collect();
+                rendered.push(last);
+                Cow::Owned(format!(
+                    "{} OF ({}){clause}",
+                    name.resolve(),
+                    rendered.join(", ")
+                ))
+            }
             ParameterType::UserOf(name, args) => Cow::Owned(format!(
                 "{} OF {}",
                 name.resolve(),
@@ -1125,6 +1231,15 @@ impl fmt::Display for ParameterType {
 // the former source checker, codegen, binary_repr) speaks the same string vocabulary. This is the
 // former `builtins::thread` splitter set, kept byte-identical so the migrated
 // `thread` package and all its codegen citations agree on the spelling.
+
+/// The internal fallible-call result type's name ([`ParameterType::ResultOf`]
+/// renders `#Result OF T`). The [`INTERNAL_SIGIL`](crate::internal_name::INTERNAL_SIGIL)
+/// keeps it out of user space: no user identifier can spell it, so `Result` is an
+/// ordinary user name (bug-945).
+pub(crate) const RESULT_TYPE: &str = "#Result";
+/// The internal result's success member, spelled with the same sigil so a user
+/// `TYPE Ok` is an ordinary type (bug-945).
+pub(crate) const RESULT_SUCCESS_MEMBER: &str = "#Ok";
 
 /// The parent thread handle's type name.
 pub(crate) const THREAD_TYPE: &str = "Thread";
@@ -1437,6 +1552,15 @@ fn type_prefix_len(input: &str) -> Option<usize> {
         }
     }
 
+    // `#Result OF T`: the internal result's sigil-spelled base is not an
+    // identifier the base-name scan below accepts.
+    if let Some(success) = input
+        .strip_prefix(RESULT_TYPE)
+        .and_then(|rest| rest.strip_prefix(" OF "))
+    {
+        return type_prefix_len(success).map(|len| RESULT_TYPE.len() + 4 + len);
+    }
+
     let base_end = input
         .char_indices()
         .find_map(|(index, ch)| {
@@ -1455,11 +1579,11 @@ fn type_prefix_len(input: &str) -> Option<usize> {
         return Some(base_end);
     };
 
-    // `Set` shares this arm with `List`/`Result` because `parse` gives all three a
-    // single element child. It was missing here, so `Thread OF Set OF Integer TO
+    // `Set` shares this arm with `List` (and `#Result` above) because `parse` gives
+    // all three a single element child. It was missing here, so `Thread OF Set OF Integer TO
     // Integer` — a VALID, thread-sendable program — was rejected outright
     // (`SYMBOL_UNKNOWN_TYPE`) rather than merely mis-diagnosed (bug-463).
-    if matches!(base, "List" | "Set" | "Result") {
+    if matches!(base, "List" | "Set") {
         return type_prefix_len(after_of).map(|len| base_end + 4 + len);
     }
 
@@ -1894,7 +2018,7 @@ mod tests {
             "Thread OF Set OF RES fs.File TO Integer",
             "Thread OF FUNC(Integer) AS String TO Integer",
             "Thread OF ISOLATED FUNC(Integer) AS String TO Integer",
-            "Thread OF Pair OF Integer, String TO Integer",
+            "Thread OF Pair OF (Integer, String) TO Integer",
             "Thread OF List OF Set OF Integer TO Integer",
             "Thread OF Map OF Set OF Integer TO Integer TO Integer",
         ] {
@@ -1941,19 +2065,19 @@ mod tests {
             ParameterType::map_entry_of(ParameterType::String, ParameterType::Integer),
         );
         assert_eq!(
-            ParameterType::parse("Result OF Nothing"),
+            ParameterType::parse("#Result OF Nothing"),
             ParameterType::result_of(ParameterType::Nothing),
         );
         assert_eq!(
-            ParameterType::parse("Result OF List OF Integer"),
+            ParameterType::parse("#Result OF List OF Integer"),
             ParameterType::result_of(ParameterType::list_of(ParameterType::Integer)),
         );
         for spelling in [
             "MapEntry OF String TO Integer",
             "MapEntry OF String TO List OF Integer",
-            "Result OF Nothing",
-            "Result OF Integer",
-            "Result OF List OF String",
+            "#Result OF Nothing",
+            "#Result OF Integer",
+            "#Result OF List OF String",
             "List OF MapEntry OF String TO Integer",
         ] {
             round_trip(spelling);
@@ -2138,7 +2262,7 @@ mod tests {
         for spelling in [
             "List OF RES File STATE Cursor",
             "Set OF RES File STATE Cursor",
-            "Result OF File STATE Cursor",
+            "#Result OF File STATE Cursor",
             "Map OF String TO RES File STATE Cursor",
             "RES File STATE Cursor",
         ] {
@@ -2224,15 +2348,15 @@ mod tests {
             "Set OF Integer",
             "Map OF String TO Integer",
             "MapEntry OF String TO Integer",
-            "Result OF Integer",
-            "Result OF List OF String",
+            "#Result OF Integer",
+            "#Result OF List OF String",
             "RES fs.File",
             "RES File STATE Cursor",
             "List OF RES fs.File",
             "List OF RES File STATE Cursor",
             "Map OF RES fs.File TO Integer",
             "CsvReader",
-            "Pair OF Integer, String",
+            "Pair OF (Integer, String)",
             "FUNC(Integer) AS String",
             "ISOLATED FUNC(Integer) AS String",
             "Thread OF Integer TO String",
@@ -2372,7 +2496,7 @@ mod tests {
             )
         );
         assert_eq!(
-            ParameterType::parse("Result OF Stream STATE Pending"),
+            ParameterType::parse("#Result OF Stream STATE Pending"),
             ParameterType::result_of(ParameterType::Stateful {
                 base: Box::new(ParameterType::named("Stream")),
                 state: Box::new(ParameterType::named("Pending")),
@@ -2395,7 +2519,7 @@ mod tests {
         // A user generic carries the clause on its LAST argument, which is where
         // the trailing text abuts (`with_state`'s `UserOf` arm agrees).
         assert_eq!(
-            ParameterType::parse("Pair OF Integer, String STATE Cursor"),
+            ParameterType::parse("Pair OF (Integer, String) STATE Cursor"),
             ParameterType::user_of(
                 "Pair",
                 vec![
@@ -2434,11 +2558,11 @@ mod tests {
             "List OF RES File STATE Cursor",
             "Set OF RES File STATE Cursor",
             "Map OF String TO RES File STATE Cursor",
-            "Result OF Stream STATE Pending",
+            "#Result OF Stream STATE Pending",
             "Thread OF RES fs.File STATE Cursor TO Integer",
             "ThreadWorker OF RES File STATE Cursor TO Integer",
             "Thread OF Integer RES fs.File STATE Cursor TO String",
-            "Pair OF Integer, String STATE Cursor",
+            "Pair OF (Integer, String) STATE Cursor",
             "A B STATE C",
         ] {
             let type_ = ParameterType::parse(spelling);
@@ -2474,11 +2598,11 @@ mod tests {
             "Set OF RES File STATE Cursor",
             "Map OF String TO RES File STATE Cursor",
             "List OF List OF RES File STATE Cursor",
-            "Result OF Stream STATE Pending",
+            "#Result OF Stream STATE Pending",
             "Thread OF RES fs.File STATE Cursor TO Integer",
             "ThreadWorker OF RES File STATE Cursor TO Integer",
             "Thread OF Integer RES fs.File STATE Cursor TO String",
-            "Pair OF Integer, String STATE Cursor",
+            "Pair OF (Integer, String) STATE Cursor",
             "FUNC(Integer) AS File STATE Cursor",
             // Not a top-level clause: still one opaque nominal, and it must
             // round-trip as one.
@@ -2510,11 +2634,11 @@ mod tests {
             "Map OF RES File STATE Cursor TO Integer",
             "MapEntry OF String TO File STATE Cursor",
             "List OF List OF RES File STATE Cursor",
-            "Result OF Stream STATE Pending",
+            "#Result OF Stream STATE Pending",
             "Thread OF RES fs.File STATE Cursor TO Integer",
             "ThreadWorker OF RES File STATE Cursor TO Integer",
             "Thread OF Integer RES fs.File STATE Cursor TO String",
-            "Pair OF Integer, String STATE Cursor",
+            "Pair OF (Integer, String) STATE Cursor",
             "FUNC(Integer) AS File STATE Cursor",
             "FUNC(File STATE Cursor) AS Integer",
             // `parse` declines to split a composite base, so this stays one
@@ -2657,7 +2781,7 @@ mod tests {
             "Set OF RES fs.File",
             "Map OF String TO RES fs.File",
             "Map OF RES fs.File TO Integer",
-            "Result OF RES fs.File",
+            "#Result OF RES fs.File",
             "MapEntry OF String TO RES fs.File",
             // `Set`, which the measurement never descended into at all.
             "Set OF Integer",
@@ -2671,16 +2795,16 @@ mod tests {
             "ISOLATED FUNC(Integer) AS String",
             "List OF FUNC(Integer) AS String",
             // User generics, including a nested one and a generic argument list.
-            "Pair OF Integer, String",
+            "Pair OF (Integer, String)",
             "Holder OF Integer",
-            "Holder OF Pair OF Integer, String",
-            "Pair OF Integer, Map OF String TO Integer",
-            "List OF Pair OF Integer, String",
+            "Holder OF Pair OF (Integer, String)",
+            "Pair OF (Integer, Map OF String TO Integer)",
+            "List OF Pair OF (Integer, String)",
             // The builtin containers and threads, which already worked.
             "List OF Integer",
             "Map OF String TO Integer",
             "MapEntry OF String TO Integer",
-            "Result OF Integer",
+            "#Result OF Integer",
             "Thread OF Integer TO String",
             "Thread OF RES fs.File STATE Cursor TO Integer",
             "Thread OF List OF RES fs.File TO Integer",
@@ -2703,8 +2827,8 @@ mod tests {
                 "FUNC(Integer) AS String",
             ),
             (
-                "Pair OF Integer, String TO Integer",
-                "Pair OF Integer, String",
+                "Pair OF (Integer, String) TO Integer",
+                "Pair OF (Integer, String)",
             ),
             ("RES File STATE Cursor TO Integer", "RES File STATE Cursor"),
             (
@@ -2731,7 +2855,7 @@ mod tests {
             "Thread OF Map OF Set OF Integer TO Integer TO Integer",
             "Thread OF FUNC(Integer) AS String TO Integer",
             "Thread OF ISOLATED FUNC(Integer) AS String TO Integer",
-            "Thread OF Pair OF Integer, String TO Integer",
+            "Thread OF Pair OF (Integer, String) TO Integer",
         ] {
             assert!(
                 matches!(
@@ -2761,7 +2885,7 @@ mod tests {
             ),
         );
         assert_eq!(
-            ParameterType::parse("Thread OF Pair OF Integer, String TO Integer"),
+            ParameterType::parse("Thread OF Pair OF (Integer, String) TO Integer"),
             ParameterType::thread_handle(
                 false,
                 ParameterType::user_of("Pair", vec![ParameterType::Integer, ParameterType::String]),

@@ -83,15 +83,15 @@ Comparability/orderability constraints (enforced on the IR by the semantic verif
 - A type is comparable when it is `Boolean`, `Byte`, `Error`, `ErrorLoc`,
   `Fixed`, `Float`, `Integer`, `Money`, `Scalar`, `Nothing`, `String`, an `ENUM`, or a `TYPE`
   record whose fields are all comparable. `List`, `Set`, `Map`, function values,
-  `Result`, resources, threads, and `UNION` types are not comparable. A
+  resources, threads, and `UNION` types are not comparable. A
   `Set OF T` therefore requires a comparable element type `T`, exactly as a
   `Map` key does. [[src/ir/verify/values.rs:is_comparable_seen]]
 - `collections::sort`/`collections::sortBy` order their elements/keys with the
   `<` operator, so the element (or key) type must be orderable; `distinct`
   relies on `contains` and therefore requires a comparable element type.
 
-`collections::zip` produces a `List OF Pair OF A, B`, and
-`collections::partition` produces a `Partition OF T`. `Pair OF A, B` (fields
+`collections::zip` produces a `List OF Pair OF (A, B)`, and
+`collections::partition` produces a `Partition OF T`. `Pair OF (A, B)` (fields
 `first`, `second`) and `Partition OF T` (fields `matched`, `unmatched`) are
 compiler-owned generic record templates in the always-in-scope builtin prelude; [[src/ast/manifest.rs:builtin_prelude_file]] they are constructed and field-accessed
 like ordinary records. `MapEntry OF K TO V` (fields `key`, `value`) is the

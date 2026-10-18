@@ -13,7 +13,9 @@ current restriction, not a promise about a future language version.
 
 Template parameters may appear only on `TYPE`, `UNION`, and `FUNC` declarations. A template is not a runtime entity and is not emitted to binary representation as an open declaration. Every used instantiation is resolved during compilation into a concrete declaration before IR, binary representation, package metadata, or native lowering is produced.
 
-Built-in type constructors such as `List`, `Map`, and `Thread` are compiler-owned templates. User code may define templates with the same `OF` syntax where allowed:
+Built-in type constructors such as `List`, `Map`, and `Thread` are compiler-owned templates. User code may define templates with the same `OF` syntax where allowed.
+
+A template with one parameter is written `OF T`. A template with more than one is written with a parenthesized list, at the declaration and at every use: `TYPE Pairing OF (A, B)`, `FUNC flip OF (A, B)(p AS Pairing OF (A, B)) AS Pairing OF (B, A)`, `LET p AS Pair OF (Integer, String)`. A bare `OF T` takes exactly one argument and never reads past a comma, so a template-typed parameter may sit anywhere in a parameter list, `FUNC(Box OF Integer, Integer) AS Integer` is a two-parameter function type, and a multi-argument template nests without ambiguity (`Holder OF Pairing OF (Integer, String)`). The bare multi-argument spelling `Pair OF Integer, String` is a parse error (`MFB_PARSE_UNEXPECTED_TOKEN`) that names the parenthesized form, reported at the comma wherever no enclosing list could own it. [[src/ast/expr.rs:parse_type_name_inner]] [[src/ast/items.rs:parse_template_params]]
 
 ```basic
 TYPE Stack OF T
@@ -40,7 +42,7 @@ A plain `FUNC`-typed callback parameter (`forEach`/`transform`/`filter`/`reduce`
 Template predicates such as comparability, copyability, defaultability, or resource restrictions are checked against each concrete instantiation:
 
 ```basic
-FUNC getOrDefault OF K, V(items AS Map OF K TO V, key AS K, defaultValue AS V) AS V
+FUNC getOrDefault OF (K, V)(items AS Map OF K TO V, key AS K, defaultValue AS V) AS V
   IF collections::hasKey(items, key) THEN
     RETURN collections::get(items, key)
   END IF

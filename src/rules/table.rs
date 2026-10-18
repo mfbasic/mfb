@@ -558,11 +558,15 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "read-only record cannot be constructed",
     },
+    // bug-945 retired this row and 0070/0071 below: the fallible result is the
+    // internal `#Result`/`#Ok`, which no user identifier can spell, so `Result`
+    // and `Ok` are ordinary user names with nothing to reject. Kept as reserved
+    // rows so the numbers are never recycled — the `2-203-0100` precedent.
     Rule {
         code: "2-203-0040",
         name: "TYPE_RESULT_IS_IMPLICIT",
         severity: Severity::Error,
-        message: "Result return wrapping is implicit",
+        message: "reserved: retired by bug-945 (the fallible result is internal)",
     },
     Rule {
         code: "2-203-0041",
@@ -1018,13 +1022,13 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0070",
         name: "TYPE_RESULT_NOT_USER_VISIBLE",
         severity: Severity::Error,
-        message: "Result is an internal type and cannot be named in user code",
+        message: "reserved: retired by bug-945 (the fallible result is internal)",
     },
     Rule {
         code: "2-203-0071",
         name: "TYPE_RESULT_NOT_MATCHABLE",
         severity: Severity::Error,
-        message: "Ok and Error are not matchable as Result members in user code",
+        message: "reserved: retired by bug-945 (the fallible result is internal)",
     },
     Rule {
         code: "2-203-0072",

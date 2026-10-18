@@ -24,7 +24,6 @@ const BUILTIN_TYPES: &[&str] = &[
     "Integer",
     "Money",
     "Nothing",
-    "Result",
     "Scalar",
     "String",
     crate::codegen::builtins::fs::FILE_TYPE_ID,
@@ -632,10 +631,21 @@ impl<'a> Resolver<'a> {
             return;
         }
 
+        // bug-913: a template's own type parameters are compared by position, so
+        // `FUNC f OF T(x AS T)` and `FUNC f OF U(y AS U)` are one signature.
+        let positional = |type_: &ParameterType| {
+            type_.rename_vars(&|var| {
+                function
+                    .template_params
+                    .iter()
+                    .position(|param| param == var.resolve())
+                    .map(|index| crate::intern::Symbol::intern(&format!("#{index}")))
+            })
+        };
         let params = function
             .params
             .iter()
-            .map(|param| declared(&param.type_))
+            .map(|param| declared(&positional(&param.type_)))
             .collect::<Vec<_>>();
         // The duplicate-detection key is (name, parameter types, return type): two
         // declarations collide only when all three match. Sharing name + parameter
@@ -644,7 +654,7 @@ impl<'a> Resolver<'a> {
         // A FUNC with no `AS` clause elaborates to `returns: Unknown`, which
         // `declared` maps back to the `None` that distinguishes it from a
         // `FUNC … AS T` in the key.
-        let return_type = declared(&function.returns);
+        let return_type = declared(&positional(&function.returns));
         if let Some(previous) = self
             .functions
             .get(&function.name)
@@ -1147,7 +1157,7 @@ mod tests {
             "native-link-duplicate-resource-invalid",
             "native-resource-close-not-native-invalid",
             "native-resource-close-signature-invalid",
-            "result-not-user-visible-invalid",
+            "func_typesystem_result_invalid",
         ] {
             assert!(
                 resolve_fixture(name).is_err(),

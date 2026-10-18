@@ -1572,3 +1572,19 @@ path = "tests/runtime/rt_union_trap_bind_default.rs"
 [[test]]
 name = "rt_crypto_random_int_span"
 path = "tests/runtime/rt_crypto_random_int_span.rs"
+
+[[test]]
+name = "rt_user_type_named_result_ok"
+path = "tests/runtime/rt_user_type_named_result_ok.rs"
+
+[[test]]
+name = "rt_user_generic_param_not_last"
+path = "tests/runtime/rt_user_generic_param_not_last.rs"
+
+[[test]]
+name = "rt_template_overloads"
+path = "tests/runtime/rt_template_overloads.rs"
+
+[[test]]
+name = "rt_import_alias_per_file_overloads"
+path = "tests/runtime/rt_import_alias_per_file_overloads.rs"

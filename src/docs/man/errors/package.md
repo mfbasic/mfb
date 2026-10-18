@@ -49,9 +49,9 @@ END TYPE
 `error(...)` call and is not rewritten as the error propagates, so it always
 points at the original failure site. See `mfb man general error`. There is no
 built-in `Option`/`Maybe`; absence is represented by an error, conventionally
-with a semantic code such as `errorCode::ErrNotFound`. `Result`, `Ok`, and `Err`
-are the runtime's internal representation of a fallible outcome and are not types
-a user may write or match.
+with a semantic code such as `errorCode::ErrNotFound`. A failure is only ever an
+`Error`; there is no result type to name, so `Result` and `Ok` are free for a
+program's own types.
 
 ## Result flow
 
@@ -170,8 +170,9 @@ END TRAP
 
 `MATCH` does not intercept call errors. A call used as a `MATCH` scrutinee
 auto-unwraps like every other call site, and `MATCH` matches enum and union
-values only; `CASE Ok`, `CASE Err`, and `CASE Error` are not valid arms
-(`TYPE_RESULT_NOT_MATCHABLE`). A failure is never matched, only trapped. Use an
+values only; `CASE Error(e)` over a value whose union does not carry `Error` is
+a pattern of the wrong type (`TYPE_MATCH_PATTERN_MISMATCH`). A failure is never
+matched, only trapped. Use an
 inline `TRAP` to handle one call's error locally, and a function-level `TRAP` for
 one central policy over several calls.
 

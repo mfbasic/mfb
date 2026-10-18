@@ -118,9 +118,9 @@ END TYPE
 ```
 
 Every `FUNC` implicitly either produces its value (auto-unwrapped) or
-fails with an `Error`. The private `Result`/`Ok`/`Err` representation of a
-fallible outcome is internal — it cannot be named, constructed, or matched in
-user code. See `mfb man errors`.
+fails with an `Error`; handle a failure with `TRAP` (see `mfb man errors`).
+`Result` and `Ok` are ordinary names: a program may declare its own
+`TYPE Result` or `TYPE Ok` like any other type.
 
 ## Containers
 
@@ -136,7 +136,7 @@ user code. See `mfb man errors`.
 - **`MapEntry OF K TO V`** — the built-in record produced by `FOR EACH`
   over a map, with public read-only `key AS K` and `value AS V` fields. See
   `mfb man flow forEach`.
-- **`Pair OF A, B`** — a built-in two-value record used by
+- **`Pair OF (A, B)`** — a built-in two-value record used by
   `collections::zip`, with fields `first AS A` and `second AS B` and no
   comparability constraint on `A` or `B`. See `mfb man types pair`.
 - **`Partition OF T`** — a built-in record returned by

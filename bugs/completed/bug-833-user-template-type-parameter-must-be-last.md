@@ -1,12 +1,12 @@
 # bug-833: a parameter of user-template type (`Stack OF T`, `Pair OF A, B`) cannot be followed by another parameter — the spec's own §3 template example does not parse
 
-Last updated: 2026-10-05
+Last updated: 2026-10-18
 Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/generics/user-generic-param-not-last-rt (to add)
+Status: Fixed (bs24-agent-h, bug-staging-24)
+Regression Test: tests/runtime/rt_user_generic_param_not_last.rs (`cargo test --release --test rt_user_generic_param_not_last`)
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -141,3 +141,57 @@ for keywords, so this needs no new machinery.
 
 This is a contained parser fix. The risk is any construct that relied on greedy reading.
 Grep the corpus for templates with more than one argument.
+
+## Fix
+
+The rule lives in `ast::expr::parse_type_name_inner`'s generic arm: after `OF`, a
+template takes ONE type, or `(` Type {, Type} `)`. A bare argument never reads past a
+comma, so the comma belongs to the enclosing list (`FUNC push OF T(s AS Stack OF T,
+value AS T)`, `LAMBDA(b AS Box OF Integer, x AS Integer)`, `FUNC(Box OF Integer,
+Integer) AS Integer` all parse as written). Declarations take the same form in
+`ast::items::parse_template_params` (`TYPE Pairing OF (A, B)`, `FUNC flip OF (A, B)(…)`).
+`Parser::type_list_depth` counts the comma-separated lists open around a type
+(parameter lists, function-type parameters, parenthesized template arguments, union
+`INCLUDES`); outside all of them a comma after a bare template is the retired spelling
+and is reported at the comma, `MFB_PARSE_UNEXPECTED_TOKEN`, naming the parenthesized
+form (`write `Pair OF (Integer, String)``); a bare multi-parameter declaration reports
+`write `OF (A, B)``.
+
+The internal spelling follows: `ParameterType::name` renders two or more arguments as
+`Name OF (A, B)` (a final argument's ` STATE T` written after the `)`), and `parse`
+unwraps such a group, so a multi-argument template nests inside function types and
+other templates' arguments (the plan-105-B Correction 8 nesting case,
+`Holder OF Pairing OF (Integer, String)`, now builds). `parse` still splits a bare
+top-level-comma list, which only a pre-change string carries.
+
+Owner-decision scope note: "everywhere" was applied to FUNC template declarations too
+(`FUNC f OF (A, B)(…)`), since `parse_template_params` is the one declaration rule for
+TYPE, UNION and FUNC. The in-tree builtin companions (`collections` groupBy, mapValues,
+merge, sortBy, zip) are converted.
+
+RED (before): all three tests in `rt_user_generic_param_not_last` failed
+(`MFB_PARSE_UNEXPECTED_TOKEN` / `MFB_PARSE_INVALID_IDENTIFIER`). GREEN (after): 3/3.
+
+Spec: `language templates` (§3 rule), `language grammar` (`templateParams`,
+`templateType`), `language types`/`collections`, `architecture type-name-encoding`,
+`architecture frontend`. Man: `types pair`, `types`, `collections zip`.
+
+### Fixtures converted (sources; goldens are the coordinator's)
+
+Converted to the parenthesized form: `user-generic-multi-param-rt`,
+`user-generic-nested-rt`, `zip-string-native-rt`, `builtin-pair-partition-valid`,
+`bug196_named_arg_reorder_instantiation`, `thread-message-plane-constructors-valid`,
+`tests/acceptance/src/collections.mfb`; comments only: `user-generic-nested-user-rt`,
+`user-generic-single-param-rt`, `tests/byte-identity/collections`.
+
+Expected to move (one `test-accept.sh` run over these leaf names): the `.ast` golden of
+`builtin-pair-partition-valid`, `zip-string-native-rt`, `user-generic-multi-param-rt`,
+`user-generic-nested-rt`, `thread-message-plane-constructors-valid` — the AST keeps the
+parenthesized type spelling (`"Pairing OF (A, B)"`). No `.ir`/`.run` moved (mangled
+names are built from the arguments, not the rendering); `acceptance` and
+`bug196_named_arg_reorder_instantiation` passed unchanged.
+- `tests/byte-identity/collections` `.ncodesum` (all five targets): the converted
+  `__collections_zip` companion source (`LET p AS Pair OF (A, B) = Pair[…]`) moves the
+  `ErrorLoc` column immediates of that line by 2 (`mov_imm x2 58 -> 60`, `34 -> 36`;
+  diffed against the pre-change compiler). Any other fixture whose program calls
+  `collections::zip` moves the same way in its native dumps.

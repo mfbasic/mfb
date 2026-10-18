@@ -1774,7 +1774,7 @@ mod tests {
             ),
             (
                 vec!["MapEntry OF String TO Integer"],
-                "Result OF Integer",
+                "#Result OF Integer",
                 false,
             ),
             (vec!["RES fs.File"], "RES tcp.Socket", false),
@@ -1797,7 +1797,7 @@ mod tests {
                 "Nothing",
                 false,
             ),
-            (vec!["Pair OF Integer, String"], "Nothing", false),
+            (vec!["Pair OF (Integer, String)"], "Nothing", false),
         ];
         for (param_types, return_type, isolated) in cases {
             let export = binary_repr::BinaryReprExport {

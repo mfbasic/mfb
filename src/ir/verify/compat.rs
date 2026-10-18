@@ -917,14 +917,6 @@ impl TypeEnv {
         // plan-111-C re-keys.
         let type_name = type_.name();
         let type_name = type_name.as_ref();
-        // `Ok`/`Result` are compiler-owned (the former source checker's TYPE_RESULT_IS_IMPLICIT).
-        if type_.is_named("Ok") || type_.is_named("Result") {
-            self.emit(
-                "TYPE_RESULT_IS_IMPLICIT",
-                format!("`{type_name}` is compiler-owned and cannot be constructed directly."),
-            );
-            return;
-        }
         // `AttributedString` is an opaque built-in with no user-visible fields
         // (plan-89-A): it is created with `astrings::fromString(text)`, never
         // with `AttributedString[...]` (the source checker's arm, plan-107-D).

@@ -46,7 +46,12 @@ pub const BINARY_REPR_MAGIC: &[u8; 4] = b"MFBR";
 /// simply leaves every link function stateless. This avoids re-churning every
 /// committed `.mfp` (including the hand-crafted security decode-hardening vectors,
 /// which pin an exact version).
-pub const BINARY_REPR_VERSION: u16 = 6;
+///
+/// Version 7 (bug-945) renames the internal fallible result inside every inline
+/// type string: `Result OF T` is now `#Result OF T`, because `Result OF T` is an
+/// ordinary user template. A v6 payload's `Result OF T` would decode as that user
+/// template, so v6 is refused and its packages must be rebuilt.
+pub const BINARY_REPR_VERSION: u16 = 7;
 
 // --- low-level writers -----------------------------------------------------
 

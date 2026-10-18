@@ -405,7 +405,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0037` | `TYPE_PARAM_REQUIRES_TYPE` | error | parameter must declare a type |
 | `2-203-0038` | `TYPE_READ_ONLY_RECORD_UPDATE` | error | read-only record cannot be updated |
 | `2-203-0039` | `TYPE_READ_ONLY_RECORD_CONSTRUCTOR` | error | read-only record cannot be constructed |
-| `2-203-0040` | `TYPE_RESULT_IS_IMPLICIT` | error | Result return wrapping is implicit |
+| `2-203-0040` | `TYPE_RESULT_IS_IMPLICIT` | error | reserved; not emitted; code is not reused |
 | `2-203-0041` | `TYPE_RETURN_MISMATCH` | error | return value type does not match function success type |
 | `2-203-0042` | `TYPE_SUB_CANNOT_RETURN_VALUE` | error | reserved; not emitted; code is not reused |
 | `2-203-0043` | `TYPE_UNKNOWN_VALUE` | error | value type could not be determined |
@@ -462,8 +462,8 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0126` | `NATIVE_CSTRUCT_ESCAPE` | error | a CSTRUCT name is used outside its LINK block, where only its mapped record type is nameable |
 | `2-203-0127` | `NATIVE_STRUCT_FIELD_MISMATCH` | error | a CSTRUCT and the record it maps to differ by field name, type, or coverage |
 | `2-203-0128` | `NATIVE_BIND_IN_INVALID` | error | a BIND IN block names an unknown slot or field, or binds a value it cannot marshal |
-| `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
-| `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
+| `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | reserved; not emitted; code is not reused |
+| `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | reserved; not emitted; code is not reused |
 | `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | the thread result field is removed; use thread::waitFor |
 | `2-203-0073` | `SUB_RETURN_FORBIDDEN` | error | reserved; not emitted; code is not reused |
 | `2-203-0074` | `TYPE_SUB_HAS_NO_VALUE` | error | reserved; not emitted; code is not reused |

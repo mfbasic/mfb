@@ -18,9 +18,9 @@ FUNC unbox OF T(b AS Box OF T) AS T
   RETURN b.value
 END FUNC
 
-' NOTE: a `Box OF T` parameter must come LAST. The type parser reads `OF`'s
-' argument list greedily across commas, so `(b AS Box OF T, v AS T)` parses as a
-' two-argument `Box OF T, v` and then fails to close the parameter list.
+' A `Box OF T` parameter may sit anywhere since bug-833 (a bare `OF T` takes
+' one argument); `rebox` keeps `v` first only so this fixture's goldens do not
+' move. `rt_user_generic_param_not_last` pins the template-first order.
 FUNC rebox OF T(v AS T, b AS Box OF T) AS Box OF T
   RETURN Box[v]
 END FUNC

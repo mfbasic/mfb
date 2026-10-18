@@ -7,7 +7,7 @@ use super::*;
 pub const BUILTIN_PRELUDE_PATH: &str = "<builtin prelude>";
 
 /// Builds the compiler-owned prelude: the always-in-scope generic record
-/// templates `Pair OF A, B` and `Partition OF T` (plan-01-functions.md §4). They
+/// templates `Pair OF (A, B)` and `Partition OF T` (plan-01-functions.md §4). They
 /// are ordinary generic records — constructible, field-accessible, copyable, and
 /// thread-sendable when their members are — handled by the existing template
 /// machinery rather than special-cased like `MapEntry`.

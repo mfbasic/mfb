@@ -779,7 +779,7 @@ pub(super) enum CollectionsCarry {
     /// `collections` member at all.
     Nothing,
     /// A container of the arguments' values (`take`'s `List OF T`, `flatten`,
-    /// `merge`, `values`, `zip`'s `List OF Pair OF A, B`).
+    /// `merge`, `values`, `zip`'s `List OF Pair OF (A, B)`).
     Container,
     /// One of the arguments' values itself (`get`'s `T`).
     Element,

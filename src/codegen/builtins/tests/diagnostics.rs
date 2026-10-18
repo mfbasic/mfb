@@ -420,7 +420,6 @@ const DIAGNOSTIC_CORPUS: &[&str] = &[
     "resource-union-param-invalid",
     "resource-union-state-mismatch-invalid",
     "resource_bare_name_confusion_invalid",
-    "result-not-matchable-invalid",
     "rotate_2d_invalid",
     "scale_invalid",
     "shell_invalid",

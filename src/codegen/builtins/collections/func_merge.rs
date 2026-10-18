@@ -410,7 +410,7 @@ END FUNC
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __collections_merge OF K, V(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V
+r#"FUNC __collections_merge OF (K, V)(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V
   MUT result AS Map OF K TO V = a
   FOR EACH e IN b
     IF preferB OR NOT collections::hasKey(result, e.key) THEN
