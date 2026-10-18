@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Other (performance)
 
-Status: Open
-Regression Test: none yet — Phase 1 below adds one
+Status: Fixed (bs24-agent-c, bug-staging-24)
+Regression Test: `tests/canvas/rt_canvas_font.rs:a_text_build_does_not_copy_the_font_file`
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -159,3 +159,74 @@ Commit: —
 
 Acceptance: the manual quotes the measured number.
 Commit: —
+
+## Fix (bs24-agent-c, bug-staging-24)
+
+**Phase 1 count.** By the time this was worked, plan-162-A had already moved shaping,
+metrics, `measureText` and every box onto the face index (`canvas::faceAt`), so the
+readers listed above were stale: the per-build copies left were the outlines',
+`__canvas_textGlyphRun` and `__canvas_textEdges`, each one `__canvas_fontBlob` per
+build even when every glyph hit the glyph cache. Measured with the new test's program
+(200 presents of one filled and one stroked `AB`, `--debug`, `MFB_CANVAS_GPU=0`) on
+main's compiler: graphics-arena `alloc_bytes` 466,485,120 with the 304-byte fixture and
+885,921,920 with it padded by a 1 MiB table; the difference, 419,436,800, is 400 copies
+of the 1,048,880-byte file: **one copy per build, from `fontBlobUnchecked`**, not from
+the compiler snapshotting a list argument. So the fix is shape 1.
+
+**What changed (shape 1, read in place).**
+
+- `gen_font_table.rs`: two internal natives on the table's own read path,
+  `canvas::fontByte(id, at)` (one byte of the published file, `0` for an unregistered
+  handle or an offset outside the file) and `canvas::fontLength(id)`. Each read looks
+  the handle up through `emit_lookup_font`'s load-acquire, as `faceAt` does, and hands
+  MFBASIC a number, never the block, so a font released mid-build reads as "no font"
+  from the next byte on. No pointer into the table is ever held by MFBASIC.
+- `helper_font.rs:FONT_HANDLE_READ`: the big-endian readers and the table-directory
+  lookup over a handle (`__canvas_fontU8/U16/S16/U32`, `__canvas_fontTableOf`).
+- `helper_glyph.rs`: every outline reader takes the font handle instead of a
+  `List OF Byte`; `helper_glyph_cache.rs:__canvas_glyphEntry` loses its blob parameter;
+  `helper_geometry.rs` no longer fetches the file in either builder.
+- The one caller of `fontBlobUnchecked` left is the `--debug` oracle
+  `__canvas_faceCheck` (`MFB_CANVAS_FACE_CHECK`), so `__canvas_fontBlob` is now a
+  `--debug`-only helper (`RegistryHelper::debug_split`, the `canvas_faceKern`
+  precedent): a normal build no longer carries it or `canvas::fontBlobUnchecked`.
+- Spec: `mfb spec app canvas` (the face-index section) states the outline rule.
+  Manual: `mfb man canvas types` `ParticleSystem` quotes the new text cost.
+  `planning/completed/plan-150-B-*.md` records the new rows beside its own.
+
+`canvas::measureText`, `__canvas_shapeRun` and the box readers: already fixed by
+plan-162-A (they read the face index, not the file); unaffected here.
+
+**Test.** `a_text_build_does_not_copy_the_font_file` bounds the padded run's extra
+graphics-arena bytes below one copy of the file (a ratio cannot see it: the 2.3 MB
+surface per frame dwarfs one copy). RED on main's compiler
+(`MFB_TEST_EXE=/tmp/main-dbg-target/release/mfb cargo test --release --test rt_canvas_font -- a_text_build_does_not_copy_the_font_file`:
+466,485,120 vs 885,921,920), GREEN on this branch
+(`cargo test --release --test rt_canvas_font -- a_text_build_does_not_copy_the_font_file`).
+`bash scripts/test-fast.sh --test rt_canvas_font`: ok (fmt, check, build, skips, tests;
+log dir `/var/folders/2n/9d_8f0dd7tj6bwwx3tmxrgn80000gn/T/mfb-test-fast.5Gb2pq`).
+
+**Numbers** (`bash tools/particle-bench/bench.sh <mfb> row 1000 TEMPLATE=text`, least
+µs a frame on Metal, M2 Max, 2026-10-17):
+
+| Compiler | Font | Least per frame | load average |
+|---|---|---|---|
+| main (`/tmp/main-dbg-target`) | Arial, 773,236 bytes | 51,457 | 15.96 |
+| main | the 304-byte fixture | 6,379 | 7.94 |
+| this fix | Arial | 7,044 | 22.26 |
+| this fix | the 304-byte fixture | 6,075 | 8.02 |
+
+Arial is now 1.16x the fixture font (the goal: within 2x). 100 → 2,129 µs and
+10,000 → 53,253 µs with Arial (load 15.0 and 13.8). The 389 µs a record above predates
+plan-162-A, which had already cut the copies to one a build (51 µs a record on main).
+
+**Goldens expected to change** (the coordinator's regeneration, not done here): the
+IR/native-plan goldens that carry the canvas helpers' bodies, because the outline
+readers' signatures and the two builders' bodies changed and the helpers' line numbers
+moved: `tests/syntax/app/app-mouse-surface` (`.ir`, `.macos-aarch64.app.nir`,
+`.macos-aarch64.app.nplan`, whose `runtimeSymbols` gain `canvas_fontByte` /
+`canvas_fontLength` and lose `canvas_fontBlobUnchecked`, and whose `#canvas_fontBlob`
+function goes),
+`tests/syntax/resources/canvas-append-unconsumed-valid` (`.ir`) and
+`tests/syntax/resources/loop-body-resource-reference-valid` (`.ir`). No picture golden
+moves: the bytes read are the same bytes.

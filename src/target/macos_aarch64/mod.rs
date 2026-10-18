@@ -108,6 +108,8 @@ impl NativeBackend for Backend {
                 "canvas.fontRegistered",
                 "canvas.fontBlobUnchecked",
                 "canvas.faceAt",
+                "canvas.fontByte",
+                "canvas.fontLength",
                 "canvas.getSize",
                 "canvas.didResize",
                 "canvas.frameNanos",

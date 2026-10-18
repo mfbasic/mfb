@@ -317,6 +317,11 @@ A `Text` template is 389 µs a particle with a system font and 7.9 µs with a 30
 one: the cost is the font FILE's size, copied on every text record built. That is not
 this plan's to fix and is not a property of particles: bug-1091.
 
+After bug-1091 (the outlines read the font file in place; `bash tools/particle-bench/bench.sh
+<mfb> row N TEMPLATE=text`, M2 Max, 2026-10-17, load average 8 to 22), least µs a frame on
+Metal: 100 → 2,129; 1,000 → 7,044; 10,000 → 53,253; 1,000 with the 304-byte fixture →
+6,075. The rows above are the measurement this plan took, before it.
+
 ### The split (10,000 particles, the `--debug` phase timer, ms per frame)
 
 `offsets` is the scene walk; with the expansion patched to stop early, what is left is

@@ -346,12 +346,13 @@ pub(crate) fn lower_font_registered(
 /// reasoned: in the retired `canvas::fontBytes` (bug-756 replaced it with this read), the
 /// first `measureText` printed correct metrics and the next one segfaulted (exit 139).
 ///
-/// So the cost is real and paid deliberately — and now paid only where the file itself is
-/// needed. What removed it everywhere else was not an alias but not reading the file at
-/// all: the parse-once face index (plan-162-A, `lower_face_at`) answers glyphs, advances
-/// and metrics by handle. The callers left are the two outline readers,
-/// `__canvas_textGlyphRun` and `__canvas_textEdges`, which pay one copy per geometry-cache
-/// **miss**, not per glyph or frame, and the `--debug` oracle `__canvas_faceCheck`.
+/// What removed the cost was not an alias but not handing MFBASIC the file at all: the
+/// parse-once face index (plan-162-A, `lower_face_at`) answers glyphs, advances and
+/// metrics by handle, and the outline readers read the file a byte at a time by handle
+/// (bug-1091, `lower_font_byte`). The outlines had paid one whole-file copy per text
+/// geometry build — every moved or changed label — so a `Text` record cost the font's
+/// size. The one caller left is the `--debug` oracle `__canvas_faceCheck`, which needs
+/// the file as a list for the byte readers it holds the index to.
 ///
 /// `Unchecked` because it must be called with a handle `canvas::fontRegistered` just
 /// said yes to; on any other it would copy from a null pointer.
@@ -463,7 +464,118 @@ pub(crate) fn lower_face_at(
     })
 }
 
-/// The safe front door the geometry builder calls.
+/// `canvas::fontByte(id, at) AS Integer` — byte `at` of the font file published for a
+/// handle, read **in place** (bug-1091).
+///
+/// The outline readers (`helper_glyph.rs`) go through this rather than an owned copy of
+/// the file: a geometry build read a few hundred bytes of `loca` and `glyf` and paid a
+/// copy of the whole file for them, every build, so the cost of a `Text` record grew
+/// with the font. It is `canvas::faceAt`'s rule for the file: every read looks the
+/// handle up through the table's own load-acquire path and hands MFBASIC a number, never
+/// the block. So a font released mid-build reads `0` from the next byte on, which is
+/// what the empty blob a released font answered read as, and nothing is left holding a
+/// block the program has finished with.
+///
+/// An unregistered handle and an `at` outside the file both answer `0`, as
+/// `collections::getOr(b, at, 0)` did over the copy.
+pub(crate) fn lower_font_byte(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let handle = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the font handle"))?
+        .location
+        .clone();
+    let index = args
+        .get(1)
+        .ok_or_else(|| format!("'{symbol}' expects the byte offset"))?
+        .location
+        .clone();
+
+    let done = builder.label("canvas_font_byte_done");
+    let at = builder.temporary_vreg();
+    builder.emit(abi::move_register(&at, &index));
+    let block = builder.temporary_vreg();
+    emit_lookup_font(builder, &handle, CANVAS_FONT_SLOT_BLOCK, &block);
+    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
+    builder.emit(abi::compare_immediate(&block, "0"));
+    builder.emit(abi::branch_eq(&done));
+    builder.emit(abi::compare_immediate(&at, "0"));
+    builder.emit(abi::branch_lt(&done));
+    let count = builder.temporary_vreg();
+    builder.emit(abi::load_u64(&count, &block, COLLECTION_OFFSET_COUNT));
+    builder.emit(abi::compare_registers(&at, &count));
+    builder.emit(abi::branch_ge(&done));
+    // A `List OF Byte` is the fixed-width layout: byte `i` at `HEADER + i`.
+    let address = builder.temporary_vreg();
+    builder.emit(abi::add_registers(&address, &block, &at));
+    builder.emit(abi::load_u8(
+        RESULT_VALUE_REGISTER,
+        &address,
+        COLLECTION_HEADER_SIZE,
+    ));
+    builder.emit(abi::label(&done));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: "canvas.fontByte".to_string(),
+    })
+}
+
+/// `canvas::fontLength(id) AS Integer` — the length of the font file published for a
+/// handle, `0` for an unregistered one: `len(b)` over the file `canvas::fontByte` reads.
+pub(crate) fn lower_font_length(
+    builder: &mut CodeBuilder,
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let handle = args
+        .first()
+        .ok_or_else(|| format!("'{symbol}' expects the font handle"))?
+        .location
+        .clone();
+
+    let done = builder.label("canvas_font_length_done");
+    let block = builder.temporary_vreg();
+    emit_lookup_font(builder, &handle, CANVAS_FONT_SLOT_BLOCK, &block);
+    builder.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
+    builder.emit(abi::compare_immediate(&block, "0"));
+    builder.emit(abi::branch_eq(&done));
+    builder.emit(abi::load_u64(
+        RESULT_VALUE_REGISTER,
+        &block,
+        COLLECTION_OFFSET_COUNT,
+    ));
+    builder.emit(abi::label(&done));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+
+    Ok(ValueResult {
+        origin: None,
+        type_: ParameterType::Nothing,
+        location: Operand::from("void"),
+        text: "canvas.fontLength".to_string(),
+    })
+}
+
+/// The safe front door to an owned copy of the file. Only the `--debug` oracle
+/// `__canvas_faceCheck` calls it, so only a `--debug` build carries it.
 #[rustfmt::skip]
 const FONT_BLOB: &str =
 r#"FUNC __canvas_fontBlob(id AS Integer) AS List OF Byte
@@ -553,5 +665,54 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             body: Body::abi_function(lower_face_at),
         }],
     });
-    pkg.add_helper(RegistryHelper::always("canvas_fontBlob", FONT_BLOB));
+    let handle_param = || Parameter {
+        name: "id",
+        desc: "The handle a `canvas::FontRef` carries.",
+        aliases: &[],
+        ty: ParameterType::Integer,
+        default: DefaultValue::None,
+    };
+    pkg.add_function(RegistryFunction {
+        name: "fontByte",
+        intro: "One byte of the font file published for a handle.",
+        desc: "Internal. Reads the byte in place and never hands out the file; answers \
+               `0` for an unregistered handle or an offset outside the file.",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![
+                handle_param(),
+                Parameter {
+                    name: "at",
+                    desc: "The byte offset to read.",
+                    aliases: &[],
+                    ty: ParameterType::Integer,
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::abi_function(lower_font_byte),
+        }],
+    });
+    pkg.add_function(RegistryFunction {
+        name: "fontLength",
+        intro: "The length of the font file published for a handle.",
+        desc: "Internal. Answers `0` for an unregistered handle.",
+        example: "",
+        expected_arguments: None,
+        internal_only: true,
+        implementations: vec![Implementation {
+            params: vec![handle_param()],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::abi_function(lower_font_length),
+        }],
+    });
+    // A `--debug` build's only: `__canvas_faceCheck` is its one caller (bug-1091), and a
+    // normal build's empty `__canvas_faceCheck` calls nothing.
+    for helper in RegistryHelper::debug_split("canvas_fontBlob", "", FONT_BLOB) {
+        pkg.add_helper(helper);
+    }
 }

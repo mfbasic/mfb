@@ -4308,3 +4308,89 @@ END FUNC
         vec![176, 147, 233, 129, 137, 2, 234, 202, 147, 147, 218]
     );
 }
+
+// --- bug-1091: a text build reads the font in place -----------------------------------
+
+/// The graphics thread's arena's `alloc_bytes`, from a `--debug` report on `stderr`: the
+/// arena whose `kind` is `graphics`.
+fn graphics_alloc_bytes(stderr: &str) -> u64 {
+    let index = stderr
+        .lines()
+        .find_map(|line| {
+            let rest = line.strip_prefix("arena.")?;
+            let (index, kind) = rest.split_once(".kind ")?;
+            (kind.trim() == "graphics").then(|| index.to_string())
+        })
+        .unwrap_or_else(|| panic!("no graphics arena in the report:\n{stderr}"));
+    let key = format!("arena.{index}.alloc_bytes ");
+    stderr
+        .lines()
+        .find_map(|line| line.strip_prefix(key.as_str()))
+        .unwrap_or_else(|| panic!("no `{key}` in the report:\n{stderr}"))
+        .trim()
+        .parse()
+        .expect("a byte count")
+}
+
+/// 200 presents, each one filled and one stroked `Text` at a new position, so every
+/// present rebuilds both records: the graphics arena's `alloc_bytes` for that run.
+fn text_rebuild_alloc_bytes(name: &str, font: Vec<u8>) -> u64 {
+    let (stdout, stderr, project) = run_debug_files(
+        name,
+        r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  RES face AS canvas::Font = canvas::loadFont("fixture.ttf") TRAP(e)
+    io::print("load-failed")
+    RETURN
+  END TRAP
+  MUT i AS Integer = 0
+  WHILE i < 200
+    LET filled AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 10.0 + toFloat(i), y := 40.0], text := "AB", fonts := [face], fontSize := 24.0, letterSpacing := 0.0, paint := canvas::fill(color::rgb(255, 255, 255)), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    LET stroked AS canvas::DrawItem = canvas::Text[id := "", position := vector::Float2[x := 10.0 + toFloat(i), y := 120.0], text := "AB", fonts := [face], fontSize := 24.0, letterSpacing := 0.0, paint := canvas::stroke(color::rgb(255, 255, 255), 2.0), transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+    canvas::present([filled, stroked])
+    i = i + 1
+  END WHILE
+  io::print("done")
+END FUNC
+"#,
+        &[("fixture.ttf", font)],
+        &[
+            ("MFB_CANVAS_SYNC", "1".to_string()),
+            ("MFB_CANVAS_GPU", "0".to_string()),
+        ],
+    );
+    let _ = std::fs::remove_dir_all(&project);
+    assert_eq!(stdout.trim(), "done", "the program did not draw: {stderr}");
+    graphics_alloc_bytes(&stderr)
+}
+
+/// Building a `Text` record does not cost the font file's size (bug-1091).
+///
+/// Every text build used to fetch an owned copy of the whole file
+/// (`canvas::fontBlobUnchecked`) for the outlines, though every glyph after the first
+/// frame is a cache hit: one copy per filled build and one per stroked build, 400 here.
+/// Measured before the fix: padding the fixture with a 1 MB table nothing reads put
+/// 419,436,800 more bytes through the graphics arena (466,485,120 against 885,921,920),
+/// 400 copies of the 1,048,880-byte file. The difference is the file's cost, so it is
+/// what is bounded: less than one copy across all 400 builds. A ratio would not see it,
+/// because each frame's 2.3 MB surface dwarfs one copy.
+#[test]
+fn a_text_build_does_not_copy_the_font_file() {
+    let small = text_rebuild_alloc_bytes("canvas_font_build_small", minimal_truetype());
+    let padded = text_rebuild_alloc_bytes(
+        "canvas_font_build_padded",
+        with_table(&minimal_truetype(), b"zpad", vec![0u8; 1 << 20]),
+    );
+    assert!(
+        padded.saturating_sub(small) < 1 << 20,
+        "200 presents of a filled and a stroked text allocated {small} graphics-thread \
+         bytes with the 304-byte fixture and {padded} with it padded to 1 MB: the builds \
+         copy the font file"
+    );
+}

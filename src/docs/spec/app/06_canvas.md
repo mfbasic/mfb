@@ -2886,10 +2886,21 @@ An unregistered handle, or an `i` outside the block, reads `0`, so a closed font
 runs, no advances and a zero `unitsPerEm`, which is the answer the empty file it used to
 read as gave. [[src/codegen/builtins/canvas/gen_font_table.rs:lower_face_at]]
 `__canvas_shapeRun`, `measureText`, the run header's ink box and every text box read
-glyphs, advances and metrics this way. The only per-glyph reads that still need the file
-are the outlines: the filled run's rasteriser and the stroked edges each fetch it once
-per geometry-cache miss.
+glyphs, advances and metrics this way.
 [[src/codegen/builtins/canvas/helper_font.rs:FACE_READ]]
+
+**The outlines are read from the font file in place too, one byte at a time, through
+the internal `canvas::fontByte(handle, at)` and `canvas::fontLength(handle)`.** The
+filled run's rasteriser and the stroked edges read only the `head`, `loca` and `glyf`
+bytes of the glyphs they flatten, so building a `Text` record costs the same whatever
+the size of the font file, and a build whose glyphs are all in the glyph cache reads no
+byte of it. Each read looks the handle up in the font table as `faceAt` does, so a font
+released mid-build reads `0` from the next byte on, and its outlines are empty, as the
+empty file a released font answered was.
+[[src/codegen/builtins/canvas/gen_font_table.rs:lower_font_byte]]
+[[src/codegen/builtins/canvas/helper_font.rs:FONT_HANDLE_READ]] An owned copy of the
+file (`canvas::fontBlobUnchecked`) is taken only by the `--debug` oracle
+`MFB_CANVAS_FACE_CHECK`.
 
 A `--debug` build's `MFB_CANVAS_FACE_DUMP` writes each loaded font's index, and
 `MFB_CANVAS_FACE_CHECK` holds every index reader to the byte lookup it replaced, for
