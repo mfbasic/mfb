@@ -16,8 +16,12 @@
 //!
 //! The list is the 417 fixtures whose codes `check_src` reproduces (exactly for
 //! most; for a few the golden additionally carries a parser or resolver code that
-//! these two passes do not emit). Four more were dropped because their directory
-//! leaf name is not unique under `tests/`, so `fixture_dir` cannot address them.
+//! these two passes do not emit). Two later left it: bug-945 made `Ok` an ordinary
+//! name, so `func_typesystem_ok_invalid` and `func_typesystem_result_pattern_invalid`
+//! are now rejected at RESOLVE (SYMBOL_UNKNOWN_TYPE), before either pass runs, and
+//! `check_src`, which skips the resolver, only sees the cascade. Four more were
+//! dropped because their directory leaf name is not unique under `tests/`, so
+//! `fixture_dir` cannot address them.
 //! The rest are excluded BY NAME rather than skipped at
 //! run time: 26 are parse-error fixtures that `check_src` is documented to panic
 //! on (it expects a program that lexes), and the remainder emit nothing from
@@ -329,8 +333,6 @@ const DIAGNOSTIC_CORPUS: &[&str] = &[
     "func_thread_waitFor_invalid",
     "func_thread_waitFor_worker_invalid",
     "func_typesystem_error_invalid",
-    "func_typesystem_ok_invalid",
-    "func_typesystem_result_pattern_invalid",
     "func_udp_bind_invalid",
     "func_udp_endpoints_invalid",
     "func_udp_poll_invalid",
@@ -630,11 +632,14 @@ fn the_syntax_corpus_still_reaches_every_rule_it_used_to() {
     // 77 when this list was generated; plan-159-D retired EXIT_SUB_IN_FUNC,
     // SUB_RETURN_FORBIDDEN and TYPE_SUB_HAS_NO_VALUE with the callable kind they
     // policed, and those three were exactly the difference (the reached sets,
-    // before and after, compared).
+    // before and after, compared). bug-945 retired TYPE_RESULT_IS_IMPLICIT and
+    // TYPE_RESULT_NOT_MATCHABLE (owner decision: `Result` and `Ok` are ordinary
+    // names), and those two were exactly the next difference, 74 -> 72 (the
+    // reached sets at 49ea4e33b and after bug-945, compared).
     assert!(
-        produced.len() >= 74,
-        "the corpus reached {} distinct diagnostic rules; it reached 74 after \
-         plan-159-D, so a rule has stopped firing. Reached: {produced:?}",
+        produced.len() >= 72,
+        "the corpus reached {} distinct diagnostic rules; it reached 72 after \
+         bug-945, so a rule has stopped firing. Reached: {produced:?}",
         produced.len()
     );
 }
