@@ -42,3 +42,10 @@ load average 31 to 37: 3 of 3 passes (each run builds its programs, about 200 s)
 canvas tests above passed in this run. The class is the same: a wall-clock bound that the
 full suite's parallel binaries can push over; the fix for all three is the same kind (a
 bound that does not depend on contention, or a test that runs alone).
+
+## 2026-10-18: a fourth (full tier on main `c60f81037`)
+
+`rt_field_map_fifo_removal_flat::removing_the_oldest_key_of_a_field_is_flat_in_the_window_size`
+failed: "state-map: W=500: 19.13 ms; W=4000: 102.89 ms; x5.4" against "flat is <= x3". Batch
+`c60f81037` (1098, 1099, 832, 846, 847) touches no map removal. Run on that commit for 10 min
+at load 25 to 29: 4 of 4 passes. Same class as the three above.

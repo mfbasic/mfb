@@ -297,7 +297,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 1014   | LOW      | `field_kinds.tsv` is not what `field_kinds_gen.py` generates |
 | [ ]  | 1033   | LOW      | the man example `variable::guide#2` does not build |
 | [ ]  | 1095   | LOW      | `scripts/test-appimage.sh` fails three checks on box 2226 with a correct compiler: two need `readelf`, which the box lacks, and the liveness check assumes ssh cannot reach a display |
-| [ ]  | 1105   | LOW      | wall-clock tests fail under the full suite's load and pass alone: `rt_canvas_autopaint::the_project_option_sets_how_long_a_flash_lasts`, `rt_canvas_pointer::the_graphics_thread_reads_each_scripted_pointer_state` (main `7bb985ed8`), `rt_compress_throughput::crc32_and_inflate_run_within_their_bounds_of_a_native_copy` (main `079395542`) |
+| [ ]  | 1105   | LOW      | wall-clock tests fail under the full suite's load and pass alone: `rt_canvas_autopaint::the_project_option_sets_how_long_a_flash_lasts`, `rt_canvas_pointer::the_graphics_thread_reads_each_scripted_pointer_state` (main `7bb985ed8`), `rt_compress_throughput::crc32_and_inflate_run_within_their_bounds_of_a_native_copy` (main `079395542`), `rt_field_map_fifo_removal_flat::removing_the_oldest_key_of_a_field_is_flat_in_the_window_size` (main `c60f81037`) |
 
 ## Spec and man drift
 
