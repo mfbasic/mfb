@@ -673,6 +673,10 @@ name = "rt_tofixed_string_exact"
 path = "tests/runtime/rt_tofixed_string_exact.rs"
 
 [[test]]
+name = "rt_math_atan2_negative_zero_x"
+path = "tests/runtime/rt_math_atan2_negative_zero_x.rs"
+
+[[test]]
 name = "rt_collection_chunks_window_sizing"
 path = "tests/runtime/rt_collection_chunks_window_sizing.rs"
 

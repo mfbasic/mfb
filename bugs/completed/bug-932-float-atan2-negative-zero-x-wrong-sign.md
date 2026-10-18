@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/math/float-atan2-negative-zero-x-rt (new; name suggested)
+Status: Fixed
+Regression Test: `tests/runtime/rt_math_atan2_negative_zero_x.rs`
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -105,3 +105,17 @@ the origin lanes are already forced to `+0.0` separately and are unaffected.
   fix covers both and every backend (measured identical wrong output on aarch64 and riscv64).
 - Other kernels that branch on `x < 0` via an ordered compare with a signed-zero-sensitive result —
   not surveyed (e.g. `acos` half-angle uses `1±x`, insensitive).
+
+## Fix
+
+`emit_float_binary_body` (`Atan2` arm) builds the quadrant mask with `vector_sshr(x, 63)` (the
+sign bit of `x` smeared across the lane) instead of the ordered `vector_fcmlt_zero(x)`; scalar
+and list overloads share the kernel. Spec `architecture/18_math-kernels.md` states the rule.
+
+RED (main's compiler, `MFB_TEST_EXE=/tmp/main-dbg-target/release/mfb cargo test --release --test
+rt_math_atan2_negative_zero_x`): `atan2(1.0, -0.0)` printed `-1.570796` (scalar and list). GREEN
+with this branch; the origin, `(+-0, -1)` and the other quadrants asserted unchanged.
+
+Goldens expected to move: `byte-identity/math/math_codegen_cover_rt` (five `.ncode` shas;
+measured by `artifact-gate math`, 5 diffs): the kernel emits one different vector op. Any other
+fixture whose native code contains the Float atan2 kernel moves the same way (ncode kind only).
