@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Other (memory / performance)
 
-Status: Open
-Regression Test: `tests/runtime/rt_collection_chunks_alloc_size.rs` (proposed; compare `--debug` allocation bytes for literal and dynamic sizes)
+Status: Fixed
+Regression Test: `tests/runtime/rt_collection_chunks_window_sizing.rs`
 
 ## Cause (coordinator, bug-staging-24; one fix with bug-1008)
 
@@ -17,6 +17,25 @@ Regression Test: `tests/runtime/rt_collection_chunks_alloc_size.rs` (proposed; c
 For fixed-width list elements and a compile-time `chunkSize`, the native `collections::chunks` fast path reserves every inner chunk block using the full requested size. A three-element list chunked with `1,000,000` therefore allocates about 8 MB for one inner block even though the returned chunk contains three elements and needs only a few dozen bytes. The result is correct, but an oversized chunk size can cause memory pressure or an out-of-memory error on a small input.
 
 **Correct behavior:** allocation for each chunk should be proportional to the number of elements actually stored in it. `chunks([1, 2, 3], 1000000)` should have allocation cost comparable to chunking the same list with a runtime-provided size of 1000000.
+
+## Fix
+
+`lower_collection_chunks_call` (`src/codegen/builtins/collections/func_chunks.rs`) now sizes each chunk from the
+elements it holds, `min(size, n - start)` at run time, and packs the chunk blocks back to back: the allocation is
+`HEADER + chunkCount × (ENTRY + HEADER) + n × 8` and each entry's `valueOffset` is a running offset, so no
+compile-time `size * 8` stride remains. `lower_collection_window_call` (`func_window.rs`) likewise computes its
+block size at run time from `min(size, n)`. Spec: `mfb spec memory collections`, § Capacity Headroom and Growth.
+
+Measured (`mfb build -q --debug` of the doc's literal-size program, macOS aarch64, reading `mfb.debug` on stderr):
+before (`/tmp/main-dbg-target/release/mfb`) `arena.0.alloc_bytes 8000288`, `peak_live_bytes 8000208`; after
+`arena.0.alloc_bytes 304`, `peak_live_bytes 224`. Regression tests:
+`cargo test --release --test rt_collection_chunks_window_sizing -- constant_chunk_size_allocates_for_the_elements_held fast_path_blocks_are_sized_by_their_contents`.
+
+Goldens expected to change (not regenerated here; `mfb build` only, no rerun of the full suite):
+`tests/byte-identity/collections/golden/collections_codegen_cover_rt.{linux-aarch64,linux-riscv64,linux-x86_64,macos-aarch64,windows-x86_64}.ncodesum`
+— the fixture's `chunks(ints, 2)`, `window(ints, 2)` and `window(ints, 2, 1)` take the fixed-width fast paths, whose
+emitted code changed (run-time block sizing, `size` in a register). Every other fixture calling `chunks`/`window`
+keeps only `.ast`/`.ir`/`.run`/`build.log` goldens, which this codegen-only change does not reach.
 
 ## Failing Reproduction
 

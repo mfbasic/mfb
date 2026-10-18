@@ -62,9 +62,11 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| format!("native chunks cannot resolve {outer_type}"))?;
         let inner_layout = CollectionTypeLayout::from_type(&inner_type)
             .ok_or_else(|| format!("native chunks cannot resolve {inner_type}"))?;
-        // Uniform per-chunk block stride (the last chunk over-allocates to this and
-        // leaves a harmless tail gap — free uses dataCapacity, reads use offsets).
-        let block_stride = COLLECTION_HEADER_SIZE + (size as usize) * 8;
+        // Every block is sized from the elements it holds, `min(size, remaining)`,
+        // at run time: the blocks are packed back to back, so the data region is
+        // `chunkCount * HEADER + n * 8` whatever `size` is (bug-1007). `size` is
+        // only ever materialized in a register, never folded into a compile-time
+        // product or an add immediate (bug-1008).
         let source_slot = self.allocate_stack_object("chunks_source", 8);
         self.emit(abi::store_u64(
             &source.location,
@@ -79,34 +81,47 @@ impl CodeBuilder<'_> {
         let cc = self.temporary_vreg();
         let s = self.temporary_vreg();
         let t = self.temporary_vreg();
+        let step = self.temporary_vreg();
+        let size_text = size.to_string();
         self.emit(abi::load_u64(&n, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&n, &n, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&n, abi::stack_pointer(), n_slot));
-        // chunkCount = ceil(n/size), via a count loop (no divide primitive).
+        // chunkCount = ceil(n/size), via a count loop (no divide primitive). `s`
+        // stays below `n` before each step, and a second step only happens when
+        // `size < n`, so `s + size` cannot wrap.
         let cc_loop = self.label("chunks_cc_loop");
         let cc_done = self.label("chunks_cc_done");
         self.emit(abi::move_immediate(&cc, "Integer", "0"));
         self.emit(abi::move_immediate(&s, "Integer", "0"));
+        self.emit(abi::move_immediate(&step, "Integer", &size_text));
         self.emit(abi::label(&cc_loop));
         self.emit(abi::compare_registers(&s, &n));
         self.emit(abi::branch_ge(&cc_done));
         self.emit(abi::add_immediate(&cc, &cc, 1));
-        self.emit(abi::add_immediate(&s, &s, size as usize));
+        self.emit(abi::add_registers(&s, &s, &step));
         self.emit(abi::branch(&cc_loop));
         self.emit(abi::label(&cc_done));
         self.emit(abi::store_u64(&cc, abi::stack_pointer(), cc_slot));
 
-        // alloc = HEADER + cc*(ENTRY_SIZE + block_stride).
+        // alloc = HEADER + cc*(ENTRY_SIZE + HEADER) + n*8.
         let size_overflow = self.label("chunks_size_overflow");
-        let per = COLLECTION_ENTRY_SIZE + block_stride;
-        self.emit(abi::move_immediate(&t, "Integer", &per.to_string()));
-        self.emit_checked_size_multiply(abi::return_register(), &cc, &t, &size_overflow);
+        let bytes = self.temporary_vreg();
+        let total = self.temporary_vreg();
+        self.emit(abi::move_immediate(
+            &t,
+            "Integer",
+            &(COLLECTION_ENTRY_SIZE + COLLECTION_HEADER_SIZE).to_string(),
+        ));
+        self.emit_checked_size_multiply(&bytes, &cc, &t, &size_overflow);
+        self.emit(abi::shift_left_immediate(&t, &n, 3));
+        self.emit_checked_size_add(&bytes, &bytes, &t, &size_overflow);
         self.emit_checked_size_add_immediate(
-            abi::return_register(),
-            abi::return_register(),
+            &total,
+            &bytes,
             COLLECTION_HEADER_SIZE,
             &size_overflow,
         );
+        self.emit(abi::move_register(abi::return_register(), &total));
         let alloc_ok = self.label("chunks_alloc_ok");
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
         self.emit_arena_alloc_call();
@@ -127,16 +142,21 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
+        // Outer header: count = capacity = chunkCount; dataLength = dataCapacity =
+        // chunkCount*HEADER + n*8 (the packed blocks).
         let outer = self.temporary_vreg();
         let dlen = self.temporary_vreg();
         self.emit(abi::load_u64(&outer, abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&cc, abi::stack_pointer(), cc_slot));
+        self.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
         self.emit(abi::move_immediate(
             &t,
             "Integer",
-            &block_stride.to_string(),
+            &COLLECTION_HEADER_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&dlen, &cc, &t));
+        self.emit(abi::shift_left_immediate(&t, &n, 3));
+        self.emit(abi::add_registers(&dlen, &dlen, &t));
         self.emit_write_list_header_from_registers(&outer_layout, &outer, &cc, &dlen);
 
         let w = self.temporary_vreg();
@@ -149,6 +169,7 @@ impl CodeBuilder<'_> {
         let csz = self.temporary_vreg();
         let cnt = self.temporary_vreg();
         let tmp = self.temporary_vreg();
+        let off = self.temporary_vreg();
         let loop_l = self.label("chunks_loop");
         let done_l = self.label("chunks_done");
         let clamp_l = self.label("chunks_clamp_done");
@@ -170,19 +191,21 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&outer_data, &outer_data, &t));
         self.emit(abi::load_u64(&t, abi::stack_pointer(), source_slot));
         self.emit(abi::add_immediate(&src_data, &t, COLLECTION_HEADER_SIZE));
+        // w = chunk index, s = its first element, off = its block's data offset.
         self.emit(abi::move_immediate(&w, "Integer", "0"));
+        self.emit(abi::move_immediate(&s, "Integer", "0"));
+        self.emit(abi::move_immediate(&off, "Integer", "0"));
         self.emit(abi::label(&loop_l));
         self.emit(abi::load_u64(&cc, abi::stack_pointer(), cc_slot));
         self.emit(abi::compare_registers(&w, &cc));
         self.emit(abi::branch_ge(&done_l));
-        // start = w*size ; chunkSize = min(size, n - start)
-        self.emit(abi::move_immediate(&t, "Integer", &size.to_string()));
-        self.emit(abi::multiply_registers(&s, &w, &t)); // start
+        // chunkSize = min(size, n - start)
         self.emit(abi::load_u64(&n, abi::stack_pointer(), n_slot));
         self.emit(abi::subtract_registers(&csz, &n, &s)); // remaining
-        self.emit(abi::compare_immediate(&csz, &size.to_string()));
+        self.emit(abi::move_immediate(&step, "Integer", &size_text));
+        self.emit(abi::compare_registers(&csz, &step));
         self.emit(abi::branch_lt(&clamp_l));
-        self.emit(abi::move_immediate(&csz, "Integer", &size.to_string()));
+        self.emit(abi::move_register(&csz, &step));
         self.emit(abi::label(&clamp_l));
         // entry
         self.emit(abi::load_u64(&outer, abi::stack_pointer(), result_slot));
@@ -200,14 +223,8 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
         self.emit(abi::store_u8(&tmp, &entry, COLLECTION_ENTRY_OFFSET_FLAGS));
-        self.emit(abi::move_immediate(
-            &tmp,
-            "Integer",
-            &block_stride.to_string(),
-        ));
-        self.emit(abi::multiply_registers(&tmp, &w, &tmp)); // w*block_stride
         self.emit(abi::store_u64(
-            &tmp,
+            &off,
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
@@ -220,7 +237,8 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         // inner block header (count = chunkSize, dataLen = chunkSize*8)
-        self.emit(abi::add_registers(&inner, &outer_data, &tmp));
+        self.emit(abi::add_registers(&inner, &outer_data, &off));
+        self.emit(abi::add_registers(&off, &off, &t)); // next block's offset
         self.emit(abi::shift_left_immediate(&t, &csz, 3));
         self.emit_write_list_header_from_registers(&inner_layout, &inner, &csz, &t);
         // copy chunkSize elements from src_data + start*8 into inner + HEADER
@@ -238,6 +256,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&cnt, &cnt, 1));
         self.emit(abi::branch(&copy_l));
         self.emit(abi::label(&copy_done));
+        self.emit(abi::add_registers(&s, &s, &csz));
         self.emit(abi::add_immediate(&w, &w, 1));
         self.emit(abi::branch(&loop_l));
         self.emit(abi::label(&done_l));
@@ -316,9 +335,12 @@ impl CodeBuilder<'_> {
         let inner_slot = self.emit_string_list_slice_block(source_slot, start_slot, count_slot)?;
         self.lower_list_append_in_place(outer_slot, inner_slot, &outer_type, &inner_type)?;
         self.emit_free_owned_kind0_list_block(inner_slot)?;
-        // start += size
+        // start += size, through a register: a large constant `size` is not a
+        // valid add immediate (bug-1008). `start < n` before the step, and a
+        // second step only happens when `size < n`, so the sum cannot wrap.
         self.emit(abi::load_u64(&scratch, abi::stack_pointer(), start_slot));
-        self.emit(abi::add_immediate(&scratch, &scratch, size as usize));
+        self.emit(abi::move_immediate(&scratch2, "Integer", &size.to_string()));
+        self.emit(abi::add_registers(&scratch, &scratch, &scratch2));
         self.emit(abi::store_u64(&scratch, abi::stack_pointer(), start_slot));
         self.emit(abi::branch(&loop_l));
         self.emit(abi::label(&done_l));
