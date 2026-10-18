@@ -265,15 +265,16 @@ A. Assign bugs: at most 2 agents at a time (never a third, not even for a "quick
    symlink as step 2.
 B. For each bug, the agent:
    - reproduces the bug and writes a RED test, then fixes it;
-   - gates each bug, once it is committed, on the landing tier in its own worktree
-     (`.ai/testing-gates.md` "Test tiers"): `bash scripts/test-fast.sh` plus the
-     targeted flags for that bug: `--test <binary>` for the integration binaries of the
-     area touched (`rt_canvas_*`, `rt_net_*`, ...), `--artifact <builtin>` for each
-     builtin whose emitted code moved, `--accept <glob>` for fixtures touched. It
-     includes fmt, `cargo check --workspace --all-targets`, the unit tests minus the
-     sweeps and the guard binaries. While iterating it may also run single tests
-     (`cargo test --test <name>`, `cargo test --bin mfb -- <module>::`), man examples
-     for touched packages and spec-census --render/--citations for spec edits;
+   - TESTS FAST (owner rule: agent testing takes minutes per bug, never an hour). Per
+     bug it runs ONLY: (1) the bug's own RED→GREEN test(s), BY NAME
+     (`cargo test --release --test <binary> -- <test_name>`), never the whole binary;
+     (2) `bash scripts/test-fast.sh --test <the one binary holding that test>`, plus
+     `--artifact <builtin>` (seconds) when that builtin's emitted code moved; (3) at most
+     ONE box run, only for a platform-specific bug, only that bug's own row, on one box.
+     Nothing else: no whole integration binaries, no `artifact-gate.sh all`, no full row
+     or appimage sweeps, no man-example gates, no repeating a check that already passed.
+     The full gates (artifact-gate all, full test-accept, box sweeps) run once, by the
+     coordinator, at landing;
    - does NOT run the full tier and does NOT regenerate goldens. It records in the
      bug doc which goldens it expects to change, and why. An agent NEVER runs a bare
      `cargo test` / `cargo test --bin mfb` or `scripts/test-full.sh`: the full tier is
