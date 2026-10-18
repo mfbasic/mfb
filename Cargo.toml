@@ -1345,6 +1345,10 @@ name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
 
 [[test]]
+name = "rt_readline_ill_formed_line"
+path = "tests/runtime/rt_readline_ill_formed_line.rs"
+
+[[test]]
 name = "rt_executable_path_resolved"
 path = "tests/runtime/rt_executable_path_resolved.rs"
 
