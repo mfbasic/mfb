@@ -1345,6 +1345,10 @@ name = "rt_debug_arena"
 path = "tests/runtime/rt_debug_arena.rs"
 
 [[test]]
+name = "rt_typename_enum_member_literal"
+path = "tests/runtime/rt_typename_enum_member_literal.rs"
+
+[[test]]
 name = "rt_readline_ill_formed_line"
 path = "tests/runtime/rt_readline_ill_formed_line.rs"
 
