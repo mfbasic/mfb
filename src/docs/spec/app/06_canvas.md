@@ -682,13 +682,18 @@ is antialiased exactly as any other edge is:
   to the segment: as a distance, `max(d − half, −t·|v|, (t−1)·|v|)` with `t` the
   unclamped projection. The half-width is subtracted *before* the intersection, because
   the planes bound the band and not the centre line. A **butt arc** is the ring band
-  intersected with the sweep's wedge the same way: with `ρ` the distance from the centre
-  and `u_s`, `u_e` the unit vectors along the start and end radii, the half-plane
-  distances `p_s = u_s.y·dx − u_s.x·dy` (positive before the start) and
-  `p_e = u_e.x·dy − u_e.y·dx` (positive past the end) make the wedge `max(p_s, p_e)` for a
-  sweep up to a half-turn and `min(p_s, p_e)` for a reflex one, and the distance is
-  `max(|ρ − r| − half, wedge)`. Like a butt line's it is 1-Lipschitz, so its ends are
-  antialiased and a transformed arc's gradient never crosses a jump.
+  intersected with the sweep's wedge the same way: `max(|ρ − r| − half, wedge)`, `ρ` the
+  distance from the centre and `wedge` the exact signed distance to the cone of the two
+  end radii. With `u_s`, `u_e` the unit vectors along the start and end radii, a point is
+  inside a sweep up to a half-turn when both half-plane distances `p_s = u_s.y·dx − u_s.x·dy`
+  (positive before the start) and `p_e = u_e.x·dy − u_e.y·dx` (positive past the end) are
+  at most 0 AND it lies ahead of the centre along one of the radii (`d·u_s ≥ 0` or
+  `d·u_e ≥ 0`): two half-planes through the centre also meet along the opposite ray when
+  the sweep is near 0. Inside, `wedge = max(p_s, p_e)`; outside, the distance to the
+  nearer end ray. A reflex sweep is the complement of its gap's cone, built from the same
+  two radii, and a sweep of a whole turn or more is the ring itself (the turn, 0, 1 or 2,
+  is decided from the angles in f64 and carried in `arc.y`). The distance is 1-Lipschitz,
+  so its ends are antialiased and a transformed arc's gradient never crosses a jump.
   [[src/codegen/builtins/canvas/helper_draw.rs:GEO_DISTANCE]]
 * `Round` adds a half-disc of `half = strokeWidth / 2` centred on the endpoint. A **round
   arc** is the butt arc unioned with a disc of `half` at each sweep endpoint, the `min` of
@@ -700,6 +705,12 @@ is antialiased exactly as any other edge is:
   endpoint along the tangent there. A `PolyLine` takes it on the outer ends of its first
   and last segments with length only.
   [[src/codegen/builtins/canvas/helper_shapes.rs:SEGMENT_DISTANCE_SQUARE]]
+
+**A zero-sweep arc** (`endAngle ≤ startAngle`: zero, or the end before the start) draws
+nothing under `Butt`, like a zero-length butt line: it has no length and a butt end adds
+nothing past an end. Under `Round` and `Square` it draws its two ends. A sweep of a whole
+turn or more draws the whole ring.
+[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
 
 **A zero-length line** draws nothing under `Butt`, a dot of `half` under `Round` and an
 axis-aligned square of side `2·half` under `Square` (SVG 2 §13.5.2). There is no

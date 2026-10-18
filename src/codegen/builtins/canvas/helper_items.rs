@@ -852,11 +852,11 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
   MUT sy AS Float = 0.0
   MUT ex AS Float = 0.0
   MUT ey AS Float = 0.0
-  MUT reflex AS Boolean = FALSE
+  MUT turn AS Integer = 0
   IF kind = __CANVAS_GEO_ARC THEN
     LET startAngle AS Float = __canvas_geoAt(offset, 20)
     LET endAngle AS Float = __canvas_geoAt(offset, 21)
-    reflex = (endAngle - startAngle) > 3.141592653589793
+    turn = __canvas_arcTurn(startAngle, endAngle)
     sx = __canvas_cos(startAngle)
     sy = __canvas_sin(startAngle)
     ex = __canvas_cos(endAngle)
@@ -953,11 +953,11 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         LET ty AS Float = __canvas_invY(offset, px, py)
         qx = tx
         qy = ty
-        LET d0 AS Float = __canvas_geoDistance(distKind, tail, edges, tx, ty, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
-        LET dxp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
-        LET dxm AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
-        LET dyp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
-        LET dym AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET d0 AS Float = __canvas_geoDistance(distKind, tail, edges, tx, ty, p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dxp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px + 0.5, py), __canvas_invY(offset, px + 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dxm AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px - 0.5, py), __canvas_invY(offset, px - 0.5, py), p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dyp AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py + 0.5), __canvas_invY(offset, px, py + 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        LET dym AS Float = __canvas_geoDistance(distKind, tail, edges, __canvas_invX(offset, px, py - 0.5), __canvas_invY(offset, px, py - 0.5), p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
         LET gx AS Float = dxp - dxm
         LET gy AS Float = dyp - dym
         LET g AS Float = math::sqrt(gx * gx + gy * gy)
@@ -967,7 +967,7 @@ FUNC __canvas_drawGeometry(surface AS List OF Byte, width AS Integer, height AS 
         END IF
         distance = dRaw / dScale
       ELSE
-        dRaw = __canvas_geoDistance(distKind, tail, edges, px, py, p0, p1, p2, p3, radius, sx, sy, ex, ey, reflex, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
+        dRaw = __canvas_geoDistance(distKind, tail, edges, px, py, p0, p1, p2, p3, radius, sx, sy, ex, ey, turn, cap, capSX, capSY, capEX, capEY, ellCos, ellSin, dashed)
         distance = dRaw
       END IF
       LET idx AS Integer = rowBase + x * 4

@@ -21,7 +21,7 @@ struct ItemBlock {
     ivec4 fill;
     ivec4 stroke;
     ivec4 misc;    // kind, radius (16.16), strokeHalf (16.16), edgeCount / glyph width
-    ivec4 arc;     // glyph/picture height, arc reflex flag (bug-735) / polygon fill rule
+    ivec4 arc;     // glyph/picture height, arc sweep turn (bug-735, bug-1088) / polygon fill rule
                    //   (plan-163-A, 0 EvenOdd, 1 NonZero), edgeBase, capStyle
     ivec4 surface; // width, height, blendMode, gradient kind (0 linear, 1 radial)
     ivec4 clip;    // the clip rectangle x0,y0,x1,y1 (16.16 px); zero-area = unclipped
@@ -723,7 +723,7 @@ vec2 polylineScan(ivec2 band, vec2 p) {
 // 16.16 words plus residuals, so each input is the oracle's to ~2^-41 px. fp32 from 16.16
 // rounded a pixel near a coverage step to the neighbouring step, 3-12 sRGB levels near
 // black. The arc's sweep planes are the oracle's two cross products against `arcCaps -
-// centre` (the radius times its Taylor `(cos, sin)`), over the radius, and `arc.y` is its `reflex`,
+// centre` (the radius times its Taylor `(cos, sin)`), over the radius, and `arc.y` is its `turn`,
 // decided in f64 by the emitter; the ellipse is the oracle's 24-step bisection with every
 // step in double-float. Metal's `dfShapeDistance`, line for line, where the cases are set
 // out in full.
@@ -761,13 +761,36 @@ vec2 dfShapeDistance(vec2 x, vec2 y) {
         vec2 sy = dfSub(dfFixed(item.arcCaps.y, item.capsLo.y), cy);
         vec2 tx = dfSub(dfFixed(item.arcCaps.z, item.capsLo.z), cx);
         vec2 ty = dfSub(dfFixed(item.arcCaps.w, item.capsLo.w), cy);
-        // bug-1088: the band cut by the sweep's two half-planes as signed distances, the
-        // oracle's `startPlane`/`endPlane`; `s`, `t` are the radius times its unit vectors,
-        // so each cross product is divided by the radius. Metal's twin, line for line.
-        vec2 startPlane = dfDiv(dfSub(dfMul(sy, dx), dfMul(sx, dy)), ex);
-        vec2 endPlane = dfDiv(dfSub(dfMul(tx, dy), dfMul(ty, dx)), ex);
-        vec2 sweep = item.arc.y != 0 ? dfMin(startPlane, endPlane) : dfMax(startPlane, endPlane);
-        vec2 band = dfMax(dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius), sweep);
+        // bug-1088: the band cut by the sweep's wedge, the oracle's exact cone distance:
+        // inside both end half-planes and ahead of the centre along a radius, the nearer
+        // end line's distance, else the nearer end ray's; the reflex complement of the
+        // gap's cone; a whole turn (`arc.y` 2) the band alone. `s`, `t` are the radius
+        // times the oracle's unit vectors, so they are divided by it first. Metal's twin,
+        // line for line.
+        vec2 band = dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius);
+        if (item.arc.y != 2) {
+            vec2 ux = dfDiv(sx, ex);
+            vec2 uy = dfDiv(sy, ex);
+            vec2 vx = dfDiv(tx, ex);
+            vec2 vy = dfDiv(ty, ex);
+            vec2 startPlane = dfSub(dfMul(uy, dx), dfMul(ux, dy));
+            vec2 endPlane = dfSub(dfMul(vx, dy), dfMul(vy, dx));
+            vec2 alongS = dfAdd(dfMul(dx, ux), dfMul(dy, uy));
+            vec2 alongE = dfAdd(dfMul(dx, vx), dfMul(dy, vy));
+            vec2 onS = dfMax(alongS, vec2(0.0));
+            vec2 onE = dfMax(alongE, vec2(0.0));
+            vec2 rays = dfMin(dfLength(dfSub(dx, dfMul(onS, ux)), dfSub(dy, dfMul(onS, uy))),
+                              dfLength(dfSub(dx, dfMul(onE, vx)), dfSub(dy, dfMul(onE, vy))));
+            bool ahead = !dfLess(alongS, vec2(0.0)) || !dfLess(alongE, vec2(0.0));
+            vec2 sweep = rays;
+            if (item.arc.y == 1) {
+                sweep = -rays;
+                if (!dfLess(startPlane, vec2(0.0)) && !dfLess(endPlane, vec2(0.0)) && ahead) { sweep = dfMin(startPlane, endPlane); }
+            } else if (!dfLess(vec2(0.0), startPlane) && !dfLess(vec2(0.0), endPlane) && ahead) {
+                sweep = dfMax(startPlane, endPlane);
+            }
+            band = dfMax(band, sweep);
+        }
         if (item.arc.w == 0) { return band; }
         for (int k = 0; k < 2; ++k) {
             vec2 rx = k == 0 ? sx : tx;

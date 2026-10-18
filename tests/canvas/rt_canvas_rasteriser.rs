@@ -264,6 +264,115 @@ fn a_magnified_butt_arc_draws_its_band_and_antialiased_ends_only() {
     );
 }
 
+/// bug-1088 (round 2): a butt arc's sweep is a wedge, and two half-planes through the
+/// centre also meet along the OPPOSITE ray when the sweep is near zero -- a wedge of 0
+/// is the whole line through the centre. So the sweep is cut by the half-plane in front
+/// of the centre along its bisector too, and a zero sweep under `Butt` draws nothing, as
+/// a zero-length butt line does.
+///
+/// Two butt arcs of radius 100, stroke 20, at angle 0.5: one of zero sweep, one of 0.002
+/// rad. Neither may light a pixel behind its centre (along `-(cos 0.5, sin 0.5)`), and the
+/// zero sweep lights none at all. The tiny one lights its own 0.2 px sliver.
+#[test]
+fn a_zero_or_tiny_sweep_butt_arc_draws_nothing_behind_its_centre() {
+    let arc = |x: f64, end: &str| {
+        format!(
+            "canvas::Arc[id := \"\", position := vector::Float2[x := {x:.1}, y := 300.7], radius := 100.0, startAngle := 0.5, endAngle := {end}, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) {{ cap := canvas::CapStyle.Butt }}, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]"
+        )
+    };
+    let (frame, _) = render(
+        "canvas_butt_arc_zero_sweep",
+        &scene(&format!(
+            "  LET zero AS canvas::DrawItem = {}\n  LET tiny AS canvas::DrawItem = {}\n  canvas::present([zero, tiny])\n",
+            arc(300.3, "0.5"),
+            arc(600.3, "0.502")
+        )),
+    );
+    let (ux, uy) = (0.5f64.cos(), 0.5f64.sin());
+    for (name, cx) in [("zero", 300.3f64), ("tiny", 600.3f64)] {
+        let (mut front, mut behind) = (0, 0);
+        for y in 0..HEIGHT {
+            for x in (cx as usize - 140)..(cx as usize + 140) {
+                let (r, g, b, _) = pixel(&frame, x, y);
+                if r.max(g).max(b) == 0 {
+                    continue;
+                }
+                let along = (x as f64 + 0.5 - cx) * ux + (y as f64 + 0.5 - 300.7) * uy;
+                if along < 0.0 {
+                    behind += 1;
+                } else {
+                    front += 1;
+                }
+            }
+        }
+        assert_eq!(
+            behind, 0,
+            "{name}: {behind} pixels lit behind the arc's centre"
+        );
+        if name == "zero" {
+            assert_eq!(
+                front, 0,
+                "a zero-sweep butt arc draws nothing; it lit {front}"
+            );
+        } else {
+            assert!(front > 0, "the 0.002 rad arc drew nothing at all");
+        }
+    }
+}
+
+/// bug-1088 (round 2): a butt arc swept a whole turn is the whole ring. Its two sweep
+/// vectors are one, so a wedge built from them cannot tell "everything" from "nothing";
+/// round 1 drew a half-covered seam along the start radius. The sweep's turn says so
+/// instead (`__canvas_arcTurn`, `arc.y` 2), and the ring is the band alone: every pixel
+/// within 8 px of the ring's centre line is fully covered.
+#[test]
+fn a_butt_arc_swept_a_whole_turn_is_the_whole_ring() {
+    let (frame, _) = render(
+        "canvas_butt_arc_whole_turn",
+        &scene(
+            "  LET ring AS canvas::DrawItem = canvas::Arc[id := \"\", position := vector::Float2[x := 300.3, y := 300.7], radius := 100.0, startAngle := 0.5, endAngle := 6.783185307179586, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([ring])\n",
+        ),
+    );
+    let mut short = Vec::new();
+    for y in 190..412 {
+        for x in 190..412 {
+            let rho = ((x as f64 + 0.5 - 300.3).powi(2) + (y as f64 + 0.5 - 300.7).powi(2)).sqrt();
+            if (rho - 100.0).abs() <= 8.0 && pixel(&frame, x, y) != (255, 255, 255, 255) {
+                short.push((x, y, pixel(&frame, x, y)));
+            }
+        }
+    }
+    assert!(
+        short.is_empty(),
+        "{} ring pixels not fully covered (a seam), first {:?}",
+        short.len(),
+        &short[..short.len().min(6)]
+    );
+}
+
+/// bug-1088 (round 2): a butt arc whose end comes before its start has no sweep, and
+/// draws nothing, as a zero sweep does. Two half-planes through the centre meet in the
+/// cone OPPOSITE such a sweep, which is what main drew (a 0.5 rad wedge behind the
+/// centre, 1,057 px for this arc); the cone test's "ahead of the centre" removes it, and
+/// what is left (hairlines where the end rays cross the band) is not an arc either.
+#[test]
+fn a_butt_arc_whose_end_is_before_its_start_draws_nothing() {
+    let (frame, _) = render(
+        "canvas_butt_arc_negative_sweep",
+        &scene(
+            "  LET back AS canvas::DrawItem = canvas::Arc[id := \"\", position := vector::Float2[x := 300.3, y := 300.7], radius := 100.0, startAngle := 0.5, endAngle := 0.0, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 20.0) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]\n  canvas::present([back])\n",
+        ),
+    );
+    let lit = frame
+        .chunks(4)
+        .filter(|p| p[0].max(p[1]).max(p[2]) > 0)
+        .count();
+    assert_eq!(
+        lit, 0,
+        "a butt arc with its end before its start lit {lit} pixels"
+    );
+}
+
 /// A filled circle is round, and its edge is antialiased with computable coverage.
 ///
 /// The hand-check: at row `y = 143` the pixel centre is `(243.5, 143.5)`, so

@@ -3810,7 +3810,7 @@ fn emit_item_block(
     for instruction in emit_item_stroke_sign(header, off_item, &positive, &signed) {
         builder.emit(instruction);
     }
-    // bug-735: `arc.x` = 0 and an arc's `reflex` flag in `arc.y`, decided in f64.
+    // bug-735: `arc.x` = 0 and an arc's sweep turn in `arc.y` (bug-1088), decided in f64.
     let set = builder.label("vk_item_reflex_set");
     let done = builder.label("vk_item_reflex_done");
     for instruction in emit_item_arc_flags(header, off_item, &set, &done) {

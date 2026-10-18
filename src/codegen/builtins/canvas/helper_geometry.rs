@@ -1032,6 +1032,12 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   IF a.radius <= 0.0 THEN
     RETURN __canvas_emptyHeader()
   END IF
+  ' bug-1088: a sweep of zero (or less: the end before the start) has no length, and a
+  ' butt end adds nothing past an end: like a zero-length butt line, it draws nothing. A
+  ' Round or Square one draws its two ends.
+  IF a.endAngle <= a.startAngle AND __canvas_capTag(placed.cap) = 0 THEN
+    RETURN __canvas_emptyHeader()
+  END IF
   MUT out AS List OF Float = __canvas_blankHeader()
   out = collections::set(out, 0, toFloat(__CANVAS_GEO_ARC))
   out = collections::set(out, 1, toFloat(__CANVAS_GEO_HEADER))

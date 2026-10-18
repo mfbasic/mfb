@@ -190,7 +190,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "  int4 fill;\n",     // RGBA 0..255
     "  int4 stroke;\n",   // RGBA 0..255
     "  int4 misc;\n",     // kind, radius (16.16), strokeHalf (16.16), edgeCount
-    // glyph/picture height, arc reflex flag (bug-735) / polygon fill rule (plan-163-A),
+    // glyph/picture height, arc sweep turn (bug-735, bug-1088) / polygon fill rule (plan-163-A),
     // edgeBase, capStyle
     "  int4 arc;\n",
     "  int2 surface;\n",  // width, height (px)
@@ -889,11 +889,11 @@ const METAL_SHADER_BODY: &str = concat!(
     // * line (2): the segment distance, Round (1) minus the half-width, Butt (0) cut by the two
     //   end planes -- the half-width off BEFORE the planes (`__canvas_segmentDistanceButt`);
     // * arc (3): the ring band cut by the sweep -- `max` with the two end radii's signed
-    //   half-plane distances, their `max` (`min` when reflex) -- and a Round cap's two discs
+    //   cone distance (the reflex complement of the gap's) -- and a Round cap's two discs
     //   or a Square cap's two boxes (bug-1088). The planes are the oracle's two cross
     //   products, against `arcCaps - centre`, the radius times the oracle's Taylor
     //   `(cos, sin)`, divided by the radius, so no GPU trigonometry is involved; `arc.y` is
-    //   the oracle's `reflex`, decided in f64 by the emitter;
+    //   the oracle's `turn` (`__canvas_arcTurn`), decided in f64 by the emitter;
     // * ellipse (7): the oracle's 24-step bisection, every step in double-float. In fp32 a
     //   step's sign test took the other branch wherever `g` was within fp32's error of zero
     //   -- every late step, on every pixel -- which is what put the ellipse 8 pixels past
@@ -932,13 +932,35 @@ const METAL_SHADER_BODY: &str = concat!(
     "    float2 sy = dfSub(dfFixed(item.arcCaps.y, item.capsLo.y), cy);\n",
     "    float2 tx = dfSub(dfFixed(item.arcCaps.z, item.capsLo.z), cx);\n",
     "    float2 ty = dfSub(dfFixed(item.arcCaps.w, item.capsLo.w), cy);\n",
-    // bug-1088: the band cut by the sweep's two half-planes as signed distances, the
-    // oracle's `startPlane`/`endPlane`; `s`, `t` are the radius times its unit vectors, so
-    // each cross product is divided by the radius.
-    "    float2 startPlane = dfDiv(dfSub(dfMul(sy, dx), dfMul(sx, dy)), ex);\n",
-    "    float2 endPlane = dfDiv(dfSub(dfMul(tx, dy), dfMul(ty, dx)), ex);\n",
-    "    float2 sweep = item.arc.y != 0 ? dfMin(startPlane, endPlane) : dfMax(startPlane, endPlane);\n",
-    "    float2 band = dfMax(dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius), sweep);\n",
+    // bug-1088: the band cut by the sweep's wedge, the oracle's exact cone distance:
+    // inside both end half-planes and ahead of the centre along a radius, the nearer end
+    // line's distance, else the nearer end ray's; the reflex complement of the gap's cone;
+    // a whole turn (`arc.y` 2) the band alone. `s`, `t` are the radius times the oracle's
+    // unit vectors, so they are divided by it first.
+    "    float2 band = dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius);\n",
+    "    if (item.arc.y != 2) {\n",
+    "      float2 ux = dfDiv(sx, ex);\n",
+    "      float2 uy = dfDiv(sy, ex);\n",
+    "      float2 vx = dfDiv(tx, ex);\n",
+    "      float2 vy = dfDiv(ty, ex);\n",
+    "      float2 startPlane = dfSub(dfMul(uy, dx), dfMul(ux, dy));\n",
+    "      float2 endPlane = dfSub(dfMul(vx, dy), dfMul(vy, dx));\n",
+    "      float2 alongS = dfAdd(dfMul(dx, ux), dfMul(dy, uy));\n",
+    "      float2 alongE = dfAdd(dfMul(dx, vx), dfMul(dy, vy));\n",
+    "      float2 onS = dfMax(alongS, float2(0.0, 0.0));\n",
+    "      float2 onE = dfMax(alongE, float2(0.0, 0.0));\n",
+    "      float2 rays = dfMin(dfLength(dfSub(dx, dfMul(onS, ux)), dfSub(dy, dfMul(onS, uy))),\n",
+    "                          dfLength(dfSub(dx, dfMul(onE, vx)), dfSub(dy, dfMul(onE, vy))));\n",
+    "      bool ahead = !dfLess(alongS, float2(0.0, 0.0)) || !dfLess(alongE, float2(0.0, 0.0));\n",
+    "      float2 sweep = rays;\n",
+    "      if (item.arc.y == 1) {\n",
+    "        sweep = -rays;\n",
+    "        if (!dfLess(startPlane, float2(0.0, 0.0)) && !dfLess(endPlane, float2(0.0, 0.0)) && ahead) { sweep = dfMin(startPlane, endPlane); }\n",
+    "      } else if (!dfLess(float2(0.0, 0.0), startPlane) && !dfLess(float2(0.0, 0.0), endPlane) && ahead) {\n",
+    "        sweep = dfMax(startPlane, endPlane);\n",
+    "      }\n",
+    "      band = dfMax(band, sweep);\n",
+    "    }\n",
     // plan-163-B: a Square end is `__canvas_arcSquareCap` -- the half-width box past the
     // end along the tangent, `along` measured outward from the end.
     "    if (item.arc.w == 0) { return band; }\n",
@@ -5280,7 +5302,7 @@ fn emit_item_block(asm: &mut Asm, tag: &str) {
     ) {
         asm.push(instruction);
     }
-    // bug-735: `arc.x` = 0 and an arc's `reflex` flag in `arc.y`, decided in f64.
+    // bug-735: `arc.x` = 0 and an arc's sweep turn in `arc.y` (bug-1088), decided in f64.
     for instruction in emit_item_arc_flags(
         header,
         OFF_ITEM,

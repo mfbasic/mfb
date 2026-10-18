@@ -406,6 +406,25 @@ FUNC __canvas_cos(angle AS Float) AS Float
   RETURN magnitude
 END FUNC"#;
 
+/// bug-1088: which wedge an arc's sweep is, from its two angles: 0 for a sweep up to a
+/// half-turn (the intersection of the two half-planes and the front of the bisector),
+/// 1 for a reflex one (the complement of its gap's wedge), 2 for a whole turn or more
+/// (the ring itself -- its two sweep vectors are one, so they cannot say "everything"
+/// apart from "nothing"). The emitters write the same answer into the item block's
+/// `arc.y` from the header's angles in f64 (`emit_item_arc_flags`).
+#[rustfmt::skip]
+const ARC_TURN: &str =
+r#"FUNC __canvas_arcTurn(startAngle AS Float, endAngle AS Float) AS Integer
+  LET sweep AS Float = endAngle - startAngle
+  IF sweep >= 6.283185307179586 THEN
+    RETURN 2
+  END IF
+  IF sweep > 3.141592653589793 THEN
+    RETURN 1
+  END IF
+  RETURN 0
+END FUNC"#;
+
 /// plan-172-E: a rectangle's corners.
 ///
 /// One radius value has two meanings, chosen by its size (`planning/new_canvas.md`):
@@ -604,4 +623,5 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         SEGMENT_DISTANCE_SQUARE,
     ));
     pkg.add_helper(RegistryHelper::always("canvas_trig", TRIG));
+    pkg.add_helper(RegistryHelper::always("canvas_arcTurn", ARC_TURN));
 }

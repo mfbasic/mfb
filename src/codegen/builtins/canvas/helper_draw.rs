@@ -58,7 +58,7 @@ END FUNC"#;
 /// coverage path as its curved sides. Branching would have left them hard.
 #[rustfmt::skip]
 const GEO_DISTANCE: &str =
-r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean, cap AS Integer, capSX AS Float, capSY AS Float, capEX AS Float, capEY AS Float, ca AS Float, sa AS Float, dashed AS Boolean) AS Float
+r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer, px AS Float, py AS Float, p0 AS Float, p1 AS Float, p2 AS Float, p3 AS Float, radius AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, turn AS Integer, cap AS Integer, capSX AS Float, capSY AS Float, capEX AS Float, capEY AS Float, ca AS Float, sa AS Float, dashed AS Boolean) AS Float
   IF kind = __CANVAS_KIND_RECT THEN
     RETURN __canvas_rectDistance(px, py, p0, p1, p2, p3) - radius
   END IF
@@ -97,23 +97,47 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
   IF kind = __CANVAS_GEO_ARC THEN
     LET adx AS Float = px - p0
     LET ady AS Float = py - p1
-    ' bug-1088: the sweep is a wedge of two half-planes through the end radii, taken as
-    ' SIGNED distances -- positive before the start radius and past the end one (`+Y`
-    ' is down, so "after the start" is the cross product `s x d >= 0`) -- and the band is
-    ' intersected with it as the butt line's band is with its end planes
-    ' (`__canvas_segmentDistanceButt`): the half-width off first, then `max`. A sweep up
-    ' to a half-turn is the intersection of the two half-planes, a reflex one their union.
-    ' The sweep vectors are unit, so each plane term is a distance and the whole is
-    ' 1-Lipschitz: an end is antialiased as any edge is, and the central-difference
-    ' gradient a transformed arc is divided by never meets a jump. It answered 1e6 out
-    ' of sweep, and under a magnifying transform that jump lit rays along both ends.
-    LET startPlane AS Float = sy * adx - sx * ady
-    LET endPlane AS Float = ex * ady - ey * adx
-    MUT sweep AS Float = __canvas_maxF(startPlane, endPlane)
-    IF reflex THEN
-      sweep = __canvas_minF(startPlane, endPlane)
+    ' bug-1088: the band is intersected with the sweep's wedge as the butt line's band is
+    ' with its end planes (`__canvas_segmentDistanceButt`): the half-width off first, then
+    ' `max` with the wedge's signed distance. A sweep up to a half-turn is the cone of the
+    ' two end radii -- inside both half-planes (`startPlane`, positive before the start
+    ' radius, and `endPlane`, positive past the end one; `+Y` is down, so "after the
+    ' start" is `s x d >= 0`) AND in front of the centre along one of the two radii
+    ' (`alongS`, `alongE`): two half-planes through the centre also meet along the
+    ' OPPOSITE ray when the sweep is near 0 (at 0 they are the whole line), and that is
+    ' not the arc. Inside, the distance is the nearer end line's; outside, the distance
+    ' to the nearer end RAY, so the far side is as far as it is. A reflex sweep is the
+    ' complement of its gap's cone, built the same way from the same two radii. Exact
+    ' cone distances, so the arc is 1-Lipschitz: an end is antialiased as any edge is,
+    ' and the central-difference gradient a transformed arc is divided by never meets a
+    ' jump (it answered 1e6 out of sweep, and under a magnifying transform that jump lit
+    ' rays along both ends). A whole turn (`turn` 2, `__canvas_arcTurn`) is the band
+    ' alone: its two sweep vectors are one.
+    MUT arcD AS Float = __canvas_absF(math::sqrt(adx * adx + ady * ady) - p2) - radius
+    IF turn < 2 THEN
+      LET startPlane AS Float = sy * adx - sx * ady
+      LET endPlane AS Float = ex * ady - ey * adx
+      LET alongS AS Float = adx * sx + ady * sy
+      LET alongE AS Float = adx * ex + ady * ey
+      LET onS AS Float = __canvas_maxF(alongS, 0.0)
+      LET onE AS Float = __canvas_maxF(alongE, 0.0)
+      LET rsx AS Float = adx - onS * sx
+      LET rsy AS Float = ady - onS * sy
+      LET rex AS Float = adx - onE * ex
+      LET rey AS Float = ady - onE * ey
+      LET rays AS Float = __canvas_minF(math::sqrt(rsx * rsx + rsy * rsy), math::sqrt(rex * rex + rey * rey))
+      LET ahead AS Boolean = alongS >= 0.0 OR alongE >= 0.0
+      MUT sweep AS Float = rays
+      IF turn = 1 THEN
+        sweep = 0.0 - rays
+        IF startPlane >= 0.0 AND endPlane >= 0.0 AND ahead THEN
+          sweep = __canvas_minF(startPlane, endPlane)
+        END IF
+      ELSEIF startPlane <= 0.0 AND endPlane <= 0.0 AND ahead THEN
+        sweep = __canvas_maxF(startPlane, endPlane)
+      END IF
+      arcD = __canvas_maxF(arcD, sweep)
     END IF
-    MUT arcD AS Float = __canvas_maxF(__canvas_absF(math::sqrt(adx * adx + ady * ady) - p2) - radius, sweep)
     ' plan-116-D. Butt is 0: the band cut by the sweep is the whole of it.
     IF cap = 0 THEN
       RETURN arcD
