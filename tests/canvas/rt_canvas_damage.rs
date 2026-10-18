@@ -160,6 +160,67 @@ fn damage_changes_no_pixel() {
     }
 }
 
+/// bug-1089: a square that never changes, and a translucent rectangle whose colour
+/// changes on the second present and whose box overlaps one side of the square -- then
+/// the same with the square turned 37 degrees, whose box is the hull of its turned
+/// outline. The partial redraw clears only the damage rectangle, so an item drawn over
+/// its WHOLE box blended its antialiased edge a second time over the kept frame wherever
+/// that box ran outside the rectangle (worst 32 levels, at (239, 239)).
+const OVERLAPPED: &str = r#"IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+IMPORT os
+
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  LET turn AS canvas::Transform = canvas::Transform[a := 0.79864, b := 0.60182, c := -0.60182, d := 0.79864, tx := 0.0, ty := 0.0]
+  LET a AS canvas::DrawItem = canvas::Polygon[id := "", position := pt(0.0, 0.0), contours := [[pt(300.0 - 60.3, 300.0 - 60.3), pt(300.0 + 60.3, 300.0 - 60.3), pt(300.0 + 60.3, 300.0 + 60.3), pt(300.0 - 60.3, 300.0 + 60.3)]], rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(200, 40, 40)), transform := none]
+  LET t AS canvas::DrawItem = canvas::Polygon[id := "", position := pt(0.0, 0.0), contours := [[pt(0.0 - 60.3, 0.0 - 60.3), pt(60.3, 0.0 - 60.3), pt(60.3, 60.3), pt(0.0 - 60.3, 60.3)]], rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(200, 40, 40)), transform := WITH turn { tx := 650.0, ty := 300.0 }]
+  LET b1 AS canvas::DrawItem = canvas::Rectangle[id := "", position := pt(340.5, 280.5), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(40, 200, 120, 120)), transform := none]
+  LET b2 AS canvas::DrawItem = canvas::Rectangle[id := "", position := pt(340.5, 280.5), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(40, 120, 200, 120)), transform := none]
+  LET c1 AS canvas::DrawItem = canvas::Rectangle[id := "", position := pt(700.5, 280.5), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(40, 200, 120, 120)), transform := none]
+  LET c2 AS canvas::DrawItem = canvas::Rectangle[id := "", position := pt(700.5, 280.5), bind := canvas::BindTo.TopLeft, size := canvas::Size[width := 120.0, height := 40.0], radiusTL := 0.0, radiusTR := 0.0, radiusBL := 0.0, radiusBR := 0.0, paint := canvas::fill(color::rgba(40, 120, 200, 120)), transform := none]
+  canvas::present([a, t, b1, c1])
+  os::sleep(150)
+  canvas::present([a, t, b2, c2])
+  os::sleep(150)
+END FUNC
+"#;
+
+#[test]
+fn damage_does_not_blend_an_unchanged_overlapping_item_twice() {
+    let (with, stats) = render("canvas_damage_overlap_on", OVERLAPPED, true);
+    let (without, _) = render("canvas_damage_overlap_off", OVERLAPPED, false);
+    assert_eq!(with.len(), without.len(), "frame sizes differ");
+    assert!(
+        stats.iter().any(|l| l.contains(" partial=1")),
+        "the second frame was not a partial redraw, so the comparison proves nothing: {stats:?}"
+    );
+    let differing: Vec<usize> = with
+        .chunks(4)
+        .zip(without.chunks(4))
+        .enumerate()
+        .filter(|(_, (a, b))| a != b)
+        .map(|(i, _)| i)
+        .collect();
+    if let Some(&first) = differing.first() {
+        panic!(
+            "damage changed {} pixels; first at ({}, {}), got {:?} want {:?}",
+            differing.len(),
+            first % WIDTH,
+            first / WIDTH,
+            &with[first * 4..first * 4 + 4],
+            &without[first * 4..first * 4 + 4],
+        );
+    }
+}
+
 #[test]
 fn re_presenting_an_unchanged_scene_renders_nothing() {
     // Three presents, one rendered frame, with damage on **or** off — because the skip

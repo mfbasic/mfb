@@ -1089,7 +1089,9 @@ would need one, because a resize landing between a reader's load and its store w
 lost — on the one path whose entire job is to report edges.
 
 * `MFB_CANVAS_DAMAGE` — **a `--debug` build only**; repaint only what changed: keep the previous frame's pixels,
-  clear the union of the changed items' bounds, and redraw only the items that meet it.
+  clear the union of the changed items' bounds, and redraw only the items that meet it,
+  each through that rectangle as its scissor (`__CANVAS_SCISSOR_*`, bug-1089): an item
+  drawn over its whole box blends its edge twice wherever the box leaves the cleared area.
   Off by default, and always off in a normal build. It changes no pixels — that is what `tests/canvas/rt_canvas_damage.rs`
   asserts, byte for byte — but it does change *when* the renderer runs at all, and a
   frame counter that silently stops advancing is the kind of thing a stale test reads as

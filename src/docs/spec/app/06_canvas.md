@@ -1836,6 +1836,16 @@ record under a per-particle matrix — was measured instead and not taken: about
 draw on Metal against 0.5 for a block of an instanced draw, which is what it would have
 saved.
 
+**A partial redraw writes only the pixels it cleared.** With damage on, a frame whose
+damage is not the whole surface keeps the previous frame, clears the damage rectangle to
+the surface's opaque black, and redraws every entry whose box meets it, each with the
+rectangle as its scissor: every pixel loop of the software rasteriser is bounded by it.
+An unchanged item whose box runs outside the rectangle therefore does not blend its edge
+a second time over the kept pixels (bug-1089), and the frame is the full redraw's byte for
+byte. [[src/codegen/builtins/canvas/helper_render.rs:RENDER_SCENE]]
+[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
+[[tests/canvas/rt_canvas_damage.rs:damage_does_not_blend_an_unchanged_overlapping_item_twice]]
+
 ### Damage takes a system as one unit
 
 The damage diff pairs a frame's draw entries with the last frame's by index and answers
