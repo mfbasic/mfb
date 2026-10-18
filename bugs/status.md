@@ -286,6 +286,7 @@ python3 -c "import re,glob;a=[re.search(r'bug-(\d+)',f).group(1) for f in glob.g
 | [ ]  | 853    | LOW      | importing a source dependency whose manifest is `kind: "executable"` first compiles and links it into its own `build/`, then refuses it |
 | [ ]  | 923    | LOW      | A `libraries` locator with `libc` on `os: "windows"` passes validation but can never match |
 | [ ]  | 959    | LOW      | `LINK … AS win` with a function named `pathbuf`/`vendorsep` fails the Windows vendoring build with an internal duplicate-symbol error |
+| [ ]  | 1096   | LOW      | a program that calls `math::seed` but never `math::rand` still draws OS entropy at startup and links the unused `_mfb_rng_next` (all five targets) |
 
 ## Test tooling
 
