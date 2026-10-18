@@ -64,11 +64,8 @@ The Cause note's design, unchanged.
   state the group-matrix rule. SPIR-V regenerated on box 2226 (`frag.spv` only; `.vert`
   came back unchanged).
 
-Performance consequence (expected, by design): an UNTRANSFORMED banded polygon or path
-clip drawn under a group with a matrix (any turn or scale) now walks every edge per pixel,
-since its reach (`F = 0`) covers no neighbour sample. Pixels are unchanged; time per pixel
-grows with edge count for those items only. Translate-only groups are unaffected (no
-matrix, one sample).
+Performance: see round 2 below. (Round 1 recorded `F = 0` for an untransformed item,
+so every pixel under ANY group matrix walked every edge.)
 
 Commands run (all with `CARGO_TARGET_DIR=/tmp/bs24-agent-a`):
 
@@ -97,3 +94,57 @@ Goldens expected to change (sha256 `.app.ncodesum`; not regenerated here):
 - `tests/syntax/app/app-window-surface` — `macos-aarch64` `.app.ncode`: the
   `_mfb_macapp_metal_shader` string only (main's dump reproduces the committed sha; the
   one differing symbol is the shader).
+
+## Fix, round 2 (coordinator review, bug-staging-24)
+
+Finding: an untransformed item recorded `F = 0`, so a pixel under any group matrix
+(`N >= √2` even for an identity or a rotation) failed `0.75·N <= F` and walked every
+edge — 4.6x main's render time on 300 grouped 256-edge polygons (the coordinator's
+`bandrot`).
+
+- Both `emit_band_index`s build the reach for `F_built = max(F, √2)`: `r = half + 0.5 +
+  2·F_built +` the 1-unit guard, minimum band height `√2·F_built` (exactly the 2 px it
+  always was untransformed), and record `F_built` in the norm word. No group, an
+  identity, a rotation or a magnifying group keeps the band; only a group that shrinks
+  past the floor walks every edge. Shaders unchanged (`regen-spirv.sh` gave a
+  byte-identical blob). Spec and the builder / `ITEM_BAND_NORM` docs say `F_built`.
+- Commit `b5106f24b`.
+
+Measured (`bandrot` copied from `/tmp/bs24-rev/bandrot`, `MFB_MACAPP_HEADLESS=1
+MFB_CANVAS_GPU=1`, last stats line's `phaseRenderMs`, three runs each, the first of each
+cold, load ~9):
+
+| build | identity | rotated |
+|---|---|---|
+| main | 961 (cold) / 383 / 390 | 407 / 406 / 409 |
+| round 2 | 1130 (cold) / 570 / 570 | 556 / 563 / 557 |
+
+**Not within noise of main: 1.4x (570 vs 390), down from 4.6x.** The cause is the reach
+itself: a grouped pixel takes five samples, and the argument needs
+`r >= half + 0.5 + 1.5·N` (+ guard), `N >= √2` under any group matrix, where main's
+untransformed band had `r = half + 1.5`, which the argument does not cover under a group (main
+takes bands narrower than its neighbour samples need; its frames happen to match). A timing-only
+experiment with `r += F_built` (below the argument's `1.5·F_built`; built, measured,
+reverted, never committed) gave 491 / 491 identity and 507 / 487 rotated, so any reach
+the argument allows costs at least ~1.25x on this scene. Closing the rest needs a
+different design (e.g. a tighter bound from the centre-sample shortcut); not attempted.
+
+Pixel-neutrality: GPU frames of 15 untransformed scenes, main vs this build on Metal,
+`cmp` byte-identical: `large_polygons_on_black`, `star_301_97_on_black`,
+`star_251_97_on_black`, `path_clips_on_black`, `fill_rules_on_black`,
+`polylines_on_black`, `stroked_polygons_on_black`, `joins_on_black`, `huge_polygon`,
+`forty_thousand_opaque_edges`, `curves_placed_on_black`, `grouped_polygons_on_black`,
+`dashes_on_black`, `small_polygons_on_black`, `vertex_on_a_pixel_row`.
+
+Checks: `bash scripts/test-fast.sh --test rt_canvas_metal --test rt_canvas_golden --test
+rt_canvas_curves --test rt_canvas_picture` (logs
+`/var/folders/2n/9d_8f0dd7tj6bwwx3tmxrgn80000gn/T/mfb-test-fast.W5aVxW`): fmt, check,
+build, skips ok; tests FAILED only on bug-1088's two expected `endcaps` reference tests
+(`rt_canvas_metal` 74 passed, the banded RED test included). Vulkan, linux-aarch64
+(2226): 19 rows pass, `bandgroups` worst=1; windows-x86_64 (box 206, a copy of the
+round-2 compiler): 10 rows pass (`bandgroups`, `xformclips`, `groupaffine`, `groupsblack`,
+`polygonsblack`, `pathclips`, `polylinesblack`, `huge`, `star251x97`, `fillrules`),
+`bandgroups` worst=1.
+
+Goldens expected to change: as round 1 (`app-mouse-surface` `.app.ncode` on four
+targets, `app-window-surface` macos `.app.ncode`).
