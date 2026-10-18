@@ -109,3 +109,69 @@ Goldens expected to change (not regenerated):
   `endPlane`, `sweep`, `arcD`), the deleted `#canvas_arcInSweep`, and the source-line
   constants in helper `fail` sites (`builtins/canvas.mfb` 9767 → 9770), all from the
   helper source's line count changing.
+
+## Fix, round 2 (coordinator review, bug-staging-24)
+
+Finding: two half-planes through the centre also meet along the OPPOSITE ray when the
+sweep is near 0, so a zero-sweep butt arc (r 100, stroke 20, at 0.5) lit 21 px at its
+start and 21 behind its centre, and a 0.002 rad one 17 behind it (round-1 build; main 0).
+
+- **The wedge is the exact distance to the cone of the two end radii** (oracle arc arm,
+  both shaders line for line): a point is inside a sweep up to a half-turn when
+  `startPlane <= 0`, `endPlane <= 0` AND it is ahead of the centre along one radius
+  (`d·u_s >= 0` or `d·u_e >= 0`); inside, `max(startPlane, endPlane)`; outside, the
+  distance to the nearer end RAY. A reflex sweep is the complement of its gap's cone,
+  built the same way. Same zero set as the review's "intersection AND the half-plane in
+  front of the centre along the bisector", but NOT the review's `-d·m` term: measured,
+  `-d·(s + e)/2` flips sign with the sweep vectors' rounding at a half-turn
+  (`|s + e| ~ 1e-7`; a normalised `m` is noise there), and a 0..π butt semicircle came out
+  at half coverage, 6,300 px off main. The exact cone distance is 1-Lipschitz and needs
+  no bisector.
+- **A whole turn or more is the ring alone.** `__canvas_arcTurn` (oracle) and
+  `emit_item_arc_flags` (both emitters, `arc.y`) answer 2 for `endAngle − startAngle >=
+  2π`, 1 past π, else 0. Round 1 had a REGRESSION here that this fixes: two equal sweep
+  vectors cannot tell "everything" from "nothing", and a 2π butt arc had a half-covered
+  seam along its start radius (32 ring pixels short; main and round 2: 0).
+- **A butt arc with `endAngle <= startAngle` draws nothing** (empty header in
+  `__canvas_arcHeader`), as a zero-length butt line does (spec: "A zero-sweep arc"). Round
+  and Square draw their two ends (a zero-sweep Round arc lights 349 px, as main).
+- Spec (`cap`, the zero-sweep paragraph) rewritten; SPIR-V regenerated on 2226.
+- Commit `0df67cc15`.
+
+**Contract changes beyond the bug doc, for the coordinator to rule on** (both are
+consequences of the cone, and main's behaviour in both is itself wrong):
+- `endAngle < startAngle`, butt: main drew the cone OPPOSITE the sweep (a 0.5 rad wedge
+  behind the centre, 1,057 px for 0.5 → 0.0); round 2 draws nothing (Round/Square: the two
+  ends).
+- sweep > 2π: main drew the union of the two half-planes of the wrapped vectors, which
+  is discontinuous at 2π (the whole ring at exactly 2π, about half of it just past); round
+  2 draws the whole ring. `stroked_shapes_on_black` and `transformed_shapes_on_black` (whose
+  arcs sweep `3.8 + 0.01·fx`, past 2π for most `fx`) move: 1,255 px of the first differ from
+  main, every one on those round-capped arcs; both still match the oracle on every GPU.
+
+RED → GREEN (`cargo test --release --test rt_canvas_rasteriser butt_arc`, 4 passed):
+- `a_zero_or_tiny_sweep_butt_arc_draws_nothing_behind_its_centre`: the same scene with the
+  round-1 compiler (`/tmp/b1085r2/bin/mfb`) lit zero 21 front / 21 behind, tiny 24 / 17;
+  round 2: zero 0 / 0, tiny 24 / 0. The coordinator's `arc0` probe and `count.py`, round 2,
+  software and Metal: zero 0 / 0, tiny 24 / 0.
+- `a_butt_arc_swept_a_whole_turn_is_the_whole_ring`: round 1 32 ring pixels short, now 0.
+- `a_butt_arc_whose_end_is_before_its_start_draws_nothing`: main 1,057 px, now 0.
+
+Checks: `bash scripts/test-fast.sh --test rt_canvas_rasteriser --test rt_canvas_metal
+--test rt_canvas_golden --test rt_canvas_hit --test rt_canvas_curves` (logs
+`/var/folders/2n/9d_8f0dd7tj6bwwx3tmxrgn80000gn/T/mfb-test-fast.3ygve6`): fmt, check, build,
+skips ok; tests FAILED only on the two `endcaps` reference tests (rasteriser 111 passed,
+metal 74, hit 14, curves 40). `cargo test --release --bin mfb -- vulkan:: metal:: canvas::`
+99 passed. Vulkan: linux-aarch64 (2226) `magarcs,arcsblack,dashes,squarecaps,
+strokedblack,xformblack,joins,groupaffine,curves,polylinesblack` all match;
+windows-x86_64 (206) `magarcs,arcsblack,dashes,squarecaps,strokedblack,xformblack,
+groupaffine` all match (a copy of the compiler from before the `endAngle <= startAngle`
+header rule; no row scene has such an arc, and the shaders are the same). spec-census
+`--citations/--render/--links app`: 0 / 0 / 0. `scripts/artifact-gate.sh <mfb> all`: the
+same 10 diffs as round 1.
+
+Goldens expected to change: as round 1 -- `tests/golden/canvas/endcaps.png` (the same 28
+pixels, first at (206, 372)), `app-mouse-surface` ir/nir/nplan and four ncode,
+`app-window-surface` macos ncode, `resources/canvas-append-unconsumed-valid` and
+`resources/loop-body-resource-reference-valid` `.ir`. No other pixel reference moves
+(`rt_canvas_golden` 26 passed).
