@@ -57,7 +57,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 1098   | MED      | a Windows `--app` build always exits with status 0: `main`'s `Integer` result is dropped at the bootstrap's `ExitProcess(0)` (console and macOS `--app` keep it) |
 | [ ]  | 960    | LOW      | `mfb build --app` bundles fail `codesign --verify` ("code has no resources but signature indicates they must be present") |
 | [ ]  | 972    | LOW      | closing an `--app` window (or Cmd-Q) ends a running program with exit status 0 and no teardown — buffered file output is lost, no `--debug` report (owner decided: new `app::shouldClose`) |
 | [ ]  | 997    | LOW      | Windows `--app` windows open at 400×300 (a 384×261 client) while macOS and Linux open at 900×640 |
@@ -66,7 +65,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 1099   | MED      | in a terminal, `term::pollMouse` sees no events unless the program contains an `io::` reader, even one that never runs (the main thread is not subscribed to stdin) |
 | [ ]  | 969    | LOW      | `term::getForeground` / `getBackground` (all app backends) and `term::isOn` (macOS) do not raise `ErrWrongMode` outside `Mode.Console`, though they declare it (after 966) |
 | [ ]  | 971    | LOW      | the SGR mouse decoder and the key decoder accept malformed/overflowing numeric parameters |
 | [ ]  | 973    | LOW      | in an `--app` window, `io::readKey` right after `io::readLine`/`io::input` (or a canvas `readLine`) first returns the Return key's `Release`, a release whose press was never reported |
@@ -75,9 +73,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 832    | MED      | a `Set OF T { … }` literal skips the element-comparability check (non-comparable T accepted; ICE when non-empty with a List element) |
-| [ ]  | 846    | MED      | field access on a MapEntry / List / Map escapes the verifier and fails in native lowering with an uncoded, unlocated internal error |
-| [ ]  | 847    | MED      | a `Map OF K TO V { … }` literal with a repeated key builds a map holding that key twice |
+| [*]  | 847    | MED      | a `Map OF K TO V { … }` literal with a repeated key builds a map holding that key twice |
 | [ ]  | 1009   | MED      | fixed-width `collections::toSet` reserves by input length even when nearly every element is a duplicate |
 | [ ]  | 1010   | MED      | native `collections::merge` reserves for every input entry even when all keys overlap |
 | [ ]  | 1011   | MED      | reserved collection results retain source-sized capacity when outputs are smaller |
