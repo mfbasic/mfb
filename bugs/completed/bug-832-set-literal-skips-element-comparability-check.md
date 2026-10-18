@@ -108,16 +108,13 @@ Check the golden for an annotated set literal.
 ownership call is removed). Every set literal is therefore checked whatever its annotation; no
 element type is special-cased.
 
-Not met (flag for the coordinator): the Goal's "no double report when the binding is also
-annotated". An annotated binding whose initializer is a literal of the same type
-(`LET e AS Set OF List OF Integer = Set OF List OF Integer { }`) is reported by BOTH the literal
-arm and the explicit-annotation check in `ops.rs`; the same already happens for an annotated
-`Map` literal at HEAD (measured: `LET e AS Map OF List OF Integer TO Integer = Map OF ... { }`
-gives 2 reports). I tried skipping the `ops.rs` check for a same-type literal, but the pinned
-test `ir::verify::tests::rejects_a_resource_in_a_set_literal` ("Once for the declared type, once
-for the literal -- as the front end did", plan-107-B) expects exactly that double report for the
-ownership half, and a test is not edited without proof it is wrong; so the `ops.rs` change was
-reverted and the fixture does not pin the annotated shape either way.
+Annotated bindings (coordinator round 2): a collection literal's comparability is checked in one
+place, the literal. `ops.rs` (explicit-annotation path) now calls the new
+`check_map_key_ownership` for a binding whose initializer is a set/map literal of exactly the
+declared type, i.e. only the ownership/thread half (`rejects_a_resource_in_a_set_literal` is
+untouched and green); any other declared type still gets the full `check_map_key_comparable`.
+`LET e AS Set OF List OF Integer = Set OF ... { }` and the annotated Map form each report once
+(fixture lines e, f).
 
 Test: fixture `tests/syntax/collections/set-literal-noncomparable-element-invalid` (four inferred
 shapes from the bug and comparable `Set OF P` / `Set OF

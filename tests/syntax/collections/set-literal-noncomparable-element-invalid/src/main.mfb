@@ -3,6 +3,8 @@
 ' non-empty `Set OF List OF Integer` crashed codegen with an internal error).
 ' Every set literal is checked at the literal, whatever its annotation, and
 ' comparable elements still build.
+' An annotated binding whose initializer is a literal of the declared type reports its
+' comparability once, at the literal (lines e, f).
 IMPORT io
 
 TYPE P
@@ -23,6 +25,8 @@ FUNC main AS Nothing
   LET b = Set OF U { P[1], P[1] }
   LET c = Set OF Set OF Integer { }
   LET d = Set OF FUNC(Integer) AS Integer { }
+  LET e AS Set OF List OF Integer = Set OF List OF Integer { }
+  LET f AS Map OF List OF Integer TO Integer = Map OF List OF Integer TO Integer { }
   LET ok = Set OF P { P[1], P[1] }
   LET ok2 = Set OF Integer { 1, 2 }
   io::print(toString(len(a)))

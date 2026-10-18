@@ -1104,10 +1104,22 @@ impl TypeEnv {
     /// key — the former source checker's map-key arm of `TYPE_REQUIRES_COMPARABLE` (an
     /// incomparable key breaks the map's hash/equality contract at runtime).
     pub(super) fn check_map_key_comparable(&self, type_: &ParameterType) {
+        self.check_map_key_rules(type_, true);
+    }
+
+    /// The annotated-binding form (bug-832): the declared type's comparability is
+    /// checked once, at the collection literal that initializes it
+    /// ([`check_map_key_comparable`](Self::check_map_key_comparable)), so this
+    /// repeats only the ownership/thread half.
+    pub(super) fn check_map_key_ownership(&self, type_: &ParameterType) {
+        self.check_map_key_rules(type_, false);
+    }
+
+    fn check_map_key_rules(&self, type_: &ParameterType, comparable: bool) {
         let t = resource_base_type(type_);
         match &t {
             ParameterType::ListOf(inner) => {
-                self.check_map_key_comparable(inner);
+                self.check_map_key_rules(inner, comparable);
                 // A `List` element may be a resource pointer (§15.6), a parent
                 // `Thread` included; only a `ThreadWorker` is forbidden — the
                 // TYPE_COLLECTION_OWNERSHIP_VIOLATION element arm.
@@ -1117,16 +1129,16 @@ impl TypeEnv {
             // key exactly as a Map key is (plan-63, §4.2). Same diagnostic *code* as
             // the map-key check (`TYPE_REQUIRES_COMPARABLE`), distinct message.
             ParameterType::SetOf(inner) => {
-                self.check_collection_element_comparable(inner, "element");
-                self.check_map_key_comparable(inner);
+                self.check_collection_element_comparable(inner, "element", comparable);
+                self.check_map_key_rules(inner, comparable);
             }
             ParameterType::MapOf(key, value) => {
                 // A resource/thread may never be a Map key (handles are not
                 // comparable and ordinary collections cannot own them) —
                 // the former source checker's TYPE_COLLECTION_OWNERSHIP_VIOLATION key arm.
-                self.check_collection_element_comparable(key, "key");
-                self.check_map_key_comparable(key);
-                self.check_map_key_comparable(value);
+                self.check_collection_element_comparable(key, "key", comparable);
+                self.check_map_key_rules(key, comparable);
+                self.check_map_key_rules(value, comparable);
                 // A `Map` value may be a resource pointer (§15.6) but never a
                 // `ThreadWorker` — the rule's value arm.
                 self.check_collection_element_worker_free(value, "value");
@@ -1174,13 +1186,18 @@ impl TypeEnv {
     /// plan-106-B: extracted from the two byte-identical arms
     /// `check_map_key_comparable` carried for `Set OF T` and `Map OF K TO V`.
     /// An empty or `Unknown` type is skipped, exactly as the string guards did.
-    fn check_collection_element_comparable(&self, type_: &ParameterType, role: &str) {
+    fn check_collection_element_comparable(
+        &self,
+        type_: &ParameterType,
+        role: &str,
+        comparable: bool,
+    ) {
         let name = type_.name();
         if name.is_empty() || matches!(type_, ParameterType::Unknown) {
             return;
         }
         self.check_collection_element_ownership(type_, role);
-        if !self.is_comparable(type_) {
+        if comparable && !self.is_comparable(type_) {
             let subject = if role == "element" {
                 "Set element type"
             } else {

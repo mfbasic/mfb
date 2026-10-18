@@ -138,7 +138,19 @@ impl TypeEnv {
                     // inferred case is covered at its MapLiteral (checking it
                     // here too would double-report).
                     if *explicit_type {
-                        self.check_map_key_comparable(type_);
+                        // A set/map literal of exactly the declared type checked its
+                        // own comparability (bug-832); repeat only the ownership half.
+                        if matches!(
+                            value,
+                            Some(
+                                IrValue::SetLiteral { type_: literal, .. }
+                                    | IrValue::MapLiteral { type_: literal, .. }
+                            ) if literal == type_
+                        ) {
+                            self.check_map_key_ownership(type_);
+                        } else {
+                            self.check_map_key_comparable(type_);
+                        }
                         self.check_collection_res_axis(&resource_base_type(type_));
                         self.check_thread_sendability(&type_.without_state());
                         if let Some(state) = type_.state() {
