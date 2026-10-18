@@ -253,7 +253,10 @@ fn a_magnified_butt_arc_draws_its_band_and_antialiased_ends_only() {
         strays.len(),
         &strays[..strays.len().min(8)]
     );
-    assert!(lit > 1000, "the quarter-ring was not drawn: {lit} lit pixels");
+    assert!(
+        lit > 1000,
+        "the quarter-ring was not drawn: {lit} lit pixels"
+    );
     assert!(
         partial_end > 0,
         "no pixel on an end radius is partly covered: the butt ends are cut hard rather \
