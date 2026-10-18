@@ -41,7 +41,7 @@ TYPE Ck
   at AS AttributedString
 END TYPE
 
-TYPE Duo OF A, B
+TYPE Duo OF (A, B)
   first AS A
   second AS B
 END TYPE
@@ -71,7 +71,7 @@ FUNC main AS Integer
   io::print(show(d))
   LET w = Ck[name := \"w\"]
   io::print(toString(w.col.red) & toString(w.col.alpha))
-  LET p AS Duo OF Integer, String = Duo[first := 7]
+  LET p AS Duo OF (Integer, String) = Duo[first := 7]
   io::print(toString(p.first) & \"[\" & p.second & \"]\")
   LET c = color::Color[red := toByte(9)]
   io::print(toString(c.red) & toString(c.green) & toString(c.alpha))
