@@ -261,6 +261,17 @@ impl LinuxPlan<'_> {
             .iter()
             .map(|name| self.libc_import(name, required_by))
             .collect(),
+            // bug-965: `setMode`'s GTK reconcile handshake — the worker waits on an
+            // unnamed semaphore the main-loop idle posts. pthread-family, so it
+            // resolves where this backend's glibc puts pthread (`libpthread`).
+            "app.setMode" => ["sem_init", "sem_wait", "sem_post", "sem_destroy"]
+                .iter()
+                .map(|symbol| PlatformImport {
+                    library: self.libpthread().to_string(),
+                    symbol: (*symbol).to_string(),
+                    required_by: required_by.to_string(),
+                })
+                .collect(),
             "app.getTitle" => ["pthread_mutex_lock", "pthread_mutex_unlock"]
                 .iter()
                 .map(|name| self.libc_import(name, required_by))

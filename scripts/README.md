@@ -127,7 +127,9 @@ a `cargo test` target, another script, or a person.
   Run by: `test-macapp.sh` (GUI legs).
 - **test-appimage.sh** — Runtime acceptance for Linux app mode: builds the glibc and
   musl AppImages, ships them to real boxes (an AppImage cannot run under emulation of
-  its ELF loader), and checks extraction, sonames, the payload and startup. Usage:
+  its ELF loader), and checks extraction, sonames, the payload and startup; `--gui`
+  adds the windowed rows (incl. bug-965's `setMode` io routing), on the X display
+  `MFB_APPIMAGE_DISPLAY` names or the first of `:0`..`:4`. Usage:
   `bash scripts/test-appimage.sh <mfb-exe> [--box <port>] [--libc glibc|musl|both] [--gui]`.
   Run by: by hand (boxes 2228/2227).
 - **test-canvas-gpu-rows.sh** — The bug-686 scale rows (5,000 quads, 40,000 polygon

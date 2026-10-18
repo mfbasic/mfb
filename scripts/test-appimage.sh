@@ -368,7 +368,9 @@ MFB
 
   if [ "$GUI" -eq 1 ]; then
     local display
-    display=$($ssh -n 'for d in ${MFB_APPIMAGE_DISPLAY:-} :0 :1 :2 :3 :4; do
+    # MFB_APPIMAGE_DISPLAY is read HERE and handed to the box: ssh forwards no
+    # environment, so a remote-side expansion never saw the caller's value.
+    display=$($ssh -n "MFB_APPIMAGE_DISPLAY=${MFB_APPIMAGE_DISPLAY:-}"'; for d in ${MFB_APPIMAGE_DISPLAY:-} :0 :1 :2 :3 :4; do
                          [ -n "$d" ] || continue
                          if timeout 3 env DISPLAY=$d xdpyinfo >/dev/null 2>&1; then
                            echo "$d"; break
@@ -389,6 +391,48 @@ MFB
         pass "$libc: windowed run produced the program marker"
       else
         fail "$libc: windowed run exited early (status $status): $out"
+      fi
+
+      # bug-965: `app::setMode` returns only once the GTK main loop has
+      # reconciled the window, so the very next `io::print` follows the NEW
+      # mode: `None` -> stdout, `Console` -> the transcript. A `--debug` build's
+      # MFB_TRANSCRIPT_DUMP writes the transcript to stdout at exit, after any
+      # direct stdout line, so the exact expected stdout is C (direct), then the
+      # dumped transcript A and E. Fire-and-forget reconcile gave
+      # "A-console-1 C-none E-console-2" (A on stdout, C in the hidden transcript).
+      local mproj="$work/$libc-setmode"
+      mkdir -p "$mproj/src"
+      cat > "$mproj/project.json" <<JSON
+{ "name": "modeio", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+      cat > "$mproj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT io
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Console)
+  io::print("A-console-1")
+  app::setMode(app::Mode.None)
+  io::print("C-none")
+  app::setMode(app::Mode.Console)
+  io::print("E-console-2")
+END FUNC
+MFB
+      if ! "$MFB_EXE" build -q --app --debug -target "$target" "$mproj" >/dev/null 2>&1; then
+        fail "$libc: build --app --debug -target $target (setMode io routing)"
+      else
+        $scp "$mproj/build/modeio-$libc.AppImage" "test@127.0.0.1:$remote/modeio.AppImage" \
+          || fail "$libc: ship the setMode io-routing AppImage"
+        # shellcheck disable=SC2086
+        out=$(timeout_run 20 $ssh -n "cd $remote && chmod +x modeio.AppImage && \
+          DISPLAY=$display MFB_TRANSCRIPT_DUMP=1 ./modeio.AppImage $run_flags 2>/dev/null")
+        if [ "$out" = "$(printf 'C-none\nA-console-1\nE-console-2')" ]; then
+          pass "$libc: setMode reconciles before returning (io follows the new mode)"
+        else
+          fail "$libc: setMode io routing: expected C-none, A-console-1, E-console-2; got: $out"
+        fi
       fi
     fi
   fi

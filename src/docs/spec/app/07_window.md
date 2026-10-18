@@ -113,8 +113,9 @@ because each names the process-global data above.
 
 ### Linux (GTK4)
 
-- Worker: `g_idle_add(_mfb_gtkapp_window_sync, NULL)` — fire-and-forget, like the
-  mode reconcile, and ordered after an earlier `setMode`'s reconcile idle. Skipped
+- Worker: `g_idle_add(_mfb_gtkapp_window_sync, NULL)` — fire-and-forget (unlike
+  the mode reconcile, which `setMode` waits for: `./mfb spec app linux-runtime`),
+  and ordered after an earlier `setMode`'s reconcile idle. Skipped
   when `ST_APPLICATION` is `0` (headless never creates the application), because an
   idle nothing runs would be a leak per call.
 - Main loop: `_mfb_gtkapp_window_sync` returns if `ST_WINDOW` is `0`, else sets

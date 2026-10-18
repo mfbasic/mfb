@@ -606,9 +606,9 @@ pub(super) fn emit_activate_handler(
 }
 
 /// plan-62-D Phase 2 (worker side): the `app::setMode` reconcile seam. `setMode`
-/// has already stored the new mode; this schedules `RECONCILE_IDLE` on the GTK main
-/// loop via `g_idle_add(func, mode)`, passing the mode as the user-data (a small
-/// integer, never dereferenced, so it needs no boxing). Emitted into the shared
+/// has already stored the new mode; this reloads it into the first argument and
+/// calls [`emit_reconcile_marshal_helper`], which posts the reconcile to the GTK
+/// main loop and returns only once it has run (bug-965). Emitted into the shared
 /// `_mfb_rt_app_app_setMode` helper via the platform's `emit_app_mode_reconcile`.
 pub(crate) fn emit_reconcile_seam(
     from_symbol: &str,
@@ -621,15 +621,108 @@ pub(crate) fn emit_reconcile_seam(
     // zero-physical-register invariant (plan-34-D). The allocator/x86 remap place
     // them into the call ABI.
     let mut asm = Asm::new(from_symbol);
-    asm.local_address(abi::mfb_arg(0), RECONCILE_IDLE_SYMBOL); // GSourceFunc
     asm.push(abi::load_u64(
-        abi::mfb_arg(1),
+        abi::mfb_arg(0),
         crate::codegen::error::constants::ARENA_STATE_REGISTER,
         presentation_mode_offset,
-    )); // user-data = mode
-    asm.call_external("g_idle_add");
+    ));
+    asm.call_internal(RECONCILE_MARSHAL_SYMBOL);
     instructions.extend(asm.ins);
     relocations.extend(asm.rel);
+}
+
+/// bug-965 (worker side): `void _mfb_gtkapp_reconcile_marshal(mode)` — run the mode
+/// reconcile on the GTK main loop and wait for it, so that when `app::setMode`
+/// returns the window and the io routing (`ST_TEXT_BUFFER`) already match the new
+/// mode and the next `io::print` lands in the right sink. This is the GTK form of
+/// macOS's `performSelectorOnMainThread:… waitUntilDone:YES`.
+///
+/// The request block lives in this frame (`sp+16`): the mode at
+/// [`RECONCILE_REQ_MODE`] and an unnamed POSIX semaphore at [`RECONCILE_REQ_SEM`].
+/// `sem_init(sem, 0, 0)`, `g_idle_add(RECONCILE_IDLE, req)`, then `sem_wait` until
+/// the idle's `sem_post` (retrying while it returns non-zero, i.e. `EINTR`), then
+/// `sem_destroy`. The frame outlives the idle's last touch of the block: the idle's
+/// final access is the `sem_post` itself, and `sem_post` is specified safe to be
+/// followed immediately by the waiter destroying the semaphore. One block per call,
+/// so concurrent `setMode` calls from several program threads each wait for their
+/// own reconcile; idles of one priority run in post order, so they reconcile in
+/// call order.
+///
+/// Deadlock analysis (why the wait always ends or the process does):
+/// - **Headless** (`MFB_HEADLESS`): `_mfb_gtkapp_main` never creates the
+///   `GtkApplication`, so `ST_APPLICATION` is null and no loop will ever run the
+///   idle. The helper returns at once — `setMode` stays state-only, as before.
+/// - **The main loop never waits on a program thread.** Every main-loop callback
+///   (key/mouse/close handlers, the append/term/canvas idles, the window sync) runs
+///   to completion without blocking on the worker: the key pipe's write end is
+///   `O_NONBLOCK` (bug-114), the window-title lock is held only around a read and a
+///   GTK call on either side, and no main-thread code joins or waits for a program
+///   thread. So a posted idle is always eventually dispatched while the loop runs.
+/// - **Shutdown**: closing the window calls `g_application_quit`; if a `setMode` is
+///   waiting (or posts after that), its idle may never run, but the loop's exit
+///   returns from `g_application_run` and `_mfb_gtkapp_main` returns into `exit`,
+///   which ends the blocked thread with the process. A program that finishes ends
+///   through `_mfb_gtkapp_finish` on the worker, after its own `setMode` returned.
+/// - **Never called on the main thread**: program code runs only on the worker and
+///   on `thread::` threads; GTK callbacks never call `setMode`.
+pub(super) fn emit_reconcile_marshal_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(RECONCILE_MARSHAL_SYMBOL);
+    // lr@0, request block @16 (mode@16, sem_t@32..64).
+    let frame = 64;
+    let req = 16;
+    let skip = format!("{RECONCILE_MARSHAL_SYMBOL}_headless");
+    let wait = format!("{RECONCILE_MARSHAL_SYMBOL}_wait");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
+    asm.push(abi::store_u64(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        req + RECONCILE_REQ_MODE,
+    ));
+    // Headless: no GtkApplication, no main loop to run the idle.
+    asm.load_state(abi::c_arg(0), ST_APPLICATION);
+    asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
+    asm.push(abi::branch_eq(&skip));
+    // sem_init(&req.sem, 0 /* not shared */, 0 /* not yet posted */)
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        req + RECONCILE_REQ_SEM,
+    ));
+    asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
+    asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
+    asm.call_external("sem_init");
+    // g_idle_add(RECONCILE_IDLE, &req)
+    asm.local_address(abi::c_arg(0), RECONCILE_IDLE_SYMBOL);
+    asm.push(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), req));
+    asm.call_external("g_idle_add");
+    // sem_wait(&req.sem), retried on EINTR (the only failure a valid, process-
+    // private semaphore can report).
+    asm.push(abi::label(&wait));
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        req + RECONCILE_REQ_SEM,
+    ));
+    asm.call_external("sem_wait");
+    asm.push(abi::compare_immediate(abi::c_return(0), "0"));
+    asm.push(abi::branch_ne(&wait));
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::stack_pointer(),
+        req + RECONCILE_REQ_SEM,
+    ));
+    asm.call_external("sem_destroy");
+    asm.push(abi::label(&skip));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    asm.finish(RECONCILE_MARSHAL_SYMBOL, "Nothing")
 }
 
 /// plan-98-A Phase 3 (GTK main loop): build the transcript window — window +
@@ -764,8 +857,10 @@ fn emit_canvas_teardown(asm: &mut Asm, label: &str) {
 }
 
 /// plan-62-D Phase 2 / plan-98-A Phase 3 (GTK main loop): the `g_idle_add` callback
-/// that reconciles the window to the presentation mode. `x0` = the new mode (the
-/// user-data).
+/// that reconciles the window to the presentation mode. `x0` = the worker's
+/// reconcile request block (the user-data, see [`emit_reconcile_marshal_helper`]):
+/// the new mode is read from it, and its semaphore is posted once the reconcile is
+/// complete, releasing the waiting `setMode` (bug-965).
 ///
 /// - `Console` builds the transcript window on the first switch (or re-shows it),
 ///   re-points the io-routing text buffer, and releases the windowless hold.
@@ -790,7 +885,7 @@ pub(super) fn emit_reconcile_idle_helper(
     uses_window: bool,
 ) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(RECONCILE_IDLE_SYMBOL);
-    let frame = 16; // lr@0, x19(mode)@8
+    let frame = 32; // lr@0, x19(mode)@8, x20(request)@16
     let none = format!("{RECONCILE_IDLE_SYMBOL}_none");
     let canvas = format!("{RECONCILE_IDLE_SYMBOL}_canvas");
     let show = format!("{RECONCILE_IDLE_SYMBOL}_show");
@@ -807,7 +902,9 @@ pub(super) fn emit_reconcile_idle_helper(
         0,
     ));
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
-    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // mode
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // request
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::LOCAL[1], RECONCILE_REQ_MODE)); // mode
                                                                 // Three-way dispatch: Console(0) falls through, Canvas(2) and None(1) branch.
     asm.push(abi::compare_immediate(abi::LOCAL[0], "2"));
     asm.push(abi::branch_eq(&canvas));
@@ -963,9 +1060,18 @@ pub(super) fn emit_reconcile_idle_helper(
     asm.push(abi::label(&hold_skip));
 
     asm.push(abi::label(&done));
+    // bug-965: the reconcile is complete — release the waiting `setMode`. This is
+    // the last touch of the request block, which lives on the waiter's stack.
+    asm.push(abi::add_immediate(
+        abi::c_arg(0),
+        abi::LOCAL[1],
+        RECONCILE_REQ_SEM,
+    ));
+    asm.call_external("sem_post");
     asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0")); // G_SOURCE_REMOVE
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     asm.finish(RECONCILE_IDLE_SYMBOL, "Integer")

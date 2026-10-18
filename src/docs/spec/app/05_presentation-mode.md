@@ -97,9 +97,12 @@ Storing a new mode with `app::setMode` reconciles the window surface to match.
 2. **Store.** The new mode lands in the slot.
 3. **Reconcile.** A per-backend reconcile hook runs — on macOS it marshals to the
    AppKit main thread, on Linux to the GTK main loop, on Windows to the window
-   thread — to build or tear down the window. The reconcile reads the
-   authoritative mode back from the slot rather than a caller-saved register,
-   since it emits register-clobbering cross-thread calls. The per-backend window
+   thread — to build or tear down the window, and `setMode` returns only once it
+   has run, so the next `io::` write already follows the new mode's routing (the
+   table below); headless there is no UI thread and the step is skipped. The
+   reconcile reads the authoritative mode back from the slot rather than a
+   caller-saved register, since it emits register-clobbering cross-thread calls.
+   The per-backend window
    mechanics are `./mfb spec app macos-runtime` and `./mfb spec app linux-runtime`.
    [[src/codegen/engine/types/types.rs:CodegenPlatform]]
 

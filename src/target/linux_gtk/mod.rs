@@ -81,6 +81,16 @@ const STR_TRANSCRIPT_DUMP_ENV: (&str, &str) =
 /// schedules (via `g_idle_add`) to build or tear down the transcript window to
 /// match the new presentation mode.
 const RECONCILE_IDLE_SYMBOL: &str = "_mfb_gtkapp_reconcile_idle";
+/// bug-965: the worker-side half of the `setMode` reconcile handshake. Posts
+/// [`RECONCILE_IDLE_SYMBOL`] with a stack request block and blocks on the block's
+/// semaphore until the idle has run, so `setMode` returns only once the window and
+/// the io routing match the new mode (the macOS `waitUntilDone:YES` contract).
+const RECONCILE_MARSHAL_SYMBOL: &str = "_mfb_gtkapp_reconcile_marshal";
+/// The reconcile request block, on the marshal helper's stack: the new mode at
+/// `+0`, a POSIX `sem_t` at `+16` (32 bytes on every 64-bit glibc and musl ABI;
+/// 16-aligned, which satisfies its 8-byte alignment).
+const RECONCILE_REQ_MODE: usize = 0;
+const RECONCILE_REQ_SEM: usize = 16;
 /// plan-98-A Phase 3: builds the transcript window (window + scrolled + text view +
 /// buffer) and installs the scrolled window as its child. Factored out of the
 /// reconcile's `Console` arm because the `Canvas` arm needs the same window: a
@@ -681,6 +691,7 @@ pub(crate) fn emit_app_program_entry(
             spec.uses_canvas,
             spec.uses_window,
         )?);
+        functions.push(emit_reconcile_marshal_helper()?);
     }
     // The `app` window members' main-loop sync and fullscreen tracking. Gated: both
     // name the process-global window data, emitted only for such a program.
@@ -797,6 +808,7 @@ pub(crate) fn emit_app_program_entry_x86(
             spec.uses_canvas,
             spec.uses_window,
         )?);
+        functions.push(emit_reconcile_marshal_helper()?);
     }
     // The `app` window members' main-loop sync and fullscreen tracking. Gated: both
     // name the process-global window data, emitted only for such a program.
@@ -1761,6 +1773,59 @@ mod canvas_reconcile_tests {
                     .map(|(_, value)| value.to_string())
             })
             .collect()
+    }
+
+    /// bug-965: the worker side of `setMode` waits for the reconcile. The order
+    /// is the contract: headless skip (no `GtkApplication`, so no loop would ever
+    /// run the idle), `sem_init` before the idle can post, `g_idle_add` before
+    /// the wait, `sem_wait` before `sem_destroy`. A fire-and-forget seam (the bug)
+    /// has no `sem_wait` at all.
+    #[test]
+    fn reconcile_marshal_waits_for_the_idle() {
+        let func = bootstrap::emit_reconcile_marshal_helper().expect("reconcile marshal");
+        let order: Vec<&str> = func
+            .relocations
+            .iter()
+            .map(|r| r.to.as_str())
+            .filter(|to| to.starts_with("sem_") || *to == "g_idle_add")
+            .collect();
+        assert_eq!(
+            order,
+            ["sem_init", "g_idle_add", "sem_wait", "sem_destroy"],
+            "setMode must post the reconcile and block until it has run"
+        );
+        // The headless test: the first compare is of ST_APPLICATION against 0,
+        // taken before any sem_* or g_idle_add call.
+        let first_cmp = func
+            .instructions
+            .iter()
+            .position(|i| i.op == crate::arch::ops::CodeOp::CmpImm)
+            .expect("the headless gate compares ST_APPLICATION");
+        let first_call = func
+            .instructions
+            .iter()
+            .position(|i| i.op == crate::arch::ops::CodeOp::BranchLink)
+            .expect("the marshal calls out");
+        assert!(
+            first_cmp < first_call,
+            "the headless skip must precede every call"
+        );
+    }
+
+    /// bug-965: the reconcile idle releases the waiting `setMode` exactly once,
+    /// after the reconcile work (its last external call), so the waiter's stack
+    /// request block is not touched after the post.
+    #[test]
+    fn reconcile_idle_posts_the_waiter_last() {
+        let func = bootstrap::emit_reconcile_idle_helper(true, true).expect("reconcile idle");
+        assert_eq!(externals(&func, "sem_post"), 1);
+        let last_call = func
+            .relocations
+            .iter()
+            .rev()
+            .find(|r| r.binding == "external")
+            .expect("the idle calls out");
+        assert_eq!(last_call.to, "sem_post");
     }
 
     /// `Canvas` (2) must be dispatched before the `Console`-or-not test. With a

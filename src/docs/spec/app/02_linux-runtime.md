@@ -43,6 +43,8 @@ program entry runs separately on the worker thread under
 | `_mfb_gtkapp_append` | main-thread `GtkTextBuffer` insert + auto-scroll |
 | `_mfb_gtkapp_append_idle` | `g_idle_add` callback draining a marshaled chunk |
 | `_mfb_gtkapp_term_*` | term:: grid draw / write / scroll / init / idle swaps |
+| `_mfb_gtkapp_reconcile_marshal` | worker side of `app::setMode`: posts the reconcile and waits for it (`None`-default programs) |
+| `_mfb_gtkapp_reconcile_idle` | `g_idle_add` callback reconciling the window to the new mode, then releasing the waiter |
 
 [[src/target/linux_gtk/mod.rs:FINISH_SYMBOL]]
 [[src/target/linux_gtk/mod.rs:MAIN_SYMBOL]]
@@ -353,6 +355,40 @@ drain. The three `is*Terminal` helpers return `OK(TRUE)`.
 `emit_set_raw_input_mode` (inlined into the keystroke readers) sets `MODE_RAW`.
 [[src/target/linux_gtk/app_io.rs:emit_app_io_input]]
 [[src/target/linux_gtk/app_io.rs:emit_set_raw_input_mode]]
+
+## `app::setMode` reconcile handshake
+
+`setMode` returns only after the GTK main loop has reconciled the window to the
+new mode, so the program's next `io::` write is routed by the new mode's
+`ST_TEXT_BUFFER` (`Console` → transcript, `None`/`Canvas` → fd 1/2) — the same
+contract macOS gets from `waitUntilDone:YES` and Windows from a cross-thread
+`SendMessageW` (bug-965). The worker's seam loads the mode and calls
+`_mfb_gtkapp_reconcile_marshal`, which:
+[[src/target/linux_gtk/bootstrap.rs:emit_reconcile_seam]]
+
+1. returns at once when `ST_APPLICATION` is `0` — headless (`MFB_HEADLESS`) never
+   creates the `GtkApplication`, so no loop would run the idle and `setMode` stays
+   state-only;
+2. builds a request block on its own stack — the mode at `+0`, an unnamed POSIX
+   semaphore (`sem_init(sem, 0, 0)`) at `+16`;
+3. posts `g_idle_add(_mfb_gtkapp_reconcile_idle, &request)`;
+4. `sem_wait`s, retrying while it returns non-zero (`EINTR`), then `sem_destroy`s.
+[[src/target/linux_gtk/bootstrap.rs:emit_reconcile_marshal_helper]]
+
+`_mfb_gtkapp_reconcile_idle` reads the mode from the block, builds/shows/hides the
+window and re-points or clears `ST_TEXT_BUFFER`, then `sem_post`s — its last touch
+of the waiter's stack — and returns `G_SOURCE_REMOVE`. Idles of one priority run in
+post order, so a transcript chunk posted before the `setMode` is appended first and
+concurrent `setMode` calls from several program threads reconcile in call order,
+each waiting on its own semaphore. [[src/target/linux_gtk/bootstrap.rs:emit_reconcile_idle_helper]]
+
+The wait cannot deadlock: no main-loop callback ever blocks on a program thread
+(the key pipe's write end is `O_NONBLOCK`; the window-title lock is held only
+around a read and a GTK call), program code never runs on the main thread, and if
+the window is closed while a `setMode` waits, `g_application_run` returns and the
+process exits, ending the waiting thread with it. The four `sem_*` imports are
+declared by the `app.setMode` call row, from the backend's pthread library.
+[[src/target/linux_common/plan.rs:LinuxPlan]]
 
 ## Documented divergences from macOS
 
