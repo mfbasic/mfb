@@ -206,7 +206,7 @@
       "body": [
       { "op": "eval", "line": 57, "value": { "kind": "call", "type": "Nothing", "target": "touchDrop", "args": [{ "kind": "local", "name": "path" }] } },
       { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "earlyClose", "args": [{ "kind": "local", "name": "path" }] } },
-      { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res1", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "errExit", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "target/no_such_dir_74/missing.txt" }] } },
+      { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res1", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "errExit", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "target/no_such_dir_74/missing.txt" }] } },
       { "op": "bind", "line": 59, "mutable": true, "name": "$trap_val2", "type": "Integer", "value": null },
       {
         "op": "if",

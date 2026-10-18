@@ -113,7 +113,7 @@
     { "op": "bind", "line": 18, "mutable": true, "name": "$trap_failed4", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 18, "mutable": true, "name": "$trap_err5", "type": "Error", "value": null },
     { "op": "bind", "line": 18, "mutable": true, "name": "$trap_val3", "type": "Boolean", "value": null },
-    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res1", "type": "Result OF Boolean", "value": { "kind": "checked", "type": "Boolean", "value": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "big" }, "right": { "kind": "local", "name": "f" } } } },
+    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res1", "type": "#Result OF Boolean", "value": { "kind": "checked", "type": "Boolean", "value": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "big" }, "right": { "kind": "local", "name": "f" } } } },
     {
       "op": "if",
       "line": 18,
@@ -157,7 +157,7 @@
     { "op": "bind", "line": 26, "mutable": true, "name": "$trap_failed10", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 26, "mutable": true, "name": "$trap_err11", "type": "Error", "value": null },
     { "op": "bind", "line": 26, "mutable": true, "name": "$trap_val9", "type": "Boolean", "value": null },
-    { "op": "bind", "line": 26, "mutable": false, "name": "$trap_res7", "type": "Result OF Boolean", "value": { "kind": "checked", "type": "Boolean", "value": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "f" }, "right": { "kind": "local", "name": "big" } } } },
+    { "op": "bind", "line": 26, "mutable": false, "name": "$trap_res7", "type": "#Result OF Boolean", "value": { "kind": "checked", "type": "Boolean", "value": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "f" }, "right": { "kind": "local", "name": "big" } } } },
     {
       "op": "if",
       "line": 26,
@@ -201,7 +201,7 @@
     { "op": "bind", "line": 34, "mutable": true, "name": "$trap_failed16", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 34, "mutable": true, "name": "$trap_err17", "type": "Error", "value": null },
     { "op": "bind", "line": 34, "mutable": true, "name": "$trap_val15", "type": "Boolean", "value": null },
-    { "op": "bind", "line": 34, "mutable": false, "name": "$trap_res13", "type": "Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "below", "args": [{ "kind": "local", "name": "big" }, { "kind": "local", "name": "f" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "$trap_res13", "type": "#Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "below", "args": [{ "kind": "local", "name": "big" }, { "kind": "local", "name": "f" }] } },
     {
       "op": "if",
       "line": 34,

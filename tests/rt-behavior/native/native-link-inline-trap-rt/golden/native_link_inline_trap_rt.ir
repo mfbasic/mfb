@@ -108,7 +108,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 61, "mutable": false, "name": "missing", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/native-link-inline-trap-rt-missing.db" } },
-    { "op": "bind", "line": 64, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "sql.config", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 64, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "sql.config", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] } },
     { "op": "bind", "line": 64, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -125,7 +125,7 @@
     },
     { "op": "bind", "line": 64, "mutable": false, "name": "ok", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
     { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "success ok=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "ok" }] } }] } },
-    { "op": "bind", "line": 71, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "sql.config", "args": [{ "kind": "const", "type": "Integer", "value": "9999" }] } },
+    { "op": "bind", "line": 71, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "sql.config", "args": [{ "kind": "const", "type": "Integer", "value": "9999" }] } },
     { "op": "bind", "line": 71, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -142,7 +142,7 @@
     },
     { "op": "bind", "line": 71, "mutable": false, "name": "direct", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
     { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "direct recovered=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "direct" }] } }] } },
-    { "op": "bind", "line": 78, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "opens", "args": [{ "kind": "local", "name": "missing" }] } },
+    { "op": "bind", "line": 78, "mutable": false, "name": "$trap_res4", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "opens", "args": [{ "kind": "local", "name": "missing" }] } },
     { "op": "bind", "line": 78, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -160,7 +160,7 @@
     { "op": "bind", "line": 78, "mutable": false, "name": "nested", "type": "Integer", "value": { "kind": "local", "name": "$trap_val5" } },
     { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "nested recovered=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "nested" }] } }] } },
     { "op": "eval", "line": 86, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "fn-level=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "opensTrapped", "args": [{ "kind": "local", "name": "missing" }] }] } }] } },
-    { "op": "bind", "line": 90, "mutable": false, "name": "$trap_res6", "type": "Result OF Db STATE DbInfo", "value": { "kind": "callResult", "type": "Db STATE DbInfo", "target": "sql.open", "args": [{ "kind": "local", "name": "missing" }] } },
+    { "op": "bind", "line": 90, "mutable": false, "name": "$trap_res6", "type": "#Result OF Db STATE DbInfo", "value": { "kind": "callResult", "type": "Db STATE DbInfo", "target": "sql.open", "args": [{ "kind": "local", "name": "missing" }] } },
     { "op": "bind", "line": 90, "mutable": true, "name": "$trap_val7", "type": "Db STATE DbInfo", "value": null },
     {
       "op": "if",

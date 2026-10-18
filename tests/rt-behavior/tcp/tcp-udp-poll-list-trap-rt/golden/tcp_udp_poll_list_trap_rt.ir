@@ -150,7 +150,7 @@
     { "op": "assign", "line": 27, "name": "socks", "value": { "kind": "call", "type": "List OF RES tcp.Socket", "target": "collections.append", "args": [{ "kind": "local", "name": "socks" }, { "kind": "local", "name": "c1" }] } },
     { "op": "assign", "line": 28, "name": "socks", "value": { "kind": "call", "type": "List OF RES tcp.Socket", "target": "collections.append", "args": [{ "kind": "local", "name": "socks" }, { "kind": "local", "name": "c2" }] } },
     { "op": "bind", "line": 32, "mutable": true, "name": "tcpIdle", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 33, "mutable": false, "name": "$trap_res0", "type": "Result OF tcp.Socket", "value": { "kind": "callResult", "type": "tcp.Socket", "target": "tcp.poll", "args": [{ "kind": "local", "name": "socks" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "$trap_res0", "type": "#Result OF tcp.Socket", "value": { "kind": "callResult", "type": "tcp.Socket", "target": "tcp.poll", "args": [{ "kind": "local", "name": "socks" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "line": 33, "mutable": true, "name": "$trap_val1", "type": "tcp.Socket", "value": null },
     {
       "op": "if",
@@ -173,7 +173,7 @@
     { "op": "assign", "line": 42, "name": "usocks", "value": { "kind": "call", "type": "List OF RES udp.Socket", "target": "collections.append", "args": [{ "kind": "local", "name": "usocks" }, { "kind": "local", "name": "u1" }] } },
     { "op": "assign", "line": 43, "name": "usocks", "value": { "kind": "call", "type": "List OF RES udp.Socket", "target": "collections.append", "args": [{ "kind": "local", "name": "usocks" }, { "kind": "local", "name": "u2" }] } },
     { "op": "bind", "line": 45, "mutable": true, "name": "udpIdle", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 46, "mutable": false, "name": "$trap_res2", "type": "Result OF udp.Socket", "value": { "kind": "callResult", "type": "udp.Socket", "target": "udp.poll", "args": [{ "kind": "local", "name": "usocks" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 46, "mutable": false, "name": "$trap_res2", "type": "#Result OF udp.Socket", "value": { "kind": "callResult", "type": "udp.Socket", "target": "udp.poll", "args": [{ "kind": "local", "name": "usocks" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "line": 46, "mutable": true, "name": "$trap_val3", "type": "udp.Socket", "value": null },
     {
       "op": "if",
@@ -416,7 +416,7 @@
       { "op": "assign", "line": 161, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 163, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "line": 163, "mutable": false, "name": "$trap_res4", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
     { "op": "bind", "line": 163, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -631,7 +631,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 260, "mutable": false, "name": "$trap_res6", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "bind", "line": 260, "mutable": false, "name": "$trap_res6", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
     { "op": "bind", "line": 260, "mutable": true, "name": "$trap_val7", "type": "String", "value": null },
     {
       "op": "if",
@@ -1284,7 +1284,7 @@
       "line": 521,
       "condition": { "kind": "call", "type": "Boolean", "target": "strings.contains", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "String", "value": "%" }] },
       "then": [
-      { "op": "bind", "line": 522, "mutable": false, "name": "$trap_res8", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
+      { "op": "bind", "line": 522, "mutable": false, "name": "$trap_res8", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
       { "op": "bind", "line": 522, "mutable": true, "name": "$trap_val9", "type": "String", "value": null },
       {
         "op": "if",

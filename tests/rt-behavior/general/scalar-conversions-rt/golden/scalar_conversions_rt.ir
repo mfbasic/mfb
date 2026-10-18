@@ -82,7 +82,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 7, "mutable": false, "name": "$trap_res0", "type": "Result OF Scalar", "value": { "kind": "callResult", "type": "Scalar", "target": "toScalar", "args": [{ "kind": "local", "name": "n" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "$trap_res0", "type": "#Result OF Scalar", "value": { "kind": "callResult", "type": "Scalar", "target": "toScalar", "args": [{ "kind": "local", "name": "n" }] } },
     { "op": "bind", "line": 7, "mutable": true, "name": "$trap_val1", "type": "Scalar", "value": null },
     {
       "op": "if",
@@ -110,7 +110,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res2", "type": "Result OF Scalar", "value": { "kind": "callResult", "type": "Scalar", "target": "toScalar", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res2", "type": "#Result OF Scalar", "value": { "kind": "callResult", "type": "Scalar", "target": "toScalar", "args": [{ "kind": "local", "name": "s" }] } },
     { "op": "bind", "line": 14, "mutable": true, "name": "$trap_val3", "type": "Scalar", "value": null },
     {
       "op": "if",

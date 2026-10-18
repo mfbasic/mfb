@@ -106,7 +106,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "padValue", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "Integer", "value": "4611686018427387905" }, { "kind": "const", "type": "String", "value": "😀" }] } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res0", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "padValue", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "Integer", "value": "4611686018427387905" }, { "kind": "const", "type": "String", "value": "😀" }] } },
     { "op": "bind", "line": 17, "mutable": true, "name": "$trap_val1", "type": "String", "value": null },
     {
       "op": "if",

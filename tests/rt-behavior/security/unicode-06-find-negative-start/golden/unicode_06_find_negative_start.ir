@@ -106,7 +106,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "findAt", "args": [{ "kind": "const", "type": "String", "value": "abc" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "findAt", "args": [{ "kind": "const", "type": "String", "value": "abc" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
     { "op": "bind", "line": 18, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",

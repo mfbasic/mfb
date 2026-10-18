@@ -121,7 +121,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 23, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "findAt", "args": [{ "kind": "const", "type": "String", "value": "abc" }, { "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "findAt", "args": [{ "kind": "const", "type": "String", "value": "abc" }, { "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
     { "op": "bind", "line": 23, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -138,7 +138,7 @@
     },
     { "op": "bind", "line": 23, "mutable": false, "name": "idx", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
     { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "idx" }] }] } },
-    { "op": "bind", "line": 28, "mutable": false, "name": "$trap_res2", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "midOf", "args": [{ "kind": "const", "type": "String", "value": "abc" }, { "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 28, "mutable": false, "name": "$trap_res2", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "midOf", "args": [{ "kind": "const", "type": "String", "value": "abc" }, { "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "bind", "line": 28, "mutable": true, "name": "$trap_val3", "type": "String", "value": null },
     {
       "op": "if",

@@ -201,7 +201,7 @@
     { "op": "bind", "line": 53, "mutable": false, "name": "risky", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
     { "op": "bind", "line": 56, "mutable": true, "name": "$trap_failed4", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 56, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
-    { "op": "bind", "line": 56, "mutable": false, "name": "$trap_res1", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "doubleOrBoom", "type": "FUNC(Integer) AS Integer" }] } },
+    { "op": "bind", "line": 56, "mutable": false, "name": "$trap_res1", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "doubleOrBoom", "type": "FUNC(Integer) AS Integer" }] } },
     {
       "op": "if",
       "line": 56,
@@ -227,7 +227,7 @@
     { "op": "bind", "line": 56, "mutable": false, "name": "tOk", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
     { "op": "bind", "line": 59, "mutable": true, "name": "$trap_failed9", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 59, "mutable": true, "name": "$trap_val8", "type": "Integer", "value": null },
-    { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res6", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "doubleOrBoom", "type": "FUNC(Integer) AS Integer" }] } },
+    { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res6", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "doubleOrBoom", "type": "FUNC(Integer) AS Integer" }] } },
     {
       "op": "if",
       "line": 59,
@@ -254,7 +254,7 @@
     { "op": "eval", "line": 62, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "transform  ok=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "tOk" }] } }, "right": { "kind": "const", "type": "String", "value": " bad=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "tBad" }] } }] } },
     { "op": "bind", "line": 65, "mutable": true, "name": "$trap_failed14", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 65, "mutable": true, "name": "$trap_val13", "type": "Integer", "value": null },
-    { "op": "bind", "line": 65, "mutable": false, "name": "$trap_res11", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
+    { "op": "bind", "line": 65, "mutable": false, "name": "$trap_res11", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
     {
       "op": "if",
       "line": 65,
@@ -280,7 +280,7 @@
     { "op": "bind", "line": 65, "mutable": false, "name": "fOk", "type": "Integer", "value": { "kind": "local", "name": "$trap_val13" } },
     { "op": "bind", "line": 68, "mutable": true, "name": "$trap_failed19", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 68, "mutable": true, "name": "$trap_val18", "type": "Integer", "value": null },
-    { "op": "bind", "line": 68, "mutable": false, "name": "$trap_res16", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
+    { "op": "bind", "line": 68, "mutable": false, "name": "$trap_res16", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
     {
       "op": "if",
       "line": 68,
@@ -307,7 +307,7 @@
     { "op": "eval", "line": 71, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "filter     ok=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "fOk" }] } }, "right": { "kind": "const", "type": "String", "value": " bad=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "fBad" }] } }] } },
     { "op": "bind", "line": 74, "mutable": true, "name": "$trap_failed24", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 74, "mutable": true, "name": "$trap_val23", "type": "Integer", "value": null },
-    { "op": "bind", "line": 74, "mutable": false, "name": "$trap_res21", "type": "Result OF Partition$Integer", "value": { "kind": "callResult", "type": "Partition$Integer", "target": "#collections_partition$Integer", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
+    { "op": "bind", "line": 74, "mutable": false, "name": "$trap_res21", "type": "#Result OF Partition$Integer", "value": { "kind": "callResult", "type": "Partition$Integer", "target": "#collections_partition$Integer", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
     {
       "op": "if",
       "line": 74,
@@ -333,7 +333,7 @@
     { "op": "bind", "line": 74, "mutable": false, "name": "pOk", "type": "Integer", "value": { "kind": "local", "name": "$trap_val23" } },
     { "op": "bind", "line": 77, "mutable": true, "name": "$trap_failed29", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 77, "mutable": true, "name": "$trap_val28", "type": "Integer", "value": null },
-    { "op": "bind", "line": 77, "mutable": false, "name": "$trap_res26", "type": "Result OF Partition$Integer", "value": { "kind": "callResult", "type": "Partition$Integer", "target": "#collections_partition$Integer", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
+    { "op": "bind", "line": 77, "mutable": false, "name": "$trap_res26", "type": "#Result OF Partition$Integer", "value": { "kind": "callResult", "type": "Partition$Integer", "target": "#collections_partition$Integer", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
     {
       "op": "if",
       "line": 77,
@@ -358,7 +358,7 @@
     },
     { "op": "bind", "line": 77, "mutable": false, "name": "pBad", "type": "Integer", "value": { "kind": "local", "name": "$trap_val28" } },
     { "op": "eval", "line": 80, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "partition  ok=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "pOk" }] } }, "right": { "kind": "const", "type": "String", "value": " bad=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "pBad" }] } }] } },
-    { "op": "bind", "line": 88, "mutable": false, "name": "$trap_res30", "type": "Result OF Map OF String TO List OF Integer", "value": { "kind": "callResult", "type": "Map OF String TO List OF Integer", "target": "#collections_groupBy$Integer$String$Integer", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "keyOrBoom", "type": "FUNC(Integer) AS String" }, { "kind": "functionRef", "name": "identity", "type": "FUNC(Integer) AS Integer" }] } },
+    { "op": "bind", "line": 88, "mutable": false, "name": "$trap_res30", "type": "#Result OF Map OF String TO List OF Integer", "value": { "kind": "callResult", "type": "Map OF String TO List OF Integer", "target": "#collections_groupBy$Integer$String$Integer", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "keyOrBoom", "type": "FUNC(Integer) AS String" }, { "kind": "functionRef", "name": "identity", "type": "FUNC(Integer) AS Integer" }] } },
     { "op": "bind", "line": 88, "mutable": true, "name": "$trap_val31", "type": "Map OF String TO List OF Integer", "value": null },
     {
       "op": "if",
@@ -372,7 +372,7 @@
       ]
     },
     { "op": "bind", "line": 88, "mutable": false, "name": "gOk", "type": "Map OF String TO List OF Integer", "value": { "kind": "local", "name": "$trap_val31" } },
-    { "op": "bind", "line": 91, "mutable": false, "name": "$trap_res32", "type": "Result OF Map OF String TO List OF Integer", "value": { "kind": "callResult", "type": "Map OF String TO List OF Integer", "target": "#collections_groupBy$Integer$String$Integer", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "keyOrBoom", "type": "FUNC(Integer) AS String" }, { "kind": "functionRef", "name": "identity", "type": "FUNC(Integer) AS Integer" }] } },
+    { "op": "bind", "line": 91, "mutable": false, "name": "$trap_res32", "type": "#Result OF Map OF String TO List OF Integer", "value": { "kind": "callResult", "type": "Map OF String TO List OF Integer", "target": "#collections_groupBy$Integer$String$Integer", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "keyOrBoom", "type": "FUNC(Integer) AS String" }, { "kind": "functionRef", "name": "identity", "type": "FUNC(Integer) AS Integer" }] } },
     { "op": "bind", "line": 91, "mutable": true, "name": "$trap_val33", "type": "Map OF String TO List OF Integer", "value": null },
     {
       "op": "if",
@@ -389,7 +389,7 @@
     { "op": "eval", "line": 94, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "groupBy    ok=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "gOk" }] }] } }, "right": { "kind": "const", "type": "String", "value": " bad=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "gBad" }] }] } }] } },
     { "op": "bind", "line": 97, "mutable": true, "name": "$trap_failed38", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 97, "mutable": true, "name": "$trap_val37", "type": "Integer", "value": null },
-    { "op": "bind", "line": 97, "mutable": false, "name": "$trap_res35", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "#collections_sortBy$Integer$String", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "keyOrBoom", "type": "FUNC(Integer) AS String" }] } },
+    { "op": "bind", "line": 97, "mutable": false, "name": "$trap_res35", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "#collections_sortBy$Integer$String", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "keyOrBoom", "type": "FUNC(Integer) AS String" }] } },
     {
       "op": "if",
       "line": 97,
@@ -415,7 +415,7 @@
     { "op": "bind", "line": 97, "mutable": false, "name": "sOk", "type": "Integer", "value": { "kind": "local", "name": "$trap_val37" } },
     { "op": "bind", "line": 100, "mutable": true, "name": "$trap_failed43", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 100, "mutable": true, "name": "$trap_val42", "type": "Integer", "value": null },
-    { "op": "bind", "line": 100, "mutable": false, "name": "$trap_res40", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "#collections_sortBy$Integer$String", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "keyOrBoom", "type": "FUNC(Integer) AS String" }] } },
+    { "op": "bind", "line": 100, "mutable": false, "name": "$trap_res40", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "#collections_sortBy$Integer$String", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "keyOrBoom", "type": "FUNC(Integer) AS String" }] } },
     {
       "op": "if",
       "line": 100,
@@ -440,7 +440,7 @@
     },
     { "op": "bind", "line": 100, "mutable": false, "name": "sBad", "type": "Integer", "value": { "kind": "local", "name": "$trap_val42" } },
     { "op": "eval", "line": 103, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "sortBy     ok=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "sOk" }] } }, "right": { "kind": "const", "type": "String", "value": " bad=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "sBad" }] } }] } },
-    { "op": "bind", "line": 106, "mutable": false, "name": "$trap_res44", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "collections.reduce", "args": [{ "kind": "local", "name": "safe" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "addOrBoom", "type": "FUNC(Integer, Integer) AS Integer" }] } },
+    { "op": "bind", "line": 106, "mutable": false, "name": "$trap_res44", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "collections.reduce", "args": [{ "kind": "local", "name": "safe" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "addOrBoom", "type": "FUNC(Integer, Integer) AS Integer" }] } },
     { "op": "bind", "line": 106, "mutable": true, "name": "$trap_val45", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -454,7 +454,7 @@
       ]
     },
     { "op": "bind", "line": 106, "mutable": false, "name": "rOk", "type": "Integer", "value": { "kind": "local", "name": "$trap_val45" } },
-    { "op": "bind", "line": 109, "mutable": false, "name": "$trap_res46", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "collections.reduce", "args": [{ "kind": "local", "name": "risky" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "addOrBoom", "type": "FUNC(Integer, Integer) AS Integer" }] } },
+    { "op": "bind", "line": 109, "mutable": false, "name": "$trap_res46", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "collections.reduce", "args": [{ "kind": "local", "name": "risky" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "addOrBoom", "type": "FUNC(Integer, Integer) AS Integer" }] } },
     { "op": "bind", "line": 109, "mutable": true, "name": "$trap_val47", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -469,7 +469,7 @@
     },
     { "op": "bind", "line": 109, "mutable": false, "name": "rBad", "type": "Integer", "value": { "kind": "local", "name": "$trap_val47" } },
     { "op": "eval", "line": 112, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "reduce     ok=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "rOk" }] } }, "right": { "kind": "const", "type": "String", "value": " bad=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "rBad" }] } }] } },
-    { "op": "bind", "line": 118, "mutable": false, "name": "$trap_res48", "type": "Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "#collections_any$Integer", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
+    { "op": "bind", "line": 118, "mutable": false, "name": "$trap_res48", "type": "#Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "#collections_any$Integer", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
     { "op": "bind", "line": 118, "mutable": true, "name": "$trap_val49", "type": "Boolean", "value": null },
     {
       "op": "if",
@@ -483,7 +483,7 @@
       ]
     },
     { "op": "bind", "line": 118, "mutable": false, "name": "aOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_val49" } },
-    { "op": "bind", "line": 121, "mutable": false, "name": "$trap_res50", "type": "Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "#collections_any$Integer", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
+    { "op": "bind", "line": 121, "mutable": false, "name": "$trap_res50", "type": "#Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "#collections_any$Integer", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
     { "op": "bind", "line": 121, "mutable": true, "name": "$trap_val51", "type": "Boolean", "value": null },
     {
       "op": "if",
@@ -498,7 +498,7 @@
     },
     { "op": "bind", "line": 121, "mutable": false, "name": "aBad", "type": "Boolean", "value": { "kind": "local", "name": "$trap_val51" } },
     { "op": "eval", "line": 124, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "any        ok=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "aOk" }] } }, "right": { "kind": "const", "type": "String", "value": " bad=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "aBad" }] } }] } },
-    { "op": "bind", "line": 130, "mutable": false, "name": "$trap_res52", "type": "Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "#collections_all$Integer", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
+    { "op": "bind", "line": 130, "mutable": false, "name": "$trap_res52", "type": "#Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "#collections_all$Integer", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
     { "op": "bind", "line": 130, "mutable": true, "name": "$trap_val53", "type": "Boolean", "value": null },
     {
       "op": "if",
@@ -512,7 +512,7 @@
       ]
     },
     { "op": "bind", "line": 130, "mutable": false, "name": "lOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_val53" } },
-    { "op": "bind", "line": 133, "mutable": false, "name": "$trap_res54", "type": "Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "#collections_all$Integer", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
+    { "op": "bind", "line": 133, "mutable": false, "name": "$trap_res54", "type": "#Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "#collections_all$Integer", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
     { "op": "bind", "line": 133, "mutable": true, "name": "$trap_val55", "type": "Boolean", "value": null },
     {
       "op": "if",
@@ -537,7 +537,7 @@
       "body": [
       { "op": "bind", "line": 145, "mutable": true, "name": "$trap_failed60", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
       { "op": "bind", "line": 145, "mutable": true, "name": "$trap_val59", "type": "Integer", "value": null },
-      { "op": "bind", "line": 145, "mutable": false, "name": "$trap_res57", "type": "Result OF Partition$Integer", "value": { "kind": "callResult", "type": "Partition$Integer", "target": "#collections_partition$Integer", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
+      { "op": "bind", "line": 145, "mutable": false, "name": "$trap_res57", "type": "#Result OF Partition$Integer", "value": { "kind": "callResult", "type": "Partition$Integer", "target": "#collections_partition$Integer", "args": [{ "kind": "local", "name": "risky" }, { "kind": "functionRef", "name": "evenOrBoom", "type": "FUNC(Integer) AS Boolean" }] } },
       {
         "op": "if",
         "line": 145,

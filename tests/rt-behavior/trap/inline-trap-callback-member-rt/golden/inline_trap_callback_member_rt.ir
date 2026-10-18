@@ -175,7 +175,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 28, "mutable": false, "name": "nums", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
-    { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res0", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "nums" }, { "kind": "functionRef", "name": "dbl", "type": "FUNC(Integer) AS Integer" }] } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res0", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "nums" }, { "kind": "functionRef", "name": "dbl", "type": "FUNC(Integer) AS Integer" }] } },
     { "op": "bind", "line": 31, "mutable": true, "name": "$trap_val1", "type": "List OF Integer", "value": null },
     {
       "op": "if",
@@ -192,7 +192,7 @@
     },
     { "op": "bind", "line": 31, "mutable": false, "name": "t", "type": "List OF Integer", "value": { "kind": "local", "name": "$trap_val1" } },
     { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "t-len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "t" }] }] } }] } },
-    { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res2", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "nums" }, { "kind": "functionRef", "name": "keepBig", "type": "FUNC(Integer) AS Boolean" }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res2", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "nums" }, { "kind": "functionRef", "name": "keepBig", "type": "FUNC(Integer) AS Boolean" }] } },
     { "op": "bind", "line": 38, "mutable": true, "name": "$trap_val3", "type": "List OF Integer", "value": null },
     {
       "op": "if",
@@ -209,7 +209,7 @@
     },
     { "op": "bind", "line": 38, "mutable": false, "name": "f", "type": "List OF Integer", "value": { "kind": "local", "name": "$trap_val3" } },
     { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "f-len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "f" }] }] } }] } },
-    { "op": "bind", "line": 45, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "collections.reduce", "args": [{ "kind": "local", "name": "nums" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "addUp", "type": "FUNC(Integer, Integer) AS Integer" }] } },
+    { "op": "bind", "line": 45, "mutable": false, "name": "$trap_res4", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "collections.reduce", "args": [{ "kind": "local", "name": "nums" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "functionRef", "name": "addUp", "type": "FUNC(Integer, Integer) AS Integer" }] } },
     { "op": "bind", "line": 45, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -226,7 +226,7 @@
     },
     { "op": "bind", "line": 45, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "local", "name": "$trap_val5" } },
     { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "r=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r" }] } }] } },
-    { "op": "bind", "line": 52, "mutable": false, "name": "$trap_res6", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "collections.forEach", "args": [{ "kind": "local", "name": "nums" }, { "kind": "functionRef", "name": "visit", "type": "FUNC(Integer) AS Nothing" }] } },
+    { "op": "bind", "line": 52, "mutable": false, "name": "$trap_res6", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "collections.forEach", "args": [{ "kind": "local", "name": "nums" }, { "kind": "functionRef", "name": "visit", "type": "FUNC(Integer) AS Nothing" }] } },
     {
       "op": "if",
       "line": 52,
@@ -239,7 +239,7 @@
       ]
     },
     { "op": "bind", "line": 58, "mutable": false, "name": "safe", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res7", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "dbl", "type": "FUNC(Integer) AS Integer" }] } },
+    { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res7", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "safe" }, { "kind": "functionRef", "name": "dbl", "type": "FUNC(Integer) AS Integer" }] } },
     { "op": "bind", "line": 59, "mutable": true, "name": "$trap_val8", "type": "List OF Integer", "value": null },
     {
       "op": "if",

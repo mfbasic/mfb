@@ -83,7 +83,7 @@
     "body": [
     { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_GETENV" }, { "kind": "const", "type": "String", "value": "value-123" }] } },
     { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.getEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_GETENV" }] }] } },
-    { "op": "bind", "line": 7, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "os.getEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_GETENV_UNSET_ZZZ" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "$trap_res0", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "os.getEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_OS_GETENV_UNSET_ZZZ" }] } },
     { "op": "bind", "line": 7, "mutable": true, "name": "$trap_val1", "type": "String", "value": null },
     {
       "op": "if",

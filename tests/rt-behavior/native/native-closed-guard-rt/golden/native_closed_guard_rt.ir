@@ -118,7 +118,7 @@
     "body": [
     { "op": "bind", "line": 81, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
     { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "closeVia", "args": [{ "kind": "local", "name": "db" }] } },
-    { "op": "bind", "line": 83, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "CREATE TABLE t (n INTEGER)" }] } },
+    { "op": "bind", "line": 83, "mutable": false, "name": "$trap_res0", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "CREATE TABLE t (n INTEGER)" }] } },
     {
       "op": "if",
       "line": 83,
@@ -133,7 +133,7 @@
     },
     { "op": "bind", "line": 90, "mutable": false, "name": "tr", "type": "Tracked STATE Info", "value": { "kind": "call", "type": "Tracked STATE Info", "target": "sql.openTracked", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
     { "op": "eval", "line": 91, "value": { "kind": "call", "type": "Nothing", "target": "closeViaTracked", "args": [{ "kind": "local", "name": "tr" }] } },
-    { "op": "bind", "line": 92, "mutable": false, "name": "$trap_res1", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "sql.execTracked", "args": [{ "kind": "local", "name": "tr" }, { "kind": "const", "type": "String", "value": "CREATE TABLE t (n INTEGER)" }] } },
+    { "op": "bind", "line": 92, "mutable": false, "name": "$trap_res1", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "sql.execTracked", "args": [{ "kind": "local", "name": "tr" }, { "kind": "const", "type": "String", "value": "CREATE TABLE t (n INTEGER)" }] } },
     {
       "op": "if",
       "line": 92,
@@ -147,7 +147,7 @@
     },
     { "op": "bind", "line": 99, "mutable": false, "name": "d2", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
     { "op": "eval", "line": 100, "value": { "kind": "call", "type": "Nothing", "target": "closeVia", "args": [{ "kind": "local", "name": "d2" }] } },
-    { "op": "bind", "line": 101, "mutable": false, "name": "$trap_res2", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "closeVia", "args": [{ "kind": "local", "name": "d2" }] } },
+    { "op": "bind", "line": 101, "mutable": false, "name": "$trap_res2", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "closeVia", "args": [{ "kind": "local", "name": "d2" }] } },
     {
       "op": "if",
       "line": 101,

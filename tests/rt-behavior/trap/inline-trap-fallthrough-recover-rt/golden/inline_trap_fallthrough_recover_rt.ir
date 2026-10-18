@@ -107,7 +107,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 13, "mutable": true, "name": "trace", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "boom", "args": [{ "kind": "local", "name": "n" }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "boom", "args": [{ "kind": "local", "name": "n" }] } },
     { "op": "bind", "line": 14, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",

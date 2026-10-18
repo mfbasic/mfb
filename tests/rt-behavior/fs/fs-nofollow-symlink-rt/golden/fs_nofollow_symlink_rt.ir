@@ -99,7 +99,7 @@
     { "op": "bind", "line": 11, "mutable": false, "name": "real", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/real.txt" }] } },
     { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "real" }] } },
     { "op": "bind", "line": 14, "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 15, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openNoFollow", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/link.txt" }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openNoFollow", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/link.txt" }] } },
     {
       "op": "if",
       "line": 15,
@@ -114,7 +114,7 @@
     },
     { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "code" }] }] } },
     { "op": "bind", "line": 23, "mutable": true, "name": "interCode", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 24, "mutable": false, "name": "$trap_res1", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openNoFollow", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/linkdir/secret.txt" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "$trap_res1", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openNoFollow", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-nofollow-symlink-rt/data/linkdir/secret.txt" }] } },
     {
       "op": "if",
       "line": 24,

@@ -124,7 +124,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 22, "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 23, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "existsIt", "args": [{ "kind": "const", "type": "String", "value": "a\u0000b" }] } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "existsIt", "args": [{ "kind": "const", "type": "String", "value": "a\u0000b" }] } },
     {
       "op": "if",
       "line": 23,
@@ -139,7 +139,7 @@
     },
     { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "a" }] }] } },
     { "op": "bind", "line": 28, "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 29, "mutable": false, "name": "$trap_res1", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "fileExistsIt", "args": [{ "kind": "const", "type": "String", "value": "a\u0000b" }] } },
+    { "op": "bind", "line": 29, "mutable": false, "name": "$trap_res1", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "fileExistsIt", "args": [{ "kind": "const", "type": "String", "value": "a\u0000b" }] } },
     {
       "op": "if",
       "line": 29,
@@ -154,7 +154,7 @@
     },
     { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "b" }] }] } },
     { "op": "bind", "line": 34, "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 35, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "dirExistsIt", "args": [{ "kind": "const", "type": "String", "value": "a\u0000b" }] } },
+    { "op": "bind", "line": 35, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "dirExistsIt", "args": [{ "kind": "const", "type": "String", "value": "a\u0000b" }] } },
     {
       "op": "if",
       "line": 35,

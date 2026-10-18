@@ -160,7 +160,7 @@
     },
     { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "repeat acc=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "acc" }] } }] } },
     { "op": "bind", "line": 51, "mutable": false, "name": "withBoom", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "aa" }, { "kind": "const", "type": "String", "value": "boom" }, { "kind": "const", "type": "String", "value": "c" }] } },
-    { "op": "bind", "line": 52, "mutable": false, "name": "$trap_res6", "type": "Result OF List OF String", "value": { "kind": "callResult", "type": "List OF String", "target": "#collections_sortBy$String$Integer", "args": [{ "kind": "local", "name": "withBoom" }, { "kind": "functionRef", "name": "failKey", "type": "FUNC(String) AS Integer" }] } },
+    { "op": "bind", "line": 52, "mutable": false, "name": "$trap_res6", "type": "#Result OF List OF String", "value": { "kind": "callResult", "type": "List OF String", "target": "#collections_sortBy$String$Integer", "args": [{ "kind": "local", "name": "withBoom" }, { "kind": "functionRef", "name": "failKey", "type": "FUNC(String) AS Integer" }] } },
     { "op": "bind", "line": 52, "mutable": true, "name": "$trap_val7", "type": "List OF String", "value": null },
     {
       "op": "if",

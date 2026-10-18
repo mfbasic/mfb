@@ -7808,13 +7808,13 @@
       "then": [
       { "op": "bind", "mutable": true, "name": "$trap_failed4", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
       { "op": "bind", "mutable": true, "name": "$trap_val3", "type": "String", "value": null },
-      { "op": "bind", "mutable": false, "name": "$trap_res1", "type": "Result OF List OF Byte", "value": { "kind": "callResult", "target": "collections.mid", "args": [{ "kind": "local", "name": "b" }, { "kind": "local", "name": "bestStart" }, { "kind": "local", "name": "bestLength" }] } },
+      { "op": "bind", "mutable": false, "name": "$trap_res1", "type": "#Result OF List OF Byte", "value": { "kind": "callResult", "target": "collections.mid", "args": [{ "kind": "local", "name": "b" }, { "kind": "local", "name": "bestStart" }, { "kind": "local", "name": "bestLength" }] } },
       {
         "op": "if",
         "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res1" } },
         "then": [
         { "op": "bind", "mutable": false, "name": "$trap_arg0", "type": "List OF Byte", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$trap_res1" } } },
-        { "op": "bind", "mutable": false, "name": "$trap_res2", "type": "Result OF String", "value": { "kind": "callResult", "target": "#encoding_codepageDecode", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "encoding.Codepage" }, "member": "Macintosh" }, { "kind": "local", "name": "$trap_arg0" }] } },
+        { "op": "bind", "mutable": false, "name": "$trap_res2", "type": "#Result OF String", "value": { "kind": "callResult", "target": "#encoding_codepageDecode", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "encoding.Codepage" }, "member": "Macintosh" }, { "kind": "local", "name": "$trap_arg0" }] } },
         {
           "op": "if",
           "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res2" } },
@@ -7855,7 +7855,7 @@
       { "op": "assign", "name": "k", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
       ]
     },
-    { "op": "bind", "mutable": false, "name": "$trap_res5", "type": "Result OF String", "value": { "kind": "callResult", "target": "#encoding_utf16Decode", "args": [{ "kind": "local", "name": "units" }] } },
+    { "op": "bind", "mutable": false, "name": "$trap_res5", "type": "#Result OF String", "value": { "kind": "callResult", "target": "#encoding_utf16Decode", "args": [{ "kind": "local", "name": "units" }] } },
     { "op": "bind", "mutable": true, "name": "$trap_val6", "type": "String", "value": null },
     {
       "op": "if",
@@ -10759,7 +10759,7 @@
       "else": [
       ]
     },
-    { "op": "bind", "mutable": false, "name": "$trap_res7", "type": "Result OF List OF Byte", "value": { "kind": "callResult", "target": "#compress_zlibDecode", "args": [{ "kind": "local", "name": "idat" }, { "kind": "local", "name": "expected" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "bind", "mutable": false, "name": "$trap_res7", "type": "#Result OF List OF Byte", "value": { "kind": "callResult", "target": "#compress_zlibDecode", "args": [{ "kind": "local", "name": "idat" }, { "kind": "local", "name": "expected" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
     { "op": "bind", "mutable": true, "name": "$trap_val8", "type": "List OF Byte", "value": null },
     {
       "op": "if",

@@ -89,7 +89,7 @@
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
       "body": [
-      { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res0", "type": "Result OF fs.File", "value": { "kind": "callResult", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/inline-trap-producer-float-rt/src/main.mfb" }] } },
+      { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res0", "type": "#Result OF fs.File", "value": { "kind": "callResult", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/inline-trap-producer-float-rt/src/main.mfb" }] } },
       { "op": "bind", "line": 21, "mutable": true, "name": "$trap_val1", "type": "fs.File", "value": null },
       {
         "op": "if",

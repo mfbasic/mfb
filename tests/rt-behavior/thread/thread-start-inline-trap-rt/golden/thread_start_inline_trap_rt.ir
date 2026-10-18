@@ -125,7 +125,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 44, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "thread.cancel", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "$trap_res0", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "thread.cancel", "args": [{ "kind": "local", "name": "t" }] } },
     {
       "op": "if",
       "line": 44,
@@ -135,7 +135,7 @@
       "else": [
       { "op": "bind", "line": 44, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
       { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "tag" }, "right": { "kind": "const", "type": "String", "value": "-cancel=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } },
-      { "op": "bind", "line": 46, "mutable": false, "name": "$trap_res1", "type": "Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "thread.isRunning", "args": [{ "kind": "local", "name": "t" }] } },
+      { "op": "bind", "line": 46, "mutable": false, "name": "$trap_res1", "type": "#Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "thread.isRunning", "args": [{ "kind": "local", "name": "t" }] } },
       { "op": "bind", "line": 46, "mutable": true, "name": "$trap_val2", "type": "Boolean", "value": null },
       {
         "op": "if",
@@ -147,7 +147,7 @@
         "else": [
         { "op": "bind", "line": 46, "mutable": false, "name": "e2", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res1" } } },
         { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "tag" }, "right": { "kind": "const", "type": "String", "value": "-isRunning=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e2" }, "member": "code" }] } }] } },
-        { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res3", "type": "Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "thread.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+        { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res3", "type": "#Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "thread.poll", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
         { "op": "bind", "line": 48, "mutable": true, "name": "$trap_val4", "type": "Boolean", "value": null },
         {
           "op": "if",
@@ -159,7 +159,7 @@
           "else": [
           { "op": "bind", "line": 48, "mutable": false, "name": "e3", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res3" } } },
           { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "tag" }, "right": { "kind": "const", "type": "String", "value": "-poll=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e3" }, "member": "code" }] } }] } },
-          { "op": "bind", "line": 50, "mutable": false, "name": "$trap_res5", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+          { "op": "bind", "line": 50, "mutable": false, "name": "$trap_res5", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
           { "op": "bind", "line": 50, "mutable": true, "name": "$trap_val6", "type": "Integer", "value": null },
           {
             "op": "if",
@@ -224,7 +224,7 @@
     "returns": "Integer",
     "body": [
     { "op": "eval", "line": 81, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "fnLevel=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "startViaFunctionTrap", "args": [] }] } }] } },
-    { "op": "bind", "line": 84, "mutable": false, "name": "$trap_res7", "type": "Result OF Thread OF String TO Integer", "value": { "kind": "callResult", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "spin", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "line": 84, "mutable": false, "name": "$trap_res7", "type": "#Result OF Thread OF String TO Integer", "value": { "kind": "callResult", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "spin", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
     { "op": "bind", "line": 84, "mutable": true, "name": "$trap_val8", "type": "Thread OF String TO Integer", "value": null },
     {
       "op": "if",
@@ -244,7 +244,7 @@
     { "op": "bind", "line": 93, "mutable": false, "name": "u", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "spin", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
     { "op": "eval", "line": 94, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "plain-result=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "u" }] }] } }] } },
     { "op": "bind", "line": 95, "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "closedAnswers", "args": [{ "kind": "const", "type": "String", "value": "plain" }, { "kind": "local", "name": "u" }] } },
-    { "op": "bind", "line": 99, "mutable": false, "name": "$trap_res9", "type": "Result OF Thread OF RES fs.File TO Integer", "value": { "kind": "callResult", "type": "Thread OF RES fs.File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "resWorker", "type": "ISOLATED FUNC(ThreadWorker OF RES fs.File TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 99, "mutable": false, "name": "$trap_res9", "type": "#Result OF Thread OF RES fs.File TO Integer", "value": { "kind": "callResult", "type": "Thread OF RES fs.File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "resWorker", "type": "ISOLATED FUNC(ThreadWorker OF RES fs.File TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "bind", "line": 99, "mutable": true, "name": "$trap_val10", "type": "Thread OF RES fs.File TO Integer", "value": null },
     {
       "op": "if",
@@ -260,7 +260,7 @@
     },
     { "op": "bind", "line": 99, "mutable": false, "name": "r", "type": "Thread OF RES fs.File TO Integer", "value": { "kind": "local", "name": "$trap_val10" } },
     { "op": "eval", "line": 103, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "res=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "r" }] }] } }] } },
-    { "op": "bind", "line": 105, "mutable": false, "name": "$trap_res11", "type": "Result OF Thread OF String RES fs.File TO Integer", "value": { "kind": "callResult", "type": "Thread OF String RES fs.File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "msgResWorker", "type": "ISOLATED FUNC(ThreadWorker OF String RES fs.File TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 105, "mutable": false, "name": "$trap_res11", "type": "#Result OF Thread OF String RES fs.File TO Integer", "value": { "kind": "callResult", "type": "Thread OF String RES fs.File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "msgResWorker", "type": "ISOLATED FUNC(ThreadWorker OF String RES fs.File TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
     { "op": "bind", "line": 105, "mutable": true, "name": "$trap_val12", "type": "Thread OF String RES fs.File TO Integer", "value": null },
     {
       "op": "if",

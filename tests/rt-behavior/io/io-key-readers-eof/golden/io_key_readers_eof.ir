@@ -125,7 +125,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 24, "mutable": false, "name": "$trap_res0", "type": "Result OF Byte", "value": { "kind": "callResult", "type": "Byte", "target": "io.readRaw", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "$trap_res0", "type": "#Result OF Byte", "value": { "kind": "callResult", "type": "Byte", "target": "io.readRaw", "args": [{ "kind": "local", "name": "t" }] } },
     { "op": "bind", "line": 24, "mutable": true, "name": "$trap_val1", "type": "Byte", "value": null },
     {
       "op": "if",
@@ -153,7 +153,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res2", "type": "Result OF Scalar", "value": { "kind": "callResult", "type": "Scalar", "target": "io.readScalar", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res2", "type": "#Result OF Scalar", "value": { "kind": "callResult", "type": "Scalar", "target": "io.readScalar", "args": [{ "kind": "local", "name": "t" }] } },
     { "op": "bind", "line": 31, "mutable": true, "name": "$trap_val3", "type": "Scalar", "value": null },
     {
       "op": "if",
@@ -181,7 +181,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res4", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.readGrapheme", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res4", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.readGrapheme", "args": [{ "kind": "local", "name": "t" }] } },
     { "op": "bind", "line": 38, "mutable": true, "name": "$trap_val5", "type": "String", "value": null },
     {
       "op": "if",
@@ -209,7 +209,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 45, "mutable": false, "name": "$trap_res6", "type": "Result OF io.Key", "value": { "kind": "callResult", "type": "io.Key", "target": "io.readKey", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 45, "mutable": false, "name": "$trap_res6", "type": "#Result OF io.Key", "value": { "kind": "callResult", "type": "io.Key", "target": "io.readKey", "args": [{ "kind": "local", "name": "t" }] } },
     { "op": "bind", "line": 45, "mutable": true, "name": "$trap_val7", "type": "io.Key", "value": null },
     {
       "op": "if",
@@ -237,7 +237,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 52, "mutable": false, "name": "$trap_res8", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.readLine", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 52, "mutable": false, "name": "$trap_res8", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.readLine", "args": [{ "kind": "local", "name": "t" }] } },
     { "op": "bind", "line": 52, "mutable": true, "name": "$trap_val9", "type": "String", "value": null },
     {
       "op": "if",
@@ -265,7 +265,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res10", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.input", "args": [{ "kind": "const", "type": "String", "value": "" }, { "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res10", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.input", "args": [{ "kind": "const", "type": "String", "value": "" }, { "kind": "local", "name": "t" }] } },
     { "op": "bind", "line": 59, "mutable": true, "name": "$trap_val11", "type": "String", "value": null },
     {
       "op": "if",
@@ -292,7 +292,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 66, "mutable": false, "name": "$trap_res12", "type": "Result OF Byte", "value": { "kind": "callResult", "type": "Byte", "target": "io.readRaw", "args": [{ "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "$trap_res12", "type": "#Result OF Byte", "value": { "kind": "callResult", "type": "Byte", "target": "io.readRaw", "args": [{ "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
     { "op": "bind", "line": 66, "mutable": true, "name": "$trap_val13", "type": "Byte", "value": null },
     {
       "op": "if",

@@ -164,7 +164,7 @@
       { "op": "assign", "line": 23, "name": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 25, "mutable": false, "name": "$trap_res0", "type": "Result OF List OF String", "value": { "kind": "callResult", "type": "List OF String", "target": "#csv_readRow", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "," }, { "kind": "const", "type": "String", "value": "\"" }] } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "$trap_res0", "type": "#Result OF List OF String", "value": { "kind": "callResult", "type": "List OF String", "target": "#csv_readRow", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "," }, { "kind": "const", "type": "String", "value": "\"" }] } },
     { "op": "bind", "line": 25, "mutable": true, "name": "$trap_val1", "type": "List OF String", "value": null },
     {
       "op": "if",
@@ -184,7 +184,7 @@
     { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "dialect " }, "right": { "kind": "call", "type": "String", "target": "show", "args": [{ "kind": "call", "type": "List OF String", "target": "#csv_readRow", "args": [{ "kind": "local", "name": "d" }, { "kind": "const", "type": "String", "value": ";" }, { "kind": "const", "type": "String", "value": "'" }] }] } }] } },
     { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "dialect " }, "right": { "kind": "call", "type": "String", "target": "show", "args": [{ "kind": "call", "type": "List OF String", "target": "#csv_readRow", "args": [{ "kind": "local", "name": "d" }, { "kind": "const", "type": "String", "value": ";" }, { "kind": "const", "type": "String", "value": "'" }] }] } }] } },
     { "op": "bind", "line": 34, "mutable": false, "name": "open", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openData", "args": [{ "kind": "const", "type": "String", "value": "a,\"never\nclosed" }, { "kind": "const", "type": "String", "value": "r" }] } },
-    { "op": "bind", "line": 35, "mutable": false, "name": "$trap_res2", "type": "Result OF List OF String", "value": { "kind": "callResult", "type": "List OF String", "target": "#csv_readRow", "args": [{ "kind": "local", "name": "open" }, { "kind": "const", "type": "String", "value": "," }, { "kind": "const", "type": "String", "value": "\"" }] } },
+    { "op": "bind", "line": 35, "mutable": false, "name": "$trap_res2", "type": "#Result OF List OF String", "value": { "kind": "callResult", "type": "List OF String", "target": "#csv_readRow", "args": [{ "kind": "local", "name": "open" }, { "kind": "const", "type": "String", "value": "," }, { "kind": "const", "type": "String", "value": "\"" }] } },
     { "op": "bind", "line": 35, "mutable": true, "name": "$trap_val3", "type": "List OF String", "value": null },
     {
       "op": "if",

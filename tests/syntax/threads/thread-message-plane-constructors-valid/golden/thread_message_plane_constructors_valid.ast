@@ -67,7 +67,7 @@
       "name": "viaGeneric",
       "line": 32,
       "params": [
-      { "name": "t", "type": "Thread OF Pairing OF Integer, String TO Integer", "default": null, "line": 32 }
+      { "name": "t", "type": "Thread OF Pairing OF (Integer, String) TO Integer", "default": null, "line": 32 }
       ],
       "returnType": "Integer",
       "body": [

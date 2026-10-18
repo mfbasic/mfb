@@ -181,7 +181,7 @@
     { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "safeLoopSum(5)=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "safeLoopSum", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] } }] } },
     { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "safeLoopSum(100)=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "safeLoopSum", "args": [{ "kind": "const", "type": "Integer", "value": "100" }] }] } }] } },
     { "op": "bind", "line": 47, "mutable": true, "name": "t1", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "nearMinSub", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "9223372036854775803" } }] } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "nearMinSub", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "9223372036854775803" } }] } },
     { "op": "bind", "line": 48, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -208,7 +208,7 @@
       ]
     },
     { "op": "bind", "line": 58, "mutable": true, "name": "t2", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "reassignThenAdd", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "reassignThenAdd", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "line": 59, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
     {
       "op": "if",

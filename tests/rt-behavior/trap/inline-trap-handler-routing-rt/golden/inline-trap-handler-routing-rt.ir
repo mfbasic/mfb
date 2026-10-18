@@ -120,7 +120,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 20, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "broken", "args": [{ "kind": "const", "type": "Integer", "value": "90000001" }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "broken", "args": [{ "kind": "const", "type": "Integer", "value": "90000001" }] } },
     { "op": "bind", "line": 20, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -154,7 +154,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 30, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "broken", "args": [{ "kind": "const", "type": "Integer", "value": "90000001" }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "broken", "args": [{ "kind": "const", "type": "Integer", "value": "90000001" }] } },
     { "op": "bind", "line": 30, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -180,7 +180,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 37, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "broken", "args": [{ "kind": "const", "type": "Integer", "value": "90000001" }] } },
+    { "op": "bind", "line": 37, "mutable": false, "name": "$trap_res4", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "broken", "args": [{ "kind": "const", "type": "Integer", "value": "90000001" }] } },
     { "op": "bind", "line": 37, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -190,7 +190,7 @@
       { "op": "assign", "line": 37, "name": "$trap_val5", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res4" } } }
       ],
       "else": [
-      { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res6", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "again", "args": [{ "kind": "const", "type": "Integer", "value": "90000004" }] } },
+      { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res6", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "again", "args": [{ "kind": "const", "type": "Integer", "value": "90000004" }] } },
       { "op": "bind", "line": 38, "mutable": true, "name": "$trap_val7", "type": "Integer", "value": null },
       {
         "op": "if",
@@ -221,7 +221,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 47, "mutable": false, "name": "$trap_res8", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "broken", "args": [{ "kind": "const", "type": "Integer", "value": "90000005" }] } },
+    { "op": "bind", "line": 47, "mutable": false, "name": "$trap_res8", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "broken", "args": [{ "kind": "const", "type": "Integer", "value": "90000005" }] } },
     { "op": "bind", "line": 47, "mutable": true, "name": "$trap_val9", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -232,7 +232,7 @@
       ],
       "else": [
       { "op": "bind", "line": 47, "mutable": false, "name": "#err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res8" } } },
-      { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res10", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "again", "args": [{ "kind": "const", "type": "Integer", "value": "90000006" }] } },
+      { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res10", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "again", "args": [{ "kind": "const", "type": "Integer", "value": "90000006" }] } },
       { "op": "bind", "line": 48, "mutable": true, "name": "$trap_val11", "type": "Integer", "value": null },
       {
         "op": "if",
@@ -285,7 +285,7 @@
     ],
     "returns": "Error",
     "body": [
-    { "op": "bind", "line": 66, "mutable": false, "name": "$trap_res12", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "broken", "args": [{ "kind": "const", "type": "Integer", "value": "90000009" }] } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "$trap_res12", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "broken", "args": [{ "kind": "const", "type": "Integer", "value": "90000009" }] } },
     { "op": "bind", "line": 66, "mutable": true, "name": "$trap_val13", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -312,7 +312,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 73, "mutable": false, "name": "$trap_res14", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "recoverFails", "args": [] } },
+    { "op": "bind", "line": 73, "mutable": false, "name": "$trap_res14", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "recoverFails", "args": [] } },
     { "op": "bind", "line": 73, "mutable": true, "name": "$trap_val15", "type": "String", "value": null },
     {
       "op": "if",
@@ -328,7 +328,7 @@
     },
     { "op": "bind", "line": 73, "mutable": false, "name": "a", "type": "String", "value": { "kind": "local", "name": "$trap_val15" } },
     { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "recoverFails " }, "right": { "kind": "local", "name": "a" } }] } },
-    { "op": "bind", "line": 77, "mutable": false, "name": "$trap_res16", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "returnFails", "args": [] } },
+    { "op": "bind", "line": 77, "mutable": false, "name": "$trap_res16", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "returnFails", "args": [] } },
     { "op": "bind", "line": 77, "mutable": true, "name": "$trap_val17", "type": "String", "value": null },
     {
       "op": "if",
@@ -344,7 +344,7 @@
     },
     { "op": "bind", "line": 77, "mutable": false, "name": "b", "type": "String", "value": { "kind": "local", "name": "$trap_val17" } },
     { "op": "eval", "line": 80, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "returnFails " }, "right": { "kind": "local", "name": "b" } }] } },
-    { "op": "bind", "line": 81, "mutable": false, "name": "$trap_res18", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "nestedPropagate", "args": [] } },
+    { "op": "bind", "line": 81, "mutable": false, "name": "$trap_res18", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "nestedPropagate", "args": [] } },
     { "op": "bind", "line": 81, "mutable": true, "name": "$trap_val19", "type": "String", "value": null },
     {
       "op": "if",
@@ -360,7 +360,7 @@
     },
     { "op": "bind", "line": 81, "mutable": false, "name": "c", "type": "String", "value": { "kind": "local", "name": "$trap_val19" } },
     { "op": "eval", "line": 84, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "nestedPropagate " }, "right": { "kind": "local", "name": "c" } }] } },
-    { "op": "bind", "line": 85, "mutable": false, "name": "$trap_res20", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "propagateAfterRecovery", "args": [] } },
+    { "op": "bind", "line": 85, "mutable": false, "name": "$trap_res20", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "propagateAfterRecovery", "args": [] } },
     { "op": "bind", "line": 85, "mutable": true, "name": "$trap_val21", "type": "String", "value": null },
     {
       "op": "if",
@@ -376,7 +376,7 @@
     },
     { "op": "bind", "line": 85, "mutable": false, "name": "d", "type": "String", "value": { "kind": "local", "name": "$trap_val21" } },
     { "op": "eval", "line": 88, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "propagateAfterRecovery " }, "right": { "kind": "local", "name": "d" } }] } },
-    { "op": "bind", "line": 89, "mutable": false, "name": "$trap_res22", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "handlerFails", "args": [] } },
+    { "op": "bind", "line": 89, "mutable": false, "name": "$trap_res22", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "handlerFails", "args": [] } },
     { "op": "bind", "line": 89, "mutable": true, "name": "$trap_val23", "type": "String", "value": null },
     {
       "op": "if",
@@ -392,7 +392,7 @@
     },
     { "op": "bind", "line": 89, "mutable": false, "name": "h", "type": "String", "value": { "kind": "local", "name": "$trap_val23" } },
     { "op": "eval", "line": 92, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "handlerFails " }, "right": { "kind": "local", "name": "h" } }] } },
-    { "op": "bind", "line": 93, "mutable": false, "name": "$trap_res24", "type": "Result OF Error", "value": { "kind": "callResult", "type": "Error", "target": "errorData", "args": [] } },
+    { "op": "bind", "line": 93, "mutable": false, "name": "$trap_res24", "type": "#Result OF Error", "value": { "kind": "callResult", "type": "Error", "target": "errorData", "args": [] } },
     { "op": "bind", "line": 93, "mutable": true, "name": "$trap_val25", "type": "Error", "value": null },
     {
       "op": "if",

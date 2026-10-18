@@ -29,7 +29,7 @@
     { "op": "bind", "line": 14, "mutable": false, "name": "sentFile", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/syntax/threads/func_thread_send_valid/src/main.mfb" }] } },
     { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "fileThread" }, { "kind": "local", "name": "sentFile" }] } },
     { "op": "bind", "line": 16, "mutable": false, "name": "recoverFile", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/syntax/threads/func_thread_send_valid/src/main.mfb" }] } },
-    { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "fileThread" }, { "kind": "local", "name": "recoverFile" }] } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res0", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "fileThread" }, { "kind": "local", "name": "recoverFile" }] } },
     {
       "op": "if",
       "line": 17,

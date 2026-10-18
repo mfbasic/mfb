@@ -86,7 +86,7 @@
     { "op": "bind", "line": 14, "mutable": false, "name": "writerB", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "os_env_race_workers.envWriter", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "local", "name": "iters" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "bind", "line": 15, "mutable": false, "name": "readerA", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "os_env_race_workers.envReader", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "local", "name": "iters" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "bind", "line": 16, "mutable": false, "name": "readerB", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "os_env_race_workers.envReader", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "local", "name": "iters" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "writerA" }] } },
+    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "writerA" }] } },
     { "op": "bind", "line": 18, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -101,7 +101,7 @@
       ]
     },
     { "op": "bind", "line": 18, "mutable": false, "name": "wroteA", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
-    { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "writerB" }] } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "writerB" }] } },
     { "op": "bind", "line": 21, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -116,7 +116,7 @@
       ]
     },
     { "op": "bind", "line": 21, "mutable": false, "name": "wroteB", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
-    { "op": "bind", "line": 25, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "readerA" }] } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "$trap_res4", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "readerA" }] } },
     { "op": "bind", "line": 25, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -131,7 +131,7 @@
       ]
     },
     { "op": "bind", "line": 25, "mutable": false, "name": "readA", "type": "Integer", "value": { "kind": "local", "name": "$trap_val5" } },
-    { "op": "bind", "line": 28, "mutable": false, "name": "$trap_res6", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "readerB" }] } },
+    { "op": "bind", "line": 28, "mutable": false, "name": "$trap_res6", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "readerB" }] } },
     { "op": "bind", "line": 28, "mutable": true, "name": "$trap_val7", "type": "Integer", "value": null },
     {
       "op": "if",

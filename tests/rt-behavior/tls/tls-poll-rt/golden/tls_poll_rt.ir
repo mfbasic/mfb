@@ -167,7 +167,7 @@
         "line": 31,
         "condition": { "kind": "call", "type": "Boolean", "target": "tls.poll", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "9223372036854775808" }] },
         "then": [
-        { "op": "bind", "line": 36, "mutable": false, "name": "$trap_res0", "type": "Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "tls.read", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "4096" }] } },
+        { "op": "bind", "line": 36, "mutable": false, "name": "$trap_res0", "type": "#Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "tls.read", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "4096" }] } },
         { "op": "bind", "line": 36, "mutable": true, "name": "$trap_val1", "type": "List OF Byte", "value": null },
         {
           "op": "if",

@@ -85,14 +85,14 @@
     { "op": "bind", "line": 10, "mutable": true, "name": "z", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     { "op": "bind", "line": 12, "mutable": true, "name": "$trap_failed4", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 12, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
-    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res1", "type": "Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res1", "type": "#Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } } },
     {
       "op": "if",
       "line": 12,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
       "then": [
       { "op": "bind", "line": 12, "mutable": false, "name": "$trap_arg0", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res1" } } },
-      { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "$trap_arg0" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } } },
+      { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "$trap_arg0" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } } },
       {
         "op": "if",
         "line": 12,
@@ -123,14 +123,14 @@
     { "op": "bind", "line": 17, "mutable": true, "name": "$trap_failed9", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 17, "mutable": true, "name": "$trap_err10", "type": "Error", "value": null },
     { "op": "bind", "line": 17, "mutable": true, "name": "$trap_val8", "type": "Integer", "value": null },
-    { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res6", "type": "Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "z" } } } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res6", "type": "#Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "z" } } } },
     {
       "op": "if",
       "line": 17,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res6" } },
       "then": [
       { "op": "bind", "line": 17, "mutable": false, "name": "$trap_arg5", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res6" } } },
-      { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res7", "type": "Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "$trap_arg5" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } } },
+      { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res7", "type": "#Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "$trap_arg5" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } } },
       {
         "op": "if",
         "line": 17,
@@ -164,14 +164,14 @@
     { "op": "bind", "line": 17, "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "local", "name": "$trap_val8" } },
     { "op": "bind", "line": 22, "mutable": true, "name": "$trap_failed15", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 22, "mutable": true, "name": "$trap_val14", "type": "Integer", "value": null },
-    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res12", "type": "Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res12", "type": "#Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } } },
     {
       "op": "if",
       "line": 22,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res12" } },
       "then": [
       { "op": "bind", "line": 22, "mutable": false, "name": "$trap_arg11", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res12" } } },
-      { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res13", "type": "Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "local", "name": "$trap_arg11" } } } },
+      { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res13", "type": "#Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "local", "name": "$trap_arg11" } } } },
       {
         "op": "if",
         "line": 22,
@@ -202,14 +202,14 @@
     { "op": "bind", "line": 26, "mutable": true, "name": "d", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     { "op": "bind", "line": 27, "mutable": true, "name": "$trap_failed20", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 27, "mutable": true, "name": "$trap_val19", "type": "Integer", "value": null },
-    { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res17", "type": "Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } } },
+    { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res17", "type": "#Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } } },
     {
       "op": "if",
       "line": 27,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res17" } },
       "then": [
       { "op": "bind", "line": 27, "mutable": false, "name": "$trap_arg16", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res17" } } },
-      { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res18", "type": "Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "$trap_arg16" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } } },
+      { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res18", "type": "#Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "$trap_arg16" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } } },
       {
         "op": "if",
         "line": 27,
@@ -239,14 +239,14 @@
     { "op": "assign", "line": 27, "name": "d", "value": { "kind": "local", "name": "$trap_val19" } },
     { "op": "bind", "line": 31, "mutable": true, "name": "$trap_failed24", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 31, "mutable": true, "name": "$trap_err25", "type": "Error", "value": null },
-    { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res22", "type": "Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "z" } } } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res22", "type": "#Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "z" } } } },
     {
       "op": "if",
       "line": 31,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res22" } },
       "then": [
       { "op": "bind", "line": 31, "mutable": false, "name": "$trap_arg21", "type": "Integer", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res22" } } },
-      { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res23", "type": "Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "$trap_arg21" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } } },
+      { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res23", "type": "#Result OF Integer", "value": { "kind": "checked", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "$trap_arg21" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } } },
       {
         "op": "if",
         "line": 31,

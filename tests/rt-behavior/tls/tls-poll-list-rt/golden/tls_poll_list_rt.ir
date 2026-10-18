@@ -156,7 +156,7 @@
     { "op": "assign", "line": 25, "name": "socks", "value": { "kind": "call", "type": "List OF RES tls.Socket", "target": "collections.append", "args": [{ "kind": "local", "name": "socks" }, { "kind": "local", "name": "a" }] } },
     { "op": "assign", "line": 26, "name": "socks", "value": { "kind": "call", "type": "List OF RES tls.Socket", "target": "collections.append", "args": [{ "kind": "local", "name": "socks" }, { "kind": "local", "name": "b" }] } },
     { "op": "bind", "line": 29, "mutable": true, "name": "idleTimeout", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 30, "mutable": false, "name": "$trap_res0", "type": "Result OF tls.Socket", "value": { "kind": "callResult", "type": "tls.Socket", "target": "tls.poll", "args": [{ "kind": "local", "name": "socks" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "$trap_res0", "type": "#Result OF tls.Socket", "value": { "kind": "callResult", "type": "tls.Socket", "target": "tls.poll", "args": [{ "kind": "local", "name": "socks" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "line": 30, "mutable": true, "name": "$trap_val1", "type": "tls.Socket", "value": null },
     {
       "op": "if",

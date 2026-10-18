@@ -93,7 +93,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 17, "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res0", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "os.userDocumentsPath", "args": [{ "kind": "local", "name": "p" }] } },
     {
       "op": "if",
       "line": 18,

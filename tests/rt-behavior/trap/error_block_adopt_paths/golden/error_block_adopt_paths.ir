@@ -154,7 +154,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 44, "mutable": true, "name": "l", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "bind", "line": 45, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "l" }, { "kind": "const", "type": "Integer", "value": "50" }] } },
+    { "op": "bind", "line": 45, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "l" }, { "kind": "const", "type": "Integer", "value": "50" }] } },
     { "op": "bind", "line": 45, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",

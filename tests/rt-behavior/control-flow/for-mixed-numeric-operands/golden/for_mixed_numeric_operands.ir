@@ -286,7 +286,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 67, "mutable": false, "name": "$trap_res21", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "e", "args": [{ "kind": "local", "name": "top" }] } },
+    { "op": "bind", "line": 67, "mutable": false, "name": "$trap_res21", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "e", "args": [{ "kind": "local", "name": "top" }] } },
     { "op": "bind", "line": 67, "mutable": true, "name": "$trap_val22", "type": "String", "value": null },
     {
       "op": "if",
@@ -314,7 +314,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 74, "mutable": false, "name": "$trap_res23", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "b", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 74, "mutable": false, "name": "$trap_res23", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "b", "args": [{ "kind": "local", "name": "s" }] } },
     { "op": "bind", "line": 74, "mutable": true, "name": "$trap_val24", "type": "String", "value": null },
     {
       "op": "if",

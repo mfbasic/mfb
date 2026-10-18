@@ -192,7 +192,7 @@
     "returns": "Nothing",
     "body": [
     { "op": "bind", "line": 66, "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "bind", "line": 67, "mutable": false, "name": "$trap_res0", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "growThenFail", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "line": 67, "mutable": false, "name": "$trap_res0", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "growThenFail", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
     { "op": "bind", "line": 67, "mutable": true, "name": "$trap_val1", "type": "List OF Integer", "value": null },
     {
       "op": "if",
@@ -221,7 +221,7 @@
     "returns": "Nothing",
     "body": [
     { "op": "bind", "line": 76, "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "bind", "line": 77, "mutable": false, "name": "$trap_res2", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "growThenFail", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "bind", "line": 77, "mutable": false, "name": "$trap_res2", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "growThenFail", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "9" }] } },
     { "op": "bind", "line": 77, "mutable": true, "name": "$trap_val3", "type": "List OF Integer", "value": null },
     {
       "op": "if",
@@ -319,7 +319,7 @@
     { "op": "bind", "line": 128, "mutable": true, "name": "c1", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } },
     { "op": "bind", "line": 129, "mutable": true, "name": "l2", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "2" } } },
     { "op": "bind", "line": 130, "mutable": true, "name": "c2", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "2" } } },
-    { "op": "bind", "line": 132, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "boom", "args": [{ "kind": "local", "name": "a" }] } },
+    { "op": "bind", "line": 132, "mutable": false, "name": "$trap_res4", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "boom", "args": [{ "kind": "local", "name": "a" }] } },
     { "op": "bind", "line": 132, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -336,7 +336,7 @@
       ]
     },
     { "op": "bind", "line": 132, "mutable": false, "name": "r1", "type": "Integer", "value": { "kind": "local", "name": "$trap_val5" } },
-    { "op": "bind", "line": 138, "mutable": false, "name": "$trap_res6", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "boom", "args": [{ "kind": "local", "name": "b" }] } },
+    { "op": "bind", "line": 138, "mutable": false, "name": "$trap_res6", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "boom", "args": [{ "kind": "local", "name": "b" }] } },
     { "op": "bind", "line": 138, "mutable": true, "name": "$trap_val7", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -406,7 +406,7 @@
     "returns": "Nothing",
     "body": [
     { "op": "bind", "line": 176, "mutable": true, "name": "a", "type": "Acc", "value": { "kind": "constructor", "type": "Acc", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "const", "type": "Integer", "value": "7" }] } },
-    { "op": "bind", "line": 177, "mutable": false, "name": "$trap_res8", "type": "Result OF Acc", "value": { "kind": "callResult", "type": "Acc", "target": "addThenFail", "args": [{ "kind": "local", "name": "a" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 177, "mutable": false, "name": "$trap_res8", "type": "#Result OF Acc", "value": { "kind": "callResult", "type": "Acc", "target": "addThenFail", "args": [{ "kind": "local", "name": "a" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
     { "op": "bind", "line": 177, "mutable": true, "name": "$trap_val9", "type": "Acc", "value": null },
     {
       "op": "if",

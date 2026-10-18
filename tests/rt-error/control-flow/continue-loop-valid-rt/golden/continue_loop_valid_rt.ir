@@ -138,7 +138,7 @@
       "type": "Integer",
       "iterable": { "kind": "local", "name": "values" },
       "body": [
-      { "op": "bind", "line": 37, "mutable": false, "name": "$trap_res3", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parseNonNegative", "args": [{ "kind": "local", "name": "value" }] } },
+      { "op": "bind", "line": 37, "mutable": false, "name": "$trap_res3", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parseNonNegative", "args": [{ "kind": "local", "name": "value" }] } },
       { "op": "bind", "line": 37, "mutable": true, "name": "$trap_val4", "type": "Integer", "value": null },
       {
         "op": "if",

@@ -97,7 +97,7 @@
     "body": [
     { "op": "bind", "line": 12, "mutable": false, "name": "outer", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/trap/control-flow-inline-trap-resource-rt/data/in.txt" }] } },
     { "op": "bind", "line": 13, "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openThenFail", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/trap/control-flow-inline-trap-resource-rt/data/in.txt" }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openThenFail", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/trap/control-flow-inline-trap-resource-rt/data/in.txt" }] } },
     {
       "op": "if",
       "line": 14,

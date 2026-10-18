@@ -104,7 +104,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "process.send", "args": [{ "kind": "local", "name": "p" }, { "kind": "const", "type": "String", "value": "cherry" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res0", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "process.send", "args": [{ "kind": "local", "name": "p" }, { "kind": "const", "type": "String", "value": "cherry" }] } },
     {
       "op": "if",
       "line": 12,

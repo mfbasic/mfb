@@ -189,7 +189,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 42, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "recur", "args": [{ "kind": "local", "name": "n" }] } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "recur", "args": [{ "kind": "local", "name": "n" }] } },
     { "op": "bind", "line": 42, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -228,7 +228,7 @@
       "step": { "kind": "local", "name": "$for_step4" },
       "body": [
       { "op": "bind", "line": 49, "mutable": false, "name": "attempt", "type": "Integer", "value": { "kind": "local", "name": "$for_iter2" } },
-      { "op": "bind", "line": 50, "mutable": false, "name": "$trap_res5", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "recur", "args": [{ "kind": "const", "type": "Integer", "value": "100000000" }] } },
+      { "op": "bind", "line": 50, "mutable": false, "name": "$trap_res5", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "recur", "args": [{ "kind": "const", "type": "Integer", "value": "100000000" }] } },
       { "op": "bind", "line": 50, "mutable": true, "name": "$trap_val6", "type": "Integer", "value": null },
       {
         "op": "if",
@@ -246,7 +246,7 @@
       { "op": "bind", "line": 50, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "local", "name": "$trap_val6" } }
       ]
     },
-    { "op": "bind", "line": 55, "mutable": false, "name": "$trap_res7", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "ping", "args": [{ "kind": "const", "type": "Integer", "value": "100000000" }] } },
+    { "op": "bind", "line": 55, "mutable": false, "name": "$trap_res7", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "ping", "args": [{ "kind": "const", "type": "Integer", "value": "100000000" }] } },
     { "op": "bind", "line": 55, "mutable": true, "name": "$trap_val8", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -262,7 +262,7 @@
       ]
     },
     { "op": "bind", "line": 55, "mutable": false, "name": "m", "type": "Integer", "value": { "kind": "local", "name": "$trap_val8" } },
-    { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res9", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "down", "args": [{ "kind": "const", "type": "Integer", "value": "100000000" }] } },
+    { "op": "bind", "line": 59, "mutable": false, "name": "$trap_res9", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "down", "args": [{ "kind": "const", "type": "Integer", "value": "100000000" }] } },
     { "op": "bind", "line": 59, "mutable": true, "name": "$trap_val10", "type": "Integer", "value": null },
     {
       "op": "if",

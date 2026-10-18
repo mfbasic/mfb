@@ -82,7 +82,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 9, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "!" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "$trap_res0", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "!" }] } },
     {
       "op": "if",
       "line": 9,
@@ -108,7 +108,7 @@
     "returns": "String",
     "body": [
     { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "fs.seek", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res1", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "fs.readAll", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res1", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "fs.readAll", "args": [{ "kind": "local", "name": "f" }] } },
     { "op": "bind", "line": 17, "mutable": true, "name": "$trap_val2", "type": "String", "value": null },
     {
       "op": "if",
@@ -184,7 +184,7 @@
     { "op": "bind", "line": 73, "mutable": false, "name": "empty", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
     { "op": "bind", "line": 74, "mutable": false, "name": "e", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openData", "args": [{ "kind": "local", "name": "empty" }, { "kind": "const", "type": "String", "value": "r" }] } },
     { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "empty bytes eof=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.eof", "args": [{ "kind": "local", "name": "e" }] }] } }] } },
-    { "op": "bind", "line": 77, "mutable": false, "name": "$trap_res3", "type": "Result OF fs.File", "value": { "kind": "callResult", "type": "fs.File", "target": "fs.openData", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "String", "value": "R" }] } },
+    { "op": "bind", "line": 77, "mutable": false, "name": "$trap_res3", "type": "#Result OF fs.File", "value": { "kind": "callResult", "type": "fs.File", "target": "fs.openData", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "String", "value": "R" }] } },
     { "op": "bind", "line": 77, "mutable": true, "name": "$trap_val4", "type": "fs.File", "value": null },
     {
       "op": "if",

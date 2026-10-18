@@ -106,7 +106,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 18, "mutable": false, "name": "wide", "type": "String", "value": { "kind": "const", "type": "String", "value": "abcdefghijklmnopqrstuvwxyz012345" } },
-    { "op": "bind", "line": 19, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "repeatValue", "args": [{ "kind": "local", "name": "wide" }, { "kind": "const", "type": "Integer", "value": "576460752303423488" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "$trap_res0", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "repeatValue", "args": [{ "kind": "local", "name": "wide" }, { "kind": "const", "type": "Integer", "value": "576460752303423488" }] } },
     { "op": "bind", "line": 19, "mutable": true, "name": "$trap_val1", "type": "String", "value": null },
     {
       "op": "if",

@@ -97,7 +97,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 11, "mutable": true, "name": "ok", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } },
-    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "closeOnce", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-close-failed-rt/data/in.txt" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "closeOnce", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-close-failed-rt/data/in.txt" }] } },
     { "op": "bind", "line": 12, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",

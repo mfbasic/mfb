@@ -106,7 +106,7 @@
     { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.endsWith", "args": [{ "kind": "local", "name": "p" }, { "kind": "const", "type": "String", "value": "/greeting.txt" }] }] }] } },
     { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "strings.trim", "args": [{ "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "local", "name": "p" }] }] }] } },
     { "op": "bind", "line": 26, "mutable": true, "name": "bad", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "resolve", "args": [{ "kind": "const", "type": "String", "value": "../secret" }] } },
+    { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res0", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "resolve", "args": [{ "kind": "const", "type": "String", "value": "../secret" }] } },
     {
       "op": "if",
       "line": 27,

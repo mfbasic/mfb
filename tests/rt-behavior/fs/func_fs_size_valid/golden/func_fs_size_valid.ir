@@ -123,7 +123,7 @@
     { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "empty=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "fs.size", "args": [{ "kind": "local", "name": "g" }] }] } }] } },
     { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "g" }] } },
     { "op": "bind", "line": 47, "mutable": true, "name": "closedCode", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "sizeOfClosed", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "sizeOfClosed", "args": [{ "kind": "local", "name": "path" }] } },
     {
       "op": "if",
       "line": 48,

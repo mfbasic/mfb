@@ -140,7 +140,7 @@
       }
       ]
     },
-    { "op": "bind", "line": 39, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "bind", "line": 39, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } },
     { "op": "bind", "line": 39, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -156,7 +156,7 @@
     },
     { "op": "bind", "line": 39, "mutable": false, "name": "parsedOk", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
     { "op": "assign", "line": 42, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "parsedOk" } } },
-    { "op": "bind", "line": 44, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "$trap_res4", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
     { "op": "bind", "line": 44, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
     {
       "op": "if",

@@ -96,7 +96,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 21, "mutable": false, "name": "overlong", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "192" }, { "kind": "const", "type": "Byte", "value": "128" }] } },
-    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryDecode", "args": [{ "kind": "local", "name": "overlong" }] } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res0", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryDecode", "args": [{ "kind": "local", "name": "overlong" }] } },
     {
       "op": "if",
       "line": 22,
@@ -109,7 +109,7 @@
       ]
     },
     { "op": "bind", "line": 26, "mutable": false, "name": "surrogate", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "237" }, { "kind": "const", "type": "Byte", "value": "160" }, { "kind": "const", "type": "Byte", "value": "128" }] } },
-    { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res1", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryDecode", "args": [{ "kind": "local", "name": "surrogate" }] } },
+    { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res1", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryDecode", "args": [{ "kind": "local", "name": "surrogate" }] } },
     {
       "op": "if",
       "line": 27,
@@ -122,7 +122,7 @@
       ]
     },
     { "op": "bind", "line": 31, "mutable": false, "name": "tooBig", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "244" }, { "kind": "const", "type": "Byte", "value": "144" }, { "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "128" }] } },
-    { "op": "bind", "line": 32, "mutable": false, "name": "$trap_res2", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryDecode", "args": [{ "kind": "local", "name": "tooBig" }] } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "$trap_res2", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryDecode", "args": [{ "kind": "local", "name": "tooBig" }] } },
     {
       "op": "if",
       "line": 32,
@@ -135,7 +135,7 @@
       ]
     },
     { "op": "bind", "line": 36, "mutable": false, "name": "truncated", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "226" }, { "kind": "const", "type": "Byte", "value": "130" }] } },
-    { "op": "bind", "line": 37, "mutable": false, "name": "$trap_res3", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryDecode", "args": [{ "kind": "local", "name": "truncated" }] } },
+    { "op": "bind", "line": 37, "mutable": false, "name": "$trap_res3", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryDecode", "args": [{ "kind": "local", "name": "truncated" }] } },
     {
       "op": "if",
       "line": 37,
@@ -148,7 +148,7 @@
       ]
     },
     { "op": "bind", "line": 41, "mutable": false, "name": "badCont", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "194" }, { "kind": "const", "type": "Byte", "value": "32" }] } },
-    { "op": "bind", "line": 42, "mutable": false, "name": "$trap_res4", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryDecode", "args": [{ "kind": "local", "name": "badCont" }] } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "$trap_res4", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryDecode", "args": [{ "kind": "local", "name": "badCont" }] } },
     {
       "op": "if",
       "line": 42,

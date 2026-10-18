@@ -262,7 +262,7 @@
     { "op": "bind", "line": 87, "mutable": false, "name": "r", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "handBack", "args": [{ "kind": "const", "type": "String", "value": "returned" }] } },
     { "op": "eval", "line": 88, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "r" }, { "kind": "const", "type": "String", "value": "+" }] } },
     { "op": "eval", "line": 89, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "returned " }, "right": { "kind": "call", "type": "String", "target": "seen", "args": [{ "kind": "const", "type": "String", "value": "returned" }] } }] } },
-    { "op": "bind", "line": 90, "mutable": false, "name": "$trap_res0", "type": "Result OF List OF RES fs.File", "value": { "kind": "callResult", "type": "List OF RES fs.File", "target": "mkList", "args": [{ "kind": "const", "type": "String", "value": "trapped" }] } },
+    { "op": "bind", "line": 90, "mutable": false, "name": "$trap_res0", "type": "#Result OF List OF RES fs.File", "value": { "kind": "callResult", "type": "List OF RES fs.File", "target": "mkList", "args": [{ "kind": "const", "type": "String", "value": "trapped" }] } },
     { "op": "bind", "line": 90, "mutable": true, "name": "$trap_val1", "type": "List OF RES fs.File", "value": null },
     {
       "op": "if",

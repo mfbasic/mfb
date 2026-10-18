@@ -168,7 +168,7 @@
       "step": { "kind": "local", "name": "$for_step2" },
       "body": [
       { "op": "bind", "line": 74, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
-      { "op": "bind", "line": 75, "mutable": false, "name": "$trap_res3", "type": "Result OF fs.File", "value": { "kind": "callResult", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/res-rebind-alias-trap.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
+      { "op": "bind", "line": 75, "mutable": false, "name": "$trap_res3", "type": "#Result OF fs.File", "value": { "kind": "callResult", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/res-rebind-alias-trap.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
       { "op": "bind", "line": 75, "mutable": true, "name": "$trap_val4", "type": "fs.File", "value": null },
       {
         "op": "if",

@@ -117,7 +117,7 @@
       ]
     },
     { "op": "bind", "line": 23, "mutable": true, "name": "within", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "bind", "line": 24, "mutable": false, "name": "$trap_res0", "type": "Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "fs.isWithin", "args": [{ "kind": "local", "name": "root" }, { "kind": "local", "name": "candidate" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "$trap_res0", "type": "#Result OF Boolean", "value": { "kind": "callResult", "type": "Boolean", "target": "fs.isWithin", "args": [{ "kind": "local", "name": "root" }, { "kind": "local", "name": "candidate" }] } },
     { "op": "bind", "line": 24, "mutable": true, "name": "$trap_val1", "type": "Boolean", "value": null },
     {
       "op": "if",

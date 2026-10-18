@@ -82,7 +82,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 20, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }] } },
     { "op": "bind", "line": 20, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -109,7 +109,7 @@
     ],
     "returns": "Float",
     "body": [
-    { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res2", "type": "Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "text" }] } },
+    { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res2", "type": "#Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "toFloat", "args": [{ "kind": "local", "name": "text" }] } },
     { "op": "bind", "line": 27, "mutable": true, "name": "$trap_val3", "type": "Float", "value": null },
     {
       "op": "if",
@@ -136,7 +136,7 @@
     ],
     "returns": "Fixed",
     "body": [
-    { "op": "bind", "line": 34, "mutable": false, "name": "$trap_res4", "type": "Result OF Fixed", "value": { "kind": "callResult", "type": "Fixed", "target": "toFixed", "args": [{ "kind": "local", "name": "text" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "$trap_res4", "type": "#Result OF Fixed", "value": { "kind": "callResult", "type": "Fixed", "target": "toFixed", "args": [{ "kind": "local", "name": "text" }] } },
     { "op": "bind", "line": 34, "mutable": true, "name": "$trap_val5", "type": "Fixed", "value": null },
     {
       "op": "if",
@@ -163,7 +163,7 @@
     ],
     "returns": "Money",
     "body": [
-    { "op": "bind", "line": 41, "mutable": false, "name": "$trap_res6", "type": "Result OF Money", "value": { "kind": "callResult", "type": "Money", "target": "toMoney", "args": [{ "kind": "local", "name": "text" }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "$trap_res6", "type": "#Result OF Money", "value": { "kind": "callResult", "type": "Money", "target": "toMoney", "args": [{ "kind": "local", "name": "text" }] } },
     { "op": "bind", "line": 41, "mutable": true, "name": "$trap_val7", "type": "Money", "value": null },
     {
       "op": "if",
@@ -190,7 +190,7 @@
     ],
     "returns": "Byte",
     "body": [
-    { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res8", "type": "Result OF Byte", "value": { "kind": "callResult", "type": "Byte", "target": "toByte", "args": [{ "kind": "local", "name": "value" }] } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res8", "type": "#Result OF Byte", "value": { "kind": "callResult", "type": "Byte", "target": "toByte", "args": [{ "kind": "local", "name": "value" }] } },
     { "op": "bind", "line": 48, "mutable": true, "name": "$trap_val9", "type": "Byte", "value": null },
     {
       "op": "if",
@@ -217,7 +217,7 @@
     ],
     "returns": "Scalar",
     "body": [
-    { "op": "bind", "line": 55, "mutable": false, "name": "$trap_res10", "type": "Result OF Scalar", "value": { "kind": "callResult", "type": "Scalar", "target": "toScalar", "args": [{ "kind": "local", "name": "value" }] } },
+    { "op": "bind", "line": 55, "mutable": false, "name": "$trap_res10", "type": "#Result OF Scalar", "value": { "kind": "callResult", "type": "Scalar", "target": "toScalar", "args": [{ "kind": "local", "name": "value" }] } },
     { "op": "bind", "line": 55, "mutable": true, "name": "$trap_val11", "type": "Scalar", "value": null },
     {
       "op": "if",
@@ -244,7 +244,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 62, "mutable": false, "name": "$trap_res12", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }] } },
+    { "op": "bind", "line": 62, "mutable": false, "name": "$trap_res12", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }] } },
     { "op": "bind", "line": 62, "mutable": true, "name": "$trap_val13", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -271,7 +271,7 @@
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "line": 69, "mutable": false, "name": "$trap_res14", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }] } },
+    { "op": "bind", "line": 69, "mutable": false, "name": "$trap_res14", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }] } },
     { "op": "bind", "line": 69, "mutable": true, "name": "$trap_val15", "type": "Integer", "value": null },
     {
       "op": "if",

@@ -126,7 +126,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } },
     { "op": "bind", "line": 14, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -152,7 +152,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
     { "op": "bind", "line": 22, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -180,7 +180,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 30, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "100" } },
-    { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "local", "name": "v" }] } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res4", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "local", "name": "v" }] } },
     { "op": "bind", "line": 31, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -207,7 +207,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 39, "mutable": false, "name": "$trap_res6", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "local", "name": "v" }] } },
+    { "op": "bind", "line": 39, "mutable": false, "name": "$trap_res6", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "local", "name": "v" }] } },
     { "op": "bind", "line": 39, "mutable": true, "name": "$trap_val7", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -245,7 +245,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res8", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "local", "name": "v" }] } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "$trap_res8", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "local", "name": "v" }] } },
     { "op": "bind", "line": 48, "mutable": true, "name": "$trap_val9", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -273,7 +273,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 56, "mutable": true, "name": "code", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 57, "mutable": false, "name": "$trap_res10", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "doEffect", "args": [{ "kind": "local", "name": "v" }] } },
+    { "op": "bind", "line": 57, "mutable": false, "name": "$trap_res10", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "doEffect", "args": [{ "kind": "local", "name": "v" }] } },
     {
       "op": "if",
       "line": 57,

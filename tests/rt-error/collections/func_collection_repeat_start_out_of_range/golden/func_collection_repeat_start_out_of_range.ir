@@ -82,7 +82,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 7, "mutable": false, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res0", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.repeat", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "bind", "line": 8, "mutable": false, "name": "$trap_res0", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "collections.repeat", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
     { "op": "bind", "line": 8, "mutable": true, "name": "$trap_val1", "type": "List OF Integer", "value": null },
     {
       "op": "if",

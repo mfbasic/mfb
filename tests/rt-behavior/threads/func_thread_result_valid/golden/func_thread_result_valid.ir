@@ -20,7 +20,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 6, "mutable": false, "name": "rawThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.noMessages", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "41" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "bind", "line": 7, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "rawThread" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "rawThread" }] } },
     { "op": "bind", "line": 7, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -36,7 +36,7 @@
     },
     { "op": "bind", "line": 7, "mutable": false, "name": "matched", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
     { "op": "bind", "line": 11, "mutable": false, "name": "directThread", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.noMessages", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, Integer) AS Integer" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "directThread" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "directThread" }] } },
     { "op": "bind", "line": 12, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -51,7 +51,7 @@
       ]
     },
     { "op": "bind", "line": 12, "mutable": false, "name": "direct", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
-    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "rawThread" }] } },
+    { "op": "bind", "line": 18, "mutable": false, "name": "$trap_res4", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "rawThread" }] } },
     { "op": "bind", "line": 18, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -107,7 +107,7 @@
       ]
     },
     { "op": "bind", "line": 27, "mutable": false, "name": "textThread", "type": "Thread OF String TO String", "value": { "kind": "call", "type": "Thread OF String TO String", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.readTextPath", "type": "ISOLATED FUNC(ThreadWorker OF String TO String, String) AS String" }, { "kind": "const", "type": "String", "value": "tests/rt-behavior/threads/func_thread_result_valid/data/input.txt" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "bind", "line": 28, "mutable": false, "name": "$trap_res6", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "textThread" }] } },
+    { "op": "bind", "line": 28, "mutable": false, "name": "$trap_res6", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "textThread" }] } },
     { "op": "bind", "line": 28, "mutable": true, "name": "$trap_val7", "type": "String", "value": null },
     {
       "op": "if",

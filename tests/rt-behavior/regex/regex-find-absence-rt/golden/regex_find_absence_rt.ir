@@ -3080,7 +3080,7 @@
         "else": [
         ]
       },
-      { "op": "bind", "line": 1212, "mutable": false, "name": "$trap_res3", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "hexText" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
+      { "op": "bind", "line": 1212, "mutable": false, "name": "$trap_res3", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "hexText" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
       { "op": "bind", "line": 1212, "mutable": true, "name": "$trap_val4", "type": "Integer", "value": null },
       {
         "op": "if",
@@ -3120,7 +3120,7 @@
       ]
     },
     { "op": "bind", "line": 1223, "mutable": false, "name": "hexPair", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "pat" }, { "kind": "local", "name": "i" }] }, "right": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "pat" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } } },
-    { "op": "bind", "line": 1224, "mutable": false, "name": "$trap_res5", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "hexPair" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
+    { "op": "bind", "line": 1224, "mutable": false, "name": "$trap_res5", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "hexPair" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
     { "op": "bind", "line": 1224, "mutable": true, "name": "$trap_val6", "type": "Integer", "value": null },
     {
       "op": "if",

@@ -120,7 +120,7 @@
     { "op": "bind", "line": 24, "mutable": false, "name": "q", "type": "String", "value": { "kind": "call", "type": "String", "target": "os.appResourcePath", "args": [{ "kind": "const", "type": "String", "value": "..foo/bar" }] } },
     { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.endsWith", "args": [{ "kind": "local", "name": "q" }, { "kind": "const", "type": "String", "value": "/..foo/bar" }] }] }] } },
     { "op": "bind", "line": 27, "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 28, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "resolve", "args": [{ "kind": "const", "type": "String", "value": "a/../b" }] } },
+    { "op": "bind", "line": 28, "mutable": false, "name": "$trap_res0", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "resolve", "args": [{ "kind": "const", "type": "String", "value": "a/../b" }] } },
     {
       "op": "if",
       "line": 28,
@@ -135,7 +135,7 @@
     },
     { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "a" }] }] } },
     { "op": "bind", "line": 33, "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 34, "mutable": false, "name": "$trap_res1", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "resolve", "args": [{ "kind": "const", "type": "String", "value": "../secret" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "$trap_res1", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "resolve", "args": [{ "kind": "const", "type": "String", "value": "../secret" }] } },
     {
       "op": "if",
       "line": 34,
@@ -150,7 +150,7 @@
     },
     { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "b" }] }] } },
     { "op": "bind", "line": 39, "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 40, "mutable": false, "name": "$trap_res2", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "resolve", "args": [{ "kind": "const", "type": "String", "value": "music/.." }] } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "$trap_res2", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "resolve", "args": [{ "kind": "const", "type": "String", "value": "music/.." }] } },
     {
       "op": "if",
       "line": 40,
@@ -165,7 +165,7 @@
     },
     { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "c" }] }] } },
     { "op": "bind", "line": 45, "mutable": true, "name": "d", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 46, "mutable": false, "name": "$trap_res3", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "resolve", "args": [{ "kind": "const", "type": "String", "value": "./x" }] } },
+    { "op": "bind", "line": 46, "mutable": false, "name": "$trap_res3", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "resolve", "args": [{ "kind": "const", "type": "String", "value": "./x" }] } },
     {
       "op": "if",
       "line": 46,

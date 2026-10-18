@@ -109,7 +109,7 @@
     { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "negativeRejected=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "neg" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } }] } }] } },
     { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "tls.setReadTimeout", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "750" }] } },
     { "op": "bind", "line": 37, "mutable": true, "name": "timedOut", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res0", "type": "Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "tls.read", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "64" }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res0", "type": "#Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "tls.read", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "64" }] } },
     { "op": "bind", "line": 38, "mutable": true, "name": "$trap_val1", "type": "List OF Byte", "value": null },
     {
       "op": "if",

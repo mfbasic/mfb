@@ -320,7 +320,7 @@
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 66, "mutable": false, "name": "$trap_res0", "type": "Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "inverseSum", "args": [] } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "$trap_res0", "type": "#Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "inverseSum", "args": [] } },
     { "op": "bind", "line": 66, "mutable": true, "name": "$trap_val1", "type": "Float", "value": null },
     {
       "op": "if",
@@ -337,7 +337,7 @@
     },
     { "op": "bind", "line": 66, "mutable": false, "name": "r0", "type": "Float", "value": { "kind": "local", "name": "$trap_val1" } },
     { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "1.0 / sum = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r0" }] } }] } },
-    { "op": "bind", "line": 71, "mutable": false, "name": "$trap_res2", "type": "Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "sumPlusOne", "args": [] } },
+    { "op": "bind", "line": 71, "mutable": false, "name": "$trap_res2", "type": "#Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "sumPlusOne", "args": [] } },
     { "op": "bind", "line": 71, "mutable": true, "name": "$trap_val3", "type": "Float", "value": null },
     {
       "op": "if",
@@ -354,7 +354,7 @@
     },
     { "op": "bind", "line": 71, "mutable": false, "name": "r1", "type": "Float", "value": { "kind": "local", "name": "$trap_val3" } },
     { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "sum + 1.0 = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r1" }] } }] } },
-    { "op": "bind", "line": 76, "mutable": false, "name": "$trap_res4", "type": "Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "absOfSquare", "args": [] } },
+    { "op": "bind", "line": 76, "mutable": false, "name": "$trap_res4", "type": "#Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "absOfSquare", "args": [] } },
     { "op": "bind", "line": 76, "mutable": true, "name": "$trap_val5", "type": "Float", "value": null },
     {
       "op": "if",
@@ -371,7 +371,7 @@
     },
     { "op": "bind", "line": 76, "mutable": false, "name": "r2", "type": "Float", "value": { "kind": "local", "name": "$trap_val5" } },
     { "op": "eval", "line": 80, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "abs(x * x) = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r2" }] } }] } },
-    { "op": "bind", "line": 81, "mutable": false, "name": "$trap_res6", "type": "Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "atanOfSquare", "args": [] } },
+    { "op": "bind", "line": 81, "mutable": false, "name": "$trap_res6", "type": "#Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "atanOfSquare", "args": [] } },
     { "op": "bind", "line": 81, "mutable": true, "name": "$trap_val7", "type": "Float", "value": null },
     {
       "op": "if",
@@ -388,7 +388,7 @@
     },
     { "op": "bind", "line": 81, "mutable": false, "name": "r3", "type": "Float", "value": { "kind": "local", "name": "$trap_val7" } },
     { "op": "eval", "line": 85, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "atan(x * x) = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r3" }] } }] } },
-    { "op": "bind", "line": 86, "mutable": false, "name": "$trap_res8", "type": "Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "minOfSquare", "args": [] } },
+    { "op": "bind", "line": 86, "mutable": false, "name": "$trap_res8", "type": "#Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "minOfSquare", "args": [] } },
     { "op": "bind", "line": 86, "mutable": true, "name": "$trap_val9", "type": "Float", "value": null },
     {
       "op": "if",
@@ -405,7 +405,7 @@
     },
     { "op": "bind", "line": 86, "mutable": false, "name": "r4", "type": "Float", "value": { "kind": "local", "name": "$trap_val9" } },
     { "op": "eval", "line": 90, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "min(x * x, 1.0) = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r4" }] } }] } },
-    { "op": "bind", "line": 91, "mutable": false, "name": "$trap_res10", "type": "Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "expOfNegSquare", "args": [] } },
+    { "op": "bind", "line": 91, "mutable": false, "name": "$trap_res10", "type": "#Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "expOfNegSquare", "args": [] } },
     { "op": "bind", "line": 91, "mutable": true, "name": "$trap_val11", "type": "Float", "value": null },
     {
       "op": "if",
@@ -422,7 +422,7 @@
     },
     { "op": "bind", "line": 91, "mutable": false, "name": "r5", "type": "Float", "value": { "kind": "local", "name": "$trap_val11" } },
     { "op": "eval", "line": 95, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "exp(-(x * x)) = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r5" }] } }] } },
-    { "op": "bind", "line": 96, "mutable": false, "name": "$trap_res12", "type": "Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "lengthOfHuge", "args": [] } },
+    { "op": "bind", "line": 96, "mutable": false, "name": "$trap_res12", "type": "#Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "lengthOfHuge", "args": [] } },
     { "op": "bind", "line": 96, "mutable": true, "name": "$trap_val13", "type": "Float", "value": null },
     {
       "op": "if",
@@ -439,7 +439,7 @@
     },
     { "op": "bind", "line": 96, "mutable": false, "name": "r6", "type": "Float", "value": { "kind": "local", "name": "$trap_val13" } },
     { "op": "eval", "line": 100, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "vector::length = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r6" }] } }] } },
-    { "op": "bind", "line": 101, "mutable": false, "name": "$trap_res14", "type": "Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "inverseDistance", "args": [] } },
+    { "op": "bind", "line": 101, "mutable": false, "name": "$trap_res14", "type": "#Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "inverseDistance", "args": [] } },
     { "op": "bind", "line": 101, "mutable": true, "name": "$trap_val15", "type": "Float", "value": null },
     {
       "op": "if",
@@ -456,7 +456,7 @@
     },
     { "op": "bind", "line": 101, "mutable": false, "name": "r7", "type": "Float", "value": { "kind": "local", "name": "$trap_val15" } },
     { "op": "eval", "line": 105, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "1.0 / vector::distance = " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r7" }] } }] } },
-    { "op": "bind", "line": 106, "mutable": false, "name": "$trap_res16", "type": "Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "inverseExp", "args": [] } },
+    { "op": "bind", "line": 106, "mutable": false, "name": "$trap_res16", "type": "#Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "inverseExp", "args": [] } },
     { "op": "bind", "line": 106, "mutable": true, "name": "$trap_val17", "type": "Float", "value": null },
     {
       "op": "if",

@@ -54,7 +54,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "inner", "type": "Pairing OF Integer, String", "value": { "kind": "constructor", "type": "Pairing", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "string", "value": "seven" }] }, "line": 34 },
+      { "kind": "binding", "mutable": false, "name": "inner", "type": "Pairing OF (Integer, String)", "value": { "kind": "constructor", "type": "Pairing", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "string", "value": "seven" }] }, "line": 34 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "inner=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "inner" }, "member": "first" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "inner" }, "member": "second" } }] }, "line": 35 },
       { "kind": "binding", "mutable": false, "name": "listy", "type": "Holder OF List OF Integer", "value": { "kind": "constructor", "type": "Holder", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }] }, "line": 38 },
       { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 39 },
@@ -82,7 +82,7 @@
         ]
       },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "boxes-sum=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "boxSum" }] } }] }, "line": 53 },
-      { "kind": "binding", "mutable": true, "name": "pairs", "type": "List OF Pairing OF Integer, String", "value": { "kind": "list", "values": [] }, "line": 57 },
+      { "kind": "binding", "mutable": true, "name": "pairs", "type": "List OF Pairing OF (Integer, String)", "value": { "kind": "list", "values": [] }, "line": 57 },
       { "kind": "assignment", "name": "pairs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "pairs" }, { "kind": "constructor", "type": "Pairing", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "string", "value": "one" }] }] }, "line": 58 },
       { "kind": "assignment", "name": "pairs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "pairs" }, { "kind": "constructor", "type": "Pairing", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "string", "value": "two" }] }] }, "line": 59 },
       { "kind": "binding", "mutable": true, "name": "joined", "type": "String", "value": { "kind": "string", "value": "" }, "line": 60 },

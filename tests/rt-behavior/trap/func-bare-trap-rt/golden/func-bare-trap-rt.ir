@@ -103,7 +103,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 20, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "inner", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "inner", "args": [{ "kind": "local", "name": "s" }] } },
     { "op": "bind", "line": 20, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",

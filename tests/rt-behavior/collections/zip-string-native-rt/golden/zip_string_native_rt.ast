@@ -15,7 +15,7 @@
       "name": "showZ",
       "line": 12,
       "params": [
-      { "name": "z", "type": "List OF Pair OF String, String", "default": null, "line": 12 }
+      { "name": "z", "type": "List OF Pair OF (String, String)", "default": null, "line": 12 }
       ],
       "returnType": "String",
       "body": [
@@ -28,7 +28,7 @@
         "step": null,
         "line": 14,
         "body": [
-        { "kind": "binding", "mutable": false, "name": "p", "type": "Pair OF String, String", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "z" }, { "kind": "identifier", "value": "i" }] }, "line": 15 },
+        { "kind": "binding", "mutable": false, "name": "p", "type": "Pair OF (String, String)", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "z" }, { "kind": "identifier", "value": "i" }] }, "line": 15 },
         { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "(" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "first" } }, "right": { "kind": "string", "value": "|" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "second" } }, "right": { "kind": "string", "value": ")" } }, "line": 16 }
         ]
       },

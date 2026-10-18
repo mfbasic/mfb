@@ -135,7 +135,7 @@
       { "op": "bind", "line": 105, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
       { "op": "eval", "line": 106, "value": { "kind": "call", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "CREATE TABLE seeded(a INTEGER);" }] } },
       { "op": "eval", "line": 107, "value": { "kind": "call", "type": "Nothing", "target": "give", "args": [{ "kind": "local", "name": "db" }, { "kind": "local", "name": "t" }] } },
-      { "op": "bind", "line": 108, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO seeded VALUES (3);" }] } },
+      { "op": "bind", "line": 108, "mutable": false, "name": "$trap_res0", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO seeded VALUES (3);" }] } },
       {
         "op": "if",
         "line": 108,

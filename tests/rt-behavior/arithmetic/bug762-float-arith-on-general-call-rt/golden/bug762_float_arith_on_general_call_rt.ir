@@ -109,7 +109,7 @@
     "returns": "Nothing",
     "body": [
     { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Float", "target": "half", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "7" }] }] }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "6" }] }] }] } },
-    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res0", "type": "Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "scaled", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "const", "type": "Float", "value": "1.0e308" }] } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res0", "type": "#Result OF Float", "value": { "kind": "callResult", "type": "Float", "target": "scaled", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "const", "type": "Float", "value": "1.0e308" }] } },
     { "op": "bind", "line": 22, "mutable": true, "name": "$trap_val1", "type": "Float", "value": null },
     {
       "op": "if",

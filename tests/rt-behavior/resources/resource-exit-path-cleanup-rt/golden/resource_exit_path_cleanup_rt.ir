@@ -179,7 +179,7 @@
       { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "leaveByExit", "args": [{ "kind": "local", "name": "path" }] } },
       { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "leaveByContinue", "args": [{ "kind": "local", "name": "path" }] } },
       { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "leaveByTrapRoute", "args": [{ "kind": "local", "name": "path" }] } },
-      { "op": "bind", "line": 71, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "leaveByAutoPropagate", "args": [{ "kind": "local", "name": "path" }] } },
+      { "op": "bind", "line": 71, "mutable": false, "name": "$trap_res0", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "leaveByAutoPropagate", "args": [{ "kind": "local", "name": "path" }] } },
       {
         "op": "if",
         "line": 71,

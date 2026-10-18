@@ -81,7 +81,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res0", "type": "Result OF fs.File", "value": { "kind": "callResult", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "/mfb/plan38/definitely/missing/file.txt" }] } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res0", "type": "#Result OF fs.File", "value": { "kind": "callResult", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "/mfb/plan38/definitely/missing/file.txt" }] } },
     { "op": "bind", "line": 22, "mutable": true, "name": "$trap_val1", "type": "fs.File", "value": null },
     {
       "op": "if",
@@ -108,7 +108,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 32, "mutable": false, "name": "$trap_res2", "type": "Result OF tcp.Socket", "value": { "kind": "callResult", "type": "tcp.Socket", "target": "tcp.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "$trap_res2", "type": "#Result OF tcp.Socket", "value": { "kind": "callResult", "type": "tcp.Socket", "target": "tcp.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
     { "op": "bind", "line": 32, "mutable": true, "name": "$trap_val3", "type": "tcp.Socket", "value": null },
     {
       "op": "if",

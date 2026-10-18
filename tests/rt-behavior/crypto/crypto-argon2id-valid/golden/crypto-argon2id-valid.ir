@@ -272,21 +272,21 @@
     { "op": "bind", "line": 36, "mutable": true, "name": "$trap_failed6", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 36, "mutable": true, "name": "$trap_err7", "type": "Error", "value": null },
     { "op": "bind", "line": 36, "mutable": true, "name": "$trap_val5", "type": "List OF Byte", "value": null },
-    { "op": "bind", "line": 36, "mutable": false, "name": "$trap_res1", "type": "Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "strings.toBytes", "args": [{ "kind": "const", "type": "String", "value": "p" }] } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "$trap_res1", "type": "#Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "strings.toBytes", "args": [{ "kind": "const", "type": "String", "value": "p" }] } },
     {
       "op": "if",
       "line": 36,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
       "then": [
       { "op": "bind", "line": 36, "mutable": false, "name": "$trap_arg0", "type": "List OF Byte", "value": { "kind": "resultValue", "type": "List OF Byte", "value": { "kind": "local", "name": "$trap_res1" } } },
-      { "op": "bind", "line": 36, "mutable": false, "name": "$trap_res3", "type": "Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "repeated", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "local", "name": "saltLen" }] } },
+      { "op": "bind", "line": 36, "mutable": false, "name": "$trap_res3", "type": "#Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "repeated", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "local", "name": "saltLen" }] } },
       {
         "op": "if",
         "line": 36,
         "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res3" } },
         "then": [
         { "op": "bind", "line": 36, "mutable": false, "name": "$trap_arg2", "type": "List OF Byte", "value": { "kind": "resultValue", "type": "List OF Byte", "value": { "kind": "local", "name": "$trap_res3" } } },
-        { "op": "bind", "line": 36, "mutable": false, "name": "$trap_res4", "type": "Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "#crypto_argon2id", "args": [{ "kind": "local", "name": "$trap_arg0" }, { "kind": "local", "name": "$trap_arg2" }, { "kind": "local", "name": "memoryKiB" }, { "kind": "local", "name": "iterations" }, { "kind": "local", "name": "parallelism" }, { "kind": "local", "name": "length" }] } },
+        { "op": "bind", "line": 36, "mutable": false, "name": "$trap_res4", "type": "#Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "#crypto_argon2id", "args": [{ "kind": "local", "name": "$trap_arg0" }, { "kind": "local", "name": "$trap_arg2" }, { "kind": "local", "name": "memoryKiB" }, { "kind": "local", "name": "iterations" }, { "kind": "local", "name": "parallelism" }, { "kind": "local", "name": "length" }] } },
         {
           "op": "if",
           "line": 36,

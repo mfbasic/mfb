@@ -881,7 +881,7 @@
     { "op": "eval", "line": 108, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "collections::replace  nonEmpty=" }, "right": { "kind": "call", "type": "String", "target": "lReplace", "args": [{ "kind": "local", "name": "l" }, { "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "const", "type": "String", "value": "xax" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] }, { "kind": "const", "type": "String", "value": "Z" }] } }] } },
     { "op": "eval", "line": 109, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
     { "op": "eval", "line": 116, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "-- the inline TRAP form, which is where a name-keyed verdict bites --" }] } },
-    { "op": "bind", "line": 118, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "strings.replace", "args": [{ "kind": "const", "type": "String", "value": "abc" }, { "kind": "local", "name": "e" }, { "kind": "const", "type": "String", "value": "-" }] } },
+    { "op": "bind", "line": 118, "mutable": false, "name": "$trap_res0", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "strings.replace", "args": [{ "kind": "const", "type": "String", "value": "abc" }, { "kind": "local", "name": "e" }, { "kind": "const", "type": "String", "value": "-" }] } },
     { "op": "bind", "line": 118, "mutable": true, "name": "$trap_val1", "type": "String", "value": null },
     {
       "op": "if",
@@ -898,7 +898,7 @@
     },
     { "op": "bind", "line": 118, "mutable": false, "name": "recovered", "type": "String", "value": { "kind": "local", "name": "$trap_val1" } },
     { "op": "eval", "line": 122, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "strings::replace  empty       -> \"" }, "right": { "kind": "local", "name": "recovered" } }, "right": { "kind": "const", "type": "String", "value": "\"" } }] } },
-    { "op": "bind", "line": 126, "mutable": false, "name": "$trap_res2", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "strings.replace", "args": [{ "kind": "const", "type": "String", "value": "abcabc" }, { "kind": "local", "name": "b" }, { "kind": "const", "type": "String", "value": "-" }] } },
+    { "op": "bind", "line": 126, "mutable": false, "name": "$trap_res2", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "strings.replace", "args": [{ "kind": "const", "type": "String", "value": "abcabc" }, { "kind": "local", "name": "b" }, { "kind": "const", "type": "String", "value": "-" }] } },
     { "op": "bind", "line": 126, "mutable": true, "name": "$trap_val3", "type": "String", "value": null },
     {
       "op": "if",
@@ -915,7 +915,7 @@
     },
     { "op": "bind", "line": 126, "mutable": false, "name": "produced", "type": "String", "value": { "kind": "local", "name": "$trap_val3" } },
     { "op": "eval", "line": 130, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "strings::replace  nonEmpty    -> \"" }, "right": { "kind": "local", "name": "produced" } }, "right": { "kind": "const", "type": "String", "value": "\"" } }] } },
-    { "op": "bind", "line": 135, "mutable": false, "name": "$trap_res4", "type": "Result OF List OF String", "value": { "kind": "callResult", "type": "List OF String", "target": "collections.replace", "args": [{ "kind": "local", "name": "l" }, { "kind": "local", "name": "e" }, { "kind": "const", "type": "String", "value": "Z" }] } },
+    { "op": "bind", "line": 135, "mutable": false, "name": "$trap_res4", "type": "#Result OF List OF String", "value": { "kind": "callResult", "type": "List OF String", "target": "collections.replace", "args": [{ "kind": "local", "name": "l" }, { "kind": "local", "name": "e" }, { "kind": "const", "type": "String", "value": "Z" }] } },
     { "op": "bind", "line": 135, "mutable": true, "name": "$trap_val5", "type": "List OF String", "value": null },
     {
       "op": "if",
@@ -5131,7 +5131,7 @@
         "else": [
         ]
       },
-      { "op": "bind", "line": 1212, "mutable": false, "name": "$trap_res14", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "hexText" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
+      { "op": "bind", "line": 1212, "mutable": false, "name": "$trap_res14", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "hexText" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
       { "op": "bind", "line": 1212, "mutable": true, "name": "$trap_val15", "type": "Integer", "value": null },
       {
         "op": "if",
@@ -5171,7 +5171,7 @@
       ]
     },
     { "op": "bind", "line": 1223, "mutable": false, "name": "hexPair", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "pat" }, { "kind": "local", "name": "i" }] }, "right": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "pat" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } } },
-    { "op": "bind", "line": 1224, "mutable": false, "name": "$trap_res16", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "hexPair" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
+    { "op": "bind", "line": 1224, "mutable": false, "name": "$trap_res16", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "hexPair" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
     { "op": "bind", "line": 1224, "mutable": true, "name": "$trap_val17", "type": "Integer", "value": null },
     {
       "op": "if",

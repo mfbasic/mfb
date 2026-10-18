@@ -169,7 +169,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 55, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "boomInt", "args": [{ "kind": "local", "name": "v" }] } },
+    { "op": "bind", "line": 55, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "boomInt", "args": [{ "kind": "local", "name": "v" }] } },
     { "op": "bind", "line": 55, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -198,7 +198,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 62, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "f", "args": [{ "kind": "local", "name": "v" }] } },
+    { "op": "bind", "line": 62, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "f", "args": [{ "kind": "local", "name": "v" }] } },
     { "op": "bind", "line": 62, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -226,7 +226,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 70, "mutable": false, "name": "$trap_res4", "type": "Result OF Box", "value": { "kind": "callResult", "type": "Box", "target": "boomBox", "args": [{ "kind": "local", "name": "v" }] } },
+    { "op": "bind", "line": 70, "mutable": false, "name": "$trap_res4", "type": "#Result OF Box", "value": { "kind": "callResult", "type": "Box", "target": "boomBox", "args": [{ "kind": "local", "name": "v" }] } },
     { "op": "bind", "line": 70, "mutable": true, "name": "$trap_val5", "type": "Box", "value": null },
     {
       "op": "if",
@@ -255,7 +255,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 77, "mutable": false, "name": "$trap_res6", "type": "Result OF Box", "value": { "kind": "callResult", "type": "Box", "target": "f", "args": [{ "kind": "local", "name": "v" }] } },
+    { "op": "bind", "line": 77, "mutable": false, "name": "$trap_res6", "type": "#Result OF Box", "value": { "kind": "callResult", "type": "Box", "target": "f", "args": [{ "kind": "local", "name": "v" }] } },
     { "op": "bind", "line": 77, "mutable": true, "name": "$trap_val7", "type": "Box", "value": null },
     {
       "op": "if",
@@ -284,7 +284,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 85, "mutable": false, "name": "$trap_res8", "type": "Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "f", "args": [{ "kind": "local", "name": "v" }] } },
+    { "op": "bind", "line": 85, "mutable": false, "name": "$trap_res8", "type": "#Result OF List OF Integer", "value": { "kind": "callResult", "type": "List OF Integer", "target": "f", "args": [{ "kind": "local", "name": "v" }] } },
     { "op": "bind", "line": 85, "mutable": true, "name": "$trap_val9", "type": "List OF Integer", "value": null },
     {
       "op": "if",

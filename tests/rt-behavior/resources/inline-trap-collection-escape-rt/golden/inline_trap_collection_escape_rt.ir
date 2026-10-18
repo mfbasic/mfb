@@ -90,7 +90,7 @@
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
       "body": [
       { "op": "bind", "line": 26, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
-      { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res0", "type": "Result OF List OF RES fs.File", "value": { "kind": "callResult", "type": "List OF RES fs.File", "target": "collections.insert", "args": [{ "kind": "local", "name": "handles" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "f" }] } },
+      { "op": "bind", "line": 27, "mutable": false, "name": "$trap_res0", "type": "#Result OF List OF RES fs.File", "value": { "kind": "callResult", "type": "List OF RES fs.File", "target": "collections.insert", "args": [{ "kind": "local", "name": "handles" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "f" }] } },
       { "op": "bind", "line": 27, "mutable": true, "name": "$trap_val1", "type": "List OF RES fs.File", "value": null },
       {
         "op": "if",
@@ -144,7 +144,7 @@
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
       "body": [
       { "op": "bind", "line": 48, "mutable": false, "name": "g", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
-      { "op": "bind", "line": 49, "mutable": false, "name": "$trap_res2", "type": "Result OF List OF RES fs.File", "value": { "kind": "callResult", "type": "List OF RES fs.File", "target": "alwaysFails", "args": [{ "kind": "local", "name": "n" }] } },
+      { "op": "bind", "line": 49, "mutable": false, "name": "$trap_res2", "type": "#Result OF List OF RES fs.File", "value": { "kind": "callResult", "type": "List OF RES fs.File", "target": "alwaysFails", "args": [{ "kind": "local", "name": "n" }] } },
       { "op": "bind", "line": 49, "mutable": true, "name": "$trap_val3", "type": "List OF RES fs.File", "value": null },
       {
         "op": "if",

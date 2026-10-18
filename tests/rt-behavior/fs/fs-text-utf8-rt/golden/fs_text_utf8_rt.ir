@@ -128,7 +128,7 @@
       "line": 16,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "which" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "readText1", "args": [{ "kind": "local", "name": "p" }] } },
+      { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res0", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "readText1", "args": [{ "kind": "local", "name": "p" }] } },
       {
         "op": "if",
         "line": 17,
@@ -150,7 +150,7 @@
       "line": 22,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "which" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
       "then": [
-      { "op": "bind", "line": 23, "mutable": false, "name": "$trap_res1", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "readAll1", "args": [{ "kind": "local", "name": "p" }] } },
+      { "op": "bind", "line": 23, "mutable": false, "name": "$trap_res1", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "readAll1", "args": [{ "kind": "local", "name": "p" }] } },
       {
         "op": "if",
         "line": 23,
@@ -172,7 +172,7 @@
       "line": 28,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "which" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
       "then": [
-      { "op": "bind", "line": 29, "mutable": false, "name": "$trap_res2", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "readLine1", "args": [{ "kind": "local", "name": "p" }] } },
+      { "op": "bind", "line": 29, "mutable": false, "name": "$trap_res2", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "readLine1", "args": [{ "kind": "local", "name": "p" }] } },
       {
         "op": "if",
         "line": 29,

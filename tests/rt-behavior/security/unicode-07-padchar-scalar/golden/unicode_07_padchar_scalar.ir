@@ -107,7 +107,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 23, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryPad", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "$trap_res0", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryPad", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "String", "value": "" }] } },
     {
       "op": "if",
       "line": 23,
@@ -119,7 +119,7 @@
       { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "empty " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } }
       ]
     },
-    { "op": "bind", "line": 28, "mutable": false, "name": "$trap_res1", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryPad", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "String", "value": "ab" }] } },
+    { "op": "bind", "line": 28, "mutable": false, "name": "$trap_res1", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "tryPad", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "String", "value": "ab" }] } },
     {
       "op": "if",
       "line": 28,

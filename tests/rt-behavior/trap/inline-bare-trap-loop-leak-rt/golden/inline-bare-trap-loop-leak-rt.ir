@@ -89,7 +89,7 @@
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "20000" } },
       "body": [
-      { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "const", "type": "String", "value": "bad" }] } },
+      { "op": "bind", "line": 14, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "const", "type": "String", "value": "bad" }] } },
       { "op": "bind", "line": 14, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
       {
         "op": "if",

@@ -84,7 +84,7 @@
     { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "thread.openStdIn", "args": [] } },
     { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "thread.closeStdIn", "args": [] } },
     { "op": "bind", "line": 11, "mutable": true, "name": "code1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.readLine", "args": [{ "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "$trap_res0", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.readLine", "args": [{ "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
     { "op": "bind", "line": 12, "mutable": true, "name": "$trap_val1", "type": "String", "value": null },
     {
       "op": "if",
@@ -103,7 +103,7 @@
     { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "thread.openStdIn", "args": [] } },
     { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "thread.closeStdIn", "args": [] } },
     { "op": "bind", "line": 19, "mutable": true, "name": "code2", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 20, "mutable": false, "name": "$trap_res2", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.readLine", "args": [{ "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "$trap_res2", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "io.readLine", "args": [{ "kind": "const", "type": "Integer", "value": "9223372036854775808" }] } },
     { "op": "bind", "line": 20, "mutable": true, "name": "$trap_val3", "type": "String", "value": null },
     {
       "op": "if",

@@ -83,7 +83,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 7, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "fs.seek", "args": [{ "kind": "local", "name": "f" }, { "kind": "local", "name": "position" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "$trap_res0", "type": "#Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "fs.seek", "args": [{ "kind": "local", "name": "f" }, { "kind": "local", "name": "position" }] } },
     {
       "op": "if",
       "line": 7,

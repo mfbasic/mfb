@@ -234,7 +234,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 9, "mutable": false, "name": "$trap_res0", "type": "Result OF AttributedString", "value": { "kind": "callResult", "type": "AttributedString", "target": "astrings.fromString", "args": [{ "kind": "const", "type": "String", "value": "abc" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "$trap_res0", "type": "#Result OF AttributedString", "value": { "kind": "callResult", "type": "AttributedString", "target": "astrings.fromString", "args": [{ "kind": "const", "type": "String", "value": "abc" }] } },
     { "op": "bind", "line": 9, "mutable": true, "name": "$trap_val1", "type": "AttributedString", "value": null },
     {
       "op": "if",
@@ -252,7 +252,7 @@
     { "op": "bind", "line": 9, "mutable": false, "name": "a", "type": "AttributedString", "value": { "kind": "local", "name": "$trap_val1" } },
     { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "markdown " }, "right": { "kind": "call", "type": "String", "target": "#astrings_toMarkdown", "args": [{ "kind": "local", "name": "a" }] } }] } },
     { "op": "bind", "line": 14, "mutable": true, "name": "b", "type": "AttributedString", "value": { "kind": "call", "type": "AttributedString", "target": "astrings.fromString", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
-    { "op": "bind", "line": 15, "mutable": false, "name": "$trap_res2", "type": "Result OF AttributedString", "value": { "kind": "callResult", "type": "AttributedString", "target": "astrings.fromString", "args": [{ "kind": "const", "type": "String", "value": "xyz" }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "$trap_res2", "type": "#Result OF AttributedString", "value": { "kind": "callResult", "type": "AttributedString", "target": "astrings.fromString", "args": [{ "kind": "const", "type": "String", "value": "xyz" }] } },
     { "op": "bind", "line": 15, "mutable": true, "name": "$trap_val3", "type": "AttributedString", "value": null },
     {
       "op": "if",

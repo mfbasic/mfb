@@ -540,7 +540,7 @@
       { "op": "assign", "line": 161, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 163, "mutable": false, "name": "$trap_res3", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "line": 163, "mutable": false, "name": "$trap_res3", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
     { "op": "bind", "line": 163, "mutable": true, "name": "$trap_val4", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -755,7 +755,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 260, "mutable": false, "name": "$trap_res5", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "bind", "line": 260, "mutable": false, "name": "$trap_res5", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
     { "op": "bind", "line": 260, "mutable": true, "name": "$trap_val6", "type": "String", "value": null },
     {
       "op": "if",
@@ -1408,7 +1408,7 @@
       "line": 521,
       "condition": { "kind": "call", "type": "Boolean", "target": "strings.contains", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "String", "value": "%" }] },
       "then": [
-      { "op": "bind", "line": 522, "mutable": false, "name": "$trap_res7", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
+      { "op": "bind", "line": 522, "mutable": false, "name": "$trap_res7", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "#net_percentDecodeImpl", "args": [{ "kind": "local", "name": "text" }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
       { "op": "bind", "line": 522, "mutable": true, "name": "$trap_val8", "type": "String", "value": null },
       {
         "op": "if",

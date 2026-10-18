@@ -259,7 +259,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "line": 89, "mutable": false, "name": "$trap_res15", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "mayFail", "args": [{ "kind": "local", "name": "s" }] } },
+    { "op": "bind", "line": 89, "mutable": false, "name": "$trap_res15", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "mayFail", "args": [{ "kind": "local", "name": "s" }] } },
     { "op": "bind", "line": 89, "mutable": true, "name": "$trap_val16", "type": "String", "value": null },
     {
       "op": "if",

@@ -251,21 +251,21 @@
     { "op": "bind", "line": 21, "mutable": true, "name": "$trap_failed6", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
     { "op": "bind", "line": 21, "mutable": true, "name": "$trap_err7", "type": "Error", "value": null },
     { "op": "bind", "line": 21, "mutable": true, "name": "$trap_val5", "type": "String", "value": null },
-    { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res1", "type": "Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "strings.toBytes", "args": [{ "kind": "const", "type": "String", "value": "x" }] } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res1", "type": "#Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "strings.toBytes", "args": [{ "kind": "const", "type": "String", "value": "x" }] } },
     {
       "op": "if",
       "line": 21,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
       "then": [
       { "op": "bind", "line": 21, "mutable": false, "name": "$trap_arg0", "type": "List OF Byte", "value": { "kind": "resultValue", "type": "List OF Byte", "value": { "kind": "local", "name": "$trap_res1" } } },
-      { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res3", "type": "Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "#crypto_openSealed", "args": [{ "kind": "memberAccess", "type": "crypto.SymmetricCipher", "target": { "kind": "local", "name": "crypto.SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "local", "name": "k" }, { "kind": "local", "name": "n" }, { "kind": "local", "name": "box" }, { "kind": "local", "name": "$trap_arg0" }] } },
+      { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res3", "type": "#Result OF List OF Byte", "value": { "kind": "callResult", "type": "List OF Byte", "target": "#crypto_openSealed", "args": [{ "kind": "memberAccess", "type": "crypto.SymmetricCipher", "target": { "kind": "local", "name": "crypto.SymmetricCipher" }, "member": "AES256GCM" }, { "kind": "local", "name": "k" }, { "kind": "local", "name": "n" }, { "kind": "local", "name": "box" }, { "kind": "local", "name": "$trap_arg0" }] } },
       {
         "op": "if",
         "line": 21,
         "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res3" } },
         "then": [
         { "op": "bind", "line": 21, "mutable": false, "name": "$trap_arg2", "type": "List OF Byte", "value": { "kind": "resultValue", "type": "List OF Byte", "value": { "kind": "local", "name": "$trap_res3" } } },
-        { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res4", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "$trap_arg2" }] } },
+        { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res4", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "$trap_arg2" }] } },
         {
           "op": "if",
           "line": 21,

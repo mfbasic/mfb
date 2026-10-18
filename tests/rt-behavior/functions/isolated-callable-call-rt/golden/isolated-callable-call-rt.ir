@@ -139,7 +139,7 @@
     { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "shared", "args": [{ "kind": "const", "type": "String", "value": "abc" }] }] }] } },
     { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "run", "args": [{ "kind": "functionRef", "name": "scaled", "type": "ISOLATED FUNC(String) AS Integer" }, { "kind": "const", "type": "String", "value": "abcd" }] }] }] } },
     { "op": "bind", "line": 33, "mutable": false, "name": "g", "type": "ISOLATED FUNC(String) AS Integer", "value": { "kind": "functionRef", "name": "strict", "type": "ISOLATED FUNC(String) AS Integer" } },
-    { "op": "bind", "line": 34, "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "g", "args": [{ "kind": "const", "type": "String", "value": "abcd" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "$trap_res0", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "g", "args": [{ "kind": "const", "type": "String", "value": "abcd" }] } },
     { "op": "bind", "line": 34, "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
     {
       "op": "if",
@@ -154,7 +154,7 @@
     },
     { "op": "bind", "line": 34, "mutable": false, "name": "ok", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
     { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "ok" }] }] } },
-    { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "g", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "g", "args": [{ "kind": "const", "type": "String", "value": "" }] } },
     { "op": "bind", "line": 38, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
     {
       "op": "if",

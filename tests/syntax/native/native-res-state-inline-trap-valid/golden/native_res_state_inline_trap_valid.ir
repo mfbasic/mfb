@@ -46,7 +46,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 61, "mutable": false, "name": "$trap_res0", "type": "Result OF SoundFile STATE FileInfo", "value": { "kind": "callResult", "type": "SoundFile STATE FileInfo", "target": "snd.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 61, "mutable": false, "name": "$trap_res0", "type": "#Result OF SoundFile STATE FileInfo", "value": { "kind": "callResult", "type": "SoundFile STATE FileInfo", "target": "snd.openFile", "args": [{ "kind": "local", "name": "path" }] } },
     { "op": "bind", "line": 61, "mutable": true, "name": "$trap_val1", "type": "SoundFile STATE FileInfo", "value": null },
     {
       "op": "if",
@@ -76,7 +76,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 73, "mutable": false, "name": "$trap_res2", "type": "Result OF SoundFile STATE FileInfo", "value": { "kind": "callResult", "type": "SoundFile STATE FileInfo", "target": "snd.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 73, "mutable": false, "name": "$trap_res2", "type": "#Result OF SoundFile STATE FileInfo", "value": { "kind": "callResult", "type": "SoundFile STATE FileInfo", "target": "snd.openFile", "args": [{ "kind": "local", "name": "path" }] } },
     { "op": "bind", "line": 73, "mutable": true, "name": "$trap_val3", "type": "SoundFile STATE FileInfo", "value": null },
     {
       "op": "if",

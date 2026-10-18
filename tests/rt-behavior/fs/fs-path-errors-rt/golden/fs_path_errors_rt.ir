@@ -124,7 +124,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 18, "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 19, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "readMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "$trap_res0", "type": "#Result OF String", "value": { "kind": "callResult", "type": "String", "target": "readMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
     {
       "op": "if",
       "line": 19,
@@ -139,7 +139,7 @@
     },
     { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "a" }] }] } },
     { "op": "bind", "line": 24, "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 25, "mutable": false, "name": "$trap_res1", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "$trap_res1", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
     {
       "op": "if",
       "line": 25,
@@ -154,7 +154,7 @@
     },
     { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "b" }] }] } },
     { "op": "bind", "line": 30, "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "delMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res2", "type": "#Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "delMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
     {
       "op": "if",
       "line": 31,
