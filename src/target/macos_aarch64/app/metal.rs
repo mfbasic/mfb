@@ -59,8 +59,7 @@ use crate::codegen::runtime::canvas::{
     emit_item_arc_flags, emit_item_polygon_rule, emit_item_residual_field, emit_item_stroke_sign,
     emit_square_cap_reach, BAND_LIST_PER_EDGE, BAND_MAX, BAND_MIN_EDGES, ITEM_BAND_COUNT,
     ITEM_BAND_HEIGHT, ITEM_BAND_NORM, ITEM_BAND_START, ITEM_BAND_TOP, ITEM_CLIP_BAND_NORM,
-    ITEM_OFFSET_MISC_LO, ITEM_RESIDUAL_FIELDS,
-    METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
+    ITEM_OFFSET_MISC_LO, ITEM_RESIDUAL_FIELDS, METAL_BAND_BASE_WORDS, METAL_MAX_FRAME_BAND_WORDS,
 };
 use crate::codegen::runtime::canvas::{
     BLEND_MODE_COUNT, EDGE_RESIDUAL_SCALE, GRAPHICS_OFFSET_MTL_DEVICE,
