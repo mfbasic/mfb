@@ -31,7 +31,8 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
   847's run-time collision (owner 2026-10-18: raise ErrInvalidArgument) and 1009/1010/1011 -> phase 6.
 * **Phase 4 (MED, table order):** 1036, 1104, 905, 831, 845, 931, 932, 827, 863 merged to staging;
   864: owner ruled 2026-10-18 (Ed25519 refused everywhere, ErrInvalidArgument; EC everywhere) -> phase 6.
-* **Phase 5 (MED, table order):** 876, 886, 891, 874, 1021 merged to staging; 945, 833, 913, 914, 1022 in progress.
+* Phase 5 (MED): 876, 886, 891, 874, 1021 - on main (49ea4e33b); 945, 833, 913, 914 merged to staging.
+  1022 waits on the owner (its examples contradict the builtin rule it is to follow) -> moved out.
 * **Phase 6 (next):** 864 first, then 1108 (bug-1021's diagnostic regression), then 1009 + 1010 + 1011 (one fix; owner 2026-10-18: reserve then shrink),
   then 847's run-time half, then the next MED rows in table order.
 * Later phases: the rest of MED, then LOW, in table order.
@@ -147,16 +148,12 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 945    | MED      | `Result` and `Ok` are reserved in user code — a user cannot declare their own `TYPE Result` or `TYPE Ok` (owner-confirmed language change; after 977 and 978) |
 | [ ]  | 855    | LOW      | walking a recursive union with `MUT cur = c.rest` deep-copies the remaining tail every step — O(n²) time and allocations |
 
 ## Templates and overloads
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 833    | MED      | a parameter of user-template type (`Stack OF T`, `Pair OF A, B`) cannot be followed by another parameter |
-| [ ]  | 913    | MED      | two template FUNCs sharing a name (or a template and a plain FUNC) — the earlier declaration is silently discarded, calls bind to the wrong body |
-| [ ]  | 914    | MED      | the same import alias bound to different packages in two files breaks imported-overload resolution (`TYPE_UNKNOWN_VALUE`), depending on file sort order |
 | [ ]  | 1022   | MED      | a template call (`collections::merge`, any user `FUNC f OF T`) rejects a union variant where its `T` is the union, though the builtin collection members now accept it |
 | [ ]  | 1038   | MED      | an imported return-type overload set cannot be selected by the expected type (`TYPE_OVERLOAD_AMBIGUOUS`) |
 | [ ]  | 1039   | MED      | a template call whose argument is a direct imported-package call infers `T` as `Unknown` |
