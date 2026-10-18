@@ -432,21 +432,30 @@ metadata, since the importer has no AST for them.
 [[src/monomorph/helpers.rs:collect_imported_overloads]]
 
 `collect_imported_overloads` runs once at construction. For each distinct
-`(binding, package)` import pair it:
+imported package (under whichever binding a file imports it) it:
 
-1. Records the qualifier prefixes `binding.` and `package.` for later
-   normalization.
+1. Records the qualifier prefixes `binding.` and `package.` of a built-in import
+   for later normalization.
 2. Reads the package's exports.[[src/binary_repr/]]
-3. Keeps only `Func`/`Sub` exports, groups them by base name (split on `$`).
-4. Records `(param_types, package.mangledName, return_type, isolated)` **only**
-   for a base name with ≥2 exports — a non-overloaded import resolves by its bare
-   name and is skipped. A call selects by `param_types`; a value reference to the
-   set (`LET f AS FUNC(…) AS … = pkg::name`) also needs the return type and
-   isolation (see "Function-value references").
+3. Keeps only `Func` exports, groups them by base name (split on `$`).
+4. Records `(param_types, mangledName, return_type, isolated)` under
+   `package.base` **only** for a base name with ≥2 exports — a non-overloaded
+   import resolves by its bare name and is skipped. A call selects by
+   `param_types`; a value reference to the set (`LET f AS FUNC(…) AS … =
+   pkg::name`) also needs the return type and isolation (see "Function-value
+   references").
+
+The set is keyed by PACKAGE because import bindings are per file: one alias may
+name different packages in different files (bug-914). A `binding.member` callee
+reaches its set through the binding of the file being lowered
+(`imported_overload_set`, from each file's own import bindings; a global
+initializer is lowered in its own file), and the rewrite target is
+`binding.mangledName` with that same binding, which the post-monomorph resolver
+maps per file. [[src/monomorph/lower.rs:imported_overload_set]]
 
 `resolve_imported_overload(callee, arg_types)` then finds the candidate whose
-arity and per-position `types_compatible` match, returning the
-package-qualified mangled name the package merge expects.
+arity and per-position `types_compatible` match, returning that
+`binding.mangledName` target.
 [[src/monomorph/lower.rs:resolve_imported_overload]] `types_compatible` is token-wise
 equality with `Unknown` as a wildcard on either side.
 [[src/monomorph/lower.rs:types_compatible]] The match must be **unique**: because

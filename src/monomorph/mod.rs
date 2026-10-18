@@ -71,11 +71,16 @@ struct Monomorphizer<'a> {
     /// through the file-scoped spelling (bug-912).
     template_views: HashMap<String, String>,
     overload_names: HashMap<String, String>,
-    /// Overloaded functions exported by imported packages, keyed by the
-    /// importer-facing `binding.base` name. Lets a call to an imported overload
-    /// be rewritten to the package's mangled `package.base$Types` name, which the
-    /// package merge then identity-prefixes (plan-linker.md §12, overloads).
+    /// Overloaded functions exported by imported packages, keyed by
+    /// `package.base`. Lets a call to an imported overload be rewritten to the
+    /// package's mangled `base$Types` export, which the package merge then
+    /// identity-prefixes (plan-linker.md §12, overloads). Reached through the
+    /// calling file's binding ([`Self::file_imports`], bug-914).
     imported_overloads: HashMap<String, Vec<ImportedOverload>>,
+    /// Each source file's import bindings (`binding -> package`), keyed by the
+    /// file's path. Bindings are per file, so an imported overload set is looked
+    /// up through the binding of the file being lowered (bug-914).
+    file_imports: HashMap<String, HashMap<String, String>>,
     /// All known import-binding/package qualifier prefixes (e.g. `sqlite.`), used
     /// to normalize an argument's qualified user/resource type to the bare name
     /// the package stored in its mangled overload names.
@@ -152,9 +157,11 @@ struct ImportedOverload {
     /// plan-111-B: typed — the `.mfp` export view they come from is decoded
     /// into types by `binary_repr::builder` (boundary #4).
     param_types: Vec<crate::types::ParameterType>,
-    /// The fully package-qualified mangled name (`package.base$Types`) the merge
-    /// expects.
-    qualified_name: String,
+    /// The export's mangled name (`base$Types`). A call rewrites to
+    /// `<binding>.<export_name>` with the CALLING file's binding: the
+    /// post-monomorph resolver maps that file's bindings (binding -> package),
+    /// so a `package.name` target is unresolvable under an alias (bug-104).
+    export_name: String,
     /// The declared return type and isolation, package-qualified like
     /// `param_types`. A call selects by argument types alone, but a reference
     /// to the overload set as a VALUE selects by the complete callable type the

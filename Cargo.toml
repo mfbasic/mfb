@@ -1564,3 +1564,7 @@ path = "tests/runtime/rt_user_generic_param_not_last.rs"
 [[test]]
 name = "rt_template_overloads"
 path = "tests/runtime/rt_template_overloads.rs"
+
+[[test]]
+name = "rt_import_alias_per_file_overloads"
+path = "tests/runtime/rt_import_alias_per_file_overloads.rs"

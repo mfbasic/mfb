@@ -250,6 +250,11 @@ impl<'a> Monomorphizer<'a> {
             template_views,
             overload_names,
             imported_overloads,
+            file_imports: source
+                .files
+                .iter()
+                .map(|file| (file.path.clone(), file.import_bindings()))
+                .collect(),
             package_qualifiers,
             type_instantiations: HashMap::new(),
             emitted_type_keys: HashSet::new(),
@@ -337,13 +342,28 @@ impl<'a> Monomorphizer<'a> {
     /// `f(List OF String)`; taking the first would silently bind the call to
     /// whichever overload the package happened to export first. That is ambiguous,
     /// exactly as it is for a local overload set.
+    /// The imported overload set a `binding.member` callee names, with that
+    /// binding: the binding is resolved through the file being lowered, since
+    /// import bindings are per file (bug-914) — one alias may name different
+    /// packages in different files.
+    fn imported_overload_set(&self, callee: &str) -> Option<(String, &Vec<ImportedOverload>)> {
+        let (binding, member) = callee.split_once('.')?;
+        let package = self
+            .file_imports
+            .get(self.current_file.as_ref()?)?
+            .get(binding)?;
+        self.imported_overloads
+            .get(&format!("{package}.{member}"))
+            .map(|set| (binding.to_string(), set))
+    }
+
     fn resolve_imported_overload(
         &mut self,
         callee: &str,
         arg_types: &[ParameterType],
         line: usize,
     ) -> Option<String> {
-        let candidates = self.imported_overloads.get(callee)?;
+        let (binding, candidates) = self.imported_overload_set(callee)?;
         let matches: Vec<String> =
             candidates
                 .iter()
@@ -365,7 +385,7 @@ impl<'a> Monomorphizer<'a> {
                             },
                         )
                 })
-                .map(|candidate| candidate.qualified_name.clone())
+                .map(|candidate| format!("{binding}.{}", candidate.export_name))
                 .collect();
         match matches.len() {
             0 => None,
@@ -600,7 +620,12 @@ impl<'a> Monomorphizer<'a> {
                 for item in &file.items {
                     match item {
                         HirItem::Binding(binding) => {
+                            // A global's initializer is lowered in its own file,
+                            // whose import bindings its calls resolve through
+                            // (bug-914) and whose diagnostics are its own.
+                            let saved_file = self.current_file.replace(file.path.clone());
                             items.push(HirItem::Binding(self.lower_binding(binding.clone())));
+                            self.current_file = saved_file;
                         }
                         HirItem::Type(type_decl) if type_decl.template_params.is_empty() => {
                             if let Some(concrete) = self
@@ -1460,12 +1485,12 @@ impl<'a> Monomorphizer<'a> {
                     false,
                     members,
                 )
-            } else if let Some(candidates) = self.imported_overloads.get(name) {
+            } else if let Some((binding, candidates)) = self.imported_overload_set(name) {
                 let members = candidates
                     .iter()
                     .map(|candidate| {
                         (
-                            candidate.qualified_name.clone(),
+                            format!("{binding}.{}", candidate.export_name),
                             ParameterType::Func(
                                 candidate.param_types.clone(),
                                 Box::new(candidate.return_type.clone()),
@@ -4137,18 +4162,25 @@ END FUNC
         let dir = tempfile::tempdir().expect("tempdir");
         let hir = crate::hir::elaborate(&ast);
         let mut monomorphizer = Monomorphizer::new(dir.path(), &hir);
+        // The calling file binds `pkg` to the package `pkg` (bug-914: the set is
+        // reached through the calling file's binding).
+        monomorphizer.file_imports.insert(
+            "src/main.mfb".to_string(),
+            std::collections::HashMap::from([("pkg".to_string(), "pkg".to_string())]),
+        );
+        monomorphizer.current_file = Some("src/main.mfb".to_string());
         monomorphizer.imported_overloads.insert(
             "pkg.f".to_string(),
             vec![
                 ImportedOverload {
                     param_types: vec![ParameterType::parse("List OF Integer")],
-                    qualified_name: "pkg.f$ListOFInteger".to_string(),
+                    export_name: "f$ListOFInteger".to_string(),
                     return_type: ParameterType::Integer,
                     isolated: false,
                 },
                 ImportedOverload {
                     param_types: vec![ParameterType::parse("List OF String")],
-                    qualified_name: "pkg.f$ListOFString".to_string(),
+                    export_name: "f$ListOFString".to_string(),
                     return_type: ParameterType::Integer,
                     isolated: false,
                 },
