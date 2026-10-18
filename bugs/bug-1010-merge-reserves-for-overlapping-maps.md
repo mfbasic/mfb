@@ -13,6 +13,7 @@ Regression Test: `tests/runtime/rt_merge_overlap_memory.rs` (proposed)
 - OWNER RULING 2026-10-18 (one rule for 1009, 1010, 1011): reserve then shrink. A builder whose input only bounds its result keeps its one up-front reservation at that bound, and before it returns it shrinks the result to exactly what it holds (`capacity == count`, `dataCapacity == dataLength`, buckets re-sized for a Map/Set), so nothing input-sized outlives the call. `mfb spec memory` § Capacity Headroom and Growth changes its "allocates once at that bound ... leaves `count < capacity` in the result" sentence to this rule.
 - Where: the native fast paths that reserve from the input: `func_to_set.rs:lower_collection_to_set_call` (1009), `func_merge.rs:lower_collection_merge_call` / `copy_map_with_capacity` (1010), `gen_mutate.rs:lower_reserved_list` called by `lower_filter` / `lower_transform` (1011).
 - Fix: one shared shrink-to-fit step (the tightening `copy_flat_block` already performs for value copies: an in-place trim or one tight copy-and-free) applied at each of those builders' return, not a per-builder variant.
+
 ## Failing Reproduction
 
 Build and run this project with `target/debug/mfb build --debug <project>`:
