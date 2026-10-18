@@ -29,3 +29,16 @@ cause it; what is left is the tests' timing margin under the suite's parallel bi
 **The single correct behavior a fix produces:** both tests pass in every full-tier run
 (they decide on the program's own frame/state sequence, not on how long a sleep lasted),
 or they wait on an event rather than a duration.
+
+## 2026-10-18: a third test, the same way (full tier on main `079395542`)
+
+`~/.cache/mfb-full-suite/runs/07939554299f.result` (exit 101, 357 binaries) failed one test,
+`rt_compress_throughput::crc32_and_inflate_run_within_their_bounds_of_a_native_copy`:
+"crc took 22.22x the reference copy (bound 18.5); runs [1198000, 1146000, 1484000,
+1537000, 1400000] ns, reference runs [119000, 63000, 63000, 80000, 62000] ns". The
+reference copy itself varied 1.9x inside that one run. No change on main between the last
+green full tier and this one touches `compress`. Run by name on that commit for 10 min at
+load average 31 to 37: 3 of 3 passes (each run builds its programs, about 200 s). The two
+canvas tests above passed in this run. The class is the same: a wall-clock bound that the
+full suite's parallel binaries can push over; the fix for all three is the same kind (a
+bound that does not depend on contention, or a test that runs alone).
