@@ -30,8 +30,9 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 * Phase 3 (MED): 1098, 1099, 832, 846, 847 (constant keys), 1007 + 1008 - on main (c60f81037).
   847's run-time collision and the 1009/1010/1011 capacity rule wait on the owner (moved out).
 * **Phase 4 (MED, table order):** 1036, 1104, 905, 831, 845, 931, 932, 827, 863 merged to staging;
-  864 waits on the owner (Ed25519 TLS server keys).
+  864: owner ruled 2026-10-18 (Ed25519 refused everywhere, ErrInvalidArgument; EC everywhere) -> phase 6.
 * **Phase 5 (MED, table order):** 876, 886, 891, 874, 945, 1021, 833, 913, 914, 1022.
+* **Phase 6 (next):** 864 first, then the next MED rows in table order.
 * Later phases: the rest of MED, then LOW, in table order.
 
 ## Resources and STATE

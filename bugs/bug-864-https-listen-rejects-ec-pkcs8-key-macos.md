@@ -11,6 +11,8 @@ Regression Test: tests/rt-behavior/tls/tls-listen-ec-key-rt (to add, macOS)
 
 ## Cause (coordinator, bug-staging-24)
 
+- OWNER RULING 2026-10-18: Ed25519 is REFUSED as a TLS server key on every target (macOS and Windows cannot serve it, measured/documented by bs24-agent-f; Linux, which accepts it today, refuses it too, for parity), with `ErrInvalidArgument` (77050002; the coordinator's recommendation, adopted when the owner named no other code). EC P-256/P-384 PKCS#8 is supported on every target as before. The refusal is decided once, from the PKCS#8 algorithm OID, before any platform import.
+
 - Rule: EC (P-256/P-384) and Ed25519 PKCS#8 keys work as TLS server keys on every target (owner decision 2026-10-05: add support; macOS unwraps PKCS#8 `PrivateKeyInfo` to the format `SecItemImport` accepts; Linux and Windows get the same treatment wherever their loader needs it; documented in `mfb man tls listen` / `http::serverSSL`).
 - Where: `src/codegen/builtins/tls/gen_macos/server.rs:emit_import_pem_item` calls `SecItemImport` with a NULL format (rejects EC/Ed25519 PKCS#8, measured); Windows imports `PKCS_RSA_PRIVATE_KEY` into `PROV_RSA_AES` only.
 - Fix: one PKCS#8 key-loading step per platform before import: decode `PrivateKeyInfo`, read the algorithm OID, and hand the platform the key in the form it imports (macOS: SEC1 `ECPrivateKey` for id-ecPublicKey, Ed25519 as the platform requires; Windows: the CNG/NCrypt key blob for EC); RSA unchanged.
