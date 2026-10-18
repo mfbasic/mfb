@@ -164,10 +164,9 @@ END FUNC
 fn undefaultable_unknown_and_positional_short_lists_are_still_refused() {
     let out = diagnostics("ctor_partial_reject", REJECT);
     assert!(
-        out.contains(
-            "Constructor `Held` has 1 argument(s), expected 2. Field(s) `f` have no default value"
-        ),
-        "omitted field with no default must be named:\n{out}"
+        out.contains("TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE")
+            && out.contains("Mutable binding `f` cannot omit its initializer"),
+        "omitted field with no default must be refused, naming it:\n{out}"
     );
     assert!(
         out.contains("Constructor `Ck` has 1 argument(s), expected 2.\n")

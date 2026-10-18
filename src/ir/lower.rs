@@ -50,6 +50,8 @@ pub(super) struct LowerContext<'a> {
     /// union-collection conversion needed, by the lifted function's name, so a
     /// pair is emitted once however many positions convert it.
     union_converters: HashMap<(ParameterType, ParameterType), String>,
+    /// bug-1021: the synthesized default-value function per (record, omitted field).
+    field_defaults: HashMap<(ParameterType, String), String>,
     next_temp_id: usize,
     /// Declared return type of the function currently being lowered, used to
     /// implicitly wrap a `RETURN`ed member constructor into its union (so the
@@ -412,6 +414,7 @@ impl LowerFacts {
             lambdas: Vec::new(),
             next_lambda_id: 0,
             union_converters: HashMap::new(),
+            field_defaults: HashMap::new(),
             next_temp_id: 0,
             current_return_type: None,
             recover_targets: Vec::new(),
@@ -5834,8 +5837,8 @@ fn lower_expression_unwrapped(
                 .or_else(|| context.type_index.variant_fields.get(&canonical_type))
                 .or_else(|| context.type_index.variant_fields.get(constructor_type));
             IrValue::Constructor {
-                type_: canonical_type,
-                args: lower_constructor_args(arguments, fields, locals, context),
+                type_: canonical_type.clone(),
+                args: lower_constructor_args(&canonical_type, arguments, fields, locals, context),
             }
         }
         HirExpression::WithUpdate { target, updates } => {
@@ -6420,6 +6423,7 @@ fn union_converter(
 }
 
 fn lower_constructor_args(
+    record_type: &ParameterType,
     arguments: &[HirConstructorArg],
     fields: Option<&Vec<IrField>>,
     locals: &HashMap<String, ParameterType>,
@@ -6440,8 +6444,7 @@ fn lower_constructor_args(
         // holds. That only applies when every name written IS a field: a stray name
         // keeps today's diagnostics (the arity and argument mismatches), not a
         // silent default for the field it was meant to be. A field with no default
-        // (`default_value_expression` is `None`) is left out of the list, so the
-        // arity rule refuses it.
+        // is refused by the uninitialized-`MUT` rule on the synthesized default).
         let names_a_field = |name: &str| fields.iter().any(|field| field.name == name);
         let every_name_is_a_field = arguments.iter().all(|argument| match argument {
             HirConstructorArg::Named { name, .. } => names_a_field(name),
@@ -6464,16 +6467,7 @@ fn lower_constructor_args(
                         context,
                     )),
                     None if every_name_is_a_field => {
-                        default_value_expression(&field.type_, context, &mut Vec::new()).map(
-                            |default| {
-                                lower_expression_with_expected(
-                                    &default,
-                                    Some(&field.type_),
-                                    locals,
-                                    context,
-                                )
-                            },
-                        )
+                        Some(omitted_field_default(record_type, field, context))
                     }
                     None => None,
                 }
@@ -6495,67 +6489,59 @@ fn lower_constructor_args(
         .collect()
 }
 
-/// bug-1021: the expression whose value is the default of `type_` — what an
-/// uninitialized `MUT x AS T` holds (`mfb spec language types`, the defaultable
-/// types) — or `None` for a type with no default (a function, `Result`, resource,
-/// thread, union, or a record holding one). Lowered with `type_` expected, so every
-/// literal lands in the representation the type's own literals use.
-/// `visiting` guards a record that reaches itself only through a collection.
-fn default_value_expression(
-    type_: &ParameterType,
-    context: &LowerContext<'_>,
-    visiting: &mut Vec<ParameterType>,
-) -> Option<HirExpression> {
-    match type_ {
-        ParameterType::Boolean => Some(HirExpression::Boolean(false)),
-        ParameterType::Integer
-        | ParameterType::Byte
-        | ParameterType::Fixed
-        | ParameterType::Money => Some(HirExpression::Number("0".to_string())),
-        ParameterType::Float => Some(HirExpression::Number("0.0".to_string())),
-        ParameterType::String => Some(HirExpression::String(String::new())),
-        ParameterType::ListOf(_) => Some(HirExpression::ListLiteral(Vec::new())),
-        ParameterType::SetOf(element) => Some(HirExpression::SetLiteral {
-            element_type: (**element).clone(),
-            elements: Vec::new(),
-        }),
-        ParameterType::MapOf(key, value) => Some(HirExpression::MapLiteral {
-            key_type: (**key).clone(),
-            value_type: (**value).clone(),
-            entries: Vec::new(),
-        }),
-        _ if type_.is_named("Scalar") => Some(HirExpression::Scalar(0)),
-        // The attributed text with no characters and no overlay.
-        _ if type_.is_named("AttributedString") || *type_ == ParameterType::AttributeString => {
-            Some(HirExpression::Call {
-                callee: "astrings.fromString".to_string(),
-                arguments: vec![HirCallArg::Positional(HirExpression::String(String::new()))],
-                line: 0,
-                column: 0,
-            })
+/// bug-1021: the value of a field a by-field constructor leaves out — the default of
+/// its type, exactly what an uninitialized `MUT x AS T` holds. There is ONE
+/// definition of that default, the one codegen materializes for a binding with no
+/// initializer, so this does not restate it: it calls a synthesized function whose
+/// whole body is `MUT <field> AS T` and `RETURN <field>`. A type with no default is
+/// refused by the ordinary uninitialized-`MUT` rule (`TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE`)
+/// on that binding, which carries the field's name.
+fn omitted_field_default(
+    record_type: &ParameterType,
+    field: &IrField,
+    context: &mut LowerContext<'_>,
+) -> IrValue {
+    let key = (record_type.clone(), field.name.clone());
+    let name = match context.field_defaults.get(&key) {
+        Some(name) => name.clone(),
+        None => {
+            let name = format!("$lambda{}", context.next_lambda_id);
+            context.next_lambda_id += 1;
+            let loc = context.current_loc;
+            context.field_defaults.insert(key, name.clone());
+            context.lambdas.push(IrFunction {
+                name: name.clone(),
+                visibility: "private".to_string(),
+                kind: "func".to_string(),
+                isolated: false,
+                params: Vec::new(),
+                returns: field.type_.clone(),
+                body: vec![
+                    IrOp::Bind {
+                        mutable: true,
+                        name: field.name.clone(),
+                        type_: field.type_.clone(),
+                        value: None,
+                        explicit_type: true,
+                        loc,
+                    },
+                    IrOp::Return {
+                        value: Some(IrValue::Local(field.name.clone())),
+                        loc,
+                    },
+                ],
+                file: context.current_file.clone(),
+                loc,
+                resource_owners: HashMap::new(),
+            });
+            name
         }
-        _ => {
-            // An enum defaults to its first declared member.
-            if let Some(members) = context.type_index.enums.get(type_) {
-                return members.first().map(|member| HirExpression::MemberAccess {
-                    target: Box::new(HirExpression::Identifier(type_.name().to_string())),
-                    member: member.clone(),
-                });
-            }
-            let fields = context.type_index.records.get(type_)?;
-            if visiting.contains(type_) {
-                return None;
-            }
-            visiting.push(type_.clone());
-            let defaultable = fields
-                .iter()
-                .all(|field| default_value_expression(&field.type_, context, visiting).is_some());
-            visiting.pop();
-            defaultable.then(|| HirExpression::Constructor {
-                type_: type_.clone(),
-                arguments: Vec::new(),
-            })
-        }
+    };
+    IrValue::Call {
+        target: name,
+        args: Vec::new(),
+        type_: field.type_.clone(),
+        loc: context.current_loc,
     }
 }
 

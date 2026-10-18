@@ -897,8 +897,8 @@ impl TypeEnv {
     /// The former source checker's constructor rules on a lowered `Constructor` value: the
     /// name must be a record TYPE (`TYPE_CONSTRUCTOR_REQUIRES_RECORD`), the
     /// argument count must equal the field count exactly
-    /// (`TYPE_CONSTRUCTOR_ARITY_MISMATCH`; lowering has already filled every
-    /// field a by-field constructor leaves out that HAS a default, bug-1021), and each argument
+    /// (`TYPE_CONSTRUCTOR_ARITY_MISMATCH`; lowering has already supplied every
+    /// field a by-field constructor leaves out, bug-1021), and each argument
     /// must be compatible with its positional field
     /// (`TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH`). Lowering reorders named
     /// arguments into field order, so positional checking covers both forms.
@@ -996,27 +996,10 @@ impl TypeEnv {
             return;
         };
         if args.len() != fields.len() {
-            // bug-1021: a by-field constructor takes the default of every field it
-            // does not name, so a short list is short only because a field with NO
-            // default was left out (lowering has already filled the rest). Name the
-            // fields that have none: each must be given a value.
-            let no_default = fields
-                .iter()
-                .filter(|(_, field_type)| !self.is_defaultable(field_type, &mut HashSet::new()))
-                .map(|(field_name, _)| format!("`{field_name}`"))
-                .collect::<Vec<_>>();
-            let hint = if args.len() < fields.len() && !no_default.is_empty() {
-                format!(
-                    " Field(s) {} have no default value and must be given one.",
-                    no_default.join(", ")
-                )
-            } else {
-                String::new()
-            };
             self.emit(
                 "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
                 format!(
-                    "Constructor `{type_name}` has {} argument(s), expected {}.{hint}",
+                    "Constructor `{type_name}` has {} argument(s), expected {}.",
                     args.len(),
                     fields.len()
                 ),
