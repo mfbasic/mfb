@@ -95,7 +95,7 @@ impl TypeTable {
         } else if name.starts_with("Map OF ")
             || name.starts_with("List OF ")
             || name.starts_with("Set OF ")
-            || name.starts_with("Result OF ")
+            || name.starts_with("#Result OF ")
             || name.starts_with("FUNC(")
             || name.starts_with("ISOLATED FUNC(")
         {

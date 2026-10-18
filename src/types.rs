@@ -171,9 +171,11 @@ pub(crate) enum ParameterType {
     /// `monomorph::helpers::unify_type` already handled this shape on strings; the
     /// variant lets a `ParameterType` represent it with no gap.
     MapEntryOf(Box<ParameterType>, Box<ParameterType>),
-    /// A `Result OF T` — a success-typed result. A single-child structural type,
-    /// mirroring `monomorph::helpers::unify_type`'s `Result OF` arm, so the middle-end
-    /// shape is representable without folding into an opaque [`Named`](Self::Named).
+    /// A `#Result OF T` — a fallible call's success-typed result. A single-child
+    /// structural type, mirroring `monomorph::helpers::unify_type`'s `#Result OF` arm,
+    /// so the middle-end shape is representable without folding into an opaque
+    /// [`Named`](Self::Named). Spelled [`RESULT_TYPE`] (`#Result`), a name no user
+    /// identifier can spell (bug-945): a user `TYPE Result` is an ordinary type.
     ResultOf(Box<ParameterType>),
     /// A `RES`-marked collection element (`List OF RES fs.File`) — the mandatory
     /// ownership-axis marker for a resource stored as a collection element (§15.6).
@@ -674,8 +676,11 @@ impl ParameterType {
                 ParameterType::parse(value),
             );
         }
-        // `Result OF T` — a single success-typed child, mirroring `List OF `/`Set OF `.
-        if let Some(success) = name.strip_prefix("Result OF ") {
+        // `#Result OF T` — a single success-typed child, mirroring `List OF `/`Set OF `.
+        if let Some(success) = name
+            .strip_prefix(RESULT_TYPE)
+            .and_then(|rest| rest.strip_prefix(" OF "))
+        {
             return ParameterType::result_of(ParameterType::parse(success));
         }
         // `ISOLATED FUNC(...)` (a capture-free worker entry — `thread::start`'s
@@ -771,7 +776,7 @@ impl ParameterType {
         // generic named `Map` would be wrong.
         if matches!(
             head,
-            "List" | "Set" | "Map" | "MapEntry" | "Result" | THREAD_TYPE | THREAD_WORKER_TYPE
+            "List" | "Set" | "Map" | "MapEntry" | RESULT_TYPE | THREAD_TYPE | THREAD_WORKER_TYPE
         ) {
             return None;
         }
@@ -1025,7 +1030,9 @@ impl ParameterType {
             ParameterType::MapEntryOf(key, value) => {
                 Cow::Owned(format!("MapEntry OF {} TO {}", key.name(), value.name()))
             }
-            ParameterType::ResultOf(success) => Cow::Owned(format!("Result OF {}", success.name())),
+            ParameterType::ResultOf(success) => {
+                Cow::Owned(format!("{RESULT_TYPE} OF {}", success.name()))
+            }
             ParameterType::Res(inner) => Cow::Owned(format!("RES {}", inner.name())),
             // Byte-identical to the spelling `parse` split, and to what
             // `with_state` produced as one opaque `Named` before the variant
@@ -1125,6 +1132,15 @@ impl fmt::Display for ParameterType {
 // the former source checker, codegen, binary_repr) speaks the same string vocabulary. This is the
 // former `builtins::thread` splitter set, kept byte-identical so the migrated
 // `thread` package and all its codegen citations agree on the spelling.
+
+/// The internal fallible-call result type's name ([`ParameterType::ResultOf`]
+/// renders `#Result OF T`). The [`INTERNAL_SIGIL`](crate::internal_name::INTERNAL_SIGIL)
+/// keeps it out of user space: no user identifier can spell it, so `Result` is an
+/// ordinary user name (bug-945).
+pub(crate) const RESULT_TYPE: &str = "#Result";
+/// The internal result's success member, spelled with the same sigil so a user
+/// `TYPE Ok` is an ordinary type (bug-945).
+pub(crate) const RESULT_SUCCESS_MEMBER: &str = "#Ok";
 
 /// The parent thread handle's type name.
 pub(crate) const THREAD_TYPE: &str = "Thread";
@@ -1437,6 +1453,15 @@ fn type_prefix_len(input: &str) -> Option<usize> {
         }
     }
 
+    // `#Result OF T`: the internal result's sigil-spelled base is not an
+    // identifier the base-name scan below accepts.
+    if let Some(success) = input
+        .strip_prefix(RESULT_TYPE)
+        .and_then(|rest| rest.strip_prefix(" OF "))
+    {
+        return type_prefix_len(success).map(|len| RESULT_TYPE.len() + 4 + len);
+    }
+
     let base_end = input
         .char_indices()
         .find_map(|(index, ch)| {
@@ -1455,11 +1480,11 @@ fn type_prefix_len(input: &str) -> Option<usize> {
         return Some(base_end);
     };
 
-    // `Set` shares this arm with `List`/`Result` because `parse` gives all three a
-    // single element child. It was missing here, so `Thread OF Set OF Integer TO
+    // `Set` shares this arm with `List` (and `#Result` above) because `parse` gives
+    // all three a single element child. It was missing here, so `Thread OF Set OF Integer TO
     // Integer` — a VALID, thread-sendable program — was rejected outright
     // (`SYMBOL_UNKNOWN_TYPE`) rather than merely mis-diagnosed (bug-463).
-    if matches!(base, "List" | "Set" | "Result") {
+    if matches!(base, "List" | "Set") {
         return type_prefix_len(after_of).map(|len| base_end + 4 + len);
     }
 
@@ -1941,19 +1966,19 @@ mod tests {
             ParameterType::map_entry_of(ParameterType::String, ParameterType::Integer),
         );
         assert_eq!(
-            ParameterType::parse("Result OF Nothing"),
+            ParameterType::parse("#Result OF Nothing"),
             ParameterType::result_of(ParameterType::Nothing),
         );
         assert_eq!(
-            ParameterType::parse("Result OF List OF Integer"),
+            ParameterType::parse("#Result OF List OF Integer"),
             ParameterType::result_of(ParameterType::list_of(ParameterType::Integer)),
         );
         for spelling in [
             "MapEntry OF String TO Integer",
             "MapEntry OF String TO List OF Integer",
-            "Result OF Nothing",
-            "Result OF Integer",
-            "Result OF List OF String",
+            "#Result OF Nothing",
+            "#Result OF Integer",
+            "#Result OF List OF String",
             "List OF MapEntry OF String TO Integer",
         ] {
             round_trip(spelling);
@@ -2138,7 +2163,7 @@ mod tests {
         for spelling in [
             "List OF RES File STATE Cursor",
             "Set OF RES File STATE Cursor",
-            "Result OF File STATE Cursor",
+            "#Result OF File STATE Cursor",
             "Map OF String TO RES File STATE Cursor",
             "RES File STATE Cursor",
         ] {
@@ -2224,8 +2249,8 @@ mod tests {
             "Set OF Integer",
             "Map OF String TO Integer",
             "MapEntry OF String TO Integer",
-            "Result OF Integer",
-            "Result OF List OF String",
+            "#Result OF Integer",
+            "#Result OF List OF String",
             "RES fs.File",
             "RES File STATE Cursor",
             "List OF RES fs.File",
@@ -2372,7 +2397,7 @@ mod tests {
             )
         );
         assert_eq!(
-            ParameterType::parse("Result OF Stream STATE Pending"),
+            ParameterType::parse("#Result OF Stream STATE Pending"),
             ParameterType::result_of(ParameterType::Stateful {
                 base: Box::new(ParameterType::named("Stream")),
                 state: Box::new(ParameterType::named("Pending")),
@@ -2434,7 +2459,7 @@ mod tests {
             "List OF RES File STATE Cursor",
             "Set OF RES File STATE Cursor",
             "Map OF String TO RES File STATE Cursor",
-            "Result OF Stream STATE Pending",
+            "#Result OF Stream STATE Pending",
             "Thread OF RES fs.File STATE Cursor TO Integer",
             "ThreadWorker OF RES File STATE Cursor TO Integer",
             "Thread OF Integer RES fs.File STATE Cursor TO String",
@@ -2474,7 +2499,7 @@ mod tests {
             "Set OF RES File STATE Cursor",
             "Map OF String TO RES File STATE Cursor",
             "List OF List OF RES File STATE Cursor",
-            "Result OF Stream STATE Pending",
+            "#Result OF Stream STATE Pending",
             "Thread OF RES fs.File STATE Cursor TO Integer",
             "ThreadWorker OF RES File STATE Cursor TO Integer",
             "Thread OF Integer RES fs.File STATE Cursor TO String",
@@ -2510,7 +2535,7 @@ mod tests {
             "Map OF RES File STATE Cursor TO Integer",
             "MapEntry OF String TO File STATE Cursor",
             "List OF List OF RES File STATE Cursor",
-            "Result OF Stream STATE Pending",
+            "#Result OF Stream STATE Pending",
             "Thread OF RES fs.File STATE Cursor TO Integer",
             "ThreadWorker OF RES File STATE Cursor TO Integer",
             "Thread OF Integer RES fs.File STATE Cursor TO String",
@@ -2657,7 +2682,7 @@ mod tests {
             "Set OF RES fs.File",
             "Map OF String TO RES fs.File",
             "Map OF RES fs.File TO Integer",
-            "Result OF RES fs.File",
+            "#Result OF RES fs.File",
             "MapEntry OF String TO RES fs.File",
             // `Set`, which the measurement never descended into at all.
             "Set OF Integer",
@@ -2680,7 +2705,7 @@ mod tests {
             "List OF Integer",
             "Map OF String TO Integer",
             "MapEntry OF String TO Integer",
-            "Result OF Integer",
+            "#Result OF Integer",
             "Thread OF Integer TO String",
             "Thread OF RES fs.File STATE Cursor TO Integer",
             "Thread OF List OF RES fs.File TO Integer",

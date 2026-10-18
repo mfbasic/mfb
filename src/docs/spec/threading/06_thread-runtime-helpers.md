@@ -167,7 +167,7 @@ x0 = the worker's view (the ThreadWorker record embedded in the control block)
 x1 = input value
 ```
 
-- Captures the returned `Result OF Out` — tag, value, error message, and error
+- Captures the returned `#Result OF Out` — tag, value, error message, and error
   source `ErrorLoc` pointer — parks it on its frame, and, when the program reserves
   a module-resource list, calls the instance teardown `_mfb_module_resource_drain`,
   which closes the resources the worker's own module-level bindings own, before the

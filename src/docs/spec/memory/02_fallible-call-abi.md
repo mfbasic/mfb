@@ -27,7 +27,7 @@ the way an untrapped failing call does (the statement's temporaries and the
 frame's cleanups, then a return with the same four registers), so the handler
 never runs. [[src/codegen/engine/control/builder_exits.rs:emit_inline_trap_program_exit_passthrough]]
 
-On success only `x0`/`x1` are meaningful. A `Nothing` success leaves `x1` unspecified: a `Nothing` return writes no value register. [[src/codegen/engine/control/builder_exits.rs:emit_return_exit_inner]] A caller that uses the call's value produces `NOTHING` (`0`) itself — for the call, and for the payload of a trapped call's `Result OF Nothing` — and never reads `x1`. [[src/codegen/engine/value/builder_values.rs:lower_value]] On error all of `x1` (code), `x2`
+On success only `x0`/`x1` are meaningful. A `Nothing` success leaves `x1` unspecified: a `Nothing` return writes no value register. [[src/codegen/engine/control/builder_exits.rs:emit_return_exit_inner]] A caller that uses the call's value produces `NOTHING` (`0`) itself — for the call, and for the payload of a trapped call's `#Result OF Nothing` — and never reads `x1`. [[src/codegen/engine/value/builder_values.rs:lower_value]] On error all of `x1` (code), `x2`
 (message), and `x3` (source) are set. A fresh error stamps `x3` with an
 `ErrorLoc` built from the originating expression's `(file, line, char)`; a runtime
 helper error is stamped at its call site; a propagated error forwards `x3`

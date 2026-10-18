@@ -4035,7 +4035,7 @@ mod flatness_split_tests {
             ("List OF String", true),
             ("Map OF String TO Integer", true),
             ("List OF List OF Integer", true),
-            ("Result OF Integer", true),
+            ("#Result OF Integer", true),
             ("Plain", true),
             // `Error` is a pointer composite, so it is flat in neither mode.
             ("Error", false),
@@ -4313,7 +4313,7 @@ mod res_field_record_layout_tests {
     #[test]
     fn a_result_wrapping_a_thread_handle_is_flat_in_neither_mode() {
         let model = TypeModel::empty();
-        let type_ = ParameterType::parse("Result OF Thread OF String TO Integer");
+        let type_ = ParameterType::parse("#Result OF Thread OF String TO Integer");
         assert!(
             !type_is_memcpy_copyable(&model, &type_) && !type_is_arena_transferable(&model, &type_),
             "the ResultOf arm walks its payload, so a thread payload makes the \

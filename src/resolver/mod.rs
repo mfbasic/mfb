@@ -24,7 +24,6 @@ const BUILTIN_TYPES: &[&str] = &[
     "Integer",
     "Money",
     "Nothing",
-    "Result",
     "Scalar",
     "String",
     crate::codegen::builtins::fs::FILE_TYPE_ID,
@@ -1147,7 +1146,7 @@ mod tests {
             "native-link-duplicate-resource-invalid",
             "native-resource-close-not-native-invalid",
             "native-resource-close-signature-invalid",
-            "result-not-user-visible-invalid",
+            "func_typesystem_result_invalid",
         ] {
             assert!(
                 resolve_fixture(name).is_err(),

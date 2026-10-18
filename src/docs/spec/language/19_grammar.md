@@ -134,14 +134,13 @@ returnType     = "AS" [ "RES" ] type [ "STATE" type ] ;
 type           = templateType | funcType | "(" type ")" | ident | qualifiedIdent ;
 typeList       = type { "," type } ;
 (* `RES` markers denote resource-transfer collections / thread planes (§15.6).
-   `Result OF type` is COMPILER-INTERNAL: it is the private fallible-outcome form
-   (§4.4, §8.8) and is never written in user source — the parser only emits it
-   during desugaring. *)
+   The private fallible-outcome form `#Result OF type` (§8.5b, §8.8) is not a
+   production: `#` cannot appear in a user identifier, and `Result OF type` in
+   source is an ordinary user template type. *)
 templateType
                = ( "Map" | "MapEntry" ) "OF" type "TO" [ "RES" ] type
                | ( "List" ) "OF" [ "RES" ] type
                | ( "Set" ) "OF" type                       (* elements comparable; no RES *)
-               | "Result" "OF" type                       (* internal only; not user-writable *)
                | ( "Thread" | "ThreadWorker" ) "OF" threadBody
                | (ident | qualifiedIdent) "OF" type { "," type } ;
 threadBody     = [ type ] [ "RES" type [ "STATE" type ] ] "TO" type [ "STATE" type ] ;

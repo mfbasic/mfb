@@ -2778,13 +2778,11 @@ impl<'a> Monomorphizer<'a> {
                         .map(|function| function_signature_types(function).1)
                 })
                 .or_else(|| self.globals.get(value).cloned()),
-            // plan-111-B: `Error`/`Ok` are nominals, and the record table is
-            // keyed by the type.
+            // plan-111-B: `Error` is a nominal, and the record table is keyed by
+            // the type.
             HirExpression::Constructor { type_, .. } => {
                 if type_.is_named("Error") {
                     Some(ParameterType::named("Error"))
-                } else if type_.is_named("Ok") {
-                    Some(ParameterType::ResultOf(Box::new(ParameterType::Unknown)))
                 } else if self.record_fields(type_).is_some() {
                     Some(type_.clone())
                 } else {
@@ -3489,7 +3487,7 @@ END FUNC
 
     #[test]
     fn generic_over_map_and_result_container_params() {
-        // Container-shaped parameter types exercise the Map/Result recursion in
+        // Container-shaped parameter types exercise the Map recursion in
         // concrete_type_name / template_view_type / unify.
         let src = "\
 IMPORT io
@@ -3499,9 +3497,6 @@ FUNC lookup OF K, V(items AS Map OF K TO V, key AS K, fallback AS V) AS V
     RETURN collections::get(items, key)
   END IF
   RETURN fallback
-END FUNC
-FUNC wrapOk OF T(value AS T) AS Result OF T
-  RETURN Ok[value]
 END FUNC
 FUNC main() AS Integer
   LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }
@@ -3816,7 +3811,7 @@ END FUNC
             "Map OF String TO Integer",
             "Map OF Unknown TO Integer",
             "Map OF String TO Unknown",
-            "Result OF Integer",
+            "#Result OF Integer",
             "MapEntry OF String TO Integer",
             "RES fs.File",
             "List OF List OF Integer",
@@ -3941,7 +3936,7 @@ END FUNC
             "List OF sqlite.Db",
             "Set OF fs.File",
             "Map OF String TO sqlite.Db",
-            "Result OF sqlite.Db",
+            "#Result OF sqlite.Db",
             "RES fs.File",
             "List OF RES fs.File",
             "Pair OF sqlite.Db, io.Stream",
@@ -4261,21 +4256,29 @@ END FUNC
     }
 
     #[test]
-    fn ok_and_error_constructor_types_are_inferred() {
-        // `Ok[..]` and `error(..)` constructor typing feed a generic call so the
-        // Result/Error expression_type arms run.
+    fn user_record_named_ok_constructor_types_as_the_record() {
+        // bug-945: `Ok[..]` is the user's record, not the internal result, so a
+        // generic call fed by it instantiates over `Ok`.
         let src = "\
-IMPORT io
-FUNC emit OF T(value AS T) AS Nothing
-  io::print(toString(value))
+TYPE Ok
+  v AS Integer
+END TYPE
+FUNC pass OF T(value AS T) AS T
+  RETURN value
 END FUNC
 FUNC main() AS Integer
-  LET r AS Result OF Integer = Ok[1]
-  emit(r)
-  RETURN 0
+  LET r = pass(Ok[1])
+  RETURN r.v
 END FUNC
 ";
-        let _ = monomorphize(src);
+        let project = monomorphize(src).expect("monomorphizes");
+        let names = function_names(&project);
+        assert!(
+            names
+                .iter()
+                .any(|n| n.starts_with("pass$") && n.contains("Ok")),
+            "{names:?}"
+        );
     }
 
     #[test]

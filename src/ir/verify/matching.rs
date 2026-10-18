@@ -22,9 +22,9 @@ impl TypeEnv {
             return;
         };
         let base = resource_base_type(&ty);
-        // A Result scrutinee's CASE Ok/Error arms are rejected by
-        // TYPE_RESULT_NOT_MATCHABLE; suppress the secondary exhaustiveness
-        // cascade like the former source checker does. Unknown types are skipped as always.
+        // The internal `#Result OF T` has no user-visible members to cover (a call
+        // scrutinee auto-unwraps to its value, §9), so it is not checked for
+        // exhaustiveness. Unknown types are skipped as always.
         //
         // plan-111-B: these four were decided on the RENDERED name — the last of
         // them by handing that name to `codegen::engine::types::is_result_type`,
@@ -35,7 +35,6 @@ impl TypeEnv {
         // which is what the string compare accepted.
         if matches!(base, ParameterType::Unknown | ParameterType::ResultOf(_))
             || base.is_named("Unknown")
-            || base.is_named("Result")
         {
             return;
         }
@@ -148,33 +147,7 @@ impl TypeEnv {
             return;
         }
         let union_variants = self.union_variants(&scrutinee);
-        // An ENUM scrutinee's own variants are equally exempt from the `Result`
-        // guard below. Without this, declaring `ENUM Outcome { Ok, … }` makes
-        // `CASE Outcome.Ok` unmatchable — the arm is a perfectly ordinary enum
-        // variant reference, but the guard only consulted the UNION table, which is
-        // `None` for an enum. `net::PingStatus.Ok` (plan-110-A) hit exactly this,
-        // and so did every user enum with an `Ok`/`Error`/`Err` variant.
-        let enum_variants = self.enums.get(&scrutinee);
         let check_pattern = |v: &IrValue| {
-            // `Result` is internal: `CASE Ok`/`CASE Error` are never valid
-            // match arms (the former source checker's TYPE_RESULT_NOT_MATCHABLE). Only fires
-            // when the name is not a real variant of the scrutinee's union or enum.
-            if let IrValue::Local(n) | IrValue::MemberAccess { member: n, .. } = v {
-                if matches!(n.as_str(), "Ok" | "Error" | "Err")
-                    && !union_variants
-                        .as_ref()
-                        .is_some_and(|vs| vs.contains(n.as_str()))
-                    && !enum_variants.is_some_and(|vs| vs.contains(n.as_str()))
-                {
-                    self.emit(
-                        "TYPE_RESULT_NOT_MATCHABLE",
-                        format!(
-                            "`CASE {n}` is not a valid match arm; handle failure with an inline `TRAP` instead."
-                        ),
-                    );
-                    return;
-                }
-            }
             // A pattern that names a declared type is a union-variant arm. A
             // union arm lowers to a bare `Local` spelled as the variant's type
             // name (`ir::lower`'s `HirMatchPattern::Union` arm), so only a
@@ -195,11 +168,14 @@ impl TypeEnv {
             }
             .filter(|n| {
                 // The pattern names a declared type; the tables are keyed by
-                // that nominal (plan-111-B).
+                // that nominal (plan-111-B). The built-in records (`Error`,
+                // `ErrorLoc`) are types too, so `CASE Error(e)` over a non-union
+                // is the same malformed arm as any other record's (bug-945).
                 let named = ParameterType::declared(n);
                 self.records.contains_key(&named)
                     || self.unions.contains_key(&named)
                     || self.enums.contains_key(&named)
+                    || super::builtin_type_fields(&named).is_some()
             });
             if let Some(type_name) = type_name {
                 match &union_variants {

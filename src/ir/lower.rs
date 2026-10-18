@@ -1458,10 +1458,10 @@ fn lower_statement_inner(
             }];
             let mut match_locals = locals.clone();
             match_locals.insert(matched_name.clone(), matched_type);
-            // coverage:off -- a `Result OF ...`-typed MATCH scrutinee is rejected
-            // before lowering (TYPE_RESULT_NOT_MATCHABLE; see the
-            // `result-not-matchable-invalid` fixture), so this Result-flag branch
-            // is unreachable from valid source; kept for plan-20 total lowering.
+            // coverage:off -- a call scrutinee auto-unwraps to its value and no
+            // user spelling names the internal `#Result OF ...` (bug-945), so this
+            // Result-flag branch is unreachable from source; kept for plan-20 total
+            // lowering.
             let match_value = if matches!(match_locals[&matched_name], ParameterType::ResultOf(_)) {
                 let match_flag_name = make_temp_local_name(context, "match_ok");
                 ops.push(IrOp::Bind {
@@ -3455,16 +3455,16 @@ fn lower_match_case(
         HirMatchPattern::Literal(expression) => IrMatchPattern::Value(
             lower_expression_with_expected(expression, pattern_expected, locals, context),
         ),
-        // coverage:off -- reachable only for a `Result OF ...` scrutinee, which is
-        // rejected before lowering (TYPE_RESULT_NOT_MATCHABLE); kept for plan-20
-        // total lowering when the AST checker is bypassed.
+        // coverage:off -- reachable only for an internal `#Result OF ...`
+        // scrutinee, which no source MATCH has (bug-945); kept for plan-20 total
+        // lowering.
         HirMatchPattern::Union { type_, .. }
             if matches!(matched_type, ParameterType::ResultOf(_)) =>
         {
-            // plan-111-B: `Ok`/`Error` are nominals, so this asks the interned
+            // plan-111-B: `#Ok`/`Error` are nominals, so this asks the interned
             // `Symbol` rather than matching a rendered spelling. Everything that
             // is not `Ok` is `false`, exactly as the `_` arm said.
-            let matched = if type_.is_named("Ok") {
+            let matched = if type_.is_named(crate::types::RESULT_SUCCESS_MEMBER) {
                 "true"
             } else {
                 "false"
@@ -3529,14 +3529,14 @@ pub(super) fn match_case_binding(
 ) -> Option<(String, ParameterType, IrValue)> {
     match pattern {
         HirMatchPattern::Union { type_, binding } => {
-            // coverage:off -- a `Result OF ...` scrutinee is rejected before
-            // lowering (TYPE_RESULT_NOT_MATCHABLE); this Ok/Error case binding is
-            // kept only for plan-20 total lowering when the checker is bypassed.
+            // coverage:off -- no source MATCH has an internal `#Result OF ...`
+            // scrutinee (bug-945); this `#Ok`/Error case binding is kept only for
+            // plan-20 total lowering.
             if let ParameterType::ResultOf(success) = matched_type {
                 let success = (**success).clone();
-                // plan-111-B: `Ok`/`Error` are nominals — interned-`Symbol`
+                // plan-111-B: `#Ok`/`Error` are nominals — interned-`Symbol`
                 // compares, not spelling matches. Same three outcomes, same order.
-                if type_.is_named("Ok") {
+                if type_.is_named(crate::types::RESULT_SUCCESS_MEMBER) {
                     return Some((
                         binding.clone(),
                         success.clone(),
@@ -3591,8 +3591,8 @@ fn lower_match_expression(
 ) -> IrValue {
     // A `MATCH` scrutinee that is a call auto-unwraps like any other call site
     // (local error handling now uses an inline `TRAP`), so the scrutinee lowers
-    // to its ordinary value. A `Result`-typed *value* (a local or field) keeps
-    // its `Result OF …` type and is matched with `CASE Ok`/`CASE Error`.
+    // to its ordinary value. No source value carries the internal `#Result OF …`
+    // type (bug-945), so a scrutinee is never a result.
     lower_expression_with_expected(expression, Some(matched_type), locals, context)
 }
 
@@ -3601,8 +3601,7 @@ pub(super) fn match_expression_type(
     locals: &HashMap<String, ParameterType>,
     context: &LowerContext<'_>,
 ) -> Option<ParameterType> {
-    // Call scrutinees auto-unwrap; only a value already of `Result` type keeps
-    // its `Result OF …` shape for `CASE Ok`/`CASE Error` matching.
+    // Call scrutinees auto-unwrap, so the scrutinee has its value's type.
     expression_type(expression, locals, context)
 }
 
@@ -6835,12 +6834,10 @@ impl TypeIndex {
     }
 
     fn constructor_result(&self, type_: &ParameterType) -> Option<ParameterType> {
-        // plan-111-B: `Error`/`Ok` are nominals (neither has a variant), so
-        // these are interned-`Symbol` compares rather than name equality.
+        // plan-111-B: `Error` is a nominal (it has no variant), so this is an
+        // interned-`Symbol` compare rather than name equality.
         if type_.is_named("Error") {
             Some(ParameterType::named("Error"))
-        } else if type_.is_named("Ok") {
-            Some(ParameterType::result_of(ParameterType::Unknown))
         } else if self.records.contains_key(type_) {
             Some(type_.clone())
         } else {

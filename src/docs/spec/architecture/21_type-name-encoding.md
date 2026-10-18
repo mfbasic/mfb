@@ -52,7 +52,7 @@ Args        := ListArg | MapArg | ThreadArg | TemplateArgs
 | Resource-only thread | `Thread OF RES Res TO Out` |
 | User template | `Name OF A, B` |
 | Grouping | `(T)` |
-| Internal success | `Result OF X` |
+| Internal success | `#Result OF X` (the `#` sigil keeps it out of user space; a source `Result OF X` is a user template) |
 | C ABI type (LINK only) | `CPtr`, `CInt32`, … — see below |
 
 ### Fixed-width separators
@@ -112,12 +112,12 @@ scope-ownership transfers across a function boundary.
 
 | Position | Canonical form | Notes |
 |----------|----------------|-------|
-| List element | `List OF RES fs.File` | `RES` consumed only for `List`, not `Result` |
+| List element | `List OF RES fs.File` | `RES` consumed only for `List`, not a template |
 | Map value | `Map OF K TO RES fs.File` | prefix sits after `" TO "` |
 | Thread resource plane | `Thread OF Msg RES Res TO Out` | infix `RES` clause |
 
-`parse_type_name` accepts `RES` only after `List OF` and after `Map ... TO`. The
-`Result` base does *not* consume `RES`, so `Result OF RES fs::File` is a parse error
+`parse_type_name` accepts `RES` only after `List OF` and after `Map ... TO`. A user
+template base does *not* consume `RES`, so `Box OF RES fs::File` is a parse error
 (`MFB_PARSE_INVALID_IDENTIFIER`), consistent with the table above. Post-elaboration consumers peel the `ParameterType::Res` wrapper before
 resolving the underlying type.
 [[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type]]
@@ -219,7 +219,7 @@ naive `split_once`, and each segment is unwrapped of redundant grouping by
 
 `ParameterType::parse` decodes the `Name OF A, B` form into
 `UserOf(name, args)`. It first **excludes** every built-in `OF`-bearing shape
-(`List OF`, `Set OF`, `Map OF`, `MapEntry OF`, `Result OF`, `Thread OF`,
+(`List OF`, `Set OF`, `Map OF`, `MapEntry OF`, `#Result OF`, `Thread OF`,
 `ThreadWorker OF`, and the `FUNC(`/`ISOLATED FUNC(` prefixes); only a base that
 is none of these is treated as a user template. The remainder after `" OF "` is
 split on top-level `", "` into the argument list. The exclusion list lives in this parser. [[src/types.rs:parse]]

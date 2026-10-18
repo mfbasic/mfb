@@ -196,7 +196,7 @@ fn type_id_maps_primitives_and_composites() {
     assert_ne!(nested, list);
     let result = types.type_id(
         &mut strings,
-        &crate::types::ParameterType::declared("Result OF Integer"),
+        &crate::types::ParameterType::declared("#Result OF Integer"),
     );
     assert_ne!(result, list);
     let map = types.type_id(
@@ -288,7 +288,7 @@ fn type_id_composites_decode_back_to_source_names() {
         "Set OF Integer",
         "Set OF List OF String",
         "Map OF String TO Integer",
-        "Result OF Integer",
+        "#Result OF Integer",
         "MapEntry OF String TO Integer",
         "FUNC(Integer, String) AS Boolean",
         "ISOLATED FUNC() AS Nothing",
@@ -301,7 +301,7 @@ fn type_id_composites_decode_back_to_source_names() {
     assert!(decoded.contains("Set OF Integer"));
     assert!(decoded.contains("Set OF List OF String"));
     assert!(decoded.contains("Map OF String TO Integer"));
-    assert!(decoded.contains("Result OF Integer"));
+    assert!(decoded.contains("#Result OF Integer"));
     assert!(decoded.contains("MapEntry OF String TO Integer"));
     assert!(decoded.contains("FUNC(Integer, String) AS Boolean"));
     assert!(decoded.contains("ISOLATED FUNC() AS Nothing"));
@@ -756,7 +756,7 @@ fn wire_type_ids_are_unchanged_by_the_typed_encoder() {
         table_start + 5
     );
     assert_eq!(
-        id_of(&mut types, &mut strings, "Result OF Integer"),
+        id_of(&mut types, &mut strings, "#Result OF Integer"),
         table_start + 6
     );
     assert_eq!(

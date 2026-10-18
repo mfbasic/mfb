@@ -118,9 +118,9 @@ END TYPE
 ```
 
 Every `FUNC` implicitly either produces its value (auto-unwrapped) or
-fails with an `Error`. The private `Result`/`Ok`/`Err` representation of a
-fallible outcome is internal — it cannot be named, constructed, or matched in
-user code. See `mfb man errors`.
+fails with an `Error`; handle a failure with `TRAP` (see `mfb man errors`).
+`Result` and `Ok` are ordinary names: a program may declare its own
+`TYPE Result` or `TYPE Ok` like any other type.
 
 ## Containers
 

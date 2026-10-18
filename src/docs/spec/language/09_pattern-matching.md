@@ -32,12 +32,12 @@ END MATCH
 - Guards: `CASE Rect(r) WHEN r.w = r.h : ...`.
 - `CASE ELSE` is the catch-all fallback.
 - **Exhaustiveness**: unions must cover all member types; enums must cover all members (each matched via the qualified `Type.Member` form). Open types (`Integer`, `String`, etc.) require a `CASE ELSE` or it is a compile error (`TYPE_MATCH_NOT_EXHAUSTIVE`). Guarded `CASE` arms do not contribute to compile-time coverage because the guard can fail; use an unguarded arm or `CASE ELSE` to cover the remaining values. Coverage is computed only from unguarded arms: a union arm contributes its member type name, an enum arm contributes `Type::Member`, and an unguarded `CASE ELSE` makes the match exhaustive.
-- A call scrutinee auto-unwraps to its value; to handle its failure locally, use an inline `TRAP` (see §8.4). `CASE Ok`, `CASE Error`, and `CASE Err` are not valid match arms (`TYPE_RESULT_NOT_MATCHABLE`) — a failure is never matched, only trapped. (Internally, a `Result`-typed scrutinee suppresses the secondary `TYPE_MATCH_NOT_EXHAUSTIVE` cascade, since its arms already reported `TYPE_RESULT_NOT_MATCHABLE`.)
+- A call scrutinee auto-unwraps to its value; to handle its failure locally, use an inline `TRAP` (see §8.4). A failure is never matched, only trapped. `CASE Error(e)` names the built-in `Error` record, so over a scrutinee whose union does not carry it, it is a pattern of the wrong type (`TYPE_MATCH_PATTERN_MISMATCH`) like any other record arm. `Result` and `Ok` are ordinary names (§8.5b): a union member a user declares as `TYPE Ok` is matched by `CASE Ok(x)` like any member. (Internally, the `#Result`-typed scrutinee that only compiler-built IR can carry is not checked for exhaustiveness.) [[src/ir/verify/matching.rs:check_match_patterns]] [[src/ir/verify/matching.rs:check_match_exhaustive]]
 
 A failed `thread::transfer` is handled by `TRAP`, not `CASE Error`. Its inline handler may reuse the resource because a failed transfer retains sender ownership (§16).
 
 ## See Also
 
 * ./mfb spec language types — the union and enum types `MATCH` binds and checks for exhaustiveness
-* ./mfb spec language error-model — why a `Result` is trapped, never matched
+* ./mfb spec language error-model — why a failure is trapped, never matched
 * ./mfb spec package verifier-rules — where `MATCH` exhaustiveness is enforced on the IR

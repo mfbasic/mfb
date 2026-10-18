@@ -1146,11 +1146,7 @@ impl Resolver<'_> {
                 self.resolve_expression(file, pattern, line, imports, locals);
             }
             HirMatchPattern::Union { type_, .. } => {
-                // `Ok` is the internal success variant of a `Result`, not a user
-                // type; `resolve_type` would reject it as such.
-                if !type_.is_named("Ok") {
-                    self.resolve_type(file, type_, line, imports);
-                }
+                self.resolve_type(file, type_, line, imports);
             }
             HirMatchPattern::OneOf(patterns) => {
                 for pattern in patterns {
@@ -1231,12 +1227,9 @@ impl Resolver<'_> {
                 self.resolve_expression(file, body, line, imports, &lambda_locals);
             }
             HirExpression::Constructor { type_, arguments } => {
-                // `Error`/`Ok`/`Err` are the internal error-model constructors, not
-                // user types.
-                if !["Error", "Ok", "Err"]
-                    .iter()
-                    .any(|name| type_.is_named(name))
-                {
+                // `Error`/`Err` are the error-model constructors, not declared
+                // types.
+                if !["Error", "Err"].iter().any(|name| type_.is_named(name)) {
                     self.resolve_type(file, type_, line, imports);
                 }
                 for argument in arguments {
@@ -1497,17 +1490,6 @@ impl Resolver<'_> {
         imports: &HashMap<String, String>,
     ) {
         match type_ {
-            // `Result` (and its success member `Ok`) are internal runtime types: a
-            // user never names them in any type position. Intercept them with a
-            // targeted diagnostic instead of resolving them as types or falling to
-            // the generic unknown-type error below.
-            //
-            // The bare nominals need their own arm because `Result` IS in
-            // `BUILTIN_TYPES` — the leaf tail would find it and say nothing.
-            ParameterType::ResultOf(_) => self.report_result_not_user_visible(file, line),
-            ParameterType::Named(name) if matches!(name.resolve(), "Result" | "Ok") => {
-                self.report_result_not_user_visible(file, line);
-            }
             // plan-114-D: a `RES`-marked type in its OWN right — a record field,
             // `handle AS RES fs::File`. The marker rides on the field and names a
             // type that must still be resolved, exactly as a collection element's
@@ -1532,7 +1514,9 @@ impl Resolver<'_> {
             // `Set OF T` (plan-63): a single element type, no `RES`, no `TO`. A
             // `RES`-marked element in this position is not peeled — it reaches the
             // leaf tail and is reported, exactly as the string cascade left it.
-            ParameterType::SetOf(element) => {
+            // The internal `#Result OF T` (bug-945: no user spelling reaches it)
+            // resolves its success type like any single-child shape.
+            ParameterType::SetOf(element) | ParameterType::ResultOf(element) => {
                 self.resolve_type(file, element, line, imports);
             }
             ParameterType::MapOf(key, value) => {
@@ -1642,16 +1626,6 @@ impl Resolver<'_> {
         self.report(
             "SYMBOL_UNKNOWN_TYPE",
             &format!("Type `{name}` is not a built-in or top-level project type."),
-            file,
-            line,
-        );
-    }
-
-    fn report_result_not_user_visible(&mut self, file: &HirFile, line: usize) {
-        self.report(
-            "TYPE_RESULT_NOT_USER_VISIBLE",
-            "`Result` is an internal type; declare the success type directly \
-             (a function call yields its value or fails with an `Error`).",
             file,
             line,
         );
@@ -1996,7 +1970,7 @@ mod tests {
             "native-resource-close-not-native-invalid",
             "native-resource-close-signature-invalid",
             "native-link-duplicate-resource-invalid",
-            "result-not-user-visible-invalid",
+            "func_typesystem_result_invalid",
             "collections-cutover-invalid",
             "doc-block-invalid",
         ] {

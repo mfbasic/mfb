@@ -17,7 +17,7 @@ Required `magic`:
 M  F  B  R
 ```
 
-The Binary Representation `version` is **`6`**. The decoder requires `MFBR` magic and exactly this version, independently of MFPC major version `2`. [[src/ir/binary.rs:BINARY_REPR_VERSION]] [[src/ir/binary.rs:decode_binary_repr]]
+The Binary Representation `version` is **`7`**. The decoder requires `MFBR` magic and exactly this version, independently of MFPC major version `2`. Version 7 spells the internal fallible result `#Result OF T` in every inline type string (a v6 `Result OF T` would read as a user template, so v6 is refused). [[src/ir/binary.rs:BINARY_REPR_VERSION]] [[src/ir/binary.rs:decode_binary_repr]]
 
 Statements, case arms, and declarations carry source locations as `u32` line and column. A binding encodes its location, declaring `file`, then `explicit_type`; a type declaration encodes its location then `file`. A `Bind` statement writes `explicit_type` immediately before its trailing location. `explicit_type` distinguishes a source annotation from an inferred type. [[src/ir/binary.rs:encode_binding]] [[src/ir/binary.rs:encode_type]] [[src/ir/binary.rs:encode_op]]
 
@@ -75,7 +75,7 @@ Structured exit out of these regions is itself encoded as leaf ops rather than j
 17  = StateAssign    (thread resource state assignment)
 ```
 
-Every op ends with its `loc` (trailing `u32` line + `u32` column — the source statement's span). A `Bind` op additionally writes its `explicit_type` bool immediately before that `loc`. Source-level `PROPAGATE` and `RECOVER` are lowered before serialization (`PROPAGATE` becomes `Fail`; `RECOVER` is lowered into ordinary ops), so they are not distinct Binary Representation ops. There are no `RESOURCE_ENTER`/`LEAVE`/`CLOSE` ops: cleanup is reconstructed from typed scopes and encoded ownership decisions (see ./mfb spec package resource-regions). The internal `Result`/`Ok` forms remain implementation-only — they appear in IR and therefore in Binary Representation, but are never user-visible.
+Every op ends with its `loc` (trailing `u32` line + `u32` column — the source statement's span). A `Bind` op additionally writes its `explicit_type` bool immediately before that `loc`. Source-level `PROPAGATE` and `RECOVER` are lowered before serialization (`PROPAGATE` becomes `Fail`; `RECOVER` is lowered into ordinary ops), so they are not distinct Binary Representation ops. There are no `RESOURCE_ENTER`/`LEAVE`/`CLOSE` ops: cleanup is reconstructed from typed scopes and encoded ownership decisions (see ./mfb spec package resource-regions). The internal `#Result`/`#Ok` forms remain implementation-only — they appear in IR and therefore in Binary Representation, but are never user-visible.
 
 ## Expressions stay nested
 
@@ -85,7 +85,7 @@ Computed IR nodes carry canonical type-name annotations: calls, checked expressi
 
 ## Tables and references
 
-Unlike the container metadata sections, the `MFBR` payload does **not** reference declarations by index into the container's interned tables. Names and types inside IR nodes are written inline as strings (type references are canonical type-name strings such as `"List OF Integer"` or `"Result OF Out"`, the same canonical names the `TYPE_TABLE` interns). The `TYPE_TABLE`, `CONST_POOL`, and friends are derived from the same IR for scanning and ABI purposes, but the payload itself carries everything needed to rebuild the IR standalone. Executable IR decoding does not consult the other sections. [[src/ir/binary.rs:decode_project]]
+Unlike the container metadata sections, the `MFBR` payload does **not** reference declarations by index into the container's interned tables. Names and types inside IR nodes are written inline as strings (type references are canonical type-name strings such as `"List OF Integer"` or `"#Result OF Out"`, the same canonical names the `TYPE_TABLE` interns). The `TYPE_TABLE`, `CONST_POOL`, and friends are derived from the same IR for scanning and ABI purposes, but the payload itself carries everything needed to rebuild the IR standalone. Executable IR decoding does not consult the other sections. [[src/ir/binary.rs:decode_project]]
 
 ## Consumption
 

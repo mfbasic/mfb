@@ -200,7 +200,7 @@ unify(pattern, actual):
                                   Unknown actual never overwrites a concrete);
                                   two concrete actuals must agree
   List OF E                    -> recurse on element
-  Result OF S                  -> recurse on success type
+  #Result OF S                 -> recurse on success type
   Map OF K TO V                -> recurse on K and V
   MapEntry OF K TO V           -> recurse on K and V
   Thread/ThreadWorker(...)     -> kind must match; recurse message/resource/output
@@ -243,7 +243,7 @@ when a type cannot be determined locally.
 | string / number / boolean literal | `String` / `Integer` or `Float` (by `.`) / `Boolean` |
 | `NOTHING` | `Nothing` |
 | identifier | `context.locals`, then a concrete function's signature type, then the globals |
-| constructor | `Error`, `Ok`→`Result OF Unknown`, or a known record name |
+| constructor | `Error`, or a known record name (a user `Ok` is an ordinary record, bug-945) |
 | list literal | `List OF <first element>` else `List OF Unknown` |
 | map literal | `Map OF <key> TO <value>` |
 | member access | the record field's declared type |

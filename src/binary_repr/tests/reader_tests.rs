@@ -612,7 +612,7 @@ fn abi_serializer_serializes_composite_types() {
     );
     types.type_id(
         &mut strings,
-        &crate::types::ParameterType::declared("Result OF Integer"),
+        &crate::types::ParameterType::declared("#Result OF Integer"),
     );
     let func = types.type_id(
         &mut strings,

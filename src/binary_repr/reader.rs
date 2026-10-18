@@ -677,7 +677,7 @@ fn decode_type_name_body(
         }
         6 => {
             let success = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;
-            format!("Result OF {success}")
+            format!("#Result OF {success}")
         }
         7 => {
             let message = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;

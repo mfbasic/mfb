@@ -969,7 +969,7 @@ mod tests {
         let cases = [
             ("List OF T", "List OF Integer"),
             ("Set OF T", "Set OF Integer"),
-            ("Result OF T", "Result OF String"),
+            ("#Result OF T", "#Result OF String"),
             ("Map OF T TO U", "Map OF String TO Integer"),
             ("MapEntry OF T TO U", "MapEntry OF String TO Integer"),
             ("Box OF T", "Box OF Integer"),
@@ -1021,7 +1021,7 @@ mod tests {
         let params = vec!["T".to_string(), "U".to_string()];
         let cases = [
             ("List OF T", "Integer"),
-            ("Result OF T", "Integer"),
+            ("#Result OF T", "Integer"),
             ("Map OF T TO U", "Integer"),
             ("Map OF T TO U", "Map OF Integer"),
             ("MapEntry OF T TO U", "Integer"),
@@ -1175,7 +1175,7 @@ mod tests {
             "Set OF Integer",
             "Map OF Integer TO String",
             "MapEntry OF Integer TO String",
-            "Result OF Integer",
+            "#Result OF Integer",
             "Thread OF Integer TO String",
             "ThreadWorker OF Integer TO String",
             "FUNC(Integer) AS String",
@@ -1192,7 +1192,7 @@ mod tests {
         assert_eq!(substitute_str("T", &s), "Integer");
         assert_eq!(substitute_str("List OF T", &s), "List OF Integer");
         assert_eq!(substitute_str("Set OF T", &s), "Set OF Integer");
-        assert_eq!(substitute_str("Result OF T", &s), "Result OF Integer");
+        assert_eq!(substitute_str("#Result OF T", &s), "#Result OF Integer");
         assert_eq!(
             substitute_str("Map OF T TO U", &s),
             "Map OF Integer TO String"

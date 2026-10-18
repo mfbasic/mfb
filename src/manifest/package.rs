@@ -1774,7 +1774,7 @@ mod tests {
             ),
             (
                 vec!["MapEntry OF String TO Integer"],
-                "Result OF Integer",
+                "#Result OF Integer",
                 false,
             ),
             (vec!["RES fs.File"], "RES tcp.Socket", false),

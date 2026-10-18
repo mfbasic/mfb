@@ -10,7 +10,7 @@ use crate::operators::{BinaryOp, UnaryOp};
 const MAX_EXPR_DEPTH: usize = 256;
 
 /// Maximum type-annotation-nesting depth. `parse_type_name` recurses for grouped
-/// types, `Map`/`List`/`Result`/`Thread` element types, template args, and
+/// types, `Map`/`List`/`Thread` element types, template args, and
 /// function-type params/return; an unbounded nested type (e.g. `List OF List OF …`
 /// or `(((…)))`) would otherwise overflow the native stack with no diagnostic
 /// (bug-191). Matches `MAX_EXPR_DEPTH`; no real annotation nests this deep.
@@ -994,13 +994,11 @@ impl<'a> FileParser<'a> {
                 return Some(name);
             }
 
-            if name.eq_ignore_ascii_case("List") || name.eq_ignore_ascii_case("Result") {
+            if name.eq_ignore_ascii_case("List") {
                 // `List OF RES File` (§15.6): a resource-transfer list whose
                 // element is a pointer whose scope-ownership transfers across a
-                // function boundary. (`Result OF RES …` is not meaningful, but the
-                // marker is harmless there and rejected later by type checking.)
-                let element_res =
-                    name.eq_ignore_ascii_case("List") && self.match_keyword(Keyword::Res);
+                // function boundary.
+                let element_res = self.match_keyword(Keyword::Res);
                 let arg = self.parse_type_name()?;
                 // A stateful resource-union element carries a uniform `STATE T`
                 // clause (`List OF RES Stream STATE S`, bug-427), folded into the

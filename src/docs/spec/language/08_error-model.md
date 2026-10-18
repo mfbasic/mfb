@@ -133,14 +133,11 @@ A native runtime helper has no MFB-level origin, so the call site stamps its err
 
 `code` is an ordinary `Integer` and is not validated: any value is accepted. Use a runtime registry code where one genuinely carries the right meaning (`errorCode::ErrInvalidArgument` for a bad argument, `errorCode::ErrPathNotFound` for a missing file). For a failure the registry does not model — a binding surfacing a C library's own error enum, say — use the generator `9` range (`90000000`–`99999999`) reserved for user-defined codes, rather than offsetting onto the `7-705-*` range where the value would collide with an unrelated standard name. See `./mfb spec diagnostics error-codes` for the convention and its caveats.
 
-## 8.5b Reserved internal type names
+## 8.5b Internal result type names
 
-`Result` and its success member `Ok` are the runtime's private representation of a fallible outcome (§8.8) and are not types a user may write. The resolver rejects them in any type position: naming `Result`, `Ok`, or a parameterized `Result OF ...` is reported as `TYPE_RESULT_NOT_USER_VISIBLE` ("`Result` is an internal type; declare the success type directly"), rather than falling through to the generic unknown-type error. The same resolver also treats the internal placeholder `Unknown` — and any currently active template parameter — as always resolved, so neither produces an unknown-type diagnostic. [[src/resolver/resolution.rs:resolve_type_name]]
+The runtime's private representation of a fallible outcome (§8.8) is the internal type `#Result OF T`, whose success member is `#Ok`. Both are spelled with the internal sigil `#`, which the lexer rejects in a user identifier, so no source spelling reaches either: `Result` and `Ok` are ordinary identifiers. A user may declare `TYPE Result`, `TYPE Ok`, a union member of either name, or a template `TYPE Result OF T`, and construct, match, export and import them like any other type; `typeName` reports the user's name. A source `Result OF T` with no such declaration is an unknown type (`SYMBOL_UNKNOWN_TYPE`) like any undeclared name. The resolver treats the internal placeholder `Unknown` — and any currently active template parameter — as always resolved, so neither produces an unknown-type diagnostic. [[src/types.rs:RESULT_TYPE]] [[src/types.rs:RESULT_SUCCESS_MEMBER]] [[src/internal_name.rs:INTERNAL_SIGIL]] [[src/resolver/resolution.rs:resolve_type]]
 
-Because these names still appear in compiler-internal positions, two resolution paths skip them deliberately so they are never re-checked as user types:
-
-* Constructor resolution special-cases `Error`, `Ok`, and `Err`: when a constructor's type name is one of these, the type-name resolution step is skipped (only the arguments are resolved). [[src/resolver/resolution.rs:resolve_expression]]
-* `MATCH`-pattern resolution skips the `Ok` union type: a union pattern whose type name is `Ok` is not resolved as a user type (the desugaring in §8.8 introduces `Ok` arms internally). [[src/resolver/resolution.rs:resolve_match_pattern]]
+Constructor resolution special-cases `Error` and `Err`: when a constructor's type name is one of these, the type-name resolution step is skipped (only the arguments are resolved). [[src/resolver/resolution.rs:resolve_expression]]
 
 ## 8.6 Rules
 
@@ -290,8 +287,8 @@ are not serialized by this lock.
 
 This sketch is **compiler-internal**: it describes how source desugars into
 **structured IR** (the same IR that is serialized as the package's Binary Representation).
-`Result`, `Ok`, and `Err` below are the runtime's private representation of a
-fallible outcome (§4.4), not types a user writes; the concrete native
+`#Result`, `#Ok`, and `Err` below are the runtime's private representation of a
+fallible outcome (§4.4, §8.5b), not types a user writes; the concrete native
 register-level result form (success/error/exit tags) is specified by
 `./mfb spec memory fallible-call-abi`. The control flow is
 structured: a function-level `TRAP` is a nested region with an explicit end, not
@@ -299,10 +296,10 @@ a label, and "propagate to the enclosing trap" is the structured `PROPAGATE` op,
 not a jump to a program counter.
 
 ```text
-FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
+FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS #Result OF T
 
   call g(x)        =>  MATCH g(x)
-                         CASE Ok(v)    : v
+                         CASE #Ok(v)   : v
                          CASE Error(e) : PROPAGATE to enclosing TRAP region
                                        (no trap => RETURN error result carrying e)
                        END MATCH
@@ -310,10 +307,10 @@ FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
   FAIL e           =>  PROPAGATE e to enclosing TRAP region
                        (no trap => RETURN error result carrying e)
 
-  RETURN v         =>  RETURN Ok(v)          (body or trap)
+  RETURN v         =>  RETURN #Ok(v)         (body or trap)
 
   LET x = g(y) TRAP(e)  =>  MATCH g(y)        ' inline TRAP
-    <handler>                CASE Ok(v)    : bind x = v ; continue after END TRAP
+    <handler>                CASE #Ok(v)   : bind x = v ; continue after END TRAP
   END TRAP                   CASE Error(e) : <handler>
                            END MATCH
                            ' RECOVER w  =>  bind x = w ; continue after END TRAP
@@ -321,8 +318,8 @@ FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
                            ' RETURN/FAIL diverge as above
 
   LET x = f(g(y)) TRAP(e)  =>  MATCH g(y)     ' a NESTED call is covered too:
-    <handler>                    CASE Ok(v1)   : MATCH f(v1)
-  END TRAP                                        CASE Ok(v)    : bind x = v
+    <handler>                    CASE #Ok(v1)  : MATCH f(v1)
+  END TRAP                                        CASE #Ok(v)   : bind x = v
                                                   CASE Error(e) : <handler>
                                                 END MATCH
                                  CASE Error(e) : <handler>
@@ -332,8 +329,8 @@ FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
                            ' (`f` is never called when `g` fails)
 
   LET x = f(a / b) TRAP(e) =>  MATCH CHECKED(a / b)   ' a raising OPERATOR too:
-    <handler>                    CASE Ok(v1)   : MATCH f(v1)
-  END TRAP                                              CASE Ok(v)    : bind x = v
+    <handler>                    CASE #Ok(v1)  : MATCH f(v1)
+  END TRAP                                              CASE #Ok(v)   : bind x = v
                                                         CASE Error(e) : <handler>
                                                       END MATCH
                                    CASE Error(e) : <handler>
@@ -347,13 +344,13 @@ FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
   LET x = f(t AND g(y)) TRAP(e)  =>  cond = t          ' a SHORT-CIRCUITED operand
     <handler>                        IF cond THEN       ' stays conditional (OR: IF NOT cond):
   END TRAP                             MATCH g(y)
-                                         CASE Ok(v1)   : cond = v1
+                                         CASE #Ok(v1)  : cond = v1
                                          CASE Error(e) : <handler>
                                        END MATCH
                                      END IF
                                      ' only if g did not fail:
                                      MATCH f(cond)
-                                       CASE Ok(v)    : bind x = v
+                                       CASE #Ok(v)   : bind x = v
                                        CASE Error(e) : <handler>
                                      END MATCH
                                  ' g runs only when t is TRUE; its failure skips
@@ -362,7 +359,7 @@ FUNC f(a AS A) AS T            =>   FUNC f(a AS A) AS Result OF T
   TRAP region (function-level bottom trap):
     PROPAGATE      =>  RETURN error result carrying the bound error
     FAIL e2        =>  RETURN error result carrying e2
-    RETURN v       =>  RETURN Ok(v)
+    RETURN v       =>  RETURN #Ok(v)
 ```
 
 A call used as a `MATCH` scrutinee **is** rewritten like any other call (it auto-unwraps). No real exceptions, no stack unwinding, no jumps — pure structured value flow that serializes directly into the package's Binary Representation.

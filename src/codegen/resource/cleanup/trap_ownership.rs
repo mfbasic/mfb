@@ -164,7 +164,7 @@ mod tests {
             NirOp::Bind {
                 mutable: false,
                 name: "$trap_res0".to_string(),
-                type_: ParameterType::parse("Result OF udp.Socket"),
+                type_: ParameterType::parse("#Result OF udp.Socket"),
                 value: Some(call_result(target)),
             },
             NirOp::Bind {
