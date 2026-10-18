@@ -434,7 +434,14 @@ whether the frame is one pass or several, from one sum of what each block takes 
 region; the pass walk makes the same sum to find where a pass ends. There is no
 per-polygon edge limit below the region: a polygon's edges are indexed by horizontal
 band when the pass is built, so a pixel tests only the edges that can reach it, and the
-result is identical to testing them all. The region sizes are defined once, in Rust,
+result is identical to testing them all. That holds for a pixel whose samples all lie
+within a band's reach, and the reach is built for the item's own inverse: a block is
+built once a pass and drawn under every group matrix that names it, so the builder
+cannot know the inverse a pixel is sampled with. The band header therefore records the
+norm `F` its reach was built for (the Frobenius norm of the item's inverse, 0 for an item
+with no transform of its own), and a pixel takes its band only when `1.5·N ≤ 2·F`, `N`
+the Frobenius norm of the composed inverse it samples with (0 for a pixel that takes one
+sample); any other pixel tests every edge. The region sizes are defined once, in Rust,
 and generated into the MFBASIC source. So are the region bases the shaders read: Metal
 formats them into its shader source when it compiles it, and Vulkan's checked-in SPIR-V
 declares them as specialization constants that the pipeline sets from the same
@@ -444,6 +451,7 @@ constants, so drawing in passes rebuilds no pipeline.
 [[src/codegen/runtime/canvas/mod.rs:VULKAN_SPEC_CONSTANTS]]
 [[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_band_index]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_BAND_NORM]]
 
 **A pass is told from a whole frame by one word of its draw list.** The emitters are
 handed a pass's blocks and draw entries as they are handed a frame's. Word 12 of the
@@ -1036,7 +1044,8 @@ nothing. The builder takes one of two paths, in header slot 51:
 [[src/codegen/runtime/canvas/mod.rs:HEADER_CLIP_MODE]]
 
 **On the GPUs** the item block carries two `ivec4`s for it: `clipBand` at byte
-288 is a path clip's band header, the same shape as a polygon's in `arcCaps`, and
+288 is a path clip's band header, the same shape as a polygon's in `arcCaps` (its
+recorded norm in `gradFocal.w`, as the polygon's is in `capsLo.w`), and
 `clipPath` at 304 is (first clip edge, clip edge count, mode | rule << 2, a picture's
 `T`). The clip's edges go into the frame buffer's edge region after the item's own and count
 against the same region, one pass's, and they are banded by the same index builder
@@ -1051,6 +1060,7 @@ rectangle's, is 1-Lipschitz), so the quotient is past 0.5, where the coverage ha
 clamped; untransformed and outside a group matrix the reach is the 0.5 of the one sample
 there is.
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_BAND]]
+[[src/codegen/runtime/canvas/mod.rs:ITEM_CLIP_BAND_NORM]]
 [[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_PATH]]
 [[src/target/macos_aarch64/app/metal.rs:emit_clip_buffer]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_clip_upload]]

@@ -1791,6 +1791,24 @@ fn transformed_path_clips_match_the_software_oracle_on_metal() {
     );
 }
 
+/// bug-1085: a banded polygon and a banded path clip (256 edges each) inside groups that
+/// shrink by 20, and a banded polygon with its own transform inside one
+/// (`scenes/banded_in_shrinking_groups_on_black.mfb`). The band index is built for the
+/// item's inverse alone, so under these matrices a pixel's neighbour samples fall outside
+/// the band's reach; the shader has to see that from the band header's recorded norm and
+/// walk every edge. Taking the band anyway put 60-odd pixels of each a coverage step off.
+const BANDED_IN_SHRINKING_GROUPS: &str =
+    include_str!("scenes/banded_in_shrinking_groups_on_black.mfb");
+
+#[test]
+fn banded_shapes_in_shrinking_groups_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_banded_shrinking_groups",
+        BANDED_IN_SHRINKING_GROUPS,
+        "banded polygons and path clips inside shrinking groups",
+    );
+}
+
 /// plan-172-L: pictures inside shapes (`scenes/picture_shapes_on_black.mfb`). Every
 /// shaped picture is a picture record with a polygonal clip and, where it strokes, the
 /// shape itself -- two entries the GPU already draws -- so this is the check that the

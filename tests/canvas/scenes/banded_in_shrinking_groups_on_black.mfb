@@ -1,0 +1,45 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT collections
+IMPORT color
+IMPORT math
+
+' bug-1085: banded edge sets -- 256 edges, past the band index's 32-edge threshold -- in
+' groups whose matrix shrinks by 20, over the default opaque-black surface. Under a group
+' matrix the five samples of a pixel sit half a SURFACE pixel apart, 10 units in the
+' group's space here, while the band index is built for the item's own inverse only (it
+' is built once a pass and may be drawn under several matrices). A renderer that takes
+' the band anyway misses the neighbours' edges; it has to walk every edge instead.
+'
+'   left    a 256-edge ring of radius 3000 as an untransformed polygon
+'   right   an untransformed square with the same ring as its path clip
+'   bottom  a 256-edge ring of radius 700 under its own scale-2 transform, so the
+'           item's inverse and the group's compose
+'
+' Every centre and offset is fractional, so no edge lies along a pixel boundary.
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC ring(n AS Integer, cx AS Float, cy AS Float, r AS Float) AS List OF vector::Float2
+  MUT points AS List OF vector::Float2 = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET a AS Float = toFloat(i) * 6.283185307179586 / toFloat(n) + 0.2
+    points = collections::append(points, pt(cx + r * math::cos(a), cy + r * math::sin(a)))
+    i = i + 1
+  END WHILE
+  RETURN points
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET none AS canvas::Transform = canvas::Transform[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  LET twice AS canvas::Transform = canvas::Transform[a := 2.0, b := 0.0, c := 0.0, d := 2.0, tx := 0.0, ty := 0.0]
+  canvas::setGroup("big", [canvas::Polygon[id := "", position := pt(0.0, 0.0), contours := [ring(256, 2.5, 5.0, 3000.0)], rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(250, 200, 90)), transform := none]])
+  canvas::setGroup("clipped", [canvas::Polygon[id := "", position := pt(0.0, 0.0), contours := [[pt(0.0 - 3200.0, 0.0 - 3200.0), pt(3200.0, 0.0 - 3200.0), pt(3200.0, 3200.0), pt(0.0 - 3200.0, 3200.0)]], rule := canvas::FillRule.NonZero, paint := WITH canvas::fill(color::rgb(90, 220, 160)) { clip := [ring(256, 2.5, 5.0, 3000.0)] }, transform := none]])
+  canvas::setGroup("own", [canvas::Polygon[id := "", position := pt(0.0, 0.0), contours := [ring(256, 1.5, 3.5, 700.0)], rule := canvas::FillRule.NonZero, paint := canvas::fill(color::rgb(120, 140, 250)), transform := twice]])
+  LET shrink AS canvas::Transform = canvas::Transform[a := 0.05, b := 0.0, c := 0.0, d := 0.05, tx := 0.0, ty := 0.0]
+  canvas::present([canvas::Group[id := "", position := pt(200.3, 300.6), transform := shrink, name := "big"], canvas::Group[id := "", position := pt(600.3, 300.6), transform := shrink, name := "clipped"], canvas::Group[id := "", position := pt(450.7, 545.2), transform := shrink, name := "own"]])
+END FUNC

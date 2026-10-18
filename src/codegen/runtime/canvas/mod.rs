@@ -646,6 +646,20 @@ pub(crate) const ITEM_BAND_TOP: usize = 0;
 pub(crate) const ITEM_BAND_HEIGHT: usize = 4;
 pub(crate) const ITEM_BAND_COUNT: usize = 8;
 pub(crate) const ITEM_BAND_START: usize = 12;
+/// bug-1085: a band header's fifth word, outside its `ivec4`: `F`, the Frobenius norm of
+/// the inverse its reach was built for -- the item's own (0 untransformed), the only one
+/// the builder can know, since a block is built once a pass and may be drawn under
+/// several group matrices -- in 16.16, rounded DOWN. The shaders take the band only for
+/// a pixel whose composed norm `N` the reach covers, `0.75 N <= F` (the builder adds
+/// `2F` where the five-sample argument needs `1.5 N`), and otherwise walk every edge.
+///
+/// The polygon's is `capsLo.w`, the residual of `arcCaps.w`, which a band header has
+/// none of and only an arc reads; a path clip's is `gradFocal.w`, which nothing else
+/// writes, because a clip can be on an arc. Written by each backend's `emit_band_index`
+/// with the rest of the header (0 with no bands), and read only beside a band count
+/// above 0.
+pub(crate) const ITEM_BAND_NORM: usize = ITEM_OFFSET_CAPS_LO + 12;
+pub(crate) const ITEM_CLIP_BAND_NORM: usize = ITEM_OFFSET_GRADIENT_FOCAL + 12;
 /// An ellipse's rotation, as `cos, sin` in 16.16, then two unused words (plan-116-E).
 ///
 /// The twelfth `ivec4`. Two words would have fit in an existing block's spare, but

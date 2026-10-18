@@ -635,11 +635,19 @@ vec2 inverseMap(vec2 p) {
 // follows it. A point above the first band or below the last uses the end band, which
 // the emitter built to hold every edge that can matter there. Metal's `polygonBand`,
 // line for line.
-ivec2 polygonBand(float y) {
+//
+// bug-1085: `norm` is the pixel's composed inverse norm (0 for a pixel that takes its
+// centre sample alone), and the band is taken only when its reach covers it:
+// `0.75 norm <= F`, `F` the norm the reach was built for (`capsLo.w`, `ITEM_BAND_NORM`).
+// A block is built once a pass and drawn under any group's matrix, so past that the edges
+// a neighbour sample needs may be in no band of it, and every edge is walked instead --
+// exact, as with no index.
+ivec2 polygonBand(float y, float norm) {
     int nb = item.arcCaps.z;
     // plan-164-C: kinds 11 and 12 too -- their pieces are banded as edges.
     int bk = item.misc.x;
     if ((bk != 4 && bk != 10 && bk != 11 && bk != 12) || nb <= 0) { return ivec2(-1, item.misc.w); }
+    if (!(norm * 0.75 <= fx(item.capsLo.w))) { return ivec2(-1, item.misc.w); }
     float k = floor((y - fx(item.arcCaps.x)) / fx(item.arcCaps.y));
     int band = int(clamp(k, 0.0, float(nb - 1)));
     int t = BAND_BASE + item.arcCaps.w;
@@ -647,10 +655,13 @@ ivec2 polygonBand(float y) {
 }
 
 // plan-163-C: a path clip's band, the clip's twin of `polygonBand`: its band header in
-// `clipBand`, or every clip edge (band count 0). Metal's, line for line.
-ivec2 clipBandAt(float y) {
+// `clipBand`, or every clip edge (band count 0) -- and, bug-1085, every clip edge for a
+// pixel whose composed norm the band's reach does not cover (`gradFocal.w`,
+// `ITEM_CLIP_BAND_NORM`). Metal's, line for line.
+ivec2 clipBandAt(float y, float norm) {
     int nb = item.clipBand.z;
     if (nb <= 0) { return ivec2(-1, item.clipPath.y); }
+    if (!(norm * 0.75 <= fx(item.gradFocal.w))) { return ivec2(-1, item.clipPath.y); }
     float k = floor((y - fx(item.clipBand.x)) / fx(item.clipBand.y));
     int band = int(clamp(k, 0.0, float(nb - 1)));
     int t = BAND_BASE + item.clipBand.w;
@@ -2086,23 +2097,26 @@ vec2 dfMapY(vec2 x, vec2 y) {
 ivec4 shapeCoverage(vec2 x, vec2 y) {
     bool itemMapped = hasTransform();
     bool mapped = itemMapped || grouped;
-    ivec2 band = polygonBand(itemMapped ? dfMapY(x, y).x : y.x);
     vec2 half2 = dfFixed(item.misc.z, item.miscLo.y);
     bool stroked = dfLess(vec2(0.0), half2);
     float reach = 0.5 + max(half2.x, 0.0);
     // bug-995: the clip's reach -- the shape's without the stroke half, and for any kind
     // (a clip's distance is 1-Lipschitz whatever the item is, an arc's too).
     float clipReach = 0.5;
+    // bug-1085: the composed inverse's norm, which the band lookups hold to the norm the
+    // band's reach was built for; 0 for a pixel that takes its centre sample alone.
+    float norm = 0.0;
     if (mapped) {
         vec2 c0 = itemMapped ? vec2(intBitsToFloat(item.xform0.x), intBitsToFloat(item.xform0.y)) : vec2(1.0, 0.0);
         vec2 c1 = itemMapped ? vec2(intBitsToFloat(item.xform0.z), intBitsToFloat(item.xform0.w)) : vec2(0.0, 1.0);
         // The composed inverse's norm is at most the product of the two norms.
-        float norm = sqrt(dot(c0, c0) + dot(c1, c1));
+        norm = sqrt(dot(c0, c0) + dot(c1, c1));
         if (grouped) { norm = (itemMapped ? norm : 1.0) * length(gi); }
         float frob = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;
         reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);
         clipReach = 0.5 * max(frob, 1.0);
     }
+    ivec2 band = polygonBand(itemMapped ? dfMapY(x, y).x : y.x, norm);
     // plan-163-B: a polygon, rectangle or picture with join records strokes from its own
     // distance (`joinedStroke`), which a miter can reach past `half` from the outline --
     // so the centre's shape distance cannot decide the neighbours there.
@@ -2124,7 +2138,7 @@ ivec4 shapeCoverage(vec2 x, vec2 y) {
     bool clipMapped = itemMapped || grouped;
     // plan-172-H: a rectangle clip is sampled too, under a group matrix.
     bool clipSampled = clipMode == 2 || (clipMode == 1 && grouped);
-    ivec2 cband = clipMode == 2 ? clipBandAt(itemMapped ? dfMapY(x, y).x : y.x) : ivec2(-1, 0);
+    ivec2 cband = clipMode == 2 ? clipBandAt(itemMapped ? dfMapY(x, y).x : y.x, norm) : ivec2(-1, 0);
     vec2 d[10];
     // bug-688: the shape's centre sample is taken here, outside the loop, and the loop is
     // entered only by a pixel that needs another sample -- the shape's four neighbours
@@ -2253,7 +2267,7 @@ void main() {
     // the path -- the parameter of the nearest point, in shape space, from the same band
     // the distance used.
     if (item.misc.x == 10 && item.ellipse.z >= 2) {
-        fillRgba = gradientAt(polylineScan(polygonBand(q.y), q).y);
+        fillRgba = gradientAt(polylineScan(polygonBand(q.y, 0.0), q).y);
     }
     // bug-484: a picture's image replaces the fill colour the same way — sampled at the
     // shape-space point, the inverse-mapped one under a transform.
