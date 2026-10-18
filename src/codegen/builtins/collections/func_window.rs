@@ -373,7 +373,7 @@ each position where a full run of `size` consecutive elements still fits, emits
 that run as a window. The result is the list of those windows, in order.
 
 Every window has exactly `size` elements — there is no short final window. The
-loop advances only while `i + size` is still within the length of `value`, so a
+loop advances only while a full run of `size` still fits within the length of `value`, so a
 trailing partial run is simply not emitted, and the elements it would have
 contained are dropped from the result. This is the key difference from
 `collections::chunks`, which does emit a short final block.
@@ -461,10 +461,14 @@ r#"FUNC __collections_window OF T(value AS List OF T, size AS Integer, stride AS
     FAIL error(77050002, "Argument value is not valid for the requested operation.")
   END IF
   MUT result AS List OF List OF T = []
+  LET last AS Integer = len(value) - size
   MUT i AS Integer = 0
-  WHILE i + size <= len(value)
+  WHILE i <= last
     LET piece AS List OF T = __collections_slice(value, i, i + size)
     result = collections::append(result, piece)
+    IF stride > last - i THEN
+      EXIT WHILE
+    END IF
     i = i + stride
   END WHILE
   RETURN result

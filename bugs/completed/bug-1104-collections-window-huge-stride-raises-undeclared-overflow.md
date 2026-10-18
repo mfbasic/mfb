@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (declared errors)
 
-Status: Open
-Regression Test: none yet
+Status: Fixed
+Regression Test: `tests/runtime/rt_collection_chunks_window_sizing.rs` (`runtime_stride_near_integer_maximum_returns_the_windows_that_fit`)
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -50,3 +50,19 @@ The generic `__collections_window` body advances with `i = i + stride`, which ov
 before the loop test sees the end of the list. bug-1008's fix made the native fast path's
 loop overflow-free (`start <= n - size`, step only while `stride <= (n - size) - start`); the
 generic body needs the same test.
+
+## Fix
+
+`__collections_window` (`src/codegen/builtins/collections/func_window.rs`) now computes
+`last = len(value) - size` once, loops `WHILE i <= last`, and exits before stepping when
+`stride > last - i`, so neither `i + size` nor `i + stride` is formed past the end (the fast
+path's test). RED: the new test failed on the unfixed body (run-time stride `Integer` max);
+GREEN after. The `DESC` sentence describing the loop condition was reworded.
+
+Goldens expected to move (stdlib body assembled into the IR; `.ir` kind only, plus the
+`.ncode` sha of the byte-identity fixture): `byte-identity/collections/collections_codegen_cover_rt`
+(`.ir` + five `.ncodesum`/ncode shas), `rt-behavior/collections/{window-string-native-rt,
+collections-artifact-coverage-rt,collection-accelerator-declines-rt}` and
+`rt-behavior/resources/bug643-collection-helpers-keep-caller-handles-rt` (`.ir`). Measured:
+`artifact-gate collections` 6 diffs, `test-accept` over those four fixtures 4 mismatches, all
+in the `__collections_window` body.
