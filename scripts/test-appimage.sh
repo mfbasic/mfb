@@ -440,37 +440,48 @@ MFB
       # so GTK does not pick a Wayland session the box may also run): one click
       # in the window must produce at least one event line. The decoder used to
       # run only on the read path, so this logged 0.
+      #
+      # bug-985: run twice — once with the startup window (`Console` default) and
+      # once with the window `app::setMode(app::Mode.Console)` builds — because the
+      # two used to be built by separate copies and the setMode-built one had no
+      # mouse controllers.
       if $ssh -n "command -v xdotool" >/dev/null 2>&1; then
-        local pproj="$work/$libc-pollmouse"
+        local variant first
+        for variant in startup setmode; do
+        first=""
+        [ "$variant" = setmode ] && first="  app::setMode(app::Mode.Console)"
+        local pproj="$work/$libc-pollmouse-$variant"
         mkdir -p "$pproj/src"
         cat > "$pproj/project.json" <<JSON
 { "name": "pollmouse", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
   "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
   "entry": "main", "targets": ["native"] }
 JSON
-        cat > "$pproj/src/main.mfb" <<'MFB'
+        cat > "$pproj/src/main.mfb" <<MFB
+IMPORT app
 IMPORT term
 IMPORT os
 IMPORT fs
 
 FUNC main() AS Nothing
+$first
   term::on()
   term::enableMouse(TRUE)
-  fs::writeText("pollmouse.log", "start\n")
+  fs::writeText("pollmouse.log", "start\\n")
   MUT i AS Integer = 0
   WHILE i < 40
     LET ev AS term::MouseEvent = term::pollMouse()
     IF ev.kind <> term::MouseKind.None THEN
-      fs::appendText("pollmouse.log", "event\n")
+      fs::appendText("pollmouse.log", "event\\n")
     END IF
     os::sleep(100)
     i = i + 1
   END WHILE
-  fs::appendText("pollmouse.log", "done\n")
+  fs::appendText("pollmouse.log", "done\\n")
 END FUNC
 MFB
         if ! "$MFB_EXE" build -q --app -target "$target" "$pproj" >/dev/null 2>&1; then
-          fail "$libc: build --app -target $target (pollMouse without a read)"
+          fail "$libc: build --app -target $target (pollMouse without a read, $variant window)"
         else
           $scp "$pproj/build/pollmouse-$libc.AppImage" "test@127.0.0.1:$remote/pollmouse.AppImage" \
             || fail "$libc: ship the pollMouse AppImage"
@@ -485,11 +496,12 @@ MFB
             for i in \$(seq 1 80); do grep -q done pollmouse.log && break; sleep 0.1; done; \
             echo events=\$(grep -c ^event pollmouse.log)")
           case "$out" in
-            *events=0*|"") fail "$libc: pollMouse without a read saw no event for a click: $out" ;;
-            *events=*) pass "$libc: pollMouse sees window events with no stdin read ($out)" ;;
-            *) fail "$libc: pollMouse row: unexpected output: $out" ;;
+            *events=0*|"") fail "$libc: pollMouse ($variant window) saw no event for a click: $out" ;;
+            *events=*) pass "$libc: pollMouse sees $variant-window events with no stdin read ($out)" ;;
+            *) fail "$libc: pollMouse row ($variant window): unexpected output: $out" ;;
           esac
         fi
+        done
       else
         echo "skip: $libc pollMouse GUI row (no xdotool on the box)"
       fi

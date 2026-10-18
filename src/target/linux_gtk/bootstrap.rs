@@ -460,12 +460,9 @@ fn emit_term_area_setup(asm: &mut Asm) {
 
 pub(super) fn emit_activate_handler(
     initial_mode: PresentationMode,
-    uses_mouse: bool,
-    uses_window: bool,
 ) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(ACTIVATE_SYMBOL);
-    // lr@0, pthread_t@8, pipe fds (2x i32)@16, x19(controller)@24,
-    // pthread_attr_t@32..96.
+    // lr@0, pthread_t@8, pipe fds (2x i32)@16, (unused)@24, pthread_attr_t@32..96.
     let frame = 96;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
@@ -474,98 +471,27 @@ pub(super) fn emit_activate_handler(
         abi::stack_pointer(),
         0,
     ));
-    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 24));
 
-    // plan-62-D: a `Console`-default program builds the transcript window + input
-    // widgets (emitted byte-for-byte as before). A `None`-default program starts
+    // plan-62-D: a `Console`-default program builds and presents the transcript
+    // window at startup. A `None`-default program starts
     // windowless: it skips the window and instead takes `g_application_hold` so
     // `GApplication` does not exit with zero windows — then still spawns the worker
     // below. The window is created later, on demand, by `setMode(Console)`; the
     // off-window `term::` area is built here in both modes (bug-962).
     if initial_mode == PresentationMode::Console {
-        // window = gtk_application_window_new(app)  (app is the incoming x0)
-        asm.call_external("gtk_application_window_new");
-        asm.store_state(abi::c_return(0), ST_WINDOW);
-        // gtk_window_set_title(window, "MFBASIC App")
-        asm.load_state(abi::c_arg(0), ST_WINDOW);
-        asm.local_address(abi::c_arg(1), SYM_TITLE);
-        asm.call_external("gtk_window_set_title");
-        // gtk_window_set_default_size(window, 900, 640)
-        asm.load_state(abi::c_arg(0), ST_WINDOW);
-        asm.push(abi::move_immediate(abi::c_arg(1), "Integer", WINDOW_WIDTH));
-        asm.push(abi::move_immediate(abi::c_arg(2), "Integer", WINDOW_HEIGHT));
-        asm.call_external("gtk_window_set_default_size");
-
-        // scrolled = gtk_scrolled_window_new(); hold a ref so swapping the window child
-        // to the term:: surface and back doesn't destroy it (g_object_ref_sink owns the
-        // floating ref; gtk_window_set_child then takes its own).
-        asm.call_external("gtk_scrolled_window_new");
-        asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
-        asm.call_external("g_object_ref_sink");
-        asm.store_state(abi::c_return(0), ST_SCROLLED);
-
+        // bug-962: the off-window `term::` surface, built in both start modes.
         emit_term_area_setup(&mut asm);
 
-        // text_view = gtk_text_view_new(); editable=FALSE; monospace=TRUE. The view is
-        // left NON-focusable (like the working build): focusing a GtkTextView activates
-        // the IM/a11y machinery, which crashes in g_variant_new_string when the worker
-        // inserts text. Keys are captured at the window instead (see below).
-        asm.call_external("gtk_text_view_new");
-        asm.store_state(abi::c_return(0), ST_TEXT_VIEW);
-        asm.load_state(abi::c_arg(0), ST_TEXT_VIEW);
-        asm.push(abi::move_immediate(abi::c_arg(1), "Integer", FALSE));
-        asm.call_external("gtk_text_view_set_editable");
-        asm.load_state(abi::c_arg(0), ST_TEXT_VIEW);
-        asm.push(abi::move_immediate(abi::c_arg(1), "Integer", TRUE));
-        asm.call_external("gtk_text_view_set_monospace");
-        // buffer = gtk_text_view_get_buffer(text_view)
-        asm.load_state(abi::c_arg(0), ST_TEXT_VIEW);
-        asm.call_external("gtk_text_view_get_buffer");
-        asm.store_state(abi::c_return(0), ST_TEXT_BUFFER);
-        // gtk_scrolled_window_set_child(scrolled, text_view); window child = scrolled.
-        asm.load_state(abi::c_arg(0), ST_SCROLLED);
-        asm.load_state(abi::c_arg(1), ST_TEXT_VIEW);
-        asm.call_external("gtk_scrolled_window_set_child");
-        asm.load_state(abi::c_arg(0), ST_WINDOW);
-        asm.load_state(abi::c_arg(1), ST_SCROLLED);
-        asm.call_external("gtk_window_set_child");
-
-        // Capture keystrokes terminal-style with a key controller on the WINDOW (no
-        // focusable input widget; the whole window is the terminal, matching macOS's
-        // keyDown:-on-the-transcript model without the focused-textview IM/a11y hazard).
-        //   controller = gtk_event_controller_key_new()
-        //   g_signal_connect_data(controller, "key-pressed", on_key, NULL, NULL, 0)
-        //   gtk_widget_add_controller(window, controller)  // takes ownership
-        asm.call_external("gtk_event_controller_key_new");
-        asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0))); // controller (callee-saved across calls)
-                                                                       // bug-699: key-pressed and key-released, in the capture phase.
-        super::keys::emit_connect_key_controller(&mut asm);
-
-        // plan-94-D: the three mouse controllers, on the WINDOW for the same
-        // reason the key controller is — the window outlives the child swap
-        // between the transcript, the term area and the canvas area, so one set
-        // serves all three with nothing to re-attach on a mode change.
-        if uses_mouse {
-            mouse::emit_attach_controllers(&mut asm);
-        }
-
-        // connect window "close-request" -> on_window_closed
-        asm.load_state(abi::c_arg(0), ST_WINDOW);
-        asm.local_address(abi::c_arg(1), STR_CLOSE_REQUEST.0);
-        asm.local_address(abi::c_arg(2), WINDOW_CLOSED_SYMBOL);
-        asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-        asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0"));
-        asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0"));
-        asm.call_external("g_signal_connect_data");
-
-        // The `app` window members: follow the user's fullscreen changes.
-        if uses_window {
-            super::window::emit_track_fullscreen(&mut asm);
-        }
+        // bug-985: the window is the ONE shared build — the same helper the
+        // `setMode` reconcile calls — so a startup window and a reconcile-built one
+        // carry the same children, controllers (key, and mouse for a mouse program)
+        // and signals. A second inlined copy here is how the reconcile-built window
+        // once went without mouse controllers.
+        asm.call_internal(RECONCILE_BUILD_SYMBOL);
 
         // gtk_window_present(window). Nothing is focused on purpose: keys are
-        // captured by the window-level key controller connected above, so the design
-        // deliberately avoids giving the transcript a focusable widget.
+        // captured by the window-level key controller the build attached, so the
+        // design deliberately avoids giving the transcript a focusable widget.
         asm.load_state(abi::c_arg(0), ST_WINDOW);
         asm.call_external("gtk_window_present");
 
@@ -599,7 +525,6 @@ pub(super) fn emit_activate_handler(
     asm.call_external("pthread_detach");
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 24));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     asm.finish(ACTIVATE_SYMBOL, "Nothing")
@@ -725,10 +650,17 @@ pub(super) fn emit_reconcile_marshal_helper() -> Result<CodeFunction, String> {
     asm.finish(RECONCILE_MARSHAL_SYMBOL, "Nothing")
 }
 
-/// plan-98-A Phase 3 (GTK main loop): build the transcript window — window +
-/// scrolled container + non-editable monospace text view + its buffer — and install
-/// the scrolled window as the window's child. Factored out of the reconcile's
-/// `Console` arm so the `Canvas` arm can reuse it: a canvas-first program has never
+/// plan-98-A Phase 3 / bug-985 (GTK main loop): THE window build — window +
+/// scrolled container + non-editable monospace text view + its buffer, the
+/// window-level key controller, the mouse controllers (a mouse program), the
+/// close-request signal and the fullscreen tracking — installing the scrolled
+/// window as the window's child. It is the only place a window is built:
+/// `activate` calls it for a `Console`-default program's startup window, and the
+/// reconcile's `Console` and `Canvas` arms call it for a `setMode` program, so the
+/// two kinds of window cannot drift apart (bug-985: the reconcile-built window once
+/// had no mouse controllers because `activate` carried its own copy). The
+/// reconcile's arms share it because a canvas-first program has never presented a
+/// surface: a canvas-first program has never
 /// presented a surface, so `ST_WINDOW` is null when it enters canvas mode, and both
 /// arms must be able to create the window. Building the transcript even for a canvas
 /// program is deliberate — it is what the canvas teardown restores the window's
@@ -2306,7 +2238,7 @@ mod tests {
     #[test]
     fn activate_closes_redundant_pipe_read_fd_after_dup2() {
         // The pipe/dup2 wiring this test asserts lives in the Console surface path.
-        let func = emit_activate_handler(PresentationMode::Console, false, false).unwrap();
+        let func = emit_activate_handler(PresentationMode::Console).unwrap();
         let ins = &func.instructions;
 
         let dup2_calls: Vec<usize> = ins

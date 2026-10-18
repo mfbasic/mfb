@@ -623,7 +623,7 @@ pub(crate) fn emit_app_program_entry(
     let mut functions = vec![
         emit_libc_start_trampoline()?,
         emit_main_bootstrap(spec.uses_canvas, spec.debug_hooks)?,
-        emit_activate_handler(spec.initial_mode, spec.uses_mouse, spec.uses_window)?,
+        emit_activate_handler(spec.initial_mode)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
         // bug-699: the shared key translator and the key-released handler.
@@ -679,14 +679,16 @@ pub(crate) fn emit_app_program_entry(
     if spec.uses_term {
         functions.extend(emit_term_positioned_helpers()?);
     }
+    // bug-985: the one window build, which the startup window (`activate`) and the
+    // `setMode` reconcile both call.
+    functions.push(emit_reconcile_build_helper(
+        spec.uses_window,
+        spec.uses_mouse,
+    )?);
     // plan-62-D Phase 2: the runtime setMode reconcile idle callback, only for a
     // program that can change mode (static default `None`) — a `Console`-default
-    // program never reconciles and keeps its exact function set.
+    // program never reconciles.
     if spec.initial_mode == PresentationMode::None {
-        functions.push(emit_reconcile_build_helper(
-            spec.uses_window,
-            spec.uses_mouse,
-        )?);
         functions.push(emit_reconcile_idle_helper(
             spec.uses_canvas,
             spec.uses_window,
@@ -743,7 +745,7 @@ pub(crate) fn emit_app_program_entry_x86(
 ) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
         emit_main_bootstrap(spec.uses_canvas, spec.debug_hooks)?,
-        emit_activate_handler(spec.initial_mode, spec.uses_mouse, spec.uses_window)?,
+        emit_activate_handler(spec.initial_mode)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
         // bug-699: the shared key translator and the key-released handler.
@@ -798,12 +800,13 @@ pub(crate) fn emit_app_program_entry_x86(
     if spec.uses_term {
         functions.extend(emit_term_positioned_helpers()?);
     }
+    // bug-985: the one window build, shared by `activate` and the reconcile.
+    functions.push(emit_reconcile_build_helper(
+        spec.uses_window,
+        spec.uses_mouse,
+    )?);
     // plan-62-D Phase 2: the reconcile idle callback (None-default programs only).
     if spec.initial_mode == PresentationMode::None {
-        functions.push(emit_reconcile_build_helper(
-            spec.uses_window,
-            spec.uses_mouse,
-        )?);
         functions.push(emit_reconcile_idle_helper(
             spec.uses_canvas,
             spec.uses_window,
@@ -2104,6 +2107,54 @@ mod canvas_reconcile_tests {
         );
     }
 
+    /// bug-985: one window, however it is built. The startup (`Console`-default)
+    /// window and the window `setMode`'s reconcile builds are the SAME build — the
+    /// shared helper — so every controller, signal and child the window gets is
+    /// attached in one place. Two copies drifted before: the reconcile-built window
+    /// had no mouse controllers (bug-985, patched by a second copy in bug-1043) and,
+    /// earlier, no key controller. So the startup path must call the shared build
+    /// and must not attach anything to a window itself.
+    #[test]
+    fn the_startup_window_is_the_shared_window_build() {
+        for uses_mouse in [false, true] {
+            for uses_window in [false, true] {
+                let console =
+                    bootstrap::emit_activate_handler(PresentationMode::Console)
+                        .expect("activate");
+                assert_eq!(
+                    externals(&console, RECONCILE_BUILD_SYMBOL),
+                    1,
+                    "the Console-default startup window must come from the shared build"
+                );
+                for own in [
+                    "gtk_application_window_new",
+                    "gtk_event_controller_key_new",
+                    "gtk_gesture_click_new",
+                    "gtk_event_controller_motion_new",
+                    "gtk_event_controller_scroll_new",
+                    "gtk_widget_add_controller",
+                    WINDOW_CLOSED_SYMBOL,
+                ] {
+                    assert_eq!(
+                        externals(&console, own),
+                        0,
+                        "activate must not build or wire a window itself ({own}): that is \
+                         the second copy bug-985 is about"
+                    );
+                }
+                // And the shared build attaches the mouse controllers exactly when the
+                // program uses the mouse, for both start modes at once.
+                let build = bootstrap::emit_reconcile_build_helper(uses_window, uses_mouse)
+                    .expect("window build");
+                assert_eq!(
+                    externals(&build, "gtk_event_controller_motion_new"),
+                    usize::from(uses_mouse),
+                    "uses_mouse={uses_mouse}: the shared build owns the mouse controllers"
+                );
+            }
+        }
+    }
+
     /// The window input pipe must be wired for a `None`-default program too. A
     /// `None` default means the program references `app::setMode`, so it is the only
     /// kind that can ever reach `Console` or `Canvas` — and in both the window is
@@ -2112,7 +2163,7 @@ mod canvas_reconcile_tests {
     /// read waiting on the old file description forever.
     #[test]
     fn the_input_pipe_is_wired_for_a_none_default_program() {
-        let none = bootstrap::emit_activate_handler(PresentationMode::None, false, false)
+        let none = bootstrap::emit_activate_handler(PresentationMode::None)
             .expect("activate");
         assert_eq!(
             externals(&none, "pipe"),
@@ -2126,7 +2177,7 @@ mod canvas_reconcile_tests {
         );
         // The Console-default path keeps exactly one — the extraction must not have
         // duplicated it into the branch it came from.
-        let console = bootstrap::emit_activate_handler(PresentationMode::Console, false, false)
+        let console = bootstrap::emit_activate_handler(PresentationMode::Console)
             .expect("activate");
         assert_eq!(externals(&console, "pipe"), 1);
     }
@@ -2142,7 +2193,7 @@ mod canvas_reconcile_tests {
     #[test]
     fn a_none_default_program_builds_the_term_surface_before_the_worker_spawns() {
         for mode in [PresentationMode::None, PresentationMode::Console] {
-            let activate = bootstrap::emit_activate_handler(mode, false, false).expect("activate");
+            let activate = bootstrap::emit_activate_handler(mode).expect("activate");
             let order: Vec<&str> = activate
                 .relocations
                 .iter()

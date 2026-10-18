@@ -107,27 +107,36 @@ only for `--debug`. [[src/target/linux_gtk/mod.rs:debug_app_mode_imports]]
 
 ## `activate`: window, widgets, pipe, worker
 
-`on_activate(GtkApplication *app, gpointer)` constructs the UI and spawns the
-worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
-[[src/target/linux_gtk/bootstrap.rs:emit_activate_handler]]
+`on_activate(GtkApplication *app, gpointer)` builds the off-window `term::`
+surface, builds and presents the startup window (a `Console`-default program) or
+holds the application windowless (a `None`-default one), wires the input pipe and
+spawns the worker (frame 96: `lr@0`, `pthread_t@8`, pipe fds@16,
+`pthread_attr_t@32`): [[src/target/linux_gtk/bootstrap.rs:emit_activate_handler]]
 
-- `gtk_application_window_new(app)` → `ST_WINDOW`; title is the **project name**
-  (matching the `.desktop` `Name=` and the macOS `CFBundleName`), not a constant;
-  default size 900×640.
-- `scrolled = gtk_scrolled_window_new()` then `g_object_ref_sink` → `ST_SCROLLED`
-  (an extra ref so swapping the window child to the term:: surface and back does
-  not destroy it).
 - `term_area = gtk_drawing_area_new()` + `g_object_ref_sink` → `ST_TERM_AREA`,
   draw func set to `_mfb_gtkapp_term_draw`; then `call_internal(TERM_INIT_SYMBOL)`
   derives the grid geometry on the main thread before the worker can use it, and
-  `resize` → `_mfb_gtkapp_term_resize`. This step runs in **both** start modes. A
-  `None`-default program (one that calls `app::setMode`) takes
-  `g_application_hold` instead of building the window, text view and controllers,
-  which the reconcile builds later. It still wires the pipe, spawns the worker, and
-  builds the off-window term area here, before the worker spawns. The reconcile has no ordering with the worker's first `term::` write, so
-  building the area there would leave `term::on` swapping in a NULL child and
-  `term_init` blanking a grid the worker had already written (bug-962).
-  [[src/target/linux_gtk/bootstrap.rs:emit_term_area_setup]]
+  `resize` → `_mfb_gtkapp_term_resize`. This step runs in **both** start modes,
+  before the worker spawns. The reconcile has no ordering with the worker's first
+  `term::` write, so building the area there would leave `term::on` swapping in a
+  NULL child and `term_init` blanking a grid the worker had already written
+  (bug-962). [[src/target/linux_gtk/bootstrap.rs:emit_term_area_setup]]
+- `Console`-default: `call_internal(_mfb_gtkapp_reconcile_build)` — **the one
+  window build**, the same helper the `setMode` reconcile's `Console` and `Canvas`
+  arms call, so a startup window and a reconcile-built one are the same window
+  (bug-985: two copies once drifted and the reconcile-built window had no mouse
+  controllers) — then `gtk_window_present(window)`. `None`-default (a program that
+  calls `app::setMode`): `g_application_hold` and `ST_HELD = 1` instead; the
+  reconcile builds the window later. [[src/target/linux_gtk/bootstrap.rs:emit_reconcile_build_helper]]
+
+The window build (`_mfb_gtkapp_reconcile_build`) does, in order:
+
+- `gtk_application_window_new(ST_APPLICATION)` → `ST_WINDOW`; title is the
+  **project name** (matching the `.desktop` `Name=` and the macOS
+  `CFBundleName`), not a constant; default size 900×640.
+- `scrolled = gtk_scrolled_window_new()` then `g_object_ref_sink` → `ST_SCROLLED`
+  (an extra ref so swapping the window child to the term:: surface and back does
+  not destroy it).
 - `text_view = gtk_text_view_new()`, editable=FALSE, monospace=TRUE; the view is
   deliberately left **non-focusable** (focusing a `GtkTextView` activates the
   IM/a11y machinery that crashes on worker inserts). `buffer =
@@ -140,7 +149,13 @@ worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
   `key-released` → `_mfb_gtkapp_key_released`, controller added via
   `gtk_widget_add_controller` (takes ownership).
   [[src/target/linux_gtk/keys.rs:emit_connect_key_controller]]
-- `close-request` → `_mfb_gtkapp_window_closed`; `gtk_window_present(window)`.
+- A program that uses the mouse members: the press/release, motion and scroll
+  controllers, on the window too. [[src/target/linux_gtk/mouse.rs:emit_attach_controllers]]
+- `close-request` → `_mfb_gtkapp_window_closed`; with the `app` window members,
+  `notify::fullscreened` tracking.
+
+Then, in `activate`, both start modes:
+
 - `pipe(fds)`: read fd → `ST_PIPE_READ_FD`, write fd → `ST_PIPE_WRITE_FD`, and
   `dup2(read, 0)` so the reused console read helpers consume committed input on fd 0.
 - `pthread_create(&thread, &attr, _mfb_gtkapp_worker, NULL)` then `pthread_detach`.

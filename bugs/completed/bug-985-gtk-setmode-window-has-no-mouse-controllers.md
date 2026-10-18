@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed
 Regression Test: (proposed) the bug-982 GTK app-mode row in `scripts/test-appimage.sh`, run again with a program that calls `app::setMode(app::Mode.Console)` first, asserting one `event` line per mouse action
 
 ## Cause (coordinator, bug-staging-24)
@@ -71,3 +71,42 @@ Control: bug-982's Console-default program with the same `xdotool` moves crashes
 event (rc 139), which shows events do reach a window at those coordinates on this display.
 
 Expected: rc 0, at least one `event` line per action (after bug-982 is fixed).
+
+## Fix
+
+- **State at this branch before the fix.** bug-1043 had already given the
+  reconcile-built window its mouse controllers — by adding a SECOND copy of the attach
+  to `emit_reconcile_build_helper`, while `emit_activate_handler` kept its own inlined
+  window build (window, scrolled, text view, key controller, mouse controllers,
+  close-request, fullscreen tracking). The behaviour this doc measured was therefore
+  already masked by that copy plus bug-1015; the rule ("one window, however it is
+  built") was still broken: two builds that had drifted twice.
+- **What changed.** `src/target/linux_gtk/bootstrap.rs:emit_activate_handler` no longer
+  builds a window: for a `Console`-default program it runs `emit_term_area_setup`,
+  calls the shared `_mfb_gtkapp_reconcile_build` (`emit_reconcile_build_helper`) and
+  presents; the inlined copy is deleted (and with it the now-unused `uses_mouse` /
+  `uses_window` parameters and the `x19` save). `src/target/linux_gtk/mod.rs` emits the
+  build helper for every GTK app (it was `None`-default only). The build helper is the
+  one place the window gets its children, controllers and signals.
+- **Test.** `linux_gtk::canvas_reconcile_tests::the_startup_window_is_the_shared_window_build`
+  (unit; activate must call the shared build once and attach nothing itself, for every
+  `uses_mouse`×`uses_window`): RED before the edit (`cargo test --release --bin mfb --
+  the_startup_window_is_the_shared_window_build` → "the Console-default startup window
+  must come from the shared build"), GREEN after. Runtime regression row:
+  `scripts/test-appimage.sh --gui`'s pollMouse row now runs for both the startup window
+  and an `app::setMode(app::Mode.Console)` window — both `events=1` on 2226
+  (`MFB_APPIMAGE_DISPLAY=:77 … --box 2226 --libc glibc --gui`; the 4 other FAILs are
+  the 2226 box-environment ones listed in bug-965, identical with main).
+  Manual xdotool (2226, X11): startup window click/move/scroll 2/5/2 events, setMode
+  window 2/5/2; key + mouse program `keys=abcd`, 2 events.
+- **Checks run.** `cargo test --release --bin mfb -- linux_gtk:: linux_common::` 58
+  passed; `--test cli_linux_app_mode` 11 passed; `spec-census --citations/--render/
+  --links app` clean (spec `02_linux-runtime.md` "activate" section rewritten: activate
+  calls the one window build; also corrects its stale "frame 32" to the real 96).
+- **Goldens expected to change** (`scripts/artifact-gate.sh <mfb> all`, new with this
+  bug): every linux app `.app.ncodesum` — here
+  `tests/syntax/app/macos-app-mode-term/golden/macos_app_mode_term.{linux-aarch64,linux-x86_64}.app.ncodesum`
+  (Console-default: localized on linux-aarch64, main's `-ncode` = the committed golden;
+  `_mfb_gtkapp_reconcile_build` added, `_mfb_gtkapp_activate` changed, nothing else),
+  plus the app-window-surface / app-mouse-surface linux rows already moved by
+  965/1015 (their `_mfb_gtkapp_activate` does not change: they are `None`-default).
