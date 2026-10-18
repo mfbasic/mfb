@@ -208,3 +208,12 @@ Commit: —
 The risk is entirely in not weakening the script: both fixes have an easy version that
 makes the failures disappear by skipping the assertion. The compiler and the AppImage
 format are untouched.
+
+## 2026-10-17 (bug-staging-24): a fourth check fails once a display is given
+
+`MFB_APPIMAGE_DISPLAY=:77 scripts/test-appimage.sh <mfb> --box 2226 --libc glibc --gui`
+(Xvfb `:77` running on the box) runs the windowed case this doc says never ran, and it
+fails: `FAIL: glibc: windowed run exited early (status 0):`. It fails identically with
+main's compiler (`7781cd71b`) and with bug-staging-24's, so it is the box or the check,
+not a change; the three failures above are unchanged. The script now forwards
+`MFB_APPIMAGE_DISPLAY` to the box (bug-965's fix), which is what made the windowed case run.
