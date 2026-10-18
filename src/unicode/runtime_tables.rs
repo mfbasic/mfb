@@ -1,5 +1,4 @@
 use std::sync::OnceLock;
-use unicode_casefold::UnicodeCaseFold;
 use unicode_normalization::UnicodeNormalization;
 
 const UTF8PROC_DATA: &str = include_str!("../../third_party/utf8proc/utf8proc_data.c");
@@ -175,8 +174,11 @@ fn parse_tables() -> UnicodeRuntimeTables {
         build_mapping_tables(|value| value.to_uppercase().map(|ch| ch as u32).collect());
     let (lowercase_entries, lowercase_sequences) =
         build_mapping_tables(|value| value.to_lowercase().map(|ch| ch as u32).collect());
-    let (casefold_entries, casefold_sequences) =
-        build_mapping_tables(|value| value.to_string().case_fold().map(|ch| ch as u32).collect());
+    let (casefold_entries, casefold_sequences) = build_mapping_tables(|value| {
+        super::casefold::fold_char(value)
+            .map(|ch| ch as u32)
+            .collect()
+    });
     UnicodeRuntimeTables {
         stage1: parse_numeric_array("utf8proc_stage1table")
             .into_iter()

@@ -2698,7 +2698,10 @@ impl CodeBuilder<'_> {
     fn emit_float_binary_body(&mut self, kernel: FloatBinaryKernel, k: &KernelRegs, scalar: bool) {
         match kernel {
             FloatBinaryKernel::Atan2 => {
-                // atan2(y=v0, x=v1) = atan(y/x) + (x<0 ? copysign(pi, y) : 0).
+                // atan2(y=v0, x=v1) = atan(y/x) + (signbit(x) ? copysign(pi, y) : 0).
+                // The mask is bit 63 of x smeared across the lane, not an ordered
+                // `x < 0` compare: that is false for -0.0, which dropped the +pi
+                // atan2(y, -0.0) = copysign(pi/2, y) needs (bug-932).
                 // The origin (0,0) drives q = 0/0 = NaN, which the result-NaN
                 // check would raise as ErrFloatNan — but the man page (and the
                 // Fixed sibling) define atan2(0,0) = 0. Capture the origin lanes
@@ -2711,7 +2714,7 @@ impl CodeBuilder<'_> {
                     abi::VEC_SCRATCH[1],
                 )); // x == 0
                 self.emit(abi::vector_and(&k.v24, &k.v24, abi::VEC_SCRATCH[2])); // origin mask
-                self.emit(abi::vector_fcmlt_zero(&k.v20, abi::VEC_SCRATCH[1])); // x < 0 mask
+                self.emit(abi::vector_sshr(&k.v20, abi::VEC_SCRATCH[1], 63)); // signbit(x) mask
                 self.emit(abi::vector_and(&k.v21, abi::VEC_SCRATCH[0], &k.v18)); // sign(y)
                 self.emit(abi::vector_fdiv(
                     abi::VEC_SCRATCH[0],
@@ -2730,7 +2733,7 @@ impl CodeBuilder<'_> {
                     abi::VEC_SCRATCH[2],
                     abi::VEC_SCRATCH[2],
                     &k.v20,
-                )); // & (x<0)
+                )); // & signbit(x)
                 self.emit(abi::vector_fadd(
                     abi::VEC_SCRATCH[0],
                     abi::VEC_SCRATCH[0],

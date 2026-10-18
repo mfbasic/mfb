@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/<conversions>/tofixed-string-exact-rt (to add)
+Status: Fixed
+Regression Test: `tests/runtime/rt_tofixed_string_exact.rs`
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -121,3 +121,23 @@ exact, as a runtime helper mirroring `numeric::fixed_conversion_from_decimal`.
 
 The engineering risk is concentrated in a runtime exact-decimal helper. Everything else
 stays untouched.
+
+## Fix
+
+`lower_to_fixed`'s String arm calls the new `emit_parse_decimal_string_to_fixed_raw`
+(`src/codegen/engine/convert/builder_fixed_parse.rs`), integer arithmetic only: the whole part
+accumulates (bounded to 2^31), the first 33 fractional digits (the deciding digits of
+`numeric::fixed_conversion_from_decimal`) go to a stack buffer that is doubled 33 times to read
+off the fraction's binary digits exactly, the 33rd being the round bit (ties away from zero), then
+sign and i64 range check. Exponents are applied exactly by moving the decimal point; the accepted
+grammar is the one `_mfb_rt_string_to_float` accepted. Spec `language/04_types.md` and the
+`toFixed` man description state the rule.
+
+RED (main's compiler): `MFB_TEST_EXE=/tmp/main-dbg-target/release/mfb cargo test --release --test
+rt_tofixed_string_exact` fails (`toFixed("2147483647.99")` = `2147483647.990000009536` vs the
+literal `2147483647.989999999990`). GREEN with this branch.
+
+Goldens expected to move: `byte-identity/general/general_codegen_cover_rt` (five `.ncode`
+shas; measured by `artifact-gate general`, 5 diffs) - the fixture calls `toFixed(String)` and the
+emitted parse changed. Any other fixture whose native code contains `toFixed(String)` moves the
+same way (ncode kind only).

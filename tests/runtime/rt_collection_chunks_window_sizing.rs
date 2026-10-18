@@ -207,3 +207,47 @@ fn large_constant_sizes_and_strides_compile_and_match_runtime_values() {
         assert_eq!(fast_out, slow_out, "{name}: constant vs run-time contents");
     }
 }
+
+/// bug-1104: the generic `window` body (run-time `size`/`stride`) steps only
+/// while the next start still fits, so a stride near the Integer maximum
+/// returns the windows that fit and raises nothing (it used to overflow
+/// `i + stride` and raise an undeclared `ErrOverflow` inside the stdlib body).
+#[test]
+fn runtime_stride_near_integer_maximum_returns_the_windows_that_fit() {
+    let cases: &[(&str, &str, &str, &str)] = &[
+        (
+            "window_dyn_stride_max",
+            "collections::window([\"a\", \"b\", \"c\"], {ARGS})",
+            "1, 9223372036854775807",
+            "1\n1 a\n",
+        ),
+        (
+            "window_dyn_stride_max_minus_one",
+            "collections::window([1, 2, 3], {ARGS})",
+            "2, 9223372036854775806",
+            "1\n2 1 2\n",
+        ),
+        (
+            "window_dyn_size_max",
+            "collections::window([1, 2, 3], {ARGS})",
+            "9223372036854775807, 9223372036854775807",
+            "0\n",
+        ),
+        (
+            "window_dyn_stride_steps",
+            "collections::window([1, 2, 3, 4, 5, 6, 7], {ARGS})",
+            "2, 3",
+            "2\n2 1 2\n2 4 5\n",
+        ),
+        (
+            "window_dyn_stride_exact_end",
+            "collections::window([1, 2, 3, 4, 5, 6, 7], {ARGS})",
+            "2, 5",
+            "2\n2 1 2\n2 6 7\n",
+        ),
+    ];
+    for (name, call, args, expected) in cases {
+        let (out, _) = run(name, &program(call, &dynamic(args)));
+        assert_eq!(&out, expected, "{name}: run-time arguments");
+    }
+}

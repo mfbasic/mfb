@@ -37,6 +37,8 @@ LET y AS Fixed = 1.25    ' Fixed
 LET z = toFixed("1.25")  ' Fixed, fallible parse
 ```
 
+`toFixed(String)` converts the decimal text exactly, as a `Fixed` literal does: the nearest representable `Fixed`, ties away from zero, then the range check (`ErrOverflow` only when the rounded value is outside the `Fixed` range, `ErrInvalidFormat` for text that is not a decimal number); there is no `Float` step, so `toFixed("2147483647.99")` stores the same value as the literal `2147483647.99`. [[src/codegen/engine/convert/builder_fixed_parse.rs:emit_parse_decimal_string_to_fixed_raw]]
+
 `Byte` is an unsigned 8-bit integer with range `0` through `255`. Integer literals may initialize a `Byte` only when the literal is statically in range. Runtime conversion to `Byte` uses `toByte`; out-of-range conversion fails with `77050010`.
 
 ### `Scalar`

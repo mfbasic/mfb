@@ -11,6 +11,7 @@ The generators under `tools/unicode-tables/` read them; nothing reads them at ru
 | `EastAsianWidth-16.0.0.txt` | <https://www.unicode.org/Public/16.0.0/ucd/EastAsianWidth.txt> | `gen_linebreak_table.py` (UAX #14 LB30's F/W/H exclusion) |
 | `emoji-data-16.0.0.txt` | <https://www.unicode.org/Public/16.0.0/ucd/emoji/emoji-data.txt> | `gen_linebreak_table.py` (Extended_Pictographic, LB30b) |
 | `LineBreakTest-16.0.0.txt` | <https://www.unicode.org/Public/16.0.0/ucd/auxiliary/LineBreakTest.txt> | `tests/runtime/rt_strings_line_breaks.rs` (the conformance oracle) |
+| `CaseFolding-16.0.0.txt` | <https://www.unicode.org/Public/16.0.0/ucd/CaseFolding.txt> | `gen_casefold_table.py` (the C+F full case folding) |
 | `LICENSE.txt` | <https://www.unicode.org/license.txt> | — |
 
 The files are © Unicode, Inc. and are distributed under the Unicode License v3, which
@@ -19,6 +20,7 @@ The files are © Unicode, Inc. and are distributed under the Unicode License v3,
 SHA-256 of the files as downloaded (2026-10-17):
 
 ```
+6f1f9c588eb4a5c718d9e8f93b782685e5c7fec872cf05e8e6878053599e09bb  CaseFolding-16.0.0.txt
 43adc76c0686a42cb370764eb8cfe2b2a45b10b855e5572a2db4a0eecce15d5b  EastAsianWidth-16.0.0.txt
 e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96  LICENSE.txt
 e97e4259d0d20fab150b9c7b4b28abfae5cd78ca97e7f4ac6ed20d685d5f4a7c  LineBreak-16.0.0.txt

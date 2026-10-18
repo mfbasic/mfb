@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/datetime/datetime-parse-fraction-scale-rt (proposed)
+Status: Fixed
+Regression Test: `tests/runtime/rt_datetime_parse_fraction_scale.rs`
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -93,3 +93,23 @@ scales by the count it read, which is why it is immune.
 
 - `__datetime_parseFields` `f` arm — fixed by this bug.
 - `__datetime_parseIso` fraction reader — unaffected (scales by digits read; verified, line 4).
+
+## Fix
+
+`__datetime_parseFields` (`src/codegen/builtins/datetime/helper_parse_fields.rs`), `f` arm, now
+scales by `r.nextPos - vi`, the digits `__datetime_readNum` actually consumed: multiply by 10 up
+to nine digits, and divide by 10 down to nine for a longer read (the first nine digits are kept,
+as `parseIso` does). Spec `stdlib/02_datetime.md` and the `parse` man description state it.
+
+RED (main's compiler on the bug's repro): `.12` under `fff` printed `10:00:00.012000000Z` and
+`.1` under nine `f`s printed `.000000001Z`; the test also fails on main. GREEN with this branch
+(`parse("10:00:00.12", "HH:mm:ss.fff")` = `.120000000Z`, `.1` under nine `f`s = `.100000000Z`).
+
+Goldens expected to move: every fixture whose assembled IR includes the datetime package
+helper bodies, `.ir` kind only (run output unchanged). Measured: `artifact-gate datetime`
+(`byte-identity/datetime/datetime_codegen_cover_rt`: `.ir` + five `.ncode` shas) and
+`test-accept` over `datetime-*`/`func_datetime*` (15 `.ir` mismatches: datetime-arith-errors-rt,
+datetime-civil-valid, datetime-clock-offset, datetime-format-valid, datetime-instant-valid,
+datetime-invalid, datetime-iso-nanos-rt, datetime-offset-seconds-rt, datetime-parse-range-rt,
+datetime-parse-strict-rt, datetime-parse-trap-rt, datetime-parse-valid, datetime-tz-new-york-rt,
+datetime-withzone-instant-rt, func_datetime_localOffset_valid).

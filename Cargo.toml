@@ -39,7 +39,6 @@ mfb_repository = { path = "repository" }
 mfb_wire = { path = "wire" }
 sha2 = "0.10"
 tinyjson = "2.5"
-unicode-casefold = "0.2"
 unicode-normalization = "0.1"
 unicode-segmentation = "1.12"
 # Compiler build-time only (macOS app-icon `.icns` generation, plan-22-B). These
@@ -664,6 +663,22 @@ path = "tests/runtime/rt_vector_register_native.rs"
 [[test]]
 name = "rt_hof_transient_bytes"
 path = "tests/runtime/rt_hof_transient_bytes.rs"
+
+[[test]]
+name = "rt_strings_casefold_unicode16"
+path = "tests/runtime/rt_strings_casefold_unicode16.rs"
+
+[[test]]
+name = "rt_tofixed_string_exact"
+path = "tests/runtime/rt_tofixed_string_exact.rs"
+
+[[test]]
+name = "rt_math_atan2_negative_zero_x"
+path = "tests/runtime/rt_math_atan2_negative_zero_x.rs"
+
+[[test]]
+name = "rt_datetime_parse_fraction_scale"
+path = "tests/runtime/rt_datetime_parse_fraction_scale.rs"
 
 [[test]]
 name = "rt_collection_chunks_window_sizing"

@@ -61,6 +61,11 @@ vectors in `tools/math-kernels/ref/<fn>.ref`. The kernels meet it as follows:
 | `Fixed` `asin`/`acos`/`atan`/`atan2` | **≤1 Q32.32 unit (2^-32) of the TRUE value**, over the whole domain | one `atan(num/den)` kernel on an exact integer ratio + Q1.63 Taylor series, rounded once; measured maximum 0.4990 units over an 855-argument corpus |
 | other `Fixed` transcendentals, `Fixed MOD` | deterministic Q32.32 | platform-independent by construction; not an `f64` bound |
 
+The `Float` `atan2` kernel adds `copysign(pi, y)` when the SIGN BIT of `x` is set (an integer test of bit 63,
+not an ordered `x < 0` compare), so `atan2(y, -0.0)` is `copysign(pi/2, y)` exactly as `atan2(y, +0.0)` is
+(`tests/runtime/rt_math_atan2_negative_zero_x.rs`); the origin `atan2(±0, ±0)` stays `0`.
+[[src/codegen/builtins/vector/builder_simd_float_math.rs:emit_float_binary_body]]
+
 Both trig bounds hold at **every finite angle**. The regression test
 `tests/runtime/rt_math_float_trig_large_angles.rs` scores scalar and `List OF
 Float` `sin`/`cos`/`tan` against an exact 1400-bit big-integer oracle over 410

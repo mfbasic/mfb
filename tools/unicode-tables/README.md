@@ -20,4 +20,10 @@ longer matches, so never hand-edit an artifact: change the generator and re-run 
   LineBreak, EastAsianWidth and emoji-data at 16.0.0) and the committed general-category
   artifact, so any Python 3 reproduces it.
 
+- **gen_casefold_table.py** → `src/unicode/casefold_cf.txt`: Unicode full case folding
+  (the C and F mappings) behind `strings::caseFold` and regex `(?i)`, read by both the
+  compile-time fold and the runtime casefold tables through `src/unicode/casefold.rs`.
+  Reads only the vendored `third_party/unicode/CaseFolding-16.0.0.txt`, so any Python 3
+  reproduces it.
+
     python3 tools/unicode-tables/<generator> > <artifact>

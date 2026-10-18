@@ -7,7 +7,6 @@
 //! error. If folding them is ever added, fold the error condition back to the
 //! runtime path — do not turn the catchable 77050001 into a build error.
 
-use unicode_casefold::UnicodeCaseFold;
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -20,7 +19,7 @@ pub(crate) fn lower(value: &str) -> String {
 }
 
 pub(crate) fn case_fold(value: &str) -> String {
-    value.case_fold().collect()
+    value.chars().flat_map(super::casefold::fold_char).collect()
 }
 
 pub(crate) fn normalize_nfc(value: &str) -> String {

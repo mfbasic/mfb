@@ -61,6 +61,9 @@ check tools/unicode-tables/gen_regex_scripts.py src/codegen/string/unicode/unico
 # plan-162-E: the UAX #14 Line_Break classes behind `strings::lineBreakClass`, from the
 # vendored Unicode 16.0.0 LineBreak, EastAsianWidth and emoji-data files.
 check tools/unicode-tables/gen_linebreak_table.py src/codegen/string/unicode/unicode_linebreak_ranges.txt
+# bug-905: the C+F full case folding behind `strings::caseFold` and regex `(?i)`, from the
+# vendored Unicode 16.0.0 CaseFolding.txt (compile-time fold and runtime tables both read it).
+check tools/unicode-tables/gen_casefold_table.py src/unicode/casefold_cf.txt
 # plan-123: the `Codepage` enum and the 27 WHATWG legacy single-byte tables are
 # derived from the vendored index files under tools/codepage-index/. Nobody can
 # review 3,342 mappings by eye, so the artifact is never hand-edited -- this gate

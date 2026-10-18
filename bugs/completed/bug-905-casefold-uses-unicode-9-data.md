@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/rt-behavior/strings/casefold-modern-unicode-rt (proposed)
+Status: Fixed
+Regression Test: `tests/runtime/rt_strings_casefold_unicode16.rs`
 
 ## Cause (coordinator, bug-staging-24)
 
@@ -109,3 +109,21 @@ so it inherits the stale data.
 - `src/unicode/runtime_tables.rs:parse_tables` (runtime casefold tables) — fixed by this bug
 - `src/unicode/backend.rs:case_fold` (compile-time fold) — fixed by this bug
 - regex `(?i)` matching (`helper_char_eq.rs`) — calls `strings::caseFold`, fixed by this bug
+
+## Fix
+
+`tools/unicode-tables/gen_casefold_table.py` turns the vendored
+`third_party/unicode/CaseFolding-16.0.0.txt` (source, license and SHA-256 recorded in
+`third_party/unicode/README.md`) into `src/unicode/casefold_cf.txt` (C+F mappings), re-run by
+`scripts/check-generated.sh`. `src/unicode/casefold.rs:fold_char` reads it; both
+`backend::case_fold` (compile-time) and `runtime_tables::parse_tables` (runtime tables) use it.
+The `unicode-casefold` dependency is removed. Spec `unicode/01_tables-and-algorithms.md` updated.
+
+RED (main's compiler, `MFB_TEST_EXE=/tmp/main-dbg-target/release/mfb cargo test --release --test
+rt_strings_casefold_unicode16`): the eight post-Unicode-9 cases and regex `(?i)` print FALSE for
+both the literal and run-time fold. GREEN with this branch's compiler.
+
+Goldens expected to move: every `.ncode` golden whose program emits the casefold tables (any
+dynamic `caseFold` or regex `(?i)` use; the table grows): measured
+`byte-identity/regex/regex_codegen_cover_rt` (5 ncode shas). Other fixtures that emit them
+move the same way (kind: ncode / ncodesum only; no source or IR change).
