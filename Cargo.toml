@@ -15,8 +15,16 @@ default-members = [".", "repository", "wire"]
 # A bare `cargo test` builds with release optimizations: the suite's in-process
 # compiler tests run hours in an unoptimized build. `cargo build`/`cargo run`
 # keep the normal debug profile.
+#
+# Optimized, but still CHECKED. `release` turns off debug assertions and overflow
+# checks, and inheriting that silently compiled out every `debug_assert!`
+# invariant in the compiler (the riscv64 v128 slot-overlap check, the RULES drift
+# guard) and the `#[cfg(debug_assertions)]` tests that prove them, e.g.
+# `rules::tests::unknown_rule_name_trips_the_debug_assert`.
 [profile.test]
 inherits = "release"
+debug-assertions = true
+overflow-checks = true
 
 [package]
 name = "mfb"

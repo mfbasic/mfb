@@ -1330,7 +1330,7 @@ declare the dependency by source directory — exactly what this fixture does. T
 gap was therefore going to widen, not close.
 
 **The fix** is the missing step, not a skip: `fixture_project` now calls
-`cli::build::build_source_dependencies_for_test` before resolving packages,
+`cli::build::build_source_dependency_interfaces` before resolving packages,
 memoized per fixture behind a mutex (the builder CLEARS the cache before
 refilling it, so two tests reaching one fixture concurrently could have had one
 delete the `.mfp` the other was about to read).

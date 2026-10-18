@@ -82,7 +82,11 @@ fn build_source_doc_page(path: &Path) -> Result<(doc::DocPage, bool), String> {
             .unwrap_or_else(|| "package".to_string());
         let ast = ast::parse_project(&name, path, &manifest)
             .map_err(|_| "failed to parse project source".to_string())?;
-        let valid = resolver::resolve_project(path, &manifest, &ast).is_ok();
+        // Rebuild the source-directory packages first, as `mfb build` does: the
+        // resolver reads their `.mfp` from `build/packages/`, and a stale one
+        // there fails resolution of a project that builds.
+        let valid = crate::cli::build::build_source_dependency_interfaces(path, &manifest).is_ok()
+            && resolver::resolve_project(path, &manifest, &ast).is_ok();
         Ok((doc::from_source(&ast), valid))
     } else {
         let contents = fs::read_to_string(path)
@@ -164,6 +168,66 @@ mod tests {
         fs::write(src.join("main.mfb"), "FUNC main() AS Nothing\nEND FUNC\n").unwrap();
         let (_, valid) = build_source_doc_page(dir.path()).expect("page");
         assert!(valid);
+    }
+
+    /// A project that imports a package declared by source directory documents
+    /// as valid even when `build/packages/` holds an unreadable `.mfp` for it
+    /// (an older compiler's output, say): `mfb build` rebuilds that cache before
+    /// resolving, so `mfb doc` must too.
+    #[test]
+    fn build_source_doc_page_rebuilds_a_stale_source_package() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let dep = root.join("packages").join("docdep");
+        fs::create_dir_all(dep.join("src")).unwrap();
+        fs::write(
+            dep.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"docdep\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"package\",\n",
+                "  \"description\": \"mfb doc fixture package\",\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"lib\", \"include\": [\"**/*.mfb\"] }],\n",
+                "  \"targets\": [\"native\"]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            dep.join("src").join("lib.mfb"),
+            "EXPORT FUNC twice(n AS Integer) AS Integer\n  RETURN n * 2\nEND FUNC\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"docapp\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }],\n",
+                "  \"packages\": [{ \"name\": \"docdep\", \"version\": \"=0.1.0\", \"source\": \"file:packages/docdep\", \"direct\": true, \"requiredBy\": [] }],\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("src").join("main.mfb"),
+            "IMPORT docdep\n\nFUNC main() AS Nothing\n  LET n AS Integer = docdep::twice(2)\nEND FUNC\n",
+        )
+        .unwrap();
+        let cache = root.join("build").join("packages");
+        fs::create_dir_all(&cache).unwrap();
+        fs::write(cache.join("docdep.mfp"), b"not a package").unwrap();
+
+        let (_, valid) = build_source_doc_page(root).expect("page");
+        assert!(valid, "a stale cached .mfp must be rebuilt, not reported");
     }
 
     #[test]
