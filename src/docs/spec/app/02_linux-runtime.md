@@ -186,9 +186,21 @@ zero-initialized with `align: 8`, layout label
 [[src/target/linux_gtk/mod.rs:app_mode_data_objects]]
 
 `Asm::state_array`/`load_state`/`store_state` materialize a field address (adrp/add
-of `STATE_SYMBOL` + offset; offsets ≥ 4096 add via `x9`) — `x9` is the address
-scratch, a recurring "load cellH/cur_fg before forming a value in x9" hazard noted
-throughout the term code. [[src/target/linux_gtk/mod.rs:state_array]]
+of `STATE_SYMBOL` + offset). What each clobbers is the contract callers rely on:
+
+- `load_state(dst, off)` builds the address in `dst` and loads through it, so it
+  clobbers nothing but `dst` (bug-964: it used to build it in `x9`, and the
+  wide-glyph edge test that held `col + 1` in `x9` across it compared the state
+  address with `cols`, so every width-2 glyph wrapped/was dropped).
+  [[src/target/linux_gtk/mod.rs:load_state]]
+- `store_state(src, off)` cannot reuse `src`, so it builds the address in `x9`
+  (`abi::SCRATCH[0]`): never hold a value there across it.
+  [[src/target/linux_gtk/mod.rs:store_state]]
+- `state_array(dst, off)` adds an offset ≥ 4096 via `x9`.
+  [[src/target/linux_gtk/mod.rs:state_array]]
+
+A unit test walks every emitted GTK function and fails on a value read of `x9`
+after a state-address materialization overwrote it.
 
 ### Header + input fields
 

@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed
 Coordinator note: measured by the review agent only (Linux runs in podman, or a macOS window screenshot); the coordinator did not re-run it.
 Regression Test: (proposed) a GTK app-mode grid test next to `tests/runtime/rt_gtk_term_utf8_grid.rs` asserting that `io::write("a漢b")` stamps row 0 as `a`,`漢`,TRAIL,`b` and `term::drawText(0,0,"c漢d")` stamps `c`,`漢`,TRAIL,`d`
 
@@ -112,3 +112,40 @@ edge path. A scan of `src/target/linux_gtk/*.rs` for "write SCRATCH[0], then
 - `term_draw.rs` wide-at-edge check — both `TermWriteMode::Write` and `DrawText`
   specializations (one emitter) — fixed by this bug.
 - Other `load_state` users: scanned, none reuse `SCRATCH[0]` across the call.
+
+## Fix
+
+- **What changed.** `src/target/linux_gtk/mod.rs:Asm::load_state` builds the state
+  address in `dst` and loads through it (`adrp dst; add_pageoff dst; ldr dst,[dst,#off]`),
+  so it clobbers only its destination. Every caller is safe; the wide-glyph edge test
+  in `term_draw.rs:emit_term_write_helper` (which holds `col + 1` in `SCRATCH[0]` across
+  `load_state(SCRATCH[2], ST_TERM_COLS)`) now compares the column. `store_state` cannot
+  reuse `src`, so it still builds the address in `SCRATCH[0]`; its doc now says so
+  explicitly. Audit of `store_state` (and all) callers: the new unit test walks every
+  function of the fullest GTK app build (term+canvas+mouse+window+debug, both start
+  modes) and fails on any value read of `SCRATCH[0]` after a state-address
+  materialization — after the fix it finds none, so no `store_state` caller holds a
+  value in `SCRATCH[0]` across it. All 61+ `load_state` destinations are GPRs (grep).
+- **Test.** `linux_gtk::canvas_reconcile_tests::no_value_read_of_scratch0_after_a_state_access`:
+  RED before (`cargo test --release --bin mfb -- no_value_read_of_scratch0` →
+  "Console: _mfb_gtkapp_term_write instruction 237 (Cmp) reads %scratch0 as a value,
+  but a runtime-state access just overwrote it" — exactly this doc's site), GREEN after.
+- **Runtime proof (GTK 2226, Xvfb `:77`, `GDK_BACKEND=x11`, `xwd` window capture).**
+  This doc's program: main renders `A2 a` / `W1 a` (+ wrap); fixed renders `A2 a漢b`
+  and `W1 a漢b`. Edge preserved: `drawText(0, cols-3, "x漢y")` → `x漢` (y past the
+  edge), `drawText(1, cols-2, "p漢q")` → `p` (wide glyph at the last column drops and
+  ends the run), `moveTo(3, cols-1); io::write("漢W")` → `漢W` at the start of row 4.
+  (The box has no CJK font, so 漢 renders as the fallback glyph; placement is what is
+  measured.)
+- **Checks run.** `cargo test --release --bin mfb -- linux_gtk:: linux_common::` 59
+  passed; `--test rt_gtk_term_utf8_grid` 3, `cli_linux_app_mode` 11, `app_special_keys`
+  37, `cli_app_term_inactive_gate` 4, `codegen_term_app_cursor` 2 — all passed;
+  `spec-census --citations/--render/--links app` clean (spec `02_linux-runtime.md`
+  state-access paragraph rewritten).
+- **Goldens expected to change.** `load_state` moves emitted code at every call site in
+  every GTK function, so EVERY linux app native artifact moves: all six linux
+  `.app.ncodesum` goldens in the tree —
+  `tests/syntax/app/{app-mouse-surface,app-window-surface,macos-app-mode-term}/golden/*.linux-{aarch64,x86_64}.app.ncodesum`
+  (`find tests -name '*linux*app*'`). No macOS/Windows/console golden moves from this
+  bug (`scripts/artifact-gate.sh <mfb> all` diff set unchanged from bug-985's apart
+  from content). Not regenerated.

@@ -571,20 +571,24 @@ impl Asm {
         }
     }
 
-    /// Load runtime-state field `offset` into `dst` (clobbers the first
-    /// scratch-pool register, realized `x9`). Spelled with the neutral scratch
-    /// token — not raw `x9` — so a caller injected into a vreg-finalized
-    /// `abi_function` body (plan-101 append shape) does not trip the plan-34-D
-    /// zero-physical-register guard; realized to the same `x9` in a standalone body.
+    /// Load runtime-state field `offset` into `dst`, clobbering nothing else: the
+    /// state address is built in `dst` itself, which is then the base of its own
+    /// load (bug-964). It used to be built in the first scratch-pool register, so a
+    /// caller holding a value there across the call silently read the address — the
+    /// wide-glyph edge test compared `&_mfb_gtkapp_state` against `cols`.
     fn load_state(&mut self, dst: impl Into<Reg>, offset: usize) {
-        self.local_address(abi::SCRATCH[0], STATE_SYMBOL);
-        self.push(abi::load_u64(dst, abi::SCRATCH[0], offset));
+        let dst = dst.into();
+        self.local_address(&dst, STATE_SYMBOL);
+        self.push(abi::load_u64(&dst, &dst, offset));
     }
 
-    /// Store `src` into runtime-state field `offset` (clobbers the first
-    /// scratch-pool register, realized `x9`). Spelled with the neutral token
-    /// because some callers' sequences are injected into shared helper bodies,
-    /// which the plan-34-D stream guard requires to be token-pure.
+    /// Store `src` into runtime-state field `offset`. The address needs a register
+    /// other than `src`, so this one DOES clobber the first scratch-pool register
+    /// (realized `x9`): never hold a value in `abi::SCRATCH[0]` across it, and never
+    /// pass it as `src` (bug-964; `no_value_read_of_scratch0_after_a_state_access`
+    /// checks every emitted function). Spelled with the neutral token because some
+    /// callers' sequences are injected into shared helper bodies, which the plan-34-D
+    /// stream guard requires to be token-pure.
     fn store_state(&mut self, src: impl Into<Reg>, offset: usize) {
         self.local_address(abi::SCRATCH[0], STATE_SYMBOL);
         self.push(abi::store_u64(src, abi::SCRATCH[0], offset));
@@ -1752,6 +1756,69 @@ mod canvas_reconcile_tests {
                         n.saturating_sub(9),
                         n.saturating_sub(19),
                     );
+                }
+            }
+        }
+    }
+
+    /// bug-964: no emitted GTK function reads `SCRATCH[0]` as a value after a
+    /// runtime-state access overwrote it with `&_mfb_gtkapp_state`.
+    ///
+    /// `load_state` used to build the state address in `SCRATCH[0]` before its load,
+    /// so a caller holding a value there across the call read the address instead —
+    /// the wide-glyph edge test compared `&_mfb_gtkapp_state` against `cols`, so every
+    /// width-2 glyph took the right-edge path. This walks every function of the
+    /// fullest app build in emission order: after `adrp SCRATCH[0], _mfb_gtkapp_state`
+    /// the register is the state address, and any later read of it other than as a
+    /// load/store base — before something redefines it — is the hazard. Labels and
+    /// calls end the tracking (control flow and clobbers), so the check never guesses
+    /// across a join.
+    #[test]
+    fn no_value_read_of_scratch0_after_a_state_access() {
+        use crate::arch::ops::CodeOp;
+        let scratch0 = abi::SCRATCH[0].to_string();
+        for initial_mode in [PresentationMode::Console, PresentationMode::None] {
+            let spec = AppEntrySpec {
+                worker_passes_args: true,
+                uses_term: true,
+                initial_mode,
+                uses_canvas: true,
+                uses_mouse: true,
+                uses_window: true,
+                debug_hooks: true,
+            };
+            let functions = emit_app_program_entry(&spec, &HashMap::new()).expect("app entry");
+            for function in &functions {
+                let mut holds_state_address = false;
+                for (index, ins) in function.instructions.iter().enumerate() {
+                    let named = |field: &str| ins.get(field).as_deref() == Some(scratch0.as_str());
+                    match ins.op {
+                        CodeOp::Label | CodeOp::BranchLink => {
+                            holds_state_address = false;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    if ins.get("symbol").as_deref() == Some(STATE_SYMBOL) && named("dst") {
+                        holds_state_address = true;
+                        continue;
+                    }
+                    let reads_as_value = ins
+                        .fields
+                        .iter()
+                        .filter(|(key, _)| *key != "dst" && *key != "base")
+                        .any(|(_, value)| value.render() == scratch0);
+                    assert!(
+                        !(holds_state_address && reads_as_value),
+                        "{:?}: {} instruction {index} ({:?}) reads {scratch0} as a value, but \
+                         a runtime-state access just overwrote it with the state address",
+                        initial_mode,
+                        function.name,
+                        ins.op,
+                    );
+                    if named("dst") {
+                        holds_state_address = false;
+                    }
                 }
             }
         }
