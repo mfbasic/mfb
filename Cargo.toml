@@ -1349,6 +1349,10 @@ name = "rt_typename_enum_member_literal"
 path = "tests/runtime/rt_typename_enum_member_literal.rs"
 
 [[test]]
+name = "rt_record_constructor_partial_fields"
+path = "tests/runtime/rt_record_constructor_partial_fields.rs"
+
+[[test]]
 name = "rt_readline_ill_formed_line"
 path = "tests/runtime/rt_readline_ill_formed_line.rs"
 

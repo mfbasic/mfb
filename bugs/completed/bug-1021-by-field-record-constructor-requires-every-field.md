@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Correctness (language surface; owner-confirmed)
 
-Status: Open
+Status: Fixed (bs24-agent-i)
 Regression Test: (proposed) tests/rt-behavior/types/record-constructor-partial-fields-rt (values of the omitted fields) and tests/syntax/types/record-constructor-partial-fields-invalid (the rejections below)
 
 ## Cause (coordinator, bug-staging-24)
@@ -109,3 +109,29 @@ defaults if not specified").
   `types` topic that shows record construction.
 - Existing goldens: any fixture that pins the partial by-field arity error changes on purpose
   (list them; the owner decision is the proof).
+
+## Fix
+
+`lower_constructor_args` (`src/ir/lower.rs`), the by-field arm: a field the constructor does not name is
+filled from `default_value_expression` — a HIR expression for the default of the field's type (the value an
+uninitialized `MUT x AS T` holds), lowered with the field type expected so literals land in the type's own
+representation. Types: Boolean, Integer/Byte/Fixed/Money (`0`), Float (`0.0`), String, Scalar, List/Set/Map
+(empty), enum (first member), AttributedString (`astrings::fromString("")`), record (recursive, cycle-guarded).
+No default for a function, `Result`, resource, thread, union or a record holding one: the field stays out of
+the list and the existing arity rule fires. It fills only when every name written IS a field, so a stray name
+keeps today's arity/argument diagnostics (no silent default for a typo). Positional lists are untouched.
+`ir::verify::check_constructor` names the fields with no default in the arity message
+("Field(s) `f` have no default value and must be given one."). `Ck[]` is the all-defaults record (the
+coordinator's reading; owner confirmation still advised). Spec `language types`, man `types`, tour updated.
+
+Tests: `tests/runtime/rt_record_constructor_partial_fields.rs`, both RED on main's compiler
+(`omitted_fields_take_their_defaults_at_o0_and_o3`: build refused; `..._still_refused`: no field named),
+GREEN after. Covers every primitive, String, enum, nested record, List/Map/Set, color::Color, generic record,
+union variant, collection literal, loop, at -O0 and -O3 (the omitted-field rows equal the `MUT d AS Ck` row).
+Not tested here: an imported non-builtin `.mfp` record, `--debug` alloc==free.
+
+Expected golden movement: `tests/syntax/types/types-duplicate-field-invalid/golden/build.log` loses its
+`TYPE_CONSTRUCTOR_ARITY_MISMATCH` block for `Point[x := 1, x := 2]` (y is now defaulted; the
+`TYPE_DUPLICATE_FIELD` block stays) — the owner decision is the proof. types-constructor-invalid and
+func_json_stringify_invalid accepted unchanged. Known unknown: `Error`/`ErrorLoc` fields (defaultable per
+verify, no type-index entry here) are treated as having no default.

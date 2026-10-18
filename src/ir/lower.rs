@@ -6435,15 +6435,48 @@ fn lower_constructor_args(
         .iter()
         .all(|argument| matches!(argument, HirConstructorArg::Named { .. }))
     {
+        // bug-1021: a by-field constructor may name SOME of the fields; each field it
+        // leaves out takes its default — the value an uninitialized `MUT x AS T`
+        // holds. That only applies when every name written IS a field: a stray name
+        // keeps today's diagnostics (the arity and argument mismatches), not a
+        // silent default for the field it was meant to be. A field with no default
+        // (`default_value_expression` is `None`) is left out of the list, so the
+        // arity rule refuses it.
+        let names_a_field = |name: &str| fields.iter().any(|field| field.name == name);
+        let every_name_is_a_field = arguments.iter().all(|argument| match argument {
+            HirConstructorArg::Named { name, .. } => names_a_field(name),
+            HirConstructorArg::Positional(_) => false,
+        });
         return fields
             .iter()
             .filter_map(|field| {
-                arguments.iter().find_map(|argument| match argument {
-                    HirConstructorArg::Named { name, value, .. } if name == &field.name => Some(
-                        lower_expression_with_expected(value, Some(&field.type_), locals, context),
-                    ),
+                let named = arguments.iter().find_map(|argument| match argument {
+                    HirConstructorArg::Named { name, value, .. } if name == &field.name => {
+                        Some(value)
+                    }
                     _ => None,
-                })
+                });
+                match named {
+                    Some(value) => Some(lower_expression_with_expected(
+                        value,
+                        Some(&field.type_),
+                        locals,
+                        context,
+                    )),
+                    None if every_name_is_a_field => {
+                        default_value_expression(&field.type_, context, &mut Vec::new()).map(
+                            |default| {
+                                lower_expression_with_expected(
+                                    &default,
+                                    Some(&field.type_),
+                                    locals,
+                                    context,
+                                )
+                            },
+                        )
+                    }
+                    None => None,
+                }
             })
             .collect();
     }
@@ -6460,6 +6493,70 @@ fn lower_constructor_args(
             )
         })
         .collect()
+}
+
+/// bug-1021: the expression whose value is the default of `type_` — what an
+/// uninitialized `MUT x AS T` holds (`mfb spec language types`, the defaultable
+/// types) — or `None` for a type with no default (a function, `Result`, resource,
+/// thread, union, or a record holding one). Lowered with `type_` expected, so every
+/// literal lands in the representation the type's own literals use.
+/// `visiting` guards a record that reaches itself only through a collection.
+fn default_value_expression(
+    type_: &ParameterType,
+    context: &LowerContext<'_>,
+    visiting: &mut Vec<ParameterType>,
+) -> Option<HirExpression> {
+    match type_ {
+        ParameterType::Boolean => Some(HirExpression::Boolean(false)),
+        ParameterType::Integer
+        | ParameterType::Byte
+        | ParameterType::Fixed
+        | ParameterType::Money => Some(HirExpression::Number("0".to_string())),
+        ParameterType::Float => Some(HirExpression::Number("0.0".to_string())),
+        ParameterType::String => Some(HirExpression::String(String::new())),
+        ParameterType::ListOf(_) => Some(HirExpression::ListLiteral(Vec::new())),
+        ParameterType::SetOf(element) => Some(HirExpression::SetLiteral {
+            element_type: (**element).clone(),
+            elements: Vec::new(),
+        }),
+        ParameterType::MapOf(key, value) => Some(HirExpression::MapLiteral {
+            key_type: (**key).clone(),
+            value_type: (**value).clone(),
+            entries: Vec::new(),
+        }),
+        _ if type_.is_named("Scalar") => Some(HirExpression::Scalar(0)),
+        // The attributed text with no characters and no overlay.
+        _ if type_.is_named("AttributedString") || *type_ == ParameterType::AttributeString => {
+            Some(HirExpression::Call {
+                callee: "astrings.fromString".to_string(),
+                arguments: vec![HirCallArg::Positional(HirExpression::String(String::new()))],
+                line: 0,
+                column: 0,
+            })
+        }
+        _ => {
+            // An enum defaults to its first declared member.
+            if let Some(members) = context.type_index.enums.get(type_) {
+                return members.first().map(|member| HirExpression::MemberAccess {
+                    target: Box::new(HirExpression::Identifier(type_.name().to_string())),
+                    member: member.clone(),
+                });
+            }
+            let fields = context.type_index.records.get(type_)?;
+            if visiting.contains(type_) {
+                return None;
+            }
+            visiting.push(type_.clone());
+            let defaultable = fields
+                .iter()
+                .all(|field| default_value_expression(&field.type_, context, visiting).is_some());
+            visiting.pop();
+            defaultable.then(|| HirExpression::Constructor {
+                type_: type_.clone(),
+                arguments: Vec::new(),
+            })
+        }
+    }
 }
 
 fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpression {

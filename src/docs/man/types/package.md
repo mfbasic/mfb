@@ -235,6 +235,13 @@ LET corner = Point[
 ]
 ```
 
+A constructor that writes its fields by name may leave some out; each one it leaves
+out starts at its default (`0`, `FALSE`, `""`, the first enum member, an empty
+list, map or set), the same value `MUT p AS Point` gives. `Point[x := 5]` is a
+`Point` whose `y` is `0`, and `Point[]` is the all-defaults `Point`. A field with
+no default (a function, a resource handle, a union) must be given. A constructor
+that lists its values in field order, `Point[5, 6]`, still needs all of them.
+
 `WITH` builds a changed copy of a record (`mfb man variable`). `RESOURCE … CLOSE BY`
 declares a handle type for a native library binding (`mfb man link`).
 
