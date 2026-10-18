@@ -2186,8 +2186,7 @@ mod canvas_reconcile_tests {
         for uses_mouse in [false, true] {
             for uses_window in [false, true] {
                 let console =
-                    bootstrap::emit_activate_handler(PresentationMode::Console)
-                        .expect("activate");
+                    bootstrap::emit_activate_handler(PresentationMode::Console).expect("activate");
                 assert_eq!(
                     externals(&console, RECONCILE_BUILD_SYMBOL),
                     1,
@@ -2230,8 +2229,7 @@ mod canvas_reconcile_tests {
     /// read waiting on the old file description forever.
     #[test]
     fn the_input_pipe_is_wired_for_a_none_default_program() {
-        let none = bootstrap::emit_activate_handler(PresentationMode::None)
-            .expect("activate");
+        let none = bootstrap::emit_activate_handler(PresentationMode::None).expect("activate");
         assert_eq!(
             externals(&none, "pipe"),
             1,
@@ -2244,8 +2242,8 @@ mod canvas_reconcile_tests {
         );
         // The Console-default path keeps exactly one — the extraction must not have
         // duplicated it into the branch it came from.
-        let console = bootstrap::emit_activate_handler(PresentationMode::Console)
-            .expect("activate");
+        let console =
+            bootstrap::emit_activate_handler(PresentationMode::Console).expect("activate");
         assert_eq!(externals(&console, "pipe"), 1);
     }
 
