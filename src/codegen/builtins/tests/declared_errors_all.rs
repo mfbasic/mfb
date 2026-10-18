@@ -127,6 +127,12 @@ const APP_RAISES_NOTHING: &[(&str, &str)] = &[
         "boxes the mode and marshals mfbReconcile: onto the main thread; every \
          call it makes is external (_objc_msgSend) and it loads no error code",
     ),
+    (
+        "_mfb_rt_term_term_off",
+        "bug-966: setMode's implicit term::off — setMode discards its result (it \
+         tags OK after the reconcile), so the helper's ErrWrongMode from a \
+         non-Console mode never reaches setMode's caller",
+    ),
 ];
 
 #[test]
