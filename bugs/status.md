@@ -25,9 +25,8 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 * SECURITY rows (980, 1017, 1042, 952, 954+947, 955, 918): not scheduled; they wait for the owner.
 * MED 1082: blocked on hardware and a design decision (its doc). Not scheduled.
 * Phase 1 (MED): 966, 965, 1015, 985, 964 - on main (0dc51751f).
-* Phase 2 (MED): 1085, 1088, 1089 - on main (7bb985ed8). 1087
-  (owner: bug-996's rule extends to Metal) and 1091, perf, run alone. Moved out of phase 1 so
-  they do not hold its merge.
+* Phase 2 (MED): 1085, 1088, 1089 - on main (7bb985ed8). 1087 and 1091
+  merged to staging (batch 3).
 * **Phase 3 (MED, table order):** 1098, 1099, 832, 846, 847, 1007 + 1008 (one fix), 1009, 1010,
   1011. 847's run-time collision and the 1009/1010/1011 capacity rule wait on the owner.
 * Later phases: the rest of MED, then LOW, in table order.
@@ -47,8 +46,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [*]  | 688    | HIGH     | Vulkan canvas parity with Metal: V1 to V4 fixed and Windows presents through a swapchain. The 10,000-item render on the Intel GPU (box 206) is down from 106 to 58 ms a frame for squares and circles and from 108 to 92 for the sweep's polygon quads (bug-staging-23: the coverage shader's centre sample is straight-line code), still as large as the program's own 94 ms a present, so not closed; what is left is the size of the one live shader and the polygon edge walk. The cold pipeline compile went from 35 s to 67 s (bug-996 takes it off the first frame). Linux present is bug-1082 |
 | [*]  | 765    | HIGH     | Canvas renders 100,000 color-changing dots under 30 PPS / 30 FPS. The frame cap is gone (2026-10-12: a frame past one frame buffer is drawn in passes, every frame a GPU frame on Metal and Vulkan): 15 to 19 FPS on Metal, 4 to 5 on box 206. Left: the worker's copy and compare, geometry rebuilt on a fill-only change (planning/plan-175-A), the per-frame block upload, and the Intel GPU's own draw time |
 | [ ]  | 1082   | MED      | on Linux a windowed Vulkan canvas frame is read back and blitted, never presented through a swapchain (split from 688; blocked on a real-GPU Linux box and the GTK4 surface decision) |
-| [ ]  | 1087   | MED      | on macOS the first canvas frame of a newly built app waits about 5 s for the Metal pipeline (4,745 ms against 18 ms on a second launch); bug-996's shape on Metal |
-| [ ]  | 1091   | MED      | building one `canvas::Text` geometry record copies the whole font file several times: about 389 µs a record with Arial (773 KB) against 7.9 µs with a 304-byte font, so 1,000 moving text items are 389 ms a frame (found by plan-150-B; `tools/particle-bench` `TEMPLATE=text`) |
 | [ ]  | 1086   | LOW      | the Vulkan canvas path reads a frame back without testing `vkQueueSubmit`'s or `vkQueueWaitIdle`'s result (Metal's twin fixed under 1024) |
 | [ ]  | 1090   | LOW      | under a huge magnification the zero-gradient coverage fallback lights a stray column of pixels far from the shape (191 pixels at x = 450 for two off-surface squares at a 14,000 times transform); software and Metal |
 | [ ]  | 1103   | LOW      | a banded polygon drawn under a group matrix renders about 1.4x slower on Metal since bug-1085 (owner accepted the cost; speed-up wanted) |
