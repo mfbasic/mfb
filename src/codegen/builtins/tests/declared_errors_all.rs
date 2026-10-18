@@ -128,6 +128,11 @@ const APP_RAISES_NOTHING: &[(&str, &str)] = &[
          call it makes is external (_objc_msgSend) and it loads no error code",
     ),
     (
+        "_mfb_gtkapp_reconcile_marshal",
+        "bug-965: posts the reconcile idle and waits on its semaphore; every call \
+         it makes is external (sem_*, g_idle_add) and it loads no error code",
+    ),
+    (
         "_mfb_rt_term_term_off",
         "bug-966: setMode's implicit term::off — setMode discards its result (it \
          tags OK after the reconcile), so the helper's ErrWrongMode from a \
