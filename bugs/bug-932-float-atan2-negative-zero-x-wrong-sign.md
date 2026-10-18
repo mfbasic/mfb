@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/math/float-atan2-negative-zero-x-rt (new; name suggested)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: `atan2(y, ±0.0)` is `+pi/2` for `y > 0` and `-pi/2` for `y < 0` (IEEE 754 / C Annex F and `mfb man math atan2`: "with x zero the result is pi/2 or -pi/2 by the sign of y"); the origin `atan2(±0, ±0) = 0` stays (bug-131).
+- Where: `src/codegen/builtins/vector/builder_simd_float_math.rs:emit_float_binary_body`, `Atan2` arm: the quadrant correction keys on `vector_fcmlt_zero(x)`, an ordered compare for which `-0.0 < 0` is false.
+- Fix: the correction keys on the SIGN BIT of `x`, one integer test of bit 63; scalar and list overloads share the kernel. (Never `cargo clippy --fix` this file: it degrades its hi/lo constants.)
+
 The `Float` `atan2` kernel (scalar and `List OF Float` overloads, every target) gives the **negated**
 angle when `x` is negative zero and `y` is non-zero: `atan2(1.0, -0.0)` = `-1.570796` and
 `atan2(-1.0, -0.0)` = `+1.570796`. With `x = +0.0` the same calls are right (`atan2(1.0, 0.0)` =

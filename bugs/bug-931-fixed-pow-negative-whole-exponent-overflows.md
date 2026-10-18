@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/math/fixed-pow-negative-whole-exponent-small-result-rt (new; name suggested)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: `math::pow(Fixed, Fixed)` with a negative whole exponent returns the Fixed nearest `base^n` (0.00 once it underflows), never `ErrOverflow`; `ErrOverflow` only when the true result is out of range (the doc's Correct behavior).
+- Where: `src/codegen/builtins/money/gen_fixed_math.rs:emit_fixed_pow_general`, integer-exponent branch: `|n|` checked multiplies, then the reciprocal, so an intermediate `base^k >= 2^31` traps before the reciprocal brings it back.
+- Fix: for `n < 0` the magnitude `base^|n|` is not range-checked as a Fixed: it is computed in a wider intermediate (or saturated: past range its reciprocal rounds to 0) and the reciprocal is rounded once to the nearest Q32.32; the overflow trap stays only on the result.
+
 `math::pow` on `Fixed` with a **whole-number negative** exponent computes the forward power
 `base^|n|` with the overflow-trapping Q32.32 multiply and only then takes the reciprocal. When
 `|base| > 1` and `base^|n|` leaves the Fixed range (>= 2^31), the forward multiply raises

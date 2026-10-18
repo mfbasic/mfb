@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/datetime/datetime-parse-fraction-scale-rt (proposed)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: a `datetime::parse` `f` run is scaled by the number of digits actually read (owner decision 2026-10-05), as `parseIso` does: `".12"` under `fff` is 120 ms.
+- Where: `src/codegen/builtins/datetime/helper_parse_fields.rs:__datetime_parseFields`, the `ch = "f"` arm, scales by the run length; the digit count read (`r.nextPos - vi`) is never used.
+- Fix: scale by `10^(9 - digitsRead)` from the count `__datetime_readNum` consumed, the same arithmetic `__datetime_parseIso` uses.
+
 **Owner decision (2026-10-05):** the `f` run is scaled by the number of digits actually read, matching `parseIso`.
 `".12"` under `fff` is 120 ms, and `".1"` under nine `f`s is 100 ms. Rejecting with a format
 error is not the fix.

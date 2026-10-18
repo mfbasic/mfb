@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/crypto/crypto-open-sealed-aad-rt (to add)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: the defaults appended to a call are those of the overload the call resolves to: default padding is part of overload resolution, decided by every provided argument's type, not the first.
+- Where: `src/codegen/registry/mod.rs:default_argument_padding` picks the overload whose trailing `Fill` defaults to append by first-argument type only (`param.ty.name() == argument.name()`), so `crypto::open`'s 5-argument Sealed+aad call is padded with the ct/tag overload's `aad`.
+- Fix: padding selects the overload whose leading parameters accept ALL provided arguments (the same assignability the resolver uses), then pads its defaults; the `crypto::open`-specific reasoning in its comment goes; a padding mismatch reports with the call's span.
+
 `crypto::open` overload 2 is `open(cipher AS SymmetricCipher, key AS List OF Byte, nonce AS
 List OF Byte, sealed AS crypto::Sealed, [aad AS List OF Byte])`. Calling it **with** the
 optional `aad` (the only way to open a box sealed with associated data through the

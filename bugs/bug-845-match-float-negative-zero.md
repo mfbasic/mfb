@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/control-flow/match-float-signed-zero (proposed)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: for values of the same type zero and negative zero are equal everywhere: `MATCH CASE 0.0` matches `-0.0`, and record/union/collection-element `=`/`<>` treat Float fields `-0.0` and `0.0` as equal (owner decision 2026-10-05); a literal arm matches exactly when scrutinee `=` pattern.
+- Where: `src/codegen/memory/value/builder_value_semantics.rs:lower_match_compare` fallback compares Float bit patterns (`compare_registers` + `branch_eq`); `emit_comparable_values_match_branch` and the other bit-pattern equality paths do the same for Float fields.
+- Fix: Float equality is decided by the Float compare (as scalar `=` is) in the one equality emitter every path uses: MATCH arms and structural equality route Float through it; no bit compare of a Float remains.
+
 **Owner decision (2026-10-05):** for values of the same type, zero and negative zero are equal everywhere: `MATCH`
 `CASE 0.0` matches `-0.0`, and record (and union/collection element) `=`/`<>` treats a
 Float field holding `-0.0` as equal to one holding `0.0`, consistent with scalar `-0.0 = 0.0`

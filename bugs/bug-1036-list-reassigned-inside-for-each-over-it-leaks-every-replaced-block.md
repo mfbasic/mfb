@@ -8,6 +8,12 @@ Class: Correctness (memory leak)
 Status: Open
 Regression Test: (proposed) a `--debug` alloc/free test over the program below asserting `alloc_calls == free_calls` and `live_bytes 0`
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: no intentional memory leak; a block may outlive its binding only where the semantics require it, then it is freed (owner decision 2026-10-10): a list reassigned inside a `FOR EACH` over it keeps the iterated block alive until the loop ends, then frees it.
+- Where: `src/codegen/engine/control/builder_control.rs`, the `NirOp::Assign` arm, skips the old-value free for a name in `for_each_iterable_locals` ("That old block leaks, but the pattern is rare"); `try_inplace_set_assign` has the mirror guard.
+- Fix: the replaced block is not freed at the assignment (the loop still reads it) but is released when the `FOR EACH` ends, every replaced block once; the "leaks, rare" exclusion becomes that deferral. `live_bytes` 0 at exit.
+
 A `MUT` list that is reassigned in the body of a `FOR EACH` over that same list keeps every
 block the reassignment replaced. The code does this on purpose: the loop's iterator still
 reads the old block, so the reassignment skips the free, and nothing frees it later.

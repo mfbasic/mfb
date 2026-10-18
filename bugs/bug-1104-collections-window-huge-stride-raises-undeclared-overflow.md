@@ -8,6 +8,12 @@ Class: Correctness (declared errors)
 Status: Open
 Regression Test: none yet
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: a builtin raises only the errors it declares (`ErrOutOfMemory`, `ErrInvalidArgument` for `window`), located at the caller; `window` with any positive stride returns the windows that fit, as its fast path does since bug-1008.
+- Where: the generic `__collections_window` body advances with `i = i + stride`, which overflows before the loop test.
+- Fix: the generic body's loop uses the fast path's overflow-free test (`start <= n - size`, step only while `stride <= (n - size) - start`), so no overflow can arise; nothing special-cased by stride value.
+
 Found by bs24-agent-e while fixing bugs 1007/1008, reproduced by the bug-staging-24
 coordinator, and placed in a later phase.
 

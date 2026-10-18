@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/<conversions>/tofixed-string-exact-rt (to add)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: `toFixed(String)` converts the decimal text exactly: nearest Q32.32 carrier, ties away from zero, then the range check, as the `Fixed` literal path does (`numeric::fixed_raw_from_decimal`).
+- Where: `src/codegen/engine/convert/builder_conversions.rs:lower_to_fixed`, `ParameterType::String` arm: `emit_parse_decimal_string_to_double` then `emit_float_bits_to_fixed_value` rounds twice (binary64, then Q32.32).
+- Fix: a decimal-text-to-Q32.32 parse that mirrors `fixed_raw_from_decimal` (integer part and fraction digits accumulated exactly, one rounding), replacing the binary64 detour on that arm.
+
 `toFixed(String)` converts its text by first parsing it to an `f64`
 (`emit_parse_decimal_string_to_double`), then converting that double to Fixed with
 `emit_float_bits_to_fixed_value`. A Fixed has 32 fractional bits plus a 32-bit integer

@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/strings/casefold-modern-unicode-rt (proposed)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: `strings::caseFold` (and regex `(?i)`, which calls it) applies the C+F mappings of the Unicode version the other case tables ship (16.0.0, `tools/unicode-tables/README.md`).
+- Where: `src/unicode/runtime_tables.rs:parse_tables` and `src/unicode/backend.rs:case_fold` take their folds from the `unicode-casefold = "0.2"` crate (Unicode 9.0.0, no newer release).
+- Fix: generate the fold table from a vendored `third_party/unicode/CaseFolding-16.0.0.txt` by a generator in `tools/unicode-tables/` that `scripts/check-generated.sh` re-runs, as the other tables are; both sites read it, and the `unicode-casefold` dependency is deleted.
+
 `strings::caseFold` is documented as "Unicode full case folding" and as "the intended
 basis for caseless matching". Both the compile-time fold and the runtime casefold tables
 are generated from the `unicode-casefold` 0.2.0 crate, whose data is **Unicode 9.0.0**
