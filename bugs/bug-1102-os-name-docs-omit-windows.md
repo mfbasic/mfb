@@ -1,4 +1,4 @@
-# bug-1096: `mfb man os name` and `mfb spec stdlib os` say `os::name` is `"macos"` or `"linux"`; a Windows build returns `"windows"`
+# bug-1102: `mfb man os name` and `mfb spec stdlib os` say `os::name` is `"macos"` or `"linux"`; a Windows build returns `"windows"`
 
 Last updated: 2026-10-17
 Effort: small (<1h)
