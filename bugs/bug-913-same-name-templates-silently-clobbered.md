@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/syntax/monomorph/template-name-overload-invalid (new) — name suggested
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: templates overload by signature exactly like plain FUNCs (owner decision 2026-10-05): identity is name + ordered parameter shapes + return type (§6 Overloading); resolution picks by the call's argument types; a concrete plain overload wins over a template instantiation when both match exactly (state it in the spec); a true duplicate is `SYMBOL_DUPLICATE_TOP_LEVEL` naming the source symbol.
+- Where: `src/monomorph/lower.rs:Monomorphizer::new` keys `function_templates` by bare name (a later template overwrites an earlier one) and `instantiate_function` never falls back to `resolve_overload`; the instantiation dedup key `name<args>` omits template identity.
+- Fix: templates are stored per signature and enter the same overload resolution plain FUNCs do; the instantiation key includes the template's identity.
+
 **Owner decision (2026-10-05):** templates overload by signature exactly like plain FUNCs. Identity is the name plus
 the ordered parameter shapes plus the return type (§6 "Overloading"). Two template FUNCs with
 different parameter shapes, or a template and a plain FUNC of the same name, are distinct

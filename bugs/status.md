@@ -31,6 +31,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
   847's run-time collision and the 1009/1010/1011 capacity rule wait on the owner (moved out).
 * **Phase 4 (MED, table order):** 1036, 1104, 905, 831, 845, 931, 932, 827, 863 merged to staging;
   864 waits on the owner (Ed25519 TLS server keys).
+* **Phase 5 (MED, table order):** 876, 886, 891, 874, 945, 1021, 833, 913, 914, 1022.
 * Later phases: the rest of MED, then LOW, in table order.
 
 ## Resources and STATE

@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/generics/user-generic-param-not-last-rt (to add)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule (owner decision 2026-10-05, a language change): a template with more than one type argument is written with a parenthesized list everywhere: `TYPE Pair OF (A, B)`, `Pair OF (A, B)` at every use (parameters, returns, LET/MUT, fields, function types, LAMBDA and LINK parameter lists, nested templates). The doc's older "single correct behavior" (a comma before `<identifier> AS` ends the list) is superseded by that ruling.
+- Where: `src/ast/expr.rs:parse_type_name_inner`, the generic fall-through arm, takes `, <Type>` greedily.
+- Fix: the multi-argument form is `OF ( Type {, Type} )`; a bare `OF A, B` is a located parse error that names the parenthesized spelling; one-argument `OF T` unchanged; `Map OF K TO V` and the built-in forms unchanged. Spec grammar, man pages and every in-tree source/fixture/example using the bare form are converted.
+
 **Owner decision (2026-10-05):** change the language. A template with more than one type argument is written with a
 parenthesized argument list everywhere it appears: `Pair OF (A, B)`, never `Pair OF A, B`.
 This applies to the declaration (`TYPE Pair OF (A, B)`) and to every use site: parameters,

@@ -8,6 +8,12 @@ Class: Correctness (language surface; owner-confirmed)
 Status: Open
 Regression Test: (proposed) tests/rt-behavior/types/record-constructor-partial-fields-rt (values of the omitted fields) and tests/syntax/types/record-constructor-partial-fields-invalid (the rejections below)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: `<RecordType>[field := <value>, …]` may name SOME of the fields; an unnamed field takes its declared default (owner decision 2026-10-10), as a positional constructor already pads.
+- Where: the by-field record-constructor check (the arity error for `Ck[name := "a", value := "b"]`) requires every field; find it from the error text in the resolver/type checker.
+- Fix: the by-field constructor fills each unnamed field from its default, and refuses only a field with no default that is not named (located, coded); spec language (records) states it.
+
 **Owner decision (2026-10-10):** `<RecordType>[field := <value>, …]` works with every field
 present today. It must work with **some** of the fields as well: a field the constructor does
 not name takes its default.

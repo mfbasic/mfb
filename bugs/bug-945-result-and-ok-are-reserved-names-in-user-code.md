@@ -8,6 +8,12 @@ Class: Correctness (language surface)
 Status: Open
 Regression Test: tests/rt-behavior/types/user-type-named-result-rt and user-type-named-ok-rt (to add)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: `Result` and `Ok` mean nothing to a user (owner decision 2026-10-05): the internal fallible representation is renamed to names no user identifier can spell (`#Result` / `#Ok`, the `#` sigil already used for internal names), and a user may declare and use `TYPE Result` / `TYPE Ok` like any type.
+- Where: the plain spellings are special-cased in `src/resolver/resolution.rs` (`TYPE_RESULT_NOT_USER_VISIBLE`, `is_named("Ok")`, the `["Error", "Ok", "Err"]` lists), `src/resolver/mod.rs` (reserved names), `src/types.rs` (built-in generic base, two sites).
+- Fix: rename the internal type at its definition; every site that spelled it follows the rename and the user-name special cases (`TYPE_RESULT_NOT_USER_VISIBLE` and the reserved-list entries) are deleted, not kept as exceptions.
+
 **Owner decision (2026-10-05):** `Result` and `Ok` mean nothing to a user. The runtime's
 fallible-call representation is internal and must not claim either name. A user can
 declare `TYPE Result` / `TYPE Ok` with their own fields, construct them, use them as

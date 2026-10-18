@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/general/typename-enum-member-literal-rt (new) — name suggested
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: `typeName(v)` is the static type of `v`; an IR value carries its own type (`"type": "Color"` on the member access).
+- Where: `src/codegen/memory/value/builder_value_semantics.rs:static_type_name_for_fold` / `static_type_name` resolve a member access through its target LOCAL, and `Color` (a type name) is not a local, so `typeName(Color.Green)` errors in `builder_values.rs`'s `typeName` arms.
+- Fix: the static type name is read from the value's own type wherever the value carries one; the member-access-through-local special path is not needed for it.
+
 `typeName` of an enum member written directly as the argument (`typeName(Color.Green)`,
 also `typeName((Color.Red))`) aborts the build with the unstructured message
 `error: native code cannot determine typeName argument type while lowering ...`. The same

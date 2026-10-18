@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/packages/alias-reused-across-files-overload-rt (new) — name suggested
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: an imported overload set is resolved against the package the CALLING FILE's own import binding names (import aliases are per file).
+- Where: `src/monomorph/helpers.rs:collect_imported_overloads` accumulates one `binding -> package` map over all files and keys overloads `"{binding}.{base}"` project-wide; `resolve_imported_overload` consults it without the calling file.
+- Fix: the overload index is keyed by (file, binding) (or by resolved package, looked up through the calling file's binding), and resolution passes the calling file.
+
 Import bindings are per file, so `IMPORT pA AS lib` in one file and
 `IMPORT pH AS lib` in another are independent. But the monomorphizer collects
 imported overload sets in a project-wide `binding → package` map, so the later

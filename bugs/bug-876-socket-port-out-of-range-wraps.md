@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/tcp/port-out-of-range-rt (new) — name suggested
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: a port is an unsigned 16-bit number; outside 0..65535 it is `ErrAddressInvalid` (77070001, "Network host, address, or port is invalid", `mfb spec stdlib transports`) before any socket call.
+- Where: `src/codegen/os/socket/shared.rs:lower_net_endpoint_helper` stores bits 8..15 and 0..7 of the 64-bit port into `sin_port` with no bounds check, the one endpoint path `tcp::connect`/`tcp::listen`/`udp::bind` share.
+- Fix: the shared endpoint helper refuses a port outside 0..65535 with `ErrAddressInvalid` before `getaddrinfo`; the three members inherit it (declared-errors tables updated if they lack it).
+
 The host/port socket builders write only the low two bytes of the `port` Integer into `sin_port`
 and never range-check it. `tcp::connect("127.0.0.1", p + 65536)` connects to port `p`;
 `tcp::listen("127.0.0.1", 70000)` binds port 4464; `udp::bind("127.0.0.1", -1)` binds 65535;

@@ -8,6 +8,12 @@ Class: Correctness
 Status: Open
 Regression Test: tests/rt-behavior/io/<new> (stdin fixture `ok\nab\xffcd\nnext\n`)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: a line reader consumes a whole line through its LF and raises `ErrEncoding` once for an ill-formed one; the next call starts at the next line (`fs::readLine` already does).
+- Where: `src/codegen/builtins/io/gen_read_line_family.rs:lower_read_line_family` validates byte by byte and branches to `encoding_error` mid-line, leaving the rest of the line unread.
+- Fix: the encoding error is recorded, the line is still read through its LF (or EOF), then `ErrEncoding` is raised, as `fs::readLine` (`gen_read_write.rs:lower_fs_read_line_helper`) finds the line first and validates after; `io::input` shares the family.
+
 When `io::readLine` (or `io::input`) meets an ill-formed UTF-8 byte in the middle of a line it raises
 `ErrEncoding` at that byte and leaves the rest of the line in the input stream. The next call
 returns that tail (`cd`) as though it were a complete, valid line. A malformed subpart that sits right

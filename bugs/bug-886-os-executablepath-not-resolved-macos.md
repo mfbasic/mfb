@@ -9,6 +9,12 @@ Status: Open
 Coordinator note: repro measured by the review agent only; the coordinator did not re-run it.
 Regression Test: tests/rt-behavior/os/func_os_executablePath_resolved_rt (to add)
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: `os::executablePath` / `os::appResourcePath` return the absolute, symlink-resolved path with no `.`/`..` components (`mfb spec stdlib os`), as Linux already returns from `/proc/self/exe`.
+- Where: `src/codegen/builtins/os/gen_paths.rs:emit_executable_path_into` (shared by both, and by the `appResourcePath` self-update prefix in `string_self_update.rs:emit_app_resource_prefix`) returns `_NSGetExecutablePath`'s bytes as-is on macOS.
+- Fix: the macOS arm canonicalizes with `realpath()` after `_NSGetExecutablePath`, in the one shared helper, so both members and the cached prefix follow.
+
 On macOS, `os::executablePath()` returns the path `_NSGetExecutablePath` reports,
 which is the path the program was **launched by**, not the file it is. Two cases show
 the difference. Run through a symlink, it returns the symlink's path. Run as

@@ -8,6 +8,12 @@ Class: Correctness (language surface; follows owner decisions on bug-988/989)
 Status: Open
 Regression Test: (proposed) tests/rt-behavior/types/union-variant-template-call-rt and a syntax fixture for the reverse orders
 
+## Cause (coordinator, bug-staging-24)
+
+- Rule: a template call follows the same argument rules as a builtin generic call (the doc's Correct behavior, following the owner's bug-988/989 decisions): a `T` first bound from a collection argument is fixed by it, and a union variant (or `List OF <variant>`) converts to that `T` as the builtin path converts it.
+- Where: the template-instantiation inference in `src/monomorph/` binds `T` by first match without the builtin generic path's conversion step.
+- Fix: template inference uses the builtin generic call's binding and conversion rule (one rule, not a template copy); the doc's error cases stay errors.
+
 bug-988 and bug-989 (owner decisions, 2026-10-10) settled the union rules for the builtin
 collection members: a member fits a union bucket (it is wrapped; a collection of members is
 converted), a union never fits a member bucket, and the collection argument fixes `T`. Template
