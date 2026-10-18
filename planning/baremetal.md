@@ -50,8 +50,8 @@ write **system registers** (FPU enable, page tables, vector base, privilege stat
 
 | Owner | Responsibility |
 |---|---|
-| Compiler, from `project.json` | Image format and load address; FP/SIMD (and RISC-V vector) enable; page tables; the vector table and its entry wrappers; parking every core except the boot core; stack placement and the stack-overflow limit |
-| Program, through §6 functions | Console output, exit, memory for the runtime's heap, the random seed, vector handlers |
+| Compiler, from `project.json` | Image format and load address; FP/SIMD (and RISC-V vector) enable; page tables; the vector table and its entry wrappers; parking every core except the boot core; stack placement and the stack-overflow limit; the runtime's heap, carved from the `heap` region (§4) |
+| Program, through §6 functions | Console output, exit, the random seed, vector handlers |
 | Program, through `MEMORY` blocks | Every device: UART, timers, framebuffers, GPIO, interrupt controllers, … |
 | Compiler built-ins inside `MEMORY` | The few system-register operations a program needs: interrupts on/off, GICv3 claim/complete (§9 #36) |
 
@@ -92,7 +92,7 @@ The section holds chip-level facts the startup code needs before any MFBASIC cod
   "bootCore": 0,
   "mmap": {
     "lowram":  { "kind": "ram",    "base": "0x40000000", "size": "0x4000000" },
-    "highram": { "kind": "ram",    "base": "0x48000000", "size": "0x4000000" },
+    "heap":    { "kind": "ram",    "base": "0x48000000", "size": "0x4000000" },
     "uart":    { "kind": "device", "base": "0x09000000", "size": "0x1000" },
     "disp":    { "kind": "device", "base": "0x09010000", "size": "0x1000" },
     "vram":    { "kind": "device", "base": "0x3C000000", "size": "0x1000000" }
@@ -132,16 +132,51 @@ Each entry is `name: { kind, base, size }`. `kind` is `ram` or `device`.
 - `ram` is mapped as normal, cacheable memory; `device` as device (uncached, ordered) memory.
 - RAM may be split into any number of regions.
 - The `ram` region that contains `loadAddress` is **compiler-owned**: it holds the image and,
-  at its top, the stack. Every other `ram` region is **program-owned**; the program hands it
-  to the runtime through `bmGetMem` (§6) or uses it through `OVERLAY`/`VIEW`.
+  at its top, the stack.
+- The region named **`heap`** is **compiler-owned** too: MFB manages all of its own memory
+  from it (below).
+- Every other `ram` region is **program-owned**; the program uses it through
+  `OVERLAY`/`VIEW`.
 - Names are identifiers. They are the only way to name an address in source (§9).
 
 Checks:
 
 - No two regions overlap.
-- At least one `ram` region exists.
+- A region named `heap` exists and its `kind` is `ram`. A missing `heap`, or one of kind
+  `device`, is a build error naming it.
+- `heap` does not contain `loadAddress`, and its `size` is at least 8 KiB (one block plus the
+  bump-pointer page).
 - `loadAddress` lies inside a `ram` region, and the image plus `stackSize` fits in it.
 - `base` and `size` are 4 KiB multiples (the page-table granule).
+
+#### The `heap` region
+
+The runtime's heap is the `mmap` entry named `heap`. The program supplies no memory hooks:
+the arena takes its blocks from this region directly.
+
+- **Layout.** Arena blocks are handed out upward from `base`. The **last 8 bytes** of the
+  region hold the bump pointer: the address of the next free block. Because `base` and `size`
+  are 4 KiB multiples (checks above) and every block size is a multiple of 4096 (see
+  "Request size"), every block is 4 KiB-aligned, and the last page holds only the bump
+  pointer. The usable heap is `size - 4096` bytes.
+- **Startup.** Step 8 of §5 stores `base` in the bump pointer.
+- **Request size.** `_mfb_arena_alloc` asks for the larger of the request plus its 32-byte
+  header (`ARENA_BLOCK_HEADER_SIZE`) plus growth slack, and `ARENA_DEFAULT_BLOCK_SIZE` (4096),
+  rounded up to a multiple of 4096 (`src/codegen/memory/arena/arena.rs`,
+  `lower_arena_alloc`). On bare metal `emit_arena_map` takes that many bytes at the bump
+  pointer and advances it.
+- **Out of memory.** A request that would pass the start of the last page fails, and the
+  runtime raises `ErrOutOfMemory`. Today the arena treats only a negative `mmap` result as
+  failure (`branch_ge` after `emit_arena_map`); the bare-metal `emit_arena_map` must produce a
+  result that check reads as failure.
+- **No return path.** Blocks are never given back. The arena returns blocks only from
+  `_mfb_arena_destroy` (the only caller of `emit_arena_unmap`, `grep -rn emit_arena_unmap
+  src/codegen`), at shutdown and thread teardown; with no threads (§9 #32) that leaves
+  shutdown, where the whole region is abandoned. Reuse inside blocks is the arena's own, as
+  today.
+- **Interrupt safety.** The bump update is not atomic with respect to interrupts; handlers
+  must not allocate (§6 "Vector handlers").
+- `heap` cannot be named by `OVERLAY` or `VIEW` (§9 #34).
 
 ### Why there is no entry-mode setting
 
@@ -226,14 +261,16 @@ The minimal libc import set of that program (`.nobj` import list): x86-64 `abort
    `timer`, `external`). On aarch64 with `irq` or `fiq` named, if `ID_AA64PFR0_EL1.GIC` reports
    the GICv3 system-register interface, initialize it (`ICC_SRE_ELx`, `ICC_PMR_EL1`,
    `ICC_IGRPEN1_EL1`). Interrupts stay masked until the program runs `INTERRUPTS ON` (#36).
-6. Set the stack pointer to the top of the compiler-owned `ram` region; set the stack limit
+6. Set the stack pointer to the top of the `ram` region holding `loadAddress`; set the stack limit
    from `stackSize`. Zero `.bss`.
 7. riscv64: `_mfb_rt_has_rvv` is fixed at 1 (or the guard and scalar arms are not emitted).
-8. Zero the arena state. The first arena block comes from `bmGetMem` on first allocation.
+8. Zero the arena state and set the `heap` bump pointer to the region's `base` (§4). The
+   first arena block is carved from `heap` on first allocation.
 9. Seed the RNG through `bmSeed` if the program calls `math::rand`.
 10. Call `main` (the no-argument form only; see §8).
-11. Shutdown: `_mfb_arena_destroy` returns each block through `bmRetMem`, then `bmExit(code)`.
-    If `bmExit` returns, the core parks (`wfi`/`hlt` loop).
+11. Shutdown: `bmExit(code)`. Heap blocks are not returned (§4 "The `heap` region"), so
+    `_mfb_arena_destroy` is not called. If `bmExit` returns, the core parks (`wfi`/`hlt`
+    loop).
 
 Dropped from today's sequence:
 
@@ -263,58 +300,37 @@ names have no meaning.
 
 | Function | Replaces | Required |
 |---|---|---|
-| `bmStdout(text AS String) AS Nothing` | `write` to fd 1 | always |
-| `bmStderr(text AS String) AS Nothing` | `write` to fd 2: the runtime error report, out of memory, stack overflow, CPU exceptions | always |
+| `bmStdout(b AS Byte) AS Nothing` | `write` to fd 1, one call per byte | always |
+| `bmStderr(b AS Byte) AS Nothing` | `write` to fd 2, one call per byte: the runtime error report, out of memory, stack overflow, CPU exceptions | always |
 | `bmExit(code AS Integer) AS Nothing` | `_exit`, `abort` | always |
-| `bmGetMem(size AS Integer) AS Integer` | `mmap` in `_mfb_arena_alloc` (`emit_arena_map`) | always |
-| `bmRetMem(startAddr AS Integer, size AS Integer) AS Nothing` | `munmap` in `_mfb_arena_destroy` (`emit_arena_unmap`) | always |
 | `bmSeed() AS Integer` | `getentropy` (aarch64, riscv64) / raw `getrandom` (x86-64) for the RNG seed | only when the program calls `math::rand` |
 
 ### `bmStdout`, `bmStderr`
 
+- **One byte per call.** The runtime loops over the bytes it is writing and calls the hook
+  once per byte. Neither side allocates: the hook never sees a String, so it never needs
+  `strings::toBytes` (which builds a `List OF Byte`).
+- **Why bytes, not a String or a `List OF Byte`.** The runtime writes byte ranges, not always
+  Strings. Today every console write goes through `CodegenPlatform::emit_write`
+  (`write(fd, ptr, len)` on Linux) with a pointer and length: `io::print` passes the String's
+  bytes at `+8` and its length from `+0` (`emit_fd_write_all` in
+  `src/codegen/builtins/io/gen_write_family.rs`) and writes the trailing LF as a separate
+  one-byte write from the stack; the fatal error report renders numbers into a 64-byte stack
+  buffer that is never a String (`write_number` in `src/codegen/error/report.rs`). A
+  `List OF Byte` parameter would make the runtime allocate and copy on every write, including
+  the out-of-memory report.
+- **Cost.** One call per byte. A UART's data register takes one byte per write anyway, and a
+  byte at 115200 baud takes about 87 µs, against a few nanoseconds for a call (estimate, not
+  measured). The hook sees no message boundaries, so it cannot batch a message into one DMA
+  transfer.
 - `bmStderr` runs while the runtime is failing: the heap may be full and the stack close to
-  its limit. It must not allocate and must not fail. If it fails, the runtime goes straight
-  to `bmExit`.
-- Problem: any loop over a String's bytes today allocates (`strings::toBytes` returns a
-  `List OF Byte`). See §12.
+  its limit. It must not allocate and must not fail (§12). If it fails, the runtime goes
+  straight to `bmExit`.
 
 ### `bmExit`
 
 Called after `main` returns (with its result) and after a fatal error (with 255). If it
 returns, the boot core parks.
-
-### `bmGetMem`, `bmRetMem`
-
-The program owns memory management. The runtime only asks for blocks and gives them back.
-
-Contract, from `src/codegen/memory/arena/arena.rs`:
-
-- **Request size.** `_mfb_arena_alloc` asks for the larger of the request plus its 32-byte
-  header (`ARENA_BLOCK_HEADER_SIZE`) plus growth slack, and `ARENA_DEFAULT_BLOCK_SIZE` (4096),
-  rounded up to a multiple of 4096. `size` is always a multiple of 4096 and at least 4096.
-- **Result.** The address of at least `size` bytes of `ram`-kind memory, or `0` for out of
-  memory, which the runtime raises as `ErrOutOfMemory`. Today the arena treats only a
-  negative result as failure (`branch_ge` after `emit_arena_map`), so the bare-metal path
-  must test for `0` instead.
-- **Alignment.** At least 16; 4096 matches what `mmap` gives today. Which one the arena
-  actually needs is unverified (§12).
-- **Return.** `bmRetMem` is called only by `_mfb_arena_destroy`, once per block, with the
-  block's own address and size read from its header: always exactly a block `bmGetMem`
-  returned, never part of one. Its callers are shutdown and thread teardown
-  (`grep -rn ARENA_DESTROY_SYMBOL src`); with no threads on bare metal it runs only at
-  shutdown, before `bmExit`.
-- The memory must be `ram` kind. Arena blocks on device memory would break unaligned and
-  exclusive accesses.
-
-Constraints:
-
-- Both run **inside** the allocator, so nothing they call may allocate (it would re-enter
-  `_mfb_arena_alloc`). This needs a compile-time check of their call graphs (§12).
-- The first `bmGetMem` call happens before the arena exists, so before any global: globals
-  live in arena slots (`AbiCtx::arena_global_slots`). The allocator's own bookkeeping (bump
-  pointer, free list) must live in program-owned `ram` reached through `OVERLAY`. But an
-  overlay's descriptor is allocated normally (§9 decision 1), which would also re-enter the
-  allocator (§12).
 
 ### `bmSeed`
 
@@ -360,7 +376,7 @@ Rules:
   interrupt gates), and the wrapper does not unmask them.
 - **Handlers must not allocate.** A handler can start in the middle of an allocation, and the
   arena state is one pinned register (`x19`/`s11`/`r15`) shared with the interrupted code. The
-  same compile-time call-graph check as `bmGetMem` applies (§12).
+  same compile-time call-graph check as `bmStderr` applies (§12).
 - **Dispatch to a device is the program's job.** `onIrq` asks the interrupt controller which
   source fired, runs the right code and signals completion: PLIC/APLIC claim/complete,
   x86-64 LAPIC EOI and aarch64 GICv2 `GICC_IAR`/`GICC_EOIR` are memory-mapped and go through
@@ -387,19 +403,17 @@ END MEMORY
 
 ```basic
 MEMORY
-    LAYOUT Pl011 CLOSE BY Nothing
+    LAYOUT Pl011
         data AS CUInt32             ' @ 0x00 DR
         RESERVED 20
         flags AS CUInt32            ' @ 0x18 FR
     END LAYOUT
 
-    FUNC bmStdout(text AS String) AS Nothing
+    FUNC bmStdout(b AS Byte) AS Nothing
         RES u AS Pl011 = OVERLAY Pl011 AT uart
-        FOR EACH b IN strings::toBytes(text)       ' allocates; see §12
-            WHILE bits::band(u.flags, 32) <> 0     ' TX FIFO full
-            END WHILE
-            u.data = toInt(b)
-        NEXT
+        WHILE bits::band(u.flags, 32) <> 0         ' TX FIFO full
+        END WHILE
+        u.data = toInt(b)
     END FUNC
 END MEMORY
 ```
@@ -516,7 +530,7 @@ audited trust boundary, exactly like `LINK`.
 
 As with every existing resource, there is **one resource identity** and every `RES` binding or
 function parameter is an alias to it. A `LAYOUT` resource and the memory it describes are never
-copied or moved as `LET`/`MUT` values. Returning a resource can change its cleanup scope or
+copied or moved as `LET`/`MUT` values. Returning a resource can change its scope or
 which aliases remain valid, but it never creates another resource or relocates the memory.
 
 ```basic
@@ -530,26 +544,22 @@ END FUNC
 
 Numbering is stable; replaced items keep their number.
 
-1. **Producer FUNCs return a `RES`** (like `LINK` wrappers). Resources come from a call, are
-   scope-bound, and drop through a real close. The overlay *descriptor* (the small struct of
+1. **Producer FUNCs return a `RES`** (like `LINK` wrappers). Resources come from a call and
+   are scope-bound, but are never closed (#2). The overlay *descriptor* (the small struct of
    pointers/offsets) is allocated normally; only the *target memory* is raw. A producer's
-   signature names only the type (`FUNC openUart AS UartRegs`); the close comes from the
-   type (#2). (Conflict with `bmGetMem`, which runs before the arena: §6, §12.)
+   signature names only the type (`FUNC openUart AS UartRegs`). No program code runs inside
+   the allocator (the heap is compiler-managed, §4), so forming an overlay is an ordinary
+   allocation.
 
-2. **`CLOSE BY` belongs to the `LAYOUT`, not the producer.** Written on the header:
-   `LAYOUT UartRegs CLOSE BY closeUart`, the same form as `RESOURCE Name CLOSE BY fn` (§17).
-   The clause is **required**; `CLOSE BY Nothing` states explicitly that the type needs no
-   teardown. The close can do real work on drop, e.g. quiesce the device.
-   - **The close function lives in the same `MEMORY` block** as its `LAYOUT` (it needs field
-     access, #27) and may be declared later in the block.
-   - **One teardown per type.** Two producers that need different teardown need two `LAYOUT`s.
-   - **Partly built resources close normally.** `OVERLAY` creates the resource identity with
-     its close already attached, so a failure after `OVERLAY` and before the producer returns
-     drops the local `RES` and runs the close under §15. In `attachDisplay`, a `VIEW` that
-     fails (`ErrInvalidArgument`, #30) runs `blankDisplay` on a resource whose `pixels` is
-     still the null view. A close must not assume its `MEM` fields are wired; touching an
-     unwired one fails with `ErrIndexOutOfRange` (#21).
-   - **Drop runs only the user's close.** There is no mapping to undo (#34).
+2. **An overlay is never opened or closed.** It is an MFB overlay on a memory region defined
+   in `project.json` (`mmap`, #34). It is still a resource (opaque outside the block, aliased,
+   never copied or stored in a collection), but one with no close function, so it is never
+   closed. `LAYOUT` takes no `CLOSE BY` clause, and dropping a binding runs nothing: there is
+   no mapping to undo (#34).
+   - **Device teardown is an ordinary function.** Quiescing a device (e.g. `blankDisplay`) is a
+     wrapper the caller calls explicitly; nothing runs it on scope exit.
+   - **Partly built overlays need no cleanup.** A failure after `OVERLAY` and before the
+     producer returns just drops the local `RES`.
 
 3. **Two distinct tools inside the same block**; do NOT unify them through `CPtr`:
    - **(a) Register overlays:** fixed register maps (a UART). Width-typed fields, and **field
@@ -576,7 +586,8 @@ Numbering is stable; replaced items keep their number.
    #28), exactly like a `LINK` return.
 
 7. **Block keyword is `MEMORY … END MEMORY`.** Chosen over reusing `RESOURCE`, which would
-   collide with `RESOURCE Name CLOSE BY fn` and the inner `RES … CLOSE BY`.
+   collide with `RESOURCE Name CLOSE BY fn` and the inner `RES … CLOSE BY`, and an overlay is
+   not a closeable resource (#2).
 
 8. **`LAYOUT` overlay type: transparent inside, opaque outside.** Fields are accessible inside
    the declaring block and opaque everywhere else, including every other `MEMORY` block (#27).
@@ -733,7 +744,6 @@ Numbering is stable; replaced items keep their number.
       `RES` and pass it to A's functions, but not touch its fields.
     - **`LAYOUT` names live in the package namespace,** so two blocks in one package can't
       both declare `UartRegs`.
-    - **A type's `CLOSE BY` function is in the same block as its `LAYOUT`** (#2).
     - **Blocks do not nest** (#18).
     - Wrapper visibility follows normal package rules. A `LAYOUT` named by an exported
       signature is nameable as an opaque type by callers.
@@ -745,8 +755,8 @@ Numbering is stable; replaced items keep their number.
 29. **Mutating, returning and re-wiring a `RES` use existing resource semantics.**
     - **Aliases, not copies.** Only code inside the declaring block may access or assign a
       field; an assignment mutates the one resource in place, visible through every alias.
-    - **`RETURN r` moves nothing and does not run `CLOSE BY`.** Cleanup responsibility for a
-      freshly produced resource passes to the caller under §15.
+    - **`RETURN r` moves nothing.** The binding's scope passes to the caller under §15; there
+      is no close to run or hand over (#2).
     - **A `MEM` field may be reassigned** any number of times inside the declaring block.
       Reassignment replaces the view on the one shared resource.
 
@@ -758,16 +768,15 @@ Numbering is stable; replaced items keep their number.
     | `PEEK`/`POKE` out of bounds, including an unwired `MEM` | `ErrIndexOutOfRange` (`77050001`) |
     | Runtime offset negative or outside the region, misaligned runtime `OVERLAY` base, negative `VIEW` size | `ErrInvalidArgument` (`77050002`) |
 
-    The descriptor allocation can fail with `ErrOutOfMemory` like any allocation. `CLOSE BY`
-    follows the existing rule: an explicit close propagates its failure; a failure during
-    implicit drop is recorded as cleanup metadata and cannot replace an error in flight.
+    The descriptor allocation can fail with `ErrOutOfMemory` like any allocation. Drop runs
+    nothing, so it cannot fail (#2).
 
 31. **Read-modify-write is never atomic.** `r.control = bits::bor(r.control, 1)` is two
     accesses. There are no generic MMIO atomics; use device set/clear registers.
 
 32. **No threads on bare metal (v1).** `THREAD_SENDABLE` is not accepted on a `LAYOUT`. If
     threads come later, the opt-in uses the `RESOURCE` spelling:
-    `LAYOUT UartRegs CLOSE BY closeUart THREAD_SENDABLE`.
+    `LAYOUT UartRegs THREAD_SENDABLE`.
 
 33. **`MEMORY` is bare-metal-only, and that propagates through the import graph.** A `MEMORY`
     block on any non-`baremetal-*` target is a compile error at the block, naming the target.
@@ -786,8 +795,8 @@ Numbering is stable; replaced items keep their number.
       `ErrInvalidArgument` (#30).
     - `OVERLAY` checks that the `LAYOUT`'s packed size (#11) fits between the offset and the
       end of the region.
-    - The region may be `device` or program-owned `ram`. The compiler-owned `ram` region (the
-      one holding `loadAddress`) is rejected.
+    - The region may be `device` or program-owned `ram`. Both compiler-owned `ram` regions (the
+      one holding `loadAddress`, and `heap`, §4) are rejected.
     - There is no mapping step: the page tables identity-map every region, so the address is
       used directly. Drop does not unmap anything.
 
@@ -849,7 +858,7 @@ The sketches assume the `mmap` from §4 (`uart`, `disp`, `vram`).
 
 ```basic
 MEMORY
-    LAYOUT UartRegs CLOSE BY closeUart  ' teardown belongs to the type (#2)
+    LAYOUT UartRegs                 ' no close: overlays are never closed (#2)
         data    AS CUInt32
         status  AS CUInt32
         control AS CUInt16          ' @ 0x08; layout size is 10 bytes, no padding (#11)
@@ -863,6 +872,7 @@ MEMORY
         RETURN bits::band(r.status, 1) = 1   ' one volatile 32-bit read
     END FUNC
 
+    ' Explicit teardown: nothing calls it on drop (#2)
     FUNC closeUart(RES r AS UartRegs) AS Nothing
         r.control = 0                        ' one volatile 16-bit write
     END FUNC
@@ -875,7 +885,7 @@ Two identical UARTs 0x100 apart in one region: `OVERLAY UartRegs AT uart + 0x100
 
 ```basic
 MEMORY
-    LAYOUT Framebuffer CLOSE BY Nothing  ' no teardown, stated explicitly (#2)
+    LAYOUT Framebuffer
         mem AS MEM                  ' a view (pointer + length), NOT a bare CPtr
     END LAYOUT
 
@@ -897,7 +907,7 @@ fields and `MEM` buffer fields; the field type picks the mode.
 
 ```basic
 MEMORY
-    LAYOUT Display CLOSE BY blankDisplay
+    LAYOUT Display
         ' --- registers: field access = volatile I/O ---
         width     AS CUInt32        ' @ 0x00
         height    AS CUInt32        ' @ 0x04
@@ -926,7 +936,7 @@ read the registers, then form the view with a runtime offset.
         ' Geometry is snapshotted once: the view length is fixed here.
         LET w = r.width
         LET h = r.height
-        ' If VIEW fails (#30), r drops here and blankDisplay runs (#2).
+        ' If VIEW fails (#30), r drops here; nothing runs (#2).
         r.pixels = VIEW AT vram + r.bufOffset FOR w * h * 4
         RETURN r
     END FUNC
@@ -952,7 +962,7 @@ Both access modes in the wrappers:
     END FUNC
 
     FUNC blankDisplay(RES r AS Display) AS Nothing
-        r.control = 0                                          ' register write on drop
+        r.control = 0                          ' explicit teardown; the caller calls it (#2)
     END FUNC
 END MEMORY
 ```
@@ -1034,8 +1044,10 @@ bus, in order.
    field-accessed" rule, only inside, like `CPtr` inside `LINK`).
 2. **Backed by raw memory, not an arena allocation** (the descriptor is allocated; the target
    memory is not).
-3. Otherwise unchanged: bound with `RES`, passed by pointer, auto-closed by lexical drop,
-   never copied or stored in a collection.
+3. **Never closed.** Every §15/§17 resource today has a close (`RESOURCE X CLOSE BY fn`). An
+   overlay has none, and dropping a binding is a no-op (#2). This is a new kind of resource.
+4. Otherwise unchanged: bound with `RES`, passed by pointer, scope-bound, never copied or
+   stored in a collection.
 
 ### Read-to-clear registers: a limit of the model
 
@@ -1100,9 +1112,11 @@ default).
 - **Target registry.** A `baremetal` entry in `NATIVE_BACKENDS` (`src/target.rs`), a
   `PlatformFamily::BareMetal` variant (`platform_family()` hits `unreachable!` on an unknown
   OS), and a decision at each of the 270 `PlatformFamily::` sites.
-- **`CodegenPlatform` for bare metal.** `emit_write` → `bmStdout`/`bmStderr`;
-  `emit_program_exit` → `bmExit`; `emit_arena_map`/`emit_arena_unmap` → `bmGetMem`/
-  `bmRetMem`; `emit_random_bytes` → `bmSeed`; `emit_program_entry` and `emit_stack_limit`
+- **`CodegenPlatform` for bare metal.** `emit_write` → a loop calling `bmStdout`/`bmStderr`
+  once per byte of the range (§6);
+  `emit_program_exit` → `bmExit`; `emit_arena_map` → a bump allocation from `heap` (§4),
+  `emit_arena_unmap` unreachable (shutdown skips `_mfb_arena_destroy`, §5);
+  `emit_random_bytes` → `bmSeed`; `emit_program_entry` and `emit_stack_limit`
   → §5. The libc defaults (`emit_heap_alloc` = `malloc`, `emit_lib_open` = `dlopen`,
   `emit_arena_start_time` = `clock_gettime`, terminal control) must not be reachable.
 - **Allowed runtime calls.** `BackendCapabilities.runtime_calls`, checked late on NIR by
@@ -1139,37 +1153,35 @@ default).
 
 ## 12. Open questions
 
-1. **Allocation-free hooks.** `bmGetMem`, `bmRetMem` and `bmStderr` must not allocate. This
-   needs a compile-time check of their call graphs, and two gaps closed:
-   - an `OVERLAY` descriptor is arena-allocated (#1), but `bmGetMem` runs before the arena
-     exists; the descriptor needs a home outside the arena (static, or a compiler-provided
-     overlay for hooks);
-   - no way to walk a String's bytes without allocating (`strings::toBytes` builds a list).
-     One option is a byte-at-a-time hook, `bmStderrByte(b AS Integer)`, that the runtime
-     loops over.
+1. **Allocation-free hooks.** `bmStderr` and vector handlers must not allocate. This needs a
+   compile-time check of their call graphs. (Walking a String's bytes is no longer needed:
+   the hooks take one `Byte` per call, §6.)
 2. **`bmSeed` sources are instructions, not MMIO** (`RDRAND`, `RNDR`, the Zkr `seed` CSR). A
    `MEMORY` block can't execute them. Options: a compiler-provided seed source selected in
    `project.json`, or a device RNG only.
 3. **Region base as a value.** A device that reports an absolute buffer address needs
    `phys − base(region)` as an offset. Expose the base (e.g. a `BASE OF vram` expression inside
    `MEMORY`), or require devices to be described by offsets.
-4. **Should hooks bring packages back?** `io::print`/`io::write` could route to `bmStdout`;
+4. **Should hooks bring packages back?** `io::print`/`io::write` could route to `bmStdout`
+   (their write loops would call it per byte, as `emit_write` does, §11);
    `datetime` now to a `bmNow`; `crypto::randomBytes` to a `bmEntropy`; `io` input to a
    `bmRead`. That would shrink the remove list (§7).
 5. **Sharing data between a handler and the main code.** Handlers can't allocate, and the
    main code's values live in the arena. A mailbox in program-owned `ram` reached through
    `OVERLAY` (with `FENCE`) works but is clumsy. Decide whether something better is needed.
    Also: the x86-64 red-zone audit (§5) blocks interrupts on that target.
-6. **`bmGetMem` alignment:** 16 or 4096. Check what the arena block header and the SIMD list
-   helpers assume.
-7. **Timers and port I/O are still outside `MEMORY`.** The aarch64 generic timer (`CNTVCT_EL0`,
+6. **Timers and port I/O are still outside `MEMORY`.** The aarch64 generic timer (`CNTVCT_EL0`,
    `CNTP_CTL_EL0`, `CNTP_TVAL_EL0`) and the riscv64 S-mode timer (`rdtime`, plus an SBI call or
    the Sstc `stimecmp` register) are system registers; x86 `in`/`out` are instructions. The
    riscv64 M-mode timer (CLINT `mtime`/`mtimecmp`) and the x86-64 LAPIC timer are memory-mapped
    and fine. Without a built-in, the `timer` vector is unusable on aarch64 and riscv64 S-mode.
    Candidate: extend #36 with `TIMER NOW` (expression) and `TIMER AT <ticks>` (statement).
-8. **Unaligned access on device memory:** whether code generation emits unaligned loads or
+7. **Unaligned access on device memory:** whether code generation emits unaligned loads or
    stores anywhere (matters for `MEM` windows on device regions).
+8. **Stack reserve for the failure report.** A stack-overflow report calls `bmStderr`, and
+   the call itself needs stack, at the moment the stack has run out. The runtime needs a
+   reserve below the `stackSize` limit for the report path, sized to cover `bmStderr`'s
+   deepest call (which the no-allocation call-graph check could also compute).
 
 ## 13. Reference points
 
@@ -1177,7 +1189,7 @@ default).
   `src/docs/spec/language/15_resource-management.md`.
 - C ABI type names and marshaling: `src/codegen/link/thunk/link_thunk.rs`; the `is_c_abi_type`
   allow-list in `src/resolver/mod.rs`.
-- Resource resolution (`CLOSE BY`, opaque types, `NATIVE_CPTR_ESCAPE`):
+- Resource resolution (opaque types, `NATIVE_CPTR_ESCAPE`):
   `src/resolver/resolution.rs`.
 - Startup: `src/codegen/engine/function/entry.rs` (`lower_program_entry`),
   `src/docs/spec/memory/08_program-startup.md`.
