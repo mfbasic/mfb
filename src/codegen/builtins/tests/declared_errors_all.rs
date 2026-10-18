@@ -681,6 +681,12 @@ const CANVAS_SKIP_MEMBERS: &[&str] = raise_check_skipped("canvas");
 /// mod.rs`, `macos_aarch64/app/{bootstrap,metal}.rs`).
 const CANVAS_RAISES_NOTHING: &[(&str, &str)] = &[
     (
+        "_mfb_rt_stdin_next_byte",
+        "bug-1015: pollMouseRaw's pending-input drain reads through it; it returns an \
+         EOF/ErrInvalidContext status (no raise_error site of its own), which the \
+         drain treats as 'stop draining' rather than raising",
+    ),
+    (
         "_mfb_rt_drop_owned_collection",
         "frees one owned collection slot; never fails",
     ),
