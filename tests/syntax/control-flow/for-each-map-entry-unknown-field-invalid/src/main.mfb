@@ -1,0 +1,19 @@
+' bug-846: a field read off a `FOR EACH` map entry other than `key`/`value` escaped the
+' verifier and failed in native lowering with an uncoded, unlocated internal error (or
+' surfaced as a misleading TYPE_UNKNOWN_VALUE / TYPE_CALL_ARGUMENT_MISMATCH). Each
+' access below is TYPE_UNKNOWN_FIELD at its own line; `e.key` / `e.value` stay valid.
+IMPORT io
+
+FUNC main AS Nothing
+  LET m = Map OF String TO Integer { "a" := 1 }
+  FOR EACH e IN m
+    IF e.foo = "x" THEN
+      io::print("eq")
+    END IF
+    io::print(e.foo)
+    LET z = e.foo
+    io::print(toString(e.foo))
+    io::print(e.key & toString(e.value))
+  NEXT
+  io::print("done")
+END FUNC

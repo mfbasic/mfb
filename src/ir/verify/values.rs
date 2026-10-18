@@ -827,10 +827,34 @@ impl TypeEnv {
             );
             return;
         }
+        // A `MapEntry OF K TO V` has exactly the fields `key` and `value`
+        // (`mfb spec language` control flow, map loops); any other is unknown.
+        // bug-846: this used to fall into the unchecked case below, and native
+        // lowering was the first to notice.
+        if matches!(target_type, ParameterType::MapEntryOf(_, _)) {
+            if !matches!(member, "key" | "value") {
+                self.emit(
+                    "TYPE_UNKNOWN_FIELD",
+                    format!("record `{type_name}` has no member `{member}`."),
+                );
+            }
+            return;
+        }
+        // A `List`, `Set` or `Map` is not a record: it has no fields to read.
+        if matches!(
+            target_type,
+            ParameterType::ListOf(_) | ParameterType::SetOf(_) | ParameterType::MapOf(_, _)
+        ) {
+            self.emit(
+                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+                format!("field access requires a record value, got `{type_name}`."),
+            );
+            return;
+        }
         // Only a record can be member-accessed. When the target resolves to a
         // record whose complete field set is known, the member must be present;
-        // otherwise (collections, unresolved includes, unknown types) the access is
-        // left unchecked.
+        // otherwise (unresolved includes, unknown types) the access is left
+        // unchecked.
         if let Some(fields) = self.record_fields(&target_type) {
             if !fields.contains(member) {
                 self.emit(
