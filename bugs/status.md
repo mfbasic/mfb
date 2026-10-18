@@ -31,8 +31,8 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
   847's run-time collision (owner 2026-10-18: raise ErrInvalidArgument) and 1009/1010/1011 -> phase 6.
 * **Phase 4 (MED, table order):** 1036, 1104, 905, 831, 845, 931, 932, 827, 863 merged to staging;
   864: owner ruled 2026-10-18 (Ed25519 refused everywhere, ErrInvalidArgument; EC everywhere) -> phase 6.
-* **Phase 5 (MED, table order):** 876, 886, 891, 874, 945, 1021, 833, 913, 914, 1022.
-* **Phase 6 (next):** 864 first, then 1009 + 1010 + 1011 (one fix; owner 2026-10-18: reserve then shrink),
+* **Phase 5 (MED, table order):** 876, 886, 891, 874, 1021 merged to staging; 945, 833, 913, 914, 1022 in progress.
+* **Phase 6 (next):** 864 first, then 1108 (bug-1021's diagnostic regression), then 1009 + 1010 + 1011 (one fix; owner 2026-10-18: reserve then shrink),
   then 847's run-time half, then the next MED rows in table order.
 * Later phases: the rest of MED, then LOW, in table order.
 
@@ -129,7 +129,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | [ ]  | 980    | SECURITY | the HTTP chunked decoder accepts framing llhttp (and RFC 9112) rejects (builds on 859's rule) |
 | [ ]  | 1017   | SECURITY | on Windows, `http::respondPath` still answers 403 vs 404 by existence for a `..\` traversal (bug-862's oracle, through a backslash) |
 | [ ]  | 1042   | SECURITY | `net::toUrl` does no IDNA (UTS #46) host processing: a non-ASCII or `xn--` host is stored as written (what bug-979 left; owner decided: a documented difference for now) |
-| [ ]  | 876    | MED      | `tcp::connect`/`tcp::listen`/`udp::bind` accept any Integer port and silently use its low 16 bits |
 | [ ]  | 865    | LOW      | http server emits the handler's stale reason phrase (`418 OK` from the spec's own teapot example) and any status integer verbatim (`HTTP/1.1 -5 OK`, `1000`, `0`) |
 | [ ]  | 866    | LOW      | `http` route `:name` binds an empty segment — `/t/:id` matches `/t//` with `id = ""` |
 | [ ]  | 867    | LOW      | the http server's 8 KiB-line and 100-field caps are enforced only after the head is complete |
@@ -141,8 +140,6 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 886    | MED      | macOS `os::executablePath` / `os::appResourcePath` return the unresolved invocation path |
-| [ ]  | 891    | MED      | io::readLine/io::input deliver the tail of an ill-formed UTF-8 line as a separate, error-free line |
 | [ ]  | 892    | LOW      | fs::readAll / fs::readAllBytes raise ErrReadFailed after fs::seek past end of file |
 | [ ]  | 893    | LOW      | fs::canonicalPath / fs::isWithin accept "file/" and "file/.." on macOS but raise ErrInvalidPath on Linux |
 
@@ -150,9 +147,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
-| [ ]  | 874    | MED      | `typeName(Enum.Member)` with a literal enum member fails the build with an internal codegen error (after 835) |
 | [ ]  | 945    | MED      | `Result` and `Ok` are reserved in user code — a user cannot declare their own `TYPE Result` or `TYPE Ok` (owner-confirmed language change; after 977 and 978) |
-| [ ]  | 1021   | MED      | a by-field record constructor must name every field (owner decided: omitted fields take their defaults) |
 | [ ]  | 855    | LOW      | walking a recursive union with `MUT cur = c.rest` deep-copies the remaining tail every step — O(n²) time and allocations |
 
 ## Templates and overloads
@@ -214,6 +209,7 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 | Done | Number | Priority | Description |
 | ---- | ------ | -------- | ----------- |
 | [ ]  | 1100   | MED      | `WITH r { z := … }` naming a field the record does not have passes every check and fails in native lowering with no code and no location |
+| [ ]  | 1108   | MED      | a by-field constructor leaving out a field with no default reports `TYPE_RESOURCE_REQUIRES_RES` / `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` about a binding the user never wrote (regression from bug-1021) |
 | [ ]  | 882    | LOW      | `LET x = []` binds `List OF Unknown` silently, and the first `collections::append(x, v)` then fails the build with an internal error |
 | [ ]  | 936    | LOW      | wrong-arity `collections::merge`/`partition` diagnostics print the internal monomorph name `#collections_merge$String$Integer` |
 | [ ]  | 937    | LOW      | one unknown record field produces cascading `TYPE_CALL_ARGUMENT_MISMATCH` (overloaded builtin) and a duplicated `TYPE_UNKNOWN_VALUE` |
