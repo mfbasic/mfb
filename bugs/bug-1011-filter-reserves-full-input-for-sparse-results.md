@@ -10,22 +10,9 @@ Regression Test: `tests/runtime/rt_reserved_collection_result_memory.rs` (propos
 
 ## Cause (coordinator, bug-staging-24)
 
-- WAITING ON THE OWNER (asked 2026-10-17). `mfb spec memory` § Capacity Headroom and Growth states the opposite of this doc's Correct behavior ("A builder whose input only bounds its result allocates once at that bound: native `toSet` ... reserves `capacity = len(value)`"), and no owner ruling is recorded. Options put to the owner: (a) size to the result (grow as the generic path does), (b) reserve at the bound then shrink-to-fit before returning (recommended), (c) keep and close as intended. One rule covers 1009, 1010 and 1011.
-
-`lower_reserved_list` copies the source list's count and data length into the output's initial capacity. This over-reserves when `filter` keeps few or no elements, or when `transform` emits one element per input with a smaller payload. Callers that use `transform` internally inherit the same issue: `sortBy` can retain oversized temporary key payload capacity, and `groupBy` can over-reserve either projected list when its output payloads are smaller than the source. Measurements from `target/debug/mfb build --debug /tmp/mfb_collections_audit` followed by running `/tmp/mfb_collections_audit/build/collection_audit.out` show filtering 50,000 "x" strings with an always-`FALSE` predicate adds 2,850,048 bytes of allocation versus the same input without the filter. Transforming 1,000 strings of 4,096 bytes to empty strings raises peak live arena memory from 4,140,256 bytes for the input alone to 8,280,336 bytes, even though the result holds 1,000 empty strings. This can cause avoidable `ErrOutOfMemory` under memory pressure.
-
-The `groupBy` path has the same effect in both projections: on 1,000 strings of 4,096 bytes, an Integer key projection and an empty-String value projection produce one group but raise peak live arena memory to 12,412,912 bytes, versus 4,140,256 bytes for the input alone. This was measured with the same debug build and `--debug` arena counters.
-
-**Correct behavior:** a reserved result's entry capacity and payload capacity should not retain source-sized space that its output does not need. Sparse filters should grow with kept entries; payload-changing transforms should grow with their actual result payload.
-
-References:
-
-- `src/codegen/builtins/collections/func_filter.rs` — the filter lowering and `lower_reserved_list` call.
-- `src/codegen/builtins/collections/func_transform.rs` — transform lowering and its `lower_reserved_list` call.
-- `src/codegen/builtins/collections/func_sort_by.rs` and `src/codegen/builtins/collections/func_group_by.rs` — internal projections and scratch lists that use `transform` or `lower_reserved_list`.
-- `src/codegen/builtins/collections/gen_mutate.rs` — `lower_reserved_list` allocates capacity and data capacity from the source header.
-- Found during the collection code review; allocation measurements used the debug arena counters.
-
+- OWNER RULING 2026-10-18 (one rule for 1009, 1010, 1011): reserve then shrink. A builder whose input only bounds its result keeps its one up-front reservation at that bound, and before it returns it shrinks the result to exactly what it holds (`capacity == count`, `dataCapacity == dataLength`, buckets re-sized for a Map/Set), so nothing input-sized outlives the call. `mfb spec memory` § Capacity Headroom and Growth changes its "allocates once at that bound ... leaves `count < capacity` in the result" sentence to this rule.
+- Where: the native fast paths that reserve from the input: `func_to_set.rs:lower_collection_to_set_call` (1009), `func_merge.rs:lower_collection_merge_call` / `copy_map_with_capacity` (1010), `gen_mutate.rs:lower_reserved_list` called by `lower_filter` / `lower_transform` (1011).
+- Fix: one shared shrink-to-fit step (the tightening `copy_flat_block` already performs for value copies: an in-place trim or one tight copy-and-free) applied at each of those builders' return, not a per-builder variant.
 ## Failing Reproduction
 
 Build and run this project with `target/debug/mfb build --debug <project>`:

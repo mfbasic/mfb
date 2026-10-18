@@ -10,18 +10,9 @@ Regression Test: `tests/runtime/rt_to_set_duplicate_memory.rs` (proposed)
 
 ## Cause (coordinator, bug-staging-24)
 
-- WAITING ON THE OWNER (asked 2026-10-17). `mfb spec memory` § Capacity Headroom and Growth states the opposite of this doc's Correct behavior ("A builder whose input only bounds its result allocates once at that bound: native `toSet` ... reserves `capacity = len(value)`"), and no owner ruling is recorded. Options put to the owner: (a) size to the result (grow as the generic path does), (b) reserve at the bound then shrink-to-fit before returning (recommended), (c) keep and close as intended. One rule covers 1009, 1010 and 1011.
-
-The fixed-width `collections::toSet` fast path allocates its result with capacity equal to the input list's length before it checks whether any elements are duplicates. In measurements from `target/debug/mfb build --debug /tmp/mfb_collections_audit` followed by running `/tmp/mfb_collections_audit/build/collection_audit.out`, a list of 100,000 copies of `7` produces a one-element set but raises peak live arena memory from 1,771,536 bytes for the input alone to 8,262,976 bytes. An incremental `collections::add` loop over the same input returns the same one-element set with peak memory unchanged at 1,771,536 bytes. On a memory-constrained process, this avoidable reservation can make `toSet` fail with `ErrOutOfMemory` even though the result is small.
-
-**Correct behavior:** the fixed-width conversion must not reserve storage proportional to the number of input elements when the result contains far fewer distinct values. Peak memory for duplicate-heavy inputs should track the number of distinct set entries, in addition to storage already occupied by the input.
-
-References:
-
-- `src/codegen/builtins/collections/func_to_set.rs` — native fast path and generic body.
-- `src/docs/spec/memory/05_collections.md`, “Capacity Headroom and Growth” — spare capacity is an implementation detail; it does not require reserving the input's upper bound for a set conversion.
-- Confirmed on macOS aarch64 at the current worktree HEAD with `target/debug/mfb build --debug` and the runtime arena counters.
-
+- OWNER RULING 2026-10-18 (one rule for 1009, 1010, 1011): reserve then shrink. A builder whose input only bounds its result keeps its one up-front reservation at that bound, and before it returns it shrinks the result to exactly what it holds (`capacity == count`, `dataCapacity == dataLength`, buckets re-sized for a Map/Set), so nothing input-sized outlives the call. `mfb spec memory` § Capacity Headroom and Growth changes its "allocates once at that bound ... leaves `count < capacity` in the result" sentence to this rule.
+- Where: the native fast paths that reserve from the input: `func_to_set.rs:lower_collection_to_set_call` (1009), `func_merge.rs:lower_collection_merge_call` / `copy_map_with_capacity` (1010), `gen_mutate.rs:lower_reserved_list` called by `lower_filter` / `lower_transform` (1011).
+- Fix: one shared shrink-to-fit step (the tightening `copy_flat_block` already performs for value copies: an in-place trim or one tight copy-and-free) applied at each of those builders' return, not a per-builder variant.
 ## Failing Reproduction
 
 Build and run this project with `target/debug/mfb build --debug <project>`:

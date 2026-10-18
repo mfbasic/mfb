@@ -10,18 +10,9 @@ Regression Test: `tests/runtime/rt_merge_overlap_memory.rs` (proposed)
 
 ## Cause (coordinator, bug-staging-24)
 
-- WAITING ON THE OWNER (asked 2026-10-17). `mfb spec memory` § Capacity Headroom and Growth states the opposite of this doc's Correct behavior ("A builder whose input only bounds its result allocates once at that bound: native `toSet` ... reserves `capacity = len(value)`"), and no owner ruling is recorded. Options put to the owner: (a) size to the result (grow as the generic path does), (b) reserve at the bound then shrink-to-fit before returning (recommended), (c) keep and close as intended. One rule covers 1009, 1010 and 1011.
-
-In measurements from `target/debug/mfb build --debug /tmp/mfb_collections_audit` followed by running `/tmp/mfb_collections_audit/build/collection_audit.out`, the native `collections::merge(a, b, TRUE)` fast path reserves capacity for `len(a) + len(b)` entries and both maps' payload bytes before checking key collisions. When the maps contain the same 10,000 String keys, the result contains only 10,000 entries, but the presized path allocates 720,000 more bytes and raises peak live arena memory by the same amount compared with an equivalent sequence of `collections::set` calls. The reservation is for entries that cannot be appended because every key from `b` overwrites a key already in `a`; on a memory-constrained process, this can cause avoidable `ErrOutOfMemory`.
-
-**Correct behavior:** the String-key/fixed-width-value accelerator must not reserve space for all of `b` when its keys overlap with `a`; result memory should track the union of keys and the payloads actually written.
-
-References:
-
-- `src/codegen/builtins/collections/func_merge.rs` — native fast path and its presized copy.
-- `src/docs/spec/stdlib/05_collections.md` — `merge` returns the union of the two key sets; collisions replace values without adding entries.
-- Confirmed on macOS aarch64 at the current worktree HEAD with `target/debug/mfb build --debug` and the runtime arena counters.
-
+- OWNER RULING 2026-10-18 (one rule for 1009, 1010, 1011): reserve then shrink. A builder whose input only bounds its result keeps its one up-front reservation at that bound, and before it returns it shrinks the result to exactly what it holds (`capacity == count`, `dataCapacity == dataLength`, buckets re-sized for a Map/Set), so nothing input-sized outlives the call. `mfb spec memory` § Capacity Headroom and Growth changes its "allocates once at that bound ... leaves `count < capacity` in the result" sentence to this rule.
+- Where: the native fast paths that reserve from the input: `func_to_set.rs:lower_collection_to_set_call` (1009), `func_merge.rs:lower_collection_merge_call` / `copy_map_with_capacity` (1010), `gen_mutate.rs:lower_reserved_list` called by `lower_filter` / `lower_transform` (1011).
+- Fix: one shared shrink-to-fit step (the tightening `copy_flat_block` already performs for value copies: an in-place trim or one tight copy-and-free) applied at each of those builders' return, not a per-builder variant.
 ## Failing Reproduction
 
 Build and run this project with `target/debug/mfb build --debug <project>`:
