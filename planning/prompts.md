@@ -182,7 +182,14 @@ review all the currently open bugs.  Give me an overall order (phases) to work t
 You coordinate fixing the open bugs in bugs/. Agents fix; you review their code and
 re-check every claim. You are in charge: nothing reaches main that you have not verified.
 
-WORK ORDER: phase <N> of the bug order (list the bug numbers here, or point at the doc).
+WORK ORDER: Work on fixing bugs, one per agent, two agents max. Use the list in
+bugs/status.md and work from High to Low and work from top to bottom.
+- High to Low means the `Priority` column: HIGH, then MED, then LOW. SECURITY rows are NOT
+  part of that order; they wait until the owner schedules them.
+- Skip rows the status file or the bug doc marks on hold or blocked (record the hold in
+  bugs/status.md when the owner gives one, so the next run does not pick it up again).
+- Within a priority, table order top to bottom. An "(after NNN)" constraint pulls NNN
+  into the same phase, ahead of the bug that needs it.
 
 ## Scope freeze (the rule that outranks every other step)
 The bug list of a phase is FIXED the moment its first agent starts. Write the list down
@@ -222,7 +229,7 @@ The goal of a phase is its fixes on main. Land the list, then start the next one
    /tmp/main-dbg-target/release/mfb`. This binary is both the debugger and the
    "main compiler" for golden proofs. Rebuild it if main moves, and re-sign after every
    rebuild (the signature drops).
-4. Baseline: if there's no current one, run the full gate (step F) once on main. Record
+4. Baseline: if there's no current one, run the gate (step F) once on main. Record
    main's SHA and which tests already fail there. Don't chase those during the phase.
 
 ## Cause before fix (once per phase, before step A)
@@ -258,18 +265,19 @@ A. Assign bugs: at most 2 agents at a time (never a third, not even for a "quick
    symlink as step 2.
 B. For each bug, the agent:
    - reproduces the bug and writes a RED test, then fixes it;
-   - runs ONLY the targeted checks for that bug: `cargo test --test <name>`,
-     `scripts/test-accept.sh <mfb> <outdir> <fixtures>`, `scripts/artifact-gate.sh
-     <mfb> all` (~3 min) if codegen moved, man examples for touched packages,
-     spec-census --render/--citations for spec edits;
-   - also runs any tests/guards/* covering the files it touched (no_type_strings, the
-     declared-errors guards, drop-count/helper-scratch tests);
-   - does NOT run the full suite and does NOT regenerate goldens. It records in the
-     bug doc which goldens it expects to change, and why. "Full suite" includes the
-     unfiltered unit binary: an agent NEVER runs `cargo test` or `cargo test --bin mfb`
-     without a filter (~40 min each, under the one build lock, and the gate in F runs
-     them anyway). Unit tests are run filtered to the modules touched
-     (`cargo test --bin mfb -- <module>::`). The coordinator must not tell an agent
+   - gates each bug, once it is committed, on the landing tier in its own worktree
+     (`.ai/testing-gates.md` "Test tiers"): `bash scripts/test-fast.sh` plus the
+     targeted flags for that bug: `--test <binary>` for the integration binaries of the
+     area touched (`rt_canvas_*`, `rt_net_*`, ...), `--artifact <builtin>` for each
+     builtin whose emitted code moved, `--accept <glob>` for fixtures touched. It
+     includes fmt, `cargo check --workspace --all-targets`, the unit tests minus the
+     sweeps and the guard binaries. While iterating it may also run single tests
+     (`cargo test --test <name>`, `cargo test --bin mfb -- <module>::`), man examples
+     for touched packages and spec-census --render/--citations for spec edits;
+   - does NOT run the full tier and does NOT regenerate goldens. It records in the
+     bug doc which goldens it expects to change, and why. An agent NEVER runs a bare
+     `cargo test` / `cargo test --bin mfb` or `scripts/test-full.sh`: the full tier is
+     the coordinator's, in the background. The coordinator must not tell an agent
      otherwise, in a brief or a follow-up, whatever a gate failure seemed to teach;
    - STOPS that bug and reports if the fix would change an observable contract beyond
      what the bug doc already settles. The coordinator asks the owner, and an answer is
@@ -282,8 +290,8 @@ B. For each bug, the agent:
      show error, finish, bt). It reports every debugger issue, failure or feature
      request to the coordinator, with a "how it functioned / issues / recommended
      features" note;
-   - at the end of its round (not per bug): `rustup run 1.96.0 cargo fmt --all --check`
-     and `cargo clippy --all-targets`. Never `cargo clippy --fix`: it silently degrades
+   - at the end of its round (not per bug): `cargo clippy --all-targets` (fmt is in
+     the landing tier). Never `cargo clippy --fix`: it silently degrades
      the hi/lo float constants in gen_pow.rs and builder_simd_float_math.rs;
    - ends with a report: commits, tests run with their results, and every claim with
      the command behind it.
@@ -331,16 +339,20 @@ E. Goldens. Once every bug in the phase is merged into staging:
       `scripts/regen-native-goldens.sh <mfb> [fixture-dir...]`). Then `git diff --stat`
       must match E.1's proven list exactly; anything extra is an unpredicted diff → hunt
       it. Commit with the proof.
-   The full gate in F then satisfies the "full suite before re-baselining" rule; this
-   order is deliberate.
-F. Full gate. Freeze staging, then:
+   The golden gates in F (artifact-gate all and a full test-accept) then satisfy
+   AGENTS.md's "every golden gate in full before re-baselining" rule; this order is
+   deliberate.
+F. Phase gate (the landing tier plus every golden gate in full; `.ai/testing-gates.md`
+   "Test tiers"). Freeze staging, then:
      cargo build --release
-     cargo test --no-fail-fast                          (~65 min)
+     bash scripts/test-fast.sh [--test <binary>...] for the phase's areas
+     scripts/artifact-gate.sh target/release/mfb all
      scripts/test-accept.sh target/release/mfb <out>    (~8 min)
      scripts/man-examples-gate.sh target/release/mfb     (~12 min)
      sh scripts/check-generated.sh
-     rustup run 1.96.0 cargo fmt --all --check
      cargo clippy --all-targets
+   The full cargo suite is NOT in this gate: it is `scripts/test-full.sh`, run in the
+   background on main's tip after the merge (step H), and it never holds a landing.
    Log each step with rc and seconds; grep the logs for FAILED/panicked. Never modify
    the tree while the gate runs, and no builds by you or agents. Timing tests
    (rt_big_int_cost, rt_compress_bounds) false-fail under load, so the next phase's
@@ -358,13 +370,18 @@ H. Merge: if main gained commits since the gate, run `git merge --no-edit main` 
    the main checkout, `git merge --ff-only bug-staging-<NN>`; if it fails because main
    moved, repeat from staging. Don't push. Leave other sessions' uncommitted and
    untracked files alone. Delete /tmp/bs<NN>-target and the agents' targets afterwards.
+   Then start `bash scripts/test-full.sh` on main's tip as ONE background command and
+   poll its log; a red record (`runs/<sha>.result`) is a bug: file it (step D) and
+   bisect between the last green record and this one. The next phase does not wait
+   for it.
 I. Move on to the next phase.
 
 ## Discipline
 - A started phase never grows (see "Scope freeze"). When in doubt, file it and move on.
-- The full suite runs in exactly one place: the coordinator's gate (step F). Agents run
-  targeted checks only. Any brief the coordinator writes for agents must repeat step B's
-  rules without loosening them.
+- The full suite runs in exactly one place: `scripts/test-full.sh` on main's tip, started
+  by the coordinator in the background after a merge. Agents land on the landing tier
+  (step B). Any brief the coordinator writes for agents must repeat step B's rules
+  without loosening them.
 - Budget: a bug gets at most TWO agent rounds (the fix, and one follow-up for review
   findings). There is no third round. If the second round does not pass review, treat it
   as a tripwire (step C): find the cause yourself, and re-brief once from a clean base
@@ -374,7 +391,7 @@ I. Move on to the next phase.
   million agent tokens is reported to the owner in that answer, with why.
 - A status answer says, for each bug in progress, the rule being restored and where
   (from its Cause note), before any counts.
-- Watch your own gate: when the full gate (step F) or a merge check runs detached, poll
+- Watch your own gate: when the phase gate (step F), a merge check or the full tier runs detached, poll
   its summary file and report the result when it finishes, not when asked.
 - One cargo build at a time machine-wide; check `uptime` first.
 - Perf bugs run alone, measured at load < 4 against a main build from git archive
@@ -382,380 +399,3 @@ I. Move on to the next phase.
 - macOS has no `timeout` command. In zsh, split SHA lists with ${=L}.
 - Status questions: answer from `git log main`, never from plans.
 - Memory edits only through a sub-agent (AGENTS.md).
-
----
-
-## canvas-demo rewrite
-
-### What this is
-
-`examples/canvas-demo` is the project's canvas showcase: a menu ("The Enchanted Grove",
-ten scenes, a QUIT button) and ten scenes, about 6,900 lines across 18 files in
-`examples/canvas-demo/src/`. It was written against the canvas API as it was before
-plan-172 (the shape model), plan-164 (Bézier curves), plan-150 (particle systems) and
-plan-173 (atlas tiles and viewport culling), and has only been kept compiling since. It
-uses none of what those four plans added.
-
-I want it **rewritten, not ported**. The owner's words: "Do a rewrite, not a port… the
-canvas-demo is a showcase so it should be done right." A port keeps the old structure
-and swaps field names. A rewrite asks, for each scene and each helper, how it would be
-written today if the current model had always existed, and writes that.
-
-**This prompt is your go-ahead to edit files under `examples/canvas-demo/`.** It is not
-a go-ahead to change the compiler, the canvas package, tests or goldens. If the rewrite
-exposes a compiler or canvas bug, follow `AGENTS.md`: reproduce it, then fix it or file
-it with `/write-bug`. Do not work around it silently in the demo.
-
-### Read first
-
-1. `AGENTS.md` (repo root). Its rules apply throughout.
-2. `planning/completed/plan-172-A-canvas-shapes-premises.md` through
-   `-M-canvas-closeout.md`, for why the shape model is what it is. The type surface
-   itself is the manual (step 3), which is current. `planning/new_canvas.md`, which
-   used to hold it, is retired.
-3. `./target/release/mfb man canvas --all`, then the `types`, `pollMouse`, `setGroup`,
-   `present`, `flatten` and `nurbsToBeziers` pages individually. Build the compiler
-   first (`cargo build --release`): a binary older than plan-150 has no
-   `ParticleSystem` on its `types` page, and one older than plan-173 has no `Tile`.
-   That page documents `ParticleSystem`, `Emission`, `Motion`, `Appearance` and
-   `EmissionMode` field by field, and states what a system costs. It also documents
-   `Tile`. The package page (`mfb man canvas`) says what an offscreen item costs.
-4. `./target/release/mfb spec app canvas`. Read "The item unions", "Placement",
-   "AutoPaint", "Hit-testing", "A picture is drawn inside a shape", "A tile selects an
-   image rectangle", "Particle systems" (all of it, down to "Damage takes a system as
-   one unit"), the viewport culling paragraph under "Rendering conventions", and
-   whatever it says of curves.
-5. `planning/completed/plan-164-A-bezier-types-reduction.md`, `-B-curves-software.md`
-   and `-C-curves-gpu.md`, for what the curve shapes are and where their limits are.
-   `planning/completed/plan-150-A-canvas-particles-types-and-expansion.md`,
-   `-B-canvas-particles-cost-and-damage.md` and `-C-canvas-particles-docs-and-linux.md`
-   for the same of particle systems. `planning/completed/plan-173-canvas-atlas-tile.md`
-   for tiles and culling; its Corrections record what a `Tile` cannot do.
-6. The demo itself. Start with `main.mfb`, `demos.mfb`, `menu.mfb`, `kit.mfb`, `ui.mfb`
-   and `svg.mfb`, then the ten scenes: `dawn`, `spring`, `twilight`, `alchemist`,
-   `canopy`, `wanderer`, `scribe`, `bestiary`, `cathedral`, `lantern`.
-7. Small, correct examples of the new features, under `tests/canvas/scenes/`:
-   `picture_shapes_on_black.mfb`, `autopaint_on_black.mfb`, `curves.mfb`,
-   `curve_strokes_on_black.mfb`, `curves_placed_on_black.mfb`,
-   `curve_pictures_on_black.mfb`, `particles_on_black.mfb`,
-   `particles_grouped_on_black.mfb`, `tile.mfb`. `tests/canvas/rt_canvas_tile.rs` builds
-   a map group of tiles and moves, scales and turns it across the window's edges.
-8. `examples/canvas/`: `fire`, `fog`, `fireworks` and `rain`, about ninety lines each,
-   one particle system apiece (three for the fireworks). Its `README.md` says what to
-   read each one for. These are the model for how a system is built and animated.
-
-### What changed in the canvas model
-
-Verify each of these against the man pages; do not take them from this list alone.
-
-- **Every shape carries `id`, `position`, `paint`, `transform`.** The transform is on
-  the shape, not on `Paint`, and pivots about the shape's `position`. A `Rectangle`
-  pivots about the point its `bind` names (`TopLeft` or `Center`). Points of a `Line`,
-  `Polygon`, `PolyLine`, `PolyCurve` and `CurvePolygon` are offsets from `position`, so
-  moving a shape is changing `position` alone.
-- **`Rectangle`** has four radii (`radiusTL/TR/BL/BR`) and `bind`. **`Polygon`** has
-  `contours` (a list of rings, so holes are possible) and `rule`.
-- **Bézier curves are shapes now (plan-164).**
-  - `canvas::BezierCurve` is one segment: `points` (two for a line, three for a
-    quadratic, four for a cubic, up to seventeen) and optional `weights`, one per
-    point, which make it rational. A quarter circle is three points with weights 1.0,
-    0.7071067811865476, 1.0. It is not drawn on its own.
-  - `canvas::PolyCurve` is an open path of curves joined end to end, stroked: the
-    curved counterpart of `PolyLine`. Joins, caps and dashes apply along the whole
-    path. It has no interior and ignores `paint.fill`.
-  - `canvas::CurvePolygon` is a closed shape with a curved outline, filled and
-    stroked: the curved counterpart of `Polygon`, with `contours` (each a list of
-    `BezierCurve`) and `rule` for holes.
-  - Curves stay smooth however far the **shape's own** transform enlarges them.
-    Enlarging a `Group` they are in does not redraw them at the new size, so a cubic
-    can show slight flats there. Zoom with the shape's transform, not the group's.
-  - `canvas::flatten` turns a curve into points and `canvas::nurbsToBeziers` makes
-    curves from a NURBS curve, for the cases that still need points.
-- **`Group` nodes take a full affine transform** (`id`, `position`, `transform`,
-  `name`). A group inside a group composes. A figure built once with
-  `canvas::setGroup` can be placed, turned and scaled many times for the cost of one
-  node each.
-- **`canvas::AutoPaint`** wraps a shape and swaps its paint on enter, hover, press and
-  exit. The graphics thread does this with no program code running. Fields: `shape`,
-  `useEnter/useExit/useHover/usePressed`, `enterPaint/exitPaint/hoverPaint/pressedPaint`.
-  It has no `id` of its own; it reports its shape's.
-- **`canvas::Picture`** is an image drawn inside a shape: `id`, `shape`, `clip`
-  (`PictureClip.ClipOnly` or `ClipAndTransform`), `fit` (`PictureFit.Stretch`,
-  `Contain` or `Cover`), `image`. The shape's paint tints, fades, blends and outlines
-  it. The shape may be a circle, ellipse, polygon, rounded rectangle or
-  `CurvePolygon`, and may itself be an `AutoPaint`. A shape with no inside (a line,
-  arc, `PolyLine`, `PolyCurve`, text) draws nothing.
-- **`canvas::ParticleSystem` is one item drawn as many (plan-150).** Fields:
-  `position`, `item`, `emitter`, `emission`, `motion`, `appearance`, `seed`, `time`.
-  - `item` is the shape copied once per live particle: any `Shape`, or an `AutoPaint`
-    (drawn with its shape's own paint). Not a `Picture`, a `Group` or another system;
-    the build refuses those. Its `position` and `transform` are offsets inside the
-    particle, so leave `position` at `(0, 0)` to centre it.
-  - `emitter` is the shape particles are born on and is never drawn. A shape with an
-    inside emits over its area, a line, arc, `PolyLine` or `PolyCurve` along its
-    length, and a `Circle` of radius 0 is a point. Its `position` is measured from the
-    system's.
-  - `canvas::Emission` is `mode` (`EmissionMode.Continuous` or `Burst`),
-    `maxParticles`, `rate`, `burst`, `burstPeriod`, `lifetime`, `lifetimeVar`.
-    `canvas::Motion` is `speed`, `angle`, `spread`, `gravityX/Y`, `drag`, `rotation`,
-    `spin`, `turbulence`, `turbulenceHz` and their `…Var` fractions.
-    `canvas::Appearance` is `startColor`, `endColor`, `startScale`, `endScale`,
-    `scaleVar`.
-  - **It holds no state and nothing advances it.** Every particle is worked out from
-    `seed` and `time` alone, so the same pair always draws the same picture. The
-    program animates a system by presenting it again with a larger `time`, typically
-    `canvas::getFrameStats().dt` added each frame.
-  - A particle's colour is one blend from `startColor` to `endColor` over its life,
-    multiplied into the template's fill and stroke. It does not reach a gradient's
-    stops, so a gradient-filled particle is not tinted or faded by it.
-  - A system has no `id`, `paint` or `transform`, and a particle is never under the
-    mouse. A `Group` the system is in moves and turns all of it. A `lifetime` of zero
-    or less raises `ErrCanvasParticleLifetime`; a system that should draw nothing wants
-    `maxParticles := 0`.
-- **`canvas::Tile` is a rectangle of an image drawn into a rectangle (plan-173).**
-  Fields: `image`, `srcPosition` and `srcSize` (the source rectangle, in image pixels),
-  `position` and `size` (the destination, in canvas coordinates).
-  - Scaling picks the nearest image pixel, so pixel art stays crisp at any whole
-    multiple.
-  - A source sample outside the image is transparent. The part inside is not stretched
-    to fill the rest. A nonpositive source or destination size draws nothing.
-  - A tile has no `id`, `paint`, `shape` or `transform`. It cannot be tinted, faded,
-    mirrored or clipped, and it is never under the mouse (`overID` never names it).
-  - Put tiles in a `Group` to move, scale, turn or mirror them, and draw a
-    `Picture` where a tint or a shape is the effect.
-  - `canvas::setGroup` takes over the images its items name. An atlas named by a group's
-    tiles therefore belongs to that group, and nothing outside it can name that atlas
-    afterwards. Check the ownership rules on the `setGroup` page before deciding which
-    images to share.
-- **Offscreen items cost no drawing (plan-173).** Every renderer skips an item whose
-  bounds, after every enclosing group's position and transform, miss the window, and
-  draws one that crosses an edge. The item stays in the scene, so moving its group back
-  brings it into view. It is not free, though: the scene is still copied, hashed and
-  walked every time it is presented. A level far larger than the window can be one
-  group moved by a camera, but a scene of a million offscreen items still costs a
-  million items' worth of walking.
-- **The unions.** `Shape` has ten members (the eight original shapes, `PolyCurve`,
-  `CurvePolygon`); `AutoShape` adds `AutoPaint`; `DrawItem` adds `Picture`, `Group`,
-  `ParticleSystem` and `Tile`, fifteen variants in all.
-  An exhaustive `MATCH` over `DrawItem` breaks every time a variant is added — it has
-  broken this demo five times, `Tile` being the latest (`kit.mfb:placed` and
-  `ui.mfb:restyleItem` carry a `Tile` arm only to keep compiling).
-- **`MouseEvent.overID`** reports which item the mouse is over as an id path joined by
-  `::` (group id, then picture id, then shape id, empty parts left out). One group
-  drawn twice under two node ids is told apart by its path.
-- **Defaults.** `MUT r AS canvas::Rectangle` then `r = WITH r { … }` works for records
-  that hold no union or resource. `AutoPaint`, `Text`, `Picture`, `ParticleSystem` and
-  `Tile` need full literals.
-  There are no constructor functions; do not add any.
-
-### What "done right" means here
-
-These are the places the old demo does by hand what the model now does for it. Treat
-them as the minimum, and look for more.
-
-1. **Curves.** The demo flattens every curve to points itself: `kit.mfb` has
-   `quadPts` and `cubicPts`, `svg.mfb` flattens every SVG path (`cubicPts`,
-   `curveSteps`, `arcPts`) into polygon rings, and several scenes build curved outlines
-   as long point lists. Draw curves as curves. An SVG cubic or quadratic segment is a
-   `BezierCurve`; an SVG arc is a rational one; a closed path is a `CurvePolygon`
-   contour and an open stroked one a `PolyCurve`. Hand-flattening should remain only
-   where points are genuinely what is needed, and then through `canvas::flatten`.
-   Because curves are redrawn smooth under the shape's own transform, a scene that
-   zooms is where this shows best — make sure at least one does, and that it zooms the
-   shape and not an enclosing group.
-2. **Hit testing.** `ui.mfb` and `menu.mfb` test the mouse against rectangles by hand
-   (`inside(px, py, x, y, w, h)`). Replace this with `id`s and `overID`. Clickable
-   things get an `id`; the menu's ten tiles should be one group drawn ten times, told
-   apart by node id.
-3. **Hover and press feedback.** Buttons animate hover in program code today. Use
-   `AutoPaint` where a paint swap is the effect wanted. Keep hand animation only where
-   the effect is something `AutoPaint` cannot express (a growing or eased transition),
-   and say so in a comment.
-4. **Placement.** `kit.mfb:placed` and `ui.mfb:restyleItem` are `MATCH`es over every
-   `DrawItem` that rewrite each shape's transform so a figure built at the origin can
-   be moved as a whole. That is what a `Group` node with a transform is for. Build
-   figures as groups and place the node. These two functions are the ones that keep
-   breaking; they should not survive the rewrite, and nothing that replaces them
-   should `MATCH` exhaustively over `DrawItem`.
-5. **Pictures.** `wanderer.mfb` draws every image as a plain rectangle. Find places
-   where a shaped picture is the natural thing (the menu's ten circular thumbnails are
-   the obvious one; a framed portrait or a clipped scene window is another) and use it.
-   Show `Contain` or `Cover` at least once where the proportions matter, and a picture
-   inside a curved outline (`CurvePolygon`) at least once.
-6. **Local geometry.** Anywhere the demo adds an offset to every point of a polygon,
-   line or curve to move it, set `position` instead.
-7. **Rounded corners.** Anything faking a rounded or pill shape with extra items
-   should use the four radii.
-
-8. **Particles.** The demo runs every particle effect by hand. `scenery.mfb:motes`
-   (drifting pollen, dust and fireflies) is called from the menu and from `dawn`,
-   `spring`, `alchemist`, `bestiary`, `cathedral` and `scribe`, and builds two items a
-   mote every frame. `spring.mfb` and `alchemist.mfb` each keep a `List OF Spark` that
-   is aged, moved and rebuilt every frame, `spring.mfb` does the same for its `Drop`s
-   and `canopy.mfb` for its `Spray`. Where an effect is a stream or a burst of things
-   that are born, move and fade without anything reacting to them, make it one
-   `ParticleSystem` and delete the record, the list and the update loop behind it.
-   Pick the emitter that is the effect's real source (a `Rectangle` for motes over an
-   area, a `Line` or `Arc` for a rim, a point for a spark), and use an `Add`-blended
-   template where the old code drew a glow.
-
-   A system is a closed form of `seed` and `time`, and that decides what cannot be
-   one. Keep an effect by hand, and say why in a comment, when:
-   - a particle reacts to something: `canopy.mfb`'s leaves are shoved by the mouse,
-     follow the wind as it changes and come to rest in a pile;
-   - a particle causes something where it ends up: a `spring.mfb` drop leaves a ripple
-     where it meets the water;
-   - the look needs more than one blend from a start colour to an end colour, such as
-     a firefly that pulses, unless two systems or a different template give the same
-     look. Do not flatten a twinkle into a plain fade to make it fit.
-
-   Two things follow from there being no state and are easy to get wrong:
-   - **An effect set off by an event is a `Burst` whose `time` is the time since the
-     event** (`burstPeriod := 0.0`), kept in the scene's state as one number, with
-     `maxParticles := 0` or no system at all before the first event. The sparks thrown
-     up when the dive lands in `spring.mfb` are this. The sparks off the cauldron in
-     `alchemist.mfb` are not: they stream for as long as a potion is pouring, which is
-     a `Continuous` system whose clock starts with the pour.
-   - **Moving a system's `position` moves particles already in flight.** A trail left
-     behind a moving thing (the guardian shedding sparks) is therefore not a system
-     whose position follows it. Find another way to express it or keep it by hand.
-
-   The old effects draw from `math::rand`, so no two runs of them match. A system's
-   particles are fixed by its `seed`: give each system its own.
-
-9. **Atlas tiles.** `wanderer.mfb` loads its sprite sheets with `canvas::loadImage`,
-   reads them back with `canvas::getBytes`, and cuts every cell into an image of its own
-   with `canvas::createImage` (`cell`, and the `RES` per tile, coin and hero frame).
-   Draw the level's cells as `Tile`s that select their cell from the one sheet, and
-   build the level as a group of tiles moved by the camera. The parts of the level
-   off the screen are then skipped by the renderer with nothing done in the program.
-   - Keep cutting images only where a `Tile` cannot do the job, and say why in a
-     comment. The candidates are a sprite that is tinted (the hero's red blink is a
-     `Picture` tint), one that is mirrored outside a group, or one an item outside the
-     level's group must also name after `setGroup` has taken the sheet.
-   - Watch the source rectangles at cell edges. A source rectangle that runs past the
-     sheet draws transparent pixels there, not a neighbouring cell.
-
-The demo must visibly contain at least: an `AutoPaint` button, a shaped picture, a
-rotated or scaled group, a filled `CurvePolygon`, a stroked `PolyCurve`, a `Continuous`
-particle system and a `Burst` one, and a map of `Tile`s in a group moved past the
-window's edges. Each must be reachable from the menu without special setup.
-
-### Constraints
-
-- **Keep what the demo is.** Ten scenes, the same art direction, the same menu, the
-  same keys (number keys, `F` for full screen, `Q` to quit), the same assets under
-  `resources/`, and `CREDITS.md`. This is a rewrite of the code, not a redesign of the
-  content. If you think a scene should change materially, ask first.
-- **Keep reading the keyboard every loop.** `canvas::pollMouse` reports nothing unless
-  the program also calls a key reader such as `io::readKey(0)` (open bug-1015). The
-  demo already does; do not lose it.
-- **Mind code size.** A defaulted record updated with `WITH` costs about 27 KB of
-  machine code per statement (open bug-1080). Prefer small builder functions called
-  many times over long runs of inline `MUT`/`WITH` pairs. Measure the binary before
-  and after, and report both numbers.
-- **Mind frame cost.** The demo animates from wall-clock time. Things that do not
-  change between frames belong in a group installed once, not rebuilt per frame.
-  Compare frame cost before and after on the scenes whose curves you converted: a
-  curve is not free, and "fewer points" is not automatically "faster". The same goes
-  for particles: a system is expanded and drawn afresh every frame it is presented, a
-  particle that is turned or scaled costs about twice one that is only moved and
-  tinted, and a `Text` particle costs far more than either. Leave `rotation`, `spin`
-  and the scales alone unless the effect needs them, and compare frame cost before and
-  after on every scene whose particles you converted. Offscreen culling saves drawing,
-  not the walk (see above). Do not grow a scene on the strength of it without
-  measuring, and compare `wanderer`'s frame cost before and after its tiles.
-- **Advance a system's clock the way the examples do**: add `math::min(stats.dt, 0.1)`
-  each frame, so a window that was hidden resumes instead of jumping. A scene that is
-  left and entered again starts its clock where the old code restarted its lists.
-- **Do not touch** `src/`, `tests/`, goldens, or other examples, except to fix a bug
-  you can reproduce outside the demo.
-- Update `examples/canvas-demo/README.md` to describe the demo as rewritten. The repo
-  has guards for example READMEs and project names:
-  `cargo test --test example_readmes --test example_project_names`.
-
-### How to work
-
-1. **Baseline first, before changing anything.** Build the demo and capture a frame of
-   the menu and of each of the ten scenes, so you have something to compare against:
-
-   ```sh
-   cargo build --release
-   ./target/release/mfb build --debug examples/canvas-demo
-   ```
-
-   Run headless with a frame dump and stats. Hold stdin open, because the demo quits
-   on end-of-input:
-
-   ```sh
-   sleep 6 | MFB_MACAPP_HEADLESS=1 MFB_CANVAS_SYNC=1 \
-     MFB_CANVAS_DUMP=/tmp/demo/frame.rgba MFB_CANVAS_STATS=/tmp/demo/stats.txt \
-     examples/canvas-demo/build/canvas-demo.app/Contents/MacOS/canvas-demo
-   ```
-
-   The dump is raw RGBA8, 900 pixels wide. `MFB_CANVAS_DUMP` and `MFB_CANVAS_STATS`
-   need a `--debug` build. That command shows the menu; work out how to reach each
-   scene headless (read `main.mfb`; add a small, documented environment switch if
-   there is no way). Keep scratch files in `/tmp`, never in `scripts/`.
-
-2. **Tell me the plan before the bulk of the work.** After reading, send a short
-   outline: the new file layout, what replaces `kit.mfb`, `ui.mfb` and the flattening
-   in `svg.mfb`, which scenes get which new features, and anything you want to change
-   about content. Then carry on unless I object; do not wait for a reply.
-
-3. **Rewrite scene by scene**, building and looking at a dumped frame after each one.
-   The scene should look like its baseline except where a new feature is deliberately
-   on show — and where a flattened curve became a real one, which should look the
-   same or smoother, never different in shape. A converted particle effect will not
-   match its baseline particle for particle (the old ones were random); it should
-   match in count, colour, size, where it comes from and how it moves, so dump two or
-   three frames a second or so apart and compare the motion, not one still. Convert a
-   frame to PNG and actually look at it; a build that compiles proves nothing about a
-   picture.
-
-4. **Verify at the end:**
-   - `./target/release/mfb build examples/canvas-demo` and the `--debug` build both
-     succeed with no warnings.
-   - Every scene and the menu render headless on the software renderer and with
-     `MFB_CANVAS_GPU=1`. On the GPU run the stats line shows `gpuFrames` equal to
-     `frames`; a scene that silently falls back to software is a finding, not a pass.
-   - Each particle system draws on both renderers at more than one `time`, and each
-     `Burst` is seen both before its event (nothing drawn) and after it.
-   - The tile map draws the same on both renderers, with the camera at the start of
-     the level and part way along it. Each `draws=` entry on the stats line is
-     `base:count:…`, and its counts add up to fewer than `blocks=` when part of the
-     level is off the screen. That is the culling working. The number of entries can
-     rise as it does, because a level row cut by the window's edge splits into
-     separate runs.
-   - Hover and click work. Use the `--debug` pointer script, for example
-     `MFB_CANVAS_POINTER="0,x,y,0,1"` (milliseconds, x, y, buttons, inside), and check
-     the `auto=` field of the stats line changes for an `AutoPaint` button. For clicks,
-     `MFB_MOUSE_INJECT` feeds SGR mouse reports to `pollMouse`; see
-     `tests/canvas/rt_canvas_hit.rs` for the format.
-   - `cargo test --test example_readmes --test example_project_names` passes.
-   - A real-window run on this Mac if I am not using the machine. Ask before taking
-     over the pointer.
-
-5. **Commit** on the current branch, itemised, only the files you changed. Do not
-   create or switch branches.
-
-### Machines
-
-Use this Mac for everything. If you want a second platform, box 206
-(`test@192.168.1.206`, Windows, real GPU, x86_64) is the only remote worth using; read
-`.ai/remote_systems.md` first. Do not run anything on an emulated x86_64 box, and ask
-before using any other remote machine.
-
-### Report back
-
-- What each scene now uses from the current model, one line per scene.
-- What you removed (helpers that no longer exist) and what replaced them, including how
-  many `createImage` cuts `wanderer` makes before and after.
-- Line count and binary size before and after, with the commands that produced them.
-- Frame cost before and after on the scenes whose curves or particles changed.
-- Each particle effect, one line: now a system (which mode, which emitter, how many
-  particles) or still by hand, and why.
-- Anything in the canvas API that made the rewrite awkward. That is useful feedback on
-  the model itself.
-- Any bug found, with its repro.
-- What you did not verify, said plainly.
