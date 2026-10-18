@@ -24,9 +24,10 @@ Bugs found during a phase are filed into a later phase. Order is High to Low, to
 * HIGH 688 and 765: ON HOLD (owner, 2026-10-17). Not scheduled.
 * SECURITY rows (980, 1017, 1042, 952, 954+947, 955, 918): not scheduled; they wait for the owner.
 * MED 1082: blocked on hardware and a design decision (its doc). Not scheduled.
-* **Phase 1 (MED, table order; merged to staging: 966, 965, 1015, 985, 964):** 1085, 1087, 1088, 1091, 1089, 965, 985, 1015, 964, plus 966
-  (965 and 964 are "after 966"). 1087 (owner: bug-996's rule extends to Metal) and 1091 are perf and
-  run alone in round 2.
+* **Phase 1 (MED), landing now:** 966, 965, 1015, 985, 964 (merged to staging).
+* **Phase 2 (MED), next landing:** 1085, 1088, 1089 (agent round 2 under review), then 1087
+  (owner: bug-996's rule extends to Metal) and 1091, perf, run alone. Moved out of phase 1 so
+  they do not hold its merge.
 * Later phases: the rest of MED, then LOW, in table order.
 
 ## Resources and STATE
