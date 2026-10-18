@@ -722,8 +722,8 @@ vec2 polylineScan(ivec2 band, vec2 p) {
 // `__canvas_geoDistance` in the oracle, operation for operation, on inputs carried as their
 // 16.16 words plus residuals, so each input is the oracle's to ~2^-41 px. fp32 from 16.16
 // rounded a pixel near a coverage step to the neighbouring step, 3-12 sRGB levels near
-// black. The arc's sweep test is the oracle's two cross products against `arcCaps -
-// centre` (a positive multiple of its Taylor `(cos, sin)`) and `arc.y` is its `reflex`,
+// black. The arc's sweep planes are the oracle's two cross products against `arcCaps -
+// centre` (the radius times its Taylor `(cos, sin)`), over the radius, and `arc.y` is its `reflex`,
 // decided in f64 by the emitter; the ellipse is the oracle's 24-step bisection with every
 // step in double-float. Metal's `dfShapeDistance`, line for line, where the cases are set
 // out in full.
@@ -761,10 +761,13 @@ vec2 dfShapeDistance(vec2 x, vec2 y) {
         vec2 sy = dfSub(dfFixed(item.arcCaps.y, item.capsLo.y), cy);
         vec2 tx = dfSub(dfFixed(item.arcCaps.z, item.capsLo.z), cx);
         vec2 ty = dfSub(dfFixed(item.arcCaps.w, item.capsLo.w), cy);
-        bool afterStart = !dfLess(dfMul(sx, dy), dfMul(sy, dx));
-        bool beforeEnd = !dfLess(dfMul(ty, dx), dfMul(tx, dy));
-        bool inSweep = item.arc.y != 0 ? (afterStart || beforeEnd) : (afterStart && beforeEnd);
-        vec2 band = inSweep ? dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius) : vec2(1.0e6, 0.0);
+        // bug-1088: the band cut by the sweep's two half-planes as signed distances, the
+        // oracle's `startPlane`/`endPlane`; `s`, `t` are the radius times its unit vectors,
+        // so each cross product is divided by the radius. Metal's twin, line for line.
+        vec2 startPlane = dfDiv(dfSub(dfMul(sy, dx), dfMul(sx, dy)), ex);
+        vec2 endPlane = dfDiv(dfSub(dfMul(tx, dy), dfMul(ty, dx)), ex);
+        vec2 sweep = item.arc.y != 0 ? dfMin(startPlane, endPlane) : dfMax(startPlane, endPlane);
+        vec2 band = dfMax(dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius), sweep);
         if (item.arc.w == 0) { return band; }
         for (int k = 0; k < 2; ++k) {
             vec2 rx = k == 0 ? sx : tx;
@@ -2085,7 +2088,7 @@ vec2 dfMapY(vec2 x, vec2 y) {
 // sits behind one branch (bug-688, below), so `sampleDistance` has two call sites. A
 // transformed CENTRE sample past `half + 0.5 * max(F, 1)` (F the inverse matrix's
 // Frobenius norm, which bounds the gradient) decides the coverage by its sign and the four
-// neighbours are skipped; never for an arc, whose distance jumps. A clip's centre sample
+// neighbours are skipped. A clip's centre sample
 // past `0.5 * max(F, 1)` decides the clip's coverage the same way (bug-995). Metal's
 // `shapeCoverage`, line for line, where both bounds are argued.
 //
@@ -2113,7 +2116,7 @@ ivec4 shapeCoverage(vec2 x, vec2 y) {
         norm = sqrt(dot(c0, c0) + dot(c1, c1));
         if (grouped) { norm = (itemMapped ? norm : 1.0) * length(gi); }
         float frob = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;
-        reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);
+        reach = max(half2.x, 0.0) + 0.5 * max(frob, 1.0);
         clipReach = 0.5 * max(frob, 1.0);
     }
     ivec2 band = polygonBand(itemMapped ? dfMapY(x, y).x : y.x, norm);

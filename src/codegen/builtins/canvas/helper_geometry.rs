@@ -1054,8 +1054,9 @@ FUNC __canvas_arcHeader(a AS Arc) AS List OF Float
   out = collections::set(out, __CANVAS_GEO_CAPENDX, bx + a.radius * __canvas_cos(a.endAngle))
   out = collections::set(out, __CANVAS_GEO_CAPENDY, by + a.radius * __canvas_sin(a.endAngle))
   LET reach AS Float = a.radius + __canvas_capReach(half, __canvas_capTag(placed.cap)) + 1.0
-  ' An arc's box goes over whole: its distance jumps at the ends of its sweep, so no rim
-  ' bounds where it takes coverage under a transform (`__canvas_boundsHeader`).
+  ' An arc's box goes over whole, with no rim (`__canvas_boundsHeader`): the square about
+  ' its whole ring, not an extent of the swept part. It was chosen while the distance
+  ' jumped at the ends of the sweep, which bug-1088 removed; the box is unchanged.
   RETURN __canvas_boundsHeader(out, bx - reach, by - reach, bx + reach, by + reach, 0.0, 0.0, 0.0)
 END FUNC
 

@@ -157,7 +157,7 @@ fn rectangle_fills_its_exact_span() {
 /// Taylor series about zero over `-PI..PI`, whose error is concentrated at the far
 /// end of that interval: at `x = 3.14159` it gave `sin = 6.93e-3` against a true
 /// `2.65e-6`, rotating the end direction ~1.4 degrees and making
-/// `__canvas_arcInSweep` exclude the last sliver of the arc.
+/// the sweep test (then `__canvas_arcInSweep`) exclude the last sliver of the arc.
 ///
 /// The check is the end cap, because that is where the error lands: an arc centred
 /// at `(450, 335)` with radius 90, swept `0..PI`, must paint the pixels around
@@ -197,6 +197,67 @@ fn an_arc_swept_to_pi_reaches_its_end_cap() {
         pixel(&frame, 360, 320),
         (0, 0, 0, 255),
         "a 0..PI sweep runs below its centre, not above it"
+    );
+}
+
+/// bug-1088: a butt-capped arc under a magnifying transform draws its band and nothing
+/// else, and its ends are antialiased like any other edge.
+///
+/// The arc is radius 0.5 under a scale of 100, stroked 0.1 wide: on the surface a ring of
+/// radius 50 and half-width 5 about (300.3, 300.7), swept 0.4..2.3 rad. Its distance
+/// used to answer 1e6 out of sweep, and the central-difference gradient a transformed
+/// distance is divided by, taken across that jump, lit dotted rays from the centre along
+/// both end radii out to the item's box (x = 161 and x = 455 were lit). Now a pixel lit
+/// by the arc is within the ring's 1-pixel antialiasing reach, `|rho - 50| <= 6`, and
+/// within a pixel of the sweep's wedge; and the end radii, at their half-plane distance
+/// 0, are partly covered, not cut hard.
+#[test]
+fn a_magnified_butt_arc_draws_its_band_and_antialiased_ends_only() {
+    let (frame, _) = render(
+        "canvas_butt_arc_rays",
+        &scene(
+            "  LET a AS canvas::DrawItem = canvas::Arc[id := \"\", position := vector::Float2[x := 300.3, y := 300.7], radius := 0.5, startAngle := 0.4, endAngle := 2.3, paint := WITH canvas::stroke(color::rgb(255, 255, 255), 0.1) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[a := 100.0, b := 0.0, c := 0.0, d := 100.0, tx := 0.0, ty := 0.0]]\n  \
+             canvas::present([a])\n",
+        ),
+    );
+    let (cx, cy) = (300.3f64, 300.7f64);
+    let (sx, sy) = (0.4f64.cos(), 0.4f64.sin());
+    let (ex, ey) = (2.3f64.cos(), 2.3f64.sin());
+    let mut lit = 0;
+    let mut partial_end = 0;
+    let mut strays = Vec::new();
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let (r, g, b, _) = pixel(&frame, x, y);
+            let level = r.max(g).max(b);
+            let dx = x as f64 + 0.5 - cx;
+            let dy = y as f64 + 0.5 - cy;
+            let rho = (dx * dx + dy * dy).sqrt();
+            // Signed distance outside each end radius's half-plane; the sweep is under a
+            // half-turn, so the wedge is where both are <= 0.
+            let plane = (sy * dx - sx * dy).max(ex * dy - ey * dx);
+            if level > 0 {
+                lit += 1;
+                if (rho - 50.0).abs() > 6.0 || plane > 1.0 {
+                    strays.push((x, y, level));
+                }
+            }
+            if plane.abs() < 0.5 && (rho - 50.0).abs() < 3.0 && level > 0 && level < 255 {
+                partial_end += 1;
+            }
+        }
+    }
+    assert!(
+        strays.is_empty(),
+        "{} pixels lit away from the arc's band (rays along the sweep's ends), first {:?}",
+        strays.len(),
+        &strays[..strays.len().min(8)]
+    );
+    assert!(lit > 1000, "the quarter-ring was not drawn: {lit} lit pixels");
+    assert!(
+        partial_end > 0,
+        "no pixel on an end radius is partly covered: the butt ends are cut hard rather \
+         than antialiased"
     );
 }
 

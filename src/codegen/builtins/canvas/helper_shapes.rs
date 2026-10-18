@@ -14,8 +14,9 @@
 //! whose result depends on the derivative estimate, and the oracle has to be the
 //! exact answer for the GPU to be compared *against*.
 //!
-//! No transcendental appears anywhere here. The arc's angular test in particular
-//! avoids `atan2` — see `__canvas_arcInSweep`.
+//! No transcendental appears anywhere here. The arc's sweep in particular avoids
+//! `atan2`: it is two signed half-plane distances through the end radii, cross products
+//! against the sweep's direction vectors (`__canvas_geoDistance`'s arc arm, bug-1088).
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 
@@ -346,7 +347,7 @@ END FUNC"#;
 ///
 /// The consequence was visible, not theoretical: an `Arc` swept to `endAngle = PI`
 /// had its end direction vector off by ~1.4 degrees, so
-/// `__canvas_arcInSweep`'s cross-product test excluded the last sliver of the arc
+/// the sweep's cross-product test excluded the last sliver of the arc
 /// and the stroke stopped ~0.6 px short of where it was asked to. It surfaced when
 /// the Metal backend — using the hardware `sin`/`cos` — drew 14 pixels of a smile's
 /// end cap that this path did not (plan-98-E Phase 2).
@@ -403,31 +404,6 @@ FUNC __canvas_cos(angle AS Float) AS Float
     RETURN 0.0 - magnitude
   END IF
   RETURN magnitude
-END FUNC"#;
-
-/// Whether a point's direction from the arc centre lies within the swept sector.
-///
-/// **Deliberately not `atan2`.** That is the obvious way to write it and it would
-/// make the oracle platform-dependent for the same reason as `sin`/`cos` above.
-/// Instead the test is two 2D cross products against the sector's start and end
-/// direction vectors — pure multiply-and-compare, exact everywhere.
-///
-/// The two cases are what makes it correct for a sector wider than a half-turn:
-/// for `sweep <= PI` the sector is the *intersection* of the two half-planes, and for
-/// a reflex sector it is their *union*. Writing only the first — the natural thing —
-/// silently clips every arc longer than 180 degrees.
-///
-/// `+Y` is downward and angles run clockwise from `+X` (plan-98-api.md), which is
-/// why "left of the start direction" is `cross >= 0` here rather than `<= 0`.
-#[rustfmt::skip]
-const ARC_SWEEP: &str =
-r#"FUNC __canvas_arcInSweep(dx AS Float, dy AS Float, sx AS Float, sy AS Float, ex AS Float, ey AS Float, reflex AS Boolean) AS Boolean
-  LET afterStart AS Boolean = sx * dy - sy * dx >= 0.0
-  LET beforeEnd AS Boolean = ex * dy - ey * dx <= 0.0
-  IF reflex THEN
-    RETURN afterStart OR beforeEnd
-  END IF
-  RETURN afterStart AND beforeEnd
 END FUNC"#;
 
 /// plan-172-E: a rectangle's corners.
@@ -628,5 +604,4 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         SEGMENT_DISTANCE_SQUARE,
     ));
     pkg.add_helper(RegistryHelper::always("canvas_trig", TRIG));
-    pkg.add_helper(RegistryHelper::always("canvas_arcSweep", ARC_SWEEP));
 }

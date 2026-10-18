@@ -889,11 +889,12 @@ const METAL_SHADER_BODY: &str = concat!(
     // * circle (1): the centre distance minus the radius and the stroke radius;
     // * line (2): the segment distance, Round (1) minus the half-width, Butt (0) cut by the two
     //   end planes -- the half-width off BEFORE the planes (`__canvas_segmentDistanceButt`);
-    // * arc (3): the ring band inside the sweep, else 1e6, and a Round cap's two discs. The
-    //   sweep test is the oracle's two cross products, against `arcCaps - centre`, a positive
-    //   multiple of the oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved and
-    //   the sign agrees wherever it is decided by more than ~1e-13 px; `arc.y` is the
-    //   oracle's `reflex`, decided in f64 by the emitter;
+    // * arc (3): the ring band cut by the sweep -- `max` with the two end radii's signed
+    //   half-plane distances, their `max` (`min` when reflex) -- and a Round cap's two discs
+    //   or a Square cap's two boxes (bug-1088). The planes are the oracle's two cross
+    //   products, against `arcCaps - centre`, the radius times the oracle's Taylor
+    //   `(cos, sin)`, divided by the radius, so no GPU trigonometry is involved; `arc.y` is
+    //   the oracle's `reflex`, decided in f64 by the emitter;
     // * ellipse (7): the oracle's 24-step bisection, every step in double-float. In fp32 a
     //   step's sign test took the other branch wherever `g` was within fp32's error of zero
     //   -- every late step, on every pixel -- which is what put the ellipse 8 pixels past
@@ -932,10 +933,13 @@ const METAL_SHADER_BODY: &str = concat!(
     "    float2 sy = dfSub(dfFixed(item.arcCaps.y, item.capsLo.y), cy);\n",
     "    float2 tx = dfSub(dfFixed(item.arcCaps.z, item.capsLo.z), cx);\n",
     "    float2 ty = dfSub(dfFixed(item.arcCaps.w, item.capsLo.w), cy);\n",
-    "    bool afterStart = !dfLess(dfMul(sx, dy), dfMul(sy, dx));\n",
-    "    bool beforeEnd = !dfLess(dfMul(ty, dx), dfMul(tx, dy));\n",
-    "    bool inSweep = item.arc.y != 0 ? (afterStart || beforeEnd) : (afterStart && beforeEnd);\n",
-    "    float2 band = inSweep ? dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius) : float2(1.0e6, 0.0);\n",
+    // bug-1088: the band cut by the sweep's two half-planes as signed distances, the
+    // oracle's `startPlane`/`endPlane`; `s`, `t` are the radius times its unit vectors, so
+    // each cross product is divided by the radius.
+    "    float2 startPlane = dfDiv(dfSub(dfMul(sy, dx), dfMul(sx, dy)), ex);\n",
+    "    float2 endPlane = dfDiv(dfSub(dfMul(tx, dy), dfMul(ty, dx)), ex);\n",
+    "    float2 sweep = item.arc.y != 0 ? dfMin(startPlane, endPlane) : dfMax(startPlane, endPlane);\n",
+    "    float2 band = dfMax(dfSub(dfAbs(dfSub(dfLength(dx, dy), ex)), radius), sweep);\n",
     // plan-163-B: a Square end is `__canvas_arcSquareCap` -- the half-width box past the
     // end along the tangent, `along` measured outward from the end.
     "    if (item.arc.w == 0) { return band; }\n",
@@ -1001,8 +1005,8 @@ const METAL_SHADER_BODY: &str = concat!(
     // * rectangle, circle, line: the fp32 distance, moved toward zero by `slack` -- 2^-18 of
     //   the coordinates' magnitudes plus 2^-12 px, the bound `edgeSlack` uses (each is
     //   1-Lipschitz in its inputs, which the 16.16 words and the residual move by <= 2^-17);
-    // * arc: a lower bound only, `min(ring band, cap discs)` with the sweep ignored -- out of
-    //   sweep the oracle answers 1e6, never less than the band;
+    // * arc: a lower bound only, `min(ring band, cap discs)` with the sweep ignored -- the
+    //   oracle's band is `max(ring band, sweep planes)` (bug-1088), never less than the ring;
     // * ellipse: `rmin * |s - 1|` for `s = |(qx / rx, qy / ry)|`, a RIGOROUS bound on the
     //   distance to the ellipse (the ellipse and its scale by `s` are `rmin * |s - 1|` apart:
     //   map by `diag(1 / rx, 1 / ry)`, whose inverse stretches no vector by more than
@@ -1689,9 +1693,10 @@ const METAL_SHADER_BODY: &str = concat!(
     // matrix's Frobenius norm `F` (or the fallback 1.0), and a centre past
     // `half + 0.5 * max(F, 1)` is past the clamp whatever the four neighbours say --
     // they are then not evaluated. `F` is widened by 2^-8 for the ellipse's bisection,
-    // which is Lipschitz only to its own ~1e-4 px. An arc is not Lipschitz at all (out
-    // of sweep it jumps to 1e6), so a transformed arc takes no shortcut; neither does
-    // any neighbour sample, whose exact value the gradient needs. The clip's centre
+    // which is Lipschitz only to its own ~1e-4 px. An arc is 1-Lipschitz since bug-1088
+    // (its sweep is two signed half-planes, not a jump to 1e6), so it takes the shortcut
+    // like every other kind. No neighbour sample does, whose exact value the gradient
+    // needs. The clip's centre
     // sample takes the same shortcut at `0.5 * max(F, 1)` (bug-995, argued at
     // `clipReach` in `shapeCoverage` below).
     // plan-172-H: a rectangle clip's signed distance in double-float at the item's own
@@ -1736,7 +1741,7 @@ const METAL_SHADER_BODY: &str = concat!(
     "    norm = sqrt(dot(c0, c0) + dot(c1, c1));\n",
     "    if (grouped) { norm = (itemMapped ? norm : 1.0) * length(gi); }\n",
     "    float frob = norm * (1.0 + 1.0 / 256.0) + 1.0 / 256.0;\n",
-    "    reach = item.misc.x == 3 ? 1.0e30 : max(half2.x, 0.0) + 0.5 * max(frob, 1.0);\n",
+    "    reach = max(half2.x, 0.0) + 0.5 * max(frob, 1.0);\n",
     "    clipReach = 0.5 * max(frob, 1.0);\n",
     "  }\n",
     "  int2 band = polygonBand(item, edges, itemMapped ? dfMapY(item, x, y).x : y.x, norm);\n",

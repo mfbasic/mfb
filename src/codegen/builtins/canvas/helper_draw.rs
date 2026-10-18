@@ -97,13 +97,24 @@ r#"FUNC __canvas_geoDistance(kind AS Integer, tail AS Integer, edges AS Integer,
   IF kind = __CANVAS_GEO_ARC THEN
     LET adx AS Float = px - p0
     LET ady AS Float = py - p1
-    MUT arcD AS Float = 1000000.0
-    IF __canvas_arcInSweep(adx, ady, sx, sy, ex, ey, reflex) THEN
-      arcD = __canvas_absF(math::sqrt(adx * adx + ady * ady) - p2) - radius
+    ' bug-1088: the sweep is a wedge of two half-planes through the end radii, taken as
+    ' SIGNED distances -- positive before the start radius and past the end one (`+Y`
+    ' is down, so "after the start" is the cross product `s x d >= 0`) -- and the band is
+    ' intersected with it as the butt line's band is with its end planes
+    ' (`__canvas_segmentDistanceButt`): the half-width off first, then `max`. A sweep up
+    ' to a half-turn is the intersection of the two half-planes, a reflex one their union.
+    ' The sweep vectors are unit, so each plane term is a distance and the whole is
+    ' 1-Lipschitz: an end is antialiased as any edge is, and the central-difference
+    ' gradient a transformed arc is divided by never meets a jump. It answered 1e6 out
+    ' of sweep, and under a magnifying transform that jump lit rays along both ends.
+    LET startPlane AS Float = sy * adx - sx * ady
+    LET endPlane AS Float = ex * ady - ey * adx
+    MUT sweep AS Float = __canvas_maxF(startPlane, endPlane)
+    IF reflex THEN
+      sweep = __canvas_minF(startPlane, endPlane)
     END IF
-    ' plan-116-D. Butt is 0 and is what an Arc did before this letter -- the sweep test
-    ' already cuts the band along a radius at each end -- so the untouched path is the
-    ' one that returns here, and a butt arc is byte-for-byte what it was.
+    MUT arcD AS Float = __canvas_maxF(__canvas_absF(math::sqrt(adx * adx + ady * ady) - p2) - radius, sweep)
+    ' plan-116-D. Butt is 0: the band cut by the sweep is the whole of it.
     IF cap = 0 THEN
       RETURN arcD
     END IF

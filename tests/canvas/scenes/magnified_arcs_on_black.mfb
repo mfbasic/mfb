@@ -1,0 +1,38 @@
+IMPORT app
+IMPORT canvas
+IMPORT vector
+IMPORT color
+
+' bug-1088: arcs of radius under 1 under transforms that magnify by 60 to 100, over the
+' default opaque-black surface. The central-difference gradient a transformed distance
+' is divided by is taken across the sweep's ends, so a distance that jumps there (it
+' answered 1e6 out of sweep) lit dotted rays from the centre along both end radii, out
+' to the edge of the item's box. A butt arc is the band cut by the two end radii as
+' signed half-plane distances, so every renderer antialiases its ends like any edge.
+'
+'   top row     a butt quarter-ring (the bug's repro), a butt arc swept past a half-turn
+'               (the reflex case: the union of the two half-planes), a round-capped arc
+'   bottom row  a square-capped arc, a butt arc under a turn and a scale, a dashed
+'               butt arc
+'
+' Every centre is fractional, so no end radius lies along a pixel boundary.
+FUNC pt(x AS Float, y AS Float) AS vector::Float2
+  RETURN vector::Float2[x := x, y := y]
+END FUNC
+
+FUNC scaled(s AS Float) AS canvas::Transform
+  RETURN canvas::Transform[a := s, b := 0.0, c := 0.0, d := s, tx := 0.0, ty := 0.0]
+END FUNC
+
+FUNC main() AS Nothing
+  app::setMode(app::Mode.Canvas)
+  LET white AS color::Color = color::rgb(255, 255, 255)
+  LET butt AS canvas::Paint = WITH canvas::stroke(white, 0.1) { cap := canvas::CapStyle.Butt }
+  LET quarter AS canvas::DrawItem = canvas::Arc[id := "", position := pt(160.3, 160.7), radius := 0.5, startAngle := 0.4, endAngle := 2.3, paint := butt, transform := scaled(100.0)]
+  LET reflex AS canvas::DrawItem = canvas::Arc[id := "", position := pt(450.6, 170.2), radius := 0.4, startAngle := 0.5, endAngle := 5.0, paint := WITH canvas::stroke(color::rgb(250, 200, 90), 0.12) { cap := canvas::CapStyle.Butt }, transform := scaled(100.0)]
+  LET round AS canvas::DrawItem = canvas::Arc[id := "", position := pt(730.4, 140.9), radius := 0.5, startAngle := 1.0, endAngle := 2.6, paint := WITH canvas::stroke(color::rgb(90, 220, 160), 0.1) { cap := canvas::CapStyle.Round }, transform := scaled(100.0)]
+  LET square AS canvas::DrawItem = canvas::Arc[id := "", position := pt(160.8, 430.3), radius := 0.5, startAngle := 3.6, endAngle := 5.4, paint := WITH canvas::stroke(color::rgb(120, 140, 250), 0.1) { cap := canvas::CapStyle.Square }, transform := scaled(100.0)]
+  LET turned AS canvas::DrawItem = canvas::Arc[id := "", position := pt(450.2, 430.6), radius := 0.9, startAngle := 0.2, endAngle := 1.9, paint := WITH canvas::stroke(color::rgb(250, 120, 200), 0.15) { cap := canvas::CapStyle.Butt }, transform := canvas::Transform[a := 51.96, b := 30.0, c := -36.0, d := 62.35, tx := 0.0, ty := 0.0]]
+  LET dashed AS canvas::DrawItem = canvas::Arc[id := "", position := pt(730.7, 430.1), radius := 0.6, startAngle := 0.3, endAngle := 4.4, paint := WITH canvas::stroke(color::rgb(200, 230, 255), 0.1) { cap := canvas::CapStyle.Butt, dashes := [0.3, 0.15] }, transform := scaled(100.0)]
+  canvas::present([quarter, reflex, round, square, turned, dashed])
+END FUNC

@@ -1809,6 +1809,23 @@ fn banded_shapes_in_shrinking_groups_match_the_software_oracle_on_metal() {
     );
 }
 
+/// bug-1088: arcs of radius under 1 under transforms that magnify by 60 to 100 -- butt,
+/// reflex butt, round, square, turned and dashed (`scenes/magnified_arcs_on_black.mfb`).
+/// A butt arc's sweep is two signed half-planes, so its ends are antialiased and its
+/// distance is 1-Lipschitz; the shaders' arc distance and the shortcut an arc now takes
+/// have to agree with the oracle's, which `rt_canvas_rasteriser`'s
+/// `a_magnified_butt_arc_draws_its_band_and_antialiased_ends_only` holds to the band.
+const MAGNIFIED_ARCS: &str = include_str!("scenes/magnified_arcs_on_black.mfb");
+
+#[test]
+fn magnified_arcs_match_the_software_oracle_on_metal() {
+    assert_metal_draws_like_software(
+        "canvas_metal_magnified_arcs",
+        MAGNIFIED_ARCS,
+        "arcs under magnifying transforms",
+    );
+}
+
 /// plan-172-L: pictures inside shapes (`scenes/picture_shapes_on_black.mfb`). Every
 /// shaped picture is a picture record with a polygonal clip and, where it strokes, the
 /// shape itself -- two entries the GPU already draws -- so this is the check that the

@@ -517,9 +517,9 @@ rectangle, circle, segment (round, or butt with its two end planes), arc, ellips
 polygon and polyline distances, the polygon's signed crossing test (multiplied out, no
 division) summed under its fill rule, the inverse transform, the central-difference gradient, the stroke's
 half-width and the coverage rounding; the clip's rectangle or path distance too. The
-quantisation is the same `int(clamp(0.5 − d, 0, 1)·255 + 0.5)`. An arc's sweep test takes
-its direction vectors from its cap endpoints less its centre, a positive multiple of the
-oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved; whether the sweep is
+quantisation is the same `int(clamp(0.5 − d, 0, 1)·255 + 0.5)`. An arc's sweep planes take
+their direction vectors from its cap endpoints less its centre, divided by its radius,
+which gives back the oracle's Taylor `(cos, sin)`, so no GPU trigonometry is involved; whether the sweep is
 reflex is decided by the emitter in f64 and carried as a flag, in the item-block word a
 polygon uses for its fill rule instead (`arc.y`; only an arc reads it as the flag). An
 ellipse runs the
@@ -536,14 +536,12 @@ A first fp32 pass over the pixel's band finds the least upper bracket. Only edge
 lower bracket does not exceed it are evaluated in double-float, and only crossings too
 close to call against the same bound. Every other kind has an fp32 bound of the same
 kind: the rectangle, circle and line distance within the same bracket, the arc's ring
-and cap distances with the sweep ignored (out of sweep the oracle answers 1e6, never
-less), and for an ellipse `rmin·|s − 1|`, where `s` is the point's scale relative to the
+and cap distances with the sweep ignored (the sweep only raises the band's distance), and for an ellipse `rmin·|s − 1|`, where `s` is the point's scale relative to the
 ellipse and `rmin` the smaller radius, a true lower bound on the distance. A pixel whose
 bound is past `0.5 +` the stroke half-width is 0 or 255 by its sign whatever the exact
 distance, so it skips double-float. Under a transform only the centre sample may skip,
 against `half + 0.5·max(F, 1)`, `F` the inverse matrix's Frobenius norm, which bounds the
-gradient the coverage divides by; an arc, whose distance is not Lipschitz, never skips
-under a transform. On Metal, frames rendered with every one of these skips disabled were
+gradient the coverage divides by. On Metal, frames rendered with every one of these skips disabled were
 byte-identical to frames rendered with them, for every bug-735 and bug-687 oracle row
 (bug-735, "Phase 2 results").
 
@@ -681,10 +679,17 @@ is antialiased exactly as any other edge is:
   intersected with the slab between the two planes through its endpoints, perpendicular
   to the segment: as a distance, `max(d − half, −t·|v|, (t−1)·|v|)` with `t` the
   unclamped projection. The half-width is subtracted *before* the intersection, because
-  the planes bound the band and not the centre line. A **butt arc** is the band alone:
-  the sweep already ends it along a radius.
+  the planes bound the band and not the centre line. A **butt arc** is the ring band
+  intersected with the sweep's wedge the same way: with `ρ` the distance from the centre
+  and `u_s`, `u_e` the unit vectors along the start and end radii, the half-plane
+  distances `p_s = u_s.y·dx − u_s.x·dy` (positive before the start) and
+  `p_e = u_e.x·dy − u_e.y·dx` (positive past the end) make the wedge `max(p_s, p_e)` for a
+  sweep up to a half-turn and `min(p_s, p_e)` for a reflex one, and the distance is
+  `max(|ρ − r| − half, wedge)`. Like a butt line's it is 1-Lipschitz, so its ends are
+  antialiased and a transformed arc's gradient never crosses a jump.
+  [[src/codegen/builtins/canvas/helper_draw.rs:GEO_DISTANCE]]
 * `Round` adds a half-disc of `half = strokeWidth / 2` centred on the endpoint. A **round
-  arc** is the band unioned with a disc of `half` at each sweep endpoint, the `min` of
+  arc** is the butt arc unioned with a disc of `half` at each sweep endpoint, the `min` of
   the three distances.
 * `Square` extends the stroke `half` past the endpoint and cuts it square there:
   `max(|perp| − half, −t·|v| − half, (t−1)·|v| − half)` against the original segment's
@@ -918,8 +923,8 @@ as the GPU shaders widen it: coverage is `0.5 − d/g`, and the gradient `g` the
 is divided by is at most `F`, so no pixel further than that from the stroked shape takes
 coverage. Under a uniform scale the rim is 0.71 px whatever the scale. Three boxes are
 mapped whole instead, with no rim to replace: a `Text` run's (its font metrics), a
-`Picture`'s (two units about its destination), and an `Arc`'s, whose distance is not
-Lipschitz. The untransformed box is unchanged, and `canvas::geoBuild` builds it bit for
+`Picture`'s (two units about its destination), and an `Arc`'s (the square about its
+whole ring). The untransformed box is unchanged, and `canvas::geoBuild` builds it bit for
 bit. [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
 
 Before any renderer submits or rasterises an item, that surface-space hull is tested
