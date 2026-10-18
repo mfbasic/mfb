@@ -427,7 +427,7 @@ MFB
           || fail "$libc: ship the setMode io-routing AppImage"
         # shellcheck disable=SC2086
         out=$(timeout_run 20 $ssh -n "cd $remote && chmod +x modeio.AppImage && \
-          DISPLAY=$display MFB_TRANSCRIPT_DUMP=1 ./modeio.AppImage $run_flags 2>/dev/null")
+          DISPLAY=$display GDK_BACKEND=x11 MFB_TRANSCRIPT_DUMP=1 ./modeio.AppImage $run_flags 2>/dev/null")
         if [ "$out" = "$(printf 'C-none\nA-console-1\nE-console-2')" ]; then
           pass "$libc: setMode reconciles before returning (io follows the new mode)"
         else
