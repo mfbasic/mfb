@@ -11,8 +11,13 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-/// `app::setMode(mode)` — store the `Mode` discriminant into the presentation-mode
-/// word, then invoke the per-backend surface-reconcile seam
+/// The `term::off` runtime helper. It exists whenever the program has `term::`
+/// state: `builder::mod` forces it in for the exit-time auto-restore.
+const TERM_OFF_SYMBOL: &str = "_mfb_rt_term_term_off";
+
+/// `app::setMode(mode)` — when the mode changes and the program has `term::` state,
+/// run the implicit `term::off` (bug-966); store the `Mode` discriminant into the
+/// presentation-mode word; then invoke the per-backend surface-reconcile seam
 /// ([`CodegenPlatform::emit_app_mode_reconcile`]). The store lands *before* the
 /// reconcile runs, so the reconcile (which in C/D emits register-clobbering `bl`
 /// calls to marshal to the UI thread) reads the authoritative mode from the slot
@@ -32,6 +37,33 @@ pub(crate) fn lower_set_mode(
     builder
         .instructions
         .push(abi::move_register(&mode, abi::c_arg(0)));
+    // bug-966: a mode *change* tears the surface down with an implicit `term::off`
+    // (`mfb spec app presentation-mode`, "The surface-reconcile seam"), so no raw /
+    // grid state survives the switch. This is `term::off`'s own helper — final
+    // present, input restore, `active = 0` — called here, once, for every backend,
+    // rather than a copy in each backend's reconcile. It runs while the slot still
+    // holds the OLD mode: the TUI can only be on in `Console` (`term::on` is
+    // `Console`-gated), so an active TUI passes `term::off`'s `ErrWrongMode` gate.
+    // When the old mode is not `Console` the TUI is necessarily off; the helper then
+    // returns `ErrWrongMode` (a static message, no allocation) without touching
+    // anything, and that result is discarded like every other result below — the
+    // shutdown auto-restore calls the same helper the same way. A same-mode
+    // `setMode` is not a change and keeps the TUI. A program with no `term::` state
+    // has no TUI to turn off and emits nothing.
+    if ctx.term_state_offset.is_some() {
+        let current = vregs.next();
+        let unchanged = format!("{symbol}_mode_unchanged");
+        builder.instructions.extend([
+            abi::load_u64(&current, ARENA_STATE_REGISTER, presentation_mode_offset),
+            abi::compare_registers(&current, &mode),
+            abi::branch_eq(&unchanged),
+            abi::branch_link(TERM_OFF_SYMBOL),
+        ]);
+        builder
+            .relocations
+            .push(internal_branch(&symbol, TERM_OFF_SYMBOL));
+        builder.instructions.push(abi::label(&unchanged));
+    }
     builder.instructions.push(abi::store_u64(
         &mode,
         ARENA_STATE_REGISTER,
@@ -69,6 +101,13 @@ const DESC: &str = r#"`app::setMode` sets the program's presentation mode. `mode
 Switching mode reconciles the window surface to match: entering `app::Mode.None` tears
 the window down and routes `io::print` to standard output; entering `app::Mode.Console`
 brings the transcript window up. A subsequent `app::getMode` reflects the new mode.
+
+Switching to a *different* mode first leaves TUI mode exactly as `term::off` would
+(the last frame is presented, line input is restored), so after coming back to
+`app::Mode.Console` the program is in the scrolling transcript, `term::isOn`
+reports `FALSE`, and `io::print` output is visible; call `term::on` again to get
+the grid back. Setting the mode that is already in effect is not a switch and
+leaves an active TUI alone.
 
 Referencing `app::setMode` anywhere in a program also changes that program's
 **initial** mode to `app::Mode.None` — a program that manages its own surface starts

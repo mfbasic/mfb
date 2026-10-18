@@ -56,7 +56,8 @@ touches `app::` keeps its exact entry frame. [[src/codegen/error/constants/error
 
 `app::getMode` and `app::setMode` are lowered inline to runtime helpers that load
 and store this word — `getMode` is a single load (as cheap as reading a local),
-`setMode` a store followed by the surface-reconcile seam below.
+`setMode` an implicit `term::off` on a mode change, a store, and the
+surface-reconcile seam below.
 [[src/codegen/builtins/app/func_get_mode.rs:lower_get_mode]] [[src/codegen/builtins/app/func_set_mode.rs:lower_set_mode]]
 
 Because the slot lives in the per-arena state region, it is per-execution-context,
@@ -79,14 +80,28 @@ never referenced the mode at all. [[src/codegen/engine/function/entry.rs:lower_p
 
 ## The surface-reconcile seam
 
-Storing a new mode with `app::setMode` reconciles the window surface to match. The
-store lands in the slot first; a per-backend reconcile hook then runs — on macOS
-it marshals to the AppKit main thread, on Linux to the GTK main loop — to build or
-tear down the window (with an implicit `term::off` so no raw/grid state survives a
-mode switch). The reconcile reads the authoritative mode back from the slot rather
-than a caller-saved register, since it emits register-clobbering cross-thread
-calls. The per-backend window mechanics are `./mfb spec app macos-runtime` and
-`./mfb spec app linux-runtime`. [[src/codegen/engine/types/types.rs:CodegenPlatform]]
+Storing a new mode with `app::setMode` reconciles the window surface to match.
+
+1. **Implicit `term::off`.** When the new mode differs from the one in the slot,
+   `setMode` first calls the `term::off` runtime helper itself — final present,
+   input restore, TUI `active = 0` — so no raw/grid state survives a mode switch:
+   after any mode change `term::isOn()` is `FALSE` until the program calls
+   `term::on` again. This lives once in the shared `setMode` lowering, not in any
+   backend's reconcile, so every backend gets it. It runs while the slot still
+   holds the old mode: the TUI can only be on in `Console` (`term::on` is
+   `Console`-gated), so an active TUI passes `term::off`'s own `ErrWrongMode` gate;
+   from any other mode the TUI is already off and the helper's `ErrWrongMode`
+   result is discarded. A `setMode` to the mode already in effect is not a change
+   and leaves an active TUI on. A program with no `term::` state emits no call.
+   [[src/codegen/builtins/app/func_set_mode.rs:lower_set_mode]]
+2. **Store.** The new mode lands in the slot.
+3. **Reconcile.** A per-backend reconcile hook runs — on macOS it marshals to the
+   AppKit main thread, on Linux to the GTK main loop, on Windows to the window
+   thread — to build or tear down the window. The reconcile reads the
+   authoritative mode back from the slot rather than a caller-saved register,
+   since it emits register-clobbering cross-thread calls. The per-backend window
+   mechanics are `./mfb spec app macos-runtime` and `./mfb spec app linux-runtime`.
+   [[src/codegen/engine/types/types.rs:CodegenPlatform]]
 
 ## Mode-gated I/O
 

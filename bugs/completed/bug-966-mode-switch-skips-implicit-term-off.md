@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
+Status: Fixed
 Coordinator note: measured by the review agent only (Linux runs in podman, or a macOS window screenshot); the coordinator did not re-run it.
 Regression Test: (proposed) macOS headless: `setMode(Console); term::on(); setMode(Canvas); setMode(Console); io::print(toString(term::isOn()))` prints `FALSE`; GUI: the same then `io::print("X")` shows `X` in the transcript
 
@@ -102,3 +102,50 @@ spec and the `types.rs` doc comment.
 - GTK `emit_reconcile_idle_helper` — contains no `ST_TERM_ACTIVE` / term-off
   reference (grep); runtime masked by the GTK crash report.
 - Windows `WM_APP_RECONCILE` arm — not checked.
+
+## Fix
+
+- **What changed.** `src/codegen/builtins/app/func_set_mode.rs:lower_set_mode` now, in a
+  program with `term::` state (`ctx.term_state_offset.is_some()`), loads the mode
+  already in the slot, compares it with the requested one, and on a change calls
+  `_mfb_rt_term_term_off` — `term::off`'s own helper (final present, input restore,
+  `active = 0`) — *before* storing the new mode and running the per-backend reconcile.
+  One place, every backend; no backend reconcile changed. It runs while the slot still
+  holds the old mode, so an active TUI (only possible in `Console`) passes
+  `term::off`'s `ErrWrongMode` gate; from `Canvas`/`None` the TUI is already off and the
+  helper's static `ErrWrongMode` result is discarded (setMode tags OK afterwards, as the
+  shutdown auto-restore already does with the same helper). Same-mode `setMode` skips
+  the call (the Non-goal). The `_mfb_rt_term_term_off` symbol always exists when term
+  state exists (`builder::mod` / `plan::symbols` force it in for the exit restore).
+  The `types.rs` doc on `emit_app_mode_reconcile` now says the seam does NOT run
+  `term::off`; the spec "surface-reconcile seam" section lists the three steps; the
+  `app::setMode` man DESC states the TUI is left on a switch and kept on a same-mode call.
+- **Tests (`tests/cli/cli_app_canvas_mode.rs`).**
+  `macos_mode_change_turns_the_tui_off_and_same_mode_keeps_it` (runtime, macOS headless:
+  same-mode keeps TUI, Canvas→Console and None→Console turn it off) and
+  `every_app_target_set_mode_calls_term_off_on_a_mode_change` (ncode: linux-aarch64,
+  linux-x86_64, windows-x86_64, macos-aarch64 setMode calls the helper behind a
+  mode-compare `b.eq`; a term-free program does not). RED with main's compiler
+  (`MFB_TEST_EXE=/tmp/main-dbg-target/release/mfb cargo test --release --test
+  cli_app_canvas_mode -- mode_change term_off`: both FAILED — exit 3, "linux-aarch64:
+  setMode must call the term::off helper"); GREEN with the fix (13/13).
+- **Cross-backend runtime proof** (probe = the macOS test's program):
+  GTK box 2226 (glibc AppImage): main compiler exit 3 under `DISPLAY=:77` (Xvfb) and
+  `MFB_HEADLESS=1`; fixed exit 0 in both. Windows box 206 (`MFB_HEADLESS=1`, result
+  written to a file because a Windows app's `main AS Integer` exit code is not the
+  process exit code): main `code=3`, fixed `code=0`. macOS GUI run of this doc's repro
+  logs `isOn=FALSE` (was `TRUE`); the window screenshot could not be taken (the
+  session's screen capture returns a black frame), so the visible transcript was not
+  photographed.
+- **Checks run.** `cargo test --release --test cli_app_canvas_mode` 13 passed;
+  `cargo test --release --bin mfb -- builtins::app:: builtins::tests:: app::hook::`
+  43 passed; `-- spec` 46 passed; `-- registry` 107 passed; `--test architecture_guards`
+  8 passed; `--test no_type_strings` 7 passed; `MFB=… scripts/man-run-examples.sh app`
+  6/6 and `term` 48/48 built; `scripts/spec-census.sh --citations app` 0 missing,
+  `--render app` 0 leaks, `--links app` 0 unresolved.
+- **Goldens expected to change** (`scripts/artifact-gate.sh <mfb> all`: 4 diffs, all
+  here): `tests/syntax/app/app-mouse-surface/golden/app_mouse_surface.{macos-aarch64,
+  linux-aarch64,linux-x86_64,windows-x86_64}.app.ncodesum` — the only fixture whose app
+  build has both `app::setMode` and `term::` state. Localized on linux-x86_64: main's
+  `-ncode` hashes to the committed golden, and the only function that differs from the
+  fixed compiler's plan is `_mfb_rt_app_app_setMode`.

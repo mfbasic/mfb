@@ -1283,8 +1283,11 @@ pub(crate) trait CodegenPlatform {
     /// presentation-mode slot. In plan-62-B this is a no-op (the default `None`):
     /// `setMode` is state-only, no window is built or torn down. plan-62-C (macOS
     /// AppKit) and plan-62-D (GTK4) override it to marshal to the UI thread and
-    /// reconcile the window surface (implicit `term::off`, then build/teardown) to
-    /// the mode now in the slot. Instructions are appended in place; `None` means
+    /// build or tear down the window surface to match the mode now in the slot.
+    /// The seam does NOT run `term::off`: the implicit `term::off` of a mode change
+    /// is emitted once, before the store, by the shared
+    /// `builtins::app::func_set_mode::lower_set_mode` (bug-966), so by the time
+    /// this seam runs the TUI is already off. Instructions are appended in place; `None` means
     /// no reconcile (state-only), `Some(Ok(()))` means the backend emitted it.
     fn emit_app_mode_reconcile(
         &self,

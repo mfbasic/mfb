@@ -16,8 +16,6 @@ mod common;
 use common::temp_project;
 use std::fs;
 use std::path::PathBuf;
-// `Path` is only named by the headless bundle runners, which are macOS-only.
-#[cfg(target_os = "macos")]
 use std::path::Path;
 use std::process::Command;
 
@@ -524,4 +522,123 @@ fn macos_set_group_past_the_table_limit_raises() {
          installed name wrongly raised, 73 = the 257th did not raise at all)"
     );
     let _ = fs::remove_dir_all(&project);
+}
+
+// ---------------------------------------------------------------------------
+// bug-966 — a mode change runs the implicit `term::off`.
+//
+// `mfb spec app presentation-mode` ("The surface-reconcile seam"): every
+// `setMode` that CHANGES the mode tears the surface down with an implicit
+// `term::off`, so no raw/grid state survives the switch; a same-mode `setMode`
+// is not a change and keeps the TUI. Before the fix no backend did it, so after
+// `Console(term::on) -> Canvas -> Console` the TUI was still "on", `io::print`
+// routed into the uninstalled grid, and (macOS GUI) nothing the program wrote
+// afterwards was visible.
+// ---------------------------------------------------------------------------
+
+/// Exit codes name the failed observation: 1 = `term::on` did not turn the TUI on,
+/// 2 = a same-mode `setMode` tore it down, 3 = `Canvas -> Console` left it on,
+/// 4 = `None -> Console` left it on.
+const MODE_CHANGE_TERM_OFF_SOURCE: &str = "IMPORT app\n\
+     IMPORT term\n\
+     FUNC main() AS Integer\n\
+    \x20 app::setMode(app::Mode.Console)\n\
+    \x20 term::on()\n\
+    \x20 IF NOT term::isOn() THEN\n\
+    \x20   RETURN 1\n\
+    \x20 END IF\n\
+    \x20 app::setMode(app::Mode.Console)\n\
+    \x20 IF NOT term::isOn() THEN\n\
+    \x20   RETURN 2\n\
+    \x20 END IF\n\
+    \x20 app::setMode(app::Mode.Canvas)\n\
+    \x20 app::setMode(app::Mode.Console)\n\
+    \x20 IF term::isOn() THEN\n\
+    \x20   RETURN 3\n\
+    \x20 END IF\n\
+    \x20 term::on()\n\
+    \x20 app::setMode(app::Mode.None)\n\
+    \x20 app::setMode(app::Mode.Console)\n\
+    \x20 IF term::isOn() THEN\n\
+    \x20   RETURN 4\n\
+    \x20 END IF\n\
+    \x20 RETURN 0\n\
+     END FUNC\n";
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_mode_change_turns_the_tui_off_and_same_mode_keeps_it() {
+    let (project, ok, log) = build_app("app_mode_term_off", MODE_CHANGE_TERM_OFF_SOURCE, &[]);
+    assert!(ok, "build should succeed:\n{log}");
+    let exe = project.join("build/app_mode_term_off.app/Contents/MacOS/app_mode_term_off");
+    assert_eq!(
+        run_headless(&exe),
+        0,
+        "a mode change must run the implicit term::off and a same-mode setMode must \
+         not (1 = term::on failed, 2 = same-mode setMode tore the TUI down, \
+         3 = Canvas -> Console left it on, 4 = None -> Console left it on)"
+    );
+    let _ = fs::remove_dir_all(&project);
+}
+
+/// The instruction list of `symbol` in the `-ncode` plan of an app build.
+fn ncode_body(project: &Path, name: &str, symbol: &str) -> Vec<serde_json::Value> {
+    let text =
+        fs::read_to_string(project.join(format!("{name}.ncode"))).expect("read the ncode plan");
+    let plan: serde_json::Value = serde_json::from_str(&text).expect("ncode is JSON");
+    plan["functions"]
+        .as_array()
+        .expect("functions array")
+        .iter()
+        .find(|function| function["symbol"] == symbol)
+        .unwrap_or_else(|| panic!("{symbol} is emitted"))["instructions"]
+        .as_array()
+        .expect("instructions")
+        .clone()
+}
+
+/// The implicit `term::off` lives in the one place every backend passes through
+/// (`lower_set_mode`), so every app target's `setMode` helper calls the
+/// `term::off` helper, guarded by a compare against the mode already in effect,
+/// before it stores the new mode. Only macOS can run an app bundle here; the
+/// Linux GTK and Windows rows were run on boxes 2226 and 206 (see bug-966) and
+/// this pins the shared shape for them. A program with no `term::` state has no
+/// TUI to turn off, so its `setMode` must not reference the helper at all.
+#[test]
+fn every_app_target_set_mode_calls_term_off_on_a_mode_change() {
+    for target in ["linux-aarch64", "linux-x86_64", "windows-x86_64", "macos-aarch64"] {
+        let (project, ok, log) = build_app(
+            "app_mode_term_off_ncode",
+            MODE_CHANGE_TERM_OFF_SOURCE,
+            &["-target", target, "-ncode"],
+        );
+        assert!(ok, "{target}: -ncode build should succeed:\n{log}");
+        let body = ncode_body(&project, "app_mode_term_off_ncode", "_mfb_rt_app_app_setMode");
+        let call = body
+            .iter()
+            .position(|i| i["op"] == "bl" && i["target"] == "_mfb_rt_term_term_off")
+            .unwrap_or_else(|| panic!("{target}: setMode must call the term::off helper"));
+        let skip = body
+            .iter()
+            .position(|i| i["op"] == "b.eq")
+            .unwrap_or_else(|| panic!("{target}: the term::off call must be mode-change gated"));
+        assert!(
+            skip < call,
+            "{target}: the same-mode skip must precede the term::off call"
+        );
+        let _ = fs::remove_dir_all(&project);
+
+        let (project, ok, log) = build_app(
+            "app_mode_no_term_ncode",
+            CANVAS_ROUNDTRIP_SOURCE,
+            &["-target", target, "-ncode"],
+        );
+        assert!(ok, "{target}: -ncode build should succeed:\n{log}");
+        let body = ncode_body(&project, "app_mode_no_term_ncode", "_mfb_rt_app_app_setMode");
+        assert!(
+            !body.iter().any(|i| i["target"] == "_mfb_rt_term_term_off"),
+            "{target}: a program with no term:: state must not call term::off"
+        );
+        let _ = fs::remove_dir_all(&project);
+    }
 }
