@@ -669,6 +669,10 @@ name = "rt_strings_casefold_unicode16"
 path = "tests/runtime/rt_strings_casefold_unicode16.rs"
 
 [[test]]
+name = "rt_tofixed_string_exact"
+path = "tests/runtime/rt_tofixed_string_exact.rs"
+
+[[test]]
 name = "rt_collection_chunks_window_sizing"
 path = "tests/runtime/rt_collection_chunks_window_sizing.rs"
 

@@ -962,12 +962,9 @@ impl CodeBuilder<'_> {
             ParameterType::String => {
                 let invalid = self.label("to_fixed_invalid");
                 let overflow = self.label("to_fixed_overflow");
-                self.emit_parse_decimal_string_to_double(&source, &invalid)?;
-                self.emit_double_overflow_check(abi::FP_SCRATCH[0], &overflow);
-                let parsed_bits_reg = self.temporary_vreg();
-                let parsed_bits = &parsed_bits_reg;
-                self.emit(abi::float_move_x_from_d(parsed_bits, abi::FP_SCRATCH[0]));
-                self.emit_float_bits_to_fixed_value(parsed_bits, &result)?;
+                // bug-831: the text converts EXACTLY (integer arithmetic, one
+                // rounding), as the `Fixed` literal path does; no binary64 step.
+                self.emit_parse_decimal_string_to_fixed_raw(&source, &result, &invalid, &overflow)?;
                 let done = self.label("to_fixed_done");
                 self.emit(abi::branch(&done));
                 self.emit(abi::label(&invalid));

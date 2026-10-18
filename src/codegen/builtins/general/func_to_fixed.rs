@@ -15,6 +15,9 @@ From a **`String`** it parses a decimal number. Text that is not one raises
 ±2.1 billion — raises `ErrOverflow`. From an `Integer`, a `Float` or a `Money` it
 converts the number, and one outside that range raises `ErrOverflow` too.
 
+The text is converted exactly, the same way a `Fixed` literal is: the nearest `Fixed`
+to the decimal value, a tie going away from zero, with no `Float` step in between.
+
 `Fixed` is **binary** fixed-point, so most decimal fractions are rounded to the
 nearest value it can hold on the way in: `toFixed("0.1")` gives the closest
 `Fixed` to one-tenth, not exact one-tenth. What it does guarantee is
