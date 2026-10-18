@@ -50,7 +50,7 @@ Args        := ListArg | MapArg | ThreadArg | TemplateArgs
 | Worker thread | `ThreadWorker OF Msg TO Out` |
 | Thread + resource plane | `Thread OF Msg RES Res TO Out` |
 | Resource-only thread | `Thread OF RES Res TO Out` |
-| User template | `Name OF A, B` |
+| User template | `Name OF A` (one argument), `Name OF (A, B)` (two or more) |
 | Grouping | `(T)` |
 | Internal success | `#Result OF X` (the `#` sigil keeps it out of user space; a source `Result OF X` is a user template) |
 | C ABI type (LINK only) | `CPtr`, `CInt32`, … — see below |
@@ -217,12 +217,18 @@ naive `split_once`, and each segment is unwrapped of redundant grouping by
 
 ## User templates
 
-`ParameterType::parse` decodes the `Name OF A, B` form into
+`ParameterType::parse` decodes the `Name OF A` / `Name OF (A, B)` form into
 `UserOf(name, args)`. It first **excludes** every built-in `OF`-bearing shape
 (`List OF`, `Set OF`, `Map OF`, `MapEntry OF`, `#Result OF`, `Thread OF`,
 `ThreadWorker OF`, and the `FUNC(`/`ISOLATED FUNC(` prefixes); only a base that
 is none of these is treated as a user template. The remainder after `" OF "` is
-split on top-level `", "` into the argument list. The exclusion list lives in this parser. [[src/types.rs:parse]]
+the argument list: a single parenthesized group holding a top-level comma is
+unwrapped and split on its top-level `", "` (a ` STATE T` after the group abuts the
+final argument); otherwise the remainder is split on top-level `", "` (one argument,
+or a pre-bug-833 bare list). `name` renders two or more arguments as
+`Name OF (A, B)`, writing a final argument's ` STATE T` after the `)`, so a
+multi-argument template nests inside a function type's parameters or another
+template's arguments without ambiguity. The exclusion list lives in this parser. [[src/types.rs:parse]] [[src/types.rs:name]]
 [[src/codegen/builtins/mod.rs:split_top_level_commas]]
 
 The resolver does not apply this precedence itself — it receives the decoded
@@ -261,7 +267,7 @@ when that spelling is declared as a template parameter.
 ## See Also
 
 * ./mfb spec language types — the source type system these strings denote
-* ./mfb spec language templates — the `Name OF A, B` template form
+* ./mfb spec language templates — the `Name OF (A, B)` template form
 * ./mfb spec language functions — `FUNC(...) AS R` and `ISOLATED` callables
 * ./mfb spec language resource-management — the `RES` transfer marker (§15.6)
 * ./mfb spec architecture monomorphization — the stage that substitutes and instantiates typed variants

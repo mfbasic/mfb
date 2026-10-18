@@ -4,27 +4,27 @@ IMPORT io
 ' Pair and Partition are compiler-owned, always-in-scope generic records.
 ' No TYPE declaration is needed (and redeclaring them is an error).
 
-FUNC makePair(n AS Integer, s AS String) AS Pair OF Integer, String
+FUNC makePair(n AS Integer, s AS String) AS Pair OF (Integer, String)
   RETURN Pair[n, s]
 END FUNC
 
 FUNC main AS Integer
   ' Construct and read fields
-  LET p AS Pair OF Integer, String = Pair[7, "seven"]
+  LET p AS Pair OF (Integer, String) = Pair[7, "seven"]
   io::print(toString(p.first))
   io::print(p.second)
 
   ' Returned from a function
-  LET q AS Pair OF Integer, String = makePair(9, "nine")
+  LET q AS Pair OF (Integer, String) = makePair(9, "nine")
   io::print(toString(q.first) & "-" & q.second)
 
   ' Stored in a List
-  LET ps AS List OF Pair OF Integer, String = [p, q]
+  LET ps AS List OF Pair OF (Integer, String) = [p, q]
   io::print(toString(collections::get(ps, 1).first))
   io::print(collections::get(ps, 0).second)
 
-  ' Default values: Pair OF Integer, String -> first=0, second=""
-  MUT dp AS Pair OF Integer, String
+  ' Default values: Pair OF (Integer, String) -> first=0, second=""
+  MUT dp AS Pair OF (Integer, String)
   io::print(toString(dp.first) & "[" & dp.second & "]")
 
   ' Partition: construct, read both fields

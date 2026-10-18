@@ -14,7 +14,7 @@ IMPORT collections
 ' project type` against the template's own field. That gap is fixed in
 ' plan-105-B Phase 2 and covered by `user-generic-nested-user-rt`.
 
-TYPE Pairing OF A, B
+TYPE Pairing OF (A, B)
   first  AS A
   second AS B
 END TYPE
@@ -31,7 +31,7 @@ FUNC main AS Integer
   ' A multi-parameter user generic: the comma is a top-level separator INSIDE one
   ' type name, so splitting it needs the depth-aware rule `UserOf`'s parse arm
   ' now owns.
-  LET inner AS Pairing OF Integer, String = Pairing[7, "seven"]
+  LET inner AS Pairing OF (Integer, String) = Pairing[7, "seven"]
   io::print("inner=" & toString(inner.first) & "," & inner.second)
 
   ' A user generic whose argument is a built-in container.
@@ -54,7 +54,7 @@ FUNC main AS Integer
 
   ' A built-in container over a MULTI-parameter user generic — the top-level
   ' comma sits two levels down.
-  MUT pairs AS List OF Pairing OF Integer, String = []
+  MUT pairs AS List OF Pairing OF (Integer, String) = []
   pairs = collections::append(pairs, Pairing[1, "one"])
   pairs = collections::append(pairs, Pairing[2, "two"])
   MUT joined AS String = ""

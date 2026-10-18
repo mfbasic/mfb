@@ -918,7 +918,7 @@ failed: 77050002
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __collections_groupBy OF T, K, V(value AS List OF T, keyFn AS FUNC(T) AS K, valFn AS FUNC(T) AS V) AS Map OF K TO List OF V
+r#"FUNC __collections_groupBy OF (T, K, V)(value AS List OF T, keyFn AS FUNC(T) AS K, valFn AS FUNC(T) AS V) AS Map OF K TO List OF V
   LET keys AS List OF K = collections::transform(value, keyFn)
   LET vals AS List OF V = collections::transform(value, valFn)
   MUT result AS Map OF K TO List OF V = Map OF K TO List OF V {}

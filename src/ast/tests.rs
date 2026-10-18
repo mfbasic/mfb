@@ -673,9 +673,10 @@ fn set_type_rejects_res_element() {
 
 #[test]
 fn parses_template_type_with_multiple_args() {
+    // bug-833: a multi-argument list is parenthesized, and the AST keeps it.
     assert_eq!(
-        type_of("Pair OF Integer, String"),
-        "Pair OF Integer, String"
+        type_of("Pair OF (Integer, String)"),
+        "Pair OF (Integer, String)"
     );
 }
 
@@ -806,8 +807,8 @@ fn type_names_cover_thread_map_list_and_function_forms() {
     );
     // Multi-arg template type.
     assert_eq!(
-        param_type("FUNC s(p AS Pair OF Integer, String) AS Nothing\nEND FUNC\n"),
-        "Pair OF Integer, String"
+        param_type("FUNC s(p AS Pair OF (Integer, String)) AS Nothing\nEND FUNC\n"),
+        "Pair OF (Integer, String)"
     );
     // Function type.
     assert_eq!(

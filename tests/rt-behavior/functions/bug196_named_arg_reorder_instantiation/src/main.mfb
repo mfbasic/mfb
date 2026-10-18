@@ -6,7 +6,7 @@ IMPORT io
 ' A=Integer (from x:=1), B=String (from y:="s"). Pre-fix, arg types were zipped in
 ' call order (A=String, B=Integer), producing a spurious post-monomorph type error
 ' on this valid program. `r + 1 == 2` only typechecks when A=Integer.
-FUNC f OF A, B(x AS A, y AS B) AS A
+FUNC f OF (A, B)(x AS A, y AS B) AS A
   RETURN x
 END FUNC
 

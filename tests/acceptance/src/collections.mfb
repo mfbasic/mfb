@@ -497,7 +497,7 @@ TESTING
         expectInteger(len(collections::window([1, 2, 3, 4], 2)), 3)
       END TCASE
       TCASE "zip"
-        LET z AS List OF Pair OF Integer, String = collections::zip([1, 2, 3], ["a", "b"])
+        LET z AS List OF Pair OF (Integer, String) = collections::zip([1, 2, 3], ["a", "b"])
         expectInteger(len(z), 2)
         expectInteger(collections::get(z, 1).first, 2)
         expectString(collections::get(z, 1).second, "b")

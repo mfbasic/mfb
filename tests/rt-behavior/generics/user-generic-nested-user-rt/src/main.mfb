@@ -18,15 +18,15 @@ IMPORT io
 ' binding against `Holder$Holder$OF$Integer` for its initializer
 ' (TYPE_BINDING_MISMATCH). Both callers now walk their arguments.
 '
-' TWO SHAPES REMAIN UNSUPPORTED, both verified against this build and recorded in
-' plan-105-B's Corrections rather than silently omitted:
+' plan-105-B's Corrections recorded two unsupported shapes:
 '
-'   1. A MULTI-parameter template nested inside a user generic
-'      (`Holder OF Pairing OF Integer, String`) is AMBIGUOUS in the surface
-'      grammar — textually indistinguishable from a two-argument
-'      `Holder OF (Pairing OF Integer), String`, and MFBASIC has no bracketing to
-'      separate them. Reports `cannot infer template arguments`. Needs a language
-'      change, not a compiler fix.
+'   1. A MULTI-parameter template nested inside a user generic was AMBIGUOUS
+'      while a multi-argument list was written bare. bug-833's language change
+'      parenthesizes it (`Holder OF Pairing OF (Integer, String)`), so it now
+'      parses unambiguously and builds (`rt_user_generic_param_not_last`).
+'
+'
+'
 '   2. THREE levels of user generic (`Holder OF Holder OF Holder OF String`) still
 '      reports `SYMBOL_UNKNOWN_TYPE: Type 'Holder' ...`: a doubly-nested
 '      constructor's expected type is the enclosing template's already-MANGLED

@@ -3492,7 +3492,7 @@ END FUNC
         let src = "\
 IMPORT io
 IMPORT collections
-FUNC lookup OF K, V(items AS Map OF K TO V, key AS K, fallback AS V) AS V
+FUNC lookup OF (K, V)(items AS Map OF K TO V, key AS K, fallback AS V) AS V
   IF collections::hasKey(items, key) THEN
     RETURN collections::get(items, key)
   END IF
@@ -3939,7 +3939,7 @@ END FUNC
             "#Result OF sqlite.Db",
             "RES fs.File",
             "List OF RES fs.File",
-            "Pair OF sqlite.Db, io.Stream",
+            "Pair OF (sqlite.Db, io.Stream)",
             "FUNC(sqlite.Db) AS io.Stream",
             "Thread OF sqlite.Db TO io.Stream",
             "Thread OF Integer RES fs.File TO String",

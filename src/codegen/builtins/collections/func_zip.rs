@@ -550,7 +550,7 @@ const INTRO: &str = r#"Pair items from two lists position-wise"#;
 
 const DESC: &str = r#"`collections::zip` combines two lists element by element. It first computes the
 pairing length `n` as the smaller of `len(a)` and `len(b)`, then for each index
-`i` from `0` to `n - 1` builds a `Pair OF A, B` whose `first` field is the item
+`i` from `0` to `n - 1` builds a `Pair OF (A, B)` whose `first` field is the item
 of `a` at `i` and whose `second` field is the item of `b` at `i`, appending each
 pair to the result.
 
@@ -564,9 +564,9 @@ Positional correspondence is preserved: the pair at index `i` of the result
 always holds the items that were at index `i` in both inputs, so the result reads
 in the same order as the inputs.
 
-`Pair OF A, B` is a prelude record template with the two fields
+`Pair OF (A, B)` is a prelude record template with the two fields
 `first` and `second`. It is always in scope and needs no import, so a program can
-name the result type `List OF Pair OF A, B` and read `p.first` / `p.second`
+name the result type `List OF Pair OF (A, B)` and read `p.first` / `p.second`
 directly.
 
 Neither `a` nor `b` is modified; the result is a new list. `zip` invokes no user
@@ -575,7 +575,7 @@ can raise `ErrOutOfMemory`.
 
 `zip` is generic over `A` and `B`, the element types of the two lists. They are
 inferred independently from the two arguments and need not be the same type. The
-result type is the prelude record template `Pair` instantiated as `Pair OF A, B`."#;
+result type is the prelude record template `Pair` instantiated as `Pair OF (A, B)`."#;
 
 const EX: &str = r#"Pair numbers with labels and read both fields:
 
@@ -584,8 +584,8 @@ IMPORT io
 IMPORT collections
 
 FUNC main AS Integer
-  LET pairs AS List OF Pair OF Integer, String = collections::zip([1, 2], ["a", "b"])
-  LET p AS Pair OF Integer, String = collections::get(pairs, 0)
+  LET pairs AS List OF Pair OF (Integer, String) = collections::zip([1, 2], ["a", "b"])
+  LET p AS Pair OF (Integer, String) = collections::get(pairs, 0)
   io::print(toString(p.first) & p.second)
   RETURN 0
 END FUNC
@@ -598,7 +598,7 @@ IMPORT io
 IMPORT collections
 
 FUNC main AS Integer
-  LET short AS List OF Pair OF Integer, String = collections::zip(a := [1, 2, 3, 4], b := ["x"])
+  LET short AS List OF Pair OF (Integer, String) = collections::zip(a := [1, 2, 3, 4], b := ["x"])
   io::print(toString(len(short)))
   RETURN 0
 END FUNC
@@ -611,7 +611,7 @@ IMPORT io
 IMPORT collections
 
 FUNC main AS Integer
-  LET pairs AS List OF Pair OF String, Integer = collections::zip(["a", "b"], [10, 20])
+  LET pairs AS List OF Pair OF (String, Integer) = collections::zip(["a", "b"], [10, 20])
   FOR EACH p IN pairs
     io::print(p.first & "=" & toString(p.second))
   NEXT
@@ -621,15 +621,15 @@ END FUNC
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __collections_zip OF A, B(a AS List OF A, b AS List OF B) AS List OF Pair OF A, B
-  MUT result AS List OF Pair OF A, B = []
+r#"FUNC __collections_zip OF (A, B)(a AS List OF A, b AS List OF B) AS List OF Pair OF (A, B)
+  MUT result AS List OF Pair OF (A, B) = []
   MUT n AS Integer = len(a)
   IF len(b) < n THEN
     n = len(b)
   END IF
   MUT i AS Integer = 0
   WHILE i < n
-    LET p AS Pair OF A, B = Pair[collections::get(a, i), collections::get(b, i)]
+    LET p AS Pair OF (A, B) = Pair[collections::get(a, i), collections::get(b, i)]
     result = collections::append(result, p)
     i = i + 1
   END WHILE

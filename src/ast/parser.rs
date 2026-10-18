@@ -95,6 +95,12 @@ pub(super) struct FileParser<'a> {
     /// overflowing the native stack (bug-191). `expr_depth`/`stmt_depth` guard only
     /// the expression and statement grammars respectively.
     pub(super) type_depth: usize,
+    /// How many comma-separated lists (parameter lists, function-type parameters,
+    /// parenthesized template arguments, union `INCLUDES`) enclose the type being
+    /// parsed. Inside one, a comma after a bare `Name OF T` is that list's
+    /// separator; outside every one, it is the retired bare multi-argument
+    /// template spelling, which the type grammar reports (bug-833).
+    pub(super) type_list_depth: usize,
     /// Latched once statement nesting hits the cap (bug-183). It fast-forwards the
     /// cursor to `Eof` and suppresses every subsequent diagnostic, so the deeply
     /// nested block unwinds through its ~256 enclosing `consume_end_block` calls
@@ -172,6 +178,7 @@ impl<'a> FileParser<'a> {
             expr_depth: 0,
             stmt_depth: 0,
             type_depth: 0,
+            type_list_depth: 0,
             depth_exceeded: false,
             expr_tree_depth: 0,
             import_bindings,

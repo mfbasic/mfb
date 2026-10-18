@@ -504,7 +504,7 @@ mod tests {
                 &strings(&["List OF Integer", "List OF String"]),
                 true
             ),
-            Some("List OF Pair OF Integer, String".to_string())
+            Some("List OF Pair OF (Integer, String)".to_string())
         );
     }
 

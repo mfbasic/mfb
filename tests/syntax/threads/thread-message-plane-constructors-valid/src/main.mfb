@@ -12,7 +12,7 @@
 
 IMPORT io
 
-TYPE Pairing OF A, B
+TYPE Pairing OF (A, B)
   first AS A
   second AS B
 END TYPE
@@ -29,7 +29,7 @@ FUNC viaMapOfSet(t AS Thread OF Map OF Set OF Integer TO Integer TO Integer) AS 
   RETURN 0
 END FUNC
 
-FUNC viaGeneric(t AS Thread OF Pairing OF Integer, String TO Integer) AS Integer
+FUNC viaGeneric(t AS Thread OF Pairing OF (Integer, String) TO Integer) AS Integer
   RETURN 0
 END FUNC
 

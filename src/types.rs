@@ -707,18 +707,36 @@ impl ParameterType {
                 };
             }
         }
-        // A user generic (`Pair OF Integer, String`). Ordered LAST among the ` OF `
-        // shapes so every built-in constructor above claims its own spelling first;
-        // what reaches here is by definition a non-builtin head. The argument list
-        // splits on TOP-LEVEL commas — the one place that rule now lives (it used to
-        // be duplicated in `monomorph::helpers::split_top_level_commas`).
+        // A user generic (`Stack OF T`, `Pair OF (Integer, String)`). Ordered LAST
+        // among the ` OF ` shapes so every built-in constructor above claims its own
+        // spelling first; what reaches here is by definition a non-builtin head. A
+        // multi-argument list is one parenthesized group (bug-833, which `name`
+        // renders); the arguments split on its TOP-LEVEL commas — the one place
+        // that rule lives. A single group with no comma is a grouped argument.
         if let Some((head, rest)) = Self::split_user_generic(name) {
+            let mut args: Vec<String> = crate::codegen::builtins::split_top_level_commas(rest)
+                .into_iter()
+                .map(str::to_string)
+                .collect();
+            if let Some(group_len) = rest
+                .starts_with('(')
+                .then(|| type_prefix_len(rest))
+                .flatten()
+            {
+                let parts =
+                    crate::codegen::builtins::split_top_level_commas(&rest[1..group_len - 1]);
+                if parts.len() > 1 {
+                    // A trailing ` STATE T` abuts the final argument, exactly as
+                    // `with_state` attaches it.
+                    args = parts.into_iter().map(str::to_string).collect();
+                    if let Some(last) = args.last_mut() {
+                        last.push_str(&rest[group_len..]);
+                    }
+                }
+            }
             return ParameterType::user_of(
                 head,
-                crate::codegen::builtins::split_top_level_commas(rest)
-                    .into_iter()
-                    .map(ParameterType::parse)
-                    .collect(),
+                args.iter().map(|arg| ParameterType::parse(arg)).collect(),
             );
         }
         // A resource's own top-level ` STATE T` clause (plan-111-A). Ordered
@@ -1044,6 +1062,31 @@ impl ParameterType {
             }
             ParameterType::C(ctype) => Cow::Borrowed(ctype.name()),
             ParameterType::Named(elem) => Cow::Borrowed(elem.resolve()),
+            // bug-833: more than one argument is a parenthesized list, the
+            // spelling source writes, so a multi-argument template nests inside a
+            // function type's parameters or another template's arguments with no
+            // comma ambiguity.
+            //
+            // A ` STATE T` clause on the final argument is written after the
+            // list, where source writes it (`Pair OF (Integer, File) STATE S`);
+            // `parse` reads either placement as that same structure, the clause
+            // abutting the final argument exactly as `with_state` attaches it.
+            ParameterType::UserOf(name, args) if args.len() > 1 => {
+                let (last, init) = args.split_last().expect("more than one argument");
+                let (last, clause) = match last {
+                    ParameterType::Stateful { base, state } => {
+                        (base.name(), format!(" STATE {}", state.name()))
+                    }
+                    other => (other.name(), String::new()),
+                };
+                let mut rendered: Vec<Cow<'_, str>> = init.iter().map(|a| a.name()).collect();
+                rendered.push(last);
+                Cow::Owned(format!(
+                    "{} OF ({}){clause}",
+                    name.resolve(),
+                    rendered.join(", ")
+                ))
+            }
             ParameterType::UserOf(name, args) => Cow::Owned(format!(
                 "{} OF {}",
                 name.resolve(),
@@ -1919,7 +1962,7 @@ mod tests {
             "Thread OF Set OF RES fs.File TO Integer",
             "Thread OF FUNC(Integer) AS String TO Integer",
             "Thread OF ISOLATED FUNC(Integer) AS String TO Integer",
-            "Thread OF Pair OF Integer, String TO Integer",
+            "Thread OF Pair OF (Integer, String) TO Integer",
             "Thread OF List OF Set OF Integer TO Integer",
             "Thread OF Map OF Set OF Integer TO Integer TO Integer",
         ] {
@@ -2257,7 +2300,7 @@ mod tests {
             "List OF RES File STATE Cursor",
             "Map OF RES fs.File TO Integer",
             "CsvReader",
-            "Pair OF Integer, String",
+            "Pair OF (Integer, String)",
             "FUNC(Integer) AS String",
             "ISOLATED FUNC(Integer) AS String",
             "Thread OF Integer TO String",
@@ -2420,7 +2463,7 @@ mod tests {
         // A user generic carries the clause on its LAST argument, which is where
         // the trailing text abuts (`with_state`'s `UserOf` arm agrees).
         assert_eq!(
-            ParameterType::parse("Pair OF Integer, String STATE Cursor"),
+            ParameterType::parse("Pair OF (Integer, String) STATE Cursor"),
             ParameterType::user_of(
                 "Pair",
                 vec![
@@ -2463,7 +2506,7 @@ mod tests {
             "Thread OF RES fs.File STATE Cursor TO Integer",
             "ThreadWorker OF RES File STATE Cursor TO Integer",
             "Thread OF Integer RES fs.File STATE Cursor TO String",
-            "Pair OF Integer, String STATE Cursor",
+            "Pair OF (Integer, String) STATE Cursor",
             "A B STATE C",
         ] {
             let type_ = ParameterType::parse(spelling);
@@ -2503,7 +2546,7 @@ mod tests {
             "Thread OF RES fs.File STATE Cursor TO Integer",
             "ThreadWorker OF RES File STATE Cursor TO Integer",
             "Thread OF Integer RES fs.File STATE Cursor TO String",
-            "Pair OF Integer, String STATE Cursor",
+            "Pair OF (Integer, String) STATE Cursor",
             "FUNC(Integer) AS File STATE Cursor",
             // Not a top-level clause: still one opaque nominal, and it must
             // round-trip as one.
@@ -2539,7 +2582,7 @@ mod tests {
             "Thread OF RES fs.File STATE Cursor TO Integer",
             "ThreadWorker OF RES File STATE Cursor TO Integer",
             "Thread OF Integer RES fs.File STATE Cursor TO String",
-            "Pair OF Integer, String STATE Cursor",
+            "Pair OF (Integer, String) STATE Cursor",
             "FUNC(Integer) AS File STATE Cursor",
             "FUNC(File STATE Cursor) AS Integer",
             // `parse` declines to split a composite base, so this stays one
@@ -2696,11 +2739,11 @@ mod tests {
             "ISOLATED FUNC(Integer) AS String",
             "List OF FUNC(Integer) AS String",
             // User generics, including a nested one and a generic argument list.
-            "Pair OF Integer, String",
+            "Pair OF (Integer, String)",
             "Holder OF Integer",
-            "Holder OF Pair OF Integer, String",
-            "Pair OF Integer, Map OF String TO Integer",
-            "List OF Pair OF Integer, String",
+            "Holder OF Pair OF (Integer, String)",
+            "Pair OF (Integer, Map OF String TO Integer)",
+            "List OF Pair OF (Integer, String)",
             // The builtin containers and threads, which already worked.
             "List OF Integer",
             "Map OF String TO Integer",
@@ -2728,8 +2771,8 @@ mod tests {
                 "FUNC(Integer) AS String",
             ),
             (
-                "Pair OF Integer, String TO Integer",
-                "Pair OF Integer, String",
+                "Pair OF (Integer, String) TO Integer",
+                "Pair OF (Integer, String)",
             ),
             ("RES File STATE Cursor TO Integer", "RES File STATE Cursor"),
             (
@@ -2756,7 +2799,7 @@ mod tests {
             "Thread OF Map OF Set OF Integer TO Integer TO Integer",
             "Thread OF FUNC(Integer) AS String TO Integer",
             "Thread OF ISOLATED FUNC(Integer) AS String TO Integer",
-            "Thread OF Pair OF Integer, String TO Integer",
+            "Thread OF Pair OF (Integer, String) TO Integer",
         ] {
             assert!(
                 matches!(
@@ -2786,7 +2829,7 @@ mod tests {
             ),
         );
         assert_eq!(
-            ParameterType::parse("Thread OF Pair OF Integer, String TO Integer"),
+            ParameterType::parse("Thread OF Pair OF (Integer, String) TO Integer"),
             ParameterType::thread_handle(
                 false,
                 ParameterType::user_of("Pair", vec![ParameterType::Integer, ParameterType::String]),

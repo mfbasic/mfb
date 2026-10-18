@@ -1149,8 +1149,8 @@ mod tests {
         let mut substitutions = HashMap::new();
         substitutions.insert("T".to_string(), "Integer".to_string());
         assert_eq!(
-            substitute_str("Pair OF List OF T, T", &substitutions),
-            "Pair OF List OF Integer, Integer"
+            substitute_str("Pair OF (List OF T, T)", &substitutions),
+            "Pair OF (List OF Integer, Integer)"
         );
         assert_eq!(
             substitute_str("List OF T", &substitutions),
@@ -1202,8 +1202,8 @@ mod tests {
             "MapEntry OF Integer TO String"
         );
         assert_eq!(
-            substitute_str("Pair OF T, U", &s),
-            "Pair OF Integer, String"
+            substitute_str("Pair OF (T, U)", &s),
+            "Pair OF (Integer, String)"
         );
         // Thread shape substitutes message and output slots.
         assert_eq!(

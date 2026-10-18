@@ -90,8 +90,8 @@ Comparability/orderability constraints (enforced on the IR by the semantic verif
   `<` operator, so the element (or key) type must be orderable; `distinct`
   relies on `contains` and therefore requires a comparable element type.
 
-`collections::zip` produces a `List OF Pair OF A, B`, and
-`collections::partition` produces a `Partition OF T`. `Pair OF A, B` (fields
+`collections::zip` produces a `List OF Pair OF (A, B)`, and
+`collections::partition` produces a `Partition OF T`. `Pair OF (A, B)` (fields
 `first`, `second`) and `Partition OF T` (fields `matched`, `unmatched`) are
 compiler-owned generic record templates in the always-in-scope builtin prelude; [[src/ast/manifest.rs:builtin_prelude_file]] they are constructed and field-accessed
 like ordinary records. `MapEntry OF K TO V` (fields `key`, `value`) is the

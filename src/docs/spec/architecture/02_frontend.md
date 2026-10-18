@@ -82,7 +82,7 @@ first file; a user template's instantiations go into the file that declares it
 (`./mfb spec architecture monomorphization`).[[src/ast/manifest.rs:builtin_prelude_file]]
 
 The prelude declares the always-in-scope generic record templates
-`Pair OF A, B` (fields `first AS A`, `second AS B`) and `Partition OF T` (fields
+`Pair OF (A, B)` (fields `first AS A`, `second AS B`) and `Partition OF T` (fields
 `matched AS List OF T`, `unmatched AS List OF T`). Both are exported, ordinary
 generic records — constructible, field-accessible, copyable, and thread-sendable
 when their members are — handled by the normal template machinery rather than

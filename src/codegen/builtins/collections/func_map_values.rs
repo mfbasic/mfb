@@ -248,7 +248,7 @@ END FUNC
 
 #[rustfmt::skip]
 const BODY: &str =
-r#"FUNC __collections_mapValues OF K, V, U(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U
+r#"FUNC __collections_mapValues OF (K, V, U)(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U
   MUT result AS Map OF K TO U = Map OF K TO U {}
   FOR EACH e IN value
     result = collections::set(result, e.key, f(e.value))

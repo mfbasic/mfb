@@ -4635,7 +4635,7 @@ fn thread_resource_plane_target(name: &str) -> &str {
 ///
 /// plan-111-B. The name-domain form splits the WHOLE rendered spelling on its
 /// FIRST `.` and looks the prefix up as an import binding, so it only ever
-/// rewrites a HEAD nominal: `alias.Type` and `alias.Pair OF A, B` are rewritten,
+/// rewrites a HEAD nominal: `alias.Type` and `alias.Pair OF (A, B)` are rewritten,
 /// while `List OF alias.T` looks up `"List OF alias"`, misses, and comes back
 /// unchanged — as do a container's or a user generic's ARGUMENTS. This
 /// reproduces exactly that, which is why it does not recurse.

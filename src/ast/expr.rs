@@ -1032,26 +1032,66 @@ impl<'a> FileParser<'a> {
                 return Some(name);
             }
 
-            let mut args = vec![self.parse_type_name()?];
-            while self.match_kind(TokenKind::Comma) {
-                args.push(self.parse_type_name()?);
+            // bug-833: a template's argument list is ONE type, or a parenthesized
+            // list `Name OF (A, B)` (owner decision 2026-10-05). A bare argument
+            // never reads past a comma, so the comma belongs to whatever list
+            // encloses the type (a parameter list, a function type, another
+            // template's arguments) and `FUNC push OF T(s AS Stack OF T, v AS T)`
+            // parses. One parenthesized argument is a grouped type, as before.
+            if self.match_kind(TokenKind::LParen) {
+                self.type_list_depth += 1;
+                let args = self.parse_template_argument_list();
+                self.type_list_depth -= 1;
+                let args = args?;
+                if !self.consume_kind(
+                    TokenKind::RParen,
+                    "Expected `)` after the template type arguments.",
+                ) {
+                    return None;
+                }
+                name.push_str(" OF (");
+                name.push_str(&args.join(", "));
+                name.push(')');
+                return Some(name);
             }
-            // coverage:off — `args` is seeded with one parsed type above, so it is
-            // never empty here; this guard is defensive.
-            if args.is_empty() {
+            let arg = self.parse_type_name()?;
+            // Outside every comma-separated list a comma cannot follow a type, so
+            // one here is the old bare multi-argument spelling: name the form
+            // that replaced it, at the comma.
+            if self.type_list_depth == 0 && self.check_kind(&TokenKind::Comma) {
                 let token = self.peek().clone();
+                let mut args = vec![arg];
+                while self.match_kind(TokenKind::Comma) {
+                    let Some(next) = self.parse_type_name() else {
+                        break;
+                    };
+                    args.push(next);
+                }
                 self.report(
                     "MFB_PARSE_UNEXPECTED_TOKEN",
-                    "Expected at least one template type argument.",
+                    &format!(
+                        "A template with more than one type argument takes a parenthesized list: write `{} OF ({})`.",
+                        name.replace('.', "::"),
+                        args.join(", ").replace('.', "::")
+                    ),
                     &token,
                 );
                 return None;
             }
-            // coverage:on
             name.push_str(" OF ");
-            name.push_str(&args.join(", "));
+            name.push_str(&arg);
         }
         Some(name)
+    }
+
+    /// The types of a parenthesized template argument list, after its `(`:
+    /// `Type {, Type}` (bug-833). The closing `)` is the caller's.
+    fn parse_template_argument_list(&mut self) -> Option<Vec<String>> {
+        let mut args = vec![self.parse_type_name()?];
+        while self.match_kind(TokenKind::Comma) {
+            args.push(self.parse_type_name()?);
+        }
+        Some(args)
     }
 
     /// Parse a thread type body after `<kind> OF`, supporting the optional
@@ -1151,16 +1191,10 @@ impl<'a> FileParser<'a> {
         }
         let mut params = Vec::new();
         if !self.check_kind(&TokenKind::RParen) {
-            loop {
-                params.push(self.parse_type_name()?);
-                if !self.match_kind(TokenKind::Comma) {
-                    break;
-                }
-                // bug-821: a trailing comma before the closer is allowed.
-                if self.check_kind(&TokenKind::RParen) {
-                    break;
-                }
-            }
+            self.type_list_depth += 1;
+            let listed = self.parse_function_type_params(&mut params);
+            self.type_list_depth -= 1;
+            listed?;
         }
         if !self.consume_kind(TokenKind::RParen, "Function type must close with `)`.") {
             return None;
@@ -1175,6 +1209,20 @@ impl<'a> FileParser<'a> {
             params.join(", "),
             returns
         ))
+    }
+
+    /// A function type's comma-separated parameter types, up to (not including)
+    /// its `)`; a trailing comma is allowed (bug-821).
+    fn parse_function_type_params(&mut self, params: &mut Vec<String>) -> Option<()> {
+        loop {
+            params.push(self.parse_type_name()?);
+            if !self.match_kind(TokenKind::Comma) {
+                return Some(());
+            }
+            if self.check_kind(&TokenKind::RParen) {
+                return Some(());
+            }
+        }
     }
 
     pub(super) fn parse_lambda(&mut self) -> Option<Expression> {

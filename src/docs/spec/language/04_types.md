@@ -515,18 +515,18 @@ List OF T                          ' owned sequence
 Set OF T                           ' owned unordered, deduplicated collection
 Map OF K TO V                      ' owned map
 MapEntry OF K TO V                 ' map iteration entry
-Pair OF A, B                       ' two-value product
+Pair OF (A, B)                       ' two-value product
 Partition OF T                     ' predicate split result
 ```
 
-`List`, `Set`, `Map`, `MapEntry`, `Pair`, and `Partition` are built-in templates. Each concrete use, such as `List OF Integer`, `Set OF String`, `Map OF String TO Float`, `MapEntry OF String TO Float`, `Pair OF Integer, String`, or `Partition OF Integer`, is monomorphized before binary representation generation. There is one sequence type, `List`. `Set OF T` is an unordered, deduplicated collection of comparable elements (§4.11); its element type `T` must be comparable exactly as a `Map` key must be, and a `Set` is not itself comparable. There are no fixed-size arrays and no `DIM`. See §12.
+`List`, `Set`, `Map`, `MapEntry`, `Pair`, and `Partition` are built-in templates. Each concrete use, such as `List OF Integer`, `Set OF String`, `Map OF String TO Float`, `MapEntry OF String TO Float`, `Pair OF (Integer, String)`, or `Partition OF Integer`, is monomorphized before binary representation generation. There is one sequence type, `List`. `Set OF T` is an unordered, deduplicated collection of comparable elements (§4.11); its element type `T` must be comparable exactly as a `Map` key must be, and a `Set` is not itself comparable. There are no fixed-size arrays and no `DIM`. See §12.
 
 `MapEntry OF K TO V` is the compiler-owned record shape used when iterating a map. It has public read-only fields `key AS K` and `value AS V`.
 
-`Pair OF A, B` and `Partition OF T` are compiler-owned, always-in-scope generic records (used by `collections::zip` and `collections::partition`). They are ordinary records — public, constructible (`Pair[a, b]`, `Partition[matched, unmatched]`), copyable when their members are copyable, and sendable across threads when their members are sendable.
+`Pair OF (A, B)` and `Partition OF T` are compiler-owned, always-in-scope generic records (used by `collections::zip` and `collections::partition`). They are ordinary records — public, constructible (`Pair[a, b]`, `Partition[matched, unmatched]`), copyable when their members are copyable, and sendable across threads when their members are sendable.
 
 ```basic
-TYPE Pair OF A, B
+TYPE Pair OF (A, B)
   first  AS A
   second AS B
 END TYPE
@@ -537,7 +537,7 @@ TYPE Partition OF T
 END TYPE
 ```
 
-Unlike `MapEntry`, `Pair` places no comparability constraint on `A` or `B`. `Partition OF T` is **always** defaultable (two empty lists), regardless of `T`, because both of its fields are `List`s (see §4.10); `Pair OF A, B` is defaultable when both `A` and `B` are. The names `Pair` and `Partition` are reserved: a user `TYPE` may not redeclare them.
+Unlike `MapEntry`, `Pair` places no comparability constraint on `A` or `B`. `Partition OF T` is **always** defaultable (two empty lists), regardless of `T`, because both of its fields are `List`s (see §4.10); `Pair OF (A, B)` is defaultable when both `A` and `B` are. The names `Pair` and `Partition` are reserved: a user `TYPE` may not redeclare them.
 
 A `List` element type or a `Map` value type may be a **function value**
 (`FUNC(...) AS T`), including nested compositions such as `List OF List OF
