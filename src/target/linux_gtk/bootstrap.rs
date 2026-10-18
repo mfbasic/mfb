@@ -835,9 +835,14 @@ pub(super) fn emit_reconcile_idle_helper(
     ));
     asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
-    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // request
-    asm.push(abi::load_u64(abi::LOCAL[0], abi::LOCAL[1], RECONCILE_REQ_MODE)); // mode
-                                                                // Three-way dispatch: Console(0) falls through, Canvas(2) and None(1) branch.
+    // x20 = the request block; x19 = the mode read from it.
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0)));
+    asm.push(abi::load_u64(
+        abi::LOCAL[0],
+        abi::LOCAL[1],
+        RECONCILE_REQ_MODE,
+    ));
+    // Three-way dispatch: Console(0) falls through, Canvas(2) and None(1) branch.
     asm.push(abi::compare_immediate(abi::LOCAL[0], "2"));
     asm.push(abi::branch_eq(&canvas));
     asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
