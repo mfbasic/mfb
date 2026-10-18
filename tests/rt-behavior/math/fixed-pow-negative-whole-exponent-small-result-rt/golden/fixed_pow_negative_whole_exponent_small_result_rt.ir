@@ -1,0 +1,176 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fixed_pow_negative_whole_exponent_small_result_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "export",
+    "name": "io.Key",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "key", "type": "io.KeyName" },
+    { "visibility": null, "line": 14, "name": "grapheme", "type": "String" },
+    { "visibility": null, "line": 15, "name": "event", "type": "io.KeyEvent" },
+    { "visibility": null, "line": 16, "name": "shift", "type": "Boolean" },
+    { "visibility": null, "line": 17, "name": "ctrl", "type": "Boolean" },
+    { "visibility": null, "line": 18, "name": "alt", "type": "Boolean" },
+    { "visibility": null, "line": 19, "name": "meta", "type": "Boolean" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 22,
+    "visibility": "export",
+    "name": "io.KeyName",
+    "members": [
+    { "name": "Unicode" },
+    { "name": "Up" },
+    { "name": "Down" },
+    { "name": "Left" },
+    { "name": "Right" },
+    { "name": "Home" },
+    { "name": "EndKey" },
+    { "name": "PageUp" },
+    { "name": "PageDown" },
+    { "name": "Insert" },
+    { "name": "Delete" },
+    { "name": "Backspace" },
+    { "name": "Enter" },
+    { "name": "Tab" },
+    { "name": "Escape" },
+    { "name": "F1" },
+    { "name": "F2" },
+    { "name": "F3" },
+    { "name": "F4" },
+    { "name": "F5" },
+    { "name": "F6" },
+    { "name": "F7" },
+    { "name": "F8" },
+    { "name": "F9" },
+    { "name": "F10" },
+    { "name": "F11" },
+    { "name": "F12" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 52,
+    "visibility": "export",
+    "name": "io.KeyEvent",
+    "members": [
+    { "name": "Press" },
+    { "name": "Repeat" },
+    { "name": "Release" },
+    { "name": "NotSupported" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "probe",
+    "line": 10,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "b", "line": 10, "type": "Fixed", "default": null },
+    { "name": "e", "line": 10, "type": "Fixed", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 11, "mutable": true, "name": "$trap_failed6", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "bind", "line": 11, "mutable": true, "name": "$trap_err7", "type": "Error", "value": null },
+    { "op": "bind", "line": 11, "mutable": true, "name": "$trap_val5", "type": "String", "value": null },
+    { "op": "bind", "line": 11, "mutable": false, "name": "$trap_res1", "type": "Result OF Fixed", "value": { "kind": "callResult", "type": "Fixed", "target": "math.pow", "args": [{ "kind": "local", "name": "b" }, { "kind": "local", "name": "e" }] } },
+    {
+      "op": "if",
+      "line": 11,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
+      "then": [
+      { "op": "bind", "line": 11, "mutable": false, "name": "$trap_arg0", "type": "Fixed", "value": { "kind": "resultValue", "type": "Fixed", "value": { "kind": "local", "name": "$trap_res1" } } },
+      { "op": "bind", "line": 11, "mutable": false, "name": "$trap_res3", "type": "Result OF Byte", "value": { "kind": "callResult", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "12" }] } },
+      {
+        "op": "if",
+        "line": 11,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res3" } },
+        "then": [
+        { "op": "bind", "line": 11, "mutable": false, "name": "$trap_arg2", "type": "Byte", "value": { "kind": "resultValue", "type": "Byte", "value": { "kind": "local", "name": "$trap_res3" } } },
+        { "op": "bind", "line": 11, "mutable": false, "name": "$trap_res4", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "$trap_arg0" }, { "kind": "local", "name": "$trap_arg2" }] } },
+        {
+          "op": "if",
+          "line": 11,
+          "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res4" } },
+          "then": [
+          { "op": "assign", "line": 11, "name": "$trap_val5", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res4" } } }
+          ],
+          "else": [
+          { "op": "assign", "line": 11, "name": "$trap_failed6", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+          { "op": "assign", "line": 11, "name": "$trap_err7", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res4" } } }
+          ]
+        }
+        ],
+        "else": [
+        { "op": "assign", "line": 11, "name": "$trap_failed6", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+        { "op": "assign", "line": 11, "name": "$trap_err7", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res3" } } }
+        ]
+      }
+      ],
+      "else": [
+      { "op": "assign", "line": 11, "name": "$trap_failed6", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+      { "op": "assign", "line": 11, "name": "$trap_err7", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res1" } } }
+      ]
+    },
+    {
+      "op": "if",
+      "line": 11,
+      "condition": { "kind": "local", "name": "$trap_failed6" },
+      "then": [
+      { "op": "bind", "line": 11, "mutable": false, "name": "er", "type": "Error", "value": { "kind": "local", "name": "$trap_err7" } },
+      { "op": "assign", "line": 12, "name": "$trap_val5", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "RAISED " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "er" }, "member": "code" }] } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 11, "mutable": false, "name": "r", "type": "String", "value": { "kind": "local", "name": "$trap_val5" } },
+    { "op": "return", "line": 14, "value": { "kind": "local", "name": "r" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2, -30)   = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "2" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "30" } }] } }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(3, -5)    = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "3" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "5" } }] } }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(10, -9)   = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "10" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "9" } }] } }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(-2, -3)   = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "2" } }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "3" } }] } }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2, -31)   = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "2" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "31" } }] } }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2, -32)   = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "2" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "32" } }] } }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2, -33)   = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "2" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "33" } }] } }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2, -34)   = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "2" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "34" } }] } }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2, -40)   = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "2" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "40" } }] } }] } },
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2, -64)   = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "2" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "64" } }] } }] } },
+    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(10, -10)  = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "10" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "10" } }] } }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(10, -11)  = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "10" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "11" } }] } }] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(3, -20)   = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "3" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "20" } }] } }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(1.5, -55) = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "1.5" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "55" } }] } }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(-2, -31)  = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "2" } }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "31" } }] } }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(-2, -32)  = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "2" } }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "32" } }] } }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(-3, -21)  = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "3" } }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "21" } }] } }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2, -2000000000) = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "2" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "2000000000" } }] } }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(0.5, -40) = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "0.5" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "40" } }] } }] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(0, -1)    = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "0" }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "1" } }] } }] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pow(2, 31)    = " }, "right": { "kind": "call", "type": "String", "target": "probe", "args": [{ "kind": "const", "type": "Fixed", "value": "2" }, { "kind": "const", "type": "Fixed", "value": "31" }] } }] } }
+    ]
+  }
+  ]
+}

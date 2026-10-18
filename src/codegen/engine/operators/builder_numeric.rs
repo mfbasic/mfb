@@ -1474,17 +1474,37 @@ impl CodeBuilder<'_> {
         left: impl Into<abi::Reg>,
         right: impl Into<abi::Reg>,
     ) -> Result<(), String> {
+        // The working registers are dead once the product lands in `dst`.
+        let saved_registers = self.next_register;
+        let overflow = self.label("fixed_mul_overflow");
+        let ok = self.label("fixed_mul_ok");
+        self.emit_fixed_multiply_or_branch(dst, left, right, &overflow);
+        self.emit(abi::branch(&ok));
+        self.emit(abi::label(&overflow));
+        self.raise_error_bare("ErrOverflow")?;
+        self.emit(abi::label(&ok));
+        self.next_register = saved_registers;
+        Ok(())
+    }
+
+    /// The truncating Q32.32 product `dst = left * right`, branching to `overflow`
+    /// (with `dst` clobbered) when it leaves the `Fixed` range instead of raising.
+    /// Falls through with the product in `dst` otherwise. The caller owns the
+    /// working registers' lifetime.
+    pub(crate) fn emit_fixed_multiply_or_branch(
+        &mut self,
+        dst: impl Into<abi::Reg>,
+        left: impl Into<abi::Reg>,
+        right: impl Into<abi::Reg>,
+        overflow: &str,
+    ) {
         let dst = dst.into();
         let left = left.into();
         let right = right.into();
-        // The working registers are dead once the product lands in `dst`.
-        let saved_registers = self.next_register;
         let high = self.allocate_register();
         let shifted_high = self.allocate_register();
         let max_high = self.allocate_register();
         let min_high = self.allocate_register();
-        let overflow = self.label("fixed_mul_overflow");
-        let ok = self.label("fixed_mul_ok");
         // Compute the signed high half from the original operands *before* the low
         // multiply overwrites `dst` — the Fixed `^` loop calls this with
         // `dst == left`, so reading `left` afterwards would see the low product
@@ -1493,23 +1513,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::multiply_registers(dst, left, right));
         self.emit(abi::move_immediate(&max_high, "Integer", "2147483647"));
         self.emit(abi::compare_registers(&high, &max_high));
-        self.emit(abi::branch_gt(&overflow));
+        self.emit(abi::branch_gt(overflow));
         self.emit(abi::move_immediate(
             &min_high,
             "Integer",
             &(-2147483648_i64 as u64).to_string(),
         ));
         self.emit(abi::compare_registers(&high, &min_high));
-        self.emit(abi::branch_lt(&overflow));
+        self.emit(abi::branch_lt(overflow));
         self.emit(abi::shift_right_immediate(dst, dst, 32));
         self.emit(abi::shift_left_immediate(&shifted_high, &high, 32));
         self.emit(abi::or_registers(dst, &shifted_high, dst));
-        self.emit(abi::branch(&ok));
-        self.emit(abi::label(&overflow));
-        self.raise_error_bare("ErrOverflow")?;
-        self.emit(abi::label(&ok));
-        self.next_register = saved_registers;
-        Ok(())
     }
 
     pub(crate) fn emit_fixed_divide(
