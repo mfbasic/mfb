@@ -69,7 +69,6 @@ FUNC main AS Integer
   io::print(show(Ck[value := \"b\", name := \"a\", port := 5, secure := TRUE, ratio := 2.5]))
   MUT d AS Ck
   io::print(show(d))
-  io::print(show(Ck[]))
   LET w = Ck[name := \"w\"]
   io::print(toString(w.col.red) & toString(w.col.alpha))
   LET p AS Duo OF Integer, String = Duo[first := 7]
@@ -95,10 +94,9 @@ FUNC main AS Integer
 END FUNC
 ";
 
-const EXPECTED: [&str; 12] = [
+const EXPECTED: [&str; 11] = [
     "a|b|0|FALSE|0.00|0.00|0.00|0|Slow|0|000",
     "a|b|5|TRUE|2.50|0.00|0.00|0|Slow|0|000",
-    "||0|FALSE|0.00|0.00|0.00|0|Slow|0|000",
     "||0|FALSE|0.00|0.00|0.00|0|Slow|0|000",
     "00",
     "7[]",
@@ -156,6 +154,7 @@ FUNC main AS Integer
   LET a = Held[label := \"x\"]
   LET b = Ck[name := \"a\", bogus := 2]
   LET c = Ck[\"a\"]
+  LET e = Ck[]
   RETURN 0
 END FUNC
 ";
@@ -175,5 +174,9 @@ fn undefaultable_unknown_and_positional_short_lists_are_still_refused() {
                 .count()
                 >= 2,
         "unknown field name and positional short list keep the arity error:\n{out}"
+    );
+    assert!(
+        out.contains("Constructor `Ck` has 0 argument(s), expected 2."),
+        "`Ck[]` names no field: it is positional and keeps the arity error:\n{out}"
     );
 }

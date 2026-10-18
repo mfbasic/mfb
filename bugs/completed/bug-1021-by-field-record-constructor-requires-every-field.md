@@ -68,10 +68,7 @@ Rules:
    the missing field or fields. Today `MUT h AS Held`, where `Held` has a `RES fs::File` field,
    reports `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE`; the constructor's error should be as specific.
    The implementer picks the rule (reuse or a new one) and registers it per `.ai/compiler.md`.
-3. **`Ck[]`** (no fields named) follows from the rule: it is the all-defaults record, the same
-   value as `MUT d AS Ck`. The owner asked for "partial fields"; the empty list is the
-   coordinator's reading of the limit case. **Confirm with the owner before shipping it** if
-   there is any doubt (a bare `Ck[]` could also be read as a mistake).
+3. **`Ck[]`** (no fields named) is NOT a by-field constructor (coordinator review, bug-staging-24): it names no field, so it is the zero-argument positional form and keeps `TYPE_CONSTRUCTOR_ARITY_MISMATCH`, which also keeps `json::JsonNull[]` refused as `tests/syntax/json/func_json_stringify_invalid` pins. The owner's rule is about a constructor that names some fields.
 4. A field named twice, an unknown field name, and a value of the wrong type keep today's
    diagnostics.
 5. Mixing positional and by-field arguments keeps today's behavior (measure it first; do not

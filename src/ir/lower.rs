@@ -6435,9 +6435,13 @@ fn lower_constructor_args(
             .map(|argument| lower_expression(constructor_arg_value(argument), locals, context))
             .collect();
     };
-    if arguments
-        .iter()
-        .all(|argument| matches!(argument, HirConstructorArg::Named { .. }))
+    // A by-field constructor names at least one field: `Ck[]` names none, so it is the
+    // zero-argument positional form and keeps its arity check (owner's rule covers a
+    // constructor that names SOME fields; coordinator review, bug-staging-24).
+    if !arguments.is_empty()
+        && arguments
+            .iter()
+            .all(|argument| matches!(argument, HirConstructorArg::Named { .. }))
     {
         // bug-1021: a by-field constructor may name SOME of the fields; each field it
         // leaves out takes its default — the value an uninitialized `MUT x AS T`
