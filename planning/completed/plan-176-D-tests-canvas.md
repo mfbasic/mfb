@@ -642,7 +642,7 @@ their symbols in the root.
   Final gate (all of D): the guard grep over the six files → no output; the ceiling-file grep → no output; the
   `census.py --file … | awk '$2 > 900'` loop → no output; spec citation count `grep -cE … 06_canvas.md` → `5`;
   `test_targets_registered` ran inside K3's test-fast call → ok.
-Commit: —
+Commit: fb3762558
 
 ## Validation Plan
 
