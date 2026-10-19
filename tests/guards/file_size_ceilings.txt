@@ -182,7 +182,6 @@ ceiling inline 737 src/resolver/resolution.rs
 ceiling inline 283 src/rules/mod.rs
 ceiling code 1623 src/rules/table.rs
 ceiling inline 1011 src/types.rs
-ceiling test 4712 tests/canvas/rt_canvas_rasteriser.rs
 ceiling test 1473 tests/cli/cli_dbg.rs
 ceiling test 1241 tests/cli/cli_repo_install.rs
 ceiling test 1148 tests/codegen/app_special_keys.rs

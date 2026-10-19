@@ -601,29 +601,47 @@ live reference to the fixture builder names the file that holds it.
   K3 `bash scripts/test-fast.sh --test rt_canvas_font` → `test-fast: ok` (`rt_canvas_font` `ok. 60 passed; 0 failed`,
   the four `#[cfg(target_os = "macos")]` tests included on this macOS host); K4 → no output; K5 → 1 TIGHTEN row, then none;
   `grep -n 'fn truetype_fixture_with' tests/canvas/rt_canvas_font.rs` → 1 hit (:101).
-Commit: —
+Commit: 77a35dc3b
 
 ### Phase 4 — rt_canvas_rasteriser (§4.6)
 
 The largest split: 113 tests in 7 parts, and three citations that stay in the root.
 `T="rt_canvas_rasteriser"`, `RE="rt_canvas_(rasteriser)"`.
 
-- [ ] K1 → 113 tests (including the two `#[ignore]`d measurements).
-- [ ] `rt_canvas_rasteriser.rs` → root (575; keeps the placement, path-placement and group-affine tests) + six topics (§4.6).
-- [ ] Declaration check: `grep -c '^#\[path = "rt_canvas_rasteriser/' tests/canvas/rt_canvas_rasteriser.rs` → `6`;
+- [x] K1 → 113 tests (including the two `#[ignore]`d measurements).
+      Done: `git show 77a35dc3b:tests/canvas/rt_canvas_rasteriser.rs > /tmp/p176/before.rs; python3 -I /tmp/p176/names.py /tmp/p176/before.rs`
+      (every `#[test]` fn name) → 113 names.
+- [x] `rt_canvas_rasteriser.rs` → root (575; keeps the placement, path-placement and group-affine tests) + six topics (§4.6).
+      Done: `census.py --file` → root 575; clips_blends_and_transforms 632, ellipses_and_corners 722, gradients 720,
+      groups 787, shapes 699, strokes_and_dashes 595. Motion check `python3 -I /tmp/p176/motion.py <root> <dir> /tmp/p176/before.rs`
+      (non-blank line multiset, skipping `//!`, `use super::*;` and the `#[path]`/`mod` pairs) → 0 lines only after; the 16
+      lines only before are the root's own `//!` header and `mod common;` pair, both still at the top of the root.
+- [x] Declaration check: `grep -c '^#\[path = "rt_canvas_rasteriser/' tests/canvas/rt_canvas_rasteriser.rs` → `6`;
       `ls tests/canvas/rt_canvas_rasteriser/*.rs | wc -l` → `6`.
-- [ ] `planning/plan-175-B-canvas-draw-node-table.md:260`: if the file is still under `planning/`
+      Done: → `6`, `6`.
+- [x] `planning/plan-175-B-canvas-draw-node-table.md:260`: if the file is still under `planning/`
+      Done: `ls planning/plan-175-B-canvas-draw-node-table.md` → exists; line 260 repointed to `…/groups.rs`
+      (`grep -c 'draws=' tests/canvas/rt_canvas_rasteriser/groups.rs` → 5).
       (`ls planning/plan-175-B-canvas-draw-node-table.md` → exists), repoint
       "`tests/canvas/rt_canvas_rasteriser.rs`'s `draws=` assertions" to
       "`tests/canvas/rt_canvas_rasteriser/groups.rs`'s `draws=` assertions"; if it has moved to
       `planning/completed/`, mark this task moot with that `ls` as evidence.
-- [ ] Tighten: K5 and commit the ceiling file (and plan-175-B if edited).
+- [x] Tighten: K5 and commit the ceiling file (and plan-175-B if edited).
+      Done: guard → `TIGHTEN  test 575 (ceiling 4712)  tests/canvas/rt_canvas_rasteriser.rs`; `MFB_LOC_TIGHTEN=1` → own diff
+      `-ceiling test 4712 tests/canvas/rt_canvas_rasteriser.rs` only; re-run → no output.
 
 Acceptance: 113 tests are listed unchanged and pass, and the three citations still resolve to
 their symbols in the root.
   Check: K2 → no output; K3 → ok; K4 → no output; K5 → 1 TIGHTEN row, then none; K6 → ok and
   `grep -nE 'fn (path_placement_a_clipped_polygon_moves_whole_with_its_position|group_affine_a_nested_group_composes_with_its_parent|group_affine_a_scaled_group_scales_its_strokes)\(' tests/canvas/rt_canvas_rasteriser.rs`
   → 3 hits; `grep -c 'draws=' tests/canvas/rt_canvas_rasteriser/groups.rs` → ≥ 1 (est. 15 min).
+  Verified 2026-10-19: K2 `cargo test --test rt_canvas_rasteriser -- --list` leaf names `diff` the K1 list → none, 113;
+  K3 `bash scripts/test-fast.sh --test rt_canvas_rasteriser` → `test-fast: ok` (`ok. 111 passed; 0 failed; 2 ignored`);
+  K4 → no output; K5 → 1 TIGHTEN row, then none; K6 `cargo test -p mfb --bin mfb spec_citations_resolve` → `ok. 1 passed`;
+  the 3-fn grep → 3 hits (:408, :616, :645); `draws=` in groups.rs → 5.
+  Final gate (all of D): the guard grep over the six files → no output; the ceiling-file grep → no output; the
+  `census.py --file … | awk '$2 > 900'` loop → no output; spec citation count `grep -cE … 06_canvas.md` → `5`;
+  `test_targets_registered` ran inside K3's test-fast call → ok.
 Commit: —
 
 ## Validation Plan
@@ -714,6 +732,12 @@ Commit: —
 - 2026-10-18 (execution) — Phase 2's landing tier exposed a pre-existing cross-checkout collision
   in `tests/gate/gate_mutual_exclusion.rs` and `tests/gate/gate_release_on_normal_exit.rs` (fixed
   `$TMPDIR` tree names); fixed in its own commit `9755a52bc` and recorded as a Phase 2 task.
+- 2026-10-19 (execution) — the Phase 4 split was left uncommitted by an interrupted session, and
+  `/tmp/p176/` (`dklist.sh`, `dsplit.py`, `dverify.py`) was gone. Phase 4 was re-verified from
+  scratch against `77a35dc3b`: K1 is a static `#[test]` fn name list of the pre-split file
+  (`/tmp/p176/names.py`), K2 diffs the compiled `--list` leaf names against it, and the motion
+  check is `/tmp/p176/motion.py` (the non-blank line multiset of root + parts, minus headers and
+  declarations, equals the pre-split file's).
 
 ## Summary
 

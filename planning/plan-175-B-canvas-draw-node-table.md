@@ -257,7 +257,7 @@ change.
       `METAL_MAX_FRAME_NODES` / `VULKAN_MAX_FRAME_NODES`, added to `runtime/canvas/mod.rs`
       and to `RENDER_CAPS`.
 - [ ] `helper_surface.rs:__canvas_drawsText`: `:repeat` per row;
-      `tests/canvas/rt_canvas_rasteriser.rs`'s `draws=` assertions read five fields.
+      `tests/canvas/rt_canvas_rasteriser/groups.rs`'s `draws=` assertions read five fields.
 - [ ] Tests: a unit test in `helper_render/tests/mod.rs` that `__canvas_pushOneDraw`
       and `lower_scene_draws_flat` both write word 13; a runtime test of 65,537 group
       nodes naming one one-rectangle group that draws in two passes and matches the
