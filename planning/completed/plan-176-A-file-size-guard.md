@@ -398,7 +398,7 @@ Acceptance: the rule is findable from AGENTS.md.
   Result (2026-10-18): `grep -c file_size_budget` → `AGENTS.md:1`, `.ai/build-tooling.md:2`.
   Final gate: `cargo test --test file_size_budget --test test_targets_registered` → `35 passed`,
   `4 passed`, no banner (0 rows); `cargo test --test scripts_index_is_complete` → `2 passed`.
-Commit: —
+Commit: 15c36bc18
 
 ## Validation Plan
 
