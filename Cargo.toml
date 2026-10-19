@@ -605,6 +605,10 @@ name = "inplace_self_update_census"
 path = "tests/guards/inplace_self_update_census.rs"
 
 [[test]]
+name = "file_size_budget"
+path = "tests/guards/file_size_budget.rs"
+
+[[test]]
 name = "rt_inplace_self_update"
 path = "tests/runtime/rt_inplace_self_update.rs"
 

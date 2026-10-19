@@ -321,7 +321,7 @@ stacked attributes).
 Lands the measurement. Without a ceiling file the guard reports every over-limit file as NEW,
 which is correct and harmless (it never fails).
 
-- [ ] `tools/loc-census/census.py`: the planning oracle (`/tmp/loc/census.py` as of this plan)
+- [x] `tools/loc-census/census.py`: the planning oracle (`/tmp/loc/census.py` as of this plan)
       with the generated-banner rule and the `#[cfg(test)]` extent rule from §2, an `argparse` CLI
       (`census.py [--root DIR] [--json OUT] [--seed] [--file PATH [--lines A B]]`), stdlib only.
       `--file PATH` prints `code test` for one file. `--file PATH --lines A B` prints the LOC
@@ -329,12 +329,12 @@ which is correct and harmless (it never fails).
       and after a move. `--seed` prints the
       `ceiling` rows (sorted, §4.2 format) for every (file, kind) over its limit that is not
       generated. The script has no exemption table.
-- [ ] `tools/loc-census/README.md`: what it is (the independent oracle for
+- [x] `tools/loc-census/README.md`: what it is (the independent oracle for
       `tests/guards/file_size_budget.rs`), the counting rules table from §2, usage, and that
       it is not a gate.
-- [ ] `tests/guards/file_size_budget.rs` + `tests/guards/file_size_budget/{rust_lex,mfb_lex,classify,ceilings,lex_cases}.rs`
+- [x] `tests/guards/file_size_budget.rs` + `tests/guards/file_size_budget/{rust_lex,mfb_lex,classify,ceilings,lex_cases}.rs`
       per §4.1–4.4. A missing `file_size_ceilings.txt` is read as empty.
-- [ ] `Cargo.toml`: `[[test]] name = "file_size_budget" path = "tests/guards/file_size_budget.rs"`
+- [x] `Cargo.toml`: `[[test]] name = "file_size_budget" path = "tests/guards/file_size_budget.rs"`
       in the `# --- tests/guards/ ---` block.
 
 Acceptance: the guard and the oracle agree on exactly which (file, kind) pairs are over the
@@ -343,6 +343,12 @@ limit and on each one's count.
   `python3 -I tools/loc-census/census.py --seed | awk '$1=="ceiling"{print $2, $3, $4}' | sort > /tmp/o.txt`;
   `diff /tmp/g.txt /tmp/o.txt` → no output (est. 2 min). And `cargo test --test file_size_budget`
   → every `lex_cases` test passes, and the banner has 0 GREW, 0 STALE and 0 TIGHTEN rows.
+  Result (2026-10-18, base `7fa2dc5dc`): `diff /tmp/g.txt /tmp/o.txt` → no output, 199 rows each;
+  `cargo test --test file_size_budget` → `test result: ok. 32 passed`; banner
+  `199 over, 0 grew, 0 stale, 0 can tighten`. Stronger whole-tree check: a temporary per-file
+  dump from the guard compared with `census.py --json` → `files 4485 4485`, `differ 0`
+  (dump code removed before commit). The new oracle also equals the planning oracle
+  (`/tmp/loc/census.py`) on all 4479 pre-A files, `differ 0`.
 Commit: —
 
 ### Phase 2 — Seed the ceilings
