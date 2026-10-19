@@ -355,7 +355,7 @@ path is real.
   `test-fast: ok`; `rt_resource_last_holder` `14 passed; 0 failed`, `rt_self_update_cost`
   `13 passed; 0 failed`); K4 → no output; K5 → 2 TIGHTEN rows, then none; `cargo fmt --all -- --check`
   → exit 0; the `tests/rt_res_state` grep → no output.
-Commit: —
+Commit: 677a6002d
 
 ### Phase 2 — rt_scope_drop_leaks (§4.3)
 
@@ -363,21 +363,34 @@ The largest split in the letter: 154 tests into the root and 6 parts. It goes la
 missed `#[path]` here drops the most tests.
 `T="rt_scope_drop_leaks"`, `RE="rt_(scope_drop_leaks)"`.
 
-- [ ] K1 → 154 tests.
-- [ ] `rt_scope_drop_leaks.rs` → root (keeps `peak_rss`, `assert_flat`, `B561_TRAP_ALWAYS_FAILS`,
+- [x] K1 → 154 tests. Result: `rt_scope_drop_leaks 154`.
+- [x] `rt_scope_drop_leaks.rs` → root (keeps `peak_rss`, `assert_flat`, `B561_TRAP_ALWAYS_FAILS`,
       `B573_BUILTIN_RAISE`, `condition_temp_report`, `assert_condition_temps_freed`,
       `thread_loop_report` and `thread_loop_growth` with their cfg attributes, and the two thread
       topics) + the 6 parts of §4.3. Every test's and constant's `#[cfg(…)]` moves with it.
-- [ ] Declaration check: `grep -c '^#\[path = "rt_scope_drop_leaks/' tests/runtime/rt_scope_drop_leaks.rs` → `6`,
-      and `ls tests/runtime/rt_scope_drop_leaks/*.rs | wc -l` → `6`.
-- [ ] Size check: `for f in tests/runtime/rt_scope_drop_leaks.rs tests/runtime/rt_scope_drop_leaks/*.rs; do python3 -I tools/loc-census/census.py --file $f; done`
+      Moved by the same anchor-asserting line-range script (33 anchors at every range boundary);
+      non-blank-line multiset check → `missing: []`, `extra: []`. `grep -c '#\[test\]'` per file →
+      root 5, parts 23 / 22 / 24 / 19 / 25 / 36 (§4.3 order), as planned.
+- [x] Declaration check: `grep -c '^#\[path = "rt_scope_drop_leaks/' tests/runtime/rt_scope_drop_leaks.rs` → `6`,
+      and `ls tests/runtime/rt_scope_drop_leaks/*.rs | wc -l` → `6`. Result: `6`, `6`.
+- [x] Size check: `for f in tests/runtime/rt_scope_drop_leaks.rs tests/runtime/rt_scope_drop_leaks/*.rs; do python3 -I tools/loc-census/census.py --file $f; done`
       → root `0 517`, and parts `0 831`, `0 878`, `0 867`, `0 768`, `0 835`, `0 798` (in §4.3 order;
-      `ls` sorts them alphabetically).
-- [ ] Tighten: K5 and commit the ceiling file.
+      `ls` sorts them alphabetically). Result: root `0 517`; return_and_string_shapes `0 831`,
+      trap_binds_hofs_and_for_each `0 878`, closures_errors_and_concats `0 867`,
+      helper_results_and_raised_errors `0 768`, unbound_results_and_gets `0 835`,
+      loops_and_condition_temps `0 798`.
+- [x] Tighten: K5 and commit the ceiling file. Result: first grep → `TIGHTEN test 517 (ceiling 5476)`
+      only; `MFB_LOC_TIGHTEN=1` run → ok; ceiling diff → only `-ceiling test 5476 tests/runtime/rt_scope_drop_leaks.rs`;
+      re-run grep → no output.
 
 Acceptance: all 154 tests are listed under the same names and pass.
   Check: K2 → no output; K3 → ok; K4 → no output; K5 → 1 TIGHTEN row, then none (est. 25 min: the
   target runs 154 RSS-flatness programs; this is the run of exactly the moved tests).
+  Result (2026-10-18): K2 → no `DIFF` line (154 names, identical); K3 (landing tier,
+  `bash scripts/test-fast.sh --test rt_scope_drop_leaks --test test_targets_registered --test rt_resource_last_holder --test rt_self_update_cost`
+  → `test-fast: ok`; `rt_scope_drop_leaks` `154 passed; 0 failed`, and the Phase 1 targets
+  `14 passed` / `13 passed` again); K4 → no output; K5 → 1 TIGHTEN row, then none;
+  `cargo fmt --all -- --check` → exit 0.
 Commit: —
 
 ## Validation Plan
