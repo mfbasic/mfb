@@ -109,6 +109,34 @@ Deleting an item does not delete the doc comment or attributes above it; they at
 
 After a `git mv` of a file you have edited, `git add` the new path, or check that `git status --short` shows no ` M` for it before committing. Read the leftover diff before `--force`-removing a worktree; it may be your own unlanded work.
 
+## Splitting an over-budget file (plan-176)
+
+The rule is in `AGENTS.md` ("File size"). `cargo test --test file_size_budget` names every
+file over its limit; `python3 -I tools/loc-census/census.py --file PATH [--lines A B]` measures
+a file or a range of it before and after a move. Every split is **pure motion**: no item is
+renamed, reworded or reordered within itself.
+
+- **Code over 1000:** `foo.rs` → `foo/mod.rs` plus part files, each ≤ 900 code LOC. `mod.rs`
+  declares the parts and re-exports the surface (`pub(crate) use part::item;`), so no caller
+  changes. Converting `foo.rs` to `foo/mod.rs` makes every `[[foo.rs:…]]` spec citation fail
+  `spec_citations_resolve` — sweep them to the part that now holds the symbol
+  (`.ai/testing-gates.md` § "Splits must sweep man AND spec citations"). Also sweep path
+  allowlists in `tests/guards/*.rs`, and repoint any `scripts/coverage-exceptions.txt` entry to
+  the part file(s) that carry the excepted code.
+- **Inline tests over 250:** move the `#[cfg(test)] mod tests { … }` body to
+  `foo/tests/mod.rs` (a `tests/` directory, which the coverage gate ignores; not `foo/tests.rs`),
+  leaving `#[cfg(test)] mod tests;`. One file unless the moved block is over 1000.
+- **Test-only file over 1000:** the root stays where it is (its target name and `--test`
+  filters are quoted everywhere). Integration test: `#[path = "<name>/<topic>.rs"] mod <topic>;`
+  part files under `tests/<dir>/<name>/` (these need no `Cargo.toml` stanza). A `src/` test
+  module: `tests/<topic>.rs` submodules. Each part ≤ 900.
+- **Gates:** `cargo test … -- --list | grep -c ': test$'` is the same before and after (a test
+  that silently stops compiling into the target is the failure to catch). For code, the emitted
+  output is byte-identical (no source-location macros reach codegen: `grep -rnE
+  'module_path!|\bfile!\(|\bline!\(' src repository/src` → none). Then
+  `MFB_LOC_TIGHTEN=1 cargo test --test file_size_budget` and commit the lowered ceilings with
+  the split.
+
 ## libsnd vendor rebuild mechanics
 
 Rebuilding a `bindings/libsnd/vendor/` library for a Linux box:

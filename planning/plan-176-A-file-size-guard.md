@@ -370,11 +370,11 @@ Acceptance: the seeded tree is clean and the ratchet only goes down.
   `  NEW      code 1100 > 1000  src/zz_budget_probe.rs`; `grep -c '^ceiling'` → `199`, oracle → `199`.
   `MFB_LOC_TIGHTEN=1 cargo test --test file_size_budget` on the seeded tree → ceiling file unchanged
   (`git diff --stat` empty). `lex_cases` tighten/compare cases → `test result: ok. 35 passed`.
-Commit: —
+Commit: 46e7ebd36
 
 ### Phase 3 — Write the rule down
 
-- [ ] `AGENTS.md`, "Always": one bullet — *File size (non-comment, non-blank LOC; `.rs`/`.mfb`
+- [x] `AGENTS.md`, "Always": one bullet — *File size (non-comment, non-blank LOC; `.rs`/`.mfb`
       under `src/ packages/ examples/ repository/ tests/`): a code file ≤ 1000 code and ≤ 250
       inline tests (`#[cfg(test)]`/`TESTING`); a test-only file ≤ 1000. Over 1000 code → split
       into modules; over 250 inline → move the tests to their own test-only file; test-only
@@ -382,7 +382,7 @@ Commit: —
       `tests/guards/file_size_ceilings.txt` ceilings only go down (`MFB_LOC_TIGHTEN=1`). No
       exemptions except generated files (`GENERATED` in the first three lines). Mechanics:
       `.ai/build-tooling.md`.*
-- [ ] `.ai/build-tooling.md`: new section "## Splitting an over-budget file (plan-176)" with
+- [x] `.ai/build-tooling.md`: new section "## Splitting an over-budget file (plan-176)" with
       the conventions every letter uses. Code: `foo.rs` → `foo/mod.rs` + parts, `mod.rs`
       re-exports the surface, ≤ 900 per part, pure motion, sweep `[[foo.rs:` citations and
       `tests/guards` allowlists, inherit `scripts/coverage-exceptions.txt` entries. Inline tests
@@ -390,11 +390,14 @@ Commit: —
       over 1000: root stays, `#[path = "<name>/<topic>.rs"] mod <topic>;` (integration) or
       `tests/<topic>.rs` submodules (src), ≤ 900 per part. Gates: `-- --list` count before ==
       after; byte-identity for code. Then tighten.
-- [ ] `AGENTS.md` "Read before that kind of work": extend the existing `.ai/build-tooling.md`
+- [x] `AGENTS.md` "Read before that kind of work": extend the existing `.ai/build-tooling.md`
       line's description with ", file-size splits (plan-176)".
 
 Acceptance: the rule is findable from AGENTS.md.
   Check: `grep -n 'file_size_budget' AGENTS.md .ai/build-tooling.md` → one or more hits in each (est. 5 s).
+  Result (2026-10-18): `grep -c file_size_budget` → `AGENTS.md:1`, `.ai/build-tooling.md:2`.
+  Final gate: `cargo test --test file_size_budget --test test_targets_registered` → `35 passed`,
+  `4 passed`, no banner (0 rows); `cargo test --test scripts_index_is_complete` → `2 passed`.
 Commit: —
 
 ## Validation Plan
@@ -453,6 +456,17 @@ Commit: —
   table, and the seed is 199 rows (was 370). Re-measured at `ce7a995ca`. Letters B–F shrink
   to the 18 test-only files over 1000 plus `examples/money-demo/src/main.mfb`; G–K keep every
   inline move but split a moved block only when it is over 1000; M splits `src/rules/table.rs`.
+- 2026-10-18 (execution) — "In-scope files 4470" (§2 Measured populations) counts the
+  non-generated files: `census.py --json` lists 4479 at `7fa2dc5dc`, 9 of them generated
+  (`python3 -I /tmp/p176/cmp.py` → `files 4479 4479 gen 9`). After A adds its 6 guard files the
+  tree has 4485. The seed at `7fa2dc5dc` is still 199 rows (98 code / 71 inline / 30 test), equal
+  to the plan's; individual counts drift with the tree (e.g. `self_update.rs` is now 1059 / 2087,
+  `census.py --file`), which is why every letter re-measures.
+- 2026-10-18 (execution) — The planning oracle's name heuristics (`tests.rs`, `*_tests.rs`,
+  `tests_*`) and its `node_modules` skip are dropped per §2/§3; the permanent oracle equals the
+  planning one on every file anyway (`differ 0`). The banner header also counts STALE rows
+  (`N over, N grew, N stale, N can tighten`), which the §4.3 example omitted; a repeated
+  ceiling row is reported STALE and dropped by tighten (pinned in `lex_cases.rs`).
 
 ## Summary
 

@@ -68,6 +68,12 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
   `canvas`), each with a README and a committed `baseline/`. A one-off probe
   for one bug or plan goes in `/tmp` or the bug doc, never `scripts/`. Deleting a script: grep its
   name and update every live caller in the same commit.
+* File size (non-comment, non-blank LOC; `.rs`/`.mfb` under `src/ packages/ examples/ repository/ tests/`):
+  a code file ≤ 1000 code and ≤ 250 inline tests (`#[cfg(test)]`/`TESTING`); a test-only file ≤ 1000.
+  Over 1000 code → split into modules; over 250 inline → move the tests to their own test-only file;
+  test-only file over 1000 → split it. `cargo test --test file_size_budget` prints a banner;
+  `tests/guards/file_size_ceilings.txt` ceilings only go down (`MFB_LOC_TIGHTEN=1`). No exemptions
+  except generated files (`GENERATED` in the first three lines). Mechanics: `.ai/build-tooling.md`.
 * No compound background jobs — one command each. Don't wait on completion notices;
   poll the effect (`pgrep -f` ERE `"a|b"`). No-completion-record job = dead; re-derive.
 
@@ -106,7 +112,7 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
   * `.ai/net-tls.md` — networking, TLS readiness/timeout, repository-client transport security.
   * `.ai/testing-gates.md` — artifact-gate, byte-identity, acceptance golden harness,
     perf-golden and concurrency hazards, citation sweeps.
-  * `.ai/build-tooling.md` — rustfmt/clippy policy, cross-compile + vendor rebuild mechanics.
+  * `.ai/build-tooling.md` — rustfmt/clippy policy, cross-compile + vendor rebuild mechanics, file-size splits (plan-176).
 
 * Agent resources
   * `.ai/remote_systems.md` — remote test machines.
