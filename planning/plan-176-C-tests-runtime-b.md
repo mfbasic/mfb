@@ -36,8 +36,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-B is complete and archived | `ls planning/plan-176-B-* planning/completed/plan-176-B-*` → only `planning/completed/plan-176-B-tests-runtime-a.md` | NOT MET (2026-10-18) |
-| The guard and the oracle exist (plan-176-A) | `cargo test --test file_size_budget` → passes; `python3 -I tools/loc-census/census.py --file tests/runtime/rt_scope_drop_leaks.rs` → `0 5476` | NOT MET (2026-10-18; lands with A) |
+| plan-176-B is complete and archived | `ls planning/plan-176-B-* planning/completed/plan-176-B-*` → only `planning/completed/plan-176-B-tests-runtime-a.md` | MET (2026-10-18 at `bdabb4517`: `planning/plan-176-B-*` no match; `planning/completed/plan-176-B-tests-runtime-a.md` present) |
+| The guard and the oracle exist (plan-176-A) | `cargo test --test file_size_budget` → passes; `python3 -I tools/loc-census/census.py --file tests/runtime/rt_scope_drop_leaks.rs` → `0 5476` | MET (2026-10-18: `test result: ok. 35 passed`; `0 5476`) |
 | This letter's files have no uncommitted changes | `git status --porcelain -- tests/runtime .ai/resources-packages.md tests/guards/file_size_ceilings.txt` → empty | MET (2026-10-18: empty output) |
 
 Everything below is written against the world where these hold.
@@ -326,22 +326,35 @@ Every phase follows the same order:
 Two root + one part splits with no support module, plus the doc fix.
 `T="rt_resource_last_holder rt_self_update_cost"`, `RE="rt_(resource_last_holder|self_update_cost)"`.
 
-- [ ] K1 → 27 tests.
-- [ ] `rt_resource_last_holder.rs` → root (11 tests and the helpers) + `trapped_and_maps.rs` (§4.1).
-- [ ] `rt_self_update_cost.rs` → root (linearity and churn tests, `SCALE_PROGRAM`, `counter`) +
-      `value_semantics.rs` (`VALUE_PROGRAM` and its two tests) (§4.2).
-- [ ] `.ai/resources-packages.md:49` and `:176`: replace `tests/rt_res_state_inplace_mutation.rs`
+- [x] K1 → 27 tests. Result: `rt_resource_last_holder 14`, `rt_self_update_cost 13` (K1 loop,
+      `/tmp/176C-<t>.before`).
+- [x] `rt_resource_last_holder.rs` → root (11 tests and the helpers) + `trapped_and_maps.rs` (§4.1).
+      Moved by a line-range script asserting anchor lines (893 `}`, 906/1046/1301 the test fns);
+      every source line assigned once. Non-blank-line multiset of HEAD's file = root + part, minus
+      the part header and the one `#[path]`/`mod` pair → `missing: []`, `extra: []`.
+- [x] `rt_self_update_cost.rs` → root (linearity and churn tests, `SCALE_PROGRAM`, `counter`) +
+      `value_semantics.rs` (`VALUE_PROGRAM` and its two tests) (§4.2). Same script and multiset
+      check → `missing: []`, `extra: []`.
+- [x] `.ai/resources-packages.md:49` and `:176`: replace `tests/rt_res_state_inplace_mutation.rs`
       with `tests/runtime/rt_res_state_inplace_mutation.rs` (§4.0). Check:
-      `grep -n 'tests/rt_res_state' .ai/resources-packages.md` → no output.
-- [ ] Size check: `for f in tests/runtime/rt_resource_last_holder.rs tests/runtime/rt_resource_last_holder/trapped_and_maps.rs tests/runtime/rt_self_update_cost.rs tests/runtime/rt_self_update_cost/value_semantics.rs; do python3 -I tools/loc-census/census.py --file $f; done`
-      → `0 819`, `0 660`, `0 773`, `0 567`.
-- [ ] Tighten: K5 and commit the ceiling file and `.ai/resources-packages.md`.
+      `grep -n 'tests/rt_res_state' .ai/resources-packages.md` → no output. Result: no output;
+      `ls tests/runtime/rt_res_state_inplace_mutation.rs` → exists.
+- [x] Size check: `for f in tests/runtime/rt_resource_last_holder.rs tests/runtime/rt_resource_last_holder/trapped_and_maps.rs tests/runtime/rt_self_update_cost.rs tests/runtime/rt_self_update_cost/value_semantics.rs; do python3 -I tools/loc-census/census.py --file $f; done`
+      → `0 819`, `0 660`, `0 773`, `0 567`. Result: `0 819`, `0 660`, `0 773`, `0 567`.
+- [x] Tighten: K5 and commit the ceiling file and `.ai/resources-packages.md`. Result: first grep →
+      `TIGHTEN test 819 (ceiling 1476)` and `TIGHTEN test 773 (ceiling 1337)`, no NEW/GROW/STALE;
+      `MFB_LOC_TIGHTEN=1` run → ok; ceiling diff removes exactly those two rows; re-run grep → no output.
 
 Acceptance: 27 tests are listed unchanged and pass, the two paths leave the banner, and the `.ai`
 path is real.
   Check: K2 → no output; K3 → 2 × ok; K4 → no output; K5 → 2 TIGHTEN rows, then none; the
   `tests/rt_res_state` grep → no output (est. 12 min: rt_self_update_cost's linearity tests time
   release builds).
+  Result (2026-10-18): K2 → no `DIFF` line (14 and 13 names, identical); K3 (landing tier,
+  `bash scripts/test-fast.sh --test rt_resource_last_holder --test rt_self_update_cost` →
+  `test-fast: ok`; `rt_resource_last_holder` `14 passed; 0 failed`, `rt_self_update_cost`
+  `13 passed; 0 failed`); K4 → no output; K5 → 2 TIGHTEN rows, then none; `cargo fmt --all -- --check`
+  → exit 0; the `tests/rt_res_state` grep → no output.
 Commit: —
 
 ### Phase 2 — rt_scope_drop_leaks (§4.3)
@@ -428,6 +441,17 @@ Commit: —
   - The `.ai/resources-packages.md` stale-path fix is kept as a standalone doc fix. It is still
     stale at `ce7a995ca`.
   - Five phases became two.
+- 2026-10-18 (execution) — the plan's `/tmp/loc/census.py` and `/tmp/loc/span.py` are
+  `python3 -I tools/loc-census/census.py [--file PATH [--lines A B]]` after plan-176-A. Every §4
+  line range matched the tree at `bdabb4517` (anchor lines asserted by the move script, and
+  `git diff --stat 17a9b5799 HEAD -- <the 3 files>` → no output), so no range was re-mapped.
+- 2026-10-18 (execution) — owner instruction 2026-10-18: landing tier per phase; the full suite
+  runs once before the plan merges. K3 runs as `bash scripts/test-fast.sh --test <t>...` (which
+  also runs fmt, `cargo check --workspace --all-targets`, unit tests and the guard binaries), and
+  the final gate's `cargo test --test test_targets_registered` runs inside that landing-tier call.
+- 2026-10-18 (execution) — part files start with a `//!` header naming what they hold and where
+  the shared helpers live, then `use super::*;` (B's convention). The header is comment-only, so
+  every measured size equals the plan's.
 
 ## Summary
 

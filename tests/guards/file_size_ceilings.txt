@@ -193,6 +193,4 @@ ceiling test 1241 tests/cli/cli_repo_install.rs
 ceiling test 1148 tests/codegen/app_special_keys.rs
 ceiling test 1228 tests/common/mod.rs
 ceiling test 1179 tests/guards/no_type_strings.rs
-ceiling test 1476 tests/runtime/rt_resource_last_holder.rs
 ceiling test 5476 tests/runtime/rt_scope_drop_leaks.rs
-ceiling test 1337 tests/runtime/rt_self_update_cost.rs
