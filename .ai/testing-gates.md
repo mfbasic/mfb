@@ -329,7 +329,7 @@ the size (21 KB vs 2.3 MB for one 900x640 frame) and directly viewable.
 
 ### The GPU comparison is against the ORACLE, not a stored picture
 
-`tests/rt_canvas_metal.rs` and `scripts/test-canvas-vulkan.sh` both render the *same
+`tests/canvas/rt_canvas_metal.rs` and `scripts/test-canvas-vulkan.sh` both render the *same
 program twice* — once with `MFB_CANVAS_GPU=1`, once without — and diff the two
 frames. Neither compares a GPU frame to a checked-in PNG, and that is deliberate: an
 oracle comparison cannot go stale. If the rasteriser changes, both sides change

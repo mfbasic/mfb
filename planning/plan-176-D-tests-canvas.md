@@ -46,10 +46,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-C is complete and archived | `ls planning/plan-176-C-* planning/completed/plan-176-C-*` → only `planning/completed/plan-176-C-tests-runtime-b.md` | NOT MET (2026-10-18) |
-| The guard and the oracle exist (plan-176-A) | `cargo test --test file_size_budget` → passes; `python3 -I tools/loc-census/census.py --file tests/canvas/rt_canvas_rasteriser.rs` → `0 4712` | NOT MET (2026-10-18; lands with A) |
-| This letter's files have no uncommitted changes | `git status --porcelain -- tests/canvas/rt_canvas_curves.rs tests/canvas/rt_canvas_font.rs tests/canvas/rt_canvas_golden.rs tests/canvas/rt_canvas_metal.rs tests/canvas/rt_canvas_particles.rs tests/canvas/rt_canvas_rasteriser.rs tests/canvas/scenes src/docs/spec/app/06_canvas.md scripts/man-run-examples.sh .ai/testing-gates.md planning/plan-175-B-canvas-draw-node-table.md tests/guards/file_size_ceilings.txt` → empty | MET (2026-10-18: empty) |
-| The six files still measure as mapped (§2). Any drift means re-running the part sums before splitting | `for f in curves font golden metal particles rasteriser; do python3 -I tools/loc-census/census.py --file tests/canvas/rt_canvas_$f.rs; grep -cE '^\s*#\[test' tests/canvas/rt_canvas_$f.rs; done` → `0 2432` 40, `0 3547` 60, `0 1182` 28, `0 1758` 74, `0 1214` 29, `0 4712` 113 | MET for the planning oracle (2026-10-18, HEAD ce7a995ca: `python3 -I /tmp/loc/census.py "$PWD"` → those LOC; the grep → those counts) |
+| plan-176-C is complete and archived | `ls planning/plan-176-C-* planning/completed/plan-176-C-*` → only `planning/completed/plan-176-C-tests-runtime-b.md` | MET (2026-10-18, HEAD d4c18d5ea: `ls planning/completed/ \| grep plan-176-C` → `plan-176-C-tests-runtime-b.md`; `ls planning \| grep plan-176-C` → none) |
+| The guard and the oracle exist (plan-176-A) | `cargo test --test file_size_budget` → passes; `python3 -I tools/loc-census/census.py --file tests/canvas/rt_canvas_rasteriser.rs` → `0 4712` | MET (2026-10-18: guard `test result: ok. 35 passed`; the census → `0 4712`) |
+| This letter's files have no uncommitted changes | `git status --porcelain -- tests/canvas/rt_canvas_curves.rs tests/canvas/rt_canvas_font.rs tests/canvas/rt_canvas_golden.rs tests/canvas/rt_canvas_metal.rs tests/canvas/rt_canvas_particles.rs tests/canvas/rt_canvas_rasteriser.rs tests/canvas/scenes src/docs/spec/app/06_canvas.md scripts/man-run-examples.sh .ai/testing-gates.md planning/plan-175-B-canvas-draw-node-table.md tests/guards/file_size_ceilings.txt` → empty | MET (2026-10-18, HEAD d4c18d5ea: empty) |
+| The six files still measure as mapped (§2). Any drift means re-running the part sums before splitting | `for f in curves font golden metal particles rasteriser; do python3 -I tools/loc-census/census.py --file tests/canvas/rt_canvas_$f.rs; grep -cE '^\s*#\[test' tests/canvas/rt_canvas_$f.rs; done` → `0 2432` 40, `0 3547` 60, `0 1182` 28, `0 1758` 74, `0 1214` 29, `0 4712` 113 | MET (2026-10-18, HEAD d4c18d5ea: the command → exactly those six LOC pairs and counts) |
 
 Everything below is written against the world where these hold.
 
@@ -512,14 +512,20 @@ Two files with 56 scene includes to repoint, two citations that stay in their ro
 `sed` pin, and the stale `.ai/testing-gates.md` path.
 `T="rt_canvas_golden rt_canvas_metal"`, `RE="rt_canvas_(golden|metal)"`.
 
-- [ ] K1 → 102 tests. Record `for c in GROUPS POLYLINES; do sed -n "/^const $c: &str = r#\"/,/^\"#;\$/p" tests/canvas/rt_canvas_golden.rs | wc -l; done` → `26`, `43`.
-- [ ] `rt_canvas_golden.rs` → root (keeps 19 tests, `GROUPS`, `POLYLINES` unindented, the 4 scene includes and the render helpers) + `ellipses_gradients_polylines.rs` (§4.1).
-- [ ] `rt_canvas_metal.rs` → root (keeps 10 tests and every shared helper) + `scenes_over_black.rs`, `scenes_and_passes.rs` (§4.2). The 56 scene includes in the two topics become `"../scenes/…"`.
-- [ ] Include sweep: `grep -rn 'include_str!("scenes/' tests/canvas/rt_canvas_metal tests/canvas/rt_canvas_metal.rs` → no output;
+- [x] K1 → 102 tests. Record `for c in GROUPS POLYLINES; do sed -n "/^const $c: &str = r#\"/,/^\"#;\$/p" tests/canvas/rt_canvas_golden.rs | wc -l; done` → `26`, `43`.
+      Done: `bash /tmp/p176/dklist.sh before rt_canvas_golden rt_canvas_metal` (K1, `/tmp/176D-<t>.before`) → golden 28, metal 74, total 102; the two `sed` ranges → `26`, `43`.
+- [x] `rt_canvas_golden.rs` → root (keeps 19 tests, `GROUPS`, `POLYLINES` unindented, the 4 scene includes and the render helpers) + `ellipses_gradients_polylines.rs` (§4.1).
+      Done by name with `python3 -I /tmp/p176/dsplit.py /tmp/p176/D-golden.json "$PWD"` (root 19 tests, topic 9). Sizes (`census.py --file`): root `0 788`, topic `0 397`. Lossless: `python3 -I /tmp/p176/dverify.py <HEAD copy> <root> <topic>` → missing `[]`, extra `[]`, 2 decl lines.
+- [x] `rt_canvas_metal.rs` → root (keeps 10 tests and every shared helper) + `scenes_over_black.rs`, `scenes_and_passes.rs` (§4.2). The 56 scene includes in the two topics become `"../scenes/…"`.
+      Done with `dsplit.py /tmp/p176/D-metal.json` (root 10, `scenes_over_black` 33, `scenes_and_passes` 31). Sizes: root `0 730`, `scenes_over_black` `0 380`, `scenes_and_passes` `0 653`. Lossless: `dverify.py` → missing `[]`, extra `[]`, 4 decl lines, include rewrites 56.
+- [x] Include sweep: `grep -rn 'include_str!("scenes/' tests/canvas/rt_canvas_metal tests/canvas/rt_canvas_metal.rs` → no output;
       `cat tests/canvas/rt_canvas_metal/*.rs | grep -c 'include_str!("../scenes/'` → `56`;
       `grep -c 'include_str!("scenes/' tests/canvas/rt_canvas_golden.rs` → `4`.
-- [ ] `.ai/testing-gates.md:332`: `tests/rt_canvas_metal.rs` → `tests/canvas/rt_canvas_metal.rs`. This is a pre-existing stale path (evidence: `ls tests/rt_canvas_metal.rs` → No such file).
-- [ ] Tighten: K5 and commit the ceiling file and `.ai/testing-gates.md`.
+      Done: → no output; `56`; `4`.
+- [x] `.ai/testing-gates.md:332`: `tests/rt_canvas_metal.rs` → `tests/canvas/rt_canvas_metal.rs`. This is a pre-existing stale path (evidence: `ls tests/rt_canvas_metal.rs` → No such file).
+      Done: `ls tests/rt_canvas_metal.rs` → No such file or directory; line 332 repointed; `grep -n 'tests/rt_canvas' .ai/testing-gates.md` → no output.
+- [x] Tighten: K5 and commit the ceiling file and `.ai/testing-gates.md`.
+      Done: `bash /tmp/p176/dk45.sh 'rt_canvas_(golden|metal)'` → K4 no output; guard → `TIGHTEN test 788 (ceiling 1182)` golden and `TIGHTEN test 730 (ceiling 1758)` metal; `MFB_LOC_TIGHTEN=1` exit 0; foreign ceiling diffs none; own diffs `-ceiling test 1182 …golden.rs`, `-ceiling test 1758 …metal.rs`; re-run guard grep → no output.
 
 Acceptance: 102 tests are listed unchanged and pass on Metal, both citations still resolve to
 their symbols in the roots, and the Vulkan script still extracts its scenes.
@@ -527,6 +533,12 @@ their symbols in the roots, and the Vulkan script still extracts its scenes.
   and `grep -n 'fn the_gpu_draws_the_group_affine_scene_the_reference_shows' tests/canvas/rt_canvas_golden.rs`
   and `grep -n 'fn a_group_with_a_matrix_draws_on_metal_and_matches_the_software_oracle' tests/canvas/rt_canvas_metal.rs`
   → 1 hit each; the `sed` line counts are again `26`, `43`; `grep -n 'tests/rt_canvas' .ai/testing-gates.md` → no output (est. 15 min).
+  Verified 2026-10-18: K2 `bash /tmp/p176/dklist.sh after rt_canvas_golden rt_canvas_metal` → no `DIFF`, 28 + 74 = 102;
+  K3 `bash scripts/test-fast.sh --test rt_canvas_golden --test rt_canvas_metal` → `test-fast: ok`
+  (`rt_canvas_golden` `ok. 28 passed; 0 failed`, `rt_canvas_metal` `ok. 74 passed; 0 failed`); K4 → no output;
+  K5 → 2 TIGHTEN rows, then none; K6 `cargo test -p mfb --bin mfb spec_citations_resolve` → `ok. 1 passed`,
+  the two `grep -n 'fn …'` → golden.rs:929, metal.rs:595 (1 hit each); `sed` counts → `26`, `43`;
+  `grep -n 'tests/rt_canvas' .ai/testing-gates.md` → no output; `cargo fmt --all -- --check` → exit 0.
 Commit: —
 
 ### Phase 2 — Curves and particles (§4.3–§4.4)
@@ -658,6 +670,22 @@ Commit: —
   56 total), `rt_canvas_rasteriser` 4575 → 4712 LOC and 109 → 113 tests (bug-1088); spec
   citation lines moved to :1536, :1548, :1628, :1629 and the stale testing-gates path to :332.
   plan-175-B:260 sweep added.
+- 2026-10-18 (execution) — the plan's `/tmp/loc/census.py`, `/tmp/loc/rw-D/items.py` and
+  `assign3.py` are replaced by `python3 -I tools/loc-census/census.py --file PATH` (plan-176-A) and
+  two scratch tools: `/tmp/p176/dsplit.py` moves top-level items by name (it lexes strings, raw
+  strings and comments, so a brace inside a scene string never ends an item; it asserts each
+  part's and the root's test count) and `/tmp/p176/dverify.py` checks the non-blank lines of the
+  pre-split file == root + parts minus headers, `use super::*;` and the `#[path]`/`mod` pairs.
+  All six files matched their §2 measurement at HEAD `d4c18d5ea`, so §4's item lists were used
+  unchanged; every part measures exactly its §4 number except the `rt_canvas_metal` root, 730
+  (§4.2 says 731; the census is the truth, and both are under 900).
+- 2026-10-18 (execution) — owner instruction 2026-10-18: landing tier per phase; the full suite
+  runs once before the plan merges. K3 runs as `bash scripts/test-fast.sh --test <t>...` (fmt,
+  `cargo check --workspace --all-targets`, unit tests, the guard binaries and the named targets),
+  and the final gate's `cargo test --test test_targets_registered` runs inside that call.
+- 2026-10-18 (execution) — part files start with a comment-only `//!` header naming what they
+  hold and where the shared helpers live, then `use super::*;` (B/C's convention). The header is
+  comment-only, so it adds no LOC.
 
 ## Summary
 

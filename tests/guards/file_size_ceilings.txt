@@ -184,8 +184,6 @@ ceiling code 1623 src/rules/table.rs
 ceiling inline 1011 src/types.rs
 ceiling test 2432 tests/canvas/rt_canvas_curves.rs
 ceiling test 3547 tests/canvas/rt_canvas_font.rs
-ceiling test 1182 tests/canvas/rt_canvas_golden.rs
-ceiling test 1758 tests/canvas/rt_canvas_metal.rs
 ceiling test 1214 tests/canvas/rt_canvas_particles.rs
 ceiling test 4712 tests/canvas/rt_canvas_rasteriser.rs
 ceiling test 1473 tests/cli/cli_dbg.rs
