@@ -643,6 +643,12 @@ include still resolves from the root.
   → no output. The same regex over `tests/guards/file_size_ceilings.txt` → no output.
   `cargo test --test test_targets_registered` → ok (est. 3 min). The full workspace suite runs
   once, in plan-176-V's Validation Plan.
+  Result (2026-10-18, after `2672b3a1b`): guard grep → no output (`test result: ok. 35 passed`);
+  ceiling-file grep → no output; `test_targets_registered` → `test result: ok. 4 passed` inside
+  `bash scripts/test-fast.sh --test rt_inplace_self_update --test rt_big_int --test rt_debug_soak --test rt_native_term_runtime --test test_targets_registered`
+  (check/build/skips/tests ok; B's targets 19 + 49 + 23 + 1 passed). Its `fmt` step failed on
+  `tests/guards/file_size_budget/lex_cases.rs` (letter A's file, one `assert!` over 100 columns);
+  rustfmt fixed it in `2672b3a1b`, and `cargo fmt --all -- --check` → exit 0 afterwards.
 
 ## Decisions
 
