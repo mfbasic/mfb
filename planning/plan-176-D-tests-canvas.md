@@ -539,25 +539,40 @@ their symbols in the roots, and the Vulkan script still extracts its scenes.
   K5 → 2 TIGHTEN rows, then none; K6 `cargo test -p mfb --bin mfb spec_citations_resolve` → `ok. 1 passed`,
   the two `grep -n 'fn …'` → golden.rs:929, metal.rs:595 (1 hit each); `sed` counts → `26`, `43`;
   `grep -n 'tests/rt_canvas' .ai/testing-gates.md` → no output; `cargo fmt --all -- --check` → exit 0.
-Commit: —
+Commit: a9cdccae0
 
 ### Phase 2 — Curves and particles (§4.3–§4.4)
 
 Two files with no citation and no include; every shared helper stays in its root.
 `T="rt_canvas_curves rt_canvas_particles"`, `RE="rt_canvas_(curves|particles)"`.
 
-- [ ] K1 → 69 tests.
-- [ ] `rt_canvas_curves.rs` → root (all helpers, both `impl Scene` blocks, no tests) + `reduction_and_pieces.rs`, `curve_shapes.rs`, `picture_curves.rs` (§4.3).
-- [ ] `rt_canvas_particles.rs` → root (keeps 16 tests and the render helpers) + `lifecycle_and_model.rs`, with `MODEL_DRIVER` moved verbatim beside `model()` (§4.4).
-- [ ] Byte check of the moved driver string (250 lines, unindented, so the same `sed` range
+- [x] K1 → 69 tests.
+      Done: `bash /tmp/p176/dklist.sh before rt_canvas_curves rt_canvas_particles` → curves 40, particles 29, total 69.
+- [x] `rt_canvas_curves.rs` → root (all helpers, both `impl Scene` blocks, no tests) + `reduction_and_pieces.rs`, `curve_shapes.rs`, `picture_curves.rs` (§4.3).
+      Done with `dsplit.py /tmp/p176/D-curves.json` (root 0 tests; 18, 17, 5). Sizes: root `0 748`, `reduction_and_pieces` `0 772`, `curve_shapes` `0 678`, `picture_curves` `0 243`. Lossless: `dverify.py` → missing `[]`, extra `[]`, 6 decl lines.
+- [x] `rt_canvas_particles.rs` → root (keeps 16 tests and the render helpers) + `lifecycle_and_model.rs`, with `MODEL_DRIVER` moved verbatim beside `model()` (§4.4).
+      Done with `dsplit.py /tmp/p176/D-particles.json` (root 16, topic 13). Sizes: root `0 548`, topic `0 669`. Lossless: `dverify.py` → missing `[]`, extra `[]`, 2 decl lines.
+- [x] Byte check of the moved driver string (250 lines, unindented, so the same `sed` range
       selects it in both files):
       `git show HEAD:tests/canvas/rt_canvas_particles.rs | sed -n '/^const MODEL_DRIVER: &str = r#"/,/^"#;$/p' | cmp - <(sed -n '/^const MODEL_DRIVER: &str = r#"/,/^"#;$/p' tests/canvas/rt_canvas_particles/lifecycle_and_model.rs)`
       → no output (`HEAD` is the tree before this phase; the range prints 250 lines today).
-- [ ] Tighten: K5 and commit the ceiling file.
+      Done (the session's shell refuses process substitution, so the HEAD side is a copy of the clean pre-split file, `/tmp/p176/D-orig-particles.rs`): the two `sed` ranges written to files, `cmp` → no output, exit 0; 250 lines.
+- [x] (discovered) K3's landing tier failed 6 gate tests that share fixed `$TMPDIR/mfb-bug470-*` trees with any other
+      checkout testing at the same time (another agent's `/tmp/b1014/tree` was running `gate_mutual_exclusion`, `pgrep -fl`).
+      Fixed in `9755a52bc` (tree names carry a hash of `CARGO_MANIFEST_DIR`; no assertion changed):
+      `cargo test --test gate_mutual_exclusion --test gate_release_on_normal_exit` → `ok. 5 passed`, `ok. 3 passed`.
+- [x] Tighten: K5 and commit the ceiling file.
+      Done: `bash /tmp/p176/dk45.sh 'rt_canvas_(curves|particles)'` → K4 no output; `TIGHTEN test 748 (ceiling 2432)` curves, `TIGHTEN test 548 (ceiling 1214)` particles; tighten exit 0; no foreign ceiling diff; own `-ceiling test 2432 …curves.rs`, `-ceiling test 1214 …particles.rs`; re-run → no output.
 
 Acceptance: 69 tests are listed unchanged and pass, and the driver string is byte-identical.
   Check: K2 → no output; K3 → 2 × ok; K4 → no output; K5 → 2 TIGHTEN rows, then none; the `cmp`
   → no output (est. 12 min).
+  Verified 2026-10-18: K2 `bash /tmp/p176/dklist.sh after rt_canvas_curves rt_canvas_particles` → no `DIFF`, 40 + 29 = 69;
+  K3 `bash scripts/test-fast.sh --test rt_canvas_curves --test rt_canvas_particles` → `rt_canvas_curves` `ok. 40 passed; 0 failed`,
+  `rt_canvas_particles` `ok. 29 passed; 0 failed`, fmt/check/build/skips ok; its `tests` step failed only in
+  `gate_mutual_exclusion` (4) and `gate_release_on_normal_exit` (2), which collided with another checkout's concurrent run of
+  the same binary (fixed in `9755a52bc`; `cargo test --test gate_mutual_exclusion --test gate_release_on_normal_exit` → ok 5, ok 3);
+  K4 → no output; K5 → 2 TIGHTEN rows, then none; the `cmp` → no output.
 Commit: —
 
 ### Phase 3 — rt_canvas_font (§4.5)
@@ -686,6 +701,9 @@ Commit: —
 - 2026-10-18 (execution) — part files start with a comment-only `//!` header naming what they
   hold and where the shared helpers live, then `use super::*;` (B/C's convention). The header is
   comment-only, so it adds no LOC.
+- 2026-10-18 (execution) — Phase 2's landing tier exposed a pre-existing cross-checkout collision
+  in `tests/gate/gate_mutual_exclusion.rs` and `tests/gate/gate_release_on_normal_exit.rs` (fixed
+  `$TMPDIR` tree names); fixed in its own commit `9755a52bc` and recorded as a Phase 2 task.
 
 ## Summary
 
