@@ -2,9 +2,10 @@
 //! from `tools/loc-census/README.md`; the whole-tree agreement with the oracle
 //! is checked by running both (plan-176-A, Phase 1 acceptance).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::classify::{count_text, is_generated, test_mod_decls, Kind};
+use crate::ceilings::{compare, parse, tighten};
+use crate::classify::{count_text, is_generated, test_mod_decls, FileCount, Kind};
 use crate::mfb_lex::mfb_lines;
 use crate::rust_lex::{rust_code_text, rust_lines, rust_test_lines, LineKind};
 
@@ -264,4 +265,90 @@ fn extent_bare_block() {
 fn extent_stacked_attributes() {
     let text = "#[cfg(test)]\n#[allow(dead_code)]\nfn helper() {\n}\nfn a() {}";
     assert_eq!(rust_shape(text), "TTTTC");
+}
+
+fn counts() -> BTreeMap<String, FileCount> {
+    let code = |code, test| FileCount {
+        code,
+        test,
+        generated: false,
+        testfile: false,
+    };
+    let test = |test| FileCount {
+        code: 0,
+        test,
+        generated: false,
+        testfile: true,
+    };
+    BTreeMap::from([
+        ("src/big.rs".to_string(), code(1200, 300)),
+        ("src/fixed.rs".to_string(), code(900, 10)),
+        ("src/grew.rs".to_string(), code(1500, 0)),
+        ("src/same.rs".to_string(), code(1100, 0)),
+        ("src/new.rs".to_string(), code(1043, 262)),
+        ("tests/rt_x.rs".to_string(), test(1262)),
+    ])
+}
+
+const CEILINGS: &str = "# header
+ceiling code 1300 src/big.rs
+ceiling inline 300 src/big.rs
+ceiling code 1100 src/fixed.rs
+ceiling code 1400 src/grew.rs
+ceiling code 1100 src/same.rs
+ceiling test 2000 src/gone.rs
+ceiling bogus 3 src/x.rs
+ceiling test 1255 tests/rt_x.rs
+";
+
+fn rendered(text: &str) -> Vec<String> {
+    compare(&parse(text), &counts())
+        .iter()
+        .map(|r| r.render())
+        .collect()
+}
+
+#[test]
+fn compare_reports_every_row_kind() {
+    assert_eq!(
+        rendered(CEILINGS),
+        vec![
+            "  NEW      code 1043 > 1000  src/new.rs",
+            "  NEW      inline 262 > 250  src/new.rs",
+            "  GREW     code 1500 > 1000 (ceiling 1400)  src/grew.rs",
+            "  GREW     test 1262 > 1000 (ceiling 1255)  tests/rt_x.rs",
+            "  STALE    test (ceiling 2000)  src/gone.rs: not an in-scope file",
+            "  STALE    unparseable line 8: ceiling bogus 3 src/x.rs",
+            "  TIGHTEN  code 1200 (ceiling 1300)  src/big.rs",
+            "  TIGHTEN  code 900 (ceiling 1100)  src/fixed.rs",
+        ]
+    );
+}
+
+#[test]
+fn tighten_lowers_and_drops_but_never_adds_or_raises() {
+    let lowered = tighten(&parse(CEILINGS), &counts());
+    assert_eq!(
+        lowered,
+        "# header
+ceiling code 1200 src/big.rs
+ceiling inline 300 src/big.rs
+ceiling code 1400 src/grew.rs
+ceiling code 1100 src/same.rs
+ceiling bogus 3 src/x.rs
+ceiling test 1255 tests/rt_x.rs
+"
+    );
+    // Idempotent: the rewritten table has nothing left to lower.
+    assert_eq!(tighten(&parse(&lowered), &counts()), lowered);
+}
+
+#[test]
+fn a_repeated_ceiling_is_stale_and_dropped() {
+    let text = "ceiling code 1300 src/big.rs\nceiling code 1250 src/big.rs\nceiling inline 300 src/big.rs\n";
+    assert!(rendered(text).contains(&"  STALE    repeated ceiling code 1250  src/big.rs".to_string()));
+    assert_eq!(
+        tighten(&parse(text), &counts()),
+        "ceiling code 1200 src/big.rs\nceiling inline 300 src/big.rs\n"
+    );
 }

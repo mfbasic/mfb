@@ -349,13 +349,13 @@ limit and on each one's count.
   dump from the guard compared with `census.py --json` → `files 4485 4485`, `differ 0`
   (dump code removed before commit). The new oracle also equals the planning oracle
   (`/tmp/loc/census.py`) on all 4479 pre-A files, `differ 0`.
-Commit: —
+Commit: 1df6ac3d5
 
 ### Phase 2 — Seed the ceilings
 
-- [ ] `python3 -I tools/loc-census/census.py --seed > tests/guards/file_size_ceilings.txt`,
+- [x] `python3 -I tools/loc-census/census.py --seed > tests/guards/file_size_ceilings.txt`,
       then prepend the §4.2 header comment.
-- [ ] `tests/guards/file_size_budget/ceilings.rs`: `MFB_LOC_TIGHTEN=1` rewrite (lower `n`,
+- [x] `tests/guards/file_size_budget/ceilings.rs`: `MFB_LOC_TIGHTEN=1` rewrite (lower `n`,
       drop entries for files now within limit or missing, never add, never raise), with a `lex_cases.rs` case that feeds an in-memory
       ceiling table plus counts and asserts the rewritten text.
 
@@ -366,6 +366,10 @@ Acceptance: the seeded tree is clean and the ratchet only goes down.
   `NEW      code 1100 > 1000  src/zz_budget_probe.rs`, then `rm src/zz_budget_probe.rs` (est. 2 min).
   `grep -c '^ceiling' tests/guards/file_size_ceilings.txt` equals the oracle's over-limit row
   count printed by `census.py --seed | grep -c '^ceiling'` (est. 30 s).
+  Result (2026-10-18): row grep → `0`; probe file → exactly
+  `  NEW      code 1100 > 1000  src/zz_budget_probe.rs`; `grep -c '^ceiling'` → `199`, oracle → `199`.
+  `MFB_LOC_TIGHTEN=1 cargo test --test file_size_budget` on the seeded tree → ceiling file unchanged
+  (`git diff --stat` empty). `lex_cases` tighten/compare cases → `test result: ok. 35 passed`.
 Commit: —
 
 ### Phase 3 — Write the rule down
