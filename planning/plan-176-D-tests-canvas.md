@@ -573,24 +573,34 @@ Acceptance: 69 tests are listed unchanged and pass, and the driver string is byt
   `gate_mutual_exclusion` (4) and `gate_release_on_normal_exit` (2), which collided with another checkout's concurrent run of
   the same binary (fixed in `9755a52bc`; `cargo test --test gate_mutual_exclusion --test gate_release_on_normal_exit` → ok 5, ok 3);
   K4 → no output; K5 → 2 TIGHTEN rows, then none; the `cmp` → no output.
-Commit: —
+Commit: 009ecbc32
 
 ### Phase 3 — rt_canvas_font (§4.5)
 
 The re-mapped layout, with the most cross-part helpers, and the stale `man-run-examples.sh` path.
 `T="rt_canvas_font"`, `RE="rt_canvas_(font)"`.
 
-- [ ] K1 → 60 tests.
-- [ ] Re-measure before cutting: `python3 -I tools/loc-census/census.py --file tests/canvas/rt_canvas_font.rs` → `0 3547`. If it differs, re-run the §2 part sums for the new items before splitting.
-- [ ] `rt_canvas_font.rs` → root (the fixture builder, the render family and the table builders; no tests) + `loading_and_measure.rs`, `drawing.rs`, `face_index_and_kerning.rs`, `shaping.rs` (§4.5).
-- [ ] `scripts/man-run-examples.sh:260`: `tests/rt_canvas_font.rs` → `tests/canvas/rt_canvas_font.rs`. Pre-existing stale path (`ls tests/rt_canvas_font.rs` → No such file).
-- [ ] Reference sweep: `grep -rn 'tests/rt_canvas' scripts .ai AGENTS.md src/docs .github` → no output.
-- [ ] Tighten: K5 and commit the ceiling file and `scripts/man-run-examples.sh`.
+- [x] K1 → 60 tests.
+      Done: `bash /tmp/p176/dklist.sh before rt_canvas_font` → 60.
+- [x] Re-measure before cutting: `python3 -I tools/loc-census/census.py --file tests/canvas/rt_canvas_font.rs` → `0 3547`. If it differs, re-run the §2 part sums for the new items before splitting.
+      Done: → `0 3547`.
+- [x] `rt_canvas_font.rs` → root (the fixture builder, the render family and the table builders; no tests) + `loading_and_measure.rs`, `drawing.rs`, `face_index_and_kerning.rs`, `shaping.rs` (§4.5).
+      Done with `dsplit.py /tmp/p176/D-font.json` (root 0 tests; 17, 17, 11, 15). Sizes: root `0 614`, `loading_and_measure` `0 752`, `drawing` `0 775`, `face_index_and_kerning` `0 644`, `shaping` `0 774`. Lossless: `dverify.py` → missing `[]`, extra `[]`, 8 decl lines.
+- [x] `scripts/man-run-examples.sh:260`: `tests/rt_canvas_font.rs` → `tests/canvas/rt_canvas_font.rs`. Pre-existing stale path (`ls tests/rt_canvas_font.rs` → No such file).
+      Done: `ls tests/rt_canvas_font.rs` → No such file or directory; line 260 repointed.
+- [x] Reference sweep: `grep -rn 'tests/rt_canvas' scripts .ai AGENTS.md src/docs .github` → no output.
+      Done: → no output (exit 1).
+- [x] Tighten: K5 and commit the ceiling file and `scripts/man-run-examples.sh`.
+      Done: `bash /tmp/p176/dk45.sh 'rt_canvas_(font)'` → K4 no output; `TIGHTEN test 614 (ceiling 3547)`; tighten exit 0; no foreign ceiling diff; own `-ceiling test 3547 …font.rs`; re-run → no output.
 
 Acceptance: 60 tests are listed unchanged and pass (the four macOS-only ones included), and every
 live reference to the fixture builder names the file that holds it.
   Check: K2 → no output; K3 → ok; K4 → no output; K5 → 1 TIGHTEN row, then none;
   `grep -n 'fn truetype_fixture_with' tests/canvas/rt_canvas_font.rs` → 1 hit (est. 12 min).
+  Verified 2026-10-18: K2 `bash /tmp/p176/dklist.sh after rt_canvas_font` → no `DIFF`, 60;
+  K3 `bash scripts/test-fast.sh --test rt_canvas_font` → `test-fast: ok` (`rt_canvas_font` `ok. 60 passed; 0 failed`,
+  the four `#[cfg(target_os = "macos")]` tests included on this macOS host); K4 → no output; K5 → 1 TIGHTEN row, then none;
+  `grep -n 'fn truetype_fixture_with' tests/canvas/rt_canvas_font.rs` → 1 hit (:101).
 Commit: —
 
 ### Phase 4 — rt_canvas_rasteriser (§4.6)

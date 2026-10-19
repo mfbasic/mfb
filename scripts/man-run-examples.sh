@@ -257,7 +257,7 @@ install_workers_package() {
 # The names are dictated by the examples themselves, exactly as the worker signatures
 # are: rename one in a page and it stops running here, which is the point.
 #
-# The font is the same synthesized twelve-glyph TrueType `tests/rt_canvas_font.rs` and
+# The font is the same synthesized twelve-glyph TrueType `tests/canvas/rt_canvas_font.rs` and
 # `scripts/test-canvas-vulkan.sh` build — `unitsPerEm` 1000, one square glyph — rather
 # than a real typeface, so the harness needs nothing installed on the machine.
 install_canvas_fixtures() {
