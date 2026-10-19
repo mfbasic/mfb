@@ -564,33 +564,65 @@ grid case line is byte-identical to `HEAD`.
   and `> mod_pow_matches_remainder_of_pow_for_positive_bases: test`; K3 → `test result: ok. 19
   passed; 0 failed`; K4 → no output; K5 → 1 TIGHTEN row, then none; both byte checks → no output.
   MET.
-Commit: —
+Commit: 5518d73fa
 
 ### Phase 3 — rt_inplace_self_update (§4.4)
 
 The support-file split (22 `pub(super)` items) and the `.ai` miscount fix.
 `T="rt_inplace_self_update"`, `RE="rt_(inplace_self_update)"`.
 
-- [ ] K1 → 4 tests (three of them `#[ignore]`d grids; `--list` includes them).
-- [ ] `rt_inplace_self_update.rs` → root (keeps the six consts, the three
+- [x] K1 → 4 tests (three of them `#[ignore]`d grids; `--list` includes them).
+      Result (2026-10-18): K1 → `4`.
+- [x] `rt_inplace_self_update.rs` → root (keeps the six consts, the three
       `include_str!("inplace_self_update/*.tsv")` consts, `scratch_arms_match_the_compiler` with
       its unchanged `include_str!("../../src/…/self_update.rs")`, the field-site machinery and
       the three grids) + support `cases.rs` with the §4.4 `pub(super)` surface and root
       `use cases::*;`.
-- [ ] `.ai/testing-gates.md:95`: "two grid tests" → "three grid tests" (§4.4 sweep 4). Check:
+      Moved lines 107-688 and 719-1221; the move script asserted all 22 items, 7 `Case` fields,
+      `Case::ty` and `Site::applies` got `pub(super)` (no more, no fewer). A non-blank
+      line-multiset compare against `HEAD` shows only those `pub(super)` edits, the mod/glob lines,
+      the part header, the doc fix below, and rustfmt's rewrap of the two signatures that
+      `pub(super)` pushed past 100 columns (`build_debug_as`, `run_lines`).
+- [x] `.ai/testing-gates.md:95`: "two grid tests" → "three grid tests" (§4.4 sweep 4). Check:
       `grep -c "rt_inplace_self_update\`'s three grid tests" .ai/testing-gates.md` → `1`.
-- [ ] Run the ignored grid tests once, because CI runs them (`coverage.yml:180`):
+      Result: `1`.
+- [x] (discovered) The root's own module doc had the same miscount: "The two grid tests build
+      thousands of programs" (`grep -n 'The two grid tests' tests/runtime/rt_inplace_self_update.rs`
+      → `82:`). Corrected to "three" (a `//!` line, not moved code or an assertion). Check: the
+      same grep → no output.
+- [~] Run the ignored grid tests once, because CI runs them (`coverage.yml:180`):
       `cargo test --release --test rt_inplace_self_update -- --ignored` → ok.
-- [ ] Size check: `python3 -I tools/loc-census/census.py --file tests/runtime/rt_inplace_self_update.rs`
+      Result (2026-10-18, split tree, 5296 s): `every_self_update_case_meets_its_allocation_bound
+      ... ok`, `every_via_let_field_cell_meets_its_expectation ... ok`,
+      `every_field_kind_meets_its_expectation ... FAILED` — `19 of 1320 case/site pair(s) failed`.
+      The 19 are **pre-existing, not caused by the split**: the same test with
+      `MFB_SELF_UPDATE_FILTER='canvas::Text|http::Route'` in a detached worktree at `5518d73fa`
+      (the commit before Phase 3, file unsplit) → `19 of 45 case/site pair(s) failed`, and the
+      sorted `<kind> at <site>` failure labels of the two logs are identical (19 each). They are
+      `http::Route` at S4/S5/S9/S10 (open `bugs/bug-1014-field-kinds-tsv-disagrees-with-its-generator.md`,
+      which reports exactly these four) and 15 `canvas::Text` rows that `field_kinds.tsv` marks
+      `na:TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` but which now compile (or fail with a different
+      code at S7/T7); no bug doc names them. Remaining: the field-kind grid passes only once those
+      rows are fixed, which is outside this letter (test-data/compiler work, not motion).
+- [x] Size check: `python3 -I tools/loc-census/census.py --file tests/runtime/rt_inplace_self_update.rs`
       → `0 763`; `… --file tests/runtime/rt_inplace_self_update/cases.rs` → `0 813`.
-- [ ] Tighten: K5 and commit the ceiling file and `.ai/testing-gates.md`.
+      Result: `0 763`; `0 821` (+8 from rustfmt rewrapping two signatures; see Corrections). ≤ 900.
+- [x] Tighten: K5 and commit the ceiling file and `.ai/testing-gates.md`.
+      Result: guard → `TIGHTEN test 763 (ceiling 1572) tests/runtime/rt_inplace_self_update.rs`
+      only; `MFB_LOC_TIGHTEN=1` removed that one row (foreign-row diff → no output); re-run → no
+      output.
 
 Acceptance: 4 tests are unchanged, the plain and ignored runs pass, and the compiler-source
 include still resolves from the root.
   Check: K2 → no output; K3 → ok (`scratch_arms_match_the_compiler` passes); the `--ignored` run
   → ok; K4 → no output; K5 → 1 TIGHTEN row, then none (est. 25 min: the ignored grids build every
   case program, and this run is the only check of the moved support items' run-time behavior).
-Commit: —
+  Result (2026-10-18): K2 → no output; K3 → `test result: ok. 1 passed; 0 failed; 3 ignored`
+  (`scratch_arms_match_the_compiler` passes, so the root include resolves); K4 → no output; K5 →
+  1 TIGHTEN row, then none. The `--ignored` run is NOT ok: 2 of 3 grids pass, and the third fails
+  on 19 pairs that fail identically on the unsplit tree (see the task above). So the split itself
+  changed no run-time result. The criterion "the ignored runs pass" is NOT MET at this tree, for a
+  reason outside B.
 
 ## Validation Plan
 
@@ -672,6 +704,27 @@ Commit: —
     `054062ce3`);
   - rt_inplace_self_update has three ignored grids, not two (the old K1 note);
   - `.ai/testing-gates.md` line refs are :95 and :883 (were :77 and :865).
+- 2026-10-18 (execution) — `tests/runtime/rt_inplace_self_update/cases.rs` measures `0 821`, not
+  the planned `0 813` (`python3 -I tools/loc-census/census.py --file tests/runtime/rt_inplace_self_update/cases.rs`).
+  The +8 is rustfmt wrapping `build_debug_as` and `run_lines` over several lines once
+  `pub(super)` pushed them past 100 columns (1 line → 5 each). Still ≤ 900.
+- 2026-10-18 (execution) — the plan named only `.ai/testing-gates.md:95` for the "two grid tests"
+  miscount. The root's own module doc (`//!` line 82 of `tests/runtime/rt_inplace_self_update.rs`,
+  `grep -n 'The two grid tests'`) said the same; corrected in Phase 3 too.
+- 2026-10-18 (execution) — the plan's `/tmp/loc/census.py` and `/tmp/loc/span.py` are
+  `python3 -I tools/loc-census/census.py [--file PATH [--lines A B]]` after plan-176-A. All
+  §4 line ranges matched the tree at `8157eb7c2` (anchors asserted by the move scripts), so no range
+  was re-mapped.
+- 2026-10-18 (execution) — owner instruction 2026-10-18: landing tier per phase; the full suite,
+  including the ignored grids, runs once before the plan merges. Phases 1–3 had already run their
+  named K-checks (K3 included) and Phase 3's `--release -- --ignored` grid run, which was allowed to
+  finish. The final gate's `cargo test --test test_targets_registered` runs inside
+  `bash scripts/test-fast.sh --test rt_inplace_self_update --test rt_big_int --test rt_debug_soak --test rt_native_term_runtime --test test_targets_registered`.
+- 2026-10-18 (execution) — the Phase 3 `--ignored` run fails `every_field_kind_meets_its_expectation`
+  on 19 pairs (`http::Route` S4/S5/S9/S10, which is bug-1014, and 15 `canvas::Text` rows). The
+  failures are pre-existing: the same failure labels show on the unsplit tree at `5518d73fa`
+  (filtered run in a detached worktree). Phase 3 records this as `[~]` and does not edit
+  `field_kinds.tsv` (never edit a test to pass, and these rows are not motion).
 
 ## Summary
 
