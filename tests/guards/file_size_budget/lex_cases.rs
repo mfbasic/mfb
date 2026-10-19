@@ -346,7 +346,9 @@ ceiling test 1255 tests/rt_x.rs
 #[test]
 fn a_repeated_ceiling_is_stale_and_dropped() {
     let text = "ceiling code 1300 src/big.rs\nceiling code 1250 src/big.rs\nceiling inline 300 src/big.rs\n";
-    assert!(rendered(text).contains(&"  STALE    repeated ceiling code 1250  src/big.rs".to_string()));
+    assert!(
+        rendered(text).contains(&"  STALE    repeated ceiling code 1250  src/big.rs".to_string())
+    );
     assert_eq!(
         tighten(&parse(text), &counts()),
         "ceiling code 1200 src/big.rs\nceiling inline 300 src/big.rs\n"
