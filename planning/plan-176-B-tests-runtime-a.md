@@ -44,8 +44,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-A is complete and archived | `ls planning/plan-176-A-* planning/completed/plan-176-A-*` → only `planning/completed/plan-176-A-file-size-guard.md` | NOT MET (2026-10-18) |
-| The guard and the oracle exist (A Phases 1–2) | `cargo test --test file_size_budget` → passes; `python3 -I tools/loc-census/census.py --file tests/runtime/rt_big_int.rs` → `0 2584` | NOT MET (2026-10-18; lands with A) |
+| plan-176-A is complete and archived | `ls planning/plan-176-A-* planning/completed/plan-176-A-*` → only `planning/completed/plan-176-A-file-size-guard.md` | MET (2026-10-18: `ls planning/completed/` lists `plan-176-A-file-size-guard.md`; `planning/plan-176-A-*` matches nothing) |
+| The guard and the oracle exist (A Phases 1–2) | `cargo test --test file_size_budget` → passes; `python3 -I tools/loc-census/census.py --file tests/runtime/rt_big_int.rs` → `0 2584` | MET (2026-10-18: `test result: ok. 35 passed`; oracle → `0 2584`) |
 | This letter's files have no uncommitted changes | `git status --porcelain -- tests/runtime .ai/testing-gates.md tests/guards/file_size_ceilings.txt` → empty | MET (2026-10-18: empty output) |
 
 Everything below is written against the world where these hold.
@@ -494,22 +494,34 @@ the support-file split.
 Two root + one part splits, with no support module and no path hazard.
 `T="rt_debug_soak rt_native_term_runtime"`, `RE="rt_(debug_soak|native_term_runtime)"`.
 
-- [ ] K1 on the unsplit tree → 72 tests.
-- [ ] `tests/runtime/rt_debug_soak.rs` → root (keeps `FLAT_BOUND`, `BLOCK_BOUND` and the library
+- [x] K1 on the unsplit tree → 72 tests.
+      Result (2026-10-18): K1 → `72` (49 rt_debug_soak + 23 rt_native_term_runtime).
+- [x] `tests/runtime/rt_debug_soak.rs` → root (keeps `FLAT_BOUND`, `BLOCK_BOUND` and the library
       topics) + `resource_loops.rs` (§4.2).
-- [ ] `tests/runtime/rt_native_term_runtime.rs` → root (keeps the mouse topics and helpers) +
+      Moved lines 765-805, 830-896, 936-990, 1023-1520 verbatim; a line-coverage check of the
+      move script reported no non-blank source line missing or duplicated.
+- [x] `tests/runtime/rt_native_term_runtime.rs` → root (keeps the mouse topics and helpers) +
       `console.rs` (§4.3).
-- [ ] Prose-reference check: `grep -n 'const BLOCK_BOUND' tests/runtime/rt_debug_soak.rs` → one hit
+      Moved lines 513-1028 verbatim; same coverage check → none missing, none duplicated.
+- [x] Prose-reference check: `grep -n 'const BLOCK_BOUND' tests/runtime/rt_debug_soak.rs` → one hit
       (the const is still declared in the root).
-- [ ] Size check: `for f in tests/runtime/rt_debug_soak.rs tests/runtime/rt_debug_soak/resource_loops.rs tests/runtime/rt_native_term_runtime.rs tests/runtime/rt_native_term_runtime/console.rs; do python3 -I tools/loc-census/census.py --file $f; done`
+      Result: `35:const BLOCK_BOUND: u64 = 4096;` (one hit).
+- [x] Size check: `for f in tests/runtime/rt_debug_soak.rs tests/runtime/rt_debug_soak/resource_loops.rs tests/runtime/rt_native_term_runtime.rs tests/runtime/rt_native_term_runtime/console.rs; do python3 -I tools/loc-census/census.py --file $f; done`
       → `0 723`, `0 444`, `0 724`, `0 431`.
-- [ ] Tighten: K5, then commit `tests/guards/file_size_ceilings.txt` with the phase.
+      Result: `0 723`, `0 444`, `0 724`, `0 431`. `rustfmt --edition 2021 --check` on both roots → exit 0.
+- [x] Tighten: K5, then commit `tests/guards/file_size_ceilings.txt` with the phase.
+      Result: guard → `TIGHTEN test 723 (ceiling 1164) tests/runtime/rt_debug_soak.rs` and
+      `TIGHTEN test 724 (ceiling 1152) tests/runtime/rt_native_term_runtime.rs`, nothing else;
+      `MFB_LOC_TIGHTEN=1` removed exactly those two `ceiling test` rows (foreign-row diff → no
+      output); re-run grep → no output.
 
 Acceptance: 72 tests are listed under the same names and all pass, and the two paths leave the
 budget banner.
   Check: K2 → no output; K3 → 2 × `test result: ok`, 0 failed (ignored soak tests stay ignored;
   K1/K2 list and compare them); K4 → no output; K5 → 2 TIGHTEN rows, then none (est. 15 min:
   rt_debug_soak builds the browser package and runs 49 programs).
+  Result (2026-10-18): K2 → no output; K3 → `test result: ok. 49 passed; 0 failed` and
+  `test result: ok. 23 passed; 0 failed`; K4 → no output; K5 → 2 TIGHTEN rows, then none. MET.
 Commit: —
 
 ### Phase 2 — rt_big_int (§4.1)
