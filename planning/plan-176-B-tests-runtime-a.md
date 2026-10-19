@@ -522,33 +522,48 @@ budget banner.
   rt_debug_soak builds the browser package and runs 49 programs).
   Result (2026-10-18): K2 → no output; K3 → `test result: ok. 49 passed; 0 failed` and
   `test result: ok. 23 passed; 0 failed`; K4 → no output; K5 → 2 TIGHTEN rows, then none. MET.
-Commit: —
+Commit: fdefb2fe9
 
 ### Phase 2 — rt_big_int (§4.1)
 
 The one designed split: the powers grid becomes two tests.
 `T="rt_big_int"`, `RE="rt_(big_int)"`.
 
-- [ ] K1 → 17 tests.
-- [ ] `rt_big_int.rs` → root (12 tests, `run`, `SHOW_BYTES`) + `division_and_word_boundaries.rs`
+- [x] K1 → 17 tests.
+      Result (2026-10-18): K1 → `17`.
+- [x] `rt_big_int.rs` → root (12 tests, `run`, `SHOW_BYTES`) + `division_and_word_boundaries.rs`
       (§4.1).
-- [ ] `powers.rs`: the oracle test minus lines 1076, 1077–2246, 2247 and 2289, with its doc
+      Root keeps lines 1-777 and 2296-2387; the part holds 778-1018 and 2389-2686. rustfmt
+      sorted the three `#[path]` mod pairs alphabetically (`mod_pow_grid` before `powers`).
+- [x] `powers.rs`: the oracle test minus lines 1076, 1077–2246, 2247 and 2289, with its doc
       comment updated, + `mod_pow_matches_remainder_of_pow_for_bases_up_to_zero` built from
       lines 1077–1661 (§4.1).
-- [ ] `mod_pow_grid.rs`: `mod_pow_matches_remainder_of_pow_for_positive_bases` built from lines
+- [x] `mod_pow_grid.rs`: `mod_pow_matches_remainder_of_pow_for_positive_bases` built from lines
       1662–2246 (§4.1).
-- [ ] Byte checks (§4.1): the case-line `diff` → no output, with `1170` lines; the oracle-body
+- [x] Byte checks (§4.1): the case-line `diff` → no output, with `1170` lines; the oracle-body
       `diff` → no output.
-- [ ] Size check: `for f in tests/runtime/rt_big_int.rs tests/runtime/rt_big_int/{division_and_word_boundaries,powers,mod_pow_grid}.rs; do python3 -I tools/loc-census/census.py --file $f; done`
+      Result: case-line diff → no output, `wc -l` → `1170`; oracle-body diff → no output. A
+      non-blank line-multiset compare of `HEAD:tests/runtime/rt_big_int.rs` against the four new
+      files shows only the designed edits: gone are the two old doc-comment lines, the `of 390`
+      print and the `0 of 390` expectation; added are the mod pairs, part headers, the reworded doc
+      lines and the two grid tests' scaffolding.
+- [x] Size check: `for f in tests/runtime/rt_big_int.rs tests/runtime/rt_big_int/{division_and_word_boundaries,powers,mod_pow_grid}.rs; do python3 -I tools/loc-census/census.py --file $f; done`
       → `0 809`, `0 511`, `0 699`, `0 601` (each ±3 for the hand-written grid scaffolding, all
       ≤ 900).
-- [ ] Tighten: K5 and commit the ceiling file.
+      Result: `0 809`, `0 511`, `0 699`, `0 601`.
+- [x] Tighten: K5 and commit the ceiling file.
+      Result: guard → `TIGHTEN test 809 (ceiling 2584) tests/runtime/rt_big_int.rs` only;
+      `MFB_LOC_TIGHTEN=1` removed that one row (foreign-row diff → no output); re-run → no output.
 
 Acceptance: the 17 old tests keep their names and pass, the two new grid tests pass, and every
 grid case line is byte-identical to `HEAD`.
   Check: K2′ → exactly the two `>` lines of §4.1; K3 → ok, `19 passed`; K4 → no output; K5 →
   1 TIGHTEN row, then none; both byte-check diffs → no output (est. 10 min: three release builds
   replace one for the powers programs).
+  Result (2026-10-18): K2′ → exactly `> mod_pow_matches_remainder_of_pow_for_bases_up_to_zero: test`
+  and `> mod_pow_matches_remainder_of_pow_for_positive_bases: test`; K3 → `test result: ok. 19
+  passed; 0 failed`; K4 → no output; K5 → 1 TIGHTEN row, then none; both byte checks → no output.
+  MET.
 Commit: —
 
 ### Phase 3 — rt_inplace_self_update (§4.4)
