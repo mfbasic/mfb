@@ -391,7 +391,7 @@ Acceptance: all 154 tests are listed under the same names and pass.
   → `test-fast: ok`; `rt_scope_drop_leaks` `154 passed; 0 failed`, and the Phase 1 targets
   `14 passed` / `13 passed` again); K4 → no output; K5 → 1 TIGHTEN row, then none;
   `cargo fmt --all -- --check` → exit 0.
-Commit: —
+Commit: 4e345a8b5
 
 ## Validation Plan
 
@@ -405,6 +405,9 @@ Commit: —
   `cargo test --test file_size_budget 2>&1 | grep -E 'tests/runtime/rt_(resource_last_holder|self_update_cost|scope_drop_leaks)(\.rs|/)'`
   → no output. The same regex over the ceiling file → no output. `cargo test --test test_targets_registered`
   → ok (est. 3 min). The full workspace suite runs once, in plan-176-V.
+  Result (2026-10-18, tree of `4e345a8b5`): the budget grep → no output; the ceiling-file grep →
+  no output; `test_targets_registered` → `4 passed; 0 failed` (inside the Phase 2 landing-tier
+  run, `test-fast: ok`).
 
 ## Decisions
 
