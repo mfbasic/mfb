@@ -38,6 +38,17 @@ fn repo_root() -> PathBuf {
     p
 }
 
+/// A tag unique to this checkout, so the private trees of two checkouts testing at
+/// once (two worktrees, or a detached copy) are different directories: with one
+/// shared name, each run's `remove_dir_all` deletes the other's tree and its lock
+/// mid-test, and both report a contention that is not there.
+fn checkout_tag() -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
 /// Run a shell snippet with the lock helper sourced, in `tree`, reporting the
 /// exit status. `holder` is what the caller claims to be (`artifact-gate.sh` or
 /// `test-accept.sh`), mirroring how each script identifies itself.
@@ -67,7 +78,7 @@ GATE_LOCK_TREE="{tree}"
 /// simulated one. Only `scripts/` and `tests/` need to exist.
 fn make_sibling_tree(name: &str) -> PathBuf {
     let root = repo_root();
-    let dst = std::env::temp_dir().join(format!("mfb-bug470-{name}"));
+    let dst = std::env::temp_dir().join(format!("mfb-bug470-{name}-{}", checkout_tag()));
     let _ = std::fs::remove_dir_all(&dst);
     std::fs::create_dir_all(dst.join("scripts")).expect("mkdir scripts");
     std::fs::create_dir_all(dst.join("tests")).expect("mkdir tests");
