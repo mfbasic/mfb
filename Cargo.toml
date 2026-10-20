@@ -572,6 +572,10 @@ name = "golden"
 path = "tests/gate/golden.rs"
 
 [[test]]
+name = "timezones_package"
+path = "tests/gate/timezones_package.rs"
+
+[[test]]
 name = "script_selftests"
 path = "tests/gate/script_selftests.rs"
 
