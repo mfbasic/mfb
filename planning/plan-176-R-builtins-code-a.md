@@ -675,19 +675,27 @@ Acceptance: both audio emitters are split, with byte-identical native code on al
   9, 8, 7 + 1 ignored; sweep → only the ceiling row; budget → `STALE … gen_macos_stream.rs` and `TIGHTEN code 517
   (ceiling 1060) … gen_windows_io.rs`, none after; census → gen_macos_stream 547/511, gen_windows io/read/query
   517/385/158.
-Commit: —
+Commit: 761847678
 
 ### Phase 2: big
 
-- [ ] `src/codegen/builtins/big/gen_big.rs` → `gen_big/{mod,add_sub,mul,shift,to_string,div_mod}.rs`
+- [x] `src/codegen/builtins/big/gen_big.rs` → `gen_big/{mod,add_sub,mul,shift,to_string,div_mod}.rs`
       per §4.3, with the 5 re-export lines and the `emit_move_slot` edit.
-- [ ] Repoint the 2 `19_big.md` citations, and `big/mod.rs:6,94,424`.
+      Done: `codesplit.py` → 3, 4, 3, 1, 8 items; the 5 re-exports + `use div_mod::emit_move_slot;`; exactly the 1
+      `pub(super)`. Also `use super::DIV_RESULT_TYPE_ID;` in `mod.rs`: `div_mod.rs` names `super::DIV_RESULT_TYPE_ID`
+      (a `big` item), which now resolves to `gen_big`; the import keeps the body verbatim. The mid-file `use` lines and
+      the "Signed division" banner above them stay in `mod.rs` (not items).
+- [x] Repoint the 2 `19_big.md` citations, and `big/mod.rs:6,94,424`.
+      Done: `citesweep.py` → 2; the three `big/mod.rs` mentions (now :6, :94, :428) → `gen_big/`.
 
 Acceptance: big is split, with byte-identical native code for a program that reaches every part.
   Check: the R gate with R-BID (`diff /tmp/r-bid/before.txt /tmp/r-bid/after.txt` → no output),
   plus `cargo test --test rt_big_int` → all pass (est. 5 min). Module: `codegen::builtins::big`.
   Sweep: `grep -rn "gen_big\.rs" src tests scripts .ai tools` → no hit. File-size path: `gen_big`
   (est. 20 min).
+  Verified 2026-10-20: R-BID after vs before → `diff` empty (23 rows); `rt_big_int` → 19 passed; `codegen::builtins::big`
+  → 8 passed (= G0's 8); check warnings 0; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; sweep → 0; budget
+  → one STALE row (2148) before, none after; census → 548 + 245/304/156/245/669.
 Commit: —
 
 ### Phase 3: canvas raw-string helpers (items, picture, particles, curves)

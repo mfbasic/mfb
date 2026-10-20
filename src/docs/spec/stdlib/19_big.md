@@ -41,8 +41,8 @@ enforced on input. The package therefore reads every argument **totally**: trail
 bytes are ignored and a zero magnitude reads as non-negative, so a non-canonical record is
 accepted everywhere as the number it spells. Normalization happens in exactly one place, on
 the way out of every member, which is what makes canonical form a property of the package
-rather than of each member. [[src/codegen/builtins/big/gen_big.rs:emit_load_int]]
-[[src/codegen/builtins/big/gen_big.rs:emit_build_int]]
+rather than of each member. [[src/codegen/builtins/big/gen_big/mod.rs:emit_load_int]]
+[[src/codegen/builtins/big/gen_big/mod.rs:emit_build_int]]
 
 `big::Endian` (`Little`, `Big`) selects the byte order at the `List OF Byte` boundary
 (`big::fromBytes`, `big::toBytes`); the stored magnitude is always least significant byte

@@ -3,7 +3,7 @@
 //! `big::Int` is a package-owned, exported, copyable value record — the `net::Url`
 //! shape, not a `RES` handle — holding a little-endian magnitude and a sign flag.
 //! Every member lowers natively through `Body::abi_function`; the shared emitters
-//! every member reads and builds a `big::Int` through live in `gen_big.rs`, so the
+//! every member reads and builds a `big::Int` through live in `gen_big/`, so the
 //! canonical form (no trailing zero bytes, never negative zero) is established in
 //! exactly one place.
 
@@ -91,7 +91,7 @@ pub(crate) fn register(r: &mut Registry) {
     // Field ORDER is contract, not documentation: every `big` lowering reads and
     // builds an `Int` at the slots these declarations fix — slot 0 (`magnitude`) holds
     // the block-relative offset of the inlined `List OF Byte`, slot 1 (`negative`) the
-    // flag inline (`gen_big.rs`, plan-127-A §4.2). Reordering these silently turns
+    // flag inline (`gen_big/`, plan-127-A §4.2). Reordering these silently turns
     // every member into a misread.
     pkg.add_record(RegistryRecord {
         name: INT_TYPE,
@@ -425,7 +425,7 @@ END FUNC
 
     /// The magnitude is inlined into the record's own block, so a whole-record copy
     /// is one byte copy and the slot holds a block-relative offset — the reading every
-    /// `gen_big.rs` emitter is written against.
+    /// `gen_big/` emitter is written against.
     #[test]
     fn int_magnitude_field_is_inlined() {
         let model = crate::codegen::engine::builder::TypeModel::builtin_records();
