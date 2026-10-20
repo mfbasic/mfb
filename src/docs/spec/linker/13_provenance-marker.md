@@ -46,12 +46,12 @@ still yields a number.
 The note is a standard `Elf64_Nhdr`-framed note — visible to `readelf -n` — with
 `namesz = 8`, `descsz = 16`, and `type = 1`. Neither the name nor the descriptor
 needs the note format's 4-byte padding, so the descriptor begins immediately
-after the name. [[src/os/linux/link/elf.rs:mfb_note_bytes]]
+after the name. [[src/os/linux/link/elf/mod.rs:mfb_note_bytes]]
 
 A `PT_NOTE` program header covers it: `p_flags = R`, `p_align = 4`, `p_vaddr =
 p_paddr = image_base + p_offset`, `p_filesz = p_memsz = note length`. Every
 encoder — `encode_static_elf`, `encode_static_elf_x86`, and `encode_dynamic_elf`
-— emits one. [[src/os/linux/link/elf.rs:note_program_header]]
+— emits one. [[src/os/linux/link/elf/mod.rs:note_program_header]]
 
 The note lives in the padding between the program-header table and the text at
 `TEXT_FILE_OFFSET`, which is inside the text `PT_LOAD`'s file range — so it is

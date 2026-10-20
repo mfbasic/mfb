@@ -106,7 +106,7 @@ invocation depends on C-runtime startup, so a raw custom entry does not run this
 array merely because it is present. The static ELF and PE writers do not consume
 `initializers`. PE also does not consume ELF symbol versions.
 [[src/os/macos/link/mod.rs:encode_executable_bytes]]
-[[src/os/linux/link/elf.rs:build]]
+[[src/os/linux/link/elf/dynamic.rs:build]]
 [[src/os/linux/link/tests/elf_writing.rs:writes_init_array_glibc_elf]]
 [[src/os/linux/link/mod.rs:encode_executable_bytes]]
 [[src/os/windows/link/mod.rs:write_executable]]

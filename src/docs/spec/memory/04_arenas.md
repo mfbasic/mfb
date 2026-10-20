@@ -614,7 +614,7 @@ for every arena: blocks mapped and unmapped, allocation and free calls and bytes
 which `arena_alloc` path served each request, double-free skips, coalescing
 flushes and inserts, and live and peak live bytes. It prints them in the `arena`
 section of the debug report at exit. A normal build contains none of the counting
-code. [[src/codegen/debug/arena.rs:ArenaFeature]]
+code. [[src/codegen/debug/arena/mod.rs:ArenaFeature]]
 
 ## See Also
 

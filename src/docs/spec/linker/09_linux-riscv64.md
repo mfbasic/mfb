@@ -5,7 +5,7 @@ linker (`ld`, `gold`, `lld`, `gcc`, `clang`). It is cross-compiled — a build o
 host produces the RV64 binary. Like the x86-64 backend, it **shares one ELF linker**
 with the aarch64 Linux backend, parameterized by an `arch` string (`"riscv64"`
 versus `"aarch64"`/`"x86_64"`). Only the target front-end and the per-ISA (RV64GC)
-encoder are separate. [[src/os/linux/link/]] [[src/target/linux_riscv64/]] [[src/arch/riscv64/]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]] [[src/target/linux_riscv64/plan.rs:target]]
+encoder are separate. [[src/os/linux/link/]] [[src/target/linux_riscv64/]] [[src/arch/riscv64/]] [[src/os/linux/link/elf/mod.rs:encode_dynamic_elf]] [[src/target/linux_riscv64/plan.rs:target]]
 
 A console build emits two flavors, one per dynamic loader / library naming, both
 inside the project's `build/` directory:
@@ -28,18 +28,18 @@ every riscv64 build is a console build.
 Constants are shared with the other Linux backends: text file offset `0x1000`,
 page size `0x1000` (4 KiB). The ELF header is **`EM_RISCV` (machine 243)**
 (aarch64 is 183, x86-64 is 62), entry = `text_vmaddr + entry_offset`.
-[[src/os/linux/link/elf.rs:e_machine]]
+[[src/os/linux/link/elf/mod.rs:e_machine]]
 
 A **dynamic** image (any imports) is `ET_DYN`: a position-independent executable
 at link base `DYN_IMAGE_BASE = 0`, which the loader maps at a random slide, so
 ASLR applies. Only the **static**, import-less path keeps `ET_EXEC` at
-image base `0x400000`. [[src/os/linux/link/mod.rs:DYN_IMAGE_BASE]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
+image base `0x400000`. [[src/os/linux/link/mod.rs:DYN_IMAGE_BASE]] [[src/os/linux/link/elf/mod.rs:encode_dynamic_elf]]
 
 RISC-V additionally uses the ELF header's `e_flags` to declare its float ABI: a
 dynamic riscv64 image sets **`EF_RISCV_FLOAT_ABI_DOUBLE` (`0x4`)** for the `lp64d`
 ABI. The rv64 glibc/musl loader refuses a soft-float (`0x0`) executable, so this
 must be set; x86-64 and aarch64 leave `e_flags` zero.
-[[src/os/linux/link/elf.rs:e_flags]]
+[[src/os/linux/link/elf/mod.rs:e_flags]]
 
 A dynamic image (imports present, `encode_dynamic_elf`) has the **same program
 headers** as the other Linux targets — eight, or nine with a read-only constant
@@ -51,7 +51,7 @@ separate page-aligned **writable** data segment (R+W) — because the program en
 writes `_mfb_rt_main_arena` and the data must be writable. It also carries
 `PT_GNU_STACK` and the `PT_NOTE` provenance marker (see `provenance-marker`), for
 four headers total. The aarch64/RISC-V static encoder is shared. Every console
-build imports libc, so no console build produces a static image. [[src/os/linux/link/elf.rs:encode_static_elf]]
+build imports libc, so no console build produces a static image. [[src/os/linux/link/elf/mod.rs:encode_static_elf]]
 
 ## Calling convention and ABI
 
@@ -101,13 +101,13 @@ dynamic tags are **identical to aarch64** (`DT_NEEDED` per distinct library,
 `DT_HASH`/`DT_STRTAB`/`DT_SYMTAB`, the `DT_RELA`/`DT_JMPREL` set, `DT_PLTGOT`,
 `DT_RUNPATH` when the build vendors, `DT_FLAGS = DF_BIND_NOW`, `DT_NULL`). The general model is owned by
 `./mfb spec linker symbols-and-relocations`; the only arch-specific values are the
-relocation-type constants. [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
+relocation-type constants. [[src/os/linux/link/elf/mod.rs:encode_dynamic_elf]]
 
 Each encoded import gets a **12-byte** import stub and an 8-byte GOT slot, with a
 dynamic relocation in `.rela` binding that slot. RISC-V has **no dedicated
 `GLOB_DAT`**: an imported data global's GOT slot is bound with an absolute
 **`R_RISCV_64` (2)**, and an imported function's slot with **`R_RISCV_JUMP_SLOT`
-(5)** (aarch64 uses 1025/1026, x86-64 uses 6/7). [[src/os/linux/link/mod.rs:R_RISCV_JUMP_SLOT]] [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
+(5)** (aarch64 uses 1025/1026, x86-64 uses 6/7). [[src/os/linux/link/mod.rs:R_RISCV_JUMP_SLOT]] [[src/os/linux/link/elf/mod.rs:encode_dynamic_elf]]
 
 The import stub loads the resolved address from the symbol's GOT slot and jumps to
 it, using `t3` (`x28`) as the scratch register:
@@ -122,7 +122,7 @@ Those three instructions occupy the fixed 12-byte stub slot. [[src/os/linux/link
 
 Symbol versioning (`.gnu.version`/`.gnu.version_r`) is emitted the same way as the
 other Linux targets when an import carries a `version`; the encode path emits all
-imports unversioned. [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
+imports unversioned. [[src/os/linux/link/elf/mod.rs:encode_dynamic_elf]]
 
 ## Relocations
 
@@ -215,7 +215,7 @@ build, seals its content signature over the finished file
 (`./mfb spec package-manager signing`). Unlike macOS, Linux executables carry no
 other signature. The section header table that holds it (shared with a `--debug`
 build's `.symtab`) is described in `./mfb spec linker static-and-dynamic-output`.
-[[src/os/linux/link/elf.rs:append_elf_sections]]
+[[src/os/linux/link/elf/sections.rs:append_elf_sections]]
 
 ## See Also
 

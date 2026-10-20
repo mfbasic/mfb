@@ -40,7 +40,7 @@ stub and GOT slot per encoded import; Windows groups the records by DLL when
 building its IAT. The `.ncode` plan dump still lists the per-helper records.
 [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
 [[src/arch/encode_plan.rs:encode_plan]]
-[[src/os/linux/link/elf.rs:build]] [[src/os/macos/link/mod.rs:append_import_stubs]]
+[[src/os/linux/link/elf/dynamic.rs:build]] [[src/os/macos/link/mod.rs:append_import_stubs]]
 [[src/os/windows/link/mod.rs:group_imports_by_dll]]
 [[src/target/shared/plan/symbols.rs:push_platform_import]]
 

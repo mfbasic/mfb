@@ -727,15 +727,19 @@ Acceptance: packages encode and decode to the same bytes.
   thread → 0 diffs; `no_type_strings` → 7 + 1 ignored; check warnings 0; `spec_citations_resolve` ok; `citedef.py
   src/binary_repr/` → 80, 0 not defined; budget → three STALE rows before, none after; census → reader 576/360/260,
   sections 511/460/226, writer 502/256/261/106.
-Commit: —
+Commit: 633fa52df
 
 ### Phase 4 — Linker and debug report: `elf.rs`, `debug/arena.rs`
 
-- [ ] §4.12: split `src/os/linux/link/elf.rs` into `elf/{mod,sections,dynamic}.rs`; the
+- [x] §4.12: split `src/os/linux/link/elf.rs` into `elf/{mod,sections,dynamic}.rs`; the
       visibility edits and imports; rewrite the 31 citations.
-- [ ] §4.9: split `src/codegen/debug/arena.rs` into `arena/{mod,report,sample}.rs`; two
+      Done: `codesplit.py` → 19, 5 items; exactly §4.12's edits (`dynamic_prefix_size` →
+      `pub(in crate::os::linux::link)` + re-export, `DynamicPayload` + 5 fields + `build` → `pub(super)`);
+      `motion.py` → only those and the wiring; `citesweep.py` → 31.
+- [x] §4.9: split `src/codegen/debug/arena.rs` into `arena/{mod,report,sample}.rs`; two
       `pub(super)` edits and imports; rewrite the 3 citations.
-- [ ] Tighten and commit the ceiling file.
+      Done: `codesplit.py` → 3, 1 items; the two `pub(super)`; `citesweep.py` → 3.
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: Linux executables and `--debug` native code are byte-identical.
   Check: `cargo test -p mfb --bin mfb -- os::linux::link codegen::debug` → pass, count before ==
@@ -749,6 +753,11 @@ Acceptance: Linux executables and `--debug` native code are byte-identical.
   identical (est. 2 min). `cargo check --all-targets` → no new warning; `spec_citations_resolve`
   → pass. `cargo test --test file_size_budget 2>&1 | grep -E 'link/elf|debug/arena'` → two
   `STALE` rows before the tighten, none after (est. 2 min).
+  Verified 2026-10-19: `os::linux::link codegen::debug` → `ok. 56 passed` (= G0's 56); `o4diff.sh` (before binary =
+  release of `633fa52df`) → 12 Linux executables (3 targets × glibc/musl × plain/`--debug`) and 5 `--debug --ncode`
+  dumps (all five targets; each holds `_mfb_debug_arena_register`/`_sample`/`_report_arena…`) → all `same`, `diffs:
+  0`; check warnings 0; `spec_citations_resolve` ok; budget → two STALE rows (1037, 1097) before, none after;
+  census → elf 418/296/334, arena 523/422/158.
 Commit: —
 
 ### Phase 5 — Codegen: owned cleanup, socket shared, link thunk (largest blast radius)

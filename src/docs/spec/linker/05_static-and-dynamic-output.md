@@ -21,7 +21,7 @@ Without imports, each format omits its library-import metadata:
   no `.dynamic` section. Data begins at `align(TEXT_FILE_OFFSET + text.len(),
   PAGE_SIZE)`, the same address `write_executable` patches data relocations
   against, and is writable because the entry stores `_mfb_rt_main_arena` into it.
-  [[src/os/linux/link/elf.rs:encode_static_elf]]
+  [[src/os/linux/link/elf/mod.rs:encode_static_elf]]
 
 - Windows: the PE writer omits `.idata`, import thunks, and the Import/IAT
   directory entries, while retaining `.reloc` and `.mfbnote`.
@@ -85,8 +85,8 @@ linker or codegen error, never a zero address or a placeholder (see
 The ELF writers emit a section header table only when something needs one;
 the loader never reads it. All three writers end with one shared tail, and a
 file has exactly one table, so signing and `--debug` share it.
-[[src/os/linux/link/elf.rs:append_elf_sections]]
-[[src/os/linux/link/elf.rs:append_section_table]]
+[[src/os/linux/link/elf/sections.rs:append_elf_sections]]
+[[src/os/linux/link/elf/sections.rs:append_section_table]]
 
 | Build | Table |
 | --- | --- |
@@ -124,7 +124,7 @@ from the model, and `st_value` from the relocation rule with no read-only window
 text is `text_vmaddr + offset`, data is `data_vmaddr + offset`. `st_shndx` is
 `.text` for a function; for an object, `.rodata` when the offset is below the
 read-only prefix and `.rodata` exists, otherwise `.data`.
-[[src/os/linux/link/elf.rs:symtab_bytes]]
+[[src/os/linux/link/elf/sections.rs:symtab_bytes]]
 
 Addresses are link-time ones. A dynamic image is `ET_DYN` at base 0, so tools add
 the load slide; a static image is `ET_EXEC` at `0x400000`. gdb uses ELF names

@@ -40,7 +40,6 @@ ceiling code 2592 src/codegen/collection/layout/builder_collection_layout.rs
 ceiling code 4202 src/codegen/collection/list/list_mutate.rs
 ceiling code 1293 src/codegen/collection/map/map_mutate.rs
 ceiling code 1264 src/codegen/collection/search/builder_search.rs
-ceiling code 1097 src/codegen/debug/arena.rs
 ceiling code 1373 src/codegen/engine/analysis/borrow_get.rs
 ceiling code 1124 src/codegen/engine/analysis/module_analysis.rs
 ceiling code 3105 src/codegen/engine/builder/mod.rs
@@ -66,4 +65,3 @@ ceiling code 2018 src/codegen/string/repr/builder_strings.rs
 ceiling code 1533 src/codegen/string/unicode_props.rs
 ceiling code 2824 src/codegen/term/core/term.rs
 ceiling code 1502 src/codegen/term/grid/term_grid.rs
-ceiling code 1037 src/os/linux/link/elf.rs

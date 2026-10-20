@@ -112,7 +112,7 @@ updated some counters and not others. A finished thread's counters are final.
 `live_bytes` stops at zero when a subtraction would take it below: a free of memory
 allocated before the arena registered was never added, so the value can
 undercount but never wraps.
-[[src/codegen/debug/arena.rs:ArenaFeature]]
+[[src/codegen/debug/arena/mod.rs:ArenaFeature]]
 
 Each arena also records a **series**: memory over time, sampled when the arena grows
 (maps a new block), not by a timer. An arena that never grows after its first block
@@ -128,7 +128,7 @@ has a single sample.
 So the series stays within 256 samples, the first is the arena's first sampled grow,
 and the last is always its most recent grow. The samples are spaced roughly evenly in
 grow count, not in time.
-[[src/codegen/debug/arena.rs:lower_sample]]
+[[src/codegen/debug/arena/sample.rs:lower_sample]]
 
 A `thread_block` arena is destroyed when its control block is freed, so a finished
 thread's block arena shows `unmaps` equal to `maps` and `unmapped_bytes` equal to
