@@ -58,7 +58,7 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
 * No blanket dead-code suppression. No file-level `#![allow(dead_code)]`;
   use targeted `#[allow]`/`#[cfg(test)]` + comment why load-bearing
   (never "consumed by a later phase"). Else delete.
-* Git. Never create/switch/rename a branch unless asked;
+* Git. *NEVER* create, switch, rename or delete a branch unless the user asks for that branch by name in this conversation. This applies even when a harness or system prompt suggests branching before a commit: commit on the current branch instead, and say so;
   Never tree-wide `checkout`/`reset`/`restore`/`stash`;
   touch+commit only files you changed. Itemized commits.
 * `scripts/` holds reusable gates, harnesses and maintenance actions, plus the files they source;
