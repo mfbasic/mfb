@@ -835,23 +835,28 @@ files 737, 519, 548, 680; G3 fast tier → `test-fast: ok` (unit `4998 passed; 2
 8); negative check → FAILS naming the planted line both above `handover.rs`'s first `#[cfg(test)]` (:37) and,
 after the `code_above_tests` fix, below its item-level one (:791); reverted; G4 → 0; G5 → exit 0.
 
-Commit: 118ec25a8 (guards and the vulkan fix), —
+Commit: 118ec25a8 (guards and the vulkan fix), 418208f0d
 
 ### Phase 3 — Builtin package inline tests
 
-- [ ] Move `src/codegen/builtins/audio/mod.rs`'s inline tests per §4.4.
-- [ ] Move `src/codegen/builtins/canvas/mod.rs`'s inline tests per §4.5. Repoint the three
+- [x] Move `src/codegen/builtins/audio/mod.rs`'s inline tests per §4.4.
+- [x] Move `src/codegen/builtins/canvas/mod.rs`'s inline tests per §4.5. Repoint the three
       `src/docs/spec/app/06_canvas.md` cites (`draw_item_variant_set_is_frozen`,
       `no_canvas_type_reaches_itself`, `canvas_text_has_one_glyph_walk`) to
       `canvas/tests/mod.rs`.
-- [ ] Move `src/codegen/builtins/crypto/mod.rs`'s inline tests per §4.6.
-- [ ] Move `src/codegen/builtins/datetime/mod.rs`'s inline tests per §4.7. Repoint
+- [x] Move `src/codegen/builtins/crypto/mod.rs`'s inline tests per §4.6.
+- [x] Move `src/codegen/builtins/datetime/mod.rs`'s inline tests per §4.7. Repoint
       `src/docs/spec/stdlib/02_datetime.md:197` to
       `[[src/codegen/builtins/datetime/func_fixed_offset.rs:__datetime_fixedOffset1]]`.
-- [ ] Move `src/codegen/builtins/encoding/mod.rs`'s two inline modules per §4.8.
-- [ ] Move `src/codegen/builtins/general/mod.rs`'s inline tests per §4.9.
-- [ ] Move `src/codegen/builtins/tls/gen_openssl.rs`'s inline tests per §4.11.
-- [ ] G4: tighten the ceilings for the seven files.
+- [x] Move `src/codegen/builtins/encoding/mod.rs`'s two inline modules per §4.8.
+- [x] Move `src/codegen/builtins/general/mod.rs`'s inline tests per §4.9.
+- [x] Move `src/codegen/builtins/tls/gen_openssl.rs`'s inline tests per §4.11.
+      Done (all seven): `python3 -I target/p176/h3.py` (eight `items.py extract` runs; encoding bottom-up, the two
+      `#[path]` declarations for `codepage_tables` and `error_path_release_tests`) → 11, 14, 15, 11, 6 + 10, 29, 9
+      tests; `bash target/p176/h3motion.sh` → only the module lines differ. The 3 canvas cites and the datetime cite
+      are repointed.
+- [x] G4: tighten the ceilings for the seven files.
+      Done: → 7 TIGHTEN `inline` rows (4, 2, 2, 2, 9, 2, 3); tighten drops exactly those; re-run → 0.
 
 Acceptance: every package's tests run from `tests/` files under unchanged paths, and the four
 repointed cites name the file that holds the symbol. Check:
@@ -863,6 +868,11 @@ repointed cites name the file that holds the symbol. Check:
 - `grep -rn "canvas/mod.rs:\(draw_item_variant_set_is_frozen\|no_canvas_type_reaches_itself\|canvas_text_has_one_glyph_walk\)\|datetime/mod.rs:__datetime_fixedOffset1" src/docs/spec`
   → no output.
 - G3, G4, G5 (est. 12 min).
+
+Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 105 passed`; list count → 105; the stale
+cite grep → 0; census → hosts inline 4, 2, 2, 2, 9, 2, 3 (encoding and gen_openssl are 1 over §4's "left inline"
+because the `#[path]` line counts), new files 291, 418, 571, 402, 244, 234, 569, 291; G3 fast tier → `test-fast: ok`
+(unit `4998 passed; 2 ignored`; guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
 
 Commit: —
 

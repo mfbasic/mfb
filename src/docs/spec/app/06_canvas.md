@@ -93,7 +93,7 @@ An included union's members come first, in its own order, so the three share tag
 
 A `Rectangle` is tag 0 in all three unions and an `AutoPaint` tag 10 in the two that
 have it. The order is pinned by three tests, one per union.
-[[src/codegen/builtins/canvas/mod.rs:draw_item_variant_set_is_frozen]]
+[[src/codegen/builtins/canvas/tests/mod.rs:draw_item_variant_set_is_frozen]]
 A new shape is appended to `Shape`, never to `DrawItem` alone, because being a member of
 `Shape` is what lets an `AutoPaint` wrap it and a `Picture` be cut to it; that moves the
 tag of every variant after `Shape`'s last. `PolyCurve` and `CurvePolygon` did exactly
@@ -1671,7 +1671,7 @@ every value of the type, in every program. A scene is one flat block by construc
 and the native walks step through it by offset (*A published scene points at nothing
 caller-owned*). So a `Picture`, a `Group` or another `ParticleSystem` as a template is
 refused by the type checker, and a test holds that no canvas type reaches itself.
-[[src/codegen/builtins/canvas/mod.rs:no_canvas_type_reaches_itself]]
+[[src/codegen/builtins/canvas/tests/mod.rs:no_canvas_type_reaches_itself]]
 
 ### It holds no state, and nothing advances it
 
@@ -2766,7 +2766,7 @@ draws nothing.
 filled glyph run, the stroked text edges, and the `MFB_CANVAS_GEO_VERIFY` reference for
 the glyph run all read that run, and none of them looks up a glyph or an advance
 itself. The `canvas` unit test `canvas_text_has_one_glyph_walk` enforces this over the
-assembled source. [[src/codegen/builtins/canvas/mod.rs:canvas_text_has_one_glyph_walk]]
+assembled source. [[src/codegen/builtins/canvas/tests/mod.rs:canvas_text_has_one_glyph_walk]]
 A `Text` passes its `fonts` list, as handles (`__canvas_textHandles`), and the
 single-font `measureText` passes a one-element list.
 

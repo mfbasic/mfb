@@ -46,7 +46,6 @@ ceiling code 1016 src/cli/resolve.rs
 ceiling inline 600 src/cli/resolve.rs
 ceiling code 1055 src/codegen/builtins/audio/gen_macos_stream.rs
 ceiling code 1060 src/codegen/builtins/audio/gen_windows_io.rs
-ceiling inline 296 src/codegen/builtins/audio/mod.rs
 ceiling code 2148 src/codegen/builtins/big/gen_big.rs
 ceiling code 3111 src/codegen/builtins/canvas/func_geo_build.rs
 ceiling code 1647 src/codegen/builtins/canvas/func_geo_cache.rs
@@ -57,17 +56,12 @@ ceiling code 1430 src/codegen/builtins/canvas/helper_particles.rs
 ceiling code 1211 src/codegen/builtins/canvas/helper_picture.rs
 ceiling code 2204 src/codegen/builtins/canvas/helper_render.rs
 ceiling code 2371 src/codegen/builtins/canvas/mod.rs
-ceiling inline 421 src/codegen/builtins/canvas/mod.rs
 ceiling code 1897 src/codegen/builtins/crypto/func_generate.rs
 ceiling code 1635 src/codegen/builtins/crypto/func_sign.rs
 ceiling code 1487 src/codegen/builtins/crypto/func_verify.rs
-ceiling inline 574 src/codegen/builtins/crypto/mod.rs
-ceiling inline 406 src/codegen/builtins/datetime/mod.rs
-ceiling inline 488 src/codegen/builtins/encoding/mod.rs
 ceiling code 1197 src/codegen/builtins/fs/gen_atomic_write.rs
 ceiling code 1028 src/codegen/builtins/fs/gen_directory.rs
 ceiling code 1657 src/codegen/builtins/fs/gen_read_write.rs
-ceiling inline 572 src/codegen/builtins/general/mod.rs
 ceiling code 1136 src/codegen/builtins/math/gen_math.rs
 ceiling inline 1104 src/codegen/builtins/mod.rs
 ceiling code 1414 src/codegen/builtins/money/gen_fixed_math.rs
@@ -78,7 +72,6 @@ ceiling code 1003 src/codegen/builtins/regex/mod.rs
 ceiling code 2034 src/codegen/builtins/tls/gen_macos/client.rs
 ceiling code 2050 src/codegen/builtins/tls/gen_macos/server.rs
 ceiling code 2997 src/codegen/builtins/tls/gen_openssl.rs
-ceiling inline 301 src/codegen/builtins/tls/gen_openssl.rs
 ceiling code 1006 src/codegen/builtins/tls/gen_schannel_server.rs
 ceiling code 2147 src/codegen/builtins/vector/builder_simd_float_math.rs
 ceiling code 1106 src/codegen/cleanup/owned/builder_owned_cleanup.rs

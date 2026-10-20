@@ -194,7 +194,7 @@ and the error propagates through `offsetAt`/`toLocal` for a `Local` zone.
 `fixedOffset` takes either total seconds or `(hours, minutes)`; the magnitude
 must be under 24h (`|offset| < 86400`) and minutes `0..59`, else
 `ErrInvalidArgument` (`77050002`). The label is rendered `±HH:MM`.
-[[src/codegen/builtins/datetime/mod.rs:__datetime_fixedOffset1]]
+[[src/codegen/builtins/datetime/func_fixed_offset.rs:__datetime_fixedOffset1]]
 
 `offsetAt(zone, at)` returns `localOffset(at.seconds)` for a `Local` zone and
 the stored `offsetSeconds` otherwise — so a `Local` zone's effective offset is
