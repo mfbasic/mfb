@@ -119,7 +119,7 @@ fn the_native_geometry_matches_the_mfbasic_builders_bit_for_bit() {
         0,
         "a native geometry record differs from the MFBASIC builders' in at least one \
          bit. The software rasteriser reads this record and its goldens are exact, so \
-         the two must agree slot for slot (`func_geo_build.rs`).\n{matrix}"
+         the two must agree slot for slot (`func_geo_build/`).\n{matrix}"
     );
 
     assert_eq!(

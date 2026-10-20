@@ -46,7 +46,7 @@
 //! by its edge count alone. Header slot `__CANVAS_GEO_JOIN_COUNT` counts the records and
 //! `__CANVAS_GEO_JOIN_REACH` is how far a record can reach from its vertex (the band
 //! index widens to it). Nothing per pixel decides a corner's shape: each renderer only
-//! takes a `min` over edges and records. The native builder (`func_geo_build.rs`) writes
+//! takes a `min` over edges and records. The native builder (`func_geo_build/`) writes
 //! the same records bit for bit.
 
 use crate::codegen::registry::{RegistryHelper, RegistryPackage};

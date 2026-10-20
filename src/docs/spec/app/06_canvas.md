@@ -251,7 +251,7 @@ all-zero, so for it the offset is always `position`; it adds that to every clip 
 and to every point of a `Line`, `Polygon` or `PolyLine` as it reads it, as the MFBASIC
 builder does, including when it is zero.
 [[src/codegen/builtins/canvas/helper_paint_defaults.rs:PLACED_PAINT]]
-[[src/codegen/builtins/canvas/func_geo_build.rs:placed_point]]
+[[src/codegen/builtins/canvas/func_geo_build/paint.rs:placed_point]]
 
 For a point-list shape built at its position, the record is the one the same shape has
 with `position` at the origin and the position added to each point: each point is moved
@@ -261,8 +261,8 @@ too. So moving such a shape by its `position` and moving it by rewriting its poi
 draw the same frame, byte for byte, when the sums are exact.
 [[src/codegen/builtins/canvas/helper_paint_defaults.rs:PLACED_PAINT]]
 [[src/codegen/builtins/canvas/helper_geometry/tail.rs:GEO_TAIL]]
-[[src/codegen/builtins/canvas/func_geo_build.rs:fill_polygon]]
-[[src/codegen/builtins/canvas/func_geo_build.rs:emit_polyline_scan]]
+[[src/codegen/builtins/canvas/func_geo_build/fills.rs:fill_polygon]]
+[[src/codegen/builtins/canvas/func_geo_build/polyline.rs:emit_polyline_scan]]
 [[tests/canvas/rt_canvas_rasteriser.rs:path_placement_a_clipped_polygon_moves_whole_with_its_position]]
 
 ### A rectangle's corners
@@ -303,7 +303,7 @@ of three paths:
 
 The native builder draws paths 1 and 2 only when the four radii are equal and are
 either all `<= 0` or all `> 1`; every other rectangle is built by the MFBASIC builder.
-[[src/codegen/builtins/canvas/func_geo_build.rs:emit_rect_inputs]]
+[[src/codegen/builtins/canvas/func_geo_build/fills.rs:emit_rect_inputs]]
 
 A `Picture`'s record is always the rectangle record of paths 1 and 2 re-kinded, never
 path 3's polygon, whatever its shape: the image is sampled from the rectangle in the
@@ -766,7 +766,7 @@ slots each, after the item's own edges, and count them twice against the frame's
 cap.
 [[src/codegen/builtins/canvas/helper_joins.rs:JOIN_BUILD]]
 [[src/codegen/builtins/canvas/helper_joins.rs:JOIN_DISTANCE]]
-[[src/codegen/builtins/canvas/func_geo_build.rs:emit_join_record]]
+[[src/codegen/builtins/canvas/func_geo_build/joins.rs:emit_join_record]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_JOIN_COUNT]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_JOIN_REACH]]
 
@@ -826,7 +826,7 @@ so every reader finds the others counting back from the record's end. The native
 builder writes the same tail bit for bit.
 [[src/codegen/builtins/canvas/helper_dashes.rs:DASH_BUILD]]
 [[src/codegen/builtins/canvas/helper_dashes.rs:DASH_DRAW]]
-[[src/codegen/builtins/canvas/func_geo_build.rs:emit_dash_tail]]
+[[src/codegen/builtins/canvas/func_geo_build/dashes.rs:emit_dash_tail]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_DASH_COUNT]]
 
 **On the GPUs**, the item block's `strokeStyle` words (at byte 272 of its 368) are the
@@ -865,7 +865,7 @@ as its parity. Stroked `Text` is lowered to a polygon whose header leaves slot 2
 so glyph outlines are always filled even-odd.
 [[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_LAYOUT]]
 [[src/codegen/builtins/canvas/helper_geometry/tail.rs:GEO_TAIL]]
-[[src/codegen/builtins/canvas/func_geo_build.rs:fill_polygon]]
+[[src/codegen/builtins/canvas/func_geo_build/fills.rs:fill_polygon]]
 [[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_POLYGON_RULE]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeCrossing32]]
@@ -1066,7 +1066,7 @@ nothing. The builder takes one of two paths, in header slot 51:
 [[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_HEADER]]
 [[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
-[[src/codegen/builtins/canvas/func_geo_build.rs:emit_clip_edges]]
+[[src/codegen/builtins/canvas/func_geo_build/paint.rs:emit_clip_edges]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_CLIP_MODE]]
 
 **On the GPUs** the item block carries two `ivec4`s for it: `clipBand` at byte

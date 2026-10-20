@@ -781,15 +781,22 @@ guard covers files inside `func_*/` directories.
   shell body)`; reverted → 1 passed; `codegen::builtins::canvas` → 50; check warnings 0; `spec_citations_resolve` ok;
   guards → 9, 8, 7 + 1 ignored; sweep → only the raw-string line; budget → one STALE row (1647) before, none after;
   census → mod 360/15, table 437, resolve 315, layout 439, snapshot 117.
-Commit: —
+Commit: ee0847814
 
 ### Phase 6: func_geo_build
 
-- [ ] `func_geo_build.rs` → `func_geo_build/{mod,record,paint,joins,dashes,fills,polyline}.rs`
+- [x] `func_geo_build.rs` → `func_geo_build/{mod,record,paint,joins,dashes,fills,polyline}.rs`
       per §4.8, with the `pub(in crate::codegen::builtins::canvas)` reach for the six record fns
       and `ListView` (+ 5 fields), the 51 new `pub(super)` items (+ their structs' fields), the
       outside re-export, and one `use <part>::{…};` per part in mod.rs.
-- [ ] Repoint the 8 `06_canvas.md` citations, and the prose in §4.8.
+      Done: `codesplit.py` by §4.8's ranges → 11, 23, 16, 10, 7, 5 items; the six record fns and `ListView` + its 5
+      fields → `pub(in crate::codegen::builtins::canvas)`; new item-level `pub(super)` → record 1 (+ its 3 existing),
+      paint 18, joins 13, dashes 7, fills 7, polyline 5 = 51; every field of `PaintView`, `JoinStyle`, `DashPattern`,
+      `RectInputs`, `PolylineScan` → `pub(super)`. `mod.rs` reaches the parts through one private glob each (`use
+      paint::*;` …) rather than name lists — the same reach, nothing re-exported. `motion.py` → visibility and wiring only.
+- [x] Repoint the 8 `06_canvas.md` citations, and the prose in §4.8.
+      Done: `citesweep.py` → 8; `helper_joins.rs:49`, `rt_canvas_geo_native.rs:122`, `rt_canvas_rasteriser.rs:404` →
+      `func_geo_build/`.
 
 Acceptance: the native geometry builder is split, with byte-identical native code. `func_geo_cache`
 and `func_item_hash` compile unchanged.
@@ -797,6 +804,11 @@ and `func_item_hash` compile unchanged.
   → all pass, plus `cargo test -p mfb --bin mfb func_geo_build::tests` → 1 passed (est. 10 min).
   Sweep: `grep -rn "func_geo_build\.rs" src tests scripts .ai tools` → only the `'` lines inside
   `helper_geometry`'s raw strings. File-size path: `func_geo_build` (est. 30 min).
+  Verified 2026-10-20: R-BID → `diff` empty; `func_geo_build::tests` → 1 passed; `rt_canvas_geo_native` → 4 passed;
+  `rt_canvas_rasteriser` → 111 passed, 2 ignored; `codegen::builtins::canvas` → 50; list 5018; check warnings 0; clippy
+  37065; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; sweep → only raw-string lines; budget → one STALE
+  row (3111) before, none after; census → mod 612/66, record 227, paint 667, joins 432, dashes 258, fills 587,
+  polyline 381.
 Commit: —
 
 ### Phase 7: letter gate
