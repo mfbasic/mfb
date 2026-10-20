@@ -2,7 +2,7 @@
 //! appends cost in a `List OF List`.
 //!
 //! bug-733 made every in-place Map/Set grow call `_mfb_rt_map_reclaim` first
-//! (`map_mutate.rs:emit_map_reclaim_before_grow` →
+//! (`map_mutate/mod.rs:emit_map_reclaim_before_grow` →
 //! `map_bucket_remove.rs:lower_map_reclaim_helper`), which sums every live byte
 //! before deciding whether to reclaim, and on a reclaim byte-copies every live
 //! payload and invalidates the index. A `List` value that keeps growing relocates

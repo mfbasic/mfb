@@ -91,7 +91,7 @@ accepted and maps to the end-of-string offset; this is what lets a zero-length
 `mid` at the end, and `find` at the end, succeed. Any index strictly past that
 raises `ErrIndexOutOfRange`. The reverse mapping (a byte hit back to a scalar
 index) counts the scalar boundaries crossed up to that offset.
-[[src/codegen/collection/search/builder_search.rs:lower_mid]]
+[[src/codegen/collection/search/builder_search/mid.rs:lower_mid]]
 
 ```text
 value = "a é 日"  (spaces shown for clarity; actual: "aé日")
@@ -106,7 +106,7 @@ it is purely an ordinal position within `value`.
 ## `mid` semantics — scalar slicing
 
 `mid(value, start, length)` slices by **scalar index**, not byte or grapheme.
-[[src/codegen/collection/search/builder_search.rs:lower_mid]]
+[[src/codegen/collection/search/builder_search/mid.rs:lower_mid]]
 
 - A negative `start` or `length` raises `ErrIndexOutOfRange`, as does a
   `start + length` sum that wraps (checked with an unsigned compare before any
@@ -131,13 +131,13 @@ arguments still compiles and raises the catchable runtime error, never a build
 error. Eligible self-assignments can reuse the slice window after the same
 range checks.
 [[src/codegen/memory/value/builder_value_semantics/static_eval.rs:static_string_value]]
-[[src/codegen/collection/search/builder_search.rs:lower_mid_string_window]]
+[[src/codegen/collection/search/builder_search/mid.rs:lower_mid_string_window]]
 
 ## `find` semantics — scalar in, scalar out
 
 `find(value, needle, start)` searches for the first occurrence of `needle` at or
 after scalar index `start`, and returns the match position as a **scalar index**.
-[[src/codegen/collection/search/builder_search.rs:lower_find]]
+[[src/codegen/collection/search/builder_search/mod.rs:lower_find]]
 
 - A negative `start`, or a `start` past `scalar_count`, raises
   `ErrIndexOutOfRange` (the negative case is checked explicitly up front, before

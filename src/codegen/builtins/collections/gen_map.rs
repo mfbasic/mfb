@@ -5,7 +5,7 @@
 //! The census in the git history of `planning/` classified them **A1** — their
 //! only callers are collection-domain lowerings (`func_get`/`func_get_or`, the
 //! map `set`/`hasKey`/mutate paths in `builder_collection_queries.rs`/
-//! `map_mutate.rs`), never anything outside the package — so they live here beside
+//! `map_mutate/`), never anything outside the package — so they live here beside
 //! the `func_*.rs` entries. They stay `impl CodeBuilder` methods (call sites are
 //! unchanged); only their defining module moved. The one change from the verbatim
 //! bodies: `emit_map_probe`'s open-coded `_mfb_rt_map_probe` relocation push now

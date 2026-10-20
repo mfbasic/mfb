@@ -37,10 +37,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-P archived | `ls planning/plan-176-P-* planning/completed/plan-176-P-*` → only `planning/completed/` matches | NOT MET (2026-10-17) |
-| plan-176-J's test moves for Q's files have landed (J precedes P) | `ls src/codegen/collection/assign/self_update/tests/mod.rs src/codegen/collection/layout/builder_collection_layout/tests/mod.rs` → both exist | NOT MET (2026-10-17) |
-| The guard exists | `cargo test --test file_size_budget` passes | NOT MET (2026-10-17) |
-| Q's files and every file Q's sweeps edit have no uncommitted changes | `git status --porcelain -- src/codegen/collection src/docs/spec .ai src/optimizer/opt1/lencache.rs src/codegen/error/emission/park_error_helper.rs src/codegen/builtins/tests src/codegen/builtins/collections tests/runtime tests/codegen tests/guards/file_size_ceilings.txt` → empty | NOT MET (2026-10-17: ` M src/docs/spec/app/06_canvas.md`) |
+| plan-176-P archived | `ls planning/plan-176-P-* planning/completed/plan-176-P-*` → only `planning/completed/` matches | MET (2026-10-19) |
+| plan-176-J's test moves for Q's files have landed (J precedes P) | `ls src/codegen/collection/assign/self_update/tests/mod.rs src/codegen/collection/layout/builder_collection_layout/tests/mod.rs` → both exist | MET (2026-10-19) |
+| The guard exists | `cargo test --test file_size_budget` passes | MET (2026-10-19) |
+| Q's files and every file Q's sweeps edit have no uncommitted changes | `git status --porcelain -- src/codegen/collection src/docs/spec .ai src/optimizer/opt1/lencache.rs src/codegen/error/emission/park_error_helper.rs src/codegen/builtins/tests src/codegen/builtins/collections tests/runtime tests/codegen tests/guards/file_size_ceilings.txt` → empty | MET (2026-10-19: 0 lines) |
 
 Everything below assumes these rows hold.
 
@@ -571,13 +571,20 @@ Every phase uses the same gate set, referred to below as **the Q gate**:
 
 ### Phase 1: search, map mutate, compare
 
-- [ ] `src/codegen/collection/search/builder_search.rs` → `builder_search/{mod,mid}.rs` per §4.1,
+- [x] `src/codegen/collection/search/builder_search.rs` → `builder_search/{mod,mid}.rs` per §4.1,
       with the `pub(crate) use mid::{MidStringRegs, MidWindow};` re-export.
-- [ ] `src/codegen/collection/map/map_mutate.rs` → `map_mutate/{mod,set_in_place}.rs` per §4.2.
-- [ ] `src/codegen/collection/compare/builder_collection_compare.rs` → `builder_collection_compare/{mod,content,payload_match}.rs` per §4.3.
-- [ ] Repoint the 4 + 6 + 2 spec citations listed in §4.1–4.3.
-- [ ] Prose sweep per §4.2–4.3, including the pre-existing stale `.ai/collections.md:532`
+      Done: the re-export is `pub(crate) use mid::MidStringRegs;` only — `MidWindow` has no user outside `mid.rs`
+      (`grep -rn MidWindow src`), and re-exporting it warns `unused import`. 0 visibility edits.
+- [x] `src/codegen/collection/map/map_mutate.rs` → `map_mutate/{mod,set_in_place}.rs` per §4.2.
+- [x] `src/codegen/collection/compare/builder_collection_compare.rs` → `builder_collection_compare/{mod,content,payload_match}.rs` per §4.3.
+      Done: `items.py split` → 13, 3 methods (the comparable-match helpers added since planning stay in `mod.rs`);
+      0 visibility edits; `motion.py` → only wiring and impl wrappers for all three.
+- [x] Repoint the 4 + 6 + 2 spec citations listed in §4.1–4.3.
+      Done: `citesweep.py` → 4 + 6 + 4 (two compare cites added since); `citedef.py src/codegen/collection/` → 0 not
+      defined.
+- [x] Prose sweep per §4.2–4.3, including the pre-existing stale `.ai/collections.md:532`
       `src/target/shared/code/map_mutate.rs` (evidence: `ls` → No such file).
+      Done: the seven sites of §4.2–4.3 (`.ai/collections.md` now :533).
 
 Acceptance: the three modules are split with byte-identical codegen, and no reference names the
 old files.
@@ -585,6 +592,11 @@ old files.
   `grep -rnE "builder_search\.rs|map_mutate\.rs|builder_collection_compare\.rs" src tests scripts .ai AGENTS.md tools`
   → only the three `tests/rt-behavior/collections/*/src/main.mfb` comments of §4.3. File-size grep
   paths: `builder_search|map_mutate|builder_collection_compare` (est. 15 min total).
+  Verified 2026-10-19: G2 (`bash`) collections, strings → 0 diffs, `git status --porcelain tests/` → only the ceiling
+  file and the two repointed test docs; `codegen::collection` → `ok. 58 passed` (= G0's 58), list 5018; check
+  warnings 0; `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → only the three fixture comments;
+  budget → three STALE rows (1264, 1293, 1246) before, none after; census → builder_search 590/679, map_mutate
+  425/872, compare 336/128 + 569/349.
 Commit: —
 
 ### Phase 2: in-place set/map and in-place assign
@@ -727,6 +739,8 @@ Commit: —
   `copy_flat_block` comment. Author, per AGENTS.md "never leave a bug".
 
 ## Corrections
+
+- 2026-10-19 — Every `sh scripts/artifact-gate.sh` runs as `bash` (the script needs bash).
 
 - 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text, Decisions, and references to J's layout test module (now one `builder_collection_layout/tests/mod.rs`), J's `self_update/tests/` parts and B's `rt_inplace_self_update` part reworded to stay true; `SELF_UPDATE_TABLE` is no longer an exemption.
 

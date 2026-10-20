@@ -3,7 +3,7 @@
 //! These are the last genuinely collection-only lowerings that were left in
 //! `src/target` after the fast-path sweep: every caller is a collections member
 //! (`func_*.rs`), never a core-language path. They were tangled into the mixed
-//! `list_mutate.rs`/`map_mutate.rs`/`collection_buffer.rs`/`collection_mutate.rs`
+//! `list_mutate.rs`/`map_mutate/`/`collection_buffer.rs`/`collection_mutate.rs`
 //! files (whose OTHER functions — the in-place mutators reached from `list[i]=x`
 //! assignment — are genuinely shared and stay in target). A caller census
 //! (recorded in the git history) confirmed:

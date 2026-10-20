@@ -2279,7 +2279,7 @@ impl CodeBuilder<'_> {
     ///
     /// This is the single authority for "where does element `i` live". Every
     /// indexed list read goes through it;
-    /// `builder_collection_compare.rs`'s offset-parameterized helpers sit one
+    /// `builder_collection_compare/`'s offset-parameterized helpers sit one
     /// level below it and are unaffected.
     ///
     /// `scratch_offset` and `scratch_entry` are supplied by the caller rather

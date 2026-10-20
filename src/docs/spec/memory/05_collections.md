@@ -282,7 +282,7 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
   entries (a grow's fresh header, a reclaim that repacks or drops tombstones)
   clears `bucketsReady`; only when the probe did not walk a built index does it
   call `_mfb_rt_map_bucket_put`, which hashes the key again.
-  [[src/codegen/collection/map/map_mutate.rs:lower_map_set_in_place]]
+  [[src/codegen/collection/map/map_mutate/set_in_place.rs:lower_map_set_in_place]]
   An in-place value overwrite or value-grow leaves keys/indices unchanged and so
   leaves the index valid. An in-place removal
   (`removeKey`, a `Set`'s `remove`, `difference`, `symmetricDifference`) keeps the
@@ -324,8 +324,8 @@ insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_h
   its removals still slide the later entries down, because a scan would match a
   tombstone's key.
   [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_settle_helper]]
-  [[src/codegen/collection/map/map_mutate.rs:emit_map_settle_value]]
-  [[src/codegen/collection/map/map_mutate.rs:emit_tombstone_holder_settle]]
+  [[src/codegen/collection/map/map_mutate/mod.rs:emit_map_settle_value]]
+  [[src/codegen/collection/map/map_mutate/mod.rs:emit_tombstone_holder_settle]]
   [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_compact_from_helper]]
 
 The data region packs every **flat** payload directly, addressed by the lookup
@@ -810,7 +810,7 @@ read `byteLength` bytes and hand on the tight form.
     (see *Map Hash Index*, "Tombstones"). For a key type without a hash probe they
     cost the lookup plus the entries after the removed one, which slide down with
     their buckets renumbered. The hash index stays built either way.
-    [[src/codegen/collection/map/map_mutate.rs:lower_map_remove_key_in_place]]
+    [[src/codegen/collection/map/map_mutate/mod.rs:lower_map_remove_key_in_place]]
   - `difference(x, t)` looks each element of `t` up in `x` and retires each hit as
     `remove` does: it costs `t`'s elements, at a binding or a field alike. Without
     a hash probe it drops the hits in one pass from the first of them instead,
@@ -1022,7 +1022,7 @@ own copy (see *Self-updates*), so the overwrite is not observable to it.
   when full. Insertion order is preserved, and the new key is folded into the hash
   index per *Map Hash Index* (into the probe's empty end slot when built, or
   `bucketsReady = 0` when a grow moved the bucket region).
-  [[src/codegen/collection/map/map_mutate.rs:lower_map_set_in_place]]
+  [[src/codegen/collection/map/map_mutate/set_in_place.rs:lower_map_set_in_place]]
 
 The source `collections::sort` is an insertion sort built on `set`, so its
 per-swap `items = collections::set(items, j, …)` overwrites run in place:
@@ -1216,7 +1216,7 @@ after a repack `dataLength` can be below `live`, so subtracting would underflow.
 repack is never followed by another. Unlike a list repack the map reclaim does
 not shrink `dataCapacity`, so a map grow that follows it cannot cycle.
 [[src/codegen/collection/map/map_bucket_remove.rs:lower_map_reclaim_helper]]
-[[src/codegen/collection/map/map_mutate.rs:emit_map_reclaim_before_grow]]
+[[src/codegen/collection/map/map_mutate/mod.rs:emit_map_reclaim_before_grow]]
 
 A plain value copy (`copy_collection_tight`) copies `dataLength` bytes verbatim,
 so it carries whatever dead bytes its source holds at that moment; it does not

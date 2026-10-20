@@ -1,6 +1,6 @@
 //! Every element type a collection can hold, compared.
 //!
-//! `collection/compare/builder_collection_compare.rs` is one `match` over the
+//! `collection/compare/builder_collection_compare/` is one `match` over the
 //! element type, per comparison entry point — `contains`, `indexOf`, set
 //! membership, map key lookup, `=` between two collections. Each arm knows how
 //! that type's bytes sit in a collection block, and an arm nothing reaches is an

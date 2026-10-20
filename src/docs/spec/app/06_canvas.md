@@ -57,7 +57,7 @@ capacity it was built with (`./mfb spec memory collections`), and a list entry h
 bytes no list writes, so two scenes that say the same thing are different bytes
 whenever a nested list was built another way (`.ai/canvas-threading.md` section
 3.1). [[src/codegen/builtins/canvas/gen_present.rs:emit_publish]]
-[[src/codegen/collection/compare/builder_collection_compare.rs:emit_values_content_equal_branch]]
+[[src/codegen/collection/compare/builder_collection_compare/content.rs:emit_values_content_equal_branch]]
 
 ### Flat or layered
 

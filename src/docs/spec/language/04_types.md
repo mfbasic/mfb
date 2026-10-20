@@ -152,9 +152,9 @@ A record's `Float` field compares as a `Float` does under `=`, so `P[-0.0] = P[0
 is `TRUE`, and a `MATCH` arm matches exactly when the scrutinee `=` the pattern, so
 `CASE 0.0` matches `-0.0`. Collection element matching (the rows above) compares a
 record element's `Float` fields bitwise, as it compares a `Float` element.
-[[src/codegen/collection/compare/builder_collection_compare.rs:emit_comparable_values_match_branch]]
-[[src/codegen/collection/compare/builder_collection_compare.rs:emit_comparable_keys_match_branch]]
-[[src/codegen/collection/compare/builder_collection_compare.rs:emit_collection_payload_match_branch]]
+[[src/codegen/collection/compare/builder_collection_compare/mod.rs:emit_comparable_values_match_branch]]
+[[src/codegen/collection/compare/builder_collection_compare/mod.rs:emit_comparable_keys_match_branch]]
+[[src/codegen/collection/compare/builder_collection_compare/payload_match.rs:emit_collection_payload_match_branch]]
 [[src/codegen/builtins/collections/func_contains.rs:lower_contains]]
 
 ### Checked arithmetic

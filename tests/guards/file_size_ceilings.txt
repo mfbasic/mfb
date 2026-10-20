@@ -34,11 +34,8 @@ ceiling code 1262 src/codegen/collection/assign/builder_inplace_assign.rs
 ceiling code 1027 src/codegen/collection/assign/builder_inplace_setmap.rs
 ceiling code 1059 src/codegen/collection/assign/self_update.rs
 ceiling code 1805 src/codegen/collection/assign/string_self_update.rs
-ceiling code 1246 src/codegen/collection/compare/builder_collection_compare.rs
 ceiling code 2592 src/codegen/collection/layout/builder_collection_layout.rs
 ceiling code 4202 src/codegen/collection/list/list_mutate.rs
-ceiling code 1293 src/codegen/collection/map/map_mutate.rs
-ceiling code 1264 src/codegen/collection/search/builder_search.rs
 ceiling code 1373 src/codegen/engine/analysis/borrow_get.rs
 ceiling code 1124 src/codegen/engine/analysis/module_analysis.rs
 ceiling code 3105 src/codegen/engine/builder/mod.rs

@@ -2,7 +2,7 @@
 //! size.
 //!
 //! bug-732 finding 2 kept the hash index across `removeKey` / Set `remove`, but
-//! `map_mutate.rs:lower_map_remove_key_in_place` still compacts the entries
+//! `map_mutate/mod.rs:lower_map_remove_key_in_place` still compacts the entries
 //! after every removal (`map_bucket_remove.rs:lower_map_compact_from_helper`),
 //! and now re-hashes and re-probes every entry it moves. Removing the oldest key
 //! — the FIFO / sliding-window shape of the benchmark's `map intchurn` and
