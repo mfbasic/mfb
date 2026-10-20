@@ -195,25 +195,25 @@ the version.
 Acceptance: every IR/NIR golden unchanged; the binary round-trips a target.
   Check: `cargo test --bin mfb ir::binary` → pass; `bash scripts/artifact-gate.sh
   target/release/mfb collections` → only `.br` version diffs (est. 2 min).
-Commit: —
+Commit: f00885721
 
 ### Phase 2 — resolve by name everywhere a loop exit is resolved
 
-- [ ] `src/ir/verify/ops.rs`: `loop_stack: Vec<(LoopKind, Option<String>)>`; named lookup;
+- [x] `src/ir/verify/ops.rs`: `loop_stack: Vec<(LoopKind, Option<String>)>`; named lookup;
       `UNKNOWN_FOR_IDENTIFIER` (add `2-203-0148` to `src/rules/table.rs` and
       `01_rule-codes.md`).
-- [ ] `src/ir/verify/resources.rs`: `back_edge_scan` carries own name + nested names;
+- [x] `src/ir/verify/resources.rs`: `back_edge_scan` carries own name + nested names;
       `leaves_scanned_loop` resolves named exits/continues by name.
-- [ ] `src/codegen/engine/builder/mod.rs:LoopLabels` + the four pushes in
+- [x] `src/codegen/engine/builder/mod.rs:LoopLabels` + the four pushes in
       `builder_control.rs`; the `ExitLoop`/`ContinueLoop` arms look up by name when
       `target` is `Some`.
-- [ ] `src/codegen/engine/analysis/last_use.rs`: `LoopFrame.name`, `fixed_point` takes it,
+- [x] `src/codegen/engine/analysis/last_use.rs`: `LoopFrame.name`, `fixed_point` takes it,
       `loop_target(kind, target, exit)`.
-- [ ] `src/optimizer/opt1/plans/loops.rs`: `captures_loop_control` returns `false` for a
+- [x] `src/optimizer/opt1/plans/loops.rs`: `captures_loop_control` returns `false` for a
       named exit; `rename_op` renames `target`. `plans/reads.rs:NameUses::visit_op` bumps it.
-- [ ] `src/target/shared/plan/function_builder.rs`: `exit for <target>` /
+- [x] `src/target/shared/plan/function_builder.rs`: `exit for <target>` /
       `continue for <target>` when named.
-- [ ] Unit tests: verify (named hit, named miss → `UNKNOWN_FOR_IDENTIFIER`, named through an
+- [x] Unit tests: verify (named hit, named miss → `UNKNOWN_FOR_IDENTIFIER`, named through an
       inner `FOR`); `captures_loop_control` named → false; `freshened_clone` renames a target
       inside a cloned `For`; `leaves_scanned_loop` named exit past a nested `For`.
 
@@ -312,6 +312,21 @@ Commit: —
   and pattern site that `cargo check --workspace --all-targets` reported (constructors get
   `target: None`, patterns get `target: _`). No behaviour change: every op is `None` until
   Phase 2 creates a target.
+
+- **Phase 2 paths corrected (measured).** `src/rules/table.rs` does not exist; the rule is in
+  `src/rules/table/type_check.rs` (`2-203-0148` `UNKNOWN_FOR_IDENTIFIER`, next free after
+  `2-203-0147`). `src/ir/verify/resources.rs` is `src/ir/verify/resources/mod.rs`; the binary codec
+  is `src/ir/binary/mod.rs` + `src/ir/binary/op_codec.rs` (`git ls-files src/ir/binary`).
+- **Phase 2 tests placed where the code lives.** Verifier resolution: `src/ir/verify/tests/named_loop_exits.rs`
+  (8 tests, `cargo test --bin mfb named` → pass). `leaves_scanned_loop`: `src/ir/verify/resources/tests.rs`,
+  calling the private method through `TypeEnv::build` (2 tests, pass). `captures_loop_control` and
+  `freshened_clone`: `#[cfg(test)] mod tests` at the end of `src/optimizer/opt1/plans/loops.rs`
+  (2 tests, pass). The plan named no file for these, so the placement is a choice, not a deviation.
+- **Phase 2 acceptance measured.** `cargo test --bin mfb ir::verify` → 500 passed;
+  `cargo test --bin mfb optimizer::opt1::plans` → 6 passed; `cargo test --bin mfb rules` → 23 passed;
+  `cargo check --workspace --all-targets` → exit 0, 0 warnings.
+- **Phase 2 `.nplan` text.** Bare exits print exactly as before (`exit for`, unchanged); a named
+  exit prints ` for <target>` (`loop_target_text` in `src/target/shared/plan/function_builder.rs`).
 
 ## Summary
 

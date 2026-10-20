@@ -3,6 +3,8 @@ use super::*;
 mod defaultability;
 mod flow;
 mod sendability;
+#[cfg(test)]
+mod tests;
 
 /// Which thread plane a boundary type sits on (plan-114-A).
 ///
@@ -570,6 +572,7 @@ impl TypeEnv {
                     // bug-852: what an earlier iteration moved is moved here too.
                     let carried = self.loop_carried_moves(
                         crate::ast::LoopKind::For,
+                        Some(name.clone()),
                         body,
                         moved,
                         &fe_locals,
@@ -583,7 +586,7 @@ impl TypeEnv {
                     branch_moved.extend(carried);
                     let mut fe_aliases = aliases.clone();
                     let mut fe_contains = contains.clone();
-                    self.scan_nested_loop(crate::ast::LoopKind::For, || {
+                    self.scan_nested_loop(crate::ast::LoopKind::For, Some(name.clone()), || {
                         self.check_resource_moves(
                             body,
                             &mut fe_locals,
@@ -606,20 +609,34 @@ impl TypeEnv {
                         IrOp::For { .. } => crate::ast::LoopKind::For,
                         _ => crate::ast::LoopKind::Do,
                     };
+                    // Only a `FOR` carries a name; a named EXIT/CONTINUE resolves to it.
+                    let loop_name = match op {
+                        IrOp::For { name, .. } => Some(name.clone()),
+                        _ => None,
+                    };
                     let entry = (moved.clone(), aliases.clone(), contains.clone());
                     // bug-852: the body's first pass runs on what reaches it from
                     // before the loop AND round the back edge from an earlier
                     // iteration, so a close of an outer resource that falls through
                     // to the next iteration is the use after move it is (§14.8).
                     let carried = self.loop_carried_moves(
-                        kind, body, moved, locals, locals, owners, non_owning, aliases, contains,
+                        kind,
+                        loop_name.clone(),
+                        body,
+                        moved,
+                        locals,
+                        locals,
+                        owners,
+                        non_owning,
+                        aliases,
+                        contains,
                     );
                     let start = (!carried.is_empty()).then(|| {
                         let mut start = entry.0.clone();
                         start.extend(carried);
                         start
                     });
-                    self.scan_nested_loop(kind, || {
+                    self.scan_nested_loop(kind, loop_name, || {
                         run_branch(body, &entry, start, locals, moved, aliases, contains)
                     });
                 }
@@ -672,6 +689,7 @@ impl TypeEnv {
     fn loop_carried_moves(
         &self,
         kind: crate::ast::LoopKind,
+        name: Option<String>,
         body: &[IrOp],
         moved: &HashSet<String>,
         body_locals: &HashMap<String, ParameterType>,
@@ -689,7 +707,8 @@ impl TypeEnv {
         let line = self.current_line.get();
         let trap_closed = self.trap_closed.borrow().clone();
         let transfer_flags = self.transfer_failure_flags.borrow().clone();
-        self.back_edge_scan.replace(Some((kind, Vec::new())));
+        self.back_edge_scan
+            .replace(Some(((kind, name), Vec::new())));
         let mut scanned = moved.clone();
         self.check_resource_moves(
             body,
@@ -724,11 +743,16 @@ impl TypeEnv {
     /// bug-852: run `scan` over a loop nested inside the body a back-edge scan is
     /// walking, with that loop's kind on the scan's stack, so an `EXIT`/`CONTINUE`
     /// aimed at it stays inside the scanned body.
-    fn scan_nested_loop<T>(&self, kind: crate::ast::LoopKind, scan: impl FnOnce() -> T) -> T {
+    fn scan_nested_loop<T>(
+        &self,
+        kind: crate::ast::LoopKind,
+        name: Option<String>,
+        scan: impl FnOnce() -> T,
+    ) -> T {
         let nested = self.back_edge_scan.borrow().is_some();
         if nested {
             if let Some((_, stack)) = self.back_edge_scan.borrow_mut().as_mut() {
-                stack.push(kind);
+                stack.push((kind, name));
             }
         }
         let result = scan();
@@ -747,12 +771,25 @@ impl TypeEnv {
     /// edge). Always `false` outside a back-edge scan.
     fn leaves_scanned_loop(&self, op: &IrOp) -> bool {
         let scan = self.back_edge_scan.borrow();
-        let Some((own, nested)) = scan.as_ref() else {
+        let Some(((own_kind, own_name), nested)) = scan.as_ref() else {
             return false;
         };
+        // A named exit/continue matches a nested loop by name; a bare one by kind.
+        let nested_named = |name: &String| {
+            nested
+                .iter()
+                .any(|(_, n)| n.as_deref() == Some(name.as_str()))
+        };
+        let nested_kind = |kind: &crate::ast::LoopKind| nested.iter().any(|(k, _)| k == kind);
         match op {
-            IrOp::ExitLoop { kind, .. } => !nested.contains(kind),
-            IrOp::ContinueLoop { kind, .. } => !nested.contains(kind) && kind != own,
+            IrOp::ExitLoop { kind, target, .. } => match target {
+                Some(name) => !nested_named(name),
+                None => !nested_kind(kind),
+            },
+            IrOp::ContinueLoop { kind, target, .. } => match target {
+                Some(name) => !nested_named(name) && own_name.as_deref() != Some(name.as_str()),
+                None => !nested_kind(kind) && kind != own_kind,
+            },
             _ => false,
         }
     }

@@ -500,6 +500,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0145` | `TYPE_STATE_REQUIRES_RESOURCE` | error | STATE can only be attached to a resource |
 | `2-203-0146` | `TYPE_DUPLICATE_MAP_KEY` | error | a map literal names the same constant key twice |
 | `2-203-0147` | `CONTINUE_UNKNOWN` | error | CONTINUE must be followed by FOR, DO, or WHILE |
+| `2-203-0148` | `UNKNOWN_FOR_IDENTIFIER` | error | the name in EXIT FOR or CONTINUE FOR is not the variable of an enclosing FOR loop |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | a resource's CLOSE BY op must be a native LINK function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | error | a resource's CLOSE BY op names no function in its LINK block |
 | `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | a close op must consume exactly one parameter of its resource |

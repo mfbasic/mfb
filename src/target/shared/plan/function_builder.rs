@@ -96,11 +96,19 @@ impl FunctionPlanBuilder<'_> {
                         self.operations.push("return".to_string());
                     }
                 }
-                NirOp::ExitLoop { kind, target: _ } => {
-                    self.operations.push(format!("exit {}", kind.keyword()));
+                NirOp::ExitLoop { kind, target } => {
+                    self.operations.push(format!(
+                        "exit {}{}",
+                        kind.keyword(),
+                        loop_target_text(target)
+                    ));
                 }
-                NirOp::ContinueLoop { kind, target: _ } => {
-                    self.operations.push(format!("continue {}", kind.keyword()));
+                NirOp::ContinueLoop { kind, target } => {
+                    self.operations.push(format!(
+                        "continue {}{}",
+                        kind.keyword(),
+                        loop_target_text(target)
+                    ));
                 }
                 NirOp::ExitProgram { code } => {
                     self.lower_value(code)?;
@@ -430,6 +438,15 @@ impl FunctionPlanBuilder<'_> {
             CallKind::Runtime,
             string_literals(args),
         );
+    }
+}
+
+/// The ` for <name>` suffix a named EXIT/CONTINUE prints in the plan text (empty for
+/// a bare one), so a plan shows which loop an exit targets.
+fn loop_target_text(target: &Option<String>) -> String {
+    match target {
+        Some(name) => format!(" for {name}"),
+        None => String::new(),
     }
 }
 

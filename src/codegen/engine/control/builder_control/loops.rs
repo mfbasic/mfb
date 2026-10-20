@@ -405,6 +405,7 @@ impl CodeBuilder<'_> {
         self.clear_local_constants();
         self.loop_stack.push(LoopLabels {
             kind: crate::ast::LoopKind::For,
+            name: Some(name.to_string()),
             continue_label: continue_label.clone(),
             exit_label: end_label.clone(),
             cleanup_depth: self.active_cleanups.len(),
