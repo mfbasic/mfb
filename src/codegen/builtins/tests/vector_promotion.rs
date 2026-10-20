@@ -6,7 +6,7 @@
 //! escape (into a collection, a record field, a call) is materialised to a block
 //! at the boundary.
 //!
-//! `lower_ops_inner`'s `if promote_vector` arm is where the promoted binding is
+//! `lower_bind_op`'s `if promote_vector` path is where the promoted binding is
 //! recorded, and nothing in process reached it. The corpus has
 //! `vector-promotion`, which is exactly this — and its whole content sits in a
 //! `TESTING` block, so its `main` is `RETURN 0` and the harness lowers nothing.

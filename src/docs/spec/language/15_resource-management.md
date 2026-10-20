@@ -152,7 +152,7 @@ as aliases. A direct-name move therefore changes static name validity without
 necessarily relocating runtime cleanup. Resource-union wrapping has separate
 variant cleanup bookkeeping; it is not the concrete-close-op test above.
 [[src/codegen/engine/value/builder_values/ownership.rs:value_aliases_live_resource]]
-[[src/codegen/engine/control/builder_control/statement_dispatch.rs:lower_ops_inner]]
+[[src/codegen/engine/control/builder_control/bind_op.rs:lower_bind_op]]
 
 Closing ends the resource's open state. `RETURN` hands a resource value to the
 caller; when a scope of the returning function owns it, the return releases it and

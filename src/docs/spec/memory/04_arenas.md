@@ -420,7 +420,7 @@ AS fs::File STATE Cur = a`) records the state type on that owner's cleanup. The
 inline-`TRAP` form depends on it — `RES v AS fs::File STATE Cur = open() TRAP …`
 binds `v` from a delivery temporary typed by the producer, with no `STATE`, and the
 temporary's cleanup is the one that runs. A resource union's binding does the same.
-[[src/codegen/engine/control/builder_control/statement_dispatch.rs:live_resource_aliases]]
+[[src/codegen/engine/control/builder_control/bind_op.rs:live_resource_aliases]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_alias_root]]
 The temporary an inline `TRAP` delivers a resource through is bound to a closed
 default record of its own (`./mfb spec architecture ir`), and the delivery stores

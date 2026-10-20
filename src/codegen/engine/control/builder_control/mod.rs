@@ -16,6 +16,8 @@ use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
+mod assign_op;
+mod bind_op;
 mod element_update;
 mod field_replace;
 mod field_with;

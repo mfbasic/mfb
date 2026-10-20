@@ -388,7 +388,7 @@ fn blank_corruptible(value: &NirValue) -> bool {
 /// The value family above breaks what a builder READS. This breaks where it
 /// WRITES, which is a different set of lookups and a different set of
 /// refusals - `native code assignment unknown local 'x'` comes from
-/// `engine/control/builder_control/statement_dispatch.rs`'s assignment path and no corrupted value
+/// `engine/control/builder_control/assign_op.rs`'s assignment path (`lower_assign_op`) and no corrupted value
 /// can reach it, because the destination of an `Assign` is not a `NirValue` at
 /// all.
 fn corrupt_op(op: &mut NirOp) -> bool {

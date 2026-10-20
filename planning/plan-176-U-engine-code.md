@@ -1209,24 +1209,24 @@ Acceptance: the module plan (every data object, function and import, in order) i
   `link-const-pins`, `collections` → 0 diffs each; budget → the two Phase 3 NEW rows, `NEW code 1849 > 1000
   …/lower_module.rs` and `TIGHTEN code 562 (ceiling 3105) …/builder/mod.rs`, the last removed by the tighten;
   census → mod 562 / lower_module 1849 + 3 test / runtime_helpers 574 / link_resolution 67 / error_messages 72.
-Commit: —
+Commit: 71d01086f
 
 ### Phase 5 — Extract `lower_ops_inner` arms
 
-- [ ] `builder_control/bind_op.rs`: `lower_bind_op` = the Bind arm body (2741–3518) verbatim
+- [x] `builder_control/bind_op.rs`: `lower_bind_op` = the Bind arm body (2741–3518) verbatim
       behind the let-else, trailing `Ok(())` (§4.10).
-- [ ] `builder_control/assign_op.rs`: `lower_assign_op` (Assign 3547–3999) and
+- [x] `builder_control/assign_op.rs`: `lower_assign_op` (Assign 3547–3999) and
       `lower_state_assign_op` (StateAssign 4002–4165), same form.
-- [ ] `statement_dispatch.rs`: the three arms become `=> self.lower_<x>_op(op, …)?,`;
+- [x] `statement_dispatch.rs`: the three arms become `=> self.lower_<x>_op(op, …)?,`;
       `builder_control/mod.rs` gains `mod bind_op; mod assign_op;`.
-- [ ] Repoint `language/15_resource-management.md:155` and `memory/04_arenas.md:423` to
+- [x] Repoint `language/15_resource-management.md:155` and `memory/04_arenas.md:423` to
       `bind_op.rs` (§4.10) and the Phase-5 rows of §4.13 (`.ai/collections.md:34,540`;
       `.ai/resources-packages.md:28,45,178`; `nir_fault.rs:391`; `vector_promotion.rs:9`;
       `ownership.rs` comments at old 1565, 1578).
-- [ ] `.ai/resources-packages.md:135` → `try_inplace_self_update` (**pre-existing**; evidence
+- [x] `.ai/resources-packages.md:135` → `try_inplace_self_update` (**pre-existing**; evidence
       `grep -rn try_inplace_state_collection_assign src` → empty).
-- [ ] `ownership.rs` comment at old 1770 → `lower_bind_op` (**pre-existing** stale line numbers).
-- [ ] `cargo clippy --all-targets 2>&1 | grep -c '^warning'` → the count recorded before the phase.
+- [x] `ownership.rs` comment at old 1770 → `lower_bind_op` (**pre-existing** stale line numbers).
+- [x] `cargo clippy --all-targets 2>&1 | grep -c '^warning'` → the count recorded before the phase.
 
 Acceptance: every statement lowers to the same code; the paths the artifact gate does not cover
 (STATE whole-record replace, inline TRAP binds) still behave.
@@ -1239,6 +1239,21 @@ Acceptance: every statement lowers to the same code; the paths the artifact gate
   → code ≤ 900 and no function in `bind_op.rs`/`assign_op.rs`/`statement_dispatch.rs` > 1000;
   step 8 rows after tighten: no `statement_dispatch.rs` row; the `lower_inner.rs` and
   `lower_module.rs` NEW rows remain (est. 30 min).
+  Done: `u5extract.py` located the three arms by their exact header lines (Bind 76–860, Assign 887–1343,
+  StateAssign 1344–1509 of the Phase 3 `statement_dispatch.rs`), moved each body unchanged behind the let-else with a
+  trailing `Ok(())`, and replaced each arm with its one-line call; rustfmt re-indented. `.ai/collections.md:540`'s
+  stale `~592` was the `try_inplace_self_update … builder_control.rs` line Phase 3 already repointed; it now names
+  `assign_op.rs`. The `.ai/resources-packages.md:135` and `ownership.rs` (old 1770) items were written in Phase 3
+  against `statement_dispatch.rs` and now name `lower_state_assign_op` / `lower_bind_op`.
+  Verified 2026-10-20: `u5verify.py` → the three bodies `VERBATIM (modulo rustfmt)` — whitespace-free with string
+  literals masked, rustfmt's trailing-comma and single-expression closure/arm brace rewrites normalised on both
+  sides — and `statement_dispatch.rs` equals the original with exactly the three arms replaced by calls; `cargo
+  check` → 0 warnings; clippy → 37065 (= before); N = 5018; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1
+  ignored; artifact gates `collections`, `strings`, `general`, `json`, `resource-xfer-slots`, `vector` → 0 diffs
+  each; `rt_res_state_inplace_mutation` 24, `rt_inline_trap_union_bind` 6, `rt_inline_trap_borrowed_resource` 5 →
+  all passed; census → statement_dispatch 431, bind_op 477, assign_op 363; fns → `lower_bind_op` 474,
+  `lower_ops_inner` 428, `lower_assign_op` 274, `lower_state_assign_op` 86; budget after tighten → only the
+  `lower_inner.rs` (1227) and `lower_module.rs` (1849) NEW rows.
 Commit: —
 
 ### Phase 6 — Extract `lower_value_inner` arms

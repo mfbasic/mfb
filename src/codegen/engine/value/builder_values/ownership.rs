@@ -401,7 +401,7 @@ impl CodeBuilder<'_> {
     /// Everything else — `fs.readText`, `os.getEnv`, `process.receive`,
     /// `net.resolve`, … — allocates its result in the CALLER's arena with
     /// `_mfb_arena_alloc`, which is why `LET s AS String = fs::readText(p)` has
-    /// always freed it at scope drop (`owns_freeable_value` in `lower_ops_inner`
+    /// always freed it at scope drop (`owns_freeable_value` in `lower_bind_op`
     /// excludes only the runtime-managed ones). A helper that broke that would
     /// already be a wild free at every `LET`.
     pub(crate) fn runtime_call_result_is_foreign_arena(target: &str) -> bool {
@@ -414,7 +414,7 @@ impl CodeBuilder<'_> {
     /// (bug-566), or at statement scope when nothing bound it at all (bug-576).
     ///
     /// This is the SAME gate a `Bind` of the same call already applies —
-    /// `owns_freeable_value` in `lower_ops_inner` registers a scope-drop
+    /// `owns_freeable_value` in `lower_bind_op` registers a scope-drop
     /// `arena_free` for exactly `!runtime_managed && is_freeable_flat_value(T)` —
     /// so the licence is not new: it is the licence the non-trapped spelling of the
     /// same call has always used, asked at the site where the `TRAP` desugar
@@ -606,7 +606,7 @@ impl CodeBuilder<'_> {
             //
             // Safe to state unconditionally here because the only caller ANDs
             // this with "the bind is resource-typed"
-            // (`lower_ops_inner`'s Bind arm, `builder_control/statement_dispatch.rs`: `resource_cleanup_symbol(type_)` or
+            // (`lower_bind_op`, `builder_control/bind_op.rs`: `resource_cleanup_symbol(type_)` or
             // `resource_union_cleanup(type_)`). A `MemberAccess` reading an
             // ordinary field is not resource-typed, so it never reaches the
             // alias branch and still takes the owned-value path below it.
