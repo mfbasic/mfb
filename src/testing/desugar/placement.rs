@@ -53,11 +53,6 @@ fn walk_statement(statement: &Statement, path: &str, found: &mut bool) {
                 walk_expression(value, *line, path, found);
             }
         }
-        Statement::Exit { code, line, .. } => {
-            if let Some(code) = code {
-                walk_expression(code, *line, path, found);
-            }
-        }
         Statement::Fail { error, line } => walk_expression(error, *line, path, found),
         Statement::Assign { value, line, .. } | Statement::StateAssign { value, line, .. } => {
             walk_expression(value, *line, path, found);
@@ -129,7 +124,7 @@ fn walk_statement(statement: &Statement, path: &str, found: &mut bool) {
             walk_statements(body, path, found);
             walk_expression(condition, *line, path, found);
         }
-        Statement::Continue { .. } | Statement::Propagate { .. } => {}
+        Statement::Exit { .. } | Statement::Continue { .. } | Statement::Propagate { .. } => {}
     }
 }
 

@@ -23,7 +23,7 @@ form whose statements are separated with `:`.
 
 `EXIT FOR`, `EXIT DO`, and `EXIT WHILE` leave the innermost enclosing loop of the
 matching kind; `CONTINUE FOR`, `CONTINUE DO`, and `CONTINUE WHILE` skip to its
-next iteration. `EXIT PROGRAM <code>` terminates the process after running lexical cleanup for
+next iteration. `os::exit(code)` terminates the process after running lexical cleanup for
 every live scope; no `TRAP` catches it. Run from a worker thread, it ends the whole program, not
 just that worker. These are structured, lexically scoped exits, not arbitrary jumps.
 

@@ -433,25 +433,6 @@ impl TypeEnv {
                 IrOp::ExitProgram { code: value, .. } => {
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
-                    // The exit code must be an Integer, and a constant code
-                    // must fit the host's 0..255 exit-status range.
-                    if let Some(actual) = self.infer_type(value, locals) {
-                        if !self.assignable(&ParameterType::Integer, &actual, value) {
-                            self.emit(
-                                "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
-                                format!("EXIT PROGRAM code has type {actual}, expected Integer."),
-                            );
-                        }
-                    }
-                    if let Some(code) = integer_constant_value(value) {
-                        if !(0..=255).contains(&code) {
-                            self.emit(
-                                "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
-                                "EXIT PROGRAM constant exit code must be in the host range 0..255."
-                                    .to_string(),
-                            );
-                        }
-                    }
                 }
                 IrOp::Fail { error: value, .. } => {
                     self.check_value_captures(value, closure_slots);

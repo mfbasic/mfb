@@ -2,7 +2,7 @@
 //!
 //! The report is written by `_mfb_debug_shutdown` as the last act of
 //! `_mfb_shutdown`, so it must appear on every path that reaches shutdown — a
-//! normal return, `EXIT PROGRAM n`, an untrapped error, and SIGTERM on Unix —
+//! normal return, `os::exit(n)`, an untrapped error, and SIGTERM on Unix —
 //! without changing anything the program itself does: the same exit status, the
 //! same stdout, and the same stderr up to the block. A build without `--debug`
 //! must print no report at all.
@@ -211,17 +211,18 @@ fn a_normal_return_ends_stderr_with_the_report() {
 }
 
 #[test]
-fn exit_program_ends_stderr_with_the_report() {
+fn os_exit_ends_stderr_with_the_report() {
     assert_report_on_exit(
         "dbg_exit",
         concat!(
             "IMPORT io\n",
+            "IMPORT os\n",
             "\n",
             "FUNC main() AS Integer\n",
             "  io::print(\"before\")\n",
             "  MUT code AS Integer = 3\n",
             "  IF code = 3 THEN\n",
-            "    EXIT PROGRAM code\n",
+            "    os::exit(code)\n",
             "  END IF\n",
             "  RETURN 0\n",
             "END FUNC\n",

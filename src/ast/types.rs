@@ -547,7 +547,6 @@ pub enum Statement {
     },
     Exit {
         target: ExitTarget,
-        code: Option<Expression>,
         line: usize,
     },
     Continue {
@@ -627,7 +626,6 @@ pub enum ExitTarget {
     Do,
     While,
     Func,
-    Program,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -46,16 +46,11 @@ impl ToJson for Statement {
                     pad, value, line
                 )
             }
-            Statement::Exit { target, code, line } => {
-                let code = code
-                    .as_ref()
-                    .map(|value| value.to_json(indent))
-                    .unwrap_or_else(|| "null".to_string());
+            Statement::Exit { target, line } => {
                 format!(
-                    "\n{}{{ \"kind\": \"exit\", \"target\": {}, \"code\": {}, \"line\": {} }}",
+                    "\n{}{{ \"kind\": \"exit\", \"target\": {}, \"line\": {} }}",
                     pad,
                     json_string(exit_target_name(*target)),
-                    code,
                     line
                 )
             }

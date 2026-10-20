@@ -257,12 +257,9 @@ fn derive_in_statement(statement: &mut HirStatement, types: &ResourceTypes) {
                 derive_in_expression(value, types);
             }
         }
-        HirStatement::Exit { code, .. } => {
-            if let Some(code) = code {
-                derive_in_expression(code, types);
-            }
-        }
-        HirStatement::Continue { .. } | HirStatement::Propagate { .. } => {}
+        HirStatement::Continue { .. }
+        | HirStatement::Exit { .. }
+        | HirStatement::Propagate { .. } => {}
         HirStatement::Fail { error, .. } => derive_in_expression(error, types),
         HirStatement::Assign { value, .. }
         | HirStatement::StateAssign { value, .. }

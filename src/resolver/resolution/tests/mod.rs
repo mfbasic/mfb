@@ -244,7 +244,8 @@ fn assert_source_ok(source: &str) {
 #[test]
 fn statements_return_exit_fail_recover_continue() {
     assert_source_ok(concat!(
-        "IMPORT io\n\n",
+        "IMPORT io\n",
+        "IMPORT os\n\n",
         "FUNC pick AS Integer\n",
         "  FOR i = 1 TO 3\n",
         "    IF i = 2 THEN CONTINUE FOR\n",
@@ -255,7 +256,7 @@ fn statements_return_exit_fail_recover_continue() {
         "  END TRAP\n",
         "END FUNC\n\n",
         "FUNC stop() AS Nothing\n",
-        "  EXIT PROGRAM 0\n",
+        "  os::exit(0)\n",
         "END FUNC\n\n",
         "FUNC boom AS Integer\n",
         "  FAIL error(1, \"x\")\n",

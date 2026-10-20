@@ -30,7 +30,7 @@
           "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "3" } },
           "line": 5,
           "then": [
-          { "kind": "exit", "target": "for", "code": null, "line": 5 }
+          { "kind": "exit", "target": "for", "line": 5 }
           ],
           "else": [
           ]
@@ -50,7 +50,7 @@
           "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "5" } },
           "line": 11,
           "then": [
-          { "kind": "exit", "target": "for", "code": null, "line": 11 }
+          { "kind": "exit", "target": "for", "line": 11 }
           ],
           "else": [
           ]
@@ -72,7 +72,7 @@
           "step": null,
           "line": 17,
           "body": [
-          { "kind": "exit", "target": "do", "code": null, "line": 18 }
+          { "kind": "exit", "target": "do", "line": 18 }
           ]
         },
         { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "100" } }, "line": 20 }
@@ -86,7 +86,7 @@
         "line": 24,
         "body": [
         { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "20" } }, "line": 25 },
-        { "kind": "exit", "target": "do", "code": null, "line": 26 }
+        { "kind": "exit", "target": "do", "line": 26 }
         ]
       },
       { "kind": "binding", "mutable": true, "name": "w", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 29 },
@@ -102,7 +102,7 @@
           "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "w" }, "right": { "kind": "number", "value": "2" } },
           "line": 32,
           "then": [
-          { "kind": "exit", "target": "while", "code": null, "line": 32 }
+          { "kind": "exit", "target": "while", "line": 32 }
           ],
           "else": [
           ]

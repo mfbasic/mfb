@@ -354,7 +354,7 @@ pub(crate) fn thread_is_cancelled_helper() -> ThreadBodyParts {
 /// called by the trampoline with the entry's result, on the worker, with the arena
 /// register still on the worker's arena. It drains the worker's buffered standard
 /// output (when the program can buffer it). A program-exit result (tag `2`, the
-/// worker ran `EXIT PROGRAM`) ends the process right there with the value as its
+/// worker ran `os::exit`) ends the process right there with the value as its
 /// exit code, through the shared teardown `_mfb_shutdown` (when the program has an
 /// entry, `program_shutdown`) and the platform's process exit — it is not a result
 /// to publish, and its message/origin registers hold nothing (bug-898). Under the
@@ -429,7 +429,7 @@ pub(crate) fn lower_thread_finish(
         ctx.relocations
             .push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
     }
-    // bug-898: `EXIT PROGRAM` in the worker (or anything it called) ends the
+    // bug-898: `os::exit` in the worker (or anything it called) ends the
     // process with that code, from here, exactly as the program entry's exit does
     // after its own drain: the shared teardown (the main buffered output, the
     // terminal, the graphics thread — a program that starts threads never destroys

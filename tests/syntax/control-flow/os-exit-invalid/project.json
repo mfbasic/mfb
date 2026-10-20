@@ -1,5 +1,5 @@
 {
-  "name": "exit_program_invalid",
+  "name": "os_exit_invalid",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",

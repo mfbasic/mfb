@@ -106,7 +106,6 @@ pub enum Keyword {
     Enum,
     Export,
     Public,
-    Program,
     Private,
     Propagate,
     Recover,
@@ -217,7 +216,6 @@ pub fn begins_statement_only(keyword: Keyword) -> bool {
             | Keyword::Match
             | Keyword::Next
             | Keyword::Private
-            | Keyword::Program
             | Keyword::Propagate
             | Keyword::Public
             | Keyword::Recover

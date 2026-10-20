@@ -408,7 +408,6 @@ pub(crate) enum HirStatement {
     },
     Exit {
         target: ExitTarget,
-        code: Option<HirExpression>,
         line: usize,
     },
     Continue {

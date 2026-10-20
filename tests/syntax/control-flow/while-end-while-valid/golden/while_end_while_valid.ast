@@ -85,7 +85,7 @@
           "condition": { "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "wend" }, "right": { "kind": "number", "value": "4" } },
           "line": 30,
           "then": [
-          { "kind": "exit", "target": "while", "code": null, "line": 30 }
+          { "kind": "exit", "target": "while", "line": 30 }
           ],
           "else": [
           ]

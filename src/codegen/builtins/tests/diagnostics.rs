@@ -100,7 +100,7 @@ const DIAGNOSTIC_CORPUS: &[&str] = &[
     "error_invalid",
     "exit-func-invalid",
     "exit-loop-invalid",
-    "exit-program-invalid",
+    "os-exit-invalid",
     "find_invalid",
     "func_bits_band_invalid",
     "func_bits_bnot_invalid",
@@ -635,11 +635,14 @@ fn the_syntax_corpus_still_reaches_every_rule_it_used_to() {
     // before and after, compared). bug-945 retired TYPE_RESULT_IS_IMPLICIT and
     // TYPE_RESULT_NOT_MATCHABLE (owner decision: `Result` and `Ok` are ordinary
     // names), and those two were exactly the next difference, 74 -> 72 (the
-    // reached sets at 49ea4e33b and after bug-945, compared).
+    // reached sets at 49ea4e33b and after bug-945, compared). plan-180-A renamed
+    // EXIT_PROGRAM_CODE_OUT_OF_RANGE to OS_EXIT_CODE_OUT_OF_RANGE (still reached)
+    // and retired TYPE_EXIT_PROGRAM_REQUIRES_INTEGER to a reserved code that is
+    // no longer emitted (the one difference, 72 -> 71; the reached sets compared).
     assert!(
-        produced.len() >= 72,
-        "the corpus reached {} distinct diagnostic rules; it reached 72 after \
-         bug-945, so a rule has stopped firing. Reached: {produced:?}",
+        produced.len() >= 71,
+        "the corpus reached {} distinct diagnostic rules; it reached 71 after \
+         plan-180-A, so a rule has stopped firing. Reached: {produced:?}",
         produced.len()
     );
 }

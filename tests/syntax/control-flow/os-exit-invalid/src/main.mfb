@@ -1,8 +1,10 @@
+IMPORT os
+
 FUNC main AS Integer
   IF TRUE THEN
-    EXIT PROGRAM "bad"
+    os::exit("bad")
   ELSE
-    EXIT PROGRAM 300
+    os::exit(300)
   END IF
   RETURN 0
 END FUNC

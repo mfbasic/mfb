@@ -29,7 +29,7 @@ FUNC main() AS Nothing
   END WHILE
   LET hits AS Integer = len(regex::findAll(subject, pattern)) TRAP(e)
     io::print("raised=" & e.message)
-    EXIT PROGRAM 3
+    os::exit(3)
   END TRAP
   io::print("chars=" & toString(len(subject)) & " hits=" & toString(hits))
 END FUNC

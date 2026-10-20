@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/control-flow/os-exit-invalid
+   3 | FUNC main AS Integer
+   4 |   IF TRUE THEN
+   5 |     os::exit("bad")
+     | ^
+tests/syntax/control-flow/os-exit-invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `os.exit` has argument type(s) (String), expected Integer.
+   5 |     os::exit("bad")
+   6 |   ELSE
+   7 |     os::exit(300)
+     | ^
+tests/syntax/control-flow/os-exit-invalid/src/main.mfb:7 error[2-203-0080 OS_EXIT_CODE_OUT_OF_RANGE]: os::exit constant exit code is outside the host range
+               os::exit constant exit code must be in the host range 0..255.
+[exit 1]

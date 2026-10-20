@@ -304,13 +304,14 @@ fn lowers_exit_program_and_exit_sub() {
     let ir = lower_src(
         "exits",
         r#"
+IMPORT os
 FUNC early(v AS Integer) AS Nothing
   IF v < 0 THEN RETURN
   LET x AS Integer = v
 END FUNC
 FUNC main AS Integer
   early(5)
-  IF FALSE THEN EXIT PROGRAM 2
+  IF FALSE THEN os::exit(2)
   RETURN 0
 END FUNC
 "#,

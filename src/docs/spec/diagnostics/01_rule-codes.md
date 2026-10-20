@@ -472,8 +472,8 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0076` | `CONTINUE_NO_MATCHING_LOOP` | error | CONTINUE has no matching enclosing loop |
 | `2-203-0077` | `EXIT_SUB_IN_FUNC` | error | reserved; not emitted; code is not reused |
 | `2-203-0078` | `EXIT_FUNC_FORBIDDEN` | error | EXIT FUNC is forbidden; functions must RETURN a value |
-| `2-203-0079` | `TYPE_EXIT_PROGRAM_REQUIRES_INTEGER` | error | EXIT PROGRAM requires an Integer exit code |
-| `2-203-0080` | `EXIT_PROGRAM_CODE_OUT_OF_RANGE` | error | EXIT PROGRAM constant exit code is outside the host range |
+| `2-203-0079` | `TYPE_EXIT_PROGRAM_REQUIRES_INTEGER` | error | reserved; not emitted; code is not reused |
+| `2-203-0080` | `OS_EXIT_CODE_OUT_OF_RANGE` | error | os::exit constant exit code is outside the host range |
 | `2-203-0081` | `UNREACHABLE_AFTER_EXIT` | error | statement is unreachable after EXIT or CONTINUE |
 | `2-203-0082` | `TYPE_RESOURCE_REQUIRES_RES` | error | resource must be bound with RES |
 | `2-203-0083` | `TYPE_RES_REQUIRES_RESOURCE` | error | RES binds only resource types |

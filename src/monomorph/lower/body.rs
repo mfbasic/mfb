@@ -98,11 +98,8 @@ impl<'a> Monomorphizer<'a> {
                 }),
                 line: *line,
             },
-            HirStatement::Exit { target, code, line } => HirStatement::Exit {
+            HirStatement::Exit { target, line } => HirStatement::Exit {
                 target: *target,
-                code: code
-                    .as_ref()
-                    .map(|value| self.lower_expression(value, substitutions, context, None, *line)),
                 line: *line,
             },
             HirStatement::Continue { kind, line } => HirStatement::Continue {

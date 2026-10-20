@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn os_registered_on_the_clean_room_registry() {
         let pkg = registry().resolve_package("os").expect("os package");
-        assert_eq!(pkg.functions().len(), 29);
+        assert_eq!(pkg.functions().len(), 30);
         // os contributes no builtin value type and owns no resource.
         assert!(!registry().is_builtin_type("os"));
     }

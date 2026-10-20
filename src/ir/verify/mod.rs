@@ -794,7 +794,7 @@ struct TypeEnv {
     /// round its back edge — the loop's own kind, and the kinds of the loops nested
     /// inside the body on the path being scanned, innermost last. A branch counts as
     /// reaching the back edge unless it leaves the loop (`RETURN`, `FAIL`,
-    /// `EXIT PROGRAM`, or an `EXIT`/`CONTINUE` that targets this loop's kind past
+    /// `os::exit`, or an `EXIT`/`CONTINUE` that targets this loop's kind past
     /// every nested loop, or an outer one). Nested loops scan once in this mode.
     back_edge_scan: RefCell<Option<(crate::ast::LoopKind, Vec<crate::ast::LoopKind>)>>,
     /// bug-804: an inline-`TRAP` check chain's failure flag (`$trap_failedN`) →
@@ -1020,30 +1020,6 @@ fn fold_match_coverage(
         }
     }
     (covered, has_unguarded_else)
-}
-
-/// The integer value of a constant expression (possibly negated) — mirrors
-/// the former source checker's `helpers::integer_constant_value` on the IR shape.
-fn integer_constant_value(value: &IrValue) -> Option<i128> {
-    match value {
-        IrValue::Const { type_, value }
-            if matches!(
-                type_,
-                crate::types::ParameterType::Integer | crate::types::ParameterType::Byte
-            ) =>
-        {
-            value.parse::<i128>().ok()
-        }
-        IrValue::Unary { op, operand, .. } if *op == UnaryOp::Negate => {
-            // `wrapping_neg` so a negated `i128::MIN` operand does not
-            // overflow-panic in debug. Wrapping preserves the release-build
-            // behavior exactly (`-i128::MIN` wraps back to `i128::MIN`), which
-            // is still out of the 0..255 exit-code range and thus reported as
-            // `EXIT_PROGRAM_CODE_OUT_OF_RANGE` rather than silently accepted.
-            integer_constant_value(operand).map(|n| n.wrapping_neg())
-        }
-        _ => None,
-    }
 }
 
 /// Whether an IR value is a `collections.get`/`getOr` call — a *pointer* to a

@@ -366,11 +366,8 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
                 .map(|__v| elaborate_expression(__v, type_params)),
             line: *line,
         },
-        Statement::Exit { target, code, line } => HirStatement::Exit {
+        Statement::Exit { target, line } => HirStatement::Exit {
             target: *target,
-            code: code
-                .as_ref()
-                .map(|__v| elaborate_expression(__v, type_params)),
             line: *line,
         },
         Statement::Continue { kind, line } => HirStatement::Continue {

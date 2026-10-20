@@ -143,7 +143,7 @@ impl CodeBuilder<'_> {
         self.emit_current_result_exit(destination)
     }
 
-    /// bug-841: an inline `TRAP` must not catch `EXIT PROGRAM`.
+    /// bug-841: an inline `TRAP` must not catch `os::exit`.
     ///
     /// Called by every inline-`TRAP` lowering right after it parks the trapped
     /// call's raw result registers in `tag_slot` / `value_slot`, before it splits
@@ -152,7 +152,7 @@ impl CodeBuilder<'_> {
     /// call does ([`Self::emit_call_error_exit`]: the statement's temporaries, then
     /// the frame's cleanups, then a return — or, under a function-level `TRAP`,
     /// [`Self::route_current_result_to_trap`], which returns on this tag too).
-    /// `mfb spec language control-flow`: "`EXIT PROGRAM` is not catchable by
+    /// `mfb spec language control-flow`: "`os::exit` is not catchable by
     /// `TRAP`: at each returning frame it bypasses any handler". Before this, the
     /// tag reached the trapped-`Error` rebuild, which read the zeroed message
     /// register as a `String` pointer (SIGSEGV).

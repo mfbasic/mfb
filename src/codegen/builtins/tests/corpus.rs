@@ -96,11 +96,12 @@ const CROSS_BACKEND: &[&str] = &[
     "return-param-borrow-rt",
     "get-borrow-match-rt",
     "recursive-get-then-grow-rt",
-    // `EXIT PROGRAM` is the one statement whose lowering asks the PLATFORM for
+    // `os::exit` is the one statement whose lowering asks the PLATFORM for
     // imports of its own (`program_exit_imports`), and no program in this list
     // had one -- so `linux_aarch64/plan.rs` and `linux_riscv64/plan.rs` each
     // carried a three-line delegation that had never run.
-    "exit-program-valid-rt",
+    "os-exit-valid-rt",
+    "os-exit-return-valid-rt",
 ];
 
 /// Every committed single-file fixture this harness can lower, four per family.
@@ -518,7 +519,8 @@ pub(super) const CORPUS: &[&str] = &[
     // rt-error/control-flow
     "continue-loop-valid-rt",
     "exit-loop-valid",
-    "exit-program-valid-rt",
+    "os-exit-valid-rt",
+    "os-exit-return-valid-rt",
     // rt-error/crypto
     "crypto-ec-invalid",
     // rt-error/doc

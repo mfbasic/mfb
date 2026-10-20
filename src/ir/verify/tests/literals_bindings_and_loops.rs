@@ -522,30 +522,9 @@ fn accepts_a_nothing_call_in_statement_position() {
 
 // --- exit program ----------------------------------------------------------
 
-#[test]
-fn rejects_exit_program_non_integer() {
-    let body = vec![IrOp::ExitProgram {
-        code: const_of("String", "x"),
-        loc: IrSourceLoc::default(),
-    }];
-    expect_rule(
-        &project(vec![func_returns("run", "Nothing", vec![], body)], vec![]),
-        "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
-    );
-}
-
-#[test]
-fn rejects_exit_program_out_of_range() {
-    let body = vec![IrOp::ExitProgram {
-        code: int_const("300"),
-        loc: IrSourceLoc::default(),
-    }];
-    expect_rule(
-        &project(vec![func_returns("run", "Nothing", vec![], body)], vec![]),
-        "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
-    );
-}
-
+// The exit code's type and host-range checks are source-level now (the
+// `os::exit` signature and `OS_EXIT_CODE_OUT_OF_RANGE` in `ir::shape`), so the
+// verifier has no rule left to reject an out-of-range or non-Integer code.
 #[test]
 fn accepts_exit_program_in_range() {
     let body = vec![IrOp::ExitProgram {
@@ -556,25 +535,6 @@ fn accepts_exit_program_in_range() {
         vec![func_returns("run", "Nothing", vec![], body)],
         vec![],
     ));
-}
-
-#[test]
-fn rejects_exit_program_i128_min_without_panic() {
-    // `Unary("-", Const{Integer, i128::MIN})` parses to i128::MIN and the
-    // verifier's negation of it must not overflow-panic (debug build); it is
-    // out of the 0..255 host range, so it must be reported as such.
-    let body = vec![IrOp::ExitProgram {
-        code: unary(
-            UnaryOp::Negate,
-            const_of("Integer", "-170141183460469231731687303715884105728"),
-            "Integer",
-        ),
-        loc: IrSourceLoc::default(),
-    }];
-    expect_rule(
-        &project(vec![func_returns("run", "Nothing", vec![], body)], vec![]),
-        "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
-    );
 }
 
 // --- fail / propagate ------------------------------------------------------

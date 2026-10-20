@@ -1,6 +1,6 @@
 # 15. Resource Management
 
-A resource has one identity, such as an open file or socket, and may have several handle values referring to that identity. Cleanup responsibility and the validity of a particular binding are separate from identity (see the model below). A resource is bound with the **`RES`** keyword (§5) — the ownership axis — and never with `LET`/`MUT`. Resources are closed automatically by lexical drop (§14.7) when their cleanup scope exits, on every exit path: normal scope exit, `RETURN`, `EXIT`/`CONTINUE`, `FAIL`, `PROPAGATE`, an auto-propagated failure, and `TRAP` routing. `EXIT PROGRAM` performs the same cleanup across every live caller frame before terminating. There is no user-visible lifetime construct; a resource is released by the same ownership and drop rules as any other owned value.
+A resource has one identity, such as an open file or socket, and may have several handle values referring to that identity. Cleanup responsibility and the validity of a particular binding are separate from identity (see the model below). A resource is bound with the **`RES`** keyword (§5) — the ownership axis — and never with `LET`/`MUT`. Resources are closed automatically by lexical drop (§14.7) when their cleanup scope exits, on every exit path: normal scope exit, `RETURN`, `EXIT`/`CONTINUE`, `FAIL`, `PROPAGATE`, an auto-propagated failure, and `TRAP` routing. `os::exit` performs the same cleanup across every live caller frame before terminating. There is no user-visible lifetime construct; a resource is released by the same ownership and drop rules as any other owned value.
 
 ```basic
 FUNC readFirstLine(path AS String) AS String
@@ -60,7 +60,7 @@ parameter, is one more reference to `a`'s resource: the inner block's exit close
 nothing, and `a`'s scope closes it once.
 
 Every scope exit — normal, `EXIT`, `CONTINUE`, `FAIL`, `PROPAGATE`, an
-auto-propagated failure, `TRAP` routing, `EXIT PROGRAM` — closes a resource it
+auto-propagated failure, `TRAP` routing, `os::exit` — closes a resource it
 registered only when that scope is still the resource's owner. A **statement** is
 such a scope for what a call hands it: a producer call's result that nothing
 binds (`useF(fs::open(p, "read"))`, `openTagged(p).state.pos`), and every resource
@@ -462,7 +462,7 @@ module-level `MUT` — directly, inside a record, at any depth of a list or map 
 is owned by the **module instance** from that store on: the main program's
 instance, or the fresh instance a worker thread runs (§16). It stays valid after
 the storing function returns, and closes exactly once at **instance teardown**:
-when the program ends — `main` returning, `EXIT PROGRAM`, or an untrapped error —
+when the program ends — `main` returning, `os::exit`, or an untrapped error —
 or when the worker's entry function returns. This holds whether the resource was
 produced by the storing function (it floats to the global like any outer
 collection, `./mfb spec architecture escape-analysis`) or arrived through a

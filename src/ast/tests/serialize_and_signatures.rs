@@ -165,7 +165,7 @@ ISOLATED FUNC compute(a AS Integer, b AS Integer = 2) AS RES Db STATE Integer
   FAIL "boom"
   RECOVER 0
   PROPAGATE
-  EXIT PROGRAM 1
+  os::exit(1)
   RETURN conn
   TRAP(err)
     RETURN open()
@@ -226,7 +226,7 @@ END FUNC
     assert!(json.contains("\"trap\":"));
     assert!(json.contains("\"assignTarget\": \"total\""));
     assert!(json.contains("\"loop\": \"for\""));
-    assert!(json.contains("\"target\": \"program\""));
+    assert!(json.contains("\"kind\": \"call\", \"callee\": \"os.exit\""));
 }
 
 #[test]
@@ -352,7 +352,7 @@ END LINK
     assert!(json.contains("\"kind\": \"return\", \"value\": null"));
     assert!(json.contains("\"kind\": \"recover\", \"value\": null"));
     // EXIT FOR (no code).
-    assert!(json.contains("\"kind\": \"exit\", \"target\": \"for\", \"code\": null"));
+    assert!(json.contains("\"kind\": \"exit\", \"target\": \"for\", \"line\""));
     // FOR without STEP.
     assert!(json.contains("\"step\": null"));
     // MATCH else.

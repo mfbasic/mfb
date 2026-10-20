@@ -2,8 +2,8 @@
 //! for the call positions that are not a plain statement (plan-180-A).
 //!
 //! A bare `os::exit(code)` statement never reaches this member: IR lowering turns
-//! it into `IrOp::ExitProgram` (`src/ir/lower.rs`, the statement-position arm),
-//! the same op `EXIT PROGRAM` used to produce. Every other position (`RETURN
+//! it into `IrOp::ExitProgram` (`src/ir/lower/statement.rs`, the statement-position
+//! arm). Every other position (`RETURN
 //! os::exit(1)`, a trapped call, a call nested in an expression) is an ordinary
 //! call and is rewritten to `__os_exit`, which is the one-statement helper below.
 //! Its body is itself a bare statement, so it lowers to the same `ExitProgram`

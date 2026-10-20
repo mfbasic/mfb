@@ -107,8 +107,6 @@ pub(super) fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Export)
     } else if value.eq_ignore_ascii_case("PUBLIC") {
         Some(Keyword::Public)
-    } else if value.eq_ignore_ascii_case("PROGRAM") {
-        Some(Keyword::Program)
     } else if value.eq_ignore_ascii_case("PRIVATE") {
         Some(Keyword::Private)
     } else if value.eq_ignore_ascii_case("PROPAGATE") {
@@ -183,7 +181,6 @@ pub fn keyword_lexeme(keyword: Keyword) -> &'static str {
         Keyword::Enum => "enum",
         Keyword::Export => "export",
         Keyword::Public => "public",
-        Keyword::Program => "program",
         Keyword::Private => "private",
         Keyword::Propagate => "propagate",
         Keyword::Recover => "recover",

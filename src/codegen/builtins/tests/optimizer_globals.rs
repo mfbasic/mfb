@@ -171,7 +171,7 @@ END FUNC
 
 FUNC halt(n AS Integer) AS Nothing
   IF n < 0 THEN
-    EXIT PROGRAM LIMIT
+    os::exit(LIMIT)
   END IF
 END FUNC
 

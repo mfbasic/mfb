@@ -7,7 +7,7 @@
 //! anything because it never executes, so even trap-capable statements are
 //! removable once unreachability is proven. What this half proves, purely
 //! structurally, is post-terminal position: every statement after an op that
-//! *always* transfers control away (`RETURN`, `FAIL`, `EXIT PROGRAM`,
+//! *always* transfers control away (`RETURN`, `FAIL`, `os::exit`,
 //! `EXIT`/`CONTINUE` loop, an `IF` whose both arms terminate, a `MATCH` with
 //! an `ELSE` case whose every case terminates) is unreachable. Constant-branch
 //! arms (`IF FALSE THEN …`) are the branch-simplification row's product and

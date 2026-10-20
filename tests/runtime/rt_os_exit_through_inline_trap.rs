@@ -1,8 +1,8 @@
-//! bug-841: `EXIT PROGRAM` is not catchable by an inline `TRAP`.
+//! bug-841: `os::exit` is not catchable by an inline `TRAP`.
 //!
-//! `mfb spec language control-flow`: "`EXIT PROGRAM` is not catchable by `TRAP`: at
+//! `mfb spec language control-flow`: "`os::exit` is not catchable by `TRAP`: at
 //! each returning frame it bypasses any handler, so it propagates past every `TRAP`
-//! to the entry point." A callee's `EXIT PROGRAM n` comes back as a `Result` with
+//! to the entry point." A callee's `os::exit(n)` comes back as a `Result` with
 //! tag `2` (`RESULT_PROGRAM_EXIT_TAG`), the exit code in the value register and no
 //! message. The inline-`TRAP` lowerings handed that tag to the trapped-`Error`
 //! rebuild, which read the zeroed message register as a `String` pointer: every
@@ -21,8 +21,9 @@ const CASES: &[(&str, &str)] = &[
     (
         "direct_let",
         "\
+IMPORT os
 FUNC bye() AS Integer
-  EXIT PROGRAM 7
+  os::exit(7)
 END FUNC
 FUNC main() AS Integer
   LET v = bye() TRAP
@@ -35,8 +36,9 @@ END FUNC
     (
         "direct_nothing_statement",
         "\
+IMPORT os
 FUNC bye() AS Nothing
-  EXIT PROGRAM 7
+  os::exit(7)
 END FUNC
 FUNC main() AS Integer
   bye() TRAP
@@ -50,8 +52,9 @@ END FUNC
         "error_read_by_handler",
         "\
 IMPORT io
+IMPORT os
 FUNC bye() AS Integer
-  EXIT PROGRAM 7
+  os::exit(7)
 END FUNC
 FUNC main() AS Integer
   LET v = bye() TRAP(e)
@@ -66,8 +69,9 @@ END FUNC
         "string_result",
         "\
 IMPORT io
+IMPORT os
 FUNC bye(n AS Integer) AS String
-  IF n > 0 THEN EXIT PROGRAM 7
+  IF n > 0 THEN os::exit(7)
   RETURN \"no\"
 END FUNC
 FUNC main() AS Integer
@@ -82,8 +86,9 @@ END FUNC
     (
         "one_frame_up",
         "\
+IMPORT os
 FUNC bye() AS Integer
-  EXIT PROGRAM 7
+  os::exit(7)
 END FUNC
 FUNC mid() AS Integer
   LET v = bye() TRAP
@@ -100,8 +105,9 @@ END FUNC
         "inline_trap_inside_function_trap",
         "\
 IMPORT io
+IMPORT os
 FUNC bye() AS Integer
-  EXIT PROGRAM 7
+  os::exit(7)
 END FUNC
 FUNC mid() AS Integer
   LET xs AS List OF Integer = [1, 2, 3]
@@ -122,8 +128,9 @@ END FUNC
     (
         "indirect_func_value",
         "\
+IMPORT os
 FUNC bye(n AS Integer) AS Integer
-  EXIT PROGRAM 7
+  os::exit(7)
 END FUNC
 FUNC main() AS Integer
   LET g = bye
@@ -138,8 +145,9 @@ END FUNC
         "builtin_hof_callback",
         "\
 IMPORT collections
+IMPORT os
 FUNC bye(n AS Integer) AS Integer
-  IF n = 2 THEN EXIT PROGRAM 7
+  IF n = 2 THEN os::exit(7)
   RETURN n
 END FUNC
 FUNC main() AS Integer
@@ -150,10 +158,24 @@ FUNC main() AS Integer
 END FUNC
 ",
     ),
+    (
+        "trapped_exit_call",
+        "\
+IMPORT io
+IMPORT os
+FUNC main() AS Integer
+  os::exit(7) TRAP(e)
+    io::print(e.message)
+    RETURN 2
+  END TRAP
+  RETURN 1
+END FUNC
+",
+    ),
 ];
 
 #[test]
-fn exit_program_bypasses_every_inline_trap_form() {
+fn os_exit_bypasses_every_inline_trap_form() {
     let mut failures = Vec::new();
     for (name, source) in CASES {
         let project = common::temp_project(&format!("exit_inline_trap_{name}"), source);

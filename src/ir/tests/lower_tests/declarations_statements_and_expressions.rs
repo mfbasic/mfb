@@ -207,11 +207,12 @@ fn return_without_value_from_sub() {
 #[test]
 fn exit_targets_lower_to_expected_ops() {
     let ir = lower_src(
-        "FUNC main AS Nothing\n\
+        "IMPORT os\n\
+               FUNC main AS Nothing\n\
                FOR i = 1 TO 3\n  EXIT FOR\n  CONTINUE FOR\n  NEXT\n\
                DO\n  EXIT DO\nLOOP UNTIL TRUE\n\
                WHILE FALSE\n  EXIT WHILE\n  END WHILE\n\
-               EXIT PROGRAM 2\n\
+               os::exit(2)\n\
              END FUNC\n",
     );
     fn contains_exit(ops: &[IrOp], want: LoopKind) -> bool {

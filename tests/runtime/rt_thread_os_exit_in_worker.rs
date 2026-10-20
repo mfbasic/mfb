@@ -1,6 +1,6 @@
-//! bug-898: `EXIT PROGRAM` inside a thread worker ends the process with its code.
+//! bug-898: `os::exit` inside a thread worker ends the process with its code.
 //!
-//! `mfb spec language control-flow`: "`EXIT PROGRAM <integer>` terminates the process
+//! `mfb spec language control-flow`: "`os::exit(code)` terminates the process
 //! with the given exit code from any call depth". A worker's entry that comes back
 //! with the program-exit tag (`2`) carries the exit code in the value register and
 //! nothing in the message/origin registers. `_mfb_rt_thread_finish` split the parked
@@ -27,10 +27,11 @@ const CASES: &[(&str, &str, &str)] = &[
         "entry_exits_parent_waits",
         "\
 IMPORT io
+IMPORT os
 IMPORT thread
 
 ISOLATED FUNC quitter(w AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
-  IF n > 0 THEN EXIT PROGRAM n
+  IF n > 0 THEN os::exit(n)
   RETURN 0
 END FUNC
 
@@ -51,7 +52,7 @@ IMPORT os
 IMPORT thread
 
 ISOLATED FUNC quitter(w AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
-  IF n > 0 THEN EXIT PROGRAM n
+  IF n > 0 THEN os::exit(n)
   RETURN 0
 END FUNC
 
@@ -68,10 +69,11 @@ END FUNC
         "callee_exits_under_inline_trap",
         "\
 IMPORT io
+IMPORT os
 IMPORT thread
 
 ISOLATED FUNC bye(n AS Integer) AS Integer
-  EXIT PROGRAM n
+  os::exit(n)
 END FUNC
 
 ISOLATED FUNC quitter(w AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
@@ -97,11 +99,12 @@ END FUNC
         "worker_output_before_exit",
         "\
 IMPORT io
+IMPORT os
 IMPORT thread
 
 ISOLATED FUNC quitter(w AS ThreadWorker OF Integer TO Integer, n AS Integer) AS Integer
   io::print(\"worker says bye\")
-  EXIT PROGRAM n
+  os::exit(n)
 END FUNC
 
 FUNC main AS Integer
@@ -116,7 +119,7 @@ END FUNC
 ];
 
 #[test]
-fn exit_program_in_a_worker_ends_the_process_with_its_code() {
+fn os_exit_in_a_worker_ends_the_process_with_its_code() {
     let mut failures = Vec::new();
     for (name, source, want_stdout) in CASES {
         let project = common::temp_project(&format!("worker_exit_{name}"), source);

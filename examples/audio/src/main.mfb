@@ -64,7 +64,7 @@ FUNC main() AS Nothing
   ' No output devices available.
   IF len(outDevices) = 0 THEN
     io::print("No audio output devices found")
-    EXIT PROGRAM 0
+    os::exit(0)
   END IF
   
   ' Pick the output device
@@ -150,6 +150,6 @@ FUNC main() AS Nothing
 
   TRAP(e)
     io::printError("audio: " & e.message)
-    EXIT PROGRAM 1
+    os::exit(1)
   END TRAP
 END FUNC

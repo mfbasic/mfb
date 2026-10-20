@@ -184,7 +184,7 @@ program-exit results do not produce error reports.
 [[src/codegen/runtime/thread/runtime_helpers_thread/handle.rs:lower_thread_finish]]
  A
 program-exit result (tag `2`: the worker, or a function it called, ran
-`EXIT PROGRAM n`; the lexical cleanup of its frames already ran on the way out, and
+`os::exit(n)`; the lexical cleanup of its frames already ran on the way out, and
 the trampoline's teardown closed its module-level resources) is not published: the
 helper runs the shared teardown `_mfb_shutdown` (the main buffered output, the
 terminal, the graphics thread; a program that starts threads never destroys the

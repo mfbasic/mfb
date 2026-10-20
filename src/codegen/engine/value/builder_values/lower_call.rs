@@ -264,7 +264,7 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     source_slot,
                 ));
-                // bug-841: `EXIT PROGRAM` is not the handler's to catch.
+                // bug-841: `os::exit` is not the handler's to catch.
                 self.emit_inline_trap_program_exit_passthrough(tag_slot, value_slot)?;
                 // bug-778: an unboxed temporary keeps the callee's block —
                 // an owning `Bind` of the untrapped call owns it too (a
@@ -455,7 +455,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             source_slot,
         ));
-        // bug-841: `EXIT PROGRAM` is not the handler's to catch.
+        // bug-841: `os::exit` is not the handler's to catch.
         self.emit_inline_trap_program_exit_passthrough(tag_slot, value_slot)?;
         // bug-778: an unboxed temporary owns the callee's block exactly when
         // an owning `Bind` of the untrapped call would (`lower_value_owned`):

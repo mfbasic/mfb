@@ -398,7 +398,6 @@ mod tests {
             // no-nested-block branch of `instrument_nested`.
             Statement::Exit {
                 target: ExitTarget::For,
-                code: None,
                 line: 120,
             },
             Statement::Continue {

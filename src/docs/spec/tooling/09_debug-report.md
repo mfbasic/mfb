@@ -33,7 +33,7 @@ process prints at most one block.
 [[src/codegen/debug/shutdown.rs:lower_debug_shutdown]]
 
 Every exit that reaches `_mfb_shutdown` therefore prints it: a normal return from
-the entry function, `EXIT PROGRAM n`, an untrapped error (after the error text),
+the entry function, `os::exit(n)`, an untrapped error (after the error text),
 the SIGINT/SIGTERM handler of a Unix console program, and the finish of an app
 build's worker. The report never changes the exit status, stdout, or anything on
 stderr before the block.

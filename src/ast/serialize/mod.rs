@@ -306,7 +306,6 @@ fn exit_target_name(target: ExitTarget) -> &'static str {
         ExitTarget::Do => "do",
         ExitTarget::While => "while",
         ExitTarget::Func => "func",
-        ExitTarget::Program => "program",
     }
 }
 

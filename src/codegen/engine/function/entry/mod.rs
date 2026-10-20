@@ -709,7 +709,7 @@ pub(crate) fn lower_program_entry(
         32,
     ));
     // bug-806: close the resources the module-level bindings own. Every exit —
-    // `main` returning, `EXIT PROGRAM`, an untrapped error (whose banner is already
+    // `main` returning, `os::exit`, an untrapped error (whose banner is already
     // written) and a failed initializer — converges on this label, so this is the
     // instance's one teardown point. The exit code is parked in the scratch slot
     // above, which the teardown does not touch; it preserves `x19`.

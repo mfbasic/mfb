@@ -46,7 +46,7 @@ END FUNC
 
 PRIVATE FUNC extras() AS Nothing
   IF counter > secret THEN FAIL secret
-  EXIT PROGRAM secret
+  os::exit(secret)
 END FUNC
 
 PRIVATE FUNC more() AS Nothing

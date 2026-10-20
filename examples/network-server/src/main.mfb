@@ -114,7 +114,7 @@ END FUNC
 FUNC serveTcp(host AS String, port AS Integer, debugCounts AS Boolean) AS Nothing
   RES server AS tcp::Listener = tcp::listen(host, port) TRAP(e)
     io::printError("Cannot listen on tcp " & host & ":" & toString(port) & " — " & e.message)
-    EXIT PROGRAM 1
+    os::exit(1)
   END TRAP
   LET bound AS net::Address = tcp::localAddress(server)
   io::print("Listening tcp " & bound.host & ":" & toString(bound.port))
@@ -237,7 +237,7 @@ END FUNC
 FUNC serveTls(host AS String, port AS Integer, certPath AS String, keyPath AS String, debugCounts AS Boolean) AS Nothing
   RES server AS tls::Listener = tls::listen(host, port, certPath, keyPath) TRAP(e)
     io::printError("Cannot listen on tls " & host & ":" & toString(port) & " — " & e.message)
-    EXIT PROGRAM 1
+    os::exit(1)
   END TRAP
   LET bound AS net::Address = tls::localAddress(server)
   io::print("Listening tls " & bound.host & ":" & toString(bound.port))
@@ -343,7 +343,7 @@ END FUNC
 FUNC serveUdp(host AS String, port AS Integer, debugCounts AS Boolean) AS Nothing
   RES server AS udp::Socket = udp::bind(host, port) TRAP(e)
     io::printError("Cannot bind udp " & host & ":" & toString(port) & " — " & e.message)
-    EXIT PROGRAM 1
+    os::exit(1)
   END TRAP
   LET bound AS net::Address = udp::localAddress(server)
   io::print("Listening udp " & bound.host & ":" & toString(bound.port))
@@ -475,14 +475,14 @@ END FUNC
 FUNC serveTcpThreaded(host AS String, port AS Integer) AS Nothing
   RES server AS tcp::Listener = tcp::listen(host, port) TRAP(e)
     io::printError("Cannot listen on tcp " & host & ":" & toString(port) & " — " & e.message)
-    EXIT PROGRAM 1
+    os::exit(1)
   END TRAP
   LET bound AS net::Address = tcp::localAddress(server)
   io::print("Listening tcp " & bound.host & ":" & toString(bound.port) & " (threaded)")
 
   RES worker AS Thread OF RES tcp::Socket TO Integer = thread::start(serveTcpConnections, "tcp") TRAP(e)
     io::printError("Cannot start the connection worker — " & e.message)
-    EXIT PROGRAM 1
+    os::exit(1)
   END TRAP
 
   DO
@@ -499,14 +499,14 @@ END FUNC
 FUNC serveTlsThreaded(host AS String, port AS Integer, certPath AS String, keyPath AS String) AS Nothing
   RES server AS tls::Listener = tls::listen(host, port, certPath, keyPath) TRAP(e)
     io::printError("Cannot listen on tls " & host & ":" & toString(port) & " — " & e.message)
-    EXIT PROGRAM 1
+    os::exit(1)
   END TRAP
   LET bound AS net::Address = tls::localAddress(server)
   io::print("Listening tls " & bound.host & ":" & toString(bound.port) & " (threaded)")
 
   RES worker AS Thread OF RES tls::Socket TO Integer = thread::start(serveTlsConnections, "tls") TRAP(e)
     io::printError("Cannot start the connection worker — " & e.message)
-    EXIT PROGRAM 1
+    os::exit(1)
   END TRAP
 
   ' The handshake still completes here, on the main thread: tls::accept is the
@@ -562,7 +562,7 @@ FUNC main() AS Nothing
       keyPath = argAt(args, i + 2)
       IF certPath = "" OR keyPath = "" THEN
         io::printError("--tls needs a certificate path and a key path")
-        EXIT PROGRAM 2
+        os::exit(2)
       END IF
       i = i + 3
     ELSEIF arg = "--thread" THEN
@@ -575,39 +575,39 @@ FUNC main() AS Nothing
       host = argAt(args, i + 1)
       IF host = "" THEN
         io::printError("--host needs an address")
-        EXIT PROGRAM 2
+        os::exit(2)
       END IF
       i = i + 2
     ELSEIF arg = "--port" THEN
       port = toInt(argAt(args, i + 1)) TRAP(e)
         io::printError("--port needs a number, not " & argAt(args, i + 1))
-        EXIT PROGRAM 2
+        os::exit(2)
       END TRAP
       i = i + 2
     ELSE
       io::printError("Unknown argument: " & arg)
       io::printError("Run network-server --help for usage.")
-      EXIT PROGRAM 2
+      os::exit(2)
     END IF
   LOOP
 
   IF mode = "" THEN
     io::printError("Pick a transport: --tcp, --udp, or --tls CERT KEY.")
     io::printError("Run network-server --help for usage.")
-    EXIT PROGRAM 2
+    os::exit(2)
   END IF
 
   IF threaded AND mode = "udp" THEN
     io::printError("--thread does not apply to --udp: UDP has no per-connection")
     io::printError("socket to hand to a worker — every peer shares the one bound")
     io::printError("socket. Use --thread with --tcp or --tls.")
-    EXIT PROGRAM 2
+    os::exit(2)
   END IF
 
   IF threaded AND debugCounts THEN
     io::printError("--debug-counts only applies to the single-threaded loop —")
     io::printError("serveTcpConnections/serveTlsConnections have no equivalent hook.")
-    EXIT PROGRAM 2
+    os::exit(2)
   END IF
 
   io::print("Server " & toString(os::pid()) & " (Ctrl-C to stop)")

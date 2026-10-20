@@ -222,33 +222,33 @@ function-level `TRAP`, and an `AS Integer` function ending in `os::exit` needs n
   Result: `bash scripts/test-accept.sh target/release/mfb /tmp/acc-180a os-exit-valid-rt
   os-exit-return-valid-rt` → "acceptance tests passed (2 test(s) ran)"; `cargo test --bin mfb
   ir::tests::os_exit` → "4 passed"; `cargo test --test file_size_budget` → ok.
-Commit: —
+Commit: bf5cc96d2
 
 ### Phase 2 — remove `EXIT PROGRAM` and the `PROGRAM` keyword
 
-- [ ] `src/lexer.rs`: delete `Keyword::Program` (all three sites) so `program` lexes as an
+- [x] `src/lexer.rs`: delete `Keyword::Program` (all three sites) so `program` lexes as an
       identifier; `src/docs/spec/language/02_lexical-structure.md`: drop `PROGRAM` from the
       keyword set and the `begins_statement_only` list.
-- [ ] `src/ast/stmt.rs`: drop the `PROGRAM` branch and the operand parse; the error text
+- [x] `src/ast/stmt.rs`: drop the `PROGRAM` branch and the operand parse; the error text
       becomes "EXIT must be followed by FOR, DO, WHILE, or FUNC." (plan-180-B replaces it).
-- [ ] `src/ast/types.rs`: delete `ExitTarget::Program` and `Statement::Exit::code`; follow
+- [x] `src/ast/types.rs`: delete `ExitTarget::Program` and `Statement::Exit::code`; follow
       the compiler through every match (`src/ast/{serialize,scope_privates}.rs`,
       `src/hir/{mod,resource_params}.rs`, `src/monomorph/lower.rs`, `src/ir/{lower,shape,
       fallible}.rs`, `src/resolver/resolution.rs`, `src/codegen/registry/mod.rs` (4 walkers),
       `src/audit/collect/source.rs`, `src/testing/desugar/{placement,coverage}.rs`).
       `serialize.rs` emits `{ "kind": "exit", "target": …, "line": … }` (no `"code"`).
-- [ ] `src/ir/verify/ops.rs`: the `IrOp::ExitProgram` arm keeps only the value walk; delete
+- [x] `src/ir/verify/ops.rs`: the `IrOp::ExitProgram` arm keeps only the value walk; delete
       both diagnostics there. Delete `src/ir/verify/mod.rs:integer_constant_value` if it has
       no other caller (`grep -rn integer_constant_value src`).
-- [ ] `src/ir/shape.rs`: drop `ExitTarget::Program` from `erased_exit`; the call-site check
+- [x] `src/ir/shape.rs`: drop `ExitTarget::Program` from `erased_exit`; the call-site check
       now emits `OS_EXIT_CODE_OUT_OF_RANGE`.
-- [ ] `src/rules/table.rs` + `01_rule-codes.md`: rename `2-203-0080` to
+- [x] `src/rules/table.rs` + `01_rule-codes.md`: rename `2-203-0080` to
       `OS_EXIT_CODE_OUT_OF_RANGE` ("os::exit constant exit code is outside the host range");
       `2-203-0079 TYPE_EXIT_PROGRAM_REQUIRES_INTEGER` becomes "reserved; not emitted; code is
       not reused" (the `EXIT_SUB_IN_FUNC` precedent).
-- [ ] Migrate the 28 `.mfb` occurrences in the 6 non-test files listed in §2 to
+- [x] Migrate the 28 `.mfb` occurrences in the 6 non-test files listed in §2 to
       `os::exit(...)`, adding `IMPORT os` where missing.
-- [ ] Comments naming `EXIT PROGRAM` as a construct in the 26 `.rs` files: reword to
+- [x] Comments naming `EXIT PROGRAM` as a construct in the 26 `.rs` files: reword to
       `os::exit` / "program exit" (`grep -rn "EXIT PROGRAM" src tests --include='*.rs'` → 0
       afterward, except test text quoting old bug titles).
 
@@ -265,34 +265,34 @@ cited; (2) the behaviour it protects is stated; (3) dependents were grepped; (4)
 is now wrong is the owner's 2026-10-19 decision removing `EXIT PROGRAM` (Decisions). Each
 keeps its runtime assertion; only the spelling of the exit changes.
 
-- [ ] `tests/runtime/rt_exit_program_through_inline_trap.rs` (bug-841 RED, `5488be15a`;
+- [x] `tests/runtime/rt_exit_program_through_inline_trap.rs` (bug-841 RED, `5488be15a`;
       protects: a program exit passes every inline-TRAP form with status 7): rename to
       `rt_os_exit_through_inline_trap.rs` (Cargo.toml `[[test]]` entry too), replace each
       `EXIT PROGRAM 7` with `os::exit(7)` + `IMPORT os`, and add one case where the trapped
       call *is* `os::exit(7) TRAP(e) … END TRAP`. Assertions unchanged (exit 7, no output).
-- [ ] `tests/runtime/rt_thread_exit_program_in_worker.rs` (bug-898 RED, `b49b963b7`;
+- [x] `tests/runtime/rt_thread_exit_program_in_worker.rs` (bug-898 RED, `b49b963b7`;
       protects: a worker's program exit ends the process with its code): rename to
       `rt_thread_os_exit_in_worker.rs` (+ Cargo.toml), spell the exit `os::exit(code)`.
-- [ ] `tests/runtime/{rt_resource_review_806,rt_native_io_runtime,rt_debug_report}.rs`:
+- [x] `tests/runtime/{rt_resource_review_806,rt_native_io_runtime,rt_debug_report}.rs`:
       spell their programs' exits `os::exit(...)`; assertions unchanged.
-- [ ] `tests/rt-error/control-flow/exit-program-valid-rt` (added in the `b5cb72b51`
+- [x] `tests/rt-error/control-flow/exit-program-valid-rt` (added in the `b5cb72b51`
       reorganization; protects: a callee's exit skips the caller's function-level `TRAP`):
       deleted — `os-exit-valid-rt` (Phase 1) carries the same program and assertion.
-- [ ] `tests/syntax/control-flow/exit-program-invalid` (`b5cb72b51`; protects the two
+- [x] `tests/syntax/control-flow/exit-program-invalid` (`b5cb72b51`; protects the two
       retired/renamed diagnostics): replace with `tests/syntax/control-flow/os-exit-invalid`
       — `os::exit("bad")` (ordinary argument type error) and `os::exit(300)`
       (`OS_EXIT_CODE_OUT_OF_RANGE`); golden `build.log` generated by
       `mfb build -ast -ir`.
-- [ ] Unit tests naming `ExitTarget::Program` / `EXIT PROGRAM` in `src/ir/tests.rs`,
+- [x] Unit tests naming `ExitTarget::Program` / `EXIT PROGRAM` in `src/ir/tests.rs`,
       `src/ast/tests.rs`, `src/codegen/builtins/tests/{nir_validation,optimizer_globals,
       corpus}.rs`: rewrite each program to `os::exit`; assertions unchanged.
-- [ ] Docs (the 11 files in §2): `10_control-flow.md` drops the `EXIT PROGRAM` paragraph
+- [x] Docs (the 11 files in §2): `10_control-flow.md` drops the `EXIT PROGRAM` paragraph
       and points to `os::exit` (keeping the worker/cleanup/TRAP text, now about the call);
       `08_error-model.md` completion forms read "`RETURN`, `FAIL` and a plain `os::exit(...)`
       statement"; `04_ir.md` §4 lowering map: `ExitProgram` comes from a statement-position
       `os::exit`; `08_ir-section.md` op 13 description; the rest reword in place.
       `mfb man os` renders `exit` (`./target/release/mfb man os exit`).
-- [ ] Re-baseline only the 6 `.ast` goldens whose sole diff is the dropped `"code": null`
+- [x] Re-baseline only the 6 `.ast` goldens whose sole diff is the dropped `"code": null`
       key (inspect each diff; any other line moving is a bug to fix, not to re-baseline).
 
 Acceptance: every touched test passes with its original assertion.
@@ -348,6 +348,49 @@ Commit: —
   checks, which Phase 2 deletes; no Phase 2 change to the plan is needed for this.
 - **Phase 1 descriptor omits the rule code.** The `os::exit` man text says "a compile error"
   without naming `OS_EXIT_CODE_OUT_OF_RANGE`, so the man text does not need a rename in Phase 2.
+- **`.mfb` occurrence count (Phase 2).** The plan says 28 occurrences in 6 non-test files. Measured:
+  `grep -rn "EXIT PROGRAM" --include='*.mfb' . | grep -v '^./target' | grep -v '^./tests/' | wc -l`
+  → 25, in six files (`tools/network-server-churn/conn-record-probe`, `tools/recursive-value-bench/
+  programs/regex_chain`, `examples/{audio,network-client,network-server}`, `packages/cli/src/parse.mfb`).
+  The 28 figure counted the two `tests/` fixtures as well (3 occurrences), which Phase 3 covers.
+  `conn-record-probe` had no `IMPORT os` and got one; the other five already imported it.
+- **Phase 2/3 landed in one commit, not two.** Phase 2's removal and Phase 3's test rewrites
+  touch the same files (the inline `#[cfg(test)]` modules of `src/ast`, `src/ir`, `src/codegen`),
+  and the Phase 2 state alone leaves 19 unit tests failing (`cargo test --bin mfb`, measured before
+  the Phase 3 edits). Splitting them by path would have landed a red intermediate commit. The
+  Phase 2 and Phase 3 boxes are ticked in that one commit; its hash is recorded in the next commit's
+  `Commit:` lines.
+- **Phase 3 doc count.** The plan lists 11 doc files. `grep -rl "EXIT PROGRAM" src/docs` on the
+  Phase 2 tree found 14 (`src/docs/spec/app/01_macos-runtime.md` only uses the word "PROGRAM" in
+  ordinary prose and was left as is). Measured by `grep -rn "EXIT PROGRAM\|PROGRAM\b" src/docs`.
+  `src/docs/spec/language/19_grammar.md` lost its `"EXIT" "PROGRAM" expr` production.
+- **Phase 3 `.ast` re-baseline count.** The plan says 6 `.ast` goldens. Measured:
+  `grep -rl '"kind": "exit"' tests --include='*.ast'` → 5 files, and `grep -rl '"code": null' tests
+  --include='*.ast' | wc -l` → 5. Each golden's diff against the regenerated AST was checked line by
+  line (`diff`): every changed line was the `"code": null, ` key on an `exit` statement and nothing
+  else; the matching `.ir` goldens had 0 diff lines. Only those lines were removed (a targeted
+  rewrite of the key, not a whole-file re-baseline).
+- **Corpus rule-count floor (Phase 3).** `the_syntax_corpus_still_reaches_every_rule_it_used_to`
+  counted 72 reached rules; after the change it counts 71 (the same set minus
+  `TYPE_EXIT_PROGRAM_REQUIRES_INTEGER`, which is now reserved and not emitted, and with
+  `EXIT_PROGRAM_CODE_OUT_OF_RANGE` renamed to `OS_EXIT_CODE_OUT_OF_RANGE`, still reached). The floor
+  moved 72 → 71 with that evidence in a comment; no rule was dropped from the corpus.
+- **Test-only renames to track the removal (Phase 3).** Two tests named `exit_program_*` were
+  renamed to `os_exit_*` with their assertions kept (`rt_thread_os_exit_in_worker`'s test fn,
+  `rt_debug_report`'s `os_exit_ends_stderr_with_the_report`). `rt_resource_review_806`'s
+  `exit_program_closes_global_resources` keeps its name: its assertion describes global cleanup, not
+  the spelling of the exit.
+- **Two intentional test-list updates for a new member (Phase 1/2).** `os` now publishes 30 members
+  (was 29): `codegen::builtins::os::tests::os_registered_on_the_clean_room_registry` and
+  `builtins/tests/os.rs`'s expected list each gained `exit`. This is the plan's own added member,
+  not a weakened assertion.
+- **Phase 2 `program` keyword test.** `lexer::tests::keyword_lookup_and_lexeme_round_trip_for_all_keywords`
+  listed `program` as a keyword; it is removed from that list (the keyword is gone, per Decisions).
+- **Phase 3 gate run order.** The plan's final gate lists `scripts/test-fast.sh` first. The first run
+  failed only at `fmt` (`cargo fmt --all -- --check` reported `src/hir/resource_params.rs` and
+  `src/codegen/registry/hir_scan.rs`), i.e. formatting only. `cargo fmt --all` and
+  `cargo fmt --all --manifest-path repository/Cargo.toml` were then run; `cargo fmt --all -- --check`
+  → exit 0.
 
 ## Summary
 

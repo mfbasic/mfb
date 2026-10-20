@@ -31,6 +31,7 @@ use crate::testutil::{nir_for_src, CodeTarget};
 const SRC: &str = "\
 IMPORT fs
 IMPORT io
+IMPORT os
 
 ENUM Color
   Red, Blue
@@ -66,11 +67,11 @@ FUNC describe(s AS Shape) AS String
 END FUNC
 
 FUNC stopEarly(n AS Integer) AS Nothing
-  ' `EXIT PROGRAM` is the only thing that lowers to a `NirOp::ExitProgram`, and
+  ' A bare `os::exit` is the only thing that lowers to a `NirOp::ExitProgram`, and
   ' nothing in the tree had one, so the validator's arm for it was unreached
   ' along with the `?` that carries a bad exit code back out.
   IF n < 0 THEN
-    EXIT PROGRAM n
+    os::exit(n)
   END IF
 END FUNC
 
@@ -632,7 +633,7 @@ fn walk_ops(ops: &mut [NirOp], wreck: &mut dyn FnMut(&mut NirOp) -> bool) -> boo
 
 /// [`wreck_first_op`] over EVERY function, not just `main`.
 ///
-/// `EXIT PROGRAM`, `FAIL` and the `RETURN` of a value live in the helpers, and a
+/// `os::exit`, `FAIL` and the `RETURN` of a value live in the helpers, and a
 /// walk pinned to `main` finds none of them — the `assert!` on the return value
 /// is what said so rather than the row quietly asserting on an unmutated
 /// module.
@@ -643,7 +644,7 @@ fn wreck_any_op(module: &mut NirModule, wreck: &mut dyn FnMut(&mut NirOp) -> boo
         .map(|function| function.name.clone())
         .collect();
     for name in names {
-        // The same depth-first walk `wreck_first_op` uses: `EXIT PROGRAM` and
+        // The same depth-first walk `wreck_first_op` uses: `os::exit` and
         // `FAIL` sit inside an `IF`, so a top-level-only scan finds neither.
         let found = {
             let function = module
@@ -916,7 +917,7 @@ fn an_op_that_names_something_must_name_something_real() {
             }),
         ),
         (
-            "an unresolvable EXIT PROGRAM code",
+            "an unresolvable os::exit code",
             "local reference",
             Box::new(|m: &mut NirModule| {
                 assert!(wreck_any_op(m, &mut |op| match op {

@@ -753,13 +753,13 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0079",
         name: "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
         severity: Severity::Error,
-        message: "EXIT PROGRAM requires an Integer exit code",
+        message: "reserved: retired by plan-180-A (os::exit takes an ordinary Integer argument)",
     },
     Rule {
         code: "2-203-0080",
-        name: "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
+        name: "OS_EXIT_CODE_OUT_OF_RANGE",
         severity: Severity::Error,
-        message: "EXIT PROGRAM constant exit code is outside the host range",
+        message: "os::exit constant exit code is outside the host range",
     },
     Rule {
         code: "2-203-0081",

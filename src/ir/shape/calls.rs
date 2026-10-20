@@ -698,7 +698,7 @@ impl<'a> Walker<'a> {
         if let Some(value) = integer_literal_value(code) {
             if !(0..=255).contains(&value) {
                 self.emit(
-                    "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
+                    "OS_EXIT_CODE_OUT_OF_RANGE",
                     "os::exit constant exit code must be in the host range 0..255.".to_string(),
                     line,
                 );

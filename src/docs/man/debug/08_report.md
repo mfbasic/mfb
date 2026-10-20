@@ -17,7 +17,7 @@ mfb.debug.end 1
 ```
 
 The report prints when the program ends normally, when it ends with
-`EXIT PROGRAM`, when an error nobody trapped ends it (the error message first,
+`os::exit`, when an error nobody trapped ends it (the error message first,
 then the report), and when you stop a macOS or Linux console program with
 Ctrl-C. It does not print when the program crashes outright, when you press
 Ctrl-C in a Windows console, or when an app-mode program receives a signal.

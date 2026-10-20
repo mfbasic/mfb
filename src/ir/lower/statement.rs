@@ -145,7 +145,7 @@ fn lower_statement_inner(
             }),
             loc,
         }],
-        HirStatement::Exit { target, code, .. } => match target {
+        HirStatement::Exit { target, .. } => match target {
             ExitTarget::For => vec![IrOp::ExitLoop {
                 kind: LoopKind::For,
                 loc,
@@ -159,15 +159,6 @@ fn lower_statement_inner(
                 loc,
             }],
             ExitTarget::Func => Vec::new(),
-            ExitTarget::Program => vec![IrOp::ExitProgram {
-                code: lower_expression(
-                    code.as_ref()
-                        .expect("parser requires EXIT PROGRAM to include a code expression"),
-                    locals,
-                    context,
-                ),
-                loc,
-            }],
         },
         HirStatement::Continue { kind, .. } => vec![IrOp::ContinueLoop { kind: *kind, loc }],
         HirStatement::Fail { error, .. } => vec![IrOp::Fail {
@@ -391,7 +382,7 @@ fn lower_statement_inner(
                 }
             }
             // plan-180-A: a bare `os::exit(code)` statement is the program-exit op
-            // (what `EXIT PROGRAM` lowered to). Every other position stays an
+            // (what `os::exit` lowered to). Every other position stays an
             // ordinary call and reaches the `os::exit` rewrite helper.
             if let Some(code) = os_exit_statement_code(expression, context) {
                 return vec![IrOp::ExitProgram {

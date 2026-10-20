@@ -1,5 +1,5 @@
 //! `os::exit` lowering (plan-180-A): a bare statement is the program-exit op
-//! `EXIT PROGRAM` used to be; every other position is an ordinary call to the
+//! (`IrOp::ExitProgram`); every other position is an ordinary call to the
 //! `#os_exit` rewrite helper.
 
 use super::helpers::{function, lower_src};

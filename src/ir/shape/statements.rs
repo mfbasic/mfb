@@ -18,11 +18,9 @@ impl<'a> Walker<'a> {
     /// Walk a block and report how it ends, the way the source checker's
     /// `check_block` did: the first diverging statement ends the walk (the
     /// checker checked nothing after it), and when that statement is an `EXIT
-    /// FUNC`/`EXIT PROGRAM` every statement after it is UNREACHABLE_AFTER_EXIT
-    /// — those two lower to nothing and to an `ExitProgram` op that
-    /// `ir::verify`'s loop-exit form does not treat as an exit, so the IR cannot
-    /// report them (the `EXIT
-    /// FOR`/`DO`/`WHILE`/`CONTINUE` forms are verify's). Inside an inline-TRAP
+    /// FUNC` every statement after it is UNREACHABLE_AFTER_EXIT — it lowers to
+    /// nothing, so the IR cannot report it (the `EXIT FOR`/`DO`/`WHILE`/`CONTINUE`
+    /// forms are verify's). Inside an inline-TRAP
     /// handler every exit form is shape's: `treeify_handler` drops the
     /// statements after any terminator before lowering sees them.
     fn walk_block_flow(
@@ -46,7 +44,7 @@ impl<'a> Walker<'a> {
             if flow == Flow::AlwaysReturns {
                 let erased_exit = match statement {
                     HirStatement::Exit {
-                        target: ExitTarget::Func | ExitTarget::Program,
+                        target: ExitTarget::Func,
                         ..
                     } => true,
                     HirStatement::Exit { .. } | HirStatement::Continue { .. } => {
@@ -110,7 +108,7 @@ impl<'a> Walker<'a> {
                 }
             }
             // plan-180-A: a bare `os::exit(...)` statement never returns, like
-            // `EXIT PROGRAM` did. It is not an "erased exit": statements after it
+            // `os::exit` did. It is not an "erased exit": statements after it
             // get no UNREACHABLE_AFTER_EXIT (as after `RETURN`).
             HirStatement::Expression {
                 expression: HirExpression::Call { callee, .. },
@@ -273,7 +271,7 @@ impl<'a> Walker<'a> {
                     }
                 }
             }
-            HirStatement::Exit { target, code, line } => {
+            HirStatement::Exit { target, line } => {
                 match target {
                     // EXIT FOR/DO/WHILE outside a matching loop is `ir::verify`'s.
                     ExitTarget::For | ExitTarget::Do | ExitTarget::While => {}
@@ -286,10 +284,6 @@ impl<'a> Walker<'a> {
                             *line,
                         );
                     }
-                    ExitTarget::Program => {}
-                }
-                if let Some(code) = code {
-                    self.walk_expression(code, locals);
                 }
             }
             HirStatement::Continue { .. } | HirStatement::Propagate { .. } => {}

@@ -1,4 +1,5 @@
 IMPORT collections
+IMPORT os
 IMPORT tcp
 
 TYPE Conn
@@ -8,7 +9,7 @@ END TYPE
 
 FUNC main() AS Nothing
   RES server AS tcp::Listener = tcp::listen("127.0.0.1", 0) TRAP(e)
-    EXIT PROGRAM 1
+    os::exit(1)
   END TRAP
   MUT conns AS List OF Conn = []
   FOR i = 0 TO 2

@@ -285,13 +285,13 @@ FUNC main() AS Nothing
       host = argAt(args, i + 1)
       IF host = "" THEN
         io::printError("--host needs an address")
-        EXIT PROGRAM 2
+        os::exit(2)
       END IF
       i = i + 2
     ELSEIF arg = "--port" THEN
       port = toInt(argAt(args, i + 1)) TRAP(e)
         io::printError("--port needs a number, not " & argAt(args, i + 1))
-        EXIT PROGRAM 2
+        os::exit(2)
       END TRAP
       i = i + 2
     ELSEIF arg = "--allow-self-signed" THEN
@@ -301,13 +301,13 @@ FUNC main() AS Nothing
       serverName = argAt(args, i + 1)
       IF serverName = "" THEN
         io::printError("--server-name needs a name")
-        EXIT PROGRAM 2
+        os::exit(2)
       END IF
       i = i + 2
     ELSE
       io::printError("Unknown argument: " & arg)
       io::printError("Run network-client --help for usage.")
-      EXIT PROGRAM 2
+      os::exit(2)
     END IF
   LOOP
 

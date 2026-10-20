@@ -57,19 +57,22 @@ for `CONTINUE`).
 `EXIT FUNC` is always a compile error (`EXIT_FUNC_FORBIDDEN`): a function ends
 with `RETURN` (a bare `RETURN` in a function declared `AS Nothing`).
 
-`EXIT PROGRAM <integer>` terminates the process with the given exit code from
-any call depth. The integer code is required (other `EXIT` forms take no
-operand) and must be `Integer`-typed (`TYPE_EXIT_PROGRAM_REQUIRES_INTEGER`).
-`EXIT PROGRAM` is not catchable by `TRAP`: at each returning frame it bypasses
-any handler, so it propagates past every `TRAP` to the entry point. Before
-termination, the runtime runs lexical cleanup for all live scopes in the current
-call chain up to the entry point. In a worker thread that entry point is the
-worker's entry function: the process ends there with the code (the parent's
-`thread::waitFor` never returns), and the other threads' scopes are not unwound.
-A constant exit code outside the host process
-range (the implementation fixes this at `0..=255`) is a compile error
-(`EXIT_PROGRAM_CODE_OUT_OF_RANGE`); non-constant values follow the host
-convention.
+`os::exit(code AS Integer) AS Nothing` terminates the process with the given exit
+code from any call depth. It is an ordinary builtin call, so it may stand as a
+statement, as `RETURN os::exit(code)`, or inside a `TRAP`. The `code` argument is
+required and must be `Integer`-typed, like any builtin argument
+(`TYPE_CALL_ARGUMENT_MISMATCH`). A call that is a bare statement ends its
+function's completion path, so that function needs no `RETURN` after it.
+`os::exit` is not catchable by `TRAP`: at each returning frame it bypasses any
+handler, so it propagates past every `TRAP` to the entry point, and a `TRAP`
+written around the call itself never runs its handler. Before termination, the
+runtime runs lexical cleanup for all live scopes in the current call chain up to
+the entry point. In a worker thread that entry point is the worker's entry
+function: the process ends there with the code (the parent's `thread::waitFor`
+never returns), and the other threads' scopes are not unwound.
+A constant exit code outside the host process range (the implementation fixes
+this at `0..=255`) is a compile error (`OS_EXIT_CODE_OUT_OF_RANGE`); non-constant
+values follow the host convention.
 
 There is **no `GOTO`** and **no `SELECT CASE`** (use `MATCH`). `EXIT` and
 `CONTINUE` are structured, lexically scoped loop/routine exits, not arbitrary
@@ -80,4 +83,4 @@ jumps.
 * ./mfb spec language collections — the `List`/`Map` sources `FOR EACH` iterates
 * ./mfb spec language pattern-matching — `MATCH`, the replacement for `SELECT CASE`
 * ./mfb spec language functions — effect-only (`AS Nothing`) functions and their bare `RETURN`
-* ./mfb spec language error-model — `EXIT PROGRAM` bypassing `TRAP` and running lexical cleanup
+* ./mfb spec language error-model — `os::exit` bypassing `TRAP` and running lexical cleanup
