@@ -696,19 +696,25 @@ Acceptance: big is split, with byte-identical native code for a program that rea
   Verified 2026-10-20: R-BID after vs before → `diff` empty (23 rows); `rt_big_int` → 19 passed; `codegen::builtins::big`
   → 8 passed (= G0's 8); check warnings 0; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; sweep → 0; budget
   → one STALE row (2148) before, none after; census → 548 + 245/304/156/245/669.
-Commit: —
+Commit: 5d965e9d8
 
 ### Phase 3: canvas raw-string helpers (items, picture, particles, curves)
 
-- [ ] `helper_items.rs` → `helper_items/{mod,geo_read,draw_geometry}.rs` per §4.4.
-- [ ] `helper_picture.rs` → `helper_picture/{mod,geometry,item}.rs` per §4.4, and the
+- [x] `helper_items.rs` → `helper_items/{mod,geo_read,draw_geometry}.rs` per §4.4.
+- [x] `helper_picture.rs` → `helper_picture/{mod,geometry,item}.rs` per §4.4, and the
       `rt_canvas_picture_fit.rs` `chunk` argument + doc.
-- [ ] `helper_particles.rs` → `helper_particles/{mod,model,expand,damage,hooks}.rs` per §4.4, the
+- [x] `helper_particles.rs` → `helper_particles/{mod,model,expand,damage,hooks}.rs` per §4.4, the
       `rt_canvas_particles/` part's `helper_source` argument + comment, and the
       `scripts/test-canvas-vulkan.sh:818` message.
-- [ ] `helper_curves.rs` → `helper_curves/{mod,pieces,reduce,build,draw}.rs` per §4.5, the
+- [x] `helper_curves.rs` → `helper_curves/{mod,pieces,reduce,build,draw}.rs` per §4.5, the
       `curve_shader.rs` `include_str!`, and the `rt_canvas_curves/` part's `chunk` arguments + root doc.
-- [ ] Repoint the 7 + 4 + 8 + 11 `06_canvas.md` citations, and the prose listed in §4.4–4.5.
+      Done (all four): `codesplit.py` per §4.4–4.5; each raw-string-only part has no `use` line; `pub(super)` on
+      exactly `GEO_READ`, `DRAW_GEOMETRY`, `PICTURE`, `EXPAND`, `DRAW`, `DAMAGE`, `HOOKS_BODY`; every other const
+      declaration line is byte-identical; `mod.rs` imports each part's consts. The `rt_canvas_curves` `chunk` calls
+      are in the root `tests/canvas/rt_canvas_curves.rs` (not a `rt_canvas_curves/` part).
+- [x] Repoint the 7 + 4 + 8 + 11 `06_canvas.md` citations, and the prose listed in §4.4–4.5.
+      Done: `citesweep.py` → 8 + 4 + 8 + 11 (one more items cite, added since); `wordcheck.py` → 0 missing; the
+      prose of §4.4–4.5 plus `helper_hit.rs:5`, `func_handle_bridge.rs:148`, `helper_draw.rs:12` (`//`/`///` only).
 
 Acceptance: the four helper files are split, and the helper text is byte-identical. The three
 source-reading tests still find every const they lift.
@@ -721,6 +727,11 @@ source-reading tests still find every const they lift.
   `helper_dashes.rs`, `helper_draw.rs:135`, `helper_damage.rs:122`, `helper_picture/item.rs`,
   `helper_curves/build.rs`) and the shader files `mfb_canvas.frag`, `curves.tpl`. File-size paths:
   `helper_(items|picture|particles|curves)` (est. 30 min).
+  Verified 2026-10-20: R-BID after vs before → `diff` empty; `rt_canvas_curves` → 40, `rt_canvas_particles` → 29,
+  `rt_canvas_picture_fit` → 9 passed; `codegen::builtins::canvas` → 50 passed (= G0's 50); list 5018; check warnings 0;
+  `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; sweep → only `'` raw-string lines and the two shader files;
+  budget → four STALE rows before, none after; census → items 25/19 + 444/654, picture 66/51 + 397/752, particles
+  74/16 + 402/459/252/251, curves 216/95 + 482/565/319/342.
 Commit: —
 
 ### Phase 4: helper_geometry

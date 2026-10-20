@@ -1008,10 +1008,10 @@ alone: `(texel.alpha * (255 - T) + 127) / 255`, `T` the transparency step below.
 fill's alpha never fades it. `Paint.gradient` is ignored — the image, not a ramp,
 fills a picture. An item whose image has been closed draws nothing (see *Images are
 named, not embedded*).
-[[src/codegen/builtins/canvas/helper_picture.rs:PICTURE]]
+[[src/codegen/builtins/canvas/helper_picture/item.rs:PICTURE]]
 [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
-[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
-[[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
+[[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]
+[[src/codegen/builtins/canvas/helper_items/draw_geometry.rs:DRAW_GEOMETRY]]
 
 On the GPU a picture's texels travel in the same region of the frame buffer as glyph
 coverage, one packed word per texel, and each item's block names its slice — so the
@@ -1064,7 +1064,7 @@ nothing. The builder takes one of two paths, in header slot 51:
   the pixels drawn.
 
 [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
-[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
+[[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
 [[src/codegen/builtins/canvas/func_geo_build.rs:emit_clip_edges]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_CLIP_MODE]]
@@ -1167,8 +1167,8 @@ fills the shape — defined, rather than a division by zero.
   interior, is drawn in the tinted ramp; under `FillOnly` it and every outline stay the
   flat stroke colour.
 [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
-[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
-[[src/codegen/builtins/canvas/helper_items.rs:DRAW_GEOMETRY]]
+[[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]
+[[src/codegen/builtins/canvas/helper_items/draw_geometry.rs:DRAW_GEOMETRY]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_GRADIENT_SPREAD]]
 
 **On the GPUs** `surface.w` packs the kind with the spread and the stroke apply, `kind |
@@ -1285,14 +1285,14 @@ polygon's (*Placement*).
 absent or one a point, each above zero. An invalid curve is absent, not an error: it
 contributes no piece and its neighbours are joined across it. A shape with no valid
 curve builds the empty record, draws nothing and is not hit.
-[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_VALID]]
+[[src/codegen/builtins/canvas/helper_curves/pieces.rs:CURVE_VALID]]
 
 **Joining.** The curves of a chain are taken in list order. Where a valid curve does not
 begin on the point the one before it ended on, a straight segment joins the two; a
 contour whose last point is not its first is closed by one. Those segments are part of
 the shape — filled against, stroked, joined and dashed like the curves they connect. A
 `PolyCurve` is never closed, even when its last point is its first: its two ends take
-the paint's cap. [[src/codegen/builtins/canvas/helper_curves.rs:CURVE_CHAIN]]
+the paint's cap. [[src/codegen/builtins/canvas/helper_curves/reduce.rs:CURVE_CHAIN]]
 
 ### The reduction
 
@@ -1323,8 +1323,8 @@ transform is reduced more finely and stays within 0.05 px on the surface. A grou
 transform is not in it. A group's records are built once and shared by every use, so a
 group that scales a curve by `k` scales the fit's error to `0.05·k` px; only degree 3 and
 above has any error to scale.
-[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_REDUCE]]
-[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_BASE]]
+[[src/codegen/builtins/canvas/helper_curves/reduce.rs:CURVE_REDUCE]]
+[[src/codegen/builtins/canvas/helper_curves/pieces.rs:CURVE_BASE]]
 
 ### The record
 
@@ -1339,7 +1339,7 @@ one dash row a PIECE, so nothing has to know where a contour starts: a join reco
 the corner at its piece's start, and a dash row is `__CANVAS_CURVE_DASH_ROW` (18) floats
 — the outline position at each sixteenth of the piece, by Simpson's rule over 8
 sub-steps of the piece's speed, then its contour's length, negative for an open chain.
-[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_BUILD]]
+[[src/codegen/builtins/canvas/helper_curves/build.rs:CURVE_BUILD]]
 
 Both shapes are hashed natively; the structural walk folds a list's count and then its
 elements at any depth, so a `CurvePolygon`'s list of lists of records that themselves
@@ -1372,7 +1372,7 @@ included, and the midpoint when not. Nothing is sampled, so no minimum falls bet
 samples and the error does not grow with a piece's length, and only `+ − × ÷ sqrt` are
 used, so the software answer is the same on every platform. A piece whose control box
 is further from the pixel than the best distance so far is skipped (`__canvas_pieceBound`).
-[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_NEAREST]]
+[[src/codegen/builtins/canvas/helper_curves/pieces.rs:CURVE_NEAREST]]
 
 A `CurvePolygon`'s distance is the least over its pieces, negative inside
 (`__canvas_curveDistance`). There is no second distance for a rational piece: the
@@ -1403,14 +1403,14 @@ the union of its pieces' bands (`__canvas_curveScan`).
   it runs once from the first point. A dashed stroke always carries join records,
   drawn where a dash runs through the corner.
 
-[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_DRAW]]
+[[src/codegen/builtins/canvas/helper_curves/draw.rs:CURVE_DRAW]]
 
 ### The chunk is gated on a curve shape being named
 
 Everything above is injected only into a program whose source names `PolyCurve` or
 `CurvePolygon` as a type — in a constructor or in any annotation
 (`HelperGate::WhenCalledOrNamed`); every other canvas program gets ten one-line
-stand-ins ([[src/codegen/builtins/canvas/helper_curves.rs:ABSENT]]). Named, not
+stand-ins ([[src/codegen/builtins/canvas/helper_curves/mod.rs:ABSENT]]). Named, not
 constructed as `AutoPaint`'s gate is: every field of the curve records has a default, so
 `MUT c AS canvas::PolyCurve` followed by `WITH` holds a curve no constructor expression
 made. On macOS AArch64 a canvas program with no curve carries 21,652 more bytes of
@@ -1474,7 +1474,7 @@ rational Bézier of the same degree. Input that is not a curve — a degree outs
 16, fewer than `degree + 1` points, a knot count other than points + degree + 1, a
 decreasing knot, a weight list that is neither empty nor one per point, a weight of zero
 or less, an empty domain — returns `[]` and does not raise.
-[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_FUNCS]]
+[[src/codegen/builtins/canvas/helper_curves/mod.rs:CURVE_FUNCS]]
 `canvas::flatten` returns points along one curve by de Casteljau halving: a span is
 taken as its chord once every inner control point is within `tolerance` (at least
 0.001) of the chord segment, which bounds the curve because a curve with positive
@@ -1562,7 +1562,7 @@ kept as a translation and, only when some node on the path has a transform in ef
   then applies the inverse linear part, then the item's own inverse if it has one. An
   entry with a matrix takes the transformed-item path whatever the item is, so the
   distance is rescaled by its gradient and the stroke scales
-  ([[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]);
+  ([[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]);
 * an item's bounds under a matrix are the hull, through the linear part, of its header
   box with the rim replaced, padded by a pixel. The header's rim (slots 67 and 68) was
   sized for the item drawn with no group. A pixel takes coverage only within half the
@@ -1574,7 +1574,7 @@ kept as a translation and, only when some node on the path has a transform in ef
   170 the rim is 1.41 px, not 170); a group that shrinks has `N > 1` and it goes out,
   which an unevenly transformed item needs. A box with no rim is carried as it stands.
   The damage diff remembers and compares that hull
-  ([[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]],
+  ([[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]],
   [[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_FOR]]);
 * a rectangle clip, which is axis-aligned only in the item's space, is evaluated under a
   matrix as a path clip is: its distance at the item's point, divided by its own
@@ -1683,13 +1683,13 @@ GPU backend draws those items within its usual tolerance of the software picture
 system is animated by the program presenting it again with a new `time`. That is redraw trigger 1 — `time` is
 folded into the item's hash, so the scene differs — and there is no eighth trigger: no
 clock in the renderer belongs to a particle system.
-[[src/codegen/builtins/canvas/helper_particles.rs:HOOKS_BODY]]
+[[src/codegen/builtins/canvas/helper_particles/hooks.rs:HOOKS_BODY]]
 
 ### The model
 
 The model is MFBASIC source with no record of the type set in it — numbers and points
 only — so it is compiled and run by itself in the test suite.
-[[src/codegen/builtins/canvas/helper_particles.rs:MODEL]]
+[[src/codegen/builtins/canvas/helper_particles/model.rs:MODEL]]
 
 **Draws.** `__canvas_particleHash(seed, slot, cycle, stream)` is a value in `[0, 1)`
 from a 31-bit xor-shift-multiply mix. `cycle` is which life of the slot this is, so a
@@ -1718,7 +1718,7 @@ particle. Each `…Var` fraction is taken into `[0, 1]`.
 the emitter's local geometry and carried to the surface as a point of that shape is:
 `system.position + emitter.position + emitter.transform(sample)`, the transform applied
 when `__canvas_transformActive` says it is in effect.
-[[src/codegen/builtins/canvas/helper_particles.rs:EXPAND]]
+[[src/codegen/builtins/canvas/helper_particles/expand.rs:EXPAND]]
 
 | Emitter | The sample |
 |---|---|
@@ -1756,7 +1756,7 @@ the size is `lerp(startScale, endScale, u) × (1 + scaleVar × (2r − 1))`.
 wrapping (the package's wraps by repeated subtraction) and normalised to a unit vector;
 the exponential is written out in the model. A test holds that the particle source
 calls no `math::` transcendental.
-[[src/codegen/builtins/canvas/helper_particles.rs:MODEL]]
+[[src/codegen/builtins/canvas/helper_particles/model.rs:MODEL]]
 
 **Nothing in it raises.** It runs on the graphics thread, where a `FAIL` has no user
 frame to unwind to. Every conversion to an integer is guarded, and a value too large to
@@ -1778,7 +1778,7 @@ so `__canvas_particleItem` emits the same shape with `position := P` and
 offsets inside the particle, turned and scaled with it. A particle that is neither
 turned nor scaled is the template with `P` added to its `position` and its transform
 untouched, which keeps it on the path every untransformed item takes, native geometry
-builder included. [[src/codegen/builtins/canvas/helper_particles.rs:DRAW]]
+builder included. [[src/codegen/builtins/canvas/helper_particles/expand.rs:DRAW]]
 
 | Consequence | Rule it comes from |
 |---|---|
@@ -1835,7 +1835,7 @@ slot dropped at the next frame boundary, for a record read once. A particle the 
 builder takes (`canvas::geoBuild`: no transform in effect, no gradient — every particle
 that is neither turned nor scaled) is therefore built and appended straight to
 `__CANVAS_GEO_DATA`, and its offset used, with no slot and no index entry
-(`__canvas_particleRecord`). [[src/codegen/builtins/canvas/helper_particles.rs:DRAW]]
+(`__canvas_particleRecord`). [[src/codegen/builtins/canvas/helper_particles/expand.rs:DRAW]]
 
 The offset is good for the frame by the rule every offset is: no float of that list
 moves or is dropped inside a frame. `canvas::geoBeginFrame` is the one place that does,
@@ -1864,7 +1864,7 @@ rectangle as its scissor: every pixel loop of the software rasteriser is bounded
 An unchanged item whose box runs outside the rectangle therefore does not blend its edge
 a second time over the kept pixels (bug-1089), and the frame is the full redraw's byte for
 byte. [[src/codegen/builtins/canvas/helper_render.rs:RENDER_SCENE]]
-[[src/codegen/builtins/canvas/helper_items.rs:GEO_READ]]
+[[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]
 [[tests/canvas/rt_canvas_damage.rs:damage_does_not_blend_an_unchanged_overlapping_item_twice]]
 
 ### Damage takes a system as one unit
@@ -1880,7 +1880,7 @@ entry is a unit by itself, with the hash and the rectangle it always had. The nu
 units is the scene's structure, so the frames line up, and a system that changed
 damages where its particles were and where they are. The same scene then redraws
 partially on 29 of 30 frames, and the picture those leave is the full redraw's exactly.
-[[src/codegen/builtins/canvas/helper_particles.rs:DAMAGE]]
+[[src/codegen/builtins/canvas/helper_particles/damage.rs:DAMAGE]]
 
 The walk notes each system's span of entries as it expands it (a system with nothing
 alive is a span of none, so it is still a unit), `__canvas_sceneOffsets` assigns the
@@ -1909,7 +1909,7 @@ constructs a `ParticleSystem` (`HelperGate::WhenUsedOrConstructed`); a program t
 constructs none gets `ABSENT`, the same eleven names with bodies that are a constant or
 the argument handed back, and a test holds the two declare them alike. The record holds
 a union field, so it has no default value and constructing one is the only way to hold
-one. [[src/codegen/builtins/canvas/helper_particles.rs:ABSENT]]
+one. [[src/codegen/builtins/canvas/helper_particles/mod.rs:ABSENT]]
 
 In code, a canvas program with no `ParticleSystem` is 29,072 bytes larger than it was
 before the type existed (`__text`, macOS AArch64, a scene of one circle). Little of it
@@ -1983,7 +1983,7 @@ its interior and its stroke, filled or not. A `PolyCurve` is an open kind: its `
 `__canvas_curveScan`, the distance to its stroke's edge, so it is hit on its stroke and
 the 3 px either side — and never in the area between a chain and its own ends, which
 only a closed shape would count as inside. Both are measured by the functions that draw
-them. [[src/codegen/builtins/canvas/helper_curves.rs:CURVE_DRAW]]
+them. [[src/codegen/builtins/canvas/helper_curves/draw.rs:CURVE_DRAW]]
 
 **A `Text` is its layout box**: from the baseline origin to where the pen stops, the
 font's ascent above the baseline and its descent below. The box is four floats in
@@ -2487,7 +2487,7 @@ Tile carries a distinct geometry kind. Its destination uses the rectangle header
 its four source values follow the fixed header as a tile-only tail; both GPU emitters
 copy them into Tile's otherwise-unused gradient words. The software, Metal and Vulkan
 paths therefore use the same mapping without changing `Picture` semantics.
-[[src/codegen/builtins/canvas/helper_picture.rs:PICTURE]]
+[[src/codegen/builtins/canvas/helper_picture/item.rs:PICTURE]]
 
 ### A picture is drawn inside a shape
 
@@ -2500,7 +2500,7 @@ cuts the image further. The shape's interior is never filled.
 **A picture is one or two ordinary draw entries, made where the draw list is built.**
 There is no geometry kind, header slot, item-block field or shader for a shaped
 picture: what the three renderers draw is records they already drew.
-[[src/codegen/builtins/canvas/helper_picture.rs:PICTURE]]
+[[src/codegen/builtins/canvas/helper_picture/item.rs:PICTURE]]
 
 - **A plain picture** — `fit` is `Stretch`, the shape is a `Rectangle` with four square
   corners, and either `clip` is `ClipAndTransform` or the rectangle's transform is not
@@ -2532,7 +2532,7 @@ the item, so it is the one cached kind a hash cannot vouch for.
 `Circle`'s or an `Ellipse`'s flattened so no chord is more than 0.05 px from the curve,
 up to 512 points (`__canvas_ellipseRing`); a `Polygon`'s own contours and rule. A
 `Line`, an `Arc`, a `PolyLine`, a `PolyCurve` and a `Text` have none, and a picture on
-one draws nothing. [[src/codegen/builtins/canvas/helper_picture.rs:PICTURE_GEOMETRY]]
+one draws nothing. [[src/codegen/builtins/canvas/helper_picture/geometry.rs:PICTURE_GEOMETRY]]
 
 **A `CurvePolygon`'s outline is its curves, flattened — for the image's clip only.** An
 image record's clip is straight edges, so each contour's pieces (the y-monotone
@@ -2545,7 +2545,7 @@ intersected with them by `__canvas_clipIntersect`, which knows nothing of curves
 OUTLINE stroked over the image is not flattened: it is the `CurvePolygon` itself with a
 transparent fill, drawn per pixel like any other, so the visible edge of a stroked
 picture is the curve and the flattening is only where the image stops beneath it.
-[[src/codegen/builtins/canvas/helper_curves.rs:CURVE_BUILD]]
+[[src/codegen/builtins/canvas/helper_curves/build.rs:CURVE_BUILD]]
 
 **Fit.** With the shape's box `B` and the image's size `I`, `__canvas_pictureFit`
 answers the destination rectangle: `B` itself for `Stretch`; the largest rectangle of

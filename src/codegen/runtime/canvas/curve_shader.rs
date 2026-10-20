@@ -2,7 +2,7 @@
 //!
 //! `shaders/curves.tpl` is the fill test, the nearest point of a piece, the cap cut and
 //! the walk that draws a `canvas::PolyCurve` and a `canvas::CurvePolygon` from their
-//! pieces — the software renderer's functions in `builtins/canvas/helper_curves.rs`,
+//! pieces — the software renderer's functions in `builtins/canvas/helper_curves/`,
 //! in fp32. It is written once, in GLSL's spelling with four markers, and [`curve_shader`]
 //! turns it into each language:
 //!
@@ -142,7 +142,7 @@ mod tests {
     /// MFBASIC constants — so they are pinned here.
     #[test]
     fn the_curve_shader_literals_are_the_oracles_constants() {
-        let source = include_str!("../../builtins/canvas/helper_curves.rs");
+        let source = include_str!("../../builtins/canvas/helper_curves/pieces.rs");
         let constant = |name: &str| -> usize {
             let needle = format!("LET {name} AS Integer = ");
             let at = source.find(&needle).unwrap_or_else(|| panic!("{name}")) + needle.len();

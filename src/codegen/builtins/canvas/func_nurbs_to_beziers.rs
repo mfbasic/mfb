@@ -2,12 +2,12 @@
 //! (plan-164-A).
 //!
 //! The conversion is exact, by Boehm's knot insertion: every knot of the curve's domain
-//! is raised to multiplicity `degree` (`helper_curves.rs:__canvas_cvRefine`), after
+//! is raised to multiplicity `degree` (`helper_curves/pieces.rs:__canvas_cvRefine`), after
 //! which the control points fall into runs of `degree + 1` that are each one rational
 //! Bézier segment of the same degree. Nothing is approximated, which is why the canvas
 //! needs no NURBS item of its own.
 //!
-//! The work is `helper_curves.rs:CURVE_FUNCS`, a chunk only a program that calls this
+//! The work is `helper_curves/mod.rs:CURVE_FUNCS`, a chunk only a program that calls this
 //! (or `canvas::flatten`) carries; the body here is the one call into it.
 
 use crate::codegen::registry::{

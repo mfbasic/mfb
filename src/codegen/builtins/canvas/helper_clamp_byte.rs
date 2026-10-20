@@ -10,7 +10,7 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 /// It was written as the shared clamp behind `canvas::rgb`/`rgba`, both of which
 /// plan-122-D removed — the constructors and their clamping promise now live in
 /// `color` (`__color_clampByte`). This copy stays because it has a second caller
-/// that has nothing to do with either: `helper_items.rs`'s `__canvas_geoByte`
+/// that has nothing to do with either: `helper_items/geo_read.rs`'s `__canvas_geoByte`
 /// (`RETURN __canvas_clampByte(toInt(__canvas_geoAt(offset, slot)))`), which
 /// narrows a `Float` read back out of the flattened geometry buffer. That is a
 /// decode path, not a construction path, so routing it through `color` would make

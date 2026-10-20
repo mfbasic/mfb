@@ -219,7 +219,7 @@ fn every_record_is_built_and_every_shape_is_an_emitter() {
 
 // ---- The analytic model, as arithmetic (plan-150-A Phase 3) ---------------------------
 //
-// The model is MFBASIC text the compiler injects (`helper_particles.rs:MODEL`), and the
+// The model is MFBASIC text the compiler injects (`helper_particles/model.rs:MODEL`), and the
 // compiler is a binary crate, so a test cannot link it. As `rt_canvas_auto_step.rs` does
 // for the `AutoPaint` rules, this reads the text out of the file it is declared in,
 // compiles it behind a driver as a plain console program, and runs it: what is run is
@@ -500,7 +500,7 @@ fn model() -> &'static std::path::PathBuf {
         let source = format!(
             "IMPORT bits\nIMPORT collections\nIMPORT io\nIMPORT math\nIMPORT os\nIMPORT vector\n\n{}\n\n{}\n{MODEL_DRIVER}",
             helper_source("helper_shapes.rs", "const TRIG: &str =\nr#\""),
-            helper_source("helper_particles.rs", "pub(super) const MODEL: &str =\nr#\""),
+            helper_source("helper_particles/model.rs", "pub(super) const MODEL: &str =\nr#\""),
         );
         let project = common::temp_project("canvas_particle_model", &source);
         common::build_project(&project)

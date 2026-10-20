@@ -9,7 +9,7 @@
 //! many shapes"), so the software oracle predicting their output means predicting it
 //! through the same structure rather than a parallel one.
 //!
-//! The pixel *writes* live in `helper_items.rs`, not here, and deliberately — see the
+//! The pixel *writes* live in `helper_items/`, not here, and deliberately — see the
 //! comment on `__canvas_drawGeometry` for why a helper that takes and returns the
 //! surface is 290x slower than writing it in place.
 

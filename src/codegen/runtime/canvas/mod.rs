@@ -1134,7 +1134,7 @@ pub(crate) const GEO_KIND_CURVEPOLYGON: &str = "12";
 /// `ITEM_OFFSET_GRADIENT` words as 16.16 values for both GPU shaders.
 pub(crate) const GEO_KIND_TILE: &str = "13";
 /// The doubles one piece of a curve record's tail occupies: `x0, y0, x1, y1, x2, y2,
-/// w1` (`__CANVAS_CURVE_PIECE` in `builtins/canvas/helper_curves.rs`, which
+/// w1` (`__CANVAS_CURVE_PIECE` in `builtins/canvas/helper_curves/pieces.rs`, which
 /// `canvas_curve_piece_width_is_pinned` holds equal to this).
 ///
 /// On both GPUs a piece is TWO slots of the frame's edge region (plan-164-C): its

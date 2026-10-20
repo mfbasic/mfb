@@ -2,7 +2,7 @@
 //! `canvas::pollMouse`, its first user.
 //!
 //! The test is built on the rasteriser's own distance functions — `__canvas_geoDistance`,
-//! the clip distances and the inverse maps in `helper_items.rs` — read from the same
+//! the clip distances and the inverse maps in `helper_items/` — read from the same
 //! geometry records, so "is this point on the shape" is answered by the code that decides
 //! which pixels the shape covers. It adds no distance function of its own.
 //!

@@ -3,7 +3,7 @@
 //! the intersection of two clips.
 //!
 //! These are pure MFBASIC functions
-//! (`src/codegen/builtins/canvas/helper_picture.rs:PICTURE_GEOMETRY`). The compiler is a
+//! (`src/codegen/builtins/canvas/helper_picture/geometry.rs:PICTURE_GEOMETRY`). The compiler is a
 //! binary crate, so a test cannot link that text; this file reads it out of the source
 //! it is declared in — with the two small chunks of `helper_shapes.rs` it calls, the
 //! float helpers and the deterministic sine and cosine — compiles it behind a driver,
@@ -173,7 +173,7 @@ fn cases() -> &'static HashMap<String, HashMap<String, f64>> {
             "IMPORT collections\nIMPORT io\nIMPORT math\nIMPORT vector\n\n{}\n\n{}\n\n{}\n{DRIVER}",
             chunk("helper_shapes.rs", "FLOAT_UTIL"),
             chunk("helper_shapes.rs", "TRIG"),
-            chunk("helper_picture.rs", "PICTURE_GEOMETRY"),
+            chunk("helper_picture/geometry.rs", "PICTURE_GEOMETRY"),
         );
         let project = common::temp_project("canvas_picture_fit", &source);
         let binary = common::build_project(&project);

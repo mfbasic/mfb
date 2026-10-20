@@ -98,7 +98,7 @@ END FUNC"#;
 /// suboptimal: no kept surface, a different surface size, a different item count, and
 /// damage switched off. (plan-150-B: a frame holding a `canvas::ParticleSystem` is
 /// compared by unit instead — a system is one unit — because its item count is its live
-/// particles and changes every frame; `helper_particles.rs:DAMAGE`.) That asymmetry is deliberate — a wrong full frame does not
+/// particles and changes every frame; `helper_particles/damage.rs:DAMAGE`.) That asymmetry is deliberate — a wrong full frame does not
 /// exist, and a wrong partial frame is a stale rectangle nobody will notice until it is
 /// on screen.
 #[rustfmt::skip]

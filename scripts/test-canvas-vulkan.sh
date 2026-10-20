@@ -815,7 +815,7 @@ particle_scene() { # particle_scene <tag> <scene file> <reference png or ''>
     Do NOT regenerate the SPIR-V: the blobs being untouched is the evidence that the
     design held. A particle is a shape with a position, a transform and a paint, so a
     wrong picture here is the composition of those in
-    src/codegen/builtins/canvas/helper_particles.rs (__canvas_particleCompose,
+    src/codegen/builtins/canvas/helper_particles/expand.rs (__canvas_particleCompose,
     __canvas_particleItem) and will be wrong on Metal too under some scene." ;;
   esac
 }

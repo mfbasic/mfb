@@ -2,9 +2,9 @@
 //!
 //! The canvas does not flatten a curve to draw it; this is for a program that wants the
 //! points — to build a `Polygon` or a `PolyLine` of its own, or to measure with. The
-//! work is `helper_curves.rs:__canvas_cvFlatten`: de Casteljau halving until every
+//! work is `helper_curves/pieces.rs:__canvas_cvFlatten`: de Casteljau halving until every
 //! control point of a span is within the tolerance of its chord. That and this
-//! function's own body are `helper_curves.rs:CURVE_FUNCS`, a chunk only a program that
+//! function's own body are `helper_curves/mod.rs:CURVE_FUNCS`, a chunk only a program that
 //! calls this (or `canvas::nurbsToBeziers`) carries.
 
 use crate::codegen::registry::{

@@ -2,8 +2,8 @@
 //! and the chain walk (plan-164-A).
 //!
 //! The reduction is MFBASIC the compiler injects
-//! (`src/codegen/builtins/canvas/helper_curves.rs:CURVE_BASE`, `CURVE_REDUCE`,
-//! `CURVE_VALID`, `CURVE_CHAIN` and `CURVE_NEAREST`). The
+//! (`src/codegen/builtins/canvas/helper_curves/pieces.rs:CURVE_BASE`, `CURVE_VALID` and
+//! `CURVE_NEAREST`; `helper_curves/reduce.rs:CURVE_REDUCE` and `CURVE_CHAIN`). The
 //! compiler is a binary crate, so a test cannot link that text, and the `canvas`
 //! package cannot be imported outside app mode; this file reads the chunks out of
 //! the source file they are declared in, compiles them as a console program behind a
@@ -198,11 +198,11 @@ fn driver() -> &'static PathBuf {
              TYPE Transform\n  a AS Float\n  b AS Float\n  c AS Float\n  d AS Float\n  tx AS Float\n  ty AS Float\nEND TYPE\n\n\
              {}\n\n{}\n\n{}\n\n{}\n\n{}\n\n{}\n{DRIVER}",
             chunk("helper_paint_defaults.rs", "const TRANSFORM_ACTIVE: &str =\nr#\""),
-            chunk("helper_curves.rs", "pub(super) const CURVE_BASE: &str =\nr#\""),
-            chunk("helper_curves.rs", "pub(super) const CURVE_REDUCE: &str =\nr#\""),
-            chunk("helper_curves.rs", "pub(super) const CURVE_VALID: &str =\nr#\""),
-            chunk("helper_curves.rs", "pub(super) const CURVE_CHAIN: &str =\nr#\""),
-            chunk("helper_curves.rs", "pub(super) const CURVE_NEAREST: &str =\nr#\""),
+            chunk("helper_curves/pieces.rs", "pub(super) const CURVE_BASE: &str =\nr#\""),
+            chunk("helper_curves/reduce.rs", "pub(super) const CURVE_REDUCE: &str =\nr#\""),
+            chunk("helper_curves/pieces.rs", "pub(super) const CURVE_VALID: &str =\nr#\""),
+            chunk("helper_curves/reduce.rs", "pub(super) const CURVE_CHAIN: &str =\nr#\""),
+            chunk("helper_curves/pieces.rs", "pub(super) const CURVE_NEAREST: &str =\nr#\""),
         );
         let project = common::temp_project("canvas_curves", &source);
         common::build_project(&project)

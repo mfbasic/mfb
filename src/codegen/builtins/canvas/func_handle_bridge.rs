@@ -145,7 +145,7 @@ fn lower_image_height(
 ///
 /// One call per sampled pixel, and it allocates nothing: `__canvas_drawGeometry` owns
 /// the 2.3 MB surface local, and `collections::set` stays in place only while nothing
-/// allocates beneath it (`helper_items.rs`). Packing the four channels into one word is
+/// allocates beneath it (`helper_items/`). Packing the four channels into one word is
 /// what keeps it one call rather than four.
 ///
 /// The bound is the block's own count, not a width and height the caller also holds, so

@@ -708,7 +708,7 @@ header's box (slots 16-19) ends in a rim sized for the item drawn with no group,
 record says how much: slots 67 and 68 (`__CANVAS_GEO_RIM`, `HEADER_RIM`), the x sides'
 and the y sides', zero for a box that is not an extent and a rim (a glyph run, a text
 box, a picture, an arc). Three sites carry a box through a group's matrix,
-`helper_items.rs:__canvas_drawBound`, `mfb_canvas.vert` and Metal's `mfbVertex`, and all
+`helper_items/geo_read.rs:__canvas_drawBound`, `mfb_canvas.vert` and Metal's `mfbVertex`, and all
 three replace the rim by itself times the Frobenius norm `N` of the groups' inverse:
 lower `(bound + rim) - rim * N`, upper `(bound - rim) + rim * N`. The derivation is in
 `__canvas_drawBound`'s comment. Keep the three in step, and note what they do NOT share:
@@ -1405,7 +1405,7 @@ Lifetime rules, and why:
 * **A record may be in the arena without a slot** (plan-150-B). A particle that is
   neither turned nor scaled is built by `canvas::geoBuild` and appended straight to
   `__CANVAS_GEO_DATA` — no lookup, no slot, no index entry
-  (`helper_particles.rs:__canvas_particleRecord`) — because a particle's hash is its own
+  (`helper_particles/expand.rs:__canvas_particleRecord`) — because a particle's hash is its own
   and new every frame, so the cache only ever missed on it. Nothing new protects that
   offset: it is the first rule above. `canvas::geoBeginFrame` computes stale as "every
   float no slot used", so an unslotted record is stale at the next boundary and is
@@ -1626,7 +1626,7 @@ its arm, and an arm that copies a record is thousands of instructions: the conve
 arms that remain call a hook.
 
 **A record whose every field has a default needs the NAMED gate, not the constructed
-one.** `helper_curves.rs` (plan-164-B) is gated with
+one.** `helper_curves/` (plan-164-B) is gated with
 `HelperGate::WhenCalledOrNamed(&[], &["PolyCurve", "CurvePolygon"])` and its exact
 complement `WhenNeitherCalledNorNamed`: the chunk is in when the program's source names
 either type anywhere — a constructor or any annotation. A constructor gate would be
@@ -1638,7 +1638,7 @@ canvas program; gated, a program with no curve pays 21,652 for the arms and stan
 
 ## 17. A `Picture` is one or two draw entries (plan-172-L)
 
-`helper_picture.rs`. A `canvas::Picture` holds a shape and draws an image inside it, with
+`helper_picture/`. A `canvas::Picture` holds a shape and draws an image inside it, with
 no geometry kind, header slot or shader of its own: a **plain** picture (an image
 stretched over a square-cornered rectangle) is one picture record, and a **shaped** one
 is a picture record with the shape's outline for its clip, followed by the shape itself
