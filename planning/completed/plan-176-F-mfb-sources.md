@@ -225,7 +225,7 @@ Acceptance: the file is formatter-clean and the acceptance suite is unchanged.
   Verified 2026-10-19: `$M fmt --check tests/acceptance` → `All 21 file(s) already formatted`;
   `Tests: 785  Pass: 785  Fail: 0` (same).
   Final gate: budget rows → 0 (after Phase 1's tighten); `grep -c 'examples/money-demo/' tests/guards/file_size_ceilings.txt` → 0.
-Commit: —
+Commit: a5b624356
 
 ## Validation Plan
 
