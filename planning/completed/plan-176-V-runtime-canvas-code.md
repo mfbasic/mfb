@@ -1156,7 +1156,7 @@ every later slot offset or label number and show up as a `DIFF` on all three Vul
   `runtime/thread` row; census → draw_scene mod 469, record 570, finish 243; fns → `emit_item_walk` 305 (largest),
   `emit_record_begin` 264, `emit_finish_frame` 242, `emit_frame_setup` 126, `allocate` 120,
   `emit_park_arguments` 117, `emit_vulkan_draw_scene` 38.
-Commit: —
+Commit: 8917ec555
 
 ## Validation Plan
 
@@ -1213,6 +1213,22 @@ This is the plan-176 final gate, run ONCE after Phase 5, on the commit that land
 - **Coverage:** canvas code is outside `tests/byte-identity/` coverage by design
   (`.ai/testing-gates.md`). It is covered by C1 (change sentinel), the `rt_canvas_*` suites in
   the workspace run, and the GPU box scripts above.
+
+Run 2026-10-20 at 2fd388c8b (V's phases plus a merge of `main`, which had moved 10 commits touching only
+`packages/json_schema`, `packages/cli` and `planning/`):
+- Full workspace suite: `cargo test --workspace --no-fail-fast` → exit 0; the `test result` lines sum to 7820
+  passed, 0 failed, 10 ignored (377 test binaries). The `error`/`panicked` text in the log is printed `mfb man`
+  prose, not a failure.
+- Full artifact gate: `bash scripts/artifact-gate.sh target/release/mfb all` → `1703 tests, 1882 build(s), 2362
+  golden(s) checked, 0 diff(s)`.
+- File-size end state: the budget row grep → 0; `grep -vcE '^(#|$)' tests/guards/file_size_ceilings.txt` → 0;
+  `census.py --seed | grep -c '^ceiling'` → 0 (also 0 after the merge of `main`).
+- `cargo fmt --all -- --check` and the `repository/` workspace's → no diff.
+- **Canvas GPU checks: NOT RUN.** No test machine was up (owner, 2026-10-20: "no test machines are up... just
+  check compile and running on macOS"). Boxes 2228, 2226 and 206 still owe `test-canvas-vulkan.sh` ×2,
+  `test-canvas-gpu-rows.sh` ×2 and `test-winapp.sh`. Standing in: C1 (the four-target `app-mouse-surface`
+  checksums, `SAME` ×4 every canvas phase), `codegen_canvas_vulkan_off_frame_path` (the emitted Vulkan members
+  run in the `-ncode` interpreter) and the macOS `rt_canvas_*` suites in the workspace run.
 
 ## Decisions
 
