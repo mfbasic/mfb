@@ -402,7 +402,7 @@ sends the frame down the readback path, and a FALSE from the readback makes
 `vkQueueWaitIdle`. [[src/target/macos_aarch64/app/metal.rs:SEL_STATUS]]
 [[src/codegen/builtins/canvas/func_metal_draw.rs:lower_metal_draw_scene]]
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_renderMetal]]
-[[src/codegen/runtime/canvas/vulkan/draw_scene.rs:emit_vulkan_draw_scene]]
+[[src/codegen/runtime/canvas/vulkan/draw_scene/finish.rs:emit_finish_frame]]
 
 **No scene size is a limit on a GPU backend: a frame that does not fit the frame buffer
 is drawn in passes.** Every per-item payload travels in one frame buffer whose regions
@@ -611,7 +611,7 @@ one on screen. The child answers `WM_NCHITTEST` with `HTTRANSPARENT` and never t
 focus, so input still reaches the canvas window. Entering canvas mode fits the child to
 the client area and publishes that size as the canvas size, and `WM_SIZE` keeps both
 current.
-[[src/codegen/runtime/canvas/vulkan/draw_scene.rs:emit_vulkan_draw_scene]]
+[[src/codegen/runtime/canvas/vulkan/draw_scene/mod.rs:emit_vulkan_draw_scene]]
 [[src/codegen/runtime/canvas/vulkan/present/swapchain.rs:emit_ensure_swapchain]]
 [[src/codegen/runtime/canvas/vulkan/present/submit.rs:emit_submit_and_present]]
 [[src/target/win_x86_64/app/mod.rs:emit_canvas_child_fit]]

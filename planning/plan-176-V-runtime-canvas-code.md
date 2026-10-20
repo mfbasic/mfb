@@ -1110,22 +1110,22 @@ still pass.
   citation check); guards → 9, 8, 7 + 1 ignored; C1 → `SAME` ×4; cites → 3 moved, `emit_present_resume` stays;
   §10.1 grep → empty; budget → exactly `NEW code 1061 > 1000 …/vulkan/draw_scene.rs`; census → present mod 232 +
   164 test, wsi 183, swapchain 845, render_pass 118, teardown 211, submit 277.
-Commit: —
+Commit: 2d25b8c04
 
 ### Phase 5 — Extract `emit_vulkan_draw_scene` (largest blast radius last)
 
-- [ ] Record in the commit message the §4.5 hoist read: `vulkan/draw_scene.rs` between the last
+- [x] Record in the commit message the §4.5 hoist read: `vulkan/draw_scene.rs` between the last
       R2b allocation and the `vk_pass_word` allocation (orig 7405–7483) holds only
       `builder.emit(...)` calls.
-- [ ] `git mv src/codegen/runtime/canvas/vulkan/draw_scene.rs
+- [x] `git mv src/codegen/runtime/canvas/vulkan/draw_scene.rs
       src/codegen/runtime/canvas/vulkan/draw_scene/mod.rs`. Then add `DrawSceneSlots` and
       `DrawSceneSlots::allocate` (R2a + R2b + the two hoisted slots), `emit_park_arguments`
       (R3) and `emit_frame_setup` (R4, returning `off_render_pass`) in `mod.rs`.
-- [ ] `vulkan/draw_scene/record.rs`: `emit_record_begin` (R5) and `emit_item_walk` (R6).
+- [x] `vulkan/draw_scene/record.rs`: `emit_record_begin` (R5) and `emit_item_walk` (R6).
       `vulkan/draw_scene/finish.rs`: `emit_finish_frame` (R7, the tail call).
-- [ ] Apply the §4.5 renames (`s.off_*`, `s.<label>`, `s.bands`, `s.swapchain`, the two struct
+- [x] Apply the §4.5 renames (`s.off_*`, `s.<label>`, `s.bands`, `s.swapchain`, the two struct
       literals). The remaining `emit_vulkan_draw_scene` matches the §4.5 sketch.
-- [ ] Repoint `app/06_canvas.md:598` → `vulkan/draw_scene/mod.rs:emit_vulkan_draw_scene` and
+- [x] Repoint `app/06_canvas.md:598` → `vulkan/draw_scene/mod.rs:emit_vulkan_draw_scene` and
       `:397` → `vulkan/draw_scene/finish.rs:emit_finish_frame`.
 
 Acceptance: no function under `src/codegen/runtime/` is over 1000 code LOC, and the frame
@@ -1139,6 +1139,23 @@ every later slot offset or label number and show up as a `DIFF` on all three Vul
   Then `cargo clippy --all-targets 2>&1 | grep -c 'draw_scene'` → 0 (est. 3 min). Step 9 shows
   no `runtime/canvas/` or `runtime/thread/` row. Step 10 shows each of
   `draw_scene/{mod,record,finish}.rs` ≤ 900 (est. 20 min total).
+  Done: `v5extract.py` asserted every region boundary of the Phase 4 `draw_scene.rs` (R0 6–21, R1 22–28, R2 29–103,
+  R3 105–239, R4 241–359, R5 361–637, R6 639–978, R7 980–1238; the original lines minus 7302), built
+  `DrawSceneSlots` (58 fields: 8 labels, 46 plain slots, `bands`, `swapchain`, the 2 hoisted; Corrections), its
+  `allocate` (R2 then the two hoisted `allocate_stack_object` lines, unchanged), the remainder (R0 and R1 unchanged,
+  then the six calls) and the five phase fns, renaming code tokens only (`off_X` → `s.off_X` but
+  `off_render_pass`; the 8 labels, `bands`, `swapchain` → `s.X`; never a struct-literal field name).
+  Verified 2026-10-20: `v5verify.py` → R3–R7 `VERBATIM (modulo the renames and rustfmt)` (R3 without its two
+  hoisted lines; comments compared exactly), `allocate` == R2 + the hoisted slots in order, R0 + R1 unchanged in
+  the remainder; no moved body re-binds any of the 58 names (`let`/closure/`for`/`Some(..)` scan → only the two
+  hoisted lets); `cargo check` → 0 warnings; clippy → 37065 (= before); N = 5018; `spec_citations_resolve` +
+  `codegen::runtime::canvas` → 26 passed; guards → 9, 8, 7 + 1 ignored; C1 → `SAME` ×4;
+  `codegen_canvas_vulkan_off_frame_path` → 6 passed; cites → `app/06_canvas.md:405` (the submit/wait claim,
+  re-read in `finish.rs`: no compare follows either call) → `finish.rs:emit_finish_frame`, `:614` →
+  `draw_scene/mod.rs:emit_vulkan_draw_scene`; §10.1 grep → empty; budget → no `runtime/canvas` or
+  `runtime/thread` row; census → draw_scene mod 469, record 570, finish 243; fns → `emit_item_walk` 305 (largest),
+  `emit_record_begin` 264, `emit_finish_frame` 242, `emit_frame_setup` 126, `allocate` 120,
+  `emit_park_arguments` 117, `emit_vulkan_draw_scene` 38.
 Commit: —
 
 ## Validation Plan
@@ -1237,6 +1254,10 @@ This is the plan-176 final gate, run ONCE after Phase 5, on the commit that land
   end state revised for the owner's 2026-10-18 rule (no `exempt` rows exist).
 
 ## Corrections
+
+- 2026-10-20 — §4.5: `DrawSceneSlots` has 46 plain slots, not 47 — the plan's own field list names 46, and its
+  58-field total is 8 + 46 + `bands` + `swapchain` + 2 hoisted. `emit_vulkan_draw_scene` was 1061 code LOC at
+  Phase 3, not 1060, with every region where §4.5 puts it (the original line numbers minus 7302).
 
 - 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text (intro, Goal, Decisions) restated, the 250 test-side `exempt` decision deleted, final gate now expects an empty ceiling file (was 20 `exempt` rows), J's vulkan tests named as the single `vulkan/tests/mod.rs`.
 
