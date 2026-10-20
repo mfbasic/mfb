@@ -607,7 +607,7 @@ element (freeable-flat, not a `String`) that is:
   chain of record fields, when the field it finally yields is a numeric,
   `Boolean`, `Byte` or enum value. The field is loaded before anything else
   runs, so the address is dead when the chain ends. Any container, `get` or
-  `getOr`. [[src/codegen/memory/value/builder_value_semantics.rs:scalar_field_of_borrowable_get]]
+  `getOr`. [[src/codegen/memory/value/builder_value_semantics/field_access.rs:scalar_field_of_borrowable_get]]
 - **A binding read only as a borrow.** `LET e = get(xs, i)` whose every read is
   a field access or a `MATCH` over it (with that match's variant extracts), and
   which is never stored, returned, passed, captured or reassigned whole — and

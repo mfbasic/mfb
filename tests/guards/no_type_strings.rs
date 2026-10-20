@@ -414,7 +414,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// `ir/lower/mod.rs`'s `binding_types` (keyed by variable name),
 /// `monomorph`'s and `codegen`'s `function_types` / `package_return_types`
 /// (function name), `ir/resource_escape.rs`'s `decl_type` (declaration name),
-/// `data_objects.rs`'s local `types` (parameter name), `ir::verify`'s and
+/// `data_objects/`'s local `types` (parameter name), `ir::verify`'s and
 /// `monomorph`'s `globals` (binding name), `ir/shape/`'s `state_dropped`
 /// (local name), codegen's and NIR's `resource_owners` / `owner_collections`
 /// (binding name), and `function_lowering.rs`'s `union_extract_reads` (local
@@ -440,7 +440,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// `globals`, `ir/resource_escape.rs`'s `decl_type`, `ir/shape/`'s
 /// `state_dropped`, codegen's and NIR's `resource_owners` /
 /// `owner_collections` / `promoted_vector_locals`,
-/// `function_lowering.rs`'s `union_extract_reads`, and `data_objects.rs`'s
+/// `function_lowering.rs`'s `union_extract_reads`, and `data_objects/`'s
 /// local `types`. Keyed by a **function or symbol name**: `function_types`,
 /// `package_return_types`, `imported_overloads`, `concrete_symbol_keys`.
 /// **Wire type-table companions**: `binary_repr`'s `TypeTable::foreign_types`

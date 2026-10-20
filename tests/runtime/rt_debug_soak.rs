@@ -667,7 +667,7 @@ fn an_attributed_string_with_an_attribute_keeps_live_bytes_constant() {
 
 /// bug-625 B: a defaulted record frees the default field values it byte-copies inline
 /// (48 B per record before the fix — the `fromString` hazard in `lower_default_value`'s
-/// record arm, `builder_value_semantics.rs`).
+/// record arm, `builder_value_semantics/default_value.rs`).
 #[test]
 fn a_defaulted_record_keeps_live_bytes_constant() {
     assert_live_bytes_within(

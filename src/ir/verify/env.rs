@@ -444,7 +444,7 @@ impl TypeEnv {
         // type spelling differs.
         //
         // This is the front-end twin of the same strip in
-        // `lower_field_access` (`memory/value/builder_value_semantics.rs`), and
+        // `lower_field_access` (`memory/value/builder_value_semantics/field_access.rs`), and
         // BOTH are needed. `split_state` matches `Stateful` only at the top
         // level, so `Res(Stateful{..}).state()` is `None`: without the strip
         // here, `h.handle.state` is refused by the type checker before codegen

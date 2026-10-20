@@ -146,7 +146,7 @@ holders share one, so no reference counting is needed and none is done.
 - **Static descriptors are shared.** A `FunctionRef` (`env = 0`) owns no memory:
   copying it returns the same pointer, dropping it does nothing, and it is never a
   statement temporary. A null function value (the default an inline `TRAP` binds
-  before its `RECOVER` value, never called) is treated the same way. [[src/codegen/memory/value/builder_value_semantics.rs:lower_default_value]]
+  before its `RECOVER` value, never called) is treated the same way. [[src/codegen/memory/value/builder_value_semantics/default_value.rs:lower_default_value]]
 
 Because a function value owns its closure, a `FUNC` field makes its record (and
 anything that holds that record) non-flat: its slot is a pointer edge, and the

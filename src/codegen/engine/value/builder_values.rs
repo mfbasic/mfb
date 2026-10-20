@@ -2140,7 +2140,7 @@ impl CodeBuilder<'_> {
         match value {
             NirValue::Const { type_, value } => {
                 // A Const String is always intercepted by `static_string_value`
-                // above (builder_value_semantics.rs:562 returns Some for it), so this
+                // above (`static_string_value`, builder_value_semantics/static_eval.rs, returns Some for it), so this
                 // arm only reaches non-String scalar constants. bug-175 C: the dead
                 // `*type_ == ParameterType::String` branch was removed.
                 let register = self.allocate_register();

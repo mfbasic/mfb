@@ -155,7 +155,7 @@ a resource union likewise occupies that word as a pointer to its union box.
 The result is memcpy-copyable only when its success type is: recursive and
 function payloads require graph copying, and resource/thread payloads follow their
 ownership and transfer rules.
-[[src/codegen/memory/value/builder_value_semantics.rs:result_payload_is_block]]
+[[src/codegen/memory/value/builder_value_semantics/mod.rs:result_payload_is_block]]
 [[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]]
 
 An inline `TRAP`'s own `Result` temporaries usually have no block at all. A

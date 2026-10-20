@@ -39,7 +39,7 @@ lowers all ten emitters and asserts the `ErrResourceClosed` relocation (the only
 instrument that reaches Schannel and WASAPI from a Mac), and
 `tests/rt_double_close_is_refused.rs` measures it at runtime for
 `fs`/`tcp`/`udp`/`tls`. `audio::close` needed `ErrResourceClosed` added to
-`data_objects.rs`'s per-package gate; a scope-exit close is emitted by cleanup
+`string_symbols`' per-package gate (`memory/data/data_objects/mod.rs`); a scope-exit close is emitted by cleanup
 rather than as a NIR call, which is the same trap bug-249 records for `tls`.
 
 ## `udp::bind` does not validate the port — a negative port SUCCEEDS

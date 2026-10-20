@@ -366,7 +366,7 @@ source binding was initialized. Its closed flag makes cleanup a no-op. Internal
 slot initialization and source-level definite initialization are different facts
 (handler-local definite initialization is §8.6a).
 [[src/ir/lower/inline_trap.rs:lower_inline_trap]]
-[[src/codegen/memory/value/builder_value_semantics.rs:emit_closed_resource_record]]
+[[src/codegen/memory/value/builder_value_semantics/default_value.rs:emit_closed_resource_record]]
 
 This rule does not change the built-in `Error` shape: A secondary close failure is not directly inspectable by ordinary source code through the built-in `Error` value.
 

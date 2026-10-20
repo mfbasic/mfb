@@ -1455,7 +1455,7 @@ pub(crate) struct TypeModel {
     pub(crate) record_fields: HashMap<ParameterType, Vec<(String, ParameterType)>>,
     pub(crate) union_names: HashSet<ParameterType>,
     /// A union VARIANT type -> the union type that declares it. Both halves
-    /// are types (`builder_value_semantics.rs` looks a variant up and then reads
+    /// are types (`builder_value_semantics/` looks a variant up and then reads
     /// the resulting union's tag).
     pub(crate) union_variants: HashMap<ParameterType, ParameterType>,
     pub(crate) union_variant_unions: HashMap<ParameterType, HashSet<ParameterType>>,

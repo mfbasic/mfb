@@ -130,7 +130,7 @@ calls the static-string fold evaluates, so a call with static, out-of-range
 arguments still compiles and raises the catchable runtime error, never a build
 error. Eligible self-assignments can reuse the slice window after the same
 range checks.
-[[src/codegen/memory/value/builder_value_semantics.rs:static_string_value]]
+[[src/codegen/memory/value/builder_value_semantics/static_eval.rs:static_string_value]]
 [[src/codegen/collection/search/builder_search.rs:lower_mid_string_window]]
 
 ## `find` semantics — scalar in, scalar out

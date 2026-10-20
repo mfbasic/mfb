@@ -155,7 +155,7 @@ impl FunctionPlanBuilder<'_> {
                         // string literal appearing only in a `WHEN` guard was
                         // omitted from `PlannedFunction.calls`/`string_literals`.
                         // Every sibling pass walks guards (`plan/symbols.rs`,
-                        // `code/data_objects.rs`); bug-118 fixed this exact
+                        // `memory/data/data_objects/`); bug-118 fixed this exact
                         // omission in `plan/symbols.rs` and overlooked this one.
                         if let Some(guard) = &case.guard {
                             self.lower_value(guard)?;

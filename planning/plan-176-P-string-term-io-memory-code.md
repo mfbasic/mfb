@@ -575,23 +575,33 @@ Acceptance: the terminal backend and grid emit identical code on every target.
   Verified 2026-10-19: `codegen::term` → `ok. 6 passed` (= G0's 6, incl. the 2 grid tests); G2 term, io → 0 diffs;
   check warnings 0; `spec_citations_resolve` ok; old-path grep → 0; budget → two STALE rows (2824, 1502) before, none
   after; census → term 544 + 234/297/296/165/727/582, term_grid 326/60 + 525/407/253.
-Commit: —
+Commit: 256de1a6f
 
 ### Phase 4 — Memory values: `data_objects.rs`, `builder_value_semantics.rs`
 
-- [ ] §4.5: split `data_objects.rs` into `data_objects/{mod,string_values,unicode_tables,static_names}.rs`;
+- [x] §4.5: split `data_objects.rs` into `data_objects/{mod,string_values,unicode_tables,static_names}.rs`;
       the 8-item re-export and `use string_values::*;`; 3 `pub(super)` edits; rewrite the 1
       citation; `.ai/resources-packages.md:387, 486` (incl. the stale `ERR_*_MESSAGE` fix),
       `.ai/net-tls.md:42`.
-- [ ] §4.6: split `builder_value_semantics.rs` into `builder_value_semantics/{mod,default_value,field_access,static_eval}.rs`;
+      Done: `codesplit.py` → 7, 2, 6 items; exactly the 3 `pub(super)`; `citesweep.py` → 1; `.ai` as §4.5 (the
+      `ERR_*_MESSAGE` fix re-checked: `grep -rn 'ERR_[A-Z_]*_MESSAGE' src` outside docs → 0).
+- [x] §4.6: split `builder_value_semantics.rs` into `builder_value_semantics/{mod,default_value,field_access,static_eval}.rs`;
       rewrite the 6 citations; `.ai/collections.md:526`, `.ai/resources-packages.md:28, 61`.
-- [ ] Tighten and commit the ceiling file.
+      Done: `items.py split` → 7, 8, 16 methods; 0 visibility edits; `citesweep.py` → 7 (one added since). Also 11
+      unlisted comments naming the two old paths (incl. a stale `builder_value_semantics.rs:562` → `static_string_value`
+      in `static_eval.rs`, and the `default-values-rt` fixture's comment — its goldens re-run: `test-accept.sh …
+      'default-values-rt'` → 1 passed).
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: static data and value semantics emit identical code.
   Check: `cargo build --release && cargo test -p mfb --bin mfb -- codegen::memory::data codegen::memory::value`
   → pass (incl. the 4 `data_objects` tests), count before == after (est. 6 min).
   `sh scripts/artifact-gate.sh target/release/mfb general`, `… strings`, `… collections`,
   `… fs` (resource default values) → 0 diffs each (est. 1 min each).
+  Verified 2026-10-19: `codegen::memory::data codegen::memory::value` → `ok. 4 passed` (= G0's 4); G2 general,
+  strings, collections, fs → 0 diffs; check warnings 0; `spec_citations_resolve` ok; `no_type_strings` → 7 + 1
+  ignored; old-path grep → 0; budget → two STALE rows (1496, 1336) before, none after; census → data_objects
+  666/176 + 464/191/188, builder_value_semantics 229 + 385/272/462.
 Commit: —
 
 ### Phase 5 — Arena: `arena/arena.rs`, `builder_arena_transfer.rs` (largest blast radius)
