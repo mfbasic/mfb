@@ -45,10 +45,9 @@ FUNC main() AS Integer
   LET network AS logger::LogBackend = logger::NetworkBackend[socket := client]
   LET callback AS logger::LogBackend = logger::CustomBackend[callback := ignore]
   LET entry AS logger::LogEntry = logger::LogEntry[level := logger::LogLevel.INFO, timestamp := "2026-01-01T00:00:00Z", message := "ok"]
-  LET common AS List OF logger::LogBackend = [console, fileBackend, network, callback]
-  LET levels AS Map OF logger::LogLevel TO List OF logger::LogBackend = Map OF logger::LogLevel TO List OF logger::LogBackend {logger::LogLevel.INFO := [callback]}
-  LET configured AS logger::Logger = logger::Logger[common := common, backends := levels]
-  io::print(entry.message & ":" & toString(len(configured.common)) & ":" & toString(tcp::localAddress(peer).port > 0))
+  LET backends AS List OF logger::LogBackend = [console, fileBackend, network, callback]
+  LET configured AS logger::Logger = logger::Logger[minLevel := logger::LogLevel.INFO, backends := backends]
+  io::print(entry.message & ":" & toString(len(configured.backends)) & ":" & toString(tcp::localAddress(peer).port > 0))
   ' formatEntry is exported too, and renders without touching any handle.
   io::print(logger::formatEntry(entry))
   RETURN 0

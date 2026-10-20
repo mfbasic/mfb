@@ -3,8 +3,19 @@ IMPORT datetime
 IMPORT errorCode
 IMPORT fs
 IMPORT io
+IMPORT regex
 IMPORT strings
 IMPORT tcp
+
+' Enums are comparable but not orderable, so severity is compared through a rank.
+PRIVATE FUNC levelRank(level AS LogLevel) AS Integer
+  MATCH level
+    CASE LogLevel.DEBUG : RETURN 0
+    CASE LogLevel.INFO : RETURN 1
+    CASE LogLevel.WARN : RETURN 2
+    CASE LogLevel.ERROR : RETURN 3
+  END MATCH
+END FUNC
 
 PRIVATE FUNC levelName(level AS LogLevel) AS String
   MATCH level
@@ -13,17 +24,46 @@ PRIVATE FUNC levelName(level AS LogLevel) AS String
     CASE LogLevel.WARN : RETURN "WARN"
     CASE LogLevel.ERROR : RETURN "ERROR"
   END MATCH
-  FAIL error(errorCode::ErrInvalidArgument, "logger: unknown log level")
 END FUNC
 
-' Keep one entry on one line. A newline in the message would otherwise end the
-' entry and let whatever follows it read back as a complete, indistinguishable
-' entry of its own -- at any level and any timestamp -- on the console, in the
-' file, and on the socket alike. Written as the two characters `\` and `n`, the
-' same escape a reader already knows how to undo.
-PUBLIC FUNC escapeMessage(message AS String) AS String
-  IF strings::count(message, "\r") = 0 AND strings::count(message, "\n") = 0 THEN RETURN message
-  RETURN strings::replace(strings::replace(message, "\r", "\\r"), "\n", "\\n")
+' Uppercase hexadecimal, without a prefix and without leading zeros.
+PRIVATE FUNC hexDigits(value AS Integer) AS String
+  LET digits AS String = "0123456789ABCDEF"
+  MUT rest AS Integer = value
+  MUT out AS String = ""
+  DO
+    out = strings::mid(digits, rest MOD 16, 1) & out
+    rest = rest / 16
+  LOOP UNTIL rest = 0
+  RETURN out
+END FUNC
+
+' The escape for one scalar. The printable ASCII range passes through unchanged,
+' and so does any other scalar that is a letter, mark, number, punctuation,
+' symbol, or the ASCII space. Everything else is a control, a format character,
+' a separator, or unassigned, and is written as \u{HEX}.
+PRIVATE FUNC escapeScalar(c AS Scalar) AS String
+  IF c = `\\` THEN RETURN "\\\\"
+  IF c = `\n` THEN RETURN "\\n"
+  IF c = `\r` THEN RETURN "\\r"
+  IF c = `\t` THEN RETURN "\\t"
+  IF toInt(c) >= 32 AND toInt(c) <= 126 THEN RETURN toString(c)
+  IF regex::match(toString(c), "^[\\p{L}\\p{M}\\p{N}\\p{P}\\p{S} ]$") THEN RETURN toString(c)
+  RETURN "\\u{" & hexDigits(toInt(c)) & "}"
+END FUNC
+
+' Keep one entry on one line, and keep what a reader sees faithful to what was
+' logged. A backslash is doubled, so every escape in the output is unambiguous.
+' Written as the escapes in escapeScalar, the output has no control, format,
+' separator, or unassigned character, so it cannot end the line, forge a second
+' entry, or drive the terminal.
+PRIVATE FUNC escapeMessage(message AS String) AS String
+  IF NOT regex::match(message, "\\\\|[^\\p{L}\\p{M}\\p{N}\\p{P}\\p{S} ]") THEN RETURN message
+  MUT out AS String = ""
+  FOR EACH c IN strings::toScalars(message)
+    out = out & escapeScalar(c)
+  NEXT
+  RETURN out
 END FUNC
 
 DOC
@@ -38,7 +78,6 @@ DOC
   DESC line the others got.
   ARG entry The entry to render.
   RET The formatted line, with no trailing newline.
-  ERROR 77050002 `entry.level` is not one of the four `LogLevel` members.
   EXAMPLE
     IMPORT io
     IMPORT logger
@@ -55,6 +94,33 @@ EXPORT FUNC formatEntry(entry AS LogEntry) AS String
   RETURN "[" & entry.timestamp & "] [" & levelName(entry.level) & "] " & escapeMessage(entry.message)
 END FUNC
 
+DOC
+  FUNC isEnabled
+  GROUP Logging
+  DESC Report whether `logger::log` delivers an entry at `level` under this
+  DESC configuration. Use it to skip building an expensive message that would be
+  DESC dropped anyway.
+  ARG config The configured minimum level.
+  ARG level The level being considered.
+  RET TRUE when `level` is at least `config.minLevel`.
+  EXAMPLE
+    IMPORT io
+    IMPORT logger
+
+    FUNC main() AS Integer
+      LET app AS logger::Logger = logger::Logger[minLevel := logger::LogLevel.WARN, backends := []]
+      io::print(toString(logger::isEnabled(app, logger::LogLevel.INFO)))
+      io::print(toString(logger::isEnabled(app, logger::LogLevel.ERROR)))
+      ' FALSE
+      ' TRUE
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC isEnabled(config AS Logger, level AS LogLevel) AS Boolean
+  RETURN levelRank(level) >= levelRank(config.minLevel)
+END FUNC
+
 PRIVATE FUNC doLog(backend AS LogBackend, entry AS LogEntry, formattedText AS String) AS Nothing
   MATCH backend
     CASE ConsoleBackend(console)
@@ -69,33 +135,27 @@ PRIVATE FUNC doLog(backend AS LogBackend, entry AS LogEntry, formattedText AS St
       ' Handed the structured entry, including the message exactly as logged.
       LET callback AS FUNC(LogEntry) AS Nothing = customBackend.callback
       callback(entry)
-    CASE ELSE
-      FAIL error(errorCode::ErrInvalidArgument, "logger: unknown backend")
   END MATCH
 END FUNC
 
 DOC
   FUNC log
   GROUP Logging
-  DESC Timestamp `msg`, format it, and deliver it to every backend `logger`
-  DESC routes it to.
+  DESC Timestamp `msg`, format it, and deliver it to every backend in `config`,
+  DESC if `level` is at least `config.minLevel`.
   DESC
-  DESC The common backends are delivered first, in list order, then the backends
-  DESC configured for exactly this level, in list order. A backend in both lists
-  DESC is called twice. Delivery is synchronous and in order: when `log` returns,
-  DESC every backend has been called.
+  DESC Delivery is synchronous and in list order: when `log` returns, every
+  DESC backend has been called. The timestamp is read once, from
+  DESC `datetime::now()` in UTC, so every backend reached by this call records
+  DESC the same instant.
   DESC
-  DESC The timestamp is read once, from `datetime::now()` in UTC, so every
-  DESC backend reached by this call records the same instant.
-  DESC
-  DESC Nothing is swallowed. A file write or socket write that fails, or a
-  DESC callback that fails, propagates out of `log` — and stops the fan-out, so
-  DESC backends later in the order do not receive that entry.
-  ARG logger The configured backends and their routing.
-  ARG level The entry's severity, and the key routed on.
-  ARG msg The message. Carriage returns and line feeds are escaped so the entry stays on one line; `CustomBackend` still receives the message unmodified.
+  DESC Every backend is attempted, even after one fails. If any fail, `log` fails
+  DESC with the first failure, after the last backend has been tried. A failing
+  DESC backend therefore never stops the others from receiving the entry.
+  ARG config The minimum level and the backends.
+  ARG level The entry's severity.
+  ARG msg The message. Control and format characters are escaped so the entry stays on one line; `CustomBackend` still receives the message unmodified.
   RET Nothing.
-  ERROR 77050002 `level` is not one of the four `LogLevel` members, or a backend is not one of the four `LogBackend` members.
   EXAMPLE
     IMPORT io
     IMPORT logger
@@ -107,26 +167,28 @@ DOC
     FUNC main() AS Integer
       LET console AS logger::LogBackend = logger::ConsoleBackend[]
       LET custom AS logger::LogBackend = logger::CustomBackend[callback := count]
-      LET byLevel AS Map OF logger::LogLevel TO List OF logger::LogBackend = Map OF logger::LogLevel TO List OF logger::LogBackend {logger::LogLevel.ERROR := [custom]}
-      LET app AS logger::Logger = logger::Logger[common := [console], backends := byLevel]
+      LET app AS logger::Logger = logger::Logger[minLevel := logger::LogLevel.INFO, backends := [console, custom]]
+      logger::log(app, logger::LogLevel.DEBUG, "dropped")
       logger::log(app, logger::LogLevel.INFO, "started")
       logger::log(app, logger::LogLevel.ERROR, "request failed")
       RETURN 0
     END FUNC
   END EXAMPLE
 END DOC
-EXPORT FUNC log(logger AS Logger, level AS LogLevel, msg AS String) AS Nothing
+EXPORT FUNC log(config AS Logger, level AS LogLevel, msg AS String) AS Nothing
+  IF NOT isEnabled(config, level) THEN RETURN
+  IF len(config.backends) = 0 THEN RETURN
   LET timestamp AS String = datetime::toIso(datetime::toUtc(datetime::now()))
   LET entry AS LogEntry = LogEntry[level := level, timestamp := timestamp, message := msg]
   LET formattedText AS String = formatEntry(entry)
-  FOR EACH backend IN logger.common
-    doLog(backend, entry, formattedText)
+  MUT failures AS List OF Error = []
+  FOR EACH backend IN config.backends
+    doLog(backend, entry, formattedText) TRAP(e)
+      failures = collections::append(failures, e)
+      RECOVER
+    END TRAP
   NEXT
-  IF collections::hasKey(logger.backends, level) THEN
-    FOR EACH backend IN collections::get(logger.backends, level)
-      doLog(backend, entry, formattedText)
-    NEXT
-  END IF
+  IF len(failures) > 0 THEN FAIL collections::get(failures, 0)
 END FUNC
 
 MUT testTrace AS String = ""
@@ -145,8 +207,13 @@ FUNC levelCallback(entry AS LogEntry) AS Nothing
   testTrace = testTrace & "L"
 END FUNC
 
+FUNC failingCallback(entry AS LogEntry) AS Nothing
+  testTrace = testTrace & "F"
+  FAIL error(errorCode::ErrInvalidArgument, "backend refused the entry")
+END FUNC
+
 TESTING
-  TGROUP "formatting and dispatch"
+  TGROUP "formatting"
     TCASE "formats every level"
       expectString(formatEntry(LogEntry[level := LogLevel.DEBUG, timestamp := "2026-01-02T03:04:05Z", message := "debug"]), "[2026-01-02T03:04:05Z] [DEBUG] debug")
       expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "2026-01-02T03:04:05Z", message := "info"]), "[2026-01-02T03:04:05Z] [INFO] info")
@@ -171,60 +238,93 @@ TESTING
       expectString(line, "[2026-01-02T03:04:05Z] [INFO] real\\rfake")
     END TCASE
 
-    TCASE "escaping leaves an ordinary message untouched"
-      expectString(escapeMessage("plain text with \\n written out"), "plain text with \\n written out")
-      expectString(escapeMessage(""), "")
-      expectString(escapeMessage("a\r\nb"), "a\\r\\nb")
+    TCASE "a tab is escaped"
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "T", message := "a\tb"]), "[T] [INFO] a\\tb")
     END TCASE
 
-    TCASE "routes common before exact level and preserves duplicates"
-      testTrace = ""
-      testMessage = ""
-      testTimestamp = ""
-      LET common AS LogBackend = CustomBackend[callback := commonCallback]
-      LET specific AS LogBackend = CustomBackend[callback := levelCallback]
-      LET routes AS Map OF LogLevel TO List OF LogBackend = Map OF LogLevel TO List OF LogBackend {LogLevel.INFO := [specific, common]}
-      LET configured AS Logger = Logger[common := [common], backends := routes]
-      log(configured, LogLevel.INFO, "started")
-      expectString(testTrace, "CLC")
-      expectEqual(testLevel = LogLevel.INFO, TRUE)
-      expectString(testMessage, "started")
-      expectEqual(testTimestamp <> "", TRUE)
+    TCASE "a backslash is doubled, so a literal escape stays distinct from a control"
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "T", message := "C:\\new"]), "[T] [INFO] C:\\\\new")
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "T", message := "a\\nb"]), "[T] [INFO] a\\\\nb")
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "T", message := "a\nb"]), "[T] [INFO] a\\nb")
     END TCASE
 
-    TCASE "does not route an absent level"
+    TCASE "terminal escape sequences cannot reach the console"
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "T", message := "\u{1B}[2J"]), "[T] [INFO] \\u{1B}[2J")
+    END TCASE
+
+    TCASE "NUL, DEL and C1 controls are escaped"
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "T", message := "a\u{0}b\u{7F}c\u{85}d"]), "[T] [INFO] a\\u{0}b\\u{7F}c\\u{85}d")
+    END TCASE
+
+    TCASE "line and paragraph separators are escaped"
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "T", message := "a\u{2028}b\u{2029}c"]), "[T] [INFO] a\\u{2028}b\\u{2029}c")
+    END TCASE
+
+    TCASE "bidirectional overrides are escaped"
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "T", message := "x\u{202E}y"]), "[T] [INFO] x\\u{202E}y")
+    END TCASE
+
+    TCASE "a non-ASCII space is escaped"
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "T", message := "a\u{A0}b"]), "[T] [INFO] a\\u{A0}b")
+    END TCASE
+
+    TCASE "ordinary text and non-ASCII letters, marks, and symbols pass through unchanged"
+      expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := "T", message := "café 中文 — ok 😀 ~!?"]), "[T] [INFO] café 中文 — ok 😀 ~!?")
+    END TCASE
+  END TGROUP
+
+  TGROUP "threshold"
+    TCASE "isEnabled compares severity, not text"
+      LET app AS Logger = Logger[minLevel := LogLevel.WARN, backends := []]
+      expectEqual(isEnabled(app, LogLevel.DEBUG), FALSE)
+      expectEqual(isEnabled(app, LogLevel.INFO), FALSE)
+      expectEqual(isEnabled(app, LogLevel.WARN), TRUE)
+      expectEqual(isEnabled(app, LogLevel.ERROR), TRUE)
+    END TCASE
+
+    TCASE "entries below the minimum are dropped"
       testTrace = ""
       LET common AS LogBackend = CustomBackend[callback := commonCallback]
-      LET configured AS Logger = Logger[common := [common], backends := Map OF LogLevel TO List OF LogBackend {}]
-      log(configured, LogLevel.WARN, "only common")
+      LET app AS Logger = Logger[minLevel := LogLevel.WARN, backends := [common]]
+      log(app, LogLevel.DEBUG, "quiet")
+      log(app, LogLevel.INFO, "quiet")
+      expectString(testTrace, "")
+      log(app, LogLevel.WARN, "loud")
       expectString(testTrace, "C")
     END TCASE
 
-    TCASE "routing is by exact level, never by threshold"
+    TCASE "an entry reaches every backend at or above the minimum, in list order"
       testTrace = ""
-      LET common AS LogBackend = CustomBackend[callback := commonCallback]
-      LET specific AS LogBackend = CustomBackend[callback := levelCallback]
-      LET routes AS Map OF LogLevel TO List OF LogBackend = Map OF LogLevel TO List OF LogBackend {LogLevel.WARN := [specific]}
-      LET configured AS Logger = Logger[common := [common], backends := routes]
-      log(configured, LogLevel.ERROR, "more severe than WARN")
-      expectString(testTrace, "C")
-      log(configured, LogLevel.WARN, "exactly WARN")
-      expectString(testTrace, "CCL")
+      LET first AS LogBackend = CustomBackend[callback := levelCallback]
+      LET second AS LogBackend = CustomBackend[callback := commonCallback]
+      LET app AS Logger = Logger[minLevel := LogLevel.INFO, backends := [first, second]]
+      log(app, LogLevel.ERROR, "failed")
+      expectString(testTrace, "LC")
+      expectEqual(testLevel = LogLevel.ERROR, TRUE)
+      expectString(testMessage, "failed")
     END TCASE
 
-    TCASE "a logger with no backends at all delivers nothing"
+    TCASE "a backend listed twice is called twice"
       testTrace = ""
-      LET configured AS Logger = Logger[common := [], backends := Map OF LogLevel TO List OF LogBackend {}]
-      log(configured, LogLevel.DEBUG, "into the void")
+      LET common AS LogBackend = CustomBackend[callback := commonCallback]
+      LET app AS Logger = Logger[minLevel := LogLevel.DEBUG, backends := [common, common]]
+      log(app, LogLevel.INFO, "twice")
+      expectString(testTrace, "CC")
+    END TCASE
+
+    TCASE "a logger with no backends delivers nothing"
+      testTrace = ""
+      LET app AS Logger = Logger[minLevel := LogLevel.DEBUG, backends := []]
+      log(app, LogLevel.ERROR, "into the void")
       expectString(testTrace, "")
     END TCASE
 
-    TCASE "a callback receives the message unsanitized"
+    TCASE "a callback receives the message unescaped"
       testTrace = ""
       testMessage = ""
       LET common AS LogBackend = CustomBackend[callback := commonCallback]
-      LET configured AS Logger = Logger[common := [common], backends := Map OF LogLevel TO List OF LogBackend {}]
-      log(configured, LogLevel.INFO, "two\nlines")
+      LET app AS Logger = Logger[minLevel := LogLevel.DEBUG, backends := [common]]
+      log(app, LogLevel.INFO, "two\nlines")
       expectString(testMessage, "two\nlines")
     END TCASE
 
@@ -232,11 +332,44 @@ TESTING
       testTrace = ""
       testTimestamp = ""
       LET common AS LogBackend = CustomBackend[callback := commonCallback]
-      LET configured AS Logger = Logger[common := [common], backends := Map OF LogLevel TO List OF LogBackend {LogLevel.INFO := [common]}]
-      log(configured, LogLevel.INFO, "twice")
+      LET app AS Logger = Logger[minLevel := LogLevel.DEBUG, backends := [common, common]]
+      log(app, LogLevel.INFO, "twice")
       expectString(testTrace, "CC")
       LET first AS String = testTimestamp
       expectString(formatEntry(LogEntry[level := LogLevel.INFO, timestamp := first, message := "twice"]), "[" & first & "] [INFO] twice")
+    END TCASE
+  END TGROUP
+
+  TGROUP "failure"
+    TCASE "a failing backend does not stop the ones after it"
+      testTrace = ""
+      LET broken AS LogBackend = CustomBackend[callback := failingCallback]
+      LET common AS LogBackend = CustomBackend[callback := commonCallback]
+      LET app AS Logger = Logger[minLevel := LogLevel.DEBUG, backends := [broken, common]]
+      log(app, LogLevel.INFO, "still delivered") TRAP(e)
+        expectInteger(e.code, errorCode::ErrInvalidArgument)
+        RECOVER
+      END TRAP
+      expectString(testTrace, "FC")
+    END TCASE
+
+    TCASE "log fails with the failure a backend raised"
+      testTrace = ""
+      LET broken AS LogBackend = CustomBackend[callback := failingCallback]
+      LET app AS Logger = Logger[minLevel := LogLevel.DEBUG, backends := [broken, broken]]
+      log(app, LogLevel.INFO, "two failures") TRAP(e)
+        expectString(e.message, "backend refused the entry")
+        RECOVER
+      END TRAP
+      expectString(testTrace, "FF")
+    END TCASE
+
+    TCASE "a successful delivery does not fail"
+      testTrace = ""
+      LET common AS LogBackend = CustomBackend[callback := commonCallback]
+      LET app AS Logger = Logger[minLevel := LogLevel.DEBUG, backends := [common]]
+      log(app, LogLevel.INFO, "fine")
+      expectString(testTrace, "C")
     END TCASE
   END TGROUP
 END TESTING

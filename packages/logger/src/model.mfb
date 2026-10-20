@@ -1,17 +1,15 @@
-IMPORT collections
 IMPORT fs
 IMPORT tcp
 
 DOC
   PACKAGE
-  DESC One-line UTC log entries, dispatched in order to the console, an open
+  DESC One-line UTC log entries, delivered in order to the console, an open
   DESC file, a connected socket, and your own code.
   DESC
-  DESC A `logger::Logger` holds two things: a list of backends that receive
-  DESC every entry, and a map from `logger::LogLevel` to the backends that
-  DESC receive only entries at exactly that level. `logger::log` formats the
-  DESC entry once and delivers it to the common list first, then to the list
-  DESC configured for that level.
+  DESC A `logger::Logger` holds a minimum level and a list of backends. Every
+  DESC `logger::log` call below the minimum level returns before any work is
+  DESC done. Otherwise the entry is timestamped and formatted once, and the same
+  DESC line is delivered to every backend, in list order.
   EXAMPLE
     IMPORT fs
     IMPORT logger
@@ -25,54 +23,58 @@ DOC
       LET console AS logger::LogBackend = logger::ConsoleBackend[]
       LET toFile AS logger::LogBackend = logger::FileBackend[file := file]
       LET custom AS logger::LogBackend = logger::CustomBackend[callback := audit]
-      LET byLevel AS Map OF logger::LogLevel TO List OF logger::LogBackend = Map OF logger::LogLevel TO List OF logger::LogBackend {logger::LogLevel.ERROR := [custom]}
-      LET app AS logger::Logger = logger::Logger[common := [console, toFile], backends := byLevel]
+      LET app AS logger::Logger = logger::Logger[minLevel := logger::LogLevel.INFO, backends := [console, toFile, custom]]
 
+      logger::log(app, logger::LogLevel.DEBUG, "not delivered")
       logger::log(app, logger::LogLevel.INFO, "started")
       logger::log(app, logger::LogLevel.ERROR, "request failed")
       RETURN 0
     END FUNC
   END EXAMPLE
   DESC
-  DESC The `ERROR` call above reaches `custom` after both common backends; the
-  DESC `INFO` call does not reach it at all. Routing is by exact level, never by
-  DESC threshold: a backend listed under `WARN` does not see `ERROR`. List a
-  DESC backend under every level you want it to see, or put it in `common`.
+  DESC Routing is by threshold, the convention of mainstream logging libraries:
+  DESC an entry reaches every backend when its level is at least `minLevel`.
+  DESC To send different levels to different destinations, use one `Logger` per
+  DESC threshold, or a `CustomBackend` whose callback checks `entry.level`.
   DESC
-  DESC A backend that appears in both lists is called twice, deliberately — the
-  DESC package delivers what you configured rather than deduplicating behind
-  DESC your back.
-  DESC
-  DESC Filtering by level is the caller's: there is no minimum level, because a
-  DESC `Logger` whose map leaves a level out already delivers nothing extra for
-  DESC it, and a `Logger` with an empty `common` list delivers nothing else.
+  DESC Failures. Every backend is attempted, even after an earlier one fails. If
+  DESC any backend fails, `logger::log` then fails with the first failure, so a
+  DESC broken destination never silently starves the others. Wrap a call in a
+  DESC `TRAP` where logging must not interrupt your code.
   DESC
   DESC Handles are yours
   DESC
   DESC The caller creates, flushes when needed, and closes every file and
   DESC socket. This package never opens, closes, flushes, retries, reconnects,
-  DESC batches, or filters them, and a backend's failure propagates out of
-  DESC `logger::log` to you rather than being swallowed.
-  SEC A message is sanitized before it is written. An entry occupies exactly one
-  SEC line, so a carriage return or line feed in the message is written as `\r`
-  SEC or `\n` -- two ordinary characters -- rather than ending the line. Without
-  SEC that, any message built from untrusted input could forge a complete,
-  SEC indistinguishable log entry at any level and any timestamp, on the console,
-  SEC in the file, and on the socket alike. `CustomBackend` still receives the
-  SEC unmodified `LogEntry`, because it is handed structure rather than a line.
-  WARN A `Logger` is an ordinary value with no lock of its own. Two threads
-  WARN logging to backends that share one `fs::File` or one `tcp::Socket` can
-  WARN interleave their bytes; give each thread its own handle, or serialize the
-  WARN calls yourself.
+  DESC batches, or filters them.
+  DESC
+  DESC Threads
+  DESC
+  DESC A `Logger` cannot be sent to another thread: its type holds a file or
+  DESC socket resource, and the compiler refuses to pass it to `thread::start`.
+  DESC Each thread that logs builds its own `Logger` inside its worker function,
+  DESC over its own handles, so no two threads ever write through one handle. To
+  DESC move a file or socket to a worker, use `thread::transfer`; the `Logger`
+  DESC built from it then belongs to that worker.
+  SEC A message is written as one line. Before it reaches any backend, every
+  SEC character that could end the line, hide text, or reorder what a reader sees
+  SEC is written as an escape: a backslash as `\\`, a carriage return as `\r`, a
+  SEC line feed as `\n`, a tab as `\t`, and every other control, format,
+  SEC separator, or unassigned character as `\u{HEX}`. Without that, a message
+  SEC built from untrusted input could forge a complete entry at any level and
+  SEC timestamp, or send terminal escape sequences to the console. The escape is
+  SEC reversible: a backslash is always written as `\\`, so an escape in a log
+  SEC line is never confused with text that happens to look like one.
+  SEC `CustomBackend` receives the unmodified `LogEntry`, because it is handed
+  SEC structure rather than a line.
 END DOC
 
 DOC
   ENUM LogLevel
-  DESC The severity of one entry.
+  DESC The severity of one entry, from least to most severe.
   DESC
-  DESC The level is written into the formatted line as its own name, and it is
-  DESC the key `Logger.backends` routes on. The four are ordered by severity for
-  DESC a reader, but the package never compares them: routing is exact-match.
+  DESC The level is written into the formatted line as its name. `Logger.minLevel`
+  DESC is compared against it by severity.
   PROP DEBUG Detail useful while diagnosing, normally off in production.
   PROP INFO  The ordinary course of events.
   PROP WARN  Something unexpected that did not stop the operation.
@@ -87,12 +89,12 @@ DOC
   DESC One log entry in structured form, as `CustomBackend` receives it.
   DESC
   DESC Every backend reached by a single `logger::log` call sees the same entry,
-  DESC including the same timestamp — it is read once per call, not once per
+  DESC including the same timestamp. It is read once per call, not once per
   DESC backend, so a fan-out cannot disagree with itself about when something
   DESC happened.
   PROP level     The entry's severity.
-  PROP timestamp The instant the entry was created, UTC, ISO-8601 (`2026-01-02T03:04:05.678Z`).
-  PROP message   The message exactly as it was passed to `logger::log`, unsanitized. The line-oriented backends escape it; this field does not.
+  PROP timestamp The instant the entry was created, UTC, ISO-8601 with milliseconds (`2026-01-02T03:04:05.678Z`).
+  PROP message   The message exactly as it was passed to `logger::log`, unescaped. The line-oriented backends escape it; this field does not.
 END DOC
 EXPORT TYPE LogEntry
   level AS LogLevel
@@ -116,7 +118,7 @@ DOC
   DESC Writes go through `fs::writeAll` on the handle you supply. The package
   DESC does not open, flush, or close it: open the file in append mode, flush
   DESC when you need the bytes on disk, and close it when you are done.
-  PROP file An open `fs::File`. The handle stays open — you still close it.
+  PROP file An open `fs::File`. The handle stays open, and you still close it.
 END DOC
 EXPORT TYPE FileBackend
   file AS RES fs::File
@@ -129,9 +131,9 @@ DOC
   DESC Writes go through `tcp::write` on the handle you supply. The trailing
   DESC newline is what frames the stream: a reader splits entries on it, exactly
   DESC as it would reading the file a `FileBackend` writes. The package does not
-  DESC connect, reconnect, retry, or close — a write that fails propagates out of
+  DESC connect, reconnect, retry, or close. A write that fails propagates out of
   DESC `logger::log`.
-  PROP socket A connected `tcp::Socket`. The handle stays open — you still close it.
+  PROP socket A connected `tcp::Socket`. The handle stays open, and you still close it.
 END DOC
 EXPORT TYPE NetworkBackend
   socket AS RES tcp::Socket
@@ -142,11 +144,11 @@ DOC
   DESC A backend that calls your function with the structured `LogEntry`.
   DESC
   DESC This is the seam for anything the package does not do itself: counting
-  DESC entries, forwarding to a service, buffering, filtering, or reformatting.
-  DESC The callback receives the entry rather than a formatted line, so it sees
-  DESC the message exactly as it was logged; call `logger::formatEntry` to get
-  DESC the same line the other backends write.
-  PROP callback The function to call, once per delivery.
+  DESC entries, forwarding to a service, buffering, filtering by level, or
+  DESC reformatting. The callback receives the entry rather than a formatted line,
+  DESC so it sees the message exactly as it was logged. Call `logger::formatEntry`
+  DESC to get the same line the other backends write.
+  PROP callback The function to call, once per delivery. A failure it raises is reported by `logger::log` as described in the package documentation.
 END DOC
 EXPORT TYPE CustomBackend
   callback AS FUNC(LogEntry) AS Nothing
@@ -169,16 +171,16 @@ END UNION
 
 DOC
   TYPE Logger
-  DESC A configured set of backends, and the routing between them.
+  DESC A minimum level and the backends that receive entries at or above it.
   DESC
   DESC Build one and pass it to `logger::log`. It holds no handle of its own and
-  DESC opens nothing; every resource in it is one you supplied and still own.
-  PROP common   Backends that receive every entry, whatever its level. Delivered first, in list order.
-  PROP backends Backends that receive entries at exactly one level. Delivered after `common`, in list order. A level absent from the map routes nowhere.
+  DESC opens nothing. Every resource in it is one you supplied and still own.
+  PROP minLevel The least severe level delivered. Entries below it are dropped before they are formatted.
+  PROP backends Every backend that receives a delivered entry, in list order. A backend listed twice is called twice.
 END DOC
 EXPORT TYPE Logger
-  common AS List OF LogBackend
-  backends AS Map OF LogLevel TO List OF LogBackend
+  minLevel AS LogLevel
+  backends AS List OF LogBackend
 END TYPE
 
 FUNC ignore(entry AS LogEntry) AS Nothing
@@ -190,12 +192,9 @@ TESTING
       LET callback AS FUNC(LogEntry) AS Nothing = ignore
       LET custom AS LogBackend = CustomBackend[callback := callback]
       LET console AS LogBackend = ConsoleBackend[]
-      LET common AS List OF LogBackend = [console, custom]
-      LET byLevel AS Map OF LogLevel TO List OF LogBackend = Map OF LogLevel TO List OF LogBackend {LogLevel.INFO := [custom]}
-      LET configured = Logger[common := common, backends := byLevel]
-      expectInteger(len(configured.common), 2)
-      expectEqual(collections::hasKey(configured.backends, LogLevel.INFO), TRUE)
-      expectEqual(collections::hasKey(configured.backends, LogLevel.ERROR), FALSE)
+      LET configured = Logger[minLevel := LogLevel.INFO, backends := [console, custom]]
+      expectInteger(len(configured.backends), 2)
+      expectEqual(configured.minLevel = LogLevel.INFO, TRUE)
     END TCASE
 
     TCASE "a file backend aliases through a list"
