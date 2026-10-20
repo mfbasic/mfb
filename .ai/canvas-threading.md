@@ -586,7 +586,7 @@ shape: it renders into an image and reads it back so the frame leaves through
 `canvas::blitSurface` like every other. That path needs no `VkSurfaceKHR` and no
 swapchain, which is what lets it be tested headless, and on Linux it is the only path, in
 a window too. **Windows has the twin of Metal's direct present** (bug-688 V6,
-`runtime/canvas/vulkan/present/`, `canvas::vulkanPresentScene`): the frame is recorded
+`runtime/canvas/vulkan/present/`, `canvas::vulkanPresentScene`; record-and-present in `vulkan/present/submit.rs`): the frame is recorded
 into a swapchain image of the canvas's child window and presented, and any frame it
 declines is read back instead. Box 2226 now has a GNOME Wayland session, but its Vulkan
 driver, like every reachable Linux one, is Mesa's CPU lavapipe.

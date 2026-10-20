@@ -488,7 +488,7 @@ stats line describe the frame, not its passes.
 [[src/target/macos_aarch64/app/metal.rs:emit_branch_if_more]]
 [[src/codegen/runtime/canvas/vulkan/passes.rs:emit_load_render_pass]]
 [[src/codegen/runtime/canvas/vulkan/present/mod.rs:emit_present_resume]]
-[[src/codegen/runtime/canvas/vulkan/present/mod.rs:emit_submit_and_present]]
+[[src/codegen/runtime/canvas/vulkan/present/submit.rs:emit_submit_and_present]]
 
 **A `PolyLine` on either GPU reuses the polygon's edges and the gradient's stops.** Its
 segments upload through the polygon edge path and are banded the same way. The band
@@ -612,8 +612,8 @@ focus, so input still reaches the canvas window. Entering canvas mode fits the c
 the client area and publishes that size as the canvas size, and `WM_SIZE` keeps both
 current.
 [[src/codegen/runtime/canvas/vulkan/draw_scene.rs:emit_vulkan_draw_scene]]
-[[src/codegen/runtime/canvas/vulkan/present/mod.rs:emit_ensure_swapchain]]
-[[src/codegen/runtime/canvas/vulkan/present/mod.rs:emit_submit_and_present]]
+[[src/codegen/runtime/canvas/vulkan/present/swapchain.rs:emit_ensure_swapchain]]
+[[src/codegen/runtime/canvas/vulkan/present/submit.rs:emit_submit_and_present]]
 [[src/target/win_x86_64/app/mod.rs:emit_canvas_child_fit]]
 
 **Compositing happens in linear light.** A colour's channels are sRGB-encoded

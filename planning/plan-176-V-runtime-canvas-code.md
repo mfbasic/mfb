@@ -1080,18 +1080,18 @@ the emitted Vulkan members still run in the interpreter.
   1000 …/vulkan/draw_scene.rs` (1061, not 1060) and `NEW code 1848 > 1000 …/vulkan/present/mod.rs`, both STALE rows
   gone after the tighten; census → mod 523 + 33 test, calls 338, memory 255, build 577, descriptors 504, pipeline
   586, target 541, item_block 440, edges 547, stroke_style 344, bands 441, picture 345, publish 753, passes 114.
-Commit: —
+Commit: eaf9a5601
 
 ### Phase 4 — `vulkan/present/` parts (pure motion)
 
-- [ ] Split `vulkan/present/mod.rs` into `{mod,wsi,swapchain,render_pass,teardown,submit}.rs`
+- [x] Split `vulkan/present/mod.rs` into `{mod,wsi,swapchain,render_pass,teardown,submit}.rs`
       per §4.4, with the `mod` decls, the `pub(super) use self::{…}` re-export and the two
       private imports.
-- [ ] The 7 visibility edits of §4.4: five to `pub(in crate::codegen::runtime::canvas::vulkan)`
+- [x] The 7 visibility edits of §4.4: five to `pub(in crate::codegen::runtime::canvas::vulkan)`
       and two to `pub(super)`.
-- [ ] Repoint the 3 citations per §4.4 (`emit_submit_and_present` ×2 → `submit.rs`,
+- [x] Repoint the 3 citations per §4.4 (`emit_submit_and_present` ×2 → `submit.rs`,
       `emit_ensure_swapchain` → `swapchain.rs`).
-- [ ] `.ai/canvas-threading.md:585`: the Phase-4 row of §4.6.
+- [x] `.ai/canvas-threading.md:585`: the Phase-4 row of §4.6.
 
 Acceptance: the Windows swapchain present path emits byte-identical code, and its layout tests
 still pass.
@@ -1102,6 +1102,14 @@ still pass.
   Step 9 shows exactly one row,
   `NEW code 1060 > 1000 src/codegen/runtime/canvas/vulkan/draw_scene.rs`. Step 10 shows
   `swapchain.rs` at 844 and every other `present/` file under it (est. 15 min total).
+  Done: `v4.py` split by name with `codesplit.py` (anchored on the unique `WM_APP_CANVAS_SHOW` line, since
+  `use super::*;` also appears in the test module), moved the `mod` lines below the import block, wrote the
+  `pub(super) use self::{…}` re-export and the two private imports, and made exactly the 7 §4.4 visibility edits.
+  Verified 2026-10-20: `motion.py` → only the wiring and the 7 visibility edits; N = 5018, W = 0;
+  `spec_citations_resolve` + `codegen::runtime::canvas::vulkan::present` → 3 passed (the 2 present tests + the
+  citation check); guards → 9, 8, 7 + 1 ignored; C1 → `SAME` ×4; cites → 3 moved, `emit_present_resume` stays;
+  §10.1 grep → empty; budget → exactly `NEW code 1061 > 1000 …/vulkan/draw_scene.rs`; census → present mod 232 +
+  164 test, wsi 183, swapchain 845, render_pass 118, teardown 211, submit 277.
 Commit: —
 
 ### Phase 5 — Extract `emit_vulkan_draw_scene` (largest blast radius last)
