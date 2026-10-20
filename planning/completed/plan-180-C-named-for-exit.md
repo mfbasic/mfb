@@ -249,7 +249,7 @@ Commit: f6d51bc3d
       prints the visited `(i, j)` pairs. Plus a case whose inner loop owns a `RES` and a
       `List` temp, exited by `EXIT FOR i`, run under the leak checker the rt-behavior
       harness uses (`tests/runtime/rt_scope_drop_leaks.rs` pattern) → no leak.
-- [~] Run it at every optimization level and on the remote targets per
+- [x] Run it at every optimization level and on the remote targets per
       `.ai/remote_systems.md` (native aarch64 box 2223 for Linux; x86_64/riscv64 cross
       builds' `.run` via the standard harness).
 - [x] `src/docs/spec/language/10_control-flow.md`: the named form, its resolution rule,
@@ -385,6 +385,22 @@ Commit: ff9bf0875 (fixture, leak test, man), db6a86d34 (`.mfp` rebuild; tool fix
   'native-link-import-sqlite*' 'libsnd-*'` → `acceptance tests passed (16 test(s) ran)`.
 - **Repository pin.** `cargo test --manifest-path repository/Cargo.toml a_real_compiler_produced_package_still_parses`
   → ok. The pin asserts seven vendor locators, which is the 1.5.0 manifest's count; the rebuilt copy keeps it.
+
+- **Validation Plan results (measured).** `scripts/test-fast.sh` → `test-fast: ok`, `exit=0`.
+  `cargo test --bin mfb builtins_codegen::optimizer::` → `3 passed`.
+  `scripts/artifact-gate.sh target/release/mfb all` → first run `12 diff(s)`: 10 `.ncodesum`
+  (`resource-xfer-slots`, `thread`; each normalises to zero diff after the package-id prefix is removed, all
+  five targets, `/tmp/p180/ncode_compare.sh`) and 2 `.hex` (one byte, the version 7→8 byte). Re-baselined in
+  `c6063f396`; rerun → `1708 tests, 1887 build(s), 2366 golden(s) checked, 0 diff(s)`.
+  `scripts/test-accept.sh target/release/mfb <dir>` (full) → first run `12 mismatch(es)`, all package
+  `.info` goldens whose only difference is `package binary hash` / `content hash` lines (checked per file with
+  `grep -v hash:`). Re-baselined; rerun → `acceptance tests passed (1742 test(s) ran)`.
+  The first full acceptance run had been killed (exit 137) when the previous session ended; it was rerun in full.
+- **Remote targets run (measured).** The first probe found 2223, 2227 and 2229 refusing connections;
+  the owner then reported them online. Re-probed and run with `FILTER=exit-for-named-rt
+  scripts/linux-runtime-proof.sh target/release/mfb <port> <target> <flavor>`:
+  2223 linux-aarch64 glibc → `1 passed, 0 failed`; 2227 linux-x86_64 musl → `1 passed, 0 failed`;
+  2229 linux-riscv64 musl → `1 passed, 0 failed`.
 
 ## Summary
 
