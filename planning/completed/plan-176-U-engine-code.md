@@ -1340,7 +1340,7 @@ is byte-identical, including the canvas/app path.
   `lower_module.rs`; census → lower_module 463, module_layout 535 + 3 test, module_helpers 557, module_finish 615;
   fns → `lower_relocation_gated_helpers` 275 (largest), `lower_runtime_helpers_and_threads` 219, the orchestrator
   210, `plan_arena_layout` 202; budget → no row under `src/codegen/engine/`; the ceiling grep → 0.
-Commit: —
+Commit: 4b1054f5d
 
 ## Validation Plan
 
@@ -1362,6 +1362,8 @@ Commit: —
   fixture `tests/syntax/app/app-mouse-surface` — no scoped selector reaches it). Then
   `cargo test --test file_size_budget 2>&1 | grep -c 'src/codegen/engine/'` → 0 rows for U's
   directories. The full workspace suite runs once, in plan-176-V's Validation Plan.
+  Done 2026-10-20 at 4b1054f5d: `bash scripts/artifact-gate.sh target/release/mfb all` → `1703 tests, 1882 build(s),
+  2362 golden(s) checked, 0 diff(s)`; the budget grep → 0.
 
 ## Decisions
 
