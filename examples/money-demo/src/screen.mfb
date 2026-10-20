@@ -1,0 +1,241 @@
+IMPORT collections
+IMPORT color
+IMPORT datetime
+IMPORT errorCode
+IMPORT io
+IMPORT math
+IMPORT money
+IMPORT strings
+IMPORT term
+
+' ------------------------------------------------------------------ drawing
+
+FUNC toneColor(tone AS Integer) AS color::Color
+  IF tone = toneIn THEN RETURN color::rgb(110, 220, 120)
+  IF tone = toneOut THEN RETURN color::rgb(240, 110, 105)
+  IF tone = toneMove THEN RETURN color::rgb(240, 200, 80)
+  IF tone = toneTax THEN RETURN color::rgb(215, 140, 235)
+  IF tone = toneHead THEN RETURN color::rgb(100, 200, 235)
+  IF tone = toneDim THEN RETURN color::rgb(110, 118, 135)
+  IF tone = toneFloat THEN RETURN color::rgb(255, 160, 70)
+  IF tone = toneTitle THEN RETURN color::rgb(255, 215, 90)
+  IF tone = toneBright THEN RETURN color::rgb(250, 250, 250)
+  RETURN color::rgb(215, 218, 225)
+END FUNC
+
+FUNC put(row AS Integer, col AS Integer, text AS String, tone AS Integer) AS Nothing
+  term::setForeground(toneColor(tone))
+  term::drawText(row, col, text)
+END FUNC
+
+FUNC isMove(label AS String) AS Boolean
+  RETURN label = "Top-up" OR label = "Sweep" OR strings::startsWith(label, "To ")
+END FUNC
+
+FUNC entryTone(label AS String, posted AS Money) AS Integer
+  IF isMove(label) THEN RETURN toneMove
+  IF posted < 0.00m THEN RETURN toneOut
+  RETURN toneIn
+END FUNC
+
+FUNC fEntryTone(label AS String, posted AS Float) AS Integer
+  IF isMove(label) THEN RETURN toneMove
+  IF posted < 0.0 THEN RETURN toneOut
+  RETURN toneIn
+END FUNC
+
+' The newest `n` entries for an account, newest first.
+FUNC recentRows(acct AS Acct, n AS Integer) AS List OF Row
+  MUT out AS List OF Row = []
+  IF viewFloat THEN
+    MUT i AS Integer = len(fEntries) - 1
+    DO WHILE i >= 0 AND len(out) < n
+      LET e AS FEntry = collections::get(fEntries, i)
+      IF e.acct = acct THEN out = collections::append(out, Row[left := e.label, right := ffPlain(e.posted), tone := fEntryTone(e.label, e.posted)])
+      i = i - 1
+    LOOP
+  ELSE
+    MUT i AS Integer = len(mEntries) - 1
+    DO WHILE i >= 0 AND len(out) < n
+      LET e AS Entry = collections::get(mEntries, i)
+      IF e.acct = acct THEN out = collections::append(out, Row[left := e.label, right := fmPlain(e.posted), tone := entryTone(e.label, e.posted)])
+      i = i - 1
+    LOOP
+  END IF
+  RETURN out
+END FUNC
+
+FUNC expenseRows() AS List OF Row
+  MUT out AS List OF Row = []
+  FOR c = 0 TO len(catNames) - 1
+    MUT text AS String = ""
+    MUT zero AS Boolean = FALSE
+    IF viewFloat THEN
+      LET v AS Float = collections::get(fBook.cats, c)
+      text = ffPlain(v)
+      zero = v = 0.0
+    ELSE
+      LET v AS Money = collections::get(mBook.cats, c)
+      text = fmPlain(v)
+      zero = v = 0.00m
+    END IF
+    MUT tone AS Integer = toneText
+    IF c >= catFedTax AND c <= catFica THEN tone = toneTax
+    IF zero THEN tone = toneDim
+    out = collections::append(out, Row[left := collections::get(catNames, c), right := text, tone := tone])
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC drawColumn(top AS Integer, col AS Integer, width AS Integer, title AS String, balance AS String, balanceTone AS Integer, rows AS List OF Row, maxRows AS Integer) AS Nothing
+  term::setBold(TRUE)
+  put(top, col + 1, fit(title, width - 2), toneHead)
+  put(top + 1, col, fitRight(balance, width - 1), balanceTone)
+  term::setBold(FALSE)
+  FOR r = 0 TO maxRows - 1
+    IF r < len(rows) THEN
+      LET row AS Row = collections::get(rows, r)
+      LET amountWidth AS Integer = len(row.right)
+      put(top + 3 + r, col + 1, fit(row.left, width - 3 - amountWidth), toneDim)
+      put(top + 3 + r, col + width - 1 - amountWidth, row.right, row.tone)
+    END IF
+  NEXT
+END FUNC
+
+FUNC moneyOrFloat(m AS Money, f AS Float) AS String
+  IF viewFloat THEN RETURN ff(f)
+  RETURN fm(m)
+END FUNC
+
+FUNC drawFrame(rows AS Integer, cols AS Integer, paused AS Boolean, speedIndex AS Integer) AS Nothing
+  LET left AS Integer = (cols - frameWidth) / 2
+  LET right AS Integer = left + frameWidth - 1
+  LET bottom AS Integer = rows - 1
+  LET divider AS Integer = rows - 5
+
+  term::setBackground(color::rgb(0, 0, 0))
+  term::clear()
+
+  ' Border, header rule, column rules, log rule.
+  term::setForeground(toneColor(toneDim))
+  term::drawBox(term::LineStyle.Double, 0, left, bottom, right)
+  term::drawHLine(term::LineStyle.Light, 2, left + 1, right - 1)
+  term::drawHLine(term::LineStyle.Light, divider, left + 1, right - 1)
+  term::drawGlyph(2, left, 0x255F)
+  term::drawGlyph(2, right, 0x2562)
+  term::drawGlyph(divider, left, 0x255F)
+  term::drawGlyph(divider, right, 0x2562)
+  term::drawHLine(term::LineStyle.LightDot, 5, left + 1, right - 1)
+  FOR EACH sep IN [20, 40, 59]
+    LET x AS Integer = left + sep
+    term::drawVLine(term::LineStyle.Light, 3, x, divider - 1)
+    term::drawGlyph(2, x, 0x252C)
+    term::drawGlyph(divider, x, 0x2534)
+  NEXT
+
+  ' Title, centred in the top border.
+  LET title AS String = " MONEY DEMO "
+  term::setBold(TRUE)
+  put(0, left + (frameWidth - len(title)) / 2, title, toneTitle)
+  term::setBold(FALSE)
+
+  ' Status line: date, speed, arithmetic and rounding.
+  MUT shown AS Integer = simDay - 1
+  IF shown < 0 THEN shown = 0
+  LET today AS datetime::DateTime = datetime::addDays(startDate(), shown)
+  term::setBold(TRUE)
+  put(1, left + 2, datetime::format(today, "EEE MMM dd yyyy"), toneBright)
+  term::setBold(FALSE)
+  IF finished THEN
+    put(1, left + 31, "retired", toneTitle)
+  ELSEIF paused THEN
+    put(1, left + 31, "|| paused", toneMove)
+  ELSE
+    put(1, left + 31, "> " & toString(collections::get(speeds, speedIndex)) & " days/s", toneIn)
+  END IF
+  LET rounding AS String = modeName(bankerMode) & " rounding"
+  put(1, right - 1 - len(rounding), rounding, toneMove)
+  term::setBold(TRUE)
+  IF viewFloat THEN
+    put(1, right - 4 - len(rounding) - 5, "FLOAT", toneFloat)
+  ELSE
+    put(1, right - 4 - len(rounding) - 5, "MONEY", toneIn)
+  END IF
+  term::setBold(FALSE)
+
+  ' The four columns.
+  LET listRows AS Integer = divider - 6
+  MUT checkTone AS Integer = toneBright
+  IF viewFloat THEN
+    IF fBook.checking < toFloat(lowChecking) THEN checkTone = toneOut
+  ELSE
+    IF mBook.checking < lowChecking THEN checkTone = toneOut
+  END IF
+  drawColumn(3, left + 1, 19, "CHECKING", moneyOrFloat(mBook.checking, fBook.checking), checkTone, recentRows(Acct.Checking, listRows), listRows)
+  drawColumn(3, left + 21, 19, "SAVINGS", moneyOrFloat(mBook.savings, fBook.savings), toneBright, recentRows(Acct.Savings, listRows), listRows)
+  drawColumn(3, left + 41, 18, "401(K)", moneyOrFloat(mBook.retire, fBook.retire), toneBright, recentRows(Acct.Retire, listRows), listRows)
+  LET ytd AS String = "YTD " & moneyOrFloat(sumMoney(mBook.cats), sumFloat(fBook.cats))
+  drawColumn(3, left + 60, 19, "EXPENSES " & toString(mBook.year), ytd, toneOut, expenseRows(), listRows)
+
+  ' The three newest log lines.
+  LET nLog AS Integer = len(logLines)
+  FOR r = 0 TO 2
+    LET idx AS Integer = nLog - 3 + r
+    IF idx >= 0 THEN
+      LET l AS LogLine = collections::get(logLines, idx)
+      put(divider + 1 + r, left + 2, fit(l.text, frameWidth - 4), l.tone)
+    END IF
+  NEXT
+
+  ' Key help, in the bottom border.
+  LET keys AS List OF String = ["space", "+/-", "r", "f", "q"]
+  LET what AS List OF String = ["pause", "speed", "rounding", "money/float", "quit"]
+  MUT helpWidth AS Integer = 0
+  FOR k = 0 TO len(keys) - 1
+    helpWidth = helpWidth + len(collections::get(keys, k)) + len(collections::get(what, k)) + 3
+  NEXT
+  MUT x AS Integer = left + (frameWidth - helpWidth) / 2
+  FOR k = 0 TO len(keys) - 1
+    LET keyText AS String = " " & collections::get(keys, k)
+    LET whatText AS String = " " & collections::get(what, k) & " "
+    put(bottom, x, keyText, toneMove)
+    put(bottom, x + len(keyText), whatText, toneDim)
+    x = x + len(keyText) + len(whatText)
+  NEXT
+END FUNC
+
+FUNC drawModal(rows AS Integer, cols AS Integer, title AS String, accent AS Integer, lines AS List OF LogLine) AS Nothing
+  LET width AS Integer = 76
+  LET left AS Integer = (cols - width) / 2
+  MUT shown AS Integer = len(lines)
+  IF shown > rows - 4 THEN shown = rows - 4
+  LET height AS Integer = shown + 4
+  LET top AS Integer = (rows - height) / 2
+  term::setBackground(color::rgb(18, 22, 38))
+  FOR r = 0 TO height - 1
+    term::drawText(top + r, left, strings::repeat(" ", width))
+  NEXT
+  term::setForeground(toneColor(accent))
+  term::drawBox(term::LineStyle.Light, top, left, top + height - 1, left + width - 1)
+  term::setBold(TRUE)
+  put(top, left + 2, " " & title & " ", accent)
+  term::setBold(FALSE)
+  FOR r = 0 TO shown - 1
+    LET l AS LogLine = collections::get(lines, r)
+    put(top + 2 + r, left + 2, fit(l.text, width - 4), l.tone)
+  NEXT
+  LET footer AS String = " any key to continue "
+  put(top + height - 1, left + width - 2 - len(footer), footer, toneDim)
+  term::setBackground(color::rgb(0, 0, 0))
+END FUNC
+
+' The next key within `ms` milliseconds, "" when none came, "EOF" when input
+' has ended.
+FUNC nextKey(ms AS Integer) AS String
+  LET k AS io::Key = io::readKey(ms) TRAP(e)
+    IF e.code = errorCode::ErrTimeout THEN RETURN ""
+    RETURN "EOF"
+  END TRAP
+  IF k.event = io::KeyEvent.Release THEN RETURN ""
+  RETURN k.grapheme
+END FUNC

@@ -27,9 +27,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-E is complete and archived | `ls planning/plan-176-E-* planning/completed/plan-176-E-*` → only `planning/completed/…` | NOT MET (2026-10-18) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-18) |
-| F's files have no uncommitted changes | `git status --porcelain -- examples/money-demo` → empty | MET (2026-10-18) |
+| plan-176-E is complete and archived | `ls planning/plan-176-E-* planning/completed/plan-176-E-*` → only `planning/completed/…` | MET (2026-10-19) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19) |
+| F's files have no uncommitted changes | `git status --porcelain -- examples/money-demo` → empty | MET (2026-10-19) |
 
 Everything below is written against the world where these hold.
 
@@ -171,17 +171,25 @@ All files are in `examples/money-demo/src/`. LOC per file = the `span.py` count 
 
 ### Phase 1 — money-demo
 
-- [ ] `cargo build --release` (est. 6 min), then record the baseline before any edit:
+- [x] `cargo build --release` (est. 6 min), then record the baseline before any edit:
       `$M build -q examples/money-demo && (sleep 3; printf q) | script -q /tmp/md-before.ts sh -c 'stty rows 40 cols 120; examples/money-demo/build/money-demo.out' >/dev/null; echo $?`
       → `0`, and `grep -a -c 'Welcome. Starting balances' /tmp/md-before.ts` → ≥ 1.
-- [ ] Split `examples/money-demo/src/main.mfb` into `main.mfb`, `format.mfb`, `ledger.mfb`,
+      Done (`bash target/p176/mdrun.sh target/p176/md-before.ts`, the same commands with the transcript under `target/`):
+      `exit=0`, `welcome=1`.
+- [x] Split `examples/money-demo/src/main.mfb` into `main.mfb`, `format.mfb`, `ledger.mfb`,
       `report.mfb`, `screen.mfb` per §4.1, each starting with the 9-line IMPORT block.
-- [ ] `$M fmt --check examples/money-demo/src/*.mfb` → exit 0 (est. 10 s).
-- [ ] Guard: `cargo test --test file_size_budget 2>&1 | grep -E '^  (NEW|GREW)'` → no output,
+      Done: `python3 -I target/p176/mfbsplit.py split main.mfb 9 format.mfb:211-375 ledger.mfb:376-838 report.mfb:839-1118 screen.mfb:1298-1529`
+      (see Corrections for 1118 and 1298). Motion check (non-blank line multiset of the five files vs the original) →
+      nothing only before; only after = each of the 9 IMPORT lines ×4.
+- [x] `$M fmt --check examples/money-demo/src/*.mfb` → exit 0 (est. 10 s).
+      Done: `mfb fmt` takes one location, so `$M fmt --check examples/money-demo` → `All 5 file(s) already formatted`.
+- [x] Guard: `cargo test --test file_size_budget 2>&1 | grep -E '^  (NEW|GREW)'` → no output,
       and the only `TIGHTEN` row is `code … examples/money-demo/src/main.mfb`. Then
       `MFB_LOC_TIGHTEN=1 cargo test --test file_size_budget`, rerun →
       `grep -cE '^  (NEW|GREW|STALE|TIGHTEN)'` → `0`. Commit `tests/guards/file_size_ceilings.txt`
       with the phase (est. 2 min).
+      Done: → `TIGHTEN  code 418 (ceiling 1417)  examples/money-demo/src/main.mfb` only; tighten → own diff
+      `-ceiling code 1417 examples/money-demo/src/main.mfb`; rerun → 0.
 
 Acceptance: money-demo builds for every example target and runs the same on the host.
   Check: `for t in macos-aarch64 linux-aarch64 linux-x86_64 linux-riscv64 windows-x86_64; do $M build -q --target $t examples/money-demo >/dev/null || echo FAIL $t; done`
@@ -191,6 +199,8 @@ Acceptance: money-demo builds for every example target and runs the same on the 
   `for f in examples/money-demo/src/*.mfb; do python3 -I tools/loc-census/census.py --file $f; done`
   → five lines whose first fields, in glob order (format, ledger, main, report, screen), are
   139, 413, 418, 272, 211.
+  Verified 2026-10-19: the five-target loop → no output; the pty run (`mdrun.sh target/p176/md-after.ts`) →
+  `exit=0`, `welcome=1`; census → 139, 413, 418, 272, 211.
 Commit: —
 
 ### Phase 2 — `money.mfb` keyword spelling (pre-existing defect)
@@ -257,6 +267,12 @@ Commit: —
   1000). Five phases became two; no golden is re-baselined any more. The `money.mfb`
   lowercase-`true` fmt fix stays, as its own Phase 2, without the split. money-demo's design is unchanged, its counts
   re-measured at `ce7a995ca`.
+- 2026-10-19 (execution) — two section banners move with the code they head: the
+  `' --- drawing` banner (line 1298) goes to `screen.mfb` (§4.1 said 1300), and the
+  `' --- the simulated life` banner (1119) stays in `main.mfb` above the state `MUT`s (§4.1's
+  report range said 1120). Comments carry no LOC, so every count is unchanged.
+- 2026-10-19 — owner: "no test machines are up... just check compile and running on macOS."
+  F needs no machine: the five-target loop is local cross-compiles, and the run is on this Mac.
 
 ## Summary
 

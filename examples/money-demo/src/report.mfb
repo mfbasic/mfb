@@ -1,0 +1,289 @@
+IMPORT collections
+IMPORT color
+IMPORT datetime
+IMPORT errorCode
+IMPORT io
+IMPORT math
+IMPORT money
+IMPORT strings
+IMPORT term
+
+FUNC sumMoney(xs AS List OF Money) AS Money
+  MUT t AS Money = 0.00m
+  FOR EACH x IN xs
+    t = t + x
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC sumFloat(xs AS List OF Float) AS Float
+  MUT t AS Float = 0.0
+  FOR EACH x IN xs
+    t = t + x
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC stampOf(evs AS List OF Event, key AS Integer) AS String
+  RETURN collections::get(evs, key / 16).stamp
+END FUNC
+
+' An exact half cent: the one case where Commercial and Banker disagree.
+FUNC isHalfCent(x AS Money) AS Boolean
+  LET r AS Money = x MOD 0.01m
+  RETURN r = 0.00500m OR r = -0.00500m
+END FUNC
+
+' Booked cents with no exact binary Float form (anything but .00 .25 .50 .75).
+FUNC notBinary(x AS Money) AS Boolean
+  LET c AS Money = x MOD 0.25m
+  RETURN c <> 0.00m
+END FUNC
+
+FUNC balanceRow(name AS String, a AS Money, b AS Money) AS LogLine
+  LET d AS Money = b - a
+  MUT tone AS Integer = toneDim
+  MUT change AS String = "same"
+  IF d <> 0.00m THEN
+    tone = toneMove
+    change = signed(fmPlain(d))
+  END IF
+  RETURN line(fit(name, 14) & fitRight(fm(a), 16) & fitRight(fm(b), 16) & "   " & change, tone)
+END FUNC
+
+' Everything a rounding switch changed, read off the two ledgers.
+FUNC roundingReport(evs AS List OF Event, before AS MPost, after AS MPost, fromBanker AS Boolean, floatBefore AS FPost, floatAfter AS FPost) AS List OF LogLine
+  LET fromName AS String = modeName(fromBanker)
+  LET toName AS String = modeName(NOT fromBanker)
+  LET na AS Integer = len(before.entries)
+  LET nb AS Integer = len(after.entries)
+  MUT i AS Integer = 0
+  MUT j AS Integer = 0
+  MUT bookedChanged AS Integer = 0
+  MUT exactChanged AS Integer = 0
+  MUT onlyBefore AS Integer = 0
+  MUT onlyAfter AS Integer = 0
+  MUT samples AS List OF LogLine = []
+  MUT exactSamples AS List OF LogLine = []
+  DO WHILE i < na OR j < nb
+    MUT takeA AS Boolean = FALSE
+    MUT takeB AS Boolean = FALSE
+    IF i >= na THEN
+      takeB = TRUE
+    ELSEIF j >= nb THEN
+      takeA = TRUE
+    ELSE
+      LET ka AS Integer = collections::get(before.entries, i).key
+      LET kb AS Integer = collections::get(after.entries, j).key
+      IF ka < kb THEN
+        takeA = TRUE
+      ELSEIF kb < ka THEN
+        takeB = TRUE
+      END IF
+    END IF
+    IF takeA THEN
+      LET a AS Entry = collections::get(before.entries, i)
+      onlyBefore = onlyBefore + 1
+      IF len(samples) < 4 THEN samples = collections::append(samples, line(stampOf(evs, a.key) & " " & fit(a.label, 10) & " " & signed(fmPlain(a.posted)) & " only happened under " & fromName, toneMove))
+      i = i + 1
+    ELSEIF takeB THEN
+      LET b AS Entry = collections::get(after.entries, j)
+      onlyAfter = onlyAfter + 1
+      IF len(samples) < 4 THEN samples = collections::append(samples, line(stampOf(evs, b.key) & " " & fit(b.label, 10) & " " & signed(fmPlain(b.posted)) & " only happens under " & toName, toneMove))
+      j = j + 1
+    ELSE
+      LET a AS Entry = collections::get(before.entries, i)
+      LET b AS Entry = collections::get(after.entries, j)
+      IF a.posted <> b.posted THEN
+        bookedChanged = bookedChanged + 1
+        IF len(samples) < 4 THEN
+          LET head AS String = stampOf(evs, a.key) & " " & fit(a.label, 10)
+          IF a.exact = b.exact THEN
+            samples = collections::append(samples, line(head & " exact " & fx(a.exact) & "  booked " & fmPlain(a.posted) & " -> " & fmPlain(b.posted), toneMove))
+          ELSE
+            samples = collections::append(samples, line(head & " booked " & fmPlain(a.posted) & " -> " & fmPlain(b.posted), toneMove))
+            samples = collections::append(samples, line(strings::repeat(" ", 22) & "exact " & fx(a.exact) & " -> " & fx(b.exact) & " (knock-on)", toneDim))
+          END IF
+        END IF
+      ELSEIF a.exact <> b.exact THEN
+        exactChanged = exactChanged + 1
+        IF len(exactSamples) < 3 THEN exactSamples = collections::append(exactSamples, line(stampOf(evs, a.key) & " " & fit(a.label, 10) & " exact " & fx(a.exact) & " -> " & fx(b.exact) & "  booked " & fmPlain(a.posted) & " (same)", toneText))
+      END IF
+      i = i + 1
+      j = j + 1
+    END IF
+  LOOP
+
+  MUT ties AS Integer = 0
+  FOR EACH e IN after.entries
+    IF isHalfCent(e.exact) THEN ties = ties + 1
+  NEXT
+
+  MUT floatMoved AS Integer = 0
+  LET fn AS Integer = len(floatBefore.entries)
+  IF fn = len(floatAfter.entries) THEN
+    FOR q = 0 TO fn - 1
+      IF collections::get(floatBefore.entries, q).posted <> collections::get(floatAfter.entries, q).posted THEN floatMoved = floatMoved + 1
+    NEXT
+  END IF
+
+  MUT out AS List OF LogLine = []
+  out = collections::append(out, line("Replayed " & toString(len(evs)) & " events under " & toName & " rounding: " & toString(nb) & " entries (was " & toString(na) & ").", toneText))
+  out = collections::append(out, line("", toneText))
+  out = collections::append(out, line("Exact half-cent amounts in the ledger:   " & toString(ties), toneHead))
+  out = collections::append(out, line("Booked amounts that changed:             " & toString(bookedChanged), toneHead))
+  out = collections::append(out, line("Exact (5th-place) values that changed:   " & toString(exactChanged), toneHead))
+  IF onlyBefore + onlyAfter > 0 THEN
+    out = collections::append(out, line("Entries that exist under one mode only:  " & toString(onlyBefore + onlyAfter), toneHead))
+  END IF
+  IF fn = len(floatAfter.entries) THEN
+    out = collections::append(out, line("Float ledger, replayed too - booked amounts changed: " & toString(floatMoved), toneFloat))
+  ELSE
+    out = collections::append(out, line("Float ledger, replayed too - entry count " & toString(fn) & " -> " & toString(len(floatAfter.entries)), toneFloat))
+  END IF
+  out = collections::append(out, line("", toneText))
+  out = collections::append(out, line(fit("Balance", 14) & fitRight(fromName, 16) & fitRight(toName, 16) & "   change", toneHead))
+  out = collections::append(out, balanceRow("Checking", before.book.checking, after.book.checking))
+  out = collections::append(out, balanceRow("Savings", before.book.savings, after.book.savings))
+  out = collections::append(out, balanceRow("401(k)", before.book.retire, after.book.retire))
+  out = collections::append(out, balanceRow("Expenses YTD", sumMoney(before.book.cats), sumMoney(after.book.cats)))
+  out = collections::append(out, line("", toneText))
+  IF len(samples) > 0 THEN
+    out = collections::append(out, line("Booked changes (oldest first):", toneHead))
+    out = collections::append(out, samples)
+    LET more AS Integer = bookedChanged + onlyBefore + onlyAfter - len(samples)
+    IF more > 0 THEN out = collections::append(out, line("  ...and " & toString(more) & " more", toneDim))
+  ELSE
+    IF ties = 0 THEN
+      out = collections::append(out, line("No booking has landed on an exact half cent yet, so both modes", toneText))
+      out = collections::append(out, line("book every amount the same way.", toneText))
+    ELSE
+      out = collections::append(out, line("Every half-cent tie was resolved the same way by both modes.", toneText))
+    END IF
+  END IF
+  IF len(exactSamples) > 0 AND len(samples) = 0 THEN
+    out = collections::append(out, line("Ties at the 5th decimal (cents unchanged):", toneHead))
+    out = collections::append(out, exactSamples)
+  END IF
+  RETURN out
+END FUNC
+
+FUNC driftRow(name AS String, m AS Money, f AS Float) AS LogLine
+  LET d AS Float = f - toFloat(m)
+  MUT tone AS Integer = toneDim
+  IF d <> 0.0 THEN tone = toneFloat
+  RETURN line(fit(name, 13) & fitRight(fmPlain(m), 13) & "  " & fit(fraw(f), 24) & fsci(d), tone)
+END FUNC
+
+' Everything that differs between the Money ledger and the Float ledger.
+FUNC floatReport(evs AS List OF Event, m AS MPost, f AS FPost, toFloatView AS Boolean, banker AS Boolean) AS List OF LogLine
+  LET na AS Integer = len(m.entries)
+  LET nb AS Integer = len(f.entries)
+  MUT i AS Integer = 0
+  MUT j AS Integer = 0
+  MUT aligned AS Integer = 0
+  MUT centDiffs AS Integer = 0
+  MUT rawDiffs AS Integer = 0
+  MUT oneSided AS Integer = 0
+  MUT inexact AS Integer = 0
+  MUT worstGap AS Float = 0.0
+  MUT worstLine AS LogLine = line("", toneText)
+  MUT samples AS List OF LogLine = []
+  MUT sampled AS Integer = 0
+  DO WHILE i < na OR j < nb
+    MUT takeA AS Boolean = FALSE
+    MUT takeB AS Boolean = FALSE
+    IF i >= na THEN
+      takeB = TRUE
+    ELSEIF j >= nb THEN
+      takeA = TRUE
+    ELSE
+      LET ka AS Integer = collections::get(m.entries, i).key
+      LET kb AS Integer = collections::get(f.entries, j).key
+      IF ka < kb THEN
+        takeA = TRUE
+      ELSEIF kb < ka THEN
+        takeB = TRUE
+      END IF
+    END IF
+    IF takeA THEN
+      LET a AS Entry = collections::get(m.entries, i)
+      oneSided = oneSided + 1
+      IF len(samples) < 4 THEN
+        samples = collections::append(samples, line(stampOf(evs, a.key) & " " & fit(a.label, 10) & " " & signed(fmPlain(a.posted)) & " happens only with Money", toneMove))
+        sampled = sampled + 1
+      END IF
+      i = i + 1
+    ELSEIF takeB THEN
+      LET b AS FEntry = collections::get(f.entries, j)
+      oneSided = oneSided + 1
+      IF len(samples) < 4 THEN
+        samples = collections::append(samples, line(stampOf(evs, b.key) & " " & fit(b.label, 10) & " " & signed(ffPlain(b.posted)) & " happens only with Float", toneMove))
+        sampled = sampled + 1
+      END IF
+      j = j + 1
+    ELSE
+      LET a AS Entry = collections::get(m.entries, i)
+      LET b AS FEntry = collections::get(f.entries, j)
+      aligned = aligned + 1
+      IF notBinary(a.posted) THEN inexact = inexact + 1
+      LET gap AS Float = math::abs(b.exact - toFloat(a.exact))
+      IF gap > 0.0 THEN rawDiffs = rawDiffs + 1
+      LET centsAgree AS Boolean = math::abs(b.posted - toFloat(a.posted)) < 0.005
+      IF centsAgree AND gap > worstGap THEN
+        worstGap = gap
+        worstLine = line(stampOf(evs, a.key) & " " & fit(a.label, 10) & " Money " & fx(a.exact) & "  Float " & fraw(b.exact), toneFloat)
+      END IF
+      IF NOT centsAgree THEN
+        centDiffs = centDiffs + 1
+        IF len(samples) < 3 THEN
+          samples = collections::append(samples, line(stampOf(evs, a.key) & " " & fit(a.label, 10) & " Money " & fx(a.exact) & " -> " & fmPlain(a.posted), toneText))
+          samples = collections::append(samples, line(strings::repeat(" ", 22) & "Float " & fraw(b.exact) & " -> " & ffPlain(b.posted), toneFloat))
+          sampled = sampled + 1
+        END IF
+      END IF
+      i = i + 1
+      j = j + 1
+    END IF
+  LOOP
+
+  MUT out AS List OF LogLine = []
+  IF toFloatView THEN
+    out = collections::append(out, line("Same " & toString(len(evs)) & " events, now posted with binary Float (" & modeName(banker) & " rounding):", toneText))
+  ELSE
+    out = collections::append(out, line("Back to base-10 Money. The same " & toString(len(evs)) & " events (" & modeName(banker) & " rounding):", toneText))
+  END IF
+  out = collections::append(out, line("", toneText))
+  out = collections::append(out, line("Booked amounts with no exact binary form:  " & toString(inexact) & " of " & toString(aligned), toneHead))
+  out = collections::append(out, line("Results where Float's raw value differs:   " & toString(rawDiffs) & " of " & toString(aligned), toneHead))
+  out = collections::append(out, line("Booked cents that differ:                  " & toString(centDiffs), toneHead))
+  IF oneSided > 0 THEN
+    out = collections::append(out, line("Entries only one ledger has:               " & toString(oneSided), toneHead))
+  END IF
+  out = collections::append(out, line("", toneText))
+  out = collections::append(out, line(fit("Balance", 13) & fitRight("Money", 13) & "  " & fit("Float (raw)", 24) & "Float - Money", toneHead))
+  out = collections::append(out, driftRow("Checking", m.book.checking, f.book.checking))
+  out = collections::append(out, driftRow("Savings", m.book.savings, f.book.savings))
+  out = collections::append(out, driftRow("401(k)", m.book.retire, f.book.retire))
+  out = collections::append(out, driftRow("Expenses YTD", sumMoney(m.book.cats), sumFloat(f.book.cats)))
+  out = collections::append(out, line("", toneText))
+  IF worstGap > 0.0 THEN
+    out = collections::append(out, line("Largest raw gap where the cents still agree (" & fsci(worstGap) & "):", toneHead))
+    out = collections::append(out, worstLine)
+  END IF
+  IF len(samples) > 0 THEN
+    out = collections::append(out, line("Where the booked amounts disagree (oldest first):", toneHead))
+    out = collections::append(out, samples)
+    LET more AS Integer = centDiffs + oneSided - sampled
+    IF more > 0 THEN out = collections::append(out, line("  ...and " & toString(more) & " more", toneDim))
+  ELSE
+    LET drifted AS Boolean = f.book.checking <> toFloat(m.book.checking) OR f.book.savings <> toFloat(m.book.savings) OR f.book.retire <> toFloat(m.book.retire)
+    out = collections::append(out, line("No booked cent differs yet: every Float error is under half a cent.", toneText))
+    IF drifted THEN
+      out = collections::append(out, line("The balances above have drifted from the exact amounts anyway.", toneText))
+    ELSE
+      out = collections::append(out, line("Every balance is still the closest Float to the exact amount.", toneText))
+    END IF
+  END IF
+  RETURN out
+END FUNC

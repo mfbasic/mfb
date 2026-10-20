@@ -1,0 +1,472 @@
+IMPORT collections
+IMPORT color
+IMPORT datetime
+IMPORT errorCode
+IMPORT io
+IMPORT math
+IMPORT money
+IMPORT strings
+IMPORT term
+
+FUNC openingMoney() AS MBook
+  RETURN MBook[checking := 2500.00m, savings := 8000.00m, retire := 25000.00m, year := startYear, cats := collections::repeat([], 0.00m, len(catNames)), wages := 0.00m, fedHeld := 0.00m, stateHeld := 0.00m, prevWages := 0.00m, prevFed := 0.00m, prevState := 0.00m]
+END FUNC
+
+FUNC creditMoney(b AS MBook, acct AS Acct, cat AS Integer, posted AS Money) AS MBook
+  MUT r AS MBook = b
+  IF acct = Acct.Checking THEN
+    r = WITH r { checking := r.checking + posted }
+  ELSEIF acct = Acct.Savings THEN
+    r = WITH r { savings := r.savings + posted }
+  ELSEIF acct = Acct.Retire THEN
+    r = WITH r { retire := r.retire + posted }
+  END IF
+  IF cat >= 0 THEN
+    r = WITH r { cats := collections::set(r.cats, cat, collections::get(r.cats, cat) - posted) }
+  END IF
+  RETURN r
+END FUNC
+
+FUNC addM(p AS MPost, key AS Integer, acct AS Acct, cat AS Integer, label AS String, exact AS Money, posted AS Money) AS MPost
+  LET e AS Entry = Entry[key := key, acct := acct, cat := cat, label := label, exact := exact, posted := posted]
+  RETURN MPost[book := creditMoney(p.book, acct, cat, posted), entries := collections::append(p.entries, e), log := p.log]
+END FUNC
+
+FUNC sayM(p AS MPost, narrate AS Boolean, text AS String, tone AS Integer) AS MPost
+  IF NOT narrate THEN RETURN p
+  RETURN WITH p { log := collections::append(p.log, line(text, tone)) }
+END FUNC
+
+' Post one event to the Money ledger, under whatever money::Rounding mode is
+' installed. Every rate multiply and divide keeps all five places; cents()
+' books the result ("compute at five places, book at two").
+FUNC postMoney(start AS MBook, ev AS Event, index AS Integer, narrate AS Boolean) AS MPost
+  MUT b AS MBook = start
+  IF ev.year <> b.year THEN
+    b = WITH b { year := ev.year, cats := collections::repeat([], 0.00m, len(catNames)), prevWages := b.wages, prevFed := b.fedHeld, prevState := b.stateHeld, wages := 0.00m, fedHeld := 0.00m, stateHeld := 0.00m }
+  END IF
+  MUT p AS MPost = MPost[book := b, entries := [], log := []]
+  LET k AS Integer = index * 16
+
+  IF ev.kind = Kind.Paycheck OR ev.kind = Kind.Bonus THEN
+    LET gross AS Money = ev.amount
+    LET k401x AS Money = pct(gross, k401Bp)
+    LET k401 AS Money = cents(k401x)
+    LET matchx AS Money = k401 / 2
+    LET employer AS Money = cents(matchx)
+    MUT savex AS Money = 0.00m
+    IF ev.kind = Kind.Paycheck THEN savex = pct(gross, saveBp)
+    LET toSavings AS Money = cents(savex)
+    LET taxable AS Money = gross - k401
+    MUT fedx AS Money = pct(taxable, bonusFedBp)
+    IF ev.kind = Kind.Paycheck THEN
+      fedx = incomeTax(moneyMax(taxable * payPeriods - standardDeduction, 0.00m)) / payPeriods
+    END IF
+    LET fed AS Money = cents(fedx)
+    LET statex AS Money = pct(taxable, stateBp)
+    LET stateTax AS Money = cents(statex)
+    LET ssx AS Money = pct(gross, ssBp)
+    LET ss AS Money = cents(ssx)
+    LET medx AS Money = pct(gross, medicareBp)
+    LET med AS Money = cents(medx)
+    LET net AS Money = gross - k401 - toSavings - fed - stateTax - ss - med
+    p = addM(p, k, Acct.Checking, noCat, ev.label, net, net)
+    IF toSavings > 0.00m THEN p = addM(p, k + 1, Acct.Savings, noCat, "Save 2%", savex, toSavings)
+    p = addM(p, k + 2, Acct.Retire, noCat, "401k 5%", k401x, k401)
+    p = addM(p, k + 3, Acct.Retire, noCat, "Match", matchx, employer)
+    p = addM(p, k + 4, Acct.Withheld, catFedTax, "Fed W/H", -fedx, -fed)
+    p = addM(p, k + 5, Acct.Withheld, catStateTax, "State W/H", -statex, -stateTax)
+    p = addM(p, k + 6, Acct.Withheld, catFica, "Soc Sec", -ssx, -ss)
+    p = addM(p, k + 7, Acct.Withheld, catFica, "Medicare", -medx, -med)
+    MUT nb AS MBook = p.book
+    nb = WITH nb { wages := nb.wages + taxable, fedHeld := nb.fedHeld + fed, stateHeld := nb.stateHeld + stateTax }
+    p = WITH p { book := nb }
+    p = sayM(p, narrate, ev.label & " " & fm(gross) & ": net " & fm(net) & " to checking, " & fm(toSavings) & " to savings, " & fm(k401) & " + " & fm(employer) & " match to 401(k)", toneIn)
+    p = sayM(p, narrate, "  withheld: fed " & fx(fedx) & " -> " & fm(fed) & ", state " & fx(statex) & " -> " & fm(stateTax) & ", FICA " & fm(ss + med), toneTax)
+
+  ELSEIF ev.kind = Kind.Bill THEN
+    p = addM(p, k, Acct.Checking, ev.cat, ev.label, -ev.amount, -ev.amount)
+    p = sayM(p, narrate, ev.label & " " & fm(ev.amount) & " paid from checking", toneOut)
+
+  ELSEIF ev.kind = Kind.Metered THEN
+    LET costx AS Money = ev.amount * ev.qty / 1000
+    LET cost AS Money = cents(costx)
+    p = addM(p, k, Acct.Checking, ev.cat, ev.label, -costx, -cost)
+    p = sayM(p, narrate, ev.label & ": " & thousandths(ev.qty) & " " & ev.unit & " @ $" & fx(ev.amount) & " = " & fx(costx) & " -> booked " & fm(cost), toneOut)
+
+  ELSEIF ev.kind = Kind.Taxed THEN
+    LET taxx AS Money = pct(ev.amount, ev.bp)
+    LET tax AS Money = cents(taxx)
+    p = addM(p, k, Acct.Checking, ev.cat, ev.label, -(ev.amount + taxx), -(ev.amount + tax))
+    p = sayM(p, narrate, ev.label & " " & fm(ev.amount) & " + " & bpText(ev.bp) & " tax " & fx(taxx) & " -> booked " & fm(ev.amount + tax), toneOut)
+
+  ELSEIF ev.kind = Kind.Dining THEN
+    LET taxx AS Money = pct(ev.amount, diningTaxBp)
+    LET tipx AS Money = pct(ev.amount, ev.bp)
+    LET total AS Money = ev.amount + cents(taxx) + cents(tipx)
+    p = addM(p, k, Acct.Checking, ev.cat, ev.label, -(ev.amount + taxx + tipx), -total)
+    p = sayM(p, narrate, ev.label & " " & fm(ev.amount) & " + tax " & fx(taxx) & " + " & bpText(ev.bp) & " tip " & fx(tipx) & " -> booked " & fm(total), toneOut)
+
+  ELSEIF ev.kind = Kind.Interest THEN
+    IF p.book.checking > highChecking THEN
+      LET sweep AS Money = p.book.checking - sweepFloor
+      p = addM(p, k, Acct.Checking, noCat, "Sweep", -sweep, -sweep)
+      p = addM(p, k + 1, Acct.Savings, noCat, "Sweep", sweep, sweep)
+      p = sayM(p, narrate, "Checking over " & fm(highChecking) & ": swept " & fm(sweep) & " into savings, leaving " & fm(sweepFloor), toneMove)
+    END IF
+    LET base AS Money = p.book.savings
+    LET interestx AS Money = base * ev.bp / 120000
+    LET interest AS Money = cents(interestx)
+    p = addM(p, k + 2, Acct.Savings, noCat, "Int.", interestx, interest)
+    p = sayM(p, narrate, "Savings interest " & bpText(ev.bp) & " APY / 12 on " & fm(base) & " = " & fx(interestx) & " -> booked " & fm(interest), toneIn)
+
+  ELSEIF ev.kind = Kind.Market THEN
+    LET base AS Money = p.book.retire
+    LET gainx AS Money = pct(base, ev.bp)
+    LET gain AS Money = cents(gainx)
+    p = addM(p, k, Acct.Retire, noCat, "Mkt", gainx, gain)
+    MUT tone AS Integer = toneIn
+    IF gain < 0.00m THEN tone = toneOut
+    p = sayM(p, narrate, "401(k) market " & signed(bpText(ev.bp)) & " on " & fm(base) & " = " & fx(gainx) & " -> booked " & fm(gain), tone)
+
+  ELSEIF ev.kind = Kind.Emergency THEN
+    LET costx AS Money = pct(ev.amount, ev.bp)
+    LET cost AS Money = cents(costx)
+    MUT from AS String = "savings"
+    IF p.book.savings >= cost THEN
+      p = addM(p, k, Acct.Savings, catEmergency, ev.label, -costx, -cost)
+    ELSE
+      from = "checking"
+      p = addM(p, k + 1, Acct.Checking, catEmergency, ev.label, -costx, -cost)
+    END IF
+    p = sayM(p, narrate, "EMERGENCY - " & ev.unit & " " & fm(ev.amount) & shareText(ev.bp) & " = " & fx(costx) & " -> " & fm(cost) & " from " & from, toneOut)
+
+  ELSEIF ev.kind = Kind.GoalStart THEN
+    p = sayM(p, narrate, "New goal: " & ev.label & " - saving " & fm(ev.amount) & " over " & toString(ev.qty) & " months", toneMove)
+
+  ELSEIF ev.kind = Kind.GoalSave THEN
+    ' Split the goal into equal installments; the last one takes whatever the
+    ' rounding left over, so the installments add up to the goal exactly.
+    LET sharex AS Money = ev.amount / ev.qty
+    MUT share AS Money = cents(sharex)
+    MUT how AS String = fm(ev.amount) & " / " & toString(ev.qty) & " = " & fx(sharex) & " -> " & fm(share)
+    IF ev.bp = ev.qty THEN
+      LET earlier AS Money = cents(sharex) * (ev.qty - 1)
+      share = ev.amount - earlier
+      how = fm(ev.amount) & " - " & toString(ev.qty - 1) & " x " & fm(cents(sharex)) & " = " & fm(share) & " (the remainder)"
+    END IF
+    p = addM(p, k, Acct.Checking, noCat, ev.label, -sharex, -share)
+    p = addM(p, k + 1, Acct.Savings, noCat, ev.label, sharex, share)
+    p = sayM(p, narrate, ev.label & " " & toString(ev.bp) & "/" & toString(ev.qty) & ": " & how, toneMove)
+
+  ELSEIF ev.kind = Kind.GoalBuy THEN
+    LET taxx AS Money = pct(ev.amount, ev.bp)
+    LET total AS Money = ev.amount + cents(taxx)
+    p = addM(p, k, Acct.Savings, catGoals, ev.label, -(ev.amount + taxx), -total)
+    MUT taxPart AS String = ""
+    IF ev.bp > 0 THEN taxPart = " + " & bpText(ev.bp) & " tax " & fx(taxx) & " -> " & fm(total)
+    p = sayM(p, narrate, "Bought: " & ev.label & " " & fm(ev.amount) & taxPart & " from savings (saved " & fm(centsToMoney(ev.qty)) & ")", toneMove)
+
+  ELSEIF ev.kind = Kind.TaxFiling THEN
+    LET fedLiabx AS Money = incomeTax(moneyMax(p.book.prevWages - standardDeduction, 0.00m))
+    LET fedLiab AS Money = cents(fedLiabx)
+    LET fedDue AS Money = fedLiab - p.book.prevFed
+    IF fedDue <> 0.00m THEN
+      MUT label AS String = "Fed due"
+      IF fedDue < 0.00m THEN label = "Fed refund"
+      p = addM(p, k, Acct.Checking, catFedTax, label, -(fedLiabx - p.book.prevFed), -fedDue)
+    END IF
+    p = sayM(p, narrate, toString(ev.year - 1) & " federal: owed " & fm(fedLiab) & ", withheld " & fm(p.book.prevFed) & dueText(fedDue), toneTax)
+    LET stLiabx AS Money = pct(p.book.prevWages, stateBp)
+    LET stLiab AS Money = cents(stLiabx)
+    LET stDue AS Money = stLiab - p.book.prevState
+    IF stDue <> 0.00m THEN
+      MUT label AS String = "State due"
+      IF stDue < 0.00m THEN label = "St refund"
+      p = addM(p, k + 1, Acct.Checking, catStateTax, label, -(stLiabx - p.book.prevState), -stDue)
+    END IF
+    p = sayM(p, narrate, "  state " & bpText(stateBp) & " of " & fm(p.book.prevWages) & " = " & fx(stLiabx) & " -> " & fm(stLiab) & ", withheld " & fm(p.book.prevState) & dueText(stDue), toneTax)
+  END IF
+
+  IF p.book.checking < lowChecking AND p.book.savings >= topUp THEN
+    LET low AS Money = p.book.checking
+    p = addM(p, k + 14, Acct.Checking, noCat, "Top-up", topUp, topUp)
+    p = addM(p, k + 15, Acct.Savings, noCat, "Top-up", -topUp, -topUp)
+    p = sayM(p, narrate, "Checking fell to " & fm(low) & ": moved " & fm(topUp) & " over from savings", toneMove)
+  END IF
+  RETURN p
+END FUNC
+
+FUNC shareText(bp AS Integer) AS String
+  IF bp < 10000 THEN RETURN ", you pay " & bpText(bp)
+  IF bp > 10000 THEN RETURN " + " & bpText(bp - 10000) & " tax"
+  RETURN ""
+END FUNC
+
+FUNC dueText(due AS Money) AS String
+  IF due > 0.00m THEN RETURN " -> pay " & fm(due)
+  IF due < 0.00m THEN RETURN " -> refund " & fm(-due)
+  RETURN " -> even"
+END FUNC
+
+' ------------------------------------------------------------- Float ledger
+'
+' The same posting rules written the way a program without Money would write
+' them: binary Float arithmetic, booked to cents by scaling and rounding.
+
+FUNC fpct(x AS Float, bp AS Integer) AS Float
+  RETURN x * toFloat(bp) / 10000.0
+END FUNC
+
+' Book a Float to cents. The half-cent test sees the binary value, so an amount
+' that is a tie in decimal can land just above or below it.
+FUNC fcents(x AS Float, banker AS Boolean) AS Float
+  LET a AS Float = math::abs(x * 100.0)
+  MUT whole AS Integer = math::floor(a)
+  LET frac AS Float = a - toFloat(whole)
+  IF frac > 0.5 THEN
+    whole = whole + 1
+  ELSEIF frac = 0.5 THEN
+    IF NOT banker OR whole MOD 2 = 1 THEN whole = whole + 1
+  END IF
+  LET r AS Float = toFloat(whole) / 100.0
+  IF x < 0.0 THEN RETURN -r
+  RETURN r
+END FUNC
+
+FUNC floatMax(a AS Float, b AS Float) AS Float
+  IF a > b THEN RETURN a
+  RETURN b
+END FUNC
+
+FUNC fIncomeTax(taxable AS Float) AS Float
+  MUT tax AS Float = 0.0
+  MUT lower AS Float = 0.0
+  FOR i = 0 TO len(bracketBps) - 1
+    IF taxable <= lower THEN EXIT FOR
+    MUT top AS Float = taxable
+    IF i < len(bracketTops) THEN
+      LET cap AS Float = toFloat(collections::get(bracketTops, i))
+      IF cap < top THEN top = cap
+    END IF
+    tax = tax + fpct(top - lower, collections::get(bracketBps, i))
+    IF i < len(bracketTops) THEN lower = toFloat(collections::get(bracketTops, i))
+  NEXT
+  RETURN tax
+END FUNC
+
+FUNC openingFloat() AS FBook
+  RETURN FBook[checking := 2500.0, savings := 8000.0, retire := 25000.0, year := startYear, cats := collections::repeat([], 0.0, len(catNames)), wages := 0.0, fedHeld := 0.0, stateHeld := 0.0, prevWages := 0.0, prevFed := 0.0, prevState := 0.0]
+END FUNC
+
+FUNC creditFloat(b AS FBook, acct AS Acct, cat AS Integer, posted AS Float) AS FBook
+  MUT r AS FBook = b
+  IF acct = Acct.Checking THEN
+    r = WITH r { checking := r.checking + posted }
+  ELSEIF acct = Acct.Savings THEN
+    r = WITH r { savings := r.savings + posted }
+  ELSEIF acct = Acct.Retire THEN
+    r = WITH r { retire := r.retire + posted }
+  END IF
+  IF cat >= 0 THEN
+    r = WITH r { cats := collections::set(r.cats, cat, collections::get(r.cats, cat) - posted) }
+  END IF
+  RETURN r
+END FUNC
+
+FUNC addF(p AS FPost, key AS Integer, acct AS Acct, cat AS Integer, label AS String, exact AS Float, posted AS Float) AS FPost
+  LET e AS FEntry = FEntry[key := key, acct := acct, cat := cat, label := label, exact := exact, posted := posted]
+  RETURN FPost[book := creditFloat(p.book, acct, cat, posted), entries := collections::append(p.entries, e), log := p.log]
+END FUNC
+
+FUNC sayF(p AS FPost, narrate AS Boolean, text AS String, tone AS Integer) AS FPost
+  IF NOT narrate THEN RETURN p
+  RETURN WITH p { log := collections::append(p.log, line(text, tone)) }
+END FUNC
+
+FUNC fDueText(due AS Float) AS String
+  IF due > 0.0 THEN RETURN " -> pay " & ff(due)
+  IF due < 0.0 THEN RETURN " -> refund " & ff(-due)
+  RETURN " -> even"
+END FUNC
+
+FUNC postFloat(start AS FBook, ev AS Event, index AS Integer, banker AS Boolean, narrate AS Boolean) AS FPost
+  MUT b AS FBook = start
+  IF ev.year <> b.year THEN
+    b = WITH b { year := ev.year, cats := collections::repeat([], 0.0, len(catNames)), prevWages := b.wages, prevFed := b.fedHeld, prevState := b.stateHeld, wages := 0.0, fedHeld := 0.0, stateHeld := 0.0 }
+  END IF
+  MUT p AS FPost = FPost[book := b, entries := [], log := []]
+  LET k AS Integer = index * 16
+  LET amount AS Float = toFloat(ev.amount)
+
+  IF ev.kind = Kind.Paycheck OR ev.kind = Kind.Bonus THEN
+    LET gross AS Float = amount
+    LET k401x AS Float = fpct(gross, k401Bp)
+    LET k401 AS Float = fcents(k401x, banker)
+    LET matchx AS Float = k401 / 2.0
+    LET employer AS Float = fcents(matchx, banker)
+    MUT savex AS Float = 0.0
+    IF ev.kind = Kind.Paycheck THEN savex = fpct(gross, saveBp)
+    LET toSavings AS Float = fcents(savex, banker)
+    LET taxable AS Float = gross - k401
+    MUT fedx AS Float = fpct(taxable, bonusFedBp)
+    IF ev.kind = Kind.Paycheck THEN
+      fedx = fIncomeTax(floatMax(taxable * toFloat(payPeriods) - toFloat(standardDeduction), 0.0)) / toFloat(payPeriods)
+    END IF
+    LET fed AS Float = fcents(fedx, banker)
+    LET statex AS Float = fpct(taxable, stateBp)
+    LET stateTax AS Float = fcents(statex, banker)
+    LET ssx AS Float = fpct(gross, ssBp)
+    LET ss AS Float = fcents(ssx, banker)
+    LET medx AS Float = fpct(gross, medicareBp)
+    LET med AS Float = fcents(medx, banker)
+    LET net AS Float = gross - k401 - toSavings - fed - stateTax - ss - med
+    p = addF(p, k, Acct.Checking, noCat, ev.label, net, net)
+    IF toSavings > 0.0 THEN p = addF(p, k + 1, Acct.Savings, noCat, "Save 2%", savex, toSavings)
+    p = addF(p, k + 2, Acct.Retire, noCat, "401k 5%", k401x, k401)
+    p = addF(p, k + 3, Acct.Retire, noCat, "Match", matchx, employer)
+    p = addF(p, k + 4, Acct.Withheld, catFedTax, "Fed W/H", -fedx, -fed)
+    p = addF(p, k + 5, Acct.Withheld, catStateTax, "State W/H", -statex, -stateTax)
+    p = addF(p, k + 6, Acct.Withheld, catFica, "Soc Sec", -ssx, -ss)
+    p = addF(p, k + 7, Acct.Withheld, catFica, "Medicare", -medx, -med)
+    MUT nb AS FBook = p.book
+    nb = WITH nb { wages := nb.wages + taxable, fedHeld := nb.fedHeld + fed, stateHeld := nb.stateHeld + stateTax }
+    p = WITH p { book := nb }
+    p = sayF(p, narrate, ev.label & " " & ff(gross) & ": net " & fraw(net) & " to checking, " & ff(toSavings) & " to savings, " & ff(k401) & " + " & ff(employer) & " match to 401(k)", toneIn)
+    p = sayF(p, narrate, "  withheld: fed " & fraw(fedx) & " -> " & ff(fed) & ", state " & fraw(statex) & " -> " & ff(stateTax), toneTax)
+
+  ELSEIF ev.kind = Kind.Bill THEN
+    p = addF(p, k, Acct.Checking, ev.cat, ev.label, -amount, -amount)
+    p = sayF(p, narrate, ev.label & " $" & fraw(amount) & " paid from checking", toneOut)
+
+  ELSEIF ev.kind = Kind.Metered THEN
+    LET costx AS Float = amount * toFloat(ev.qty) / 1000.0
+    LET cost AS Float = fcents(costx, banker)
+    p = addF(p, k, Acct.Checking, ev.cat, ev.label, -costx, -cost)
+    p = sayF(p, narrate, ev.label & ": " & thousandths(ev.qty) & " " & ev.unit & " @ $" & fraw(amount) & " = " & fraw(costx) & " -> booked " & ff(cost), toneOut)
+
+  ELSEIF ev.kind = Kind.Taxed THEN
+    LET taxx AS Float = fpct(amount, ev.bp)
+    LET tax AS Float = fcents(taxx, banker)
+    p = addF(p, k, Acct.Checking, ev.cat, ev.label, -(amount + taxx), -(amount + tax))
+    p = sayF(p, narrate, ev.label & " " & ff(amount) & " + " & bpText(ev.bp) & " tax " & fraw(taxx) & " -> booked " & fraw(amount + tax), toneOut)
+
+  ELSEIF ev.kind = Kind.Dining THEN
+    LET taxx AS Float = fpct(amount, diningTaxBp)
+    LET tipx AS Float = fpct(amount, ev.bp)
+    LET total AS Float = amount + fcents(taxx, banker) + fcents(tipx, banker)
+    p = addF(p, k, Acct.Checking, ev.cat, ev.label, -(amount + taxx + tipx), -total)
+    p = sayF(p, narrate, ev.label & " " & ff(amount) & " + tax " & fraw(taxx) & " + " & bpText(ev.bp) & " tip " & fraw(tipx) & " -> booked " & fraw(total), toneOut)
+
+  ELSEIF ev.kind = Kind.Interest THEN
+    IF p.book.checking > toFloat(highChecking) THEN
+      LET sweep AS Float = p.book.checking - toFloat(sweepFloor)
+      p = addF(p, k, Acct.Checking, noCat, "Sweep", -sweep, -sweep)
+      p = addF(p, k + 1, Acct.Savings, noCat, "Sweep", sweep, sweep)
+      p = sayF(p, narrate, "Checking over " & fm(highChecking) & ": swept " & fraw(sweep) & " into savings, leaving " & fraw(p.book.checking), toneMove)
+    END IF
+    LET base AS Float = p.book.savings
+    LET interestx AS Float = base * toFloat(ev.bp) / 120000.0
+    LET interest AS Float = fcents(interestx, banker)
+    p = addF(p, k + 2, Acct.Savings, noCat, "Int.", interestx, interest)
+    p = sayF(p, narrate, "Savings interest " & bpText(ev.bp) & " APY / 12 on " & fraw(base) & " = " & fraw(interestx) & " -> " & ff(interest), toneIn)
+
+  ELSEIF ev.kind = Kind.Market THEN
+    LET base AS Float = p.book.retire
+    LET gainx AS Float = fpct(base, ev.bp)
+    LET gain AS Float = fcents(gainx, banker)
+    p = addF(p, k, Acct.Retire, noCat, "Mkt", gainx, gain)
+    MUT tone AS Integer = toneIn
+    IF gain < 0.0 THEN tone = toneOut
+    p = sayF(p, narrate, "401(k) market " & signed(bpText(ev.bp)) & " on " & fraw(base) & " = " & fraw(gainx) & " -> " & ff(gain), tone)
+
+  ELSEIF ev.kind = Kind.Emergency THEN
+    LET costx AS Float = fpct(amount, ev.bp)
+    LET cost AS Float = fcents(costx, banker)
+    MUT from AS String = "savings"
+    IF p.book.savings >= cost THEN
+      p = addF(p, k, Acct.Savings, catEmergency, ev.label, -costx, -cost)
+    ELSE
+      from = "checking"
+      p = addF(p, k + 1, Acct.Checking, catEmergency, ev.label, -costx, -cost)
+    END IF
+    p = sayF(p, narrate, "EMERGENCY - " & ev.unit & " " & ff(amount) & shareText(ev.bp) & " = " & fraw(costx) & " -> " & ff(cost) & " from " & from, toneOut)
+
+  ELSEIF ev.kind = Kind.GoalStart THEN
+    p = sayF(p, narrate, "New goal: " & ev.label & " - saving " & ff(amount) & " over " & toString(ev.qty) & " months", toneMove)
+
+  ELSEIF ev.kind = Kind.GoalSave THEN
+    LET sharex AS Float = amount / toFloat(ev.qty)
+    MUT share AS Float = fcents(sharex, banker)
+    MUT how AS String = ff(amount) & " / " & toString(ev.qty) & " = " & fraw(sharex) & " -> " & ff(share)
+    IF ev.bp = ev.qty THEN
+      LET earlier AS Float = fcents(sharex, banker) * toFloat(ev.qty - 1)
+      share = amount - earlier
+      how = ff(amount) & " - " & toString(ev.qty - 1) & " x " & ff(fcents(sharex, banker)) & " = " & fraw(share) & " (the remainder)"
+    END IF
+    p = addF(p, k, Acct.Checking, noCat, ev.label, -sharex, -share)
+    p = addF(p, k + 1, Acct.Savings, noCat, ev.label, sharex, share)
+    p = sayF(p, narrate, ev.label & " " & toString(ev.bp) & "/" & toString(ev.qty) & ": " & how, toneMove)
+
+  ELSEIF ev.kind = Kind.GoalBuy THEN
+    LET taxx AS Float = fpct(amount, ev.bp)
+    LET total AS Float = amount + fcents(taxx, banker)
+    p = addF(p, k, Acct.Savings, catGoals, ev.label, -(amount + taxx), -total)
+    MUT taxPart AS String = ""
+    IF ev.bp > 0 THEN taxPart = " + " & bpText(ev.bp) & " tax " & fraw(taxx) & " -> " & fraw(total)
+    p = sayF(p, narrate, "Bought: " & ev.label & " " & ff(amount) & taxPart & " from savings (saved " & fm(centsToMoney(ev.qty)) & ")", toneMove)
+
+  ELSEIF ev.kind = Kind.TaxFiling THEN
+    LET fedLiabx AS Float = fIncomeTax(floatMax(p.book.prevWages - toFloat(standardDeduction), 0.0))
+    LET fedLiab AS Float = fcents(fedLiabx, banker)
+    LET fedDue AS Float = fedLiab - p.book.prevFed
+    IF fedDue <> 0.0 THEN
+      MUT label AS String = "Fed due"
+      IF fedDue < 0.0 THEN label = "Fed refund"
+      p = addF(p, k, Acct.Checking, catFedTax, label, -(fedLiabx - p.book.prevFed), -fedDue)
+    END IF
+    p = sayF(p, narrate, toString(ev.year - 1) & " federal: owed " & ff(fedLiab) & ", withheld " & fraw(p.book.prevFed) & fDueText(fedDue), toneTax)
+    LET stLiabx AS Float = fpct(p.book.prevWages, stateBp)
+    LET stLiab AS Float = fcents(stLiabx, banker)
+    LET stDue AS Float = stLiab - p.book.prevState
+    IF stDue <> 0.0 THEN
+      MUT label AS String = "State due"
+      IF stDue < 0.0 THEN label = "St refund"
+      p = addF(p, k + 1, Acct.Checking, catStateTax, label, -(stLiabx - p.book.prevState), -stDue)
+    END IF
+    p = sayF(p, narrate, "  state " & bpText(stateBp) & " = " & fraw(stLiabx) & " -> " & ff(stLiab) & ", withheld " & fraw(p.book.prevState) & " -> due " & fraw(stDue), toneTax)
+  END IF
+
+  IF p.book.checking < toFloat(lowChecking) AND p.book.savings >= toFloat(topUp) THEN
+    LET low AS Float = p.book.checking
+    LET move AS Float = toFloat(topUp)
+    p = addF(p, k + 14, Acct.Checking, noCat, "Top-up", move, move)
+    p = addF(p, k + 15, Acct.Savings, noCat, "Top-up", -move, -move)
+    p = sayF(p, narrate, "Checking fell to " & fraw(low) & ": moved " & ff(move) & " over from savings", toneMove)
+  END IF
+  RETURN p
+END FUNC
+
+' ------------------------------------------------------------------ replays
+
+FUNC replayMoney(evs AS List OF Event) AS MPost
+  MUT book AS MBook = openingMoney()
+  MUT all AS List OF Entry = []
+  FOR i = 0 TO len(evs) - 1
+    LET p AS MPost = postMoney(book, collections::get(evs, i), i, FALSE)
+    book = p.book
+    all = collections::append(all, p.entries)
+  NEXT
+  RETURN MPost[book := book, entries := all, log := []]
+END FUNC
+
+FUNC replayFloat(evs AS List OF Event, banker AS Boolean) AS FPost
+  MUT book AS FBook = openingFloat()
+  MUT all AS List OF FEntry = []
+  FOR i = 0 TO len(evs) - 1
+    LET p AS FPost = postFloat(book, collections::get(evs, i), i, banker, FALSE)
+    book = p.book
+    all = collections::append(all, p.entries)
+  NEXT
+  RETURN FPost[book := book, entries := all, log := []]
+END FUNC
