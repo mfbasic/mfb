@@ -31,7 +31,7 @@ content signature to agree. Their reusable scope is the exact ident, version,
 and signing key: possession of that signing private key and valid statements
 can sign different bytes for that same identity/version. The statements do not
 contain a content hash; publication separately rejects an already-published
-version. [[repository/src/server.rs:attestation_json]][[src/cli/build/signing.rs:load_build_signing_info]][[repository/src/server.rs:validate_package_request]]
+version. [[repository/src/server/accounts.rs:attestation_json]][[src/cli/build/signing.rs:load_build_signing_info]][[repository/src/server/publish.rs:validate_package_request]]
 
 ## Fingerprints and encodings
 
@@ -138,7 +138,7 @@ Attestation (server-signed, fetched per build via POST /signing):
 The signed bytes are the exact JSON strings as produced (fixed field order, no
 re-serialization); verifiers compare fields after parsing but verify the
 signature over the raw stored bytes.
-[[src/cli/build/signing.rs:load_build_signing_info]][[repository/src/server.rs:attestation_json]]
+[[src/cli/build/signing.rs:load_build_signing_info]][[repository/src/server/accounts.rs:attestation_json]]
 
 ### Registration flow
 
@@ -146,13 +146,13 @@ signature over the raw stored bytes.
 role-discriminated `registration_message` per key, signs each with its own
 private key, and `POST`s `{owner, authKey, identKey, proofs:{auth,ident}}` to
 `/accounts/register`; the keypairs are written locally first and removed again
-if the server rejects the request. [[repository/src/client.rs:register]] The
+if the server rejects the request. [[repository/src/client/identity.rs:register]] The
 server decodes both keys and proofs and verifies each proof against its own
-role's message before recording the owner. [[repository/src/server.rs:register]]
+role's message before recording the owner. [[repository/src/server/accounts.rs:register]]
 
 ### Challenge flow
 
-`auth` reads the local **auth** private key, derives the public key and its fingerprint, requests a challenge from `/auth/challenge`, signs `challenge_message(challengeId, nonce)`, and posts the signature to `/auth/login` to obtain a session token. [[repository/src/client.rs:auth]]
+`auth` reads the local **auth** private key, derives the public key and its fingerprint, requests a challenge from `/auth/challenge`, signs `challenge_message(challengeId, nonce)`, and posts the signature to `/auth/login` to obtain a session token. [[repository/src/client/identity.rs:auth]]
 
 ## `build --sign`: the per-build signing flow
 
@@ -176,7 +176,7 @@ every signed build fetches a fresh attestation. [[src/cli/build/signing.rs:load_
    signature against the pinned `server.pub` and cross-checks that the
    attestation pins the requested ident/version/signing fingerprint and that
    its `identFingerprint` names the ident key this machine holds.
-   [[repository/src/client.rs:request_attestation]]
+   [[repository/src/client/identity.rs:request_attestation]]
 5. Mint the **proof** locally (see above) and sign it with the ident key
    (`MFP-PROOF-v1` domain).
 6. Thread the bundle (`PackageSigning { ident_key, signing_key,
@@ -272,7 +272,7 @@ is reported as `proof ident does not belong to the signing owner`
 (plain http only for loopback). It keeps no revocation for signing keys or
 attestations, and release state (yanked/deprecated) exists only for published
 packages, so neither is reported for an executable (`./mfb spec tooling
-cli-reference`). [[src/cli/info.rs:verify_chain]][[repository/src/client.rs:fetch_server_key]][[repository/src/client.rs:fetch_index_with_key]][[repository/src/trust.rs:verify_chain]]
+cli-reference`). [[src/cli/info.rs:verify_chain]][[repository/src/client/identity.rs:fetch_server_key]][[repository/src/client/packages.rs:fetch_index_with_key]][[repository/src/trust.rs:verify_chain]]
 
 ## Trust boundary
 

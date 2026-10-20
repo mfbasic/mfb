@@ -86,15 +86,15 @@ a mismatch yields `session owner does not match package ident owner`. Once the
 package exists, `/validate` and `/publish` compare the session against the
 package's stored owner instead, including after a transfer (`session owner is
 not the package's current owner`).
-[[repository/src/server.rs:validate_package_request]]
+[[repository/src/server/publish.rs:validate_package_request]]
 
 One endpoint is an exception: `/signing` compares the requested owner against
 the session subject (the registered *display* form) **without** folding, so
 `mfb build --sign` must be given the owner in exactly the case it was
 registered with (a new package's ident prefix, by contrast, is folded). For an existing package,
 `/signing` checks the stored package owner, including transfers.
-[[repository/src/server.rs:require_package_owner]]
-[[repository/src/server.rs:signing]]
+[[repository/src/server/auth.rs:require_package_owner]]
+[[repository/src/server/accounts.rs:signing]]
 
 ## Where Validation Runs
 
@@ -115,7 +115,7 @@ lookups fold the owner. [[repository/src/local.rs:auth_public_key_path]]
 | `store::register_owner` | server-side insert of the owner + auth key |
 | `store::create_challenge` | server-side challenge issuance |
 
-[[repository/src/client.rs:register]] [[repository/src/client.rs:auth]] [[repository/src/client.rs:request_attestation]] [[repository/src/client.rs:validate_package]] [[repository/src/client.rs:publish_package]] [[repository/src/store.rs:register_owner]] [[repository/src/store.rs:create_challenge]]
+[[repository/src/client/identity.rs:register]] [[repository/src/client/identity.rs:auth]] [[repository/src/client/identity.rs:request_attestation]] [[repository/src/client/packages.rs:validate_package]] [[repository/src/client/packages.rs:publish_package]] [[repository/src/store.rs:register_owner]] [[repository/src/store.rs:create_challenge]]
 
 The owner name is also baked into the proof-of-possession message signed at
 registration, so the name a client validated is cryptographically bound to the

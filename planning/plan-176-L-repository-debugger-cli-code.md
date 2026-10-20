@@ -850,21 +850,37 @@ Acceptance: both backends compile and the macOS backend runs.
   run (4998 passed) + `citedef.py` clean; G3 → 8, 8, 7 + 1 ignored; census → macos 460/454/542/143/419, linux
   221/210/315/577/408; G5 → exit 0. Linux (box 2223 down, Corrections): `cargo check --all-targets` in the
   `rust:1-bookworm` aarch64 Linux container → `Finished`, no `error`, no `src/debugger/linux` line, 0 warnings.
-Commit: —
+Commit: 407a1ddea (and 46680d337, the Linux-only test warnings)
 
 ### Phase 5 — Repository client and server
 
-- [ ] Split `repository/src/client.rs` per §4.1.
-- [ ] Split `repository/src/server.rs` per §4.2.
-- [ ] Sweep the 125 citations (51 + 74).
-- [ ] `.ai/net-tls.md:266` → `repository/src/client/transport.rs`; `.ai/testing-gates.md:703`
+- [x] Split `repository/src/client.rs` per §4.1.
+      Done: `codesplit.py` → transport 21, identity 15, registry_trust 17, governance 10, packages 9 items, none left
+      unlisted; `pub(super)` on exactly §4.1's 25; `pub use <part>::*;` for all five; `motion.py` → only the wiring and
+      the 25 `pub(super)`.
+- [x] Split `repository/src/server.rs` per §4.2.
+      Done: `codesplit.py` → limits 18, wire 65, auth 11, accounts 13, log_proofs 7, browse 17, metadata 7,
+      governance 6, blobs 5, publish 5 items, none left unlisted; `pub(super)` from the compiler's privacy errors
+      (`autovis.py`) → 83 (§4.2 estimated 77; also `SearchQuery`, a private type in `search`'s signature, and the five
+      `*Query` fields the tests build); only wire/auth/accounts hold a `pub` item, so the other seven are glob-imported
+      privately (a `pub use` of them warns); `motion.py` → only the wiring and the 83 `pub(super)`.
+- [x] Sweep the 125 citations (51 + 74).
+      Done: `citesweep.py` → 51 + 74; `citedef.py` → 125 cites, 0 not defined where cited; 0 old-path cites.
+- [x] `.ai/net-tls.md:266` → `repository/src/client/transport.rs`; `.ai/testing-gates.md:703`
       → `repository/src/local.rs` (§4.1).
-- [ ] G4.
+      Done: both repointed (the testing-gates bullet is now at line 721; `pin_server_key` is `local.rs`'s).
+- [x] G4.
+      Done: → 2 STALE `code` rows (client 1445, server 3056); tighten drops them; re-run → 0.
 
 Acceptance: the registry client and server behave identically.
   Check: G1; `cargo test -p mfb_repository` → 0 failed (est. 4 min); `cargo build` of `mfb`
   (it imports `mfb_repository::server::…`) → succeeds; `cargo test --test cli_repo_publish --test cli_repo_auth`
   → pass (live local server round trip); G2; G3; G5 (est. 12 min).
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, check warnings 0, clippy 37065 = G0; `cargo test -p
+  mfb_repository` → 450 + 24 passed, 0 failed (474 = the repo list); `mfb` builds (fast tier build step ok);
+  `cli_repo_publish` → `ok. 6 passed`, `cli_repo_auth` → `ok. 4 passed` (fast tier); G2 → `spec_citations_resolve`
+  in the unit run (4998 passed) + `citedef.py` clean; G3 → 8, 8, 7 + 1 ignored; census → client 30/261/390/343/
+  276/181, server 158/60/645/149/484/108/591/88/284/155/364; G5 → both workspaces exit 0.
 Commit: —
 
 ### Phase 6 — Repository store (largest blast radius)

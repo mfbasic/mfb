@@ -718,7 +718,7 @@ the wrong outcome rather than erroring.** Both were green when run alone.
 * `tests/rt_tls_connect_allow_self_signed.rs` — an ephemeral port picked with
   bind-then-release, so the loser of a collision probed the *winner's* `s_server` and
   returned that case's TLS verdict (see the section above).
-* `repository/src/client.rs` — `pin_server_key` reads the process-wide
+* `repository/src/local.rs` — `pin_server_key` reads the process-wide
   `MFB_REPO_SERVER_FINGERPRINT`. `local::tests` had an `ENV_LOCK` whose doc comment
   said "every test that exercises it must run one at a time", but the lock was private
   to that module and `client::tests` reaches the same code through link's

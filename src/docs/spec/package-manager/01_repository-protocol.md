@@ -18,7 +18,7 @@ and session storage is owned by *key-store*.
 Control requests use JSON `POST` bodies and JSON responses. Native blob uploads
 use raw-body `PUT`; anonymous reads use `GET`, with `HEAD` also available for
 blobs. The endpoint table below lists the routes.
-[[repository/src/server.rs:build_router]]
+[[repository/src/server/mod.rs:build_router]]
 
 Binary fields (public keys, proofs,
 nonces, signatures, package artifacts) are **base64url, no padding**. Hashes
@@ -28,12 +28,12 @@ and key fingerprints are lowercase **hex**.
 
 The base URL comes from the `MFB_REPO_URL` environment variable, falling back to
 `DEFAULT_REPO_URL` = `https://mfb-repo.fly.dev`, the public hosted
-registry.[[repository/src/client.rs:repo_url_from_env]][[repository/src/lib.rs:DEFAULT_REPO_URL]]
+registry.[[repository/src/client/transport.rs:repo_url_from_env]][[repository/src/lib.rs:DEFAULT_REPO_URL]]
 A local dev registry is reached by setting `MFB_REPO_URL=http://127.0.0.1:7777`
 explicitly.
 Every request URL is `format!("{base}{path}")` with any trailing slashes
 trimmed from the base, so `MFB_REPO_URL=https://repo.example/` and the path
-`/publish` produce `https://repo.example/publish`.[[repository/src/client.rs:post_json]]
+`/publish` produce `https://repo.example/publish`.[[repository/src/client/transport.rs:post_json]]
 
 `post_json` and `get_json` share `read_json_response`. Successful responses
 are decoded as the requested JSON type. For an error response, an `{"error":
@@ -42,7 +42,7 @@ and body. Server-authored error text is terminal-sanitized, not returned
 verbatim. An unreadable or oversized error body is replaced with `repository
 request failed` while preserving the HTTP status. Connection failures report
 `failed to connect to repository service: <err>`.
-[[repository/src/client.rs:read_json_response]][[repository/src/client.rs:sanitize_server_text]]
+[[repository/src/client/transport.rs:read_json_response]][[repository/src/client/transport.rs:sanitize_server_text]]
 
 The client accepts HTTPS, or HTTP only for `localhost` and loopback IP literals.
 Credential-bearing `POST` and `PUT` requests never follow redirects. Anonymous
@@ -51,14 +51,14 @@ and pass both IP-literal checks and a DNS check rejecting non-public addresses.
 Resolution failure also refuses the redirect. DNS is checked before the HTTP
 client resolves the name for connection; the check does not pin that connection
 to the approved addresses.
-[[repository/src/client.rs:ensure_transport_security]][[repository/src/client.rs:no_redirect_client]][[repository/src/client.rs:redirect_policy]][[repository/src/client.rs:ensure_redirect_host_resolves_public]]
+[[repository/src/client/transport.rs:ensure_transport_security]][[repository/src/client/transport.rs:no_redirect_client]][[repository/src/client/transport.rs:redirect_policy]][[repository/src/client/transport.rs:ensure_redirect_host_resolves_public]]
 
 The clients use a 10-second connection timeout and a 30-second default request
 timeout; blob GET/PUT override the request timeout to 600 seconds. Responses read by `read_json_response`
 are capped at 1 MiB and blob downloads at 96 MiB, independently of the
 server's upload cap. The capped reader checks both the advertised length and
 actual bytes read.
-[[repository/src/client.rs:CONNECT_TIMEOUT]][[repository/src/client.rs:CONTROL_TIMEOUT]][[repository/src/client.rs:BLOB_TIMEOUT]][[repository/src/client.rs:read_body_capped]]
+[[repository/src/client/transport.rs:CONNECT_TIMEOUT]][[repository/src/client/transport.rs:CONTROL_TIMEOUT]][[repository/src/client/transport.rs:BLOB_TIMEOUT]][[repository/src/client/transport.rs:read_body_capped]]
 
 The reference server ships as the `mfb-repo` binary: `mfb-repo --dbpath
 <db_path> --datapath <data_path> [--listen <addr:port>] [--s3-endpoint <url>]`.
@@ -71,7 +71,7 @@ for S3-compatible stores (MinIO/R2/Ceph) and is only valid with an `s3://` data
 path. The metadata database always stays on local disk. On first run it
 generates its own Ed25519 **server keypair**; its private half never appears in
 an HTTP response. Root initialization additionally stores online snapshot and
-timestamp private keys. Publisher private keys are not stored in plaintext. [[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]][[repository/src/store.rs:open_repository]][[repository/src/blobstore.rs:BlobBackend]]
+timestamp private keys. Publisher private keys are not stored in plaintext. [[repository/src/main.rs:parse_args]][[repository/src/server/mod.rs:serve]][[repository/src/store.rs:open_repository]][[repository/src/blobstore.rs:BlobBackend]]
 
 ### Encoding
 
@@ -129,21 +129,21 @@ timestamp private keys. Publisher private keys are not stored in plaintext. [[re
 | `/validate` | POST | session token | `PackageArtifactRequest` | `ValidatePackageResponse` | `repo publish` (step 1) |
 | `/publish` | POST | session token | `PackageArtifactRequest` | `PublishPackageResponse` | `repo publish` (step 2) |
 
-[[repository/src/server.rs:build_router]]
+[[repository/src/server/mod.rs:build_router]]
 
 ### The anonymous read surface
 
 `/search`, `/packages/<ident>`, and its `/audit` and `/docs` routes are
 anonymous reads. They do not inspect session tokens, bearer credentials, or
 cookies. Authentication elsewhere uses explicit JSON-body tokens, except for
-blob PUT's bearer header. [[repository/src/server.rs:build_router]]
+blob PUT's bearer header. [[repository/src/server/mod.rs:build_router]]
 
 `PackageDetailResponse.versions` includes every recorded release state,
 including yanked releases. The audit response supplies publish inclusion proofs
 against a signed checkpoint. These proofs authenticate included entries; they
 do not establish that the registry disclosed every version. The index's name
 binding authenticates the owner key, not the version array.
-[[repository/src/server.rs:package_detail]][[repository/src/server.rs:package_audit]][[repository/src/client.rs:fetch_index_with_key]]
+[[repository/src/server/browse.rs:package_detail]][[repository/src/server/browse.rs:package_audit]][[repository/src/client/packages.rs:fetch_index_with_key]]
 
 **`description` is populated from the artifact, never from the request.** It is
 read out of MFPC section 18 inside the signed payload (see
@@ -157,7 +157,7 @@ a word its current release no longer contains. A search result carries the
 description clamped to **200 characters** (on a character boundary — the text is
 UTF-8) with an ellipsis; the package detail route returns it in full. Without
 that clamp a single 50-result page could carry 50 × 4096 bytes on an anonymous
-route.[[repository/src/server.rs:description_preview]]
+route.[[repository/src/server/browse.rs:description_preview]]
 
 `/search` is the only route here that does real query work per request, so it
 carries a per-**IP** sliding-window cap (the `REGISTER_PER_IP_MAX` /
@@ -168,7 +168,7 @@ anonymous enumerate route is a trivial resource-exhaustion lever. An empty or
 whitespace-only `?q` returns an empty result set rather than the whole table, and
 the query is matched with `LIKE ... ESCAPE`, so `%` and `_` are literal text
 rather than wildcards that would hand a caller the entire
-registry.[[repository/src/server.rs:search]]
+registry.[[repository/src/server/browse.rs:search]]
 
 ### Documentation reads
 
@@ -178,7 +178,7 @@ package detail response. `documentation` is null when that release has no
 stored documentation; `version` is null when no release is active. Malformed
 or unknown package lookups retain the detail route's 400/404 errors; stored
 documentation read/decode failures return 500.
-[[repository/src/server.rs:lookup_package_docs]][[repository/src/server.rs:PackageDocsResponse]]
+[[repository/src/server/browse.rs:lookup_package_docs]][[repository/src/server/wire.rs:PackageDocsResponse]]
 
 The registry stores decoded-valid raw MFPC section 17 at publish time. The read
 surface converts it to the shared `DocPage` model and omits declarations marked
@@ -187,7 +187,7 @@ surface converts it to the shared `DocPage` model and omits declarations marked
 declarations carry anchors, signatures, prose, parameters, members, returns,
 errors, examples, and deprecation text. Prose blocks are `{kind, text}` with
 kind `desc`, `warn`, `info`, or `sec`.
-[[repository/src/server.rs:publish_package]][[repository/src/server.rs:DocPageResponse]][[repository/src/server.rs:DocDeclResponse]][[repository/src/server.rs:from_view]]
+[[repository/src/server/publish.rs:publish_package]][[repository/src/server/wire.rs:DocPageResponse]][[repository/src/server/wire.rs:DocDeclResponse]][[repository/src/server/wire.rs:from_view]]
 
 ### The HTML surface
 
@@ -215,7 +215,7 @@ claims retain the snake_case names shown in their own table. The tables below gi
 
 Returns the registry's own public key so clients can pin it as `server.pub` on
 first contact (see *key-store*). The fingerprint is the same value attestations
-later name as `repoFingerprint`.[[repository/src/server.rs:server_ident]]
+later name as `repoFingerprint`.[[repository/src/server/accounts.rs:server_ident]]
 
 ```json
 {
@@ -226,7 +226,7 @@ later name as `repoFingerprint`.[[repository/src/server.rs:server_ident]]
 
 The client verifies that `serverFingerprint` matches the key it decodes, pins
 the key on first use, and hard-fails if a later fetch disagrees with the pinned
-key.[[repository/src/client.rs:ensure_server_key]][[repository/src/local.rs:pin_server_key]]
+key.[[repository/src/client/identity.rs:ensure_server_key]][[repository/src/local.rs:pin_server_key]]
 
 ## Operational Hardening
 
@@ -243,9 +243,9 @@ safeguards:
   [`mfb-repo gc`](#blob-garbage-collection--mfb-repo-gc-operator-action).[[repository/src/store.rs:reap_expired]]
 - **Rate limiting** — an in-memory sliding-window limiter caps abusive bursts
   on `register`/`challenge`/`login`/`signing` (a `429` when exceeded), keeping
-  the transparency log spam-free.[[repository/src/server.rs:RateLimiter]]
+  the transparency log spam-free.[[repository/src/server/limits.rs:RateLimiter]]
 - **Request-size cap** — request bodies are capped at 64 MiB, including JSON
-  framing and base64 overhead; raw blob PUTs use the same cap.[[repository/src/server.rs:MAX_BODY_BYTES]]
+  framing and base64 overhead; raw blob PUTs use the same cap.[[repository/src/server/limits.rs:MAX_BODY_BYTES]]
 - **Typosquat warning** — `POST /publish` returns warn-only `warnings` naming
   existing idents within edit distance 1 of the published one; it never blocks
   the publish.[[repository/src/store.rs:typosquat_candidates]]
@@ -261,9 +261,9 @@ replayed as an ident proof). Both keypairs are **written to local storage
 first**, then the request is posted. Existing local auth or ident private
 files cause an early refusal. If the POST fails, cleanup attempts to remove the
 just-written keypairs; removal errors are ignored. Failures during the earlier
-key-file writes can leave partial local state. Private keys never leave the machine.[[repository/src/client.rs:register]][[repository/src/crypto.rs:registration_message]]
+key-file writes can leave partial local state. Private keys never leave the machine.[[repository/src/client/identity.rs:register]][[repository/src/crypto.rs:registration_message]]
 
-Request `RegisterRequest`:[[repository/src/server.rs:RegisterRequest]]
+Request `RegisterRequest`:[[repository/src/server/wire.rs:RegisterRequest]]
 
 ```json
 {
@@ -277,7 +277,7 @@ Request `RegisterRequest`:[[repository/src/server.rs:RegisterRequest]]
 }
 ```
 
-Response `RegisterResponse`:[[repository/src/server.rs:RegisterResponse]]
+Response `RegisterResponse`:[[repository/src/server/wire.rs:RegisterResponse]]
 
 ```json
 {
@@ -292,7 +292,7 @@ role's registration message, and records the owner with both public keys
 (roles `auth` and `ident`, both `status='current'`). A duplicate owner name
 yields a `409 Conflict` (message contains `already in use`); malformed input or
 an invalid/role-swapped proof yields
-`400`.[[repository/src/server.rs:register]][[repository/src/server.rs:conflict_or_bad_request]]
+`400`.[[repository/src/server/accounts.rs:register]][[repository/src/server/mod.rs:conflict_or_bad_request]]
 The CLI prints `Registered owner <owner> with auth fingerprint <fp> and ident
 fingerprint <fp>`.[[src/cli/repo.rs:run_repo_command]]
 
@@ -306,20 +306,20 @@ possession of the private key by signing it.
 The client reads the local private key, derives the public key, optionally
 cross-checks it against the stored public key (mismatch ⇒ `mismatched local key
 fingerprint`), computes the SHA-256 fingerprint, and requests a
-challenge.[[repository/src/client.rs:auth]]
+challenge.[[repository/src/client/identity.rs:auth]]
 
 If the local private key is **missing**, the client still probes
 `/auth/challenge` with an empty fingerprint: if the server replies `unknown
 owner` that error is surfaced; otherwise the original local-read error is
-returned. This distinguishes "you never registered" from "your key is gone".[[repository/src/client.rs:auth]]
+returned. This distinguishes "you never registered" from "your key is gone".[[repository/src/client/identity.rs:auth]]
 
-Request `ChallengeRequest`:[[repository/src/server.rs:ChallengeRequest]]
+Request `ChallengeRequest`:[[repository/src/server/wire.rs:ChallengeRequest]]
 
 ```json
 { "owner": "alice", "authFingerprint": "<hex fingerprint>" }
 ```
 
-Response `ChallengeResponse`:[[repository/src/server.rs:ChallengeResponse]]
+Response `ChallengeResponse`:[[repository/src/server/wire.rs:ChallengeResponse]]
 
 ```json
 {
@@ -336,22 +336,22 @@ auth key per linked machine, so auth-key resolution is always
 fingerprint-scoped; no current key with that fingerprint yields `400
 mismatched local key fingerprint` (which is also what a **revoked** machine
 sees). The nonce is 32 random bytes and the challenge expires **300 seconds**
-after issue.[[repository/src/server.rs:challenge]][[repository/src/store.rs:create_auth_challenge]]
+after issue.[[repository/src/server/accounts.rs:challenge]][[repository/src/store.rs:create_auth_challenge]]
 
 ### Step 2 — `/auth/login`
 
 The client decodes the nonce, builds the challenge message (signing domain
 `mfb-repo-auth-v1`, binding `challengeId` and `nonce`), signs it with the private
 key, and posts the login. On success it **writes the returned session token to
-local storage** keyed by owner.[[repository/src/client.rs:auth]][[repository/src/crypto.rs:challenge_message]]
+local storage** keyed by owner.[[repository/src/client/identity.rs:auth]][[repository/src/crypto.rs:challenge_message]]
 
-Request `LoginRequest`:[[repository/src/server.rs:LoginRequest]]
+Request `LoginRequest`:[[repository/src/server/wire.rs:LoginRequest]]
 
 ```json
 { "challengeId": "<from challenge>", "signature": "<base64url signature>" }
 ```
 
-Response `LoginResponse`:[[repository/src/server.rs:LoginResponse]]
+Response `LoginResponse`:[[repository/src/server/wire.rs:LoginResponse]]
 
 ```json
 {
@@ -366,13 +366,13 @@ message). A replayed/already-consumed challenge yields `409` (message contains
 `reused challenge`); an unknown challenge id yields `400 unknown challenge` and
 a lapsed one `400 expired challenge`. Completion is single-use: the challenge
 row is marked used in the same transaction that accepts the
-signature.[[repository/src/server.rs:login]][[repository/src/server.rs:conflict_or_bad_request]][[repository/src/store.rs:complete_challenge]]
+signature.[[repository/src/server/accounts.rs:login]][[repository/src/server/mod.rs:conflict_or_bad_request]][[repository/src/store.rs:complete_challenge]]
 The CLI prints `Authenticated owner <owner> until <expiresAt>`.[[src/cli/repo.rs:run_repo_command]]
 
 ### Session Token (JWT)
 
 `sessionToken` is an HS256 JWT signed with the server secret. Lifetime is **3600
-seconds** (`exp = iat + 3600`). Claims:[[repository/src/server.rs:SessionClaims]][[repository/src/server.rs:login]]
+seconds** (`exp = iat + 3600`). Claims:[[repository/src/server/auth.rs:SessionClaims]][[repository/src/server/accounts.rs:login]]
 
 | Claim | Meaning |
 | --- | --- |
@@ -388,16 +388,16 @@ Server verification (`verify_session_token`) validates HS256, expiry, issuer,
 and audience through `jsonwebtoken::Validation`, then requires a live `jti` in
 the session table. Failure of
 signature or expiry returns `expired or malformed session token`; an unknown
-`jti` returns `unknown session token`.[[repository/src/server.rs:verify_session_token]]
+`jti` returns `unknown session token`.[[repository/src/server/auth.rs:verify_session_token]]
 
 ## Attestation Issuance — `POST /signing`
 
 Used by `build --sign`: an authenticated build pre-registers
 its **one-off signing key** for one exact package+version and receives the
 server-signed **attestation** naming it. Requires a session
-token.[[repository/src/client.rs:request_attestation]]
+token.[[repository/src/client/identity.rs:request_attestation]]
 
-Request `SigningRequest`:[[repository/src/server.rs:SigningRequest]]
+Request `SigningRequest`:[[repository/src/server/wire.rs:SigningRequest]]
 
 ```json
 {
@@ -409,7 +409,7 @@ Request `SigningRequest`:[[repository/src/server.rs:SigningRequest]]
 }
 ```
 
-Response `SigningResponse`:[[repository/src/server.rs:SigningResponse]]
+Response `SigningResponse`:[[repository/src/server/wire.rs:SigningResponse]]
 
 ```json
 {
@@ -432,12 +432,12 @@ session requesting attestations always leaves a trace; the transparency log
  builds on this. The attestation JSON and signature domain are
 specified in *signing*. Scoped publish tokens must also be unexpired,
 unrevoked, and permit the requested ident. The signature is made with the server's own keypair —
-the key served by `GET /ident`.[[repository/src/server.rs:signing]][[repository/src/store.rs:record_signing_request]]
+the key served by `GET /ident`.[[repository/src/server/accounts.rs:signing]][[repository/src/store.rs:record_signing_request]]
 
 The client verifies the returned signature against its pinned `server.pub`
 before using the attestation, and refuses an attestation that does not pin the
 requested package or that names a different ident key than the machine
-holds.[[repository/src/client.rs:request_attestation]][[src/cli/build/signing.rs:load_build_signing_info]]
+holds.[[repository/src/client/identity.rs:request_attestation]][[src/cli/build/signing.rs:load_build_signing_info]]
 
 ## Transparency Log — `/log/*`
 
@@ -445,7 +445,7 @@ The reference server records the operations below in an append-only, RFC 6962
 Merkle-hashed log. Inclusion and consistency proofs verify against signed
 checkpoints. A compromised server holding the signing key is not forced by
 cryptography to record its actions; detection depends on clients comparing
-checkpoints and verifying proofs. [[repository/src/log.rs:verify_inclusion]][[repository/src/client.rs:fetch_checkpoint]]
+checkpoints and verifying proofs. [[repository/src/log.rs:verify_inclusion]][[repository/src/client/registry_trust.rs:fetch_checkpoint]]
 
 Entry kinds and the operations that append them (each appends **exactly
 one** entry, inside the same transaction as the state change):
@@ -478,14 +478,14 @@ entry.[[repository/src/log.rs:root]]
 * `GET /log/checkpoint` → `{"size", "rootHash": "<hex>", "signature"}` — the
   signed tree head. The signature is by the server key over
   `"mfb-log-checkpoint-v1\0" || size (LE u64) || root`.
-  [[repository/src/server.rs:log_checkpoint]]
+  [[repository/src/server/log_proofs.rs:log_checkpoint]]
 * `GET /log/proof/<index>[?size=N]` → `{"index", "size", "leafHash",
   "path": ["<hex>", …]}` — the RFC 6962 audit path for the entry in the tree
-  of `size` (default: current). [[repository/src/server.rs:log_inclusion_proof]]
+  of `size` (default: current). [[repository/src/server/log_proofs.rs:log_inclusion_proof]]
 * `GET /log/consistency?from=M[&to=N]` → `{"from", "to", "path"}` — the
-  consistency proof between two tree sizes. [[repository/src/server.rs:log_consistency_proof]]
+  consistency proof between two tree sizes. [[repository/src/server/log_proofs.rs:log_consistency_proof]]
 * `GET /log/publish?ident=<i>&version=<v>` → the publish entry's
-  `{"index", "leafHash"}`. [[repository/src/server.rs:log_publish_entry]]
+  `{"index", "leafHash"}`. [[repository/src/server/log_proofs.rs:log_publish_entry]]
 
 Client behaviour: the last-seen checkpoint is pinned per repository
 (`~/.mfb/<repo-hash>/checkpoint`, `"<size> <root-hex>"`). Every checkpoint
@@ -497,7 +497,7 @@ checkpoint fetch and, after publishing, verifies its own publish entry's
 inclusion proof against a fresh checkpoint. `mfb pkg verify --proof`
 additionally demands a verifying inclusion proof for each Verified
 dependency's publish entry.
-[[repository/src/client.rs:fetch_checkpoint]][[repository/src/client.rs:verify_publish_inclusion]]
+[[repository/src/client/registry_trust.rs:fetch_checkpoint]][[repository/src/client/registry_trust.rs:verify_publish_inclusion]]
 
 ## Ident Rotation — `/keys/rotate` + `GET /idents/<owner>`
 
@@ -514,7 +514,7 @@ without trusting the server:
 [[repository/src/crypto.rs:ident_rotation_message]]
 
 Request `RotateRequest` (session-authenticated — a rotation needs both the
-old ident key and a live session):[[repository/src/server.rs:rotate_ident]]
+old ident key and a live session):[[repository/src/server/accounts.rs:rotate_ident]]
 
 ```json
 {
@@ -555,14 +555,14 @@ registry's current ident **before** doing anything else: at the start of every
 A retry therefore never overwrites a staged key that may be the account
 authority, and never signs a second rotation with a key the registry may already
 have retired.
-[[repository/src/client.rs:recover_pending_ident]][[repository/src/client.rs:rotate_ident]][[repository/src/client.rs:auth]]
+[[repository/src/client/identity.rs:recover_pending_ident]][[repository/src/client/identity.rs:rotate_ident]][[repository/src/client/identity.rs:auth]]
 
 Other linked machines still hold the old (now `past`) private key and must **re-link**
 (`repo link`) — the new private key is never distributed automatically,
-so possession of the old private key does not grant the successor key.[[repository/src/client.rs:rotate_ident]]
+so possession of the old private key does not grant the successor key.[[repository/src/client/identity.rs:rotate_ident]]
 
 `GET /idents/<owner>` serves the current binding plus the chain, oldest link
-first:[[repository/src/server.rs:ident_chain]]
+first:[[repository/src/server/accounts.rs:ident_chain]]
 
 ```json
 {
@@ -593,7 +593,7 @@ owner's chain — an ident change with no chain link from it — is the re-ancho
 (or impersonation) case: a hard `PACKAGE_IDENT_REANCHORED` error telling the
 user to verify out-of-band; any other refusal is
 `PACKAGE_IDENT_KEY_UNTRUSTED`. The pin is never updated
-silently.[[src/cli/pkg/verify.rs:follow_identity_pin]][[repository/src/client.rs:chain_path]][[repository/src/trust.rs:verify_chain]]
+silently.[[src/cli/pkg/verify.rs:follow_identity_pin]][[repository/src/client/identity.rs:chain_path]][[repository/src/trust.rs:verify_chain]]
 
 ### Re-anchor ceremony (operator action)
 
@@ -616,7 +616,7 @@ Old machine (`repo link --start <owner>`, session-authenticated): generates
 the pairing code (25 base32 characters in five groups, ~125 bits — displayed
 to the user, never transmitted), seals `identPrv || identPub` with
 ChaCha20-Poly1305 under an argon2id key derived from the code, and posts
-`LinkStartRequest`:[[repository/src/server.rs:link_start]][[repository/src/crypto.rs:seal_pairing_blob]]
+`LinkStartRequest`:[[repository/src/server/accounts.rs:link_start]][[repository/src/crypto.rs:seal_pairing_blob]]
 
 ```json
 {
@@ -646,7 +646,7 @@ prefix, different salt), so it can never open the blob.
 
 New machine (`repo link <owner>`, types the code): generates its **own auth
 keypair**, builds the role-separated registration proof, and posts
-`LinkFetchRequest`:[[repository/src/server.rs:link_fetch]]
+`LinkFetchRequest`:[[repository/src/server/accounts.rs:link_fetch]]
 
 ```json
 {
@@ -683,7 +683,7 @@ the account, and returns
 `{"owner", "blob", "salt", "authFingerprint"}`. The client decrypts with the
 typed code (a wrong code fails the AEAD tag), cross-checks the ident keypair,
 and writes all four key files. An unknown, used, or expired lookup yields
-`400 unknown, used, or expired pairing code`.[[repository/src/client.rs:link_fetch]][[repository/src/store.rs:take_pairing_blob]]
+`400 unknown, used, or expired pairing code`.[[repository/src/client/identity.rs:link_fetch]][[repository/src/store.rs:take_pairing_blob]]
 
 After a link the new machine is an equal: it opens its own sessions and runs
 the full build/sign/publish path with no involvement from the old machine.
@@ -698,7 +698,7 @@ lapsed session must not block a revocation). Two round trips:
 1. `POST /machines/revoke/challenge` `{"owner": "alice"}` → a standard
    `ChallengeResponse` issued against the owner's **ident**
    key.[[repository/src/store.rs:create_ident_challenge]]
-2. `POST /machines/revoke`:[[repository/src/server.rs:revoke_machine]]
+2. `POST /machines/revoke`:[[repository/src/server/accounts.rs:revoke_machine]]
 
 ```json
 {
@@ -738,7 +738,7 @@ The `#` is percent-encoded (`%23`) in the request path. Returns the published
 version list plus the owner's current ident key and a **server-signed name
 binding**, so a first `add` pins the ident against a registry-authenticated
 anchor rather than a bare field. An unknown owner or malformed ident yields
-`400`.[[repository/src/server.rs:package_index]]
+`400`.[[repository/src/server/browse.rs:package_index]]
 
 ```json
 {
@@ -773,7 +773,7 @@ been transferred. Ownership after a transfer is carried by `transfers`, the
 package's accepted transfers oldest first: link `k` moves the package from its
 `k`-th owner to the next, and the current owner is the last link's `toOwner` (or
 the top-level `owner` when `transfers` is empty).
-[[repository/src/server.rs:package_index]][[repository/src/server.rs:TransferLink]]
+[[repository/src/server/browse.rs:package_index]][[repository/src/server/wire.rs:TransferLink]]
 
 - `offerSignature` is the from-owner's signature under `fromIdentKey`, and
   `acceptSignature` the to-owner's under `toIdentKey`, both over the v2 transfer
@@ -803,7 +803,7 @@ owner || "\0" || identFingerprint` (signing domain
 `mfb-repo-name-binding-v1`).[[repository/src/crypto.rs:name_binding_message]]
 The client verifies it under the pinned `server.pub`, cross-checks that
 `identFingerprint` is the fingerprint of `identKey`, and only then trusts the
-key as the anchor to pin.[[repository/src/client.rs:fetch_index]] `abiIndex` is
+key as the anchor to pin.[[repository/src/client/packages.rs:fetch_index]] `abiIndex` is
 a per-symbol ABI hash map parsed from the payload and stored at publish; absent
 or unreadable ABI data produces `{}`. Release states are described below.
 [[repository/src/abi.rs:abi_index_json]] There are **no** key-rotation/window fields: one-off
@@ -876,7 +876,7 @@ of a short-lived presigned URL (`Cache-Control: no-store`), so the bytes never
 transit the app server and the bucket can stay private; the corruption re-check
 moves to the client. Either way the client independently re-checks the
 downloaded bytes against the requested
-hash.[[repository/src/server.rs:package_blob]][[repository/src/client.rs:fetch_blob]][[repository/src/blobstore.rs:BlobStore]]
+hash.[[repository/src/server/blobs.rs:package_blob]][[repository/src/client/packages.rs:fetch_blob]][[repository/src/blobstore.rs:BlobStore]]
 
 The publish path stages the blob, commits the `package_versions` row, and then
 promotes it. A failed database transaction calls the backend abort operation.
@@ -885,7 +885,7 @@ blob storage are not one atomic transaction. The local backend stages to a
 temp file and promotes with an atomic rename; the S3 backend PUTs the immutable
 content-addressed object (unreachable until the committed index row exposes its
 hash) and deletes it on
-failure.[[repository/src/server.rs:publish_package]][[repository/src/blobstore.rs:BlobStore]]
+failure.[[repository/src/server/publish.rs:publish_package]][[repository/src/blobstore.rs:BlobStore]]
 
 #### `HEAD /blob/<hash>` — the dedup probe
 
@@ -893,7 +893,7 @@ failure.[[repository/src/server.rs:publish_package]][[repository/src/blobstore.r
 discloses only whether a content hash the caller **already possesses** is
 present — exactly what `GET` already reveals — and the design already relies on
 hashes being unguessable. A publisher uses it to skip re-uploading an unchanged
-library on every version bump.[[repository/src/server.rs:head_blob]]
+library on every version bump.[[repository/src/server/blobs.rs:head_blob]]
 
 #### `PUT /blob/<hash>` — uploading a vendored native library
 
@@ -924,7 +924,7 @@ Stores raw native-library bytes as a `native` (`<hash>.bin`) blob.
   without a cap an authenticated publisher could fill the datapath faster than
   an operator could sweep it. Reclaiming what an abandoned upload leaves behind
   is [`mfb-repo gc`](#blob-garbage-collection--mfb-repo-gc-operator-action),
-  which runs on demand and never automatically.[[repository/src/server.rs:put_blob]]
+  which runs on demand and never automatically.[[repository/src/server/blobs.rs:put_blob]]
 
 #### Publish refuses a dangling vendor hash
 
@@ -944,7 +944,7 @@ The publish transaction also records the version→blob edges in
 `package_version_blobs`; those edges are what
 [`mfb-repo gc`](#blob-garbage-collection--mfb-repo-gc-operator-action) reads to
 tell a vendored library that is still in use from one an abandoned upload left
-behind.[[repository/src/abi.rs:parse_vendor_blobs]][[repository/src/server.rs:validate_package_request]]
+behind.[[repository/src/abi.rs:parse_vendor_blobs]][[repository/src/server/publish.rs:validate_package_request]]
 
 Section 10 is bounded before any of that work happens: a table declaring more
 than **1024 entries** or more than **4096 locators in total** is rejected as
@@ -1056,7 +1056,7 @@ A maintainer moves a published version between release states.
 A state is registry metadata *about* a version — the blob and its signatures are
 never touched. The maintainer states are `available`, `deprecated`, and
 `yanked`; `blocked` and `legal-tombstoned` are registry-operator states and are
-refused here.[[repository/src/server.rs:release_state]]
+refused here.[[repository/src/server/governance.rs:release_state]]
 
 ```json
 {
@@ -1097,7 +1097,7 @@ org-ident-signed. `POST /orgs/members` grants or removes a member role
 (`owner`/`admin`/`publisher`), authorized by the grantor's ident signature over
 `org_role_message(org, member, role)`. The grantor must be the org itself (the
 bootstrap grant) or an existing owner/admin member; the role is
-logged.[[repository/src/server.rs:org_members]]
+logged.[[repository/src/server/governance.rs:org_members]]
 
 **Publish tokens.** A token is a **scoped auth key** — a CI credential that is a
 linked machine whose auth key is scoped and short-lived. `POST /tokens` issues
@@ -1109,12 +1109,12 @@ so after a transfer the recipient's wildcard covers the transferred package and
 the former owner's no longer does — and, for a not-yet-published ident, the
 `owner#` prefix. An exact scope names one ident, and only that package's stored
 owner (or, before its first publish, its prefix owner) may issue it.
-[[repository/src/server.rs:scope_permits]][[repository/src/server.rs:governing_owner]]
+[[repository/src/server/auth.rs:scope_permits]][[repository/src/server/auth.rs:governing_owner]]
 A token can never
 bypass the ident-proof requirement (the CI box still needs the org/owner ident
 to sign the package proof). `POST /tokens/revoke` revokes it and closes its
 sessions. Issue, use (via the log), and revoke are all
-logged.[[repository/src/server.rs:issue_token]][[repository/src/store.rs:publish_token_for_key]]
+logged.[[repository/src/server/governance.rs:issue_token]][[repository/src/store.rs:publish_token_for_key]]
 
 **Ownership transfer.** Two-sided, and both halves sign the same **terms**:
 `(ident, sequence, fromOwner, fromIdentFingerprint, toOwner, releaseDigest)`.
@@ -1137,7 +1137,7 @@ is signed by the recipient's ident over `"mfb-repo-transfer-accept-v2\0"` and
 the same six terms.[[repository/src/crypto.rs:transfer_offer_message_v2]] A client
 computes the terms from `/index`: `sequence` is `transfers.len()`, the digest
 covers `versions[]`, and the current owner and key come from the last link's
-`toBinding` (or the top-level binding).[[repository/src/client.rs:transfer_offer]]
+`toBinding` (or the top-level binding).[[repository/src/client/governance.rs:transfer_offer]]
 
 The registry recomputes the terms and verifies each signature inside the writing
 transaction.[[repository/src/store.rs:create_transfer_offer]][[repository/src/store.rs:accept_transfer]]
@@ -1170,7 +1170,7 @@ whatever owner its prefix names, and clients accept the recipient's releases
 only through the signed transfer chain (Install Path). Releases published before
 the transfer keep verifying under their original publisher keys, and no package
 bytes or signatures change.
-[[repository/src/server.rs:require_package_owner]][[repository/src/server.rs:validate_package_request]][[repository/src/server.rs:package_index]][[src/cli/build/signing.rs:signing_ident]][[repository/src/store.rs:accept_transfer]]
+[[repository/src/server/auth.rs:require_package_owner]][[repository/src/server/publish.rs:validate_package_request]][[repository/src/server/browse.rs:package_index]][[src/cli/build/signing.rs:signing_ident]][[repository/src/store.rs:accept_transfer]]
 
 ## Signed Metadata — `/root.json`, `/snapshot.json`, `/timestamp.json`
 
@@ -1185,7 +1185,7 @@ to authenticated metadata, including its version set and release states.
 `/index` version array to the signed `indexHash`; it therefore cannot establish
 index completeness or reject version withholding using this layer. Each endpoint returns the exact
 signed JSON string plus a signature the client verifies over those
-bytes.[[repository/src/server.rs:root_metadata]]
+bytes.[[repository/src/server/metadata.rs:root_metadata]]
 
 `root.json` (root-signed, domain `mfb-repo-root-v1`): `{type, registryId,
 version, expires, serverKey, snapshotKey, timestampKey}`. The root private key
@@ -1217,7 +1217,7 @@ and both append a transparency-log entry (`root-init`, `root-renew`,
   highest `root.json` version it has verified (`root-version`, beside
   `snapshot-version`) and refuses a lower one, so a retired root — still signed
   by the pinned key and not yet expired — cannot be replayed to resurrect the
-  online keys a renewal retired.[[repository/src/client.rs:verify_registry_metadata]]
+  online keys a renewal retired.[[repository/src/client/registry_trust.rs:verify_registry_metadata]]
 - **Re-anchor** — `mfb-repo reanchor-root …` mints a new offline root key and
   replaces the anchor. It exists only for a **lost** root key and mirrors the
   ident `reanchor` ceremony: every client that pinned the old fingerprint fails
@@ -1235,7 +1235,7 @@ version is the transparency-log size (monotonic).
 `timestamp.json` expires one day after generation. It is timestamp-signed, `mfb-repo-timestamp-v1`: `{type,
 registryId, version, expires, snapshotVersion, indexHash}` — short-lived,
 generated on demand, pinning the current snapshot version + index hash.
-[[repository/src/server.rs:snapshot_metadata]][[repository/src/server.rs:timestamp_metadata]]
+[[repository/src/server/metadata.rs:snapshot_metadata]][[repository/src/server/metadata.rs:timestamp_metadata]]
 
 `mfb repo trust <registry-id> <root-fingerprint>` pins the registry id + root
 fingerprint, fetches all three documents, and verifies the chain: the root key
@@ -1247,13 +1247,13 @@ root is pinned, `mfb pkg add`/`install` re-verify the chain (and advance the
 pinned snapshot version) before trusting the index — the layer is opt-in on top
 of the pinned-server-key anchor. `verify_pinned_metadata` stores the verified
 root and snapshot versions but does not compare the delegated `index_hash`
-with an index response. [[repository/src/client.rs:verify_registry_metadata]][[repository/src/client.rs:verify_pinned_metadata]]
+with an index response. [[repository/src/client/registry_trust.rs:verify_registry_metadata]][[repository/src/client/registry_trust.rs:verify_pinned_metadata]]
 
 ## Package Artifact Requests
 
 `/validate` and `/publish` share one request body, `PackageArtifactRequest`,
 built from a `PackageArtifact` plus the session token. The `artifact` is the
-whole `.mfp` file base64url-encoded.[[repository/src/client.rs:package_request]][[repository/src/server.rs:PackageArtifactRequest]]
+whole `.mfp` file base64url-encoded.[[repository/src/client/packages.rs:package_request]][[repository/src/server/wire.rs:PackageArtifactRequest]]
 
 ```json
 {
@@ -1269,7 +1269,7 @@ whole `.mfp` file base64url-encoded.[[repository/src/client.rs:package_request]]
 
 ### `/validate`
 
-Returns `ValidatePackageResponse`:[[repository/src/server.rs:ValidatePackageResponse]]
+Returns `ValidatePackageResponse`:[[repository/src/server/wire.rs:ValidatePackageResponse]]
 
 ```json
 {
@@ -1328,7 +1328,7 @@ The checks run in the order, each with a distinct diagnostic:
 
 The duplicate-version check follows signature verification, then vendor-blob
 validation runs. The ABI index is parsed best-effort for the response. The
-`ident@version` must not already be published.[[repository/src/server.rs:validate_package_request]]
+`ident@version` must not already be published.[[repository/src/server/publish.rs:validate_package_request]]
 
 The forgery property this enforces: producing a package that
 passes requires the ident private key (step 6) **and** a live authenticated
@@ -1337,7 +1337,7 @@ credential alone fails a step.
 
 ### `/publish`
 
-Returns `PublishPackageResponse`:[[repository/src/server.rs:PublishPackageResponse]]
+Returns `PublishPackageResponse`:[[repository/src/server/wire.rs:PublishPackageResponse]]
 
 ```json
 {
@@ -1362,7 +1362,7 @@ header author/URL agreement with the payload MANIFEST before storing metadata.
 It captures description and decodable documentation sections best-effort. It
 then writes the artifact blob to `<hash>.mfp` (only if not already
 present — `blobStored` reflects whether a new write occurred) and records the
-package version.[[repository/src/server.rs:publish_package]]
+package version.[[repository/src/server/publish.rs:publish_package]]
 
 ## `repo publish`: Validate-then-Publish
 
@@ -1388,7 +1388,7 @@ package version.[[repository/src/server.rs:publish_package]]
    verify inclusion of the published ident/version/content hash.
 
 The client never publishes a package that did not validate; the server enforces
-the same invariant independently by re-validating inside `/publish`.[[repository/src/client.rs:validate_package]][[repository/src/client.rs:publish_package]]
+the same invariant independently by re-validating inside `/publish`.[[repository/src/client/packages.rs:validate_package]][[repository/src/client/packages.rs:publish_package]]
 
 **Blobs go up before the `.mfp`, and come down after it.** Both directions
 follow from the same fact: the `.mfp` is the only thing that names the blobs, so

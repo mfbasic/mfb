@@ -76,7 +76,7 @@ model. `mfb repo register` writes both keypairs on the first machine;
 generated there, the ident keypair decrypted from the pairing relay blob
 (argon2id + ChaCha20-Poly1305 under the one-time pairing code; see
 *repository-protocol*). Machines are full equals afterwards.
-[[repository/src/client.rs:link_fetch]] All key file names are `format!("{owner}.{role}.ext")`; `owner` must
+[[repository/src/client/identity.rs:link_fetch]] All key file names are `format!("{owner}.{role}.ext")`; `owner` must
 already be a validated owner name before any path is built (callers run
 `validate_owner_name` first). See `./mfb spec package-manager owner-names` for
 the grammar. [[repository/src/local.rs:auth_public_key_path]]
@@ -99,7 +99,7 @@ hex comparison); without it the client prints a trust-on-first-use warning and
 the fingerprint. Later `ensure_server_key` calls re-fetch `/ident` and compare: a key that differs from the pinned one is a
 hard error naming the pinned file (`repository server key does not match the
 pinned key in '<path>'`), never a silent re-pin. Offline verification reads the
-pinned file directly. [[repository/src/local.rs:pin_server_key]][[repository/src/client.rs:ensure_server_key]]
+pinned file directly. [[repository/src/local.rs:pin_server_key]][[repository/src/client/identity.rs:ensure_server_key]]
 
 ## Encoding
 
@@ -170,7 +170,7 @@ owner key. [[repository/src/local.rs:write_session]]
 The cached token is the repository's session JWT (signed `HS256`, with a
 server-side expiry of one hour from issue); the client treats it as an opaque
 string and simply replays it. When it expires, the next call fails and the user
-re-runs `auth`. [[repository/src/client.rs:auth]]
+re-runs `auth`. [[repository/src/client/identity.rs:auth]]
 
 ## Relation to Signing
 
