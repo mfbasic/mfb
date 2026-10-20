@@ -134,7 +134,7 @@ A builtin overload that returns a **borrowed** resource ptr aliasing a `List OF 
   (plan-121-D)**, not just `append`. The dispatch is
   `try_inplace_state_collection_assign` (`builder_control.rs`), one arm per
   builtin, and the arms live beside their record-field twins in
-  `collection/assign/builder_inplace_assign.rs` because they share the lowerings
+  `collection/assign/builder_inplace_assign/` because they share the lowerings
   verbatim. Two rules decide everything:
 
   **1. The route is chosen by whether the operation can REALLOCATE**, not by

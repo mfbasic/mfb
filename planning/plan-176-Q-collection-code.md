@@ -597,21 +597,30 @@ old files.
   warnings 0; `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → only the three fixture comments;
   budget → three STALE rows (1264, 1293, 1246) before, none after; census → builder_search 590/679, map_mutate
   425/872, compare 336/128 + 569/349.
-Commit: —
+Commit: 60ff846dc
 
 ### Phase 2: in-place set/map and in-place assign
 
-- [ ] `src/codegen/collection/assign/builder_inplace_setmap.rs` → `builder_inplace_setmap/{mod,set_ops,map_ops}.rs` per §4.4.
-- [ ] `src/codegen/collection/assign/builder_inplace_assign.rs` → `builder_inplace_assign/{mod,field}.rs`
+- [x] `src/codegen/collection/assign/builder_inplace_setmap.rs` → `builder_inplace_setmap/{mod,set_ops,map_ops}.rs` per §4.4.
+      Done: `items.py split` → 6, 2 methods; 0 visibility edits.
+- [x] `src/codegen/collection/assign/builder_inplace_assign.rs` → `builder_inplace_assign/{mod,field}.rs`
       per §4.5, with the 8 `pub(super)` edits.
-- [ ] Repoint the 2 + 3 spec citations.
-- [ ] Prose sweep per §4.5, except the `.ai/collections.md:540` dispatch clause (Phase 4).
+      Done: `field_slot_name` + the second impl's 8 methods; exactly the 8 `pub(super)`; the emptied second
+      `impl CodeBuilder` shell removed from `mod.rs`; `motion.py` → wiring and the 8 only.
+- [x] Repoint the 2 + 3 spec citations.
+      Done: `citesweep.py` → 2 + 3.
+- [x] Prose sweep per §4.5, except the `.ai/collections.md:540` dispatch clause (Phase 4).
+      Done: the 8 sites (`.ai/collections.md` :9 and :541 — its path now `builder_inplace_assign/`, its clause left for
+      Phase 4).
 
 Acceptance: both modules are split with byte-identical codegen.
   Check: the Q gate. Sweep grep:
   `grep -rnE "builder_inplace_setmap\.rs|builder_inplace_assign\.rs" src tests scripts .ai AGENTS.md tools`
   → only `tests/rt-behavior/collections/inplace-decline-aliasing-rt/src/main.mfb`. File-size grep
   paths: `builder_inplace_setmap|builder_inplace_assign` (est. 15 min).
+  Verified 2026-10-19: G2 collections, strings → 0 diffs; `codegen::collection` → 58 passed, list 5018; check warnings
+  0; `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → only the fixture; budget → two STALE rows
+  (1027, 1262) before, none after; census → setmap 522/236/277, assign 815/453.
 Commit: —
 
 ### Phase 3: string self-update

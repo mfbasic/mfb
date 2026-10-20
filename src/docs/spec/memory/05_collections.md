@@ -797,7 +797,7 @@ read `byteLength` bytes and hand on the tight form.
     take `count` more payloads. For an element type that reaches a type cycle it
     also costs one graph copy of `item` per position, built before the first
     write. See [`repeat`](#repeat).
-    [[src/codegen/collection/assign/builder_inplace_assign.rs:try_inplace_repeat_assign]]
+    [[src/codegen/collection/assign/builder_inplace_assign/mod.rs:try_inplace_repeat_assign]]
   - `removeAt` shifts following payloads on a fixed-width list. On a
     variable-width list it shifts following entries without moving surviving
     payloads; the removed payload is retracted when it is the data tail and
@@ -815,8 +815,8 @@ read `byteLength` bytes and hand on the tight form.
     `remove` does: it costs `t`'s elements, at a binding or a field alike. Without
     a hash probe it drops the hits in one pass from the first of them instead,
     costing `t`'s elements plus the entries of `x` after the first hit.
-    `symmetricDifference(x, t)` is the same pass, then appends `t`'s misses. [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_difference_assign]]
-    [[src/codegen/collection/assign/builder_inplace_setmap.rs:try_inplace_symmetric_difference_assign]]
+    `symmetricDifference(x, t)` is the same pass, then appends `t`'s misses. [[src/codegen/collection/assign/builder_inplace_setmap/set_ops.rs:try_inplace_difference_assign]]
+    [[src/codegen/collection/assign/builder_inplace_setmap/set_ops.rs:try_inplace_symmetric_difference_assign]]
   - A `String` window costs the bytes it gives up plus the bytes it moves: none
     move when the window already starts at the block start. `trimEnd` and the
     end of `trim` step back over the trailing whitespace only.
@@ -875,7 +875,7 @@ lies in its owner's block; the owner is not rebuilt.
   a new value (`set(r.xs, j, get(r.xs, j) & "!")`); an item that could still point
   into the owner (`get(r.xs, k)` itself) rebuilds, because the repack frees the
   old owner before the item is copied.
-  [[src/codegen/collection/assign/builder_inplace_assign.rs:lower_field_set]]
+  [[src/codegen/collection/assign/builder_inplace_assign/field.rs:lower_field_set]]
   The same holds for every growing field operation — `append` (one element or a
   whole list), `prepend`, `insert`, a `Map` field's `set` (key and value) and a
   `Set` field's `add`: the grow reallocates the owner and frees the old block
@@ -1116,7 +1116,7 @@ count)`. `Map` and `Set` have no overload.
   only at the owner's last inlined field with no operand reading the owner
   (`field_realloc_admitted`), growing the owner's block through `InlineGrow`;
   at any other field the statement is rebuilt.
-  [[src/codegen/collection/assign/builder_inplace_assign.rs:try_inplace_repeat_assign]]
+  [[src/codegen/collection/assign/builder_inplace_assign/mod.rs:try_inplace_repeat_assign]]
   [[src/codegen/collection/assign/inplace_dest.rs:field_realloc_admitted]]
 - **Writes.** Position by position: an index below the current `count` goes
   through the `set` in-place primitive (same-size overwrite, or the shorter /

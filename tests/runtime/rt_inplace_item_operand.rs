@@ -1,7 +1,7 @@
 //! bug-681: a self-update's *item operand* keeps the in-place path when it is a
 //! composite expression over a user-declared `FUNC` call.
 //!
-//! Every `G11` gate in `src/codegen/collection/assign/builder_inplace_assign.rs`
+//! Every `G11` gate in `src/codegen/collection/assign/builder_inplace_assign/`
 //! asks `static_item_type` for the operand's static type and declines when the
 //! answer is `None` — the decline is semantically correct, but the fallback
 //! rebuilds the whole collection per statement, so the loop goes quadratic.

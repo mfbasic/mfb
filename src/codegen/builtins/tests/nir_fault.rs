@@ -212,7 +212,7 @@ END FUNC
 /// reach of this sweep is the reach of its programs. The first is an ordinary
 /// one. This is the one whose values live in the two places a plain local's do
 /// not - a `RES ... STATE` payload and a record field - because
-/// `collection/assign/builder_inplace_assign.rs` has a separate recogniser for
+/// `collection/assign/builder_inplace_assign/` has a separate recogniser for
 /// each (`try_inplace_state_*`, `try_inplace_record_field_*`), each with its own
 /// refusals, and neither reads a plain local's values.
 ///

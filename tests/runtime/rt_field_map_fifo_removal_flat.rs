@@ -3,7 +3,7 @@
 //!
 //! bug-760 B1 leaves a removed entry as a tombstone at a probed local or global
 //! binding and compacts lazily, but a record/`STATE` field owner kept bug-732's
-//! slide (`builder_inplace_assign.rs:lower_field_remove_key` /
+//! slide (`builder_inplace_assign/field.rs:lower_field_remove_key` /
 //! `lower_field_set_remove` pass `tombstone = false`), because only a
 //! `Local`/`Global` read settled a map. So a field-held FIFO step costs the
 //! window: ~3 µs at W = 500, ~31 µs at W = 4000 (×10.4 for ×8), ~100× the local.

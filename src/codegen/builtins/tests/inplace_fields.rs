@@ -1,6 +1,6 @@
 //! The in-place record-field mutators other than `append`.
 //!
-//! `collection/assign/builder_inplace_assign.rs` has a `try_inplace_*` function
+//! `collection/assign/builder_inplace_assign/` has a `try_inplace_*` function
 //! per (container, operation) pair, and `append` is one of eight:
 //!
 //!     try_inplace_set_add_assign                    s = add(s, x)

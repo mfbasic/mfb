@@ -30,8 +30,6 @@ ceiling code 2050 src/codegen/builtins/tls/gen_macos/server.rs
 ceiling code 2997 src/codegen/builtins/tls/gen_openssl.rs
 ceiling code 1006 src/codegen/builtins/tls/gen_schannel_server.rs
 ceiling code 2147 src/codegen/builtins/vector/builder_simd_float_math.rs
-ceiling code 1262 src/codegen/collection/assign/builder_inplace_assign.rs
-ceiling code 1027 src/codegen/collection/assign/builder_inplace_setmap.rs
 ceiling code 1059 src/codegen/collection/assign/self_update.rs
 ceiling code 1805 src/codegen/collection/assign/string_self_update.rs
 ceiling code 2592 src/codegen/collection/layout/builder_collection_layout.rs

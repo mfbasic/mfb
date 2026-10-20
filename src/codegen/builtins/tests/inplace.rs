@@ -5,7 +5,7 @@
 //!
 //!   * `append_inplace_*` — `xs = append(xs, oneElement)` on a uniquely-owned
 //!     `MUT` local, written through the block `xs` already owns
-//!     (`collection/assign/builder_inplace_assign.rs`, guards G1–G11).
+//!     (`collection/assign/builder_inplace_assign/`, guards G1–G11).
 //!   * `bulk_append_*` — `xs = append(xs, otherList)`, a concatenation, which
 //!     copies the whole source payload and so carries its own word-copy loop
 //!     (`bulk_append_data_wloop_*`).
