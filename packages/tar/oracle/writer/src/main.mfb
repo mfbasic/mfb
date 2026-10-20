@@ -1,0 +1,107 @@
+' ---------------------------------------------------------------------------
+' tar oracle writer.
+'
+' Writes a set of archives with `packages/tar`'s writer into the directory it is
+' given. `diff.py roundtrip` then runs Python's `tarfile` over them and compares
+' what Python reads with what the reader reads back: the writer's output has to
+' be readable by an implementation that is not ours.
+'
+' The set covers each decision the writer makes: the ustar prefix split, PAX for
+' long and non-ASCII names and for long link targets, base-256 timestamps, and
+' file sizes on either side of the 512-byte block boundary.
+' ---------------------------------------------------------------------------
+
+IMPORT tar
+IMPORT collections
+IMPORT fs
+IMPORT os
+IMPORT strings
+
+PRIVATE LET MTIME AS Integer = 1789821000
+
+' `count` bytes, each a value of the running pattern, so content is not all one byte.
+FUNC patternBytes(count AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  FOR i = 0 TO count - 1
+    out = collections::append(out, toByte(i MOD 251))
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC mixed() AS List OF Byte
+  MUT b AS tar::Builder = tar::create()
+  b = tar::addDirectory(b, "docs", 493, MTIME)
+  b = tar::addText(b, "docs/readme.txt", "read me\n", 420, MTIME)
+  b = tar::addText(b, "top.txt", "top\n", 420, MTIME)
+  b = tar::addFile(b, "blob.bin", patternBytes(1000), 384, MTIME)
+  b = tar::addDirectory(b, "empty", 493, MTIME)
+  b = tar::addSymlink(b, "latest", "top.txt", MTIME)
+  RETURN tar::finish(b)
+END FUNC
+
+FUNC longNames() AS List OF Byte
+  MUT b AS tar::Builder = tar::create()
+  ' 150 bytes that split at the slash into a prefix and a name, both in field.
+  b = tar::addText(b, strings::repeat("a", 60) & "/" & strings::repeat("b", 89), "split", 420, MTIME)
+  ' 300 bytes whose name half is too long for the ustar name field: PAX.
+  b = tar::addText(b, strings::repeat("c", 150) & "/" & strings::repeat("d", 149), "pax", 420, MTIME)
+  ' Exactly 100 bytes: the largest name the ustar name field holds unaided.
+  b = tar::addText(b, strings::repeat("f", 100), "exact", 420, MTIME)
+  ' 101 bytes with no slash to split at: PAX.
+  b = tar::addText(b, strings::repeat("e", 101), "noslash", 420, MTIME)
+  ' A link target past 100 bytes: PAX linkpath.
+  b = tar::addSymlink(b, "longlink", strings::repeat("t", 120), MTIME)
+  RETURN tar::finish(b)
+END FUNC
+
+FUNC unicodeNames() AS List OF Byte
+  MUT b AS tar::Builder = tar::create()
+  b = tar::addText(b, "café/naïve.txt", "unicode\n", 420, MTIME)
+  b = tar::addText(b, "日本語.txt", "japanese\n", 420, MTIME)
+  b = tar::addText(b, strings::repeat("ü", 60) & "/" & strings::repeat("b", 90), "split-unicode", 420, MTIME)
+  RETURN tar::finish(b)
+END FUNC
+
+FUNC timestamps() AS List OF Byte
+  MUT b AS tar::Builder = tar::create()
+  b = tar::addText(b, "epoch.txt", "0\n", 420, 0)
+  b = tar::addText(b, "before-epoch.txt", "-\n", 420, -1000000)
+  b = tar::addText(b, "octal-limit.txt", "max\n", 420, 8589934591)
+  b = tar::addText(b, "past-octal.txt", "past\n", 420, 8589934592)
+  b = tar::addText(b, "far-future.txt", "far\n", 420, 9000000000)
+  RETURN tar::finish(b)
+END FUNC
+
+FUNC blockEdges() AS List OF Byte
+  MUT b AS tar::Builder = tar::create()
+  b = tar::addText(b, "empty.txt", "", 420, MTIME)
+  b = tar::addFile(b, "one.bin", patternBytes(1), 420, MTIME)
+  b = tar::addFile(b, "511.bin", patternBytes(511), 420, MTIME)
+  b = tar::addFile(b, "512.bin", patternBytes(512), 420, MTIME)
+  b = tar::addFile(b, "513.bin", patternBytes(513), 420, MTIME)
+  RETURN tar::finish(b)
+END FUNC
+
+FUNC manyEntries() AS List OF Byte
+  MUT b AS tar::Builder = tar::create()
+  FOR i = 0 TO 199
+    b = tar::addText(b, "dir" & toString(i MOD 7) & "/file" & toString(i) & ".txt", "entry " & toString(i) & "\n", 420, MTIME)
+  NEXT
+  RETURN tar::finish(b)
+END FUNC
+
+FUNC main AS Integer
+  LET args AS List OF String = os::args()
+  IF len(args) < 1 THEN
+    RETURN 2
+  END IF
+  LET dir AS String = collections::get(args, 0)
+  fs::writeBytes(fs::pathJoin([dir, "mixed.tar"]), mixed())
+  fs::writeBytes(fs::pathJoin([dir, "long-names.tar"]), longNames())
+  fs::writeBytes(fs::pathJoin([dir, "unicode.tar"]), unicodeNames())
+  fs::writeBytes(fs::pathJoin([dir, "timestamps.tar"]), timestamps())
+  fs::writeBytes(fs::pathJoin([dir, "block-edges.tar"]), blockEdges())
+  fs::writeBytes(fs::pathJoin([dir, "many.tar"]), manyEntries())
+  fs::writeBytes(fs::pathJoin([dir, "empty.tar"]), tar::finish(tar::create()))
+  RETURN 0
+END FUNC

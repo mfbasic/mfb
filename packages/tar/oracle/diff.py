@@ -41,6 +41,7 @@ PKG = os.path.dirname(HERE)
 ROOT = os.path.dirname(os.path.dirname(PKG))
 CORPUS = os.path.join(HERE, "corpus")
 PROBE = os.path.join(HERE, "probe", "build", "tarprobe.out")
+WRITER = os.path.join(HERE, "writer", "build", "tarwriter.out")
 DIVERGENCES = os.path.join(HERE, "divergences.json")
 
 KIND = {
@@ -84,8 +85,6 @@ def python_view(path):
                         read_error = type(e).__name__
                         content_crc = None
                 name = info.name
-                if info.isdir() and not name.endswith("/"):
-                    name += "/"
                 entries.append({
                     "name": name,
                     "kind": KIND.get(info.type, 4),
@@ -293,18 +292,12 @@ def build_fuzz(into, count, seed):
 
 
 def build_roundtrip(into):
-    legacy = "/tmp/tarw"
-    if os.path.isdir(legacy):
-        out = []
-        for name in sorted(os.listdir(legacy)):
-            if name.endswith(".tar"):
-                dst = os.path.join(into, name)
-                shutil.copyfile(os.path.join(legacy, name), dst)
-                out.append(dst)
-        if out:
-            return out
-    sys.exit("roundtrip needs archives written by the package; run the writer "
-             "probe first (see README)")
+    """Archives the package's own writer produced, for Python to read back."""
+    if not os.path.exists(WRITER):
+        sys.exit("roundtrip needs the writer probe built: see README")
+    subprocess.run([WRITER, into], check=True)
+    return sorted(os.path.join(into, name) for name in os.listdir(into)
+                  if name.endswith(".tar"))
 
 
 def main():
