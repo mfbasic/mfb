@@ -679,18 +679,18 @@ byte-identical code on every target (incl. `windows-x86_64`); the regex package'
   before/after → `diff` empty (199 lines); budget → the two STALE rows and `TIGHTEN code 856 (ceiling 1003)` for
   regex, none after the tighten; census → gen_unix mod 415 / spawn 722, gen_windows mod 510 + 101 test / command_line
   249 / environment 438, regex mod 856 + 169 test / package_doc 149; sweep → only the audio `gen_windows.rs` (another file).
-Commit: —
+Commit: 887471f80
 
 ### Phase 2 — ICMP ping and SIMD float kernels (pure motion)
 
-- [ ] `net/gen_ping.rs` → `net/gen_ping/{mod.rs,posix/mod.rs,posix/socket.rs,windows.rs}` per §4.4;
+- [x] `net/gen_ping.rs` → `net/gen_ping/{mod.rs,posix/mod.rs,posix/socket.rs,windows.rs}` per §4.4;
       the 7 `pub(super)` edits; the inline tests stay in `mod.rs`.
-- [ ] `vector/builder_simd_float_math.rs` → `vector/builder_simd_float_math/{mod,dispatch,inverse_trig,trig_reduction,trig,exp_log,primitives}.rs`
+- [x] `vector/builder_simd_float_math.rs` → `vector/builder_simd_float_math/{mod,dispatch,inverse_trig,trig_reduction,trig,exp_log,primitives}.rs`
       per §4.5; the two `#![allow]`s stay first in `mod.rs`; the 20 `pub(super)` edits;
       `pool_layout_tests` stays in `mod.rs`.
-- [ ] Repoint the 4 `gen_ping.rs` and 6 `builder_simd_float_math.rs` citations (§4.4, §4.5).
-- [ ] The 5 sweep items of §4.9 marked Phase 2 (incl. both `.ai/build-tooling.md` lines).
-- [ ] `cargo clippy --all-targets 2>&1 | grep -c 'excessive_precision\|approx_constant'` → 0
+- [x] Repoint the 4 `gen_ping.rs` and 6 `builder_simd_float_math.rs` citations (§4.4, §4.5).
+- [x] The 5 sweep items of §4.9 marked Phase 2 (incl. both `.ai/build-tooling.md` lines).
+- [x] `cargo clippy --all-targets 2>&1 | grep -c 'excessive_precision\|approx_constant'` → 0
       (the inherited allows cover the parts) (est. 3 min, guess).
 
 Acceptance: ping and every SIMD float kernel (and the scalar math that uses them) emit
@@ -700,6 +700,17 @@ byte-identical code on every target; the vector BODY checker still passes.
   `sh scripts/check-generated.sh` → passes (est. 1 min, guess); step 8 rows: `STALE` for
   `net/gen_ping.rs` and `vector/builder_simd_float_math.rs` only, gone after tighten
   (est. 25 min total, guess).
+  Done: `codesplit.py` split gen_ping (`t2-ping.json`), then `posix/mod.rs` (`t2-posix.json`); `items.py` split the
+  `impl CodeBuilder<'_>` by method (`t2-vec.json`) and the emptied shell was removed; `autovis.py` added exactly the
+  20 §4.5 `pub(super)`s. gen_ping took 6 `pub(super)`, not 7 (Corrections). Cites: 4 gen_ping + 7 vector (Corrections).
+  Verified 2026-10-20: `motion.py` → only visibility, wiring and rustfmt re-wraps differ; N = 5018, W = 0; clippy
+  37065 (unchanged); `spec_citations_resolve` + `gen_ping` + `pool_layout_tests` → 6 passed; guards → 9, 8, 7 + 1
+  ignored; artifact gates `net`, `vector`, `math`, `tls` → 0 diffs each; `check-generated.sh` → exit 0 (173 vector
+  FUNC bodies match); clippy precision grep → 5, all in `string/format/float_format_sci_ref/tests/mod.rs`, which T
+  does not touch (Corrections), 0 in T's files; budget → the two STALE rows, none after the tighten; census →
+  gen_ping mod 111 + 102 test / posix 799 / socket 144 / windows 522; builder_simd_float_math mod 279 + 47 test /
+  dispatch 423 / inverse_trig 394 / trig_reduction 280 / trig 365 / exp_log 285 / primitives 148; sweep → only the
+  `.ai/build-tooling.md:50` history note, reworded to name the directory.
 Commit: —
 
 ### Phase 3 — OpenSSL and Schannel TLS backends (pure motion)
@@ -814,6 +825,16 @@ Commit: —
   owner rule (AGENTS.md "never leave a bug"), applied by the author.
 
 ## Corrections
+
+- 2026-10-20 — §4.4: `PING_RECV_BUFFER` is read only inside `posix/socket.rs` (`grep -rn PING_RECV_BUFFER src` → the
+  const, its use in `emit_int_sockopt` and comments), so it stays private and `posix/mod.rs` does not import it:
+  6 `pub(super)` edits, not 7 (the 7th raised `unused import`).
+- 2026-10-20 — §4.5: 7 `builder_simd_float_math.rs` citations, not 6 — `18_math-kernels.md:67`
+  `emit_float_binary_body` was added after planning; it now names `…/dispatch.rs`.
+- 2026-10-20 — Phase 2's clippy check `grep -c 'excessive_precision\|approx_constant'` → 5, not 0: the hits are 4
+  pre-existing warnings in `src/codegen/string/format/float_format_sci_ref/tests/mod.rs` (not a T file; total clippy
+  count unchanged at 37065). The check is 0 for T's files.
+- 2026-10-20 — Every `sh scripts/artifact-gate.sh` runs as `bash` (the script needs bash).
 
 - 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule restated in intro, common step 9 and Decisions; H's OpenSSL tests are one `gen_openssl/tests/mod.rs`, `gen_macos/tests.rs` (884) is no longer split, `platform_failure.rs` part names are H's.
 

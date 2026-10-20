@@ -441,7 +441,7 @@ def _build_recon(coeff_table):
         return q + num / gh
 
     # fdlibm __atan 4-segment reduction + minimax aT polynomial — the EXACT
-    # sequence the codegen emits (builder_simd_float_math.rs::emit_atan_core),
+    # sequence the codegen emits (builder_simd_float_math/inverse_trig.rs::emit_atan_core),
     # strict <=1 ULP. (The C["atan"] primitive above is a single-segment fit kept
     # for provenance; the shipped kernel uses these fdlibm aT constants instead.)
     ATAN_HI = [4.63647609000806093515e-01, 7.85398163397448278999e-01,

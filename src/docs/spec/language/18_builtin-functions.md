@@ -140,7 +140,7 @@ so `math::f(x)` and `math::f([x])[0]` fail identically.
 Scalar and list overloads share the in-tree math kernels. Their numerical
 accuracy, range reduction, target lowering, and failure contracts are specified
 in `./mfb spec architecture math-kernels`; a list result is discarded if a lane
-fails. [[src/codegen/builtins/vector/builder_simd_float_math.rs:emit_rem_pio2_large_lane]]
+fails. [[src/codegen/builtins/vector/builder_simd_float_math/trig_reduction.rs:emit_rem_pio2_large_lane]]
 
 JSON (`IMPORT json`): `json::parse`, `json::stringify`, `json::get`, `json::getOr`.
 Error codes (`IMPORT errorCode`): `errorCode::ErrInvalidArgument`, `errorCode::ErrNotFound`, and the other constants listed in the built-in error-code registry. These are compile-time `Integer` constants, not callables. [[src/codegen/builtins/errorcode/mod.rs]]

@@ -11,7 +11,7 @@ behavior deliberately diverges from a system C library.
 
 The lowering dispatch is [[src/codegen/builtins/math/gen_math/mod.rs:lower_math_call]];
 the `Float` NEON kernels live in
-[[src/codegen/builtins/vector/builder_simd_float_math.rs]] (with Remez coefficients in
+[[src/codegen/builtins/vector/builder_simd_float_math/mod.rs]] (with Remez coefficients in
 [[src/codegen/builtins/vector/simd_kernel_coeffs.rs]]), `pow` in
 [[src/codegen/builtins/math/gen_pow.rs:emit_pow_scalar]], and `fmod` in
 [[src/codegen/builtins/math/gen_fmod.rs:emit_float_fmod]]. The scalar and array
@@ -64,7 +64,7 @@ vectors in `tools/math-kernels/ref/<fn>.ref`. The kernels meet it as follows:
 The `Float` `atan2` kernel adds `copysign(pi, y)` when the SIGN BIT of `x` is set (an integer test of bit 63,
 not an ordered `x < 0` compare), so `atan2(y, -0.0)` is `copysign(pi/2, y)` exactly as `atan2(y, +0.0)` is
 (`tests/runtime/rt_math_atan2_negative_zero_x.rs`); the origin `atan2(±0, ±0)` stays `0`.
-[[src/codegen/builtins/vector/builder_simd_float_math.rs:emit_float_binary_body]]
+[[src/codegen/builtins/vector/builder_simd_float_math/dispatch.rs:emit_float_binary_body]]
 
 Both trig bounds hold at **every finite angle**. The regression test
 `tests/runtime/rt_math_float_trig_large_angles.rs` scores scalar and `List OF
@@ -186,7 +186,7 @@ yields `+inf`, `atan(+inf) = π/2`, and `2·(π/2) = π` exactly.
 ## Trig range reduction
 
 `sin`, `cos` and `tan` share one reduction of the angle to `r` in `[-pi/4, pi/4]`
-plus a quadrant [[src/codegen/builtins/vector/builder_simd_float_math.rs:emit_sincos_reduce]].
+plus a quadrant [[src/codegen/builtins/vector/builder_simd_float_math/trig_reduction.rs:emit_sincos_reduce]].
 It has two paths, chosen **per lane**, and it yields `r` as a double-double: the
 high half drives the compensated Horner polynomials, and the low half enters them
 as the first-order corrections `r_lo*(1 - r^2/2)` on `sin(r_hi)` and `-r_hi*r_lo`
@@ -199,12 +199,12 @@ on `cos(r_hi)`.
 * **Exact (Payne-Hanek)** — taken when `|x| >= 2^20*pi/2`, or when the medium
   step's angle cancelled below `2^-50*|x|` (where that `3e-37*|x|` could reach the
   result's last ULP)
-  [[src/codegen/builtins/vector/builder_simd_float_math.rs:emit_rem_pio2_large_lane]].
+  [[src/codegen/builtins/vector/builder_simd_float_math/trig_reduction.rs:emit_rem_pio2_large_lane]].
   Write `|x| = m*2^e`: the bits of `2/pi` worth `2^-i` with `i <= e-2` only add
   multiples of 4, so a 256-bit window of `2/pi` starting at bit `e-1` decides both
   the quadrant and the fraction. The window is four words of a baked 1225-bit
   `2/pi` table indexed by the exponent
-  [[src/codegen/builtins/vector/builder_simd_float_math.rs:TWO_OVER_PI_WORDS]];
+  [[src/codegen/builtins/vector/builder_simd_float_math/mod.rs:TWO_OVER_PI_WORDS]];
   `m` times the window is three 64x64→128 integer products (`mul`/`umulh`) and a
   carry chain; the product shifted by the window's sub-word offset puts the
   integer part mod 4 in its top two bits and at least 190 fraction bits below
@@ -221,7 +221,7 @@ in the constant's own doc comment, and its leading words match fdlibm's
 `two_over_pi`. It lives at the end of the math constant pool and is addressed by
 index (`pool + table + 16*j`), which is why it is the one part of the pool that is
 neither deduplicated nor reachable by value
-[[src/codegen/builtins/vector/builder_simd_float_math.rs:math_const_pool_words]].
+[[src/codegen/builtins/vector/builder_simd_float_math/mod.rs:math_const_pool_words]].
 
 The exact path is branched around unless a lane needs it, so an ordinary call pays
 only the routing compare. A two-lane array call whose lanes disagree runs the

@@ -407,7 +407,7 @@ mod tests {
     /// lists. `percentDecode` and `toUrl` reach `FAIL error(77050003)` (ErrInvalidFormat)
     /// directly or through `__net_percentDecodeImpl` / `__net_parsePort`, and `toUrl` also
     /// `FAIL error(77050007)` (ErrUnsupported). `lookup` raises in
-    /// `gen_io.rs:lower_net_lookup_helper`, `ping` in `gen_ping.rs` (both overloads share
+    /// `gen_io.rs:lower_net_lookup_helper`, `ping` in `gen_ping/mod.rs` (both overloads share
     /// the resolve step). `parseQuery` raises nothing: `__net_decodeQueryComponent`
     /// `RECOVER`s the decode error.
     #[test]

@@ -27,7 +27,7 @@ performed.**
 
 The last row is the one worth stating explicitly. A machine that forbids ICMP has
 told you nothing about the peer, so reporting `Unreachable` would be a lie about
-the network. It is an error.[[src/codegen/builtins/net/gen_ping.rs:lower_ping_posix]]
+the network. It is an error.[[src/codegen/builtins/net/gen_ping/posix/mod.rs:lower_ping_posix]]
 
 `PingStatus`'s variants are ordered `Ok`, `Timeout`, `Unreachable`,
 `TtlExceeded`; a variant's ordinal is its declaration index, and the native
@@ -73,7 +73,7 @@ that one number is portable. Reaching it on macOS requires the backend to raise
 the socket receive buffer: the default raw receive space there is 8192 bytes and
 silently drops a reply at the documented maximum even though the request was sent,
 which would surface as a bogus
-`Timeout`.[[src/codegen/builtins/net/gen_ping.rs:PING_RECV_BUFFER]]
+`Timeout`.[[src/codegen/builtins/net/gen_ping/posix/socket.rs:PING_RECV_BUFFER]]
 
 Exactly one echo request is sent per call. There is no retry, so a caller wanting
 an average or a loss rate loops and aggregates. Only IPv4 destinations are
@@ -91,7 +91,7 @@ is not allowed, and that is a deployment fact rather than a rare edge case.
 ## Implementation model
 
 Three backends, because the platforms differ in every fact the reply parser
-depends on.[[src/codegen/builtins/net/gen_ping.rs:lower_net_ping_helper]]
+depends on.[[src/codegen/builtins/net/gen_ping/mod.rs:lower_net_ping_helper]]
 
 | | macOS | Linux | Windows |
 |---|---|---|---|
@@ -117,7 +117,7 @@ Administrator), so it uses the `iphlpapi` ICMP API, which builds, matches, and
 times the echo itself. Its whole-millisecond `RoundTripTime` is not used for
 `rttMs` — it would report `0` on loopback — so the exchange is timed with
 `QueryPerformanceCounter` instead, mirroring the POSIX monotonic
-clock.[[src/codegen/builtins/net/gen_ping.rs:lower_ping_windows]]
+clock.[[src/codegen/builtins/net/gen_ping/windows.rs:lower_ping_windows]]
 
 ## See Also
 

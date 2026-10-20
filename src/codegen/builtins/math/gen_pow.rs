@@ -5,7 +5,7 @@
 // single rounded double and is NOT interchangeable) and `excessive_precision`
 // (the digits past `f64` are what the `lo` tail consumes). Trimming a digit to
 // silence either one would degrade `pow` accuracy: a correctness regression
-// dressed as a lint fix. Mirrors the block in `builder_simd_float_math.rs`
+// dressed as a lint fix. Mirrors the block in `builder_simd_float_math/mod.rs`
 // (bug-345-D2).
 #![allow(clippy::approx_constant)]
 #![allow(clippy::excessive_precision)]
@@ -38,7 +38,7 @@ use crate::types::ParameterType;
 // stack slots: the kernel makes no `bl`, so it owns every caller-saved FP
 // register (`d0`-`d7`, `d16`-`d31`) and never touches the callee-saved `d8`-`d15`
 // the surrounding float allocator parks loop-carried values in — exactly the
-// register discipline the SIMD kernels (`builder_simd_float_math.rs`) already
+// register discipline the SIMD kernels (`builder_simd_float_math/`) already
 // follow. `d0`/`d1`/`d2` are scratch; the remaining 21 caller-saved registers are
 // the value homes (see `PowHomes`). This removes every per-op load/store and the
 // GPR bounce the old `pld`/`pst` helpers incurred — the arithmetic is unchanged,

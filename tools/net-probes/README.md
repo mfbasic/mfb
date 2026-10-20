@@ -8,7 +8,7 @@ every supported POSIX target to re-derive those values.
 - **icmp-capability-probe.c** — per-OS ICMP socket behavior: unprivileged
   `SOCK_DGRAM`/`SOCK_RAW`, reply shape (IPv4 header attached or not), identifier
   rewriting, reply demux, maximum payload, Time Exceeded / Destination Unreachable
-  delivery. It justifies the backend split in `src/codegen/builtins/net/gen_ping.rs`.
+  delivery. It justifies the backend split in `src/codegen/builtins/net/gen_ping/`.
 
       cc -O0 -w -o /tmp/icmp-probe tools/net-probes/icmp-capability-probe.c
       /tmp/icmp-probe                 # local + default-route probes
