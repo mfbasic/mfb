@@ -133,7 +133,7 @@ Hypothesis 1 holds: the table was hand-edited and the generator's rules were not
       bug-766 D lines differ first), GREEN after.
 - [x] Hypothesis 1 confirmed (`b309807ec`); the sibling pair checked.
 
-Commit: `4010338aa` (the `field_expect_gen.py` path) and the bug-1014 fix commit after it
+Commit: `4010338aa` (the `field_expect_gen.py` path) and `d80666cdd` (the fix)
 
 ### Phase 2 — the fix
 
@@ -144,7 +144,7 @@ Commit: `4010338aa` (the `field_expect_gen.py` path) and the bug-1014 fix commit
       expressions, the header and the four-row order move.
 - [x] `field_expect_gen.py`: the findings path.
 
-Commit: `4010338aa` (the `field_expect_gen.py` path) and the bug-1014 fix commit after it
+Commit: `4010338aa` (the `field_expect_gen.py` path) and `d80666cdd` (the fix)
 
 ## Validation Plan
 
