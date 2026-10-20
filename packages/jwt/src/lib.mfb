@@ -105,6 +105,16 @@ DOC
   SEC document that was not signed by one of your keys is never walked.
   SEC
   SEC An HMAC is compared with `crypto::constantTimeEqual`, never with `=`.
+  SEC
+  SEC An ECDSA signature is not unique. For one key and one message, `(r, s)`
+  SEC and `(r, n-s)` both verify. `crypto` does not normalise to low-S, RFC 7518
+  SEC does not require it, and mainstream JOSE libraries accept both, so an
+  SEC `ES*` token has more than one signature text while its header, claims and
+  SEC signing input each have one. Do not use a token's bytes or its signature as
+  SEC an identifier: key a replay cache, revocation list or audit record on the
+  SEC `jti` claim (RFC 7519 §4.1.7) or on the claims themselves. `EdDSA` has no
+  SEC such freedom: `crypto` rejects a non-canonical S (S >= L), so an Ed25519 or
+  SEC Ed448 token has one signature text.
   DESC
   DESC Time
   DESC
@@ -149,9 +159,8 @@ DOC
   DESC stale key -- it is a token that asked to be checked a different way than
   DESC the deployment allows.
   DESC
-  DESC `jwt::ErrorTooLarge` (93130005, `9-313-0005`) when a token, or one of its
-  DESC segments, is larger than this package reads: 1048576 bytes for a whole
-  DESC token and 262144 characters for one segment.
+  DESC `jwt::ErrorTooLarge` (93130005, `9-313-0005`) when a token is larger than
+  DESC this package reads: 1048576 bytes, counting all three segments.
   DESC
   DESC Generator-9 codes are not globally unique: another package may use the
   DESC same integer for something else, so match one -- for example
@@ -187,10 +196,12 @@ EXPORT TYPE Options
   ' Claims that must be present, whatever their value. `exp` is the usual
   ' entry: a token with no expiry is valid forever, which is rarely intended.
   requiredClaims AS List OF String
-  ' How many seconds of clock skew to allow either side of `exp` and `nbf`.
+  ' How many seconds of clock skew to allow either side of `exp` and `nbf`, and
+  ' around the `maxAgeSeconds` bound. Zero or more; a negative value is refused.
   leewaySeconds AS Integer
   ' The greatest age, in seconds, a token's `iat` may show. Zero disables the
-  ' check; any other value also makes `iat` mandatory.
+  ' check; a positive value also makes `iat` mandatory. A negative value is
+  ' refused by `jwt::verify`, because it would otherwise look like a setting.
   maxAgeSeconds AS Integer
   ' The `typ` the header must carry, compared case-insensitively and with a
   ' leading `application/` ignored, or "" to accept any. `typ` is optional in
@@ -351,11 +362,11 @@ DOC
   DESC advertise an algorithm the signature was not produced by. `typ` and
   DESC `kid` may be overridden; everything else is added as given, after them.
   ARG key The signing key.
-  ARG extras Header parameters to add. `typ` and `kid` replace the defaults; `alg` must match the key if it appears at all; `crit` is refused.
+  ARG extras Header parameters to add. `typ` and `kid` replace the defaults and must be strings; `alg` must match the key if it appears at all; `crit` is refused.
   ARG claims The claims set, which must be a `json::JsonObj`.
   RET The token.
   ERROR 77050003 `claims` is not a JSON object.
-  ERROR 77050002 `extras` names an `alg` other than the key's, or names `crit`, or `key` cannot sign.
+  ERROR 77050002 `extras` names an `alg` other than the key's, names `crit`, or gives `typ` or `kid` something other than a string; or `key` cannot sign.
   ERROR 77050007 `key` names an algorithm this package does not implement.
   EXAMPLE
     IMPORT jwt
@@ -401,15 +412,15 @@ DOC
   ARG keys The keys to try, in order. A key that can only verify is enough.
   ARG choices What to accept and what to check -- see `jwt::options`.
   RET The header, the claims, the algorithm the signature was checked under, and the `kid` of the key that verified it.
-  ERROR 77050003 The token is not a compact JWS: the wrong number of segments, a segment that is not canonical unpadded Base64url, a header or payload that is not a JSON object, a duplicate member name, or an ECDSA signature that is not a well-formed `(r, s)` pair.
-  ERROR 77050002 `choices` is not usable (most often an empty allowlist), or a candidate key cannot verify -- an `EdDSA` key holding only its seed has no public half to check against.
+  ERROR 77050003 The token is not a compact JWS: the wrong number of segments, a segment that is not canonical unpadded Base64url, a header or payload that is not a JSON object, a duplicate member name, an ECDSA signature that is not a well-formed `(r, s)` pair, or an empty signature segment (an unsecured JWS).
+  ERROR 77050002 `choices` is not usable: an empty allowlist, an entry this package cannot verify, or a negative `leewaySeconds` or `maxAgeSeconds`. Also, a candidate key cannot verify -- an `EdDSA` key holding only its seed has no public half to check against.
   ERROR 77050004 No key in `keys` carries the token's algorithm, or its `kid`.
-  ERROR 77050007 The token names a JOSE algorithm this package does not implement.
+  ERROR 77050007 The token names a JOSE algorithm this package does not implement, or its header names `crit`.
   ERROR 77050016 The signature did not verify under any candidate key.
   ERROR 93130001 The token's `exp` has passed.
   ERROR 93130002 The token's `nbf` has not yet arrived.
   ERROR 93130003 A claim check failed: `iss`, `aud`, `sub`, `maxAgeSeconds`, or a required claim that is absent.
-  ERROR 93130004 The token's `alg` is not in the allowlist, or is `none`.
+  ERROR 93130004 The token's `alg` is not in the allowlist, or is `none` -- whatever its signature segment holds.
   ERROR 93130005 The token, or one of its segments, is larger than this package reads.
   EXAMPLE
     IMPORT jwt
@@ -429,9 +440,7 @@ DOC
   END EXAMPLE
 END DOC
 EXPORT FUNC verify(token AS String, keys AS List OF Key, choices AS Options) AS Token
-  IF len(choices.algorithms) = 0 THEN
-    FAIL error(ERR_ARGUMENT, "jwt: the Options names no algorithm -- build it with jwt::options, which refuses an empty allowlist")
-  END IF
+  checkOptions(choices)
   LET parts AS Parts = splitToken(token)
   LET header AS json::Json = parseObject(decodeSegment(parts.header, "header"), "header")
   ' The payload's ENCODING is checked here and its JSON is parsed at the end.
@@ -451,12 +460,19 @@ EXPORT FUNC verify(token AS String, keys AS List OF Key, choices AS Options) AS 
     IF algorithm = "none" THEN
       FAIL error(ErrorAlgorithm, "jwt: the token is an unsecured JWS (`alg: \"none\"`), which carries no signature to check")
     END IF
-    FAIL error(ErrorAlgorithm, "jwt: the token names `alg: \"" & algorithm & "\"`, which is not among the " & toString(len(choices.algorithms)) & " algorithm(s) this verification accepts (" & strings::join(choices.algorithms, ", ") & ")")
+    FAIL error(ErrorAlgorithm, "jwt: the token names `alg: \"" & shown(algorithm) & "\"`, which is not among the " & toString(len(choices.algorithms)) & " algorithm(s) this verification accepts (" & strings::join(choices.algorithms, ", ") & ")")
   END IF
   ' Refused even when the caller allowed it: `jwt::options` rejects an
   ' algorithm this package cannot check, and an `Options` built by hand must
   ' not be a way around that.
   algorithmFamily(algorithm)
+  ' An unsecured JWS is refused here rather than in `splitToken`, so the
+  ' algorithm decides the error: `none` is ErrorAlgorithm above whatever its
+  ' signature segment holds, and only a token this verification accepts is
+  ' reported as a shape problem.
+  IF parts.signature = "" THEN
+    FAIL error(ERR_FORMAT, "jwt: the token's signature segment is empty, so it carries no signature to check")
+  END IF
   checkTypeHeader(header, choices)
   LET wantedKid AS String = stringMember(header, "kid", "header")
   LET candidates AS List OF Key = candidateKeys(keys, algorithm, wantedKid)
@@ -500,12 +516,22 @@ DOC
   EXAMPLE
     IMPORT jwt
     IMPORT json
+    IMPORT collections
 
     ' Pick the key the token asks for, then verify against THAT key alone.
     FUNC keyFor(token AS String, available AS List OF jwt::Key) AS List OF jwt::Key
       LET asked AS json::Json = jwt::unverifiedHeader(token)
-      LET kid AS String = json::stringify(json::getOr(asked, ["kid"], json::JsonStr[""]))
-      RETURN available
+      LET named AS json::Json = json::getOr(asked, ["kid"], json::JsonNull[NOTHING])
+      MUT chosen AS List OF jwt::Key = []
+      FOR EACH key IN available
+        MATCH named
+          CASE json::JsonStr(text)
+            IF key.kid = text.value THEN chosen = collections::append(chosen, key)
+          CASE ELSE
+            chosen = collections::append(chosen, key)
+        END MATCH
+      NEXT
+      RETURN chosen
     END FUNC
   END EXAMPLE
 END DOC
@@ -761,7 +787,9 @@ DOC
   DESC
   DESC A JWK Set is what sits behind an OpenID Provider's `jwks_uri`, and it
   DESC routinely holds keys this package cannot use -- an RSA key, or one
-  DESC marked `use: "enc"`. Those are SKIPPED rather than fatal, because a set
+  DESC marked for something other than signing -- `use: "enc"`, or a `key_ops`
+  DESC that names neither `sign` nor `verify`. Those are SKIPPED rather than
+  DESC fatal, because a set
   DESC is a directory rather than a single key: refusing the whole document
   DESC over one entry would make an issuer's unrelated key rotation break your
   DESC verification. A member that is malformed rather than merely unsupported
@@ -794,6 +822,7 @@ EXPORT FUNC importJwkSet(text AS String) AS List OF Key
     CASE json::JsonArr(list)
       MUT keys AS List OF Key = []
       FOR EACH entry IN list.items
+        IF NOT usedForSignatures(entry) THEN CONTINUE FOR
         LET key AS Key = jwkToKey(entry) TRAP(problem)
           IF problem.code = ERR_UNSUPPORTED THEN CONTINUE FOR
           PROPAGATE
@@ -868,6 +897,29 @@ END FUNC
 ' Verification internals
 ' ---------------------------------------------------------------------------
 
+ ' Refuse an `Options` that cannot mean what it says.
+'
+' `jwt::options` builds a valid one, but a record update can set any field to
+' anything, so `jwt::verify` checks again. The two numeric fields are the ones
+' where a negative value looks like a setting and is not: a negative
+' `maxAgeSeconds` would switch the age check off without saying so, and a
+' negative leeway would tighten every time check silently.
+PRIVATE FUNC checkOptions(choices AS Options) AS Nothing
+  IF len(choices.algorithms) = 0 THEN
+    FAIL error(ERR_ARGUMENT, "jwt: the Options names no algorithm -- build it with jwt::options, which refuses an empty allowlist")
+  END IF
+  FOR EACH algorithm IN choices.algorithms
+    algorithmFamily(algorithm)
+  NEXT
+  IF choices.leewaySeconds < 0 THEN
+    FAIL error(ERR_ARGUMENT, "jwt: leewaySeconds is " & toString(choices.leewaySeconds) & ", and leeway is a number of seconds to allow -- a negative one would tighten every time check, which is a mistake, not a setting")
+  END IF
+  IF choices.maxAgeSeconds < 0 THEN
+    FAIL error(ERR_ARGUMENT, "jwt: maxAgeSeconds is " & toString(choices.maxAgeSeconds) & " -- 0 turns the age check off and a positive value turns it on, so a negative one is a mistake that would otherwise switch the check off silently")
+  END IF
+  RETURN NOTHING
+END FUNC
+
 ' The keys worth trying for a token naming `algorithm` and `kid`.
 '
 ' A key whose algorithm differs is never tried, which is what stops an `HS256`
@@ -901,7 +953,7 @@ PRIVATE FUNC describeNoKey(keys AS List OF Key, algorithm AS String, kid AS Stri
     IF key.algorithm = algorithm THEN sameAlgorithm = sameAlgorithm + 1
   NEXT
   IF sameAlgorithm > 0 THEN
-    RETURN "jwt: the token asks for `kid: \"" & kid & "\"`, and none of the " & toString(sameAlgorithm) & " " & algorithm & " key(s) supplied carries that identifier"
+    RETURN "jwt: the token asks for `kid: \"" & shown(kid) & "\"`, and none of the " & toString(sameAlgorithm) & " " & algorithm & " key(s) supplied carries that identifier"
   END IF
   RETURN "jwt: none of the " & toString(len(keys)) & " key(s) supplied is an " & algorithm & " key"
 END FUNC
@@ -919,7 +971,7 @@ PRIVATE FUNC checkTypeHeader(header AS json::Json, choices AS Options) AS Nothin
     FAIL error(ErrorClaim, "jwt: the header names no `typ`, and this verification requires `" & choices.typeHeader & "`")
   END IF
   IF mediaType(declared) <> mediaType(choices.typeHeader) THEN
-    FAIL error(ErrorClaim, "jwt: the header is `typ: \"" & declared & "\"`, and this verification requires `" & choices.typeHeader & "`")
+    FAIL error(ErrorClaim, "jwt: the header is `typ: \"" & shown(declared) & "\"`, and this verification requires `" & choices.typeHeader & "`")
   END IF
   RETURN NOTHING
 END FUNC
@@ -998,7 +1050,7 @@ PRIVATE FUNC checkStringClaim(claims AS json::Json, name AS String, wanted AS St
   END IF
   LET held AS String = stringMember(claims, name, "claims")
   IF held <> wanted THEN
-    FAIL error(ErrorClaim, "jwt: the token's `" & name & "` is \"" & held & "\", and this verification requires \"" & wanted & "\"")
+    FAIL error(ErrorClaim, "jwt: the token's `" & name & "` is \"" & shown(held) & "\", and this verification requires \"" & wanted & "\"")
   END IF
   RETURN NOTHING
 END FUNC
@@ -1013,7 +1065,7 @@ PRIVATE FUNC checkAudience(claims AS json::Json, wanted AS String) AS Nothing
   MATCH held
     CASE json::JsonStr(only)
       IF only.value = wanted THEN RETURN NOTHING
-      FAIL error(ErrorClaim, "jwt: the token's `aud` is \"" & only.value & "\", and this verification requires \"" & wanted & "\"")
+      FAIL error(ErrorClaim, "jwt: the token's `aud` is \"" & shown(only.value) & "\", and this verification requires \"" & wanted & "\"")
     CASE json::JsonArr(list)
       FOR EACH entry IN list.items
         MATCH entry

@@ -7,6 +7,7 @@
 ' lines are indented and the newlines inside an interpolated value are not.
 ' ---------------------------------------------------------------------------
 
+IMPORT errorCode
 IMPORT json
 IMPORT collections
 
@@ -62,15 +63,15 @@ TESTING
     END TCASE
 
     TCASE "a malformed partial is refused, naming the same failure a malformed template would"
-      expectTrap(expand("{{>p}}", "{}", "p", "{{#a}}"), ERR_FORMAT)
-      expectTrap(expand("{{>p}}", "{}", "p", "{{a"), ERR_FORMAT)
+      expectTrap(expand("{{>p}}", "{}", "p", "{{#a}}"), errorCode::ErrInvalidFormat)
+      expectTrap(expand("{{>p}}", "{}", "p", "{{a"), errorCode::ErrInvalidFormat)
     END TCASE
 
     TCASE "a section may not be opened in one partial and closed in another"
       MUT partials AS Map OF String TO String = Map OF String TO String {}
       partials = collections::set(partials, "open", "{{#a}}")
       partials = collections::set(partials, "close", "{{/a}}")
-      expectTrap(renderWith("{{>open}}body{{>close}}", json::parse("{\"a\":true}"), partials), ERR_FORMAT)
+      expectTrap(renderWith("{{>open}}body{{>close}}", json::parse("{\"a\":true}"), partials), errorCode::ErrInvalidFormat)
     END TCASE
   END TGROUP
 END TESTING

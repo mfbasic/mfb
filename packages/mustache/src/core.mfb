@@ -1,6 +1,6 @@
 ' ---------------------------------------------------------------------------
-' mustache/core.mfb — limits, error codes, the parsed-node record, and the byte
-' primitives the tokenizer is built on.
+' mustache/core.mfb — limits, the parsed-node record, and the byte primitives
+' the tokenizer is built on.
 '
 ' The tokenizer works on the template's UTF-8 BYTES rather than on a scalar or
 ' grapheme list. Every character Mustache gives meaning to -- the `{` and `}` of
@@ -16,7 +16,7 @@
 ' which also counts U+00A0 and the Unicode space separators; a template whose
 ' tag padding or standalone-line indentation is written with one of those is
 ' read differently by the two implementations. That is a deliberate choice --
-' see the README's compatibility table -- and the oracle corpus pins it.
+' see the README's Decisions table -- and the oracle corpus pins it.
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
@@ -27,11 +27,13 @@ IMPORT strings
 ' any partial, including itself, so `{{>a}}` in a partial called `a` expands
 ' forever. The specification's own recursion test relies on a partial calling
 ' itself, so the construct cannot simply be refused -- it has to be bounded.
-' Template size and output size bound the other two directions in which a small
-' input can name a large amount of work.
+' The output limit is the caller's to set (`maxBytes` on render and renderWith);
+' the template limit is fixed, because a template is source, not data.
 ' ---------------------------------------------------------------------------
 
-' Maximum size, in UTF-8 bytes, of a template or of one partial body.
+' Maximum size, in UTF-8 bytes, of a template or of one partial body. A
+' template is code the program wrote, so this is a fixed ceiling rather than a
+' parameter; it is well above any template a person writes.
 PUBLIC LET TEMPLATE_LIMIT AS Integer = 1048576
 
 ' Maximum section nesting, and maximum depth of partial expansion. These two
@@ -45,32 +47,10 @@ PUBLIC LET TEMPLATE_LIMIT AS Integer = 1048576
 PUBLIC LET SECTION_DEPTH_LIMIT AS Integer = 64
 PUBLIC LET PARTIAL_DEPTH_LIMIT AS Integer = 16
 
-' Maximum size, in UTF-8 bytes, of the rendered output. Checked as the output
-' grows rather than at the end, so a template that expands without bound stops
-' at the limit instead of after exhausting memory.
-PUBLIC LET OUTPUT_LIMIT AS Integer = 16777216
-
-' ---------------------------------------------------------------------------
-' Error codes. Standard registry codes are used wherever one carries the right
-' meaning (`mfb spec diagnostics error-codes`); exactly one failure -- passing a
-' size limit -- has no registry equivalent, so it takes a generator-9 code,
-' which the package exports so a caller can match it by name.
-' ---------------------------------------------------------------------------
-
-' 7-705-0003 errorCode::ErrInvalidFormat — a malformed template: an unclosed
-' tag, a close with no open section, a mismatched close, a section left open at
-' the end, or a set-delimiter tag that does not name two delimiters.
-PUBLIC LET ERR_FORMAT AS Integer = 77050003
-
-' 7-705-0024 errorCode::ErrDepthExceeded — section nesting past
-' SECTION_DEPTH_LIMIT, or partial expansion past PARTIAL_DEPTH_LIMIT.
-PUBLIC LET ERR_DEPTH AS Integer = 77050024
-
-' 9-312-0001: a template or its output passed a size limit. No errorCode::
-' value models "this input is larger than the reader will handle", so this is a
-' generator-9 (user-defined) code, per the encoding rule. Exported so an importer
-' matches `mustache::ErrorLimit` rather than the integer.
-EXPORT LET ErrorLimit AS Integer = 93120001
+' The default for the caller's output limit, in UTF-8 bytes. Checked as the
+' output grows rather than at the end, so a template that expands without bound
+' stops at the limit instead of after exhausting memory.
+PUBLIC LET DEFAULT_MAX_BYTES AS Integer = 16777216
 
 ' ---------------------------------------------------------------------------
 ' Node kinds. The parse produces one FLAT list of these; a section carries the

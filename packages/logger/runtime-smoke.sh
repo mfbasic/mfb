@@ -56,8 +56,9 @@ FUNC main() AS Integer
   LET fileBackend AS logger::LogBackend = logger::FileBackend[file := file]
   LET network AS logger::LogBackend = logger::NetworkBackend[socket := client]
   LET callback AS logger::LogBackend = logger::CustomBackend[callback := collect]
-  LET routes AS Map OF logger::LogLevel TO List OF logger::LogBackend = Map OF logger::LogLevel TO List OF logger::LogBackend {logger::LogLevel.INFO := [callback]}
-  LET configured AS logger::Logger = logger::Logger[common := [console, fileBackend, network, callback], backends := routes]
+  LET configured AS logger::Logger = logger::Logger[minLevel := logger::LogLevel.INFO, backends := [console, fileBackend, network, callback]]
+  ' Below the minimum level: must reach no backend at all.
+  logger::log(configured, logger::LogLevel.DEBUG, "dropped")
   ' A message carrying a newline and a forged entry. It must come back as ONE
   ' line everywhere except the callback, which is handed the entry unmodified.
   logger::log(configured, logger::LogLevel.INFO, "started\n[2020-01-01T00:00:00Z] [ERROR] forged")
@@ -87,13 +88,13 @@ line3="$(sed -n '3p' "$WORK/output.txt")"
 [[ $line2 == "peer=$line1<LF>" ]] \
   || fail "socket did not carry the entry newline-framed: $line2"
 
-# The callback ran twice (common, then the INFO route) and was handed the
-# message unmodified -- it still has its real newline.
-[[ $line3 == "callback=2:TRUE:1:"* ]] \
+# The callback ran once for the INFO entry, not for the dropped DEBUG one, and
+# was handed the message unmodified -- it still has its real newline.
+[[ $line3 == "callback=1:TRUE:1:"* ]] \
   || fail "callback count, level, or raw message is wrong: $line3"
 
 # Every backend of the one call recorded the same instant.
-callback_timestamp="${line3#callback=2:TRUE:1:}"
+callback_timestamp="${line3#callback=1:TRUE:1:}"
 [[ $line1 == "[$callback_timestamp] [INFO] started\n[2020-01-01T00:00:00Z] [ERROR] forged" ]] \
   || fail "console and callback disagree about the entry: $line1"
 

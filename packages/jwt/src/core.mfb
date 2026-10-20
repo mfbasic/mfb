@@ -77,10 +77,14 @@ EXPORT LET ErrorTooLarge AS Integer = 93130005
 ' decoding one costs anything worth noticing.
 ' ---------------------------------------------------------------------------
 
-' The longest token, in UTF-8 bytes, `jwt::verify` will look at.
+' The longest token, in UTF-8 bytes, `jwt::verify` will look at. Every segment
+' is part of the token, so this one limit bounds the header and the payload
+' too; a separate per-segment limit would refuse a token this limit admits.
 PUBLIC LET MAX_TOKEN_BYTES AS Integer = 1048576
-' The longest single segment, in Base64url characters.
-PUBLIC LET MAX_SEGMENT_BYTES AS Integer = 262144
+
+' The most characters of token-controlled text an error message shows. See
+' `shown`.
+PRIVATE LET SHOWN_LIMIT AS Integer = 64
 
 ' ---------------------------------------------------------------------------
 ' Byte primitives.
@@ -150,9 +154,6 @@ END FUNC
 PUBLIC FUNC decodeSegment(text AS String, what AS String) AS List OF Byte
   LET chars AS List OF Byte = strings::toBytes(text)
   LET count AS Integer = len(chars)
-  IF count > MAX_SEGMENT_BYTES THEN
-    FAIL error(ErrorTooLarge, "jwt: the " & what & " segment is " & toString(count) & " characters, past the " & toString(MAX_SEGMENT_BYTES) & "-character limit")
-  END IF
   IF count MOD 4 = 1 THEN
     FAIL error(ERR_FORMAT, "jwt: the " & what & " segment is " & toString(count) & " Base64url characters, and no group of 6-bit symbols has that length")
   END IF
@@ -198,6 +199,33 @@ PUBLIC FUNC decodeSegment(text AS String, what AS String) AS List OF Byte
     i = i + 4
   END WHILE
   RETURN out
+END FUNC
+
+' Token-controlled text, made safe to put in an error message: printable ASCII
+' only, and at most SHOWN_LIMIT characters with `...` after a cut.
+'
+' Every `alg`, `kid`, `typ`, `iss`, `sub` and `aud` value arrived from whoever
+' sent the token. Unbounded, one could be a 256 KB string that drowns the
+' message; unfiltered, a newline in it forges a second line in a log. Each
+' byte outside printable ASCII -- control characters, and every byte of a
+' multi-byte scalar -- shows as `?`.
+PUBLIC FUNC shown(text AS String) AS String
+  LET scalars AS List OF Scalar = strings::toScalars(text)
+  MUT out AS List OF Scalar = []
+  FOR i = 0 TO len(scalars) - 1
+    IF i >= SHOWN_LIMIT THEN EXIT FOR
+    LET c AS Scalar = collections::get(scalars, i)
+    LET piece AS List OF Byte = strings::toBytes(toString(c))
+    LET code AS Integer = byteAt(piece, 0)
+    IF len(piece) = 1 AND code >= 32 AND code <= 126 THEN
+      out = collections::append(out, c)
+    ELSE
+      out = collections::append(out, `?`)
+    END IF
+  NEXT
+  LET clipped AS String = strings::fromScalars(out)
+  IF len(scalars) > SHOWN_LIMIT THEN RETURN clipped & "..."
+  RETURN clipped
 END FUNC
 
 ' ---------------------------------------------------------------------------

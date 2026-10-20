@@ -28,6 +28,7 @@
 '   move every section's closing tag out from under it.
 ' ---------------------------------------------------------------------------
 
+IMPORT errorCode
 IMPORT collections
 IMPORT strings
 
@@ -39,7 +40,7 @@ IMPORT strings
 ' including template had changed them. Both are what the specification requires.
 PUBLIC FUNC parseTemplate(template AS String) AS List OF Node
   IF strings::byteLen(template) > TEMPLATE_LIMIT THEN
-    FAIL error(ErrorLimit, "mustache: the template is " & toString(strings::byteLen(template)) & " bytes, past the " & toString(TEMPLATE_LIMIT) & "-byte limit")
+    FAIL error(errorCode::ErrTooLarge, "mustache: the template is " & toString(strings::byteLen(template)) & " bytes, past the " & toString(TEMPLATE_LIMIT) & "-byte limit")
   END IF
 
   LET bytes AS List OF Byte = strings::toBytes(template)
@@ -163,12 +164,12 @@ PUBLIC FUNC parseTemplate(template AS String) AS List OF Node
     IF delimiters THEN
       LET equalsAt AS Integer = findByte(bytes, B_EQUALS, cursor, size)
       IF equalsAt < 0 THEN
-        FAIL error(ERR_FORMAT, "mustache: a set-delimiters tag opened at byte " & toString(tagAt) & " is never closed")
+        FAIL error(errorCode::ErrInvalidFormat, "mustache: a set-delimiters tag opened at byte " & toString(tagAt) & " is never closed")
       END IF
       name = textOf(bytes, cursor, trimEndAt(bytes, cursor, equalsAt))
       LET closeAt AS Integer = findBytes(bytes, closeDelim, equalsAt + 1, size)
       IF closeAt < 0 THEN
-        FAIL error(ERR_FORMAT, "mustache: a set-delimiters tag opened at byte " & toString(tagAt) & " is never closed")
+        FAIL error(errorCode::ErrInvalidFormat, "mustache: a set-delimiters tag opened at byte " & toString(tagAt) & " is never closed")
       END IF
       pos = closeAt + len(closeDelim)
       LET chosen AS List OF String = splitDelimiters(name)
@@ -183,14 +184,14 @@ PUBLIC FUNC parseTemplate(template AS String) AS List OF Node
       LET tripleDelim AS List OF Byte = strings::toBytes("}" & closeText)
       LET closeAt AS Integer = findBytes(bytes, tripleDelim, cursor, size)
       IF closeAt < 0 THEN
-        FAIL error(ERR_FORMAT, "mustache: a triple-mustache tag opened at byte " & toString(tagAt) & " is never closed")
+        FAIL error(errorCode::ErrInvalidFormat, "mustache: a triple-mustache tag opened at byte " & toString(tagAt) & " is never closed")
       END IF
       name = textOf(bytes, cursor, trimEndAt(bytes, cursor, closeAt))
       pos = closeAt + len(tripleDelim)
     ELSE
       LET closeAt AS Integer = findBytes(bytes, closeDelim, cursor, size)
       IF closeAt < 0 THEN
-        FAIL error(ERR_FORMAT, "mustache: a tag opened at byte " & toString(tagAt) & " is never closed")
+        FAIL error(errorCode::ErrInvalidFormat, "mustache: a tag opened at byte " & toString(tagAt) & " is never closed")
       END IF
       name = textOf(bytes, cursor, trimEndAt(bytes, cursor, closeAt))
       pos = closeAt + len(closeDelim)
@@ -250,7 +251,7 @@ PRIVATE FUNC splitDelimiters(spec AS String) AS List OF String
     parts = collections::append(parts, textOf(bytes, from, at))
   END WHILE
   IF len(parts) <> 2 THEN
-    FAIL error(ERR_FORMAT, "mustache: a set-delimiters tag names exactly two delimiters, and `" & spec & "` names " & toString(len(parts)))
+    FAIL error(errorCode::ErrInvalidFormat, "mustache: a set-delimiters tag names exactly two delimiters, and `" & spec & "` names " & toString(len(parts)))
   END IF
   RETURN parts
 END FUNC
@@ -267,17 +268,17 @@ PRIVATE FUNC linkSections(nodes AS List OF Node) AS List OF Node
     IF here.kind = K_SECTION OR here.kind = K_INVERTED THEN
       open = collections::append(open, at)
       IF len(open) > SECTION_DEPTH_LIMIT THEN
-        FAIL error(ERR_DEPTH, "mustache: sections nest more than " & toString(SECTION_DEPTH_LIMIT) & " levels deep")
+        FAIL error(errorCode::ErrDepthExceeded, "mustache: sections nest more than " & toString(SECTION_DEPTH_LIMIT) & " levels deep")
       END IF
     ELSEIF here.kind = K_CLOSE THEN
       IF len(open) = 0 THEN
-        FAIL error(ERR_FORMAT, "mustache: `" & here.name & "` is closed but was never opened")
+        FAIL error(errorCode::ErrInvalidFormat, "mustache: `" & here.name & "` is closed but was never opened")
       END IF
       LET openAt AS Integer = collections::get(open, len(open) - 1)
       open = collections::removeAt(open, len(open) - 1)
       LET opened AS Node = collections::get(linked, openAt)
       IF opened.name <> here.name THEN
-        FAIL error(ERR_FORMAT, "mustache: section `" & opened.name & "` is closed by `" & here.name & "`")
+        FAIL error(errorCode::ErrInvalidFormat, "mustache: section `" & opened.name & "` is closed by `" & here.name & "`")
       END IF
       linked = collections::set(linked, openAt, WITH opened { jump := at })
     END IF
@@ -285,7 +286,7 @@ PRIVATE FUNC linkSections(nodes AS List OF Node) AS List OF Node
   END WHILE
   IF len(open) > 0 THEN
     LET dangling AS Node = collections::get(linked, collections::get(open, len(open) - 1))
-    FAIL error(ERR_FORMAT, "mustache: section `" & dangling.name & "` is opened but never closed")
+    FAIL error(errorCode::ErrInvalidFormat, "mustache: section `" & dangling.name & "` is opened but never closed")
   END IF
   RETURN linked
 END FUNC

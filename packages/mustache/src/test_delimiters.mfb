@@ -2,6 +2,7 @@
 ' Tests: `{{=<% %>=}}` -- changing the delimiters, and how far a change reaches.
 ' ---------------------------------------------------------------------------
 
+IMPORT errorCode
 IMPORT json
 IMPORT collections
 
@@ -46,14 +47,14 @@ TESTING
       ' mustache.js splits on whitespace with a limit of two and silently uses
       ' the first two. Guessing which two were meant changes what every
       ' following tag in the template means, so this refuses instead.
-      expectTrap(delim("{{=a b c=}}aXb", "{}"), ERR_FORMAT)
-      expectTrap(delim("{{=only=}}", "{}"), ERR_FORMAT)
-      expectTrap(delim("{{= =}}", "{}"), ERR_FORMAT)
+      expectTrap(delim("{{=a b c=}}aXb", "{}"), errorCode::ErrInvalidFormat)
+      expectTrap(delim("{{=only=}}", "{}"), errorCode::ErrInvalidFormat)
+      expectTrap(delim("{{= =}}", "{}"), errorCode::ErrInvalidFormat)
     END TCASE
 
     TCASE "an unterminated set-delimiters tag is refused"
-      expectTrap(delim("{{=<% %>", "{}"), ERR_FORMAT)
-      expectTrap(delim("{{=<% %>=", "{}"), ERR_FORMAT)
+      expectTrap(delim("{{=<% %>", "{}"), errorCode::ErrInvalidFormat)
+      expectTrap(delim("{{=<% %>=", "{}"), errorCode::ErrInvalidFormat)
     END TCASE
 
     TCASE "a partial always starts from the default delimiters"
