@@ -144,9 +144,7 @@ ceiling inline 575 src/fmt.rs
 ceiling code 1002 src/hir/mod.rs
 ceiling code 1448 src/ir/binary.rs
 ceiling code 5222 src/ir/lower.rs
-ceiling inline 774 src/ir/resource_escape.rs
 ceiling code 2950 src/ir/shape.rs
-ceiling inline 1231 src/ir/shape.rs
 ceiling test 6386 src/ir/tests.rs
 ceiling test 1748 src/ir/variant_corpus_tests.rs
 ceiling code 1203 src/ir/verify/mod.rs

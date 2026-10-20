@@ -904,16 +904,21 @@ Acceptance: the monomorph tests run from their new modules and the count did not
   `ok. 26 passed` and `ok. 45 passed`; list count → 71; census → lower.rs `2521 2`, helpers.rs `530 4`, new files
   639, 53, 583, 653; G3 via `bash scripts/test-fast.sh --test architecture_guards --test no_type_strings --test no_operator_strings`
   → `test-fast: ok` (unit tests `4998 passed; 2 ignored`; guards 8, 7+1 ignored, 8 passed); G4 → 0; G5 → exit 0.
-Commit: —
+Commit: 587df80c7
 
 ### Phase 2 — resource_escape and shape inline tests
 
-- [ ] Move `src/ir/resource_escape.rs`'s inline tests to `src/ir/resource_escape/tests/mod.rs`
+- [x] Move `src/ir/resource_escape.rs`'s inline tests to `src/ir/resource_escape/tests/mod.rs`
       per §4.4 (one file).
-- [ ] `src/docs/spec/architecture/23_escape-analysis.md:358`: `[[src/ir/resource_escape.rs:tests]]`
+      Done: `items.py extract` → 28 tests; motion → only the module lines differ.
+- [x] `src/docs/spec/architecture/23_escape-analysis.md:358`: `[[src/ir/resource_escape.rs:tests]]`
       → `[[src/ir/resource_escape/tests/mod.rs]]`.
-- [ ] Move `src/ir/shape.rs`'s inline tests to `src/ir/shape/tests/` per §4.5 (`mod.rs` + 2 parts).
-- [ ] G4: drop the two `ceiling inline` rows. `shape.rs`'s `code` row belongs to M.
+- [x] Move `src/ir/shape.rs`'s inline tests to `src/ir/shape/tests/` per §4.5 (`mod.rs` + 2 parts).
+      Done: parts 33 + 25 tests (82 string-literal lines kept byte for byte); motion → only the module lines and the
+      2 part `mod` lines differ; no `use` edit was needed.
+- [x] G4: drop the two `ceiling inline` rows. `shape.rs`'s `code` row belongs to M.
+      Done: → `TIGHTEN inline 17 (ceiling 774)` resource_escape, `TIGHTEN inline 8 (ceiling 1231)` shape; tighten drops
+      exactly those; re-run → 0.
 
 Acceptance: as Phase 1, and the spec still resolves.
   Check:
@@ -926,6 +931,10 @@ Acceptance: as Phase 1, and the spec still resolves.
   - `./target/debug/mfb spec architecture escape-analysis 2>/dev/null | grep -c '\[\['` → 0
     (est. 4 min).
   - G3; G4; G5.
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 28 passed`, `ok. 58 passed`;
+  census → resource_escape.rs `495 17`, shape.rs `2950 8`, new files 756, 36, 532, 655; spec_citations_resolve →
+  `ok. 1 passed`; the rendered topic (debug `mfb` rebuilt by the fast tier) → `[[` count 0; G3 fast tier →
+  `test-fast: ok` (unit `4998 passed; 2 ignored`; guards 8, 8, 7+1 ignored); G4 → 0; G5 → exit 0.
 Commit: —
 
 ### Phase 3 — variant corpus

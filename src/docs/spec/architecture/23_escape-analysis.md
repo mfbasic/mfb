@@ -355,7 +355,7 @@ float to a later same-depth container merely because that container is returned.
 | global `saved`; resource parameter `p`; `saved=append(saved,p)` | `p → Local` | a parameter is raised at the store, not floated |
 | `MUT xs=[]; FOR { LET k AS HB = mk(); xs=append(xs,k) }` (`HB` a record with a `RES` field) | no entry for `k` | `k` is no `RES` binding; codegen raises what it reaches at the store (`./mfb spec memory arenas`, the store-time raise) |
 
-[[src/ir/resource_escape.rs:tests]]
+[[src/ir/resource_escape/tests/mod.rs]]
 
 ## See Also
 
