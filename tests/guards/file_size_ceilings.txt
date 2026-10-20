@@ -95,16 +95,12 @@ ceiling code 1293 src/codegen/collection/map/map_mutate.rs
 ceiling code 1264 src/codegen/collection/search/builder_search.rs
 ceiling code 1097 src/codegen/debug/arena.rs
 ceiling code 1373 src/codegen/engine/analysis/borrow_get.rs
-ceiling inline 522 src/codegen/engine/analysis/borrow_get.rs
-ceiling inline 560 src/codegen/engine/analysis/handover.rs
-ceiling inline 685 src/codegen/engine/analysis/last_use.rs
 ceiling code 1124 src/codegen/engine/analysis/module_analysis.rs
 ceiling code 3105 src/codegen/engine/builder/mod.rs
 ceiling code 4466 src/codegen/engine/control/builder_control.rs
 ceiling code 1202 src/codegen/engine/convert/builder_conversions.rs
 ceiling code 1019 src/codegen/engine/function/entry.rs
 ceiling code 1710 src/codegen/engine/function/function_lowering.rs
-ceiling inline 744 src/codegen/engine/mir/mir.rs
 ceiling code 1591 src/codegen/engine/operators/builder_numeric.rs
 ceiling code 3060 src/codegen/engine/value/builder_values.rs
 ceiling code 1296 src/codegen/io/input/decode.rs

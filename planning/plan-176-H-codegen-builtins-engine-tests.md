@@ -783,7 +783,7 @@ grep → only the ceiling row (now removed); G3 `bash scripts/test-fast.sh --tes
 --test no_operator_strings` → `test-fast: ok` (unit `4998 passed; 2 ignored`, which includes `spec_citations_resolve`;
 guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
 
-Commit: —
+Commit: eb94a53fc
 
 ### Phase 2 — Engine inline tests and the architecture-guard change
 
@@ -805,11 +805,14 @@ gate.
       same order. RED: the old `vulkan_handoff.rs` under the new guard → FAILS at :204. Byte identity:
       `bash target/p176/bytecmp.sh <release mfb before> <after> examples/canvas-demo linux-aarch64` → both
       AppImages SAME.
-- [ ] Move `src/codegen/engine/mir/mir.rs`'s inline tests → `mir/mir/tests/mod.rs` per §4.15.
-- [ ] Move `src/codegen/engine/analysis/borrow_get.rs`'s inline tests per §4.12.
-- [ ] Move `src/codegen/engine/analysis/handover.rs`'s inline tests per §4.13.
-- [ ] Move `src/codegen/engine/analysis/last_use.rs`'s inline tests per §4.14.
-- [ ] G4: tighten the ceilings for the four files.
+- [x] Move `src/codegen/engine/mir/mir.rs`'s inline tests → `mir/mir/tests/mod.rs` per §4.15.
+- [x] Move `src/codegen/engine/analysis/borrow_get.rs`'s inline tests per §4.12.
+- [x] Move `src/codegen/engine/analysis/handover.rs`'s inline tests per §4.13.
+- [x] Move `src/codegen/engine/analysis/last_use.rs`'s inline tests per §4.14.
+      Done (all four): `python3 -I target/p176/inline1.py` (one `items.py extract` per host) → 16, 27, 10, 6 tests;
+      `bash target/p176/motion1.sh` → each host differs only in `mod tests {`/`}` → `mod tests;`.
+- [x] G4: tighten the ceilings for the four files.
+      Done: → TIGHTEN inline 6/2/9/2 for mir/borrow_get/handover/last_use; tighten drops exactly those four; re-run → 0.
 
 Acceptance: the guards still bind production code and no longer see the moved fixtures. Check:
 - G1 → equal.
@@ -826,7 +829,13 @@ Acceptance: the guards still bind production code and no longer see the moved fi
   3. Revert the line.
 - G4, G5 (est. 14 min).
 
-Commit: —
+Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 61 passed` (the 59 plus 2 other
+`analysis::` tests the filter matches); list count → 59; census → hosts `548 6`, `1373 2`, `503 9`, `874 2`; new
+files 737, 519, 548, 680; G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`; guards 8, 7 + 1 ignored,
+8); negative check → FAILS naming the planted line both above `handover.rs`'s first `#[cfg(test)]` (:37) and,
+after the `code_above_tests` fix, below its item-level one (:791); reverted; G4 → 0; G5 → exit 0.
+
+Commit: 118ec25a8 (guards and the vulkan fix), —
 
 ### Phase 3 — Builtin package inline tests
 
@@ -987,6 +996,10 @@ Commit: —
   the leaf names. Per the owner, G2/G3 run through `bash scripts/test-fast.sh` (2026-10-18) and
   every check runs on macOS only (2026-10-19). No clippy count was taken at Phase 1's G0, so the
   final gate checks clippy per path instead.
+- 2026-10-19 (execution): Phase 2's negative check as written (the planted line above
+  `handover.rs`'s `#[cfg(test)]` at :791) PASSED the guard, because `code_above_tests` stopped at
+  the earlier item-level `#[cfg(test)]` at :116. That exposed a guard gap (52,502 unscanned
+  production lines) and one hidden violation; both fixed in `118ec25a8` (a discovered task).
 
 ## Summary
 
