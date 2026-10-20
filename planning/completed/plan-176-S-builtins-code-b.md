@@ -736,7 +736,7 @@ companion source it renders are unchanged, so every canvas program's code is byt
   list 5018; check warnings 0; clippy 37065; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; budget →
   `TIGHTEN code 341 (ceiling 2371) … canvas/mod.rs`, removed by the tighten; census → types_values 468, types_paint 321,
   types_items 530, types_motion 444, types_groups_curves 292.
-Commit: —
+Commit: f56f44749
 
 ## Validation Plan
 
@@ -760,6 +760,10 @@ Commit: —
   `cargo test --test file_size_budget 2>&1 | grep -cE 'src/codegen/builtins/(canvas/(helper_render|mod|types_)|crypto/func_(generate|sign|verify)|fs/gen_(atomic_write|directory|read_write)|math/gen_math|money/gen_fixed_math)'`
   → 0, and `grep -cE '^ceiling .*(canvas/helper_render|canvas/mod\.rs|crypto/func_(generate|sign|verify)|fs/gen_(atomic_write|directory|read_write)|math/gen_math|money/gen_fixed_math)' tests/guards/file_size_ceilings.txt`
   → 0. The full workspace suite runs once, in plan-176-V's Validation Plan.
+  Done 2026-10-20 at f56f44749: `bash scripts/artifact-gate.sh target/release/mfb all` → `1703 tests, 1882 build(s),
+  2362 golden(s) checked, 0 diff(s)`; the budget grep → 0; the ceiling grep → 1, the row
+  `ceiling code 2272 src/codegen/runtime/canvas/mod.rs` (plan-176-V's file, which `canvas/mod\.rs` matches by
+  suffix); scoped to `builtins/` → 0.
 
 ## Decisions
 
@@ -789,6 +793,9 @@ Commit: —
   applied by the author.
 
 ## Corrections
+
+- 2026-10-20 — The final gate's ceiling grep pattern `canvas/mod\.rs` also matches
+  `src/codegen/runtime/canvas/mod.rs` (plan-176-V's file); S's check is that pattern scoped to `builtins/` → 0.
 
 - 2026-10-20 — Every `sh scripts/artifact-gate.sh` runs as `bash` (the script needs bash).
 
