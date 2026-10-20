@@ -10,8 +10,9 @@
 #
 #     ./check-doc-examples.sh [path/to/mfb]
 #
-# Each example is run with NO arguments, so an example must not declare a
-# `required := TRUE` option — it would abort before printing anything.
+# Each example is run with NO arguments. An example that calls `cli::parse` must
+# therefore accept an empty command line, or `parse` exits with status 2;
+# examples that show a particular command line pass it to `cli::tryParse`.
 #
 # An example that declares only a helper function gets a trivial `main`
 # appended, so a fragment is still compiled rather than skipped. Exit status is
@@ -35,7 +36,7 @@ import glob, os, re, sys
 
 package, work, name = sys.argv[1], sys.argv[2], sys.argv[3]
 blocks = []
-for path in sorted(glob.glob(os.path.join(package, "src", "*.mfb"))):
+for path in sorted(glob.glob(os.path.join(package, "src", "**", "*.mfb"), recursive=True)):
     source = open(path, encoding="utf-8").read()
     blocks += re.findall(r"^  EXAMPLE\n(.*?)^  END EXAMPLE\n", source, flags=re.S | re.M)
 
