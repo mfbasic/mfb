@@ -821,7 +821,7 @@ relocations as before, so every macOS TLS program is byte-identical.
   tls` → 0 diffs; `rt_tls_accept_handshake_budget` 2, `rt_tls_listen_host_validation` 3,
   `rt_tls_listener_close_frees` 4, `rt_tls_listener_local_address` 2 → all passed on the macOS host; budget → no
   row for `tls/gen_macos/server/` (the interim NEW row is gone); sweep → no `server/listen.rs` mention left.
-Commit: —
+Commit: 31932d45f
 
 ## Validation Plan
 
@@ -843,6 +843,8 @@ Commit: —
   `cargo test --test file_size_budget 2>&1 | grep -cE 'src/codegen/builtins/(net/gen_ping|process/gen_(unix|windows)|regex/|tls/gen_macos/(client|server)|tls/gen_openssl|tls/gen_schannel_(server|accept)|vector/builder_simd_float_math)'`
   → 0, and `grep -cE '^ceiling .*(net/gen_ping|process/gen_(unix|windows)|regex/mod\.rs|tls/gen_macos/(client|server)|tls/gen_openssl|tls/gen_schannel_server|vector/builder_simd_float_math)' tests/guards/file_size_ceilings.txt`
   → 0. The full workspace suite runs once, in plan-176-V's Validation Plan.
+  Done 2026-10-20 at 31932d45f: `bash scripts/artifact-gate.sh target/release/mfb all` → `1703 tests, 1882 build(s),
+  2362 golden(s) checked, 0 diff(s)`; the budget grep → 0; the ceiling grep → 0.
 
 ## Decisions
 
