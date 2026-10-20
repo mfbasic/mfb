@@ -27,10 +27,14 @@ END TYPE
 
 ' Split a compact JWS into its segments.
 '
-' A compact JWS has exactly three segments and therefore exactly two dots. Both
-' of the near misses are refused by name, because they are the two an
-' implementation is most likely to be fed by accident: a JWE is five segments,
-' and an unsecured JWS is three segments whose last one is empty.
+' A compact JWS has exactly three segments and therefore exactly two dots. A
+' JWE is five segments and is refused by name, because it is the near miss an
+' implementation is most likely to be fed by accident.
+'
+' The third segment may be empty here: that is an unsecured JWS
+' (`alg: "none"`), and which refusal it earns depends on its header, which
+' `jwt::verify` reads first. `jwt::unverifiedHeader` and
+' `jwt::unverifiedClaims` read it as it is.
 PUBLIC FUNC splitToken(token AS String) AS Parts
   LET size AS Integer = strings::byteLen(token)
   IF size > MAX_TOKEN_BYTES THEN
@@ -51,9 +55,6 @@ PUBLIC FUNC splitToken(token AS String) AS Parts
   END IF
   IF payload = "" THEN
     FAIL error(ERR_FORMAT, "jwt: the token's payload segment is empty")
-  END IF
-  IF signature = "" THEN
-    FAIL error(ERR_FORMAT, "jwt: the token's signature segment is empty, which is the shape of an unsecured `alg: \"none\"` JWS -- nothing about it can be verified")
   END IF
   RETURN Parts[header := header, payload := payload, signature := signature, signingInput := header & "." & payload]
 END FUNC
@@ -146,12 +147,12 @@ PUBLIC FUNC buildHeader(key AS Key, extras AS Map OF String TO json::Json) AS js
   MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
   fields = collections::set(fields, "alg", jsonString(key.algorithm))
   IF collections::hasKey(extras, "typ") THEN
-    fields = collections::set(fields, "typ", collections::get(extras, "typ"))
+    fields = collections::set(fields, "typ", jsonString(headerString(extras, "typ")))
   ELSE
     fields = collections::set(fields, "typ", jsonString("JWT"))
   END IF
   IF collections::hasKey(extras, "kid") THEN
-    fields = collections::set(fields, "kid", collections::get(extras, "kid"))
+    fields = collections::set(fields, "kid", jsonString(headerString(extras, "kid")))
   ELSEIF key.kid <> "" THEN
     fields = collections::set(fields, "kid", jsonString(key.kid))
   END IF
@@ -161,4 +162,17 @@ PUBLIC FUNC buildHeader(key AS Key, extras AS Map OF String TO json::Json) AS js
     END IF
   NEXT
   RETURN jsonObject(fields)
+END FUNC
+
+' A header parameter that must be a string (`typ`, `kid`). A value of another
+' JSON type is refused here rather than written into a header no verifier
+' would read the same way.
+PRIVATE FUNC headerString(extras AS Map OF String TO json::Json, name AS String) AS String
+  LET value AS json::Json = collections::get(extras, name)
+  MATCH value
+    CASE json::JsonStr(text)
+      RETURN text.value
+    CASE ELSE
+      FAIL error(ERR_ARGUMENT, "jwt: the header `" & name & "` is a JSON " & jsonKind(value) & ", and RFC 7515 §4.1 makes it a string")
+  END MATCH
 END FUNC

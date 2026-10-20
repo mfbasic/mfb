@@ -12,6 +12,7 @@ IMPORT json
 IMPORT collections
 IMPORT strings
 IMPORT crypto
+IMPORT encoding
 
 ' Every algorithm/curve pair the package signs with.
 PRIVATE FUNC everyAlgorithm() AS List OF String
@@ -40,6 +41,55 @@ END FUNC
 ' a signature never becomes a test of the wall clock.
 PRIVATE FUNC pinned(algorithms AS List OF String) AS Options
   RETURN WITH options(algorithms) { fixedTime := TRUE, timeSeconds := 1700000000 }
+END FUNC
+
+' Subtract `value` from `order`, both big-endian and of one length, with
+' `value` no larger than `order`. Used to build the high-S twin of an ECDSA
+' signature, which is `(r, n - s)`.
+PRIVATE FUNC subtractFrom(order AS List OF Byte, value AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = zeros(len(order))
+  MUT borrow AS Integer = 0
+  FOR i = 0 TO len(order) - 1
+    LET idx AS Integer = len(order) - 1 - i
+    MUT diff AS Integer = byteAt(order, idx) - byteAt(value, idx) - borrow
+    IF diff < 0 THEN
+      diff = diff + 256
+      borrow = 1
+    ELSE
+      borrow = 0
+    END IF
+    out = collections::set(out, idx, toByte(diff))
+  NEXT
+  RETURN out
+END FUNC
+
+' Add two little-endian integers of one length, for the sum fits in that length.
+' RFC 8032 writes an Ed25519 scalar little-endian.
+PRIVATE FUNC addLittleEndian(a AS List OF Byte, b AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = zeros(len(a))
+  MUT carry AS Integer = 0
+  FOR i = 0 TO len(a) - 1
+    LET sum AS Integer = byteAt(a, i) + byteAt(b, i) + carry
+    out = collections::set(out, i, toByte(sum MOD 256))
+    carry = sum / 256
+  NEXT
+  RETURN out
+END FUNC
+
+' The Ed25519 group order L, little-endian, as RFC 8032 writes a scalar.
+PRIVATE FUNC edwardsOrderLE() AS List OF Byte
+  RETURN encoding::hexDecode("edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010")
+END FUNC
+
+' A token's header and payload, kept, with its signature segment replaced.
+PRIVATE FUNC withSignature(token AS String, signature AS List OF Byte) AS String
+  LET parts AS List OF String = strings::split(token, ".")
+  RETURN collections::get(parts, 0) & "." & collections::get(parts, 1) & "." & encodeSegment(signature)
+END FUNC
+
+' The signature bytes of a token, decoded.
+PRIVATE FUNC signatureOf(token AS String) AS List OF Byte
+  RETURN decodeSegment(collections::get(strings::split(token, "."), 2), "signature")
 END FUNC
 
 TESTING
@@ -208,6 +258,72 @@ TESTING
       expectTrap(generate("HS256", "Ed25519"), 77050002)
       expectTrap(generate("RS256", ""), 77050007)
       expectTrap(generate("none", ""), 93130004)
+    END TCASE
+  END TGROUP
+  TGROUP "signature texts"
+    TCASE "an ECDSA signature with s replaced by n - s still verifies"
+      ' Both halves of the pair are a valid signature for the same message, so
+      ' an ES* token has two texts. This pins that verify accepts both: the
+      ' package decides not to normalise, as `crypto` and the mainstream
+      ' libraries do.
+      LET key AS Key = keyFor("ES256:")
+      LET token AS String = sign(key, sampleClaims())
+      LET raw AS List OF Byte = signatureOf(token)
+      LET r AS List OF Byte = slice(raw, 0, 32)
+      LET s AS List OF Byte = slice(raw, 32, 32)
+      LET twin AS String = withSignature(token, concat(r, subtractFrom(curveOrder("P-256"), s)))
+      expectString(toString(twin <> token), "TRUE")
+      expectNTrap(verify(twin, [key], pinned(["ES256"])))
+    END TCASE
+
+    TCASE "an Ed25519 signature with S replaced by S + L is refused"
+      ' RFC 8032 requires S < L, and `crypto` enforces it, so the twin is not a
+      ' signature. The original still verifies.
+      LET key AS Key = keyFor("EdDSA:Ed25519")
+      LET token AS String = sign(key, sampleClaims())
+      LET raw AS List OF Byte = signatureOf(token)
+      LET r AS List OF Byte = slice(raw, 0, 32)
+      LET s AS List OF Byte = slice(raw, 32, 32)
+      expectNTrap(verify(token, [key], pinned(["EdDSA"])))
+      expectTrap(verify(withSignature(token, concat(r, addLittleEndian(s, edwardsOrderLE()))), [key], pinned(["EdDSA"])), 77050016)
+    END TCASE
+
+    TCASE "an ECDSA public point that is not on the curve is refused"
+      ' The package checks only the SEC1 prefix of a point, so this relies on
+      ' `crypto` rejecting an off-curve point at import, which it documents.
+      LET key AS Key = keyFor("ES256:")
+      LET token AS String = sign(key, sampleClaims())
+      LET x AS String = encodeSegment(slice(publicHalf(key), 1, 32))
+      LET y AS String = encodeSegment(concat(zeros(31), [toByte(1)]))
+      LET offCurve AS Key = importJwk("{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"" & x & "\",\"y\":\"" & y & "\"}")
+      expectTrap(verify(token, [offCurve], pinned(["ES256"])), 77050002)
+    END TCASE
+
+    TCASE "a key pair whose halves are not a pair is refused"
+      LET first AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
+      LET second AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
+      expectNTrap(keyFromPair("ES256", "P-256", first))
+      expectTrap(keyFromPair("ES256", "P-256", WITH first { publicKey := second.publicKey }), 77050002)
+      expectTrap(importJwk(strings::replace(exportJwk(keyFor("ES256:"), TRUE), "\"x\":\"", "\"x\":\"AAAA")), 77050002)
+    END TCASE
+
+    TCASE "a JWK Set skips keys marked for something other than signing"
+      LET signing AS String = exportJwk(publicKeyOf(withKid(keyFor("ES256:"), "sig")), FALSE)
+      LET encryption AS String = strings::replace(exportJwk(publicKeyOf(withKid(keyFor("ES256:"), "enc")), FALSE), "\"use\":\"sig\"", "\"use\":\"enc\"")
+      LET deriveOnly AS String = strings::replace(exportJwk(publicKeyOf(withKid(keyFor("ES256:"), "derive")), FALSE), "\"use\":\"sig\"", "\"key_ops\":[\"deriveKey\"]")
+      LET back AS List OF Key = importJwkSet("{\"keys\":[" & encryption & "," & signing & "," & deriveOnly & "]}")
+      expectInteger(len(back), 1)
+      expectString(collections::get(back, 0).kid, "sig")
+    END TCASE
+
+    TCASE "a malformed key in a JWK Set still fails the set"
+      expectTrap(importJwkSet("{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"AAAA\",\"y\":\"AAAA\"}]}"), 77050002)
+    END TCASE
+
+    TCASE "typ and kid written into a header must be strings"
+      MUT extras AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      extras = collections::set(extras, "typ", jsonNumber(1.0))
+      expectTrap(signWithHeader(keyFor("HS256:"), extras, sampleClaims()), 77050002)
     END TCASE
   END TGROUP
 END TESTING

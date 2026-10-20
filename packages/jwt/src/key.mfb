@@ -23,6 +23,7 @@
 IMPORT json
 IMPORT collections
 IMPORT strings
+IMPORT encoding
 IMPORT crypto
 
 ' A signing or verification key, together with the algorithm it is for.
@@ -114,7 +115,7 @@ PUBLIC FUNC certificateFor(curve AS String) AS crypto::Certificate
   IF curve = "P-256" THEN RETURN crypto::Certificate.P256
   IF curve = "P-384" THEN RETURN crypto::Certificate.P384
   IF curve = "P-521" THEN RETURN crypto::Certificate.P521
-  FAIL error(ERR_UNSUPPORTED, "jwt: `" & curve & "` is not a curve this package holds")
+  FAIL error(ERR_UNSUPPORTED, "jwt: `" & shown(curve) & "` is not a curve this package holds")
 END FUNC
 
 ' The curve an `ES*` algorithm fixes. RFC 7518 §3.4 pairs each one with exactly
@@ -141,7 +142,7 @@ END FUNC
 PUBLIC FUNC edwardsKeySize(curve AS String) AS Integer
   IF curve = "Ed25519" THEN RETURN 32
   IF curve = "Ed448" THEN RETURN 57
-  FAIL error(ERR_UNSUPPORTED, "jwt: `" & curve & "` is not an Edwards curve")
+  FAIL error(ERR_UNSUPPORTED, "jwt: `" & shown(curve) & "` is not an Edwards curve")
 END FUNC
 
 ' Refuse a `Key` whose parts do not agree with each other.
@@ -226,7 +227,24 @@ END FUNC
 PUBLIC FUNC makePairKey(algorithm AS String, curve AS String, privateKey AS List OF Byte, publicKey AS List OF Byte, kid AS String) AS Key
   LET key AS Key = Key[algorithm := algorithm, curve := curve, kid := kid, secret := [], privateKey := privateKey, publicKey := publicKey]
   checkKey(key)
+  IF len(privateKey) > 0 AND len(publicKey) > 0 THEN checkPairMatches(key)
   RETURN key
+END FUNC
+
+' Refuse a key whose two halves are not a pair.
+'
+' Nothing else checks this. A JWK whose `d` belongs to some other `x`/`y` builds
+' without complaint, signs tokens that no published key verifies, and fails
+' only at the far end -- so it is checked here, once, at construction, by
+' signing a fixed message with the private half and verifying it under the
+' public one. That costs one signature and one verification per key built from
+' two halves, and nothing per verification: `candidateKeys` does not come here.
+PRIVATE FUNC checkPairMatches(key AS Key) AS Nothing
+  LET probe AS List OF Byte = encoding::utf8Encode("jwt: a key pair must sign what its public half verifies")
+  IF NOT verifyMessage(key, probe, signMessage(key, probe)) THEN
+    FAIL error(ERR_ARGUMENT, "jwt: the " & key.algorithm & " public and private halves are not a pair -- a signature made with the private half does not verify under the public half")
+  END IF
+  RETURN NOTHING
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -244,14 +262,14 @@ PUBLIC FUNC jwkToKey(jwk AS json::Json) AS Key
       FAIL error(ERR_ARGUMENT, "jwt: a symmetric JWK must name its `alg` -- HS256, HS384 and HS512 all take an opaque secret, so nothing in the key says which MAC it is for, and reading that off the token would let the token choose")
     END IF
     IF algorithmFamily(declared) <> "MAC" THEN
-      FAIL error(ERR_ARGUMENT, "jwt: the JWK is `kty: \"oct\"` but names `alg: \"" & declared & "\"`, which is not a MAC algorithm")
+      FAIL error(ERR_ARGUMENT, "jwt: the JWK is `kty: \"oct\"` but names `alg: \"" & shown(declared) & "\"`, which is not a MAC algorithm")
     END IF
     RETURN makeMacKey(declared, requiredBytes(jwk, "k"), kid)
   END IF
   IF kty = "OKP" THEN
     LET curve AS String = requiredString(jwk, "crv")
     IF declared <> "" AND declared <> "EdDSA" THEN
-      FAIL error(ERR_ARGUMENT, "jwt: the JWK is on " & curve & " but names `alg: \"" & declared & "\"`, and RFC 8037 §3.1 signs on that curve with EdDSA")
+      FAIL error(ERR_ARGUMENT, "jwt: the JWK is on " & shown(curve) & " but names `alg: \"" & shown(declared) & "\"`, and RFC 8037 §3.1 signs on that curve with EdDSA")
     END IF
     RETURN makePairKey("EdDSA", curve, optionalBytes(jwk, "d"), requiredBytes(jwk, "x"), kid)
   END IF
@@ -260,7 +278,7 @@ PUBLIC FUNC jwkToKey(jwk AS json::Json) AS Key
     LET size AS Integer = coordinateSize(curve)
     LET algorithm AS String = ecdsaAlgorithm(curve)
     IF declared <> "" AND declared <> algorithm THEN
-      FAIL error(ERR_ARGUMENT, "jwt: the JWK is on " & curve & " but names `alg: \"" & declared & "\"`, and RFC 7518 §3.4 signs on that curve with " & algorithm)
+      FAIL error(ERR_ARGUMENT, "jwt: the JWK is on " & shown(curve) & " but names `alg: \"" & shown(declared) & "\"`, and RFC 7518 §3.4 signs on that curve with " & algorithm)
     END IF
     LET x AS List OF Byte = exactBytes(jwk, "x", size)
     LET y AS List OF Byte = exactBytes(jwk, "y", size)
@@ -277,7 +295,7 @@ PUBLIC FUNC jwkToKey(jwk AS json::Json) AS Key
   IF kty = "" THEN
     FAIL error(ERR_ARGUMENT, "jwt: a JWK must name its `kty`")
   END IF
-  FAIL error(ERR_UNSUPPORTED, "jwt: `kty: \"" & kty & "\"` is not a key type this package holds -- it reads `oct`, `OKP` and `EC`")
+  FAIL error(ERR_UNSUPPORTED, "jwt: `kty: \"" & shown(kty) & "\"` is not a key type this package holds -- it reads `oct`, `OKP` and `EC`")
 END FUNC
 
 ' The `ES*` algorithm a NIST curve is used with.
@@ -285,7 +303,7 @@ PRIVATE FUNC ecdsaAlgorithm(curve AS String) AS String
   IF curve = "P-256" THEN RETURN "ES256"
   IF curve = "P-384" THEN RETURN "ES384"
   IF curve = "P-521" THEN RETURN "ES512"
-  FAIL error(ERR_UNSUPPORTED, "jwt: `crv: \"" & curve & "\"` is not a curve this package signs on")
+  FAIL error(ERR_UNSUPPORTED, "jwt: `crv: \"" & shown(curve) & "\"` is not a curve this package signs on")
 END FUNC
 
 ' Refuse a key its own JWK says is not for signatures.
@@ -295,11 +313,28 @@ END FUNC
 ' roles, which is a real attack surface rather than bookkeeping: the same EC
 ' key used for both ECDH-ES and ECDSA leaks across the two uses.
 PRIVATE FUNC checkKeyUse(jwk AS json::Json) AS Nothing
-  LET use AS String = stringMember(jwk, "use", "JWK")
-  IF use <> "" AND use <> "sig" THEN
-    FAIL error(ERR_ARGUMENT, "jwt: the JWK is `use: \"" & use & "\"`, and a JWT signature key must be `use: \"sig\"`")
+  IF NOT usedForSignatures(jwk) THEN
+    FAIL error(ERR_ARGUMENT, "jwt: the JWK is not a signature key -- a JWT signature key must be `use: \"sig\"`, or list `sign` or `verify` in `key_ops`")
   END IF
-  IF NOT hasMember(jwk, "key_ops") THEN RETURN NOTHING
+  RETURN NOTHING
+END FUNC
+
+' Whether a JWK is a signature key by its own `use` and `key_ops` (RFC 7517
+' §4.2, §4.3).
+'
+' FALSE is a JWK that says it is for something else -- `use: "enc"`, or a
+' `key_ops` that names neither `sign` nor `verify` -- and is not an error: a JWK
+' Set legitimately holds encryption keys beside signature keys, and
+' `jwt::importJwkSet` skips them. A `use` or `key_ops` that is malformed is an
+' error, because it is not a statement about the key at all.
+'
+' Honouring these is what keeps one key out of two roles, which is a real
+' attack surface rather than bookkeeping: the same EC key used for both ECDH-ES
+' and ECDSA leaks across the two uses.
+PUBLIC FUNC usedForSignatures(jwk AS json::Json) AS Boolean
+  LET use AS String = stringMember(jwk, "use", "JWK")
+  IF use <> "" AND use <> "sig" THEN RETURN FALSE
+  IF NOT hasMember(jwk, "key_ops") THEN RETURN TRUE
   LET ops AS json::Json = collections::get(fieldsOf(jwk), "key_ops")
   MATCH ops
     CASE json::JsonArr(list)
@@ -312,13 +347,10 @@ PRIVATE FUNC checkKeyUse(jwk AS json::Json) AS Nothing
             FAIL error(ERR_ARGUMENT, "jwt: a JWK `key_ops` entry is a JSON " & jsonKind(entry) & ", and every one is a string")
         END MATCH
       NEXT
-      IF NOT signs THEN
-        FAIL error(ERR_ARGUMENT, "jwt: the JWK's `key_ops` names neither `sign` nor `verify`, so it is not a signature key")
-      END IF
+      RETURN signs
     CASE ELSE
       FAIL error(ERR_ARGUMENT, "jwt: a JWK `key_ops` is a JSON " & jsonKind(ops) & ", and it must be an array")
   END MATCH
-  RETURN NOTHING
 END FUNC
 
 ' A required string member of a JWK.

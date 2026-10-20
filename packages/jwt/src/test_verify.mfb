@@ -53,6 +53,36 @@ TESTING
       expectTrap(verify(token & ".extra", [key], options), 77050003)
     END TCASE
 
+    TCASE "a token past the size limit is refused before it is parsed"
+      MUT chunk AS String = ""
+      FOR i = 1 TO 1000
+        chunk = chunk & "a"
+      NEXT
+      MUT parts AS List OF String = []
+      FOR i = 1 TO 1049
+        parts = collections::append(parts, chunk)
+      NEXT
+      expectTrap(verify(strings::join(parts, ""), [macKeyFor("HS256")], pinnedOptions(["HS256"])), 93130005)
+    END TCASE
+
+    TCASE "a token just under the size limit verifies, whatever its segment sizes"
+      ' A payload of 780000 bytes is 1040000 Base64url characters, so the whole
+      ' token sits under MAX_TOKEN_BYTES with its header and signature.
+      MUT chunk AS String = ""
+      FOR i = 1 TO 1000
+        chunk = chunk & "a"
+      NEXT
+      MUT parts AS List OF String = []
+      FOR i = 1 TO 780
+        parts = collections::append(parts, chunk)
+      NEXT
+      MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      fields = collections::set(fields, "big", jsonString(strings::join(parts, "")))
+      LET key AS Key = macKeyFor("HS256")
+      LET token AS String = sign(key, jsonObject(fields))
+      expectNTrap(verify(token, [key], pinnedOptions(["HS256"])))
+    END TCASE
+
     TCASE "a five-segment token is named as a JWE rather than counted"
       LET key AS Key = macKeyFor("HS256")
       expectTrap(verify("a.b.c.d.e", [key], pinnedOptions(["HS256"])), 77050003)
@@ -137,12 +167,17 @@ TESTING
   TGROUP "algorithm"
     TCASE "alg none is refused however it is dressed up"
       LET key AS Key = macKeyFor("HS256")
-      ' The classic shape: three segments, the third empty.
+      ' The classic shape: three segments, the third empty. It is an algorithm
+      ' refusal, not a shape one: the header says `none`, and `none` is
+      ' ErrorAlgorithm whatever the signature segment holds.
       LET input AS String = encodeSegment(strings::toBytes("{\"alg\":\"none\"}")) & "." & encodeSegment(strings::toBytes("{\"sub\":\"admin\"}"))
-      expectTrap(verify(input & ".", [key], pinnedOptions(["HS256"])), 77050003)
-      ' And with a signature attached, so the empty-segment rule is not what
-      ' catches it.
+      expectTrap(verify(input & ".", [key], pinnedOptions(["HS256"])), 93130004)
+      ' And with a signature attached, the same refusal.
       expectTrap(verify(craftSigned(key, "{\"alg\":\"none\"}", "{\"sub\":\"admin\"}"), [key], pinnedOptions(["HS256"])), 93130004)
+      ' An empty signature on an algorithm the caller allows is a shape
+      ' refusal, so the algorithm check does not swallow every unsecured token.
+      LET allowedInput AS String = encodeSegment(strings::toBytes("{\"alg\":\"HS256\"}")) & "." & encodeSegment(strings::toBytes("{\"sub\":\"admin\"}"))
+      expectTrap(verify(allowedInput & ".", [key], pinnedOptions(["HS256"])), 77050003)
     END TCASE
 
     TCASE "an algorithm outside the allowlist is refused before any key is tried"
@@ -328,6 +363,43 @@ TESTING
     TCASE "the unverified readers still enforce the token's shape"
       expectTrap(unverifiedHeader("nope"), 77050003)
       expectTrap(unverifiedClaims("a.b.c"), 77050003)
+    END TCASE
+  END TGROUP
+  TGROUP "options and messages"
+    TCASE "a negative maxAgeSeconds is refused, not read as off"
+      LET key AS Key = macKeyFor("HS256")
+      LET token AS String = sign(key, simpleClaims())
+      expectTrap(verify(token, [key], WITH pinnedOptions(["HS256"]) { maxAgeSeconds := -1 }), 77050002)
+      expectNTrap(verify(token, [key], WITH pinnedOptions(["HS256"]) { maxAgeSeconds := 0 }))
+    END TCASE
+
+    TCASE "a negative leeway is refused"
+      LET key AS Key = macKeyFor("HS256")
+      LET token AS String = sign(key, simpleClaims())
+      expectTrap(verify(token, [key], WITH pinnedOptions(["HS256"]) { leewaySeconds := -1 }), 77050002)
+    END TCASE
+
+    TCASE "a record-updated allowlist is checked as jwt::options would check it"
+      LET key AS Key = macKeyFor("HS256")
+      LET token AS String = sign(key, simpleClaims())
+      expectTrap(verify(token, [key], WITH pinnedOptions(["HS256"]) { algorithms := [] }), 77050002)
+      expectTrap(verify(token, [key], WITH pinnedOptions(["HS256"]) { algorithms := ["none"] }), 93130004)
+      expectTrap(verify(token, [key], WITH pinnedOptions(["HS256"]) { algorithms := ["RS256"] }), 77050007)
+    END TCASE
+
+    TCASE "shown keeps a message to printable ASCII and a bounded length"
+      expectString(shown("a\nb"), "a?b")
+      expectString(shown("caf\u{e9}"), "caf?")
+      MUT long AS String = ""
+      MUT kept AS String = ""
+      FOR i = 1 TO 70
+        long = long & "a"
+      NEXT
+      FOR i = 1 TO 64
+        kept = kept & "a"
+      NEXT
+      expectString(shown(long), kept & "...")
+      expectString(shown(kept), kept)
     END TCASE
   END TGROUP
 END TESTING
