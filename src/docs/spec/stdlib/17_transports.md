@@ -109,7 +109,7 @@ recognises them:
 | Schannel | `DecryptMessage` returns `SEC_I_CONTEXT_EXPIRED` (a success status with no plaintext); `recv` returns 0; or `recv` fails with `WSAECONNRESET`, `WSAECONNABORTED` or `WSAESHUTDOWN`. |
 | Network.framework | the receive completes with no content, or the connection is already `failed`/`cancelled`. |
 
-[[src/codegen/builtins/tls/gen_openssl.rs:lower_tls_read_openssl]]
+[[src/codegen/builtins/tls/gen_openssl/io.rs:lower_tls_read_openssl]]
 [[src/codegen/builtins/tls/gen_schannel.rs:SEC_I_CONTEXT_EXPIRED]]
 [[src/codegen/builtins/tls/gen_schannel_read_close.rs:lower_tls_read]]
 [[src/codegen/builtins/tls/gen_macos/client.rs:lower_tls_read_macos]]
@@ -131,7 +131,7 @@ and checked first in `write`:
 [[src/codegen/builtins/tls/gen_shared.rs:TLS_OFFSET_PEER_CLOSED]]
 [[src/codegen/builtins/tls/gen_schannel.rs:PEER_CLOSED]]
 [[src/codegen/builtins/tls/gen_macos/mod.rs:CTX_RXEOF]]
-[[src/codegen/builtins/tls/gen_openssl.rs:lower_tls_write_openssl]]
+[[src/codegen/builtins/tls/gen_openssl/io.rs:lower_tls_write_openssl]]
 [[src/codegen/builtins/tls/gen_schannel_io.rs:lower_tls_write]]
 [[src/codegen/builtins/tls/gen_macos/client.rs:lower_tls_write_macos]]
 
@@ -239,15 +239,15 @@ plus a handshake and a peer identity.
   `CLOCK_MONOTONIC` deadline taken when the connection was accepted. The fd's
   blocking mode is restored afterwards. `0` makes one non-blocking
   `SSL_accept` attempt.
-  [[src/codegen/builtins/tls/gen_openssl.rs:lower_tls_accept_openssl]]
-  [[src/codegen/builtins/tls/gen_openssl.rs:emit_monotonic_ms]]
+  [[src/codegen/builtins/tls/gen_openssl/accept.rs:lower_tls_accept_openssl]]
+  [[src/codegen/builtins/tls/gen_openssl/accept.rs:emit_monotonic_ms]]
   On Windows the connection wait is `WSAPoll`; before every handshake `recv`
   and every `AcceptSecurityContext` pass that may send, `SO_RCVTIMEO`/`SO_SNDTIMEO`
   are re-armed to the time left before a `GetTickCount64` deadline (`0` is a
   1 ms deadline, since Winsock reads a zero timeout as infinite), and cleared
   after the handshake.
-  [[src/codegen/builtins/tls/gen_schannel_server.rs:lower_tls_accept]]
-  [[src/codegen/builtins/tls/gen_schannel_server.rs:emit_hs_refresh]]
+  [[src/codegen/builtins/tls/gen_schannel_accept.rs:lower_tls_accept]]
+  [[src/codegen/builtins/tls/gen_schannel_accept.rs:emit_hs_refresh]]
 * **A mismatched cert/key pair is not rejected at listen.** No backend verifies
   the pair while building the credential; the mismatch surfaces as `ErrTlsFailed`
   from the first `tls::accept`.

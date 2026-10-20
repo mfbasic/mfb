@@ -1,6 +1,6 @@
-// Included into schannel.rs. The client-path helpers: connect (handshake),
-// read (DecryptMessage), write (EncryptMessage), close (shutdown). listen/accept
-// (server) are a separate future surface and stay unadvertised on Windows.
+// Included into gen_schannel.rs. The client-path helpers: connect (handshake),
+// read (DecryptMessage), write (EncryptMessage), close (shutdown). The server path
+// (listen, accept, closeListener) is in gen_schannel_server.rs and gen_schannel_accept.rs.
 
 /// Blocking socket connect to host:port. Leaves the connected fd in `fd_off`;
 /// branches to `fail` on any failure. Uses the portable Winsock getaddrinfo/

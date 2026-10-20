@@ -10,7 +10,7 @@
 //! the rest, so the second and later `?` sites stay exactly as dead as before.
 //! They are the single largest identifiable class left in the coverage gap: 931
 //! `?`-propagation lines across the files below the floor, 580 of them in
-//! `src/codegen/builtins` alone, and `tls/gen_openssl.rs` has 80 by itself.
+//! `src/codegen/builtins` alone, and `tls/gen_openssl/` has 80 by itself.
 //!
 //! Each one is a real contract. A body that swallowed the failure to emit
 //! `connect` would emit a function that opens a socket and then reads from one

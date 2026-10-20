@@ -1,4 +1,4 @@
-// Included into schannel_impl.rs. Handshake support helpers + read/write/close.
+// Included into gen_schannel_impl.rs. Handshake support helpers + read/write/close.
 
 /// The byte size [`emit_wide_cstring`] allocates: 32,768 UTF-16 units.
 const WIDE_CSTRING_BYTES: usize = 65536;

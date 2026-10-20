@@ -449,7 +449,7 @@ fn every_udp_helper_releases_the_host_it_marshalled() {
 /// `tests/runtime/rt_scope_drop_leaks.rs` was measured against the OpenSSL and
 /// Network.framework backends and cannot reach Schannel at all.
 ///
-/// OpenSSL (`gen_openssl.rs`). `connect`/`connectAddr` marshal the host for
+/// OpenSSL (`gen_openssl/`). `connect`/`connectAddr` marshal the host for
 /// `getaddrinfo` and the SNI/validation name for `SSL_set1_host` — two scratch
 /// blocks; the `snihost` and `sni` arms are the two exclusive halves of one choice
 /// writing one slot, so they share the second. Their other two allocations are the

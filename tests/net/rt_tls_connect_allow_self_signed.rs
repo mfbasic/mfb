@@ -62,7 +62,7 @@ const DEADLINE: Duration = Duration::from_secs(120);
 /// The name the client validates against, and the name the good certificate
 /// carries. Deliberately a DNS name rather than the `127.0.0.1` literal the
 /// connection actually dials: `SSL_set1_host` matches DNS-name SANs only
-/// (`gen_openssl.rs`'s note on `X509_VERIFY_PARAM_set1_ip`), so a test that
+/// (`gen_openssl/connect.rs`'s note on `X509_VERIFY_PARAM_set1_ip`), so a test that
 /// validated against the IP would be asserting an unsupported path.
 const EXPECT_NAME: &str = "localhost";
 

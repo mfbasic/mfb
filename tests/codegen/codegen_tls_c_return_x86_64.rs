@@ -1,4 +1,4 @@
-//! bug-452: the OpenSSL `tls` backend (`src/codegen/builtins/tls/gen_openssl.rs`)
+//! bug-452: the OpenSSL `tls` backend (`src/codegen/builtins/tls/gen_openssl/`)
 //! drives the dlopen'd libssl through a raw indirect `blr` (a `dlsym`'d function
 //! pointer) and then reads each call's result from `abi::return_register()` — the
 //! aligned MFB-return bank. On x86-64 SysV that bank is `rdi`, but a C function

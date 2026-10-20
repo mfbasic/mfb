@@ -11,7 +11,7 @@ The accepted policy is to keep the tree current with the locally-shipped rustfmt
 When you touch Rust, run `cargo fmt` normally and commit the result — do NOT hand-match an older style. Whole-tree churn from a rustfmt upgrade is fine to commit on `main` when the user asks.
 
 Two enduring gotchas:
-- rustfmt does **not** follow `include!`. The `tls/schannel_{impl,io,read_close,server}.rs` files are `include!`d into `schannel.rs`, so `cargo fmt` skips them entirely — they are hand-formatted in a compact multi-arg-on-one-line style. Running `rustfmt <file>` directly on one of them expands those calls (wrong); keep new edits in the compact neighbor style.
+- rustfmt does **not** follow `include!`. The `tls/gen_schannel_{impl,io,read_close,server,accept}.rs` files are `include!`d (directly or through each other) into `gen_schannel.rs`, so `cargo fmt` skips them entirely — they are hand-formatted in a compact multi-arg-on-one-line style. Running `rustfmt <file>` directly on one of them expands those calls (wrong); keep new edits in the compact neighbor style.
 - `cargo fmt -- <files>` does not scope (see the module-tree recursion section below).
 
 Revert fmt churn with `git restore .` only inside an isolated worktree, never the shared tree.

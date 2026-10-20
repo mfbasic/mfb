@@ -3,8 +3,6 @@
 # ceiling <code|inline|test> <n> <path>  an over-limit file may not grow past n; MFB_LOC_TIGHTEN=1 lowers n.
 ceiling code 2034 src/codegen/builtins/tls/gen_macos/client.rs
 ceiling code 2050 src/codegen/builtins/tls/gen_macos/server.rs
-ceiling code 2997 src/codegen/builtins/tls/gen_openssl.rs
-ceiling code 1006 src/codegen/builtins/tls/gen_schannel_server.rs
 ceiling code 1373 src/codegen/engine/analysis/borrow_get.rs
 ceiling code 1124 src/codegen/engine/analysis/module_analysis.rs
 ceiling code 3105 src/codegen/engine/builder/mod.rs

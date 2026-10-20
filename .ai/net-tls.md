@@ -51,7 +51,7 @@ rather than as a NIR call, which is the same trap bug-249 records for `tls`.
 A TLS socket's "is a read ready?" is **not** an fd `poll(2)`. One TLS record decrypts to many application bytes; a single `SSL_read`/Network.framework receive drains a record and **buffers the remainder**, so the TLS layer can hold already-decrypted app bytes while the raw fd is idle. An fd-only poll then reports "not ready" while a byte is available — a correctness bug. Readiness = `(TLS-buffered app bytes > 0) OR (raw layer readable)`, and the buffered half is backend-specific:
 
 - **openssl** (`src/target/shared/code/tls/openssl.rs`): `SSL_pending(ssl)` for buffered count, else `poll(fd, POLLIN)`.
-- **schannel** (Windows, `tls/schannel_io.rs` / `schannel_read_close.rs`): a decrypted-record carry-over buffer, else `WSAPoll(POLLRDNORM)` (`schannel_impl.rs` `WSAPOLLFD`).
+- **schannel** (Windows, `tls/gen_schannel_io.rs` / `gen_schannel_read_close.rs`): a decrypted-record carry-over buffer, else `WSAPoll(POLLRDNORM)` (`gen_schannel_impl.rs` `WSAPOLLFD`).
 - **macOS** (`tls/macos/`): **Network.framework — there is NO raw fd.** Decrypted data lands in a single-producer/single-consumer ring of pending retained buffers (`macos/mod.rs:106`), drained on the owning thread; readiness = ring non-empty OR terminal state, and any bounded wait uses the read path's `dispatch_semaphore` (which already has a per-read release/leak hazard, `macos/mod.rs:418` — a poll waiting on it must not steal the read's signal or leak a semaphore).
 
 `tls` now has `poll` (plan-76-B/C) and, since plan-110-D, `localAddress`/`remoteAddress` and `setReadTimeout`/`setWriteTimeout`. Related: the resources ownership model, and `tcp::poll` fd scaffolding.

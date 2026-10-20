@@ -286,6 +286,7 @@ fn sspi_call_ext(
 
 include!("gen_schannel_impl.rs");
 include!("gen_schannel_server.rs");
+include!("gen_schannel_accept.rs");
 
 #[cfg(test)]
 #[path = "gen_schannel_tests.rs"]

@@ -711,18 +711,18 @@ byte-identical code on every target; the vector BODY checker still passes.
   gen_ping mod 111 + 102 test / posix 799 / socket 144 / windows 522; builder_simd_float_math mod 279 + 47 test /
   dispatch 423 / inverse_trig 394 / trig_reduction 280 / trig 365 / exp_log 285 / primitives 148; sweep → only the
   `.ai/build-tooling.md:50` history note, reworded to name the directory.
-Commit: —
+Commit: 6b729705f
 
 ### Phase 3 — OpenSSL and Schannel TLS backends (pure motion)
 
-- [ ] `tls/gen_openssl.rs` → `tls/gen_openssl/{mod,connect,listen,accept,io,close}.rs` per §4.6;
+- [x] `tls/gen_openssl.rs` → `tls/gen_openssl/{mod,connect,listen,accept,io,close}.rs` per §4.6;
       the test declaration becomes `#[cfg(test)] #[path = "tests/mod.rs"] mod error_path_release_tests;`
       (H's `gen_openssl/tests/mod.rs` stays where it is); the 8 `pub(crate) use` re-exports.
-- [ ] `tls/gen_schannel_server.rs` → itself + new `tls/gen_schannel_accept.rs` per §4.7 (no `//!`,
+- [x] `tls/gen_schannel_server.rs` → itself + new `tls/gen_schannel_accept.rs` per §4.7 (no `//!`,
       no inner attributes); header comment updated; `include!("gen_schannel_accept.rs");` after
       `gen_schannel.rs:288`.
-- [ ] Repoint the 4 `gen_openssl.rs` and 2 `gen_schannel_server.rs` citations (§4.6, §4.7).
-- [ ] The 4 sweep items of §4.9 marked Phase 3.
+- [x] Repoint the 4 `gen_openssl.rs` and 2 `gen_schannel_server.rs` citations (§4.6, §4.7).
+- [x] The 4 sweep items of §4.9 marked Phase 3.
 
 Acceptance: every OpenSSL (Linux targets) and Schannel (`windows-x86_64`) TLS lowering emits
 byte-identical code; the 9 error-path tests still run under their old names.
@@ -732,6 +732,23 @@ byte-identical code; the 9 error-path tests still run under their old names.
   `cargo test --test codegen_helper_scratch_release --test codegen_tls_c_return_x86_64` → pass
   (the 12-site TLS walk) (est. 3 min, guess); step 8 rows: `STALE` for `tls/gen_openssl.rs`,
   `TIGHTEN` for `tls/gen_schannel_server.rs`, gone after tighten (est. 25 min total, guess).
+- [x] Fix the stale include names found here: the `schannel*.rs` headers of `gen_schannel_{server,accept,impl,io,
+      read_close}.rs`, `.ai/net-tls.md:54` and `.ai/build-tooling.md:14` name `schannel.rs`/`schannel_impl.rs`/
+      `schannel_io.rs`, files renamed to `gen_schannel*.rs` (`ls src/codegen/builtins/tls/` → only `gen_schannel*`);
+      `gen_schannel_impl.rs:1-3` also said listen/accept "stay unadvertised on Windows", but
+      `gen_shared.rs::lower_tls_listen_helper` dispatches `PlatformFamily::Windows => schannel::lower_tls_listen`.
+  Done: `codesplit.py` split gen_openssl by name (`t3-openssl.json`); `t3wire.py` wrote the 8 re-exports, re-based
+  the `#[path]` to `tests/mod.rs` and split the schannel include by line range (the include files are not
+  rustfmt'd: rustfmt does not follow `include!`, `.ai/build-tooling.md`). `connect.rs` kept
+  `super::gen_shared::connect_arg_prologue`, written when `super` was `tls`; `gen_openssl/mod.rs` gained
+  `use super::gen_shared;` with a comment (no other edit).
+  Verified 2026-10-20: `motion.py` → only the wiring, the alias, the `#[path]` and the header comments differ; N = 5018,
+  W = 0; `spec_citations_resolve` + `error_path_release_tests` + `codegen::builtins::tls` → 50 passed, of which
+  `error_path_release_tests` → 9; guards → 9, 8, 7 + 1 ignored; `codegen_helper_scratch_release` → 12 passed,
+  `codegen_tls_c_return_x86_64` → 1; artifact gates `tls`, `resource-xfer-slots` → 0 diffs each; budget → the STALE
+  row and `TIGHTEN code 541 (ceiling 1006)`, none after the tighten; census → gen_openssl mod 24 + 3 test / connect
+  980 / listen 509 / accept 542 / io 687 / close 271, gen_schannel_server 541, gen_schannel_accept 465; sweep → only
+  lines naming the kept `gen_schannel_server.rs`.
 Commit: —
 
 ### Phase 4 — macOS TLS client and server (pure motion)
@@ -826,6 +843,9 @@ Commit: —
 
 ## Corrections
 
+- 2026-10-20 — §3/§4.6: `gen_openssl/connect.rs` is 980 code LOC, not ≈965 (`census.py --file` → 980;
+  `lower_tls_connect_openssl` now spans lines 23-1144 of the old file, not 23-1132). Still one function under 1000,
+  so §3's reasoning holds unchanged.
 - 2026-10-20 — §4.4: `PING_RECV_BUFFER` is read only inside `posix/socket.rs` (`grep -rn PING_RECV_BUFFER src` → the
   const, its use in `emit_int_sockopt` and comments), so it stays private and `posix/mod.rs` does not import it:
   6 `pub(super)` edits, not 7 (the 7th raised `unused import`).

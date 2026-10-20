@@ -1,4 +1,4 @@
-// Included into schannel_io.rs. read (DecryptMessage) and close (shutdown).
+// Included into gen_schannel_io.rs. read (DecryptMessage) and close (shutdown).
 
 pub(crate) fn lower_tls_read(
     symbol: &str,
