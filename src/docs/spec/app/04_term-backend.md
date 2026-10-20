@@ -416,7 +416,7 @@ width operations serve string padding without granting user source a way around
 those gates. [[src/codegen/builtins/term/func_measure_text.rs:measure_text_of]]
 [[src/codegen/builtins/term/func_measure_text.rs:lower_measure_text]]
 [[src/codegen/builtins/term/helper_astrings_bridge.rs:BODY]]
-[[src/resolver/resolution.rs:resolve_package_qualified_name]]
+[[src/resolver/resolution/types.rs:resolve_package_qualified_name]]
 
 A single builtin, **`term::sync()`**, is the *only*
 operation that presents a frame: on the console it diffs the just-drawn back buffer

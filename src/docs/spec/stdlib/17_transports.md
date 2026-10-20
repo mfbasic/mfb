@@ -24,7 +24,7 @@ Imports do not transitively bind package namespaces, so `IMPORT tcp` alone does
 not make `net::Address` available as an explicit type name. Type exposure through
 signatures is distinct from importing the owner's namespace; see
 `./mfb spec language modules-and-packages`.
-[[src/resolver/resolution.rs:resolve_type]]
+[[src/resolver/resolution/types.rs:resolve_type]]
 
 Addresses are IPv4. `net::lookup` returns only IPv4 results, the emitters use
 `AF_INET`, and an IPv6 literal is rejected with `ErrAddressInvalid` rather than

@@ -42,7 +42,7 @@ Convenience constructors return an `Attribute`: `bold()`, `italic()`,
 colour round-trips through an attribute exactly, **alpha included**. A program that
 names a `color::Color` must `IMPORT color` as well as `astrings`: imports are not
 transitive for package namespaces (`./mfb spec language modules-and-packages`).
-[[src/resolver/resolution.rs:resolve_type]]
+[[src/resolver/resolution/types.rs:resolve_type]]
 
 `term::drawText` renders the colours as truecolor foreground/background, and
 `toMarkdown` (which has no color notation) ignores them entirely.

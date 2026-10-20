@@ -223,7 +223,7 @@ write `LET item AS origin::Item = producer::make()` (or use its own import alias
 Importing `producer` does not itself bind `origin`. Regardless of whether source
 names the owner, the application's manifest must declare the whole dependency
 closure, including `origin`, so its definition is available for merging.
-[[src/resolver/resolution.rs:resolve_type]]
+[[src/resolver/resolution/types.rs:resolve_type]]
 [[src/manifest/package.rs:qualify_package_type]]
 [[src/manifest/closure.rs:check]]
 

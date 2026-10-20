@@ -116,7 +116,7 @@ Type references may pass through multiple intermediaries, but this does not bind
 the owner's namespace in the consumer's source. A consumer can infer and pass a
 foreign value without naming its type; to spell `pA::A` it must `IMPORT pA`.
 See `./mfb spec language modules-and-packages` for the source-level example.
-[[src/resolver/resolution.rs:resolve_type]]
+[[src/resolver/resolution/types.rs:resolve_type]]
 
 `resolve_package_type_exports` fills a foreign type's fields and variants from
 the owner's sibling `.mfp` and includes the reachable user types needed to

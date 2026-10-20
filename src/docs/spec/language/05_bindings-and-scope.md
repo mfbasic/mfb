@@ -93,12 +93,12 @@ What introduces a **local** into the map:
 - lambda parameters,
 - the function-level `TRAP` binding.
 
-<!-- [[src/resolver/resolution.rs:resolve_statement]] [[src/resolver/resolution.rs:resolve_expression]] -->
+<!-- [[src/resolver/resolution/body.rs:resolve_statement]] [[src/resolver/resolution/body.rs:resolve_expression]] -->
 
 
 Function parameters are inserted first; a parameter whose name collides with an
 earlier parameter is `SYMBOL_DUPLICATE_LOCAL`.
-[[src/resolver/resolution.rs:resolve_function]]
+[[src/resolver/resolution/mod.rs:resolve_function]]
 
 ### No shadowing of an in-scope local
 
@@ -116,7 +116,7 @@ LET x = 20                ' ERROR: SYMBOL_DUPLICATE_LOCAL
 FOR x = 1 TO 3            ' ERROR: x is already in scope
 NEXT
 ```
-[[src/resolver/resolution.rs:resolve_statement]]
+[[src/resolver/resolution/body.rs:resolve_statement]]
 
 ### No local reuses a visible top-level binding's name
 
@@ -137,7 +137,7 @@ FUNC f(limit AS Integer) AS Integer   ' ERROR: SYMBOL_SHADOWS_TOP_LEVEL_BINDING
   RETURN limit
 END FUNC
 ```
-[[src/resolver/resolution.rs:check_new_local]]
+[[src/resolver/resolution/body.rs:check_new_local]]
 
 ### Straight-line locals persist to later siblings
 
@@ -163,7 +163,7 @@ holds the loop variable, so the counter/element and any bindings inside the loop
 body do not escape the loop. A `MATCH` case body is resolved against a clone that
 holds the case's union binding (when present), so per-case bindings stay local to
 the case.
-[[src/resolver/resolution.rs:resolve_nested_block]]
+[[src/resolver/resolution/body.rs:resolve_nested_block]]
 
 ### MATCH guards see the union binding
 
@@ -171,7 +171,7 @@ A `MATCH` case guard is resolved against its own clone of the locals map, and
 when the case uses a union pattern the guard clone has the union binding inserted
 **before** the guard expression is resolved. The guard can therefore reference
 the bound payload, exactly as the case body can.
-[[src/resolver/resolution.rs:resolve_statement]]
+[[src/resolver/resolution/body.rs:resolve_statement]]
 
 ### The TRAP binding sits on top of the body's locals
 
@@ -182,7 +182,7 @@ function-level locals captured into that map) plus its own error binding, while
 the trap binding itself is confined to the handler. An inline `expr TRAP(e) …`
 handler works the same way at expression granularity: it clones the locals
 visible at that point and adds the handler binding `e`.
-[[src/resolver/resolution.rs:resolve_function]] [[src/resolver/resolution.rs:resolve_expression]]
+[[src/resolver/resolution/mod.rs:resolve_function]] [[src/resolver/resolution/body.rs:resolve_expression]]
 
 ## See Also
 

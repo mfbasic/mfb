@@ -75,7 +75,7 @@ That recovery happens in exactly one place: `ParameterType::parse`, which turns 
 name into the variant tree. Downstream stages do not re-derive it — the resolver,
 for example, is a plain `match` on `ListOf`/`MapOf`/`Func`/`ThreadHandle`, and a
 new shape reaches it as a new variant, not as a new prefix test.
-[[src/types.rs:parse]] [[src/resolver/resolution.rs:resolve_type]]
+[[src/types.rs:parse]] [[src/resolver/resolution/types.rs:resolve_type]]
 
 ## Base names and package identity
 
@@ -98,7 +98,7 @@ separator**. Two distinct surface syntaxes collapse onto it at parse time:
 - A member access `EnumType.Member` is already written with `.`, so an
   enum-member reference and a (non-built-in) package-qualified name share one
   flat spelling. The resolver routes any name containing `.` to
-  package-qualified resolution. [[src/resolver/resolution.rs:resolve_type]]
+  package-qualified resolution. [[src/resolver/resolution/types.rs:resolve_type]]
 
 A non-built-in user/dependency type therefore keeps its dotted qualifier in the
 flat string, as do package-qualified built-in identities.
@@ -120,7 +120,7 @@ scope-ownership transfers across a function boundary.
 template base does *not* consume `RES`, so `Box OF RES fs::File` is a parse error
 (`MFB_PARSE_INVALID_IDENTIFIER`), consistent with the table above. Post-elaboration consumers peel the `ParameterType::Res` wrapper before
 resolving the underlying type.
-[[src/ast/expr/type_names.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type]]
+[[src/ast/expr/type_names.rs:parse_type_name]] [[src/resolver/resolution/types.rs:resolve_type]]
 
 ### Trailing ` STATE T` on a `RES` collection element
 
@@ -232,7 +232,7 @@ template's arguments without ambiguity. The exclusion list lives in this parser.
 [[src/codegen/builtins/mod.rs:split_top_level_commas]]
 
 The resolver does not apply this precedence itself — it receives the decoded
-`UserOf` and resolves the base and each argument. [[src/resolver/resolution.rs:resolve_type]]
+`UserOf` and resolves the base and each argument. [[src/resolver/resolution/types.rs:resolve_type]]
 The template machinery itself is [language templates](./mfb spec language
 templates).
 

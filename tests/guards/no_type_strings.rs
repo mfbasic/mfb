@@ -422,7 +422,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// **Declaration indexes** — name → the AST/HIR node that declared it, built
 /// beside a `funcs` index of the identical shape, so the key is an identifier
 /// and the value is a declaration rather than type information:
-/// `ir/docs.rs`'s and `resolver/resolution.rs`'s `types` / `resources`,
+/// `ir/docs.rs`'s and `resolver/resolution/docs.rs`'s `types` / `resources`,
 /// `src/doc/`'s `type_meta` / `resource_meta`, `ir/shape.rs`'s `union_decls`,
 /// and `ir/binary.rs`'s `seen_types` (a duplicate-NAME detector on the wire).
 const TYPE_KEYED_TABLES: &[(&str, &str)] = &[

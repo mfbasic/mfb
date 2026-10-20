@@ -9,7 +9,7 @@ documentation, e.g. `mfb man <package>`).
 
 These **eighteen** names are the *only* callables a program may use with no
 `IMPORT` and no package qualifier. The resolver treats exactly this set as
-always-in-scope unqualified callables, whitelisting exactly the general built-in set: [[src/resolver/resolution.rs:resolve_callable]] [[src/codegen/builtins/general/mod.rs:is_general_call]]
+always-in-scope unqualified callables, whitelisting exactly the general built-in set: [[src/resolver/resolution/body.rs:resolve_callable]] [[src/codegen/builtins/general/mod.rs:is_general_call]]
 
 | Name | Arity | Result | Accepted argument types |
 | --- | --- | --- | --- |

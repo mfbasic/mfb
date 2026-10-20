@@ -291,7 +291,7 @@ the language — there is no second colour type to convert to or from:
 Naming `color::Color` or calling `color::` constructors needs `IMPORT color`
 alongside the other package's import; inferring and passing a value does not
 itself bind that namespace (`./mfb spec language modules-and-packages`).
-[[src/resolver/resolution.rs:resolve_type]]
+[[src/resolver/resolution/types.rs:resolve_type]]
 Note what this table implies about *construction*: none of these
 packages has a colour constructor. `color::rgb`, `color::fromHex`, `color::hsl` and
 the rest are the only way to build one, and `color` is gated by nothing — no app

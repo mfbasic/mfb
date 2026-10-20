@@ -792,13 +792,18 @@ every diagnostic resolves to the same rule.
   prose lines; `[[src/lexer.rs` / `[[src/rules/table.rs` cites → 0; `type_check.rs` → `861 0`; `file_size_budget`
   rows for `src/rules/table` → 0; G3 → ok + `wordcheck.py` 0 missing; G4 → 8, 8, 7 + 1 ignored; census → lexer
   543/2 + 482 + 181, table 8 + 316/861/453; G6 → exit 0.
-Commit: —
+Commit: a21321f5d
 
 ### Phase 3 — Resolver
 
-- [ ] Split `src/resolver/resolution.rs` per §4.5 (2 widenings); repoint 27 citations; the
+- [x] Split `src/resolver/resolution.rs` per §4.5 (2 widenings); repoint 27 citations; the
       `no_type_strings.rs:422` comment.
-- [ ] G5.
+      Done: `items.py split` (method-level) → docs 4, body 10, types 4 methods + `peel_res`; `resolve_doc_blocks`,
+      `check_new_local` → `pub(in crate::resolver)`; `pub(super)` from the compiler's errors → exactly §4.5's 6;
+      `motion.py` → only the wiring, the two new impl blocks and the 8 visibility edits; `citesweep.py` → 27,
+      `wordcheck.py` → 0 missing; the guard comment (now :425) → `resolver/resolution/docs.rs`.
+- [x] G5.
+      Done: → 1 STALE `code` row (resolution 1496); tighten drops it; re-run → 0.
 
 Acceptance: name resolution and its diagnostics are byte-identical.
   Check: G1; `cargo test -p mfb --bin mfb resolver::` → 0 failed; G2 for `general`,
@@ -807,6 +812,9 @@ Acceptance: name resolution and its diagnostics are byte-identical.
   `bash scripts/test-accept.sh target/release/mfb /tmp/m_accept_p3 '*invalid*'` → no golden
   diff (est. 12 min; the invalid fixtures are the only goldens that pin resolver diagnostics);
   G3; G4; G6.
+  Verified 2026-10-19: G1 → 0 / 37065 / 5017; `resolver::` → `ok. 105 passed`; G2 general, collections → 0 diffs;
+  `test-accept.sh … '*invalid*'` → `acceptance tests passed (611 test(s) ran)`, no golden changed; G3 → ok +
+  `wordcheck.py` 0 missing; G4 → 8, 8, 7 + 1 ignored; census → 383/2, 425, 529, 172; G6 → exit 0.
 Commit: —
 
 ### Phase 4 — Monomorphizer

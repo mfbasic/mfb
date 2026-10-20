@@ -40,7 +40,7 @@ END FUNC
   passed as that value; any other default is compiled once, in the declaration's
   scope, into a hidden function that every omitting call invokes.
   [[src/ir/lower.rs:default_kind]] [[src/internal_name.rs:hidden_default_function_name]]
-  [[src/resolver/resolution.rs:resolve_parameter_default]]
+  [[src/resolver/resolution/body.rs:resolve_parameter_default]]
 - **Many parameters allowed.** A callable may take **any number of parameters**.
   The first eight are passed in registers and the rest in a stack tail, on every
   native target; there is no parameter-count limit. (See `./mfb spec
