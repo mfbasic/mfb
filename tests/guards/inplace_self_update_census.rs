@@ -466,3 +466,60 @@ fn every_package_record_type_has_a_field_kind_line() {
             .join("\n  ")
     );
 }
+
+/// Run `tests/runtime/inplace_self_update/<generator>` (with `args`) and assert its
+/// stdout is the committed `<table>` byte for byte.
+fn assert_generated(generator: &str, args: &[&str], table: &str) {
+    let dir = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/runtime/inplace_self_update"
+    );
+    let output = Command::new(common::python_exe())
+        .arg(format!("{dir}/{generator}"))
+        .args(args)
+        // `mfb man`'s tables are box-drawing UTF-8; a Windows locale codec cannot
+        // decode them.
+        .env("PYTHONUTF8", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("run {generator}: {e}"));
+    assert!(
+        output.status.success(),
+        "{generator} failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // Line endings are normalized: Python's text-mode stdout writes `\r\n` on
+    // Windows, and a checkout may convert the committed file.
+    let generated = String::from_utf8(output.stdout)
+        .expect("generator output is UTF-8")
+        .replace("\r\n", "\n");
+    let committed = std::fs::read_to_string(format!("{dir}/{table}"))
+        .unwrap_or_else(|e| panic!("read {table}: {e}"))
+        .replace("\r\n", "\n");
+    let differ: Vec<String> = committed
+        .lines()
+        .zip(generated.lines())
+        .enumerate()
+        .filter(|(_, (c, g))| c != g)
+        .map(|(i, (c, g))| format!("line {}:\n  committed: {c}\n  generated: {g}", i + 1))
+        .take(10)
+        .collect();
+    assert!(
+        committed == generated,
+        "{table} is not what {generator} generates ({} vs {} lines). Never hand-edit the \
+         table: change the generator's rules and regenerate it (bug-1014). First \
+         differences:\n{}",
+        committed.lines().count(),
+        generated.lines().count(),
+        differ.join("\n")
+    );
+}
+
+/// bug-1014: `field_kinds.tsv` is exactly `field_kinds_gen.py`'s output for the `mfb`
+/// under test. Hand-flipped lines (bug-766 D's 144 arms) left the generator's rules
+/// behind, and two later changes to a kind (bug-781's function-valued fields,
+/// plan-162-C's font list) then moved the truth under the stale lines unseen.
+#[test]
+fn field_kinds_tsv_is_its_generators_output() {
+    let mfb = common::mfb_exe();
+    assert_generated("field_kinds_gen.py", &[&mfb], "field_kinds.tsv");
+}

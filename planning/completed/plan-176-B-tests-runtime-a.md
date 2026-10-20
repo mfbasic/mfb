@@ -590,7 +590,7 @@ The support-file split (22 `pub(super)` items) and the `.ai` miscount fix.
       thousands of programs" (`grep -n 'The two grid tests' tests/runtime/rt_inplace_self_update.rs`
       → `82:`). Corrected to "three" (a `//!` line, not moved code or an assertion). Check: the
       same grep → no output.
-- [~] Run the ignored grid tests once, because CI runs them (`coverage.yml:180`):
+- [x] Run the ignored grid tests once, because CI runs them (`coverage.yml:180`):
       `cargo test --release --test rt_inplace_self_update -- --ignored` → ok.
       Result (2026-10-18, split tree, 5296 s): `every_self_update_case_meets_its_allocation_bound
       ... ok`, `every_via_let_field_cell_meets_its_expectation ... ok`,
@@ -599,11 +599,14 @@ The support-file split (22 `pub(super)` items) and the `.ai` miscount fix.
       `MFB_SELF_UPDATE_FILTER='canvas::Text|http::Route'` in a detached worktree at `5518d73fa`
       (the commit before Phase 3, file unsplit) → `19 of 45 case/site pair(s) failed`, and the
       sorted `<kind> at <site>` failure labels of the two logs are identical (19 each). They are
-      `http::Route` at S4/S5/S9/S10 (open `bugs/bug-1014-field-kinds-tsv-disagrees-with-its-generator.md`,
+      `http::Route` at S4/S5/S9/S10 (`bugs/completed/bug-1014-field-kinds-tsv-disagrees-with-its-generator.md`,
       which reports exactly these four) and 15 `canvas::Text` rows that `field_kinds.tsv` marks
       `na:TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` but which now compile (or fail with a different
-      code at S7/T7); no bug doc names them. Remaining: the field-kind grid passes only once those
-      rows are fixed, which is outside this letter (test-data/compiler work, not motion).
+      code at S7/T7); no bug doc named them. Resolved 2026-10-19 by bug-1014's fix on this branch (both
+      root causes are stale hand-kept table lines: bug-781 made `http::Route` a pointer kind, plan-162-C made
+      `canvas::Text` defaultable; the generator now carries the rules and `field_kinds.tsv` is its output):
+      `MFB_SELF_UPDATE_FILTER='canvas::Text|http::Route|canvas::Emission|canvas::Gradient|canvas::ParticleSystem|canvas::Motion|canvas::Appearance' cargo test --release --test rt_inplace_self_update every_field_kind -- --ignored`
+      → `ok. 1 passed` (every row that changed or moved); the whole grid runs again in the plan's final full suite.
 - [x] Size check: `python3 -I tools/loc-census/census.py --file tests/runtime/rt_inplace_self_update.rs`
       → `0 763`; `… --file tests/runtime/rt_inplace_self_update/cases.rs` → `0 813`.
       Result: `0 763`; `0 821` (+8 from rustfmt rewrapping two signatures; see Corrections). ≤ 900.

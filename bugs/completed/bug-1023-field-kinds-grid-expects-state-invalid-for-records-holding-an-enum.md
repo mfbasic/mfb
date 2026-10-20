@@ -30,7 +30,7 @@ References:
 - `tests/runtime/inplace_self_update/field_kinds_gen.py:expects`, and the `state_ok`
   line in its emit loop (`kind not in LITERALS or kind in ("KFix", "KVar")`).
 - `planning/completed/plan-172-N-*.md` — the rule change.
-- `bugs/bug-1014-field-kinds-tsv-disagrees-with-its-generator.md` — the table's
+- `bugs/completed/bug-1014-field-kinds-tsv-disagrees-with-its-generator.md` — the table's
   `S`-site drift, which is separate and older.
 - Found during plan-172-F, which aligned the check column of five canvas rows with the
   generator and ran the grid for them.

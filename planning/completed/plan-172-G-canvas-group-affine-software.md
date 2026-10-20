@@ -43,7 +43,7 @@ The plan-wide gate is in `plan-172-A` §Prerequisites. This letter adds:
 | No shape record carries a bare coordinate scalar | `grep -c 'name: "x1"' src/codegen/builtins/canvas/mod.rs` → 0 | MET (2026-10-10) |
 | The group suites are green | `cargo test --test rt_canvas_group_ownership --test rt_canvas_damage` → pass | MET (2026-10-10; run first, 11 and 6 passed) |
 | The Metal text tests pass on a quiet machine, or `bugs/bug-1024-*` is root-caused (added at 172-F's close: they were red there, on a machine at load average 10–21, with source that had passed an hour earlier) | `cargo test --test rt_canvas_font gpu` → 2 passed | MET (2026-10-10 17:25, twice running; `bugs/bug-1024-*` stays open as an intermittent) |
-| The field-kind grid's `STATE`-site expectations are current (`bugs/completed/bug-1023-*`, fallout of plan-172-N found at 172-F's close) | the `T1`–`T8` run in `bugs/completed/bug-1023-*` → `1 passed` (208 pairs) | MET (2026-10-10, `e3ed16804`). The whole grid is `4 of 1155` failed — `http::Route` at four `S` sites, the same at `main`; that is `bugs/bug-1014-*`, not this row. |
+| The field-kind grid's `STATE`-site expectations are current (`bugs/completed/bug-1023-*`, fallout of plan-172-N found at 172-F's close) | the `T1`–`T8` run in `bugs/completed/bug-1023-*` → `1 passed` (208 pairs) | MET (2026-10-10, `e3ed16804`). The whole grid is `4 of 1155` failed — `http::Route` at four `S` sites, the same at `main`; that is `bugs/completed/bug-1014-*`, not this row. |
 
 If plan-172-F is not complete, this letter cannot start, full stop.
 
