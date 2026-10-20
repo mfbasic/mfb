@@ -831,7 +831,7 @@ code by forcing the syscall to fail (an invalid `flags` gives `EINVAL`).
 ### Windows: `bInheritHandles` is TRUE
 
 A common misreading, and it was written down wrongly in this repo before bug-543:
-`gen_windows.rs` passes **`bInheritHandles = TRUE`**, not FALSE. Exhaustiveness
+`process/gen_windows/mod.rs` (`emit_win_spawn_tail`) passes **`bInheritHandles = TRUE`**, not FALSE. Exhaustiveness
 comes from the `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` in the `STARTUPINFOEXA` — the
 list is what limits the child to the three stdio handles. With `FALSE` the list
 is **inert and the child gets nothing**, which is a different bug, not a stricter

@@ -616,7 +616,7 @@ pub(crate) fn lower_process_spawn_helper_win(
         // `subtract_stack(FRAME)`/`add_stack(FRAME)` bracket is theirs, and no
         // abstract vregs appear anywhere inside it, so `finalize_frame` cannot
         // spill and shift the six outgoing stack args out from under the callee.
-        // The slot map is documented on `WIN_SPAWN_SI` in `gen_windows.rs`.
+        // The slot map is documented on `WIN_SPAWN_SI` in `gen_windows/mod.rs`.
         const FRAME: usize = 0x240; // covers WIN_CMDLINE_SCRATCH_END, 16-aligned
         const _: () = assert!(FRAME >= WIN_CMDLINE_SCRATCH_END && FRAME % 16 == 0);
         let sp = abi::stack_pointer();

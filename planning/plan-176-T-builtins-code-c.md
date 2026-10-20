@@ -42,9 +42,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-S complete and archived | `ls planning/plan-176-S-* planning/completed/plan-176-S-*` → only `planning/completed/…` | NOT MET (2026-10-17) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-17; `ls tests/guards/file_size_budget.rs` → no such file; lands in plan-176-A) |
-| T's files have no uncommitted changes | `git status --porcelain -- src/codegen/builtins/net src/codegen/builtins/process src/codegen/builtins/regex src/codegen/builtins/tls src/codegen/builtins/vector src/codegen/builtins/math/gen_pow.rs src/codegen/builtins/tests src/target/macos_aarch64/tls.rs src/docs/spec/stdlib/16_icmp.md src/docs/spec/stdlib/17_transports.md src/docs/spec/architecture/18_math-kernels.md src/docs/spec/language/18_builtin-functions.md tools/net-probes tools/math-kernels .ai/build-tooling.md .ai/arch-abi.md tests/codegen/codegen_tls_c_return_x86_64.rs tests/net/rt_tls_connect_allow_self_signed.rs tests/codegen/codegen_helper_scratch_release.rs tests/guards/file_size_ceilings.txt` → empty | MET (2026-10-17, empty output) |
+| plan-176-S complete and archived | `ls planning/plan-176-S-* planning/completed/plan-176-S-*` → only `planning/completed/…` | MET (2026-10-20, `ls planning/completed/` → `plan-176-S-builtins-code-b.md`; none in `planning/`) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-20, `cargo test --test file_size_budget` → passes) |
+| T's files have no uncommitted changes | `git status --porcelain -- src/codegen/builtins/net src/codegen/builtins/process src/codegen/builtins/regex src/codegen/builtins/tls src/codegen/builtins/vector src/codegen/builtins/math/gen_pow.rs src/codegen/builtins/tests src/target/macos_aarch64/tls.rs src/docs/spec/stdlib/16_icmp.md src/docs/spec/stdlib/17_transports.md src/docs/spec/architecture/18_math-kernels.md src/docs/spec/language/18_builtin-functions.md tools/net-probes tools/math-kernels .ai/build-tooling.md .ai/arch-abi.md tests/codegen/codegen_tls_c_return_x86_64.rs tests/net/rt_tls_connect_allow_self_signed.rs tests/codegen/codegen_helper_scratch_release.rs tests/guards/file_size_ceilings.txt` → empty | MET (2026-10-20, empty output) |
 
 Everything below is written against the world where these hold.
 
@@ -657,12 +657,12 @@ locals; `scratch` is borrowed `&` by the phases and moved only after the last ca
 
 ### Phase 1 — process backends and regex prose (pure motion)
 
-- [ ] `process/gen_unix.rs` → `process/gen_unix/{mod,spawn}.rs` per §4.1 (`git mv` first); glob re-export.
-- [ ] `process/gen_windows.rs` → `process/gen_windows/{mod,command_line,environment}.rs` per §4.2;
+- [x] `process/gen_unix.rs` → `process/gen_unix/{mod,spawn}.rs` per §4.1 (`git mv` first); glob re-export.
+- [x] `process/gen_windows.rs` → `process/gen_windows/{mod,command_line,environment}.rs` per §4.2;
       the inline tests stay in `mod.rs`; two glob re-exports.
-- [ ] `regex/mod.rs`: lines 90-239 → `regex/package_doc.rs` per §4.3; `INTRO`/`DESC` `pub(super)`;
+- [x] `regex/mod.rs`: lines 90-239 → `regex/package_doc.rs` per §4.3; `INTRO`/`DESC` `pub(super)`;
       `mod package_doc; use package_doc::{DESC, INTRO};`.
-- [ ] The 4 sweep items of §4.9 marked Phase 1 (incl. `.ai/arch-abi.md:834`).
+- [x] The 4 sweep items of §4.9 marked Phase 1 (incl. `.ai/arch-abi.md:834`).
 
 Acceptance: spawn, shell, send, wait and the Windows command-line/environment builders emit
 byte-identical code on every target (incl. `windows-x86_64`); the regex package's man text is unchanged.
@@ -671,6 +671,14 @@ byte-identical code on every target (incl. `windows-x86_64`); the regex package'
   tests pass; `target/release/mfb man regex` before vs after → `diff` empty (est. 30 s); step 8
   rows: `STALE` for `process/gen_unix.rs` and `process/gen_windows.rs`, `TIGHTEN` for
   `regex/mod.rs`, all gone after tighten (est. 20 min total, guess).
+  Done: `codesplit.py` moved the §4.1/§4.2 items by name (`t1-unix.json`, `t1-win.json`); `t1wire.py` moved `INTRO`/`DESC`.
+  0 visibility edits for process (as §4.1/§4.2 predicted: `cargo check` clean before any edit); 2 `pub(super)` in regex.
+  Verified 2026-10-20: `motion.py` → only the wiring lines and the four §4.9 comment repoints differ; N = 5018 before
+  and after, W = 0; `spec_citations_resolve` + `codegen::builtins::process` + `codegen::builtins::regex` → 17 passed;
+  guards → 9, 8, 7 + 1 ignored; `bash scripts/artifact-gate.sh … process` and `… regex` → 0 diffs each; `mfb man regex`
+  before/after → `diff` empty (199 lines); budget → the two STALE rows and `TIGHTEN code 856 (ceiling 1003)` for
+  regex, none after the tighten; census → gen_unix mod 415 / spawn 722, gen_windows mod 510 + 101 test / command_line
+  249 / environment 438, regex mod 856 + 169 test / package_doc 149; sweep → only the audio `gen_windows.rs` (another file).
 Commit: —
 
 ### Phase 2 — ICMP ping and SIMD float kernels (pure motion)
