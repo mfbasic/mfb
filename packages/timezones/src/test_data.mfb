@@ -8,6 +8,7 @@
 ' ---------------------------------------------------------------------------
 
 IMPORT strings
+IMPORT collections
 
 TESTING
   TGROUP "data"
@@ -59,5 +60,22 @@ TESTING
     TCASE "the table is release 2026e"
       expectString(tzdbVersion(), "2026e")
     END TCASE
+    TCASE "zoneNames is sorted, lists links, and includes Winnipeg"
+      LET names AS List OF String = zoneNames()
+      MUT unsorted AS Integer = 0
+      MUT links AS Integer = 0
+      MUT winnipeg AS Boolean = FALSE
+      FOR k = 1 TO len(names) - 1
+        IF collections::get(names, k - 1) > collections::get(names, k) THEN unsorted = unsorted + 1
+      NEXT
+      FOR EACH name IN names
+        IF name = "US/Eastern" THEN links = links + 1
+        IF name = "America/Winnipeg" THEN winnipeg = TRUE
+      NEXT
+      expectInteger(unsorted, 0)
+      expectInteger(links, 1)
+      expectEqual(winnipeg, TRUE)
+    END TCASE
+
   END TGROUP
 END TESTING

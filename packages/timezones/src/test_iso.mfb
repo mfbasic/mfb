@@ -107,5 +107,16 @@ TESTING
       expectString(written, "2026-07-15T09:00:00.123456789-04:00[America/New_York]")
       expectString(read(written), "1784120400 123456789 -14400 America/New_York")
     END TCASE
+    TCASE "a zoned string needs an offset before its zone"
+      expectTrap(parseIso("2026-07-15T09:00:00[America/New_York]"), 77050003)
+      expectTrap(parseIso("2026-07-15[America/New_York]"), 77050003)
+      expectString(read("2026-07-15T09:00:00Z[America/New_York]"), "1784106000 0 -14400 America/New_York")
+    END TCASE
+
+    TCASE "an empty or non-name annotation after the zone is refused"
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[America/New_York][]"), 77050003)
+      expectTrap(parseIso("2026-07-15T09:00:00.000-04:00[America/New_York][x-]x"), 77050003)
+    END TCASE
+
   END TGROUP
 END TESTING

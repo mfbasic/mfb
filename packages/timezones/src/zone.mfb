@@ -11,13 +11,28 @@
 '   the footer if present and nonempty; otherwise, it is specified by time
 '   type 0.
 '
-' A zone is decoded on every call and never cached. Arena state is per thread,
-' and the measured worst case (Asia/Hebron, 310 transitions) is about 50 us
-' per lookup.
+' A zone is decoded on every call and never cached, so there is no shared state
+' and no lock. Arena state is per thread. Measured on macOS arm64: 100,000
+' `offsetAt` calls on Asia/Hebron (310 transitions, the worst case here) took
+' 1.36 s of user time, about 14 us per lookup.
 ' ---------------------------------------------------------------------------
 
 IMPORT strings
 IMPORT collections
+IMPORT datetime
+
+' The ordinal of datetime::ZoneKind.FixedOffset. `datetime::Zone.kind` is a raw
+' Integer, so the enum member does not type-check in a constructor. Every
+' fixed-offset zone this package builds goes through `fixedZone`, so this is the
+' only place the number appears.
+LET FIXED_OFFSET_KIND AS Integer = 1
+
+' A fixed-offset zone of `utoff` seconds east, labelled `label`. Unlike
+' `datetime::fixedOffset` it takes any offset the tzdb data holds, and it does not
+' render the label from the offset.
+FUNC fixedZone(utoff AS Integer, label AS String) AS datetime::Zone
+  RETURN datetime::Zone[utoff, FIXED_OFFSET_KIND, label]
+END FUNC
 
 ' The local time type the named zone applies at `seconds` since the epoch.
 FUNC localTypeAt(name AS String, seconds AS Integer) AS LocalType

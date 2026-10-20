@@ -11,6 +11,10 @@
 ' elective. This package never does: a zoned string whose offset disagrees with
 ' its zone is corrupt data, critical flag or not.
 '
+' The RFC 3339 part must carry an offset (`Z`, `+hh:mm`, or `+hh:mm:ss` for a
+' local-mean-time offset): RFC 3339 requires one, and an offset-less string has
+' no offset to check against its zone.
+'
 ' Accepted suffix grammar (RFC 9557 section 4.1), in order:
 '   one time-zone annotation   [zone] or [!zone], a tzdb-shaped name
 '   then any suffix tags       [key=value] or [!key=value]
@@ -39,6 +43,7 @@ FUNC zonedParseIso(text AS String) AS ZonedDateTime
   END WHILE
   IF i >= len(text) THEN FAIL badText(text, "it has no [zone] annotation; datetime::parseIso reads a timestamp without one")
   LET base AS String = strings::mid(text, 0, i)
+  IF endsWithOffset(base) = FALSE THEN FAIL badText(text, "it has no UTC offset before the [zone]; an RFC 3339 timestamp carries one, as Z or +hh:mm")
 
   MUT zoneName AS String = ""
   MUT count AS Integer = 0
@@ -56,9 +61,15 @@ FUNC zonedParseIso(text AS String) AS ZonedDateTime
     LET content AS String = strings::mid(text, start, j - start)
     LET isTag AS Boolean = strings::contains(content, "=")
     IF count = 0 AND isTag THEN FAIL badText(text, "the first annotation must be a time-zone name")
-    IF count > 0 AND isTag = FALSE THEN FAIL badText(text, "it has more than one time-zone annotation")
-    IF isTag = FALSE THEN zoneName = checkedZoneName(text, content)
-    IF isTag THEN calendarSeen = checkedTag(text, content, critical, calendarSeen)
+    IF isTag THEN
+      calendarSeen = checkedTag(text, content, critical, calendarSeen)
+    ELSE
+      ' Checked as a zone name before the count, so `[]` or `[x-]` after the
+      ' zone is reported as what it is.
+      LET name AS String = checkedZoneName(text, content)
+      IF count > 0 THEN FAIL badText(text, "it has more than one time-zone annotation")
+      zoneName = name
+    END IF
     count = count + 1
     i = j + 1
   END WHILE
@@ -72,7 +83,7 @@ FUNC zonedParseIso(text AS String) AS ZonedDateTime
   ' is nothing to be inconsistent with.
   IF last <> "Z" AND last <> "z" THEN instant = consistentInstant(text, parsed, resolved, zoneName)
   LET t AS LocalType = localTypeAt(zoneName, instant.seconds)
-  RETURN ZonedDateTime[datetime::inZone(instant, datetime::Zone[t.utoff, 1, t.abbreviation]), canonicalName(zoneName)]
+  RETURN ZonedDateTime[datetime::inZone(instant, fixedZone(t.utoff, t.abbreviation)), canonicalName(zoneName)]
 END FUNC
 
 ' The instant a zoned reading names, once its offset is known to agree with the
@@ -171,6 +182,16 @@ PRIVATE FUNC badText(text AS String, why AS String) AS Error
 END FUNC
 
 ' The one-scalar string at `at`, or "" outside the text.
+' Whether `text` ends in a time-offset: `Z`, `+hh:mm` or `-hh:mm`, or with seconds,
+' `+hh:mm:ss`, which `toIso` writes for a local-mean-time offset.
+PRIVATE FUNC endsWithOffset(text AS String) AS Boolean
+  LET last AS String = textAt(text, len(text) - 1)
+  IF last = "Z" OR last = "z" THEN RETURN TRUE
+  LET minutes AS Boolean = textAt(text, len(text) - 3) = ":" AND (textAt(text, len(text) - 6) = "+" OR textAt(text, len(text) - 6) = "-")
+  LET seconds AS Boolean = textAt(text, len(text) - 3) = ":" AND textAt(text, len(text) - 6) = ":" AND (textAt(text, len(text) - 9) = "+" OR textAt(text, len(text) - 9) = "-")
+  RETURN minutes OR seconds
+END FUNC
+
 PRIVATE FUNC textAt(text AS String, at AS Integer) AS String
   IF at < 0 THEN RETURN ""
   IF at >= len(text) THEN RETURN ""
