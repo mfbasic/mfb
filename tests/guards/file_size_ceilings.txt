@@ -159,9 +159,7 @@ ceiling inline 380 src/manifest/libraries.rs
 ceiling code 1092 src/manifest/mod.rs
 ceiling inline 1002 src/manifest/mod.rs
 ceiling inline 1177 src/manifest/package.rs
-ceiling inline 643 src/monomorph/helpers.rs
 ceiling code 2521 src/monomorph/lower.rs
-ceiling inline 1292 src/monomorph/lower.rs
 ceiling inline 835 src/numeric.rs
 ceiling inline 332 src/optimizer/opt1/globals.rs
 ceiling inline 270 src/optimizer/opt1/inline.rs

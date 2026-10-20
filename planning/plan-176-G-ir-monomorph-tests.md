@@ -51,9 +51,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-F is complete and archived | `ls planning/plan-176-F-* planning/completed/plan-176-F-*` → only `planning/completed/…` | NOT MET (2026-10-18) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-18: `ls tests/guards/file_size*` → no match) |
-| G's files have no uncommitted changes | `git status --porcelain -- src/ir/tests.rs src/ir/tests src/ir/variant_corpus_tests.rs src/ir/verify/tests.rs src/ir/resource_escape.rs src/ir/shape.rs src/ir/mod.rs src/monomorph/helpers.rs src/monomorph/lower.rs src/docs/spec/architecture/23_escape-analysis.md` → empty | MET (2026-10-18) |
+| plan-176-F is complete and archived | `ls planning/plan-176-F-* planning/completed/plan-176-F-*` → only `planning/completed/…` | MET (2026-10-19) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19) |
+| G's files have no uncommitted changes | `git status --porcelain -- src/ir/tests.rs src/ir/tests src/ir/variant_corpus_tests.rs src/ir/verify/tests.rs src/ir/resource_escape.rs src/ir/shape.rs src/ir/mod.rs src/monomorph/helpers.rs src/monomorph/lower.rs src/docs/spec/architecture/23_escape-analysis.md` → empty | MET (2026-10-19) |
 
 Everything below is written against the world where these hold.
 
@@ -881,12 +881,18 @@ Every phase runs the same gate, in this order.
 
 ### Phase 1 — monomorph inline tests
 
-- [ ] Move `src/monomorph/helpers.rs`'s inline tests to `src/monomorph/helpers/tests/mod.rs`
+- [x] Move `src/monomorph/helpers.rs`'s inline tests to `src/monomorph/helpers/tests/mod.rs`
       per §4.6 (one file).
-- [ ] Move `src/monomorph/lower.rs`'s inline tests to `src/monomorph/lower/tests/` per §4.7
+      Done: `python3 -I target/p176/items.py extract` (body moved, dedented 4 only where the indent is code) → 26 tests;
+      `motion.py --strip` → only `mod tests {`/`}` → `mod tests;` differ.
+- [x] Move `src/monomorph/lower.rs`'s inline tests to `src/monomorph/lower/tests/` per §4.7
       (`mod.rs` + 2 parts; `use super::{mangle_name, strip_qualifier_prefixes};` in `tests/mod.rs`).
-- [ ] G4: drop the two `ceiling inline` rows. The hosts' `code` row for `lower.rs` belongs to
+      Done: part A 24 tests, part B 21 (22 lines inside string literals kept byte for byte); motion → only the module
+      lines, the added `use` (with a comment) and the 2 part `mod` lines differ.
+- [x] G4: drop the two `ceiling inline` rows. The hosts' `code` row for `lower.rs` belongs to
       M and does not move.
+      Done: → `TIGHTEN inline 4 (ceiling 643)` helpers, `TIGHTEN inline 2 (ceiling 1292)` lower; tighten drops
+      exactly those two rows; re-run → 0.
 
 Acceptance: the monomorph tests run from their new modules and the count did not move.
   Check: G1 → equal. G2:
@@ -894,6 +900,10 @@ Acceptance: the monomorph tests run from their new modules and the count did not
   failed, and `cargo test -p mfb --bin mfb -- --list 2>/dev/null | grep -cE '^monomorph::(helpers|lower)::tests::'`
   → 26 + 45 = 71. `python3 -I tools/loc-census/census.py --file src/monomorph/lower.rs` →
   second field 2, and for `src/monomorph/helpers.rs` → 4. G3; G4; G5 (est. 8 min).
+  Verified 2026-10-19: G1 (`bash target/p176/g1.sh`) → count 5017 = 5017, leaves SAME, warnings 0 (G0 0); G2 →
+  `ok. 26 passed` and `ok. 45 passed`; list count → 71; census → lower.rs `2521 2`, helpers.rs `530 4`, new files
+  639, 53, 583, 653; G3 via `bash scripts/test-fast.sh --test architecture_guards --test no_type_strings --test no_operator_strings`
+  → `test-fast: ok` (unit tests `4998 passed; 2 ignored`; guards 8, 7+1 ignored, 8 passed); G4 → 0; G5 → exit 0.
 Commit: —
 
 ### Phase 2 — resource_escape and shape inline tests
@@ -1051,6 +1061,11 @@ Commit: —
   - Counts were re-taken at `ce7a995ca`: `ir::tests` 283 → 285 and `verify::tests`
     492 → 493 (commits in §2). The phase acceptance counts are 290 and 493, and the total
     is 974.
+- 2026-10-19 (execution) — `/tmp` is wiped by session restarts here, so G0's output lives in
+  `target/p176/g0/` (ignored by the repository) and records the full sorted `--list` names, not
+  only the count; G1 compares the count and the leaf names (a moved test gains a part segment).
+  Per the owner (2026-10-18) G2/G3 run through `bash scripts/test-fast.sh`, and (2026-10-19) every
+  check runs on macOS only.
 
 ## Summary
 
