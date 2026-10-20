@@ -258,7 +258,7 @@ when the NIR usage scan detects Unicode use but no table relocation is named.
 Each table's bytes come from a hex serializer; sizes and
 alignments are fixed per table (u16 tables and the 12-byte `properties` records
 align 2; u32 tables and the 16-byte mapping-entry records align 4). [[src/codegen/memory/data/data_objects/unicode_tables.rs:unicode_runtime_data_objects]]
-[[src/codegen/engine/analysis/module_analysis.rs:module_uses_unicode_runtime_tables]]
+[[src/codegen/engine/analysis/module_analysis/unicode_tables.rs:module_uses_unicode_runtime_tables]]
 [[src/codegen/engine/builder/mod.rs:referenced_unicode_tables]]
 
 | Symbol (`_mfb_unicode_*`)        | Element / record       | Align |

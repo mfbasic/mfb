@@ -35,7 +35,7 @@ non-empty captures allocates an environment:
   with `code = <symbol>` and `env = <env pointer>`. A `Closure` with an empty
   capture list (the front end never builds one; it lowers a capture-less lambda to
   a `FunctionRef`) is lowered exactly as a `FunctionRef`, to the static descriptor,
-  so `env = 0` marks exactly the function values that own no memory. [[src/target/shared/nir/mod.rs:NirValue]] [[src/codegen/engine/value/builder_values.rs:lower_value]] [[src/codegen/engine/analysis/module_analysis.rs:collect_function_value_refs]]
+  so `env = 0` marks exactly the function values that own no memory. [[src/target/shared/nir/mod.rs:NirValue]] [[src/codegen/engine/value/builder_values.rs:lower_value]] [[src/codegen/engine/analysis/module_analysis/mod.rs:collect_function_value_refs]]
 
 Both forms share the identical 16-byte object layout, so a call site dispatches the
 same way regardless of which producer made the value.

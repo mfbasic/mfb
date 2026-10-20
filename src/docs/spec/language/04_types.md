@@ -122,8 +122,8 @@ fail for the same reasons, including `ErrInvalidFormat` for a transient
 non-finite Float compared with a Fixed. Because such a comparison can raise, it
 is a raise site for an inline `TRAP` and for the function-level `TRAP`
 initialization rule (§8). [[src/ir/fallible.rs:comparison_can_raise]]
-[[src/codegen/engine/convert/builder_conversions.rs:emit_integer_to_fixed_value]]
-[[src/codegen/engine/convert/builder_conversions.rs:emit_float_bits_to_fixed_value]]
+[[src/codegen/engine/convert/builder_conversions/mod.rs:emit_integer_to_fixed_value]]
+[[src/codegen/engine/convert/builder_conversions/mod.rs:emit_float_bits_to_fixed_value]]
 
 A promotion-generated error receives the binary expression's source location,
 not a location selected from the converted operand. An error while evaluating

@@ -621,7 +621,7 @@ element (freeable-flat, not a `String`) that is:
     those statements rebinds or reassigns a local container or reads it other
     than as the first argument of `get`/`getOr`/`len` or a `FOR EACH`
     iterable, and none can reach a store to a module-level container.
-  [[src/codegen/engine/analysis/borrow_get.rs:collect_borrow_gets]]
+  [[src/codegen/engine/analysis/borrow_get/mod.rs:collect_borrow_gets]]
 - **An element-bound update** (see *Self-updates*).
 
 Each binding is classified on its own. A local is never redeclared while it is
@@ -629,7 +629,7 @@ live, so a name bound again — in a later loop, in the other arm of an `IF`, or
 after a nested block that bound it has ended — names a different binding, and
 every rule above is applied to each binding with the reads in its own scope; one
 binding's verdict never extends to another of the same name.
-[[src/codegen/engine/analysis/borrow_get.rs:collect_borrow_gets]]
+[[src/codegen/engine/analysis/borrow_get/mod.rs:collect_borrow_gets]]
 
 The binding registers no scope-drop free: the container owns the element.
 A `String` element is always copied — its `get` builds the `String` block, so
@@ -654,7 +654,7 @@ or a record of `Float`s):
   into the region at once, so it is a copy exactly as the block would be: the
   two elements of an n-body pair step stay independent (`bj` never sees the
   write to slot `i`, even when `i = j`), and neither allocates.
-  [[src/codegen/engine/analysis/borrow_get.rs:collect_borrow_gets]]
+  [[src/codegen/engine/analysis/borrow_get/mod.rs:collect_borrow_gets]]
 - **The `WITH` item of `x = set(x, k, WITH e { … })` or
   `x = append(x, WITH e { … })`.** The target and every update value are
   evaluated first, in source order; only then are `e`'s bytes copied into the
@@ -933,7 +933,7 @@ read only through its fields before the `WITH` and never after the `set`, and
 `xs` is a local that is neither rebound nor read other than by a lookup, or a
 global nothing in between can store to. The `get` raises a bad index before
 anything is written, and the field routes are failure-atomic, so a failed
-update leaves `xs` unchanged. [[src/codegen/engine/analysis/borrow_get.rs:ElementBinding]]
+update leaves `xs` unchanged. [[src/codegen/engine/analysis/borrow_get/mod.rs:ElementBinding]]
 
 No route may grow the element: its block is a span of the list's data region,
 not an allocation. Every growing field route asks

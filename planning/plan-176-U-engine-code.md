@@ -46,9 +46,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-T complete and archived | `ls planning/plan-176-T-* planning/completed/plan-176-T-*` → only `planning/completed/…` | NOT MET (2026-10-14) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-14; lands in plan-176-A) |
-| U's files have no uncommitted changes | `bash -c 'S=$(grep -rlE "\[\[src/codegen/engine/(control/builder_control\|builder/mod\|value/builder_values\|function/function_lowering\|function/entry\|operators/builder_numeric\|analysis/borrow_get\|analysis/module_analysis\|convert/builder_conversions)\.rs" src/docs/spec); git status --porcelain -- src/codegen/engine $S .ai tests/guards/no_type_strings.rs scripts/spec-census.sh src/testutil.rs src/optimizer/opt1/strength.rs src/ir/fallible.rs src/codegen/memory src/codegen/runtime/thread/runtime_helpers.rs src/codegen/builtins/tests src/codegen/builtins/math/gen_fmod.rs src/codegen/builtins/collections/gen_flow.rs src/codegen/string/unicode_props.rs'` → empty (the `\|` inside the table are plain `\|` in the shell) | MET (2026-10-14, empty output) |
+| plan-176-T complete and archived | `ls planning/plan-176-T-* planning/completed/plan-176-T-*` → only `planning/completed/…` | MET (2026-10-20, `ls planning/completed/` → `plan-176-T-builtins-code-c.md`; none in `planning/`) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-20, passes) |
+| U's files have no uncommitted changes | `bash -c 'S=$(grep -rlE "\[\[src/codegen/engine/(control/builder_control\|builder/mod\|value/builder_values\|function/function_lowering\|function/entry\|operators/builder_numeric\|analysis/borrow_get\|analysis/module_analysis\|convert/builder_conversions)\.rs" src/docs/spec); git status --porcelain -- src/codegen/engine $S .ai tests/guards/no_type_strings.rs scripts/spec-census.sh src/testutil.rs src/optimizer/opt1/strength.rs src/ir/fallible.rs src/codegen/memory src/codegen/runtime/thread/runtime_helpers.rs src/codegen/builtins/tests src/codegen/builtins/math/gen_fmod.rs src/codegen/builtins/collections/gen_flow.rs src/codegen/string/unicode_props.rs'` → empty (the `\|` inside the table are plain `\|` in the shell) | MET (2026-10-20: `git status --porcelain` → empty at 76eb35793, before U's first edit) |
 
 Everything below is written against the world where these hold.
 
@@ -1035,19 +1035,19 @@ the module names do not change.
 Splits the three smallest-surface files. The moved `builder_conversions` code stays inside the
 overflow-label scan through the directory rule from plan-176-O Phase 1.
 
-- [ ] `analysis/borrow_get.rs` → `analysis/borrow_get/{mod,predicates,by_name}.rs` per §4.7
+- [x] `analysis/borrow_get.rs` → `analysis/borrow_get/{mod,predicates,by_name}.rs` per §4.7
       (`git mv` to `borrow_get/mod.rs` first so history follows); keep `#[cfg(test)] mod tests;`;
       the 15 `pub(super)` edits and the re-exports of §4.7.
-- [ ] Repoint the 4 `borrow_get.rs` spec citations and `.ai/collections.md:592` (§4.7, §4.13).
-- [ ] `tests/guards/no_type_strings.rs:380,403` doc comments → `borrow_get/by_name.rs`'s
+- [x] Repoint the 4 `borrow_get.rs` spec citations and `.ai/collections.md:592` (§4.7, §4.13).
+- [x] `tests/guards/no_type_strings.rs:380,403` doc comments → `borrow_get/by_name.rs`'s
       `union_extract_reads` (**pre-existing**; evidence `grep -rn union_extract_reads src`).
       Doc comments only; no allowlist entry changes.
-- [ ] `analysis/module_analysis.rs` → `analysis/module_analysis/{mod,float_errors,unicode_tables}.rs`
+- [x] `analysis/module_analysis.rs` → `analysis/module_analysis/{mod,float_errors,unicode_tables}.rs`
       per §4.8; repoint its 2 citations.
-- [ ] `module_analysis/mod.rs` comment (old line 83) → `emit_resource_state_init`
+- [x] `module_analysis/mod.rs` comment (old line 83) → `emit_resource_state_init`
       (`memory/value/builder_value_semantics.rs`) (**pre-existing**; evidence
       `grep -rn "fn emit_resource_state_init" src`).
-- [ ] `convert/builder_conversions.rs` → `convert/builder_conversions/{mod,to_int,to_byte_scalar}.rs`
+- [x] `convert/builder_conversions.rs` → `convert/builder_conversions/{mod,to_int,to_byte_scalar}.rs`
       per §4.9; repoint its 8 citations; `general_declared_errors.rs:6` comment (§4.13).
 Acceptance: the three modules compile from their new layout with no outside path changed, the
 code they emit is byte-identical, and the overflow-label guard still scans the moved code.
@@ -1059,6 +1059,22 @@ code they emit is byte-identical, and the overflow-label guard still scans the m
   `builder_conversions/` (the scan's directory rule picks up every one of them);
   step 8 rows: none for these three files after tighten (their `ceiling` rows were removed as
   missing paths) (est. 20 min total).
+- [x] Delete the orphaned doc comment at the top of `builder_conversions` (6 `///` lines "Upper bound on the decimal
+      exponent magnitude …" now documenting `use …::STRING_TO_FLOAT_SYMBOL;`): **pre-existing** — plan-120-F
+      (`8657ad9c1`) removed the `DECIMAL_EXPONENT_CLAMP` it documented (`git log -S DECIMAL_EXPONENT_CLAMP --oneline`
+      → `8657ad9c1` last; `grep -rn DECIMAL_EXPONENT_CLAMP src` → empty).
+  Done: `codesplit.py` split borrow_get and module_analysis by name (`u1-borrow.json`, `u1-ma.json`); `items.py` split
+  builder_conversions' `impl CodeBuilder<'_>` by method (`u1-conv.json`); `u1wire.py` wrote the borrow_get `use`
+  lines and headers; `pubsuper.py` made exactly the 15 §4.7 items `pub(super)` (they were "not found", not
+  "private": a glob import skips private items). The `emit_resource_state_init` comment names
+  `memory/value/builder_value_semantics/default_value.rs` (plan-176-P split that file).
+  Verified 2026-10-20: `motion.py` → only wiring, the 15 `pub(super)` and the orphan doc differ; N = 5018, W = 0;
+  `spec_citations_resolve` + `codegen::engine::analysis` + the overflow guard → 47 passed, borrow_get → 27;
+  `no_overflow_label_returns_through_the_result_tag_register` → passes; the overflow grep → 7, all under
+  `builder_conversions/` (mod 5, to_int 1, to_byte_scalar 1); guards → 9, 8, 7 + 1 ignored; artifact gates
+  `collections`, `strings`, `math`, `money`, `general` → 0 diffs each; budget → the three STALE rows, none after
+  the tighten; census → borrow_get mod 542 + 2 test / predicates 404 / by_name 436; module_analysis mod 615 /
+  float_errors 219 / unicode_tables 296; builder_conversions mod 515 / to_int 444 / to_byte_scalar 251.
 Commit: —
 
 ### Phase 2 — Operators and function lowering (pure motion)

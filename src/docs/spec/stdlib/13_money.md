@@ -76,8 +76,8 @@ unsigned magnitudes instead, so `50000000000000m / -9223372036854775808` is
 [[src/codegen/builtins/money/gen_money_math.rs:emit_money_fixed_multiply]]
 [[src/codegen/builtins/money/gen_money_math.rs:emit_money_fixed_divide]]
 [[src/codegen/builtins/money/gen_money_math.rs:emit_apply_rounding_magnitude]]
-[[src/codegen/engine/convert/builder_conversions.rs:lower_to_money]]
-[[src/codegen/engine/convert/builder_conversions.rs:lower_to_fixed]]
+[[src/codegen/engine/convert/builder_conversions/mod.rs:lower_to_money]]
+[[src/codegen/engine/convert/builder_conversions/mod.rs:lower_to_fixed]]
 
 The Money remainder has the dividend's sign or is zero. A zero divisor raises
 `ErrInvalidArgument`; minimum raw Money `MOD -0.00001m` raises `ErrOverflow`
@@ -86,8 +86,8 @@ remainder is zero. `toInt(Money)` cannot overflow; `toByte(Money)` checks after
 truncation, so `toByte(-0.9m)` is zero while `toByte(-1m)` raises `ErrOverflow`.
 [[src/codegen/builtins/money/gen_money_math.rs:emit_money_binary]]
 [[src/codegen/engine/operators/builder_numeric.rs:emit_integer_binary]]
-[[src/codegen/engine/convert/builder_conversions.rs:emit_money_to_int_value]]
-[[src/codegen/engine/convert/builder_conversions.rs:lower_to_byte]]
+[[src/codegen/engine/convert/builder_conversions/to_int.rs:emit_money_to_int_value]]
+[[src/codegen/engine/convert/builder_conversions/to_byte_scalar.rs:lower_to_byte]]
 
 Money times/divided by Float first converts `m` to binary64, performs binary64
 multiplication/division with the Float operand, then rounds that binary64 result

@@ -417,7 +417,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// `data_objects/`'s local `types` (parameter name), `ir::verify`'s and
 /// `monomorph`'s `globals` (binding name), `ir/shape/`'s `state_dropped`
 /// (local name), codegen's and NIR's `resource_owners` / `owner_collections`
-/// (binding name), and `function_lowering.rs`'s `union_extract_reads` (local
+/// (binding name), and `borrow_get/by_name.rs`'s `union_extract_reads` (local
 /// name).
 ///
 /// **How this list was built, and how to extend it.** Two earlier attempts
@@ -440,7 +440,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// `globals`, `ir/resource_escape.rs`'s `decl_type`, `ir/shape/`'s
 /// `state_dropped`, codegen's and NIR's `resource_owners` /
 /// `owner_collections` / `promoted_vector_locals`,
-/// `function_lowering.rs`'s `union_extract_reads`, and `data_objects/`'s
+/// `borrow_get/by_name.rs`'s `union_extract_reads`, and `data_objects/`'s
 /// local `types`. Keyed by a **function or symbol name**: `function_types`,
 /// `package_return_types`, `imported_overloads`, `concrete_symbol_keys`.
 /// **Wire type-table companions**: `binary_repr`'s `TypeTable::foreign_types`

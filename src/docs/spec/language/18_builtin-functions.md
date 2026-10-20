@@ -67,7 +67,7 @@ raise nothing. A `Float` argument of `toInt`, `toFixed`, `toMoney`, `isZero`,
 `ErrFloatOverflow`/`ErrFloatNaN` at the call and never reaches the conversion —
 which is why no `Float` overload lists `ErrInvalidFormat` (bug-807; before it,
 `toInt(1.0 / 0.0)` reported `ErrInvalidFormat` and `isNegative(0.0 / 0.0)`
-answered `TRUE`). [[src/codegen/engine/convert/builder_conversions.rs:lower_to_int]]
+answered `TRUE`). [[src/codegen/engine/convert/builder_conversions/to_int.rs:lower_to_int]]
 
 All eighteen except `error` are **overridable** (see §18.3). Every other built-in
 member named below lives in an **import-gated standard package** and is *not*
@@ -159,7 +159,7 @@ override **only** when the built-in's own resolution rejects the argument
 types, so a user overload can never shadow a type the built-in already handles. [[src/monomorph/lower/resolve.rs:resolve_general_builtin_override]]
 `toInt` accepts an enum argument through the resolver's kind oracle, [[src/codegen/builtins/general/mod.rs:resolve_call]]
 and lowers it to a register move of the value, which already is the member's
-0-based declaration index. [[src/codegen/engine/convert/builder_conversions.rs:lower_to_int]]
+0-based declaration index. [[src/codegen/engine/convert/builder_conversions/to_int.rs:lower_to_int]]
 `toString` of an enum selects the member's name by comparing that index against
 each member in declaration order, and returns a fresh copy of the name.
 [[src/codegen/string/repr/builder_strings/to_string.rs:lower_to_string]] The names become
