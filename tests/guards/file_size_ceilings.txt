@@ -13,8 +13,6 @@ ceiling code 1570 src/ast/serialize.rs
 ceiling code 1180 src/binary_repr/reader.rs
 ceiling code 1161 src/binary_repr/sections.rs
 ceiling code 1111 src/binary_repr/writer.rs
-ceiling code 2019 src/cli/pkg.rs
-ceiling code 1016 src/cli/resolve.rs
 ceiling code 1055 src/codegen/builtins/audio/gen_macos_stream.rs
 ceiling code 1060 src/codegen/builtins/audio/gen_windows_io.rs
 ceiling code 2148 src/codegen/builtins/big/gen_big.rs

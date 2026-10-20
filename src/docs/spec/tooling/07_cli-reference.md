@@ -323,14 +323,14 @@ Format/finding catalogue: `./mfb spec tooling audit-format`.
 
 ## `pkg` and `repo` Subcommands
 
-`run_pkg_command` matches the subcommand by name.[[src/cli/pkg.rs:run_pkg_command]]
+`run_pkg_command` matches the subcommand by name.[[src/cli/pkg/mod.rs:run_pkg_command]]
 `add <target> [--pin|--no-pin]` takes either a `file://` `.mfp` URL (only scheme
 supported; must be absolute and end `.mfp`) or an `<owner>#<package>[@version]`
 registry ident. A `file://` add copies the file into `packages/` and records a
 **pinned** dependency in `project.json` — for a **signed** package the dependency
 entry also pins the header `identKey` on this first add (trust-on-first-use); the
 pin, never the file-embedded key, is the trust anchor every later build
-verifies against.[[src/cli/pkg.rs:add_package]] A `file://` add of a package that
+verifies against.[[src/cli/pkg/add.rs:add_package]] A `file://` add of a package that
 **vendors native libraries** is refused: there is no registry to fetch the
 library bytes from, so it would install in a silently unusable state.
 
@@ -339,13 +339,13 @@ writing that manifest and its lock, then installs the locked packages. The
 surrounding closure pass can copy local dependencies before this resolution,
 and subsequent closure/install rounds can fail after earlier writes. The whole
 command is therefore not an atomic transaction across `project.json`, `mfb.lock`
-and `packages/`. [[src/cli/resolve.rs:apply_closed_manifest]]
-[[src/cli/resolve.rs:close_dependency_set]]
+and `packages/`. [[src/cli/resolve/closure.rs:apply_closed_manifest]]
+[[src/cli/resolve/closure.rs:close_dependency_set]]
 
 `add` writes the new entry with `direct: true, requiredBy: []` — the package is
 one the user named. If the closure already declared that package indirectly
 (some other declared package imports it), the new direct entry replaces the
-indirect one rather than sitting beside it.[[src/cli/pkg.rs:without_indirect_entry]]
+indirect one rather than sitting beside it.[[src/cli/pkg/add.rs:without_indirect_entry]]
 Before resolving, `apply_manifest_change` **closes** the proposed manifest
 (`./mfb spec tooling project-manifest`'s dependency-closure rule): it
 declares every package a declared package's import table names but
@@ -357,7 +357,7 @@ registry ident is declared from the registry `/index` under the requirer's
 version and pin; a needed package that is none of these is an error naming it
 and telling the user to `mfb pkg add` it. After each install the closure is checked again — a registry
 package's import table is only readable once installed — bounded by
-`MAX_CLOSURE_ROUNDS`.[[src/cli/resolve.rs:close_dependency_set]] Each declared/dropped entry
+`MAX_CLOSURE_ROUNDS`.[[src/cli/resolve/closure.rs:close_dependency_set]] Each declared/dropped entry
 prints `Declared package <name> (required by <requirer>)` or `Removed package
 <name> (no declared package requires it)`.
 
@@ -366,7 +366,7 @@ prints the package report (below). `verify` checks each `project.json`
 dependency. `validate <package>` checks an **existing** `.mfp` — "is this
 package correct?" (below). `doc <name-or-path> [--out file]` renders a compiled
 package's doc section (`run_pkg_doc`, default out
-`doc.html`).[[src/cli/pkg.rs:run_pkg_doc]] Each subcommand's arity error and the
+`doc.html`).[[src/cli/pkg/info.rs:run_pkg_doc]] Each subcommand's arity error and the
 fallthrough `unknown pkg command` exit `2`; runtime failures exit `1`.
 
 `run_repo_command` handles `register`, `auth`, and `link` (each scoped to one
@@ -393,7 +393,7 @@ The registry protocol, signing, and publish detail are
 Whether a dependency is **pinned** (locked to one version) or **floating**
 (free to resolve upward) is inferred from the invocation, and either flag
 overrides the inference. The rule: *an explicit `@version` implies a pin; an
-explicit flag always wins.*[[src/cli/pkg.rs:infer_pin]]
+explicit flag always wins.*[[src/cli/pkg/add.rs:infer_pin]]
 
 | Invocation | `version` written | `pin` written | Printed suffix |
 |---|---|---|---|
@@ -411,7 +411,7 @@ way to tell from the command line which was intended.
 resolver looks the recorded version up as the *anchor*, takes that release's ABI
 map as the project's requirement set, and then selects the highest eligible
 version whose exported ABI is a superset of it. A `pin: true` dependency bypasses
-the search entirely and takes its exact version.[[src/cli/resolve.rs:select_node]]
+the search entirely and takes its exact version.[[src/cli/resolve/mod.rs:select_node]]
 `--no-pin` on an `@version` add is therefore meaningful rather than
 contradictory: it is the one way to set the floor deliberately instead of
 accepting "whatever was newest the day `add` ran".
@@ -433,7 +433,7 @@ The bare form always runs `apply_manifest_change` first, which
 closes the dependency set exactly as `pkg add` does — declaring every package
 a declared package's import table names, dropping orphaned indirect entries,
 and rewriting `direct`/`requiredBy` — regardless of whether the project has
-any registry dependencies.[[src/cli/resolve.rs:update]] Only *after* that does
+any registry dependencies.[[src/cli/resolve/mod.rs:update]] Only *after* that does
 it re-resolve every declared registry dependency and rewrite `mfb.lock`. A
 project that declares **no registry dependencies** — only `file://` packages,
 or none at all — has nothing to resolve; the bare form still closes the
@@ -462,7 +462,7 @@ With no `@version`, candidates are filtered in three stages:
 
 1. **Eligibility** — only `available` and `deprecated` releases.
    `yanked` is selectable *only* by exact pin, so a bare update never moves a
-   dependency **onto** a yanked release.[[src/cli/pkg.rs:state_is_floating_eligible]]
+   dependency **onto** a yanked release.[[src/cli/pkg/add.rs:state_is_floating_eligible]]
 2. **Newer** — strictly greater than the currently declared version.
 3. **ABI** — the candidate's exported symbols must be a superset of the
    currently declared version's, read from the index's per-version `abiIndex`.
@@ -471,7 +471,7 @@ Stage 3 exists because a `pin: true` dependency bypasses ABI checking entirely
 during resolution — `select_node` takes the exact declared version as given.
 Without a pre-flight filter, a targeted update could move a pinned dependency
 onto a release that dropped a symbol the project uses: resolution would succeed
-and the **build** would fail.[[src/cli/resolve.rs:select_node]]
+and the **build** would fail.[[src/cli/resolve/mod.rs:select_node]]
 
 **What the advisory proves, and what it does not.** It proves the candidate still
 exports everything the *currently declared version* exported. It does **not**
@@ -505,7 +505,7 @@ Removes the named package **and every package that transitively imports it**.
 
 The resolver seeds nodes only from dependencies declared in `project.json`, and
 an import edge naming an ident that is not declared is **silently dropped**
-rather than reported.[[src/cli/resolve.rs:resolve]] So removing only the named
+rather than reported.[[src/cli/resolve/mod.rs:resolve]] So removing only the named
 package would leave any importer of it with a dangling import that *resolves
 cleanly* and fails later, at build time, with an error pointing at the importer
 rather than at the removal that caused it. Cascading is what keeps
@@ -547,7 +547,7 @@ exactly the dangling-import state the cascade exists to prevent.
 `remove` writes its edit through the same `apply_manifest_change` as `add`/
 `update`, so beyond dropping the cascaded packages themselves, the
 closure pass also drops any *other* indirect entry the removal leaves with an
-empty `requiredBy`.[[src/cli/resolve.rs:apply_manifest_change]]
+empty `requiredBy`.[[src/cli/resolve/closure.rs:apply_manifest_change]]
 
 ### File cleanup
 
@@ -570,13 +570,13 @@ which would have nothing to do.
 
 ## `pkg verify` Output
 
-`verify_packages` prints one line per declared dependency.[[src/cli/pkg.rs:verify_packages]]
+`verify_packages` prints one line per declared dependency.[[src/cli/pkg/verify.rs:verify_packages]]
 The status comes from `package_dependency_status`: name/ident mismatch →
 `Invalid Package`, version mismatch → `Needs Update`, else `OK`; an empty
-expected version always matches.[[src/cli/pkg.rs:package_dependency_status]] A
+expected version always matches.[[src/cli/pkg/verify.rs:package_dependency_status]] A
 dependency missing both a `packages/<name>.mfp` and a source-package
 `packages/<name>/project.json` is `Invalid Package`. The line is formatted by
-`package_verify_line`:[[src/cli/pkg.rs:package_verify_line]]
+`package_verify_line`:[[src/cli/pkg/verify.rs:package_verify_line]]
 
 ```text
 <name> @ <declared-version> : <status>
@@ -588,7 +588,7 @@ dependency entry that fails to parse prints `<invalid> @ <invalid> : Invalid
 Package`. Compiled `.mfp` dependencies additionally get their trust state —
 `[Verified]`, `[Unsigned]`, or `[Tampered]` — verified against
 the dependency's pinned `identKey`; source-package dependencies get no state
-suffix.[[src/cli/pkg.rs:verify_packages]]
+suffix.[[src/cli/pkg/verify.rs:verify_packages]]
 
 After the per-dependency lines, `verify` additionally reports the whole
 declared dependency closure: every way `packages[]` disagrees with
@@ -602,7 +602,7 @@ and what its declared dependency's `.mfp` actually exports, each with a
 per-symbol detail line (`` `sym`: `requirer` needs ABI <hash>; `dep` <version>
 exports <hash> `` or `` `sym`: `requirer` needs ABI <hash>; `dep` <version>
 does not export it ``). `verify` exits non-zero if either check finds
-anything.[[src/cli/pkg.rs:report_dependency_closure]] [[src/manifest/closure.rs:conflicts]]
+anything.[[src/cli/pkg/verify.rs:report_dependency_closure]] [[src/manifest/closure.rs:conflicts]]
 
 With `--proof`, each Verified dependency additionally needs a
 transparency-log inclusion proof for its publish entry, verified against the
@@ -612,14 +612,14 @@ proof appends `(no publish proof)` and fails the command.
 `mfb repo publish` prints `Publish logged at index <n> (leaf <hex>)` followed by
 `Inclusion verified against checkpoint (size <s>, root <hex>)`, refusing to
 upload at all if the checkpoint fetch detects a rollback or fork
-(`REGISTRY_LOG_ROLLBACK`).[[src/cli/pkg.rs:publish_package_project]]
+(`REGISTRY_LOG_ROLLBACK`).[[src/cli/pkg/publish.rs:publish_package_project]]
 
 ## `pkg validate` Output
 
 `validate_package_file` resolves `<package>` like `pkg doc` (a direct `.mfp`
 path, or `packages/<name>.mfp`) and prints one check line per verifiable link
 of the trust chain, then `result: valid` or `result: INVALID (<n>
-failed check(s))` (exit 1).[[src/cli/pkg.rs:validate_package_file]]
+failed check(s))` (exit 1).[[src/cli/pkg/verify.rs:validate_package_file]]
 
 ```text
 Package validation report for <path>:
@@ -645,7 +645,7 @@ is not a pre-publish step; nothing is uploaded.
 
 `pkg info` decodes the `.mfp` header and binary
 representation info and prints fixed sections
-in order.[[src/cli/pkg.rs:print_package_info]][[src/binary_repr/mod.rs:read_package_info]] Every empty string renders as
+in order.[[src/cli/pkg/info.rs:print_package_info]][[src/binary_repr/mod.rs:read_package_info]] Every empty string renders as
 `<empty>` (`empty_marker`); the content hash is the lowercase hex of the package
 content hash. The layout:
 
@@ -708,9 +708,9 @@ Imports:
 ```
 
 `signature type` is mapped by `signature_type_name`: `0`→`unsigned`,
-`1`→`Ed25519`, other→`unknown (n)`.[[src/cli/pkg.rs:signature_type_name]] Export
+`1`→`Ed25519`, other→`unknown (n)`.[[src/cli/pkg/info.rs:signature_type_name]] Export
 kinds are mapped by `package_export_kind_name`: `FUNC`, `TYPE`, `UNION`,
-`ENUM`.[[src/cli/pkg.rs:package_export_kind_name]] The `.mfp` header format
+`ENUM`.[[src/cli/pkg/info.rs:package_export_kind_name]] The `.mfp` header format
 (magic, container version, signature header, length-prefixed strings) is
 `./mfb spec package container-format`.
 

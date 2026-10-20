@@ -1,6 +1,6 @@
 //! The `mfb pkg` subcommands that read a path, and every usage refusal.
 //!
-//! `cli/pkg.rs` is 2,274 lines and was at 62.09% — the largest single gap left
+//! `cli/pkg.rs` (now `cli/pkg/`) was 2,274 lines and was at 62.09% — the largest single gap left
 //! under `src/`. Its command table is a slice `match` where each subcommand has
 //! a working arm and a usage arm right beneath it, and only the working arms of
 //! the network-free commands were ever run (by the acceptance harness, through

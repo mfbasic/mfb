@@ -14,8 +14,14 @@
 # specific syscall/network/subprocess boundary that blocks unit coverage.
 
 # --- Tier-D CLI / registry orchestration (covered by tests/repo_acceptance.rs) ---
-src/cli/pkg.rs        # publish/add/transfer/check-abi drive a live HTTP registry + on-disk key mutation; pure arg parsing/validation is unit-covered
-src/cli/resolve.rs    # resolve/update/install fetch the registry over HTTP; pure lock read/write/diff + version selection is unit-covered
+src/cli/pkg/mod.rs        # publish/add/transfer/check-abi drive a live HTTP registry + on-disk key mutation; pure arg parsing/validation is unit-covered
+src/cli/pkg/publish.rs        # publish/add/transfer/check-abi drive a live HTTP registry + on-disk key mutation; pure arg parsing/validation is unit-covered
+src/cli/pkg/update.rs        # publish/add/transfer/check-abi drive a live HTTP registry + on-disk key mutation; pure arg parsing/validation is unit-covered
+src/cli/pkg/add.rs        # publish/add/transfer/check-abi drive a live HTTP registry + on-disk key mutation; pure arg parsing/validation is unit-covered
+src/cli/pkg/verify.rs        # publish/add/transfer/check-abi drive a live HTTP registry + on-disk key mutation; pure arg parsing/validation is unit-covered
+src/cli/pkg/info.rs        # publish/add/transfer/check-abi drive a live HTTP registry + on-disk key mutation; pure arg parsing/validation is unit-covered
+src/cli/resolve/mod.rs    # resolve/update/install fetch the registry over HTTP; pure lock read/write/diff + version selection is unit-covered
+src/cli/resolve/closure.rs    # resolve/update/install fetch the registry over HTTP; pure lock read/write/diff + version selection is unit-covered
 src/cli/dispatch.rs   # ex-src/main.rs top-level router (bug-340 B1, c565abda8). NARROWED: run() is now only the env::args read and the process::exit, and dispatch(Vec<String>) -> i32 is unit-tested arm by arm (0.00% -> 90.87%). What remains excepted is run() itself (6 lines: the process::exit a test cannot enter) and the six registry-command SUCCESS arms (pkg/repo/machine/key/org/token), which need a live HTTP registry
 src/cli/build/signing.rs  # load_build_signing_info (signing.rs:47-158) calls mfb_repository::client::request_attestation against a live HTTP registry and reads the machine's registered ident-key files; its pure helpers (signing_ident/apply_signing_metadata/executable_signing_metadata_json) are unit-covered. bug-327 T2-10 (19a95d448) split this out of the now-deleted src/cli/build.rs, whose stale exception this replaces
 src/cli/repo.rs       # register/auth/link/trust perform live HTTP + key-store mutation; Usage/arg validation is unit-covered

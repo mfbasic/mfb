@@ -50,7 +50,7 @@ package in one of two forms and reports a status:
    dependency. If `ident` is absent it defaults to the manifest's `name`.
 
 The compiled `.mfp` file is checked first; the source-package manifest is the
-fallback. If neither exists, the status is `InvalidPackage`.[[src/cli/pkg.rs:verify_package_dependency]]
+fallback. If neither exists, the status is `InvalidPackage`.[[src/cli/pkg/verify.rs:verify_package_dependency]]
 
 A third entry may sit beside them: `packages/<name>.vendor/`, holding the
 native-library files a compiled package vendors. It appears only for a package
@@ -58,9 +58,9 @@ whose section-10 table carries `vendor` locators, and `mfb pkg add`/`pkg install
 populates it by downloading and hash-verifying each library from the registry —
 one directory per package, so two dependencies vendoring a same-named file never
 collide, and an imported library never overwrites something in the project's own
-`vendor/`.[[src/cli/pkg.rs:install_vendor_blobs]]
+`vendor/`.[[src/cli/pkg/add.rs:install_vendor_blobs]]
 
-The dependency-status check produces one of three outcomes:[[src/cli/pkg.rs:package_dependency_status]]
+The dependency-status check produces one of three outcomes:[[src/cli/pkg/verify.rs:package_dependency_status]]
 
 - `InvalidPackage` — the installed `name` does not equal the declared name, the
   installed package could not be read or parsed, or both sides carry a non-empty
@@ -72,11 +72,11 @@ Version matching is **exact string** comparison: an expected version matches
 only when it is empty (no constraint) or byte-for-byte equal to the installed
 version. Range syntax such as `^1.2.3` or `~1.2.3` is treated as a literal
 string and therefore never matches a concrete version like `1.9.0` — it yields
-`NeedsUpdate`.[[src/cli/pkg.rs:package_version_matches]] For a non-empty declared
+`NeedsUpdate`.[[src/cli/pkg/verify.rs:package_version_matches]] For a non-empty declared
 version the `pin` flag does not change the result. The two paths diverge only for
 an *empty* declared version: unpinned, an empty version is "no constraint" and
 matches (`Ok`); pinned, an empty version can never equal an installed one and so
-yields `NeedsUpdate`.[[src/cli/pkg.rs:package_dependency_status]]
+yields `NeedsUpdate`.[[src/cli/pkg/verify.rs:package_dependency_status]]
 
 The `pin` flag is enforced separately, during the build's binary-representation
 merge of compiled packages. There, a pinned dependency whose `version` differs

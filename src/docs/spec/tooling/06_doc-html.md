@@ -23,7 +23,7 @@ mfb pkg doc  → write_package_doc     → doc::from_package(PackageDocs) ┘
 The two builders produce the same `DocPage` shape; the differences are entirely
 in the input and the public/internal partition (below).
 
-[[src/doc/mod.rs:from_source]] [[wire/src/docpage.rs:from_package]] [[src/cli/doc.rs:build_source_doc_page]] [[src/cli/pkg.rs:write_package_doc]]
+[[src/doc/mod.rs:from_source]] [[wire/src/docpage.rs:from_package]] [[src/cli/doc.rs:build_source_doc_page]] [[src/cli/pkg/info.rs:write_package_doc]]
 
 | Aspect | `from_source` (source DOC blocks) | `from_package` (compiled `.mfp`) |
 |---|---|---|
@@ -296,7 +296,7 @@ A missing package is an error. The `.mfp` header and `doc` section are read; an
 empty doc section yields the empty page (still exit success). `--out` defaults to
 `doc.html`.
 
-[[src/cli/pkg.rs:run_pkg_doc]] [[src/cli/pkg.rs:write_package_doc]]
+[[src/cli/pkg/info.rs:run_pkg_doc]] [[src/cli/pkg/info.rs:write_package_doc]]
 
 `pkg doc` reports through `PkgCommandError`, which the top-level `pkg` dispatch
 maps to exit codes:
@@ -307,7 +307,7 @@ maps to exit codes:
 | `1` | `PkgCommandError::Failed` — package not found, decode failure, or IO error |
 | `2` | `PkgCommandError::Usage` — `--out` without a value, unknown `--flag`, missing `<name-or-path>`, or more than one target |
 
-[[src/cli/pkg.rs:run_pkg_command]] [[src/cli/pkg.rs:run_pkg_doc]]
+[[src/cli/pkg/mod.rs:run_pkg_command]] [[src/cli/pkg/info.rs:run_pkg_doc]]
 
 ## See Also
 

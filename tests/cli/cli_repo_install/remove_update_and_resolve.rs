@@ -498,9 +498,9 @@ fn install_warns_on_floor_drift_and_errors_on_pin_drift() {
 /// `mfb pkg update`?
 ///
 /// This matters because `add_package_from_file` copies the ident out of the
-/// `.mfp` header (`src/cli/pkg.rs:566`), not out of the URL, so a published
+/// `.mfp` header (`add_package_from_file`, `src/cli/pkg/add.rs`), not out of the URL, so a published
 /// package added by file *does* carry a `#`. `resolve()` seeds its nodes with
-/// `.filter(|dep| dep.ident.contains('#'))` (`src/cli/resolve.rs:253`), which
+/// `.filter(|dep| dep.ident.contains('#'))` (`resolve()`'s seeding filter at the time; today `is_registry_dependency` in `src/cli/resolve/closure.rs`), which
 /// keys on the ident and ignores `source`. If that filter admits this
 /// dependency, `mfb pkg update` silently replaces the user's local file with a
 /// registry blob.

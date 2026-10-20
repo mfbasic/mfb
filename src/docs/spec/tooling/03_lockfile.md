@@ -24,7 +24,7 @@ also carries the registry `repoFingerprint` and the pinned transparency-log
 there is no key status/window to record. `mfb pkg install` reads this file,
 cross-checks `repoFingerprint` against the pinned `server.pub`, and installs
 each package by fetching `/blob/<hash>` and re-verifying the trust chain
-against the locked `identKey` — no `/index` lookups.[[src/cli/resolve.rs:write_lock]][[src/cli/resolve.rs:install]][[src/cli/resolve.rs:resolve]]
+against the locked `identKey` — no `/index` lookups.[[src/cli/resolve/lockfile.rs:write_lock]][[src/cli/resolve/mod.rs:install]][[src/cli/resolve/mod.rs:resolve]]
 
 The resolver picks, for every dependency, the highest install-eligible version
 (`available`/`deprecated`; `yanked` only under an exact pin) whose exported
@@ -32,7 +32,7 @@ The resolver picks, for every dependency, the highest install-eligible version
 imports another anchors that import at the ABI it compiled against; two
 requirers that disagree on a symbol's hash are a **diamond conflict**, reported
 by naming both requirers and the symbol. A `pin` dependency bypasses the search
-and takes its exact version.[[src/cli/resolve.rs:select_node]]
+and takes its exact version.[[src/cli/resolve/mod.rs:select_node]]
 
 ## Location and presence
 
@@ -51,7 +51,7 @@ as JSON. [[src/audit/collect/lockfile.rs:collect_lockfile]]
 
 The writer emits the following keys in this order, with two-space indentation
 and a trailing newline. `packages` preserves the resolver's ident-sorted order.
-[[src/cli/resolve.rs:render_lock]] [[src/cli/resolve.rs:resolve]]
+[[src/cli/resolve/lockfile.rs:render_lock]] [[src/cli/resolve/mod.rs:resolve]]
 
 | Field | JSON type | Meaning |
 | --- | --- | --- |
@@ -65,15 +65,15 @@ Each package object writes string fields in this order: `name`, `ident`,
 `requested`, `selected`, `hash`, `identKey`, `identFingerprint`, `state`.
 `requested` is the declared version/ABI anchor; `selected` is the resolved
 version; `hash` identifies the blob installed by `pkg install`.
-[[src/cli/resolve.rs:LockedPackage]]
+[[src/cli/resolve/lockfile.rs:LockedPackage]]
 
 The package reader requires readable JSON with an object root. It defaults
 missing or wrong-typed strings to empty, a missing/non-array `packages` to an
 empty list, and skips non-object package entries. Checkpoint size defaults to
 zero and otherwise uses an `f64`-to-`i64` cast. This reader does not inspect
 `lockfileVersion`; installation performs the project-hash, registry-pin, blob
-identity and signature checks separately. [[src/cli/resolve.rs:read_lock]]
-[[src/cli/resolve.rs:install]]
+identity and signature checks separately. [[src/cli/resolve/lockfile.rs:read_lock]]
+[[src/cli/resolve/mod.rs:install]]
 
 ### Audit interpretation
 
@@ -116,7 +116,7 @@ The exact construction:
    hash independent of the order packages appear in `project.json`.
 4. Feed the sorted lines, in order, into a single SHA-256 stream (each line's
    UTF-8 bytes, including its `\0` separators and trailing `\n`).
-5. The digest is rendered as lowercase hexadecimal (64 chars). [[src/cli/pkg.rs:hex_bytes]]
+5. The digest is rendered as lowercase hexadecimal (64 chars). [[src/cli/pkg/info.rs:hex_bytes]]
 
 An empty or absent `packages[]` hashes the empty input — a fixed digest, the
 SHA-256 of zero bytes. Comparison is exact string equality against the stored
@@ -150,7 +150,7 @@ dependencies remain.
 A `projectHash` mismatch means the manifest's request set changed since the lock
 was written, but it does not say *how*. `mfb pkg install` therefore diffs the
 manifest's registry dependencies against `packages[]` in the lock, matched on
-`ident`, and decides per difference.[[src/cli/resolve.rs:classify_drift]]
+`ident`, and decides per difference.[[src/cli/resolve/drift.rs:classify_drift]]
 
 | Condition | Class | Outcome |
 |---|---|---|

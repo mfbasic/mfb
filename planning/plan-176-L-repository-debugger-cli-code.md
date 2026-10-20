@@ -753,19 +753,31 @@ Acceptance: manifest validation behaves identically; the citations name the defi
   `manifest::` → `ok. 222 passed`; `cli_build_config` (in the fast tier) → `ok. 9 passed`; G2 `spec_citations_resolve` →
   `ok. 1 passed` + the sweep check → no output; G3 fast tier → `test-fast: ok` (guards 8, 7 + 1 ignored, 8); census →
   362, 452, 284; G5 → exit 0.
-Commit: —
+Commit: 292dcbd03
 
 ### Phase 2 — Package CLI
 
-- [ ] Split `src/cli/pkg.rs` per §4.4 (drop the `#[path]` on `command_tests`).
-- [ ] Split `src/cli/resolve.rs` per §4.5.
-- [ ] Sweep the 58 citations (38 pkg + 20 resolve).
-- [ ] `scripts/coverage-exceptions.txt`: line 17 → the six `src/cli/pkg/…` lines; line 18 →
+- [x] Split `src/cli/pkg.rs` per §4.4 (drop the `#[path]` on `command_tests`).
+      Done: `git mv` to `pkg/mod.rs`, `python3 -I target/p176/codesplit.py` (items by name; every item assigned) →
+      publish 7, remove 4, update 6, add 15, verify 16, info 7 items; `pub(super)` on §4.4's 24 items + 5 fields
+      (`AddOptions.{target,pin}`, `UpdateOptions.{target,pin,assume_yes}`); `update.rs` (no `pub(crate)` item) is
+      glob-imported with `use update::*;`; `pkg/mod.rs` imports `build`, `resolve`, `local_paths_for_repo`, `confirm`,
+      `commit_staged_package`, `install_vendor_file`, `stage_package_blob` from `cli` (Corrections).
+- [x] Split `src/cli/resolve.rs` per §4.5.
+      Done: same tools → lockfile 8, closure 8, drift 3 items; `pub(super)` on §4.5's 6; no field needed it;
+      `resolve/mod.rs` imports `pkg` and `local_paths_for_repo` from `cli`.
+- [x] Sweep the 58 citations (38 pkg + 20 resolve).
+      Done: `citesweep.py` → 38 + 20; `citecheck.sh` → no MISSING, 0 old-path cites; `python3 -I target/p176/citedef.py
+      src/cli/pkg/ src/cli/resolve/ src/manifest/` → 151 cites, each names the file that defines its symbol.
+- [x] `scripts/coverage-exceptions.txt`: line 17 → the six `src/cli/pkg/…` lines; line 18 →
       the two `src/cli/resolve/…` lines; each with the existing reason text (§4.4, §4.5).
-- [ ] Stale line refs: the `tests/cli` comment (`grep -rn 'src/cli/pkg.rs:566\|src/cli/resolve.rs:253' tests/cli`),
+- [x] Stale line refs: the `tests/cli` comment (`grep -rn 'src/cli/pkg.rs:566\|src/cli/resolve.rs:253' tests/cli`),
       `src/cli/resolve/closure.rs` (old `resolve.rs:556`) and `src/cli/pkg/command_tests.rs:3`
       per §4.4/§4.5 (`grep -rn 'cli/pkg.rs:\|cli/resolve.rs:' src tests` → 0 after).
-- [ ] G4.
+      Done: → 0 (`tests/cli/cli_repo_install/remove_update_and_resolve.rs` :501 :503, `resolve/closure.rs:280`,
+      `pkg/command_tests.rs:3`).
+- [x] G4.
+      Done: → 2 STALE `code` rows (`pkg.rs` 2019, `resolve.rs` 1016); tighten drops them; re-run → 0.
 
 Acceptance: the package commands behave identically and keep their coverage treatment.
   Check: G1; `cargo test -p mfb --bin mfb cli::pkg cli::resolve` → 0 failed;
@@ -773,6 +785,10 @@ Acceptance: the package commands behave identically and keep their coverage trea
   → pass (these drive `mfb pkg`/`mfb repo` against a local registry); `grep -c '^src/cli/\(pkg\|resolve\)' scripts/coverage-exceptions.txt`
   → 8 and `grep -c '^src/cli/\(pkg\|resolve\)\.rs' scripts/coverage-exceptions.txt` → 0; G2;
   G3; G5 (est. 15 min).
+  Verified 2026-10-19: G1 → mfb list 5017 = 5017, leaves SAME, check warnings 0, clippy 37065 = G0; `cli::pkg cli::resolve`
+  → `ok. 90 passed`; the six registry targets in the fast tier → `ok` (1, 10, 6, 4, 9, 2 passed); exception greps → 8
+  and 0; G2 → `spec_citations_resolve` in the unit run (pass) + the sweep checks clean; G3 → guards 8, 7 + 1 ignored,
+  8; census → pkg 100/348/144/213/441/535/262, resolve 505/208/200/117; G5 → exit 0.
 Commit: —
 
 ### Phase 3 — Debugger shared code (host-built)
@@ -888,6 +904,15 @@ Commit: —
 ## Corrections
 
 - 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text (intro, Goal, Decisions) restated, and the store writer test is now located as "the `store/tests/*.rs` part I chose" instead of I's old `key_roles.rs` name.
+- 2026-10-19 (execution): G0 is the full sorted `--list` in `target/p176/g0/` and the clippy count
+  (37065) in `target/p176/l0/` (`/tmp` is wiped by session restarts here). Per the owner, G-runs go
+  through `bash scripts/test-fast.sh` (2026-10-18) on macOS only (2026-10-19): the box-2223
+  prerequisite is moot. A part body that spelled `super::X` for an item of the host's parent
+  (`super` was `cli`, and is now `cli::pkg`/`cli::resolve`) is served by one `use super::{…};` line in the
+  new `mod.rs`, so the bodies stay byte for byte: `pkg` (`build`, `resolve`, `local_paths_for_repo`,
+  `confirm`, `commit_staged_package`, `install_vendor_file`, `stage_package_blob`) and `resolve` (`pkg`,
+  `local_paths_for_repo`). Phase 1 needed 10 `pub(super)` (§4.11 listed 11; `LibraryFinding::wrong_type`
+  is used only inside `locator_check.rs`).
 
 ## Summary
 

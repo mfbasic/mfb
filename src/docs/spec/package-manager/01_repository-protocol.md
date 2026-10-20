@@ -7,7 +7,7 @@ It backs registry commands including `mfb repo register`, `mfb repo auth`,
 accepts either a `file://…​.mfp` URL (copied into `packages/` locally, no
 protocol) or an `<owner>#<package>[@version]` ident, which resolves `GET
 /index`, downloads `GET /blob/<hash>`, and runs the full verification chain before
-installing.[[src/cli/pkg.rs:add_package]][[src/manifest/url.rs:package_file_url_path]]
+installing.[[src/cli/pkg/add.rs:add_package]][[src/manifest/url.rs:package_file_url_path]]
 The client side is the `mfb_repository` crate's `client`
 module; the reference server is the same crate's `server` module. This topic
 owns the HTTP surface (endpoints, methods, JSON bodies), the challenge-response
@@ -593,7 +593,7 @@ owner's chain — an ident change with no chain link from it — is the re-ancho
 (or impersonation) case: a hard `PACKAGE_IDENT_REANCHORED` error telling the
 user to verify out-of-band; any other refusal is
 `PACKAGE_IDENT_KEY_UNTRUSTED`. The pin is never updated
-silently.[[src/cli/pkg.rs:follow_identity_pin]][[repository/src/client.rs:chain_path]][[repository/src/trust.rs:verify_chain]]
+silently.[[src/cli/pkg/verify.rs:follow_identity_pin]][[repository/src/client.rs:chain_path]][[repository/src/trust.rs:verify_chain]]
 
 ### Re-anchor ceremony (operator action)
 
@@ -730,7 +730,7 @@ current auth key yields `400`.[[repository/src/store.rs:revoke_auth_key]]
 The install path makes a published package retrievable. `mfb pkg
 add <owner>#<package>[@version]` resolves the index, pins the ident, downloads
 the blob, and runs the verification chain — nothing is installed
-until every link verifies.[[src/cli/pkg.rs:add_package_from_registry]]
+until every link verifies.[[src/cli/pkg/add.rs:add_package_from_registry]]
 
 ### Package Index — `GET /index/<owner>#<package>`
 
@@ -811,7 +811,7 @@ signing keys have no status.
 
 The client picks the requested version (any non-`blocked`/`legal-tombstoned`
 state) or, for a floating add, the newest version whose state is `available`
-or `deprecated`.[[src/cli/pkg.rs:select_index_version]]
+or `deprecated`.[[src/cli/pkg/add.rs:select_index_version]]
 
 **Transfer-chain verification.** Before a client pins or locks a release's
 `identKey` it verifies that key for the release's publisher, from an anchor:
@@ -847,7 +847,7 @@ A refusal is `PACKAGE_IDENT_KEY_UNTRUSTED`, or `PACKAGE_IDENT_REANCHORED` for a
 pinned key on no owner's chain. The pin written by `pkg add` and the key locked
 by the resolver are the verified header key of the release they select; when it
 differs from the project's pin, the resolver rewrites the pin and prints the
-rotation or transfer notice.[[src/cli/pkg.rs:verify_registry_release]][[src/cli/resolve.rs:resolve]]
+rotation or transfer notice.[[src/cli/pkg/add.rs:verify_registry_release]][[src/cli/resolve/mod.rs:resolve]]
 
 ### Blob — `GET`/`HEAD`/`PUT /blob/<hash>`
 
@@ -987,7 +987,7 @@ refused.
 
 A `pkg add file://…` is a local copy with no registry to fetch from, so a package
 that vendors native libraries is refused outright rather than installed in a
-silently unusable state.[[src/cli/pkg.rs:install_vendor_blobs]]
+silently unusable state.[[src/cli/pkg/add.rs:install_vendor_blobs]]
 
 ### Blob garbage collection — `mfb-repo gc` (operator action)
 
@@ -1080,7 +1080,7 @@ in one transaction. The response echoes `{ident, version, state, logEntry}`.
 `GET /index` serves the current state per version. Resolution eligibility
 : `available`/`deprecated` are install-eligible, `yanked` is
 selectable only by an exact pin, and `blocked`/`legal-tombstoned` are excluded
-entirely.[[src/cli/resolve.rs:select_node]][[src/cli/pkg.rs:select_index_version]]
+entirely.[[src/cli/resolve/mod.rs:select_node]][[src/cli/pkg/add.rs:select_index_version]]
 
 ## Accounts — Orgs, Publish Tokens, Transfers
 
@@ -1366,7 +1366,7 @@ package version.[[repository/src/server.rs:publish_package]]
 
 ## `repo publish`: Validate-then-Publish
 
-`mfb repo publish <owner_name> [path]` is a build-then-two-call sequence:[[src/cli/pkg.rs:publish_package_project]]
+`mfb repo publish <owner_name> [path]` is a build-then-two-call sequence:[[src/cli/pkg/publish.rs:publish_package_project]]
 
 1. Validate the package `project.json`; require kind `package`.
 2. Build with `sign_owner` set and `CompileMode::Build` to produce the signed
@@ -1380,7 +1380,7 @@ package version.[[repository/src/server.rs:publish_package]]
    so the file is not re-hashed here — a second computation is a second chance
    to disagree. Distinct hashes are uploaded at most once, so a library shared
    across platforms or unchanged across versions transfers
-   once.[[src/cli/pkg.rs:upload_vendor_blobs]]
+   once.[[src/cli/pkg/publish.rs:upload_vendor_blobs]]
 5. Call **`/validate`** (`client::validate_package`); print the report; abort
    with `package validation failed` if `valid` is false.
 6. Call **`/publish`** (`client::publish_package`); print `Published
