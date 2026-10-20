@@ -908,22 +908,28 @@ Acceptance: the eight files' tests run from their new modules and the counts did
   path count → 91 before and 91 after; census → hosts inline 2, 2, 10, 2, 2, 2, 7, 4 and new files 329, 267, 283, 297,
   291, 339, 661, 42, 253 (each exactly §2); G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`; guards 8,
   7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
-Commit: —
+Commit: c991d80c9
 
 ### Phase 2 — Frontend: AST, lexer, fmt, numeric, types, rules, resolver, doc
 
-- [ ] Split `src/ast/tests.rs` per §4.1 (delete the file; create `src/ast/tests/`, 4 files).
-- [ ] Move `src/ast/scope_privates.rs` tests per §4.7.
-- [ ] Move `src/lexer.rs` tests per §4.7.
-- [ ] Move `src/fmt.rs` tests per §4.7.
-- [ ] Move `src/numeric.rs` tests per §4.7.
-- [ ] Move `src/types.rs` tests per §4.7 (re-measure; split per §4.7 if > 1000).
-- [ ] Move `src/rules/mod.rs` tests per §4.7.
-- [ ] Move `src/resolver/mod.rs` tests per §4.7.
-- [ ] Move `src/resolver/packages.rs` tests per §4.7.
-- [ ] Move `src/resolver/resolution.rs` tests per §4.7.
-- [ ] Move `src/doc/html.rs` tests per §4.7.
-- [ ] G4: tighten (every row naming one of the phase's eleven files is TIGHTEN or STALE).
+- [x] Split `src/ast/tests.rs` per §4.1 (delete the file; create `src/ast/tests/`, 4 files).
+      Done: `git mv` to `tests/mod.rs`, `planparts.py --plain` (§4.1's own lists) + `items.py extract` → mod.rs keeps
+      37 tests, parts 65, 12, 52; motion → only the 3 part `mod` lines differ.
+- [x] Move `src/ast/scope_privates.rs` tests per §4.7.
+- [x] Move `src/lexer.rs` tests per §4.7.
+- [x] Move `src/fmt.rs` tests per §4.7.
+- [x] Move `src/numeric.rs` tests per §4.7.
+- [x] Move `src/types.rs` tests per §4.7 (re-measure; split per §4.7 if > 1000).
+      Done: re-measured → `src/types/tests/mod.rs` 988 ≤ 1000, so one file (no split).
+- [x] Move `src/rules/mod.rs` tests per §4.7.
+- [x] Move `src/resolver/mod.rs` tests per §4.7.
+- [x] Move `src/resolver/packages.rs` tests per §4.7.
+- [x] Move `src/resolver/resolution.rs` tests per §4.7.
+- [x] Move `src/doc/html.rs` tests per §4.7.
+      Done (the ten whole moves): `movemod.py` → 20, 35, 53, 33, 27, 20, 28, 20, 57, 16 tests; `motiondir.sh` → only
+      the module lines differ.
+- [x] G4: tighten (every row naming one of the phase's eleven files is TIGHTEN or STALE).
+      Done: → 1 STALE (`src/ast/tests.rs`) + 10 TIGHTEN `inline` rows; tighten drops exactly those eleven; re-run → 0.
 
 Acceptance: the frontend tests run from their new modules; the spec still resolves.
   Check: G1 → equal; G2 `cargo test -p mfb --bin mfb ast:: lexer:: fmt:: numeric:: types:: rules:: resolver:: doc::html`
@@ -932,6 +938,10 @@ Acceptance: the frontend tests run from their new modules; the spec still resolv
   → 475, the same before and after; `cargo test -p mfb --bin mfb rules::tests::rule_codes_are_unique`
   → 1 passed (the spec-named path still resolves); `cargo test -p mfb --bin mfb spec_citations_resolve`
   → passes; G3; G4; G5 (est. 12 min).
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 579 passed`; path count → 475 before and
+  475 after; `rules::tests::rule_codes_are_unique` → `ok. 1 passed`; census → ast 707/610/391/672, new files 387, 550,
+  571, 785, 988, 249, 610, 276, 734, 384, hosts inline 2, 2, 2, 44, 21, 32, 11, 2, 2, 2; G3 fast tier → `test-fast: ok`
+  (unit `4998 passed; 2 ignored`, which includes `spec_citations_resolve`; guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → 0.
 Commit: —
 
 ### Phase 3 — Manifest and CLI
