@@ -94,6 +94,8 @@ FUNC main() AS Nothing
 END FUNC
 "#;
 
+// Only the macOS-aarch64-gated test below uses this; the gate keeps other builds warning-free.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn median(mut v: Vec<u64>) -> u64 {
     v.sort_unstable();
     v[v.len() / 2]

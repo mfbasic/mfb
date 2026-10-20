@@ -14,6 +14,8 @@ mod common;
 use std::process::Command;
 
 /// Build a `--app` program, run it headless, and return its stdout lines.
+// Only the macOS-gated tests use this; the gate keeps Linux builds warning-free.
+#[cfg(target_os = "macos")]
 fn run(name: &str, source: &str) -> Vec<String> {
     let project = common::temp_project(name, source);
     let binary = common::build_app(&project, name);
@@ -38,9 +40,11 @@ fn run(name: &str, source: &str) -> Vec<String> {
 }
 
 /// `ErrNotFound` — `mfb spec diagnostics error-codes` row `7-705-0004`.
+#[cfg(target_os = "macos")]
 const ERR_NOT_FOUND: &str = "77050004";
 
 /// Prints every listed name, then loads each one and reports the tally.
+#[cfg(target_os = "macos")]
 const EVERY_FONT: &str = r#"IMPORT app
 IMPORT canvas
 IMPORT io

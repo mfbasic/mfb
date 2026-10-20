@@ -14,6 +14,8 @@
 mod common;
 
 use common::debug_report::{arena_lines, build_debug, build_debug_project, counter, run_ok};
+// Only the macOS-gated test below uses this; the gate keeps Linux builds warning-free.
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 /// Every counter each registered arena reports, in report order.
