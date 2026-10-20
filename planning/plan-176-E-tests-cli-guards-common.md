@@ -37,9 +37,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-D is complete and archived | `ls planning/plan-176-D-* planning/completed/plan-176-D-*` → only `planning/completed/…` | NOT MET (2026-10-18) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-18) |
-| E's files have no uncommitted changes | `git status --porcelain -- tests/cli/cli_dbg.rs tests/cli/cli_repo_install.rs tests/codegen/app_special_keys.rs tests/guards/no_type_strings.rs tests/common .ai/testing-gates.md .ai/codegen-invariants.md` → empty | MET (2026-10-18) |
+| plan-176-D is complete and archived | `ls planning/plan-176-D-* planning/completed/plan-176-D-*` → only `planning/completed/…` | MET (2026-10-19: `planning/completed/plan-176-D-tests-canvas.md` only) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19, plan-176-A landed; ran in D Phase 4) |
+| E's files have no uncommitted changes | `git status --porcelain -- tests/cli/cli_dbg.rs tests/cli/cli_repo_install.rs tests/codegen/app_special_keys.rs tests/guards/no_type_strings.rs tests/common .ai/testing-gates.md .ai/codegen-invariants.md` → empty | MET (2026-10-19) |
 
 Everything below is written against the world where these hold.
 
@@ -418,15 +418,23 @@ Every phase uses the same gate, run in this order. `$T` is the phase's target li
 
 ### Phase 1 — tests/codegen and tests/guards
 
-- [ ] Split `tests/codegen/app_special_keys.rs` per §4.2 (the macOS section → `macos.rs`).
-- [ ] Split `tests/guards/no_type_strings.rs` per §4.3.
-- [ ] Fix the stale doc comments in `no_type_strings.rs`: `tests/architecture_guards.rs` →
+- [x] Split `tests/codegen/app_special_keys.rs` per §4.2 (the macOS section → `macos.rs`).
+      Done: `python3 -I target/p176/items.py split` (moves named top-level items; lexes strings and comments) →
+      root 26 tests, `macos.rs` 25 items / 11 tests; `python3 -I target/p176/motion.py <before> <root> <part>`
+      (non-blank line multiset minus the part header, `use super::*;` and the declaration) → 0 only before, 0 only after.
+- [x] Split `tests/guards/no_type_strings.rs` per §4.3.
+      Done: same tools → root 2 tests, `self_checks.rs` 9 items / 6 tests; motion check → 0 / 0.
+- [x] Fix the stale doc comments in `no_type_strings.rs`: `tests/architecture_guards.rs` →
       `tests/guards/architecture_guards.rs` (3 places) and `builtins_no_hand_picked_vreg` →
       `no_hand_picked_vreg`. Check: `grep -rn 'tests/architecture_guards\|builtins_no_hand_picked_vreg' tests/guards`
       → 0 hits.
-- [ ] Fix `.ai/codegen-invariants.md:94` `tests/no_operator_strings.rs` →
+      Done: → 0 (`grep -rn 'fn no_hand_picked_vreg' tests` → `tests/guards/architecture_guards.rs:176`).
+- [x] Fix `.ai/codegen-invariants.md:94` `tests/no_operator_strings.rs` →
       `tests/guards/no_operator_strings.rs` (`grep -n 'tests/no_operator_strings' .ai/*.md` → 0).
-- [ ] E4: tighten the two rows.
+      Done: → 0.
+- [x] E4: tighten the two rows.
+      Done: guard → `TIGHTEN test 742 (ceiling 1148)` app_special_keys, `TIGHTEN test 752 (ceiling 1179)` no_type_strings;
+      `MFB_LOC_TIGHTEN=1` → own diff drops exactly those two rows; re-run → `0` rows.
 
 Acceptance: both targets list and pass the same tests, and the guard's self-tests still fire.
   Check: E1 over `app_special_keys no_type_strings` → equal; E2 over both → 0 failed (est.
@@ -436,6 +444,11 @@ Acceptance: both targets list and pass the same tests, and the guard's self-test
   `[[tests/guards/no_type_strings.rs]]` citation still resolves; est. 3 min);
   `python3 -I tools/loc-census/census.py --file <f>` over the four files → second fields 742,
   409, 752, 430; E4; E5.
+  Verified 2026-10-19: E1 (`bash target/p176/e1.sh`, leaf names vs E0's lists) → app_special_keys SAME 37,
+  no_type_strings SAME 8; `cargo check --all-targets` warnings → 0 (E0 0); E2+E3
+  `bash scripts/test-fast.sh --test app_special_keys --test no_type_strings --test test_targets_registered` →
+  `test-fast: ok` (`37 passed`; `7 passed; 1 ignored`; `4 passed`); census_by_file → 1; spec_citations_resolve →
+  `ok. 1 passed`; census → 742, 409, 752, 430; E4 → 0 rows after tightening; E5 `cargo fmt --all --check` → exit 0.
 Commit: —
 
 ### Phase 2 — tests/cli: repository and debugger
@@ -561,6 +574,13 @@ Commit: —
   6 → 1, `tests/common/mod.rs` 9 → 1). Six phases → three. `cli_dbg.rs` re-measured at `ce7a995ca` (1473,
   22 tests after 4 commits since `17a9b5799`). The `ncode_emu` directory conversion and the
   `src/codegen/io/input/mod.rs` `#[path]` edit are no longer needed.
+- 2026-10-19 (execution) — `/tmp` is wiped by session restarts here, so E0's output lives in
+  `target/p176/e0/` (ignored by the repository) instead of `/tmp/e_before.txt`, and E0/E1 record
+  the full sorted `--list` names, not counts: E1 compares leaf names (`<part>::name` → `name`) per
+  target. `cli_dbg` lists 21 on this macOS host (the 22nd,
+  `the_debugger_is_not_supported_off_macos_and_linux_aarch64`, is `cfg`'d out). Per the owner's
+  2026-10-18 instruction, E2/E3 run through `bash scripts/test-fast.sh --test <t>...`; the full
+  suite runs once before the plan merges.
 
 ## Summary
 

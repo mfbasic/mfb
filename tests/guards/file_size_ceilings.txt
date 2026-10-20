@@ -184,6 +184,4 @@ ceiling code 1623 src/rules/table.rs
 ceiling inline 1011 src/types.rs
 ceiling test 1473 tests/cli/cli_dbg.rs
 ceiling test 1241 tests/cli/cli_repo_install.rs
-ceiling test 1148 tests/codegen/app_special_keys.rs
 ceiling test 1228 tests/common/mod.rs
-ceiling test 1179 tests/guards/no_type_strings.rs
