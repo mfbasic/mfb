@@ -238,7 +238,7 @@ captured **before** register allocation and instruction selection, as stable,
 versioned JSON. The whole-module form is deliberately ISA-independent — no
 `target` / `arch` field, but this does not guarantee identical dumps across targets: platform
 entry/helpers, imports, and physical-register helper streams can differ. [[src/codegen/engine/mir/mir.rs:MirPlan]]
-[[src/codegen/engine/builder/mod.rs:lower_module_mir_for_platform]]
+[[src/codegen/engine/builder/lower_module.rs:lower_module_mir_for_platform]]
 
 Builder-emitted functions appear with their pre-allocation MIR (virtual
 registers `%vN`/`%fN`); the hand-written runtime helpers, which never pass

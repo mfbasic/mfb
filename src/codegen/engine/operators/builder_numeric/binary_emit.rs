@@ -1,5 +1,5 @@
-//! plan-176-U: the Integer/Fixed/Float binary emitters and the float operand helpers. The module doc lives in
-//! `engine/operators/builder_numeric/mod.rs`.
+//! plan-176-U: the Integer/Fixed/Float binary emitters and the float operand helpers. The
+//! module doc lives in `engine/operators/builder_numeric/mod.rs`.
 
 use super::*;
 

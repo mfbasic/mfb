@@ -71,7 +71,7 @@ never-taken branch — and `Console` otherwise. A program that intends to manage
 own surface therefore starts windowless and brings a window up deliberately, while
 a program that never touches the mode keeps the default terminal-in-a-window
 surface. The decision keys on `setMode` specifically: a read-only `getMode` does
-not force windowless startup. [[src/codegen/engine/builder/mod.rs:lower_module]]
+not force windowless startup. [[src/codegen/engine/builder/lower_module.rs:lower_module_for_platform]]
 
 The worker entry seeds the mode slot to `None` when that is the static default;
 `Console` needs no store because the arena-state region zero-inits to `0`
@@ -132,6 +132,6 @@ families need different ones — so they are gated differently.
 - **Every reader is in the gated set.** Before bug-699 the byte reader
   (`io::readByte`, since removed) was not, and in `None` it blocked on the pipe;
   its replacement `io::readRaw` traps like the others.
-  [[src/codegen/engine/builder/mod.rs]]
+  [[src/codegen/engine/builder/lower_module.rs]]
 - **Writes are never gated** — they degrade to standard output wherever no
   transcript view is attached.

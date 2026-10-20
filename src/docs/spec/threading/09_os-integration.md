@@ -104,7 +104,7 @@ runtime leaves the main arena to the OS rather than unmap memory a running worke
 might still reach. The deferral is gated on the program embedding any `thread.`
 runtime call. A program with no such call takes the ordinary arena-destruction
 path; merely avoiding `thread::start` at runtime does not remove this compile-time
-deferral. [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
+deferral. [[src/codegen/engine/builder/lower_module.rs:lower_module_for_platform]]
 
 ## Standard Input Broadcast
 
@@ -177,7 +177,7 @@ arena-state offset moves — only in a program that calls one of the readers
 subscribes the main thread to standard input. The buffer's layout, the decoder, the read engine and
 the readers' semantics are `./mfb spec stdlib io-input`.
 [[src/codegen/io/input/mod.rs:INPUT_BUFFER_READERS]]
-[[src/codegen/engine/builder/mod.rs]]
+[[src/codegen/engine/builder/lower_module.rs]]
 
 ## See Also
 

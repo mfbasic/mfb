@@ -1,5 +1,5 @@
-//! plan-176-U: the borrow-get window predicates — op and builtin keys, index purity, write-back and
-//! `WITH` recognition, local reads/writes, and the single-expression element update. The
+//! plan-176-U: the borrow-get window predicates — op and builtin keys, index purity, write-back
+//! and `WITH` recognition, local reads/writes, and the single-expression element update. The
 //! classification they feed lives in `engine/analysis/borrow_get/mod.rs`.
 
 use super::*;

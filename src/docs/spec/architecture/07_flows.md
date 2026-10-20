@@ -60,7 +60,7 @@ The backend:
 [[src/target/macos_aarch64/mod.rs:write_executable]]
 [[src/target/linux_common/mod.rs]]
 [[src/target/win_x86_64/mod.rs:write_executable]]
-[[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
+[[src/codegen/engine/builder/lower_module.rs:lower_module_for_platform]]
 
 The CLI copies vendored libraries and declared resources, finalizes app bundles
 (including Linux AppImages), and reports the output paths. Console outputs are

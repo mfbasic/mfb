@@ -151,7 +151,7 @@ The `-ncode` output is a **textual JSON instruction dump** that contains label n
 A record, field, resource or variant `description` is rendered into the package's synthesized MFBASIC companion, so editing one shifts line numbers in every `.ir` golden of that package. `.ncode` does not move, so a `.ncodesum` check wrongly suggests nothing changed. Regenerate the package's `.ir` goldens and confirm the diff is only `"line"` numbers.
 
 ### What churns the goldens #4: a new `standard_error_messages()` entry
-Every module that references an `_mfb_rt_fs_*` or `_mfb_rt_thread_*` symbol emits the whole `standard_error_messages()` list (`src/codegen/engine/builder/mod.rs`), whether or not it uses the other packages. A new package's error string must be added there, so it moves the fs, thread and http `.ncodesum` goldens on every target.
+Every module that references an `_mfb_rt_fs_*` or `_mfb_rt_thread_*` symbol emits the whole `standard_error_messages()` list (`src/codegen/engine/builder/error_messages.rs`), whether or not it uses the other packages. A new package's error string must be added there, so it moves the fs, thread and http `.ncodesum` goldens on every target.
 
 ### Regenerating the goldens
 - The committed `.ncode`/`.ncodesum` are **RELEASE**-generated. Debug and release `mfb` from the SAME source emit identical `.ncode` (verified), but always run `scripts/artifact-gate.sh target/release/mfb all` for a true 0-diff.

@@ -86,7 +86,7 @@ globals | module-resource head (a global reaches a resource) | LINK | term:: sta
 
 Each region's offset is computed from the sizes of the preceding enabled
 regions. The same offsets are passed to their emitters.
-[[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
+[[src/codegen/engine/builder/lower_module.rs:lower_module_for_platform]]
 
 - **`term::` state** — `TERM_STATE_SLOTS` (`u64` each, 27 in all: the leading
   style slots plus the raw-termios save area), when the program uses `term::`.

@@ -226,7 +226,7 @@ metadata). `keys`/`values`/iteration walk this array directly.
 A `Map` carries a hash index in the `Buckets` array that sits **after** the data
 region (a `List` reserves none). It makes key lookup O(1) average instead of the
 linear entry scan, without disturbing the capacity-based data base or the
-insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_helper]]
+insertion-ordered entries. [[src/codegen/engine/builder/runtime_helpers.rs:lower_map_probe_helper]]
 
 - **Size and addressing.** `Buckets` has `2 * capacity` `U64` slots (load factor
   ≤ 0.5), based at `header + capacity*entryStride + dataCapacity`. Each slot holds

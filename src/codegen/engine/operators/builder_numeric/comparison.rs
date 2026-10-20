@@ -1,4 +1,5 @@
-//! plan-176-U: the comparison operator lowerings (`lower_comparison_binary`, `lower_numeric_comparison_binary`). The module doc lives in
+//! plan-176-U: the comparison operator lowerings (`lower_comparison_binary`,
+//! `lower_numeric_comparison_binary`). The module doc lives in
 //! `engine/operators/builder_numeric/mod.rs`.
 
 use super::*;

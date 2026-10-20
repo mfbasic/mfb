@@ -1,6 +1,6 @@
-//! plan-176-U: collection element updates — element replace and write-back, `INTO` results, hidden
-//! binds, append headroom, borrow-get installs and `lower_element_update`. The statement entry (`lower_ops`) and shared types live in
-//! `engine/control/builder_control/mod.rs`.
+//! plan-176-U: collection element updates — element replace and write-back, `INTO` results,
+//! hidden binds, append headroom, borrow-get installs and `lower_element_update`. The statement
+//! entry (`lower_ops`) and shared types live in `engine/control/builder_control/mod.rs`.
 
 use super::*;
 

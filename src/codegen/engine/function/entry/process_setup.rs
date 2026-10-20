@@ -1,6 +1,6 @@
-//! plan-176-U: process setup for the program entry — `/dev/null`, the standard-fd reservation, the riscv hwcap
-//! probe and the arena start time. The program entry (`lower_program_entry`) lives in
-//! `engine/function/entry/mod.rs`.
+//! plan-176-U: process setup for the program entry — `/dev/null`, the standard-fd reservation,
+//! the riscv hwcap probe and the arena start time. The program entry (`lower_program_entry`)
+//! lives in `engine/function/entry/mod.rs`.
 
 use super::*;
 

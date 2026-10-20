@@ -1,5 +1,5 @@
-//! plan-176-U: the `toInt` conversion and its fixed/money/float/string helpers. The other conversions live in
-//! `engine/convert/builder_conversions/mod.rs`.
+//! plan-176-U: the `toInt` conversion and its fixed/money/float/string helpers. The other
+//! conversions live in `engine/convert/builder_conversions/mod.rs`.
 
 use super::*;
 

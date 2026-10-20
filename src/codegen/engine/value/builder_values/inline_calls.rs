@@ -1,6 +1,6 @@
-//! plan-176-U: inline and ABI call lowering — checked values, inline conversions and builtins, the MFB
-//! fast path, infallible members, the `net` form predicates and runtime helper calls. The entry points and shared types live in
-//! `engine/value/builder_values/mod.rs`.
+//! plan-176-U: inline and ABI call lowering — checked values, inline conversions and builtins,
+//! the MFB fast path, infallible members, the `net` form predicates and runtime helper calls.
+//! The entry points and shared types live in `engine/value/builder_values/mod.rs`.
 
 use super::*;
 

@@ -1,5 +1,5 @@
-//! plan-176-U: the `toByte` and `toScalar` conversions and the scalar/string helpers. The other conversions live in
-//! `engine/convert/builder_conversions/mod.rs`.
+//! plan-176-U: the `toByte` and `toScalar` conversions and the scalar/string helpers. The other
+//! conversions live in `engine/convert/builder_conversions/mod.rs`.
 
 use super::*;
 

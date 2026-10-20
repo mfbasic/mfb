@@ -17,7 +17,7 @@
 //!
 //! Letter D consumes both: `lower_function` hands a function's approved sites to
 //! the builder (`Builder::handover`), and the variant demand closure in
-//! `builder/mod.rs:variant_demand` asks for one `<base>$own<mask>` lowering per demanded mask.
+//! `builder/lower_module.rs:variant_demand` asks for one `<base>$own<mask>` lowering per demanded mask.
 //!
 //! **Fail closed.** Refusing a hand-over costs a copy; licensing a wrong one hands a
 //! callee a block the caller still reads. Every condition below is therefore a

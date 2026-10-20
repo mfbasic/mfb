@@ -218,7 +218,7 @@ const TCP_UNREACHABLE_OWN_RAISE: &[(&str, &str, &str)] = &[(
 /// `collections`' shared map/collection-lifecycle runtime helpers, none of
 /// which has a `raise_error_into`/`raise_error_bare` site in its own
 /// definition (`lower_map_bucket_put_helper`/`lower_map_probe_helper` in
-/// `codegen/engine/builder/mod.rs`, `lower_map_reclaim_helper` in
+/// `codegen/engine/builder/runtime_helpers.rs`, `lower_map_reclaim_helper` in
 /// `codegen/collection/map/map_bucket_remove.rs`,
 /// `lower_drop_owned_collection_helper` in
 /// `codegen/error/emission/park_error_helper.rs`).

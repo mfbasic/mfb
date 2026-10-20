@@ -73,7 +73,7 @@ The entry symbol of every encoded image is `_main`; the language entry routine
 is reached from there. App-mode builds repurpose `_main` as a toolkit bootstrap
 that spawns a worker thread running the language entry (see the platform
 topics).
-[[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
+[[src/codegen/engine/builder/lower_module.rs:lower_module_for_platform]]
 
 ## See Also
 

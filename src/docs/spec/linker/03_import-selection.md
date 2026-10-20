@@ -38,7 +38,7 @@ the `EncodedImage` lists every import once (bug-802; before, `nm -u` showed
 `___error` three times when three helpers needed it). ELF and Mach-O allocate one
 stub and GOT slot per encoded import; Windows groups the records by DLL when
 building its IAT. The `.ncode` plan dump still lists the per-helper records.
-[[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
+[[src/codegen/engine/builder/lower_module.rs:lower_module_for_platform]]
 [[src/arch/encode_plan.rs:encode_plan]]
 [[src/os/linux/link/elf/dynamic.rs:build]] [[src/os/macos/link/mod.rs:append_import_stubs]]
 [[src/os/windows/link/mod.rs:group_imports_by_dll]]

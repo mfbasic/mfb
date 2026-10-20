@@ -1,5 +1,5 @@
-//! plan-176-U: the boolean, short-circuit, xor, arithmetic and unary-negation operator lowerings and
-//! their bound-elision helpers. The module doc lives in
+//! plan-176-U: the boolean, short-circuit, xor, arithmetic and unary-negation operator
+//! lowerings and their bound-elision helpers. The module doc lives in
 //! `engine/operators/builder_numeric/mod.rs`.
 
 use super::*;

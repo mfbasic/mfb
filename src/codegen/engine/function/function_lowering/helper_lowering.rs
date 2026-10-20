@@ -1,5 +1,5 @@
-//! plan-176-U: the helper-function lowerings — builtin wrappers, ABI helpers, thread copy functions and the
-//! helper builder. The function lowering itself (`lower_function`) lives in
+//! plan-176-U: the helper-function lowerings — builtin wrappers, ABI helpers, thread copy
+//! functions and the helper builder. The function lowering itself (`lower_function`) lives in
 //! `engine/function/function_lowering/mod.rs`.
 
 use super::*;

@@ -1,5 +1,6 @@
-//! plan-176-U: whether a module can raise a Float arithmetic error (`module_may_emit_float_numeric_error`).
-//! The other module analyses live in `engine/analysis/module_analysis/mod.rs`.
+//! plan-176-U: whether a module can raise a Float arithmetic error
+//! (`module_may_emit_float_numeric_error`). The other module analyses live in
+//! `engine/analysis/module_analysis/mod.rs`.
 
 use super::*;
 

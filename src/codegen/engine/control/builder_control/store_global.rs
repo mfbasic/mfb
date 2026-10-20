@@ -1,5 +1,5 @@
-//! plan-176-U: `lower_store_global`, the `NirOp::StoreGlobal` lowering. The statement entry (`lower_ops`) and shared types live in
-//! `engine/control/builder_control/mod.rs`.
+//! plan-176-U: `lower_store_global`, the `NirOp::StoreGlobal` lowering. The statement entry
+//! (`lower_ops`) and shared types live in `engine/control/builder_control/mod.rs`.
 
 use super::*;
 

@@ -51,7 +51,7 @@ fn emit_fail_status_call(
 ///
 /// Only a helper of a package in [`PARKING_HELPER_PACKAGES`] may use this: its
 /// call sites are the ones that re-stamp a parked helper error with their own
-/// location. The module build refuses any other (`builder/mod.rs`, the
+/// location. The module build refuses any other (`builder/lower_module.rs`, the
 /// `_mfb_rt_fail_status` gate).
 ///
 /// Each failing check branches to its own stub ([`Self::site`]). The stub saves the

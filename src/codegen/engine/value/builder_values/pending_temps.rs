@@ -1,6 +1,6 @@
-//! plan-176-U: `lower_value` and the pending-temp machinery — pending, union-box, resource, statement
-//! and fresh-string temps; claim, drop and free. The entry points and shared types live in
-//! `engine/value/builder_values/mod.rs`.
+//! plan-176-U: `lower_value` and the pending-temp machinery — pending, union-box, resource,
+//! statement and fresh-string temps; claim, drop and free. The entry points and shared types
+//! live in `engine/value/builder_values/mod.rs`.
 
 use super::*;
 

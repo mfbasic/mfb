@@ -1,5 +1,5 @@
-//! plan-176-U: `lower_value_inner`, the per-`NirValue` lowering. The entry points and shared types live in
-//! `engine/value/builder_values/mod.rs`.
+//! plan-176-U: `lower_value_inner`, the per-`NirValue` lowering. The entry points and shared
+//! types live in `engine/value/builder_values/mod.rs`.
 
 use super::*;
 

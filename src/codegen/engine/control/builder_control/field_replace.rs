@@ -1,6 +1,6 @@
-//! plan-176-U: field replace and rebuild — owner installs, overwrite spills, inlined fixed fields, the
-//! record/owner blocks and the mixed `WITH`. The statement entry (`lower_ops`) and shared types live in
-//! `engine/control/builder_control/mod.rs`.
+//! plan-176-U: field replace and rebuild — owner installs, overwrite spills, inlined fixed
+//! fields, the record/owner blocks and the mixed `WITH`. The statement entry (`lower_ops`) and
+//! shared types live in `engine/control/builder_control/mod.rs`.
 
 use super::*;
 

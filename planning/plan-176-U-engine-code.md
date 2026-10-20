@@ -1172,15 +1172,15 @@ files pass in their new homes.
   pending_temps 631 / ownership 495 + 48 test / lower_inner 1227 / inline_calls 653; control mod 243 + 103 test /
   store_global 149 / field_with 707 / element_update 574 / field_replace 422 / value_effects 94 /
   statement_dispatch 1319 / loops 434 / string_shadow 95 / for_each 480; sweep → 0 hits.
-Commit: —
+Commit: 12f4fbb10
 
 ### Phase 4 — Module lowering (pure motion)
 
-- [ ] `builder/mod.rs`: move 1511–3975 and 4909–4974 to `builder/lower_module.rs`, 3976–4713 to
+- [x] `builder/mod.rs`: move 1511–3975 and 4909–4974 to `builder/lower_module.rs`, 3976–4713 to
       `builder/runtime_helpers.rs`, 4714–4828 to `builder/link_resolution.rs`, 4829–4908 to
       `builder/error_messages.rs` (§4.2); private `mod` declarations and the four explicit
       `pub(crate) use` lists.
-- [ ] Repoint the `builder/mod.rs` citations by the §4.2 table (16 symbol citations move, 3 stay;
+- [x] Repoint the `builder/mod.rs` citations by the §4.2 table (16 symbol citations move, 3 stay;
       2 whole-file citations move, 2 stay) and `.ai/testing-gates.md:136`. The checker does not
       force this one: after editing,
       `grep -rnoE "\[\[src/codegen/engine/builder/mod.rs[^]]*\]\]" src/docs/spec` → exactly the 5
@@ -1193,6 +1193,22 @@ Acceptance: the module plan (every data object, function and import, in order) i
   strings); step 8 rows after tighten: the two Phase-3 NEW rows plus
   `NEW code <n> > 1000 src/codegen/engine/builder/lower_module.rs` (removed in Phase 7); no row
   for `builder/mod.rs` (est. 25 min).
+- [x] Repoint the 10 code/test comments that name `builder/mod.rs` for code that moved to `lower_module.rs`
+      (`&module.entry`, the `crypto` `gen_cert` driver gate, the `process.detach` reaper, `variant_demand`, the
+      `_mfb_rt_fail_status` / `PARKING_HELPER_PACKAGES` gate ×2, `is_app()` force-emit, `module_uses_canvas`) or to
+      `runtime_helpers.rs` (`declared_errors_all.rs:221`, the map helpers): `builder/mod.rs` keeps its path, so §4.13's
+      removed-path grep could not find them (`grep -rnE "builder/mod\.rs" src tests` then `grep -lF <construct>
+      src/codegen/engine/builder/*.rs` for each). The `no_type_strings` `TypeModel` entries stay (`TypeModel` stays).
+      Phase 7 re-checks the `lower_module.rs` ones against its new parts.
+  Done: `u4.py` split by name with `codesplit.py` and wrote the four explicit re-export lists; `error_messages.rs`
+  dropped its `use super::*;` (it reads nothing from the parent: `unused_imports`). 0 visibility edits.
+  Verified 2026-10-20: `motion.py` → only the wiring differs; N = 5018, W = 0; `spec_citations_resolve` ok; guards →
+  9, 8, 7 + 1 ignored; cites → 17 by `citesweep.py` + 5 by hand (`lower_module`, `arena_global_slots`,
+  `referenced_unicode_tables`, the two whole-file cites); `grep -rnoE "\[\[src/codegen/engine/builder/mod.rs[^]]*\]\]"
+  src/docs/spec` → exactly the 5 that stay; artifact gates `general`, `thread`, `term`, `tls`, `audio`,
+  `link-const-pins`, `collections` → 0 diffs each; budget → the two Phase 3 NEW rows, `NEW code 1849 > 1000
+  …/lower_module.rs` and `TIGHTEN code 562 (ceiling 3105) …/builder/mod.rs`, the last removed by the tighten;
+  census → mod 562 / lower_module 1849 + 3 test / runtime_helpers 574 / link_resolution 67 / error_messages 72.
 Commit: —
 
 ### Phase 5 — Extract `lower_ops_inner` arms

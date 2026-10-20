@@ -1,6 +1,6 @@
-//! plan-176-U: record `WITH` updates — in-place scalar fields, field stores, record temps, self-update
-//! items, nested scalar `WITH` and the field self-update site. The statement entry (`lower_ops`) and shared types live in
-//! `engine/control/builder_control/mod.rs`.
+//! plan-176-U: record `WITH` updates — in-place scalar fields, field stores, record temps,
+//! self-update items, nested scalar `WITH` and the field self-update site. The statement entry
+//! (`lower_ops`) and shared types live in `engine/control/builder_control/mod.rs`.
 
 use super::*;
 

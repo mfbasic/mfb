@@ -1,5 +1,5 @@
-//! plan-176-U: the string capacity shadows and the self-append prescan. The statement entry (`lower_ops`) and shared types live in
-//! `engine/control/builder_control/mod.rs`.
+//! plan-176-U: the string capacity shadows and the self-append prescan. The statement entry
+//! (`lower_ops`) and shared types live in `engine/control/builder_control/mod.rs`.
 
 use super::*;
 

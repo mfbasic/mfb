@@ -1,4 +1,5 @@
-//! plan-176-U: `lower_for_each` and the walked-block deferral (`emit_defer_walked_block`). The statement entry (`lower_ops`) and shared types live in
+//! plan-176-U: `lower_for_each` and the walked-block deferral (`emit_defer_walked_block`). The
+//! statement entry (`lower_ops`) and shared types live in
 //! `engine/control/builder_control/mod.rs`.
 
 use super::*;

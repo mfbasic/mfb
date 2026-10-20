@@ -61,7 +61,7 @@ Package build:
     -> <package>.mfp
 ```
 
-[[src/cli/build/mod.rs:build_project]] [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
+[[src/cli/build/mod.rs:build_project]] [[src/codegen/engine/builder/lower_module.rs:lower_module_for_platform]]
 
 Diagnostic and validation output is emitted during the front-end passes. Build
 artifacts are written into the project directory.

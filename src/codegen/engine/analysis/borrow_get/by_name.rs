@@ -1,5 +1,5 @@
-//! plan-176-U: the by-name borrow-get classification (`collect_borrow_gets_by_name`) and its per-site
-//! tally. Called from `collect_borrow_gets` in `engine/analysis/borrow_get/mod.rs`.
+//! plan-176-U: the by-name borrow-get classification (`collect_borrow_gets_by_name`) and its
+//! per-site tally. Called from `collect_borrow_gets` in `engine/analysis/borrow_get/mod.rs`.
 
 use super::*;
 

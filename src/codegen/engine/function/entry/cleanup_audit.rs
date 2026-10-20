@@ -1,5 +1,5 @@
-//! plan-176-U: the cleanup-failure audit report and its stderr writers. The program entry (`lower_program_entry`) lives in
-//! `engine/function/entry/mod.rs`.
+//! plan-176-U: the cleanup-failure audit report and its stderr writers. The program entry
+//! (`lower_program_entry`) lives in `engine/function/entry/mod.rs`.
 
 use super::*;
 

@@ -30,7 +30,7 @@ the dynamic ELF writer emits a PIE with separate protection regions. Windows
 uses a synthetic `_start` entry in this model; the encoded image uses `_main`.
 Final offsets, protections, and container metadata are determined by the linker.
 [[src/os/linux/object.rs:lower_plan]] [[src/os/windows/object.rs:lower_plan]]
-[[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
+[[src/codegen/engine/builder/lower_module.rs:lower_module_for_platform]]
 
 ## Shape
 

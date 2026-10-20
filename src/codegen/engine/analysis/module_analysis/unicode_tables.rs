@@ -1,5 +1,6 @@
-//! plan-176-U: whether a module needs the Unicode runtime tables (`module_uses_unicode_runtime_tables`).
-//! The other module analyses live in `engine/analysis/module_analysis/mod.rs`.
+//! plan-176-U: whether a module needs the Unicode runtime tables
+//! (`module_uses_unicode_runtime_tables`). The other module analyses live in
+//! `engine/analysis/module_analysis/mod.rs`.
 
 use super::*;
 

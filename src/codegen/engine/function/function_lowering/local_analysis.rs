@@ -1,6 +1,6 @@
-//! plan-176-U: the per-function local analyses — union variants, address-taken and reassigned locals, and the
-//! borrowed-param and fresh-string return checks. The function lowering itself (`lower_function`) lives in
-//! `engine/function/function_lowering/mod.rs`.
+//! plan-176-U: the per-function local analyses — union variants, address-taken and reassigned
+//! locals, and the borrowed-param and fresh-string return checks. The function lowering itself
+//! (`lower_function`) lives in `engine/function/function_lowering/mod.rs`.
 
 use super::*;
 

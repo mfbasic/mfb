@@ -1,4 +1,5 @@
-//! plan-176-U: the `TRAP` analyses — discard conversions, unboxed trap results and trap delivery moves. The function lowering itself (`lower_function`) lives in
+//! plan-176-U: the `TRAP` analyses — discard conversions, unboxed trap results and trap
+//! delivery moves. The function lowering itself (`lower_function`) lives in
 //! `engine/function/function_lowering/mod.rs`.
 
 use super::*;

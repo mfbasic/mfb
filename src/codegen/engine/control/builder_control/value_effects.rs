@@ -1,4 +1,5 @@
-//! plan-176-U: the value effect predicates — may-raise, effect-free, cannot-fail and infallible builtins. The statement entry (`lower_ops`) and shared types live in
+//! plan-176-U: the value effect predicates — may-raise, effect-free, cannot-fail and infallible
+//! builtins. The statement entry (`lower_ops`) and shared types live in
 //! `engine/control/builder_control/mod.rs`.
 
 use super::*;

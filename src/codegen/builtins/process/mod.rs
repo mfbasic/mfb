@@ -40,7 +40,7 @@ pub(crate) use gen_shared::lower_process_drop_helper;
 
 // bug-474: the pthread start routine `process::detach` hands each detached child
 // to. Not a runtime call either — the code builder emits it alongside the detach
-// helper (see `builder/mod.rs`), so it is reached by name from there.
+// helper (see `builder/lower_module.rs`), so it is reached by name from there.
 pub(crate) use gen_unix::lower_process_reaper_helper;
 mod func_did_signal;
 mod func_is_running;

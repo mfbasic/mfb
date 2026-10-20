@@ -1,4 +1,5 @@
-//! plan-176-U: loop lowering — conditions, bodies, provable indexes, the numeric `FOR` and loop promotion. The statement entry (`lower_ops`) and shared types live in
+//! plan-176-U: loop lowering — conditions, bodies, provable indexes, the numeric `FOR` and loop
+//! promotion. The statement entry (`lower_ops`) and shared types live in
 //! `engine/control/builder_control/mod.rs`.
 
 use super::*;

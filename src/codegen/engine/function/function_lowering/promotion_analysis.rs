@@ -1,4 +1,5 @@
-//! plan-176-U: the vector-promotion and loop-local analyses (`promotable_vector_locals`, `scan_loop_locals`). The function lowering itself (`lower_function`) lives in
+//! plan-176-U: the vector-promotion and loop-local analyses (`promotable_vector_locals`,
+//! `scan_loop_locals`). The function lowering itself (`lower_function`) lives in
 //! `engine/function/function_lowering/mod.rs`.
 
 use super::*;

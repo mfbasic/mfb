@@ -1,5 +1,5 @@
-//! plan-176-U: the entry-args list materialization (`emit_entry_args_list_materialization`). The program entry (`lower_program_entry`) lives in
-//! `engine/function/entry/mod.rs`.
+//! plan-176-U: the entry-args list materialization (`emit_entry_args_list_materialization`).
+//! The program entry (`lower_program_entry`) lives in `engine/function/entry/mod.rs`.
 
 use super::*;
 

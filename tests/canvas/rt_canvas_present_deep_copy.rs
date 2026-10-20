@@ -437,7 +437,7 @@ fn remove_group_clears_the_name_first_and_retires_the_buffer() {
 /// zeroes in the data section. That size was chosen deliberately (plan-116-G's **G4**)
 /// on the argument that it is carried only by canvas programs, and this is the assertion
 /// that makes the argument true rather than intended: the data object sits behind
-/// `module_uses_canvas(module)` in `engine/builder/mod.rs`, beside the scene region and
+/// `module_uses_canvas(module)` in `engine/builder/lower_module.rs`, beside the scene region and
 /// the font table.
 ///
 /// Worth pinning rather than assuming because the gate is one `if` around three pushes,

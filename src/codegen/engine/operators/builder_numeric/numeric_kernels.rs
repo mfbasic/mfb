@@ -1,5 +1,5 @@
-//! plan-176-U: the numeric kernels — overflow and division checks, integer and Fixed power, Fixed
-//! multiply/divide, abs/neg, numeric loads and the Float power. The module doc lives in
+//! plan-176-U: the numeric kernels — overflow and division checks, integer and Fixed power,
+//! Fixed multiply/divide, abs/neg, numeric loads and the Float power. The module doc lives in
 //! `engine/operators/builder_numeric/mod.rs`.
 
 use super::*;

@@ -46,7 +46,7 @@ The subscription operations call `_mfb_rt_stdin_subscribe` /
 The trampoline and finish helper are emitted when a worker start is used; the
 table and block-arena helpers are emitted when start or a reference to block
 release requires them.
-[[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
+[[src/codegen/engine/builder/lower_module.rs:lower_module_for_platform]]
 
 Sleeping is not in this set: it is `_mfb_rt_os_os_sleep`, the body behind
 `os::sleep(ms)`, which serves the main thread and a worker alike (see
@@ -105,7 +105,7 @@ value). It allocates the control block from the heap, zeroes it, and builds it
   the program entry: globals and the enabled LINK, terminal, presentation, mouse,
   and input state regions. These regions are **per-arena**.
   [[src/codegen/runtime/thread/runtime_helpers_thread.rs:worker_arena_state_size]]
-  [[src/codegen/engine/builder/mod.rs:lower_module_for_platform]]
+  [[src/codegen/engine/builder/lower_module.rs:lower_module_for_platform]]
 
 It then asks the OS to start `_mfb_rt_thread_trampoline`, passing the control
 block pointer as the OS start-routine argument (see `os-integration`). Any failure

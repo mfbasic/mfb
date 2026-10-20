@@ -1,5 +1,5 @@
-//! plan-176-U: `lower_ops_inner`, the per-`NirOp` statement dispatch. The statement entry (`lower_ops`) and shared types live in
-//! `engine/control/builder_control/mod.rs`.
+//! plan-176-U: `lower_ops_inner`, the per-`NirOp` statement dispatch. The statement entry
+//! (`lower_ops`) and shared types live in `engine/control/builder_control/mod.rs`.
 
 use super::*;
 
