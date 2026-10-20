@@ -12,13 +12,15 @@ IMPORT datetime
 
 LET key AS jwt::Key = jwt::generate("EdDSA", "Ed25519")
 
-LET subject AS json::Json = json::JsonStr["user-1"]
 MUT claims AS Map OF String TO json::Json = Map OF String TO json::Json {}
-claims = collections::set(claims, "sub", subject)
+claims = collections::set(claims, "iss", json::JsonStr["https://issuer.example"])
+claims = collections::set(claims, "aud", json::JsonStr["https://api.example"])
+claims = collections::set(claims, "sub", json::JsonStr["user-1"])
 claims = collections::set(claims, "exp", jwt::numericDate(datetime::now().seconds + 3600))
 LET token AS String = jwt::sign(key, json::JsonObj[claims])
 
-LET checked AS jwt::Token = jwt::verify(token, [key], jwt::options(["EdDSA"]))
+LET choices AS jwt::Options = WITH jwt::options(["EdDSA"]) { issuer := "https://issuer.example", audience := "https://api.example", requiredClaims := ["exp"], leewaySeconds := 30 }
+LET checked AS jwt::Token = jwt::verify(token, [jwt::publicKeyOf(key)], choices)
 ```
 
 Each value is widened to `json::Json` on the way into the map — the six member
@@ -52,10 +54,9 @@ nothing here reads a curve off a token.
 
 `RS256`, `RS384`, `RS512`, `PS256`, `PS384` and `PS512` need RSA, and `crypto`
 has no RSA primitive. A token using one, or a JWK with `kty: "RSA"`, fails with
-`errorCode::ErrUnsupported` rather than being misread. If you need to verify
-tokens from an issuer that signs with RSA — which most OpenID Providers still do
-— this package cannot do it yet, and the missing piece is in `crypto` rather than
-here.
+`errorCode::ErrUnsupported` rather than being misread. Most OpenID Providers
+still sign with RSA, so this package cannot verify their tokens yet; the missing
+piece is RSA in `crypto`, not here.
 
 `alg: "none"` is never signed and never verified. An unsecured JWS carries no
 signature, so there is nothing about it to check.
@@ -80,9 +81,6 @@ the split:
 * **JWK import and export.** `crypto` has no key import, but its SEC1 form is
   exactly a JWK's `x`, `y` and `d` concatenated.
 
-None of the three belongs in a primitive package, and all three are the kind of
-thing a JWT implementation must get exactly right.
-
 ## The security posture
 
 The verifier takes its algorithm **from you**, never from the token.
@@ -101,24 +99,42 @@ was supposed to be checked *against*. Naming what you accept, once, refuses both
 
 On top of that:
 
-* **A token has exactly one text.** Base64url must be canonical and unpadded
+* **The encodings have one text.** Base64url must be canonical and unpadded
   (RFC 7515 §2): `=` padding, the standard `+`/`/` alphabet, and a final group
-  whose leftover bits are not zero are all refused. Where a byte string has
-  several legal spellings, anything keyed on the text — a replay cache, a
-  revocation list, an audit log — can be desynchronised from anything keyed on
-  the claims.
-* **A duplicate member name is refused.** JSON does not forbid
-  `{"alg":"HS256","alg":"none"}`, and a parser that keeps one member cannot
-  report the other — but two readers need not keep the same one.
+  whose leftover bits are not zero are all refused. A duplicate member name in a
+  header or claims set is refused, because two readers need not keep the same
+  one.
+* **A signature may have more than one text.** ECDSA signatures are malleable:
+  for one key and message, `(r, s)` and `(r, n−s)` both verify. `crypto` does not
+  normalise to low-S, RFC 7518 does not require it, and mainstream JOSE libraries
+  accept both, so `jwt::verify` does too. Ed25519 and Ed448 do not have this:
+  `crypto` rejects a non-canonical scalar. Do not use a token's bytes, or its
+  signature, as an identifier. Key a replay cache, revocation list or audit
+  record on the `jti` claim (RFC 7519 §4.1.7), or on the claims themselves.
 * **`crit` is refused.** RFC 7515 §4.1.11 requires a verifier to understand every
   parameter listed there or reject the token, and this package implements no
-  extension, so the honest answer is always to reject.
+  extension.
+* **An unsecured token is refused by its algorithm.** `alg: "none"` is
+  `ErrorAlgorithm` whatever its signature segment holds. An empty signature on an
+  algorithm you do allow is a format error.
 * **An ECDSA signature is parsed strictly.** Every DER length and INTEGER is
   checked for minimal encoding, and `r`/`s` are range-checked against the curve
   order, because that parser reads bytes an attacker wrote.
 * **The payload's JSON is parsed only after the signature verifies**, so a
   document nobody signed is never walked.
 * **An HMAC is compared with `crypto::constantTimeEqual`**, never with `=`.
+* **Messages are safe to log.** Token-controlled text in an error (an `alg`, a
+  `kid`, a claim value) is printable ASCII and at most 64 characters.
+* **A key is what it says it is.** A JWK or key pair whose private and public
+  halves do not match is refused when the key is built, rather than producing
+  tokens no published key verifies.
+
+Two defaults are deliberately permissive, as they are in the mainstream
+libraries, and a production deployment should set them:
+
+* `issuer`, `audience` and `subject` are unchecked until you name them.
+* A key with no `kid` is tried for every token, whatever `kid` the token names.
+  Give every key a `kid` once you rotate keys.
 
 `jwt::unverifiedHeader` and `jwt::unverifiedClaims` exist for a debugger, a log
 formatter, or picking which key to fetch. Their names say what they are.
@@ -133,7 +149,7 @@ LET fixed AS jwt::Options = WITH jwt::options(["HS256"]) { fixedTime := TRUE, ti
 ```
 
 which is what makes a test of an expiry rule reproducible. `leewaySeconds`
-forgives clock skew and defaults to none.
+forgives clock skew, must be zero or more, and defaults to none.
 
 A NumericDate is a whole number of seconds (RFC 7519 §2). Because
 `json::JsonNum` holds a `Float`, a time claim carrying a fraction — or a
@@ -141,11 +157,19 @@ magnitude past the range binary64 represents exactly — is rejected rather than
 rounded: a value that cannot be compared exactly against a clock cannot decide
 whether a token has expired.
 
+## Limits and performance
+
+A token larger than 1 MiB (`MAX_TOKEN_BYTES`, 1048576 bytes, all three segments
+together) is refused before it is parsed. Measured on the development machine
+with a 933,428-byte token: `jwt::sign` about 120 ms and `jwt::verify` about 40 ms,
+from `datetime::now()` around each call.
+
 ## Testing
 
 ```sh
-mfb test packages/jwt          # 102 tests: round trips, rejections, claims, DER strictness
-packages/jwt/oracle/run.sh     # the same questions, asked of panva/jose
+mfb test packages/jwt                 # 115 tests: round trips, rejections, claims, DER strictness
+packages/jwt/check-doc-examples.sh    # every EXAMPLE in the DOC blocks builds and runs
+packages/jwt/oracle/run.sh            # the same questions, asked of panva/jose
 ```
 
 The package's own tests pin what this package decided. They cannot catch a
@@ -153,3 +177,9 @@ misreading of RFC 7515/7518/7519, because the same misreading would be in the
 code and the test — so `oracle/` asks an independent implementation the same
 questions, cross-verifies every signature in both directions, and compares
 deterministic tokens byte for byte. See `oracle/README.md`.
+
+## Versioning
+
+This is 1.0.0. The public surface is everything `jwt.mfp` exports. Behaviour
+changes that make a token that verified stop verifying, or that change which
+error a refused token raises, are breaking and wait for 2.0.0. See `CHANGELOG.md`.
