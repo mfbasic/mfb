@@ -95,7 +95,7 @@ packageName.exportName
 ```
 
 These signatures are passed into IR lowering
-so calls to package functions survive lowering with proper function types.[[src/ir/lower.rs:lower_project_with_external_functions]]
+so calls to package functions survive lowering with proper function types.[[src/ir/lower/mod.rs:lower_project_with_external_functions]]
 
 For native executable builds, the package's bodies are not left as external
 symbols. The native back end decodes each installed package's binary

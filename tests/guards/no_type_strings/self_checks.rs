@@ -249,7 +249,11 @@ fn scanners_fire_on_their_own_needles() {
         "re-keying by ParameterType is what lowers the count"
     );
     assert_eq!(
-        string_keyed_type_maps("src/ir/lower.rs", "    binding_types: HashMap<String, X>,").len(),
+        string_keyed_type_maps(
+            "src/ir/lower/mod.rs",
+            "    binding_types: HashMap<String, X>,"
+        )
+        .len(),
         0,
         "a table not on the curated list is not scanned"
     );

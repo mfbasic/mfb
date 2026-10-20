@@ -27,7 +27,7 @@ of the pipeline: synthesized lambda names use it (`$lambda0`) and the
 monomorphizer's concrete-symbol mangling uses it as the type-token delimiter
 (`name$<san(T1)>$<san(T2)>`). Reusing `$` would conflate three unrelated naming
 domains. `#` is free and untypeable, so it is reserved exclusively for this
-purpose. [[src/internal_name.rs:INTERNAL_SIGIL]] [[src/ir/lower.rs:lower_expression_with_expected]]
+purpose. [[src/internal_name.rs:INTERNAL_SIGIL]] [[src/ir/lower/expression.rs:lower_expression_with_expected]]
 
 See `./mfb spec architecture monomorphization` for the `$` mangling scheme and
 `./mfb spec language lexical-structure` for the lexer's reserved-character set.
@@ -68,7 +68,7 @@ sigil name is unreachable from user code. [[src/internal_name.rs:internalize]]
 The sigil name is a plain string from the lexer onward; it survives unchanged
 through the AST and into the IR, where it guarantees no collision with any user
 symbol. The IR construction re-applies `internalize` when synthesizing references
-to internal definitions. [[src/ir/lower.rs:lower_expression_with_expected]]
+to internal definitions. [[src/ir/lower/expression.rs:lower_expression_with_expected]]
 
 | Stage          | Form                | Notes                                            |
 |----------------|---------------------|--------------------------------------------------|

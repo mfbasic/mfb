@@ -13,7 +13,7 @@ END FUNC
 ```
 
 - **Every function may fail.** `FUNC F(...) AS T` yields a `T` on success and an `Error` on failure. A function declared `AS Nothing` yields `NOTHING` on success and may still fail. `RETURN` is always the success exit and `FAIL` the failure one; a function declared `AS Error` returns an `Error` as data (`mfb spec language error-model` §8.5).
-- **Effect-only functions** are declared `AS Nothing`. Such a body may end with a bare `RETURN` (or `RETURN NOTHING`), or fall through to `END FUNC`; each succeeds with `NOTHING` (`mfb spec language error-model` §8.6 rules 8–9). A `RETURN` operand must be a `Nothing` value like any other success type: `RETURN log("x")` is valid, while `RETURN 5` or `RETURN error(...)` is `TYPE_RETURN_MISMATCH`, never a value silently dropped. [[src/ir/verify/compat.rs:check_return_type]] Its call is usually a statement, but it is an ordinary value expression too: `LET v = log("x")` binds `NOTHING`, which binds, passes, compares and collects like any other value (§4.6). A call to a built-in declared `AS Nothing` (`io::print`, `fs::writeAll`) is the same. [[src/ir/lower.rs:function_return_type]]
+- **Effect-only functions** are declared `AS Nothing`. Such a body may end with a bare `RETURN` (or `RETURN NOTHING`), or fall through to `END FUNC`; each succeeds with `NOTHING` (`mfb spec language error-model` §8.6 rules 8–9). A `RETURN` operand must be a `Nothing` value like any other success type: `RETURN log("x")` is valid, while `RETURN 5` or `RETURN error(...)` is `TYPE_RETURN_MISMATCH`, never a value silently dropped. [[src/ir/verify/compat.rs:check_return_type]] Its call is usually a statement, but it is an ordinary value expression too: `LET v = log("x")` binds `NOTHING`, which binds, passes, compares and collects like any other value (§4.6). A call to a built-in declared `AS Nothing` (`io::print`, `fs::writeAll`) is the same. [[src/ir/lower/decls.rs:function_return_type]]
 - **Effect-only callbacks.** Naming a function yields a function value of its type, so naming an `AS Nothing` function yields a `FUNC(...) AS Nothing` value — what APIs such as `collections::forEach` take, with no wrapper needed. APIs that infer and collect a result, such as `collections::transform`, reject a callback whose success type is `Nothing`: there would be nothing to collect.
 
   ```basic
@@ -39,7 +39,7 @@ END FUNC
   number, scalar or boolean literal, `NOTHING`, or a built-in package constant — is
   passed as that value; any other default is compiled once, in the declaration's
   scope, into a hidden function that every omitting call invokes.
-  [[src/ir/lower.rs:default_kind]] [[src/internal_name.rs:hidden_default_function_name]]
+  [[src/ir/lower/decls.rs:default_kind]] [[src/internal_name.rs:hidden_default_function_name]]
   [[src/resolver/resolution/body.rs:resolve_parameter_default]]
 - **Many parameters allowed.** A callable may take **any number of parameters**.
   The first eight are passed in registers and the rest in a stack tail, on every
@@ -86,7 +86,7 @@ END FUNC
   signature. Ordinary MFBASIC wrappers around native calls still follow the user
   overload rules. [[src/resolver/mod.rs:link_target_signature]]
   [[src/monomorph/lower/mod.rs:into_project]]
-  [[src/ir/lower.rs:lower_link_defaults]]
+  [[src/ir/lower/decls.rs:lower_link_defaults]]
 - **Calls through function values.** The value has an already selected callable
   type; the selection, named-argument and default-argument rules are collected
   under "Function-value selection and calls" below.
@@ -115,7 +115,7 @@ END FUNC
 A callable type records ordered parameter types, a result type, and whether it
 is isolated. Parameter names and default expressions are not part of that type.
 A reference to a single ordinary function uses its declared callable type.
-[[src/types.rs:ParameterType]] [[src/ir/lower.rs:function_types]]
+[[src/types.rs:ParameterType]] [[src/ir/lower/typing.rs:function_types]]
 A resource parameter's `STATE T` clause and a resource return's `STATE T` clause
 are part of that type (`./mfb spec language resource-management`, §15.5).
 
@@ -164,7 +164,7 @@ the rule a call to it follows; otherwise the name is the built-in.
 
 A general built-in predicate named as a value (`isEven` where a
 `FUNC(Integer) AS Boolean` is expected) is selected by a separate mechanism in IR
-lowering, not by this rule. [[src/ir/lower.rs:builtin_predicate_ref_type]]
+lowering, not by this rule. [[src/ir/lower/expression.rs:builtin_predicate_ref_type]]
 
 A call through a function value supplies every parameter **positionally**.
 Declaration defaults are not retained, and missing arguments are
@@ -179,7 +179,7 @@ MFBASIC wrapper signature; invocation routes through the generated marshaling
 thunk, rather than treating a C address as a closure. This rule does not provide
 an MFBASIC-to-C callback-pointer conversion. Native ABI declarations are
 specified by `./mfb spec language native-libraries`.
-[[src/ir/lower.rs:function_types]]
+[[src/ir/lower/typing.rs:function_types]]
 [[src/target/shared/nir/lower.rs:link_routing_imports]]
 
 ## See Also

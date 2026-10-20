@@ -179,7 +179,7 @@ impl Rows {
                 NirOp::DoUntil { body, condition } => {
                     scopes.scoped(|scopes| self.rewrite_ops(body, scopes));
                     // The condition is lowered against the *outer* locals
-                    // (`ir/lower.rs`, `HirStatement::DoUntil`), so body bindings
+                    // (`ir/lower/`, `HirStatement::DoUntil`), so body bindings
                     // are out of scope here — rewrite it after the body frame is
                     // gone.
                     self.rewrite_value(condition, scopes);
@@ -268,7 +268,7 @@ impl Rows {
 }
 
 /// Lexical `Local` → declared-type environment. Shadowing is real in NIR
-/// (`ir/lower.rs` keeps source names), so nested bodies push a frame and lookup
+/// (`ir/lower/` keeps source names), so nested bodies push a frame and lookup
 /// walks innermost-out; a miss means "type unknown — do not rewrite".
 pub(super) struct Scopes {
     stack: Vec<HashMap<String, ParameterType>>,

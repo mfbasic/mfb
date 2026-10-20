@@ -1,6 +1,6 @@
 //! bug-648: whether the stores into an inline-`TRAP` temp hand it ownership.
 //!
-//! The inline-`TRAP` desugar (`ir/lower.rs`) routes a trapped value through a temp
+//! The inline-`TRAP` desugar (`ir/lower/`) routes a trapped value through a temp
 //! bound with no initializer:
 //!
 //! ```text

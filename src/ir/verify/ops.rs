@@ -177,7 +177,7 @@ impl TypeEnv {
                     // Ungating exposes the *synthesized* binds that also carry
                     // `explicit_type: false`, so they are excluded by shape.
                     // The exclusion list is exhaustive over the emitters in
-                    // `src/ir/lower.rs` (audited for bug-376):
+                    // `src/ir/lower/` (audited for bug-376):
                     //   - `$`-prefixed temps ($match, $for_iter, $trap_res,
                     //     $trap_val): the guard below. Load-bearing — a
                     //     `$trap_val` for `RES f = open() TRAP` is typed with

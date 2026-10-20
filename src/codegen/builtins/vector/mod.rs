@@ -10,7 +10,7 @@
 //! reproduces the pre-migration `VectorResolver::implementation_name` with no custom
 //! resolver. The nine records are registered via [`RegistryPackage::add_record`] with
 //! element-typed props so the record-constant path (`registry_record_constant` in
-//! `ir/lower.rs`) reads each field's element type in declaration order; the FUNC
+//! `ir/lower/`) reads each field's element type in declaration order; the FUNC
 //! bodies ride each member's `func_*.rs` descriptor as `Body::mfb` (the private
 //! isqrt/angleFixed/toString bodies as `helper_*.rs` `add_helper` chunks).
 //!
@@ -557,7 +557,7 @@ fn add_overrides(pkg: &mut RegistryPackage) {
 // "element-of-Arg(0)"). So `vector` keeps this thin EXACT selector — reproducing the
 // pre-migration `VectorResolver` — over its own registered overload data, and the
 // generic `registry::resolve_call` / `registry::rewrite_target` are routed around for
-// `vector` in `builtins::resolve_call_return_type` and `ir/lower.rs`. The shared
+// `vector` in `builtins::resolve_call_return_type` and `ir/lower/`. The shared
 // matcher is left untouched (no coarse-nominal change ripples onto other packages).
 
 /// The registered overload of `qualified` (`"vector.length"`) whose parameter types
@@ -594,7 +594,7 @@ pub(crate) fn resolve_return_type(
 }
 
 /// The type-specific `__vector_<op>_<type>` rewrite target of a `vector` call, or
-/// `None` when the arguments match no overload. Consulted by `ir/lower.rs` before the
+/// `None` when the arguments match no overload. Consulted by `ir/lower/` before the
 /// generic coarse registry rewrite path. Returns the already-interned `&'static`
 /// target from the selected overload's `Body::Rewrite` (no per-call allocation).
 pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'static str> {

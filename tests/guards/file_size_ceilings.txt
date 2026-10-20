@@ -73,5 +73,4 @@ ceiling code 2018 src/codegen/string/repr/builder_strings.rs
 ceiling code 1533 src/codegen/string/unicode_props.rs
 ceiling code 2824 src/codegen/term/core/term.rs
 ceiling code 1502 src/codegen/term/grid/term_grid.rs
-ceiling code 5222 src/ir/lower.rs
 ceiling code 1037 src/os/linux/link/elf.rs

@@ -207,7 +207,7 @@ fn timeout_param() -> Parameter {
 /// The shared optional `allowSelfSigned` parameter (bug-477).
 ///
 /// **The default must stay `FALSE`, and the spelling must stay lowercase.** The
-/// `Fill` reaches `ir/lower.rs` as `IrValue::Const { type_: Boolean, value: expr }`
+/// `Fill` reaches `ir/lower/` as `IrValue::Const { type_: Boolean, value: expr }`
 /// and ends at `arch/encode_operand.rs::immediate`, whose Boolean vocabulary is
 /// exactly `"true"`/`"false"` — `"FALSE"` is `invalid immediate` (the uppercase
 /// spelling is only the *rendered* display form). And the value matters far

@@ -248,7 +248,7 @@ types and the machine calling convention stay the same. Package function
 metadata preserves parameter names; this is distinct from function-value types,
 which preserve neither names nor defaults (`./mfb spec language functions`).
 [[src/binary_repr/writer.rs:encode_functions]]
-[[src/ir/lower.rs:normalize_local_call_arguments]]
+[[src/ir/lower/call_args.rs:normalize_local_call_arguments]]
 
 Likewise, accessible record field names and enum member names are source-level
 API spellings. Renaming them can break member references and named construction.
@@ -256,7 +256,7 @@ Renaming an enum member also changes its built-in `toString` result, even when
 its ordinal stays the same. Source compatibility, textual-output compatibility,
 and binary layout/calling-convention compatibility must be assessed separately;
 an unchanged layout alone does not establish compatibility.
-[[src/ir/lower.rs:lower_constructor_args]]
+[[src/ir/lower/construct.rs:lower_constructor_args]]
 [[src/codegen/string/repr/builder_strings.rs:lower_enum_to_string]]
 
 ## 13.1 Package identity, versions, and manifests

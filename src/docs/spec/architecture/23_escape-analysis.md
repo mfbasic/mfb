@@ -70,7 +70,7 @@ whose type is not known to be a resource, is left in place.
 
 There is a single implementation of the analyzer; it is invoked,
 not copy-pasted. Lowering stores the decisions in IR; verification and native cleanup
-lowering consume that metadata. [[src/ir/lower.rs:lower_function]] [[src/ir/resource_escape.rs:analyze_function]]
+lowering consume that metadata. [[src/ir/lower/decls.rs:lower_function]] [[src/ir/resource_escape.rs:analyze_function]]
 
 This analysis routes cleanup through the container edges listed below; merely
 reading a handle or passing an ordinary argument does not float it. Any holder
@@ -177,7 +177,7 @@ builtin's item is. A captured `RES` binding is a direct insertion, and a capture
 record, list or function value carries in what it reaches. The captured names are
 the ones lowering builds the environment from — the free names of the body that
 the function binds, a lambda parameter shadowing an outer name.
-[[src/ir/lower.rs:lambda_captured_names]] So a resource captured by a closure that
+[[src/ir/lower/captures.rs:lambda_captured_names]] So a resource captured by a closure that
 is stored in an outer binding floats to that binding, and a closure `RETURN`ed
 over a container declared after the resource it carries meets the ordering gate
 below, as a returned list does. An explicitly typed `FUNC` binding counts as a

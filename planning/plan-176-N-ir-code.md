@@ -680,25 +680,36 @@ Acceptance: the shape checker reports the same diagnostics.
   count alone); `test-accept.sh … '*-invalid'` → 208 passed; G2 general → 0 diffs; `no_type_strings` → 7 + 1
   ignored; check warnings 0; `spec_citations_resolve` ok; budget → one `STALE code (ceiling 2950) src/ir/shape.rs`
   before, none after; census → 495/4, 597/2, 482, 600, 199, 600/2.
-Commit: —
+Commit: 6e4cf1e75
 
 ### Phase 5 — `lower.rs` → `lower/` (largest blast radius)
 
-- [ ] `git mv src/ir/lower.rs src/ir/lower/mod.rs`; create `decls.rs`, `statement.rs`,
+- [x] `git mv src/ir/lower.rs src/ir/lower/mod.rs`; create `decls.rs`, `statement.rs`,
       `inline_trap.rs`, `trap_hoist.rs`, `concat_fold.rs`, `typing.rs`, `call_args.rs`,
       `expression.rs`, `construct.rs`, `captures.rs` per §4.1.
-- [ ] `mod.rs`: the ten `mod` lines, the ten private `use <part>::*;` lines, the four re-export
+      Done: `codesplit.py` by §4.1's names → 16, 12, 18, 8, 9, 18, 7, 6, 10, 4 items (construct also takes
+      `omitted_field_default`, added since planning); none left unlisted.
+- [x] `mod.rs`: the ten `mod` lines, the ten private `use <part>::*;` lines, the four re-export
       lines; widen the 8 items to `pub(in crate::ir)`; the 50 `pub(super)` edits.
-- [ ] The two path rewrites (`hoist_resource_temporaries` in `decls.rs`,
+      Done: `pub(super)` from the compiler's errors → §4.1's 50 items + the 9 `TrapHoist`/`ConditionalStep` fields;
+      `default_kind`'s re-export is `#[cfg(test)]` (only `ir::tests` names `lower::default_kind`; unconditional, it
+      warns `unused import` in the bin build); `motion.py` → only the wiring and the visibility/path edits.
+- [x] The two path rewrites (`hoist_resource_temporaries` in `decls.rs`,
       `VALUE_VISIT_MAX_DEPTH` + its doc link in `inline_trap.rs`).
-- [ ] `TypeIndex` doc comment: `` `ir/verify/mod.rs:1002` `` → `` `ir/verify/env.rs:infer_type_depth` ``.
-- [ ] `tests/guards/no_type_strings.rs`: the 5 `TYPE_KEYED_TABLES` rows → `src/ir/lower/mod.rs`;
+- [x] `TypeIndex` doc comment: `` `ir/verify/mod.rs:1002` `` → `` `ir/verify/env.rs:infer_type_depth` ``.
+- [x] `tests/guards/no_type_strings.rs`: the 5 `TYPE_KEYED_TABLES` rows → `src/ir/lower/mod.rs`;
       in `tests/guards/no_type_strings/self_checks.rs` the self-test literal → `"src/ir/lower/mod.rs"` (§4.1 justification in the commit message);
       prose 374, 398, 972, 993.
-- [ ] Spec: rewrite all 76 `[[src/ir/lower.rs…]]` citations per §4.1.
-- [ ] `.ai/collections.md:464`, `.ai/resources-packages.md:28, 254, 439, 441` per §4.1 (254 also
+      Done: before the edit `curated_type_keyed_tables_all_exist` FAILED; after → 7 + 1 ignored. Prose (now 389,
+      413, 993, 1014): the 993 qualified-enum lookup is `qualified_imported_enum` → `ir/lower/typing.rs`.
+- [x] Spec: rewrite all 76 `[[src/ir/lower.rs…]]` citations per §4.1.
+- [x] `.ai/collections.md:464`, `.ai/resources-packages.md:28, 254, 439, 441` per §4.1 (254 also
       fixes the stale `source_implementation_name`; 439 the stale `builtins::` path).
-- [ ] Tighten and commit the ceiling file.
+      Done: as §4.1; plus 16 code comments in 12 files (unlisted) `ir/lower.rs` → `ir/lower/`. The acceptance grep
+      `ir/lower\.rs` also matches `nir/lower.rs` (a different, existing file; ~30 live cites), so the check used is
+      `git grep -E '(^|[^n])ir/lower\.rs'` → 0 outside the ceiling file. `citesweep.py` → 76 (75 + the bare cite by
+      hand), `citedef.py` → 0 not defined.
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: lowering produces byte-identical IR for every builtin family.
   Check: `cargo build --release && cargo test -p mfb --bin mfb ir::` → pass (est. 7 min).
@@ -711,6 +722,14 @@ Acceptance: lowering produces byte-identical IR for every builtin family.
   `cargo test --test file_size_budget 2>&1 | grep 'src/ir/lower'` → one `STALE` code row for
   `src/ir/lower.rs` (its 57 inline test LOC are under 250, so it has no inline ceiling) before the
   tighten, none after (est. 2 min).
+  Verified 2026-10-19: `ir::` → `ok. 974 passed`; G2 general, collections, strings → 0 diffs each; guards → 8, 8,
+  7 + 1 ignored; check warnings 0, clippy 37065, list 5017 (= baseline); `spec_citations_resolve` ok; budget → one
+  `STALE code (ceiling 5222) src/ir/lower.rs` before, none after; census → mod 502/59, decls 367, statement 696,
+  inline_trap 793, trap_hoist 523, concat_fold 304, typing 524, call_args 223, expression 825, construct 340,
+  captures 172.
+  Letter end (Validation Plan): `bash scripts/artifact-gate.sh target/release/mfb all` → `artifact-gate [all]: 1703 tests, 1882 build(s), 2362 golden(s) checked, 0 diff(s)`; `test-accept.sh …
+  '*-invalid' 'package-*' 'native-library-*' 'native-resource-*' 'roundtrip-package'` → `acceptance tests passed (236 test(s) ran)`; budget → no
+  `src/ir/(lower|shape|binary|verify)` row; no ceiling row names any N path.
 Commit: —
 
 ## Validation Plan
@@ -763,6 +782,11 @@ Commit: —
 ## Corrections
 
 - 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text (intro, Goal, Decisions) restated, `test` ceiling/row wording for inline blocks now says `inline`, and the G-moved test directories are noted as staying split (each over 1000).
+
+- 2026-10-19 — Phase 5: §4.1's acceptance grep `ir/lower\.rs` also matches `src/target/shared/nir/lower.rs`, a
+  different file; the check run is `(^|[^n])ir/lower\.rs`. `default_kind`'s `lower::` re-export is
+  `#[cfg(test)]` because its only outside user is a test. Each phase's `sh scripts/artifact-gate.sh` runs as
+  `bash` (the script needs bash; M's Corrections).
 
 ## Summary
 

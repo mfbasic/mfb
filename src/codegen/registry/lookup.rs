@@ -150,7 +150,7 @@ pub(crate) fn constant_value(qualified: &str) -> Option<&'static str> {
 /// The ordered per-field literals a migrated **record** constant `qualified` inlines
 /// into a constructor of its [`type_name`](RegistryConstant::type_name), or `None` (a
 /// scalar constant, or an un-migrated package) — read by `registry_record_constant` in
-/// `ir/lower.rs` to fold a `vector` record constant (`vector.zeroFloat3`) into a
+/// `ir/lower/` to fold a `vector` record constant (`vector.zeroFloat3`) into a
 /// constructor.
 pub(crate) fn constant_components(qualified: &str) -> Option<&'static [&'static str]> {
     find_constant(qualified).and_then(|constant| constant.components)

@@ -234,7 +234,7 @@ mod lowering_totality_tests {
 #[cfg(test)]
 mod binary_repr_tests;
 
-/// Structural coverage for `ir/lower.rs` (plan-12): valid MFBASIC programs that
+/// Structural coverage for `ir/lower/` (plan-12): valid MFBASIC programs that
 /// exercise every statement / expression / type / binding / native-LINK / DOC
 /// lowering path, asserting on the produced `IrProject`. Uses the shared
 /// `helpers` harness so the real front-end pipeline (parse → resolve →

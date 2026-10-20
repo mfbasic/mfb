@@ -6,7 +6,7 @@ and folds to an integer literal through the shared package-constant lowering pat
 reading a constant requires no runtime lookup or helper call. Constants are keyed
 package-qualified (`"errorCode.<Name>"`) and resolved by exact match against the
 registered constants. [[src/codegen/registry/lookup.rs:constant_value]]
-[[src/ir/lower.rs:lower_expression_with_expected]]
+[[src/ir/lower/expression.rs:lower_expression_with_expected]]
 
 These integers are exactly the values runtime code stamps into `Error.code` when a
 fallible operation fails (see *See Also*) — both the native codegen/runtime helpers

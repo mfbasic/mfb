@@ -68,7 +68,7 @@ literal default passes the exporting package's constant, and a computed default
 calls the package's private hidden default function as `package.$default$<fn>$<i>`,
 a `package.symbol` reference the merge qualifies like any other. The default is
 therefore evaluated on each call in the package's own scope.
-[[src/manifest/package.rs:package_export_signature]] [[src/ir/lower.rs:lower_facts]]
+[[src/manifest/package.rs:package_export_signature]] [[src/ir/lower/mod.rs:lower_facts]]
 
 The per-package identity that `read_package_ir_with_identity` produces is a hash
 over the MFPC container; its byte derivation is documented in

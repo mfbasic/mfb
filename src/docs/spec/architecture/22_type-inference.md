@@ -3,7 +3,7 @@
 MFBASIC infers expression types during IR lowering: `expression_type` answers
 the type of a HIR expression against the lowering context, and
 `lower_expression_with_expected` threads an optional *expected* (contextual)
-type into the lowered value.[[src/ir/lower.rs:expression_type]] The pre-lowering
+type into the lowered value.[[src/ir/lower/typing.rs:expression_type]] The pre-lowering
 shape pass borrows exactly that oracle for the source rules it checks over the
 HIR, and the IR verifier re-derives types from the lowered `IrValue`s
 (`infer_type`). These are separate checks; sharing the HIR oracle does not
@@ -12,7 +12,7 @@ bidirectional**: the expected type reaches a few syntactic positions, while
 everything else synthesizes types **bottom-up**. There is no general unification,
 no type variables, and no least-upper-bound; the only "widening" steps are
 literal coercion (asymmetric, literal-shapes only) and union-variant subsumption.
-[[src/ir/lower.rs:lower_expression_with_expected]] [[src/ir/shape/expressions.rs:type_of]]
+[[src/ir/lower/expression.rs:lower_expression_with_expected]] [[src/ir/shape/expressions.rs:type_of]]
 [[src/ir/verify/env.rs:infer_type]]
 
 The per-type rules, literal range checks, and the *defaultable* predicate are
@@ -28,7 +28,7 @@ where the declared or contextual type re-types an unsuffixed literal. A suffixed
 literal keeps its suffix type, with one conversion: an `f`-suffixed (`Float`)
 literal at a `Fixed` expected type is lowered as the `Fixed` constant nearest its
 binary64 value (see "Literal Coercion").
-[[src/ir/lower.rs:lower_expression_with_expected]]
+[[src/ir/lower/expression.rs:lower_expression_with_expected]]
 
 | Position | Expected type | Site |
 |----------|---------------|------|
@@ -47,14 +47,14 @@ binary64 value (see "Literal Coercion").
 
 An unannotated binding first infers its initializer type; ordinary expression
 statements have no enclosing expected type. Assignments use the target binding's
-type. [[src/ir/lower.rs:lower_statement]]
+type. [[src/ir/lower/statement.rs:lower_statement]]
 
 At every position in the table, a value whose static type is a variant of the
 expected union is wrapped into that union (`UnionWrap`), whatever its expression
 kind: a call result, a `collections::get` result, a field read and a `WITH`
 result are wrapped exactly as an identifier or a variant constructor is. The wrap
 is applied once, by `lower_expression_with_expected` itself (architecture `ir`,
-"Implicit union auto-wrap"). [[src/ir/lower.rs:lower_expression_with_expected]]
+"Implicit union auto-wrap"). [[src/ir/lower/expression.rs:lower_expression_with_expected]]
 
 The same step converts a **collection** of variants: a `List` whose element type,
 or a `Map` whose value type, is a variant of the expected element (value) type,
@@ -68,24 +68,24 @@ annotation, so neither is converted twice. The conversion is one-directional: a
 union form at a variant position is not converted, and the verifier rejects it.
 A collection of `RES` elements is not converted (its copy would have no owner to
 free it), and is the one container form the verifier still accepts unconverted.
-[[src/ir/lower.rs:union_conversion]] [[src/ir/lower.rs:union_converter]]
+[[src/ir/lower/construct.rs:union_conversion]] [[src/ir/lower/construct.rs:union_converter]]
 
 These positions are **synthesized bottom-up only** (expected is never consulted):
 
 - **Binary and unary operands.** The `Binary`/`Unary` arms type each operand
-  with no expected type, then combine. [[src/ir/lower.rs:expression_type]]
+  with no expected type, then combine. [[src/ir/lower/typing.rs:expression_type]]
 - **Member-access targets.** The target of `a.field` / `a::member` is inferred
   with no expected type.
 
 Map literals retain their explicit `Map OF K TO V` annotation as the resulting
 IR type. An enclosing expected map can separately supply expected types while
-lowering each entry. [[src/ir/lower.rs:lower_expression_with_expected]]
+lowering each entry. [[src/ir/lower/expression.rs:lower_expression_with_expected]]
 
 ### Call arguments — the parameter type IS the expected type
 
 A call argument is lowered with its parameter type as the expected type, from
 `call_argument_expected_type`, which answers in this order:
-[[src/ir/lower.rs:call_argument_expected_type]]
+[[src/ir/lower/call_args.rs:call_argument_expected_type]]
 
 1. the built-in's positional parameter types, when the member has one
    monomorphic overload (`argument_types_typed`);
@@ -311,7 +311,7 @@ program must also satisfy the IR predicate above.
 
 Operator typing follows from these predicates rather than from `compatible`
 (the IR verifier's operand rules; lowering's `expression_type` mirrors the result
-types): [[src/ir/verify/values.rs]] [[src/ir/lower.rs:expression_type]]
+types): [[src/ir/verify/values.rs]] [[src/ir/lower/typing.rs:expression_type]]
 
 - **`=` / `<>`** accept **any two numerics** with *no* compatibility requirement
   (e.g. `Byte = Float` is allowed and yields `Boolean`). Otherwise the operands
@@ -335,7 +335,7 @@ operator-mismatch diagnostics.
 When a list literal has **no** expected `List OF E` context, the element type
 is synthesized from the **first element** and every later element is then
 *checked* against it (`TYPE_LIST_ELEMENT_MISMATCH` is the IR verifier's):
-[[src/ir/lower.rs:expression_type]] [[src/ir/verify/values.rs:check_value_depth]]
+[[src/ir/lower/typing.rs:expression_type]] [[src/ir/verify/values.rs:check_value_depth]]
 
 ```text
 list_literal_type(values, expected):

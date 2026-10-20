@@ -2,7 +2,7 @@
 //!
 //! `helper_start_exchange.rs` reaches HTTPS through
 //! `tls::connect(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS, url.host)` — four
-//! arguments, so `allowSelfSigned` is supplied by `ir/lower.rs`'s trailing-optional
+//! arguments, so `allowSelfSigned` is supplied by `ir/lower/`'s trailing-optional
 //! padding rather than written in the source. That padding is the single seam
 //! where a mistake in this bug turns every HTTPS client in the language into a
 //! MITM target, with **no compile error and no behavioural symptom on a

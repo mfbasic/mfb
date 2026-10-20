@@ -12,14 +12,14 @@ fn hir_call_arg_value(argument: &HirCallArg) -> &HirExpression {
 }
 
 /// The case body is used verbatim as the generated `FUNC … AS Nothing` body — the assertion
-/// builtins inside it are lowered later, in `src/ir/lower.rs`. Kept as a named
+/// builtins inside it are lowered later, in `src/ir/lower/`. Kept as a named
 /// seam so coverage instrumentation (plan-18-C) has a hook.
 pub(crate) fn desugar_case_body(body: Vec<Statement>) -> Vec<Statement> {
     body
 }
 
 // ---------------------------------------------------------------------------
-// Assertion lowering (called from src/ir/lower.rs)
+// Assertion lowering (called from src/ir/lower/)
 // ---------------------------------------------------------------------------
 
 /// Expand one assertion builtin call into the equivalent MFBASIC statements. The

@@ -461,7 +461,8 @@ easy to get wrong:
   of a `String` argument. The only sound move is to stop calling the reducer and
   emit the loop, where the existing concat arm applies unchanged.
 
-  It is a post-pass over the ops `lower_statement` produces (`src/ir/lower.rs`),
+  It is a post-pass (`rewrite_concat_folds`, `src/ir/lower/concat_fold.rs`) over the ops
+  `lower_statement` (`src/ir/lower/statement.rs`) produces,
   mirroring `hoist_trap_calls` — the expression lowerer returns an `IrValue` and
   has no statement sink.
 

@@ -386,7 +386,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// confirmed type-keyed. Re-keying one by `ParameterType` (letter C) changes
 /// its declaration and drops the count. Nearby non-type-keyed lookalikes that
 /// are deliberately NOT listed, so the next reader does not "fix" them:
-/// `ir/lower.rs`'s `binding_types` (keyed by variable name),
+/// `ir/lower/mod.rs`'s `binding_types` (keyed by variable name),
 /// `monomorph`'s and `codegen`'s `function_types` / `package_return_types`
 /// (function name), `ir/resource_escape.rs`'s `decl_type` (declaration name),
 /// `data_objects.rs`'s local `types` (parameter name), `ir::verify`'s and
@@ -410,7 +410,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// then run over the wrong subset of directories.
 ///
 /// Three kinds of lookalike are deliberately EXCLUDED, so they are not "fixed"
-/// later. Keyed by a **binding or local name**: `ir/lower.rs`'s
+/// later. Keyed by a **binding or local name**: `ir/lower/mod.rs`'s
 /// `binding_types` / `mutable_locals`, `ir::verify`'s and `monomorph`'s
 /// `globals`, `ir/resource_escape.rs`'s `decl_type`, `ir/shape/`'s
 /// `state_dropped`, codegen's and NIR's `resource_owners` /
@@ -469,11 +469,11 @@ const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     ("src/ir/shape/mod.rs", "types"),
     ("src/ir/shape/declarations.rs", "resource_types"),
     // `ir::lower`'s `TypeIndex` — the lowering-side twin of `TypeModel`.
-    ("src/ir/lower.rs", "records"),
-    ("src/ir/lower.rs", "enums"),
-    ("src/ir/lower.rs", "variants"),
-    ("src/ir/lower.rs", "variant_unions"),
-    ("src/ir/lower.rs", "variant_fields"),
+    ("src/ir/lower/mod.rs", "records"),
+    ("src/ir/lower/mod.rs", "enums"),
+    ("src/ir/lower/mod.rs", "variants"),
+    ("src/ir/lower/mod.rs", "variant_unions"),
+    ("src/ir/lower/mod.rs", "variant_fields"),
     // `ir::verify`'s `TypeEnv` — nine tables, every one keyed by a type name.
     // `globals` is deliberately absent: it is keyed by a BINDING name.
     ("src/ir/verify/mod.rs", "records"),
@@ -990,7 +990,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //
     // 48 -> 52: bug-554 extends that same seed from records to UNIONS and ENUMS
     // (`ir/verify/mod.rs`), and adds the qualified enum-member lookup
-    // (`ir/lower.rs`). Every one of the five new sites is the identical
+    // (`ir/lower/typing.rs`). Every one of the five new sites is the identical
     // conversion the entry above describes -- a name decoded off the `.mfp`
     // type-export table, or the leaf of a `pkg::Enum` spelling, becoming the KEY
     // of a `ParameterType`-keyed table (`unions`, `enums`, `records`,
@@ -1011,7 +1011,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // field of an imported record types for overload resolution instead of as
     // `Unknown`. The name comes off the `.mfp` type-export table and becomes the
     // KEY of the `ParameterType`-keyed `imported_records` table -- the identical
-    // wire-decode-as-table-key conversion `ir/lower.rs:TypeIndex::new` makes
+    // wire-decode-as-table-key conversion `ir/lower/mod.rs:TypeIndex::new` makes
     // over the same `ImportedTypeDef` list (the `ir` row's 47 -> 48 entry), and
     // it decides nothing by comparing a spelling.
     ("declared_sites", "monomorph", 9),

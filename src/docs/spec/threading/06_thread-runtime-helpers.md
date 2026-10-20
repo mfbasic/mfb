@@ -77,7 +77,7 @@ picks its own behavior from the running context, so it needs no handle and takes
 direction split. (`thread::transfer`/`thread::accept` first
 lower to the internal `thread.transferResource`/`thread.acceptResource` targets
 during IR lowering, then the value builder applies the worker-direction split to
-`emitResource`/`readResource`.) [[src/ir/lower.rs]] [[src/codegen/engine/value/builder_values.rs]]
+`emitResource`/`readResource`.) [[src/ir/lower/mod.rs]] [[src/codegen/engine/value/builder_values.rs]]
 
 ## `thread::start`
 

@@ -4,7 +4,7 @@
 //! acceptance matrix: build the corpus five times, on five runners, from a
 //! spawned `mfb`. That gate is slow, it is off the unit-test path entirely, and
 //! — because `mfb` is a binary-only package — none of it is observable from this
-//! process, so the shared codegen it exercises (`ir/lower.rs`,
+//! process, so the shared codegen it exercises (`ir/lower/`,
 //! `engine/value/builder_values.rs`, `collection/list/list_mutate.rs`,
 //! `link/thunk/link_thunk.rs`, …) has no in-process coverage at all beyond
 //! whatever a hand-written unit test happens to reach.
