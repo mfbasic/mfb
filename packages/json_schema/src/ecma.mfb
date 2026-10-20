@@ -332,6 +332,14 @@ END FUNC
 ' Character classes.
 ' ---------------------------------------------------------------------------
 
+' TRUE when the backslash at `at` begins a class escape: \d \D \w \W \s \S
+' or a property escape. Those are the escapes ECMA-262 names as a whole class.
+PRIVATE FUNC isClassEscapeAt(pat AS List OF String, n AS Integer, at AS Integer) AS Boolean
+  IF at + 1 >= n OR collections::get(pat, at) <> "\\" THEN RETURN FALSE
+  LET e AS String = collections::get(pat, at + 1)
+  RETURN e = "d" OR e = "D" OR e = "w" OR e = "W" OR e = "s" OR e = "S" OR e = "p" OR e = "P"
+END FUNC
+
 ' Translate the class starting at the "[" at `at`.
 PRIVATE FUNC translateClass(pattern AS String, pat AS List OF String, n AS Integer, at AS Integer) AS Chunk
   MUT i AS Integer = at + 1
@@ -351,23 +359,40 @@ PRIVATE FUNC translateClass(pattern AS String, pat AS List OF String, n AS Integ
 
   MUT body AS String = ""
   MUT closed AS Boolean = FALSE
+  ' Whether the item just before the current one was a class escape (\d, \p{..}
+  ' and so on), which ECMA-262 forbids as the endpoint of a range.
+  MUT afterClassEscape AS Boolean = FALSE
   WHILE NOT closed
     IF i >= n THEN FAIL badPattern(pattern, "a character class is unterminated")
     LET c AS String = collections::get(pat, i)
+    LET previousWasEscape AS Boolean = afterClassEscape
+    afterClassEscape = FALSE
     IF c = "]" THEN
       closed = TRUE
+      i = i + 1
+    ELSEIF c = "-" AND len(body) > 0 AND i + 1 < n AND collections::get(pat, i + 1) <> "]" THEN
+      ' A "-" between two items is a range. ECMA-262 under the `u` flag refuses a
+      ' range whose either endpoint is a class escape; the MFBASIC dialect would
+      ' read the "-" as a literal and accept the pattern, meaning something else.
+      IF previousWasEscape OR isClassEscapeAt(pat, n, i + 1) THEN
+        FAIL badPattern(pattern, "a character class range may not take a class escape as an endpoint")
+      END IF
+      body = body & "-"
       i = i + 1
     ELSEIF c = "\\" THEN
       IF i + 1 >= n THEN FAIL badPattern(pattern, "it ends with a trailing backslash")
       LET e AS String = collections::get(pat, i + 1)
       IF e = "d" THEN
         body = body & "0-9"
+        afterClassEscape = TRUE
         i = i + 2
       ELSEIF e = "w" THEN
         body = body & "A-Za-z0-9_"
+        afterClassEscape = TRUE
         i = i + 2
       ELSEIF e = "s" THEN
         body = body & WS_ITEMS
+        afterClassEscape = TRUE
         i = i + 2
       ELSEIF e = "D" OR e = "W" OR e = "S" THEN
         ' [\D] is "not a digit" only because it is alone; [a\D] is a UNION with
@@ -381,6 +406,7 @@ PRIVATE FUNC translateClass(pattern AS String, pat AS List OF String, n AS Integ
       ELSEIF e = "p" OR e = "P" THEN
         LET property AS Chunk = translateProperty(pattern, pat, n, i)
         body = body & property.text
+        afterClassEscape = TRUE
         i = property.nxt
       ELSEIF e = "k" THEN
         FAIL unsupportedPattern(pattern, "a named backreference")

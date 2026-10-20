@@ -13,7 +13,7 @@ IMPORT collections
 IMPORT strings
 
 PRIVATE FUNC verdict(schemaText AS String, instanceText AS String) AS String
-  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  LET compiled AS Schema = compileSchema(json::parse(schemaText), Map OF String TO json::Json {})
   LET problems AS List OF ValidationError = runValidation(compiled, json::parse(instanceText))
   IF len(problems) = 0 THEN RETURN "valid"
   MUT keywords AS List OF String = []
