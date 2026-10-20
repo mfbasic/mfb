@@ -369,7 +369,9 @@ impl BlobStore {
 mod s3_impl {
     use super::{blob_name, BlobFetch, BlobKind, BlobStore, StagedBlob};
     use aws_config::BehaviorVersion;
+    use aws_sdk_s3::config::http::HttpResponse;
     use aws_sdk_s3::config::Region;
+    use aws_sdk_s3::error::{DisplayErrorContext, ProvideErrorMetadata};
     use aws_sdk_s3::presigning::PresigningConfig;
     use aws_sdk_s3::primitives::ByteStream;
     use std::time::Duration;
@@ -535,15 +537,42 @@ mod s3_impl {
         }
     }
 
-    /// Extract the most useful message from an SDK error without leaking the
-    /// full debug chain into HTTP responses.
-    fn service_message<E, R>(err: &aws_sdk_s3::error::SdkError<E, R>) -> String
+    /// Describe an SDK error well enough to diagnose it from one line.
+    ///
+    /// A service error the SDK cannot classify displays only as "unhandled
+    /// error" — always the case for a non-404 `HeadObject` failure, whose
+    /// response has no body to carry an error code. So append the HTTP status,
+    /// the store's error code and message when present, and the request id the
+    /// store's operator needs to trace the call. A transport-level failure
+    /// (dispatch, timeout, response parsing) gets its full source chain, since
+    /// the top-level "dispatch failure" alone names no cause.
+    fn service_message<E>(err: &aws_sdk_s3::error::SdkError<E, HttpResponse>) -> String
     where
-        E: std::error::Error,
+        E: std::error::Error + ProvideErrorMetadata + 'static,
     {
-        match err.as_service_error() {
-            Some(service) => service.to_string(),
-            None => err.to_string(),
+        let Some(service) = err.as_service_error() else {
+            return DisplayErrorContext(err).to_string();
+        };
+        let mut details = Vec::new();
+        if let Some(raw) = err.raw_response() {
+            details.push(format!("HTTP {}", raw.status().as_u16()));
+        }
+        match (service.code(), service.message()) {
+            (Some(code), Some(message)) => details.push(format!("{code}: {message}")),
+            (Some(code), None) => details.push(code.to_string()),
+            (None, Some(message)) => details.push(message.to_string()),
+            (None, None) => {}
+        }
+        if let Some(id) = err
+            .raw_response()
+            .and_then(|raw| raw.headers().get("x-amz-request-id"))
+        {
+            details.push(format!("request id {id}"));
+        }
+        if details.is_empty() {
+            service.to_string()
+        } else {
+            format!("{service} ({})", details.join(", "))
         }
     }
 }
