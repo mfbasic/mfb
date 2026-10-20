@@ -1,0 +1,258 @@
+use super::*;
+
+pub(in crate::audit) fn finding(code: &str, category: &str, severity: Severity) -> Finding {
+    Finding {
+        code: code.to_string(),
+        category: category.to_string(),
+        severity,
+        message: format!("message for {code}"),
+        path: None,
+        line: None,
+        package: None,
+    }
+}
+
+/// A report exercising every optional field and non-empty section, used by
+/// the text/json renderers to hit their full branch matrix.
+pub(in crate::audit) fn full_report() -> AuditReport {
+    AuditReport {
+        project: ProjectSummary {
+            name: "demo".to_string(),
+            ident: "demo.ident".to_string(),
+            version: "2.1.0".to_string(),
+            kind: "program".to_string(),
+            entry: Some("main".to_string()),
+            root: "path/to/root".to_string(),
+            language_version: "1".to_string(),
+        },
+        lockfile: LockfileSummary {
+            path: "mfb.lock".to_string(),
+            present: true,
+            parsed: true,
+            locked: true,
+            version: Some(1),
+            project_hash_matches: Some(false),
+        },
+        libraries: vec![
+            LibraryEntry {
+                logical: "sqlite3".to_string(),
+                os: "linux".to_string(),
+                arch: Some("x86_64".to_string()),
+                libc: Some("gnu".to_string()),
+                lib_type: "system".to_string(),
+                source: "libsqlite3.so.0".to_string(),
+            },
+            LibraryEntry {
+                logical: "sqlite3".to_string(),
+                os: "macos".to_string(),
+                arch: None,
+                libc: None,
+                lib_type: "vendor".to_string(),
+                source: "libsqlite3.dylib".to_string(),
+            },
+        ],
+        resource_files: vec![ResourceFileEntry {
+            src: "assets/logo.png".to_string(),
+            dst: "logo.png".to_string(),
+        }],
+        dependencies: vec![
+            DependencyEntry {
+                name: "alpha".to_string(),
+                ident: "alpha.id".to_string(),
+                requested_version: "1.2.0".to_string(),
+                resolved_version: Some("1.2.3".to_string()),
+                pin: true,
+                source: "registry".to_string(),
+                signature: Some("signed".to_string()),
+                content_hash: Some("abcd".to_string()),
+                status: "ok".to_string(),
+            },
+            DependencyEntry {
+                name: "beta".to_string(),
+                ident: "beta.id".to_string(),
+                requested_version: String::new(),
+                resolved_version: None,
+                pin: false,
+                source: "path".to_string(),
+                signature: None,
+                content_hash: None,
+                status: "missing".to_string(),
+            },
+        ],
+        packages: vec![PackageEntry {
+            name: "alpha".to_string(),
+            version: "1.2.3".to_string(),
+            path: "packages/alpha.mfp".to_string(),
+            signature: "signed".to_string(),
+            content_hash: "abcd".to_string(),
+            verifier: "ok".to_string(),
+            exports: 3,
+            imports: 2,
+            cleanups: 1,
+        }],
+        source_flow: vec![
+            FlowFunction {
+                function: "doWork".to_string(),
+                path: "main.mfb".to_string(),
+                line: 10,
+                fallible: true,
+                trap: Some(TrapInfo {
+                    name: "err".to_string(),
+                    line: 15,
+                    classification: "recovers".to_string(),
+                }),
+                calls: vec![CallSite {
+                    callee: "fs.open".to_string(),
+                    line: 12,
+                    propagation: "trap".to_string(),
+                    capability: Some("filesystem".to_string()),
+                }],
+            },
+            FlowFunction {
+                function: "pure".to_string(),
+                path: "main.mfb".to_string(),
+                line: 30,
+                fallible: false,
+                trap: None,
+                calls: Vec::new(),
+            },
+        ],
+        resources: vec![
+            ResourceEntry {
+                function: "doWork".to_string(),
+                name: "file".to_string(),
+                resource_type: "fs.File".to_string(),
+                close_op: "fs.close".to_string(),
+                path: "main.mfb".to_string(),
+                line: 11,
+                native: false,
+                close_may_fail: true,
+            },
+            ResourceEntry {
+                function: "doWork".to_string(),
+                name: "handle".to_string(),
+                resource_type: "Native".to_string(),
+                close_op: "pkg.close".to_string(),
+                path: "main.mfb".to_string(),
+                line: 20,
+                native: true,
+                close_may_fail: false,
+            },
+        ],
+        native_links: vec![NativeLinkEntry {
+            package: "pkg".to_string(),
+            symbol: "sym".to_string(),
+            close_function: "closeFn".to_string(),
+            may_fail: true,
+        }],
+        native_resources: vec![
+            NativeResourceEntry {
+                package: "pkg".to_string(),
+                resource_type: "Db".to_string(),
+                close_op: "pkg.close".to_string(),
+                close_may_fail: true,
+                sendable: true,
+                exported: true,
+                path: "lib.mfb".to_string(),
+                line: 5,
+            },
+            NativeResourceEntry {
+                package: "pkg".to_string(),
+                resource_type: "Cursor".to_string(),
+                close_op: "pkg.free".to_string(),
+                close_may_fail: false,
+                sendable: false,
+                exported: false,
+                path: "lib.mfb".to_string(),
+                line: 9,
+            },
+        ],
+        permissions: vec![
+            PermissionEntry {
+                capability: "filesystem".to_string(),
+                package: "fs".to_string(),
+                function: "fs.open".to_string(),
+                path: "main.mfb".to_string(),
+                line: 12,
+                kind: "standard".to_string(),
+            },
+            PermissionEntry {
+                capability: "filesystem".to_string(),
+                package: "fs".to_string(),
+                function: "fs.read".to_string(),
+                path: "main.mfb".to_string(),
+                line: 13,
+                kind: "standard".to_string(),
+            },
+            PermissionEntry {
+                capability: "terminal".to_string(),
+                package: "io".to_string(),
+                function: "io.print".to_string(),
+                path: "main.mfb".to_string(),
+                line: 14,
+                kind: "standard".to_string(),
+            },
+        ],
+        findings: vec![
+            Finding {
+                code: "AUDIT-LOCK-STALE".to_string(),
+                category: "lockfile".to_string(),
+                severity: Severity::Warning,
+                message: "stale lock".to_string(),
+                path: Some("mfb.lock".to_string()),
+                line: None,
+                package: None,
+            },
+            Finding {
+                code: "AUDIT-RESOURCE-CLOSE-MAY-FAIL".to_string(),
+                category: "resource".to_string(),
+                severity: Severity::Info,
+                message: "resource close may fail".to_string(),
+                path: Some("main.mfb".to_string()),
+                line: Some(11),
+                package: None,
+            },
+            Finding {
+                code: "AUDIT-DEP-MISSING".to_string(),
+                category: "dependency".to_string(),
+                severity: Severity::Error,
+                message: "dep missing".to_string(),
+                path: None,
+                line: None,
+                package: Some("beta".to_string()),
+            },
+        ],
+    }
+}
+
+pub(in crate::audit) fn empty_report() -> AuditReport {
+    AuditReport {
+        project: ProjectSummary {
+            name: "demo".to_string(),
+            ident: "demo".to_string(),
+            version: "1.0.0".to_string(),
+            kind: "program".to_string(),
+            entry: Some("main".to_string()),
+            root: ".".to_string(),
+            language_version: "1".to_string(),
+        },
+        lockfile: LockfileSummary {
+            path: "mfb.lock".to_string(),
+            present: false,
+            parsed: false,
+            locked: false,
+            version: None,
+            project_hash_matches: None,
+        },
+        libraries: Vec::new(),
+        resource_files: Vec::new(),
+        dependencies: Vec::new(),
+        packages: Vec::new(),
+        source_flow: Vec::new(),
+        resources: Vec::new(),
+        native_links: Vec::new(),
+        native_resources: Vec::new(),
+        permissions: Vec::new(),
+        findings: Vec::new(),
+    }
+}

@@ -43,10 +43,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-J is complete and archived | `ls planning/plan-176-J-* planning/completed/plan-176-J-*` → only `planning/completed/…` | NOT MET (2026-10-18) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-18): `tests/guards/file_size_budget.rs` absent |
-| The architecture guards treat a `tests` directory component as test code (landed by plan-176-H) | `grep -n 'contains("/tests/")' tests/guards/architecture_guards.rs` → a hit in each of `is_physical_scan_exempt`, `no_hand_picked_vreg` and `emission_lines` | NOT MET (2026-10-18): 0 hits |
-| K's files have no uncommitted changes | `git status --porcelain -- src/ast src/cli src/optimizer src/audit src/debugger src/doc/html.rs src/fmt.rs src/lexer.rs src/manifest src/numeric.rs src/resolver src/rules src/types.rs scripts/test-accept.sh` → empty | MET (2026-10-18) |
+| plan-176-J is complete and archived | `ls planning/plan-176-J-* planning/completed/plan-176-J-*` → only `planning/completed/…` | MET (2026-10-19) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19) |
+| The architecture guards treat a `tests` directory component as test code (landed by plan-176-H) | `grep -n 'contains("/tests/")' tests/guards/architecture_guards.rs` → a hit in each of `is_physical_scan_exempt`, `no_hand_picked_vreg` and `emission_lines` | MET (2026-10-19: 3 hits, `118ec25a8`) |
+| K's files have no uncommitted changes | `git status --porcelain -- src/ast src/cli src/optimizer src/audit src/debugger src/doc/html.rs src/fmt.rs src/lexer.rs src/manifest src/numeric.rs src/resolver src/rules src/types.rs scripts/test-accept.sh` → empty | MET (2026-10-19) |
 
 Everything below is written against the world where these hold.
 
@@ -885,21 +885,29 @@ is split per its §4 entry instead of moved whole.
 Eight hosts with self-contained NIR / audit fixtures; nothing outside them imports their tests
 (except `report::testsupport`, whose path is unchanged).
 
-- [ ] Move `src/optimizer/opt1/globals.rs` tests per §4.7.
-- [ ] Move `src/optimizer/opt1/inline.rs` tests per §4.7.
-- [ ] Move `src/optimizer/opt2/promote.rs` tests per §4.7.
-- [ ] Move `src/optimizer/opt2/sink.rs` tests per §4.7.
-- [ ] Move `src/audit/collect/findings.rs` tests per §4.7.
-- [ ] Move `src/audit/collect/project.rs` tests per §4.7.
-- [ ] Move `src/audit/collect/source.rs` tests per §4.7.
-- [ ] Move `src/audit/report.rs` `testsupport` and `tests` per §4.6.
-- [ ] G4: tighten the ceilings for the eight files.
+- [x] Move `src/optimizer/opt1/globals.rs` tests per §4.7.
+- [x] Move `src/optimizer/opt1/inline.rs` tests per §4.7.
+- [x] Move `src/optimizer/opt2/promote.rs` tests per §4.7.
+- [x] Move `src/optimizer/opt2/sink.rs` tests per §4.7.
+- [x] Move `src/audit/collect/findings.rs` tests per §4.7.
+- [x] Move `src/audit/collect/project.rs` tests per §4.7.
+- [x] Move `src/audit/collect/source.rs` tests per §4.7.
+- [x] Move `src/audit/report.rs` `testsupport` and `tests` per §4.6.
+      Done (all eight): `python3 -I target/p176/movemod.py` (finds each module by name, then `items.py extract`) →
+      12, 7, 10, 12, 10, 10, 26 tests and `report`'s 4 + `testsupport` (kept `pub(super) mod testsupport;`);
+      `bash target/p176/motiondir.sh` → only the module lines differ.
+- [x] G4: tighten the ceilings for the eight files.
+      Done: → 8 TIGHTEN `inline` rows (2, 2, 7, 4, 2, 2, 10, 2); tighten drops exactly those; re-run → 0.
 
 Acceptance: the eight files' tests run from their new modules and the counts did not move.
   Check: G1 → equal; G2 `cargo test -p mfb --bin mfb optimizer:: audit::` → 0 failed, and
   `cargo test -p mfb --bin mfb -- --list 2>/dev/null | grep -cE '^(optimizer::opt1::(globals|inline)|optimizer::opt2::(promote|sink)|audit::(collect::(findings|project|source)|report))::tests::'`
   → 12+7+10+12+10+10+26+4 = 91, the same before and after (paths are unchanged); G3 pass (the
   promote/sink files are exempt by the H rule); G4; G5 (est. 12 min).
+  Verified 2026-10-19: G1 (`bash target/p176/g1.sh`) → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 437 passed`;
+  path count → 91 before and 91 after; census → hosts inline 2, 2, 10, 2, 2, 2, 7, 4 and new files 329, 267, 283, 297,
+  291, 339, 661, 42, 253 (each exactly §2); G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`; guards 8,
+  7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
 Commit: —
 
 ### Phase 2 — Frontend: AST, lexer, fmt, numeric, types, rules, resolver, doc
@@ -1042,6 +1050,9 @@ Commit: —
   tests in `prompt.rs`, placed in §4.7/§4.4); the stale `test-accept.sh` cite is now line 275;
   found `scripts/test-fast-skips.txt:21`, kept valid by placement (§4.3). K had no exemption
   before or after. Counts re-measured at HEAD `ce7a995ca`: 33 hosts, 1189 tests.
+- 2026-10-19 (execution): G0 is the full sorted `--list` in `target/p176/g0/` (`/tmp` is wiped by
+  session restarts here); G1 compares count and leaf names. G2/G3 run through
+  `bash scripts/test-fast.sh` (owner, 2026-10-18), on macOS only (owner, 2026-10-19).
 
 ## Summary
 
