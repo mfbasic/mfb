@@ -133,7 +133,7 @@ milliseconds:
 
 The build bakes the value into the last word of the canvas graphics-state block, the one
 word of that block that does not start as zero
-([[src/codegen/runtime/canvas/mod.rs:GRAPHICS_OFFSET_AUTO_WINDOW_MS]]), and the canvas
+([[src/codegen/runtime/canvas/state_layout.rs:GRAPHICS_OFFSET_AUTO_WINDOW_MS]]), and the canvas
 companion reads it with `canvas::autoWindowMs`. A program that does not use `canvas` has
 no such block and the key has no effect.
 

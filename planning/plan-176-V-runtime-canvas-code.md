@@ -973,19 +973,19 @@ the code they emit is byte-identical, and the moved emitters still run real thre
   `rt_thread_drop_running_finish_race` 1, `rt_thread_block_arena` 5 → all passed; cite counts → 0 old, 21 new; §10.1
   grep → empty; budget → the one STALE row, gone after the tighten; census → mod 237, handle 529, sleep 150,
   queue 455.
-Commit: —
+Commit: 676b92ded
 
 ### Phase 2 — Canvas runtime root (pure motion, path kept)
 
-- [ ] Split `src/codegen/runtime/canvas/mod.rs` into `mod.rs` +
+- [x] Split `src/codegen/runtime/canvas/mod.rs` into `mod.rs` +
       `{state_layout,scene_layout,entry,thread_lifecycle,frame_sync,surface}.rs` per §4.2,
       with the `mod` decls and the `pub(crate) use <part>::*;` re-exports. Trim `mod.rs`'s
       `use` lines.
-- [ ] `pub(super)` on `emit_frame_cond_broadcast`, `NANOS_PER_SECOND` and `emit_realtime_nanos`
+- [x] `pub(super)` on `emit_frame_cond_broadcast`, `NANOS_PER_SECOND` and `emit_realtime_nanos`
       (in `frame_sync.rs`).
-- [ ] Repoint the 47 `canvas/mod.rs` citations per the §4.2 table (`app/06_canvas.md`,
+- [x] Repoint the 47 `canvas/mod.rs` citations per the §4.2 table (`app/06_canvas.md`,
       `tooling/01_project-manifest.md`, `tooling/09_debug-report.md`).
-- [ ] The three Phase-2 rows of §4.6: `mfb_canvas.frag:112`, the `emit_item_block` doc comment
+- [x] The three Phase-2 rows of §4.6: `mfb_canvas.frag:112`, the `emit_item_block` doc comment
       in `vulkan.rs` and `codegen_canvas_vulkan_off_frame_path.rs:46`. No `.spv` is
       regenerated (§2, `-V` without `-g`).
 
@@ -1005,6 +1005,21 @@ citation still points at a symbol that left `mod.rs`.
 
   Step 9 shows no row for `canvas/mod.rs` or its six siblings, and tighten removes the
   `canvas/mod.rs` ceiling row because the file is now within its limit (est. 20 min total).
+- [x] `tests/codegen/codegen_canvas_metal_off_frame_path.rs:48` (`GRAPHICS_OFFSET_MTL_READY` in `canvas/mod.rs`) →
+      `state_layout.rs`: the Metal twin of the `:46` Vulkan row, not in §4.6's table (`grep -rn
+      'runtime/canvas/mod\.rs' tests`).
+  Done: `v2.py` split by line range at the six blank-line boundaries (state_layout 78–508, scene_layout 510–1734,
+  entry 1736–2145, thread_lifecycle 2147–2873, frame_sync 2875–3654, surface 3656–4086 of the old file; mod.rs
+  keeps 1–77 and the tests 4088–4316); `pubsuper.py` made the 3 §4.2 items `pub(super)`; `state_layout.rs` takes no
+  `use super::*;` (it reads nothing from the parent: `unused_imports`).
+  Verified 2026-10-20: `motion.py` → only the wiring and the 3 `pub(super)` differ; N = 5018, W = 0;
+  `spec_citations_resolve` + `codegen::runtime::canvas` → 26 passed; guards → 9, 8, 7 + 1 ignored; C1 → `SAME` ×4;
+  `rt_canvas_graphics_thread` 18 (+2 ignored, pre-existing), `codegen_canvas_thread_entry_saves_rbp` 2,
+  `rt_canvas_frame_stats` 13, `rt_canvas_pointer` 2 → all passed; cites → 49 repointed (2 added since planning),
+  `[[…/canvas/mod.rs:` → 0; the `runtime/canvas/mod.rs` grep outside the spec → only the new part headers and the
+  ceiling row the tighten then removed; §10.1 grep → empty; budget → `TIGHTEN code 44 (ceiling 2272)`, removed;
+  census → mod 44 + 178 test, state_layout 124, scene_layout 414 + 2 test, entry 195, thread_lifecycle 569,
+  frame_sync 669, surface 274 + 21 test.
 Commit: —
 
 ### Phase 3 — `vulkan.rs` → `vulkan/`, `vulkan_present.rs` → `vulkan/present/mod.rs` (pure motion)

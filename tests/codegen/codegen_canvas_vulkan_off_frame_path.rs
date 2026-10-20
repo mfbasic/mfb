@@ -43,7 +43,7 @@ END FUNC
 const TARGETS: [&str; 3] = ["linux-aarch64", "linux-x86_64", "windows-x86_64"];
 
 const GRAPHICS_STATE: &str = "_mfb_rt_canvas_graphics";
-/// `GRAPHICS_OFFSET_VULKAN_READY` (`src/codegen/runtime/canvas/mod.rs`).
+/// `GRAPHICS_OFFSET_VULKAN_READY` (`src/codegen/runtime/canvas/state_layout.rs`).
 const READY: u64 = 424;
 const UNTRIED: u64 = 0;
 const BUILT: u64 = 1;

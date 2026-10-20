@@ -428,8 +428,8 @@ and a group's blocks that an earlier pass held are laid out again for a later us
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_blockCost]]
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_framePasses]]
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_passNext]]
-[[src/codegen/runtime/canvas/mod.rs:METAL_MAX_FRAME_ITEMS]]
-[[src/codegen/runtime/canvas/mod.rs:VULKAN_MAX_FRAME_ITEMS]]
+[[src/codegen/runtime/canvas/scene_layout.rs:METAL_MAX_FRAME_ITEMS]]
+[[src/codegen/runtime/canvas/scene_layout.rs:VULKAN_MAX_FRAME_ITEMS]]
 
 **What a GPU backend declines is an item that does not fit a region by itself, never a
 frame for its size and never an ordinary shape.** A polygon of more edges than the edge
@@ -458,10 +458,10 @@ declares them as specialization constants that the pipeline sets from the same
 constants, so drawing in passes rebuilds no pipeline.
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_metalRenderable]]
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_vulkanRenderable]]
-[[src/codegen/runtime/canvas/mod.rs:VULKAN_SPEC_CONSTANTS]]
+[[src/codegen/runtime/canvas/scene_layout.rs:VULKAN_SPEC_CONSTANTS]]
 [[src/target/macos_aarch64/app/metal.rs:emit_band_index]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_band_index]]
-[[src/codegen/runtime/canvas/mod.rs:ITEM_BAND_NORM]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_BAND_NORM]]
 
 **A pass is told from a whole frame by one word of its draw list.** The emitters are
 handed a pass's blocks and draw entries as they are handed a frame's. Word 12 of the
@@ -482,7 +482,7 @@ which also gives up the held image) fails the frame: a direct present then draws
 frame again down the readback path from its first pass, and a failed readback pass on
 Metal makes the frame a software frame. `blocks=`, `draws=` and `gpuFrames=` on the
 stats line describe the frame, not its passes.
-[[src/codegen/runtime/canvas/mod.rs:CANVAS_DRAW_PASS_WORD]]
+[[src/codegen/runtime/canvas/scene_layout.rs:CANVAS_DRAW_PASS_WORD]]
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_renderMetal]]
 [[src/codegen/builtins/canvas/helper_render/gpu_passes.rs:__canvas_renderVulkan]]
 [[src/target/macos_aarch64/app/metal.rs:emit_branch_if_more]]
@@ -502,7 +502,7 @@ words as whole numbers rather than 16.16, because 16.16 holds an index only up t
 [[src/target/macos_aarch64/app/metal.rs:METAL_SHADER_BODY]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:polylineScan]]
-[[src/codegen/runtime/canvas/mod.rs:HEADER_POLYLINE_FIRST]]
+[[src/codegen/runtime/canvas/scene_layout.rs:HEADER_POLYLINE_FIRST]]
 
 **Every shape's coverage on either GPU is computed in double-float from inputs at nearly
 the oracle's precision** — every shape but the two curve shapes, whose pieces are
@@ -559,14 +559,14 @@ The emitters decide whether a blended item that fills and strokes becomes two re
 on the stroke half-width's word and residual, which is exactly the header's `half > 0`
 that `__canvas_blockInstances` counts on: a half-width under 2^-48 px, which would
 otherwise narrow to zero, is given a residual of 1.
-[[src/codegen/runtime/canvas/mod.rs:EDGE_RESIDUAL_SCALE]]
-[[src/codegen/runtime/canvas/mod.rs:METAL_EDGE_RESIDUAL_BASE_WORDS]]
-[[src/codegen/runtime/canvas/mod.rs:VULKAN_EDGE_RESIDUAL_BASE_WORDS]]
-[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_SHAPE_LO]]
-[[src/codegen/runtime/canvas/mod.rs:ITEM_RESIDUAL_FIELDS]]
-[[src/codegen/runtime/canvas/mod.rs:ITEM_ARC_REFLEX]]
-[[src/codegen/runtime/canvas/mod.rs:emit_item_polygon_rule]]
-[[src/codegen/runtime/canvas/mod.rs:emit_item_stroke_sign]]
+[[src/codegen/runtime/canvas/scene_layout.rs:EDGE_RESIDUAL_SCALE]]
+[[src/codegen/runtime/canvas/scene_layout.rs:METAL_EDGE_RESIDUAL_BASE_WORDS]]
+[[src/codegen/runtime/canvas/scene_layout.rs:VULKAN_EDGE_RESIDUAL_BASE_WORDS]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_OFFSET_SHAPE_LO]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_RESIDUAL_FIELDS]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_ARC_REFLEX]]
+[[src/codegen/runtime/canvas/scene_layout.rs:emit_item_polygon_rule]]
+[[src/codegen/runtime/canvas/scene_layout.rs:emit_item_stroke_sign]]
 [[src/codegen/builtins/canvas/helper_render/gpu_draw_list.rs:__canvas_pushOneDraw]]
 [[src/target/macos_aarch64/app/metal.rs:emit_edge_buffer]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_edge_upload]]
@@ -728,7 +728,7 @@ its endpoint, so a Square-capped item's bounds and the GPU band index are widene
 The cap travels as header slot 34 (0 `Butt`, 1 `Round`, 2 `Square`), written by a `Line`,
 `Arc` or `PolyLine` and by every dashed item.
 [[src/codegen/builtins/canvas/helper_geometry/header_paint.rs:__canvas_capTag]]
-[[src/codegen/runtime/canvas/mod.rs:emit_square_cap_reach]]
+[[src/codegen/runtime/canvas/scene_layout.rs:emit_square_cap_reach]]
 
 **`join` shapes the corners**: every vertex where two edges of a `Polygon` ring or a
 `PolyLine` meet, and a `Rectangle`'s four corners when they are square — a plain `Picture`'s record is that rectangle's. A rectangle with
@@ -767,8 +767,8 @@ cap.
 [[src/codegen/builtins/canvas/helper_joins.rs:JOIN_BUILD]]
 [[src/codegen/builtins/canvas/helper_joins.rs:JOIN_DISTANCE]]
 [[src/codegen/builtins/canvas/func_geo_build/joins.rs:emit_join_record]]
-[[src/codegen/runtime/canvas/mod.rs:HEADER_JOIN_COUNT]]
-[[src/codegen/runtime/canvas/mod.rs:HEADER_JOIN_REACH]]
+[[src/codegen/runtime/canvas/scene_layout.rs:HEADER_JOIN_COUNT]]
+[[src/codegen/runtime/canvas/scene_layout.rs:HEADER_JOIN_REACH]]
 
 **`dashes` cuts the stroke into dashes along its outline.** It alternates on and off
 lengths in pixels, before the transform; `dashOffset` is how far into the pattern the
@@ -827,7 +827,7 @@ builder writes the same tail bit for bit.
 [[src/codegen/builtins/canvas/helper_dashes.rs:DASH_BUILD]]
 [[src/codegen/builtins/canvas/helper_dashes.rs:DASH_DRAW]]
 [[src/codegen/builtins/canvas/func_geo_build/dashes.rs:emit_dash_tail]]
-[[src/codegen/runtime/canvas/mod.rs:HEADER_DASH_COUNT]]
+[[src/codegen/runtime/canvas/scene_layout.rs:HEADER_DASH_COUNT]]
 
 **On the GPUs**, the item block's `strokeStyle` words (at byte 272 of its 368) are the
 first join slot, the record count, the first dash word and the dash word count. Each
@@ -835,7 +835,7 @@ dashed item's words — the phase, then its dash tail — ride a frame-wide dash
 float32 bit patterns, and each shader evaluates the oracle's dash functions in fp32 at
 offsets from the item's own outline taken in double-float, so the precision is the
 outline's position rather than its coordinates'.
-[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_STROKE_STYLE]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_OFFSET_STROKE_STYLE]]
 [[src/target/macos_aarch64/app/metal.rs:emit_dash_buffer]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_dash_upload]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:dashedStroke]]
@@ -867,7 +867,7 @@ so glyph outlines are always filled even-odd.
 [[src/codegen/builtins/canvas/helper_geometry/tail.rs:GEO_TAIL]]
 [[src/codegen/builtins/canvas/func_geo_build/fills.rs:fill_polygon]]
 [[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
-[[src/codegen/runtime/canvas/mod.rs:HEADER_POLYGON_RULE]]
+[[src/codegen/runtime/canvas/scene_layout.rs:HEADER_POLYGON_RULE]]
 [[src/codegen/runtime/canvas/shaders/mfb_canvas.frag:edgeCrossing32]]
 [[src/target/macos_aarch64/app/metal.rs:edgeCrossing32]]
 
@@ -1067,7 +1067,7 @@ nothing. The builder takes one of two paths, in header slot 51:
 [[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
 [[src/codegen/builtins/canvas/func_geo_build/paint.rs:emit_clip_edges]]
-[[src/codegen/runtime/canvas/mod.rs:HEADER_CLIP_MODE]]
+[[src/codegen/runtime/canvas/scene_layout.rs:HEADER_CLIP_MODE]]
 
 **On the GPUs** the item block carries two `ivec4`s for it: `clipBand` at byte
 288 is a path clip's band header, the same shape as a polygon's in `arcCaps` (its
@@ -1085,9 +1085,9 @@ gradient the coverage divides by is at most `F` (a clip's distance, a path's or 
 rectangle's, is 1-Lipschitz), so the quotient is past 0.5, where the coverage has
 clamped; untransformed and outside a group matrix the reach is the 0.5 of the one sample
 there is.
-[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_BAND]]
-[[src/codegen/runtime/canvas/mod.rs:ITEM_CLIP_BAND_NORM]]
-[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_CLIP_PATH]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_OFFSET_CLIP_BAND]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_CLIP_BAND_NORM]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_OFFSET_CLIP_PATH]]
 [[src/target/macos_aarch64/app/metal.rs:emit_clip_buffer]]
 [[src/codegen/runtime/canvas/vulkan.rs:emit_clip_upload]]
 
@@ -1101,7 +1101,7 @@ the stroke fade separately, so where they overlap the fill shows through a faded
 stroke. A `Picture`'s fill alpha is its tint's strength and is not faded; its texels'
 alpha is, at draw time, by `T` in header slot 54.
 [[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_HEADER]]
-[[src/codegen/runtime/canvas/mod.rs:HEADER_PICTURE_TRANSPARENCY]]
+[[src/codegen/runtime/canvas/scene_layout.rs:HEADER_PICTURE_TRANSPARENCY]]
 
 **`Paint.gradient` replaces an item's fill colour with a ramp**, and with
 `Gradient.strokeApply := FillAndStroke` its stroke colour too. It replaces *colours* and
@@ -1169,16 +1169,16 @@ fills the shape — defined, rather than a division by zero.
 [[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_HEADER]]
 [[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_items/draw_geometry.rs:DRAW_GEOMETRY]]
-[[src/codegen/runtime/canvas/mod.rs:HEADER_GRADIENT_SPREAD]]
+[[src/codegen/runtime/canvas/scene_layout.rs:HEADER_GRADIENT_SPREAD]]
 
 **On the GPUs** `surface.w` packs the kind with the spread and the stroke apply, `kind |
 spread << 1 | apply << 3`, and three `ivec4`s grow the item block to 368 bytes:
 `gradInv0`/`gradInv1` at 320/336 carry `G⁻¹` and its flag word for word, and
 `gradFocal` at 352 the focal offset and radius in 16.16. The shaders take `t` in fp32 at
 the fp32 inverse-mapped `q`, the same operations in the same order.
-[[src/codegen/runtime/canvas/mod.rs:ITEM_SURFACE_GRADIENT_KIND]]
-[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_GRADIENT_INV]]
-[[src/codegen/runtime/canvas/mod.rs:ITEM_OFFSET_GRADIENT_FOCAL]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_SURFACE_GRADIENT_KIND]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_OFFSET_GRADIENT_INV]]
+[[src/codegen/runtime/canvas/scene_layout.rs:ITEM_OFFSET_GRADIENT_FOCAL]]
 
 **Stops are used in the order given.** They are not sorted. An `offset` outside
 `0.0`..`1.0`, or one that goes backwards, is clamped to the previous stop's offset
@@ -1216,9 +1216,9 @@ graphics mutex, which the frame-completion path already takes, so the drawn log 
 no lock. `canvas::frameCounters` copies both logs, the last frame's render time and
 renderer, and the display rate in one critical section. Before the graphics thread
 starts it copies without the lock: at that point nothing has written a word.
-[[src/codegen/runtime/canvas/mod.rs:emit_note_present]]
-[[src/codegen/runtime/canvas/mod.rs:emit_frame_done]]
-[[src/codegen/runtime/canvas/mod.rs:emit_frame_counters]]
+[[src/codegen/runtime/canvas/frame_sync.rs:emit_note_present]]
+[[src/codegen/runtime/canvas/frame_sync.rs:emit_frame_done]]
+[[src/codegen/runtime/canvas/frame_sync.rs:emit_frame_counters]]
 
 A rate is over the trailing second, counted from one log's ring:
 
@@ -1268,8 +1268,8 @@ The floor's deadline is kept in the clock the condition variable's timed wait us
 at most one interval. The next interval is measured from the deadline when the return
 is less than one interval late, so wake-up latency does not accumulate; otherwise it is
 measured from the return, so a loop that fell behind gets no burst of catch-up returns.
-[[src/codegen/runtime/canvas/mod.rs:emit_await_pickup]]
-[[src/codegen/runtime/canvas/mod.rs:emit_wait_for_redraw]]
+[[src/codegen/runtime/canvas/frame_sync.rs:emit_await_pickup]]
+[[src/codegen/runtime/canvas/thread_lifecycle.rs:emit_wait_for_redraw]]
 
 ## Curves
 
@@ -1305,7 +1305,7 @@ P(t) = (P0·(1−t)² + 2·w1·P1·t(1−t) + P2·t²) / ((1−t)² + 2·w1·t(1
 
 stored as seven floats `x0, y0, x1, y1, x2, y2, w1`, and every piece is **y-monotone**:
 a curve is cut where its `y` turns. That is what lets the fill test be a polygon edge's.
-[[src/codegen/runtime/canvas/mod.rs:CURVE_PIECE_SLOTS]]
+[[src/codegen/runtime/canvas/scene_layout.rs:CURVE_PIECE_SLOTS]]
 
 * Degree 1 is one piece, its `P1` the midpoint.
 * Degree 2, polynomial or rational, is exact: the piece is the curve with its weights
@@ -1592,7 +1592,7 @@ is skipped.
 they were when the entry was eight words. Word 7 is 1 when the entry has a matrix, words
 8–11 are the inverse linear part as float32 bit patterns, and words 12–15 are zero. A
 translate-only entry is therefore its old eight words followed by zeros.
-[[src/codegen/runtime/canvas/mod.rs:CANVAS_DRAW_ENTRY_WORDS]]
+[[src/codegen/runtime/canvas/scene_layout.rs:CANVAS_DRAW_ENTRY_WORDS]]
 
 **Both GPU backends bind 32 bytes per draw, to both stages.** The entry's four
 translation words, then the four words of the inverse linear part: `MfbDraw` on Metal,
@@ -1615,7 +1615,7 @@ With a matrix:
   at least one surface pixel: the stage's pixel is added before the map, where the
   software bounds add theirs to the hull after it, because the quad is the mapped
   parallelogram and not its hull
-  ([[src/codegen/runtime/canvas/mod.rs:ITEM_RIM_WORDS]]);
+  ([[src/codegen/runtime/canvas/scene_layout.rs:ITEM_RIM_WORDS]]);
 * the **fragment** stage subtracts the translation from the pixel, as it always has,
   then applies the inverse linear part, and only then the item's own inverse if it has
   one. Every consumer reads that point: the distance (whose four neighbour samples are
@@ -2119,17 +2119,17 @@ The main thread publishes the surface's width and height into the graphics state
 each platform's resize path — macOS `MFBCanvasView setFrameSize:`, the GTK resize
 handler, Windows `WM_SIZE` and its canvas reconcile, and the headless scripted resize
 (`MFB_CANVAS_RESIZE_W`/`_H`, GTK and Windows) — with two plain stores and no lock.
-[[src/codegen/runtime/canvas/mod.rs:emit_publish_surface_size_tagged]] Both words are 0
+[[src/codegen/runtime/canvas/surface.rs:emit_publish_surface_size_tagged]] Both words are 0
 until the first publish, and a zero word reads as the startup size, 900 by 640: that is
 what `canvas::getSize` answers before a window has published anything and in a headless
 run, and the size a frame is rendered at.
-[[src/codegen/runtime/canvas/mod.rs:SurfaceDimension]]
+[[src/codegen/runtime/canvas/surface.rs:SurfaceDimension]]
 
 `canvas::didResize` is two counters. The publisher adds one to
 `GRAPHICS_OFFSET_RESIZES` when the size it publishes differs from the size read as
 above — the size the program sees — and `didResize` answers TRUE, and records the
 counter in `GRAPHICS_OFFSET_RESIZES_SEEN`, when the two differ.
-[[src/codegen/runtime/canvas/mod.rs:emit_did_resize]] So:
+[[src/codegen/runtime/canvas/surface.rs:emit_did_resize]] So:
 
 - a publish of the size the program already sees counts nothing. That is a repeat of
   the current size (AppKit sends them routinely), and equally a window's FIRST publish
@@ -2150,7 +2150,7 @@ only while the scene it last drew holds an `AutoPaint` (below, "AutoPaint"); oth
 it signals nothing.
 
 **Five words**, 40 contiguous bytes
-([[src/codegen/runtime/canvas/mod.rs:GRAPHICS_OFFSET_POINTER_SEQ]]):
+([[src/codegen/runtime/canvas/state_layout.rs:GRAPHICS_OFFSET_POINTER_SEQ]]):
 
 | Word | Holds |
 |---|---|
@@ -2160,7 +2160,7 @@ it signals nothing.
 | `POINTER_INSIDE` | 1 while the pointer is over the surface |
 
 **The four are written and read as one, under the sequence word, with no lock.**
-[[src/codegen/runtime/canvas/mod.rs:emit_publish_pointer]] increments `POINTER_SEQ` to
+[[src/codegen/runtime/canvas/surface.rs:emit_publish_pointer]] increments `POINTER_SEQ` to
 odd, stores the four, and increments it to even; it makes no call, so it can sit in any
 platform handler. `canvas::pointerSnapshot`
 ([[src/codegen/builtins/canvas/func_pointer.rs:lower_pointer_snapshot]]) reads the
@@ -2283,7 +2283,7 @@ The window is the project's `options.canvasAutoPaintMS`, 100 ms unless project.j
 says otherwise (`./mfb spec tooling project-manifest`), on `canvas::frameNanos`'
 monotonic clock. It is one value for the program, not a field of the record: the build
 bakes it into the graphics-state block
-([[src/codegen/runtime/canvas/mod.rs:GRAPHICS_OFFSET_AUTO_WINDOW_MS]]) and
+([[src/codegen/runtime/canvas/state_layout.rs:GRAPHICS_OFFSET_AUTO_WINDOW_MS]]) and
 `__canvas_autoWindow` reads it through `canvas::autoWindowMs`
 ([[src/codegen/builtins/canvas/func_pointer.rs:lower_auto_window_ms]]). Nothing is
 interpolated: each paint is drawn whole.
@@ -2368,7 +2368,7 @@ frame:
 
 * **The pointer changed.** Each platform's pointer handler, after it publishes, reads
   `GRAPHICS_OFFSET_AUTOPAINT_LIVE` and, when it is set, calls `canvas::signalRedraw`
-  with 1 ([[src/codegen/runtime/canvas/mod.rs:emit_skip_unless_autopaint_live]]). The
+  with 1 ([[src/codegen/runtime/canvas/surface.rs:emit_skip_unless_autopaint_live]]). The
   word is set by step 5 and cleared by the first resolve that finds no instance. With
   it clear, a pointer change signals nothing: a scene with no `AutoPaint` renders no
   frame for any pointer activity.
@@ -2378,9 +2378,9 @@ frame:
 
 `canvas::signalRedraw(pointerOnly)` with exactly 1 sets `GRAPHICS_OFFSET_AUTO_WAKE`
 under the graphics mutex and signals; with anything else it sets `PENDING` and `WANTED`
-as it always did ([[src/codegen/runtime/canvas/mod.rs:emit_signal_redraw]]). The resize
+as it always did ([[src/codegen/runtime/canvas/thread_lifecycle.rs:emit_signal_redraw]]). The resize
 handlers pass 0. `canvas::waitForRedraw(timeoutNanos)` answers
-([[src/codegen/runtime/canvas/mod.rs:emit_wait_for_redraw]]):
+([[src/codegen/runtime/canvas/thread_lifecycle.rs:emit_wait_for_redraw]]):
 
 | Answer | When | Takes |
 |---|---|---|

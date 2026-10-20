@@ -3700,7 +3700,7 @@ const FLOAT_ONE_BITS_F32: &str = "1065353216";
 /// `target/macos_aarch64/app/metal.rs`. The two emit into different IRs — one builds
 /// a standalone `CodeFunction` with `Asm`, the other writes into an `abi_function`
 /// body through `CodeBuilder` — but they write the *same* block, because the layout
-/// and the header slots are one definition in `runtime/canvas/mod.rs`. A change to
+/// and the header slots are one definition in `runtime/canvas/scene_layout.rs`. A change to
 /// the contract therefore cannot move one backend without moving the other.
 ///
 /// Positions narrow to 16.16 fixed point; colours cross as the whole 0–255 values

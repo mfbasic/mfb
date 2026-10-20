@@ -109,7 +109,7 @@ layout(std430, set = 0, binding = 0) readonly buffer Edges {
 //
 // SPECIALIZATION CONSTANTS, not literals (bug-688). The pipeline feeds each one from
 // the Rust layout constant of the same region (`VULKAN_SPEC_CONSTANTS` in
-// `runtime/canvas/mod.rs`, through `VkSpecializationInfo`), so the layout is defined
+// `runtime/canvas/scene_layout.rs`, through `VkSpecializationInfo`), so the layout is defined
 // once and this blob never has to be rebuilt because a cap before a region moved. They
 // were literals until then, and every cap was frozen by it. The default 0 is never
 // used: a pipeline built without the specialization data would read every region from

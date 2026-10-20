@@ -232,7 +232,7 @@ On macOS the Metal renderer splits that call. It keeps twelve 64-bit words in th
 object `_mfb_rt_canvas_profile`, and the stats line prints each one after
 `phaseRenderMs=`. Every word is cumulative over the run, so one frame's share is the
 difference between two lines.
-[[src/codegen/runtime/canvas/mod.rs:CANVAS_PROFILE_SYMBOL]]
+[[src/codegen/runtime/canvas/entry.rs:CANVAS_PROFILE_SYMBOL]]
 [[src/target/macos_aarch64/app/metal.rs:emit_profile_mark]]
 
 | Field | Unit | What it totals |
@@ -294,7 +294,7 @@ A normal build has no block, no clock reads in the renderer and no `GPUStartTime
 the profile, and `canvas::profileWord`, which reads the block, is called only from the
 `--debug` phase timers.
 [[src/target/macos_aarch64/app/metal.rs:emit_metal_draw]]
-[[src/codegen/runtime/canvas/mod.rs:emit_profile_word]]
+[[src/codegen/runtime/canvas/entry.rs:emit_profile_word]]
 [[src/target/macos_aarch64/app/metal.rs:metal_profile_data_objects]]
 
 Nor does a normal build's layer apply read `MFB_CANVAS_VSYNC` or send
