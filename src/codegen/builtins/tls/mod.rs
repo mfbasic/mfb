@@ -223,8 +223,8 @@ pub(crate) fn register(r: &mut Registry) {
                        Zero on an accepted socket, which shares its listener's queue.",
             },
             // NOTE: `REC_LHOST`@48 is deliberately NOT listed here. It is
-            // LISTENER-ONLY -- written by `tls::listen` (`gen_macos/server/listen.rs`,
-            // `lower_tls_listen_macos`) and by neither `tls::connect`
+            // LISTENER-ONLY -- written by `tls::listen` (`gen_macos/server/listen/start.rs`,
+            // `emit_listen_start`) and by neither `tls::connect`
             // (`gen_macos/client/connect.rs`, `lower_tls_connect_macos`) nor `tls::accept`
             // (`gen_macos/server/accept.rs`, `lower_tls_accept_macos`), both of which
             // write only CTX and QUEUE. A socket's word 48 is therefore uninitialised

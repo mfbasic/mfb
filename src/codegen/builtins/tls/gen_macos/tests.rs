@@ -731,7 +731,7 @@ fn listen_zeroes_its_cleanup_slots_before_any_failure_exit() {
     let (ins, _rel, _slots) = lower_tls_listen_macos("t_listen", &imports, &TlsReadTestPlatform)
         .expect("lower macos tls::listen");
 
-    // The frame offsets the cert_fail exit releases (server/listen.rs DATA/ITEMS/
+    // The frame offsets the cert_fail exit releases (server/listen/mod.rs DATA/ITEMS/
     // CERTREF/KEYREF). Hardcoded on purpose: this test exists to notice if a slot
     // is added to that release list without being zeroed here.
     const CLEANUP_SLOTS: [&str; 4] = ["168", "176", "184", "192"];

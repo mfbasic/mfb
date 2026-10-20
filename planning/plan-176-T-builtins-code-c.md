@@ -779,19 +779,23 @@ Acceptance: every macOS TLS lowering emits byte-identical code on `macos-aarch64
   STALE rows gone after the tighten; census → client mod 15 / connect 846 / read 385 / write 294 / poll 327 / close
   182; server mod 35 / identity 299 / listen 1018 / accept 482 / close_listener 228; sweep → only the repository
   crate's `server.rs` (`.ai/testing-gates.md:850`, `:868`).
-Commit: —
+Commit: 76eb35793
 
 ### Phase 5 — Extract `lower_tls_listen_macos` phases (largest blast radius last)
 
-- [ ] `git mv tls/gen_macos/server/listen.rs tls/gen_macos/server/listen/mod.rs`; move the R2
+- [x] `git mv tls/gen_macos/server/listen.rs tls/gen_macos/server/listen/mod.rs`; move the R2
       consts to module level; add `ListenEnv`, `ListenScratch` and the remainder per §4.10.
-- [ ] `fn emit_listen_identity` (R6) in `listen/mod.rs`; `listen/endpoint.rs` with
+- [x] `fn emit_listen_identity` (R6) in `listen/mod.rs`; `listen/endpoint.rs` with
       `pub(super) fn emit_listen_endpoint` (R7–R9); `listen/start.rs` with
       `pub(super) fn emit_listen_start` (R10–R11); the three mechanical body edits of §4.10 only.
-- [ ] `tls/mod.rs:226` listen reference → `gen_macos/server/listen/start.rs` (`emit_listen_start`).
-- [ ] `cargo clippy --all-targets 2>&1 | grep -c '^warning'` → the count recorded before the phase.
-- [ ] `python3 -I tools/loc-census/census.py --file <each of the 3 listen files>` → code ≤ 900;
+- [x] `tls/mod.rs:226` listen reference → `gen_macos/server/listen/start.rs` (`emit_listen_start`).
+- [x] `cargo clippy --all-targets 2>&1 | grep -c '^warning'` → the count recorded before the phase.
+- [x] `python3 -I tools/loc-census/census.py --file <each of the 3 listen files>` → code ≤ 900;
       record the largest fn's LOC (`emit_listen_endpoint`) here.
+      Done: census → `listen/mod.rs` 440, `endpoint.rs` 429, `start.rs` 281; per fn (non-blank, non-comment lines
+      of the fn span) → `emit_listen_endpoint` 428, `emit_listen_start` 280, `emit_listen_identity` 196,
+      `lower_tls_listen_macos` 161.
+- [x] `gen_macos/tests.rs:734`'s Phase 4 repoint → `server/listen/mod.rs` (the frame consts now live there).
 
 Acceptance: `tls::listen` on macOS emits the same instruction stream, vreg numbering and
 relocations as before, so every macOS TLS program is byte-identical.
@@ -803,6 +807,20 @@ relocations as before, so every macOS TLS program is byte-identical.
   → pass on the macOS host (real listeners through the extracted identity, endpoint and start
   phases) (est. 5 min, guess); step 8 rows: none for `tls/gen_macos/server/` (the interim NEW row
   is gone) (est. 20 min total, guess).
+  Done: `t5extract.py` asserted every region boundary of the Phase 4 file, then built `listen/mod.rs` (consts dedented
+  to module level, `ListenEnv`, `ListenScratch`, the remainder, `emit_listen_identity`), `endpoint.rs` and `start.rs`,
+  applying the three §4.10 edits to code tokens only (never inside a comment or string). Each phase's prologue binds
+  only the `ListenEnv` fields its body reads (identity: no `v10`). The function had drifted since planning: a 17th
+  label, `port_invalid` (bug-876), read by R5's `emit_port_range_check` and by R12 (Corrections).
+  Verified 2026-10-20: `t5verify.py` (undo the three edits, compare) → `emit_listen_identity VERBATIM 191 191`,
+  `emit_listen_endpoint VERBATIM 454 454`, `emit_listen_start VERBATIM 283 283`, the remainder's original lines an
+  in-order subsequence with only the carrier literals, the three calls and the destructure added, the R2 consts all
+  at module level; `cargo check` → 0 warnings before and after rustfmt; clippy → 37065 (unchanged; the listen hits
+  are existing warnings that moved with their lines); N = 5018; `spec_citations_resolve` ok; `gen_macos` → 23;
+  guards → 9, 8, 7 + 1 ignored; `codegen_helper_scratch_release` → 12 passed; `bash scripts/artifact-gate.sh …
+  tls` → 0 diffs; `rt_tls_accept_handshake_budget` 2, `rt_tls_listen_host_validation` 3,
+  `rt_tls_listener_close_frees` 4, `rt_tls_listener_local_address` 2 → all passed on the macOS host; budget → no
+  row for `tls/gen_macos/server/` (the interim NEW row is gone); sweep → no `server/listen.rs` mention left.
 Commit: —
 
 ## Validation Plan
@@ -855,6 +873,11 @@ Commit: —
 
 ## Corrections
 
+- 2026-10-20 — §4.10: `lower_tls_listen_macos` has 17 exit labels, not 16 — bug-876 added `port_invalid`
+  (`format!("{symbol}_port_invalid")`), branched to from R5's `emit_port_range_check` and emitted in R12. It is a
+  `ListenEnv` field like the others, so R5 (in the remainder) also takes edit 2 (`&port_invalid` →
+  `&env.port_invalid`). The function was 1018 code LOC at Phase 4, not 1007; the regions keep their order and
+  content (identity = old lines 178-368, endpoint 369-822, start 823-1105 of the Phase 4 file).
 - 2026-10-20 — §3/§4.6: `gen_openssl/connect.rs` is 980 code LOC, not ≈965 (`census.py --file` → 980;
   `lower_tls_connect_openssl` now spans lines 23-1144 of the old file, not 23-1132). Still one function under 1000,
   so §3's reasoning holds unchanged.
