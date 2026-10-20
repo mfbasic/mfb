@@ -708,19 +708,30 @@ this host.
   included); list count → 171; the spec grep → 0; the `463-524` grep → 0; census → 133/798/869, 89/819/752, 680, 246,
   256, 415; hosts inline 4, 6, 2, 2; G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`; guards 8, 7 + 1
   ignored, 8); G4 → 0; G5 → exit 0.
-Commit: —
+Commit: 395e04d10
 
 ### Phase 3 — Collection, link and canvas hosts (largest blast radius)
 
-- [ ] Move `src/codegen/collection/layout/builder_collection_layout.rs`'s three test modules into
+- [x] Move `src/codegen/collection/layout/builder_collection_layout.rs`'s three test modules into
       `builder_collection_layout/tests/mod.rs` per §4.14.
-- [ ] Move `src/codegen/link/thunk/link_thunk.rs`'s tests per §4.15.
-- [ ] Move `src/codegen/runtime/canvas/vulkan.rs`'s `mod tests` per §4.16 (`include_str!`
+      Done: lines 3739–end move verbatim (`python3 -I target/p176/tailmove.py`) under a leading `use super::*;`, the
+      three modules still inline; motion → only the host's new `#[cfg(test)] mod tests;` differs.
+- [x] Move `src/codegen/link/thunk/link_thunk.rs`'s tests per §4.15.
+      Done: `inline1.py` → 7 tests; motion → only the module lines differ.
+- [x] Move `src/codegen/runtime/canvas/vulkan.rs`'s `mod tests` per §4.16 (`include_str!`
       repoint; `assert_layout` and `SPIRV_MAGIC` stay in `vulkan.rs`).
-- [ ] Move `src/codegen/collection/assign/self_update.rs`'s census and tests per §4.13
+      Done: `inline1.py` → 8 tests; `include_str!("../../shaders/mfb_canvas.frag")`; motion → only the module lines.
+- [x] Move `src/codegen/collection/assign/self_update.rs`'s census and tests per §4.13
       (`include_str!` repoint, the four prose updates and the `.ai/collections.md` bullet).
-- [ ] G4: tighten (four `ceiling inline` rows go; the four hosts' `ceiling code` rows stay for
+      Done: `python3 -I target/p176/selfupdate.py` → host 1..1441 + `#[cfg(test)] mod tests;`; `tests/mod.rs` (the
+      dedented `mod tests` body + `mod census; use census::*;`), `tests/census/mod.rs` (the census, verbatim, +
+      `mod self_update_table; pub(crate) use self_update_table::SELF_UPDATE_TABLE;`), `census/self_update_table.rs`;
+      motion → only those declaration lines differ; the `.tsv` include is 6 levels up; the four prose references
+      (`inplace_self_update_census.rs` :18 :427, `rt_inplace_self_update/cases.rs:279`, `field_kinds_gen.py:18`) and
+      the `.ai/collections.md` bullet are repointed.
+- [x] G4: tighten (four `ceiling inline` rows go; the four hosts' `ceiling code` rows stay for
       Q and V).
+      Done: → 4 TIGHTEN `inline` rows (2, 2, 2, 33); tighten drops exactly those; re-run → 0.
 
 Acceptance: the census, the three layout modules, the thunk and canvas suites run from `tests/`
 modules with every count unchanged, and no file J created is over 900.
@@ -731,6 +742,15 @@ modules with every count unchanged, and no file J created is over 900.
   tests, which call it through `use super::*`); `find src/codegen/collection/assign/self_update src/codegen/collection/layout/builder_collection_layout src/codegen/link/thunk/link_thunk src/codegen/runtime/canvas/vulkan -name '*.rs' | xargs -n1 python3 -I tools/loc-census/census.py --file`
   → every second field ≤ 900 (largest `self_update/tests/census/self_update_table.rs`, 882);
   `cargo test --test inplace_self_update_census` → pass (est. 1 min); G3; G4; G5 (est. 12 min).
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 43 passed`; list count → 43;
+  `assert_layout` grep → 1, `canvas::vulkan` → `ok. 15 passed`; census → 440, 766, 882, 433, 546, 712; hosts inline
+  2, 2, 2, 33; G3 fast tier with `--test inplace_self_update_census --test rt_inplace_self_update` → `test-fast: ok`
+  (unit `4998 passed; 2 ignored`; guards 8, 7 + 1 ignored, 8; census `3 passed`; runtime `1 passed; 3 ignored`);
+  G4 → 0; G5 → exit 0.
+  Final gate: `spec_citations_resolve` and the guards ran in the fast tier (pass); the banner → 0 rows; clippy — no
+  G0 count was recorded, so per path: 62 warnings under J's new directories, all content lints of text moved
+  verbatim (55 `unnecessary to_string`, 4 needless borrows, 1 constant assertion, 1 manual `is_multiple_of`, 1
+  complex type), so pre-existing.
 Commit: —
 
 ## Validation Plan

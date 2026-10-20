@@ -77,7 +77,7 @@ any nested path, and every arm serves it (see "Field sites" below). The seam is
   red only if the churn actually reaches your path — prove it red with the
   reclaim disabled. A plain copy (`copy_collection_tight`) still carries dead
   bytes (it does not grow, so it cannot accumulate them).
-* `SELF_UPDATE_TABLE` (tests only) — one row per self-update-shaped registry
+* `SELF_UPDATE_TABLE` (tests only, `self_update/tests/census/self_update_table.rs`) — one row per self-update-shaped registry
   function: `Arm(&[ArmId])` or `Exempt { reason, proof }` (the result is not built
   from `x`'s block, and `proof` cites the lowering that shows `x` is only read).
   **There is no third kind** — `Deferred(plan)` exists only for the

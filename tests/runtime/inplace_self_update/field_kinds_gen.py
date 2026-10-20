@@ -15,7 +15,7 @@ The rows in plan-144's F2–F5 families differ by builtin but not by lowering (n
 names them, findings Appendix B.3), so one representative self-update per kind
 measures the kind's path.
 
-A kind's class is the compiler's (`field_kind_class`, `self_update.rs`, checked by
+A kind's class is the compiler's (`field_kind_class`, `self_update/tests/census/mod.rs`, checked by
 the unit census against `FIELD_KIND_TABLE`), recomputed here from the `mfb man`
 field lists with the same rules:
 

@@ -276,7 +276,7 @@ impl Site {
         // the allocation the copying builtin would have made. MEASURED: the `chain`
         // shape over `strings::left(x, 150)` allocates 603 blocks at N=600 and 1203
         // at 2N=1200 whether the arm fires or declines. The compiler-side pin is
-        // `RETURN_NEVER` in `self_update.rs`, which asserts these arms do not fire.
+        // `RETURN_NEVER` in `self_update/tests/census/mod.rs`, which asserts these arms do not fire.
         // S12 is S11 inside an owned variant, so it inherits S11's `String` exclusion.
         if matches!(self, Site::Return | Site::OwnedParam) && case.ty() == "String" {
             return false;

@@ -59,11 +59,9 @@ ceiling code 1106 src/codegen/cleanup/owned/builder_owned_cleanup.rs
 ceiling code 1262 src/codegen/collection/assign/builder_inplace_assign.rs
 ceiling code 1027 src/codegen/collection/assign/builder_inplace_setmap.rs
 ceiling code 1059 src/codegen/collection/assign/self_update.rs
-ceiling inline 2087 src/codegen/collection/assign/self_update.rs
 ceiling code 1805 src/codegen/collection/assign/string_self_update.rs
 ceiling code 1246 src/codegen/collection/compare/builder_collection_compare.rs
 ceiling code 2592 src/codegen/collection/layout/builder_collection_layout.rs
-ceiling inline 432 src/codegen/collection/layout/builder_collection_layout.rs
 ceiling code 4202 src/codegen/collection/list/list_mutate.rs
 ceiling code 1293 src/codegen/collection/map/map_mutate.rs
 ceiling code 1264 src/codegen/collection/search/builder_search.rs
@@ -80,7 +78,6 @@ ceiling code 3060 src/codegen/engine/value/builder_values.rs
 ceiling code 1296 src/codegen/io/input/decode.rs
 ceiling code 1126 src/codegen/io/stdin/stdin_broadcast.rs
 ceiling code 2140 src/codegen/link/thunk/link_thunk.rs
-ceiling inline 551 src/codegen/link/thunk/link_thunk.rs
 ceiling code 1614 src/codegen/memory/arena/arena.rs
 ceiling code 1569 src/codegen/memory/arena/builder_arena_transfer.rs
 ceiling code 1496 src/codegen/memory/data/data_objects.rs
@@ -89,7 +86,6 @@ ceiling code 1224 src/codegen/os/socket/shared.rs
 ceiling code 3108 src/codegen/registry/mod.rs
 ceiling code 2272 src/codegen/runtime/canvas/mod.rs
 ceiling code 7309 src/codegen/runtime/canvas/vulkan.rs
-ceiling inline 748 src/codegen/runtime/canvas/vulkan.rs
 ceiling code 1848 src/codegen/runtime/canvas/vulkan_present.rs
 ceiling code 1362 src/codegen/runtime/thread/runtime_helpers_thread.rs
 ceiling code 2018 src/codegen/string/repr/builder_strings.rs

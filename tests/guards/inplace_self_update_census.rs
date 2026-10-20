@@ -15,7 +15,7 @@
 //! form too.
 //!
 //! The registry-side twin is `self_update_census_covers_every_registry_overload`
-//! in `src/codegen/collection/assign/self_update.rs`; it ties the registry to the
+//! in `src/codegen/collection/assign/self_update/tests/mod.rs`; it ties the registry to the
 //! table of arms, which this black-box test cannot see.
 
 #[path = "../common/mod.rs"]
@@ -424,7 +424,7 @@ fn field_kinds_tsv() -> BTreeSet<String> {
 
 /// plan-145-A: every record type a package documents is a field kind with a line in
 /// `field_kinds.tsv` — its measured expectation at every field site. The unit twin
-/// is `field_kind_census_covers_every_record_field_type` (`self_update.rs`), over
+/// is `field_kind_census_covers_every_record_field_type` (`self_update/tests/mod.rs`), over
 /// `FIELD_KIND_TABLE`.
 #[test]
 fn every_package_record_type_has_a_field_kind_line() {
