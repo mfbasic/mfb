@@ -983,22 +983,33 @@ Acceptance: the manifest and CLI tests run from their new modules.
   491 after (Corrections); `builtin_codegen_corpora_lower_in_process` path → 1; census → hosts inline 2, 2, 59, 2, 10,
   2, 5, 2, 2, new files 283, 377, 936, 591/576, 825/503/529/876, 963, 891, 595, 390/671; G3 fast tier → `test-fast: ok`
   (its skip list still matches; unit `4998 passed; 2 ignored`; guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
-Commit: —
+Commit: dc2a52542
 
 ### Phase 4 — Debugger
 
-- [ ] Move `src/debugger/breakpoints.rs` tests per §4.7 (re-measure; split per §4.7 if > 1000).
-- [ ] Move `src/debugger/breakpoints/report.rs` tests per §4.7.
-- [ ] Split `src/debugger/prompt.rs` tests per §4.4 (3 files).
-- [ ] Move `src/debugger/runtime.rs` tests per §4.7.
-- [ ] Move `src/debugger/values.rs` tests per §4.7.
-- [ ] G4: tighten.
+- [x] Move `src/debugger/breakpoints.rs` tests per §4.7 (re-measure; split per §4.7 if > 1000).
+      Done: re-measured → `breakpoints/tests/mod.rs` 987 ≤ 1000 (996 before rustfmt), so one file (no split).
+- [x] Move `src/debugger/breakpoints/report.rs` tests per §4.7.
+- [x] Split `src/debugger/prompt.rs` tests per §4.4 (3 files).
+      Done: `planparts.py --plain` + `items.py extract` → mod.rs 23 tests (with `Recorder` and its impls), inspection 21,
+      execution 24 (+ helper `variables`); motion → only the module lines and the 2 part `mod` lines differ.
+- [x] Move `src/debugger/runtime.rs` tests per §4.7.
+- [x] Move `src/debugger/values.rs` tests per §4.7.
+      Done (the four whole moves): `movemod.py` → 22, 12, 14, 13 tests; motion → only the module lines differ.
+- [x] G4: tighten.
+      Done: → 5 TIGHTEN `inline` rows (2 each); tighten drops exactly those; re-run → 0.
 
 Acceptance: the debugger tests run from their new modules.
   Check: G1 → equal; G2 `cargo test -p mfb --bin mfb debugger::` → 0 failed (the fakes
   `Program`, `Exiting`, `Recorder`, `Memory`, `Fake` drive every test; no live process);
   `cargo test -p mfb --bin mfb -- --list 2>/dev/null | grep -cE '^debugger::(breakpoints|breakpoints::report|prompt|runtime|values)::tests::'`
   → 22+12+68+14+13 = 129, the same before and after; G3; G4; G5 (est. 8 min).
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 180 passed`; path count → 129 before and
+  129 after; census → hosts inline 2 each, new files 987, 429, 642/590/809, 404, 498; G3 fast tier → `test-fast: ok`
+  (unit `4998 passed; 2 ignored`; guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
+  Final gate: `spec_citations_resolve` and the guards ran in the fast tier (pass); the banner → 0 rows; the ceiling file
+  holds no `inline`/`test` row for a K path; clippy — no G0 count was recorded, so per path: K's new directories carry
+  only content lints of text moved verbatim (17 unneeded `..` patterns, 1 too-many-arguments), so pre-existing.
 Commit: —
 
 ## Validation Plan

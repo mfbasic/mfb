@@ -82,15 +82,10 @@ ceiling code 1533 src/codegen/string/unicode_props.rs
 ceiling code 2824 src/codegen/term/core/term.rs
 ceiling code 1502 src/codegen/term/grid/term_grid.rs
 ceiling code 1300 src/debugger/breakpoints.rs
-ceiling inline 999 src/debugger/breakpoints.rs
-ceiling inline 435 src/debugger/breakpoints/report.rs
 ceiling code 1711 src/debugger/linux.rs
 ceiling code 1999 src/debugger/macos.rs
 ceiling code 2131 src/debugger/prompt.rs
-ceiling inline 2047 src/debugger/prompt.rs
-ceiling inline 410 src/debugger/runtime.rs
 ceiling code 1068 src/debugger/values.rs
-ceiling inline 501 src/debugger/values.rs
 ceiling code 1002 src/hir/mod.rs
 ceiling code 1448 src/ir/binary.rs
 ceiling code 5222 src/ir/lower.rs
