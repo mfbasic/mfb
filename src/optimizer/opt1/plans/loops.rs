@@ -141,7 +141,9 @@ pub(crate) fn invariant(value: &NirValue, defined: &HashSet<String>) -> bool {
 /// mirroring `builder_control`'s loop-stack discipline exactly).
 pub(crate) fn captures_loop_control(ops: &[NirOp], kind: LoopKind) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::ExitLoop { kind: k } | NirOp::ContinueLoop { kind: k } => *k == kind,
+        NirOp::ExitLoop { kind: k, target: _ } | NirOp::ContinueLoop { kind: k, target: _ } => {
+            *k == kind
+        }
         NirOp::While { kind: k, body, .. } => *k != kind && captures_loop_control(body, kind),
         NirOp::For { body, .. } | NirOp::ForEach { body, .. } => {
             kind != LoopKind::For && captures_loop_control(body, kind)

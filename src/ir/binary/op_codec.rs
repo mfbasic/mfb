@@ -50,14 +50,16 @@ pub(super) fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             put_opt_value(out, value);
             put_loc(out, *loc);
         }
-        IrOp::ExitLoop { kind, loc } => {
+        IrOp::ExitLoop { kind, loc, target } => {
             put_u8(out, 11);
             put_loop_kind(out, *kind);
+            put_opt_str(out, target);
             put_loc(out, *loc);
         }
-        IrOp::ContinueLoop { kind, loc } => {
+        IrOp::ContinueLoop { kind, loc, target } => {
             put_u8(out, 12);
             put_loop_kind(out, *kind);
+            put_opt_str(out, target);
             put_loc(out, *loc);
         }
         IrOp::ExitProgram { code, loc } => {
@@ -199,10 +201,12 @@ fn decode_op_body(r: &mut IrReader) -> Result<IrOp, String> {
         },
         11 => IrOp::ExitLoop {
             kind: decode_loop_kind(r)?,
+            target: r.opt_string()?,
             loc: get_loc(r)?,
         },
         12 => IrOp::ContinueLoop {
             kind: decode_loop_kind(r)?,
+            target: r.opt_string()?,
             loc: get_loc(r)?,
         },
         13 => IrOp::ExitProgram {

@@ -378,10 +378,12 @@ fn op_loc_returns_the_stored_location_for_every_variant() {
         loc: l,
     });
     with_loc(IrOp::ExitLoop {
+        target: None,
         kind: LoopKind::For,
         loc: l,
     });
     with_loc(IrOp::ContinueLoop {
+        target: None,
         kind: LoopKind::Do,
         loc: l,
     });

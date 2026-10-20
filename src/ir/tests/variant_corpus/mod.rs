@@ -237,10 +237,12 @@ fn every_op() -> Vec<IrOp> {
             loc: loc(),
         },
         IrOp::ExitLoop {
+            target: None,
             kind: LoopKind::While,
             loc: loc(),
         },
         IrOp::ContinueLoop {
+            target: None,
             kind: LoopKind::For,
             loc: loc(),
         },

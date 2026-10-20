@@ -598,18 +598,26 @@ impl ToNirJson for NirOp {
                     .unwrap_or_else(|| "null".to_string());
                 format!("\n{}{{ \"op\": \"return\", \"value\": {} }}", pad, value)
             }
-            NirOp::ExitLoop { kind } => {
+            NirOp::ExitLoop { kind, target } => {
                 format!(
-                    "\n{}{{ \"op\": \"exitLoop\", \"loop\": {} }}",
+                    "\n{}{{ \"op\": \"exitLoop\", \"loop\": {}{} }}",
                     pad,
-                    json_string(kind.name())
+                    json_string(kind.name()),
+                    match target {
+                        Some(name) => format!(", \"target\": {}", json_string(name)),
+                        None => String::new(),
+                    }
                 )
             }
-            NirOp::ContinueLoop { kind } => {
+            NirOp::ContinueLoop { kind, target } => {
                 format!(
-                    "\n{}{{ \"op\": \"continueLoop\", \"loop\": {} }}",
+                    "\n{}{{ \"op\": \"continueLoop\", \"loop\": {}{} }}",
                     pad,
-                    json_string(kind.name())
+                    json_string(kind.name()),
+                    match target {
+                        Some(name) => format!(", \"target\": {}", json_string(name)),
+                        None => String::new(),
+                    }
                 )
             }
             NirOp::ExitProgram { code } => {

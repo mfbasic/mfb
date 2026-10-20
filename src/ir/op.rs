@@ -40,10 +40,12 @@ pub(crate) enum IrOp {
     ExitLoop {
         kind: LoopKind,
         loc: IrSourceLoc,
+        target: Option<String>,
     },
     ContinueLoop {
         kind: LoopKind,
         loc: IrSourceLoc,
+        target: Option<String>,
     },
     ExitProgram {
         code: IrValue,

@@ -568,6 +568,7 @@ fn rejects_fail_non_error() {
 #[test]
 fn rejects_exit_without_loop() {
     let body = vec![IrOp::ExitLoop {
+        target: None,
         kind: crate::ast::LoopKind::For,
         loc: IrSourceLoc::default(),
     }];
@@ -580,6 +581,7 @@ fn rejects_exit_without_loop() {
 #[test]
 fn rejects_continue_without_loop() {
     let body = vec![IrOp::ContinueLoop {
+        target: None,
         kind: crate::ast::LoopKind::While,
         loc: IrSourceLoc::default(),
     }];
@@ -595,6 +597,7 @@ fn accepts_exit_inside_matching_loop() {
         kind: crate::ast::LoopKind::While,
         condition: const_of("Boolean", "true"),
         body: vec![IrOp::ExitLoop {
+            target: None,
             kind: crate::ast::LoopKind::While,
             loc: IrSourceLoc::default(),
         }],
@@ -613,6 +616,7 @@ fn rejects_unreachable_after_exit() {
         condition: const_of("Boolean", "true"),
         body: vec![
             IrOp::ExitLoop {
+                target: None,
                 kind: crate::ast::LoopKind::While,
                 loc: IrSourceLoc::default(),
             },
@@ -754,6 +758,7 @@ fn rejects_do_until_condition_non_boolean() {
 fn accepts_do_until_valid() {
     let body = vec![IrOp::DoUntil {
         body: vec![IrOp::ContinueLoop {
+            target: None,
             kind: crate::ast::LoopKind::Do,
             loc: IrSourceLoc::default(),
         }],
@@ -811,6 +816,7 @@ fn accepts_valid_for() {
         end: int_const("10"),
         step: int_const("1"),
         body: vec![IrOp::ExitLoop {
+            target: None,
             kind: crate::ast::LoopKind::For,
             loc: IrSourceLoc::default(),
         }],
@@ -881,6 +887,7 @@ fn accepts_for_each_list() {
             type_: ParameterType::Integer,
             iterable: IrValue::Local("xs".to_string()),
             body: vec![IrOp::ContinueLoop {
+                target: None,
                 kind: crate::ast::LoopKind::For,
                 loc: IrSourceLoc::default(),
             }],

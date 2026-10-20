@@ -359,8 +359,14 @@ fn lower_op(op: &IrOp) -> NirOp {
         IrOp::Return { value, .. } => NirOp::Return {
             value: value.as_ref().map(lower_value),
         },
-        IrOp::ExitLoop { kind, .. } => NirOp::ExitLoop { kind: *kind },
-        IrOp::ContinueLoop { kind, .. } => NirOp::ContinueLoop { kind: *kind },
+        IrOp::ExitLoop { kind, target, .. } => NirOp::ExitLoop {
+            target: target.clone(),
+            kind: *kind,
+        },
+        IrOp::ContinueLoop { kind, target, .. } => NirOp::ContinueLoop {
+            target: target.clone(),
+            kind: *kind,
+        },
         IrOp::ExitProgram { code, .. } => NirOp::ExitProgram {
             code: lower_value(code),
         },

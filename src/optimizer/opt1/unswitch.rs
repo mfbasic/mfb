@@ -233,6 +233,7 @@ mod tests {
                     then_body: vec![
                         assign("a", local("x")),
                         NirOp::ExitLoop {
+                            target: None,
                             kind: crate::ast::LoopKind::While,
                         },
                     ],

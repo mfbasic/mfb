@@ -21,6 +21,46 @@ fn binary_repr_round_trip_is_identity() {
     assert_eq!(bytes, bytes2);
 }
 
+/// plan-180-C Phase 1: a named exit or continue (`target: Some`) round-trips its
+/// target name, and an unnamed one stays `None` after decode.
+#[test]
+fn named_loop_exit_round_trips_its_target() {
+    let body = vec![
+        IrOp::ExitLoop {
+            kind: LoopKind::For,
+            target: Some("$for_iter1".to_string()),
+            loc: IrSourceLoc::default(),
+        },
+        IrOp::ContinueLoop {
+            kind: LoopKind::For,
+            target: Some("i".to_string()),
+            loc: IrSourceLoc::default(),
+        },
+        IrOp::ExitLoop {
+            kind: LoopKind::Do,
+            target: None,
+            loc: IrSourceLoc::default(),
+        },
+    ];
+    let project = project_named("named_exit_round_trip", vec![fn_named("main", body)]);
+    let bytes = encode_binary_repr(&project);
+    let decoded = decode_binary_repr(&bytes).expect("decode");
+    assert_eq!(project.to_json(), decoded.to_json());
+    let decoded_body = &decoded.functions[0].body;
+    assert!(matches!(
+        &decoded_body[0],
+        IrOp::ExitLoop { target: Some(t), .. } if t == "$for_iter1"
+    ));
+    assert!(matches!(
+        &decoded_body[1],
+        IrOp::ContinueLoop { target: Some(t), .. } if t == "i"
+    ));
+    assert!(matches!(
+        &decoded_body[2],
+        IrOp::ExitLoop { target: None, .. }
+    ));
+}
+
 /// bug-33: `Capture.index` was a `usize` written as a `u32`, so an index past
 /// `u32::MAX` encoded its low 32 bits and decoded to a different slot. The
 /// field is now the wire's `u32`, and the maximum value round-trips exactly.
@@ -516,10 +556,12 @@ fn json_extra_ops_project() -> IrProject {
             },
             body: vec![
                 IrOp::ExitLoop {
+                    target: None,
                     kind: LoopKind::For,
                     loc: IrSourceLoc::default(),
                 },
                 IrOp::ContinueLoop {
+                    target: None,
                     kind: LoopKind::For,
                     loc: IrSourceLoc::default(),
                 },
@@ -528,6 +570,7 @@ fn json_extra_ops_project() -> IrProject {
         },
         IrOp::DoUntil {
             body: vec![IrOp::ContinueLoop {
+                target: None,
                 kind: LoopKind::Do,
                 loc: IrSourceLoc::default(),
             }],

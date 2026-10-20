@@ -145,8 +145,16 @@ fn lower_statement_inner(
             }),
             loc,
         }],
-        HirStatement::Exit { kind, .. } => vec![IrOp::ExitLoop { kind: *kind, loc }],
-        HirStatement::Continue { kind, .. } => vec![IrOp::ContinueLoop { kind: *kind, loc }],
+        HirStatement::Exit { kind, .. } => vec![IrOp::ExitLoop {
+            target: None,
+            kind: *kind,
+            loc,
+        }],
+        HirStatement::Continue { kind, .. } => vec![IrOp::ContinueLoop {
+            target: None,
+            kind: *kind,
+            loc,
+        }],
         HirStatement::Fail { error, .. } => vec![IrOp::Fail {
             error: lower_expression(error, locals, context),
             loc,

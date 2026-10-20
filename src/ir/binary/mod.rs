@@ -61,7 +61,12 @@ pub const BINARY_REPR_MAGIC: &[u8; 4] = b"MFBR";
 /// type string: `Result OF T` is now `#Result OF T`, because `Result OF T` is an
 /// ordinary user template. A v6 payload's `Result OF T` would decode as that user
 /// template, so v6 is refused and its packages must be rebuilt.
-pub const BINARY_REPR_VERSION: u16 = 7;
+///
+/// Version 8 (plan-180-C) adds an optional loop `target` name to `ExitLoop` and
+/// `ContinueLoop` (tags 11/12), written after the loop kind. A v7 payload would
+/// decode those tags without the field, so v7 is refused and its packages must
+/// be rebuilt.
+pub const BINARY_REPR_VERSION: u16 = 8;
 
 // --- low-level writers -----------------------------------------------------
 

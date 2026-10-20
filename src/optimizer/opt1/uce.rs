@@ -244,6 +244,7 @@ mod tests {
                     condition: local("c"),
                     body: vec![
                         NirOp::ExitLoop {
+                            target: None,
                             kind: crate::ast::LoopKind::While,
                         },
                         eval(local("dead")),

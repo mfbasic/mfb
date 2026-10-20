@@ -180,15 +180,15 @@ Rejected alternatives:
 Representation only; nothing creates a target yet, so all output is byte-identical except
 the version.
 
-- [ ] `src/ir/op.rs`, `src/target/shared/nir/mod.rs`: `target: Option<String>` on
+- [x] `src/ir/op.rs`, `src/target/shared/nir/mod.rs`: `target: Option<String>` on
       `ExitLoop`/`ContinueLoop`; every constructor passes `None`
       (`src/ir/lower.rs`, `src/ir/tests.rs`, `src/ir/variant_corpus_tests.rs`, optimizer
       tests in `peel.rs`/`rotate.rs`/`unswitch.rs`/`uce.rs`).
-- [ ] `src/target/shared/nir/lower.rs`: copy `target`.
-- [ ] `src/ir/json.rs`, `src/target/shared/nir/json.rs`: write `"target"` only when `Some`.
-- [ ] `src/ir/binary.rs`: tags 11/12 encode/decode `put_opt_str`/`opt_string` after the
+- [x] `src/target/shared/nir/lower.rs`: copy `target`.
+- [x] `src/ir/json.rs`, `src/target/shared/nir/json.rs`: write `"target"` only when `Some`.
+- [x] `src/ir/binary.rs`: tags 11/12 encode/decode `put_opt_str`/`opt_string` after the
       kind; `BINARY_REPR_VERSION = 8`; round-trip unit test with `Some("$for_iter1")`.
-- [ ] `src/docs/spec/package/08_ir-section.md`: version **8**, what v8 adds, why v7 is
+- [x] `src/docs/spec/package/08_ir-section.md`: version **8**, what v8 adds, why v7 is
       refused; `src/docs/spec/architecture/04_ir.md`: `ExitLoop`/`ContinueLoop` carry an
       optional target.
 
@@ -296,6 +296,22 @@ Commit: —
 - Binary Representation bumps to 8 — author (one version per format, precedent `44288aae1`).
 
 ## Corrections
+
+- **Phase 1 `.br` prediction was wrong (measured).** The plan expected `.br` version-byte diffs
+  from `artifact-gate.sh collections`. `git ls-files | grep -c '\.br$'` → 0 and
+  `grep -n '\.br\b' scripts/artifact-gate.sh` → no match, so no `.br` file is in any golden
+  and the gate has nothing to diff. Phase 1 result: `bash scripts/artifact-gate.sh
+  target/release/mfb collections` → `1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`.
+  The version byte is still exercised by `cargo test --bin mfb ir::binary` (4 passed) and
+  `named_loop_exit_round_trips_its_target` (1 passed).
+- **Phase 1 expected package breakage (measured, owned by Phase 4).** `git ls-files | grep -c
+  '\.mfp$'` → 163 committed packages still embed `BINARY_REPR` 7, which the v8 decoder refuses.
+  Phase 1 does not import them, so its acceptance is unaffected. Phase 4's rebuild restores
+  them; the plan's `44288aae1` → `cfd159f10` precedent accepts the same intermediate state.
+- **Phase 1 site count (measured).** The new `target` field needed a value at every constructor
+  and pattern site that `cargo check --workspace --all-targets` reported (constructors get
+  `target: None`, patterns get `target: _`). No behaviour change: every op is `None` until
+  Phase 2 creates a target.
 
 ## Summary
 

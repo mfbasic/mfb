@@ -311,8 +311,8 @@ impl<'f> Liveness<'f> {
                 }
                 live
             }
-            NirOp::ExitLoop { kind } => self.loop_target(*kind, true),
-            NirOp::ContinueLoop { kind } => self.loop_target(*kind, false),
+            NirOp::ExitLoop { kind, target: _ } => self.loop_target(*kind, true),
+            NirOp::ContinueLoop { kind, target: _ } => self.loop_target(*kind, false),
             NirOp::ExitProgram { code } => self.canon.reads(code).into_iter().collect(),
             NirOp::Fail { error } => {
                 let mut live = self.trap_live.clone();

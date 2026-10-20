@@ -96,10 +96,10 @@ impl FunctionPlanBuilder<'_> {
                         self.operations.push("return".to_string());
                     }
                 }
-                NirOp::ExitLoop { kind } => {
+                NirOp::ExitLoop { kind, target: _ } => {
                     self.operations.push(format!("exit {}", kind.keyword()));
                 }
-                NirOp::ContinueLoop { kind } => {
+                NirOp::ContinueLoop { kind, target: _ } => {
                     self.operations.push(format!("continue {}", kind.keyword()));
                 }
                 NirOp::ExitProgram { code } => {

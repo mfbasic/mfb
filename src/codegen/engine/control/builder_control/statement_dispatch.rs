@@ -127,7 +127,7 @@ impl CodeBuilder<'_> {
                         // still reachable — before the `ret`, not after it.
                         self.emit_return_exit(value.as_ref(), Some(temp_watermark))?;
                     }
-                    NirOp::ExitLoop { kind } => {
+                    NirOp::ExitLoop { kind, target: _ } => {
                         let target = self
                             .loop_stack
                             .iter()
@@ -141,7 +141,7 @@ impl CodeBuilder<'_> {
                             target.temp_depth,
                         )?;
                     }
-                    NirOp::ContinueLoop { kind } => {
+                    NirOp::ContinueLoop { kind, target: _ } => {
                         let target = self
                             .loop_stack
                             .iter()
