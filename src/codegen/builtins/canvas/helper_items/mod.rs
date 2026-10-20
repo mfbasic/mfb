@@ -1,7 +1,7 @@
 //! `__canvas_drawGeometry` — the one rasterisation loop.
 //!
 //! The rasteriser never sees a `DrawItem`. It reads the flat float record
-//! `helper_geometry.rs` produced, which is the same buffer plan-98-E/F upload to the
+//! `helper_geometry/` produced, which is the same buffer plan-98-E/F upload to the
 //! GPU — so the oracle and the GPU backends consume one representation rather than
 //! two that could drift.
 //!

@@ -597,7 +597,7 @@ Measured, plan-116-J. The natural test for "a group keeps the image its items na
 is: install a `canvas::Picture`, drop the caller's binding, present the group, assert
 the image draws. Written that way it renders an **all-black frame** — and so does the
 identical program with the binding still alive, because `canvas::Picture` draws nothing
-on any backend. `helper_geometry.rs` gives it the `NONE` geometry kind
+on any backend. `helper_geometry/` gives it the `NONE` geometry kind
 (`CASE Picture(pic) RETURN __canvas_emptyHeader()`) that every renderer skips, and
 `canvas::imageHandle` has no caller in any renderer. So the test fails before the
 feature is written, fails after the feature is correct, and says nothing either way.

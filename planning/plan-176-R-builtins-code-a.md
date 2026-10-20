@@ -732,15 +732,21 @@ source-reading tests still find every const they lift.
   `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; sweep → only `'` raw-string lines and the two shader files;
   budget → four STALE rows before, none after; census → items 25/19 + 444/654, picture 66/51 + 397/752, particles
   74/16 + 402/459/252/251, curves 216/95 + 482/565/319/342.
-Commit: —
+Commit: 05e7dcb31
 
 ### Phase 4: helper_geometry
 
-- [ ] `helper_geometry.rs` → `helper_geometry/{mod,header_paint,header_kinds,tail,cache,verify}.rs`
+- [x] `helper_geometry.rs` → `helper_geometry/{mod,header_paint,header_kinds,tail,cache,verify}.rs`
       per §4.6, including the `GEO_HEADER` `concat!` of `geo_header_paint!()` + `geo_header_kinds!()`.
       The existing `helper_geometry/tests/mod.rs` is unchanged.
-- [ ] Repoint the 16 `06_canvas.md` citations, and the prose listed in §4.6 (including
+      Done: `r4geo.py` cut `GEO_HEADER`'s text before `FUNC __canvas_strokeAsFill(` into two `macro_rules!` bodies and
+      checked `paint + kinds == text` (also re-checked after `cargo fmt`: the two bodies concatenate to the saved
+      original); the rest by `codesplit.py` → tail 1, cache 3, verify 2 consts, each `pub(super)` (the planned 6), no
+      `use` line in the raw-string parts; `motion.py` → only those edits, the macro wrappers and the `concat!` line.
+- [x] Repoint the 16 `06_canvas.md` citations, and the prose listed in §4.6 (including
       `helper_items/mod.rs` line 4).
+      Done: 19 cites (`citesweep.py` 12 + `mfbcites.py` 7 for MFBASIC `FUNC` names, three added since planning);
+      `wordcheck.py` → 0 missing; the seven prose sites of §4.6.
 
 Acceptance: the file is split. `GEO_HEADER` and every other geometry helper produce identical text
 and native code.
@@ -748,6 +754,10 @@ and native code.
   plus `cargo test --test rt_canvas_rasteriser` → all pass (est. 10 min). Sweep:
   `grep -rn "helper_geometry\.rs" src tests scripts .ai tools` → only `'` lines inside raw-string
   consts. File-size path: `helper_geometry` (est. 25 min).
+  Verified 2026-10-20: R-BID → `diff` empty; `helper_geometry::tests` → 4 passed; `rt_canvas_rasteriser` → 111 passed,
+  2 ignored; `codegen::builtins::canvas` → 50; check warnings 0; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1
+  ignored; sweep → only `'` raw-string lines; budget → one STALE row (2380) before, none after; census → mod 122/2,
+  header_paint 491, header_kinds 479, tail 465, cache 560, verify 282.
 Commit: —
 
 ### Phase 5: func_geo_cache

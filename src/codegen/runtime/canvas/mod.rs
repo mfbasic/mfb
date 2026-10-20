@@ -1069,7 +1069,7 @@ pub(crate) const ITEM_RIM_WORDS: [usize; 2] =
 ///
 /// The rest of the dispatch happens inside the shaders, which read `misc.x`; this is
 /// here because the *emitters* branch on it too, to decide whether to build an edge
-/// payload at all. Spelled once so a renumbering in `helper_geometry.rs`'s
+/// payload at all. Spelled once so a renumbering in `helper_geometry/`'s
 /// `__CANVAS_GEO_POLYGON` cannot leave two backends disagreeing with the source of
 /// truth in different ways.
 pub(crate) const GEO_KIND_POLYGON: &str = "4";
@@ -1291,7 +1291,7 @@ pub(crate) const HEADER_CAP_START_X: usize = 35;
 pub(crate) const HEADER_CAP_END_X: usize = 37;
 /// The fixed header length in slots — where a polygon's edge tail begins.
 ///
-/// Spelled again in MFBASIC as `__CANVAS_GEO_HEADER` (`helper_geometry.rs`), with no
+/// Spelled again in MFBASIC as `__CANVAS_GEO_HEADER` (`helper_geometry/mod.rs`), with no
 /// compiler between the two; `the_geo_layout_constants_match_their_rust_counterparts`
 /// is what keeps them equal. Changing this without changing that one makes a polygon's
 /// first edge coordinate read as a header field.

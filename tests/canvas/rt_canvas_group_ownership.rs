@@ -3,7 +3,7 @@
 //!
 //! **Why a `Font` and not an `Image`.** The obvious test — install a `Picture`, drop the
 //! binding, check the image still draws — cannot discriminate anything: `Picture` draws
-//! nothing on any backend yet. `helper_geometry.rs` gives it the `NONE` geometry kind
+//! nothing on any backend yet. `helper_geometry/` gives it the `NONE` geometry kind
 //! (`CASE Picture(pic) RETURN __canvas_emptyHeader()`), which every renderer skips, and
 //! `canvas::imageHandle` has no caller in any renderer while its twin `fontHandle` has
 //! six. So a `Picture`-based version of this test renders an all-black frame whether the

@@ -199,7 +199,7 @@ An `Ellipse` has no angle of its own. `radiusX` lies along the X axis and `radiu
 along the Y axis, and it is turned, like every other item, by its `transform` (below);
 header slots 39 and 40, which carried the cosine and sine of the old `angle` field,
 are written as the identity rotation, 1 and 0.
-[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]] `radiusX = radiusY`
+[[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_HEADER]] `radiusX = radiusY`
 renders identically to the `Circle` of that radius, so squashing a circle does not mean
 changing item type.
 
@@ -260,7 +260,7 @@ moved points. `PolyLine`'s test for a segment with length is made on the moved p
 too. So moving such a shape by its `position` and moving it by rewriting its points
 draw the same frame, byte for byte, when the sums are exact.
 [[src/codegen/builtins/canvas/helper_paint_defaults.rs:PLACED_PAINT]]
-[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_TAIL]]
+[[src/codegen/builtins/canvas/helper_geometry/tail.rs:GEO_TAIL]]
 [[src/codegen/builtins/canvas/func_geo_build.rs:fill_polygon]]
 [[src/codegen/builtins/canvas/func_geo_build.rs:emit_polyline_scan]]
 [[tests/canvas/rt_canvas_rasteriser.rs:path_placement_a_clipped_polygon_moves_whole_with_its_position]]
@@ -718,7 +718,7 @@ is antialiased exactly as any other edge is:
 nothing under `Butt`, like a zero-length butt line: it has no length and a butt end adds
 nothing past an end. Under `Round` and `Square` it draws its two ends. A sweep of a whole
 turn or more draws the whole ring.
-[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_HEADER]]
 
 **A zero-length line** draws nothing under `Butt`, a dot of `half` under `Round` and an
 axis-aligned square of side `2·half` under `Square` (SVG 2 §13.5.2). There is no
@@ -727,7 +727,7 @@ honest answer rather than an arbitrary orientation. A square end reaches `half·
 its endpoint, so a Square-capped item's bounds and the GPU band index are widened by that.
 The cap travels as header slot 34 (0 `Butt`, 1 `Round`, 2 `Square`), written by a `Line`,
 `Arc` or `PolyLine` and by every dashed item.
-[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_capTag]]
+[[src/codegen/builtins/canvas/helper_geometry/header_paint.rs:__canvas_capTag]]
 [[src/codegen/runtime/canvas/mod.rs:emit_square_cap_reach]]
 
 **`join` shapes the corners**: every vertex where two edges of a `Polygon` ring or a
@@ -863,8 +863,8 @@ sign convention is not observable (only zero-or-not is), but all three renderers
 same one; both shaders sum the signed crossings as a winding number and take `EvenOdd`
 as its parity. Stroked `Text` is lowered to a polygon whose header leaves slot 21 at 0,
 so glyph outlines are always filled even-odd.
-[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_LAYOUT]]
-[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_TAIL]]
+[[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_LAYOUT]]
+[[src/codegen/builtins/canvas/helper_geometry/tail.rs:GEO_TAIL]]
 [[src/codegen/builtins/canvas/func_geo_build.rs:fill_polygon]]
 [[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_POLYGON_RULE]]
@@ -891,7 +891,7 @@ still comes from the round walk, so it stays continuous round a corner.
 * **Degenerate paths.** Fewer than two points draw nothing. A path whose points all
   coincide draws what a zero-length `Line` with its cap draws: a dot of `half` for
   `Round`, the axis-aligned square for `Square`, nothing for `Butt`.
-  [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineHeader]]
+  [[src/codegen/builtins/canvas/helper_geometry/header_kinds.rs:__canvas_polylineHeader]]
 * **Colour.** An empty `colors` strokes the whole path in `Paint.stroke`. Otherwise
   point `k` has colour `colors[k]`, or `Paint.stroke` past the end of the list. The
   colours are stored as the record's gradient stops, one per point at offset
@@ -903,8 +903,8 @@ still comes from the round walk, so it stays continuous round a corner.
   continuous at a corner, so a tie between two segments picks the same colour either
   way. With colours, the path draws whatever the alpha of `Paint.stroke`; only a
   non-positive `strokeWidth` stops it.
-  [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineTail]]
-  [[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_polylineHalf]]
+  [[src/codegen/builtins/canvas/helper_geometry/tail.rs:__canvas_polylineTail]]
+  [[src/codegen/builtins/canvas/helper_geometry/header_kinds.rs:__canvas_polylineHalf]]
 * **Fill is ignored**, as for `Line`: the stroke is carried in the fill slots and slot 7
   is negative. So `Paint.fill` and `Paint.gradient` never reach a polyline.
 
@@ -946,7 +946,7 @@ coverage. Under a uniform scale the rim is 0.71 px whatever the scale. Three box
 mapped whole instead, with no rim to replace: a `Text` run's (its font metrics), a
 `Picture`'s (two units about its destination), and an `Arc`'s (the square about its
 whole ring). The untransformed box is unchanged, and `canvas::geoBuild` builds it bit for
-bit. [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+bit. [[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_HEADER]]
 
 Before any renderer submits or rasterises an item, that surface-space hull is tested
 against the half-open viewport. A hull wholly beyond any edge is skipped; one crossing
@@ -967,7 +967,7 @@ transform they are what the rim adds to the hull, `(|a| + |c|)·0.5·F` and
 has none, and both are 0. An item drawn through no group matrix is evaluated over its
 box as it stands; the sites that carry a box through a group's matrix replace the rim
 (see "How the composed affine is carried").
-[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_LAYOUT]]
+[[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_LAYOUT]]
 
 A `Text` item is not a distance field — it is a run of coverage bitmaps — so it is
 specified separately: each pixel of the run's transformed bounds samples the glyph
@@ -1009,7 +1009,7 @@ fill's alpha never fades it. `Paint.gradient` is ignored — the image, not a ra
 fills a picture. An item whose image has been closed draws nothing (see *Images are
 named, not embedded*).
 [[src/codegen/builtins/canvas/helper_picture/item.rs:PICTURE]]
-[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_HEADER]]
 [[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_items/draw_geometry.rs:DRAW_GEOMETRY]]
 
@@ -1063,7 +1063,7 @@ nothing. The builder takes one of two paths, in header slot 51:
   its ring points mapped by the transform and widened by a pixel each way, which narrow
   the pixels drawn.
 
-[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_HEADER]]
 [[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_draw.rs:EDGE_DISTANCE]]
 [[src/codegen/builtins/canvas/func_geo_build.rs:emit_clip_edges]]
@@ -1100,7 +1100,7 @@ changes nothing, and `0.5` is `T = 128`, an opaque colour's alpha `127`. The fil
 the stroke fade separately, so where they overlap the fill shows through a faded
 stroke. A `Picture`'s fill alpha is its tint's strength and is not faded; its texels'
 alpha is, at draw time, by `T` in header slot 54.
-[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_HEADER]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_PICTURE_TRANSPARENCY]]
 
 **`Paint.gradient` replaces an item's fill colour with a ramp**, and with
@@ -1166,7 +1166,7 @@ fills the shape — defined, rather than a division by zero.
   the ramp's stops carry `transparency`'s fade. A `Line` or `Arc`, which has no
   interior, is drawn in the tinted ramp; under `FillOnly` it and every outline stay the
   flat stroke colour.
-[[src/codegen/builtins/canvas/helper_geometry.rs:GEO_HEADER]]
+[[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_HEADER]]
 [[src/codegen/builtins/canvas/helper_items/geo_read.rs:GEO_READ]]
 [[src/codegen/builtins/canvas/helper_items/draw_geometry.rs:DRAW_GEOMETRY]]
 [[src/codegen/runtime/canvas/mod.rs:HEADER_GRADIENT_SPREAD]]
@@ -1330,7 +1330,7 @@ above has any error to scale.
 
 Two geometry kinds over one tail, as `POLYLINE` and `POLYGON` are: 11
 (`__CANVAS_GEO_POLYCURVE`) and 12 (`__CANVAS_GEO_CURVEPOLYGON`); the kind says whether
-there is an interior. [[src/codegen/builtins/canvas/helper_geometry.rs:GEO_LAYOUT]]
+there is an interior. [[src/codegen/builtins/canvas/helper_geometry/mod.rs:GEO_LAYOUT]]
 The record is the 69-float header and then **pieces | join records | dash tail | clip
 edges | gradient stops**: a polygon's order with pieces for edges. Header slot 20 counts
 the pieces, slot 21 is a `CurvePolygon`'s rule, and a `PolyCurve` is stroke-as-fill as
@@ -2672,7 +2672,7 @@ open. A font the list repeats closes once, because a closed font's `canvas::font
 reads `0` and the second visit passes it over. The move checker sees every listed font
 too: its containment walk goes through the `Text` constructor into the list literal,
 so naming any font of a handed-off `Text` again is `2-203-0055`.
-[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_closeTextFonts]]
+[[src/codegen/builtins/canvas/helper_geometry/tail.rs:__canvas_closeTextFonts]]
 [[src/ir/verify/link.rs:collect_held]]
 
 One consequence follows from the field being a resource rather than a plain value:
@@ -2834,7 +2834,7 @@ ink box and text box, are the largest of the fonts that supplied a glyph (the fi
 drawable font's for an empty string). Its `lineGap` is `fonts[0]`'s. The filled run and
 the stroked edges fetch a font's file for outlines only when the run moves to another
 font. [[src/codegen/builtins/canvas/func_measure_text.rs:MEASURE_HANDLES]]
-[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_runLine]] A `Text`'s
+[[src/codegen/builtins/canvas/helper_geometry/tail.rs:__canvas_runLine]] A `Text`'s
 cache hash folds the number of fonts and then each handle in order.
 
 Advances stay in font units, because the callers deliberately convert them
@@ -2843,7 +2843,7 @@ differently. `measureText` sums the advances as Integers and scales once.
 its verify reference add a scaled Float per glyph and snap each glyph's pen to a whole
 pixel, because a glyph is a cached bitmap placed on integer pixels. The stroked edges
 add the same Floats but do not snap, because edges are exact geometry.
-[[src/codegen/builtins/canvas/helper_geometry.rs:__canvas_textGlyphRun]] The two sums
+[[src/codegen/builtins/canvas/helper_geometry/tail.rs:__canvas_textGlyphRun]] The two sums
 can differ in the last bit, so this split is part of the output, not an accident of
 it.
 

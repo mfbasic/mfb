@@ -402,7 +402,7 @@ fn path_placement_points_turn_about_the_position() {
 ///
 /// Run twice, because the two builders are separate code: a flat fill is built by the
 /// native builder (`func_geo_build.rs`), a gradient fill by the MFBASIC one
-/// (`helper_geometry.rs`). Positions and the shift are whole numbers, so the frames are
+/// (`helper_geometry/`). Positions and the shift are whole numbers, so the frames are
 /// the same arithmetic one column over — an exact comparison, not a tolerance.
 #[test]
 fn path_placement_a_clipped_polygon_moves_whole_with_its_position() {
