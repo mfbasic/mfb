@@ -71,7 +71,7 @@ check tools/unicode-tables/gen_casefold_table.py src/unicode/casefold_cf.txt
 check tools/codepage-index/gen_codepage_tables.py src/codegen/builtins/encoding/helper_codepage_table.rs
 
 # plan-135-A: the `timezones` package's zone table is compiled from the vendored
-# IANA tzdb release by that release's own `zic`. Nobody can review 17018
+# IANA tzdb release by that release's own `zic`. Nobody can review 17057
 # transitions by eye, so the artifact is never hand-edited -- this gate is what
 # makes that true.
 check tools/tzdb/gen_timezones_data.py packages/timezones/src/data.mfb

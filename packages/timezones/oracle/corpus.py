@@ -17,6 +17,11 @@ offsets — one `offset <name> <unixSeconds>` per line (plan-135-B section 4.4):
   4. for every name, instants before its first transition: the earliest
      instant both sides represent, and the first stored transition - 86400.
 
+disambiguation — the civil readings above, each with a fifth field naming the
+  choice: `disambiguation <name> Y M D h m s <how>`, how one of compatible,
+  earlier, later, reject. Compatible and earlier answer as fold=0, later as
+  fold=1, and reject answers `error 77050002` wherever fold=0 and fold=1 differ.
+
 civil — one `civil <name> Y M D h m s` per line (plan-135-C section 4.2):
   1. for every transition the offsets corpus uses (sections 1 and 2), with
      offsets oPrev -> oNew, the wall readings t+oPrev-1, t+oPrev, t+oNew-1,
@@ -240,7 +245,18 @@ def ixdtf_candidates():
     return list(lines.lines)
 
 
-MODES = {"offsets": offsets_jobs, "civil": civil_jobs, "roundtrip": roundtrip_jobs, "ixdtf": ixdtf_candidates}
+# The four `timezones::Disambiguation` choices, by their names in the probe.
+HOWS = ("compatible", "earlier", "later", "reject")
+
+
+def disambiguation_jobs():
+    """Every civil reading under each choice: `disambiguation <name> Y M D h m s <how>`."""
+    return ["disambiguation " + job[len("civil "):] + " " + how
+            for job in civil_jobs() for how in HOWS]
+
+
+MODES = {"offsets": offsets_jobs, "civil": civil_jobs, "roundtrip": roundtrip_jobs,
+         "ixdtf": ixdtf_candidates, "disambiguation": disambiguation_jobs}
 
 
 def main():

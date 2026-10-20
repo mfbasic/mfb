@@ -5,8 +5,11 @@ Checks `packages/tar` against an implementation that is not ours — Python's
 
 ```
 mfb build packages/tar                                  # refresh the package
+mkdir -p packages/tar/oracle/probe/packages packages/tar/oracle/writer/packages
 cp packages/tar/tar.mfp packages/tar/oracle/probe/packages/tar.mfp
-mfb build packages/tar/oracle/probe                     # refresh the probe
+cp packages/tar/tar.mfp packages/tar/oracle/writer/packages/tar.mfp
+mfb build packages/tar/oracle/probe                     # refresh the reader probe
+mfb build packages/tar/oracle/writer                    # refresh the writer probe
 
 python3 packages/tar/oracle/diff.py corpus
 python3 packages/tar/oracle/diff.py fuzz --count 2000 --seed 139
@@ -14,8 +17,19 @@ python3 packages/tar/oracle/diff.py roundtrip
 ```
 
 Each exits 0 when every archive agreed, or the difference is declared in
-`divergences.json`. **The probe embeds a copy of `tar.mfp`; refresh it after
+`divergences.json`. **Both probes embed a copy of `tar.mfp`; refresh it after
 changing the package, or you are testing the old one.**
+
+`roundtrip` runs the writer probe (`writer/`), which writes archives covering each
+decision the writer makes, and checks that Python reads them as the reader does.
+
+## The writer probe
+
+`writer/` is an MFBASIC program that writes a fixed set of archives into the
+directory it is given: a mixed tree, long and non-ASCII names on either side of
+each split, timestamps before the epoch and past the octal field, and file sizes
+on either side of the 512-byte block. `diff.py roundtrip` builds nothing itself;
+it requires the writer probe built, and fails if it is not.
 
 ## How it works
 

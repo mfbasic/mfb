@@ -18,7 +18,7 @@ Exit status is 0 iff every mode agreed, apart from divergences declared in
 
 Python's standard-library [`zoneinfo`](https://docs.python.org/3/library/zoneinfo.html)
 reads the compiled TZif files in the [`tzdata`](https://pypi.org/project/tzdata/) wheel,
-pinned in `requirements.txt` to **2026.4**, which is IANA **2026d**.
+pinned in `requirements.txt` to **2026.5**, which is IANA **2026e**.
 
 - **Different code.** `zoneinfo` is CPython's own TZif reader and POSIX TZ evaluator.
   It shares no code with `src/zone.mfb` or `src/posix.mfb`.
@@ -30,7 +30,7 @@ pinned in `requirements.txt` to **2026.4**, which is IANA **2026d**.
   generator's `RELEASE`.
 
 Bump `requirements.txt` whenever the vendored release changes. The wheel's minor number
-is the release letter's ordinal, so 2026d is `2026.4`. See the update procedure in
+is the release letter's ordinal, so 2026e is `2026.5`. See the update procedure in
 `tools/tzdb/README.md`.
 
 ## How the two sides talk
@@ -44,6 +44,7 @@ files line by line.
 |---|---|---|
 | `offsets` | `offset <name> <unixSeconds>` | `<utoff> <abbreviation>` from `timezones::toZone` |
 | `civil` | `civil <name> Y M D h m s` | `<utcSeconds> <utoff> <abbreviation> <wall>` from `timezones::civil`; `zoneinfo` uses `fold=0` |
+| `disambiguation` | `disambiguation <name> Y M D h m s <how>`, `how` one of `compatible`, `earlier`, `later`, `reject` | the same answer as `civil`, or `error 77050002` for `reject` where the reading is skipped or repeated; `zoneinfo` uses `fold=0` for compatible and earlier, `fold=1` for later |
 | `roundtrip` | `roundtrip <name> <unixSeconds>` | probe only: `ok` when `parseIso(toIso(v, 9, name))` gives back the same seconds, nanos, offset and name |
 | `ixdtf` | `ixdtf <text>` | `accept <seconds> <nanos> <utoff> <zone>` or `reject`; the reference is Temporal, not `zoneinfo` |
 
@@ -58,7 +59,7 @@ zero, so a writer that drops them fails every job.
 The reference is the JavaScript Temporal API in Node 24
 (`node --harmony-temporal temporal.mjs`). `package.json` pins nothing beyond
 `"node": ">=24"`. Temporal's rules come from the ICU tz data bundled with Node, which
-is **tz 2025b**, older than the package's 2026d. So the corpus only asks about text:
+is **tz 2025b**, older than the package's 2026e. So the corpus only asks about text:
 
 1. `corpus.py ixdtf` writes candidates. For every name: 09:00 UTC on the 1st of
    January, April, July and October 2026–2030, in the valid form. For 2026-07-01, a set
@@ -68,7 +69,7 @@ is **tz 2025b**, older than the package's 2026d. So the corpus only asks about t
    lowercased name. For three zones in 1850, local mean time written exactly and
    rounded to the minute.
 2. `temporal.mjs filter` keeps a candidate only when Temporal's tz gives the zone the
-   same offset at that instant as 2026d does. Every skip is logged to
+   same offset at that instant as 2026e does. Every skip is logged to
    `jobs/ixdtf.skipped` with its reason.
 3. `temporal.mjs answer` and the probe answer the kept jobs.
 
@@ -108,16 +109,25 @@ still produces jobs that catch it.
    or overlap.
 2. 09:00 on the 15th of every month 2026–2030, for every name.
 
-## Measured (2026-09-13, macOS aarch64, `run.sh <mfb> offsets civil`)
+## Measured (2026-10-20, macOS aarch64, package 1.0.0, `run.sh "" offsets civil roundtrip ixdtf disambiguation`)
 
 | Mode | Jobs | Mismatches | Wall time (corpus + oracle + probe + diff) |
 |---|---|---|---|
-| `offsets` | 498,303 | 0 | 18 s |
-| `civil` | 263,558 | 0 | 37 s |
-| `roundtrip` | 498,303 | 0 | 37 s |
-| `ixdtf` | 19,652 (of 20,300 candidates; 89 skipped) | 0 (5,341 declared divergences) | 6 s |
+| `offsets` | 497,070 | 0 | 15 s |
+| `civil` | 261,500 | 0 | 21 s |
+| `roundtrip` | 497,070 | 0 | 21 s |
+| `ixdtf` | 19,640 (of 20,300 candidates; 101 skipped) | 0 (5,333 declared divergences) | 8 s |
+| `disambiguation` | 1,046,000 (every civil reading under four choices) | 0 | 51 s |
 
-## Same answers on every target (plan-135-D § 4.5, 2026-09-13)
+The `disambiguation` corpus holds 134,994 readings that a clock change skips or repeats.
+The probe answers `error 77050002` for exactly those under `reject`, and the oracle
+agrees on each one.
+
+## Same answers on every target (plan-135-D § 4.5, 2026-09-13; historical)
+
+This was measured on the pre-1.0 build, on the tzdb 2026d corpus, and has not been
+repeated for 1.0.0. The corpus is the same generator, so the cross-target claim should
+be re-run before it is relied on for a release.
 
 `oracle/probe` was cross-built on macOS for each Linux target, each in its own project
 copy, because a second `--target` build replaces the first one's binaries. Each box
@@ -147,7 +157,16 @@ glibc, and it records which one ran.
 ## Proof that it can fail
 
 A green run means nothing unless a broken package turns it red. Each mutation below was
-applied to a throwaway copy of the package, and the mode that should catch it was run:
+applied to a throwaway copy of the package, and the mode that should catch it was run.
+
+Measured 2026-10-20, package 1.0.0, against the disambiguation corpus:
+
+| Mutation | Mode | Mismatches |
+|---|---|---|
+| `civil` with `LATER` taking the earlier instant of an overlap | `disambiguation` | 134,310 of 1,046,000 |
+
+Measured 2026-09-13, against the pre-1.0 build (its counts are not comparable with the
+ones above, since the tzdb release changed):
 
 | Mutation | Mode | Mismatches |
 |---|---|---|

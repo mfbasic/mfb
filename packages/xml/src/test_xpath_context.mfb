@@ -1,0 +1,152 @@
+' ---------------------------------------------------------------------------
+' Tests: the parts of XPath 1.0 that depend on what the context node is --
+' attributes as context nodes, steps that continue from an attribute, filters
+' over attribute sets -- and the grammar and comparison rules around them.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+PRIVATE FUNC contextCatalog() AS Document
+  RETURN parse("<catalog><book id=\"b1\" lang=\"en\"><title>Dune</title></book><book id=\"b2\"><title>Neuromancer</title></book></catalog>")
+END FUNC
+
+' Whether the top of a parsed expression is a unary minus applied to a union.
+PRIVATE FUNC negatesUnion(text AS String) AS Boolean
+  LET e AS Expr = parseXPath(text)
+  MATCH e
+    CASE UnaryExpr(u)
+      MATCH u.operand
+        CASE BinaryExpr(b)
+          RETURN b.op = OP_UNION
+        CASE ELSE
+      END MATCH
+    CASE ELSE
+  END MATCH
+  RETURN FALSE
+END FUNC
+
+TESTING
+  TGROUP "an attribute is its own context node"
+    TCASE "a predicate on an attribute tests that attribute's value"
+      ' The predicate's `.` is the attribute, so `.` is its value, not its element's text.
+      expectString(valueOf(contextCatalog(), "count(//book/@id[. = 'b2'])"), "1")
+      expectString(valueOf(contextCatalog(), "count(//book/@id[string(.) = 'b2'])"), "1")
+      expectString(valueOf(contextCatalog(), "count(//book/@*[. = 'en'])"), "1")
+    END TCASE
+
+    TCASE "node() on the attribute axis selects every attribute, and text() none"
+      expectString(valueOf(contextCatalog(), "count(//book/@node())"), "3")
+      expectString(valueOf(contextCatalog(), "count(//book/@text())"), "0")
+    END TCASE
+
+    TCASE "a predicate can test an attribute's name"
+      expectString(valueOf(contextCatalog(), "count(//book/@*[name() = 'lang'])"), "1")
+      expectString(valueOf(contextCatalog(), "count(//@*[local-name() = 'id'])"), "2")
+    END TCASE
+
+    TCASE "`..` from an attribute is its element"
+      expectString(valueOf(contextCatalog(), "count(//book/@id/..)"), "2")
+      expectString(valueOf(contextCatalog(), "count(//book/@lang/../title)"), "1")
+      expectString(valueOf(contextCatalog(), "name(//book/@lang/..)"), "book")
+    END TCASE
+
+    TCASE "`.` from an attribute is the attribute"
+      expectString(valueOf(contextCatalog(), "count(//book/@id/.)"), "2")
+      expectString(valueOf(contextCatalog(), "string(//book/@lang/.)"), "en")
+    END TCASE
+
+    TCASE "a child step from an attribute is empty"
+      expectString(valueOf(contextCatalog(), "count(//book/@id/*)"), "0")
+      expectString(valueOf(contextCatalog(), "count(//book/@id/@*)"), "0")
+    END TCASE
+  END TGROUP
+
+  TGROUP "a filter over attributes"
+    TCASE "a position selects one attribute of the set"
+      expectString(valueOf(contextCatalog(), "(//book/@id)[2]"), "b2")
+      expectString(valueOf(contextCatalog(), "string((//book/@id)[1])"), "b1")
+    END TCASE
+
+    TCASE "a predicate over the set counts within it"
+      expectString(valueOf(contextCatalog(), "count((//book/@id)[position() > 1])"), "1")
+    END TCASE
+
+    TCASE "a step may follow the filter"
+      expectString(valueOf(contextCatalog(), "name((//book/@id)[2]/..)"), "book")
+      expectString(valueOf(contextCatalog(), "count((//book/@id)[2]/../title)"), "1")
+    END TCASE
+
+    TCASE "a filter over attributes selects attributes, and selectAttributes returns them"
+      LET found AS List OF Attribute = selectAttributes(contextCatalog(), "(//book/@id)[2]")
+      expectInteger(len(found), 1)
+      expectString(collections::get(found, 0).value, "b2")
+    END TCASE
+  END TGROUP
+
+  TGROUP "prefix tests"
+    TCASE "`prefix:*` selects every element with that prefix"
+      LET doc AS Document = parse("<x:a xmlns:x=\"urn:x\"><x:b/><c/></x:a>")
+      expectString(valueOf(doc, "count(//x:*)"), "2")
+      expectString(valueOf(doc, "count(//*)"), "3")
+    END TCASE
+
+    TCASE "`prefix:*` selects every attribute with that prefix"
+      LET doc AS Document = parse("<x:a xmlns:x=\"urn:x\" x:p=\"1\" x:q=\"2\" plain=\"3\"/>")
+      expectString(valueOf(doc, "count(//@x:*)"), "2")
+    END TCASE
+
+    TCASE "a prefix matches its literal text, not a namespace it resolves to"
+      LET doc AS Document = parse("<p:a xmlns:p=\"urn:one\" xmlns:q=\"urn:one\"/>")
+      expectString(valueOf(doc, "count(//q:*)"), "0")
+    END TCASE
+  END TGROUP
+
+  TGROUP "names are validated as QNames"
+    TCASE "a name with two colons or a dangling colon is ErrInvalidFormat"
+      expectTrap(parseXPath("a:b:c"), 77050003)
+      expectTrap(parseXPath("a:"), 77050003)
+      expectTrap(parseXPath("a:*:b"), 77050003)
+      expectTrap(parseXPath("//a:"), 77050003)
+    END TCASE
+  END TGROUP
+
+  TGROUP "a union"
+    TCASE "a unary minus applies to the whole union: -//a | //b is -(//a | //b)"
+      expectEqual(negatesUnion("-//a | //b"), TRUE)
+      expectEqual(negatesUnion("-//a"), FALSE)
+    END TCASE
+
+    TCASE "may join an empty attribute set with elements"
+      ' An empty set of either kind joins with anything, as XPath expects.
+      expectString(valueOf(contextCatalog(), "count(//nothing/@x | //book)"), "2")
+      expectString(valueOf(contextCatalog(), "count(//book | //nothing/@x)"), "2")
+    END TCASE
+
+    TCASE "still refuses a non-empty attribute set mixed with elements"
+      expectTrap(evaluate(contextCatalog(), "//book | //book/@id"), 77050007)
+    END TCASE
+
+    TCASE "with the root node includes the document node"
+      expectString(valueOf(contextCatalog(), "count(/ | //book)"), "3")
+    END TCASE
+  END TGROUP
+
+  TGROUP "a boolean on either side of a comparison"
+    TCASE "compares the boolean with a node-set as a whole, not member by member"
+      ' Each member has an empty string-value, but the set is not empty.
+      LET doc AS Document = parse("<r><e/><e/></r>")
+      expectString(valueOf(doc, "//e = true()"), "true")
+      expectString(valueOf(doc, "//e = false()"), "false")
+      expectString(valueOf(doc, "//e != true()"), "false")
+      expectString(valueOf(doc, "//missing = false()"), "true")
+    END TCASE
+
+    TCASE "a relational comparison with a boolean reads both sides as numbers"
+      ' '0' is the number 0 here, not the boolean of a non-empty string.
+      expectString(valueOf(contextCatalog(), "'0' < true()"), "true")
+      expectString(valueOf(contextCatalog(), "0 < true()"), "true")
+      expectString(valueOf(contextCatalog(), "2 < true()"), "false")
+    END TCASE
+  END TGROUP
+END TESTING

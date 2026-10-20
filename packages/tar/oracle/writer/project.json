@@ -1,0 +1,29 @@
+{
+  "name": "tarwriter",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "description": "Writes archives with packages/tar for diff.py to read back with Python.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "name": "tar",
+      "version": "=0.1.0",
+      "source": "file:packages/tar.mfp",
+      "direct": true,
+      "requiredBy": []
+    }
+  ],
+  "entry": "main",
+  "targets": [
+    "native"
+  ]
+}

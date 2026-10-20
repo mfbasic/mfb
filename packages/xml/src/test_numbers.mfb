@@ -1,0 +1,139 @@
+' ---------------------------------------------------------------------------
+' Tests: XPath numbers -- their text (§4.2), their grammar (§3.5), `mod` (§4.4)
+' and the rounding functions.
+'
+' The expected digits were checked against an independent implementation:
+' JavaScript prints the shortest decimal that reads back as the same double,
+' which is the §4.2 rule, so every value below is the one Node prints too.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+PRIVATE FUNC numberDoc() AS Document
+  RETURN parse("<r><a>1</a></r>")
+END FUNC
+
+' "1" followed by `zeros` zeros, as a decimal literal.
+PRIVATE FUNC decimalOf(zeros AS Integer) AS String
+  RETURN "1" & strings::repeat("0", zeros)
+END FUNC
+
+TESTING
+  TGROUP "the text of a number is the shortest decimal that reads back"
+    TCASE "fractions take the digits that identify them"
+      expectString(valueOf(numberDoc(), "1 div 3"), "0.3333333333333333")
+      expectString(valueOf(numberDoc(), "2 div 3"), "0.6666666666666666")
+      expectString(valueOf(numberDoc(), "0.1 + 0.2"), "0.30000000000000004")
+      expectString(valueOf(numberDoc(), "0.5"), "0.5")
+      expectString(valueOf(numberDoc(), "1.001"), "1.001")
+    END TCASE
+
+    TCASE "small values keep their digits and never print a trailing point"
+      ' The two-decimal form this replaces printed these as 0. and 1.
+      expectString(valueOf(numberDoc(), "0.001"), "0.001")
+      expectString(valueOf(numberDoc(), "-0.001"), "-0.001")
+      expectString(valueOf(numberDoc(), "1.5 * 0.001"), "0.0015")
+      expectString(valueOf(numberDoc(), "string(0.0001 * 0.5)"), "0.00005")
+    END TCASE
+
+    TCASE "integral values print without a point or an exponent"
+      expectString(valueOf(numberDoc(), "100"), "100")
+      expectString(valueOf(numberDoc(), "-0"), "0")
+      expectString(valueOf(numberDoc(), "10000000000000000000000"), "10000000000000000000000")
+      expectString(valueOf(numberDoc(), "123456789012345678901234567890"), "123456789012345680000000000000")
+    END TCASE
+
+    TCASE "the largest double prints in full, with no exponent"
+      LET text AS String = numberToString(plainNumber(toFloat("1.7976931348623157e308")))
+      expectInteger(len(text), 309)
+      expectEqual(strings::startsWith(text, "17976931348623157"), TRUE)
+    END TCASE
+
+    TCASE "the sum of two prices prints the digits a double needs"
+      expectString(valueOf(numberDoc(), "9.99 + 12.5"), "22.490000000000002")
+    END TCASE
+  END TGROUP
+
+  TGROUP "the XPath Number grammar"
+    TCASE "whitespace around a number is ignored, and a point may stand alone at either end"
+      expectString(valueOf(numberDoc(), "string(number('  12.5  '))"), "12.5")
+      expectString(valueOf(numberDoc(), "string(number('.5'))"), "0.5")
+      expectString(valueOf(numberDoc(), "string(number('5.'))"), "5")
+      expectString(valueOf(numberDoc(), "string(number('-.5'))"), "-0.5")
+      expectString(valueOf(numberDoc(), "string(number('" & "\t3\n" & "'))"), "3")
+    END TCASE
+
+    TCASE "an exponent, a plus sign, and words are not numbers"
+      ' XPath 1.0 §3.5 has no exponent and no `+`, so each of these is NaN.
+      expectString(valueOf(numberDoc(), "string(number('1e5'))"), "NaN")
+      expectString(valueOf(numberDoc(), "string(number('+5'))"), "NaN")
+      expectString(valueOf(numberDoc(), "string(number('Infinity'))"), "NaN")
+      expectString(valueOf(numberDoc(), "string(number('inf'))"), "NaN")
+      expectString(valueOf(numberDoc(), "string(number('0x10'))"), "NaN")
+    END TCASE
+
+    TCASE "a string with no digits, or a sign alone, is NaN"
+      expectString(valueOf(numberDoc(), "string(number(''))"), "NaN")
+      expectString(valueOf(numberDoc(), "string(number('-'))"), "NaN")
+      expectString(valueOf(numberDoc(), "string(number('.'))"), "NaN")
+      expectString(valueOf(numberDoc(), "string(number('1 2'))"), "NaN")
+    END TCASE
+
+    TCASE "a numeral too large for a Float is an infinity, not NaN"
+      expectString(valueOf(numberDoc(), "string(number('" & decimalOf(400) & "'))"), "Infinity")
+      expectString(valueOf(numberDoc(), "string(number('-" & decimalOf(400) & "'))"), "-Infinity")
+    END TCASE
+  END TGROUP
+
+  TGROUP "mod takes the sign of the dividend, exactly"
+    TCASE "small operands"
+      expectString(valueOf(numberDoc(), "5 mod 2"), "1")
+      expectString(valueOf(numberDoc(), "-5 mod 2"), "-1")
+      expectString(valueOf(numberDoc(), "5 mod -2"), "1")
+      expectString(valueOf(numberDoc(), "5.5 mod 2"), "1.5")
+    END TCASE
+
+    TCASE "a quotient far beyond an Integer still gives the exact remainder"
+      ' 10^22 is exact in a double, and 10^22 mod 7 is 4.
+      expectString(valueOf(numberDoc(), "string(10000000000000000000000 mod 7)"), "4")
+      expectString(valueOf(numberDoc(), "string(-10000000000000000000000 mod 7)"), "-4")
+    END TCASE
+
+    TCASE "an infinite divisor leaves a finite dividend unchanged"
+      expectString(valueOf(numberDoc(), "string(2 mod (1 div 0))"), "2")
+    END TCASE
+
+    TCASE "a zero divisor, or an infinite dividend, is NaN"
+      expectString(valueOf(numberDoc(), "string(2 mod 0)"), "NaN")
+      expectString(valueOf(numberDoc(), "string((1 div 0) mod 2)"), "NaN")
+    END TCASE
+  END TGROUP
+
+  TGROUP "floor, ceiling and round (§4.4)"
+    TCASE "floor and ceiling go toward the infinities"
+      expectString(valueOf(numberDoc(), "floor(-1.5)"), "-2")
+      expectString(valueOf(numberDoc(), "ceiling(-1.5)"), "-1")
+      expectString(valueOf(numberDoc(), "floor(2.5)"), "2")
+      expectString(valueOf(numberDoc(), "ceiling(2.5)"), "3")
+    END TCASE
+
+    TCASE "round sends a half toward positive infinity"
+      expectString(valueOf(numberDoc(), "round(2.5)"), "3")
+      expectString(valueOf(numberDoc(), "round(-2.5)"), "-2")
+      expectString(valueOf(numberDoc(), "round(-0.5)"), "0")
+      expectString(valueOf(numberDoc(), "round(1.4999)"), "1")
+    END TCASE
+
+    TCASE "round does not drift near one half"
+      ' 0.49999999999999994 + 0.5 rounds up in a double, so a naive round gets it wrong.
+      expectString(valueOf(numberDoc(), "round(0.49999999999999994)"), "0")
+    END TCASE
+
+    TCASE "the special values pass through"
+      expectString(valueOf(numberDoc(), "string(round(0 div 0))"), "NaN")
+      expectString(valueOf(numberDoc(), "string(floor(1 div 0))"), "Infinity")
+      expectString(valueOf(numberDoc(), "string(ceiling(-1 div 0))"), "-Infinity")
+    END TCASE
+  END TGROUP
+END TESTING

@@ -151,15 +151,18 @@ PUBLIC FUNC matchAt(bytes AS List OF Byte, from AS Integer, needle AS String) AS
   RETURN TRUE
 END FUNC
 
-' The offset of the next occurrence of `needle` (ASCII) at or after `from`, or
-' -1. Used for the delimiters that close a whole run: `-->`, `?>`, `]]>`.
-PUBLIC FUNC findFrom(bytes AS List OF Byte, needle AS String, from AS Integer) AS Integer
+' The offset of the next occurrence of `needle` (ASCII) at or after `from` that
+' lies wholly before `stop`, or -1. Used for the delimiters that close a run --
+' `-->`, `?>`, `]]>`, `;` -- so the search never looks past the construct it is
+' closing into the markup that follows.
+PUBLIC FUNC findFrom(bytes AS List OF Byte, needle AS String, from AS Integer, stop AS Integer) AS Integer
   LET want AS List OF Byte = strings::toBytes(needle)
   LET n AS Integer = len(want)
-  LET total AS Integer = len(bytes)
+  MUT limit AS Integer = stop
+  IF limit > len(bytes) THEN limit = len(bytes)
   LET firstByte AS Integer = toInt(collections::get(want, 0))
   MUT i AS Integer = from
-  DO WHILE i + n <= total
+  DO WHILE i + n <= limit
     IF byteAt(bytes, i) = firstByte THEN
       IF matchAt(bytes, i, needle) THEN RETURN i
     END IF

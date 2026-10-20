@@ -2,7 +2,7 @@
 ' Tests: offsetAt and toZone over the zone table.
 '
 ' Every expected value comes from Python zoneinfo, never from this package, run
-' in the oracle venv (tzdata==2026.4, IANA 2026d) with the host search path
+' in the oracle venv (tzdata==2026.5, IANA 2026e) with the host search path
 ' disabled:
 '
 '   packages/timezones/oracle/.venv/bin/python -c 'import zoneinfo; zoneinfo.reset_tzpath([]);
@@ -88,7 +88,7 @@ TESTING
       expectTrap(offsetAt("", datetime::instant(0, 0)), 77050004)
       expectTrap(toZone("Nowhere/Bogus", datetime::instant(0, 0)), 77050004)
       LET message AS String = unknownZoneMessage("Nowhere/Bogus")
-      expectEqual(strings::contains(message, "2026d"), TRUE)
+      expectEqual(strings::contains(message, "2026e"), TRUE)
       expectEqual(strings::contains(message, "Nowhere/Bogus"), TRUE)
     END TCASE
 
@@ -96,5 +96,21 @@ TESTING
       expectInteger(toZone("UTC", datetime::instant(0, 0)).kind, 1)
       expectInteger(datetime::fixedOffset(1, 0).kind, 1)
     END TCASE
+    ' tzdb 2026e: Manitoba stays on -05 from 2026-11-01, so its abbreviation is EST
+    ' from then on. 2026-11-15T12:00:00-05:00 is 1794762000; 2026-07-15 stays CDT.
+    TCASE "Winnipeg is permanent -05 from the 2026e change"
+      expectInteger(offsetAt("America/Winnipeg", datetime::instant(1794762000, 0)), -18000)
+      expectString(toZone("America/Winnipeg", datetime::instant(1794762000, 0)).label, "EST")
+      expectString(toZone("America/Winnipeg", datetime::instant(1784134800, 0)).label, "CDT")
+      expectString(toZone("America/Rainy_River", datetime::instant(1794762000, 0)).label, "EST")
+    END TCASE
+
+    ' tzdb 2026e: Ireland fell back on 1925-09-20, not 10-04, so on 1925-09-25
+    ' Dublin is on GMT at 12:00 UTC (-1396958400).
+    TCASE "Dublin's 1925 fall-back is on 09-20"
+      expectInteger(offsetAt("Europe/Dublin", datetime::instant(-1396958400, 0)), 0)
+      expectString(toZone("Europe/Dublin", datetime::instant(-1396958400, 0)).label, "GMT")
+    END TCASE
+
   END TGROUP
 END TESTING

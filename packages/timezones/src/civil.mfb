@@ -1,12 +1,18 @@
 ' ---------------------------------------------------------------------------
 ' timezones/civil.mfb — a wall-clock reading in a named zone, as an instant.
 '
-' Twice a year a reading is skipped (spring forward) or happens twice (fall
-' back). The rule here is RFC 9557 / Temporal "compatible", which is also what
-' Python zoneinfo does with fold=0:
-'   - a skipped reading moves forward by the length of the gap, because it is
-'     read with the offset in force before the transition;
-'   - a repeated reading resolves to the earlier of its two instants.
+' Twice a year a reading is skipped (clocks spring forward past it) or happens
+' twice (clocks fall back through it). The caller says how to resolve each case
+' with a `Disambiguation`, the same four choices Temporal's `disambiguation`
+' option offers:
+'   - Compatible and Earlier: a skipped reading moves forward by the length of
+'     the gap (the offset before the change is used), and a repeated reading is
+'     the earlier of its two instants. Compatible is what Python zoneinfo does
+'     with fold=0.
+'   - Later: a skipped reading is the offset after the change, so it moves back
+'     by the gap, and a repeated reading is the later instant. This is zoneinfo's
+'     fold=1.
+'   - Reject: a skipped or repeated reading is refused (77050002).
 '
 ' The offset in force is one of at most two values near the reading. Let L be
 ' the reading counted as if it were UTC. Every candidate instant is L - utoff,
@@ -18,7 +24,9 @@
 
 IMPORT datetime
 
-FUNC zonedCivil(date AS datetime::Date, time AS datetime::Time, name AS String) AS datetime::DateTime
+' The instant a wall-clock reading in `name` is, with a clock change that skips
+' or repeats the reading resolved by `disambiguation`.
+FUNC zonedCivil(date AS datetime::Date, time AS datetime::Time, name AS String, disambiguation AS Disambiguation) AS datetime::DateTime
   LET window AS Integer = 172800
   ' Rebuilding both values validates every calendar field (77050002), so a
   ' `datetime::Date[2026, 2, 30]` literal cannot slip through.
@@ -28,21 +36,52 @@ FUNC zonedCivil(date AS datetime::Date, time AS datetime::Time, name AS String) 
 
   LET offsetBefore AS Integer = localTypeAt(name, wall - window).utoff
   LET offsetAfter AS Integer = localTypeAt(name, wall + window).utoff
-  LET first AS Integer = wall - offsetBefore
-  LET second AS Integer = wall - offsetAfter
-  LET firstFits AS Boolean = localTypeAt(name, first).utoff = offsetBefore
-  MUT secondFits AS Boolean = FALSE
-  IF offsetAfter <> offsetBefore THEN secondFits = localTypeAt(name, second).utoff = offsetAfter
+  ' The instant the reading names under each of the two offsets.
+  LET before AS Integer = wall - offsetBefore
+  LET after AS Integer = wall - offsetAfter
+  LET beforeFits AS Boolean = localTypeAt(name, before).utoff = offsetBefore
+  MUT afterFits AS Boolean = FALSE
+  IF offsetAfter <> offsetBefore THEN afterFits = localTypeAt(name, after).utoff = offsetAfter
 
-  ' A gap, where neither candidate fits, keeps the pre-transition offset, so
-  ' the wall clock moves forward.
-  MUT chosen AS Integer = first
-  ' Only the second fits: the reading lies after the transition.
-  IF firstFits = FALSE AND secondFits THEN chosen = second
-  ' Both fit, an overlap: the earlier instant.
-  IF firstFits AND secondFits AND second < first THEN chosen = second
+  ' A reading that only the offset before the change gives is an ordinary
+  ' reading before the change, and one only the offset after gives is an
+  ' ordinary reading after it. Both fitting is a repeated reading.
+  MUT chosen AS Integer = before
+  IF beforeFits = FALSE AND afterFits THEN chosen = after
+
+  IF beforeFits AND afterFits THEN
+    IF disambiguation = Disambiguation.REJECT THEN FAIL repeatedReading(d, t, name)
+    MUT earlier AS Integer = before
+    MUT later AS Integer = after
+    IF after < before THEN
+      earlier = after
+      later = before
+    END IF
+    chosen = earlier
+    IF disambiguation = Disambiguation.LATER THEN chosen = later
+  END IF
+
+  ' Neither fitting is a skipped reading.
+  IF beforeFits = FALSE AND afterFits = FALSE THEN
+    IF disambiguation = Disambiguation.REJECT THEN FAIL skippedReading(d, t, name)
+    chosen = before
+    IF disambiguation = Disambiguation.LATER THEN chosen = after
+  END IF
 
   LET at AS datetime::Instant = datetime::instant(chosen, t.nanos)
   LET found AS LocalType = localTypeAt(name, chosen)
-  RETURN datetime::inZone(at, datetime::Zone[found.utoff, 1, found.abbreviation])
+  RETURN datetime::inZone(at, fixedZone(found.utoff, found.abbreviation))
+END FUNC
+
+' "2026-03-08 02:30:00", for the messages below.
+PRIVATE FUNC readingText(d AS datetime::Date, t AS datetime::Time) AS String
+  RETURN toString(d.year) & "-" & toString(d.month) & "-" & toString(d.day) & " " & toString(t.hour) & ":" & toString(t.minute) & ":" & toString(t.second)
+END FUNC
+
+PRIVATE FUNC skippedReading(d AS datetime::Date, t AS datetime::Time, name AS String) AS Error
+  RETURN error(77050002, "timezones: " & readingText(d, t) & " does not occur in " & canonicalName(name) & ": a clock change skips it")
+END FUNC
+
+PRIVATE FUNC repeatedReading(d AS datetime::Date, t AS datetime::Time, name AS String) AS Error
+  RETURN error(77050002, "timezones: " & readingText(d, t) & " occurs twice in " & canonicalName(name) & ": a clock change repeats it")
 END FUNC

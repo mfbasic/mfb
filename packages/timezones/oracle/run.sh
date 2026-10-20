@@ -20,7 +20,7 @@ fi
 shift || true
 MODES=("$@")
 if [ "${#MODES[@]}" -eq 0 ]; then
-  MODES=(offsets civil roundtrip ixdtf)
+  MODES=(offsets civil roundtrip ixdtf disambiguation)
 fi
 
 # `set -e` does not abort on a failing `[[ ]]` under the bash 3.2 that macOS

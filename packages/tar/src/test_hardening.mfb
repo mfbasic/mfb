@@ -1,0 +1,186 @@
+' ---------------------------------------------------------------------------
+' Tests: reader limits, PAX value checks, numeric fields, name rules, and the
+' writer's size and timestamp encodings.
+'
+' Hostile headers cannot be produced by the writer, so they are assembled by
+' patching a finished archive in place and repairing the checksum of the header
+' that was patched. Each patch names the byte it changes, so a failure points at
+' one field.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT fs
+IMPORT strings
+
+' Overwrite bytes at an absolute offset with `text`, which must fit.
+PRIVATE FUNC hardPutText(raw AS List OF Byte, at AS Integer, text AS String) AS List OF Byte
+  LET bytes AS List OF Byte = encoding::utf8Encode(text)
+  MUT out AS List OF Byte = raw
+  FOR i = 0 TO len(bytes) - 1
+    out = collections::set(out, at + i, collections::get(bytes, i))
+  NEXT
+  RETURN out
+END FUNC
+
+' Recompute the checksum of the 512-byte header at `at`, so the patched header
+' still parses and the test reaches the check it is about.
+PRIVATE FUNC hardSetChecksum(raw AS List OF Byte, at AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = hardPutText(raw, at + 148, "        ")
+  MUT sum AS Integer = 0
+  FOR i = 0 TO 511
+    sum = sum + toInt(collections::get(out, at + i))
+  NEXT
+  MUT text AS String = ""
+  MUT rest AS Integer = sum
+  IF rest = 0 THEN
+    text = "0"
+  END IF
+  WHILE rest > 0
+    text = toString(rest MOD 8) & text
+    rest = rest / 8
+  END WHILE
+  WHILE len(text) < 6
+    text = "0" & text
+  END WHILE
+  out = hardPutText(out, at + 148, text)
+  out = collections::set(out, at + 154, toByte(0))
+  RETURN collections::set(out, at + 155, toByte(32))
+END FUNC
+
+' Index of the first `value` byte at or after `from`.
+PRIVATE FUNC indexOfByte(raw AS List OF Byte, from AS Integer, value AS Integer) AS Integer
+  FOR i = from TO len(raw) - 1
+    IF toInt(collections::get(raw, i)) = value THEN
+      RETURN i
+    END IF
+  NEXT
+  RETURN -1
+END FUNC
+
+PRIVATE FUNC hardFile(name AS String, text AS String) AS List OF Byte
+  RETURN finish(addText(create(), name, text))
+END FUNC
+
+TESTING
+  TGROUP "tar reader limits"
+    TCASE "an extended header claiming more than the record limit is refused before it is read"
+      ' The first header is a plain file of one byte. Turn it into a GNU `L`
+      ' record claiming 2 MiB, which is over MAX_RECORD. The archive holds no
+      ' such data, so the refusal can only come from the size check.
+      MUT raw AS List OF Byte = hardFile("p.txt", "x")
+      raw = hardPutText(raw, 156, "L")
+      ' Eleven octal digits: 2 MiB. The field's twelfth byte is already NUL.
+      raw = hardPutText(raw, 124, "00020000000")
+      expectTrap(open(hardSetChecksum(raw, 0)), errorCode::ErrTooLarge)
+    END TCASE
+
+    TCASE "an octal field ends at its first NUL, even before any digit"
+      ' The mode field holds NUL then "644". A NUL ends the field, so the mode is 0,
+      ' not the 0644 that reading past the NUL would give.
+      MUT raw AS List OF Byte = hardFile("m.txt", "x")
+      raw = collections::set(raw, 100, toByte(0))
+      raw = hardPutText(raw, 101, "644")
+      expectInteger(find(open(hardSetChecksum(raw, 0)), "m.txt").mode, 0)
+    END TCASE
+
+    TCASE "a negative base-256 size is refused"
+      ' 0xFF marks a negative base-256 number. Every byte after the marker is
+      ' 0xFF, which is -1: a small negative value, so it is the sign that is refused.
+      MUT raw AS List OF Byte = hardFile("n.txt", "x")
+      FOR i = 124 TO 135
+        raw = collections::set(raw, i, toByte(255))
+      NEXT
+      expectTrap(open(hardSetChecksum(raw, 0)), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "a base-256 marker other than 0x80 or 0xFF is refused"
+      MUT raw AS List OF Byte = hardFile("n.txt", "x")
+      raw = collections::set(raw, 124, toByte(129))
+      expectTrap(open(hardSetChecksum(raw, 0)), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "a PAX record whose length overflows is refused"
+      expectTrap(parsePaxRecords(encoding::utf8Encode("99999999999999999999 path=x\n")), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "a PAX value that is not a number is refused, not replaced by the ustar field"
+      ' A long name forces a PAX `x` header in block 0, whose record reads
+      ' "<len> path=<name>\n". Rename the key to `size` and make the value
+      ' non-numeric: the size it would override must not be silently replaced.
+      LET long AS String = strings::repeat("n", 150)
+      LET raw AS List OF Byte = finish(addText(create(), long, "x"))
+      LET eq AS Integer = indexOfByte(raw, 512, 61)
+      MUT out AS List OF Byte = hardPutText(raw, eq - 4, "size")
+      out = hardPutText(out, eq + 1, strings::repeat("z", 150))
+      expectTrap(open(hardSetChecksum(out, 0)), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "a PAX numeric value must be decimal text with the sign and fraction its field allows"
+      expectInteger(parsePaxNumber("1234", "size", FALSE, FALSE), 1234)
+      expectInteger(parsePaxNumber("1700000000.25", "mtime", TRUE, TRUE), 1700000000)
+      expectInteger(parsePaxNumber("-42", "mtime", TRUE, TRUE), -42)
+      expectTrap(parsePaxNumber("1.5", "size", FALSE, FALSE), errorCode::ErrInvalidFormat)
+      expectTrap(parsePaxNumber("-1", "size", FALSE, FALSE), errorCode::ErrInvalidFormat)
+      expectTrap(parsePaxNumber("", "uid", FALSE, FALSE), errorCode::ErrInvalidFormat)
+      expectTrap(parsePaxNumber("12x", "uid", FALSE, FALSE), errorCode::ErrInvalidFormat)
+    END TCASE
+
+    TCASE "find returns the last of a repeated name, as extraction does"
+      MUT b AS Builder = create()
+      b = addText(b, "a.txt", "one")
+      b = addText(b, "a.txt", "two")
+      LET archive AS Archive = open(finish(b))
+      expectInteger(len(entries(archive)), 2)
+      expectString(readText(archive, find(archive, "a.txt")), "two")
+    END TCASE
+
+    TCASE "a negative and a far-future modification time round-trip"
+      MUT b AS Builder = create()
+      b = addText(b, "old.txt", "hi", 420, -1000000)
+      b = addText(b, "future.txt", "yo", 420, 9000000000)
+      LET archive AS Archive = open(finish(b))
+      expectInteger(find(archive, "old.txt").modifiedSeconds, -1000000)
+      expectInteger(find(archive, "future.txt").modifiedSeconds, 9000000000)
+    END TCASE
+
+    TCASE "a long ASCII name splits at a slash into the ustar prefix and name"
+      LET name AS String = strings::repeat("a", 120) & "/" & strings::repeat("b", 90)
+      LET archive AS Archive = open(finish(addText(create(), name, "x")))
+      expectString(find(archive, name).name, name)
+    END TCASE
+
+    TCASE "a long non-ASCII name splits on a byte boundary and round-trips"
+      ' 60 two-byte characters make a 120-byte prefix; the split must fall on the
+      ' slash, never inside a character.
+      LET name AS String = strings::repeat("ü", 60) & "/" & strings::repeat("b", 90)
+      LET archive AS Archive = open(finish(addText(create(), name, "x")))
+      expectString(find(archive, name).name, name)
+    END TCASE
+
+    TCASE "a size past the octal field is carried by PAX, with a zero ustar size"
+      expectEqual(needsPaxSize(8589934592), TRUE)
+      expectEqual(needsPaxSize(8589934591), FALSE)
+      expectInteger(ustarSizeField(8589934592), 0)
+      expectInteger(ustarSizeField(12), 12)
+    END TCASE
+  END TGROUP
+
+  TGROUP "tar entry name rules"
+    TCASE "isSafeEntryName accepts relative names and refuses every escape"
+      expectEqual(isSafeEntryName("a/b.txt"), TRUE)
+      expectEqual(isSafeEntryName("./a.txt"), TRUE)
+      expectEqual(isSafeEntryName("a/../b.txt"), FALSE)
+      expectEqual(isSafeEntryName("../b.txt"), FALSE)
+      expectEqual(isSafeEntryName("/abs.txt"), FALSE)
+      expectEqual(isSafeEntryName("C:evil.txt"), FALSE)
+      expectEqual(isSafeEntryName("a\\b.txt"), FALSE)
+      expectEqual(isSafeEntryName(""), FALSE)
+    END TCASE
+
+    TCASE "the writer refuses a drive-letter name, as the extractor does"
+      expectTrap(addText(create(), "C:evil.txt", "x"), errorCode::ErrInvalidPath)
+    END TCASE
+  END TGROUP
+END TESTING

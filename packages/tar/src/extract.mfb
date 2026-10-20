@@ -1,18 +1,26 @@
 ' ---------------------------------------------------------------------------
 ' tar/extract.mfb — writing an archive's contents to disk.
 '
-' The same rules as `packages/zip`'s extractor, for the same reason: an archive
-' is untrusted input, and an entry named `../../etc/authorized_keys` is a decades
-' old attack that still works against careless extractors. Every entry is
-' validated before any byte is written, and the containment check is made
-' against the DISK -- `fs::isWithin` resolves `.`, `..` and symlinks for real --
-' rather than against the name alone.
+' An archive is untrusted input, and an entry named `../../etc/authorized_keys` is
+' a decades-old attack that still works against careless extractors. The same
+' lexical rule `packages/zip` applies is shared here through `isSafeEntryName`.
+'
+' The harder problem is a symbolic link ALREADY on disk. A name that is safe as
+' text can still land outside the directory if a link in the destination points
+' elsewhere, and a link that is dangling looks absent to `fs::exists`, which
+' follows links. So nothing here decides containment by asking whether a path
+' exists. Every existing path is resolved with `fs::canonicalPath`: one that
+' resolves to somewhere other than where it was named crosses a link and is
+' refused. A path that resolves to nothing is either absent or a dangling link,
+' and only a no-follow open tells those apart. Every file is written through
+' `fs::openWithin`, which refuses to traverse a symbolic link at any component,
+' at the moment it opens the file, so a link that appears after the check still
+' cannot redirect a write. Every directory is created one component at a time with
+' `fs::createDirectory`, which never reuses an existing entry.
 '
 ' Tar adds one problem zip does not have: it can contain symbolic and hard link
-' entries, and `fs` has no way to create either
-' (`grep -h -o 'name: "[a-zA-Z]*"' src/codegen/builtins/fs/func_*.rs | grep -i
-' link` finds nothing). An archive holding one is refused in the pre-pass, with
-' `errorCode::ErrUnsupported`, before anything is written.
+' entries, and `fs` has no way to create either. An archive holding one is
+' refused in the pre-pass, before anything is written.
 '
 ' Skipping links instead would be worse than refusing. The caller would get a
 ' directory that looks complete and is not: a program following what should be a
@@ -29,117 +37,275 @@ IMPORT strings
 ' How much of an entry is held in memory at once when copying its data.
 PRIVATE LET COPY_CHUNK AS Integer = 1048576
 
+' What a path holds on disk, as the extractor classifies it.
+PRIVATE LET STATE_ABSENT AS Integer = 0
+PRIVATE LET STATE_DIRECTORY AS Integer = 1
+PRIVATE LET STATE_FILE AS Integer = 2
+
+' What a path in the archive is, as the pre-pass tracks it.
+PRIVATE LET PLANNED_DIRECTORY AS Integer = 1
+PRIVATE LET PLANNED_FILE AS Integer = 2
+
 FUNC extractArchive(archive AS Archive, directory AS String, maxTotalBytes AS Integer) AS Integer
   IF NOT fs::directoryExists(directory) THEN
     FAIL error(errorCode::ErrNotFound, "tar: no directory named \"" & directory & "\"")
   END IF
+  ' Every path below is relative to this canonical root. Canonicalizing it once
+  ' means a link IN the directory name itself (macOS's /tmp, say) is not mistaken
+  ' for a link inside the archive's own tree.
+  LET root AS String = fs::canonicalPath(directory)
 
-  ' Pre-pass: validate everything before writing anything.
+  ' Pre-pass: every check that can refuse runs before anything is written.
   MUT total AS Integer = 0
-  FOR EACH entry IN archive.entries
+  MUT planned AS Map OF String TO Integer = Map OF String TO Integer {}
+  FOR EACH entry IN entries(archive)
     IF entry.kind = KindSymlink OR entry.kind = KindHardlink THEN
       FAIL error(errorCode::ErrUnsupported, "tar: entry \"" & entry.name & "\" is a link, which this package cannot create")
     END IF
     IF entry.kind = KindOther THEN
       FAIL error(errorCode::ErrUnsupported, "tar: entry \"" & entry.name & "\" is not a file or a directory")
     END IF
-    requireExtractableName(entry.name, directory)
+    IF NOT isSafeEntryName(entry.name) THEN
+      FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & entry.name & "\"")
+    END IF
+    LET path AS String = normalizedPath(entry.name)
+    IF len(path) > 0 THEN
+      planned = planEntry(planned, path, entry.isDirectory)
+      requireFreeOnDisk(root, path, entry.isDirectory)
+    END IF
     total = total + entry.size
     IF total > maxTotalBytes THEN
       FAIL error(errorCode::ErrTooLarge, "tar: extracting would write more than the " & toString(maxTotalBytes) & "-byte limit")
     END IF
   NEXT
 
+  ' Writing. Nothing above can refuse any longer for the archive's own shape or
+  ' for what was on disk; what remains is I/O.
   MUT written AS Integer = 0
-  FOR EACH entry IN archive.entries
-    LET target AS String = fs::pathJoin([directory, entry.name])
-    IF entry.isDirectory THEN
-      fs::createDirectories(target)
-    ELSE
-      LET parent AS String = fs::pathDirName(target)
-      fs::createDirectories(parent)
-      ' Re-check after creating the parent: a symlink already on disk could
-      ' make a name that passed the pre-pass resolve somewhere else now.
-      IF NOT fs::isWithin(directory, deepestExisting(parent)) THEN
-        FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & entry.name & "\"")
+  FOR EACH entry IN entries(archive)
+    LET path AS String = normalizedPath(entry.name)
+    IF len(path) > 0 THEN
+      IF entry.isDirectory THEN
+        createDirectoriesWithin(root, path)
+      ELSE
+        createDirectoriesWithin(root, parentPath(path))
+        copyEntry(archive, entry, root, path)
+        written = written + 1
       END IF
-      copyEntry(archive, entry, target)
-      written = written + 1
     END IF
   NEXT
   RETURN written
 END FUNC
 
-' Copy one entry's data in bounded pieces.
+' Record that `path` will be created as a directory or a file, and that every
+' directory above it will be one. A conflict inside the archive -- a file that is
+' also a directory, or a file with entries beneath it -- is refused now, because
+' finding it while writing would leave half the archive on disk.
+PRIVATE FUNC planEntry(planned AS Map OF String TO Integer, path AS String, isDirectory AS Boolean) AS Map OF String TO Integer
+  LET parts AS List OF String = strings::split(path, "/")
+  MUT out AS Map OF String TO Integer = planned
+  FOR i = 0 TO len(parts) - 2
+    LET ancestor AS String = joinParts(parts, i + 1)
+    IF collections::hasKey(out, ancestor) AND collections::get(out, ancestor) = PLANNED_FILE THEN
+      FAIL error(errorCode::ErrInvalidPath, "tar: entry \"" & path & "\" lies beneath the file \"" & ancestor & "\"")
+    END IF
+    out = collections::set(out, ancestor, PLANNED_DIRECTORY)
+  NEXT
+  MUT kind AS Integer = PLANNED_FILE
+  IF isDirectory THEN
+    kind = PLANNED_DIRECTORY
+  END IF
+  IF collections::hasKey(out, path) AND collections::get(out, path) <> kind THEN
+    FAIL error(errorCode::ErrInvalidPath, "tar: \"" & path & "\" is both a file and a directory in the archive")
+  END IF
+  RETURN collections::set(out, path, kind)
+END FUNC
+
+' Refuse an entry whose path, as it stands on disk, cannot take it. Stops at the
+' first component that does not exist, since nothing beneath it can either.
+PRIVATE FUNC requireFreeOnDisk(root AS String, path AS String, isDirectory AS Boolean) AS Nothing
+  LET parts AS List OF String = strings::split(path, "/")
+  MUT absent AS Boolean = FALSE
+  FOR i = 0 TO len(parts) - 1
+    IF NOT absent THEN
+      LET prefix AS String = joinParts(parts, i + 1)
+      LET state AS Integer = onDiskState(root, prefix)
+      LET final AS Boolean = i = len(parts) - 1
+      IF state = STATE_ABSENT THEN
+        absent = TRUE
+      ELSE
+        IF NOT final AND state <> STATE_DIRECTORY THEN
+          FAIL error(errorCode::ErrInvalidPath, "tar: \"" & path & "\" is beneath \"" & prefix & "\", which is not a directory")
+        END IF
+        IF final AND isDirectory AND state = STATE_FILE THEN
+          FAIL error(errorCode::ErrInvalidPath, "tar: directory \"" & path & "\" would replace a file")
+        END IF
+        IF final AND NOT isDirectory AND state = STATE_DIRECTORY THEN
+          FAIL error(errorCode::ErrInvalidPath, "tar: file \"" & path & "\" would replace a directory")
+        END IF
+      END IF
+    END IF
+  NEXT
+END FUNC
+
+' What is at `rel` under `root`, found without following a symbolic link.
 '
-' Tar records no per-entry checksum -- only the header has one, and it covers
-' the header -- so there is nothing to verify here. That is a property of the
-' format, not an omission: a tar reader cannot tell you whether an entry's
-' contents were corrupted, which is worth knowing before trusting one.
-PRIVATE FUNC copyEntry(archive AS Archive, entry AS Entry, target AS String) AS Nothing
-  RES out AS fs::File = fs::open(target, "write")
+' `fs::canonicalPath` resolves every link on the way. A path with no link on it
+' resolves to itself, so comparing the two says whether any link was crossed,
+' and an existing directory or regular file can then be classified with the
+' ordinary stat calls, which are safe once nothing on the path is a link. A
+' path that resolves to nothing is either absent or a dangling link; only the
+' no-follow open can say which.
+'
+' A FIFO, socket or device is refused without being opened, since opening a
+' FIFO for reading blocks until a writer appears.
+PRIVATE FUNC onDiskState(root AS String, rel AS String) AS Integer
+  LET absolute AS String = fs::pathJoin([root, rel])
+  LET resolved AS String = resolvedPath(absolute)
+  IF len(resolved) = 0 THEN
+    IF probeWithin(root, rel) THEN
+      FAIL error(errorCode::ErrInvalidPath, "tar: \"" & rel & "\" changed while it was being checked")
+    END IF
+    RETURN STATE_ABSENT
+  END IF
+  IF resolved <> absolute THEN
+    FAIL error(errorCode::ErrInvalidPath, "tar: \"" & rel & "\" is reached through a symbolic link")
+  END IF
+  IF fs::directoryExists(absolute) THEN
+    RETURN STATE_DIRECTORY
+  END IF
+  IF fs::fileExists(absolute) THEN
+    RETURN STATE_FILE
+  END IF
+  FAIL error(errorCode::ErrInvalidPath, "tar: \"" & rel & "\" is not a regular file or a directory")
+END FUNC
+
+' The fully resolved path, or "" when nothing resolves at `absolute`.
+PRIVATE FUNC resolvedPath(absolute AS String) AS String
+  LET resolved AS String = fs::canonicalPath(absolute) TRAP(e)
+    IF e.code = errorCode::ErrPathNotFound THEN
+      RECOVER ""
+    END IF
+    PROPAGATE
+  END TRAP
+  RETURN resolved
+END FUNC
+
+' Whether `rel` opens beneath `root`, for a path that does not resolve. A missing
+' path is FALSE. A dangling link is refused: the no-follow open reports it as
+' access denied, because it would have to pass through a link to get anywhere.
+PRIVATE FUNC probeWithin(root AS String, rel AS String) AS Boolean
+  RES probe AS fs::File = fs::openWithin(root, rel, "read")
+  fs::close(probe)
+  RETURN TRUE
+  TRAP(e)
+    IF e.code = errorCode::ErrPathNotFound THEN
+      RETURN FALSE
+    END IF
+    IF e.code = errorCode::ErrAccessDenied THEN
+      FAIL error(errorCode::ErrInvalidPath, "tar: \"" & rel & "\" is reached through a symbolic link, or cannot be read")
+    END IF
+    PROPAGATE
+  END TRAP
+END FUNC
+
+' Create every directory down to `path`, skipping those that exist. A component
+' that exists as anything but a directory fails here, but the pre-pass has
+' already refused every such case, so this only fires if the disk changed.
+PRIVATE FUNC createDirectoriesWithin(root AS String, path AS String) AS Nothing
+  IF len(path) = 0 THEN
+    RETURN
+  END IF
+  LET parts AS List OF String = strings::split(path, "/")
+  FOR i = 0 TO len(parts) - 1
+    LET prefix AS String = joinParts(parts, i + 1)
+    LET state AS Integer = onDiskState(root, prefix)
+    IF state = STATE_ABSENT THEN
+      fs::createDirectory(fs::pathJoin([root, prefix]))
+    ELSE
+      IF state <> STATE_DIRECTORY THEN
+        FAIL error(errorCode::ErrInvalidPath, "tar: \"" & prefix & "\" is not a directory")
+      END IF
+    END IF
+  NEXT
+END FUNC
+
+' Copy one entry's data into a file opened beneath `root`.
+'
+' If the copy fails, the partial file is removed and the error is raised again.
+' The open is outside that handler on purpose: when it fails, nothing was
+' created, and there is nothing to remove.
+PRIVATE FUNC copyEntry(archive AS Archive, entry AS Entry, root AS String, path AS String) AS Nothing
+  RES out AS fs::File = fs::openWithin(root, path, "write")
+  writeEntry(archive, entry, out, fs::pathJoin([root, path]))
+  fs::close(out)
+END FUNC
+
+' The write itself, split out so that the failure handler sits OUTSIDE the open:
+' a failed open created nothing and must not be followed by a delete. A failed
+' write removes the file it was filling. On Windows a file still open cannot be
+' removed, so the partial file can remain there; POSIX removes it.
+PRIVATE FUNC writeEntry(archive AS Archive, entry AS Entry, out AS fs::File, absolute AS String) AS Nothing
+  writeChunks(archive, entry, out)
+  RETURN
+  TRAP(e)
+    removePartial(absolute)
+    PROPAGATE
+  END TRAP
+END FUNC
+
+' Move an entry's bytes across in bounded pieces.
+'
+' Tar records no per-entry checksum -- only the header has one, and it covers the
+' header -- so there is nothing to verify here. That is a property of the format,
+' not an omission: a tar reader cannot tell you whether an entry's contents were
+' corrupted, which is worth knowing before trusting one.
+PRIVATE FUNC writeChunks(archive AS Archive, entry AS Entry, out AS fs::File) AS Nothing
   MUT copied AS Integer = 0
   WHILE copied < entry.size
     MUT chunk AS Integer = COPY_CHUNK
     IF entry.size - copied < chunk THEN
       chunk = entry.size - copied
     END IF
-    LET piece AS List OF Byte = readAt(archive.source, entry.dataOffset + copied, chunk)
+    LET piece AS List OF Byte = readAt(archive, entry.dataOffset + copied, chunk)
     fs::writeAllBytes(out, piece)
     copied = copied + chunk
   END WHILE
-  fs::close(out)
 END FUNC
 
-' plan-139-B §4.3 rules 1-4.
-PRIVATE FUNC requireExtractableName(name AS String, directory AS String) AS Nothing
-  IF len(name) = 0 THEN
-    FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"\"")
-  END IF
-  IF strings::contains(name, "\\") OR strings::startsWith(name, "/") THEN
-    FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
-  END IF
-  FOR EACH scalar IN strings::toScalars(name)
-    IF toInt(scalar) = 0 THEN
-      FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
+' Remove a file the extractor created and then failed to finish. The result is
+' ignored: the error that matters is the one being raised, not a cleanup failure.
+PRIVATE FUNC removePartial(absolute AS String) AS Nothing
+  fs::deleteFile(absolute) TRAP
+    RECOVER
+  END TRAP
+END FUNC
+
+' The archive's name for a path, with the parts that name nothing removed: `.`
+' and empty components. `./` names the root and comes out empty.
+PRIVATE FUNC normalizedPath(name AS String) AS String
+  MUT kept AS List OF String = []
+  FOR EACH part IN strings::split(name, "/")
+    IF len(part) > 0 AND part <> "." THEN
+      kept = collections::append(kept, part)
     END IF
   NEXT
-  IF looksLikeDrive(name) THEN
-    FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
-  END IF
-  FOR EACH part IN strings::split(fs::pathNormalize(name), "/")
-    IF part = ".." THEN
-      FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
+  RETURN joinParts(kept, len(kept))
+END FUNC
+
+PRIVATE FUNC parentPath(path AS String) AS String
+  LET parts AS List OF String = strings::split(path, "/")
+  RETURN joinParts(parts, len(parts) - 1)
+END FUNC
+
+' The first `count` parts, joined with `/`.
+PRIVATE FUNC joinParts(parts AS List OF String, count AS Integer) AS String
+  MUT out AS String = ""
+  FOR i = 0 TO count - 1
+    IF i > 0 THEN
+      out = out & "/"
     END IF
+    out = out & collections::get(parts, i)
   NEXT
-  ' `fs::isWithin` resolves symlinks for real, so it needs a path that EXISTS.
-  ' An extraction target does not exist yet, so the check is made against the
-  ' deepest ancestor that does -- which is exactly where a redirecting symlink
-  ' would have to live.
-  IF NOT fs::isWithin(directory, deepestExisting(fs::pathJoin([directory, name]))) THEN
-    FAIL error(errorCode::ErrInvalidPath, "tar: unsafe entry name \"" & name & "\"")
-  END IF
-END FUNC
-
-PRIVATE FUNC deepestExisting(path AS String) AS String
-  MUT current AS String = path
-  WHILE NOT fs::exists(current)
-    LET parent AS String = fs::pathDirName(current)
-    IF parent = current OR len(parent) = 0 THEN
-      RETURN current
-    END IF
-    current = parent
-  END WHILE
-  RETURN current
-END FUNC
-
-PRIVATE FUNC looksLikeDrive(name AS String) AS Boolean
-  LET scalars AS List OF Scalar = strings::toScalars(name)
-  IF len(scalars) < 2 THEN
-    RETURN FALSE
-  END IF
-  IF toInt(collections::get(scalars, 1)) <> 58 THEN
-    RETURN FALSE
-  END IF
-  RETURN strings::isLetter(collections::get(scalars, 0))
+  RETURN out
 END FUNC

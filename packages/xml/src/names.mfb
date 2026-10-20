@@ -1,0 +1,172 @@
+' ---------------------------------------------------------------------------
+' xml/names.mfb — the namespace-declaration and attribute-uniqueness rules,
+' shared by the reader and the writer.
+'
+' A document the writer produces must be one the reader accepts, so every rule
+' is stated once, here. Each checker returns the problem it found as a message,
+' or "" when there is none: the reader reports a problem as a positioned
+' ErrInvalidFormat, and the writer reports it as ErrInvalidArgument.
+'
+' Names are kept as their raw `prefix:local` text. Prefixes are checked against
+' the declarations in scope and never resolved to a URI, so two different
+' prefixes bound to one URI are a collision of expanded names.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+PUBLIC LET XML_NS_URI AS String = "http://www.w3.org/XML/1998/namespace"
+PUBLIC LET XMLNS_NS_URI AS String = "http://www.w3.org/2000/xmlns/"
+
+' One in-scope namespace declaration. An element's declarations are visible to
+' its descendants and to nothing else.
+PUBLIC TYPE Binding
+  prefix AS String
+  uri AS String
+END TYPE
+
+' The prefix of `name`, or "" when it has none.
+PUBLIC FUNC prefixOf(name AS String) AS String
+  IF NOT strings::contains(name, ":") THEN RETURN ""
+  RETURN strings::left(name, strings::find(name, ":", 0))
+END FUNC
+
+' The local part of `name`: everything after the colon, or the whole name.
+PUBLIC FUNC localOf(name AS String) AS String
+  IF NOT strings::contains(name, ":") THEN RETURN name
+  LET at AS Integer = strings::find(name, ":", 0)
+  RETURN strings::mid(name, at + 1, len(name) - at - 1)
+END FUNC
+
+' The problem with `name` as a QName, or "" when it is one. A name with no
+' colon is always fine here: the caller has already checked it is a Name.
+PUBLIC FUNC qnameProblem(name AS String) AS String
+  IF NOT strings::contains(name, ":") THEN RETURN ""
+  IF prefixOf(name) = "" THEN RETURN "`" & name & "` has an empty namespace prefix"
+  LET local AS String = localOf(name)
+  IF strings::contains(local, ":") THEN
+    RETURN "`" & name & "` has more than one colon, so it is not a namespace-qualified name"
+  END IF
+  IF len(local) = 0 THEN RETURN "`" & name & "` has an empty local name"
+  RETURN ""
+END FUNC
+
+' The URI bound to `prefix`, or "" when it is not declared. Later declarations
+' shadow earlier ones, so the scope is searched from the innermost end.
+PUBLIC FUNC uriFor(scope AS List OF Binding, prefix AS String) AS String
+  MUT i AS Integer = len(scope) - 1
+  DO WHILE i >= 0
+    LET b AS Binding = collections::get(scope, i)
+    IF b.prefix = prefix THEN RETURN b.uri
+    i = i - 1
+  LOOP
+  RETURN ""
+END FUNC
+
+' Every namespace declaration an element makes, appended to the scope it
+' inherits.
+PUBLIC FUNC extendScope(scope AS List OF Binding, attributes AS List OF Attribute) AS List OF Binding
+  MUT out AS List OF Binding = scope
+  FOR EACH a IN attributes
+    IF a.name = "xmlns" THEN
+      out = collections::append(out, Binding["", a.value])
+    ELSEIF prefixOf(a.name) = "xmlns" THEN
+      out = collections::append(out, Binding[localOf(a.name), a.value])
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' The problem with one attribute that declares a namespace, or "" when it is
+' legal or is not a declaration. `name` and `value` are the attribute's own.
+PUBLIC FUNC declarationProblem(name AS String, value AS String) AS String
+  IF name = "xmlns" THEN
+    ' Undeclaring the default namespace (xmlns="") is legal; binding the
+    ' default namespace to a reserved URI is not.
+    IF value = XML_NS_URI THEN RETURN "the default namespace may not be bound to the XML namespace URI"
+    IF value = XMLNS_NS_URI THEN RETURN "the default namespace may not be bound to the xmlns namespace URI"
+    RETURN ""
+  END IF
+  IF prefixOf(name) <> "xmlns" THEN RETURN ""
+  LET declared AS String = localOf(name)
+  IF value = "" THEN RETURN "namespace prefix `" & declared & "` may not be bound to an empty URI"
+  IF declared = "xmlns" THEN RETURN "the prefix `xmlns` may not be declared"
+  IF declared = "xml" THEN
+    IF value <> XML_NS_URI THEN RETURN "the prefix `xml` may only be bound to " & XML_NS_URI
+    RETURN ""
+  END IF
+  IF value = XML_NS_URI THEN RETURN "only the prefix `xml` may be bound to " & XML_NS_URI
+  IF value = XMLNS_NS_URI THEN RETURN "no prefix may be bound to " & XMLNS_NS_URI
+  RETURN ""
+END FUNC
+
+' The problem with a prefixed `name` whose prefix is not declared in `scope`,
+' or "" when it is declared. The `xml` prefix is bound everywhere and needs no
+' declaration. Callers skip `xmlns` declarations, which are never checked this way.
+PUBLIC FUNC prefixProblem(name AS String, scope AS List OF Binding) AS String
+  LET prefix AS String = prefixOf(name)
+  IF prefix = "" OR prefix = "xml" THEN RETURN ""
+  IF uriFor(scope, prefix) = "" THEN
+    RETURN "namespace prefix `" & prefix & "` in `" & name & "` is not declared in scope"
+  END IF
+  RETURN ""
+END FUNC
+
+' The index of the first key that repeats an earlier one, or -1 when every key
+' is distinct. Sorting finds out in O(n log n) whether any key repeats; only a
+' list that does is then scanned in document order, so the index reported is the
+' later of the two occurrences, as the reader and writer both report it.
+PUBLIC FUNC repeatedKeyIndex(keys AS List OF String) AS Integer
+  ' Fewer than two keys cannot repeat, and most elements carry no attributes, so
+  ' the common case costs nothing.
+  IF len(keys) < 2 THEN RETURN -1
+  LET sorted AS List OF String = collections::sort(keys)
+  MUT repeated AS Boolean = FALSE
+  MUT i AS Integer = 1
+  DO WHILE i < len(sorted) AND NOT repeated
+    IF collections::get(sorted, i) = collections::get(sorted, i - 1) THEN repeated = TRUE
+    i = i + 1
+  LOOP
+  IF NOT repeated THEN RETURN -1
+  MUT seen AS Set OF String = Set OF String { }
+  MUT j AS Integer = 0
+  DO WHILE j < len(keys)
+    LET key AS String = collections::get(keys, j)
+    IF collections::contains(seen, key) THEN RETURN j
+    seen = collections::add(seen, key)
+    j = j + 1
+  LOOP
+  RETURN -1
+END FUNC
+
+' The index of the first attribute whose name repeats an earlier attribute's, or
+' -1. Two attributes may not share a name on one element.
+PUBLIC FUNC duplicateIndex(attributes AS List OF Attribute) AS Integer
+  MUT names AS List OF String = []
+  FOR EACH a IN attributes
+    names = collections::append(names, a.name)
+  NEXT
+  RETURN repeatedKeyIndex(names)
+END FUNC
+
+' The index of the first attribute whose expanded name repeats an earlier one's,
+' or -1. Two attributes collide when their prefixes are bound to the same URI
+' and their local parts match. Unprefixed attributes are in no namespace, so
+' they are keyed by their whole name, and `xmlns` declarations are excluded
+' from the comparison: the duplicate check above has already covered them.
+PUBLIC FUNC expandedNameIndex(attributes AS List OF Attribute, scope AS List OF Binding) AS Integer
+  MUT keys AS List OF String = []
+  FOR EACH a IN attributes
+    LET prefix AS String = prefixOf(a.name)
+    IF prefix = "" OR prefix = "xmlns" THEN
+      keys = collections::append(keys, a.name)
+    ELSE
+      MUT uri AS String = uriFor(scope, prefix)
+      IF prefix = "xml" THEN uri = XML_NS_URI
+      ' A local name is an NCName and so holds no `|`, which makes the separator
+      ' unambiguous even when a URI contains one.
+      keys = collections::append(keys, uri & "|" & localOf(a.name))
+    END IF
+  NEXT
+  RETURN repeatedKeyIndex(keys)
+END FUNC

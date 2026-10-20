@@ -30,7 +30,7 @@ TESTING
       expectTrap(parse(nested(DEPTH_LIMIT + 50)), 77050024)
     END TCASE
 
-    TCASE "the depth limit is the 256 the plan chose, matching json::parse"
+    TCASE "the depth limit is 256, matching json::parse"
       expectInteger(DEPTH_LIMIT, 256)
     END TCASE
   END TGROUP

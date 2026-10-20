@@ -6,8 +6,8 @@
 ' list in document order supplies all three — order is index order, so sorting
 ' and de-duplicating a node-set is sorting integers.
 '
-' HOW it is flattened is a measured decision, not an obvious one (plan-138-D
-' Phase 1, at 100,000 nodes):
+' HOW it is flattened is a measured decision, not an obvious one (at 100,000
+' nodes):
 '
 '   threaded accumulator      quadratic: 8,000 nodes took 8.5-14.1 s, and
 '                             100,000 blew a 120 s alarm. Every call copies the
@@ -64,6 +64,11 @@ PRIVATE FUNC walk(n AS Node, depth AS Integer) AS List OF IndexedNode
   MUT out AS List OF IndexedNode = []
   MATCH n
     CASE Element(e)
+      ' `depth` counts from 0 at the top level, so an element at depth d is
+      ' nested d + 1 deep, and the same bound as the reader and writer applies.
+      IF depth >= DEPTH_LIMIT THEN
+        FAIL error(ERR_DEPTH, "xml: the tree nests more than " & toString(DEPTH_LIMIT) & " levels deep")
+      END IF
       out = collections::append(out, IndexedNode[KIND_ELEMENT, e.name, "", -1, depth, attributesOf(e)])
       FOR EACH k IN e.children
         out = collections::append(out, walk(k, depth + 1))
@@ -138,9 +143,6 @@ PUBLIC FUNC childrenOf(index AS List OF IndexedNode, at AS Integer) AS List OF I
   RETURN out
 END FUNC
 
-' (A `descendantsOf` helper lived here until plan-138-D Phase 4 fused the
-' descendant scan into the step evaluator, which left nothing calling it.)
-
 ' The top-level nodes: everything at depth 0.
 PUBLIC FUNC rootsOf(index AS List OF IndexedNode) AS List OF Integer
   MUT out AS List OF Integer = []
@@ -157,8 +159,7 @@ END FUNC
 ' ---------------------------------------------------------------------------
 ' Materialization: an index position back into a `Node`.
 '
-' plan-138-D Phase 1 measured three ways of doing this. Walking down from the
-' root per result cost 18.4-22.5 s for a thousand results, because each ordinal
+' Three ways of doing this were measured. Walking down from the root per result cost 18.4-22.5 s for a thousand results, because each ordinal
 ' step deep-copies the subtree it returns. Walking once while threading a
 ' `List OF Node` accumulator cost 14.8-20.6 s, because every subtree collected
 ' so far is copied into every call. Rebuilding each result from flat entries --

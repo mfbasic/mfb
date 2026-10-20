@@ -1,5 +1,5 @@
 ' ---------------------------------------------------------------------------
-' Tests: the reader, accepting side — one case per row of the plan's grammar
+' Tests: the reader, accepting side — one case per row of the grammar
 ' table, each asserting the TREE the document must produce rather than merely
 ' that it parsed. A reader that accepts the right documents and builds the
 ' wrong tree passes every "does it parse" test there is.

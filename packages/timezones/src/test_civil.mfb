@@ -2,7 +2,7 @@
 ' Tests: civil, a wall-clock reading in a named zone.
 '
 ' Every expected value comes from Python zoneinfo with fold=0, never from this
-' package, run in the oracle venv (tzdata==2026.4, IANA 2026d) with the host
+' package, run in the oracle venv (tzdata==2026.5, IANA 2026e) with the host
 ' search path disabled:
 '
 '   packages/timezones/oracle/.venv/bin/python -c 'import zoneinfo; zoneinfo.reset_tzpath([]);
@@ -19,6 +19,10 @@ IMPORT datetime
 
 PRIVATE FUNC reading(y AS Integer, mo AS Integer, d AS Integer, h AS Integer, mi AS Integer, s AS Integer, name AS String) AS datetime::DateTime
   RETURN civil(datetime::date(y, mo, d), datetime::time(h, mi, s, 0), name)
+END FUNC
+
+PRIVATE FUNC readingWith(y AS Integer, mo AS Integer, d AS Integer, h AS Integer, mi AS Integer, name AS String, how AS Disambiguation) AS datetime::DateTime
+  RETURN civil(datetime::date(y, mo, d), datetime::time(h, mi, 0, 0), name, how)
 END FUNC
 
 PRIVATE FUNC shows(dt AS datetime::DateTime) AS String
@@ -109,5 +113,28 @@ TESTING
     TCASE "an unknown zone raises ErrNotFound"
       expectTrap(civil(datetime::date(2026, 7, 15), datetime::time(9, 0, 0, 0), "Nowhere/Bogus"), 77050004)
     END TCASE
+    ' The same skipped and repeated readings under each disambiguation choice.
+    ' Compatible and Earlier give the offset before a change, zoneinfo's fold=0.
+    ' Later gives the offset after it, zoneinfo's fold=1.
+    TCASE "Earlier matches Compatible; Later takes the offset after the change"
+      expectString(shows(readingWith(2026, 3, 8, 2, 30, "America/New_York", Disambiguation.EARLIER)), "1772955000 2026-03-08T03:30:00.000-04:00 EDT")
+      expectString(shows(readingWith(2026, 3, 8, 2, 30, "America/New_York", Disambiguation.LATER)), "1772951400 2026-03-08T01:30:00.000-05:00 EST")
+      expectString(shows(readingWith(2026, 11, 1, 1, 30, "America/New_York", Disambiguation.EARLIER)), "1793511000 2026-11-01T01:30:00.000-04:00 EDT")
+      expectString(shows(readingWith(2026, 11, 1, 1, 30, "America/New_York", Disambiguation.LATER)), "1793514600 2026-11-01T01:30:00.000-05:00 EST")
+      expectString(shows(readingWith(2026, 11, 1, 1, 30, "America/New_York", Disambiguation.COMPATIBLE)), "1793511000 2026-11-01T01:30:00.000-04:00 EDT")
+    END TCASE
+
+    TCASE "REJECT refuses a skipped or repeated reading and accepts the rest"
+      expectString(shows(readingWith(2026, 7, 15, 9, 0, "America/New_York", Disambiguation.REJECT)), "1784120400 2026-07-15T09:00:00.000-04:00 EDT")
+      expectString(shows(readingWith(2026, 1, 15, 9, 0, "America/New_York", Disambiguation.REJECT)), "1768485600 2026-01-15T09:00:00.000-05:00 EST")
+      expectTrap(readingWith(2026, 3, 8, 2, 30, "America/New_York", Disambiguation.REJECT), 77050002)
+      expectTrap(readingWith(2026, 11, 1, 1, 30, "America/New_York", Disambiguation.REJECT), 77050002)
+    END TCASE
+
+    TCASE "the three-argument civil is Compatible"
+      expectString(shows(reading(2026, 3, 8, 2, 30, 0, "America/New_York")), shows(readingWith(2026, 3, 8, 2, 30, "America/New_York", Disambiguation.COMPATIBLE)))
+      expectString(shows(reading(2026, 11, 1, 1, 30, 0, "America/New_York")), shows(readingWith(2026, 11, 1, 1, 30, "America/New_York", Disambiguation.COMPATIBLE)))
+    END TCASE
+
   END TGROUP
 END TESTING

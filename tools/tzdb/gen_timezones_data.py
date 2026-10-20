@@ -9,7 +9,8 @@ The artifact goes to stdout and a statistics line goes to stderr.
 Pipeline (plan-135-A § 4.2):
   1. check both tarballs against third_party/tzdb/<release>/SHA256SUMS;
   2. unpack both into one temporary directory, then run `make zic`;
-  3. `zic -b slim` over the release's default source set;
+  3. `zic -b slim` over the release's default source set, and `zic -b fat` for
+     the transitions the footer rules imply up to 2037;
   4. parse every compiled TZif file per RFC 8536;
   5. group names whose TZif bytes are identical, so a link shares its target's data;
   6. fail closed on any input that packages/timezones does not handle;
@@ -29,7 +30,7 @@ import sys
 import tarfile
 import tempfile
 
-RELEASE = "2026d"
+RELEASE = "2026e"
 SOURCES = [
     "africa", "antarctica", "asia", "australasia", "europe",
     "northamerica", "southamerica", "etcetera", "backward", "factory",
@@ -96,7 +97,14 @@ def compile_zones(work):
     out = os.path.join(work, "out")
     subprocess.run(["./zic", "-b", "slim", "-d", out] + SOURCES, cwd=work, env=env,
                    check=True, stdout=sys.stderr, stderr=sys.stderr)
-    return out
+    # The slim build stops where the footer rule takes over, so it never shows the
+    # spacing between the last stored transition and the first footer-derived one.
+    # The fat build writes the footer's transitions out to 2037, and those are
+    # checked for spacing too.
+    fat = os.path.join(work, "fat")
+    subprocess.run(["./zic", "-b", "fat", "-d", fat] + SOURCES, cwd=work, env=env,
+                   check=True, stdout=sys.stderr, stderr=sys.stderr)
+    return out, fat
 
 
 def parse_tzif(name, data):
@@ -191,6 +199,25 @@ def check_zone(name, types, transitions, footer):
                 fail("%s: footer %r offset %r is out of range" % (name, footer, value))
 
 
+def check_footer_spacing(fat):
+    """Fail if any pair of consecutive transitions in the fat build is too close.
+
+    The premise in MIN_TRANSITION_GAP holds for the stored transitions (checked in
+    check_zone) and for the footer-derived ones up to 2037, which is the horizon
+    of the fat build. Beyond 2037 the footer rules alone decide the transitions.
+    """
+    for directory, _, files in os.walk(fat):
+        for file in files:
+            path = os.path.join(directory, file)
+            name = os.path.relpath(path, fat).replace(os.sep, "/")
+            with open(path, "rb") as f:
+                _, transitions, _ = parse_tzif(name, f.read())
+            for (earlier, _), (later, _) in zip(transitions, transitions[1:]):
+                if later - earlier <= MIN_TRANSITION_GAP:
+                    fail("%s: transitions at %d and %d are %d s apart in the fat build, not more than %d"
+                         % (name, earlier, later, later - earlier, MIN_TRANSITION_GAP))
+
+
 def load_zones(out):
     by_bytes = {}
     for directory, _, files in os.walk(out):
@@ -246,11 +273,11 @@ def emit(names, groups):
     add("' Names that compile to identical TZif bytes share one zone string.")
     add("IMPORT strings")
     add("")
-    add("FUNC tzdbVersion() AS String")
+    add("FUNC tzdbRelease() AS String")
     add('  RETURN "%s"' % RELEASE)
     add("END FUNC")
     add("")
-    add("FUNC zoneNames() AS List OF String")
+    add("FUNC allZoneNames() AS List OF String")
     add("  RETURN [%s]" % ", ".join('"%s"' % n for n in names))
     add("END FUNC")
     add("")
@@ -309,8 +336,9 @@ def emit(names, groups):
 def main():
     verify_checksums()
     with tempfile.TemporaryDirectory() as work:
-        out = compile_zones(work)
+        out, fat = compile_zones(work)
         names, groups = load_zones(out)
+        check_footer_spacing(fat)
     text = emit(names, groups)
     sys.stdout.buffer.write(text.encode("ascii"))
     sys.stderr.write("names %d distinct %d transitions %d types %d footers %d\n" % (

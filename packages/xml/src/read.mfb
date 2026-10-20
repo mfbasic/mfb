@@ -2,33 +2,20 @@
 ' xml/read.mfb — the well-formedness grammar.
 '
 ' Recursive descent, one function per production. Each element's children are
-' collected in a FRAME-LOCAL list that only ever gets `collections::append`, and
-' the finished element is returned up to the caller's own local list. That is
-' the Phase 1 measurement talking: the builder must never rewrite a shared
-' pending list, because self-reassigning a `List OF Node` through
-' `collections::take`/`drop` copies the whole node graph it returns and makes
-' the parse quadratic (21.96 s vs 0.02 s at 8,000 nodes). Recursion depth is
-' what DEPTH_LIMIT bounds.
+' collected in a frame-local list that only ever gets `collections::append`, and
+' the finished element is returned up to the caller's own local list. The
+' builder must never rewrite a shared pending list: self-reassigning a
+' `List OF Node` through `collections::take`/`drop` copies the whole node graph
+' it returns, which makes the parse quadratic. Recursion depth is what
+' DEPTH_LIMIT bounds.
 '
-' Every refusal is a FAIL, never a repair: this reader's contract is that a
-' document it accepts means what the XML specification says it means, so there
-' is no recovery path anywhere in this file.
+' Every refusal is a FAIL, never a repair: a document this reader accepts means
+' what the XML specification says it means, so there is no recovery path.
+' The namespace and uniqueness rules live in names.mfb, shared with the writer.
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
 IMPORT strings
-
-' The XML namespace URIs the specification reserves.
-PUBLIC LET XML_NS_URI AS String = "http://www.w3.org/XML/1998/namespace"
-PUBLIC LET XMLNS_NS_URI AS String = "http://www.w3.org/2000/xmlns/"
-
-' One in-scope namespace declaration. The reader never expands a prefix to its
-' URI in the tree -- names stay raw -- but it must know the bindings to CHECK
-' them, and to detect two attributes whose expanded names collide.
-PUBLIC TYPE Binding
-  prefix AS String
-  uri AS String
-END TYPE
 
 ' A parsed node and where it ended: `at` is the offset just past it, and
 ' `nodes` is the running node count the node limit bounds.
@@ -38,112 +25,37 @@ PUBLIC TYPE Parsed
   nodes AS Integer
 END TYPE
 
-' An element's parsed attributes and where they ended.
+' A start tag's attributes, where each one began, and where the tag ended.
 PRIVATE TYPE ParsedAttributes
   attributes AS List OF Attribute
+  offsets AS List OF Integer
   at AS Integer
   selfClosing AS Boolean
 END TYPE
 
-' ---------------------------------------------------------------------------
-' Names.
-' ---------------------------------------------------------------------------
-
-' The prefix of `name`, or "" when it has none.
-PUBLIC FUNC prefixOf(name AS String) AS String
-  LET at AS Integer = strings::find(name, ":", 0) TRAP(e)
-    RECOVER -1
-  END TRAP
-  IF at < 0 THEN RETURN ""
-  RETURN strings::mid(name, 0, at)
-END FUNC
-
-' The local part of `name`: everything after the colon, or the whole name.
-PUBLIC FUNC localOf(name AS String) AS String
-  LET at AS Integer = strings::find(name, ":", 0) TRAP(e)
-    RECOVER -1
-  END TRAP
-  IF at < 0 THEN RETURN name
-  RETURN strings::mid(name, at + 1, len(name) - at - 1)
-END FUNC
-
-' Refuse a name that is not a legal QName: more than one colon, an empty
-' prefix, or an empty local part. A name with no colon is always fine here --
-' it was already scanned as a Name.
-PRIVATE FUNC requireQName(bytes AS List OF Byte, at AS Integer, name AS String) AS Nothing
-  LET first AS Integer = strings::find(name, ":", 0) TRAP(e)
-    RECOVER -1
-  END TRAP
-  IF first < 0 THEN RETURN NOTHING
-  LET rest AS String = strings::mid(name, first + 1, len(name) - first - 1)
-  LET second AS Integer = strings::find(rest, ":", 0) TRAP(e)
-    RECOVER -1
-  END TRAP
-  IF second >= 0 THEN
-    failAt(bytes, at, ERR_FORMAT, "`" & name & "` has more than one colon, so it is not a namespace-qualified name")
-  END IF
-  IF first = 0 THEN
-    failAt(bytes, at, ERR_FORMAT, "`" & name & "` has an empty namespace prefix")
-  END IF
-  IF len(rest) = 0 THEN
-    failAt(bytes, at, ERR_FORMAT, "`" & name & "` has an empty local name")
-  END IF
-  RETURN NOTHING
-END FUNC
-
-' The URI bound to `prefix`, or "" when it is not declared. Later declarations
-' shadow earlier ones, so the scope is searched from the innermost end.
-PRIVATE FUNC uriFor(scope AS List OF Binding, prefix AS String) AS String
-  MUT i AS Integer = len(scope) - 1
-  DO WHILE i >= 0
-    LET b AS Binding = collections::get(scope, i)
-    IF b.prefix = prefix THEN RETURN b.uri
-    i = i - 1
-  LOOP
-  RETURN ""
-END FUNC
-
-' Refuse a prefix that is not declared in scope. The `xml` prefix is bound
-' everywhere by the specification and needs no declaration.
-PRIVATE FUNC requireDeclaredPrefix(bytes AS List OF Byte, at AS Integer, name AS String, scope AS List OF Binding) AS Nothing
-  LET prefix AS String = prefixOf(name)
-  IF prefix = "" THEN RETURN NOTHING
-  IF prefix = "xml" THEN RETURN NOTHING
-  IF uriFor(scope, prefix) = "" THEN
-    failAt(bytes, at, ERR_FORMAT, "namespace prefix `" & prefix & "` in `" & name & "` is not declared in scope")
-  END IF
-  RETURN NOTHING
-END FUNC
+' The text a reference stands for, and the offset just past it.
+PRIVATE TYPE Reference
+  text AS String
+  at AS Integer
+END TYPE
 
 ' ---------------------------------------------------------------------------
 ' References.
 ' ---------------------------------------------------------------------------
 
-' Expand the reference starting at `from` (which is the `&`), appending its
-' text to `out` and returning the offset just past the `;`.
-'
-' `literal` distinguishes a character reference from the five named entities:
-' in an attribute value a character reference is NOT subject to §3.3.3
-' whitespace normalization, so `&#10;` survives as a line feed while a literal
-' line feed becomes a space. The caller needs to know which it got.
-PRIVATE TYPE Reference
-  text AS String
-  at AS Integer
-  isCharRef AS Boolean
-END TYPE
-
-PRIVATE FUNC hexDigit(bytes AS List OF Byte, at AS Integer, code AS Integer) AS Integer
+' The value of one hexadecimal or decimal digit byte, or -1 when it is neither.
+PRIVATE FUNC digitValue(code AS Integer) AS Integer
   IF code >= 48 AND code <= 57 THEN RETURN code - 48
   IF code >= 97 AND code <= 102 THEN RETURN code - 87
   IF code >= 65 AND code <= 70 THEN RETURN code - 55
   RETURN -1
 END FUNC
 
+' Expand the reference whose `&` is at `from`. A character reference is
+' `&#` digits `;` or `&#x` hex digits `;`; anything else must be one of the five
+' predefined entities, `&name;`. The name is scanned as a Name, so the `;` must
+' sit directly after it and cannot be found somewhere in the markup beyond.
 PRIVATE FUNC readReference(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Reference
-  LET semi AS Integer = findFrom(bytes, ";", from)
-  IF semi < 0 OR semi >= stop THEN
-    failAt(bytes, from, ERR_FORMAT, "a reference is not terminated by `;`")
-  END IF
   IF byteAt(bytes, from + 1) = B_HASH THEN
     MUT i AS Integer = from + 2
     MUT base AS Integer = 10
@@ -151,37 +63,41 @@ PRIVATE FUNC readReference(bytes AS List OF Byte, from AS Integer, stop AS Integ
       base = 16
       i = i + 1
     END IF
-    IF i >= semi THEN
-      failAt(bytes, from, ERR_FORMAT, "a character reference has no digits")
-    END IF
+    LET digitsStart AS Integer = i
     MUT code AS Integer = 0
-    DO WHILE i < semi
-      LET digit AS Integer = hexDigit(bytes, i, byteAt(bytes, i))
-      IF digit < 0 OR digit >= base THEN
-        failAt(bytes, from, ERR_FORMAT, "a character reference holds a digit its base does not allow")
-      END IF
-      code = code * base + digit
+    DO WHILE i < stop AND digitValue(byteAt(bytes, i)) >= 0 AND digitValue(byteAt(bytes, i)) < base
+      code = code * base + digitValue(byteAt(bytes, i))
       ' Stop runaway growth on an absurdly long reference.
       IF code > 1114111 THEN
         failAt(bytes, from, ERR_FORMAT, "a character reference is above U+10FFFF")
       END IF
       i = i + 1
     LOOP
+    IF i = digitsStart THEN
+      failAt(bytes, from, ERR_FORMAT, "a character reference has no digits")
+    END IF
+    IF byteAt(bytes, i) <> B_SEMI THEN
+      failAt(bytes, from, ERR_FORMAT, "a character reference is not terminated by `;`")
+    END IF
     IF NOT isChar(code) THEN
       failAt(bytes, from, ERR_FORMAT, "a character reference names U+" & toString(code) & ", which XML 1.0 does not allow")
     END IF
-    RETURN Reference[toString(toScalar(code)), semi + 1, TRUE]
+    RETURN Reference[toString(toScalar(code)), i + 1]
   END IF
-  LET name AS String = sliceText(bytes, from + 1, semi)
-  IF name = "lt" THEN RETURN Reference["<", semi + 1, FALSE]
-  IF name = "gt" THEN RETURN Reference[">", semi + 1, FALSE]
-  IF name = "amp" THEN RETURN Reference["&", semi + 1, FALSE]
-  IF name = "apos" THEN RETURN Reference["'", semi + 1, FALSE]
-  IF name = "quot" THEN RETURN Reference["\"", semi + 1, FALSE]
-  ' With no DTD there are no other entities, so naming one is a
-  ' well-formedness error rather than something to look up.
+  LET nameEnd AS Integer = scanName(bytes, from + 1, stop)
+  IF nameEnd = from + 1 OR byteAt(bytes, nameEnd) <> B_SEMI THEN
+    failAt(bytes, from, ERR_FORMAT, "a literal `&` must be written as `&amp;`, or begin a reference terminated by `;`")
+  END IF
+  LET name AS String = sliceText(bytes, from + 1, nameEnd)
+  IF name = "lt" THEN RETURN Reference["<", nameEnd + 1]
+  IF name = "gt" THEN RETURN Reference[">", nameEnd + 1]
+  IF name = "amp" THEN RETURN Reference["&", nameEnd + 1]
+  IF name = "apos" THEN RETURN Reference["'", nameEnd + 1]
+  IF name = "quot" THEN RETURN Reference["\"", nameEnd + 1]
+  ' With no DTD there are no other entities, so naming one is a well-formedness
+  ' error rather than something to look up.
   failAt(bytes, from, ERR_FORMAT, "entity `&" & name & ";` is not declared -- this reader supports no DTD, so only lt, gt, amp, apos, quot and character references exist")
-  RETURN Reference["", semi + 1, FALSE]
+  RETURN Reference["", nameEnd + 1]
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -202,7 +118,7 @@ PRIVATE FUNC readAttributeValue(bytes AS List OF Byte, from AS Integer, stop AS 
   DO WHILE i < stop
     LET b AS Integer = byteAt(bytes, i)
     IF b = quote THEN
-      RETURN Reference[out, i + 1, FALSE]
+      RETURN Reference[out, i + 1]
     END IF
     IF b = B_LT THEN
       failAt(bytes, i, ERR_FORMAT, "`<` may not appear in an attribute value -- write it as &lt;")
@@ -223,58 +139,18 @@ PRIVATE FUNC readAttributeValue(bytes AS List OF Byte, from AS Integer, stop AS 
     END IF
   LOOP
   failAt(bytes, from, ERR_FORMAT, "an attribute value is not closed")
-  RETURN Reference["", stop, FALSE]
+  RETURN Reference["", stop]
 END FUNC
 
-' Refuse a namespace declaration the specification forbids.
-PRIVATE FUNC checkDeclaration(bytes AS List OF Byte, at AS Integer, name AS String, value AS String) AS Nothing
-  IF name = "xmlns" THEN
-    ' Undeclaring the default namespace (xmlns="") is legal; binding `xmlns`
-    ' itself as a prefix is not, and is checked below.
-    IF value = XML_NS_URI THEN
-      failAt(bytes, at, ERR_FORMAT, "the default namespace may not be bound to the XML namespace URI")
-    END IF
-    IF value = XMLNS_NS_URI THEN
-      failAt(bytes, at, ERR_FORMAT, "the default namespace may not be bound to the xmlns namespace URI")
-    END IF
-    RETURN NOTHING
+' Refuse a start tag that names an attribute twice, or two attributes with one
+' expanded name. The attribute list is complete by then, so the checks run once
+' over it in O(n log n) rather than comparing every pair as they are read.
+PRIVATE FUNC finishAttributes(bytes AS List OF Byte, attributes AS List OF Attribute, offsets AS List OF Integer, at AS Integer, selfClosing AS Boolean) AS ParsedAttributes
+  LET duplicate AS Integer = duplicateIndex(attributes)
+  IF duplicate >= 0 THEN
+    failAt(bytes, collections::get(offsets, duplicate), ERR_DUPLICATE, "attribute `" & collections::get(attributes, duplicate).name & "` appears twice on the same element")
   END IF
-  IF prefixOf(name) <> "xmlns" THEN RETURN NOTHING
-  LET declared AS String = localOf(name)
-  IF value = "" THEN
-    failAt(bytes, at, ERR_FORMAT, "namespace prefix `" & declared & "` may not be bound to an empty URI")
-  END IF
-  IF declared = "xmlns" THEN
-    failAt(bytes, at, ERR_FORMAT, "the prefix `xmlns` may not be declared")
-  END IF
-  IF declared = "xml" THEN
-    IF value <> XML_NS_URI THEN
-      failAt(bytes, at, ERR_FORMAT, "the prefix `xml` may only be bound to " & XML_NS_URI)
-    END IF
-    RETURN NOTHING
-  END IF
-  IF value = XML_NS_URI THEN
-    failAt(bytes, at, ERR_FORMAT, "only the prefix `xml` may be bound to " & XML_NS_URI)
-  END IF
-  IF value = XMLNS_NS_URI THEN
-    failAt(bytes, at, ERR_FORMAT, "no prefix may be bound to " & XMLNS_NS_URI)
-  END IF
-  RETURN NOTHING
-END FUNC
-
-' Every namespace declaration this element makes, appended to the scope it
-' inherits. Returned as a new list: an element's declarations are visible to
-' its descendants and to nothing else.
-PRIVATE FUNC extendScope(scope AS List OF Binding, attributes AS List OF Attribute) AS List OF Binding
-  MUT out AS List OF Binding = scope
-  FOR EACH a IN attributes
-    IF a.name = "xmlns" THEN
-      out = collections::append(out, Binding["", a.value])
-    ELSEIF prefixOf(a.name) = "xmlns" THEN
-      out = collections::append(out, Binding[localOf(a.name), a.value])
-    END IF
-  NEXT
-  RETURN out
+  RETURN ParsedAttributes[attributes, offsets, at, selfClosing]
 END FUNC
 
 ' Read a start tag's attributes, stopping at `>` or `/>` -- or, when
@@ -286,6 +162,7 @@ END FUNC
 ' construct masquerade as the other.
 PRIVATE FUNC readAttributes(bytes AS List OF Byte, from AS Integer, stop AS Integer, declaration AS Boolean) AS ParsedAttributes
   MUT attributes AS List OF Attribute = []
+  MUT offsets AS List OF Integer = []
   MUT i AS Integer = from
   DO WHILE i < stop
     LET afterSpace AS Integer = skipSpace(bytes, i, stop)
@@ -295,17 +172,17 @@ PRIVATE FUNC readAttributes(bytes AS List OF Byte, from AS Integer, stop AS Inte
         IF byteAt(bytes, afterSpace + 1) <> B_GT THEN
           failAt(bytes, afterSpace, ERR_FORMAT, "`?` in the XML declaration must be followed by `>`")
         END IF
-        RETURN ParsedAttributes[attributes, afterSpace + 2, FALSE]
+        RETURN finishAttributes(bytes, attributes, offsets, afterSpace + 2, FALSE)
       END IF
     ELSE
       IF b = B_GT THEN
-        RETURN ParsedAttributes[attributes, afterSpace + 1, FALSE]
+        RETURN finishAttributes(bytes, attributes, offsets, afterSpace + 1, FALSE)
       END IF
       IF b = B_SLASH THEN
         IF byteAt(bytes, afterSpace + 1) <> B_GT THEN
           failAt(bytes, afterSpace, ERR_FORMAT, "`/` in a start tag must be followed by `>`")
         END IF
-        RETURN ParsedAttributes[attributes, afterSpace + 2, TRUE]
+        RETURN finishAttributes(bytes, attributes, offsets, afterSpace + 2, TRUE)
       END IF
     END IF
     ' An attribute must be separated from what precedes it by whitespace.
@@ -317,57 +194,26 @@ PRIVATE FUNC readAttributes(bytes AS List OF Byte, from AS Integer, stop AS Inte
       failAt(bytes, afterSpace, ERR_FORMAT, "expected an attribute name, `>` or `/>`")
     END IF
     LET name AS String = sliceText(bytes, afterSpace, nameEnd)
-    requireQName(bytes, afterSpace, name)
+    LET qname AS String = qnameProblem(name)
+    IF qname <> "" THEN
+      failAt(bytes, afterSpace, ERR_FORMAT, qname)
+    END IF
     LET afterName AS Integer = skipSpace(bytes, nameEnd, stop)
     IF byteAt(bytes, afterName) <> B_EQ THEN
       failAt(bytes, afterName, ERR_FORMAT, "attribute `" & name & "` has no `=`")
     END IF
     LET valueStart AS Integer = skipSpace(bytes, afterName + 1, stop)
     LET value AS Reference = readAttributeValue(bytes, valueStart, stop)
-    FOR EACH existing IN attributes
-      IF existing.name = name THEN
-        failAt(bytes, afterSpace, ERR_DUPLICATE, "attribute `" & name & "` appears twice on the same element")
-      END IF
-    NEXT
-    checkDeclaration(bytes, afterSpace, name, value.text)
+    LET declares AS String = declarationProblem(name, value.text)
+    IF declares <> "" THEN
+      failAt(bytes, afterSpace, ERR_FORMAT, declares)
+    END IF
     attributes = collections::append(attributes, Attribute[name, value.text])
+    offsets = collections::append(offsets, afterSpace)
     i = value.at
   LOOP
   failAt(bytes, from, ERR_FORMAT, "a start tag is not closed")
-  RETURN ParsedAttributes[attributes, stop, FALSE]
-END FUNC
-
-' Two attributes may not have the same expanded name: same local part, and
-' prefixes bound to the same URI. Unprefixed attributes are in no namespace, so
-' they only collide by identical name, which the duplicate check above caught.
-PRIVATE FUNC checkExpandedNames(bytes AS List OF Byte, at AS Integer, attributes AS List OF Attribute, scope AS List OF Binding) AS Nothing
-  LET count AS Integer = len(attributes)
-  MUT i AS Integer = 0
-  DO WHILE i < count
-    LET a AS Attribute = collections::get(attributes, i)
-    LET aPrefix AS String = prefixOf(a.name)
-    IF aPrefix <> "" AND aPrefix <> "xmlns" THEN
-      MUT aUri AS String = uriFor(scope, aPrefix)
-      IF aPrefix = "xml" THEN aUri = XML_NS_URI
-      MUT j AS Integer = i + 1
-      DO WHILE j < count
-        LET b AS Attribute = collections::get(attributes, j)
-        LET bPrefix AS String = prefixOf(b.name)
-        IF bPrefix <> "" AND bPrefix <> "xmlns" THEN
-          MUT bUri AS String = uriFor(scope, bPrefix)
-          IF bPrefix = "xml" THEN bUri = XML_NS_URI
-          IF aUri = bUri AND localOf(a.name) = localOf(b.name) THEN
-            ' A namespace constraint rather than a duplicate-name one, so it
-            ' carries the same code as every other namespace violation (§7).
-            failAt(bytes, at, ERR_FORMAT, "attributes `" & a.name & "` and `" & b.name & "` have the same expanded name")
-          END IF
-        END IF
-        j = j + 1
-      LOOP
-    END IF
-    i = i + 1
-  LOOP
-  RETURN NOTHING
+  RETURN ParsedAttributes[attributes, offsets, stop, FALSE]
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -376,15 +222,15 @@ END FUNC
 
 PRIVATE FUNC readComment(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Parsed
   LET textStart AS Integer = from + 4
-  LET close AS Integer = findFrom(bytes, "-->", textStart)
-  IF close < 0 OR close >= stop THEN
+  LET close AS Integer = findFrom(bytes, "-->", textStart, stop)
+  IF close < 0 THEN
     failAt(bytes, from, ERR_FORMAT, "a comment is not closed by `-->`")
   END IF
-  ' `--` may not appear inside a comment. That one rule also refuses a comment
-  ' ending `--->`: the trailing `-` and the first `-` of the terminator are a
-  ' `--` before the close, so a separate check for it would never run.
-  LET doubleDash AS Integer = findFrom(bytes, "--", textStart)
-  IF doubleDash >= 0 AND doubleDash < close THEN
+  ' `--` may not appear inside a comment. The search reaches one byte past the
+  ' body, so it also refuses a body ending in `-`, which would make the
+  ' terminator `--->`.
+  LET doubleDash AS Integer = findFrom(bytes, "--", textStart, close + 1)
+  IF doubleDash >= 0 THEN
     failAt(bytes, doubleDash, ERR_FORMAT, "`--` may not appear inside a comment")
   END IF
   requireChars(bytes, textStart, close)
@@ -404,13 +250,12 @@ PRIVATE FUNC readProcessingInstruction(bytes AS List OF Byte, from AS Integer, s
   END IF
   ' Namespaces in XML 1.0 (erratum NE08): a processing-instruction target is an
   ' NCName, so it may not hold a colon. This reader checks namespace
-  ' constraints, so it refuses one -- as the W3C suite's `rmt-ns10-042`
-  ' (`<?a:b bogus?>`, TYPE="not-wf") requires.
+  ' constraints, so it refuses one.
   IF strings::contains(target, ":") THEN
     failAt(bytes, targetStart, ERR_FORMAT, "a processing-instruction target may not hold a colon (`" & target & "`)")
   END IF
-  LET close AS Integer = findFrom(bytes, "?>", targetEnd)
-  IF close < 0 OR close >= stop THEN
+  LET close AS Integer = findFrom(bytes, "?>", targetEnd, stop)
+  IF close < 0 THEN
     failAt(bytes, from, ERR_FORMAT, "a processing instruction is not closed by `?>`")
   END IF
   LET dataStart AS Integer = skipSpace(bytes, targetEnd, close)
@@ -426,6 +271,17 @@ END FUNC
 ' Elements and content.
 ' ---------------------------------------------------------------------------
 
+' Charge a start tag's attributes against the node budget, one each. XPath and
+' the DOM both count attributes as nodes, and an uncounted attribute would let a
+' document exceed the limit by any amount.
+PRIVATE FUNC chargeAttributes(count AS Integer, attributes AS List OF Attribute, limit AS Integer) AS Integer
+  MUT total AS Integer = count
+  FOR EACH a IN attributes
+    total = chargeNode(total, limit)
+  NEXT
+  RETURN total
+END FUNC
+
 ' Read an element beginning at `from` (which is its `<`).
 PRIVATE FUNC readElement(bytes AS List OF Byte, from AS Integer, stop AS Integer, depth AS Integer, nodes AS Integer, scope AS List OF Binding, limit AS Integer) AS Parsed
   IF depth > DEPTH_LIMIT THEN
@@ -437,41 +293,69 @@ PRIVATE FUNC readElement(bytes AS List OF Byte, from AS Integer, stop AS Integer
     failAt(bytes, nameStart, ERR_FORMAT, "`<` must be followed by an element name")
   END IF
   LET name AS String = sliceText(bytes, nameStart, nameEnd)
-  requireQName(bytes, nameStart, name)
+  LET qname AS String = qnameProblem(name)
+  IF qname <> "" THEN
+    failAt(bytes, nameStart, ERR_FORMAT, qname)
+  END IF
   LET parsedAttributes AS ParsedAttributes = readAttributes(bytes, nameEnd, stop, FALSE)
   LET attributes AS List OF Attribute = parsedAttributes.attributes
   LET inner AS List OF Binding = extendScope(scope, attributes)
-  requireDeclaredPrefix(bytes, nameStart, name, inner)
-  FOR EACH a IN attributes
+  LET elementPrefix AS String = prefixProblem(name, inner)
+  IF elementPrefix <> "" THEN
+    failAt(bytes, nameStart, ERR_FORMAT, elementPrefix)
+  END IF
+  MUT i AS Integer = 0
+  DO WHILE i < len(attributes)
+    LET a AS Attribute = collections::get(attributes, i)
     IF prefixOf(a.name) <> "xmlns" THEN
-      requireDeclaredPrefix(bytes, nameStart, a.name, inner)
+      LET attributePrefix AS String = prefixProblem(a.name, inner)
+      IF attributePrefix <> "" THEN
+        failAt(bytes, collections::get(parsedAttributes.offsets, i), ERR_FORMAT, attributePrefix)
+      END IF
     END IF
-  NEXT
-  checkExpandedNames(bytes, nameStart, attributes, inner)
-  MUT count AS Integer = chargeNode(nodes, limit)
+    i = i + 1
+  LOOP
+  LET collision AS Integer = expandedNameIndex(attributes, inner)
+  IF collision >= 0 THEN
+    failAt(bytes, collections::get(parsedAttributes.offsets, collision), ERR_FORMAT, "attribute `" & collections::get(attributes, collision).name & "` has the same expanded name as an earlier attribute")
+  END IF
+  MUT count AS Integer = chargeAttributes(chargeNode(nodes, limit), attributes, limit)
   IF parsedAttributes.selfClosing THEN
     LET empty AS List OF Node = []
     LET node AS Node = Element[name, attributes, empty]
     RETURN Parsed[node, parsedAttributes.at, count]
   END IF
   ' Content. `pending` accumulates character data (including CDATA, and text
-  ' split by a reference) so adjacent runs become ONE Text node.
+  ' split by a reference) so adjacent runs become ONE Text node. It is flushed
+  ' before any markup, so each run is charged once.
   MUT kids AS List OF Node = []
   MUT pending AS String = ""
-  MUT pendingAt AS Integer = parsedAttributes.at
-  MUT i AS Integer = parsedAttributes.at
-  DO WHILE i < stop
-    IF matchAt(bytes, i, "</") THEN
-      IF pending <> "" THEN
-        LET textNode AS Node = Text[pending]
-        kids = collections::append(kids, textNode)
-        count = chargeNode(count, limit)
-        pending = ""
-      END IF
-      LET closeNameEnd AS Integer = scanName(bytes, i + 2, stop)
-      LET closeName AS String = sliceText(bytes, i + 2, closeNameEnd)
+  MUT j AS Integer = parsedAttributes.at
+  DO WHILE j < stop
+    ' A `<` followed by anything but `/`, `!` or `?` begins a start tag, which
+    ' needs no further matching. Only the other three can open markup that is
+    ' longer than two bytes, so only those are matched in full.
+    LET lt AS Boolean = byteAt(bytes, j) = B_LT
+    LET second AS Integer = byteAt(bytes, j + 1)
+    LET startTag AS Boolean = lt AND second <> B_SLASH AND second <> B_BANG AND second <> B_QUESTION
+    LET cdata AS Boolean = lt AND NOT startTag AND matchAt(bytes, j, "<![CDATA[")
+    LET opensMarkup AS Boolean = lt AND NOT cdata
+    IF opensMarkup AND pending <> "" THEN
+      LET textNode AS Node = Text[pending]
+      kids = collections::append(kids, textNode)
+      count = chargeNode(count, limit)
+      pending = ""
+    END IF
+    IF startTag THEN
+      LET child AS Parsed = readElement(bytes, j, stop, depth + 1, count, inner, limit)
+      kids = collections::append(kids, child.node)
+      count = child.nodes
+      j = child.at
+    ELSEIF lt AND matchAt(bytes, j, "</") THEN
+      LET closeNameEnd AS Integer = scanName(bytes, j + 2, stop)
+      LET closeName AS String = sliceText(bytes, j + 2, closeNameEnd)
       IF closeName <> name THEN
-        failAt(bytes, i, ERR_FORMAT, "`</" & closeName & ">` closes an element opened as `<" & name & ">`")
+        failAt(bytes, j, ERR_FORMAT, "`</" & closeName & ">` closes an element opened as `<" & name & ">`")
       END IF
       LET afterName AS Integer = skipSpace(bytes, closeNameEnd, stop)
       IF byteAt(bytes, afterName) <> B_GT THEN
@@ -479,80 +363,51 @@ PRIVATE FUNC readElement(bytes AS List OF Byte, from AS Integer, stop AS Integer
       END IF
       LET node AS Node = Element[name, attributes, kids]
       RETURN Parsed[node, afterName + 1, count]
-    END IF
-    IF matchAt(bytes, i, "<![CDATA[") THEN
-      LET close AS Integer = findFrom(bytes, "]]>", i + 9)
-      IF close < 0 OR close >= stop THEN
-        failAt(bytes, i, ERR_FORMAT, "a CDATA section is not closed by `]]>`")
+    ELSEIF cdata THEN
+      LET close AS Integer = findFrom(bytes, "]]>", j + 9, stop)
+      IF close < 0 THEN
+        failAt(bytes, j, ERR_FORMAT, "a CDATA section is not closed by `]]>`")
       END IF
-      requireChars(bytes, i + 9, close)
+      requireChars(bytes, j + 9, close)
       ' CDATA is character data, so it merges into the text around it.
-      pending = pending & sliceText(bytes, i + 9, close)
-      i = close + 3
-    ELSEIF matchAt(bytes, i, "<!--") THEN
-      IF pending <> "" THEN
-        LET textNode AS Node = Text[pending]
-        kids = collections::append(kids, textNode)
-        count = chargeNode(count, limit)
-        pending = ""
-      END IF
-      LET parsedComment AS Parsed = readComment(bytes, i, stop)
+      pending = pending & sliceText(bytes, j + 9, close)
+      j = close + 3
+    ELSEIF lt AND matchAt(bytes, j, "<!--") THEN
+      LET parsedComment AS Parsed = readComment(bytes, j, stop)
       kids = collections::append(kids, parsedComment.node)
       count = chargeNode(count, limit)
-      i = parsedComment.at
-    ELSEIF matchAt(bytes, i, "<!DOCTYPE") THEN
-      failAt(bytes, i, ERR_UNSUPPORTED, "a DOCTYPE declaration is not supported")
-    ELSEIF matchAt(bytes, i, "<!") THEN
-      failAt(bytes, i, ERR_FORMAT, "`<!` may only begin a comment or a CDATA section here")
-    ELSEIF matchAt(bytes, i, "<?") THEN
-      IF pending <> "" THEN
-        LET textNode AS Node = Text[pending]
-        kids = collections::append(kids, textNode)
-        count = chargeNode(count, limit)
-        pending = ""
-      END IF
-      LET parsedPi AS Parsed = readProcessingInstruction(bytes, i, stop)
+      j = parsedComment.at
+    ELSEIF lt AND matchAt(bytes, j, "<!DOCTYPE") THEN
+      failAt(bytes, j, ERR_UNSUPPORTED, "a DOCTYPE declaration is not supported")
+    ELSEIF lt AND matchAt(bytes, j, "<!") THEN
+      failAt(bytes, j, ERR_FORMAT, "`<!` may only begin a comment or a CDATA section here")
+    ELSEIF lt AND matchAt(bytes, j, "<?") THEN
+      LET parsedPi AS Parsed = readProcessingInstruction(bytes, j, stop)
       kids = collections::append(kids, parsedPi.node)
       count = chargeNode(count, limit)
-      i = parsedPi.at
-    ELSEIF byteAt(bytes, i) = B_LT THEN
-      IF pending <> "" THEN
-        LET textNode AS Node = Text[pending]
-        kids = collections::append(kids, textNode)
-        count = chargeNode(count, limit)
-        pending = ""
-      END IF
-      LET child AS Parsed = readElement(bytes, i, stop, depth + 1, count, inner, limit)
-      kids = collections::append(kids, child.node)
-      count = child.nodes
-      i = child.at
+      j = parsedPi.at
+    ELSEIF byteAt(bytes, j) = B_AMP THEN
+      LET ref AS Reference = readReference(bytes, j, stop)
+      pending = pending & ref.text
+      j = ref.at
+    ELSEIF matchAt(bytes, j, "]]>") THEN
+      failAt(bytes, j, ERR_FORMAT, "the text `]]>` may not appear in character data -- write it as `]]&gt;`")
     ELSE
-      LET b AS Integer = byteAt(bytes, i)
-      IF b = B_AMP THEN
-        LET ref AS Reference = readReference(bytes, i, stop)
-        pending = pending & ref.text
-        i = ref.at
-      ELSEIF matchAt(bytes, i, "]]>") THEN
-        failAt(bytes, i, ERR_FORMAT, "the text `]]>` may not appear in character data -- write it as `]]&gt;`")
-      ELSE
-        ' Take the whole run up to the next `<`, `&` or `]`, so ordinary
-        ' character data costs one slice rather than one allocation per scalar.
-        MUT runEnd AS Integer = i
-        DO WHILE runEnd < stop
-          LET rb AS Integer = byteAt(bytes, runEnd)
-          IF rb = B_LT OR rb = B_AMP OR rb = B_RBRACKET THEN EXIT DO
-          runEnd = runEnd + 1
-        LOOP
-        IF runEnd = i THEN runEnd = i + 1
-        requireChars(bytes, i, runEnd)
-        pending = pending & sliceText(bytes, i, runEnd)
-        i = runEnd
-      END IF
+      ' Take the whole run up to the next `<`, `&` or `]`, so ordinary character
+      ' data costs one slice rather than one allocation per scalar.
+      MUT runEnd AS Integer = j
+      DO WHILE runEnd < stop
+        LET rb AS Integer = byteAt(bytes, runEnd)
+        IF rb = B_LT OR rb = B_AMP OR rb = B_RBRACKET THEN EXIT DO
+        runEnd = runEnd + 1
+      LOOP
+      IF runEnd = j THEN runEnd = j + 1
+      requireChars(bytes, j, runEnd)
+      pending = pending & sliceText(bytes, j, runEnd)
+      j = runEnd
     END IF
   LOOP
-  failAt(bytes, pendingAt, ERR_FORMAT, "element `" & name & "` is never closed")
-  LET unreachable AS Node = Text[""]
-  RETURN Parsed[unreachable, stop, count]
+  FAIL error(ERR_FORMAT, messageAt(bytes, from, "element `" & name & "` is never closed"))
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -563,8 +418,8 @@ END FUNC
 ' appear only at the very start of the document. Nothing about it is stored:
 ' the only accepted values are the ones this reader already implements.
 PRIVATE FUNC readDeclaration(bytes AS List OF Byte, from AS Integer, stop AS Integer) AS Integer
-  LET close AS Integer = findFrom(bytes, "?>", from)
-  IF close < 0 OR close >= stop THEN
+  LET close AS Integer = findFrom(bytes, "?>", from, stop)
+  IF close < 0 THEN
     failAt(bytes, from, ERR_FORMAT, "the XML declaration is not closed by `?>`")
   END IF
   LET parsedAttributes AS ParsedAttributes = readAttributes(bytes, from + 5, close + 2, TRUE)

@@ -26,6 +26,7 @@
 
 IMPORT strings
 IMPORT datetime
+IMPORT collections
 
 ' The local time type in force at an instant: RFC 8536's ttinfo, with the
 ' designation as text.
@@ -66,54 +67,47 @@ PRIVATE TYPE RuleScan
   after AS Integer
 END TYPE
 
-' The type a footer rule gives at `seconds` since the Unix epoch.
+' One change a footer rule makes: when it happens, and whether it starts DST.
+PRIVATE TYPE Change
+  at AS Integer
+  startsDst AS Boolean
+END TYPE
+
+' The type a footer rule gives at `seconds` since the Unix epoch: the kind of the
+' latest change at or before `seconds`. Before every change in view, the kind is
+' the opposite of the earliest change's.
 FUNC footerType(footer AS String, seconds AS Integer) AS LocalType
   LET f AS Footer = parseFooter(footer)
   IF f.hasDst = FALSE THEN RETURN LocalType[f.stdUtoff, FALSE, f.stdName]
 
   LET year AS Integer = datetime::inZone(datetime::instant(seconds, 0), datetime::fixedOffset(f.stdUtoff)).date.year
-  MUT haveBest AS Boolean = FALSE
-  MUT bestAt AS Integer = 0
-  MUT bestDst AS Boolean = FALSE
-  MUT earliestAt AS Integer = 0
-  MUT earliestDst AS Boolean = FALSE
-  FOR k = year - 1 TO year + 1
-    ' The start is given in standard local time, the end in daylight local time.
-    LET startAt AS Integer = localMidnight(k, f.startRule) + f.startRule.seconds - f.stdUtoff
-    LET endAt AS Integer = localMidnight(k, f.endRule) + f.endRule.seconds - f.dstUtoff
-    IF k = year - 1 THEN
-      earliestAt = startAt
-      earliestDst = TRUE
-    END IF
-    IF startAt < earliestAt THEN
-      earliestAt = startAt
-      earliestDst = TRUE
-    END IF
-    IF endAt < earliestAt THEN
-      earliestAt = endAt
-      earliestDst = FALSE
-    END IF
-    IF startAt <= seconds THEN
-      IF haveBest = FALSE OR startAt > bestAt THEN
-        haveBest = TRUE
-        bestAt = startAt
-        bestDst = TRUE
-      END IF
-    END IF
-    IF endAt <= seconds THEN
-      IF haveBest = FALSE OR endAt > bestAt THEN
-        haveBest = TRUE
-        bestAt = endAt
-        bestDst = FALSE
-      END IF
+  LET changes AS List OF Change = changesAround(f, year)
+  MUT earliest AS Change = collections::get(changes, 0)
+  MUT latest AS Change = Change[0, FALSE]
+  MUT haveLatest AS Boolean = FALSE
+  FOR EACH change IN changes
+    IF change.at < earliest.at THEN earliest = change
+    IF change.at <= seconds AND (haveLatest = FALSE OR change.at > latest.at) THEN
+      latest = change
+      haveLatest = TRUE
     END IF
   NEXT
 
-  MUT dst AS Boolean = bestDst
-  ' No event at or before T: the kind before the earliest event is its opposite.
-  IF haveBest = FALSE THEN dst = earliestDst = FALSE
+  MUT dst AS Boolean = latest.startsDst
+  IF haveLatest = FALSE THEN dst = NOT earliest.startsDst
   IF dst THEN RETURN LocalType[f.dstUtoff, TRUE, f.dstName]
   RETURN LocalType[f.stdUtoff, FALSE, f.stdName]
+END FUNC
+
+' The DST start and end of `year` and of the years either side, as instants.
+PRIVATE FUNC changesAround(f AS Footer, year AS Integer) AS List OF Change
+  MUT changes AS List OF Change = []
+  FOR k = year - 1 TO year + 1
+    ' The start is given in standard local time, the end in daylight local time.
+    changes = collections::append(changes, Change[localMidnight(k, f.startRule) + f.startRule.seconds - f.stdUtoff, TRUE])
+    changes = collections::append(changes, Change[localMidnight(k, f.endRule) + f.endRule.seconds - f.dstUtoff, FALSE])
+  NEXT
+  RETURN changes
 END FUNC
 
 ' The day of the month an `Mm.w.d` rule names in `year`: day `weekday`

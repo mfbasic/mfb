@@ -284,7 +284,7 @@ TESTING
     END TCASE
 
     TCASE "an element holding only comments or PIs is left inline"
-      ' It has no ELEMENT child, so plan-138-A §4 step 3 does not call
+      ' It has no ELEMENT child, so the content projection's step 3 does not call
       ' whitespace-only text layout here: any newline the writer added would
       ' read back as the element's data and change its content.
       expectString(stringify(rootNode("<a><!--c--></a>"), 2), "<a><!--c--></a>")

@@ -1,12 +1,10 @@
 ' ---------------------------------------------------------------------------
-' xml/lib.mfb — the package's public API: constructors for building a tree by
-' hand, and accessors for reading one.
-'
-' `xml::parse` (the reader) and `xml::stringify` (the writer) join them in
-' later phases; everything here works on a tree however it was obtained.
+' xml/lib.mfb — the package's public API: parsing and writing, querying, and
+' the constructors and accessors for a tree however it was obtained.
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
+IMPORT strings
 
 DOC
   PACKAGE
@@ -71,7 +69,10 @@ DOC
   INFO
   INFO Expansion is bounded. Elements may nest 256 levels
   INFO (`errorCode::ErrDepthExceeded`, matching `json::parse`) and a document
-  INFO may hold 1,000,000 nodes (`xml::ErrorNodeLimit`).
+  INFO may hold 1,000,000 nodes, attributes included (`xml::ErrorNodeLimit`).
+  INFO Every operation that walks a tree applies the same nesting bound, so a
+  INFO hand-built tree too deep to read back is refused rather than exhausting
+  INFO the stack.
   DESC
   DESC Content and formatting
   DESC
@@ -102,13 +103,17 @@ DOC
   DESC Whitespace-only text nodes between elements are kept in the tree. They
   DESC are formatting rather than content, and `xml::stringify` re-indents
   DESC freely, but the reader does not decide that for you.
+  DESC
+  DESC Every attribute counts toward the node limit, as an XPath or DOM node does,
+  DESC so a tag with a very large number of attributes is bounded like any other
+  DESC part of the document.
   ARG text The XML text. Reading a file is the caller's job: pass `fs::readText(path)`.
   RET The parsed `xml::Document`.
   ERROR 77050003 The XML is malformed, or breaks a namespace-prefix constraint.
   ERROR 77050007 The document uses a construct outside this reader's scope: a DOCTYPE, an encoding other than UTF-8, or a version other than 1.0.
   ERROR 77050005 An element has two attributes with the same name, or the same expanded name.
   ERROR 77050024 Elements nest more than 256 levels deep.
-  ERROR 93140001 The document holds more than 1,000,000 nodes.
+  ERROR 93140001 The document holds more than 1,000,000 nodes, attributes included.
   EXAMPLE
     IMPORT xml
     IMPORT io
@@ -153,10 +158,14 @@ DOC
   DESC whitespace the reader kept as layout is written as it was given.
   DESC
   DESC A tree that could not be read back is refused rather than written: a
-  DESC name that is not a valid XML name, two attributes sharing a name, text
+  DESC name that is not a valid XML name, two attributes sharing a name or an
+  DESC expanded name, a namespace declaration the reader would reject, text
   DESC holding a character XML 1.0 forbids, a comment holding `--`, a
-  DESC processing instruction whose data would close it early, or a document
-  DESC without exactly one root element.
+  DESC processing instruction whose target holds a colon or whose data would
+  DESC close it early, a prefix in a document that no declaration in scope
+  DESC binds, or a document without exactly one root element. A fragment is
+  DESC written for embedding in a document that declares its prefixes, so the
+  DESC prefixes it uses are not checked against a scope it does not have.
   DESC With `count` or `indent`, the output is pretty-printed instead: each
   DESC element's children go on their own lines, one level deeper. An element
   DESC holding text is left exactly as it is written compactly, because
@@ -194,27 +203,27 @@ DOC
   END EXAMPLE
 END DOC
 EXPORT FUNC stringify(doc AS Document) AS String
-  RETURN writeDocumentCompact(doc)
+  RETURN writeDocument(doc, "")
 END FUNC
 
 EXPORT FUNC stringify(n AS Node) AS String
-  RETURN writeNodeCompact(n, 1)
+  RETURN writeFragment(n, "")
 END FUNC
 
 EXPORT FUNC stringify(doc AS Document, count AS Integer) AS String
-  RETURN writeDocumentPretty(doc, indentOfCount(count))
+  RETURN writeDocument(doc, indentOfCount(count))
 END FUNC
 
 EXPORT FUNC stringify(doc AS Document, indent AS String) AS String
-  RETURN writeDocumentPretty(doc, clampIndent(indent))
+  RETURN writeDocument(doc, indent)
 END FUNC
 
 EXPORT FUNC stringify(n AS Node, count AS Integer) AS String
-  RETURN writeNodeIndented(n, indentOfCount(count))
+  RETURN writeFragment(n, indentOfCount(count))
 END FUNC
 
 EXPORT FUNC stringify(n AS Node, indent AS String) AS String
-  RETURN writeNodeIndented(n, clampIndent(indent))
+  RETURN writeFragment(n, indent)
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -228,24 +237,32 @@ DOC
   DESC of value it produces.
   DESC
   DESC The supported subset is the abbreviated syntax: absolute and relative
-  DESC paths, `//`, `.`, `..`, name and node-type tests, `@name` and `@*`,
-  DESC predicates, filter expressions like `(//a)[1]`, the usual operators, and
-  DESC the common core functions. Anything recognizable as XPath but outside the
-  DESC subset -- an unabbreviated axis such as `child::a`, a variable, or a
-  DESC function this package does not implement -- is refused as unsupported
-  DESC rather than misread.
+  DESC paths, `//`, `.`, `..`, name, node-type and `prefix:*` tests, `@name`,
+  DESC `@*` and `@prefix:*`, predicates, filter expressions like `(//a)[1]` or
+  DESC `(//a/@id)[2]`, the usual operators, and the XPath 1.0 core function
+  DESC library: count, sum, name, local-name, string, boolean, not, number,
+  DESC string-length, normalize-space, concat, contains, starts-with,
+  DESC substring, substring-before, substring-after, translate, floor, ceiling,
+  DESC round, position, last, true and false. The functions that need a
+  DESC namespace resolver or a DTD (`namespace-uri`, `lang`, `id`) are refused
+  DESC as unsupported. Anything recognizable as XPath but outside the subset --
+  DESC an unabbreviated axis such as `child::a`, or a variable -- is refused as
+  DESC unsupported rather than misread.
+  DESC
+  DESC An attribute is a node in its own right: a predicate on `@id` tests the
+  DESC value, `.` selects the attribute, and `..` selects its element.
   DESC
   DESC Namespace prefixes are NOT resolved: `p:name` matches the literal name
   DESC `p:name`, exactly as the reader stores it.
   ARG doc The document to query.
   ARG expr The XPath expression.
   RET An `xml::XPathValue`: a node-set, an attribute-set, a string, a number or a boolean.
-  ERROR 77050003 The expression is not valid XPath.
-  ERROR 77050007 The expression is outside the supported subset, or mixes attributes with other nodes in one node-set.
+  ERROR 77050003 The expression is not valid XPath, applies a function to the wrong number of arguments, or passes a value of the wrong type to a function that needs a node-set.
+  ERROR 77050007 The expression is outside the supported subset, or a union mixes attributes with other nodes.
 END DOC
 EXPORT FUNC evaluate(doc AS Document, expr AS String) AS XPathValue
   LET index AS List OF IndexedNode = buildIndex(doc)
-  LET value AS XValue = evalExpr(index, -1, 1, 1, parseXPath(expr))
+  LET value AS XValue = evalExpr(index, Context[-1, -1, 1, 1], parseXPath(expr))
   RETURN publicValue(index, value)
 END FUNC
 
@@ -311,11 +328,13 @@ DOC
   DESC
   DESC Every result kind has one: a node-set gives the string-value of its first
   DESC node in document order, a number is written as XPath writes it (`2`, not
-  DESC `2.00`), and a boolean is `true` or `false`.
+  DESC `2.00`, and never with an exponent), and a boolean is `true` or `false`.
+  DESC A number is written with the shortest decimal digits that read back as
+  DESC the same value, which is what XPath 1.0 §4.2 asks for.
   ARG doc The document to query.
   ARG expr The XPath expression.
   RET The string-value of the result.
-  ERROR 77050003 The expression is not valid XPath.
+  ERROR 77050003 The expression is not valid XPath, or applies a function to the wrong number of arguments or the wrong type.
   ERROR 77050007 The expression is outside the supported subset.
   EXAMPLE
     IMPORT xml
@@ -333,7 +352,7 @@ DOC
 END DOC
 EXPORT FUNC valueOf(doc AS Document, expr AS String) AS String
   LET index AS List OF IndexedNode = buildIndex(doc)
-  LET value AS XValue = evalExpr(index, -1, 1, 1, parseXPath(expr))
+  LET value AS XValue = evalExpr(index, Context[-1, -1, 1, 1], parseXPath(expr))
   RETURN stringOfXValue(index, value)
 END FUNC
 
@@ -517,15 +536,25 @@ DOC
   END EXAMPLE
 END DOC
 EXPORT FUNC textOf(n AS Node) AS String
-  MUT out AS String = ""
+  RETURN textAt(n, 1)
+END FUNC
+
+' `textOf` at `level` levels of element nesting. The bound is the reader's, so a
+' hand-built tree too deep to be read back is refused rather than exhausting the
+' stack.
+PRIVATE FUNC textAt(n AS Node, level AS Integer) AS String
+  MUT parts AS List OF String = []
   MATCH n
     CASE Element(e)
+      IF level > DEPTH_LIMIT THEN
+        FAIL error(ERR_DEPTH, "xml: the tree nests more than " & toString(DEPTH_LIMIT) & " levels deep")
+      END IF
       FOR EACH k IN e.children
-        out = out & textOf(k)
+        parts = collections::append(parts, textAt(k, level + 1))
       NEXT
     CASE Text(t)
-      out = t.text
+      parts = collections::append(parts, t.text)
     CASE ELSE
   END MATCH
-  RETURN out
+  RETURN strings::join(parts, "")
 END FUNC

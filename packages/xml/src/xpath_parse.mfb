@@ -1,17 +1,23 @@
 ' ---------------------------------------------------------------------------
 ' xml/xpath_parse.mfb — XPath 1.0 expression text to an AST.
 '
-' The supported subset is plan-138-D §4. Two kinds of refusal, and the
-' difference matters to a caller:
+' The supported subset is the abbreviated syntax with the core function library
+' (minus the functions that need namespace resolution or a DTD). Two kinds of
+' refusal, and the difference matters to a caller:
 '
-'   ErrInvalidFormat   the text is not XPath at all -- a stray bracket, a
-'                      missing operand, an unterminated literal;
-'   ErrUnsupported     the text IS XPath, but outside this subset -- an
+'   ErrInvalidFormat   the text is not a valid XPath expression -- a stray
+'                      bracket, a missing operand, an unterminated literal, a
+'                      function given the wrong number of arguments, or an
+'                      operand of the wrong type;
+'   ErrUnsupported     the text IS valid XPath, but outside this subset -- an
 '                      unabbreviated axis (`child::a`), a variable (`$x`), or a
 '                      function this package does not implement.
 '
 ' Telling them apart is the whole point: "I cannot read that" and "I read it and
 ' will not do it" send a caller to different fixes.
+'
+' Names are scanned as XML NCNames, and a prefixed name as `prefix:local` or
+' `prefix:*`. Prefixes are matched literally, as the reader stores them.
 ' ---------------------------------------------------------------------------
 
 IMPORT collections
@@ -73,21 +79,22 @@ PUBLIC LET AXIS_PARENT AS Integer = 3
 PUBLIC LET AXIS_SELF AS Integer = 4
 PUBLIC LET AXIS_ATTRIBUTE AS Integer = 5
 
-' Node tests.
+' Node tests. TEST_PREFIX is `prefix:*`, which keeps the colon in its name.
 PUBLIC LET TEST_NAME AS Integer = 1
 PUBLIC LET TEST_STAR AS Integer = 2
 PUBLIC LET TEST_TEXT AS Integer = 3
 PUBLIC LET TEST_NODE AS Integer = 4
 PUBLIC LET TEST_COMMENT AS Integer = 5
 PUBLIC LET TEST_PI AS Integer = 6
+PUBLIC LET TEST_PREFIX AS Integer = 7
 
-PUBLIC TYPE Binary
+PUBLIC TYPE BinaryExpr
   op AS Integer
   left AS Expr
   right AS Expr
 END TYPE
 
-PUBLIC TYPE Unary
+PUBLIC TYPE UnaryExpr
   op AS Integer
   operand AS Expr
 END TYPE
@@ -127,8 +134,8 @@ PUBLIC TYPE Filter
 END TYPE
 
 PUBLIC UNION Expr
-  Binary
-  Unary
+  BinaryExpr
+  UnaryExpr
   Literal
   Numeric
   Call
@@ -136,28 +143,42 @@ PUBLIC UNION Expr
   Filter
 END UNION
 
-' Every function the subset implements (plan-138-D §4). A name outside this list
-' is recognized as a function call and refused as unsupported, rather than
-' reported as a syntax error.
-PRIVATE FUNC isSupportedFunction(name AS String) AS Boolean
-  IF name = "count" THEN RETURN TRUE
-  IF name = "contains" THEN RETURN TRUE
-  IF name = "starts-with" THEN RETURN TRUE
-  IF name = "string" THEN RETURN TRUE
-  IF name = "normalize-space" THEN RETURN TRUE
-  IF name = "not" THEN RETURN TRUE
-  IF name = "position" THEN RETURN TRUE
-  IF name = "last" THEN RETURN TRUE
-  IF name = "name" THEN RETURN TRUE
-  IF name = "local-name" THEN RETURN TRUE
-  IF name = "concat" THEN RETURN TRUE
-  IF name = "string-length" THEN RETURN TRUE
-  IF name = "number" THEN RETURN TRUE
-  IF name = "sum" THEN RETURN TRUE
-  IF name = "true" THEN RETURN TRUE
-  IF name = "false" THEN RETURN TRUE
-  IF name = "boolean" THEN RETURN TRUE
-  RETURN FALSE
+' ----- the function library -----
+'
+' The core function library of XPath 1.0 (§4), less the functions that need a
+' namespace resolver (namespace-uri, lang) or ID typing from a DTD (id). A name
+' outside this list is still a function call, so it is refused as unsupported
+' rather than reported as a syntax error.
+
+' The fewest arguments the function takes, or -1 when the package does not
+' implement it.
+PRIVATE FUNC minArguments(name AS String) AS Integer
+  IF name = "true" OR name = "false" OR name = "position" OR name = "last" THEN RETURN 0
+  IF name = "string" OR name = "normalize-space" OR name = "name" OR name = "local-name" THEN RETURN 0
+  IF name = "string-length" OR name = "number" THEN RETURN 0
+  IF name = "count" OR name = "sum" OR name = "not" OR name = "boolean" THEN RETURN 1
+  IF name = "floor" OR name = "ceiling" OR name = "round" THEN RETURN 1
+  IF name = "contains" OR name = "starts-with" OR name = "substring-before" THEN RETURN 2
+  IF name = "substring-after" OR name = "substring" OR name = "concat" THEN RETURN 2
+  IF name = "translate" THEN RETURN 3
+  RETURN -1
+END FUNC
+
+' The most arguments the function takes, or -1 when it takes any number from its
+' minimum upward.
+PRIVATE FUNC maxArguments(name AS String) AS Integer
+  IF name = "concat" THEN RETURN -1
+  IF name = "substring" THEN RETURN 3
+  IF name = "string" OR name = "normalize-space" OR name = "name" OR name = "local-name" THEN RETURN 1
+  IF name = "string-length" OR name = "number" THEN RETURN 1
+  IF name = "true" OR name = "false" OR name = "position" OR name = "last" THEN RETURN 0
+  RETURN minArguments(name)
+END FUNC
+
+' "1 argument", "2 arguments" or "2 or 3 arguments", for a refusal.
+PRIVATE FUNC argumentCount(count AS Integer) AS String
+  IF count = 1 THEN RETURN "1 argument"
+  RETURN toString(count) & " arguments"
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -186,20 +207,28 @@ PRIVATE FUNC isOperatorContext(tokens AS List OF Token) AS Boolean
   RETURN TRUE
 END FUNC
 
-PRIVATE FUNC isNameByte(code AS Integer) AS Boolean
-  IF code >= 97 AND code <= 122 THEN RETURN TRUE
-  IF code >= 65 AND code <= 90 THEN RETURN TRUE
-  IF code >= 48 AND code <= 57 THEN RETURN TRUE
-  IF code = 45 OR code = 46 OR code = 95 OR code = 58 THEN RETURN TRUE
-  RETURN code > 127
-END FUNC
-
 PRIVATE FUNC failFormat(what AS String) AS Nothing
   FAIL error(ERR_FORMAT, "xml: " & what)
 END FUNC
 
 PRIVATE FUNC failUnsupported(what AS String) AS Nothing
   FAIL error(ERR_UNSUPPORTED, "xml: " & what)
+END FUNC
+
+' The offset just past the NCName that starts at `from`, or `from` when no NCName
+' starts there. An NCName is an XML Name with no colon, so a colon ends it and is
+' left for the caller to read as a prefix separator or an axis.
+PRIVATE FUNC ncNameEnd(bytes AS List OF Byte, from AS Integer, total AS Integer) AS Integer
+  IF from >= total THEN RETURN from
+  LET first AS Decoded = decodeAt(bytes, from)
+  IF first.code = 58 OR NOT isNameStartChar(first.code) THEN RETURN from
+  MUT i AS Integer = from + first.size
+  DO WHILE i < total
+    LET sc AS Decoded = decodeAt(bytes, i)
+    IF sc.code = 58 OR NOT isNameChar(sc.code) THEN EXIT DO
+    i = i + sc.size
+  LOOP
+  RETURN i
 END FUNC
 
 PUBLIC FUNC tokenize(expression AS String) AS List OF Token
@@ -247,7 +276,7 @@ PUBLIC FUNC tokenize(expression AS String) AS List OF Token
       END IF
       tokens = collections::append(tokens, Token[T_NUMBER, sliceText(bytes, start, i), toFloat(sliceText(bytes, start, i))])
     ELSEIF code = 34 OR code = 39 THEN
-      LET closing AS Integer = findFrom(bytes, sliceText(bytes, i, i + 1), i + 1)
+      LET closing AS Integer = findFrom(bytes, sliceText(bytes, i, i + 1), i + 1, total)
       IF closing < 0 THEN
         failFormat("a string literal in the expression is not closed")
       END IF
@@ -312,21 +341,36 @@ PUBLIC FUNC tokenize(expression AS String) AS List OF Token
       ELSE
         failFormat("a bare `:` is not valid here")
       END IF
-    ELSEIF isNameByte(code) THEN
+    ELSE
       LET start AS Integer = i
-      DO WHILE i < total AND isNameByte(byteAt(bytes, i))
-        ' `::` ends a name; a single `:` inside one is a prefix separator.
-        IF byteAt(bytes, i) = 58 AND byteAt(bytes, i + 1) = 58 THEN EXIT DO
-        i = i + 1
-      LOOP
-      LET word AS String = sliceText(bytes, start, i)
+      i = ncNameEnd(bytes, i, total)
+      IF i = start THEN
+        failFormat("`" & sliceText(bytes, i, i + 1) & "` may not appear in an XPath expression")
+      END IF
+      MUT word AS String = sliceText(bytes, start, i)
+      ' A single colon joins a prefix to a local name, or to `*`. A double colon
+      ' is an axis marker, which the parser refuses by name when it meets one.
+      IF byteAt(bytes, i) = 58 AND byteAt(bytes, i + 1) <> 58 THEN
+        IF byteAt(bytes, i + 1) = 42 THEN
+          word = word & ":*"
+          i = i + 2
+        ELSE
+          LET localEnd AS Integer = ncNameEnd(bytes, i + 1, total)
+          IF localEnd = i + 1 THEN
+            failFormat("the prefix `" & word & ":` must be followed by a name or `*`")
+          END IF
+          word = word & ":" & sliceText(bytes, i + 1, localEnd)
+          i = localEnd
+          IF byteAt(bytes, i) = 58 AND byteAt(bytes, i + 1) <> 58 THEN
+            failFormat("`" & word & "` holds more than one colon")
+          END IF
+        END IF
+      END IF
       IF isOperatorContext(tokens) AND (word = "and" OR word = "or" OR word = "div" OR word = "mod") THEN
         tokens = collections::append(tokens, Token[T_OP, word, 0.0])
       ELSE
         tokens = collections::append(tokens, Token[T_NAME, word, 0.0])
       END IF
-    ELSE
-      failFormat("`" & sliceText(bytes, i, i + 1) & "` may not appear in an XPath expression")
     END IF
   LOOP
   tokens = collections::append(tokens, Token[T_EOF, "", 0.0])
@@ -339,6 +383,10 @@ END FUNC
 ' The cursor is an Integer threaded through every function, and each one returns
 ' what it parsed together with where it stopped. That keeps the token list
 ' itself a borrow rather than something copied at every level.
+'
+' The grammar, from XPath 1.0 §3.5: the binary operators bind by precedence; a
+' unary minus applies to a UnionExpr (`-//a | //b` is `-(//a | //b)`), and a
+' union joins path expressions.
 ' ---------------------------------------------------------------------------
 
 PUBLIC TYPE ParsedExpr
@@ -348,6 +396,11 @@ END TYPE
 
 PRIVATE TYPE ParsedSteps
   steps AS List OF PathStep
+  at AS Integer
+END TYPE
+
+PRIVATE TYPE ParsedArguments
+  args AS List OF Expr
   at AS Integer
 END TYPE
 
@@ -413,6 +466,10 @@ PRIVATE FUNC parseStep(tokens AS List OF Token, start AS Integer, axis AS Intege
 
   IF token.kind = T_STAR THEN
     test = TEST_STAR
+    at = at + 1
+  ELSEIF token.kind = T_NAME AND strings::endsWith(token.text, ":*") THEN
+    test = TEST_PREFIX
+    name = strings::left(token.text, len(token.text) - 1)
     at = at + 1
   ELSEIF token.kind = T_NAME THEN
     ' A name followed by `(` is a node-type test, not an element name.
@@ -494,6 +551,51 @@ PRIVATE FUNC parseSteps(tokens AS List OF Token, start AS Integer) AS ParsedStep
   RETURN ParsedSteps[steps, at]
 END FUNC
 
+' The token kinds that can begin a location step. A `/` followed by anything else
+' is the document node on its own.
+PRIVATE FUNC beginsStep(kind AS Integer) AS Boolean
+  RETURN kind = T_NAME OR kind = T_STAR OR kind = T_AT OR kind = T_DOT OR kind = T_DDOT
+END FUNC
+
+' The arguments of a call to a supported function, checked against its arity.
+' `start` is the token after the `(`.
+PRIVATE FUNC parseArguments(tokens AS List OF Token, start AS Integer, name AS String) AS ParsedArguments
+  MUT args AS List OF Expr = []
+  MUT at AS Integer = start
+  IF tokenAt(tokens, at).kind <> T_RPAREN THEN
+    DO WHILE TRUE
+      LET argument AS ParsedExpr = parseExpr(tokens, at, 0)
+      args = collections::append(args, argument.expr)
+      at = argument.at
+      IF tokenAt(tokens, at).kind = T_COMMA THEN
+        at = at + 1
+      ELSE
+        EXIT DO
+      END IF
+    LOOP
+  END IF
+  IF tokenAt(tokens, at).kind <> T_RPAREN THEN
+    failFormat("the call to `" & name & "()` is missing its `)`")
+  END IF
+  LET count AS Integer = len(args)
+  LET fewest AS Integer = minArguments(name)
+  LET most AS Integer = maxArguments(name)
+  IF count < fewest THEN
+    failFormat("`" & name & "()` takes " & argumentsWanted(fewest, most) & ", but was given " & toString(count))
+  END IF
+  IF most >= 0 AND count > most THEN
+    failFormat("`" & name & "()` takes " & argumentsWanted(fewest, most) & ", but was given " & toString(count))
+  END IF
+  RETURN ParsedArguments[args, at + 1]
+END FUNC
+
+' "1 argument", "2 arguments", "2 or 3 arguments" or "at least 2 arguments".
+PRIVATE FUNC argumentsWanted(fewest AS Integer, most AS Integer) AS String
+  IF most < 0 THEN RETURN "at least " & toString(fewest) & " arguments"
+  IF fewest = most THEN RETURN argumentCount(fewest)
+  RETURN toString(fewest) & " or " & argumentCount(most)
+END FUNC
+
 ' A primary expression: a literal, a number, `(expr)`, a function call, or a
 ' location path.
 PRIVATE FUNC parsePrimary(tokens AS List OF Token, start AS Integer) AS ParsedExpr
@@ -547,41 +649,23 @@ PRIVATE FUNC parsePrimary(tokens AS List OF Token, start AS Integer) AS ParsedEx
   ' node test.
   IF token.kind = T_NAME AND tokenAt(tokens, start + 1).kind = T_LPAREN THEN
     IF token.text <> "text" AND token.text <> "node" AND token.text <> "comment" AND token.text <> "processing-instruction" THEN
-      IF NOT isSupportedFunction(token.text) THEN
+      IF minArguments(token.text) < 0 THEN
         failUnsupported("the function `" & token.text & "()` is not part of this package's XPath subset")
       END IF
-      MUT args AS List OF Expr = []
-      MUT at AS Integer = start + 2
-      IF tokenAt(tokens, at).kind <> T_RPAREN THEN
-        DO WHILE TRUE
-          LET argument AS ParsedExpr = parseExpr(tokens, at, 0)
-          args = collections::append(args, argument.expr)
-          at = argument.at
-          IF tokenAt(tokens, at).kind = T_COMMA THEN
-            at = at + 1
-          ELSE
-            EXIT DO
-          END IF
-        LOOP
-      END IF
-      IF tokenAt(tokens, at).kind <> T_RPAREN THEN
-        failFormat("the call to `" & token.text & "()` is missing its `)`")
-      END IF
-      LET value AS Expr = Call[token.text, args]
-      RETURN ParsedExpr[value, at + 1]
+      LET call AS ParsedArguments = parseArguments(tokens, start + 2, token.text)
+      LET value AS Expr = Call[token.text, call.args]
+      RETURN ParsedExpr[value, call.at]
     END IF
   END IF
 
-  ' Otherwise it is a location path.
+  ' `/` alone selects the document node; `/` followed by a step is a path from it.
   IF token.kind = T_SLASH OR token.kind = T_DSLASH THEN
     MUT steps AS List OF PathStep = []
     MUT at AS Integer = start + 1
     IF token.kind = T_DSLASH THEN
       steps = collections::append(steps, PathStep[AXIS_DESCENDANT_OR_SELF, TEST_NODE, "", []])
     END IF
-    ' `/` alone selects the document node.
-    LET following AS Token = tokenAt(tokens, at)
-    IF token.kind = T_SLASH AND (following.kind = T_EOF OR following.kind = T_RPAREN OR following.kind = T_RBRACKET OR following.kind = T_OP) THEN
+    IF token.kind = T_SLASH AND NOT beginsStep(tokenAt(tokens, at).kind) THEN
       LET value AS Expr = Path[TRUE, steps]
       RETURN ParsedExpr[value, at]
     END IF
@@ -601,36 +685,38 @@ PRIVATE FUNC parsePrimary(tokens AS List OF Token, start AS Integer) AS ParsedEx
   RETURN ParsedExpr[value, parsed.at]
 END FUNC
 
-PRIVATE FUNC parseUnary(tokens AS List OF Token, start AS Integer) AS ParsedExpr
-  LET token AS Token = tokenAt(tokens, start)
-  IF token.kind = T_OP AND token.text = "-" THEN
-    LET operand AS ParsedExpr = parseUnary(tokens, start + 1)
-    LET value AS Expr = Unary[OP_NEG, operand.expr]
-    RETURN ParsedExpr[value, operand.at]
-  END IF
-  RETURN parsePrimary(tokens, start)
-END FUNC
-
-' `a | b`, which binds tighter than every comparison but looser than a step.
+' A union of path expressions, `a | b`, which binds tighter than every operator
+' that is not a unary minus.
 PRIVATE FUNC parseUnion(tokens AS List OF Token, start AS Integer) AS ParsedExpr
-  MUT left AS ParsedExpr = parseUnary(tokens, start)
+  MUT left AS ParsedExpr = parsePrimary(tokens, start)
   DO WHILE tokenAt(tokens, left.at).kind = T_PIPE
-    LET right AS ParsedExpr = parseUnary(tokens, left.at + 1)
-    LET combined AS Expr = Binary[OP_UNION, left.expr, right.expr]
+    LET right AS ParsedExpr = parsePrimary(tokens, left.at + 1)
+    LET combined AS Expr = BinaryExpr[OP_UNION, left.expr, right.expr]
     left = ParsedExpr[combined, right.at]
   LOOP
   RETURN left
 END FUNC
 
+' `-` applied to a union. A unary minus may repeat: `- - 1`.
+PRIVATE FUNC parseUnary(tokens AS List OF Token, start AS Integer) AS ParsedExpr
+  LET token AS Token = tokenAt(tokens, start)
+  IF token.kind = T_OP AND token.text = "-" THEN
+    LET operand AS ParsedExpr = parseUnary(tokens, start + 1)
+    LET value AS Expr = UnaryExpr[OP_NEG, operand.expr]
+    RETURN ParsedExpr[value, operand.at]
+  END IF
+  RETURN parseUnion(tokens, start)
+END FUNC
+
 PUBLIC FUNC parseExpr(tokens AS List OF Token, start AS Integer, minimum AS Integer) AS ParsedExpr
-  MUT left AS ParsedExpr = parseUnion(tokens, start)
+  MUT left AS ParsedExpr = parseUnary(tokens, start)
   DO WHILE TRUE
     LET token AS Token = tokenAt(tokens, left.at)
     IF token.kind <> T_OP THEN EXIT DO
     LET precedence AS Integer = precedenceOf(token.text)
     IF precedence = 0 OR precedence < minimum THEN EXIT DO
     LET right AS ParsedExpr = parseExpr(tokens, left.at + 1, precedence + 1)
-    LET combined AS Expr = Binary[operatorOf(token.text), left.expr, right.expr]
+    LET combined AS Expr = BinaryExpr[operatorOf(token.text), left.expr, right.expr]
     left = ParsedExpr[combined, right.at]
   LOOP
   RETURN left

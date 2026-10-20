@@ -104,7 +104,7 @@ PRIVATE FUNC xpathCase(entry AS json::Json) AS String
   LET text AS String = textOf(entry, "xml", "")
   LET expr AS String = textOf(entry, "expr", "")
 
-  LET doc AS Document = xml::parse(text) TRAP(problem)
+  LET doc AS xml::Document = xml::parse(text) TRAP(problem)
     RETURN refusal(id, problem.code, problem.message)
   END TRAP
 
@@ -118,23 +118,23 @@ PRIVATE FUNC xpathCase(entry AS json::Json) AS String
   END TRAP
 
   MATCH value
-    CASE XNodes(n)
+    CASE xml::XNodes(n)
       MUT parts AS List OF String = []
       FOR EACH one IN n.nodes
         parts = collections::append(parts, nodeEnvelope(one))
       NEXT
       RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"kind\":\"nodes\",\"value\":[" & strings::join(parts, ",") & "]}"
-    CASE XAttributes(a)
+    CASE xml::XAttributes(a)
       MUT parts AS List OF String = []
       FOR EACH one IN a.attributes
         parts = collections::append(parts, "[" & quoted(one.name) & "," & quoted(one.value) & "]")
       NEXT
       RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"kind\":\"attributes\",\"value\":[" & strings::join(parts, ",") & "]}"
-    CASE XString(s)
+    CASE xml::XString(s)
       RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"kind\":\"string\",\"value\":" & quoted(s.value) & "}"
-    CASE XNumber(m)
+    CASE xml::XNumber(m)
       RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"kind\":\"number\",\"value\":" & quoted(xml::valueOf(doc, expr)) & "}"
-    CASE XBoolean(b)
+    CASE xml::XBoolean(b)
       MUT flag AS String = "false"
       IF b.value THEN flag = "true"
       RETURN "{\"id\":" & quoted(id) & ",\"ok\":true,\"kind\":\"boolean\",\"value\":" & flag & "}"
@@ -145,13 +145,13 @@ END FUNC
 PRIVATE FUNC nodeEnvelope(n AS xml::Node) AS String
   MUT out AS String = ""
   MATCH n
-    CASE Element(e)
+    CASE xml::Element(e)
       out = elementText(e)
-    CASE Text(t)
+    CASE xml::Text(t)
       out = "[\"t\"," & quoted(t.text) & "]"
-    CASE Comment(c)
+    CASE xml::Comment(c)
       out = "[\"t\"," & quoted(c.text) & "]"
-    CASE ProcessingInstruction(p)
+    CASE xml::ProcessingInstruction(p)
       out = "[\"t\"," & quoted(p.data) & "]"
   END MATCH
   RETURN out
@@ -179,14 +179,14 @@ PRIVATE FUNC quoted(text AS String) AS String
 END FUNC
 
 ' ---------------------------------------------------------------------------
-' The content projection (plan-138-A §4), emitted as JSON text.
+' The content projection (the content projection), emitted as JSON text.
 '
 '   ["doc", [<node>, ...]]
 '   <node> := ["e", name, [[attrName, value], ... sorted], [<node>, ...]]
 '           | ["t", text]
 ' ---------------------------------------------------------------------------
 
-PRIVATE FUNC contentOfDocument(doc AS Document) AS String
+PRIVATE FUNC contentOfDocument(doc AS xml::Document) AS String
   RETURN "[\"doc\",[" & projectChildren(doc.children) & "]]"
 END FUNC
 
@@ -194,7 +194,7 @@ END FUNC
 PRIVATE FUNC anyElement(children AS List OF xml::Node) AS Boolean
   FOR EACH k IN children
     MATCH k
-      CASE Element(e) : RETURN TRUE
+      CASE xml::Element(e) : RETURN TRUE
       CASE ELSE
     END MATCH
   NEXT
@@ -217,9 +217,9 @@ PRIVATE FUNC projectChildren(children AS List OF xml::Node) AS String
   MUT pending AS String = ""
   FOR EACH k IN children
     MATCH k
-      CASE Text(t)
+      CASE xml::Text(t)
         pending = pending & t.text
-      CASE Element(e)
+      CASE xml::Element(e)
         IF pending <> "" THEN
           IF NOT (dropLayout AND allSpace(pending)) THEN
             parts = collections::append(parts, "[\"t\"," & quoted(pending) & "]")

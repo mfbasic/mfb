@@ -101,6 +101,66 @@ def build_links():
     ])
 
 
+def _octal(value, width):
+    return ("%0*o" % (width - 1, value)).encode() + b"\0"
+
+
+def _ustar_header(name, typeflag, size):
+    """A bare ustar header block, laid out byte by byte so that a field can be
+    set to a value no writer would normally emit (here, a ustar size of zero
+    alongside a PAX size record)."""
+    block = bytearray(512)
+    block[0:len(name)] = name.encode()
+    block[100:108] = _octal(0o644, 8)
+    block[108:116] = _octal(0, 8)
+    block[116:124] = _octal(0, 8)
+    block[124:136] = _octal(size, 12)
+    block[136:148] = _octal(MTIME, 12)
+    block[148:156] = b" " * 8
+    block[156:157] = typeflag
+    block[257:263] = b"ustar\0"
+    block[263:265] = b"00"
+    block[148:156] = ("%06o" % sum(block)).encode() + b"\0 "
+    return bytes(block)
+
+
+def _padded(data):
+    return data + b"\0" * ((512 - len(data) % 512) % 512)
+
+
+def build_pax_size():
+    """A PAX `size` record overriding the ustar size field. The ustar field says
+    zero, which is what some writers emit for a file over 8 GiB; the PAX record
+    carries the real length. A reader that trusts the ustar field walks into the
+    file's data and misreads everything after it. The laid-out bytes are ours;
+    what each entry must read back as is what Python's tarfile reports."""
+    payload = bytes(65 + i % 26 for i in range(1000))
+    record = b"13 size=1000\n"
+    return (_ustar_header("PaxHeader/big.bin", b"x", len(record))
+            + _padded(record)
+            + _ustar_header("big.bin", b"0", 0)
+            + _padded(payload)
+            + _ustar_header("after.txt", b"0", 3)
+            + _padded(b"abc")
+            + b"\0" * 1024)
+
+
+def _gnu_mtime_archive():
+    """GNU base-256 timestamps: one before the epoch (negative, two's
+    complement) and one past the octal field's range."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.GNU_FORMAT) as t:
+        for name, mtime, payload in [
+            ("before-epoch.txt", -1000000, b"hi\n"),
+            ("far-future.txt", 9000000000, b"yo\n"),
+        ]:
+            info = member(name)
+            info.mtime = mtime
+            info.size = len(payload)
+            t.addfile(info, io.BytesIO(payload))
+    return buf.getvalue()
+
+
 def build_bsdtar():
     """An archive written by bsdtar, a third independent writer."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -124,6 +184,8 @@ BUILDERS = [
     ("pax", build_pax),
     ("links", build_links),
     ("bsdtar", build_bsdtar),
+    ("paxsize", build_pax_size),
+    ("gnumtime", _gnu_mtime_archive),
 ]
 
 KIND = {
@@ -144,13 +206,8 @@ def describe(data):
                 fh = t.extractfile(info)
                 if fh is not None:
                     content = fh.read()
-            name = info.name
-            # tarfile strips a directory's trailing slash; the bytes keep it,
-            # and so does this reader.
-            if info.isdir() and not name.endswith("/"):
-                name = name + "/"
             entries.append({
-                "name": name,
+                "name": info.name,
                 "kind": KIND.get(info.type, 4),
                 "is_dir": info.isdir(),
                 "size": info.size,

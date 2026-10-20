@@ -1,0 +1,282 @@
+' ---------------------------------------------------------------------------
+' xml/xpath_functions.mfb — the XPath 1.0 core function library (§4), as the
+' subset implements it.
+'
+' Arity is checked when the expression is parsed (xpath_parse.mfb), so every
+' function here receives the argument count its specification allows. What is
+' checked here is the type of an argument: a function that needs a node-set
+' refuses any other value with ErrInvalidFormat, as XPath calls it a type error.
+' ---------------------------------------------------------------------------
+
+IMPORT collections
+IMPORT strings
+
+' The number of members in a node-set argument. Any other value is a type error.
+PRIVATE FUNC nodeSetCount(value AS XValue, name AS String) AS Integer
+  MUT out AS Integer = -1
+  MATCH value
+    CASE VNodes(n)
+      out = len(n.nodes)
+    CASE VAttrs(a)
+      out = len(a.attrs)
+    CASE ELSE
+  END MATCH
+  IF out < 0 THEN
+    FAIL error(ERR_FORMAT, "xml: " & name & "() needs a node-set")
+  END IF
+  RETURN out
+END FUNC
+
+' The name of the first member of a node-set, or "" when it is empty or is the
+' document node.
+PRIVATE FUNC nameOfFirst(index AS List OF IndexedNode, value AS XValue, name AS String) AS String
+  MUT text AS String = ""
+  MATCH value
+    CASE VNodes(n)
+      IF len(n.nodes) > 0 THEN
+        LET at AS Integer = collections::get(n.nodes, 0)
+        IF at >= 0 THEN
+          text = collections::get(index, at).name
+        END IF
+      END IF
+    CASE VAttrs(a)
+      IF len(a.attrs) > 0 THEN
+        text = attributeNameAt(index, collections::get(a.attrs, 0))
+      END IF
+    CASE ELSE
+      FAIL error(ERR_FORMAT, "xml: " & name & "() needs a node-set")
+  END MATCH
+  RETURN text
+END FUNC
+
+' §4.2 normalize-space: strip leading and trailing whitespace and collapse every
+' internal run of it to one space. Any XML whitespace counts, not only the space
+' character, so a tab or a line feed collapses too.
+PRIVATE FUNC normalizeSpace(text AS String) AS String
+  MUT parts AS List OF String = []
+  MUT word AS String = ""
+  FOR EACH sc IN strings::toScalars(text)
+    LET code AS Integer = toInt(sc)
+    IF isSpace(code) THEN
+      IF len(word) > 0 THEN
+        parts = collections::append(parts, word)
+        word = ""
+      END IF
+    ELSE
+      word = word & toString(sc)
+    END IF
+  NEXT
+  IF len(word) > 0 THEN
+    parts = collections::append(parts, word)
+  END IF
+  RETURN strings::join(parts, " ")
+END FUNC
+
+' §4.2 substring: the characters whose 1-based position p satisfies
+' round(start) <= p and, when there is a length, p < round(start) + round(length).
+' Rounding and the infinities come from the number rules, so a NaN bound selects
+' nothing and an infinite one is unbounded.
+PRIVATE FUNC substringOf(text AS String, start AS Num, length AS Num, bounded AS Boolean) AS String
+  LET startAt AS Num = roundNumber(start)
+  MUT endAt AS Num = infiniteNumber(TRUE)
+  IF bounded THEN endAt = addNumbers(startAt, roundNumber(length))
+  MUT parts AS List OF String = []
+  MUT position AS Integer = 0
+  FOR EACH sc IN strings::toScalars(text)
+    position = position + 1
+    LET p AS Num = plainNumber(toFloat(position))
+    IF compareNumbers(OP_GE, p, startAt) AND compareNumbers(OP_LT, p, endAt) THEN
+      parts = collections::append(parts, toString(sc))
+    END IF
+  NEXT
+  RETURN strings::join(parts, "")
+END FUNC
+
+' §4.2 translate: each character of `text` found in `from` becomes the character
+' at the same position in `to`, or is removed when `to` has none there. Where
+' `from` names a character twice, the first occurrence decides.
+PRIVATE FUNC translateOf(text AS String, fromText AS String, toText AS String) AS String
+  MUT fromCodes AS List OF Integer = []
+  FOR EACH sc IN strings::toScalars(fromText)
+    fromCodes = collections::append(fromCodes, toInt(sc))
+  NEXT
+  MUT toCodes AS List OF Integer = []
+  FOR EACH sc IN strings::toScalars(toText)
+    toCodes = collections::append(toCodes, toInt(sc))
+  NEXT
+  MUT table AS Map OF Integer TO Integer = Map OF Integer TO Integer { }
+  MUT i AS Integer = 0
+  DO WHILE i < len(fromCodes)
+    LET code AS Integer = collections::get(fromCodes, i)
+    IF NOT collections::hasKey(table, code) THEN
+      MUT replacement AS Integer = -1
+      IF i < len(toCodes) THEN
+        replacement = collections::get(toCodes, i)
+      END IF
+      table = collections::set(table, code, replacement)
+    END IF
+    i = i + 1
+  LOOP
+  MUT parts AS List OF String = []
+  FOR EACH sc IN strings::toScalars(text)
+    LET code AS Integer = toInt(sc)
+    IF collections::hasKey(table, code) THEN
+      LET replacement AS Integer = collections::get(table, code)
+      IF replacement >= 0 THEN
+        parts = collections::append(parts, toString(toScalar(replacement)))
+      END IF
+    ELSE
+      parts = collections::append(parts, toString(sc))
+    END IF
+  NEXT
+  RETURN strings::join(parts, "")
+END FUNC
+
+' The XPath function `name` applied to an expression. `first` is the value of its
+' first argument, already evaluated; or, when the call has no arguments, the
+' context.
+PUBLIC FUNC evalFunction(index AS List OF IndexedNode, ctx AS Context, c AS Call) AS XValue
+  LET count AS Integer = len(c.args)
+  IF c.name = "true" THEN
+    LET yes AS XValue = VBoolean[TRUE]
+    RETURN yes
+  END IF
+  IF c.name = "false" THEN
+    LET no AS XValue = VBoolean[FALSE]
+    RETURN no
+  END IF
+  IF c.name = "position" THEN
+    LET here AS XValue = VNumber[plainNumber(toFloat(ctx.position))]
+    RETURN here
+  END IF
+  IF c.name = "last" THEN
+    LET lastValue AS XValue = VNumber[plainNumber(toFloat(ctx.size))]
+    RETURN lastValue
+  END IF
+
+  MUT first AS XValue = contextValue(ctx)
+  IF count > 0 THEN
+    first = evalExpr(index, ctx, collections::get(c.args, 0))
+  END IF
+
+  IF c.name = "count" THEN
+    LET total AS XValue = VNumber[plainNumber(toFloat(nodeSetCount(first, "count")))]
+    RETURN total
+  END IF
+  IF c.name = "sum" THEN
+    nodeSetCount(first, "sum")
+    MUT total AS Num = plainNumber(0.0)
+    FOR EACH text IN stringsOfValue(index, first)
+      total = addNumbers(total, stringToNumber(text))
+    NEXT
+    LET sum AS XValue = VNumber[total]
+    RETURN sum
+  END IF
+  IF c.name = "name" THEN
+    LET named AS XValue = VString[nameOfFirst(index, first, "name")]
+    RETURN named
+  END IF
+  IF c.name = "local-name" THEN
+    LET localValue AS XValue = VString[localOf(nameOfFirst(index, first, "local-name"))]
+    RETURN localValue
+  END IF
+
+  IF c.name = "string" THEN
+    LET text AS XValue = VString[stringOfValue(index, first)]
+    RETURN text
+  END IF
+  IF c.name = "boolean" THEN
+    LET truth AS XValue = VBoolean[booleanOfValue(index, first)]
+    RETURN truth
+  END IF
+  IF c.name = "not" THEN
+    LET negated AS XValue = VBoolean[NOT booleanOfValue(index, first)]
+    RETURN negated
+  END IF
+  IF c.name = "number" THEN
+    LET numberValue AS XValue = VNumber[numberOfValue(index, first)]
+    RETURN numberValue
+  END IF
+  IF c.name = "string-length" THEN
+    LET lengthValue AS XValue = VNumber[plainNumber(toFloat(len(stringOfValue(index, first))))]
+    RETURN lengthValue
+  END IF
+  IF c.name = "normalize-space" THEN
+    LET normalized AS XValue = VString[normalizeSpace(stringOfValue(index, first))]
+    RETURN normalized
+  END IF
+  IF c.name = "floor" THEN
+    LET floored AS XValue = VNumber[floorNumber(numberOfValue(index, first))]
+    RETURN floored
+  END IF
+  IF c.name = "ceiling" THEN
+    LET ceiled AS XValue = VNumber[ceilingNumber(numberOfValue(index, first))]
+    RETURN ceiled
+  END IF
+  IF c.name = "round" THEN
+    LET rounded AS XValue = VNumber[roundNumber(numberOfValue(index, first))]
+    RETURN rounded
+  END IF
+
+  IF c.name = "concat" THEN
+    MUT parts AS List OF String = []
+    parts = collections::append(parts, stringOfValue(index, first))
+    MUT i AS Integer = 1
+    DO WHILE i < count
+      LET piece AS XValue = evalExpr(index, ctx, collections::get(c.args, i))
+      parts = collections::append(parts, stringOfValue(index, piece))
+      i = i + 1
+    LOOP
+    LET joined AS XValue = VString[strings::join(parts, "")]
+    RETURN joined
+  END IF
+
+  IF c.name = "substring" THEN
+    LET text AS String = stringOfValue(index, first)
+    LET start AS Num = numberOfValue(index, evalExpr(index, ctx, collections::get(c.args, 1)))
+    MUT length AS Num = plainNumber(0.0)
+    IF count = 3 THEN
+      length = numberOfValue(index, evalExpr(index, ctx, collections::get(c.args, 2)))
+    END IF
+    LET partValue AS XValue = VString[substringOf(text, start, length, count = 3)]
+    RETURN partValue
+  END IF
+
+  ' The remaining functions take their second (and third) argument as a string.
+  IF c.name = "contains" OR c.name = "starts-with" OR c.name = "substring-before" OR c.name = "substring-after" THEN
+    LET haystack AS String = stringOfValue(index, first)
+    LET needle AS String = stringOfValue(index, evalExpr(index, ctx, collections::get(c.args, 1)))
+    IF c.name = "contains" THEN
+      LET holds AS XValue = VBoolean[strings::contains(haystack, needle)]
+      RETURN holds
+    END IF
+    IF c.name = "starts-with" THEN
+      LET starts AS XValue = VBoolean[strings::startsWith(haystack, needle)]
+      RETURN starts
+    END IF
+    MUT found AS XValue = VString[""]
+    IF needle = "" OR NOT strings::contains(haystack, needle) THEN
+      IF c.name = "substring-after" AND needle = "" THEN
+        found = VString[haystack]
+      END IF
+      RETURN found
+    END IF
+    LET at AS Integer = strings::find(haystack, needle, 0)
+    IF c.name = "substring-before" THEN
+      found = VString[strings::left(haystack, at)]
+    ELSE
+      found = VString[strings::mid(haystack, at + len(needle), len(haystack) - at - len(needle))]
+    END IF
+    RETURN found
+  END IF
+
+  IF c.name = "translate" THEN
+    LET text AS String = stringOfValue(index, first)
+    LET fromText AS String = stringOfValue(index, evalExpr(index, ctx, collections::get(c.args, 1)))
+    LET toText AS String = stringOfValue(index, evalExpr(index, ctx, collections::get(c.args, 2)))
+    LET translated AS XValue = VString[translateOf(text, fromText, toText)]
+    RETURN translated
+  END IF
+
+  FAIL error(ERR_UNSUPPORTED, "xml: the function `" & c.name & "()` is not part of this package's XPath subset")
+END FUNC
