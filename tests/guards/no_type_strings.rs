@@ -101,7 +101,7 @@ fn is_test_file(rel: &str) -> bool {
 /// `#[cfg(test)]`, which works there because its two scan roots keep their test
 /// code in a trailing module. It is **wrong across `src/` as a whole**: this
 /// tree also uses `#[cfg(test)]` on individual mid-file items — a probe field
-/// (`src/ir/shape.rs:158` `bound_types`), a test-only entry point
+/// (`src/ir/shape/mod.rs` `bound_types`), a test-only entry point
 /// (`src/resolver/mod.rs:105` `resolve_hir_project`) — and truncating there
 /// discards the rest of the file. Measured: with truncation the scanner saw 4
 /// `parse_sites` in `ir` where 19 exist, and missed `src/resolver/mod.rs:275`
@@ -390,7 +390,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// `monomorph`'s and `codegen`'s `function_types` / `package_return_types`
 /// (function name), `ir/resource_escape.rs`'s `decl_type` (declaration name),
 /// `data_objects.rs`'s local `types` (parameter name), `ir::verify`'s and
-/// `monomorph`'s `globals` (binding name), `ir/shape.rs`'s `state_dropped`
+/// `monomorph`'s `globals` (binding name), `ir/shape/`'s `state_dropped`
 /// (local name), codegen's and NIR's `resource_owners` / `owner_collections`
 /// (binding name), and `function_lowering.rs`'s `union_extract_reads` (local
 /// name).
@@ -412,7 +412,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// Three kinds of lookalike are deliberately EXCLUDED, so they are not "fixed"
 /// later. Keyed by a **binding or local name**: `ir/lower.rs`'s
 /// `binding_types` / `mutable_locals`, `ir::verify`'s and `monomorph`'s
-/// `globals`, `ir/resource_escape.rs`'s `decl_type`, `ir/shape.rs`'s
+/// `globals`, `ir/resource_escape.rs`'s `decl_type`, `ir/shape/`'s
 /// `state_dropped`, codegen's and NIR's `resource_owners` /
 /// `owner_collections` / `promoted_vector_locals`,
 /// `function_lowering.rs`'s `union_extract_reads`, and `data_objects.rs`'s
@@ -435,7 +435,7 @@ const CONSTRUCTED_PREFIXES: &[&str] = &[
 /// beside a `funcs` index of the identical shape, so the key is an identifier
 /// and the value is a declaration rather than type information:
 /// `ir/docs.rs`'s and `resolver/resolution/docs.rs`'s `types` / `resources`,
-/// `src/doc/`'s `type_meta` / `resource_meta`, `ir/shape.rs`'s `union_decls`,
+/// `src/doc/`'s `type_meta` / `resource_meta`, `ir/shape/`'s `union_decls`,
 /// and `ir/binary/mod.rs`'s `seen_types` (a duplicate-NAME detector on the wire).
 const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     // `TypeModel` — codegen's whole picture of the module's declared types,
@@ -465,8 +465,9 @@ const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
         "resource_union_closes",
     ),
     // The IR shape checker's type registry.
-    ("src/ir/shape.rs", "resource_types"),
-    ("src/ir/shape.rs", "types"),
+    ("src/ir/shape/mod.rs", "resource_types"),
+    ("src/ir/shape/mod.rs", "types"),
+    ("src/ir/shape/declarations.rs", "resource_types"),
     // `ir::lower`'s `TypeIndex` — the lowering-side twin of `TypeModel`.
     ("src/ir/lower.rs", "records"),
     ("src/ir/lower.rs", "enums"),
@@ -984,7 +985,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     // holding a `List OF Integer`, while the identical LOCAL record was refused).
     // The name comes off the `.mfp` type-export table and becomes a `field_types`
     // KEY: a wire decode used as a table key, which is exactly what this class
-    // enumerates, and the same conversion `ir/shape.rs` already makes over the
+    // enumerates, and the same conversion `ir/shape/` already makes over the
     // same `ImportedTypeDef` list.
     //
     // 48 -> 52: bug-554 extends that same seed from records to UNIONS and ENUMS

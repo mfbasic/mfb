@@ -12,7 +12,7 @@ bidirectional**: the expected type reaches a few syntactic positions, while
 everything else synthesizes types **bottom-up**. There is no general unification,
 no type variables, and no least-upper-bound; the only "widening" steps are
 literal coercion (asymmetric, literal-shapes only) and union-variant subsumption.
-[[src/ir/lower.rs:lower_expression_with_expected]] [[src/ir/shape.rs:type_of]]
+[[src/ir/lower.rs:lower_expression_with_expected]] [[src/ir/shape/expressions.rs:type_of]]
 [[src/ir/verify/env.rs:infer_type]]
 
 The per-type rules, literal range checks, and the *defaultable* predicate are
@@ -104,7 +104,7 @@ argument is then *validated* with `expression_compatible(param_type, actual,
 expr)`: on the source path by the shape pass over the HIR argument list (where
 the literal shapes are still visible), on the package path by the IR verifier
 over the lowered arguments.
-[[src/ir/shape.rs:check_call_shape]] [[src/ir/verify/calls.rs:check_call_argument_types]]
+[[src/ir/shape/calls.rs:check_call_shape]] [[src/ir/verify/calls.rs:check_call_argument_types]]
 
 Rule 3 is what gives an empty `[]` written at a generic parameter an element
 type. Without it the literal lowers as `List OF Unknown` and the collections
@@ -252,14 +252,14 @@ Properties:
   `TYPE_MATCH_PATTERN_MISMATCH`, …), exactly as a `Float` variable would be.
   Write `5.0`, `5.0m`, or `toMoney(5.0f)`.
 
-[[src/ir/verify/compat.rs:expression_compatible]] [[src/ir/shape.rs:expression_compatible]]
+[[src/ir/verify/compat.rs:expression_compatible]] [[src/ir/shape/compat.rs:expression_compatible]]
 
 ## Structural Assignability
 
 The shape and IR predicates are distinct and must be read at their own seams.
 Both accept an `Unknown` operand to suppress cascading diagnostics and peel the
 `RES` wrapper before comparing value types.
-[[src/ir/shape.rs:compatible]] [[src/ir/verify/compat.rs:compatible]]
+[[src/ir/shape/compat.rs:compatible]] [[src/ir/verify/compat.rs:compatible]]
 
 The **IR verifier** applies these rules in order:
 
@@ -302,7 +302,7 @@ callable in a non-isolated expected slot. Its nominal branch uses built-in-only
 qualification normalization and checks declaration identity when both names
 resolve. Passing shape checking alone is therefore insufficient: the lowered
 program must also satisfy the IR predicate above.
-[[src/ir/shape.rs:compatible]]
+[[src/ir/shape/compat.rs:compatible]]
 
 ## Numeric and Ordering Predicates
 

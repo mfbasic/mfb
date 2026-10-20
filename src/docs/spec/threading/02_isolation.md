@@ -11,7 +11,7 @@ enforces the declaration form at declaration time, reporting
 `ISOLATED function `<name>` must be a top-level FUNC declaration.` for a
 violation. That is a separate check from the call-site one in `thread::start`,
 which requires only that the entry name an `ISOLATED FUNC`; neither check
-considers where the entry is reached from. [[src/ir/verify/mod.rs:collect_diagnostics_with]] [[src/ir/shape.rs:thread_start_entry_valid]]
+considers where the entry is reached from. [[src/ir/verify/mod.rs:collect_diagnostics_with]] [[src/ir/shape/expressions.rs:thread_start_entry_valid]]
 
 An isolated worker may still call:
 

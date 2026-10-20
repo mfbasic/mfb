@@ -645,21 +645,28 @@ Acceptance: the IR wire codec writes and reads the same bytes.
   passed (42 test(s) ran)`; G2 thread → 0 diffs; guards → 8 / 7 + 1 ignored; check warnings 0;
   `spec_citations_resolve` ok; budget → one `STALE code (ceiling 1448) src/ir/binary.rs` before, none after; census
   → 490/118, 333, 313, 324.
-Commit: —
+Commit: 332846edd
 
 ### Phase 4 — `shape.rs` → `shape/`
 
-- [ ] `git mv src/ir/shape.rs src/ir/shape/mod.rs` (G's `#[cfg(test)] mod tests;` keeps resolving
+- [x] `git mv src/ir/shape.rs src/ir/shape/mod.rs` (G's `#[cfg(test)] mod tests;` keeps resolving
       to `src/ir/shape/tests/`); create `declarations.rs`, `statements.rs`, `expressions.rs`,
       `compat.rs`, `calls.rs` per §4.2, each `use super::*;` + `impl<'a> Walker<'a> { … }`.
-- [ ] The 30 `pub(super)` method edits of §4.2; the four `super::` rewrites in `declarations.rs`.
-- [ ] `tests/guards/no_type_strings.rs`: rows 453-454 → `src/ir/shape/mod.rs`; add
+      Done: `items.py split` (method-level) → 9, 11, 9, 5, 15 methods; the emptied `impl Walker` shell removed from
+      `mod.rs`; `motion.py` → only the wiring, five impl blocks, the 30 `pub(super)` and the path rewrites.
+- [x] The 30 `pub(super)` method edits of §4.2; the four `super::` rewrites in `declarations.rs`.
+- [x] `tests/guards/no_type_strings.rs`: rows 453-454 → `src/ir/shape/mod.rs`; add
       `("src/ir/shape/declarations.rs", "resource_types")`; line 101 prose →
       `src/ir/shape/mod.rs` `bound_types`; prose 378, 400, 423, 967 → `ir/shape/`.
-- [ ] Spec: rewrite all 23 `[[src/ir/shape.rs…]]` citations per §4.2.
-- [ ] `.ai/codegen-invariants.md:64`, `.ai/resources-packages.md:41`, `.ai/compiler.md:21`,
+      Done: before the edit `curated_type_keyed_tables_all_exist` FAILED; after → 7 passed + 1 ignored (rows now
+      468-470, prose 104, 393, 415, 438, 987).
+- [x] Spec: rewrite all 23 `[[src/ir/shape.rs…]]` citations per §4.2.
+- [x] `.ai/codegen-invariants.md:64`, `.ai/resources-packages.md:41`, `.ai/compiler.md:21`,
       `.ai/collections.md:645` per §4.2.
-- [ ] Tighten and commit the ceiling file.
+      Done: as §4.2, plus `src/codegen/builtins/tests/literal_coercion.rs:17` (unlisted) → `ir/shape/`; citations:
+      `citesweep.py` → 21 + the two bare cites by hand; `citedef.py` → 0 not defined; `git grep 'ir/shape\.rs'` → 0
+      outside the ceiling file and the `coverage-report.py` docstring §4.2 keeps.
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: the shape checker reports the same diagnostics.
   Check: `cargo build --release && cargo test -p mfb --bin mfb ir::shape` → 57 pass (the G-moved
@@ -669,6 +676,10 @@ Acceptance: the shape checker reports the same diagnostics.
   no new warning; `spec_citations_resolve` → pass. `cargo test --test file_size_budget 2>&1 | grep 'src/ir/shape'`
   → one `STALE` code row for `src/ir/shape.rs` before the tighten (G already removed its inline
   row), none after (est. 2 min).
+  Verified 2026-10-19: `ir::shape` → `ok. 58 passed` (58 in the G0 list too; the plan's 57 was the shape-tests
+  count alone); `test-accept.sh … '*-invalid'` → 208 passed; G2 general → 0 diffs; `no_type_strings` → 7 + 1
+  ignored; check warnings 0; `spec_citations_resolve` ok; budget → one `STALE code (ceiling 2950) src/ir/shape.rs`
+  before, none after; census → 495/4, 597/2, 482, 600, 199, 600/2.
 Commit: —
 
 ### Phase 5 — `lower.rs` → `lower/` (largest blast radius)

@@ -3,7 +3,7 @@
 Thread entry functions may be declared in the executable itself or imported
 from `.mfp` packages. For an imported entry, the executable imports the worker
 package, and the worker package may import additional packages.
-[[src/ir/shape.rs:thread_start_entry_valid]]
+[[src/ir/shape/expressions.rs:thread_start_entry_valid]]
 
 For example:
 

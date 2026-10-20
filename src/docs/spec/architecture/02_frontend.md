@@ -260,7 +260,7 @@ imported-package metadata validation (`PACKAGE_INVALID`). It walks the
 concrete (post-monomorph) HIR with lowering's own typing oracle
 (`ir::lower::expression_type`) and tracks scopes exactly as lowering binds them,
 so it carries no inference of its own; every rule it emits is annotated with the
-erased fact that justifies it. [[src/ir/shape.rs]]
+erased fact that justifies it. [[src/ir/shape/mod.rs]]
 
 The build runs both over the source program: the shape pass gathers its
 diagnostics, IR is lowered, the IR semantic verifier gathers the rest, and the

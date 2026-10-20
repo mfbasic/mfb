@@ -10,7 +10,7 @@ A map of the compiler's source modules and their responsibilities.
 | HIR[[src/hir/]] | Typed elaboration of AST annotations into `ParameterType` trees. |
 | Name resolver[[src/resolver/]] | Name resolution and import/package symbol checks. |
 | Monomorphizer[[src/monomorph/]] | Template/generic expansion into concrete HIR. |
-| Shape pass[[src/ir/shape.rs]] | The source rules whose evidence lowering erases (named-argument binding, EXIT/inline-TRAP boundaries, TESTING assertion arguments, literal spellings, native CONST/FREE facts, imported-package metadata), checked over the concrete HIR with lowering's typing oracle. Its stream renders first. |
+| Shape pass[[src/ir/shape/mod.rs]] | The source rules whose evidence lowering erases (named-argument binding, EXIT/inline-TRAP boundaries, TESTING assertion arguments, literal spellings, native CONST/FREE facts, imported-package metadata), checked over the concrete HIR with lowering's typing oracle. Its stream renders first. |
 | IR semantic verifier[[src/ir/verify/]] | IR semantic verification — the single source of truth for every other rule, run on both source-lowered IR and decoded-package IR. |
 | Escape analysis[[src/ir/resource_escape.rs]] | Resource escape analysis (resource ownership/scope; see `./mfb spec language resource-management`). |
 | IR & lowering[[src/ir/]] | Shared compiler IR and HIR-to-IR lowering. |

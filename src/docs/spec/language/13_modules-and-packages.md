@@ -31,7 +31,7 @@ Visibility (default is `PUBLIC`): [[src/ast/types.rs:Visibility]]
   in an executable).
 
 Within a single build, `PUBLIC` and `EXPORT` are treated **identically** by
-the visibility check: [[src/resolver/mod.rs:visible_from]] [[src/ir/shape.rs:type_visible]] both are visible across
+the visibility check: [[src/resolver/mod.rs:visible_from]] [[src/ir/shape/calls.rs:type_visible]] both are visible across
 files in the project, and only `PRIVATE` is file-local. The `PUBLIC`/`EXPORT`
 distinction matters only for what is written into the compiled `.mfp` package
 (the exported-symbol flag), not for in-project name resolution. This is why a
@@ -40,7 +40,7 @@ cross-file reference to a `PRIVATE` declaration fails unless the declaration is
 
 Top-level `LET`, `MUT`, `FUNC`, `TYPE`, `UNION`, `ENUM`, and `RESOURCE` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. [[src/ir/lower_link.rs:native_resources]] Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types. [[src/binary_repr/writer.rs]]
 
-A package's exported surface may not name a type the package declares without `EXPORT`: an `EXPORT TYPE` field (at any field visibility), an `EXPORT UNION` variant's field, an `EXPORT FUNC` parameter or return type, or an `EXPORT LET`/`MUT` type that reaches one — through `List`, `Set`, `Map`, `RES`, `FUNC` and `Thread` types — fails the package build with `EXPORT_NAMES_NON_EXPORTED_TYPE` at the exporting declaration, because the compiled package's type table carries only exported types and no importer could resolve the name. A union's variant record itself need not be exported, and a type imported from another package may be re-exported. [[src/ir/shape.rs:export_names_non_exported_type_diagnostics]]
+A package's exported surface may not name a type the package declares without `EXPORT`: an `EXPORT TYPE` field (at any field visibility), an `EXPORT UNION` variant's field, an `EXPORT FUNC` parameter or return type, or an `EXPORT LET`/`MUT` type that reaches one — through `List`, `Set`, `Map`, `RES`, `FUNC` and `Thread` types — fails the package build with `EXPORT_NAMES_NON_EXPORTED_TYPE` at the exporting declaration, because the compiled package's type table carries only exported types and no importer could resolve the name. A union's variant record itself need not be exported, and a type imported from another package may be re-exported. [[src/ir/shape/mod.rs:export_names_non_exported_type_diagnostics]]
 
 Any top-level `FUNC` declaration may use `ISOLATED`, at any visibility —
 `PRIVATE`, `PUBLIC` (the default) or `EXPORT`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
@@ -238,7 +238,7 @@ another. Two things still need the application file's own `IMPORT` of the
 builtin: writing the type's name (`LET doc AS json::Json = ...`, otherwise
 `SYMBOL_UNKNOWN_IMPORT`), and reading a builtin record's fields (`d.date` on a
 `datetime::DateTime` a dependency returned needs `IMPORT datetime`).
-[[src/ir/shape.rs:is_builtin_package_type]]
+[[src/ir/shape/mod.rs:is_builtin_package_type]]
 
 ## Source-level API compatibility
 

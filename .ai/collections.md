@@ -642,8 +642,8 @@ changes for collection-layout work:
 - **Do not re-wrap a type through its own name to "normalize" it.** An
   `other => named(&other.name())` catch-all in a structural match flattens
   `Stateful { base, state }` back into an opaque nominal and destroys the
-  structure the arms above it depend on. Both `ir/shape.rs`'s
-  `validate_package_type` and its sibling `is_comparable_seen` had this shape;
+  structure the arms above it depend on. Both `ir/shape/`'s
+  `validate_package_type` (`declarations.rs`) and `is_comparable_seen` (`compat.rs`) had this shape;
   the second one silently reported a stateful RESOURCE as **comparable** (so a
   `Set OF <stateful resource>` would have passed the comparability gate above)
   and no test caught it. Add the explicit variant arm ahead of the catch-all.

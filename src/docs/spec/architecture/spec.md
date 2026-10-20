@@ -38,7 +38,7 @@ Validation is split by which representation preserves the evidence. The HIR
 shape pass checks facts erased by lowering; the IR verifier checks the remaining
 semantic rules on both source-lowered IR and decoded package IR. The frontend
 and type-inference topics specify the inputs and predicates at each seam.
-[[src/ir/shape.rs:collect_diagnostics]] [[src/ir/verify/mod.rs:collect_diagnostics]]
+[[src/ir/shape/mod.rs:collect_diagnostics]] [[src/ir/verify/mod.rs:collect_diagnostics]]
 
 After IR, the pipeline splits:
 

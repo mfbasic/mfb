@@ -14,7 +14,7 @@
 //! **This is a `check_src` suite and not a fixture, and that distinction is the
 //! whole reason it exists.** `tests/rt-behavior/lexical/
 //! list-literal-numeric-coercion-rt` was written for these arms and moved
-//! `ir/shape.rs` by nothing at all: the in-process corpus LOWERS its fixtures
+//! `ir/shape/` by nothing at all: the in-process corpus LOWERS its fixtures
 //! (`try_code_for_src` -> `lower_augmented_project`) and never runs the source
 //! checkers, so no rt-behavior fixture can reach `ir::shape` however carefully
 //! it is written. The checkers are reached by the `tests/syntax` diagnostic

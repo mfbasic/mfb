@@ -22,7 +22,7 @@ isolated function in the current project or an imported signature; failure repor
 `TYPE_CALL_ARGUMENT_MISMATCH` with the message
 `thread.start entry point must name an ISOLATED FUNC.`. The parameter-shape and
 return-type checks are the ordinary function-reference signature match.
-[[src/ir/shape.rs:thread_start_entry_valid]] [[src/codegen/registry/unify.rs:resolve_call]]
+[[src/ir/shape/expressions.rs:thread_start_entry_valid]] [[src/codegen/registry/unify.rs:resolve_call]]
 
 **Provenance is not a criterion.** `ISOLATED` is the sole marker: an entry may be
 a function this project declares, named by its bare identifier at any visibility
@@ -30,7 +30,7 @@ a function this project declares, named by its bare identifier at any visibility
 package's `EXPORT ISOLATED FUNC` named through its import binding. Both spellings lower to a `FunctionRef`; entry validation resolves the bare
 name through local functions or the qualified name through imported signatures. `self` is an ordinary identifier, not a reserved import
 specifier.
-[[src/ir/shape.rs:thread_start_entry_valid]]
+[[src/ir/shape/expressions.rs:thread_start_entry_valid]]
 
 ## Thread type grammar (parsing)
 

@@ -301,7 +301,7 @@ not a `List OF Circle`: each is a type mismatch at its position
 becomes a member only through `MATCH`. A sibling member is not accepted either: a
 `Circle` is not a `Rect`. Callable types do not convert: a `FUNC() AS Circle` is
 not a `FUNC() AS Shape`.
-[[src/ir/lower.rs:union_conversion]] [[src/ir/shape.rs:compatible]]
+[[src/ir/lower.rs:union_conversion]] [[src/ir/shape/compat.rs:compatible]]
 
 A union may include the members of another concrete union:
 
