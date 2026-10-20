@@ -71,8 +71,8 @@ parameters and `modifyOtherKeys`, and kitty `CSI … u` with event types,
 modifiers and associated text. It never waits. The grapheme-cluster code (and so
 the Unicode property tables) is emitted only when a program calls
 `readGrapheme` or `readKey`.
-[[src/codegen/io/input/decode.rs:lower_input_decode]]
-[[src/codegen/io/input/decode.rs:FLAG_EVENTS]]
+[[src/codegen/io/input/decode/mod.rs:lower_input_decode]]
+[[src/codegen/io/input/decode/mod.rs:FLAG_EVENTS]]
 [[src/codegen/io/input/keys.rs:KeyName]]
 [[src/codegen/io/input/keys.rs:KeyEvent]]
 [[src/codegen/io/input/mod.rs:CLUSTER_READERS]]
@@ -110,7 +110,7 @@ timeout / end-of-input / error label.
   remaining milliseconds rounded up. A wait that runs out leaves the buffer
   exactly as it was.
   [[src/codegen/io/input/reader.rs:emit_read_wait]]
-  [[src/codegen/io/stdin/stdin_broadcast.rs:emit_stdin_poll_ready_check]]
+  [[src/codegen/io/stdin/stdin_broadcast/mod.rs:emit_stdin_poll_ready_check]]
 
 ### Timeouts
 

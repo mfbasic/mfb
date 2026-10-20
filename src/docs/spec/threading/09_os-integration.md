@@ -142,7 +142,7 @@ arena when the module uses stdin), so a worker returning normally or with a
 language error releases its subscription. On process shutdown a worker parked in a blocking stdin read is
 terminated by process exit, exactly as for any other worker (§ arena teardown
 above), so shutdown never hangs on a parked reader.
-[[src/codegen/io/stdin/stdin_broadcast.rs:lower_stdin_next_byte]]
+[[src/codegen/io/stdin/stdin_broadcast/next_byte.rs:lower_stdin_next_byte]]
 [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 
 Subscription and unsubscription are idempotent. The subscriber registry holds
@@ -150,8 +150,8 @@ Subscription and unsubscription are idempotent. The subscriber registry holds
 thread unregistered without reporting an error; a later read reports
 `ErrInvalidContext`. Unsubscription releases a registry slot and wakes readers
 waiting for log capacity.
-[[src/codegen/io/stdin/stdin_broadcast.rs:lower_stdin_subscribe]]
-[[src/codegen/io/stdin/stdin_broadcast.rs:lower_stdin_unsubscribe]]
+[[src/codegen/io/stdin/stdin_broadcast/subscription.rs:lower_stdin_subscribe]]
+[[src/codegen/io/stdin/stdin_broadcast/subscription.rs:lower_stdin_unsubscribe]]
 
 ### The per-subscriber input buffer
 

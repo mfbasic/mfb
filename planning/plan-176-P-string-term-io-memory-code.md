@@ -41,10 +41,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-O is archived | `ls planning/plan-176-O-* planning/completed/plan-176-O-*` → only the `planning/completed/` path | NOT MET (2026-10-14) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-14; lands in plan-176-A) |
-| P's files have no uncommitted changes | `git status --porcelain -- src/codegen/io/input/decode.rs src/codegen/io/stdin/stdin_broadcast.rs src/codegen/memory/arena/arena.rs src/codegen/memory/arena/builder_arena_transfer.rs src/codegen/memory/data/data_objects.rs src/codegen/memory/value/builder_value_semantics.rs src/codegen/string/repr/builder_strings.rs src/codegen/string/unicode_props.rs src/codegen/term/core/term.rs src/codegen/term/grid/term_grid.rs tests/codegen/codegen_trap_result_wrapper.rs .ai` → empty | MET (2026-10-14) |
-| The spec topics P edits have no uncommitted changes | `git status --porcelain -- src/docs/spec` → no line for a file P edits (the 22 above) | MET (2026-10-14: only ` M src/docs/spec/app/06_canvas.md`, not one of the 22) |
+| plan-176-O is archived | `ls planning/plan-176-O-* planning/completed/plan-176-O-*` → only the `planning/completed/` path | MET (2026-10-19) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19) |
+| P's files have no uncommitted changes | `git status --porcelain -- src/codegen/io/input/decode.rs src/codegen/io/stdin/stdin_broadcast.rs src/codegen/memory/arena/arena.rs src/codegen/memory/arena/builder_arena_transfer.rs src/codegen/memory/data/data_objects.rs src/codegen/memory/value/builder_value_semantics.rs src/codegen/string/repr/builder_strings.rs src/codegen/string/unicode_props.rs src/codegen/term/core/term.rs src/codegen/term/grid/term_grid.rs tests/codegen/codegen_trap_result_wrapper.rs .ai` → empty | MET (2026-10-19) |
+| The spec topics P edits have no uncommitted changes | `git status --porcelain -- src/docs/spec` → no line for a file P edits (the 22 above) | MET (2026-10-19: clean) |
 
 Everything below is written against the world where these hold. The test-only file beside
 `decode.rs`, `src/codegen/io/input/corpus.rs` (903 LOC), is under the 1000 test-only limit, so no
@@ -496,7 +496,7 @@ All free functions (`grep -nE "^(pub\(crate\) )?fn " src/codegen/term/core/term.
 > person who has to decide whether to stop — is entitled to trust that.
 
 Before Phase 1, once: `cargo test -p mfb --bin mfb -- --list 2>/dev/null | grep -c ': test$'` →
-record the number in this line as the P baseline (est. 4 min).
+record the number in this line as the P baseline (est. 4 min). Baseline: 5018 (at `e721de9ee`).
 
 Every phase's Check also runs: `cargo check --all-targets` → no new warning (est. 2 min);
 `cargo test -p mfb --bin mfb spec_citations_resolve` → pass (est. 1 min);
@@ -508,16 +508,23 @@ the phase.
 
 ### Phase 1 — I/O: `io/input/decode.rs`, `io/stdin/stdin_broadcast.rs`
 
-- [ ] §4.1: split `decode.rs` into `decode/{mod,text,csi}.rs`; 4 `pub(super)` edits; `use csi::*;
+- [x] §4.1: split `decode.rs` into `decode/{mod,text,csi}.rs`; 4 `pub(super)` edits; `use csi::*;
       use text::*;`; rewrite the 2 citations.
-- [ ] §4.2: split `stdin_broadcast.rs` into `stdin_broadcast/{mod,next_byte,subscription}.rs`;
+      Done: `codesplit.py` → text 6, csi 11 items; exactly the 4 `pub(super)`; the `unicode_props` import stays in
+      `mod.rs` (the parts reach it through `use super::*;`, no warning); `citesweep.py` → 2.
+- [x] §4.2: split `stdin_broadcast.rs` into `stdin_broadcast/{mod,next_byte,subscription}.rs`;
       the two `pub(crate) use` lines; rewrite the 4 citations.
-- [ ] Tighten and commit the ceiling file.
+      Done: `codesplit.py` → 1, 3 items; 0 visibility edits; `citesweep.py` → 4; one unlisted comment
+      (`builtins/tests/declared_errors_all.rs:618`) → `stdin_broadcast/`.
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: terminal input decoding and stdin broadcast emit identical code.
   Check: `cargo build --release && cargo test -p mfb --bin mfb codegen::io` → pass, count before
   == after (est. 6 min). `sh scripts/artifact-gate.sh target/release/mfb io`, then `… term`, then
   `… thread` (stdin broadcast serves worker subscriptions) → 0 diffs each (est. 1 min each).
+  Verified 2026-10-19: `codegen::io` → `ok. 22 passed` (= G0's 22); `bash scripts/artifact-gate.sh` io, term, thread
+  → 0 diffs each; check warnings 0; `spec_citations_resolve` ok; old-path grep → 0; budget → two STALE rows (1296,
+  1126) before, none after, no NEW; list 5018; census → decode 423/298/586, stdin_broadcast 228/619/287.
 Commit: —
 
 ### Phase 2 — Strings: `unicode_props.rs`, `builder_strings.rs`
@@ -633,6 +640,8 @@ Commit: —
 - No exemptions exist (rule revised 2026-10-18); P adds no guard row.
 
 ## Corrections
+
+- 2026-10-19 — Every `sh scripts/artifact-gate.sh` runs as `bash` (the script needs bash; M's Corrections).
 
 - 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text restated; `io/input/corpus.rs` (903) is no longer an exempt file J splits — it stays whole and untouched.
 

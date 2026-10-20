@@ -615,7 +615,7 @@ fn every_process_member_declares_exactly_the_errors_its_lowering_raises() {
 /// path (`control_block.rs::lower_thread_block_release` has no
 /// `raise_error_into` call in its body); `_mfb_rt_stdin_subscribe`/
 /// `_mfb_rt_stdin_unsubscribe` register/unregister the calling thread with the
-/// stdin broadcaster (`stdin_broadcast.rs`, neither raises).
+/// stdin broadcaster (`stdin_broadcast/`, neither raises).
 const THREAD_RAISES_NOTHING: &[(&str, &str)] = &[
     (
         "_mfb_arena_alloc",

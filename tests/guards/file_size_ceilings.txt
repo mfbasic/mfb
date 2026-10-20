@@ -48,8 +48,6 @@ ceiling code 1019 src/codegen/engine/function/entry.rs
 ceiling code 1710 src/codegen/engine/function/function_lowering.rs
 ceiling code 1591 src/codegen/engine/operators/builder_numeric.rs
 ceiling code 3060 src/codegen/engine/value/builder_values.rs
-ceiling code 1296 src/codegen/io/input/decode.rs
-ceiling code 1126 src/codegen/io/stdin/stdin_broadcast.rs
 ceiling code 1614 src/codegen/memory/arena/arena.rs
 ceiling code 1569 src/codegen/memory/arena/builder_arena_transfer.rs
 ceiling code 1496 src/codegen/memory/data/data_objects.rs
