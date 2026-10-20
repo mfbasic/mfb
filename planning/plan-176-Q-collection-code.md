@@ -640,14 +640,17 @@ the same paths.
   Verified 2026-10-19: G2 collections, strings → 0 diffs; `string_self_update::tests` → 2 passed; `codegen::collection`
   → 58 passed; check warnings 0; `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → 0; budget →
   one STALE row (1805) before, none after; census → 644/133 + 591/203/212/171.
-Commit: —
+Commit: 33158aa4c
 
 ### Phase 4: self-update dispatch
 
-- [ ] `src/codegen/collection/assign/self_update.rs` → `self_update/{mod,global_capacity,scratch,record_temps}.rs`
+- [x] `src/codegen/collection/assign/self_update.rs` → `self_update/{mod,global_capacity,scratch,record_temps}.rs`
       per §4.7, with the two `pub(crate) use` re-export lines and the 2 `pub(super)` edits. J's
       `#[cfg(test)] mod tests;` line stays at the end of mod.rs.
-- [ ] `tests/runtime/rt_inplace_self_update.rs` (plan-176-B's root, holding
+      Done: `items.py split` → 3, 11, 2 items (the three later `impl CodeBuilder` blocks whole); exactly the 2
+      `pub(super)`; `mod.rs` also needs `use scratch::with_holds_field_self_update;` (a free fn its
+      `returned_field_self_update_local` calls — §4.7 counted the edit, not the import); `motion.py` → wiring only.
+- [x] `tests/runtime/rt_inplace_self_update.rs` (plan-176-B's root, holding
       `scratch_arms_match_the_compiler`; §2 grep): in the same commit as the split, repoint
       `include_str!("../../src/codegen/collection/assign/self_update.rs")` →
       `include_str!("../../src/codegen/collection/assign/self_update/scratch.rs")`, the part
@@ -656,9 +659,13 @@ Commit: —
       declaration equal the harness's own `SCRATCH_ARMS`, and that the parsed list is non-empty.
       So a pass shows every arm is still found in the new file.
       Check: `cargo test --test rt_inplace_self_update scratch_arms_match_the_compiler` → 1 passed.
-- [ ] Repoint the 6 spec citations.
-- [ ] Prose sweep per §4.7, including `.ai/collections.md:540`'s stale `builder_control.rs ~592`
+      Done: → `ok. 1 passed`.
+- [x] Repoint the 6 spec citations.
+      Done: `citesweep.py` → 6.
+- [x] Prose sweep per §4.7, including `.ai/collections.md:540`'s stale `builder_control.rs ~592`
       clause (§4.5; evidence `grep -n 'try_inplace_self_update(' src/codegen/engine/control/builder_control.rs`).
+      Done: `builder_inplace_sort.rs:73,102`, `.ai/collections.md:31` and the :541 clause (evidence → lines 189, 217,
+      2089); the `RETURN_NEVER` and `field_kinds_gen.py` mentions were already repointed by J (the §4.7 greps → 0).
 
 Acceptance: the module is split with byte-identical codegen. J's 9 self-update tests and the
 source-reading harness test pass.
@@ -666,6 +673,10 @@ source-reading harness test pass.
   `cargo test --test rt_inplace_self_update scratch_arms_match_the_compiler` → 1 passed (est. 3 min).
   Sweep grep: `grep -rnE "[^_]self_update\.rs" src tests scripts .ai AGENTS.md tools` → no hit.
   File-size grep path: `assign/self_update` (est. 20 min).
+  Verified 2026-10-20: G2 collections, strings → 0 diffs; `self_update::tests` → 11 passed (= G0's 11 for that filter,
+  which also matches `string_self_update::tests`); `scratch_arms_match_the_compiler` → 1 passed; `codegen::collection`
+  → 58; check warnings 0; `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → 0; budget → one STALE
+  row (1059) before, none after; census → 422/2 + 63/450/138.
 Commit: —
 
 ### Phase 5: collection layout

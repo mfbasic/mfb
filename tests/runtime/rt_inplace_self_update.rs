@@ -109,13 +109,13 @@ const FIELD_EXPECT: &str = include_str!("inplace_self_update/field_expect.tsv");
 const FIELD_KINDS: &str = include_str!("inplace_self_update/field_kinds.tsv");
 
 /// plan-147-B/E: [`SCRATCH_ARMS`] here must name exactly the compiler's
-/// `SCRATCH_ARMS` (`src/codegen/collection/assign/self_update.rs`). The harness is an
+/// `SCRATCH_ARMS` (`src/codegen/collection/assign/self_update/scratch.rs`). The harness is an
 /// integration test and cannot see a `pub(crate)` const, so the list is duplicated —
 /// this reads the compiler's source and fails if the two ever drift, which would
 /// silently give some line the wrong bound at S12.
 #[test]
 fn scratch_arms_match_the_compiler() {
-    const SOURCE: &str = include_str!("../../src/codegen/collection/assign/self_update.rs");
+    const SOURCE: &str = include_str!("../../src/codegen/collection/assign/self_update/scratch.rs");
     let start = SOURCE
         .find("pub(crate) const SCRATCH_ARMS: &[&str] = &[")
         .expect("the compiler's SCRATCH_ARMS declaration");

@@ -21,7 +21,7 @@ runs its resource cleanup obligations; it does not reclaim every allocation
 created in that scope. There is no tracing GC, no reference counting, and no
 user-visible `free`.
 
-The compiler may choose stack storage, inline storage, or heap allocation. A `MUT` self-update (`x = collections::append(x, v)`) is always a destructive update in place, with a cost bound (§12), not an optional optimization. None of these choices can change the ownership behavior described here. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
+The compiler may choose stack storage, inline storage, or heap allocation. A `MUT` self-update (`x = collections::append(x, v)`) is always a destructive update in place, with a cost bound (§12), not an optional optimization. None of these choices can change the ownership behavior described here. [[src/codegen/collection/assign/self_update/mod.rs:try_inplace_self_update]]
 
 ## 14.1 Copy, move, and freeze
 

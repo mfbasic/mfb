@@ -70,7 +70,7 @@ fn is_ordered(type_: &ParameterType) -> bool {
 /// `#collections_sortBy$T$U` call with these arguments: 8-byte fixed-width items
 /// and signed 8-byte keys (String items allowed when the source is re-eval-safe).
 /// The one gate the fast path and the scratch prescan
-/// (`self_update.rs:ops_hold_copying_sort`) both ask.
+/// (`self_update/scratch.rs:ops_hold_copying_sort`) both ask.
 pub(crate) fn sort_by_word_path_accepts(target: &str, args: &[NirValue]) -> bool {
     let Some(params) = target.strip_prefix("#collections_sortBy$") else {
         return false;
@@ -99,7 +99,7 @@ pub(crate) fn sort_by_word_path_accepts(target: &str, args: &[NirValue]) -> bool
 
 /// Whether the index merge (`lower_collection_sort_call`) takes the copying
 /// `#collections_sort$T` call: a `String` or signed 8-byte element. The one gate
-/// the fast path and the scratch prescan (`self_update.rs:ops_hold_copying_sort`)
+/// the fast path and the scratch prescan (`self_update/scratch.rs:ops_hold_copying_sort`)
 /// both ask.
 pub(crate) fn sort_word_path_accepts(target: &str, args: &[NirValue]) -> bool {
     target

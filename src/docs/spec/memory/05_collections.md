@@ -666,7 +666,7 @@ or a record of `Float`s):
 
 A region is rewritten only by the next evaluation of its own site, after which
 nothing reads the previous value; a recursive call or a callback has a block of
-its own. [[src/codegen/collection/assign/self_update.rs:install_record_temps]]
+its own. [[src/codegen/collection/assign/self_update/record_temps.rs:install_record_temps]]
 
 ### Self-updates
 
@@ -676,7 +676,7 @@ building a new value, wherever `x` is bound: a function local, a module-level
 global, a local inside a `FOR EACH` over itself, or a `MUT` captured by reference
 in a `collections::forEach` lambda. The operation's result and every other value
 are exactly what the copying form would give; the difference is that no second
-copy of `x` exists. [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
+copy of `x` exists. [[src/codegen/collection/assign/self_update/mod.rs:try_inplace_self_update]]
 
 The same mutation happens at a `RETURN`, which is what lets a collection be
 threaded through a helper without copying:
@@ -764,7 +764,7 @@ read `byteLength` bytes and hand on the tight form.
 - **No per-statement allocation.** State an operation needs per element lives in a
   per-function scratch block, grown geometrically; a lambda borrows the scratch of
   the function that created it. A global `String`'s spare capacity is kept in a
-  hidden global beside it. [[src/codegen/collection/assign/self_update.rs:add_global_string_capacities]]
+  hidden global beside it. [[src/codegen/collection/assign/self_update/global_capacity.rs:add_global_string_capacities]]
 - **Cost.** A self-update costs the elements it adds, removes or moves, or, for
   an operation that tests or rewrites every element (`filter`, `distinct`,
   `replace`, `transform`, `sort`, `sortBy`, the element-wise `math` functions,
@@ -773,7 +773,7 @@ read `byteLength` bytes and hand on the tight form.
   optimization level. A lookup costs what that key type's lookup costs anywhere:
   an O(1)-average hash probe for a probe-eligible key type (see *Map Hash
   Index*), an entry scan otherwise.
-  [[src/codegen/collection/assign/self_update.rs:try_inplace_self_update]]
+  [[src/codegen/collection/assign/self_update/mod.rs:try_inplace_self_update]]
   - `take`, `drop` and `mid` compact `x` in place. A range that removes
     nothing (`take(x, len(x))`, `drop(x, 0)`, `mid(x, 0, len(x))`) is O(1). A
     range that starts at 0 is a truncation: the kept elements do not move, so
