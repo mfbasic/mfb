@@ -791,7 +791,7 @@ read `byteLength` bytes and hand on the tight form.
     straight from `x`'s own data into its tail: it costs the `count` elements,
     plus at most one grow, and builds no temporary list. `mid`'s range checks run
     first and raise exactly what `mid` raises.
-    [[src/codegen/collection/list/list_mutate.rs:lower_list_self_slice_append_in_place]]
+    [[src/codegen/collection/list/list_mutate/bulk_append.rs:lower_list_self_slice_append_in_place]]
   - `repeat` costs the `count` positions it writes, plus at most one grow — which,
     like any grow, copies `x` — when the run passes the end or the tail cannot
     take `count` more payloads. For an element type that reaches a type cycle it
@@ -802,7 +802,7 @@ read `byteLength` bytes and hand on the tight form.
     variable-width list it shifts following entries without moving surviving
     payloads; the removed payload is retracted when it is the data tail and
     otherwise becomes dead bytes. Its cost is linear in the following elements.
-    [[src/codegen/collection/list/list_mutate.rs:lower_list_remove_at_in_place]]
+    [[src/codegen/collection/list/list_mutate/remove.rs:lower_list_remove_at_in_place]]
   - `removeKey` and a `Set`'s `remove` on a local, global or by-reference
     binding, or on a record or `STATE` field, cost the lookup plus O(1)
     amortized: the entry becomes a tombstone, or is truncated at the back, and
@@ -828,7 +828,7 @@ read `byteLength` bytes and hand on the tight form.
     (see *Compaction* for the exact rule), so a loop that keeps removing and adding stays
     within a constant factor of its live bytes. A `Map`/`Set` grow does the same
     for dead key and value bytes. See *Compaction*.
-    [[src/codegen/collection/list/list_mutate.rs:emit_list_reclaim_before_grow]]
+    [[src/codegen/collection/list/list_mutate/mod.rs:emit_list_reclaim_before_grow]]
 - **Functions with no in-place form** (`reduce`, `reduceRight`, the `compress`
   codecs, `crypto::argon2id`, `crypto::shake256`) read `x` without copying it; the
   result is a new value.
@@ -964,7 +964,7 @@ variants*).
 
 - **In-place (`MUT`, amortized O(1)).** When the buffer is a uniquely-owned `MUT`
   working buffer with headroom (`capacity > count` and enough `dataCapacity`),
-  `lower_list_append_in_place` writes the new item payload at `Data + dataLength`, [[src/codegen/collection/list/list_mutate.rs:lower_list_append_in_place]]
+  `lower_list_append_in_place` writes the new item payload at `Data + dataLength`, [[src/codegen/collection/list/list_mutate/append.rs:lower_list_append_in_place]]
   fills the next spare lookup entry, and bumps `count`/`dataLength` in place — no
   reallocation. If headroom is insufficient it first grows the buffer using the
   geometric shape in *Capacity Headroom and Growth* (reallocate-and-copy once,
@@ -978,7 +978,7 @@ variants*).
 `name = collections::set(name, …)` self-assignment idiom) mutates the live buffer
 in place, like `append`. Inside a `FOR EACH` over the binding the loop walks its
 own copy (see *Self-updates*), so the overwrite is not observable to it.
-[[src/codegen/collection/list/list_mutate.rs:lower_list_set_in_place]]
+[[src/codegen/collection/list/list_mutate/set.rs:lower_list_set_in_place]]
 
 - **`List`.** When the replacement payload is the **same size**
   (`newValueLength == oldValueLength` — always true for fixed-width elements and
@@ -1041,7 +1041,7 @@ self-update scratch.
 ### `insert`
 
 `List` `insert` is **not** an in-place shift. `lower_list_insert_collection`
-allocates a fresh **tight** buffer sized for `count + insertedCount` entries and [[src/codegen/collection/list/list_mutate.rs:lower_list_insert_collection]]
+allocates a fresh **tight** buffer sized for `count + insertedCount` entries and [[src/codegen/collection/list/list_mutate/insert.rs:lower_list_insert_collection]]
 `dataLength + insertedDataLength` bytes, copies the pre-insertion data region then
 the inserted data region verbatim, splices the lookup table (head, inserted,
 tail), and writes a tight header (`capacity == count`, `dataCapacity ==
@@ -1072,7 +1072,7 @@ built with `insert`/`prepend`/`set` packs the spliced payload at the data tail, 
 `entry[0]` can point past the hole and shift while a later entry does not). The
 data region keeps its existing order minus the hole rather than being re-packed
 into list order; the observable value and tight sizing are unchanged.
-[[src/codegen/collection/list/list_mutate.rs:lower_list_remove_at]]
+[[src/codegen/collection/list/list_mutate/remove.rs:lower_list_remove_at]]
 
 ### `repeat`
 
@@ -1129,7 +1129,7 @@ count)`. `Map` and `Set` have no overload.
   `drop_replaced = false`); the abi-inline dispatch then deep-copies every
   payload's edges on the result (`own_collection_payload_edges`), which gives
   each repeated position a graph of its own.
-  [[src/codegen/collection/list/list_mutate.rs:lower_list_set_in_place_with]]
+  [[src/codegen/collection/list/list_mutate/set.rs:lower_list_set_in_place_with]]
   [[src/codegen/memory/arena/builder_arena_transfer/collection_transfer.rs:own_collection_payload_edges]]
 
 ### Map Updates
@@ -1178,15 +1178,15 @@ overflow over dead bytes therefore repacks; `capacity` grows only when the
 entries are full, and the data capacity stays within a constant factor of the
 live bytes. Both tests compare, never subtract (`live` counts entry-order
 alignment pads, which an out-of-order data region can undercut), and right after
-a repack neither holds, so the retried grow cannot repack again. [[src/codegen/collection/list/list_mutate.rs:emit_repack_list_data]]
-[[src/codegen/collection/list/list_mutate.rs:emit_list_reclaim_before_grow]]
+a repack neither holds, so the retried grow cannot repack again. [[src/codegen/collection/list/list_mutate/mod.rs:emit_repack_list_data]]
+[[src/codegen/collection/list/list_mutate/mod.rs:emit_list_reclaim_before_grow]]
 
 The copying `insert`/`append`/`prepend` (`lower_list_insert_collection`, also
 the rebuild a growing update takes at a field that is not its record's last
 inlined field) totals the source's live bytes the same way and, when the dead
 bytes outnumber them, copies only the live payloads, packed in entry order. So a
 loop that removes in place and grows by copying cannot carry dead bytes forward
-either. [[src/codegen/collection/list/list_mutate.rs:lower_list_insert_collection]]
+either. [[src/codegen/collection/list/list_mutate/insert.rs:lower_list_insert_collection]]
 
 A `Map`/`Set`'s dead key and value bytes are reclaimed the same way: every
 in-place grow of a map or set — a `set`/`add` that needs a new entry or data

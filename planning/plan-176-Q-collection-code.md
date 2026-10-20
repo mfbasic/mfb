@@ -703,18 +703,25 @@ same paths.
   Verified 2026-10-20: G2 collections, strings → 0 diffs; `builder_collection_layout::` → 19 passed; `codegen::collection`
   → 58; check warnings 0; `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → only the fixture; budget
   → one STALE row (2592) before, none after; census → 187/2 + 585/414/770/260/395.
-Commit: —
+Commit: a5bee6653
 
 ### Phase 6: list mutate
 
-- [ ] `src/codegen/collection/list/list_mutate.rs` → `list_mutate/{mod,insert,append,inline_append,inline_bulk_append,bulk_append,splice,set,remove}.rs` per §4.9.
-- [ ] Repoint the 11 spec citations.
-- [ ] Prose sweep per §4.9.
+- [x] `src/codegen/collection/list/list_mutate.rs` → `list_mutate/{mod,insert,append,inline_append,inline_bulk_append,bulk_append,splice,set,remove}.rs` per §4.9.
+      Done: `items.py split` → 3, 1, 1, 1, 3, 1, 2, 2 methods; 0 visibility edits; `motion.py` → wiring only.
+- [x] Repoint the 11 spec citations.
+      Done: `citesweep.py` → 11.
+- [x] Prose sweep per §4.9.
+      Done: `.ai/collections.md:9` → `list_mutate/append.rs`, `gen_mutate.rs:6`, `builtins/tests/corpus.rs:8`.
 
 Acceptance: the module is split with byte-identical codegen.
   Check: the Q gate. Sweep grep: `grep -rn "list_mutate\.rs" src tests scripts .ai AGENTS.md tools` →
   only `tests/rt-behavior/arena/member-iterable-mutate/src/main.mfb`. File-size grep path:
   `list_mutate` (est. 20 min).
+  Verified 2026-10-20: G2 collections, strings → 0 diffs; `codegen::collection` → 58, list 5018; check warnings 0;
+  `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → only the fixture; budget → one STALE row
+  (4202) before, none after; census → mod 417, insert 386, append 399, inline_append 517, inline_bulk_append 541,
+  bulk_append 643, splice 532, set 390, remove 409.
 Commit: —
 
 ### Phase 7: letter gate
