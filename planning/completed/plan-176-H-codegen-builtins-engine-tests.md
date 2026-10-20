@@ -917,7 +917,7 @@ Final gate: the ceiling file holds no `inline`/`test` row for an H path, and exa
 own (canvas 2371, gen_openssl 2997, borrow_get 1373, registry 3108); clippy per path over H's new files → 4 warnings,
 all content lints of text moved verbatim (`while let`, two manual char comparisons, one complex type), so pre-existing.
 
-Commit: —
+Commit: 683d88c8a
 
 ## Validation Plan
 
