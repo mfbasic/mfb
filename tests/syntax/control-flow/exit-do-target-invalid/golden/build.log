@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/control-flow/exit-do-target-invalid
+   1 | FUNC doTarget AS Integer
+   2 |   DO
+   3 |     EXIT DO x
+     |             ^
+tests/syntax/control-flow/exit-do-target-invalid/src/main.mfb:3 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               Expected end of statement after EXIT.
+[exit 1]

@@ -742,6 +742,9 @@ fn lower_expression_unwrapped(
                     }
                 })
                 .collect::<Vec<_>>();
+            // A lambda body is its own function: an enclosing loop's variable is not
+            // visible to an EXIT/CONTINUE inside it (restored below, before the push).
+            let outer_loop_targets = std::mem::take(&mut context.loop_targets);
             let mut body_ops = captures
                 .iter()
                 .zip(by_ref.iter())
@@ -789,6 +792,7 @@ fn lower_expression_unwrapped(
                     returns
                 }
             };
+            context.loop_targets = outer_loop_targets;
             context.lambdas.push(IrFunction {
                 name: name.clone(),
                 visibility: "private".to_string(),

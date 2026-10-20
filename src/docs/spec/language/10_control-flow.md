@@ -54,6 +54,14 @@ inner loops of other kinds; it is a compile error when no matching loop encloses
 the statement (`EXIT_NO_MATCHING_LOOP` for `EXIT`, `CONTINUE_NO_MATCHING_LOOP`
 for `CONTINUE`).
 
+`EXIT FOR <var>` and `CONTINUE FOR <var>` name the loop by its variable. The target
+is the `FOR` or `FOR EACH` loop whose variable is `<var>`, found through any number of
+inner loops of any kind, including inner `FOR` loops. A variable name is never shadowed
+in scope, so it names exactly one enclosing loop. `DO` and `WHILE` take no variable.
+When no enclosing `FOR` or `FOR EACH` has that variable, the statement is a compile
+error `UNKNOWN_FOR_IDENTIFIER` for both `EXIT` and `CONTINUE`. The bare `EXIT FOR` and
+`CONTINUE FOR` keep their meaning: the innermost `FOR`.
+
 `EXIT` and `CONTINUE` take only `FOR`, `DO`, or `WHILE` after them. Any other
 follower is a compile error: `EXIT_UNKNOWN` for `EXIT` and `CONTINUE_UNKNOWN` for
 `CONTINUE`, reported at the token after the keyword. A function ends with `RETURN`

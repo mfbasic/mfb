@@ -408,10 +408,12 @@ pub(crate) enum HirStatement {
     },
     Exit {
         kind: LoopKind,
+        target: Option<String>,
         line: usize,
     },
     Continue {
         kind: LoopKind,
+        target: Option<String>,
         line: usize,
     },
     Fail {

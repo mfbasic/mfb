@@ -30,6 +30,20 @@ impl<'a> FileParser<'a> {
         }
     }
 
+    /// The optional loop variable after `EXIT FOR` / `CONTINUE FOR`. Only a `FOR` takes
+    /// one: after `DO`/`WHILE` an identifier is left for the end-of-statement check to
+    /// reject, so `EXIT DO x` keeps its existing error.
+    fn parse_loop_target(&mut self, kind: LoopKind) -> Option<String> {
+        if kind != LoopKind::For {
+            return None;
+        }
+        if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+            self.advance();
+            return Some(name);
+        }
+        None
+    }
+
     pub(super) fn parse_statement(&mut self) -> Option<Statement> {
         if self.check_keyword(Keyword::If) {
             return self.parse_if_statement();
@@ -138,12 +152,14 @@ impl<'a> FileParser<'a> {
         if self.match_keyword(Keyword::Exit) {
             let token = self.previous().clone();
             let kind = self.parse_loop_kind_after("EXIT", "EXIT_UNKNOWN")?;
+            let target = self.parse_loop_target(kind);
             self.consume_simple_statement_end(
                 "Expected end of statement after EXIT.",
                 allow_else_terminator,
             );
             return Some(Statement::Exit {
                 kind,
+                target,
                 line: token.line,
             });
         }
@@ -151,12 +167,14 @@ impl<'a> FileParser<'a> {
         if self.match_keyword(Keyword::Continue) {
             let token = self.previous().clone();
             let kind = self.parse_loop_kind_after("CONTINUE", "CONTINUE_UNKNOWN")?;
+            let target = self.parse_loop_target(kind);
             self.consume_simple_statement_end(
                 "Expected end of statement after CONTINUE.",
                 allow_else_terminator,
             );
             return Some(Statement::Continue {
                 kind,
+                target,
                 line: token.line,
             });
         }

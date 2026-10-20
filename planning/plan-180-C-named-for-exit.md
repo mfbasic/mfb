@@ -219,19 +219,19 @@ Commit: f00885721
 
 Acceptance: hand-built NIR/IR with named targets verifies, plans and survives cloning.
   Check: `cargo test --bin mfb ir::verify` and `cargo test --bin mfb optimizer::opt1::plans` → pass (est. 2 min).
-Commit: —
+Commit: 817f7d262
 
 ### Phase 3 — source syntax and lowering
 
-- [ ] `src/ast/types.rs`, `src/hir/mod.rs`, `src/monomorph/lower.rs`: `target` on
+- [x] `src/ast/types.rs`, `src/hir/mod.rs`, `src/monomorph/lower.rs`: `target` on
       `Exit`/`Continue` (monomorph copies it unchanged — it does not rename locals).
-- [ ] `src/ast/stmt.rs`: optional identifier after `EXIT FOR` / `CONTINUE FOR`.
+- [x] `src/ast/stmt.rs`: optional identifier after `EXIT FOR` / `CONTINUE FOR`.
       `src/ast/serialize.rs`: `"var"` when present.
-- [ ] `src/ir/lower.rs`: `LowerContext.loop_targets` (pushed in the `For`/`ForEach` arms,
+- [x] `src/ir/lower.rs`: `LowerContext.loop_targets` (pushed in the `For`/`ForEach` arms,
       taken/restored at every `current_return_type` save site); named exits resolve per §3.
-- [ ] `src/fmt.rs`: unit test that `EXIT FOR i` / `CONTINUE FOR i` format unchanged inside
+- [x] `src/fmt.rs`: unit test that `EXIT FOR i` / `CONTINUE FOR i` format unchanged inside
       nested loops.
-- [ ] Syntax fixture `tests/syntax/control-flow/exit-for-unknown-identifier-invalid`:
+- [x] Syntax fixture `tests/syntax/control-flow/exit-for-unknown-identifier-invalid`:
       `EXIT FOR k` and `CONTINUE FOR k` where `k` is a plain local, a `DO`-loop's counter,
       and an outer function's loop variable seen from a lambda → each
       `UNKNOWN_FOR_IDENTIFIER`; `EXIT DO x` → the existing end-of-statement parse error.
@@ -327,6 +327,28 @@ Commit: —
   `cargo check --workspace --all-targets` → exit 0, 0 warnings.
 - **Phase 2 `.nplan` text.** Bare exits print exactly as before (`exit for`, unchanged); a named
   exit prints ` for <target>` (`loop_target_text` in `src/target/shared/plan/function_builder.rs`).
+
+- **Phase 3 lambda case cannot be written; replaced by the boundary guard.** The plan's fixture case
+  "an outer function's loop variable seen from a lambda" is not expressible: `LAMBDA(...) -> <expr>`
+  takes only an expression body (`grep -rn "LAMBDA(.*)$" tests --include='*.mfb'` shows every
+  block-less form), and `EXIT`/`CONTINUE` are statements. The lowering still resets
+  `LowerContext.loop_targets` around the lambda body (`src/ir/lower/expression.rs`, `Lambda` arm),
+  as the function-body and computed-default sites do, so no outer loop name can reach a lifted
+  function. That reset is defensive: it cannot be hit from source today.
+- **Phase 3 fixture split (measured).** `EXIT DO x` is a parse error (`MFB_PARSE_UNEXPECTED_TOKEN`),
+  and a parse error stops the build before the verifier runs: `mfb build /tmp/p180/doexit` printed only
+  that error. In one fixture it would hide both `UNKNOWN_FOR_IDENTIFIER` cases, so the parse case is its
+  own fixture, `tests/syntax/control-flow/exit-do-target-invalid`. The main fixture
+  `exit-for-unknown-identifier-invalid` holds the plain-local and DO-loop cases.
+- **Phase 3 path corrections (measured).** `src/ir/lower.rs` is `src/ir/lower/{mod,statement,decls,expression}.rs`;
+  `src/ast/serialize.rs` is `src/ast/serialize/{mod,body}.rs`; `src/fmt.rs` tests are in `src/fmt/tests/mod.rs`.
+- **Counted FOR resolution keeps temp numbering.** `FOR EACH` lowers its iterable before its body, as the
+  struct literal did, so temporaries keep their names and output stays byte-identical.
+- **Phase 3 acceptance measured.** `bash scripts/test-accept.sh target/release/mfb <dir>
+  'exit-for-unknown-identifier-invalid' 'exit-do-target-invalid'` → `acceptance tests passed (2 test(s) ran)`;
+  `cargo test --bin mfb fmt` → 70 passed (includes `named_exit_and_continue_targets_do_not_open_blocks`).
+- **Spec updated in this phase.** `src/docs/spec/language/10_control-flow.md` gained the named-form
+  paragraph here, because the syntax is observable; the Phase 4 doc item covers only `mfb man flow`.
 
 ## Summary
 

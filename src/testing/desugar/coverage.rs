@@ -398,10 +398,12 @@ mod tests {
             // no-nested-block branch of `instrument_nested`.
             Statement::Exit {
                 kind: LoopKind::For,
+                target: None,
                 line: 120,
             },
             Statement::Continue {
                 kind: LoopKind::For,
+                target: None,
                 line: 130,
             },
             Statement::Fail {

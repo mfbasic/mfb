@@ -366,12 +366,14 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
                 .map(|__v| elaborate_expression(__v, type_params)),
             line: *line,
         },
-        Statement::Exit { kind, line } => HirStatement::Exit {
+        Statement::Exit { kind, target, line } => HirStatement::Exit {
             kind: *kind,
+            target: target.clone(),
             line: *line,
         },
-        Statement::Continue { kind, line } => HirStatement::Continue {
+        Statement::Continue { kind, target, line } => HirStatement::Continue {
             kind: *kind,
+            target: target.clone(),
             line: *line,
         },
         Statement::Fail { error, line } => HirStatement::Fail {

@@ -165,9 +165,11 @@ pub(super) fn lower_function(function: &HirFunction, context: &mut LowerContext<
         locals.insert(param.name.clone(), type_);
     }
     let previous_return_type = context.current_return_type.take();
+    let previous_loop_targets = std::mem::take(&mut context.loop_targets);
     context.current_return_type = Some(returns.clone());
     let body = lower_function_body(function, &locals, context);
     context.current_return_type = previous_return_type;
+    context.loop_targets = previous_loop_targets;
 
     IrFunction {
         name: function.name.clone(),
@@ -301,6 +303,7 @@ fn lower_parameter_default(
                 column: 1,
             };
             let previous_return_type = context.current_return_type.replace(type_.clone());
+            let previous_loop_targets = std::mem::take(&mut context.loop_targets);
             let body = lower_statement(
                 &HirStatement::Return {
                     value: Some(default.clone()),
@@ -311,6 +314,7 @@ fn lower_parameter_default(
                 None,
             );
             context.current_return_type = previous_return_type;
+            context.loop_targets = previous_loop_targets;
             context.lambdas.push(IrFunction {
                 name: name.clone(),
                 visibility: "private".to_string(),

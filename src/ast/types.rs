@@ -547,10 +547,14 @@ pub enum Statement {
     },
     Exit {
         kind: LoopKind,
+        /// The loop variable of `EXIT FOR <var>`; `None` for a bare exit.
+        target: Option<String>,
         line: usize,
     },
     Continue {
         kind: LoopKind,
+        /// The loop variable of `CONTINUE FOR <var>`; `None` for a bare continue.
+        target: Option<String>,
         line: usize,
     },
     Fail {

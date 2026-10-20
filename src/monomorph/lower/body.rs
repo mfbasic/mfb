@@ -98,12 +98,14 @@ impl<'a> Monomorphizer<'a> {
                 }),
                 line: *line,
             },
-            HirStatement::Exit { kind, line } => HirStatement::Exit {
+            HirStatement::Exit { kind, target, line } => HirStatement::Exit {
                 kind: *kind,
+                target: target.clone(),
                 line: *line,
             },
-            HirStatement::Continue { kind, line } => HirStatement::Continue {
+            HirStatement::Continue { kind, target, line } => HirStatement::Continue {
                 kind: *kind,
+                target: target.clone(),
                 line: *line,
             },
             HirStatement::Fail { error, line } => HirStatement::Fail {

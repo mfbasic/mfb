@@ -46,20 +46,22 @@ impl ToJson for Statement {
                     pad, value, line
                 )
             }
-            Statement::Exit { kind, line } => {
+            Statement::Exit { kind, target, line } => {
                 format!(
-                    "\n{}{{ \"kind\": \"exit\", \"target\": {}, \"line\": {} }}",
+                    "\n{}{{ \"kind\": \"exit\", \"target\": {}, \"line\": {}{} }}",
                     pad,
                     json_string(kind.name()),
-                    line
+                    line,
+                    loop_var_json(target)
                 )
             }
-            Statement::Continue { kind, line } => {
+            Statement::Continue { kind, target, line } => {
                 format!(
-                    "\n{}{{ \"kind\": \"continue\", \"loop\": {}, \"line\": {} }}",
+                    "\n{}{{ \"kind\": \"continue\", \"loop\": {}, \"line\": {}{} }}",
                     pad,
                     json_string(kind.name()),
-                    line
+                    line,
+                    loop_var_json(target)
                 )
             }
             Statement::Fail { error, line } => {
