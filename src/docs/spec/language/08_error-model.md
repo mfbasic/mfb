@@ -246,7 +246,7 @@ Process result mapping:
 | Entry outcome | Process behavior |
 |---------------|------------------|
 | `FUNC ... AS Nothing` entry succeeds | Exit code `0`. |
-| `FUNC ... AS Integer` succeeds with `n` | Exit code `n` for `0..=255`; an out-of-range result fails with `ErrOverflow`. [[src/codegen/engine/function/entry.rs:lower_program_entry]] |
+| `FUNC ... AS Integer` succeeds with `n` | Exit code `n` for `0..=255`; an out-of-range result fails with `ErrOverflow`. [[src/codegen/engine/function/entry/mod.rs:lower_program_entry]] |
 | `EXIT PROGRAM n` executes | Run stack-wide lexical cleanup, then exit with code `n`. |
 | Entry fails with an uncaught error carrying `err` | Write the failed-thread report below to stderr and exit with code `255`. |
 

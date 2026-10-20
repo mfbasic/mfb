@@ -23,7 +23,7 @@ Blast-radius note: a fixture that `IMPORT`s `tls`/`audio` transitively embeds th
 `finalize_frame` adds `frame_call_padding()` (8 on x86-64, 0 on AArch64/RISC-V) to
 any frame whose function makes calls, so that a callee entered at `rsp % 16 == 8`
 reaches its own call sites at `rsp % 16 == 0`. **The program entry never passes
-through `finalize_frame`** — `entry.rs` builds its own frame — so it never got that
+through `finalize_frame`** — `function/entry/mod.rs` (`lower_program_entry`) builds its own frame — so it never got that
 bias.
 
 For an ordinary program that is correct: the kernel enters `_start` at
@@ -249,7 +249,7 @@ Also: the Mac's `cargo test` hangs in `macos_tls_write_capacity` (`macos_tls_wri
 
 Four Win64-specific codegen invariants proven by getting `-target windows-x86_64` `RETURN 42` to exit 42 on the Win11 box:
 
-1. **Shadow space is REAL and 32 bytes.** Every `call` requires the caller to own 32 bytes ABOVE its `rsp` (`[rsp+8..rsp+40]` in the callee) that the callee may freely clobber. The entry set `arena_state = rsp` (top of frame, nothing below), so every call it made (time/RNG seed, init, main) wrote shadow over `[arena+0]` = the block-list head → `arena_destroy` deref'd garbage → 0xC0000005. Fix: entry reserves `backend.shadow_space_bytes()` at the frame BOTTOM and points the arena register ABOVE it (`sp + shadow`); `shadow==0` on Linux/macOS keeps them byte-identical. See `entry.rs` + `entry_stack_misaligned_on_entry`.
+1. **Shadow space is REAL and 32 bytes.** Every `call` requires the caller to own 32 bytes ABOVE its `rsp` (`[rsp+8..rsp+40]` in the callee) that the callee may freely clobber. The entry set `arena_state = rsp` (top of frame, nothing below), so every call it made (time/RNG seed, init, main) wrote shadow over `[arena+0]` = the block-list head → `arena_destroy` deref'd garbage → 0xC0000005. Fix: entry reserves `backend.shadow_space_bytes()` at the frame BOTTOM and points the arena register ABOVE it (`sp + shadow`); `shadow==0` on Linux/macOS keeps them byte-identical. See `function/entry/mod.rs` (`lower_program_entry`) + `entry_stack_misaligned_on_entry`.
 
 2. **The PE entry is `call`-reached by the loader → `sp % 16 == 8` on arrival**, NOT the Linux `_start` `sp % 16 == 0`. Without one `sub rsp,8` every downstream call is misaligned 8 and the first callee `movaps` faults. Guarded by `entry_stack_misaligned_on_entry()` (false for Linux/macOS).
 

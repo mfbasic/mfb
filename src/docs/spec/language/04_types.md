@@ -106,7 +106,7 @@ Fixed > Float > Integer > Byte
 
 This promotion table applies only to the four dimensionless numerics. `Money` does **not** promote against them — it obeys the dimensional algebra table in §4.1's `Money` section instead (same-dimension add/subtract, scalar scaling, `M/M` ratio), and every off-table pairing is a compile error.
 
-Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) return `Boolean`. They convert both operands to the arithmetic promotion type of the table above (the `+` column) and compare in that type, so a `Float`/`Fixed` comparison compares as `Fixed` in either operand order: `1F = 1.00000000001` is true, because the Float rounds to `1F`, exactly as `1F + 1.00000000001` would. [[src/codegen/engine/operators/builder_numeric.rs:lower_numeric_comparison_binary]] `=` and `<>` also accept any two compatible comparable operands. The ordering operators `<`, `>`, `<=`, and `>=` additionally accept two `String` operands, which are ordered lexicographically by Unicode scalar value (see §4.11); mixed `String`/numeric ordering is a type error.
+Numeric comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`) return `Boolean`. They convert both operands to the arithmetic promotion type of the table above (the `+` column) and compare in that type, so a `Float`/`Fixed` comparison compares as `Fixed` in either operand order: `1F = 1.00000000001` is true, because the Float rounds to `1F`, exactly as `1F + 1.00000000001` would. [[src/codegen/engine/operators/builder_numeric/comparison.rs:lower_numeric_comparison_binary]] `=` and `<>` also accept any two compatible comparable operands. The ordering operators `<`, `>`, `<=`, and `>=` additionally accept two `String` operands, which are ordered lexicographically by Unicode scalar value (see §4.11); mixed `String`/numeric ordering is a type error.
 
 ### Promotion failures and equality
 
@@ -135,7 +135,7 @@ Numeric equality compares converted values, not exact mathematical values of
 the original operands. For example, an Integer `9007199254740993` compares equal
 to Float `9007199254740992.0`, because Integer-to-Float conversion loses that
 unit. Two Integers with those respective values remain unequal.
-[[src/codegen/engine/operators/builder_numeric.rs:load_numeric_as_double]]
+[[src/codegen/engine/operators/builder_numeric/numeric_kernels.rs:load_numeric_as_double]]
 
 | Context | Equality relation for Float values | `+0.0` versus `-0.0` |
 | --- | --- | --- |

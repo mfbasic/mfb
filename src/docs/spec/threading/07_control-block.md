@@ -56,7 +56,7 @@ built-in resource shares): `TAG` at 0, `HANDLE` at 8 — the control block —
 `CLOSED` at 16, and the optional `STATE` pointer at 24. Start initializes
 `STATE` to zero; a stateful binding or worker parameter default-builds its own
 payload. Parent and worker state types and payloads are independent.
-[[src/codegen/engine/function/function_lowering.rs:lower_function]]
+[[src/codegen/engine/function/function_lowering/mod.rs:lower_function]]
 See `./mfb spec language threads` for the view-state contract.
 
 - The **parent view** (`Thread`, tag `RESOURCE_TAG_THREAD`) is allocated by

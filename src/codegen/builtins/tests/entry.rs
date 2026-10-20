@@ -1,6 +1,6 @@
 //! The program entry, across every backend and build mode.
 //!
-//! `engine/function/entry.rs` emits the thing that runs before `main`: the arena
+//! `engine/function/entry/` emits the thing that runs before `main`: the arena
 //! bootstrap, the globals initializer, the args capture, the RNG seed, the
 //! signal handlers, the stdin broadcast subscription, and — in an `-app` build —
 //! a *second* entry, because the toolkit owns `_main` and the program runs on a

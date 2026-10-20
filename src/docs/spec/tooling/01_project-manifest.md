@@ -471,7 +471,7 @@ rules — each failure emits `PROJECT_ENTRY_INVALID`: [[src/manifest/entry.rs:va
 
 The entry `FUNC` must return `Integer` or `Nothing`; the native entry wrapper
 branches on `returns` alone.
-[[src/codegen/engine/function/entry.rs:lower_program_entry]] The accepted parameter shapes are exactly: zero parameters, or
+[[src/codegen/engine/function/entry/mod.rs:lower_program_entry]] The accepted parameter shapes are exactly: zero parameters, or
 one `args AS List OF String` parameter (no default). The resolved entry becomes
 `ir::EntryPoint { name, returns, accepts_args }`. [[src/manifest/entry.rs:validate_entry_point]]
 

@@ -63,7 +63,7 @@ imports `signal` in both modes. macOS entry also imports `_exit` and
 support, as described in `import-selection`.
 [[src/target/macos_aarch64/plan.rs:entry_imports]]
 [[src/target/linux_common/plan.rs:entry_imports]]
-[[src/codegen/engine/function/entry.rs:lower_program_entry]]
+[[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 
 Each backend validates its build mode: macOS accepts console/MacApp, Windows
 console/WindowsApp, Linux aarch64/x86-64 console/LinuxApp, and RISC-V console only.

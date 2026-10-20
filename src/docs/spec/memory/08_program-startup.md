@@ -11,7 +11,7 @@ The entry is emitted by `lower_program_entry` under the supplied entry symbol
 with an internal `entry` label. App mode supplies the app-program symbol.
 Physical `x` register names in this topic denote AArch64 realizations; shared
 code uses neutral roles, mapped as in `./mfb spec memory native-calling-convention`.
-[[src/codegen/engine/function/entry.rs:lower_program_entry]]
+[[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 
 ## Entry Frame
 
@@ -25,7 +25,7 @@ The entry exits rather than restoring this frame and returning.
 On macOS and a called entry, argc/argv arrive in argument registers; a raw
 Linux entry reads them from the initial stack. When needed, they are preserved
 before frame initialization in `SCRATCH[17]`/`SCRATCH[18]`. Windows captures
-command-line arguments through its platform hook after arena initialization. [[src/codegen/engine/function/entry.rs:lower_program_entry]]
+command-line arguments through its platform hook after arena initialization. [[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 
 Because the arena-state lives on the stack (not zero-filled memory), the shim
 clears it before the first allocation — **the whole range**, in a loop from the
@@ -40,7 +40,7 @@ Growing the arena state — adding quick bins, say — or the globals region can
 never leave a new field as garbage in one path but initialized in the other. A
 spec that named individual offsets here would invite exactly that divergence.
 The full arena-state byte layout is owned by `./mfb spec memory arenas`.
-[[src/codegen/error/constants/error_constants.rs:ARENA_STATE_SIZE]] [[src/codegen/engine/function/entry.rs:lower_program_entry]]
+[[src/codegen/error/constants/error_constants.rs:ARENA_STATE_SIZE]] [[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 
 Slot layout in the entry frame:
 
@@ -113,7 +113,7 @@ regions. The same offsets are passed to their emitters.
 The global-slot clear zero-initializes these regions. Presentation mode is
 then seeded to `Mode.None` when that is the program's static default;
 otherwise zero denotes `Mode.Console`.
-[[src/codegen/engine/function/entry.rs:lower_program_entry]]
+[[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 
 ## Publishing the Arena Address
 
@@ -137,7 +137,7 @@ by then, so POSIX's lowest-free-number rule makes the `open` return exactly that
 descriptor. If even `/dev/null` cannot be opened, the entry calls `abort()` rather than
 run with the hazard. This is what Rust std and Go do. The path is the read-only C string
 `_mfb_rt_dev_null_path` (`DEV_NULL_PATH_SYMBOL`), emitted for every POSIX module with an
-entry. [[src/codegen/engine/function/entry.rs:emit_reserve_standard_fds]]
+entry. [[src/codegen/engine/function/entry/process_setup.rs:emit_reserve_standard_fds]]
 
 Without this, the kernel handed the lowest free number to the program's first
 `fs::open`. `io::readLine` then read that file as standard input, and
@@ -172,7 +172,7 @@ Every POSIX entry, including app mode, installs `SIG_IGN` for `SIGPIPE`.
 Socket writes can therefore report errors instead of terminating the process.
 The stdout broken-pipe path restores and raises SIGPIPE to preserve pipeline
 termination. Windows emits no POSIX signal setup.
-[[src/codegen/engine/function/entry.rs:lower_program_entry]]
+[[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 [[src/codegen/os/syscall/syscall_io.rs:emit_sigpipe_restore_and_raise]]
 
 ## RNG Seeding and Start Time
@@ -209,23 +209,23 @@ fallible result (`x0` tag, `x1` value/code, `x2` message, `x3` source — owned 
    `./mfb spec memory closures`). [[src/codegen/error/constants/error_constants.rs:CLOSURE_DESC_INIT_SYMBOL]]
 2. **Native `LINK` init.** If the program has `LINK` bindings, call the link-init
    symbol (dlopen/dlsym) first; a non-`RESULT_OK_TAG` result jumps to the error
-   path, so a load failure aborts before `main`. [[src/codegen/engine/function/entry.rs:lower_program_entry]]
+   path, so a load failure aborts before `main`. [[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 3. **Global initializer.** If present, call it. A `RESULT_PROGRAM_EXIT_TAG`
    (`2`) routes `x1` to the process exit register and jumps to the exit path; any
    non-`RESULT_OK_TAG` jumps to the error path. [[src/codegen/error/constants/error_constants.rs:RESULT_PROGRAM_EXIT_TAG]]
 4. **Stdin subscription.** When required, subscribe the main thread to the
    stdin broadcast log after global initialization and before the entry call.
-   [[src/codegen/engine/function/entry.rs:lower_program_entry]]
+   [[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 5. **Argument list.** If the language entry accepts args, save argc/argv to their
    slots and materialize the argv strings into an in-arena `List OF String`
    (`emit_entry_args_list_materialization`, via `arena_alloc`); the resulting list
-   pointer is loaded into `x0` as the entry's argument. [[src/codegen/engine/function/entry.rs:emit_entry_args_list_materialization]]
+   pointer is loaded into `x0` as the entry's argument. [[src/codegen/engine/function/entry/entry_args.rs:emit_entry_args_list_materialization]]
 6. **Language entry.** Call the language entry FUNC. The result is routed the
    same way: `RESULT_PROGRAM_EXIT_TAG` → exit with `x1`; non-OK → error path. On
    success, a `Nothing` return exits `0`; an `Integer` return becomes the exit
    code only in the range `0..255`; an unsigned comparison rejects both
    negative values and values above `255` with `ErrOverflow`.
-   [[src/codegen/engine/function/entry.rs:lower_program_entry]]
+   [[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 
 ## Error Path
 
@@ -236,8 +236,8 @@ message remain alive across the call; the reporter does not allocate from the
 arena. Native entry return-range and argument-allocation failures explicitly
 supply a null source. When enabled, the cleanup-failure audit follows the error
 report. The process exit code is then forced to `255`.
-[[src/codegen/engine/function/entry.rs:lower_program_entry]]
-[[src/codegen/engine/function/entry.rs:emit_entry_args_list_materialization]]
+[[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
+[[src/codegen/engine/function/entry/entry_args.rs:emit_entry_args_list_materialization]]
 [[src/codegen/error/report.rs:lower_error_report]]
 
 ## Teardown and Exit

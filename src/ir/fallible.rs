@@ -384,7 +384,7 @@ pub(super) fn operator_can_raise(op: BinaryOp, result_type: &ParameterType) -> b
 /// negation that provably succeeds.
 ///
 /// Why it provably succeeds, per the codegen arm
-/// (`builder_numeric.rs:lower_numeric_unary_negation`):
+/// (`builder_numeric/operator_lowering.rs:lower_numeric_unary_negation`):
 ///
 /// * `Integer`/`Fixed`/`Money` negate through `emit_min_i64_negation_check`,
 ///   which raises `ErrOverflow` only on exactly `i64::MIN`. `n` here is the

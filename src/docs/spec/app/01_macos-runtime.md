@@ -23,7 +23,7 @@ descriptor the process was started without, opening `/dev/null` onto it. AppKit 
 the window pipe open descriptors of their own, and without this one of them would be
 numbered 0, 1 or 2 and receive the program's console I/O (bug-902). The program entry
 the worker later calls skips that step (`./mfb spec memory program-startup`).
-[[src/codegen/engine/function/entry.rs:emit_reserve_standard_fds]] Persistent objects
+[[src/codegen/engine/function/entry/process_setup.rs:emit_reserve_standard_fds]] Persistent objects
 are held in callee-saved registers across the `objc_msgSend` sequence.
 
 | Register | Holds |

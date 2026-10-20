@@ -1074,7 +1074,7 @@ pub(crate) fn lower_thread_trampoline(
     let worker_result = format!("{THREAD_TRAMPOLINE_SYMBOL}_worker_result");
 
     // Stack-alignment fixup, mirroring the program entry's
-    // `entry_stack_misaligned_on_entry` (`entry.rs`): the hand-managed frame
+    // `entry_stack_misaligned_on_entry` (`function/entry/mod.rs`): the hand-managed frame
     // below (like the entry) assumes `sp % 16 == 0` before it issues any call,
     // and `FRAME_SIZE` is a 16-multiple, so it preserves whatever alignment the
     // trampoline is entered with. Whether the entry alignment is `sp % 16 == 0`

@@ -1,5 +1,6 @@
 //! Native runtime regression tests for bug-61: two numeric-codegen defects in
-//! `builder_numeric.rs` / `builder_fixed_math.rs`.
+//! the numeric kernels, now `builder_numeric/numeric_kernels.rs` (`emit_fixed_divide`,
+//! `emit_integer_pow`, `emit_fixed_pow`; `builder_fixed_math.rs` was removed in `38a5f9228`).
 //!
 //! (1) `Fixed` division of the exact representable minimum (`-2147483648.0`,
 //!     raw `i64::MIN`) wrongly trapped `ErrOverflow` because the quotient was

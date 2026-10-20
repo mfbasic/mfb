@@ -76,7 +76,7 @@ not force windowless startup. [[src/codegen/engine/builder/mod.rs:lower_module]]
 The worker entry seeds the mode slot to `None` when that is the static default;
 `Console` needs no store because the arena-state region zero-inits to `0`
 (`Console`), so a `Console`-default program's entry is byte-identical to one that
-never referenced the mode at all. [[src/codegen/engine/function/entry.rs:lower_program_entry]]
+never referenced the mode at all. [[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 
 ## The surface-reconcile seam
 

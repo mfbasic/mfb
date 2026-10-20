@@ -3,9 +3,6 @@
 # ceiling <code|inline|test> <n> <path>  an over-limit file may not grow past n; MFB_LOC_TIGHTEN=1 lowers n.
 ceiling code 3105 src/codegen/engine/builder/mod.rs
 ceiling code 4466 src/codegen/engine/control/builder_control.rs
-ceiling code 1019 src/codegen/engine/function/entry.rs
-ceiling code 1710 src/codegen/engine/function/function_lowering.rs
-ceiling code 1591 src/codegen/engine/operators/builder_numeric.rs
 ceiling code 3060 src/codegen/engine/value/builder_values.rs
 ceiling code 2272 src/codegen/runtime/canvas/mod.rs
 ceiling code 7309 src/codegen/runtime/canvas/vulkan.rs

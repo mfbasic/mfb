@@ -46,7 +46,7 @@ no struct-by-value classification — this is **not** AAPCS64/SysV stack passing
 In the prologue, register parameter *N* (`N < 8`) is read from `x{N}`; a stack
 parameter is loaded from the caller's tail (an `sp`-relative load resolved once
 the frame size is known) and spilled into its local slot like any register
-parameter. The parameter's type plays no part in choosing its slot. [[src/codegen/engine/function/function_lowering.rs:lower_function]] At a call
+parameter. The parameter's type plays no part in choosing its slot. [[src/codegen/engine/function/function_lowering/mod.rs:lower_function]] At a call
 site, each argument is lowered and spilled to a marshalling slot; the first eight
 are then reloaded and moved into the positional `x{index}`, and the rest are
 stored into the caller's reserved outgoing tail — again with no type dispatch. [[src/codegen/engine/builder/builder_emit_helpers.rs:emit_prepared_call_args]]
@@ -71,7 +71,7 @@ owns parameter 0. It is the same function lowered again, so every source span an
 `Error.source` stamp is identical to the base's. Inside the variant an owned
 parameter is an ordinary owned local: it carries a scope-drop free, so it is
 released on every exit unless it is moved out, and a self-update may mutate its
-block. [[src/codegen/engine/function/function_lowering.rs:OwnedVariant]]
+block. [[src/codegen/engine/function/function_lowering/mod.rs:OwnedVariant]]
 
 At an approved call site the caller stores 0 into the handed-over local's slot,
 after every argument has been lowered and immediately before the branch, and calls
@@ -106,7 +106,7 @@ and goes on freeing the argument itself. That only holds while the caller still
 owns the argument's block, so `idOf(squares(20.0))` with `FUNC idOf OF T(x AS T)
 AS T` / `RETURN x` lends the temporary and frees it at the end of the statement.
 A parameter such a function does not return is handed over as usual.
-[[src/codegen/engine/function/function_lowering.rs:param_borrow_returns]]
+[[src/codegen/engine/function/function_lowering/local_analysis.rs:param_borrow_returns]]
 
 **The base symbol retains the lent-parameter contract.** It is lowered first, with every parameter lent,
 and keeps its name, arity and lent-parameter ABI. A variant is an additional

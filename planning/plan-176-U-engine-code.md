@@ -1075,20 +1075,20 @@ code they emit is byte-identical, and the overflow-label guard still scans the m
   `collections`, `strings`, `math`, `money`, `general` → 0 diffs each; budget → the three STALE rows, none after
   the tighten; census → borrow_get mod 542 + 2 test / predicates 404 / by_name 436; module_analysis mod 615 /
   float_errors 219 / unicode_tables 296; builder_conversions mod 515 / to_int 444 / to_byte_scalar 251.
-Commit: —
+Commit: ef0cf2448
 
 ### Phase 2 — Operators and function lowering (pure motion)
 
-- [ ] `operators/builder_numeric.rs` → `operators/builder_numeric/{mod,operator_lowering,comparison,binary_emit,numeric_kernels}.rs`
+- [x] `operators/builder_numeric.rs` → `operators/builder_numeric/{mod,operator_lowering,comparison,binary_emit,numeric_kernels}.rs`
       per §4.6; `emit_min_i64_negation_check` → `pub(super)`.
-- [ ] Repoint its 9 citations (`emit_float_fmod` → `gen_fmod.rs:emit_float_fmod`) and the
+- [x] Repoint its 9 citations (`emit_float_fmod` → `gen_fmod.rs:emit_float_fmod`) and the
       `fallible.rs:387`, `strength.rs:10`, `gen_fmod.rs:2` comments (§4.13).
-- [ ] `function/function_lowering.rs` → `function/function_lowering/{mod,local_analysis,trap_analysis,promotion_analysis,helper_lowering}.rs`
+- [x] `function/function_lowering.rs` → `function/function_lowering/{mod,local_analysis,trap_analysis,promotion_analysis,helper_lowering}.rs`
       per §4.4; repoint its 6 citations and `.ai/codegen-invariants.md:98,532`.
-- [ ] `.ai/resources-packages.md:113` → `local_analysis.rs` `collect_address_taken_locals` /
+- [x] `.ai/resources-packages.md:113` → `local_analysis.rs` `collect_address_taken_locals` /
       `promotion_analysis.rs` `collect_value_local_reads` (**pre-existing**; evidence
       `git log -S collect_value_used_locals --oneline | head -1` → `f37874271`).
-- [ ] `function/entry.rs` → `function/entry/{mod,process_setup,entry_args,cleanup_audit}.rs` per
+- [x] `function/entry.rs` → `function/entry/{mod,process_setup,entry_args,cleanup_audit}.rs` per
       §4.5; repoint its 18 citations, `.ai/canvas-threading.md:30`, and the `testutil.rs:241`,
       `runtime_helpers.rs:1077`, `builtins/tests/entry.rs:3` comments.
 
@@ -1099,6 +1099,26 @@ the program entry on every target the scoped gates build.
   / riscv hwcap probe); plus `cargo test -p mfb --bin mfb builtins_codegen::entry` → passes
   (the entry tests in `src/codegen/builtins/tests/entry.rs`); step 8 rows: none for these three
   files (est. 25 min).
+- [x] Repoint the mentions the §4.13 table missed: `.ai/arch-abi.md:26,252` (`entry.rs` → `function/entry/mod.rs`,
+      `lower_program_entry`), `tests/runtime/rt_inline_trap_nested_call.rs:537` (→ `trap_analysis.rs`), and
+      `tests/runtime/rt_native_numeric_pow_div_runtime.rs:2`, which also named `builder_fixed_math.rs`, removed in
+      `38a5f9228` (**pre-existing**; both bug-61 defects are now in `builder_numeric/numeric_kernels.rs`).
+- [x] `.ai/resources-packages.md:113`'s escape-proof sentence ("name never in `collect_value_used_locals`" ==
+      provably non-escaping) described the closure-escape analysis bug-781 (`f37874271`) removed; it is now a dated
+      history note. `collect_value_local_reads` is not a drop-in: it records `Local` reads only, not `LocalRef`
+      (read at `promotion_analysis.rs`, `fn collect_value_local_reads`) (**pre-existing**).
+  Done: `items.py` split builder_numeric's `impl CodeBuilder<'_>` by method (`u2-num.json`, empty shell removed);
+  `codesplit.py` split function_lowering and entry by name (`u2-fl.json`, `u2-entry.json`); `u2wire.py` wrote the
+  re-exports and headers. Visibility: `emit_min_i64_negation_check`; the 3 `trap_analysis` fns; for entry 3, not 5
+  (Corrections): `emit_riscv_hwcap_probe`, `emit_entry_args_list_materialization`,
+  `emit_cleanup_failure_audit_report`.
+  Verified 2026-10-20: `motion.py` → only wiring and the `pub(super)`s differ; N = 5018, W = 0;
+  `spec_citations_resolve` + `builtins_codegen::entry` → 4 passed; guards → 9, 8, 7 + 1 ignored; artifact gates
+  `math`, `money`, `bits`, `general`, `thread`, `os`, `process` → 0 diffs each; cites → 9 + 6 + 20 repointed
+  (entry has 20 now, not 18); budget → the three STALE rows, none after the tighten; census → builder_numeric mod 13
+  / operator_lowering 420 / comparison 349 / binary_emit 317 / numeric_kernels 506; function_lowering mod 479 /
+  local_analysis 147 / trap_analysis 226 / promotion_analysis 377 / helper_lowering 495; entry mod 518 /
+  process_setup 143 / entry_args 166 / cleanup_audit 201; sweep → no old-path mention left.
 Commit: —
 
 ### Phase 3 — Statement and value lowering (pure motion)
@@ -1280,6 +1300,11 @@ Commit: —
   — owner rule (AGENTS.md "never leave a bug"), applied by the author.
 
 ## Corrections
+
+- 2026-10-20 — §4.5: `entry.rs` no longer has `emit_write_integer_to_stderr`, only
+  `emit_write_integer_to_stderr_with_labels` (`python3 -I target/p176/items.py list` → 12 items), and neither it nor
+  `emit_write_string_object` is called from `lower_program_entry`: both stay private in `cleanup_audit.rs`, so
+  entry takes 3 `pub(super)` edits, not 5.
 
 - 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text (intro, Goal, Decisions) restated, `borrow_get`'s H-moved tests named as the single `borrow_get/tests/mod.rs`.
 

@@ -62,7 +62,7 @@ result: for an `Integer` global whose store has not executed, that is `0`.
 The same rule applies to reads through functions and is preserved across
 optimization levels. Zeroed storage is not a promise that every type has a
 valid source-level default value.
-[[src/codegen/engine/function/entry.rs:lower_program_entry]]
+[[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 [[src/target/shared/nir/lower.rs:lower_global_initializer]]
 [[src/optimizer/opt1/globals.rs:substitute_outside_initialization]]
 

@@ -41,7 +41,7 @@ Operator edge cases:
 - `NOT` is a prefix unary operator that binds tighter than `AND`/`OR`/`XOR` but looser than the comparison operators, so `NOT a = b` parses as `NOT (a = b)`.
 - Checked numeric failures from operators are ordinary failures and therefore auto-propagate unless handled by a `TRAP`. An inline `TRAP` may protect an operator-only expression directly (`LET d = a / b / c TRAP(e)`); it covers the whole expression, and a `Float` keeps the observation boundaries it has untrapped (`mfb spec language error-model` rule 11).
 - `/`, `MOD`, and `^` use the numeric promotion table in §4.1. `DIV` always returns `Float`.
-- `MOD` is available for every dimensionless numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder. A `Float`-result `MOD` lowers to an in-tree exact `fmod` kernel (the IEEE bitwise remainder over GPRs, bit-identical to libm, no platform `fmod` call), guarded by an `ErrFloatDomain` (`77050012`) pre-check on a zero divisor. [[src/codegen/engine/operators/builder_numeric.rs:emit_float_fmod]] A `Fixed`-result `MOD` computes the remainder directly on the raw signed Q32.32 representation with an integer divide plus multiply-subtract, failing with `ErrInvalidArgument` (`77050002`) on a zero divisor. [[src/codegen/engine/operators/builder_numeric.rs:emit_fixed_binary]]
+- `MOD` is available for every dimensionless numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder. A `Float`-result `MOD` lowers to an in-tree exact `fmod` kernel (the IEEE bitwise remainder over GPRs, bit-identical to libm, no platform `fmod` call), guarded by an `ErrFloatDomain` (`77050012`) pre-check on a zero divisor. [[src/codegen/builtins/math/gen_fmod.rs:emit_float_fmod]] A `Fixed`-result `MOD` computes the remainder directly on the raw signed Q32.32 representation with an integer divide plus multiply-subtract, failing with `ErrInvalidArgument` (`77050002`) on a zero divisor. [[src/codegen/engine/operators/builder_numeric/binary_emit.rs:emit_fixed_binary]]
 
 ## Numeric edge cases
 
@@ -53,10 +53,10 @@ that function. For Byte, Integer, Fixed, and Float results, `0 ^ 0` is `1` in
 the result type. Negating a runtime Byte other than zero raises `ErrUnderflow`
 (`77050011`); negating Byte zero returns Byte zero. A negative Byte literal is
 instead rejected statically as described in `./mfb spec language types`.
-[[src/codegen/engine/operators/builder_numeric.rs:emit_integer_pow]]
-[[src/codegen/engine/operators/builder_numeric.rs:emit_fixed_pow]]
-[[src/codegen/engine/operators/builder_numeric.rs:emit_float_pow]]
-[[src/codegen/engine/operators/builder_numeric.rs:lower_numeric_unary_negation]]
+[[src/codegen/engine/operators/builder_numeric/numeric_kernels.rs:emit_integer_pow]]
+[[src/codegen/engine/operators/builder_numeric/numeric_kernels.rs:emit_fixed_pow]]
+[[src/codegen/engine/operators/builder_numeric/numeric_kernels.rs:emit_float_pow]]
+[[src/codegen/engine/operators/builder_numeric/operator_lowering.rs:lower_numeric_unary_negation]]
 
 `MOD`'s quotient is mathematical truncation toward zero, independent of the
 rounding applied by `/`. Money permits only `Money MOD Money`; its exact raw

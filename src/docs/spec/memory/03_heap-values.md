@@ -168,7 +168,7 @@ ownership (a parameter borrow, a static string), and the value read moves it out
 rather than copying it. A scalar, `Nothing` or flat-block success type qualifies.
 A resource, recursive, nested-`Result` or callable success type keeps the block
 form, and so does an inline-trapped `thread::waitFor`.
-[[src/codegen/engine/function/function_lowering.rs:unboxed_trap_result_candidates]]
+[[src/codegen/engine/function/function_lowering/trap_analysis.rs:unboxed_trap_result_candidates]]
 [[src/codegen/error/result/unboxed_trap.rs:unboxed_trap_shape]]
 
 ## Union

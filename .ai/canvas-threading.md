@@ -27,7 +27,7 @@ no scene and draws nothing. It shares exactly one word with the graphics thread.
 
 Each thread pins `ARENA_STATE_REGISTER` (`x19`) to **its own** block:
 
-* The entry (`src/codegen/engine/function/entry.rs`) reserves `ENTRY_STACK_SIZE` on
+* The entry (`src/codegen/engine/function/entry/mod.rs`, `lower_program_entry`) reserves `ENTRY_STACK_SIZE` on
   its own frame and points `x19` at it. In `--app` builds the *worker* runs the entry
   (`MACAPP_PROGRAM_SYMBOL`), so the worker's arena state is on the worker's stack.
 * A thread spawned by `thread::start` arena-allocates a child block of

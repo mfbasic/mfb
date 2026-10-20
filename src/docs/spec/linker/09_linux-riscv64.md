@@ -77,7 +77,7 @@ The program entry is a **raw Linux ELF entry**: the kernel jumps directly to the
 `__libc_start_main` C-runtime bootstrap on the console path (that trampoline belongs
 to the GTK app path, which is not ported to this target). The general entry sequence
 — arena carve, hook install, language-entry dispatch, teardown — is owned by
-`./mfb spec memory program-startup`. [[src/target/linux_common/code.rs:entry_args_in_registers]] [[src/codegen/engine/function/entry.rs:lower_program_entry]]
+`./mfb spec memory program-startup`. [[src/target/linux_common/code.rs:entry_args_in_registers]] [[src/codegen/engine/function/entry/mod.rs:lower_program_entry]]
 
 The entry imports `_exit` (teardown), `write` (the error-report path),
 `clock_gettime` (the arena start time), and — in console mode — `signal` (to install

@@ -238,7 +238,7 @@ pub fn lower_src_concrete(source: &str, entry: Option<crate::ir::EntryPoint>) ->
 /// `accepts_args` is read off the source rather than hardcoded. It is not
 /// cosmetic: it decides whether the program entry captures `argv` at all, and a
 /// harness that always said `false` left the whole args-capture path in
-/// `engine/function/entry.rs` unreachable -- the load of `argc`/`argv` off the
+/// `engine/function/entry/` (`mod.rs` + `entry_args.rs`) unreachable -- the load of `argc`/`argv` off the
 /// initial stack, the deferred-capture branch, and the copy into the arena.
 fn main_entry(source: &str) -> crate::ir::EntryPoint {
     let accepts_args = source

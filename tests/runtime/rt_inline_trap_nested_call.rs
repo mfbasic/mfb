@@ -534,7 +534,7 @@ fn a_fallible_user_override_of_an_infallible_builtin_is_still_covered() {
 /// A nested **conversion** whose handler reads the error, which is the shape
 /// that first broke: `toInt`/`toFloat`/`toFixed`/`toByte`/`toMoney`/`toScalar`
 /// are the plan-64-I "error provably unused" candidates
-/// (`function_lowering.rs:is_trap_discard_conversion`). That analysis found the
+/// (`function_lowering/trap_analysis.rs:is_trap_discard_conversion`). That analysis found the
 /// paired error local by matching `Bind err = ResultError(result)` only, so the
 /// check chain's `Assign $trap_err = ResultError(result)` was invisible to it:
 /// every chained conversion was mis-classified as error-discardable, codegen

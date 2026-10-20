@@ -67,7 +67,7 @@ GLib/GObject type system GTK requires — then calls `main`. It never returns
    descriptors of their own, and without this one of them would be numbered 0, 1 or
    2 and receive the program's console I/O (bug-902). The program entry the worker
    later calls skips that step (`./mfb spec memory program-startup`).
-   [[src/codegen/engine/function/entry.rs:emit_reserve_standard_fds]]
+   [[src/codegen/engine/function/entry/process_setup.rs:emit_reserve_standard_fds]]
 1. `setenv("GTK_A11Y","none",1)` and `setenv("GTK_IM_MODULE","none",1)` — disables
    the a11y + input-method layers before GTK initializes; their
    `g_variant_new_string` path crashes when the worker inserts transcript text.

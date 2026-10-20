@@ -7,7 +7,7 @@
 //! dominated by its overflow check, and a rewrite is admissible only when the
 //! replacement's trap set, error code, and source stamp are identical — all
 //! three ops involved here raise through the same `raise_error_bare("ErrOverflow")`
-//! (`builder_numeric.rs`) and the rewritten node keeps its original `loc`, so
+//! (`builder_numeric/numeric_kernels.rs`) and the rewritten node keeps its original `loc`, so
 //! the error is byte-identical. The rules:
 //!
 //! - **`x * 2` / `2 * x` → `x + x`.** A checked add (`adds` + `b.vc`) replaces

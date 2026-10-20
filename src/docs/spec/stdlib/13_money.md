@@ -85,7 +85,7 @@ because the checked quotient would overflow, even though its mathematical
 remainder is zero. `toInt(Money)` cannot overflow; `toByte(Money)` checks after
 truncation, so `toByte(-0.9m)` is zero while `toByte(-1m)` raises `ErrOverflow`.
 [[src/codegen/builtins/money/gen_money_math.rs:emit_money_binary]]
-[[src/codegen/engine/operators/builder_numeric.rs:emit_integer_binary]]
+[[src/codegen/engine/operators/builder_numeric/binary_emit.rs:emit_integer_binary]]
 [[src/codegen/engine/convert/builder_conversions/to_int.rs:emit_money_to_int_value]]
 [[src/codegen/engine/convert/builder_conversions/to_byte_scalar.rs:lower_to_byte]]
 
