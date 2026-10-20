@@ -707,7 +707,7 @@ fn crypto_generate_project(case: &str, n: u64, variants: &[&str]) -> PathBuf {
 
 /// bug-625 C: the native EC `crypto::generate` paths free the two key byte lists they build
 /// and byte-copy into the inlined `KeyPair` (2 blocks per call before the fix: 256 / 336 /
-/// 416 B for P-256 / P-384 / P-521 — the `fromString` hazard in `crypto/func_generate.rs`).
+/// 416 B for P-256 / P-384 / P-521 — the `fromString` hazard in `crypto/func_generate/mod.rs`).
 #[test]
 fn a_native_ec_generate_loop_keeps_live_bytes_constant() {
     assert_live_bytes_within(

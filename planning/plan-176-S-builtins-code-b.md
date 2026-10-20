@@ -609,15 +609,15 @@ fs code they emit is byte-identical on every target.
   `codegen::builtins::fs self_update::tests` → 11 (= G0's 11); list 5018 (= N); check warnings 0 (= W);
   `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; sweep → 0; budget → the three STALE rows (1197, 1028, 1657)
   before, none after; census → atomic_write 260/457/486, directory 361/321/352, read_write 683/553/430.
-Commit: —
+Commit: c8c5b1cab
 
 ### Phase 2 — crypto EC lowerings (pure motion)
 
-- [ ] `crypto/func_generate.rs` → `crypto/func_generate/{mod,macos,linux,windows}.rs` per §4.2;
+- [x] `crypto/func_generate.rs` → `crypto/func_generate/{mod,macos,linux,windows}.rs` per §4.2;
       the 12 `pub(super)` edits.
-- [ ] `crypto/func_sign.rs` → `crypto/func_sign/{mod,macos,linux,windows}.rs` per §4.3; 3 `pub(super)`.
-- [ ] `crypto/func_verify.rs` → `crypto/func_verify/{mod,macos,linux,windows}.rs` per §4.4; 3 `pub(super)`.
-- [ ] `tests/runtime/rt_debug_soak.rs` comment (`grep -n 'crypto/func_generate.rs' tests/runtime/rt_debug_soak.rs`; line 707 at `ce7a995ca`, B keeps it in the root) → `crypto/func_generate/mod.rs` (§4.11).
+- [x] `crypto/func_sign.rs` → `crypto/func_sign/{mod,macos,linux,windows}.rs` per §4.3; 3 `pub(super)`.
+- [x] `crypto/func_verify.rs` → `crypto/func_verify/{mod,macos,linux,windows}.rs` per §4.4; 3 `pub(super)`.
+- [x] `tests/runtime/rt_debug_soak.rs` comment (`grep -n 'crypto/func_generate.rs' tests/runtime/rt_debug_soak.rs`; line 707 at `ce7a995ca`, B keeps it in the root) → `crypto/func_generate/mod.rs` (§4.11).
 
 Acceptance: EC key generation, signing and verification emit byte-identical code on every target
 (each backend's emitter is reached by its target's golden).
@@ -625,6 +625,14 @@ Acceptance: EC key generation, signing and verification emit byte-identical code
   `bash scripts/test-accept.sh target/release/mfb /tmp/s-accept crypto-ec-valid` → the fixture
   passes with no artifact diff (it is outside `tests/byte-identity/`) (est. 2 min, guess); step 8 rows: `STALE`
   for the three crypto files only, gone after tighten (est. 25 min total, guess).
+  Done: `codesplit.py` by §4.2–4.4's ranges, each `mod.rs` reaching its parts through private globs; `pub(super)` from
+  the compiler's errors → func_generate 14 (§4.2's 12 + the macOS frame slots `NUMVAL`, `PUBLEN`, which
+  `lower_generate` also writes), func_sign 3, func_verify 3; `motion.py` → wiring and visibility only; citations 0;
+  `rt_debug_soak.rs:710` → `crypto/func_generate/mod.rs`.
+  Verified 2026-10-20: `bash scripts/artifact-gate.sh … crypto` → 0 diffs; `test-accept.sh … crypto-ec-valid` → 1
+  passed; `codegen::builtins::crypto` → 18 (= G0's 18); list 5018; check warnings 0; `spec_citations_resolve` ok;
+  guards → 9, 8, 7 + 1 ignored; sweep → 0; budget → three STALE rows (1897, 1635, 1487) before, none after; census →
+  generate 477/409/559/461, sign 452/263/445/484, verify 365/244/374/513.
 Commit: —
 
 ### Phase 3 — math and money kernels (pure motion, impl splits)
