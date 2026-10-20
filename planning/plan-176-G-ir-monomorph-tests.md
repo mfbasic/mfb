@@ -992,20 +992,35 @@ still resolves.
   `^ir::tests::` → 290; kept-path count → 39 (G0 list → 39); `target::shared::config_fold` → `ok. 6 passed`;
   census → mod.rs 480, binary_repr_tests 538, lower_tests 45/744/839/784/583, lower_pipeline_tests 21/753/763/837;
   G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`; guards 8, 8, 7 + 1 ignored); G4 → 0; G5 → exit 0.
-Commit: —
+Commit: 7ea6d182b
 
 ### Phase 5 — `src/ir/verify/tests.rs` (largest blast radius)
 
 The 493 verifier tests across 10 parts carry the one widened import list.
 
-- [ ] Replace `src/ir/verify/tests.rs` with `src/ir/verify/tests/mod.rs` (the builders and
+- [x] Replace `src/ir/verify/tests.rs` with `src/ir/verify/tests/mod.rs` (the builders and
       fixtures in place) and the 10 parts of §4.3. Widen the `use super::{…}` line.
-- [ ] G4: tighten (the `ceiling test … src/ir/verify/tests.rs` row is STALE).
+      Done: `git mv` to `tests/mod.rs`, then `items.py extract` in place with the parts chosen by name
+      (`target/p176/g5-verify.py`: each part runs from its first test to the next part's, the 42 shared builders and
+      fixtures stay in `mod.rs`) → 47, 54, 54, 59, 57, 41, 48, 40, 59, 34 tests and exactly §4.3's local helpers;
+      motion → only the import line and the 10 part `mod` lines differ. The import is widened with two more names
+      than §4.3 lists (Corrections).
+- [x] G4: tighten (the `ceiling test … src/ir/verify/tests.rs` row is STALE).
+      Done: → `STALE test (ceiling 8495) src/ir/verify/tests.rs` only; tighten drops it; re-run → 0.
 
 Acceptance: every verifier test runs from its part, and the count did not move.
   Check: G1. G2: `cargo test -p mfb --bin mfb ir::verify::tests::` → 0 failed, and the
   `--list` count of `^ir::verify::tests::` → 493. `ls src/ir/verify/tests/*.rs | wc -l` → 11.
   G3; G4; G5 (est. 8 min).
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 493 passed`; list count → 493;
+  `ls src/ir/verify/tests/*.rs | wc -l` → 11; census → mod.rs 448 (445 + the 3-line import), parts 798, 829, 785,
+  865, 740, 829, 820, 832, 825, 747; G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`; guards 8, 8,
+  7 + 1 ignored); G4 → 0; G5 → exit 0.
+  Final gate: `spec_citations_resolve` runs inside the fast tier's unit tests (passed); the guards and the budget
+  banner → 0 rows; the ceiling-file grep → 0; clippy — no G0 count was recorded, so the check is per path:
+  `cargo clippy --all-targets` warnings under G's new directories → 3, all pre-existing in the moved text (two
+  `empty line after doc comment` at blank lines that sat between doc blocks in the originals, `resource_escape.rs`
+  L1131 and `verify/tests.rs` L8042; one auto-deref in an unchanged builder).
 Commit: —
 
 ## Validation Plan
@@ -1101,6 +1116,10 @@ Commit: —
   As in §4.7's `lower.rs` line, `lower_pipeline_tests/mod.rs` imports those six names from
   `ir::tests`, so the bodies stay byte for byte. The two fn-local `use` edits §4.1 planned in
   `lower_tests` were not needed (moot task).
+- 2026-10-19 (execution) — Phase 5's widened import also needs `read_only_record_type` (4 uses in
+  part 10) and the `resources` module (8 uses in part 9's cause walk), which §4.3 missed:
+  `use super::{check, collect_diagnostics, collect_source_diagnostics, is_thread_type,
+  read_only_record_type, resources, TypeEnv};`. The part headers are comment-only (no LOC).
 
 ## Summary
 
