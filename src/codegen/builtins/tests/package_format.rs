@@ -4,7 +4,7 @@
 //! tampered signature, a type cycle, a bad allocation count, a duplicate
 //! section. They are gated only by `scripts/test-accept.sh`, which spawns `mfb`
 //! and compares a diagnostic; from this process the decoder's refusals were
-//! unreached, and `binary_repr/reader.rs`, `sections.rs` and `writer.rs` are
+//! unreached, and `binary_repr/reader/`, `sections/` and `writer/` are
 //! ~110 lines short between them, almost all of it error handling.
 //!
 //! Reading the file directly is the whole test. These fixtures cannot go through

@@ -38,7 +38,7 @@ distinction matters only for what is written into the compiled `.mfp` package
 cross-file reference to a `PRIVATE` declaration fails unless the declaration is
 `PUBLIC`/`EXPORT` or the project is built as a single file.
 
-Top-level `LET`, `MUT`, `FUNC`, `TYPE`, `UNION`, `ENUM`, and `RESOURCE` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. [[src/ir/lower_link.rs:native_resources]] Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types. [[src/binary_repr/writer.rs]]
+Top-level `LET`, `MUT`, `FUNC`, `TYPE`, `UNION`, `ENUM`, and `RESOURCE` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. [[src/ir/lower_link.rs:native_resources]] Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types. [[src/binary_repr/writer/mod.rs]]
 
 A package's exported surface may not name a type the package declares without `EXPORT`: an `EXPORT TYPE` field (at any field visibility), an `EXPORT UNION` variant's field, an `EXPORT FUNC` parameter or return type, or an `EXPORT LET`/`MUT` type that reaches one — through `List`, `Set`, `Map`, `RES`, `FUNC` and `Thread` types — fails the package build with `EXPORT_NAMES_NON_EXPORTED_TYPE` at the exporting declaration, because the compiled package's type table carries only exported types and no importer could resolve the name. A union's variant record itself need not be exported, and a type imported from another package may be re-exported. [[src/ir/shape/mod.rs:export_names_non_exported_type_diagnostics]]
 
@@ -247,7 +247,7 @@ Exported parameter names are part of the named-call source contract. Renaming
 types and the machine calling convention stay the same. Package function
 metadata preserves parameter names; this is distinct from function-value types,
 which preserve neither names nor defaults (`./mfb spec language functions`).
-[[src/binary_repr/writer.rs:encode_functions]]
+[[src/binary_repr/writer/mod.rs:encode_functions]]
 [[src/ir/lower/call_args.rs:normalize_local_call_arguments]]
 
 Likewise, accessible record field names and enum member names are source-level

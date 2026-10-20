@@ -9,7 +9,7 @@ FunctionEntry[functionCount]
 
 ## Function entry
 
-The function entry stores signature metadata and reserved body-location, register, source-map, and cleanup fields. All fields shown below are written and read: [[src/binary_repr/writer.rs:encode_functions]]
+The function entry stores signature metadata and reserved body-location, register, source-map, and cleanup fields. All fields shown below are written and read: [[src/binary_repr/writer/mod.rs:encode_functions]]
 
 ```text
 name            stringId
@@ -43,7 +43,7 @@ repeated cleanupCount times:      (cleanup table — currently empty)
   flags             u32
 ```
 
-Because function bodies are carried by the `IR` section as structured Binary Representation, the function table records **zero-length** code regions and the producer (`lower_function`) builds every function with an **empty register table and empty cleanup table** (`registers: Vec::new()`, `cleanups: Vec::new()`). The reader supplies an empty code slice and rejects any nonzero `codeOffset` or `codeLength` at the range check (`truncated function code`). [[src/binary_repr/reader.rs:read_function_table]] So while the register/`sourceMap`/cleanup fields are present in the byte layout for compatibility, they are always `0`/`0xFFFFFFFF`/empty in current output: a function's `IF`/`WHILE`/`FOREACH`/`MATCH`/`TRAP` structure, its resource regions, and its single bottom trap are represented directly as nested Binary Representation nodes, not via these tables.
+Because function bodies are carried by the `IR` section as structured Binary Representation, the function table records **zero-length** code regions and the producer (`lower_function`) builds every function with an **empty register table and empty cleanup table** (`registers: Vec::new()`, `cleanups: Vec::new()`). The reader supplies an empty code slice and rejects any nonzero `codeOffset` or `codeLength` at the range check (`truncated function code`). [[src/binary_repr/reader/mod.rs:read_function_table]] So while the register/`sourceMap`/cleanup fields are present in the byte layout for compatibility, they are always `0`/`0xFFFFFFFF`/empty in current output: a function's `IF`/`WHILE`/`FOREACH`/`MATCH`/`TRAP` structure, its resource regions, and its single bottom trap are represented directly as nested Binary Representation nodes, not via these tables.
 
 Function kinds:
 
@@ -62,7 +62,7 @@ bit 3 = reserved (never written, rejected on read)
 bit 5 = returnsNothingOnSuccess
 ```
 
-There is **no** "exported" flag bit. A function is exported precisely when it is kind `1` and the private bit is clear (`is_exported_function`); `lower_function` sets the private bit for any non-`export` visibility. [[src/binary_repr/sections.rs:is_exported_function]] A function declared to return `Nothing` sets `returnsNothingOnSuccess`; an `ISOLATED` function sets the isolated bit. Bit 0 and bit 4 are unused. The reader rejects a function record that sets bit 3, with the same rebuild-the-package error as export kind `2`. [[src/binary_repr/reader.rs:retired_sub_error]]
+There is **no** "exported" flag bit. A function is exported precisely when it is kind `1` and the private bit is clear (`is_exported_function`); `lower_function` sets the private bit for any non-`export` visibility. [[src/binary_repr/sections/mod.rs:is_exported_function]] A function declared to return `Nothing` sets `returnsNothingOnSuccess`; an `ISOLATED` function sets the isolated bit. Bit 0 and bit 4 are unused. The reader rejects a function record that sets bit 3, with the same rebuild-the-package error as export kind `2`. [[src/binary_repr/reader/abi_index.rs:retired_sub_error]]
 
 The `returnType` is the declared success type. The effective runtime result is always the internal `#Result OF returnType`, consistent with the language rule that every call auto-unwraps or auto-propagates unless trapped. Whether a function contains a trap is read directly from its Binary Representation body (a `Trap` region), not from a flag/PC pair.
 
@@ -79,9 +79,9 @@ bit 2 = resource consume     (reserved; not currently emitted)
 bit 3 = default function     (defaultConst is a FUNCTION_TABLE index)
 ```
 
-A default that names nothing (a string, number, scalar or boolean literal, `NOTHING`, or a built-in package constant) is stored as a `CONST_POOL` entry under bit 0 alone. Any other default is **computed**: the compiler lowers it into a private, parameterless hidden default function named `$default$<function>$<index>` that returns the parameter's type (`mfb spec language functions`), and the record sets bits 0 **and** 3 with `defaultConst` holding that function's index. The writer refuses any other default value shape. [[src/binary_repr/writer.rs:lower_param_default]]
+A default that names nothing (a string, number, scalar or boolean literal, `NOTHING`, or a built-in package constant) is stored as a `CONST_POOL` entry under bit 0 alone. Any other default is **computed**: the compiler lowers it into a private, parameterless hidden default function named `$default$<function>$<index>` that returns the parameter's type (`mfb spec language functions`), and the record sets bits 0 **and** 3 with `defaultConst` holding that function's index. The writer refuses any other default value shape. [[src/binary_repr/writer/functions.rs:lower_param_default]]
 
-A package is untrusted input, and an importer calls the function a bit-3 record names on every call that omits the argument, so the reader refuses — never repairs — a record where bit 3 is set without bit 0, the index is outside the function table, or the target is not private, takes parameters, does not return the parameter's type, or is not named as a hidden default function. [[src/binary_repr/reader.rs:validate_default_functions]] An importer decodes each exported parameter's default (a literal back to its value, or the hidden function's name) and passes it when a call omits the argument. [[src/binary_repr/builder.rs:export_default]]
+A package is untrusted input, and an importer calls the function a bit-3 record names on every call that omits the argument, so the reader refuses — never repairs — a record where bit 3 is set without bit 0, the index is outside the function table, or the target is not private, takes parameters, does not return the parameter's type, or is not named as a hidden default function. [[src/binary_repr/reader/mod.rs:validate_default_functions]] An importer decodes each exported parameter's default (a literal back to its value, or the hidden function's name) and passes it when a call omits the argument. [[src/binary_repr/builder.rs:export_default]]
 
 The non-owning/consume bits are defined by the format but are **not currently produced** — no per-parameter ownership annotation syntax (such as `MOVE`) exists, and resource ownership is enforced by the compiler rather than encoded in these per-parameter bits today.
 

@@ -689,20 +689,29 @@ Acceptance: every target's machine code is byte-identical.
   G2 general, vector → 0 diffs; `no_operator_strings` → 8 passed; check warnings 0; `spec_citations_resolve` ok;
   budget → three `STALE` code rows (1133, 1155, 1837) before, none after; census → aarch64 emitter 529/148/322/170,
   x86 emitter 258/4 + 805/559/226, v128 230/4 + 393/538.
-Commit: —
+Commit: d70bef28c
 
 ### Phase 3 — `.mfp` codec: `binary_repr` reader, sections, writer
 
-- [ ] §4.5: split `reader.rs` into `reader/{mod,type_decode,abi_index}.rs`; 18 widenings; the two
+- [x] §4.5: split `reader.rs` into `reader/{mod,type_decode,abi_index}.rs`; 18 widenings; the two
       `pub(in crate::binary_repr) use` globs; rewrite the 44 citations.
-- [ ] §4.6: split `sections.rs` into `sections/{mod,type_table,abi_serializer}.rs`; 28 widenings;
+      Done: `codesplit.py` → 10, 9 items; the 9 + 9 `pub(super)` → `pub(in crate::binary_repr)`, no other edit
+      needed; `citesweep.py` → 43 + the bare cite by hand.
+- [x] §4.6: split `sections.rs` into `sections/{mod,type_table,abi_serializer}.rs`; 28 widenings;
       rewrite the 18 citations; `.ai/resources-packages.md:211`.
-- [ ] §4.7: split `writer.rs` into `writer/{mod,resource_scan,functions,type_payload}.rs`;
+      Done: whole impls moved; 17 + 11 widened; `citesweep.py` → 18.
+- [x] §4.7: split `writer.rs` into `writer/{mod,resource_scan,functions,type_payload}.rs`;
       20 widenings; the three globs; rewrite the 13 citations; `.ai/resources-packages.md:271`.
-- [ ] `tests/guards/no_type_strings.rs`: replace the three `binary_repr` rows in `BOUNDARY_FILES`,
+      Done: `codesplit.py` → 7, 4, 7 items; 20 widened (`lower_param_default` stays private); `citesweep.py` → 12
+      + the bare cite. Also two unlisted code comments (`codegen/builtins/mod.rs:627`,
+      `builtins/tests/package_format.rs:7`) → the directories; `git grep` of the three old paths → 0.
+- [x] `tests/guards/no_type_strings.rs`: replace the three `binary_repr` rows in `BOUNDARY_FILES`,
       and in `tests/guards/no_type_strings/self_checks.rs`: `boundary_list_is_closed`, with their part files (§4.5–4.7), same order; prose
       50, 940, 1064, 1736 (justifications in the commit message).
-- [ ] Tighten and commit the ceiling file.
+      Done: before the edit 2 FAILED (`no_type_strings`, `boundary_files_exist_and_are_justified`); after → 7 + 1
+      ignored. Prose now at 50, 961, 1085 and `self_checks.rs:472`, whose "six files in five groups" also gains the
+      measured path count (19, after N's and O's splits).
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: packages encode and decode to the same bytes.
   Check: `cargo test -p mfb --bin mfb binary_repr` → pass, count before == after (est. 4 min).
@@ -713,6 +722,11 @@ Acceptance: packages encode and decode to the same bytes.
   `cargo check --all-targets` → no new warning; `spec_citations_resolve` → pass.
   `cargo test --test file_size_budget 2>&1 | grep 'binary_repr'` → three `STALE` rows before the
   tighten, none after (est. 2 min).
+  Verified 2026-10-19: `binary_repr` → `ok. 181 passed` (= G0's 181); `test-accept.sh … 'package-*'
+  'native-library-*' 'native-resource-*' 'roundtrip-package'` → `acceptance tests passed (42 test(s) ran)`; G2
+  thread → 0 diffs; `no_type_strings` → 7 + 1 ignored; check warnings 0; `spec_citations_resolve` ok; `citedef.py
+  src/binary_repr/` → 80, 0 not defined; budget → three STALE rows before, none after; census → reader 576/360/260,
+  sections 511/460/226, writer 502/256/261/106.
 Commit: —
 
 ### Phase 4 — Linker and debug report: `elf.rs`, `debug/arena.rs`

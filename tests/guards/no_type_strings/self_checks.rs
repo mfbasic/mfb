@@ -469,8 +469,9 @@ fn the_grammar_file_is_exactly_one() {
 /// The boundary list is CLOSED, and adding to it requires editing this test.
 ///
 /// plan-111-A named five boundaries; letter G added the decoder half of #4
-/// (`binary_repr/reader.rs`, Correction G2), so the list is six files in five
-/// groups. It is the plan's one sanctioned allowance for the name-handling
+/// (`binary_repr/reader/`, Correction G2), so the list is six files in five
+/// groups — 19 paths since plan-176-N/O split `ir/binary.rs` and the three `binary_repr`
+/// codec files into their parts (every part of a listed file is listed). It is the plan's one sanctioned allowance for the name-handling
 /// classes, and the way an allowance rots is by growing quietly — so the exact
 /// membership is asserted here rather than merely justified in a string.
 ///
@@ -494,9 +495,16 @@ fn boundary_list_is_closed() {
             "src/hir/mod.rs",
             "src/hir/build.rs",
             // #4 the .mfp wire codec, both directions
-            "src/binary_repr/writer.rs",
-            "src/binary_repr/sections.rs",
-            "src/binary_repr/reader.rs",
+            "src/binary_repr/writer/mod.rs",
+            "src/binary_repr/writer/resource_scan.rs",
+            "src/binary_repr/writer/functions.rs",
+            "src/binary_repr/writer/type_payload.rs",
+            "src/binary_repr/sections/mod.rs",
+            "src/binary_repr/sections/type_table.rs",
+            "src/binary_repr/sections/abi_serializer.rs",
+            "src/binary_repr/reader/mod.rs",
+            "src/binary_repr/reader/type_decode.rs",
+            "src/binary_repr/reader/abi_index.rs",
             "src/binary_repr/builder.rs",
             // #5 the package manifest
             "src/manifest/package.rs",

@@ -9,7 +9,7 @@ TypeEntry[typeCount]
 
 ## Built-in type IDs
 
-These IDs are reserved and do not need table entries: [[src/binary_repr/reader.rs:primitive_type_name]] [[src/binary_repr/sections.rs:type_id]]
+These IDs are reserved and do not need table entries: [[src/binary_repr/reader/type_decode.rs:primitive_type_name]] [[src/binary_repr/sections/type_table.rs:type_id]]
 
 ```text
 1          = Nothing
@@ -31,11 +31,11 @@ These IDs are reserved and do not need table entries: [[src/binary_repr/reader.r
 0xFFFFFEFC = TermSize  (builtin record)
 ```
 
-Id `0` is unmapped. `Money` uses id `9`, `Scalar` id `10`, and `AttributedString` id `11`. IDs `12..19` are unmapped; table entries begin at `FIRST_TABLE_TYPE_ID` (`20`). Built-in handle names decode as `fs.File`, `tcp.Socket`, and `tcp.Listener` respectively. [[src/binary_repr/mod.rs:TYPE_ATTRIBUTED_STRING]] [[src/binary_repr/reader.rs:primitive_type_name]]
+Id `0` is unmapped. `Money` uses id `9`, `Scalar` id `10`, and `AttributedString` id `11`. IDs `12..19` are unmapped; table entries begin at `FIRST_TABLE_TYPE_ID` (`20`). Built-in handle names decode as `fs.File`, `tcp.Socket`, and `tcp.Listener` respectively. [[src/binary_repr/mod.rs:TYPE_ATTRIBUTED_STRING]] [[src/binary_repr/reader/type_decode.rs:primitive_type_name]]
 
 `Error` has reserved primitive identity (the encoder interns field names `code`, `message`), and `TermSize` is a structural builtin record (`columns`/`rows`); referencing it interns those field-name strings but still resolves to the reserved id.
 
-`0xFFFFFEFD` is reserved and never emitted. The reader maps it to `TermColor`; it must not be reused for another type. The current `color::Color` record uses an ordinary table entry. [[src/binary_repr/reader.rs:primitive_type_name]] [[src/binary_repr/sections.rs:type_id]]
+`0xFFFFFEFD` is reserved and never emitted. The reader maps it to `TermColor`; it must not be reused for another type. The current `color::Color` record uses an ordinary table entry. [[src/binary_repr/reader/type_decode.rs:primitive_type_name]] [[src/binary_repr/sections/type_table.rs:type_id]]
 
 All user, package, and instantiated template types appear in the `TYPE_TABLE`. Type table entry ids start at `FIRST_TABLE_TYPE_ID` (`20`), immediately after the low reserved built-in ids (primitives `1..11` plus the reserved band `12..19`), so entry index `0` has type id `20`.
 
@@ -52,7 +52,7 @@ payloadOffset   u32      (relative to the start of TYPE_TABLE)
 payloadLength   u32
 ```
 
-`flags` is currently **always `0`** — exportedness of a type is not carried here. (The in-memory `abi_export_kind` that marks a type as exported is consumed only to build `ABI_INDEX`; it is not serialized into the type entry. It is set for a source type declared `EXPORT` in the package itself, never for a builtin package's type that rides in the package's IR because its source imports that builtin — the type table may hold `io.Key`, but the package does not export it. [[src/binary_repr/sections.rs:reserve_source_type]] An importer does not resolve a builtin type from such an entry: when the package's exported signatures or type fields name a builtin type, the importer resolves it from the compiler's own definition of the builtin, whether or not the importer imports that builtin itself — see `./mfb spec language modules-and-packages`. [[src/ir/shape/mod.rs:is_builtin_package_type]]) `ownerPackage` is the interned package/namespace string (empty for compiler-owned templates, `"thread"` for `Thread`/`ThreadWorker`, the package name for user types).
+`flags` is currently **always `0`** — exportedness of a type is not carried here. (The in-memory `abi_export_kind` that marks a type as exported is consumed only to build `ABI_INDEX`; it is not serialized into the type entry. It is set for a source type declared `EXPORT` in the package itself, never for a builtin package's type that rides in the package's IR because its source imports that builtin — the type table may hold `io.Key`, but the package does not export it. [[src/binary_repr/sections/type_table.rs:reserve_source_type]] An importer does not resolve a builtin type from such an entry: when the package's exported signatures or type fields name a builtin type, the importer resolves it from the compiler's own definition of the builtin, whether or not the importer imports that builtin itself — see `./mfb spec language modules-and-packages`. [[src/ir/shape/mod.rs:is_builtin_package_type]]) `ownerPackage` is the interned package/namespace string (empty for compiler-owned templates, `"thread"` for `Thread`/`ThreadWorker`, the package name for user types).
 
 Type kinds:
 
@@ -102,7 +102,7 @@ repeated variantCount times:
     fieldType   typeId
 ```
 
-Included variants from `UNION ... INCLUDES ...` are flattened into the resulting concrete union (`concrete_union_variants` recursively expands each included union's variants in declaration order, then appends this union's own variants). [[src/binary_repr/writer.rs:concrete_union_variants]] There is no subtype relation; the included union's variants simply become variants of this one.
+Included variants from `UNION ... INCLUDES ...` are flattened into the resulting concrete union (`concrete_union_variants` recursively expands each included union's variants in declaration order, then appends this union's own variants). [[src/binary_repr/writer/type_payload.rs:concrete_union_variants]] There is no subtype relation; the included union's variants simply become variants of this one.
 
 ## Enum payload
 
@@ -122,7 +122,7 @@ elementType     typeId
 
 ## `Set OF T` payload (kind 13)
 
-A single `elementType` (`u32` type ID), interned as `Set#<elementTypeId>` and decoded as `Set OF <element>`. [[src/binary_repr/sections.rs:set_type]] [[src/binary_repr/reader.rs:decode_type_name_body]]
+A single `elementType` (`u32` type ID), interned as `Set#<elementTypeId>` and decoded as `Set OF <element>`. [[src/binary_repr/sections/type_table.rs:set_type]] [[src/binary_repr/reader/type_decode.rs:decode_type_name_body]]
 
 ## Foreign type reference payload (kind 12)
 
@@ -131,7 +131,7 @@ exportKind     u16       (3 = record, 4 = union, 5 = enum)
 ownerAbiHash   byte[32]
 ```
 
-The entry name identifies the foreign type and `ownerPackage` its declaring dependency. It carries the owning type ABI hash instead of duplicating its fields. [[src/binary_repr/sections.rs:foreign_type]]
+The entry name identifies the foreign type and `ownerPackage` its declaring dependency. It carries the owning type ABI hash instead of duplicating its fields. [[src/binary_repr/sections/type_table.rs:foreign_type]]
 
 ## `Map OF K TO V` payload
 
@@ -158,7 +158,7 @@ stateType       typeId          ' the STATE payload record
 
 A resource carrying a `STATE` payload (`./mfb spec language resource-management` §15.5) is a composite of two type ids, interned as `State#<baseTypeId>#<stateTypeId>` and decoded back to the source spelling `<base> STATE <state>`.
 
-The STATE is **not** an ABI distinction — a `File STATE Cursor` and a `File` are the same resource record, the payload being a pointer inside it — but it is a *signature* distinction, so it must round-trip: a consumer reads an imported function's signature from the ABI exports, so a return type encoded without its STATE would compile the exporter and silently degrade every importer to a bare handle. [[src/binary_repr/sections.rs:state_type]]
+The STATE is **not** an ABI distinction — a `File STATE Cursor` and a `File` are the same resource record, the payload being a pointer inside it — but it is a *signature* distinction, so it must round-trip: a consumer reads an imported function's signature from the ABI exports, so a return type encoded without its STATE would compile the exporter and silently degrade every importer to a bare handle. [[src/binary_repr/sections/type_table.rs:state_type]]
 
 ## `#Result OF T` payload
 
@@ -176,7 +176,7 @@ outputType      typeId
 resourceType    typeId    (present only when the thread carries a resource plane)
 ```
 
-The trailing `resourceType` is appended only when the thread instantiation has a resource plane. A data-only thread emits just `messageType` and `outputType`, producing an 8-byte payload; a resource-carrying thread produces 12 bytes. The reader checks for the resource ID when payload length is at least 12 bytes. [[src/binary_repr/sections.rs:thread_type]] [[src/binary_repr/reader.rs:decode_type_name_body]]
+The trailing `resourceType` is appended only when the thread instantiation has a resource plane. A data-only thread emits just `messageType` and `outputType`, producing an 8-byte payload; a resource-carrying thread produces 12 bytes. The reader checks for the resource ID when payload length is at least 12 bytes. [[src/binary_repr/sections/type_table.rs:thread_type]] [[src/binary_repr/reader/type_decode.rs:decode_type_name_body]]
 
 ## `ThreadWorker OF Msg TO Out` payload
 

@@ -624,7 +624,7 @@ pub(crate) fn resolve_call_return_type_with_kinds(
 /// `Custom`-return call has no static nominal and yields `None`; the
 /// arg-validated return lives in [`resolve_call_return_type_typed`]).
 ///
-/// plan-111-G: its only production callers are in `binary_repr/writer.rs`, the
+/// plan-111-G: its only production callers are in `binary_repr/writer/`, the
 /// `.mfp` ENCODER, which needs the spelling because that is what the wire stores.
 /// The render is therefore the point here, not a leftover — everything on the
 /// compiler side asks [`call_return_type`], the typed twin below. The

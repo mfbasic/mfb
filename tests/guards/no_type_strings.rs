@@ -47,7 +47,7 @@
 //!   NAME-HANDLING classes (1, 2, 5, 6) and from **none** of the three DECISION
 //!   classes (3, 4, 7). A boundary may parse a spelling and may render one; it
 //!   may not decide anything by comparing one. That split is load-bearing:
-//!   `binary_repr/sections.rs` held 19 spelling match arms until letter G, in a
+//!   `binary_repr/sections/` held 19 spelling match arms until letter G, in a
 //!   file that was already a boundary (`boundary_list_is_closed`).
 //!
 //! Like `tests/guards/architecture_guards.rs` this lives in `tests/` — an integration
@@ -208,10 +208,35 @@ const BOUNDARY_FILES: &[(&str, &str)] = &[
         "AST->HIR elaborate: the string/type boundary",
     ),
     // 4 — `.mfp` wire codec: the package type table is text on disk.
-    ("src/binary_repr/writer.rs", ".mfp wire codec"),
-    ("src/binary_repr/sections.rs", ".mfp type-table codec"),
+    ("src/binary_repr/writer/mod.rs", ".mfp wire codec"),
+    ("src/binary_repr/writer/resource_scan.rs", ".mfp wire codec"),
+    ("src/binary_repr/writer/functions.rs", ".mfp wire codec"),
+    ("src/binary_repr/writer/type_payload.rs", ".mfp wire codec"),
+    ("src/binary_repr/sections/mod.rs", ".mfp type-table codec"),
     (
-        "src/binary_repr/reader.rs",
+        "src/binary_repr/sections/type_table.rs",
+        ".mfp type-table codec",
+    ),
+    (
+        "src/binary_repr/sections/abi_serializer.rs",
+        ".mfp type-table codec",
+    ),
+    (
+        "src/binary_repr/reader/mod.rs",
+        ".mfp type-table DECODER — boundary #4's other direction. plan-111-A \
+         named only the encoder half, but rebuilding a spelling from wire ids is \
+         the same boundary read backwards, and plan-111-G §Phase 2 says to keep \
+         its `format!` reconstructions. Correction G2.",
+    ),
+    (
+        "src/binary_repr/reader/type_decode.rs",
+        ".mfp type-table DECODER — boundary #4's other direction. plan-111-A \
+         named only the encoder half, but rebuilding a spelling from wire ids is \
+         the same boundary read backwards, and plan-111-G §Phase 2 says to keep \
+         its `format!` reconstructions. Correction G2.",
+    ),
+    (
+        "src/binary_repr/reader/abi_index.rs",
         ".mfp type-table DECODER — boundary #4's other direction. plan-111-A \
          named only the encoder half, but rebuilding a spelling from wire ids is \
          the same boundary read backwards, and plan-111-G §Phase 2 says to keep \
@@ -958,7 +983,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //   * `is_boundary_file` — the five sanctioned boundaries are exempt from the
     //     four NAME-HANDLING classes (1, 2, 5, 6) and from none of the three
     //     DECISION classes (3, 4, 7). That split is load-bearing:
-    //     `binary_repr/sections.rs` held 19 spelling match arms until letter G,
+    //     `binary_repr/sections/` held 19 spelling match arms until letter G,
     //     in a file that was already a boundary.
     ("declared_sites", "binary_repr", 5),
     // 50 -> 52: bug-480 Phase 4b made a builtin value type's declared identity
@@ -1082,7 +1107,7 @@ fn scan_tree() -> BTreeMap<(String, String), Vec<String>> {
         // The three DECISION classes are NOT exempt, anywhere. A boundary may
         // parse a spelling and it may render one; it may not decide anything by
         // comparing one. That distinction is what keeps the exemption from
-        // becoming a junk drawer, and it is load-bearing: `binary_repr/sections.rs`
+        // becoming a junk drawer, and it is load-bearing: `binary_repr/sections/`
         // held 19 spelling match arms until this phase, in a file that was
         // already a boundary — the exemption would have hidden every one.
         if !is_boundary_file(&rel) {

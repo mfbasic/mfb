@@ -70,13 +70,13 @@ Sections may appear in any order. The shared `read_section_table` requires the t
 18 = PACKAGE_META       (optional; emitted only when the manifest declares a `description`)
 ```
 
-Section id `9` is unused. Function bodies are carried by `IR` (id `16`); `FUNCTION_TABLE` records zero-length code regions and retains reserved register/cleanup fields. [[src/binary_repr/writer.rs:encode]]
+Section id `9` is unused. Function bodies are carried by `IR` (id `16`); `FUNCTION_TABLE` records zero-length code regions and retains reserved register/cleanup fields. [[src/binary_repr/writer/mod.rs:encode]]
 
 Ids `12` (`DEBUG_INFO`), `13` (`SOURCE_MAP`), and `14` (`AUDIT_INFO`) are **reserved by the format but never produced or consumed by the current compiler** — there is no debug/source-map/audit constant defined in the binary-representation section table. [[src/binary_repr/mod.rs]]
 
 Id `10` (`NATIVE_LIBRARY_TABLE`) **is** emitted, but only for a binding package that declares a `LINK` block; its presence also sets container flag bit 0. It carries the per-library *locators* (which shared object to load per `os`/`arch`/`libc`). The per-function native `LINK` *interface* is separate and still rides as an optional trailer inside the `IR` payload. See `native-bindings` for both.
 
-Sections the current compiler actually emits, via `BinaryReprProject::encode`: [[src/binary_repr/writer.rs:encode]]
+Sections the current compiler actually emits, via `BinaryReprProject::encode`: [[src/binary_repr/writer/mod.rs:encode]]
 
 ```text
 MANIFEST          (id 1,  always)

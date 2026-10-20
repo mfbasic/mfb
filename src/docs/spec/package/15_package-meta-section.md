@@ -4,7 +4,7 @@ The optional `PACKAGE_META` section (id `18`) carries the package description.
 It is independent of `STRING_POOL` and does not contribute to ABI hashes.
 The writer omits it when the description is empty. Source package manifests must
 contain a `description` string, but an empty string is permitted.
-[[src/binary_repr/reader.rs:encode_package_meta]] [[src/manifest/fields.rs:validate_description]]
+[[src/binary_repr/reader/mod.rs:encode_package_meta]] [[src/manifest/fields.rs:validate_description]]
 
 ## Layout
 
@@ -22,14 +22,14 @@ reader checks bounds for every field, skips unknown field IDs without decoding
 their contents, and validates the description as UTF-8 with a maximum length of
 `4096` bytes. Repeated description fields overwrite earlier values. Neither
 description reader rejects trailing bytes after the declared fields.
-[[src/binary_repr/reader.rs:read_package_meta]] [[repository/src/abi.rs:parse_package_description]]
+[[src/binary_repr/reader/mod.rs:read_package_meta]] [[repository/src/abi.rs:parse_package_description]]
 
 The compiler returns an empty description if the section or field is absent.
 The registry returns no description for an absent section/field or an invalid
 MFPC section directory; it rejects malformed contents of a present section.
 The registry caps `fieldCount` at `256`; the compiler's section decoder has no
-corresponding count cap. [[src/binary_repr/reader.rs:read_binary_repr_package]]
-[[src/binary_repr/reader.rs:read_package_meta]] [[repository/src/abi.rs:parse_package_description]]
+corresponding count cap. [[src/binary_repr/reader/mod.rs:read_binary_repr_package]]
+[[src/binary_repr/reader/mod.rs:read_package_meta]] [[repository/src/abi.rs:parse_package_description]]
 
 ## Integrity and compatibility
 

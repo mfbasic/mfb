@@ -50,11 +50,11 @@ Money    i64 exact base-10 scaled raw (little-endian)
 Scalar   u32 Unicode codepoint (little-endian)
 ```
 
-The current compiler's `ConstPool::add` produces kinds `1`-`7`, `9` (`Money`), and `10` (`Scalar`). Kind `8` (`Error`) has a reserved layout but is **not currently emitted** — there is no source form that lowers an `Error` literal into `CONST_POOL`, and `add` returns an error for any non-scalar constant. `read_const_pool` checks entry framing but does not validate each kind or its semantic payload length; later consumers validate values they interpret. [[src/binary_repr/reader.rs:read_const_pool]]
+The current compiler's `ConstPool::add` produces kinds `1`-`7`, `9` (`Money`), and `10` (`Scalar`). Kind `8` (`Error`) has a reserved layout but is **not currently emitted** — there is no source form that lowers an `Error` literal into `CONST_POOL`, and `add` returns an error for any non-scalar constant. `read_const_pool` checks entry framing but does not validate each kind or its semantic payload length; later consumers validate values they interpret. [[src/binary_repr/reader/mod.rs:read_const_pool]]
 
-`Fixed` constants are converted from their decimal string (scientific notation included) into a 32.32 fixed-point value by the same exact converter source lowering and literal validation use: nearest carrier, ties away from zero, range-checked after rounding (`./mfb spec language types` §4.12). [[src/binary_repr/writer.rs:fixed_raw_from_decimal]] [[src/numeric.rs:fixed_raw_from_decimal]]
+`Fixed` constants are converted from their decimal string (scientific notation included) into a 32.32 fixed-point value by the same exact converter source lowering and literal validation use: nearest carrier, ties away from zero, range-checked after rounding (`./mfb spec language types` §4.12). [[src/binary_repr/writer/type_payload.rs:fixed_raw_from_decimal]] [[src/numeric.rs:fixed_raw_from_decimal]]
 
-The encoder parses Float text as Rust `f64` and writes `to_bits()` directly; this layer does not apply an additional NaN canonicalization step. [[src/binary_repr/sections.rs:add]]
+The encoder parses Float text as Rust `f64` and writes `to_bits()` directly; this layer does not apply an additional NaN canonicalization step. [[src/binary_repr/sections/mod.rs:add]]
 
 ## See Also
 

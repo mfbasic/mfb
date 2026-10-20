@@ -41,7 +41,7 @@ A `vendor` locator carries a sha256 of its file, computed at build time by strea
 
 ### Decode re-validates everything
 
-A `.mfp` is an **untrusted input** on the consumer side, and a locator's `source` feeds both a `dlopen` C string and a `vendor/` path join. The decoder therefore re-checks every invariant the producer was supposed to uphold rather than trusting it: `libc`/`type` in range, `hash` present **iff** `type == vendor`, string ids within the pool, and `source` still a bare filename (no path separator, no `.`/`..`, no drive prefix, no interior NUL). Any violation is a structural decode error. [[src/binary_repr/sections.rs:read_native_library_table]] [[src/manifest/libraries.rs:source_is_bare]]
+A `.mfp` is an **untrusted input** on the consumer side, and a locator's `source` feeds both a `dlopen` C string and a `vendor/` path join. The decoder therefore re-checks every invariant the producer was supposed to uphold rather than trusting it: `libc`/`type` in range, `hash` present **iff** `type == vendor`, string ids within the pool, and `source` still a bare filename (no path separator, no `.`/`..`, no drive prefix, no interior NUL). Any violation is a structural decode error. [[src/binary_repr/sections/mod.rs:read_native_library_table]] [[src/manifest/libraries.rs:source_is_bare]]
 
 ### Diagnostics
 
@@ -161,8 +161,8 @@ bit 3 = close may fail
 
 The current compiler's flag assignment:
 
-* Standard built-in resources (`File`, `Socket`, `Listener`) get `native | standard | close-may-fail`, plus `sendable` when the registry marks the type sendable (`standard_resource_flags`). [[src/binary_repr/writer.rs:standard_resource_flags]]
-* A native `LINK` resource gets `native`, plus `sendable`/`close-may-fail` as declared by the `LINK` block (`add_native`). [[src/binary_repr/sections.rs:add_native]]
+* Standard built-in resources (`File`, `Socket`, `Listener`) get `native | standard | close-may-fail`, plus `sendable` when the registry marks the type sendable (`standard_resource_flags`). [[src/binary_repr/writer/type_payload.rs:standard_resource_flags]]
+* A native `LINK` resource gets `native`, plus `sendable`/`close-may-fail` as declared by the `LINK` block (`add_native`). [[src/binary_repr/sections/mod.rs:add_native]]
 
 Default rule: resources are not sendable to threads unless explicitly marked sendable.
 

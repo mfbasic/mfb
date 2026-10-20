@@ -1,0 +1,606 @@
+use super::*;
+use crate::types::ParameterType;
+
+mod abi_serializer;
+mod type_table;
+
+impl StringPool {
+    pub(super) fn new() -> Self {
+        Self { values: Vec::new() }
+    }
+
+    pub(super) fn intern(&mut self, value: &str) -> u32 {
+        if let Some(index) = self.values.iter().position(|existing| existing == value) {
+            return index as u32;
+        }
+        let index = self.values.len() as u32;
+        self.values.push(value.to_string());
+        index
+    }
+
+    pub(super) fn encode(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, self.values.len() as u32);
+        for value in &self.values {
+            put_bytes(&mut bytes, value.as_bytes());
+        }
+        bytes
+    }
+}
+
+impl ConstPool {
+    pub(super) fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    pub(super) fn add(&mut self, strings: &mut StringPool, value: &IrValue) -> Result<u32, String> {
+        let entry = match value {
+            IrValue::Const { type_, value } => match type_ {
+                ParameterType::Nothing => ConstEntry {
+                    kind: 1,
+                    payload: Vec::new(),
+                },
+                ParameterType::String => {
+                    let mut payload = Vec::new();
+                    put_u32(&mut payload, strings.intern(value));
+                    ConstEntry { kind: 6, payload }
+                }
+                ParameterType::Integer => ConstEntry {
+                    kind: 3,
+                    payload: value
+                        .parse::<i64>()
+                        .map_err(|_| format!("invalid Integer constant `{value}`"))?
+                        .to_le_bytes()
+                        .to_vec(),
+                },
+                ParameterType::Float => ConstEntry {
+                    kind: 4,
+                    payload: value
+                        .parse::<f64>()
+                        .map_err(|_| format!("invalid Float constant `{value}`"))?
+                        .to_bits()
+                        .to_le_bytes()
+                        .to_vec(),
+                },
+                ParameterType::Fixed => ConstEntry {
+                    kind: 5,
+                    payload: fixed_raw_from_decimal(value)?.to_le_bytes().to_vec(),
+                },
+                // Money's `kind` is its wire type id (`TYPE_MONEY` = 9); the raw
+                // is the exact base-10 scaled i64 (plan-29-B §4.3).
+                ParameterType::Money => ConstEntry {
+                    kind: TYPE_MONEY as u16,
+                    payload: crate::numeric::money_raw_from_decimal(value)?
+                        .to_le_bytes()
+                        .to_vec(),
+                },
+                ParameterType::Boolean => ConstEntry {
+                    kind: 2,
+                    payload: vec![if value == "true" { 1 } else { 0 }],
+                },
+                ParameterType::Byte => ConstEntry {
+                    kind: 7,
+                    payload: vec![value
+                        .parse::<u8>()
+                        .map_err(|_| format!("invalid Byte constant `{value}`"))?],
+                },
+                // Scalar's `kind` is its wire type id (`TYPE_SCALAR` = 10); the
+                // payload is the 4-byte LE Unicode codepoint (plan-41-B §3).
+                t if t.is_named("Scalar") => ConstEntry {
+                    kind: TYPE_SCALAR as u16,
+                    payload: value
+                        .parse::<u32>()
+                        .map_err(|_| format!("invalid Scalar constant `{value}`"))?
+                        .to_le_bytes()
+                        .to_vec(),
+                },
+                _ => return Err(format!("unsupported constant type `{type_}`")),
+            },
+            _ => return Err("only constant IR values can be stored in CONST_POOL".to_string()),
+        };
+
+        let id = self.entries.len() as u32;
+        self.entries.push(entry);
+        Ok(id)
+    }
+
+    pub(super) fn encode(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, self.entries.len() as u32);
+        for entry in &self.entries {
+            put_u16(&mut bytes, entry.kind);
+            put_u16(&mut bytes, 0);
+            put_bytes(&mut bytes, &entry.payload);
+        }
+        bytes
+    }
+}
+
+impl ResourceTable {
+    pub(super) fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    pub(super) fn add_standard_file(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
+        let type_ = ParameterType::named(crate::codegen::builtins::fs::FILE_TYPE_ID);
+        let type_id = types.type_id(strings, &type_);
+        self.entries.push(ResourceEntry {
+            type_id,
+            close_function_id: BUILTIN_FS_CLOSE_FUNCTION_ID,
+            flags: standard_resource_flags(&type_),
+        });
+    }
+
+    pub(super) fn add_standard_socket(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
+        let type_ = ParameterType::named(crate::codegen::builtins::tcp::SOCKET_TYPE_ID);
+        let type_id = types.type_id(strings, &type_);
+        self.entries.push(ResourceEntry {
+            type_id,
+            close_function_id: BUILTIN_STREAM_CLOSE_FUNCTION_ID,
+            flags: standard_resource_flags(&type_),
+        });
+    }
+
+    pub(super) fn add_standard_listener(
+        &mut self,
+        types: &mut TypeTable,
+        strings: &mut StringPool,
+    ) {
+        let type_ = ParameterType::named(crate::codegen::builtins::tcp::LISTENER_TYPE_ID);
+        let type_id = types.type_id(strings, &type_);
+        self.entries.push(ResourceEntry {
+            type_id,
+            close_function_id: BUILTIN_STREAM_CLOSE_FUNCTION_ID,
+            flags: standard_resource_flags(&type_),
+        });
+    }
+
+    /// Add the `RESOURCE_TABLE` entry for any OTHER built-in resource — the ones
+    /// the three `add_standard_*` helpers above do not name (bug-464 fallout:
+    /// `udp::Socket`, `tls::Socket`, `tls::Listener`, `process::Process`, the
+    /// audio handles, `canvas::Image`). Its close op resolves from the registry
+    /// by type name at decode, via [`BUILTIN_RESOURCE_CLOSE_BY_TYPE`].
+    ///
+    /// The three legacy types keep their own helpers and their own sentinels so
+    /// their encoded bytes do not move.
+    pub(super) fn add_standard_other(
+        &mut self,
+        types: &mut TypeTable,
+        strings: &mut StringPool,
+        type_: &ParameterType,
+    ) {
+        let type_id = types.type_id(strings, type_);
+        self.entries.push(ResourceEntry {
+            type_id,
+            close_function_id: BUILTIN_RESOURCE_CLOSE_BY_TYPE,
+            flags: standard_resource_flags(type_),
+        });
+    }
+
+    /// Add a native LINK resource (plan-link-update.md §10). Native resources
+    /// carry the `NATIVE` flag *without* `STANDARD`, which is how decode tells a
+    /// native LINK resource (whose `close_function_id` is the string id of its
+    /// close op name) from a built-in (whose id is a sentinel).
+    pub(super) fn add_native(
+        &mut self,
+        strings: &mut StringPool,
+        type_id: u32,
+        native: &crate::ir::IrNativeResource,
+    ) {
+        let mut flags = RESOURCE_FLAG_NATIVE;
+        if native.sendable {
+            flags |= RESOURCE_FLAG_SENDABLE;
+        }
+        if native.close_may_fail {
+            flags |= RESOURCE_FLAG_CLOSE_MAY_FAIL;
+        }
+        self.entries.push(ResourceEntry {
+            type_id,
+            close_function_id: strings.intern(&native.close_function),
+            flags,
+        });
+    }
+
+    pub(super) fn encode(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, self.entries.len() as u32);
+        for entry in &self.entries {
+            put_u32(&mut bytes, entry.type_id);
+            put_u32(&mut bytes, entry.close_function_id);
+            put_u32(&mut bytes, entry.flags);
+        }
+        bytes
+    }
+}
+
+impl ImportTable {
+    pub(super) fn from_metadata(strings: &mut StringPool, metadata: &BinaryReprMetadata) -> Self {
+        let entries = metadata
+            .dependencies
+            .iter()
+            .map(|dependency| ImportEntry {
+                package_name: strings.intern(&dependency.name),
+                package_ident: strings.intern(if dependency.ident.is_empty() {
+                    &dependency.name
+                } else {
+                    &dependency.ident
+                }),
+                version: strings.intern(&dependency.version),
+                pin: dependency.pin,
+                flags: dependency.flags,
+                used_symbols: Vec::new(),
+            })
+            .collect();
+
+        Self { entries }
+    }
+
+    pub(super) fn record_used_imports(
+        &mut self,
+        strings: &mut StringPool,
+        used_imported_functions: &HashSet<String>,
+        external_function_abi_hashes: &HashMap<String, [u8; ABI_HASH_LEN]>,
+    ) {
+        let import_names = self
+            .entries
+            .iter()
+            .map(|entry| {
+                (
+                    entry.package_name,
+                    strings.values[entry.package_name as usize].clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        for (package_name_id, package_name) in import_names {
+            let prefix = format!("{package_name}.");
+            let mut symbols = used_imported_functions
+                .iter()
+                .filter_map(|target| {
+                    let symbol_name = target.strip_prefix(&prefix)?;
+                    let sig_hash = *external_function_abi_hashes.get(target)?;
+                    Some(AbiUsedSymbol {
+                        name: strings.intern(symbol_name),
+                        sig_hash,
+                    })
+                })
+                .collect::<Vec<_>>();
+            symbols.sort_by_key(|symbol| strings.values[symbol.name as usize].clone());
+            if let Some(entry) = self
+                .entries
+                .iter_mut()
+                .find(|entry| entry.package_name == package_name_id)
+            {
+                entry.used_symbols = symbols;
+            }
+        }
+    }
+
+    pub(super) fn encode(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, self.entries.len() as u32);
+        for entry in &self.entries {
+            put_u32(&mut bytes, entry.package_name);
+            put_u32(&mut bytes, entry.package_ident);
+            put_u32(&mut bytes, entry.version);
+            bytes.push(if entry.pin { 1 } else { 0 });
+            put_u32(&mut bytes, entry.flags);
+            put_u32(&mut bytes, entry.used_symbols.len() as u32);
+            for symbol in &entry.used_symbols {
+                put_u32(&mut bytes, symbol.name);
+                bytes.extend_from_slice(&symbol.sig_hash);
+            }
+        }
+        bytes
+    }
+}
+
+impl AbiIndex {
+    pub(super) fn from_project(
+        strings: &StringPool,
+        types: &TypeTable,
+        constants: &ConstPool,
+        imports: &ImportTable,
+        functions: &[Function],
+    ) -> Result<Self, String> {
+        let mut exports = Vec::new();
+        for function in functions {
+            if !is_exported_function(function) {
+                continue;
+            }
+            let kind = BinaryReprExportKind::Func;
+            exports.push(AbiExport {
+                name: function.name,
+                kind,
+                sig_hash: function_sig_hash(function, kind, &strings.values, types, constants)?,
+            });
+        }
+        for (index, type_) in types.entries.iter().enumerate() {
+            let Some(kind) = type_.abi_export_kind else {
+                continue;
+            };
+            exports.push(AbiExport {
+                name: type_.name,
+                kind,
+                sig_hash: type_sig_hash(
+                    FIRST_TABLE_TYPE_ID + index as u32,
+                    kind,
+                    &strings.values,
+                    types,
+                    constants,
+                )?,
+            });
+        }
+
+        let dep_edges = imports
+            .entries
+            .iter()
+            .map(|entry| AbiDepEdge {
+                package_name: entry.package_name,
+                package_ident: entry.package_ident,
+                version_request: entry.version,
+                pin: entry.pin,
+                used_symbols: entry.used_symbols.clone(),
+            })
+            .collect();
+
+        Ok(Self { exports, dep_edges })
+    }
+
+    pub(super) fn encode(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u16(&mut bytes, ABI_FORMAT_VERSION);
+        put_u16(&mut bytes, 0);
+        put_u32(&mut bytes, self.exports.len() as u32);
+        for export in &self.exports {
+            put_u32(&mut bytes, export.name);
+            put_u16(&mut bytes, encode_export_kind(export.kind));
+            bytes.extend_from_slice(&export.sig_hash);
+        }
+        put_u32(&mut bytes, self.dep_edges.len() as u32);
+        for edge in &self.dep_edges {
+            put_u32(&mut bytes, edge.package_name);
+            put_u32(&mut bytes, edge.package_ident);
+            put_u32(&mut bytes, edge.version_request);
+            bytes.push(if edge.pin { 1 } else { 0 });
+            put_u32(&mut bytes, edge.used_symbols.len() as u32);
+            for symbol in &edge.used_symbols {
+                put_u32(&mut bytes, symbol.name);
+                bytes.extend_from_slice(&symbol.sig_hash);
+            }
+        }
+        bytes
+    }
+}
+
+/// Encode the `NATIVE_LIBRARY_TABLE` (section id 10, plan-46-B §4.1).
+///
+/// Strings are interned into the shared string pool rather than written inline —
+/// `os`, `arch`, and the common sonames repeat across a table's locators, so
+/// interning genuinely dedups them. (The `doc` table writes its strings inline
+/// instead; it is prose, where interning would buy nothing.)
+///
+/// Entries are already sorted by logical name and the locators keep manifest
+/// order, so the bytes are deterministic — the repo holds a byte-identical
+/// self-diff gate.
+pub(super) fn encode_native_library_table(
+    strings: &mut StringPool,
+    table: &NativeLibraryTable,
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    put_u32(&mut bytes, table.entries.len() as u32);
+    for entry in &table.entries {
+        let logical = strings.intern(&entry.logical);
+        put_u32(&mut bytes, logical);
+        put_u32(&mut bytes, entry.locators.len() as u32);
+        for locator in &entry.locators {
+            let os = strings.intern(&locator.os);
+            // `""` is the any-arch wildcard on the wire; `arch` is never a
+            // legitimate empty string (validation rejects a blank token).
+            let arch = strings.intern(locator.arch.as_deref().unwrap_or(""));
+            let source = strings.intern(&locator.source);
+            put_u32(&mut bytes, os);
+            put_u32(&mut bytes, arch);
+            bytes.push(match locator.libc {
+                None => WIRE_LIBC_UNSPECIFIED,
+                Some(Libc::Glibc) => WIRE_LIBC_GLIBC,
+                Some(Libc::Musl) => WIRE_LIBC_MUSL,
+            });
+            bytes.push(match locator.lib_type {
+                LibType::System => WIRE_LIB_TYPE_SYSTEM,
+                LibType::Vendor => WIRE_LIB_TYPE_VENDOR,
+            });
+            put_u32(&mut bytes, source);
+            // The hash is present iff the locator is `vendor` — a system locator
+            // names a file we never see, so there is nothing to hash.
+            if let Some(hash) = &locator.hash {
+                bytes.extend_from_slice(hash);
+            }
+        }
+    }
+    bytes
+}
+
+/// Decode the `NATIVE_LIBRARY_TABLE` (section id 10).
+///
+/// The `.mfp` is an **untrusted input** on the consumer side, and plan-46-C feeds
+/// `source` straight into a C string and a filesystem path — so every invariant
+/// the producer was supposed to uphold is re-checked here rather than assumed:
+/// `libc`/`type` in range, `hash` present iff `vendor`, and `source` still a bare
+/// filename.
+pub(super) fn read_native_library_table(
+    bytes: &[u8],
+    strings: &[String],
+) -> Result<NativeLibraryTable, String> {
+    let mut offset = 0;
+    let count = cursor_u32(bytes, &mut offset)? as usize;
+    // A locator occupies 14 wire bytes at minimum (4+4+1+1+4); an entry adds its
+    // name + count. Bound the pre-allocation against the bytes actually present.
+    let mut entries = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 22));
+    for _ in 0..count {
+        let logical = table_string(strings, cursor_u32(bytes, &mut offset)?)?;
+        let locator_count = cursor_u32(bytes, &mut offset)? as usize;
+        let mut locators =
+            Vec::with_capacity(bounded_capacity(locator_count, bytes.len() - offset, 14));
+        for _ in 0..locator_count {
+            locators.push(read_native_library_locator(bytes, &mut offset, strings)?);
+        }
+        entries.push(NativeLibraryEntry { logical, locators });
+    }
+    // bug-282 B3: every other section rejects trailing garbage; this one (and the
+    // doc table) were added after audit-1 PKG-05 and missed the invariant, leaving
+    // a smuggling nook inside an otherwise strict decoder.
+    if offset != bytes.len() {
+        return Err("invalid trailing bytes in native library table".to_string());
+    }
+    Ok(NativeLibraryTable { entries })
+}
+
+fn read_native_library_locator(
+    bytes: &[u8],
+    offset: &mut usize,
+    strings: &[String],
+) -> Result<NativeLibraryLocator, String> {
+    let os = table_string(strings, cursor_u32(bytes, offset)?)?;
+    let arch = table_string(strings, cursor_u32(bytes, offset)?)?;
+    let libc = cursor_u8(bytes, offset)?;
+    let lib_type = cursor_u8(bytes, offset)?;
+    let source = table_string(strings, cursor_u32(bytes, offset)?)?;
+
+    let libc = match libc {
+        WIRE_LIBC_UNSPECIFIED => None,
+        WIRE_LIBC_GLIBC => Some(Libc::Glibc),
+        WIRE_LIBC_MUSL => Some(Libc::Musl),
+        other => {
+            return Err(format!(
+                "native library table locator has out-of-range libc {other}"
+            ))
+        }
+    };
+    let lib_type = match lib_type {
+        WIRE_LIB_TYPE_SYSTEM => LibType::System,
+        WIRE_LIB_TYPE_VENDOR => LibType::Vendor,
+        other => {
+            return Err(format!(
+                "native library table locator has out-of-range type {other}"
+            ))
+        }
+    };
+
+    // `source` feeds a `dlopen` C string and a `vendor/` path join downstream. A
+    // hostile `.mfp` naming `../../etc/foo` or embedding a NUL must not reach
+    // either, so re-validate the producer's rule here.
+    if let Err(reason) = crate::manifest::libraries::source_is_bare(&source) {
+        return Err(format!(
+            "native library table locator source {source:?} is not a bare filename: {reason}"
+        ));
+    }
+
+    // The hash is present iff the locator is `vendor`.
+    let hash = match lib_type {
+        LibType::Vendor => {
+            let end = offset
+                .checked_add(NATIVE_LIBRARY_HASH_LEN)
+                .ok_or_else(|| "native library table locator hash overflows".to_string())?;
+            let raw = bytes
+                .get(*offset..end)
+                .ok_or_else(|| "truncated native library table locator hash".to_string())?;
+            let mut hash = [0u8; NATIVE_LIBRARY_HASH_LEN];
+            hash.copy_from_slice(raw);
+            *offset = end;
+            Some(hash)
+        }
+        LibType::System => None,
+    };
+
+    Ok(NativeLibraryLocator {
+        os,
+        // `""` is the any-arch wildcard on the wire.
+        arch: if arch.is_empty() { None } else { Some(arch) },
+        libc,
+        lib_type,
+        source,
+        hash,
+    })
+}
+
+/// Resolve a string id against the pool, rejecting an out-of-range id rather than
+/// panicking on a hostile `.mfp`.
+fn table_string(strings: &[String], id: u32) -> Result<String, String> {
+    strings
+        .get(id as usize)
+        .cloned()
+        .ok_or_else(|| format!("native library table references unknown string id {id}"))
+}
+
+// === ABI signature hashing + export-kind encoding (bug-335 B1) =============
+// The write-side ABI serializer and the `sigHash` builders that section 15
+// (ABI_INDEX, encoded just above) is populated from, plus the scalar
+// export-kind encoder and the exported-function predicate. Their decoders
+// (`decode_export_kind`, `decode_callable_export_kind`) stay in reader.rs.
+
+pub(super) fn encode_export_kind(kind: BinaryReprExportKind) -> u16 {
+    match kind {
+        BinaryReprExportKind::Func => 1,
+        BinaryReprExportKind::Type => 3,
+        BinaryReprExportKind::Union => 4,
+        BinaryReprExportKind::Enum => 5,
+    }
+}
+
+pub(super) fn is_exported_function(function: &Function) -> bool {
+    function.kind == FUNCTION_BINARY_REPR && function.flags & FUNCTION_FLAG_PRIVATE == 0
+}
+
+pub(super) fn function_sig_hash(
+    function: &Function,
+    export_kind: BinaryReprExportKind,
+    strings: &[String],
+    types: &TypeTable,
+    constants: &ConstPool,
+) -> Result<[u8; ABI_HASH_LEN], String> {
+    let mut serializer = AbiSerializer::new(strings, types, constants);
+    serializer.bytes.extend_from_slice(b"MFBABI\0");
+    serializer.put_u16(ABI_FORMAT_VERSION);
+    serializer.put_str("function");
+    serializer.put_u16(encode_export_kind(export_kind));
+    serializer.put_u16(function.flags & FUNCTION_FLAG_ISOLATED);
+    serializer.put_u32(function.params.len() as u32);
+    for param in &function.params {
+        serializer.serialize_type(param.type_id)?;
+        // plan-136-B: checked first, because a computed default's `defaultConst`
+        // is a function index, not a const id. Only the EXISTENCE of a computed
+        // default is ABI; its expression is not, so an internal change to one does
+        // not read as an ABI break.
+        if param.flags & PARAM_FLAG_DEFAULT_FUNCTION != 0 {
+            serializer.put_u8(2);
+        } else if param.default_const == u32::MAX {
+            serializer.put_u8(0);
+        } else {
+            serializer.put_u8(1);
+            serializer.serialize_const(param.default_const)?;
+        }
+    }
+    serializer.serialize_type(function.return_type)?;
+    Ok(hash_bytes(&serializer.bytes))
+}
+
+pub(super) fn type_sig_hash(
+    type_id: u32,
+    export_kind: BinaryReprExportKind,
+    strings: &[String],
+    types: &TypeTable,
+    constants: &ConstPool,
+) -> Result<[u8; ABI_HASH_LEN], String> {
+    let mut serializer = AbiSerializer::new(strings, types, constants);
+    serializer.bytes.extend_from_slice(b"MFBABI\0");
+    serializer.put_u16(ABI_FORMAT_VERSION);
+    serializer.put_str("type");
+    serializer.put_u16(encode_export_kind(export_kind));
+    serializer.serialize_type(type_id)?;
+    Ok(hash_bytes(&serializer.bytes))
+}

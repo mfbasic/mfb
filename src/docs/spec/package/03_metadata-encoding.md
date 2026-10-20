@@ -2,7 +2,7 @@
 
 Metadata sections use table formats with integer indexes. Strings are stored once in `STRING_POOL` and referenced by `stringId`.
 
-Indexes are zero-based. Readers check indexes as they resolve them; raw-table decoding does not eagerly validate every stored reference. [[src/binary_repr/reader.rs:read_function_table]] [[src/binary_repr/reader.rs:string_at]] [[src/binary_repr/reader.rs:type_name]]
+Indexes are zero-based. Readers check indexes as they resolve them; raw-table decoding does not eagerly validate every stored reference. [[src/binary_repr/reader/mod.rs:read_function_table]] [[src/binary_repr/reader/abi_index.rs:string_at]] [[src/binary_repr/reader/abi_index.rs:type_name]]
 
 ## `STRING_POOL`
 
@@ -53,11 +53,11 @@ The manifest repeats the container header identity: `packageName`,
 header carries keys rather than fingerprints). For an unsigned package `identKey`, `identFingerprint`, and
 `signingFingerprint` are empty. A signed build stamps these fields from the
 signing bundle (`apply_signing_metadata`); they are never read from the
-project manifest. [[src/binary_repr/reader.rs:validate_container_manifest_identity]][[src/cli/build/signing.rs:apply_signing_metadata]]
+project manifest. [[src/binary_repr/reader/mod.rs:validate_container_manifest_identity]][[src/cli/build/signing.rs:apply_signing_metadata]]
 
 Current compiler values (`encode_manifest`):
 
-* `binaryReprMajor`/`binaryReprMinor` are written as `1`/`0`, `languageMajor`/`languageMinor` as `1`/`0`, and `minimumRuntimeMajor`/`minimumRuntimeMinor` as `1`/`0`. These are emitted as fixed constants, not derived, and the reader (`read_manifest`) reads past them without validating. [[src/binary_repr/writer.rs:encode_manifest]]
+* `binaryReprMajor`/`binaryReprMinor` are written as `1`/`0`, `languageMajor`/`languageMinor` as `1`/`0`, and `minimumRuntimeMajor`/`minimumRuntimeMinor` as `1`/`0`. These are emitted as fixed constants, not derived, and the reader (`read_manifest`) reads past them without validating. [[src/binary_repr/writer/mod.rs:encode_manifest]]
 * `dependencyCount` equals the number of `IMPORT_TABLE` entries.
 * `nativeLinkCount` is **always `0`** — native binding counts are not surfaced here (native `LINK` data lives in the `IR` payload trailer). The reader reads and discards it.
 * `exportCount` equals the number of exported callable functions (see `EXPORT_TABLE`).
@@ -131,7 +131,7 @@ Export kinds the current compiler emits and the reader accepts:
 2 = reserved   (never written, rejected on read)
 ```
 
-The current `EXPORT_TABLE` carries **only callable exports** — exported `FUNC`s (kind `1`). `encode_exports` walks the function table and writes one entry per exported (non-private) function; `targetId` is that function's index in `FUNCTION_TABLE`, `flags` is `0`. The reader (`read_export_table` → `decode_callable_export_kind`) accepts only kind `1`. Kind `2` is rejected with a rebuild-the-package diagnostic; all other kinds besides `1` are rejected too. [[src/binary_repr/reader.rs:decode_callable_export_kind]] [[src/binary_repr/reader.rs:retired_sub_error]]
+The current `EXPORT_TABLE` carries **only callable exports** — exported `FUNC`s (kind `1`). `encode_exports` walks the function table and writes one entry per exported (non-private) function; `targetId` is that function's index in `FUNCTION_TABLE`, `flags` is `0`. The reader (`read_export_table` → `decode_callable_export_kind`) accepts only kind `1`. Kind `2` is rejected with a rebuild-the-package diagnostic; all other kinds besides `1` are rejected too. [[src/binary_repr/reader/abi_index.rs:decode_callable_export_kind]] [[src/binary_repr/reader/abi_index.rs:retired_sub_error]]
 
 Exported **types** (record/union/enum) are not listed in `EXPORT_TABLE`. They are surfaced through `TYPE_TABLE` and `ABI_INDEX` instead (the latter carrying their ABI hashes). Higher kind numbers for top-level `LET`/`MUT`, constructors, and native wrappers are not part of the current encoding.
 
@@ -178,11 +178,11 @@ The current declaration kinds in `ABI_INDEX` are exactly the kinds `encode_expor
 5 = exported enum type
 ```
 
-The ABI index emits one entry per exported function (kind `1`) followed by one entry per exported type whose ABI export kind is set (kinds `3`/`4`/`5`). [[src/binary_repr/sections.rs:from_project]] Exported constants, globals, native wrappers, and resource types are **not** currently given their own ABI entries — the kinds `6`-`10` are not produced. (A resource type does appear, but as its underlying record type, kind `3`.)
+The ABI index emits one entry per exported function (kind `1`) followed by one entry per exported type whose ABI export kind is set (kinds `3`/`4`/`5`). [[src/binary_repr/sections/mod.rs:from_project]] Exported constants, globals, native wrappers, and resource types are **not** currently given their own ABI entries — the kinds `6`-`10` are not produced. (A resource type does appear, but as its underlying record type, kind `3`.)
 
 Because `ABI_INDEX` lives inside `packageBinaryRepr`, the `packageBinaryHash` and the package signature already cover it — no header change is needed to trust it. The registry parses this section from a published package (string pool + `ABI_INDEX` only) and serves the resulting `{ "<symbol>": "<hex abiHash>" }` map as the `abiIndex` field of `GET /index`. `mfb repo check-abi` builds the working tree, reads its `ABI_INDEX`, and diffs it against the latest published version's served map, naming every changed or dropped symbol (both break the superset relation the resolver relies on).[[repository/src/abi.rs:parse_abi_index]][[src/cli/pkg/publish.rs:check_abi]]
 
-The hash input is built by `AbiSerializer` and begins with `MFBABI\0` followed by `abiFormatVersion` (u16, currently `1`; it gates the ABI_INDEX *wire encoding*, so a change to what the hash is computed over does not bump it — a stale hash is caught per symbol by `validate_abi_index` instead). For a **function** (`function_sig_hash`) the remaining input is: [[src/binary_repr/sections.rs:function_sig_hash]]
+The hash input is built by `AbiSerializer` and begins with `MFBABI\0` followed by `abiFormatVersion` (u16, currently `1`; it gates the ABI_INDEX *wire encoding*, so a change to what the hash is computed over does not bump it — a stale hash is caught per symbol by `validate_abi_index` instead). For a **function** (`function_sig_hash`) the remaining input is: [[src/binary_repr/sections/mod.rs:function_sig_hash]]
 
 * the literal string `"function"`,
 * the export kind (u16),
@@ -193,13 +193,13 @@ The hash input is built by `AbiSerializer` and begins with `MFBABI\0` followed b
 
 Note what is **not** in the function hash today: parameter names, resource ownership/non-owning/consume annotations, and explicit error/result behaviour. Two functions that differ only in those respects currently hash identically.
 
-For an exported **type** (`type_sig_hash`) the input is `MFBABI\0`, `abiFormatVersion`, the literal `"type"`, the export kind (u16), and the structural serialization of the type. [[src/binary_repr/sections.rs:type_sig_hash]] The structural serializer (`serialize_type`) encodes records as their field names + field types + visibility, unions as their variant names + variant fields, enums as their member names + ordinals, and the compiler-owned templates `List`/`Map`/`Result`/`Thread` and function types by a tag string (`"list"`/`"map"`/`"result"`/`"thread"`/`"function-type"`) plus their structurally-serialized component types. The remaining composites are serialized the same way: a resource carrying a `STATE` payload (kind `11`) by `"state"` plus its base type and its state type; `MapEntry` (kind `9`) by `"mapentry"` plus key and value types; `ThreadWorker` (kind `10`) by `"threadworker"` plus message and output types and, when present, its resource-plane type; and `Set` (kind `13`) by `"set"` plus its element type. Every defined kind is structural, so a hash never depends on this package's table type-id assignment; an unknown kind from a decoded table falls to an `"opaque"` arm hashed by its interned name. A package built before a kind became structural carries hashes `validate_abi_index` no longer reproduces and is refused until rebuilt. Foreign references (kind `12`) hash the owner package, type name, and owning ABI hash. Primitive types serialize by id + name; a back-reference scheme keeps recursive/shared types finite. [[src/binary_repr/sections.rs:serialize_type]] Reordering record fields, union variants, or enum members — or changing an ordinal — therefore changes the hash.
+For an exported **type** (`type_sig_hash`) the input is `MFBABI\0`, `abiFormatVersion`, the literal `"type"`, the export kind (u16), and the structural serialization of the type. [[src/binary_repr/sections/mod.rs:type_sig_hash]] The structural serializer (`serialize_type`) encodes records as their field names + field types + visibility, unions as their variant names + variant fields, enums as their member names + ordinals, and the compiler-owned templates `List`/`Map`/`Result`/`Thread` and function types by a tag string (`"list"`/`"map"`/`"result"`/`"thread"`/`"function-type"`) plus their structurally-serialized component types. The remaining composites are serialized the same way: a resource carrying a `STATE` payload (kind `11`) by `"state"` plus its base type and its state type; `MapEntry` (kind `9`) by `"mapentry"` plus key and value types; `ThreadWorker` (kind `10`) by `"threadworker"` plus message and output types and, when present, its resource-plane type; and `Set` (kind `13`) by `"set"` plus its element type. Every defined kind is structural, so a hash never depends on this package's table type-id assignment; an unknown kind from a decoded table falls to an `"opaque"` arm hashed by its interned name. A package built before a kind became structural carries hashes `validate_abi_index` no longer reproduces and is refused until rebuilt. Foreign references (kind `12`) hash the owner package, type name, and owning ABI hash. Primitive types serialize by id + name; a back-reference scheme keeps recursive/shared types finite. [[src/binary_repr/sections/abi_serializer.rs:serialize_type]] Reordering record fields, union variants, or enum members — or changing an ordinal — therefore changes the hash.
 
-`validate_abi_index` requires matching callable entries in both directions between `EXPORT_TABLE` and `ABI_INDEX`, and recomputes each callable hash from its function metadata. Type exports must match a named `TYPE_TABLE` candidate of the corresponding kind (or a foreign reference) whose recomputed hash agrees. The tables need not have the same length or order because only `ABI_INDEX` contains type exports. Manifest dependency and export counts must match `IMPORT_TABLE` and `EXPORT_TABLE`. [[src/binary_repr/reader.rs:validate_abi_index]] [[src/binary_repr/reader.rs:validate_manifest_counts]]
+`validate_abi_index` requires matching callable entries in both directions between `EXPORT_TABLE` and `ABI_INDEX`, and recomputes each callable hash from its function metadata. Type exports must match a named `TYPE_TABLE` candidate of the corresponding kind (or a foreign reference) whose recomputed hash agrees. The tables need not have the same length or order because only `ABI_INDEX` contains type exports. Manifest dependency and export counts must match `IMPORT_TABLE` and `EXPORT_TABLE`. [[src/binary_repr/reader/abi_index.rs:validate_abi_index]] [[src/binary_repr/reader/abi_index.rs:validate_manifest_counts]]
 
 `dependencyAbiCount` is validated against `IMPORT_TABLE` by package import name and package ident (`validate_abi_index` requires the sorted `(name, ident)` sets to match). Each dependency ABI entry repeats the requested `version` and `pin` state and records every imported symbol whose ABI shape was used while compiling this package, and the reader requires the dependency edge's `version`/`pin`/used-symbol list to match the corresponding `IMPORT_TABLE` entry exactly. These hashes are also present in `IMPORT_TABLE` so tools that only need dependency requirements can read one section.
 
-The encoded ABI declaration kinds are callable functions, records, unions, and enums. Constants and globals do not have standalone ABI entries. [[src/binary_repr/sections.rs:encode_export_kind]]
+The encoded ABI declaration kinds are callable functions, records, unions, and enums. Constants and globals do not have standalone ABI entries. [[src/binary_repr/sections/mod.rs:encode_export_kind]]
 
 ## See Also
 

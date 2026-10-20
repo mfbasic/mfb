@@ -27,7 +27,7 @@ point of the boundary:
   [[src/ir/binary/mod.rs:BINARY_REPR_VERSION]] [[src/ir/binary/mod.rs:decode_binary_repr]] Because the encoding is a faithful, structure-preserving
   serialization, a consumer **decodes it straight back into IR** and lowers it
   through the single `IR → NIR → native` codegen used for the executable's own
-  code — no second, package-only code path.[[src/binary_repr/reader.rs:read_binary_repr_package]]
+  code — no second, package-only code path.[[src/binary_repr/reader/mod.rs:read_binary_repr_package]]
 
 The binary representation layer lowers IR into an architecture-independent package
 image that starts with `MFPC` magic and contains sectioned data — a string pool,
@@ -128,7 +128,7 @@ The owning ABI hash is the compatibility gate: when two intermediaries were buil
 against ABI-incompatible versions of the shared dependency (or an intermediary's
 hash disagrees with the owner the consumer resolves), the consumer build is
 rejected rather than silently passing an incompatible value between them.
-[[src/binary_repr/sections.rs:type_id]] [[src/manifest/package.rs:verify_foreign_type_abi_consistency]]
+[[src/binary_repr/sections/type_table.rs:type_id]] [[src/manifest/package.rs:verify_foreign_type_abi_consistency]]
 
 ## MFP Package Container
 
