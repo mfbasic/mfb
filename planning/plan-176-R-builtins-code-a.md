@@ -40,10 +40,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-Q archived | `ls planning/plan-176-Q-* planning/completed/plan-176-Q-*` → only `planning/completed/` matches | NOT MET (2026-10-17) |
-| plan-176-D's canvas test splits have landed (D precedes Q) | `ls -d tests/canvas/rt_canvas_curves tests/canvas/rt_canvas_particles` → both directories exist | NOT MET (2026-10-17) |
-| The guard exists | `cargo test --test file_size_budget` passes | NOT MET (2026-10-17) |
-| R's files and every file R's sweeps edit have no uncommitted changes | `git status --porcelain -- src/codegen/builtins/audio src/codegen/builtins/big src/codegen/builtins/canvas src/codegen/runtime/canvas/curve_shader.rs src/codegen/runtime/canvas/mod.rs src/docs/spec/app/06_canvas.md src/docs/spec/stdlib/19_big.md tests/canvas tests/guards scripts/test-canvas-vulkan.sh .ai` → empty | NOT MET (2026-10-17: ` M src/docs/spec/app/06_canvas.md`, ` M tests/canvas/rt_canvas_group_ownership.rs`) |
+| plan-176-Q archived | `ls planning/plan-176-Q-* planning/completed/plan-176-Q-*` → only `planning/completed/` matches | MET (2026-10-20) |
+| plan-176-D's canvas test splits have landed (D precedes Q) | `ls -d tests/canvas/rt_canvas_curves tests/canvas/rt_canvas_particles` → both directories exist | MET (2026-10-20) |
+| The guard exists | `cargo test --test file_size_budget` passes | MET (2026-10-20) |
+| R's files and every file R's sweeps edit have no uncommitted changes | `git status --porcelain -- src/codegen/builtins/audio src/codegen/builtins/big src/codegen/builtins/canvas src/codegen/runtime/canvas/curve_shader.rs src/codegen/runtime/canvas/mod.rs src/docs/spec/app/06_canvas.md src/docs/spec/stdlib/19_big.md tests/canvas tests/guards scripts/test-canvas-vulkan.sh .ai` → empty | MET (2026-10-20: 0 lines) |
 
 Everything below assumes these rows hold.
 
@@ -656,9 +656,13 @@ starting commit.
 
 ### Phase 1: audio
 
-- [ ] `src/codegen/builtins/audio/gen_macos_stream.rs` → `gen_macos_stream/{mod,input}.rs` per §4.1.
-- [ ] `src/codegen/builtins/audio/gen_windows_io.rs` → keep + new `gen_windows_read.rs`,
+- [x] `src/codegen/builtins/audio/gen_macos_stream.rs` → `gen_macos_stream/{mod,input}.rs` per §4.1.
+      Done: `codesplit.py` → input 2 items + the `pub(crate) use input::{…}` re-export; 0 visibility edits.
+- [x] `src/codegen/builtins/audio/gen_windows_io.rs` → keep + new `gen_windows_read.rs`,
       `gen_windows_query.rs`, and the two `include!` lines in `gen_windows.rs` per §4.2.
+      Done: cut at old lines 598/1011 (both blank); each new fragment opens with a `//` header like its siblings;
+      the io fragment's first line, which listed the members that moved, now names the two siblings; `motion.py` →
+      only the four header lines.
 
 Acceptance: both audio emitters are split, with byte-identical native code on all five targets.
   Check: the R gate with `sh scripts/artifact-gate.sh target/release/mfb audio` → pass, no golden
@@ -666,6 +670,11 @@ Acceptance: both audio emitters are split, with byte-identical native code on al
   `grep -rn "gen_macos_stream\.rs" src tests scripts .ai tools` → no hit. File-size paths:
   `gen_macos_stream|gen_windows_io|gen_windows_read|gen_windows_query` (`gen_windows_io.rs` shows a
   `TIGHTEN` row because its path stays; tighten removes it) (est. 15 min).
+  Verified 2026-10-20: `bash scripts/artifact-gate.sh … audio` → 0 diffs; `codegen::builtins::audio
+  codegen::resource::tests` → 31 passed (= G0's 31); list 5018; check warnings 0; `spec_citations_resolve` ok; guards →
+  9, 8, 7 + 1 ignored; sweep → only the ceiling row; budget → `STALE … gen_macos_stream.rs` and `TIGHTEN code 517
+  (ceiling 1060) … gen_windows_io.rs`, none after; census → gen_macos_stream 547/511, gen_windows io/read/query
+  517/385/158.
 Commit: —
 
 ### Phase 2: big
@@ -815,6 +824,10 @@ Commit: —
 - R adds no exemption (there are none, owner 2026-10-18). Author.
 
 ## Corrections
+
+- 2026-10-20 — Every `sh scripts/artifact-gate.sh` runs as `bash` (the script needs bash). R-BID lives in
+  `target/p176/rbid.sh` and `target/p176/r-bid/` (this machine wipes `/tmp` on restart); its "before" was taken with
+  the release binary of `1baee5f18` → 23 rows.
 
 - 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule text and Decisions restated; D's test-part paths (`rt_canvas_curves/driver.rs`, `rt_canvas_particles/model.rs`) replaced by grep-located parts, and `rt_canvas_picture_fit.rs` (no longer split by D) edited in place; prerequisite command updated.
 

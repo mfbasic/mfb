@@ -292,6 +292,8 @@ fn spill_obj(field: usize, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
 
 include!("gen_windows_open.rs");
 include!("gen_windows_io.rs");
+include!("gen_windows_read.rs");
+include!("gen_windows_query.rs");
 include!("gen_windows_devices.rs");
 
 #[cfg(test)]

@@ -1,0 +1,546 @@
+//! plan-176-R: the macOS audio input stream — `lower_open_input` and `lower_close_input`. The
+//! output stream lives in `audio/gen_macos_stream/mod.rs`.
+
+use super::*;
+
+/// openInput(sampleRate, channels, bufferFrames) or the device overload.
+pub(crate) fn lower_open_input(
+    symbol: &str,
+    device: bool,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<AudioBodyParts, String> {
+    let invalid = format!("{symbol}_invalid");
+    let dev_fail = format!("{symbol}_dev_fail");
+    // plan-158-B: a failing Core Audio call reports its name and OSStatus.
+    let mut dev_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioDevice",
+        &format!("{symbol}_status_fail"),
+        STREAM_FAIL_STATUS_OFF,
+        STREAM_FAIL_PREFIX_OFF,
+    );
+    let mut unavailable_sites = StatusFailSites::new(
+        symbol,
+        "ErrAudioUnavailable",
+        &format!("{symbol}_status_unavailable"),
+        STREAM_FAIL_STATUS_OFF,
+        STREAM_FAIL_PREFIX_OFF,
+    );
+    let unavailable = format!("{symbol}_unavailable");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let buf_loop = format!("{symbol}_buf_loop");
+    let buf_done = format!("{symbol}_buf_done");
+    let done = format!("{symbol}_done");
+
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
+    let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v15 = vregs.next();
+    if device {
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), DEVID_OFF),
+            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), SR_OFF),
+            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), CH_OFF),
+            abi::store_u64(abi::c_arg(3), abi::stack_pointer(), BF_OFF),
+        ]);
+    } else {
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), SR_OFF),
+            abi::store_u64(abi::c_arg(1), abi::stack_pointer(), CH_OFF),
+            abi::store_u64(abi::c_arg(2), abi::stack_pointer(), BF_OFF),
+        ]);
+    }
+    // Zero the state slot so the open-error cleanup can tell the page was not yet
+    // mapped (nothing to munmap/dispose before mmap and AudioQueueNew* run).
+    instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE_OFF));
+    emit_validate_open(
+        symbol,
+        SR_OFF,
+        CH_OFF,
+        BF_OFF,
+        &invalid,
+        &mut instructions,
+        &mut vregs,
+    );
+    // §4.5: for the default overload, require a default input device.
+    if !device {
+        instructions.extend([
+            abi::move_immediate(&v9, "Integer", SEL_DEFIN),
+            abi::store_u32(&v9, abi::stack_pointer(), PRECHK_ADDR),
+            abi::move_immediate(&v9, "Integer", SCOPE_GLOBAL),
+            abi::store_u32(&v9, abi::stack_pointer(), PRECHK_ADDR + 4),
+            abi::store_u32(abi::ZERO, abi::stack_pointer(), PRECHK_ADDR + 8),
+            abi::move_immediate(&v9, "Integer", "4"),
+            abi::store_u32(&v9, abi::stack_pointer(), PRECHK_SIZE),
+            abi::store_u32(abi::ZERO, abi::stack_pointer(), PRECHK_ID),
+            abi::move_immediate(abi::return_register(), "Integer", SYS_OBJECT),
+            abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), PRECHK_ADDR),
+            abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+            abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+            abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), PRECHK_SIZE),
+            abi::add_immediate(abi::c_arg(5), abi::stack_pointer(), PRECHK_ID),
+        ]);
+        platform.emit_external_call(
+            "AudioObjectGetPropertyData",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(
+                &unavailable_sites.site("AudioObjectGetPropertyData", abi::return_register()),
+            ),
+            abi::load_u32(&v9, abi::stack_pointer(), PRECHK_ID),
+            abi::compare_immediate(&v9, "0"),
+            abi::branch_eq(&unavailable),
+        ]);
+    }
+    // bytesPerFrame, ringCap, mapSize.
+    instructions.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), CH_OFF),
+        abi::move_immediate(&v10, "Integer", "2"),
+        abi::multiply_registers(&v9, &v9, &v10),
+        abi::store_u64(&v9, abi::stack_pointer(), BPF_OFF),
+        // ringCap = bufferFrames * bytesPerFrame * NUM_BUFFERS
+        abi::load_u64(&v11, abi::stack_pointer(), BF_OFF),
+        abi::multiply_registers(&v11, &v11, &v9),
+        abi::move_immediate(&v12, "Integer", &NUM_BUFFERS.to_string()),
+        abi::multiply_registers(&v11, &v11, &v12),
+        abi::store_u64(&v11, abi::stack_pointer(), RINGCAP_OFF),
+        // mapSize = round_up(S_RING + ringCap, STATE_PAGE)
+        abi::add_immediate(&v11, &v11, S_RING),
+        abi::add_immediate(&v11, &v11, STATE_PAGE - 1),
+        abi::shift_right_immediate(&v11, &v11, 14),
+        abi::shift_left_immediate(&v11, &v11, 14),
+        abi::store_u64(&v11, abi::stack_pointer(), MAPSIZE_OFF),
+        // AudioHandle.
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &H_RECORD_SIZE.to_string(),
+        ),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::move_register(&v15, abi::mfb_return(1)),
+        abi::store_u64(&v15, abi::stack_pointer(), HANDLE_OFF),
+        // Canonical plan-80 header: tag@0, kind (handle)@8, closed@16, STATE@24.
+        abi::move_immediate(&v9, "Integer", RESOURCE_TAG_AUDIO),
+        abi::store_u64(&v9, &v15, RESOURCE_OFFSET_TAG),
+        // bug-755: a fresh record is unowned until a binding claims it.
+        abi::store_u64(abi::ZERO, &v15, RESOURCE_OFFSET_OWNER),
+        abi::store_u64(abi::ZERO, &v15, RESOURCE_OFFSET_STATE),
+        abi::move_immediate(&v9, "Integer", KIND_INPUT),
+        abi::store_u64(&v9, &v15, H_KIND),
+        abi::store_u64(abi::ZERO, &v15, H_CLOSED),
+        abi::load_u64(&v9, abi::stack_pointer(), SR_OFF),
+        abi::store_u64(&v9, &v15, H_SAMPLE_RATE),
+        abi::load_u64(&v9, abi::stack_pointer(), CH_OFF),
+        abi::store_u64(&v9, &v15, H_CHANNELS),
+        abi::load_u64(&v9, abi::stack_pointer(), BPF_OFF),
+        abi::store_u64(&v9, &v15, H_BYTES_PER_FRAME),
+        abi::load_u64(&v9, abi::stack_pointer(), BF_OFF),
+        abi::store_u64(&v9, &v15, H_BUFFER_FRAMES),
+        // mmap(0, mapSize, PROT, FLAGS, -1, 0)
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), MAPSIZE_OFF),
+        abi::move_immediate(abi::c_arg(2), "Integer", MMAP_PROT),
+        abi::move_immediate(abi::c_arg(3), "Integer", MMAP_FLAGS),
+        abi::bitwise_not(abi::c_arg(4), abi::ZERO),
+        abi::move_immediate(abi::c_arg(5), "Integer", "0"),
+    ]);
+    platform.emit_external_call(
+        "mmap",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::add_immediate(&v9, abi::return_register(), 1),
+        abi::compare_immediate(&v9, MAP_FAILED_CMP),
+        abi::branch_eq(&dev_fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v15, abi::stack_pointer(), HANDLE_OFF),
+        abi::store_u64(abi::return_register(), &v15, H_STATE),
+        abi::load_u64(&v15, abi::stack_pointer(), STATE_OFF),
+        abi::store_u64(abi::ZERO, &v15, S_XRUNS),
+        abi::store_u64(abi::ZERO, &v15, S_CLOSED),
+        abi::store_u64(abi::ZERO, &v15, S_STARTED),
+        abi::store_u64(abi::ZERO, &v15, S_RING_HEAD),
+        abi::store_u64(abi::ZERO, &v15, S_RING_TAIL),
+        abi::store_u64(abi::ZERO, &v15, S_RING_FILL),
+        abi::load_u64(&v9, abi::stack_pointer(), RINGCAP_OFF),
+        abi::store_u64(&v9, &v15, S_RING_CAP),
+        abi::load_u64(&v9, abi::stack_pointer(), MAPSIZE_OFF),
+        abi::store_u64(&v9, &v15, S_MAP_SIZE),
+    ]);
+    emit_pthread1(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_mutex_init",
+        STATE_OFF,
+        S_MUTEX,
+    )?;
+    emit_pthread1(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_cond_init",
+        STATE_OFF,
+        S_COND,
+    )?;
+    // ASBD.
+    instructions.extend([
+        abi::load_u64(&v9, abi::stack_pointer(), SR_OFF),
+        abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], &v9),
+        abi::store_double(abi::FP_SCRATCH[0], abi::stack_pointer(), ASBD_OFF),
+        abi::move_immediate(&v9, "Integer", FORMAT_LPCM),
+        abi::store_u32(&v9, abi::stack_pointer(), ASBD_OFF + 8),
+        abi::move_immediate(&v9, "Integer", FORMAT_FLAGS),
+        abi::store_u32(&v9, abi::stack_pointer(), ASBD_OFF + 12),
+        abi::load_u64(&v9, abi::stack_pointer(), BPF_OFF),
+        abi::store_u32(&v9, abi::stack_pointer(), ASBD_OFF + 16),
+        abi::move_immediate(&v10, "Integer", "1"),
+        abi::store_u32(&v10, abi::stack_pointer(), ASBD_OFF + 20),
+        abi::store_u32(&v9, abi::stack_pointer(), ASBD_OFF + 24),
+        abi::load_u64(&v9, abi::stack_pointer(), CH_OFF),
+        abi::store_u32(&v9, abi::stack_pointer(), ASBD_OFF + 28),
+        abi::move_immediate(&v9, "Integer", "16"),
+        abi::store_u32(&v9, abi::stack_pointer(), ASBD_OFF + 32),
+        abi::store_u32(abi::ZERO, abi::stack_pointer(), ASBD_OFF + 36),
+        // AudioQueueNewInput(&asbd, callback, handle, NULL, NULL, 0, &osobject)
+        abi::add_immediate(abi::return_register(), abi::stack_pointer(), ASBD_OFF),
+    ]);
+    emit_data_address(
+        symbol,
+        abi::c_arg(1),
+        AUDIO_INPUT_CALLBACK_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(4), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(5), "Integer", "0"),
+        abi::load_u64(abi::c_arg(6), abi::stack_pointer(), STATE_OFF),
+        abi::add_immediate(abi::c_arg(6), abi::c_arg(6), S_OSOBJECT),
+    ]);
+    platform.emit_external_call(
+        "AudioQueueNewInput",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&dev_sites.site("AudioQueueNewInput", abi::return_register())),
+    ]);
+    if device {
+        emit_select_device(
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            &dev_fail,
+            &mut dev_sites,
+            &mut vregs,
+        )?;
+    }
+    // Allocate NUM_BUFFERS buffers and enqueue each (input buffers must be
+    // enqueued to receive captured data).
+    instructions.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), I_OFF),
+        abi::label(&buf_loop),
+        abi::load_u64(&v9, abi::stack_pointer(), I_OFF),
+        abi::compare_immediate(&v9, &NUM_BUFFERS.to_string()),
+        abi::branch_eq(&buf_done),
+        abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
+        abi::load_u64(&v11, abi::stack_pointer(), BF_OFF),
+        abi::load_u64(&v12, abi::stack_pointer(), BPF_OFF),
+        abi::multiply_registers(&v11, &v11, &v12),
+        abi::move_register(abi::c_arg(1), &v11),
+        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), BUFPTR_OFF),
+    ]);
+    platform.emit_external_call(
+        "AudioQueueAllocateBuffer",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&dev_sites.site("AudioQueueAllocateBuffer", abi::return_register())),
+        // AudioQueueEnqueueBuffer(queue, buf, 0, NULL)
+        abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BUFPTR_OFF),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+    ]);
+    platform.emit_external_call(
+        "AudioQueueEnqueueBuffer",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&dev_sites.site("AudioQueueEnqueueBuffer", abi::return_register())),
+        abi::load_u64(&v9, abi::stack_pointer(), I_OFF),
+        abi::add_immediate(&v9, &v9, 1),
+        abi::store_u64(&v9, abi::stack_pointer(), I_OFF),
+        abi::branch(&buf_loop),
+        abi::label(&buf_done),
+        abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+        abi::move_immediate(&v9, "Integer", "1"),
+        abi::store_u64(&v9, &v10, S_STARTED),
+        abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+    ]);
+    platform.emit_external_call(
+        "AudioQueueStart",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&dev_sites.site("AudioQueueStart", abi::return_register())),
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&invalid),
+    ]);
+    emit_fail(
+        symbol,
+        "ErrInvalidArgument",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&unavailable));
+    emit_fail(
+        symbol,
+        "ErrAudioUnavailable",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    // The default-input precheck runs before anything is allocated.
+    unavailable_sites.emit_stubs(&v9, &mut instructions, &mut relocations);
+    instructions.push(abi::label(unavailable_sites.tail()));
+    unavailable_sites.emit_raise(&mut instructions, &mut relocations, &done);
+    dev_sites.emit_stubs(&v9, &mut instructions, &mut relocations);
+    instructions.push(abi::label(dev_sites.tail()));
+    emit_open_cleanup(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        &mut vregs,
+    )?;
+    dev_sites.emit_raise(&mut instructions, &mut relocations, &done);
+    instructions.push(abi::label(&dev_fail));
+    emit_open_cleanup(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        &mut vregs,
+    )?;
+    emit_fail(
+        symbol,
+        "ErrAudioDevice",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&done));
+    instructions.push(abi::return_());
+    Ok((instructions, relocations, F))
+}
+
+/// closeInput(input): drop captured data, stop, dispose, destroy, munmap.
+pub(crate) fn lower_close_input(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<AudioBodyParts, String> {
+    let already = format!("{symbol}_already");
+    let done = format!("{symbol}_done");
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
+    let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    instructions.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
+        abi::load_u64(&v9, abi::return_register(), H_CLOSED),
+        abi::compare_immediate(&v9, "0"),
+        abi::branch_ne(&already),
+        abi::load_u64(&v10, abi::return_register(), H_STATE),
+        abi::store_u64(&v10, abi::stack_pointer(), STATE_OFF),
+    ]);
+    // Set closed under the mutex first (a racing callback must not touch the ring).
+    emit_pthread1(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_mutex_lock",
+        STATE_OFF,
+        S_MUTEX,
+    )?;
+    instructions.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+        abi::move_immediate(&v9, "Integer", "1"),
+        abi::store_u64(&v9, &v10, S_CLOSED),
+    ]);
+    emit_pthread1(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_mutex_unlock",
+        STATE_OFF,
+        S_MUTEX,
+    )?;
+    instructions.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+    ]);
+    platform.emit_external_call(
+        "AudioQueueStop",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+    ]);
+    platform.emit_external_call(
+        "AudioQueueDispose",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_pthread1(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_cond_destroy",
+        STATE_OFF,
+        S_COND,
+    )?;
+    emit_pthread1(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_mutex_destroy",
+        STATE_OFF,
+        S_MUTEX,
+    )?;
+    instructions.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate(&v9, "Integer", "1"),
+        abi::store_u64(&v9, &v10, H_CLOSED),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::c_arg(1), abi::return_register(), S_MAP_SIZE),
+    ]);
+    platform.emit_external_call(
+        "munmap",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        // The success path used to FALL THROUGH into `already`, which shared its
+        // OK tag. It has to branch past the refusal now.
+        abi::branch(&done),
+        abi::label(&already),
+    ]);
+    // bug-525: an already-closed (or defaulted) stream is refused, not reported
+    // as success. `mfb spec language resource-management` §15: "an already-closed
+    // record is flagged, and a second close is a defined no-op reported as
+    // `ErrResourceClosed` rather than an operation on a dead handle" — the same
+    // answer `fs`, `tcp` and `udp` have always given. Letting a stream close at
+    // the end of its scope after an explicit close still costs nothing: lexical
+    // cleanup discards a close failure (§15).
+    emit_fail(
+        symbol,
+        "ErrResourceClosed",
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    Ok((instructions, relocations, F))
+}
