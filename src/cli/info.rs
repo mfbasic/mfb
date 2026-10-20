@@ -25,7 +25,6 @@ use crate::os::inspect::{inspect, Linking};
 use crate::terminal_safe::safe;
 
 #[cfg(test)]
-#[path = "info/tests.rs"]
 mod tests;
 
 /// The line printed for any file that carries no provenance note.

@@ -272,7 +272,7 @@ fi
 # today.
 #
 # The key is "the level differs from the default", and the default is `-O1` --
-# the flagless build IS `-O1` (`src/cli/build/mod.rs:1488`). So `MFB_OPT=1` is
+# the flagless build IS `-O1` (`impl Default for OptLevel` in `src/optimizer/mod.rs`). So `MFB_OPT=1` is
 # plan-100's explicit "-O1 == default" byte-identity gate and keeps comparing
 # everything, while `MFB_OPT=0` skips for the same reason `MFB_OPT=3` does: it
 # turns gated passes OFF, and the goldens were recorded with them on. A

@@ -942,26 +942,35 @@ Acceptance: the frontend tests run from their new modules; the spec still resolv
   475 after; `rules::tests::rule_codes_are_unique` → `ok. 1 passed`; census → ast 707/610/391/672, new files 387, 550,
   571, 785, 988, 249, 610, 276, 734, 384, hosts inline 2, 2, 2, 44, 21, 32, 11, 2, 2, 2; G3 fast tier → `test-fast: ok`
   (unit `4998 passed; 2 ignored`, which includes `spec_citations_resolve`; guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → 0.
-Commit: —
+Commit: 164268d8f
 
 ### Phase 3 — Manifest and CLI
 
-- [ ] Move `src/manifest/config.rs` tests per §4.7.
-- [ ] Move `src/manifest/libraries.rs` tests per §4.7.
-- [ ] Move `src/manifest/mod.rs` `mod tests` per §4.7 (`canvas_auto_paint_tests` stays inline).
-- [ ] Split `src/manifest/package.rs` tests per §4.5 (2 files).
-- [ ] Split `src/cli/build/mod.rs` tests per §4.3 (4 files; `builtin_codegen_corpora_lower_in_process`
+- [x] Move `src/manifest/config.rs` tests per §4.7.
+- [x] Move `src/manifest/libraries.rs` tests per §4.7.
+- [x] Move `src/manifest/mod.rs` `mod tests` per §4.7 (`canvas_auto_paint_tests` stays inline).
+- [x] Split `src/manifest/package.rs` tests per §4.5 (2 files).
+      Done: `planparts.py --plain` + `items.py extract` → mod.rs 36 tests, `edits_and_imports.rs` 46; `json` (a shared
+      helper the `--plain` scan picked up from "`project.json`" in the part's prose) taken back out of the part.
+- [x] Split `src/cli/build/mod.rs` tests per §4.3 (4 files; `builtin_codegen_corpora_lower_in_process`
       in `mod.rs`).
-- [ ] Move `src/cli/man.rs` tests per §4.7.
-- [ ] Move `src/cli/pkg.rs` tests per §4.7 (the `#[path = "pkg/command_tests.rs"]` declaration
+      Done: → mod.rs 30 tests (`builtin_codegen_corpora_lower_in_process` among them), options 44, signing 29, outputs 39.
+- [x] Move `src/cli/man.rs` tests per §4.7.
+- [x] Move `src/cli/pkg.rs` tests per §4.7 (the `#[path = "pkg/command_tests.rs"]` declaration
       stays as is).
-- [ ] Move `src/cli/resolve.rs` tests per §4.7.
-- [ ] Split `src/cli/info/tests.rs` per §4.2 (delete the file; create `src/cli/info/tests/`,
+- [x] Move `src/cli/resolve.rs` tests per §4.7.
+      Done (the six whole moves): `movemod.py` → 19, 19, 71 (`canvas_auto_paint_tests` stays inline), 49, 60 (the
+      `#[path = "pkg/command_tests.rs"]` pair stays), 27 tests; motion → only the module lines differ.
+- [x] Split `src/cli/info/tests.rs` per §4.2 (delete the file; create `src/cli/info/tests/`,
       2 files).
-- [ ] `scripts/test-accept.sh:275`: replace the stale `src/cli/build/mod.rs:1488` with
+      Done: `git mv` + `planparts.py --plain` (the `impl` blocks follow their types) → mod.rs 10 tests, `signed.rs` 13;
+      `info.rs`'s `#[path = "info/tests.rs"]` line removed, so `mod tests;` resolves to `info/tests/mod.rs`.
+- [x] `scripts/test-accept.sh:275`: replace the stale `src/cli/build/mod.rs:1488` with
       `` `impl Default for OptLevel` in `src/optimizer/mod.rs` `` (pre-existing defect, §2;
       `grep -n 'build/mod.rs:1488' scripts/test-accept.sh` → 0 after).
-- [ ] G4: tighten (every row naming one of the phase's nine files is TIGHTEN or STALE).
+      Done: → 0 hits; `bash -n scripts/test-accept.sh` → exit 0 (Corrections: `sh -n`).
+- [x] G4: tighten (every row naming one of the phase's nine files is TIGHTEN or STALE).
+      Done: → 1 STALE (`src/cli/info/tests.rs`) + 8 TIGHTEN `inline` rows; tighten drops exactly those nine; re-run → 0.
 
 Acceptance: the manifest and CLI tests run from their new modules.
   Check: G1 → equal; G2 `cargo test -p mfb --bin mfb manifest:: cli::` → 0 failed;
@@ -970,6 +979,10 @@ Acceptance: the manifest and CLI tests run from their new modules.
   `cargo test -p mfb --bin mfb -- --list 2>/dev/null | grep -c '^cli::build::tests::builtin_codegen_corpora_lower_in_process: test$'`
   → 1 (the `scripts/test-fast-skips.txt:21` entry still matches); `sh -n scripts/test-accept.sh`
   → exit 0; G3; G4; G5 (est. 15 min; `cli::build` tests build real executables).
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 650 passed`; path count → 491 before and
+  491 after (Corrections); `builtin_codegen_corpora_lower_in_process` path → 1; census → hosts inline 2, 2, 59, 2, 10,
+  2, 5, 2, 2, new files 283, 377, 936, 591/576, 825/503/529/876, 963, 891, 595, 390/671; G3 fast tier → `test-fast: ok`
+  (its skip list still matches; unit `4998 passed; 2 ignored`; guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
 Commit: —
 
 ### Phase 4 — Debugger
@@ -1063,6 +1076,11 @@ Commit: —
 - 2026-10-19 (execution): G0 is the full sorted `--list` in `target/p176/g0/` (`/tmp` is wiped by
   session restarts here); G1 compares count and leaf names. G2/G3 run through
   `bash scripts/test-fast.sh` (owner, 2026-10-18), on macOS only (owner, 2026-10-19).
+- 2026-10-19 (execution): Phase 3's count is 491, not 492: `manifest::package` has 82 tests in
+  source, but one is `#[cfg(windows)]`, so 81 list on macOS (G0's list → 81). `src/cli/info.rs`
+  declared its tests with `#[path = "info/tests.rs"]`; the move removes that line. Phase 3's
+  `sh -n scripts/test-accept.sh` check cannot pass: the script is bash (`#!/usr/bin/env bash`,
+  process substitution at :786) and `sh -n` fails on HEAD's copy too; `bash -n` → exit 0.
 
 ## Summary
 

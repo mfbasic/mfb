@@ -13,13 +13,8 @@ ceiling code 1570 src/ast/serialize.rs
 ceiling code 1180 src/binary_repr/reader.rs
 ceiling code 1161 src/binary_repr/sections.rs
 ceiling code 1111 src/binary_repr/writer.rs
-ceiling inline 2750 src/cli/build/mod.rs
-ceiling test 1059 src/cli/info/tests.rs
-ceiling inline 971 src/cli/man.rs
 ceiling code 2019 src/cli/pkg.rs
-ceiling inline 899 src/cli/pkg.rs
 ceiling code 1016 src/cli/resolve.rs
-ceiling inline 600 src/cli/resolve.rs
 ceiling code 1055 src/codegen/builtins/audio/gen_macos_stream.rs
 ceiling code 1060 src/codegen/builtins/audio/gen_windows_io.rs
 ceiling code 2148 src/codegen/builtins/big/gen_big.rs
@@ -103,11 +98,7 @@ ceiling code 2950 src/ir/shape.rs
 ceiling code 1203 src/ir/verify/mod.rs
 ceiling code 1153 src/ir/verify/resources.rs
 ceiling code 1199 src/lexer.rs
-ceiling inline 289 src/manifest/config.rs
-ceiling inline 380 src/manifest/libraries.rs
 ceiling code 1092 src/manifest/mod.rs
-ceiling inline 1002 src/manifest/mod.rs
-ceiling inline 1177 src/manifest/package.rs
 ceiling code 2521 src/monomorph/lower.rs
 ceiling code 1037 src/os/linux/link/elf.rs
 ceiling code 1496 src/resolver/resolution.rs
