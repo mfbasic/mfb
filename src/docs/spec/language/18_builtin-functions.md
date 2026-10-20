@@ -156,7 +156,7 @@ The **general (unqualified) built-ins** — `toString`, `len`, `typeName`, the `
 
 Implementation: every general name except `error` is overridable; [[src/codegen/builtins/general/mod.rs:is_overridable]] the gap-fill routing consults a user
 override **only** when the built-in's own resolution rejects the argument
-types, so a user overload can never shadow a type the built-in already handles. [[src/monomorph/lower.rs:resolve_general_builtin_override]]
+types, so a user overload can never shadow a type the built-in already handles. [[src/monomorph/lower/resolve.rs:resolve_general_builtin_override]]
 `toInt` accepts an enum argument through the resolver's kind oracle, [[src/codegen/builtins/general/mod.rs:resolve_call]]
 and lowers it to a register move of the value, which already is the member's
 0-based declaration index. [[src/codegen/engine/convert/builder_conversions.rs:lower_to_int]]

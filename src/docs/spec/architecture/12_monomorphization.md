@@ -70,7 +70,7 @@ beside `PUBLIC f(Integer, Integer)` is emitted as `f` (the PUBLIC one as
 byte-for-byte unchanged. A non-exported member is mangled whenever any sibling exists,
 so its symbol cannot equal an export's. Intra-package calls are unaffected: they
 resolve through `overload_names`, which maps each declaration to the symbol it was
-given. [[src/monomorph/lower.rs:Monomorphizer::new]]
+given. [[src/monomorph/lower/mod.rs:Monomorphizer::new]]
 
 **A `PRIVATE` member's set is its file's.** File-private scoping renames a `PRIVATE
 FUNC f` to `#<hash>$f`, and every reference to `f` inside that file with it, but
@@ -87,9 +87,9 @@ helper never renames them — `EXPORT r(Integer)` beside `PRIVATE r(String)` is
 exported as `r`. When the file's `PRIVATE f` is a template and its `PUBLIC f` is
 not (or the reverse), the file-scoped name reaches the `PUBLIC` declaration too,
 instantiated or called under its own name.
-[[src/monomorph/lower.rs:Monomorphizer::new]]
-[[src/monomorph/lower.rs:resolve_overload]]
-[[src/monomorph/lower.rs:template_name]]
+[[src/monomorph/lower/mod.rs:Monomorphizer::new]]
+[[src/monomorph/lower/resolve.rs:resolve_overload]]
+[[src/monomorph/lower/resolve.rs:template_name]]
 
 Imported-overload resolution recovers base names by **splitting on `$`** — it
 groups a package's exported `Func`/`Sub` symbols by the substring before the
@@ -125,7 +125,7 @@ single bounded diagnostic rather than re-reporting on every one of the
 
 ### Functions — `instantiate_function`
 
-For a call to a template function: [[src/monomorph/lower.rs:instantiate_function]]
+For a call to a template function: [[src/monomorph/lower/instantiate.rs:instantiate_function]]
 
 1. Look up every template of the base name (a name may carry several: a template
    overloads by signature like a plain `FUNC`, bug-913); non-template names return
@@ -167,7 +167,7 @@ For a call to a template function: [[src/monomorph/lower.rs:instantiate_function
 `concrete -> (base, args)` mapping in `type_instantiations` (used by
 `template_view_type` to invert mangling), and on first use lowers the template
 under the per-parameter substitution after the same total-instantiation budget
-and 256-frame depth cap used for functions. [[src/monomorph/lower.rs:instantiate_type]] A constructor
+and 256-frame depth cap used for functions. [[src/monomorph/lower/instantiate.rs:instantiate_type]] A constructor
 instantiates its type either from the expected (contextual) type, or by unifying
 field types against the constructor argument types.
 
@@ -183,7 +183,7 @@ field visibility checks treat an instantiated `PRIVATE` type or `PRIVATE` field
 as that file's, a diagnostic raised in the body cites that file and line, and
 `IrFunction::file` — the `ErrorLoc.filename` of a runtime failure in the body —
 names it. The result does not depend on the order of the source files.
-[[src/monomorph/lower.rs:into_project]]
+[[src/monomorph/lower/mod.rs:into_project]]
 
 A template the toolchain declares — a built-in package's injected source, the
 prelude's `Pair`/`Partition` — has no user file. Its instantiations are emitted
@@ -203,7 +203,7 @@ unless the file already imports that package — a package-qualified type resolv
 through any binding of its package. `HirFile::own_imports` is never widened.
 The mangled symbol of an instantiation and a package's export table do not
 depend on where the instantiation is emitted.
-[[src/monomorph/lower.rs:into_project]] [[src/hir/nodes.rs:HirFile]]
+[[src/monomorph/lower/mod.rs:into_project]] [[src/hir/nodes.rs:HirFile]]
 
 ## `unify_type`: structural matching with an `Unknown` wildcard
 
@@ -252,7 +252,7 @@ implements.
 ## `expression_type`: the local inference engine
 
 `expression_type(expr, context)` computes the argument types fed into unification
-and overload resolution. [[src/monomorph/lower.rs:expression_type]] It is a small,
+and overload resolution. [[src/monomorph/lower/types.rs:expression_type]] It is a small,
 context-driven inference pass — not a general type checker — and returns `None`
 when a type cannot be determined locally.
 
@@ -295,8 +295,8 @@ members whose `type_instantiations` entry names that template. Exactly one match
 becomes the pattern's type and the binding's; none, or more than one, is
 reported as `TYPE_MATCH_PATTERN_MISMATCH` in template spellings. Any other
 pattern goes through `concrete_type` like every other type position.
-[[src/monomorph/lower.rs:union_pattern_type]]
-[[src/monomorph/lower.rs:collect_union_instantiations]]
+[[src/monomorph/lower/types.rs:union_pattern_type]]
+[[src/monomorph/lower/types.rs:collect_union_instantiations]]
 
 ## Overload resolution
 
@@ -319,7 +319,7 @@ binding's type is known.
 
 ### `resolve_overload`
 
-`resolve_overload(name, arg_types, expected, line)`: [[src/monomorph/lower.rs:resolve_overload]]
+`resolve_overload(name, arg_types, expected, line)`: [[src/monomorph/lower/resolve.rs:resolve_overload]]
 
 - Returns `None` for an overridable built-in name (those route through
   `resolve_general_builtin_override`) or for a name with ≤1 declaration.
@@ -344,7 +344,7 @@ overridable general built-in (even a sole declaration). The built-in is
 authoritative for the types it already supports: an override is selected **only
 when** `general::resolve_call` rejects the argument types (the gap-fill rule). A
 non-matching call keeps the bare built-in name for codegen dispatch.
-[[src/monomorph/lower.rs:resolve_general_builtin_override]] The check is
+[[src/monomorph/lower/resolve.rs:resolve_general_builtin_override]] The check is
 kind-aware: it passes the resolver a `TypeKinds` oracle that answers from each
 declaration's kind (a source `ENUM`, or an imported package's), so a built-in
 that supports enums stays authoritative for them while a record override keeps
@@ -358,7 +358,7 @@ symbol never equals the built-in's dispatch name.
 A bare name in value position (`HirExpression::Identifier`) that names an
 overload set is rewritten to one member's concrete symbol by
 `resolve_function_reference`; it has no arguments, so the expected type alone
-selects. [[src/monomorph/lower.rs:resolve_function_reference]]
+selects. [[src/monomorph/lower/resolve.rs:resolve_function_reference]]
 
 - The set is the one a direct call resolves against: the project's declarations
   of the name with ≥2 members (`function_overloads`), or an imported package's
@@ -371,7 +371,7 @@ selects. [[src/monomorph/lower.rs:resolve_function_reference]]
   type is the expected one, but only when the built-in rejects that type's
   parameter types; otherwise the bare name stays for IR lowering's built-in
   reference handling, and nothing is reported here.
-  [[src/monomorph/lower.rs:resolve_builtin_override_reference]]
+  [[src/monomorph/lower/resolve.rs:resolve_builtin_override_reference]]
 - The expected type and each member's callable type are first made concrete with
   `concrete_type`, so a generic body's `FUNC(T) AS T` is compared after
   substitution and a user generic compares by its instantiated nominal. A member
@@ -418,7 +418,7 @@ one** user function (`single_signature_params` returns `None` for an overloaded,
 package, or unknown callee, and a callee that is a local binding supplies none),
 because that is the only place a return-type set nested as an argument, or an
 overloaded function passed as a callback, can resolve.
-[[src/monomorph/lower.rs:single_signature_params]] Literals always keep their own
+[[src/monomorph/lower/resolve.rs:single_signature_params]] Literals always keep their own
 inferred typing, never an expected type, in the argument-slot, return, map-entry
 and `WITH` positions. [[src/monomorph/helpers.rs:consults_expected]] A callback
 passed to an overloaded, package or built-in callee therefore has no expected
@@ -451,14 +451,14 @@ reaches its set through the binding of the file being lowered
 (`imported_overload_set`, from each file's own import bindings; a global
 initializer is lowered in its own file), and the rewrite target is
 `binding.mangledName` with that same binding, which the post-monomorph resolver
-maps per file. [[src/monomorph/lower.rs:imported_overload_set]]
+maps per file. [[src/monomorph/lower/resolve.rs:imported_overload_set]]
 
 `resolve_imported_overload(callee, arg_types)` then finds the candidate whose
 arity and per-position `types_compatible` match, returning that
 `binding.mangledName` target.
-[[src/monomorph/lower.rs:resolve_imported_overload]] `types_compatible` is token-wise
+[[src/monomorph/lower/resolve.rs:resolve_imported_overload]] `types_compatible` is token-wise
 equality with `Unknown` as a wildcard on either side.
-[[src/monomorph/lower.rs:types_compatible]] The match must be **unique**: because
+[[src/monomorph/lower/resolve.rs:types_compatible]] The match must be **unique**: because
 `Unknown` (from an untyped `[]` literal) matches any element type, a call like
 `f([])` against exports `f(List OF Integer)` and `f(List OF String)` matches both
 and is `TYPE_OVERLOAD_AMBIGUOUS` — annotate the argument
@@ -466,7 +466,7 @@ and is `TYPE_OVERLOAD_AMBIGUOUS` — annotate the argument
 would silently bind the call to whichever overload the package exported first. Both the declared parameter type and the
 actual argument type are first run through `normalize_type`, which strips every
 known qualifier prefix so an importer's `sqlite.Db` matches the package's bare
-`Db`. [[src/monomorph/lower.rs:normalize_type]]
+`Db`. [[src/monomorph/lower/resolve.rs:normalize_type]]
 
 ## `collections::` internalization
 
@@ -476,7 +476,7 @@ looked up by member and arity in `registry::rewrite_target_for_arity`. A matchin
 source-generic member is rewritten to its sigil-internalized implementation
 (such as `#collections_sort`) before instantiation. Native-direct members keep
 their qualified builtin target.
-[[src/monomorph/lower.rs:collections_internal_callee]] The set of collections binding
+[[src/monomorph/lower/resolve.rs:collections_internal_callee]] The set of collections binding
 names is computed once from the imports (`collections::collections_bindings`).
 Non-collections calls return the callee unchanged.
 
@@ -495,7 +495,7 @@ spells it (`registry::public_member_for_rewrite` maps `#collections_sort` back t
 `collections::sort`). A later call that reuses the cached instantiation appends its
 own site, and an instantiation made from inside such a body inherits the outermost
 user call, so a nested helper is attributed to it too.
-[[src/monomorph/lower.rs:user_instantiation_site]] [[src/hir/nodes.rs:InstantiationSite]]
+[[src/monomorph/lower/instantiate.rs:user_instantiation_site]] [[src/hir/nodes.rs:InstantiationSite]]
 
 The three passes that can report inside the body relocate to those sites: the
 monomorphizer's own `report` (to the current site), `ir::shape`'s `emit`, and

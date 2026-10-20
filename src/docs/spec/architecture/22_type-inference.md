@@ -163,7 +163,7 @@ so every call they check names one concrete, mangled symbol. Resolution requires
 (contextual) type is the tie-breaker for a set that differs only in return type;
 `TYPE_OVERLOAD_AMBIGUOUS` is raised when the inferred argument/expected types
 still leave the call unresolved. See `./mfb spec architecture monomorphization`
-(`resolve_overload`/`params_match`). [[src/monomorph/lower.rs:resolve_overload]]
+(`resolve_overload`/`params_match`). [[src/monomorph/lower/resolve.rs:resolve_overload]]
 
 An overloaded name used as a **value** (`LET f AS FUNC(Integer) AS Integer = pick`)
 has no arguments, so the monomorphizer selects it by the complete callable type
@@ -173,7 +173,7 @@ It reads the same contextual sources as a return-type overload (the monomorphize
 table "Expected-type propagation"). No expected type is `TYPE_OVERLOAD_AMBIGUOUS`;
 an expected type no member has is `TYPE_OVERLOAD_NO_MATCH`. A name that a local
 binding shadows is the local and is never selected this way, as a call or as a
-value. [[src/monomorph/lower.rs:resolve_function_reference]]
+value. [[src/monomorph/lower/resolve.rs:resolve_function_reference]]
 
 Registry-defined built-ins use their own signature/layout selection and may fill
 trailing defaults; they are not subject to the user-overload default prohibition.

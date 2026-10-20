@@ -9,7 +9,7 @@ applies to source dependencies: they are compiled to `.mfp` before the importer,
 which receives concrete declarations rather than the template source. This is a
 current restriction, not a promise about a future language version.
 [[src/cli/build/source_packages.rs:build_source_dependencies]]
-[[src/monomorph/lower.rs:into_project]]
+[[src/monomorph/lower/mod.rs:into_project]]
 
 Template parameters may appear only on `TYPE`, `UNION`, and `FUNC` declarations. A template is not a runtime entity and is not emitted to binary representation as an open declaration. Every used instantiation is resolved during compilation into a concrete declaration before IR, binary representation, package metadata, or native lowering is produced.
 
@@ -58,7 +58,7 @@ The `K` parameter above must be comparable because every concrete `Map` key type
 A package can publish explicitly named, non-template wrappers for its supported
 types. Calls from those wrappers instantiate the private template while the
 package itself is compiled; importers call the exported wrappers:
-[[src/monomorph/lower.rs:instantiate_function]]
+[[src/monomorph/lower/instantiate.rs:instantiate_function]]
 
 ```basic
 PRIVATE FUNC identity OF T(value AS T) AS T

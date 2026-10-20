@@ -815,18 +815,28 @@ Acceptance: name resolution and its diagnostics are byte-identical.
   Verified 2026-10-19: G1 → 0 / 37065 / 5017; `resolver::` → `ok. 105 passed`; G2 general, collections → 0 diffs;
   `test-accept.sh … '*invalid*'` → `acceptance tests passed (611 test(s) ran)`, no golden changed; G3 → ok +
   `wordcheck.py` 0 missing; G4 → 8, 8, 7 + 1 ignored; census → 383/2, 425, 529, 172; G6 → exit 0.
-Commit: —
+Commit: 860760b44
 
 ### Phase 4 — Monomorphizer
 
-- [ ] Split `src/monomorph/lower.rs` per §4.6 (five impl blocks, 1 widening, 23
+- [x] Split `src/monomorph/lower.rs` per §4.6 (five impl blocks, 1 widening, 23
       `pub(super)`); repoint 33 citations and `.ai/codegen-invariants.md:808`.
-- [ ] G5.
+      Done: `items.py split` (method-level) → resolve 12, instantiate 13 methods + 2 items, body 4, types 9 + 1;
+      `template_spellings` → `pub(in crate::monomorph)`; `pub(super)` from the compiler's errors → 22 (§4.6's 23
+      minus `arg_types_in_param_order`, whose only callers are in `instantiate.rs`); `motion.py` → only the
+      wiring, four new impl blocks and the visibility edits; `citesweep.py` → 33, `wordcheck.py` → 0 missing;
+      `.ai/codegen-invariants.md:808` → `lower/body.rs`, and its :467 historical mention gains "(now
+      `monomorph/lower/`)".
+- [x] G5.
+      Done: → 1 STALE `code` row (lower 2521); tighten drops it; re-run → 0.
 
 Acceptance: instantiation and overload selection are byte-identical.
   Check: G1; `cargo test -p mfb --bin mfb monomorph::` → 0 failed; G2 for `collections`,
   `general`, `thread` (generic collections, overloads and the thread plane drive the moved
   resolve/instantiate code); G3; G4; G6 (est. 15 min).
+  Verified 2026-10-19: G1 → 0 / 37065 / 5017; `monomorph::` → `ok. 71 passed`; G2 collections, general, thread
+  → 0 diffs; G3 → ok + `wordcheck.py` 0 missing; G4 → 8, 8, 7 + 1 ignored; census → 457/2, 464, 493, 745, 381;
+  G6 → exit 0.
 Commit: —
 
 ### Phase 5 — Builtin registry (largest blast radius)

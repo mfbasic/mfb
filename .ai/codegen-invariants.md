@@ -464,7 +464,7 @@ Sweeping a previously-skipped reference through the file-PRIVATE `rename` map (`
 
 Why: `mangle_private` produces `#<hash>$name`; user-facing diagnostics must never show the sigil form. `crate::internal_name::display_name(name)` demangles `#<hash>$name` → `name` (and `#pkg_helper` → `__pkg_helper`) and is a no-op on non-internal names.
 
-How to apply: when a diagnostic names a symbol that could be a mangled PRIVATE/internal name, wrap it in `internal_name::display_name(...)`. At the time of the fix, `display_name` was only used in `monomorph/lower.rs` — most checker/resolver messages interpolate names raw and are latent leaks the moment a mangled name can reach them. Verify with a full-pipeline `tests/syntax/*` fixture (golden `build.log`), not `check_src`, since the checker-only testutil does NOT run `scope_privates`.
+How to apply: when a diagnostic names a symbol that could be a mangled PRIVATE/internal name, wrap it in `internal_name::display_name(...)`. At the time of the fix, `display_name` was only used in `monomorph/lower.rs` (now `monomorph/lower/`) — most checker/resolver messages interpolate names raw and are latent leaks the moment a mangled name can reach them. Verify with a full-pipeline `tests/syntax/*` fixture (golden `build.log`), not `check_src`, since the checker-only testutil does NOT run `scope_privates`.
 
 ## Recursion over a LOCAL union lowers; over an IMPORTED union it does not
 
@@ -805,7 +805,7 @@ The dial's contract is that levels change emitted code, never results — at `-O
 
 ## Overload resolution has to stay in monomorph
 
-Monomorph picks an overload from argument types computed during the walk (`lower_expression` in `src/monomorph/lower.rs`); inside `foo OF T` those are the concrete substituted types, so the choice varies per instantiation. Before monomorph the leaves are still `Var`, so resolving earlier silently changes overloaded calls in generic code.
+Monomorph picks an overload from argument types computed during the walk (`lower_expression` in `src/monomorph/lower/body.rs`); inside `foo OF T` those are the concrete substituted types, so the choice varies per instantiation. Before monomorph the leaves are still `Var`, so resolving earlier silently changes overloaded calls in generic code.
 
 ## An `Unknown` template binding is provisional, not dropped
 
