@@ -461,7 +461,7 @@ Commit: 7077d7902
       inside string literals kept byte for byte) → part A 32 items / 8 tests, part B 20 items / 12 tests;
       `motion.py --strip` → only the 3 dropped module lines (`mod native {`, `use super::*;`, `}`) and the 3 added cfg'd
       lines differ, besides the `pub(super)` prefixes. `pub(super)`: 13 items (see Corrections), 4 methods, 1 field.
-- [ ] Linux compile check of `cli_dbg`'s Linux variants on box 2223 (Kali aarch64 glibc, the
+- [x] Linux compile check of `cli_dbg`'s Linux variants on box 2223 (Kali aarch64 glibc, the
       only box where `all(target_os = "linux", target_arch = "aarch64")` selects the native
       debugger parts and the `#[cfg(target_os = "linux")] signed_mfb`; `.ai/remote_systems.md`
       lists `/usr/bin/cargo` there):
@@ -490,21 +490,30 @@ Acceptance: both targets list and pass the same tests.
   `cli_dbg` tests (a 30 s prompt timeout; a worker arena not yet listed) while the container build loaded every core;
   `cargo test --test cli_dbg` alone → 21 passed in 11 s, and the rerun above is clean. Census → 520, 724, 68, 605, 806
   (rustfmt reflowed two expressions after the dedent: +1 in part A, −1 in part B). E4 → 0 rows; E5 → exit 0.
-Commit: —
+Commit: 76fefe06d
 
 ### Phase 3 — tests/common (largest blast radius)
 
 Every one of the 355 includers compiles `tests/common`. It lands last and alone.
 
-- [ ] Split `tests/common/mod.rs` per §4.4 into `mod.rs` + `process.rs`, with
+- [x] Split `tests/common/mod.rs` per §4.4 into `mod.rs` + `process.rs`, with
       `#[allow(unused_imports)]` and its comment on `pub use process::*;`.
-- [ ] Repoint `.ai/testing-gates.md:407` per §4.4
+      Done: `items.py split` → `process.rs` 21 items (both `own_process_group` cfg variants; the `#[cfg]` attributes
+      move with their items); motion check → 0 only before, only after = the 3 declaration/re-export lines.
+- [x] Repoint `.ai/testing-gates.md:407` per §4.4
       (`grep -c 'tests/common/mod.rs.s pty helpers' .ai/testing-gates.md` → 0).
-- [ ] Windows compile check (the `#[cfg(not(unix))]` variants of `own_process_group` and
+      Done: → 0.
+- [x] ~~Windows compile check (the `#[cfg(not(unix))]` variants of `own_process_group` and
       `run_bounded`'s timeout path compile only there):
       `cargo check --target x86_64-pc-windows-msvc --test cli_build_config --test app_special_keys --test cli_dbg`
-      → `Finished`, no warning (est. 5 min).
-- [ ] E4: tighten (`tests/common/mod.rs` → TIGHTEN, then removed).
+      → `Finished`, no warning (est. 5 min).~~ — moot: owner, 2026-10-19: "no test machines are up... just check
+      compile and running on macOS." Evidence of what was tried: box 206 → `ssh … Operation timed out`; a local
+      `--target x86_64-pc-windows-msvc` check needs a Windows C toolchain for `ring`/`libsqlite3-sys`. With stand-in
+      compilers it reached `Finished`, and its only warnings were 4 unused imports in `cli_dbg.rs`'s root (`Child`,
+      `mpsc`, `Duration`, `Read`/`Write`). Those imports fed the `cfg`'d `mod native` before the split too, so the
+      warnings are not from E.
+- [x] E4: tighten (`tests/common/mod.rs` → TIGHTEN, then removed).
+      Done: guard → `TIGHTEN test 597 (ceiling 1228) tests/common/mod.rs` only; tighten removes it; re-run → 0 rows.
 
 Acceptance: all 355 includers compile with no new warning, and both halves of `tests/common`
 are exercised.
@@ -519,6 +528,15 @@ are exercised.
   (`rt_json_bounds`), ncode checks (`codegen_tls_c_return_x86_64`). Est. 12 min.
   `python3 -I tools/loc-census/census.py --file <f>` → `tests/common/mod.rs` 597,
   `tests/common/process.rs` 635. E3; E4; E5.
+  Verified 2026-10-19 (macOS): `cargo check --all-targets` (all 355 includers) → 0 warnings, 0 errors; E1 over all 4 →
+  SAME 37, 8, 10, 21; `bash scripts/test-fast.sh --test cli_build_config --test cli_repo_publish --test cli_canvas_package
+  --test rt_tls_connect_allow_self_signed --test rt_native_io_runtime --test rt_json_bounds --test codegen_tls_c_return_x86_64
+  --test no_type_strings --test test_targets_registered` → `test-fast: ok` (9, 6, 7, 4, 15, 4, 1 passed); census → 597,
+  635; E4 → 0 rows; E5 → exit 0.
+  Final gate: budget rows → 0; `grep -cE 'tests/(cli|codegen|guards|common)/' tests/guards/file_size_ceilings.txt` → 1,
+  the file's header comment line, no `ceiling` row; clippy: no pre-Phase-1 count was recorded, so the check is per file —
+  `cargo clippy --all-targets 2>&1 | grep -E -- '--> tests/(cli/cli_dbg|cli/cli_repo_install|codegen/app_special_keys|guards/no_type_strings|common/(mod|process))(\.rs|/)'`
+  → 0 (the tree-wide total, 37065, is pre-existing and names none of E's files).
 Commit: —
 
 ## Validation Plan
@@ -611,6 +629,8 @@ Commit: —
   instead (every box refused the connection and UTM cannot start one from this session). The
   check's point is the target's `cfg` (`linux` + `aarch64`), which the container has; it also
   links and lists, which `cargo check` on the box would not.
+- 2026-10-19 — owner: "no test machines are up... just check compile and running on macOS."
+  Phase 3's Windows compile check is moot under that instruction (the task says what was tried).
 
 ## Summary
 

@@ -1,0 +1,788 @@
+//! plan-176-E: the `tests/common` helpers that run a child process: bounded runs
+//! (timeouts, process groups, RSS limits), the close/short-write interposers, stdio
+//! helpers and the pty drivers. Re-exported by `tests/common/mod.rs`, so every
+//! includer still names them `common::<item>`.
+
+use super::*;
+
+/// Spawn `executable`, capture stdout, and wait up to `timeout`. On timeout the
+/// child is killed and the test panics — `hang_context` names the specific hang
+/// each caller guards against (e.g. a reintroduced linear `^` loop). Poll
+/// interval is 25 ms; it is immaterial against these multi-second timeouts.
+///
+/// The child runs with its own directory as cwd. Without this it inherited the
+/// test process's cwd — the crate root — so any fixture doing relative file I/O
+/// (`fs::writeBytes("payload.bin", …)`) wrote **into the repository** and left
+/// the file behind when the test failed early. Anchoring cwd to the executable's
+/// directory keeps that I/O inside the temp project the caller already deletes.
+pub fn run_bounded(
+    executable: &Path,
+    timeout: Duration,
+    hang_context: &str,
+) -> (ExitStatus, String) {
+    let mut command = Command::new(executable);
+    if let Some(dir) = executable.parent() {
+        command.current_dir(dir);
+    }
+    run_bounded_command(command, executable, timeout, hang_context)
+}
+
+/// [`run_bounded`], but the program starts with ONLY stdin/stdout/stderr open.
+///
+/// A test that asserts something about the program's own file descriptors has to
+/// control what it inherits, and this process does not: a descriptor its own
+/// launcher left inheritable (no `FD_CLOEXEC`) is passed down the whole chain —
+/// runner → shell → cargo → this test binary → the program under test. On the
+/// GitHub Actions Linux and macOS runners two such pipes arrive at fds ~142/145,
+/// which is exactly what made `rt_process_spawn_no_fd_inherit`'s probe report
+/// `leaked=142:fifo,145:fifo` there while it reported `leaked=none` everywhere
+/// else (bug-543).
+///
+/// So drop them, in the forked child, before `exec`: every descriptor above 2
+/// that is NOT already close-on-exec is ambient contamination — nothing this
+/// process opened deliberately is inheritable, and `std`'s own spawn machinery
+/// (the pipe ends, the exec error pipe) sets `FD_CLOEXEC` on everything it makes.
+/// Closing only the non-CLOEXEC ones therefore removes the environment's leak and
+/// touches none of `std`'s. `fcntl`/`close` are async-signal-safe, which is what
+/// a `pre_exec` closure is allowed to call.
+///
+/// This narrows the child's inherited set; it does not relax any assertion.
+#[cfg(unix)]
+pub fn run_bounded_without_inherited_fds(
+    executable: &Path,
+    timeout: Duration,
+    hang_context: &str,
+) -> (ExitStatus, String) {
+    use std::os::unix::process::CommandExt;
+
+    let mut command = Command::new(executable);
+    if let Some(dir) = executable.parent() {
+        command.current_dir(dir);
+    }
+    // SAFETY: the closure calls only `fcntl` and `close`, both async-signal-safe,
+    // and allocates nothing.
+    unsafe {
+        command.pre_exec(|| {
+            for fd in 3..1024 {
+                let flags = libc::fcntl(fd, libc::F_GETFD);
+                if flags >= 0 && flags & libc::FD_CLOEXEC == 0 {
+                    libc::close(fd);
+                }
+            }
+            Ok(())
+        });
+    }
+    run_bounded_command(command, executable, timeout, hang_context)
+}
+
+/// Put `command`'s child in a process group of its own, so a timeout can kill
+/// everything it started (bug-600). Paired with [`kill_process_tree`].
+#[cfg(unix)]
+pub fn own_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+pub fn own_process_group(_command: &mut Command) {}
+
+/// Kill a timed-out child AND everything it spawned (bug-600).
+///
+/// `Child::kill` signals only the direct child. A program under test that ran
+/// `process::shell("probe | head")` leaves that pipeline behind, reparented to
+/// init, when the test gives up on it — and a probe that hangs by design (bug-543's
+/// `spam` writer under an inherited ignored SIGPIPE) then spins on a core forever.
+/// Measured: two such orphans ran for 5 days at ~65% CPU each before anyone
+/// noticed. The child was started as a group leader ([`own_process_group`]), so
+/// `killpg(child pid)` reaches every descendant that did not leave the group.
+pub fn kill_process_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // SAFETY: `killpg` is a plain syscall; the group id is the child's pid
+        // because `own_process_group` made it the group leader.
+        unsafe {
+            libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn run_bounded_command(
+    mut command: Command,
+    executable: &Path,
+    timeout: Duration,
+    hang_context: &str,
+) -> (ExitStatus, String) {
+    own_process_group(&mut command);
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn executable");
+    // Drain stdout while the child runs. Reading it only after exit deadlocks a
+    // child that writes more than the pipe buffer (~64 KB on macOS/Linux): its
+    // write blocks, it never exits, and the timeout below reports a "hang" that
+    // is the harness's own (found by bug-615's 88 KB corpus).
+    let mut pipe = child.stdout.take().expect("piped stdout");
+    let reader = std::thread::spawn(move || {
+        let mut stdout = String::new();
+        pipe.read_to_string(&mut stdout).ok();
+        stdout
+    });
+    let start = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().expect("try_wait") {
+            let stdout = reader.join().expect("stdout reader");
+            return (status, stdout);
+        }
+        if start.elapsed() > timeout {
+            kill_process_tree(&mut child);
+            panic!(
+                "executable {} did not finish within {timeout:?} — {hang_context}",
+                executable.display(),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+pub fn run_capture_with_env(executable: &Path, envs: &[(&str, String)]) -> (i32, String, String) {
+    let mut command = Command::new(executable);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let output = command.output().expect("run executable");
+    (
+        output.status.code().unwrap_or(-1),
+        String::from_utf8(output.stdout).expect("utf8 stdout"),
+        String::from_utf8(output.stderr).expect("utf8 stderr"),
+    )
+}
+
+/// Build a `close()` interposer that fails the close of a chosen fd, so a test
+/// can observe *that* the runtime closed a resource (and how it reports a close
+/// failure). Unix-only by construction: the shim is a `SYS_close` raw-syscall
+/// shared object injected with `LD_PRELOAD` / `DYLD_INSERT_LIBRARIES`, and
+/// Windows has neither the syscall interface nor a loader-level symbol-preload
+/// mechanism to hang it on. Callers are `#[cfg(unix)]` for the same reason.
+#[cfg(unix)]
+pub fn build_close_interposer(root: &Path) -> PathBuf {
+    let source = root.join("fail_close.c");
+    fs::write(
+        &source,
+        r#"
+#include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#if !defined(__APPLE__)
+#include <stdio.h>
+#endif
+
+static void mfb_marker_text(const char *text) {
+  const char *marker = getenv("MFB_INTERPOSER_MARKER");
+  if (marker && marker[0]) {
+    int fd = open(marker, O_WRONLY | O_CREAT | O_APPEND, 0600);
+    if (fd >= 0) {
+      write(fd, text, strlen(text));
+      syscall(SYS_close, fd);
+    }
+  }
+}
+
+__attribute__((constructor)) static void mfb_marker(void) {
+  const char *marker = getenv("MFB_INTERPOSER_MARKER");
+  if (marker && marker[0]) {
+    int fd = open(marker, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd >= 0) {
+      syscall(SYS_close, fd);
+    }
+  }
+  mfb_marker_text("loaded\n");
+}
+
+static int should_fail_close(int fd) {
+  const char *target = getenv("MFB_FAIL_CLOSE_PATH");
+  if (target && target[0]) {
+    if (strcmp(target, "*") == 0 && fd > 2) {
+      mfb_marker_text("fail\n");
+      errno = EIO;
+      return 1;
+    }
+    char path[4096];
+#if defined(__APPLE__)
+    if (fcntl(fd, F_GETPATH, path) == 0 && strcmp(path, target) == 0) {
+      errno = EIO;
+      return 1;
+    }
+#else
+    char link_path[64];
+    snprintf(link_path, sizeof(link_path), "/proc/self/fd/%d", fd);
+    ssize_t len = readlink(link_path, path, sizeof(path) - 1);
+    if (len >= 0) {
+      path[len] = '\0';
+      if (strcmp(path, target) == 0) {
+        errno = EIO;
+        return 1;
+      }
+    }
+#endif
+  }
+  return 0;
+}
+
+static long mfb_close(int fd) {
+  if (should_fail_close(fd)) {
+    return -1L;
+  }
+  return syscall(SYS_close, fd);
+}
+
+#if defined(__APPLE__)
+typedef struct {
+  const void *replacement;
+  const void *replacee;
+} interpose_t;
+__attribute__((used)) static const interpose_t interposers[] __attribute__((section("__DATA,__interpose"))) = {
+  { (const void *)mfb_close, (const void *)close }
+};
+#else
+int close(int fd) {
+  return (int)mfb_close(fd);
+}
+#endif
+"#,
+    )
+    .expect("write close interposer source");
+
+    let library = if cfg!(target_os = "macos") {
+        root.join("libfail_close.dylib")
+    } else {
+        root.join("libfail_close.so")
+    };
+    let mut command = Command::new("cc");
+    if cfg!(target_os = "macos") {
+        command.args(["-dynamiclib", "-o"]);
+    } else {
+        command.args(["-shared", "-fPIC", "-o"]);
+    }
+    command.arg(&library).arg(&source);
+    if !cfg!(target_os = "macos") {
+        command.arg("-ldl");
+    }
+    let output = command.output().expect("compile close interposer");
+    assert!(
+        output.status.success(),
+        "interposer build failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    library
+}
+
+pub fn run_with_stdin(executable: &Path, stdin: &[u8]) -> String {
+    let mut child = Command::new(executable)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        // Pipe stderr too: otherwise the child inherits the test harness's fd 2,
+        // which is a tty when `cargo test` runs in an interactive terminal, and
+        // `io::isErrorTerminal()` then reports TRUE instead of the expected FALSE.
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn executable");
+    let mut child_stdin = child.stdin.take().expect("stdin pipe");
+    child_stdin.write_all(stdin).expect("write stdin");
+    drop(child_stdin);
+    let output = child.wait_with_output().expect("wait for executable");
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("utf8 stdout")
+}
+
+/// Run `executable` with extra environment variables and empty stdin.
+///
+/// The env-driven test affordances (`MFB_WINAPP_INPUT`, `MFB_MOUSE_INJECT`) exist
+/// so a path that needs hardware — a keyboard, a mouse — can be exercised on a box
+/// that has neither, and over ssh. Only a `--debug` build reads `MFB_WINAPP_INPUT`;
+/// every build reads `MFB_MOUSE_INJECT`. Driving them needs the child's environment, not
+/// its stdin, which is what separates this from [`run_with_stdin`].
+pub fn run_with_env(executable: &Path, env: &[(&str, &str)]) -> String {
+    let mut command = Command::new(executable);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        // Piped for the same reason `run_with_stdin` pipes it: an inherited fd 2
+        // is a tty under an interactive `cargo test`.
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run executable");
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("utf8 stdout")
+}
+
+pub fn hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(DIGITS[(byte >> 4) as usize] as char);
+        out.push(DIGITS[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+/// The Python 3 interpreter that drives the helper scripts below. `python3` is
+/// the canonical name on Unix and is also what GitHub's Windows images put on
+/// PATH, but a stock python.org install on Windows ships only `python.exe` — so
+/// probe rather than fail with a bare "program not found". The Microsoft Store
+/// `python.exe` *alias stub* answers the probe with a non-zero exit, so checking
+/// the status (not just that the spawn succeeded) rejects it.
+pub fn python_exe() -> &'static str {
+    static NAME: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| {
+        for candidate in ["python3", "python"] {
+            let ok = Command::new(candidate)
+                .arg("--version")
+                .output()
+                .is_ok_and(|out| out.status.success());
+            if ok {
+                return candidate;
+            }
+        }
+        "python3"
+    })
+}
+
+pub fn decode_hex(value: &str) -> Vec<u8> {
+    fn nibble(byte: u8) -> u8 {
+        match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'a'..=b'f' => byte - b'a' + 10,
+            b'A'..=b'F' => byte - b'A' + 10,
+            _ => panic!("invalid hex byte {byte}"),
+        }
+    }
+
+    let bytes = value.as_bytes();
+    assert_eq!(bytes.len() % 2, 0, "hex output must have even length");
+    bytes
+        .chunks_exact(2)
+        .map(|pair| (nibble(pair[0]) << 4) | nibble(pair[1]))
+        .collect()
+}
+
+/// Run `executable` with stdout pointed at a **read-only** descriptor (the null
+/// device opened `O_RDONLY`). Any real write to fd 1 then fails deterministically
+/// on every platform — unlike a *closed* fd, a valid-but-read-only descriptor
+/// cannot be silently reopened or replaced by the runtime/loader, so this is the
+/// portable way to exercise the stdout-write failure path (bug-04: `io::flush` /
+/// `io::input` detect failures via `write`, not `fsync`).
+///
+/// The read-only descriptor is handed to `Popen` as the child's stdout directly
+/// rather than dup'd over fd 1 from a `preexec_fn`: `preexec_fn` is a fork-only
+/// hook that raises `ValueError` on Windows, and passing the descriptor is
+/// exactly equivalent (the POSIX form built a stdout pipe only to immediately
+/// replace it, so the child's stdout was never observable either way — hence the
+/// empty stdout line below).
+pub fn run_with_readonly_stdout(executable: &Path, stdin: &[u8]) -> (i32, String, String) {
+    let output = Command::new(python_exe())
+        .arg("-c")
+        .arg(
+            r#"import binascii, os, subprocess, sys
+stdin_data = bytes.fromhex(sys.argv[2])
+
+readonly_stdout = os.open(os.devnull, os.O_RDONLY)
+try:
+    proc = subprocess.Popen(
+        [sys.argv[1]],
+        stdin=subprocess.PIPE,
+        stdout=readonly_stdout,
+        stderr=subprocess.PIPE,
+    )
+finally:
+    os.close(readonly_stdout)
+_, err = proc.communicate(stdin_data)
+sys.stdout.write(str(proc.returncode) + "\n")
+sys.stdout.write("\n")
+sys.stdout.write(binascii.hexlify(err).decode("ascii") + "\n")"#,
+        )
+        .arg(executable)
+        .arg(hex(stdin))
+        .output()
+        .expect("run readonly-stdout helper");
+
+    assert!(
+        output.status.success(),
+        "readonly-stdout helper failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("utf8 helper output");
+    let mut lines = stdout.lines();
+    let status = lines
+        .next()
+        .expect("status line")
+        .parse::<i32>()
+        .expect("status code");
+    let child_stdout =
+        String::from_utf8(decode_hex(lines.next().expect("stdout line"))).expect("utf8 stdout");
+    let child_stderr =
+        String::from_utf8(decode_hex(lines.next().expect("stderr line"))).expect("utf8 stderr");
+    (status, child_stdout, child_stderr)
+}
+
+pub fn run_under_pty(executable: &Path) -> String {
+    String::from_utf8(run_under_pty_bytes(executable)).expect("utf8 stdout")
+}
+
+/// [`run_under_pty`], returning the raw bytes the child wrote to the tty — for a
+/// test that must see output which may not be valid UTF-8 (bug-725).
+pub fn run_under_pty_bytes(executable: &Path) -> Vec<u8> {
+    let output = Command::new("python3")
+        .arg("-c")
+        .arg(
+            r#"import fcntl, os, pty, select, struct, subprocess, sys, termios, time
+master, slave = pty.openpty()
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 100, 0, 0))
+# Hold a spare slave handle in the parent for the whole drain. Without it the
+# only slave references are the child's, so the pty is torn down the instant the
+# child exits -- and on macOS/BSD a master read after the last slave closes
+# returns EIO *and discards whatever the tty still had queued*. This child writes
+# three short lines and exits immediately, so on a loaded machine it routinely
+# beat the parent's first read and the helper returned zero bytes ("expected tty
+# output, got []"). Keeping a slave open means the tty survives the child, so the
+# queued bytes stay readable and the loop below ends on child exit rather than on
+# an EOF that races it.
+keep = os.dup(slave)
+proc = subprocess.Popen([sys.argv[1]], stdin=slave, stdout=slave, stderr=slave, close_fds=True)
+os.close(slave)
+chunks = []
+deadline = time.time() + 30.0
+while True:
+    ready, _, _ = select.select([master], [], [], 0.2)
+    if ready:
+        try:
+            data = os.read(master, 4096)
+        except OSError:
+            data = b""
+        if data:
+            chunks.append(data)
+            continue
+    if proc.poll() is not None:
+        # The child is gone and cannot write again; sweep the tty buffer dry.
+        while True:
+            ready, _, _ = select.select([master], [], [], 0.0)
+            if not ready:
+                break
+            try:
+                data = os.read(master, 4096)
+            except OSError:
+                data = b""
+            if not data:
+                break
+            chunks.append(data)
+        break
+    if time.time() > deadline:
+        proc.kill()
+        sys.stderr.write("timed out waiting for the pty child to exit\n")
+        sys.exit(124)
+os.close(keep)
+os.close(master)
+sys.stdout.buffer.write(b"".join(chunks))
+sys.exit(proc.wait())"#,
+        )
+        .arg(executable)
+        .output()
+        .expect("run pty helper");
+
+    assert!(
+        output.status.success(),
+        "pty run failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output.stdout
+}
+
+pub fn run_pty_prompt_interaction(executable: &Path, prompt: &str, input: &[u8]) -> String {
+    run_pty_prompt_interaction_inner(executable, prompt, input, false)
+}
+
+/// Like `run_pty_prompt_interaction`, but for the echo-suppressing reads
+/// (the keystroke readers and `readLine`): after the prompt appears, wait until the
+/// child has actually cleared the terminal `ECHO` flag before injecting input.
+///
+/// The child writes its prompt with echo still on (the prompt is a *separate*
+/// `io::write` statement — the runtime can't know an echo-suppressed read
+/// follows), then enters raw mode inside the read. Injecting the reply the
+/// instant the prompt is visible races that `tcsetattr`: if the byte lands while
+/// echo is still on, the kernel line discipline echoes it and the assertion
+/// flakes (deterministically under `cargo llvm-cov`, which perturbs scheduling).
+/// Gating the write on `ECHO` being cleared — the child is then blocked in
+/// `read()` — closes the window without a timing hack.
+pub fn run_pty_prompt_interaction_echo_off(
+    executable: &Path,
+    prompt: &str,
+    input: &[u8],
+) -> String {
+    run_pty_prompt_interaction_inner(executable, prompt, input, true)
+}
+
+pub fn run_pty_prompt_interaction_inner(
+    executable: &Path,
+    prompt: &str,
+    input: &[u8],
+    wait_echo_off: bool,
+) -> String {
+    let output = Command::new("python3")
+        .arg("-c")
+        .arg(
+            r#"import fcntl, os, pty, select, subprocess, sys, termios, time
+prompt = sys.argv[2].encode()
+reply = bytes.fromhex(sys.argv[3])
+wait_echo_off = sys.argv[4] == "1"
+master, slave = pty.openpty()
+# Keep a spare handle to the slave: it lets us read the child's termios after it
+# closes its own copies, and it keeps the pty alive across the child's exit so
+# the drain below cannot lose queued output (see that loop). Held until the very
+# end -- the drain therefore ends on child exit, not on an EOF it would race.
+echo_probe = os.dup(slave)
+proc = subprocess.Popen([sys.argv[1]], stdin=slave, stdout=slave, stderr=slave, close_fds=True)
+os.close(slave)
+chunks = []
+seen = b""
+deadline = time.time() + 5.0
+while prompt not in seen:
+    remaining = deadline - time.time()
+    if remaining <= 0:
+        proc.kill()
+        sys.stderr.write("timed out waiting for prompt; saw %r\n" % seen)
+        sys.exit(124)
+    ready, _, _ = select.select([master], [], [], remaining)
+    if not ready:
+        continue
+    data = os.read(master, 4096)
+    if not data:
+        break
+    chunks.append(data)
+    seen += data
+if wait_echo_off:
+    echo_deadline = time.time() + 5.0
+    while True:
+        try:
+            lflag = termios.tcgetattr(echo_probe)[3]
+        except OSError:
+            break
+        if not (lflag & termios.ECHO):
+            break
+        if time.time() > echo_deadline:
+            proc.kill()
+            sys.stderr.write("timed out waiting for child to disable echo\n")
+            sys.exit(124)
+        time.sleep(0.001)
+os.write(master, reply)
+# `echo_probe` stays open through this drain (it is the spare slave handle), for
+# the same reason `run_under_pty` holds one: once the child's are the only slave
+# references left, its exit tears the pty down and a macOS/BSD master read then
+# returns EIO *and drops whatever was still queued*. Every caller here asserts on
+# output the child prints immediately before exiting, so that tail is exactly
+# what would be lost. Ending the loop on child exit instead of on EOF removes the
+# race; the sweep afterwards takes whatever the tty still holds.
+deadline = time.time() + 30.0
+while True:
+    ready, _, _ = select.select([master], [], [], 0.2)
+    if ready:
+        try:
+            data = os.read(master, 4096)
+        except OSError:
+            data = b""
+        if data:
+            chunks.append(data)
+            continue
+    if proc.poll() is not None:
+        while True:
+            ready, _, _ = select.select([master], [], [], 0.0)
+            if not ready:
+                break
+            try:
+                data = os.read(master, 4096)
+            except OSError:
+                data = b""
+            if not data:
+                break
+            chunks.append(data)
+        break
+    if time.time() > deadline:
+        proc.kill()
+        sys.stderr.write("timed out waiting for process exit\n")
+        sys.exit(124)
+os.close(echo_probe)
+os.close(master)
+sys.stdout.buffer.write(b"".join(chunks))
+sys.exit(proc.wait())"#,
+        )
+        .arg(executable)
+        .arg(prompt)
+        .arg(hex(input))
+        .arg(if wait_echo_off { "1" } else { "0" })
+        .output()
+        .expect("run pty prompt helper");
+
+    assert!(
+        output.status.success(),
+        "pty prompt run failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("utf8 pty prompt output")
+}
+
+/// Build a `write()` interposer that caps every call to 4096 bytes, forcing the
+/// short *positive* returns that bug-51's output loops must survive. macOS routes
+/// `write` through libSystem, so a `__DATA,__interpose` shim reaches the mfb
+/// binary; linux-x86_64 issues a raw `write` syscall that no libc interposer can
+/// hook, so this validation is macOS-only.
+#[cfg(target_os = "macos")]
+pub fn build_short_write_interposer(root: &Path) -> PathBuf {
+    let source = root.join("short_write.c");
+    fs::write(
+        &source,
+        r#"
+#include <stdlib.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+static long mfb_short_write(int fd, const void *buf, unsigned long n) {
+  unsigned long cap = n > 4096 ? 4096 : n;
+  return syscall(SYS_write, fd, buf, (size_t)cap);
+}
+
+typedef struct {
+  const void *replacement;
+  const void *replacee;
+} interpose_t;
+__attribute__((used)) static const interpose_t interposers[] __attribute__((section("__DATA,__interpose"))) = {
+  { (const void *)mfb_short_write, (const void *)write }
+};
+"#,
+    )
+    .expect("write short-write interposer source");
+    let library = root.join("libshort_write.dylib");
+    let output = Command::new("cc")
+        .args(["-dynamiclib", "-o"])
+        .arg(&library)
+        .arg(&source)
+        .output()
+        .expect("compile short-write interposer");
+    assert!(
+        output.status.success(),
+        "interposer build failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    library
+}
+
+/// `run_bounded`, plus the child's **peak resident set size** in bytes.
+///
+/// bug-510: the decoder-bound tests assert that a program's memory stays a small
+/// multiple of its input, and `Command::output` cannot say what a child's peak
+/// was. `wait4(2)` can — `ru_maxrss` is filled for the *specific* child reaped —
+/// which is also why `getrusage(RUSAGE_CHILDREN)` is the wrong tool here: it
+/// folds every terminated child in, and the `mfb build` that produced the
+/// executable is a child of this process too. The child is reaped with
+/// `WNOHANG` polls under the same deadline discipline as `run_bounded`, because a
+/// bomb's failure mode is "still running" and a blocking wait would sit there for
+/// as long as the bomb lasts. `ru_maxrss` is bytes on macOS and kibibytes on
+/// Linux; the result is normalised to bytes. Non-Unix hosts get `None` for the
+/// size and the caller skips the memory assertion.
+pub fn run_bounded_with_rss(
+    executable: &Path,
+    timeout: Duration,
+    hang_context: &str,
+) -> (ExitStatus, String, Option<u64>) {
+    let mut command = Command::new(executable);
+    if let Some(dir) = executable.parent() {
+        command.current_dir(dir);
+    }
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn executable");
+    // Drain stdout on its own thread: a child that fills the pipe while we only
+    // poll for exit would block forever, which reads as a hang.
+    let mut pipe = child.stdout.take().expect("piped stdout");
+    let reader = std::thread::spawn(move || {
+        let mut out = String::new();
+        pipe.read_to_string(&mut out).ok();
+        out
+    });
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        let pid = child.id() as libc::pid_t;
+        let start = Instant::now();
+        loop {
+            let mut status: libc::c_int = 0;
+            let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+            let reaped = unsafe { libc::wait4(pid, &mut status, libc::WNOHANG, &mut usage) };
+            if reaped == pid {
+                let stdout = reader.join().expect("stdout reader");
+                let raw = usage.ru_maxrss as u64;
+                let bytes = if cfg!(target_os = "macos") {
+                    raw
+                } else {
+                    raw * 1024
+                };
+                return (ExitStatus::from_raw(status), stdout, Some(bytes));
+            }
+            if reaped < 0 {
+                panic!("wait4({pid}) failed: {}", std::io::Error::last_os_error());
+            }
+            if start.elapsed() > timeout {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!(
+                    "executable {} did not finish within {timeout:?} — {hang_context}",
+                    executable.display(),
+                );
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let start = Instant::now();
+        loop {
+            if let Some(status) = child.try_wait().expect("try_wait") {
+                let stdout = reader.join().expect("stdout reader");
+                return (status, stdout, None);
+            }
+            if start.elapsed() > timeout {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!(
+                    "executable {} did not finish within {timeout:?} — {hang_context}",
+                    executable.display(),
+                );
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+}

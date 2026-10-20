@@ -404,7 +404,7 @@ Two phantom reds this produced, both pure staleness (not regressions):
 
 ## A pty helper must outlive its child, or macOS eats the output
 
-`tests/common/mod.rs`'s pty helpers (`run_under_pty`,
+`tests/common/process.rs`'s pty helpers (`run_under_pty`,
 `run_pty_prompt_interaction_inner`) drive a child through a real tty. Both used to
 close the parent's `slave` fd right after `Popen` and drain the master until EOF.
 That is a race, and it is only ever lost on a loaded machine:
