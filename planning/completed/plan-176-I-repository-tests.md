@@ -880,7 +880,7 @@ Acceptance: the server suite runs from 9 parts with every count unchanged.
   Final gate: `cargo test -p mfb_repository` → exit 0 (lib `450 passed`, bin `24 passed`, `tests/s3_backend.rs` and
   the doc tests `0 passed`); the banner grep over the 12 hosts → no output; the ceiling file keeps only the three
   `ceiling code` rows of client.rs (1445), server.rs (3056) and store.rs (3431), which L owns.
-Commit: —
+Commit: 4e26a2510
 
 ## Validation Plan
 
