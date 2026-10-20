@@ -358,14 +358,43 @@ fn no_constructed_vreg_name() {
 /// (crypto/io) carry no `_os_seam` construct at all. So: ban the `_os_seam`
 /// identifier everywhere in `src/codegen/builtins` (and a `func_*.rs` `body:` that
 /// registers a `*_native(` package shell wrapping one). Hard floor of 0.
+/// Whether `path` is a member's `func_*` lowering for the check below: its own file name, or
+/// any directory between `root` and it, starts with `func_`. The directory half keeps a split
+/// member (`func_x.rs` → `func_x/{mod,part}.rs`, plan-176-O) in the check.
+fn func_named(root: &Path, path: &Path) -> bool {
+    let Ok(rel) = path.strip_prefix(root) else {
+        return false;
+    };
+    rel.components().any(|part| {
+        part.as_os_str()
+            .to_str()
+            .is_some_and(|n| n.starts_with("func_"))
+    })
+}
+
+/// The old rule read only a file's own name, so a split member's parts left the check
+/// silently; these are the cases that pins (plan-176-O §4.0).
+#[test]
+fn func_named_takes_files_under_func_directories() {
+    let root = Path::new("/r/src/codegen/builtins");
+    assert!(func_named(root, &root.join("net/func_connect/part.rs")));
+    assert!(func_named(root, &root.join("net/func_connect/mod.rs")));
+    assert!(func_named(root, &root.join("net/func_connect.rs")));
+    assert!(!func_named(root, &root.join("net/gen_io/part.rs")));
+    assert!(!func_named(root, &root.join("net/other/part.rs")));
+    // A `func_` directory ABOVE the root does not count.
+    let nested = Path::new("/r/func_top/src/codegen/builtins");
+    assert!(!func_named(nested, &nested.join("net/part.rs")));
+}
+
 #[test]
 fn no_cross_member_os_seam_dispatcher() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest.join("src/codegen/builtins");
     let mut offenders: Vec<String> = Vec::new();
-    for path in rs_files(&[root]) {
+    for path in rs_files(&[root.clone()]) {
         let src = std::fs::read_to_string(&path).expect("read source");
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let member_file = func_named(&root, &path);
         for (line_no, line) in code_above_tests(&src).lines().enumerate() {
             let t = line.trim_start();
             if t.starts_with("//") {
@@ -376,10 +405,7 @@ fn no_cross_member_os_seam_dispatcher() {
             // per-member shell that reaches it — all name `_os_seam`.
             if line.contains("_os_seam") {
                 offenders.push(format!("{rel}:{}", line_no + 1));
-            } else if name.starts_with("func_")
-                && line.contains("body:")
-                && line.contains("_native(")
-            {
+            } else if member_file && line.contains("body:") && line.contains("_native(") {
                 // A `func_*.rs` registering a `<pkg>_native(...)` shell (net's idiom)
                 // that returns the shared `_os_seam` body.
                 offenders.push(format!(

@@ -41,9 +41,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-N is archived | `ls planning/plan-176-N-* planning/completed/plan-176-N-*` → only the `planning/completed/` path | NOT MET (2026-10-14) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-14; lands in plan-176-A) |
-| O's files have no uncommitted changes | `git status --porcelain -- src/arch/aarch64/decode src/arch/aarch64/encode src/arch/riscv64/v128.rs src/arch/x86_64/encode src/binary_repr src/codegen/cleanup/owned src/codegen/debug src/codegen/link/thunk src/codegen/os/socket src/os/linux/link src/codegen/engine/tests tests/guards .ai src/docs/spec` → empty | MET for every path except `src/docs/spec` (2026-10-14: ` M src/docs/spec/app/06_canvas.md`, a file O does not edit) — NOT MET as a row |
+| plan-176-N is archived | `ls planning/plan-176-N-* planning/completed/plan-176-N-*` → only the `planning/completed/` path | MET (2026-10-19) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19) |
+| O's files have no uncommitted changes | `git status --porcelain -- src/arch/aarch64/decode src/arch/aarch64/encode src/arch/riscv64/v128.rs src/arch/x86_64/encode src/binary_repr src/codegen/cleanup/owned src/codegen/debug src/codegen/link/thunk src/codegen/os/socket src/os/linux/link src/codegen/engine/tests tests/guards .ai src/docs/spec` → empty | MET (2026-10-19: 0 lines) |
 
 Everything below is written against the world where these hold. plan-176-J (an earlier letter)
 has already moved the two inline test blocks this letter's files carried over the 250 inline
@@ -605,22 +605,28 @@ Same visibility recipe as the reader (`binary_repr/mod.rs:54 use writer::*;`): p
 > person who has to decide whether to stop — is entitled to trust that.
 
 Before Phase 1, once: `cargo test -p mfb --bin mfb -- --list 2>/dev/null | grep -c ': test$'` →
-record the number in this line as the O baseline (est. 4 min). Before each phase:
+record the number in this line as the O baseline (est. 4 min). Baseline: 5017 (at `5a9ab63f5`). Before each phase:
 `cargo build --release && cp target/release/mfb /tmp/mfb-before-O`.
 
 ### Phase 1 — Prefix scans take split directories; aarch64 decoder
 
 The scan widening lands first, alone with the lowest-risk split (code no artifact contains).
 
-- [ ] §4.0: locate `collect_builder_sources` and `no_cross_member_os_seam_dispatcher`
+- [x] §4.0: locate `collect_builder_sources` and `no_cross_member_os_seam_dispatcher`
       (`grep -rn "fn collect_builder_sources\|fn no_cross_member_os_seam_dispatcher" src tests`);
       add `is_lowering_source(root, path)` and `func_named(root, path)`, route both scans through
       them, and add the two predicate `#[test]`s (part file, `mod.rs`, plain prefixed file → true;
       unprefixed part, prefixed dir above the root → false). The commit message carries the §4.0
       4-point justification.
-- [ ] §4.1: `git mv src/arch/aarch64/decode/vector.rs src/arch/aarch64/decode/vector/mod.rs`;
+      Done: `is_lowering_source` is a module-level fn in `src/codegen/engine/tests/tests.rs` (the walker
+      `collect_builder_sources` is nested inside the test, so the predicate and its test sit beside that test);
+      `func_named` in `architecture_guards.rs` (the scan root is now cloned into `rs_files`). Tests
+      `is_lowering_source_takes_files_under_prefixed_directories` and
+      `func_named_takes_files_under_func_directories`.
+- [x] §4.1: `git mv src/arch/aarch64/decode/vector.rs src/arch/aarch64/decode/vector/mod.rs`;
       create `vector/scalar.rs` (937-1302); `scalar` → `pub(super)`; `mod scalar; use scalar::scalar;`.
-- [ ] Tighten and commit the ceiling file.
+      Done: `codesplit.py` → scalar 11 items; `motion.py` → only the wiring and the one `pub(super)`.
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: both scans still pass and now read files under prefixed directories; the decoder
 decodes identically.
@@ -634,6 +640,11 @@ decodes identically.
   → pass, count before == after (11 decoder tests incl. the lldb-corpus parity; est. 3 min).
   `cargo check --all-targets` → no new warning (est. 2 min). `cargo test --test file_size_budget 2>&1 | grep 'decode/vector'`
   → one `STALE` row before the tighten, none after (est. 2 min).
+  Verified 2026-10-19: `no_overflow_label_returns_through_the_result_tag_register is_lowering_source` → `ok. 2
+  passed`; `architecture_guards` → `ok. 9 passed` (incl. `func_named_…`); widened population → 760 files (the
+  file-name rule alone → 751; the planning-time 754/747 predate letters E–N); `arch::aarch64::decode debugger::`
+  → 190 passed + 1 ignored (= the G0 list's 191); check warnings 0; list 5018 (baseline + 1, the engine predicate
+  test); budget → one `STALE code (ceiling 1202) …decode/vector.rs` before, none after; census → 855, 350.
 Commit: —
 
 ### Phase 2 — Encoders: aarch64 emitter, x86-64 emitter, riscv64 `v128`

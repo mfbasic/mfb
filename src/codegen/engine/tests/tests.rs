@@ -284,6 +284,45 @@ fn variable_width_element_types_are_not_fixed_width() {
     }
 }
 
+/// Whether `path` is codegen lowering source for the overflow-label scan below: a `.rs` file
+/// whose own name, or any directory between `root` and it, starts with `builder_`, `func_` or
+/// `gen_`. The directory half keeps a split carrier in the scan (plan-176-O): `builder_x.rs`
+/// becomes `builder_x/mod.rs` + `builder_x/part.rs`, and `part.rs` carries no prefix itself.
+fn is_lowering_source(root: &std::path::Path, path: &std::path::Path) -> bool {
+    const PREFIXES: [&str; 3] = ["builder_", "func_", "gen_"];
+    if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+        return false;
+    }
+    let Ok(rel) = path.strip_prefix(root) else {
+        return false;
+    };
+    rel.components().any(|part| {
+        part.as_os_str()
+            .to_str()
+            .is_some_and(|n| PREFIXES.iter().any(|p| n.starts_with(p)))
+    })
+}
+
+/// The old rule read only a file's own name, so a split carrier's parts left the scan
+/// silently; these are the cases that pins (plan-176-O §4.0).
+#[test]
+fn is_lowering_source_takes_files_under_prefixed_directories() {
+    let root = std::path::Path::new("/r/src/codegen");
+    assert!(is_lowering_source(root, &root.join("a/builder_x/part.rs")));
+    assert!(is_lowering_source(root, &root.join("a/builder_x/mod.rs")));
+    assert!(is_lowering_source(root, &root.join("a/func_y/part.rs")));
+    assert!(is_lowering_source(root, &root.join("a/builder_x.rs")));
+    assert!(is_lowering_source(root, &root.join("a/gen_z.rs")));
+    assert!(!is_lowering_source(root, &root.join("a/other/part.rs")));
+    assert!(!is_lowering_source(
+        root,
+        &root.join("a/builder_x/notes.md")
+    ));
+    // A prefixed directory ABOVE the root does not count.
+    let nested = std::path::Path::new("/r/builder_top/src/codegen");
+    assert!(!is_lowering_source(nested, &nested.join("a/part.rs")));
+}
+
 /// bug-352: an allocation-size-overflow guard must NOT raise its error through
 /// `emit_allocation_error_return`. That helper reads the error code out of the
 /// result-tag register (`x0`), which is only valid *after* a failed
@@ -309,26 +348,25 @@ fn no_overflow_label_returns_through_the_result_tag_register() {
     // migration, so walk recursively rather than reading a flat dir. It spans the
     // legacy `builder_*.rs` carriers and the clean-room `func_*.rs`/`gen_*.rs`
     // member lowerings that supersede them (crypto/io/strings migrations).
-    fn collect_builder_sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    fn collect_builder_sources(
+        root: &std::path::Path,
+        dir: &std::path::Path,
+        out: &mut Vec<std::path::PathBuf>,
+    ) {
         for entry in std::fs::read_dir(dir)
             .expect("read codegen dir")
             .filter_map(Result::ok)
         {
             let path = entry.path();
             if path.is_dir() {
-                collect_builder_sources(&path, out);
-            } else if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
-                n.ends_with(".rs")
-                    && (n.starts_with("builder_")
-                        || n.starts_with("func_")
-                        || n.starts_with("gen_"))
-            }) {
+                collect_builder_sources(root, &path, out);
+            } else if is_lowering_source(root, &path) {
                 out.push(path);
             }
         }
     }
     let mut entries: Vec<std::path::PathBuf> = Vec::new();
-    collect_builder_sources(&dir, &mut entries);
+    collect_builder_sources(&dir, &dir, &mut entries);
     entries.sort();
 
     for path in entries {
