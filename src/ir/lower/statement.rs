@@ -145,21 +145,7 @@ fn lower_statement_inner(
             }),
             loc,
         }],
-        HirStatement::Exit { target, .. } => match target {
-            ExitTarget::For => vec![IrOp::ExitLoop {
-                kind: LoopKind::For,
-                loc,
-            }],
-            ExitTarget::Do => vec![IrOp::ExitLoop {
-                kind: LoopKind::Do,
-                loc,
-            }],
-            ExitTarget::While => vec![IrOp::ExitLoop {
-                kind: LoopKind::While,
-                loc,
-            }],
-            ExitTarget::Func => Vec::new(),
-        },
+        HirStatement::Exit { kind, .. } => vec![IrOp::ExitLoop { kind: *kind, loc }],
         HirStatement::Continue { kind, .. } => vec![IrOp::ContinueLoop { kind: *kind, loc }],
         HirStatement::Fail { error, .. } => vec![IrOp::Fail {
             error: lower_expression(error, locals, context),

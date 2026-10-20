@@ -646,7 +646,7 @@ fn classify(
         K::End => Some(Op::End(next_keyword(sig, idx))),
         K::Next | K::Loop => Some(Op::EndImplicit),
         // FUNC may be preceded by visibility/ISOLATED modifiers, so it is not
-        // required to lead the line; EXIT FUNC is excluded by `after_exit`. A
+        // required to lead the line; the word after EXIT is excluded by `after_exit`. A
         // function *type* `FUNC(…) AS T` (the keyword immediately followed by
         // `(`) is an annotation, not a declaration, and opens nothing.
         K::Func => {

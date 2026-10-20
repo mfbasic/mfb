@@ -1,0 +1,25 @@
+$ mfb build -ast -ir tests/syntax/control-flow/exit-unknown-invalid
+   1 | FUNC exitFunc AS Integer
+   2 |   EXIT FUNC
+     |        ^^^^
+tests/syntax/control-flow/exit-unknown-invalid/src/main.mfb:2 error[2-203-0078 EXIT_UNKNOWN]: EXIT must be followed by FOR, DO, or WHILE
+               EXIT must be followed by FOR, DO, or WHILE.
+   5 | 
+   6 | FUNC exitProgram AS Integer
+   7 |   EXIT PROGRAM 1
+     |        ^^^^^^^
+tests/syntax/control-flow/exit-unknown-invalid/src/main.mfb:7 error[2-203-0078 EXIT_UNKNOWN]: EXIT must be followed by FOR, DO, or WHILE
+               EXIT must be followed by FOR, DO, or WHILE.
+  10 | 
+  11 | FUNC exitAlone AS Integer
+  12 |   EXIT
+     |       ^
+tests/syntax/control-flow/exit-unknown-invalid/src/main.mfb:12 error[2-203-0078 EXIT_UNKNOWN]: EXIT must be followed by FOR, DO, or WHILE
+               EXIT must be followed by FOR, DO, or WHILE.
+  15 | 
+  16 | FUNC exitName AS Integer
+  17 |   EXIT foo
+     |        ^^^
+tests/syntax/control-flow/exit-unknown-invalid/src/main.mfb:17 error[2-203-0078 EXIT_UNKNOWN]: EXIT must be followed by FOR, DO, or WHILE
+               EXIT must be followed by FOR, DO, or WHILE.
+[exit 1]

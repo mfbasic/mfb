@@ -251,18 +251,6 @@ fn exit_sub_lowers_to_valueless_return() {
 }
 
 #[test]
-fn exit_func_contributes_no_op() {
-    let ir = lower_src(
-        "FUNC f() AS Integer\n  EXIT FUNC\n  RETURN 1\nEND FUNC\nFUNC main AS Nothing\nEND FUNC\n",
-    );
-    // EXIT FUNC emits nothing; only the trailing RETURN survives.
-    assert!(function(&ir, "f")
-        .body
-        .iter()
-        .any(|op| matches!(op, IrOp::Return { value: Some(_), .. })));
-}
-
-#[test]
 fn fail_statement_lowers_to_fail_op() {
     let ir = lower_src("FUNC main AS Nothing\n  FAIL error(500, \"boom\")\nEND FUNC\n");
     assert!(main_body(&ir)

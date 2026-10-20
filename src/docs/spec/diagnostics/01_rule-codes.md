@@ -471,7 +471,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0075` | `EXIT_NO_MATCHING_LOOP` | error | EXIT has no matching enclosing loop |
 | `2-203-0076` | `CONTINUE_NO_MATCHING_LOOP` | error | CONTINUE has no matching enclosing loop |
 | `2-203-0077` | `EXIT_SUB_IN_FUNC` | error | reserved; not emitted; code is not reused |
-| `2-203-0078` | `EXIT_FUNC_FORBIDDEN` | error | EXIT FUNC is forbidden; functions must RETURN a value |
+| `2-203-0078` | `EXIT_UNKNOWN` | error | EXIT must be followed by FOR, DO, or WHILE |
 | `2-203-0079` | `TYPE_EXIT_PROGRAM_REQUIRES_INTEGER` | error | reserved; not emitted; code is not reused |
 | `2-203-0080` | `OS_EXIT_CODE_OUT_OF_RANGE` | error | os::exit constant exit code is outside the host range |
 | `2-203-0081` | `UNREACHABLE_AFTER_EXIT` | error | statement is unreachable after EXIT or CONTINUE |
@@ -499,6 +499,7 @@ advisories. Reserved entries remain lookupable but have no production emitter.
 | `2-203-0144` | `TYPE_OVERLOAD_NO_MATCH` | error | no overload has the expected callable type |
 | `2-203-0145` | `TYPE_STATE_REQUIRES_RESOURCE` | error | STATE can only be attached to a resource |
 | `2-203-0146` | `TYPE_DUPLICATE_MAP_KEY` | error | a map literal names the same constant key twice |
+| `2-203-0147` | `CONTINUE_UNKNOWN` | error | CONTINUE must be followed by FOR, DO, or WHILE |
 | `2-203-0089` | `RESOURCE_CLOSE_NOT_NATIVE` | error | a resource's CLOSE BY op must be a native LINK function |
 | `2-203-0090` | `RESOURCE_CLOSE_MISSING` | error | a resource's CLOSE BY op names no function in its LINK block |
 | `2-203-0091` | `RESOURCE_CLOSE_SIGNATURE` | error | a close op must consume exactly one parameter of its resource |

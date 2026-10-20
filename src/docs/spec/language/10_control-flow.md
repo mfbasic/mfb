@@ -54,8 +54,10 @@ inner loops of other kinds; it is a compile error when no matching loop encloses
 the statement (`EXIT_NO_MATCHING_LOOP` for `EXIT`, `CONTINUE_NO_MATCHING_LOOP`
 for `CONTINUE`).
 
-`EXIT FUNC` is always a compile error (`EXIT_FUNC_FORBIDDEN`): a function ends
-with `RETURN` (a bare `RETURN` in a function declared `AS Nothing`).
+`EXIT` and `CONTINUE` take only `FOR`, `DO`, or `WHILE` after them. Any other
+follower is a compile error: `EXIT_UNKNOWN` for `EXIT` and `CONTINUE_UNKNOWN` for
+`CONTINUE`, reported at the token after the keyword. A function ends with `RETURN`
+(a bare `RETURN` in a function declared `AS Nothing`), not with `EXIT`.
 
 `os::exit(code AS Integer) AS Nothing` terminates the process with the given exit
 code from any call depth. It is an ordinary builtin call, so it may stand as a

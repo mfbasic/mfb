@@ -529,6 +529,12 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "a map literal names the same constant key twice",
     },
+    Rule {
+        code: "2-203-0147",
+        name: "CONTINUE_UNKNOWN",
+        severity: Severity::Error,
+        message: "CONTINUE must be followed by FOR, DO, or WHILE",
+    },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an
     // inline TRAP is legal on all of them. The code is now reused for
@@ -745,9 +751,9 @@ pub(super) const RULES: &[Rule] = &[
     },
     Rule {
         code: "2-203-0078",
-        name: "EXIT_FUNC_FORBIDDEN",
+        name: "EXIT_UNKNOWN",
         severity: Severity::Error,
-        message: "EXIT FUNC is forbidden; functions must RETURN a value",
+        message: "EXIT must be followed by FOR, DO, or WHILE",
     },
     Rule {
         code: "2-203-0079",

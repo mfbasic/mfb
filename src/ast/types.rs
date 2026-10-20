@@ -546,7 +546,7 @@ pub enum Statement {
         line: usize,
     },
     Exit {
-        target: ExitTarget,
+        kind: LoopKind,
         line: usize,
     },
     Continue {
@@ -618,14 +618,6 @@ pub enum Statement {
         condition: Expression,
         line: usize,
     },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExitTarget {
-    For,
-    Do,
-    While,
-    Func,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -8,6 +8,27 @@ use super::*;
 // ---------------------------------------------------------------------------
 
 #[test]
+fn exit_and_continue_take_only_a_loop_kind() {
+    // plan-180-B: the follower of EXIT/CONTINUE is one of FOR, DO, WHILE. Every
+    // other spelling fails to parse; the rule codes are pinned by the
+    // `exit-unknown-invalid` and `continue-unknown-invalid` syntax fixtures.
+    for stmt in [
+        "EXIT FUNC",
+        "EXIT PROGRAM 1",
+        "EXIT",
+        "EXIT foo",
+        "CONTINUE FUNC",
+        "CONTINUE PROGRAM 1",
+        "CONTINUE",
+        "CONTINUE foo",
+    ] {
+        let src = format!("FUNC main AS Integer\n  {stmt}\n  RETURN 0\nEND FUNC\n");
+        parse_err(&src);
+    }
+    parse_ok("FUNC main AS Integer\n  EXIT FOR\n  EXIT DO\n  EXIT WHILE\n  CONTINUE FOR\n  CONTINUE DO\n  CONTINUE WHILE\n  RETURN 0\nEND FUNC\n");
+}
+
+#[test]
 fn top_level_errors_are_reported() {
     // Unexpected top-level token.
     assert!(try_parse("garbage\n").is_err());

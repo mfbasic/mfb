@@ -1,0 +1,23 @@
+FUNC exitFunc AS Integer
+  EXIT FUNC
+  RETURN 0
+END FUNC
+
+FUNC exitProgram AS Integer
+  EXIT PROGRAM 1
+  RETURN 0
+END FUNC
+
+FUNC exitAlone AS Integer
+  EXIT
+  RETURN 0
+END FUNC
+
+FUNC exitName AS Integer
+  EXIT foo
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

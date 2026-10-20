@@ -99,7 +99,6 @@ When a type cannot be reconstructed, the compatibility checks may skip the compa
 Only the rules about **source syntax that lowering erases** are assumed rather than re-verified — and they are assumed *vacuously*, because the constructs they govern cannot appear in a `.mfp` at all (lowering normalized them away before serialization):
 
 * Named-argument call binding (`f(x := …)` duplicate/unknown names, post-normalization arity). Packages carry only positional argument lists.
-* The `EXIT FUNC` rule — `EXIT FUNC` lowers to nothing, so the statement is gone.
 * Inline-`TRAP` boundaries, fallibility, and `RECOVER`-outside-handler — the handler is treeified into ordinary ops with no boundary marker; `PROPAGATE` outside a `TRAP` *is* still caught (`TYPE_PROPAGATE_REQUIRES_TRAP`) because it serializes as an unbound-sentinel `Fail`.
 * Lambda capture-escape classification and thread channel *sendability* — front-end escape/registry properties whose conclusion (not derivation) the IR records.
 

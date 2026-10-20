@@ -1,8 +1,0 @@
-FUNC badExitFunc AS Integer
-  EXIT FUNC
-  RETURN 0
-END FUNC
-
-FUNC main AS Integer
-  RETURN 0
-END FUNC

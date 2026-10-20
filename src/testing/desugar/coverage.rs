@@ -298,7 +298,7 @@ fn dump_list_to_file(list: &str, numeric: bool, path: &Path) -> Vec<Statement> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{AstFile, ExitTarget, LoopKind, MatchCase, MatchPattern, Trap};
+    use crate::ast::{AstFile, LoopKind, MatchCase, MatchPattern, Trap};
 
     fn expr_stmt(line: usize) -> Statement {
         Statement::Expression {
@@ -397,7 +397,7 @@ mod tests {
             // Leaf statements: exercise `statement_line` arms and the `_ => {}`
             // no-nested-block branch of `instrument_nested`.
             Statement::Exit {
-                target: ExitTarget::For,
+                kind: LoopKind::For,
                 line: 120,
             },
             Statement::Continue {

@@ -43,10 +43,6 @@ impl<'a> Walker<'a> {
             let flow = self.walk_statement(statement, locals);
             if flow == Flow::AlwaysReturns {
                 let erased_exit = match statement {
-                    HirStatement::Exit {
-                        target: ExitTarget::Func,
-                        ..
-                    } => true,
                     HirStatement::Exit { .. } | HirStatement::Continue { .. } => {
                         self.handler_depth > 0
                     }
@@ -271,22 +267,10 @@ impl<'a> Walker<'a> {
                     }
                 }
             }
-            HirStatement::Exit { target, line } => {
-                match target {
-                    // EXIT FOR/DO/WHILE outside a matching loop is `ir::verify`'s.
-                    ExitTarget::For | ExitTarget::Do | ExitTarget::While => {}
-                    // EXIT_FUNC_FORBIDDEN: `ExitTarget::Func` lowers to NOTHING —
-                    // the fact does not exist in the IR.
-                    ExitTarget::Func => {
-                        self.emit(
-                            "EXIT_FUNC_FORBIDDEN",
-                            "Functions must RETURN a value; EXIT FUNC is not allowed.".to_string(),
-                            *line,
-                        );
-                    }
-                }
-            }
-            HirStatement::Continue { .. } | HirStatement::Propagate { .. } => {}
+            // EXIT FOR/DO/WHILE outside a matching loop is `ir::verify`'s.
+            HirStatement::Exit { .. }
+            | HirStatement::Continue { .. }
+            | HirStatement::Propagate { .. } => {}
             HirStatement::Fail { error, .. } => self.walk_expression(error, locals),
             HirStatement::Recover { value, line } => {
                 if let Some(value) = value {

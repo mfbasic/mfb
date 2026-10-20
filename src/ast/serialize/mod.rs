@@ -300,15 +300,6 @@ fn resource_json_suffix(resource: bool, state_type: &Option<String>) -> String {
     format!(", \"resource\": true, \"state\": {state}")
 }
 
-fn exit_target_name(target: ExitTarget) -> &'static str {
-    match target {
-        ExitTarget::For => "for",
-        ExitTarget::Do => "do",
-        ExitTarget::While => "while",
-        ExitTarget::Func => "func",
-    }
-}
-
 fn template_params_json(params: &[String], indent: usize) -> String {
     if params.is_empty() {
         return String::new();

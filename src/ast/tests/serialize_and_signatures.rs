@@ -366,13 +366,12 @@ END LINK
 }
 
 #[test]
-fn serialize_exit_targets_func_and_do_and_while() {
+fn serialize_exit_targets_do_and_while() {
     let src = r#"
 FUNC f AS Integer
   DO
     EXIT DO
     EXIT WHILE
-    EXIT FUNC
     CONTINUE DO
     CONTINUE WHILE
   LOOP UNTIL TRUE
@@ -382,7 +381,6 @@ END FUNC
     let json = project_json(src);
     assert!(json.contains("\"target\": \"do\""));
     assert!(json.contains("\"target\": \"while\""));
-    assert!(json.contains("\"target\": \"func\""));
     assert!(json.contains("\"loop\": \"do\""));
     assert!(json.contains("\"loop\": \"while\""));
 }

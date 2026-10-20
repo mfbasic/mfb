@@ -242,7 +242,7 @@ The pre-lowering **shape pass** (`ir::shape`) holds the only rules that cannot
 live in the IR verifier: the ones whose evidence total lowering *erases*, so
 that the fact never reaches the IR or a package — named-argument binding
 (`f(x := …)` duplicate/unknown names and the omission/count/argument-type
-shapes lowering normalizes away), `EXIT FUNC` and the statements it leaves
+shapes lowering normalizes away), an `EXIT`/`CONTINUE` follower other than a loop kind (a parser diagnostic), and the statements an `os::exit` leaves
 unreachable, inline-`TRAP` boundaries (`RECOVER`
 placement and count, a handler's fall-through edge), the checker's "unknown
 value" cascade, the `TESTING` assertion builtins' argument rules (lowering

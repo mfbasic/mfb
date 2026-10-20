@@ -98,8 +98,8 @@ impl<'a> Monomorphizer<'a> {
                 }),
                 line: *line,
             },
-            HirStatement::Exit { target, line } => HirStatement::Exit {
-                target: *target,
+            HirStatement::Exit { kind, line } => HirStatement::Exit {
+                kind: *kind,
                 line: *line,
             },
             HirStatement::Continue { kind, line } => HirStatement::Continue {

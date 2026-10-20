@@ -46,11 +46,11 @@ impl ToJson for Statement {
                     pad, value, line
                 )
             }
-            Statement::Exit { target, line } => {
+            Statement::Exit { kind, line } => {
                 format!(
                     "\n{}{{ \"kind\": \"exit\", \"target\": {}, \"line\": {} }}",
                     pad,
-                    json_string(exit_target_name(*target)),
+                    json_string(kind.name()),
                     line
                 )
             }

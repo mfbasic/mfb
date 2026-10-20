@@ -23,8 +23,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-180-A complete | `grep -c "Commit: —" planning/plan-180-A-os-exit.md` → 0 (or the file is in `planning/completed/`) | NOT MET (2026-10-19) |
-| `ExitTarget::Program` is gone | `grep -rn "ExitTarget::Program" src` → no matches | NOT MET (2026-10-19) |
+| plan-180-A complete | `grep -c "Commit: —" planning/plan-180-A-os-exit.md` → 0 (or the file is in `planning/completed/`) | MET (2026-10-20: 0) |
+| `ExitTarget::Program` is gone | `grep -rn "ExitTarget::Program" src` → no matches | MET (2026-10-20: 0) |
 
 If plan-180-A is not complete, this plan cannot start, full stop.
 
@@ -115,16 +115,16 @@ Rejected alternatives:
 
 ### Phase 1 — one vocabulary, two diagnostics
 
-- [ ] `src/rules/table.rs` + `01_rule-codes.md`: `2-203-0078` → `EXIT_UNKNOWN`; add
+- [x] `src/rules/table.rs` + `01_rule-codes.md`: `2-203-0078` → `EXIT_UNKNOWN`; add
       `2-203-0147 CONTINUE_UNKNOWN`.
-- [ ] `src/ast/stmt.rs`: shared loop-kind helper; both arms emit the new rules.
-- [ ] `src/ast/types.rs`: delete `ExitTarget`; `Statement::Exit { kind: LoopKind, line }`.
+- [x] `src/ast/stmt.rs`: shared loop-kind helper; both arms emit the new rules.
+- [x] `src/ast/types.rs`: delete `ExitTarget`; `Statement::Exit { kind: LoopKind, line }`.
       Follow every match: `src/ast/serialize.rs` (`exit_target_name` deleted;
       `"target": kind.name()`), `src/hir/mod.rs`, `src/monomorph/lower.rs`,
       `src/ir/lower.rs` (`ExitLoop { kind }` directly), `src/ir/shape.rs`,
       `src/testing/desugar/coverage.rs` tests.
-- [ ] `src/fmt.rs`: comment no longer cites `EXIT FUNC` as a form.
-- [ ] Tests — `tests/syntax/control-flow/exit-func-invalid` (added `211e73353`, plan-159-D;
+- [x] `src/fmt.rs`: comment no longer cites `EXIT FUNC` as a form.
+- [x] Tests — `tests/syntax/control-flow/exit-func-invalid` (added `211e73353`, plan-159-D;
       protects: `EXIT FUNC` is rejected). Proof the old diagnostic is wrong: the owner's
       2026-10-19 rename (Decisions). Replace it with `exit-unknown-invalid` (one function
       per spelling: `EXIT FUNC`, `EXIT PROGRAM 1`, `EXIT`, `EXIT foo`, each → `EXIT_UNKNOWN`)
@@ -135,7 +135,7 @@ Rejected alternatives:
       a statement that failed to parse has no successor in the AST).
       `src/ir/tests.rs` / `src/ast/tests.rs` cases that parse `EXIT FUNC` successfully
       become `EXIT_UNKNOWN` parser assertions.
-- [ ] Docs: `10_control-flow.md` (the `EXIT FUNC` paragraph becomes the `EXIT_UNKNOWN` /
+- [x] Docs: `10_control-flow.md` (the `EXIT FUNC` paragraph becomes the `EXIT_UNKNOWN` /
       `CONTINUE_UNKNOWN` rule), `04_ir.md` §4 (no `EXIT FUNC` row), `02_frontend.md`,
       `12_verifier-rules.md`, `01_rule-codes.md`.
 
@@ -171,6 +171,31 @@ Commit: —
 - The parser, not shape, reports both rules — author (one owner per rule).
 
 ## Corrections
+
+- **Module paths (Phase 1).** `src/rules/table.rs` is `src/rules/table/type_check.rs`; `src/ast/serialize.rs`
+  is `src/ast/serialize/{body,mod}.rs`; `src/ir/shape.rs` is `src/ir/shape/{statements,mod}.rs`. Evidence:
+  `ls src/rules/table src/ast/serialize src/ir/shape`.
+- **The EXIT FUNC shape unit tests moved as a parser test, not to `src/ast/tests.rs` by name.** The
+  two `src/ir/shape/tests` cases that asserted `EXIT_FUNC_FORBIDDEN` are removed; the follower rule is
+  pinned in `src/ast/tests/parse_errors.rs::exit_and_continue_take_only_a_loop_kind` (all eight
+  spellings fail to parse, the four valid loop kinds parse). That test uses `parse_err` because
+  `check_src` panics on a source that does not parse, so it cannot read the rule code; the rule codes
+  are pinned by the fixtures (below) instead.
+- **Two fixtures, not `exit-func-invalid` replaced by one.** `tests/syntax/control-flow/exit-unknown-invalid`
+  (EXIT FUNC, EXIT PROGRAM 1, EXIT, EXIT foo — each its own function) and `continue-unknown-invalid` (the
+  same four under CONTINUE). Measured: each spelling yields exactly one diagnostic, at its own line
+  (`mfb build` output, `2-203-0078 EXIT_UNKNOWN` and `2-203-0147 CONTINUE_UNKNOWN`).
+- **Corpus rule-count floor moved 71 → 70 with evidence.** `EXIT_FUNC_FORBIDDEN` was in the
+  `the_syntax_corpus_still_reaches_every_rule_it_used_to` set via `exit-func-invalid`. The rule is
+  retired (renamed `EXIT_UNKNOWN`, now a parser rule). The new fixtures are parse-error fixtures, which
+  that corpus excludes by name, so the set lost one rule. Measured: the test printed 70 reached rules
+  after the change (the set lost only `EXIT_FUNC_FORBIDDEN`).
+- **Phase 1 leaves no `2-203-0147` collision.** `grep -rn "2-203-0147" src planning bugs` had no
+  live use before this change (the only hits were this plan).
+- **Rule docs.** `01_rule-codes.md` row `2-203-0078` is `EXIT_UNKNOWN`; row `2-203-0147` added.
+- **Phase 1 gate run.** `bash scripts/test-accept.sh target/release/mfb /tmp/acc-180b '*-unknown-invalid'
+  'exit-loop-invalid' 'continue-loop-invalid' 'control-flow-*'` → "acceptance tests passed (29 test(s) ran)".
+  The byte-identity gate (`artifact-gate.sh all`) is the final gate, below.
 
 ## Summary
 

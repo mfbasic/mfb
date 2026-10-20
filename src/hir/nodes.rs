@@ -407,7 +407,7 @@ pub(crate) enum HirStatement {
         line: usize,
     },
     Exit {
-        target: ExitTarget,
+        kind: LoopKind,
         line: usize,
     },
     Continue {
