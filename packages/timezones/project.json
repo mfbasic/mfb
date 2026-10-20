@@ -1,5 +1,6 @@
 {
   "name": "timezones",
+  "ident": "jzaun#timezones",
   "version": "1.0.0",
   "mfb": "1.0",
   "kind": "package",
