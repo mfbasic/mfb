@@ -63,7 +63,6 @@ ceiling code 1197 src/codegen/builtins/fs/gen_atomic_write.rs
 ceiling code 1028 src/codegen/builtins/fs/gen_directory.rs
 ceiling code 1657 src/codegen/builtins/fs/gen_read_write.rs
 ceiling code 1136 src/codegen/builtins/math/gen_math.rs
-ceiling inline 1104 src/codegen/builtins/mod.rs
 ceiling code 1414 src/codegen/builtins/money/gen_fixed_math.rs
 ceiling code 1567 src/codegen/builtins/net/gen_ping.rs
 ceiling code 1134 src/codegen/builtins/process/gen_unix.rs
@@ -106,7 +105,6 @@ ceiling code 1496 src/codegen/memory/data/data_objects.rs
 ceiling code 1336 src/codegen/memory/value/builder_value_semantics.rs
 ceiling code 1224 src/codegen/os/socket/shared.rs
 ceiling code 3108 src/codegen/registry/mod.rs
-ceiling inline 2695 src/codegen/registry/mod.rs
 ceiling code 2272 src/codegen/runtime/canvas/mod.rs
 ceiling code 7309 src/codegen/runtime/canvas/vulkan.rs
 ceiling inline 748 src/codegen/runtime/canvas/vulkan.rs

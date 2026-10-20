@@ -874,17 +874,25 @@ cite grep → 0; census → hosts inline 4, 2, 2, 2, 9, 2, 3 (encoding and gen_o
 because the `#[path]` line counts), new files 291, 418, 571, 402, 244, 234, 569, 291; G3 fast tier → `test-fast: ok`
 (unit `4998 passed; 2 ignored`; guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
 
-Commit: —
+Commit: b352f44fc
 
 ### Phase 4 — `builtins/mod.rs` and `registry/mod.rs` (largest blast radius)
 
-- [ ] Move `src/codegen/builtins/mod.rs`'s `mod tests` and `mod tcp_tls_error_declaration_tests`
+- [x] Move `src/codegen/builtins/mod.rs`'s `mod tests` and `mod tcp_tls_error_declaration_tests`
       per §4.10. This uses two `#[path]` declarations; `plan111f_probe` stays inline.
-- [ ] Move `src/codegen/registry/mod.rs`'s `mod tests` (split into three files) and
+      Done (`python3 -I target/p176/h4.py`, bottom-up): `tests/tcp_tls_error_declaration.rs` 3 tests, `tests/unit.rs`
+      28; motion → only the module lines differ.
+- [x] Move `src/codegen/registry/mod.rs`'s `mod tests` (split into three files) and
       `mod raw_result_block_ownership` per §4.16. Repoint
       `src/docs/spec/language/18_builtin-functions.md:245` and `.ai/man-content.md:117-118` to
       `registry/tests/mod.rs`.
-- [ ] G4: tighten the inline ceilings for the two files.
+      Done: `tests/raw_result_block_ownership.rs` 4 tests (its 15 `//!` lines move with it), then `tests/mod.rs` 12 +
+      `selection_and_thread_probes.rs` 14 (+ `UnionUOverV`) + `rendering_and_gates.rs` 24 (+ `enum_variant`, `enm`,
+      `intrinsic`, `rewrite_impl`, `sample_fast_path`); no visibility edit; motion → only the module lines and the 2 part
+      `mod` lines differ. Both references repointed.
+- [x] G4: tighten the inline ceilings for the two files.
+      Done: → `TIGHTEN inline 23 (ceiling 1104)` builtins, `TIGHTEN inline 201 (ceiling 2695)` registry; tighten drops
+      exactly those; re-run → 0.
 
 Acceptance: the two largest hosts keep their module paths, apart from the two registry topic
 segments. Check:
@@ -900,6 +908,14 @@ segments. Check:
 - `for f in src/codegen/registry/tests/*.rs src/codegen/builtins/tests/unit.rs src/codegen/builtins/tests/tcp_tls_error_declaration.rs; do python3 -I tools/loc-census/census.py --file $f; done`
   → every second field ≤ 900.
 - G3, G4, G5 (est. 12 min).
+
+Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, warnings 0; G2 → `ok. 94 passed`; list counts → 94 and 38;
+census → registry/mod.rs inline 201, builtins/mod.rs 23 (each over §4's figure by its `#[path]` lines), new files 643,
+694, 812, 336, 675, 401; G3 fast tier → `test-fast: ok` (unit `4998 passed; 2 ignored`, which includes
+`spec_citations_resolve`; guards 8, 7 + 1 ignored, 8); G4 → 0; G5 → exit 0.
+Final gate: the ceiling file holds no `inline`/`test` row for an H path, and exactly the four `code` rows S, T, U and M
+own (canvas 2371, gen_openssl 2997, borrow_get 1373, registry 3108); clippy per path over H's new files → 4 warnings,
+all content lints of text moved verbatim (`while let`, two manual char comparisons, one complex type), so pre-existing.
 
 Commit: —
 

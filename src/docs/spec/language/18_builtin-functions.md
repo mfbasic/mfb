@@ -242,7 +242,7 @@ the noun for what the bound is: `endIndex` for an index
 (`datetime::between`), `endPoint` for a point and `endAngle` for an angle
 (`canvas::Gradient`, `canvas::DrawItem`). `stop`, `finish` and `last` are not
 used for a range bound. A bound never appears without its `start`; a bare
-`start` with no bound is a scan origin. [[src/codegen/registry/mod.rs:range_and_index_parameters_use_the_documented_vocabulary]]
+`start` with no bound is a scan origin. [[src/codegen/registry/tests/mod.rs:range_and_index_parameters_use_the_documented_vocabulary]]
 
 **Inclusivity is a per-member fact, stated on the member's page** — the name
 says the parameter is a bound, not which end it stops at.

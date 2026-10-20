@@ -115,7 +115,7 @@ name from this table:
 bounds instead of standing alone. `stop`, `finish`, `last` and `endIdx` are not
 used. The pin is
 `range_and_index_parameters_use_the_documented_vocabulary`
-(`src/codegen/registry/mod.rs`); it fails on a retired spelling anywhere, and on
+(`src/codegen/registry/tests/mod.rs`); it fails on a retired spelling anywhere, and on
 an `end`*Noun* or `start`*Noun* without its counterpart.
 
 Two things the *name* does not say, so the `desc` must:
