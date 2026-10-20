@@ -13,12 +13,12 @@ IMPORT collections
 IMPORT strings
 
 PRIVATE FUNC compileOnly(schemaText AS String) AS String
-  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  LET compiled AS Schema = compileSchema(json::parse(schemaText), Map OF String TO json::Json {})
   RETURN compiled.id
 END FUNC
 
 PRIVATE FUNC ok(schemaText AS String, instanceText AS String) AS Boolean
-  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  LET compiled AS Schema = compileSchema(json::parse(schemaText), Map OF String TO json::Json {})
   RETURN len(runValidation(compiled, json::parse(instanceText))) = 0
 END FUNC
 
@@ -150,6 +150,42 @@ TESTING
       END WHILE
       LET instance AS String = "[" & strings::join(items, ",") & "]"
       expectEqual(ok("{\"items\":{\"anyOf\":[{\"type\":\"integer\"},{\"type\":\"string\"}]}}", instance), TRUE)
+    END TCASE
+
+    TCASE "a pattern the regex engine cannot compile is refused at compile time"
+      expectTrap(compileOnly("{\"pattern\":\"[z-a]\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"pattern\":\"(a\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"pattern\":\"*a\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"pattern\":\"a{3,1}\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"pattern\":\"\\\\p{sc=Bogus}\"}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "a class range that starts or ends on a class escape is refused, as ECMA-262 refuses it"
+      expectTrap(compileOnly("{\"pattern\":\"[\\\\d-z]\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"pattern\":\"[a-\\\\w]\"}"), ERR_SCHEMA)
+      expectString(compileOnly("{\"pattern\":\"[\\\\d-]\"}"), "")
+    END TCASE
+
+    TCASE "a keyword this package does not read is an annotation, not checked"
+      expectString(compileOnly("{\"x-note\":{\"pattern\":\"[\"}}"), "")
+    END TCASE
+
+    TCASE "draft-07 keywords that 2020-12 renamed are refused, not silently ignored"
+      expectTrap(compileOnly("{\"dependencies\":{\"a\":[\"b\"]}}"), ERR_UNSUPPORTED)
+      expectTrap(compileOnly("{\"additionalItems\":false}"), ERR_UNSUPPORTED)
+      expectTrap(compileOnly("{\"definitions\":{}}"), ERR_UNSUPPORTED)
+      expectTrap(compileOnly("{\"id\":\"http://x/y\"}"), ERR_UNSUPPORTED)
+    END TCASE
+
+    TCASE "an identifier or reference must be a URI reference"
+      expectTrap(compileOnly("{\"$id\":\"not a uri\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"$id\":\"http://x/a\\u0001\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"$defs\":{\"a\":true},\"$ref\":\"#/$defs/a b\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"$ref\":\"%zz\"}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "the $schema of this dialect is accepted with an empty fragment"
+      expectString(compileOnly("{\"$schema\":\"https://json-schema.org/draft/2020-12/schema#\"}"), "")
     END TCASE
   END TGROUP
 END TESTING

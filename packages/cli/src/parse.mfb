@@ -1,283 +1,501 @@
 IMPORT collections
 IMPORT errorCode
+IMPORT fs
+IMPORT io
 IMPORT os
 IMPORT strings
 
-' The published command line. `parse` fills these once; every accessor in
-' get.mfb reads them, and `parsed` is what makes a second `parse` a cache hit
-' rather than a second walk of `os::args()`.
-PUBLIC MUT parsed AS Boolean = FALSE
-PUBLIC MUT cachedOptions AS List OF Option = []
-PUBLIC MUT cachedValues AS Map OF String TO String = Map OF String TO String {}
-PUBLIC MUT cachedOperands AS List OF String = []
-
-PRIVATE FUNC failArgument(detail AS String) AS Error
-  RETURN error(errorCode::ErrInvalidArgument, "cli: " & detail)
+' A command-line mistake. Raised only inside `scan`, whose caller turns every
+' failure into an `Args` with status `Invalid`, so it never reaches the program.
+PRIVATE FUNC refuse(message AS String) AS Error
+  RETURN error(errorCode::ErrInvalidArgument, message)
 END FUNC
 
-PRIVATE FUNC optionNamed(options AS List OF Option, spelling AS String) AS Option
-  FOR EACH choice IN options
-    IF spelling = "--" & choice.name OR (choice.alias <> "" AND spelling = "-" & choice.alias) THEN RETURN choice
+PRIVATE FUNC parsedAs(command AS Command, status AS ParseStatus) AS Args
+  RETURN Args[status := status, command := command]
+END FUNC
+
+PRIVATE FUNC findLong(command AS Command, name AS String) AS Integer
+  MUT index AS Integer = 0
+  FOR EACH choice IN command.options
+    IF choice.name = name THEN RETURN index
+    index = index + 1
   NEXT
-  FAIL failArgument("unknown option `" & spelling & "`")
+  RETURN -1
 END FUNC
 
-' The scalar index of the first `=` in `token`, or -1 when it holds none.
-' `strings::find` raises rather than returning a sentinel, so the count comes
-' first.
-PRIVATE FUNC equalsAt(token AS String) AS Integer
-  IF strings::count(token, "=") = 0 THEN RETURN -1
-  RETURN strings::find(token, "=")
+PRIVATE FUNC findShort(command AS Command, alias AS String) AS Integer
+  MUT index AS Integer = 0
+  FOR EACH choice IN command.options
+    IF choice.alias = alias THEN RETURN index
+    index = index + 1
+  NEXT
+  RETURN -1
 END FUNC
 
-PRIVATE FUNC parseArgs(args AS List OF String, options AS List OF Option) AS ParseResult
-  validateSchema(options)
-  MUT values AS Map OF String TO String = Map OF String TO String {}
+' Whether a separate argument is a value rather than another option. A lone
+' `-` and a negative number are values; anything else starting with `-` is
+' taken as an option the user forgot to give a value before.
+PRIVATE FUNC looksLikeOption(token AS String) AS Boolean
+  IF NOT strings::startsWith(token, "-") THEN RETURN FALSE
+  IF token = "-" THEN RETURN FALSE
+  RETURN NOT isNumber(token)
+END FUNC
+
+' Whether a token in option position is an operand: anything not starting
+' with `-`, a lone `-`, and a negative number. No alias can be a digit, so a
+' negative number never names an option.
+PRIVATE FUNC isOperandToken(token AS String) AS Boolean
+  IF NOT strings::startsWith(token, "-") THEN RETURN TRUE
+  IF token = "-" THEN RETURN TRUE
+  RETURN isNumber(token)
+END FUNC
+
+' `values` with one more occurrence of `choice`, after checking the value
+' against the option's kind and refusing a second occurrence of an option that
+' is not repeatable.
+PRIVATE FUNC record(values AS Map OF String TO List OF String, choice AS Option, value AS String) AS Map OF String TO List OF String
+  MUT seen AS List OF String = []
+  IF collections::hasKey(values, choice.name) THEN
+    IF NOT choice.repeatable THEN FAIL refuse("option '" & longSpelling(choice) & "' was given more than once")
+    seen = collections::get(values, choice.name)
+  END IF
+  IF choice.kind <> OptionKind.Flag THEN
+    LET problem AS String = valueProblem(choice, value)
+    IF problem <> "" THEN FAIL refuse(problem)
+  END IF
+  RETURN collections::set(values, choice.name, collections::append(seen, value))
+END FUNC
+
+PRIVATE FUNC needsValue(spelling AS String) AS Error
+  RETURN refuse("option '" & spelling & "' requires a value")
+END FUNC
+
+' The separate argument at `at` as the value of `spelling`, refusing a missing
+' one and one that looks like another option.
+PRIVATE FUNC separateValue(args AS List OF String, at AS Integer, spelling AS String) AS String
+  IF at >= len(args) THEN FAIL needsValue(spelling)
+  LET value AS String = collections::get(args, at)
+  IF looksLikeOption(value) THEN FAIL refuse("option '" & spelling & "' requires a value; write " & spelling & "=" & value & " to pass a value starting with '-'")
+  RETURN value
+END FUNC
+
+PRIVATE FUNC addOperand(command AS Command, operands AS List OF String, token AS String) AS List OF String
+  IF command.operands = "" THEN FAIL refuse("unexpected argument '" & token & "'")
+  IF command.maxOperands > 0 AND len(operands) >= command.maxOperands THEN FAIL refuse("unexpected argument '" & token & "'")
+  RETURN collections::append(operands, token)
+END FUNC
+
+PRIVATE FUNC plural(count AS Integer) AS String
+  IF count = 1 THEN RETURN "operand"
+  RETURN "operands"
+END FUNC
+
+' One left-to-right walk of `args`. Every command-line mistake FAILs with its
+' message; `tryParse` turns that into an `Invalid` result.
+PRIVATE FUNC scan(command AS Command, args AS List OF String) AS Args
+  LET helpShort AS Boolean = NOT aliasTaken(command, "h")
+  LET versionOn AS Boolean = command.version <> ""
+  LET versionShort AS Boolean = versionOn AND NOT aliasTaken(command, "V")
+  MUT values AS Map OF String TO List OF String = Map OF String TO List OF String {}
   MUT operands AS List OF String = []
-  MUT afterSeparator AS Boolean = FALSE
+  MUT optionsDone AS Boolean = FALSE
   MUT at AS Integer = 0
   WHILE at < len(args)
     LET token AS String = collections::get(args, at)
-    IF afterSeparator THEN
-      operands = collections::append(operands, token)
-      at = at + 1
+    at = at + 1
+    IF optionsDone THEN
+      operands = addOperand(command, operands, token)
     ELSEIF token = "--" THEN
-      afterSeparator = TRUE
-      at = at + 1
-    ELSE
-      LET eq AS Integer = equalsAt(token)
-      MUT spelling AS String = token
-      MUT inlineValue AS String = ""
+      optionsDone = TRUE
+    ELSEIF isOperandToken(token) THEN
+      operands = addOperand(command, operands, token)
+      IF command.optionsFirst THEN optionsDone = TRUE
+    ELSEIF strings::startsWith(token, "--") THEN
+      MUT name AS String = strings::mid(token, 2, len(token) - 2)
+      MUT inline AS String = ""
       MUT hasInline AS Boolean = FALSE
-      IF eq >= 0 AND strings::startsWith(token, "--") THEN
-        ' `--=x` names no option; requiring one scalar before the `=` keeps the
-        ' failure about the token the caller actually wrote.
-        IF eq < 3 THEN FAIL failArgument("unknown option `" & token & "`")
-        spelling = strings::left(token, eq)
-        inlineValue = strings::mid(token, eq + 1, len(token) - eq - 1)
+      IF strings::contains(name, "=") THEN
+        LET eq AS Integer = strings::find(name, "=")
+        inline = strings::mid(name, eq + 1, len(name) - eq - 1)
+        name = strings::left(name, eq)
         hasInline = TRUE
-      ELSEIF eq > 0 AND strings::startsWith(token, "-") THEN
-        FAIL failArgument("option `" & strings::left(token, eq) & "` takes its value as a separate argument")
       END IF
-      LET choice AS Option = optionNamed(options, spelling)
-      IF collections::hasKey(values, choice.name) THEN FAIL failArgument("duplicate option `" & spelling & "`")
+      LET spelling AS String = "--" & name
+      LET index AS Integer = findLong(command, name)
+      IF index < 0 THEN
+        IF name = "help" OR (versionOn AND name = "version") THEN
+          IF hasInline THEN FAIL refuse("option '" & spelling & "' does not take a value")
+          IF name = "help" THEN RETURN parsedAs(command, ParseStatus.Help)
+          RETURN parsedAs(command, ParseStatus.Version)
+        END IF
+        FAIL refuse("unknown option '" & spelling & "'")
+      END IF
+      LET choice AS Option = collections::get(command.options, index)
       IF choice.kind = OptionKind.Flag THEN
-        IF hasInline THEN FAIL failArgument("option `" & spelling & "` takes no value")
-        values = collections::set(values, choice.name, "true")
+        IF hasInline THEN FAIL refuse("option '" & spelling & "' does not take a value")
+        values = record(values, choice, "")
       ELSEIF hasInline THEN
-        values = collections::set(values, choice.name, inlineValue)
+        values = record(values, choice, inline)
       ELSE
+        values = record(values, choice, separateValue(args, at, spelling))
         at = at + 1
-        IF at >= len(args) THEN FAIL failArgument("option `" & spelling & "` needs a value")
-        LET value AS String = collections::get(args, at)
-        ' A separate value that looks like a switch is a missing value, not a
-        ' value. Write `--name=-1` to pass a leading dash on purpose.
-        IF len(value) > 0 AND strings::left(value, 1) = "-" THEN FAIL failArgument("option `" & spelling & "` needs a value")
-        values = collections::set(values, choice.name, value)
       END IF
-      at = at + 1
+    ELSE
+      ' A group of short options: `-vq`, `-ofile`, `-o=file`, or `-vo file`.
+      ' Flags are taken one character at a time; the first option that takes a
+      ' value takes the rest of the token, or the next argument when nothing
+      ' is left.
+      MUT i AS Integer = 1
+      WHILE i < len(token)
+        LET letter AS String = strings::mid(token, i, 1)
+        LET spelling AS String = "-" & letter
+        i = i + 1
+        LET index AS Integer = findShort(command, letter)
+        IF index < 0 THEN
+          IF letter = "h" AND helpShort THEN RETURN parsedAs(command, ParseStatus.Help)
+          IF letter = "V" AND versionShort THEN RETURN parsedAs(command, ParseStatus.Version)
+          ' `-v=1`: the `=` follows a flag that has already been taken.
+          IF letter = "=" AND i > 2 THEN FAIL refuse("option '-" & strings::mid(token, i - 2, 1) & "' does not take a value")
+          FAIL refuse("unknown option '" & spelling & "'")
+        END IF
+        LET choice AS Option = collections::get(command.options, index)
+        IF choice.kind = OptionKind.Flag THEN
+          values = record(values, choice, "")
+        ELSE
+          MUT rest AS String = strings::mid(token, i, len(token) - i)
+          IF rest <> "" THEN
+            IF strings::startsWith(rest, "=") THEN rest = strings::mid(rest, 1, len(rest) - 1)
+            values = record(values, choice, rest)
+          ELSE
+            values = record(values, choice, separateValue(args, at, spelling))
+            at = at + 1
+          END IF
+          EXIT WHILE
+        END IF
+      END WHILE
     END IF
   END WHILE
-  FOR EACH choice IN options
-    IF choice.required AND NOT collections::hasKey(values, choice.name) THEN FAIL error(errorCode::ErrNotFound, "cli: required option `" & choice.name & "` is absent")
+  FOR EACH choice IN command.options
+    IF choice.required AND NOT collections::hasKey(values, choice.name) THEN FAIL refuse("missing required option '" & longSpelling(choice) & "'")
   NEXT
-  RETURN ParseResult[values := values, operands := operands]
+  IF len(operands) < command.minOperands THEN FAIL refuse("expected at least " & toString(command.minOperands) & " " & plural(command.minOperands) & " (" & command.operands & "), got " & toString(len(operands)))
+  RETURN Args[status := ParseStatus.Ok, command := command, values := values, operandList := operands]
 END FUNC
 
 DOC
   FUNC parse
   GROUP Parsing
-  DESC Parse this process's command line against `options` and publish the
-  DESC result for the accessors to read.
+  DESC Parse the program's command line against `command`, handling help,
+  DESC version, and errors the standard way.
   DESC
-  DESC Call it once, from the main thread, before any worker thread reads an
-  DESC option. A second call with the same schema is a cache hit that returns the
-  DESC same values without re-reading the command line; a second call with a
-  DESC different schema fails, because the accessors can only serve one schema.
-  DESC
-  DESC Parsing is strict. Every token must be an option this schema declares:
-  DESC there is no "ignore what you do not recognise" mode, and an unknown
-  DESC switch, a repeated option, or a missing value stops the program rather
-  DESC than being silently ignored.
-  DESC
-  DESC Accepted spellings
-  DESC
-  INFO `--name value` and `-a value` -- the value is the next argument.
+  DESC When the command line is valid, the parsed arguments come back and
+  DESC every value has already been checked against its option's kind. Every
+  DESC other outcome ends the program:
+  INFO `--help` or `-h` prints `cli::helpText` to standard output and exits
+  INFO with status 0.
   INFO
-  INFO `--name=value` -- the value is joined to the option. This is the only
-  INFO spelling that can pass a value beginning with `-`, because a separate
-  INFO argument starting with a dash is read as a missing value rather than as
-  INFO the value. Write `--offset=-3`, not `--offset -3`.
+  INFO `--version` or `-V` (when the command has a `version`) prints
+  INFO `cli::versionText` to standard output and exits with status 0.
   INFO
-  INFO `--flag` and `-f` -- a `Flag` takes no value. `--flag=true` fails.
-  INFO
-  INFO `--` -- ends option parsing. Every remaining argument is an operand,
-  INFO whatever it looks like, and is read back with `cli::operands`.
+  INFO A command line the command does not accept, including one holding an
+  INFO argument that is not valid UTF-8 text, is reported by
+  INFO `cli::usageError` — a one-line message and a hint to standard error —
+  INFO and exits with status 2.
   DESC
-  DESC A short option never takes an inline value: `-p=3000` fails and says so,
-  DESC because `p=3000` is not a one-scalar alias.
-  ARG options The schema. Validated on every call, so a malformed schema fails the same way whether or not the command line has been parsed yet.
-  RET The raw values, keyed by long option name. An option that was absent has no key; an option given an empty value has a key whose value is `""`. Prefer the typed accessors over reading this map.
-  ERROR 77050002 The schema is malformed, an argument is an unknown option, an option is repeated, a non-flag option has no value, a flag was given one, a short option used `=`, or `parse` was already called with a different schema.
-  ERROR 77050004 A `required` option is absent from the command line.
+  DESC Call `cli::tryParse` with `os::args()` to handle those outcomes
+  DESC yourself. `parse` keeps nothing between calls, so it is safe from any
+  DESC thread and may be called more than once.
+  ARG command The command to parse against.
+  RET The parsed arguments, with `status` `ParseStatus.Ok`.
+  ERROR 77050002 `command` is malformed — see `cli::Option` and `cli::Command` for what each field allows.
   EXAMPLE
     IMPORT cli
     IMPORT io
 
     FUNC main() AS Integer
-      LET options AS List OF cli::Option = [cli::Option[name := "port", alias := "p", required := FALSE, kind := cli::OptionKind.Integer], cli::Option[name := "offset", alias := "o", required := FALSE, kind := cli::OptionKind.Integer], cli::Option[name := "verbose", alias := "v", required := FALSE, kind := cli::OptionKind.Flag]]
-      cli::parse(options)
-      io::print("port " & toString(cli::getInteger("port", 8080)))
-      io::print("offset " & toString(cli::getInteger("offset", 0)))
-      io::print("verbose " & toString(cli::getFlag("verbose", FALSE)))
+      LET command AS cli::Command = cli::Command[version := "2.1.0", options := [cli::Option[name := "name", alias := "n", defaultValue := "world", help := "Who to greet"]]]
+      LET args AS cli::Args = cli::parse(command)
+      io::print("hello, " & cli::getString(args, "name"))
       RETURN 0
     END FUNC
   END EXAMPLE
 END DOC
-EXPORT FUNC parse(options AS List OF Option) AS Map OF String TO String
-  validateSchema(options)
-  IF parsed THEN
-    IF len(options) <> len(cachedOptions) THEN FAIL failArgument("parse was already called with a different schema")
-    FOR EACH choice IN options
-      MUT found AS Boolean = FALSE
-      FOR EACH old IN cachedOptions
-        IF sameOption(choice, old) THEN found = TRUE
-      NEXT
-      IF NOT found THEN FAIL failArgument("parse was already called with a different schema")
-    NEXT
-    RETURN cachedValues
+EXPORT FUNC parse(command AS Command) AS Args
+  ' An argument that is not valid UTF-8 cannot become a String. It is still
+  ' the user's command line, so it is reported like any other mistake.
+  MUT readable AS Boolean = TRUE
+  LET argv AS List OF String = os::args() TRAP(err)
+    readable = FALSE
+    RECOVER []
+  END TRAP
+  IF NOT readable THEN usageError(command, "an argument is not valid UTF-8 text")
+  LET args AS Args = tryParse(command, argv)
+  IF args.status = ParseStatus.Help THEN
+    io::print(helpText(command))
+    io::flush()
+    EXIT PROGRAM 0
   END IF
-  LET result AS ParseResult = parseArgs(os::args(), options)
-  cachedOptions = options
-  cachedValues = result.values
-  cachedOperands = result.operands
-  parsed = TRUE
-  RETURN cachedValues
+  IF args.status = ParseStatus.Version THEN
+    io::print(versionText(command))
+    io::flush()
+    EXIT PROGRAM 0
+  END IF
+  IF args.status = ParseStatus.Invalid THEN usageError(command, args.message)
+  RETURN args
 END FUNC
 
 DOC
-  FUNC operands
+  FUNC tryParse
   GROUP Parsing
-  DESC The arguments that followed a bare `--`, in the order they were written.
+  DESC Parse `args` against `command` without printing anything or exiting.
   DESC
-  DESC Everything after `--` is taken literally: a token spelled like an option
-  DESC is an operand there, not an option. That is how a file named `-v`, or a
-  DESC command to hand to another program, survives a strict parser.
+  DESC `cli::parse` is this function applied to the program's own command
+  DESC line, followed by the standard handling of help, version, and errors.
+  DESC Call `tryParse` instead to test a command, to parse an argument list
+  DESC that did not come from the command line (a subcommand's arguments,
+  DESC say), or to handle help and errors yourself. Check `status` before
+  DESC reading values: the accessors refuse an `Args` whose status is not
+  DESC `ParseStatus.Ok`.
   DESC
-  DESC The list is empty when the command line held no `--`, and also when `--`
-  DESC was the last argument.
-  RET The operands. Empty when there were none.
-  ERROR 77050002 `cli::parse` has not been called yet, so there is nothing to report.
+  DESC `--help` and `--version` stop parsing where they appear, so an error
+  DESC earlier on the command line is reported instead, and anything after them
+  DESC is not looked at.
+  ARG command The command to parse against.
+  ARG args The arguments, without the program name. Usually `os::args()`.
+  RET The parsed arguments. `status` says whether they are usable, help or the version was asked for, or the command line was refused and why.
+  ERROR 77050002 `command` is malformed — see `cli::Option` and `cli::Command` for what each field allows. A command-line mistake is never an error; it is a result whose status is `ParseStatus.Invalid`.
   EXAMPLE
     IMPORT cli
     IMPORT io
 
     FUNC main() AS Integer
-      LET options AS List OF cli::Option = [cli::Option[name := "verbose", alias := "v", required := FALSE, kind := cli::OptionKind.Flag]]
-      cli::parse(options)
-      ' Run as: prog -v -- report.txt -v
-      FOR EACH operand IN cli::operands()
-        io::print("operand " & operand)
-      NEXT
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "count", alias := "n", kind := cli::OptionKind.Integer]]]
+      LET good AS cli::Args = cli::tryParse(command, ["-n", "3"])
+      io::print(toString(cli::getInteger(good, "count")))
+      LET bad AS cli::Args = cli::tryParse(command, ["--count", "three"])
+      IF bad.status = cli::ParseStatus.Invalid THEN io::print(bad.message)
       RETURN 0
     END FUNC
   END EXAMPLE
 END DOC
-EXPORT FUNC operands() AS List OF String
-  IF NOT parsed THEN FAIL failArgument("operands was called before parse")
-  RETURN cachedOperands
+EXPORT FUNC tryParse(command AS Command, args AS List OF String) AS Args
+  validateCommand(command)
+  LET result AS Args = scan(command, args) TRAP(err)
+    RECOVER Args[status := ParseStatus.Invalid, message := err.message, command := command]
+  END TRAP
+  RETURN result
+END FUNC
+
+DOC
+  FUNC programName
+  GROUP Reporting
+  DESC The name the help text and error messages use for the program.
+  DESC
+  DESC That is `command.name` when it is set. Otherwise it is the final
+  DESC component of the path the program was started with, without a trailing
+  DESC `.exe` or `.out` (the suffix `mfb build` gives an executable), so a
+  DESC program run as `./build/serve.out` is called `serve`. When that path is
+  DESC empty or is not valid UTF-8 text, the executable's own file name is used
+  DESC instead, and failing that the word `program`.
+  ARG command The command whose name to report.
+  RET The program name.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      io::print(cli::programName(cli::Command[name := "serve"]))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC programName(command AS Command) AS String
+  IF command.name <> "" THEN RETURN command.name
+  ' The invocation spelling can be anything the caller chose, including text
+  ' that is not valid UTF-8 or nothing at all; fall back to the executable's
+  ' own path, then to a fixed word, so help and errors always name something.
+  MUT invoked AS String = os::prog() TRAP(err)
+    RECOVER ""
+  END TRAP
+  IF invoked = "" THEN
+    invoked = os::executablePath() TRAP(err)
+      RECOVER ""
+    END TRAP
+  END IF
+  MUT base AS String = ""
+  IF invoked <> "" THEN base = fs::pathBaseName(invoked)
+  LET folded AS String = strings::lower(base)
+  IF len(base) > 4 AND (strings::endsWith(folded, ".exe") OR strings::endsWith(folded, ".out")) THEN base = strings::left(base, len(base) - 4)
+  IF base = "" THEN RETURN "program"
+  RETURN base
+END FUNC
+
+DOC
+  FUNC usageError
+  GROUP Reporting
+  DESC Report a command-line mistake the way `cli::parse` does, and end the
+  DESC program with exit status 2.
+  DESC
+  DESC Two lines go to standard error: `<program>: <message>`, then
+  DESC `Try '<program> --help' for more information.` Use it for a mistake
+  DESC only the program can spot, such as two options that may not be used
+  DESC together, so it reads like every other error the user sees.
+  ARG command The command whose program name and help option to mention.
+  ARG message What was wrong, without the program name and without a trailing period, such as `--from must come before --to`.
+  RET Never returns; the program exits with status 2.
+  EXAMPLE
+    IMPORT cli
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "from", kind := cli::OptionKind.Integer], cli::Option[name := "to", kind := cli::OptionKind.Integer, defaultValue := "10"]]]
+      LET args AS cli::Args = cli::parse(command)
+      IF cli::getInteger(args, "from") > cli::getInteger(args, "to") THEN cli::usageError(command, "--from must not be after --to")
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC usageError(command AS Command, message AS String) AS Nothing
+  LET prog AS String = programName(command)
+  io::flush()
+  io::printError(prog & ": " & message)
+  io::printError("Try '" & prog & " --help' for more information.")
+  EXIT PROGRAM 2
 END FUNC
 
 TESTING
   TGROUP "parse"
-    TCASE "long short and flags retain raw values"
-      LET options AS List OF Option = [Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer], Option[name := "verbose", alias := "v", required := FALSE, kind := OptionKind.Flag]]
-      LET values AS Map OF String TO String = parseArgs(["-p", "3000", "--verbose"], options).values
-      expectString(collections::get(values, "port"), "3000")
-      expectString(collections::get(values, "verbose"), "true")
+    TCASE "long, short, inline, and flag spellings"
+      LET command AS Command = Command[options := [Option[name := "port", alias := "p", kind := OptionKind.Integer], Option[name := "title", alias := "t"], Option[name := "verbose", alias := "v", kind := OptionKind.Flag]]]
+      FOR EACH spelled IN [["-p", "3000"], ["--port", "3000"], ["--port=3000"], ["-p3000"], ["-p=3000"]]
+        LET args AS Args = tryParse(command, spelled)
+        expectEqual(args.status = ParseStatus.Ok, TRUE)
+        expectEqual(collections::get(collections::get(args.values, "port"), 0), "3000")
+      NEXT
+      LET flagged AS Args = tryParse(command, ["--verbose", "--title=a=b"])
+      expectEqual(collections::hasKey(flagged.values, "verbose"), TRUE)
+      expectEqual(collections::get(collections::get(flagged.values, "title"), 0), "a=b")
     END TCASE
-    TCASE "unknown duplicate and missing values fail"
-      LET options AS List OF Option = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer]]
-      expectTrap(parseArgs(["--missing"], options), 77050002)
-      expectTrap(parseArgs(["-p", "1", "--port", "2"], options), 77050002)
-      expectTrap(parseArgs(["-p"], options), 77050002)
-      expectTrap(parseArgs(["-p", "-x"], options), 77050002)
-      expectTrap(parseArgs(["-b"], [Option[name := "enabled", alias := "b", required := FALSE, kind := OptionKind.Bool]]), 77050002)
-      expectTrap(parseArgs([], [Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer]]), 77050004)
+    TCASE "short flags group, and the first valued option takes the rest"
+      LET command AS Command = Command[options := [Option[name := "verbose", alias := "v", kind := OptionKind.Flag], Option[name := "quiet", alias := "q", kind := OptionKind.Flag], Option[name := "out", alias := "o"]]]
+      LET grouped AS Args = tryParse(command, ["-vq"])
+      expectEqual(grouped.status = ParseStatus.Ok, TRUE)
+      expectEqual(collections::hasKey(grouped.values, "verbose") AND collections::hasKey(grouped.values, "quiet"), TRUE)
+      LET attached AS Args = tryParse(command, ["-vofile.txt"])
+      expectEqual(collections::get(collections::get(attached.values, "out"), 0), "file.txt")
+      LET separate AS Args = tryParse(command, ["-vo", "file.txt"])
+      expectEqual(collections::get(collections::get(separate.values, "out"), 0), "file.txt")
+      expectString(tryParse(command, ["-vx"]).message, "unknown option '-x'")
+      expectString(tryParse(command, ["-v=1"]).message, "option '-v' does not take a value")
+      expectString(tryParse(command, ["-="]).message, "unknown option '-='")
+      expectString(tryParse(command, ["-o="]).message, "")
+      expectEqual(collections::get(collections::get(tryParse(command, ["-o="]).values, "out"), 0), "")
     END TCASE
-    TCASE "matching schema reuses the published cache"
-      LET options AS List OF Option = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer]]
-      parsed = TRUE
-      cachedOptions = options
-      cachedValues = Map OF String TO String {"port" := "3000"}
-      LET values AS Map OF String TO String = parse(options)
-      expectString(collections::get(values, "port"), "3000")
-      expectTrap(parse([]), 77050002)
+    TCASE "operands mix with options, and a lone dash is an operand"
+      LET command AS Command = Command[operands := "<file>...", options := [Option[name := "verbose", alias := "v", kind := OptionKind.Flag]]]
+      LET args AS Args = tryParse(command, ["a.txt", "-v", "-", "b.txt"])
+      expectEqual(args.status = ParseStatus.Ok, TRUE)
+      expectString(strings::join(args.operandList, "|"), "a.txt|-|b.txt")
     END TCASE
-    TCASE "an inline value carries a leading dash"
-      LET options AS List OF Option = [Option[name := "offset", alias := "o", required := FALSE, kind := OptionKind.Integer], Option[name := "title", alias := "t", required := FALSE, kind := OptionKind.String]]
-      LET values AS Map OF String TO String = parseArgs(["--offset=-3", "--title=a=b"], options).values
-      expectString(collections::get(values, "offset"), "-3")
-      expectString(collections::get(values, "title"), "a=b")
+    TCASE "a bare double dash makes the rest operands"
+      LET command AS Command = Command[operands := "<arg>...", options := [Option[name := "verbose", alias := "v", kind := OptionKind.Flag]]]
+      LET args AS Args = tryParse(command, ["-v", "--", "-v", "--nope", "--"])
+      expectString(strings::join(args.operandList, "|"), "-v|--nope|--")
+      expectEqual(len(tryParse(command, ["--"]).operandList), 0)
     END TCASE
-    TCASE "an inline value may be empty and is not the fallback"
-      LET options AS List OF Option = [Option[name := "title", alias := "t", required := FALSE, kind := OptionKind.String]]
-      LET values AS Map OF String TO String = parseArgs(["--title="], options).values
-      expectEqual(collections::hasKey(values, "title"), TRUE)
-      expectString(collections::get(values, "title"), "")
+    TCASE "optionsFirst stops at the first operand"
+      LET command AS Command = Command[operands := "<command> [args...]", optionsFirst := TRUE, options := [Option[name := "verbose", alias := "v", kind := OptionKind.Flag]]]
+      LET args AS Args = tryParse(command, ["-v", "commit", "-m", "--help"])
+      expectEqual(args.status = ParseStatus.Ok, TRUE)
+      expectString(strings::join(args.operandList, "|"), "commit|-m|--help")
     END TCASE
-    TCASE "an empty separate value is kept"
-      LET options AS List OF Option = [Option[name := "title", alias := "t", required := FALSE, kind := OptionKind.String]]
-      LET values AS Map OF String TO String = parseArgs(["-t", ""], options).values
-      expectEqual(collections::hasKey(values, "title"), TRUE)
-      expectString(collections::get(values, "title"), "")
+    TCASE "operands are refused when the command takes none"
+      LET args AS Args = tryParse(Command[options := []], ["file.txt"])
+      expectEqual(args.status = ParseStatus.Invalid, TRUE)
+      expectString(args.message, "unexpected argument 'file.txt'")
     END TCASE
-    TCASE "an inline value satisfies a required option and a duplicate"
-      LET options AS List OF Option = [Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer]]
-      expectString(collections::get(parseArgs(["--port=1"], options).values, "port"), "1")
-      expectTrap(parseArgs(["--port=1", "-p", "2"], options), 77050002)
+    TCASE "operand counts are enforced"
+      LET command AS Command = Command[operands := "<src> <dst>", minOperands := 2, maxOperands := 2]
+      expectString(tryParse(command, ["a"]).message, "expected at least 2 operands (<src> <dst>), got 1")
+      expectString(tryParse(command, ["a", "b", "c"]).message, "unexpected argument 'c'")
+      expectEqual(tryParse(command, ["a", "b"]).status = ParseStatus.Ok, TRUE)
+      expectString(tryParse(Command[operands := "<file>", minOperands := 1], []).message, "expected at least 1 operand (<file>), got 0")
     END TCASE
-    TCASE "inline spellings the parser refuses"
-      LET options AS List OF Option = [Option[name := "port", alias := "p", required := FALSE, kind := OptionKind.Integer], Option[name := "verbose", alias := "v", required := FALSE, kind := OptionKind.Flag]]
-      expectTrap(parseArgs(["--verbose=true"], options), 77050002)
-      expectTrap(parseArgs(["-p=1"], options), 77050002)
-      expectTrap(parseArgs(["--=1"], options), 77050002)
-      expectTrap(parseArgs(["--nope=1"], options), 77050002)
+    TCASE "negative numbers and a lone dash are values"
+      LET command AS Command = Command[operands := "<n>", options := [Option[name := "offset", alias := "o", kind := OptionKind.Integer], Option[name := "input", alias := "i"]]]
+      LET args AS Args = tryParse(command, ["--offset", "-3", "-i", "-", "-7"])
+      expectEqual(args.status = ParseStatus.Ok, TRUE)
+      expectEqual(collections::get(collections::get(args.values, "offset"), 0), "-3")
+      expectEqual(collections::get(collections::get(args.values, "input"), 0), "-")
+      expectString(strings::join(args.operandList, "|"), "-7")
     END TCASE
-    TCASE "a bare double dash ends option parsing"
-      LET options AS List OF Option = [Option[name := "verbose", alias := "v", required := FALSE, kind := OptionKind.Flag]]
-      LET result AS ParseResult = parseArgs(["-v", "--", "report.txt", "-v", "--nope", "--"], options)
-      expectString(collections::get(result.values, "verbose"), "true")
-      expectInteger(len(result.operands), 4)
-      expectString(collections::get(result.operands, 0), "report.txt")
-      expectString(collections::get(result.operands, 1), "-v")
-      expectString(collections::get(result.operands, 2), "--nope")
-      expectString(collections::get(result.operands, 3), "--")
+    TCASE "a separate value that looks like an option is refused"
+      LET command AS Command = Command[options := [Option[name := "title", alias := "t"], Option[name := "verbose", alias := "v", kind := OptionKind.Flag]]]
+      expectString(tryParse(command, ["--title", "-v"]).message, "option '--title' requires a value; write --title=-v to pass a value starting with '-'")
+      expectString(tryParse(command, ["-t"]).message, "option '-t' requires a value")
+      expectString(tryParse(command, ["--title"]).message, "option '--title' requires a value")
+      expectEqual(collections::get(collections::get(tryParse(command, ["--title=-v"]).values, "title"), 0), "-v")
     END TCASE
-    TCASE "a trailing separator leaves no operands and still checks required"
-      LET options AS List OF Option = [Option[name := "port", alias := "p", required := TRUE, kind := OptionKind.Integer]]
-      expectInteger(len(parseArgs(["-p", "1", "--"], options).operands), 0)
-      expectTrap(parseArgs(["--"], options), 77050004)
+    TCASE "an empty value is a value"
+      LET command AS Command = Command[options := [Option[name := "title", alias := "t"]]]
+      expectString(strings::join(collections::get(tryParse(command, ["--title="]).values, "title"), "|"), "")
+      expectString(strings::join(collections::get(tryParse(command, ["-t", ""]).values, "title"), "|"), "")
     END TCASE
-    TCASE "operands before parse is refused"
-      parsed = FALSE
-      cachedOperands = []
-      expectTrap(operands(), 77050002)
+    TCASE "unknown options and misused flags are refused"
+      LET command AS Command = Command[options := [Option[name := "verbose", alias := "v", kind := OptionKind.Flag]]]
+      expectString(tryParse(command, ["--nope"]).message, "unknown option '--nope'")
+      expectString(tryParse(command, ["--nope=1"]).message, "unknown option '--nope'")
+      expectString(tryParse(command, ["--=1"]).message, "unknown option '--'")
+      expectString(tryParse(command, ["--verbose=true"]).message, "option '--verbose' does not take a value")
+      expectString(tryParse(command, ["--verb"]).message, "unknown option '--verb'")
     END TCASE
-    TCASE "operands reports what parse published"
-      parsed = TRUE
-      cachedOptions = []
-      cachedValues = Map OF String TO String {}
-      cachedOperands = ["a", "b"]
-      expectInteger(len(operands()), 2)
-      expectString(collections::get(operands(), 1), "b")
+    TCASE "a repeated option is refused unless repeatable"
+      LET command AS Command = Command[options := [Option[name := "port", alias := "p", kind := OptionKind.Integer], Option[name := "include", alias := "I", repeatable := TRUE], Option[name := "verbose", alias := "v", kind := OptionKind.Flag, repeatable := TRUE]]]
+      expectString(tryParse(command, ["-p", "1", "--port=2"]).message, "option '--port' was given more than once")
+      LET args AS Args = tryParse(command, ["-I", "a", "--include=b", "-Ic", "-vvv", "-v"])
+      expectString(strings::join(collections::get(args.values, "include"), "|"), "a|b|c")
+      expectInteger(len(collections::get(args.values, "verbose")), 4)
     END TCASE
-    TCASE "a malformed schema fails even on the cached path"
-      LET duplicated AS List OF Option = [Option[name := "x", alias := "", required := FALSE, kind := OptionKind.Flag], Option[name := "x", alias := "", required := FALSE, kind := OptionKind.Flag]]
-      parsed = TRUE
-      cachedOptions = duplicated
-      cachedValues = Map OF String TO String {}
-      expectTrap(parse(duplicated), 77050002)
+    TCASE "values are checked against their kind while parsing"
+      LET command AS Command = Command[options := [Option[name := "port", kind := OptionKind.Integer], Option[name := "ratio", kind := OptionKind.Float], Option[name := "cache", kind := OptionKind.Bool], Option[name := "mode", choices := ["fast", "slow"]]]]
+      expectString(tryParse(command, ["--port=12x"]).message, "invalid value '12x' for '--port': expected an integer")
+      expectString(tryParse(command, ["--port="]).message, "invalid value '' for '--port': expected an integer")
+      expectString(tryParse(command, ["--ratio=half"]).message, "invalid value 'half' for '--ratio': expected a number")
+      expectString(tryParse(command, ["--cache=maybe"]).message, "invalid value 'maybe' for '--cache': expected true or false")
+      expectString(tryParse(command, ["--mode=medium"]).message, "invalid value 'medium' for '--mode': expected one of fast, slow")
+      expectEqual(tryParse(command, ["--port=+5", "--ratio=-1e3", "--cache=Off", "--mode=slow"]).status = ParseStatus.Ok, TRUE)
+    END TCASE
+    TCASE "a missing required option is refused"
+      LET command AS Command = Command[options := [Option[name := "port", alias := "p", kind := OptionKind.Integer, required := TRUE]]]
+      expectString(tryParse(command, []).message, "missing required option '--port'")
+      expectEqual(tryParse(command, ["--port=1"]).status = ParseStatus.Ok, TRUE)
+    END TCASE
+    TCASE "help and version win over a missing required option"
+      LET command AS Command = Command[version := "1.2.3", options := [Option[name := "port", kind := OptionKind.Integer, required := TRUE], Option[name := "verbose", alias := "v", kind := OptionKind.Flag]]]
+      expectEqual(tryParse(command, ["--help"]).status = ParseStatus.Help, TRUE)
+      expectEqual(tryParse(command, ["-h"]).status = ParseStatus.Help, TRUE)
+      expectEqual(tryParse(command, ["-vh"]).status = ParseStatus.Help, TRUE)
+      expectEqual(tryParse(command, ["--version"]).status = ParseStatus.Version, TRUE)
+      expectEqual(tryParse(command, ["-V"]).status = ParseStatus.Version, TRUE)
+      expectString(tryParse(command, ["--help=1"]).message, "option '--help' does not take a value")
+      expectString(tryParse(command, ["--nope", "--help"]).message, "unknown option '--nope'")
+    END TCASE
+    TCASE "version exists only when declared, and a claimed letter has no short form"
+      LET plain AS Command = Command[options := []]
+      expectString(tryParse(plain, ["--version"]).message, "unknown option '--version'")
+      expectString(tryParse(plain, ["-V"]).message, "unknown option '-V'")
+      LET claimed AS Command = Command[version := "1", options := [Option[name := "host", alias := "h"], Option[name := "verify", alias := "V", kind := OptionKind.Flag]]]
+      LET args AS Args = tryParse(claimed, ["-h", "example.com", "-V"])
+      expectEqual(args.status = ParseStatus.Ok, TRUE)
+      expectString(strings::join(collections::get(args.values, "host"), "|"), "example.com")
+      expectEqual(tryParse(claimed, ["--help"]).status = ParseStatus.Help, TRUE)
+    END TCASE
+    TCASE "a malformed command fails rather than reporting a usage error"
+      expectTrap(tryParse(Command[options := [Option[name := ""]]], []), 77050002)
+    END TCASE
+    TCASE "the program name prefers the command's"
+      expectString(programName(Command[name := "tool"]), "tool")
+      expectEqual(programName(Command[options := []]) <> "", TRUE)
     END TCASE
   END TGROUP
 END TESTING

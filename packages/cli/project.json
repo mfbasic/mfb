@@ -1,8 +1,10 @@
 {
   "name": "cli",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "mfb": "1.0",
   "kind": "package",
-  "description": "Declarative command-line options with strict parsing, typed accessors, and matching usage output.",
+  "description": "Declarative command-line parsing: strict GNU-style options, typed values, automatic --help and --version, and standard exit statuses.",
+  "author": "MFBASIC contributors",
+  "url": "https://github.com/mfbasic/mfb/tree/main/packages/cli",
   "sources": [{"root": "src", "role": "package", "include": ["**/*.mfb"]}]
 }

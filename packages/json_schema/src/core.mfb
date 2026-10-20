@@ -42,9 +42,8 @@ PUBLIC LET DEPTH_LIMIT AS Integer = 200
 PUBLIC LET STEP_BASE AS Integer = 10000
 PUBLIC LET STEP_PER_NODE AS Integer = 100
 
-' Maximum number of schema resources (`$id`-bearing subschemas, plus the root)
-' one document may declare, and the maximum number of nodes `compile` will walk
-' while indexing them.
+' Maximum number of schema nodes `compile` will walk, per pass. A document
+' larger than this is refused rather than indexed without bound.
 PUBLIC LET INDEX_NODE_LIMIT AS Integer = 200000
 
 ' ---------------------------------------------------------------------------
@@ -65,6 +64,9 @@ PUBLIC LET ERR_SCHEMA AS Integer = 77050003
 PUBLIC LET ERR_UNSUPPORTED AS Integer = 77050007
 ' 7-705-0004 errorCode::ErrNotFound — a `$ref` naming nothing in the document.
 PUBLIC LET ERR_REF AS Integer = 77050004
+' The same registry code, named for what it means to a text search: a needle
+' that is not there. `strings::find` raises it on a miss.
+PUBLIC LET ERR_NOT_FOUND AS Integer = 77050004
 ' 7-705-0002 errorCode::ErrInvalidArgument — a caller-side mistake, such as a
 ' JSON Pointer that is not a JSON Pointer.
 PUBLIC LET ERR_ARGUMENT AS Integer = 77050002
@@ -202,6 +204,46 @@ PUBLIC FUNC hasMember(value AS json::Json, name AS String) AS Boolean
   IF NOT isObject(value) THEN RETURN FALSE
   LET fields AS Map OF String TO json::Json = fieldsOf(value)
   RETURN collections::hasKey(fields, name)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Canonical keys.
+'
+' `uniqueItems` and set-membership need "are these two values equal?" answered
+' for every pair without comparing every pair. A canonical key is a String such
+' that two values have the same key exactly when `deepEqual` says they are
+' equal, so a Map or Set of keys answers the question in one lookup per value.
+'
+' The key is prefix-free: a scalar is spelled by its JSON text (numbers by the
+' shortest rendering, so 1 and 1.0 agree and -0 and 0 agree), and a container
+' wraps its members' keys in brackets with commas between them. An object sorts
+' its member names first, so member order never reaches the key.
+' ---------------------------------------------------------------------------
+
+PUBLIC FUNC canonicalKey(value AS json::Json) AS String
+  MATCH value
+    CASE json::JsonNull(n) : RETURN "null"
+    CASE json::JsonBool(b)
+      IF b.value THEN RETURN "true"
+      RETURN "false"
+    CASE json::JsonNum(m)
+      ' -0 and 0 are one number: deepEqual compares them by value.
+      IF m.value = 0.0 THEN RETURN "0"
+      RETURN json::stringify(value)
+    CASE json::JsonStr(s) : RETURN json::stringify(value)
+    CASE json::JsonArr(a)
+      MUT parts AS List OF String = []
+      FOR EACH item IN a.items
+        parts = collections::append(parts, canonicalKey(item))
+      NEXT
+      RETURN "[" & strings::join(parts, ",") & "]"
+    CASE json::JsonObj(o)
+      MUT parts AS List OF String = []
+      FOR EACH name IN collections::sort(collections::keys(o.fields))
+        parts = collections::append(parts, json::stringify(json::JsonStr[name]) & ":" & canonicalKey(collections::get(o.fields, name)))
+      NEXT
+      RETURN "{" & strings::join(parts, ",") & "}"
+  END MATCH
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -359,6 +401,47 @@ PUBLIC FUNC resolvePointer(document AS json::Json, pointer AS String) AS json::J
 END FUNC
 
 ' ---------------------------------------------------------------------------
+' Locations.
+'
+' A location names one subschema in the set of documents `compile` was given:
+' the document's key, a "#", and a JSON Pointer into that document. The main
+' document's key is "", so its locations read "#/properties/a"; a registered
+' document reads "http://example.test/r.json#/$defs/a". Since a document key
+' never contains "#", the first "#" always separates the two parts.
+'
+' Because a location is a string that ends in its pointer, appending a
+' keyword or a token is `pointerAppend` on the whole location.
+' ---------------------------------------------------------------------------
+
+PUBLIC FUNC locationOf(documentKey AS String, pointer AS String) AS String
+  RETURN documentKey & "#" & pointer
+END FUNC
+
+' The document key a location lies in: "" for the main document.
+PUBLIC FUNC locationDocument(location AS String) AS String
+  RETURN slice(location, 0, indexOf(location, "#"))
+END FUNC
+
+' The JSON Pointer a location names within its document.
+PUBLIC FUNC locationPointer(location AS String) AS String
+  RETURN sliceFrom(location, indexOf(location, "#") + 1)
+END FUNC
+
+' How a location is shown to a person: the bare JSON Pointer for the main
+' document, and the whole location for a registered one, which needs its key to
+' be found at all.
+PUBLIC FUNC schemaPathOf(location AS String) AS String
+  IF locationDocument(location) = "" THEN RETURN locationPointer(location)
+  RETURN location
+END FUNC
+
+' The key a `$dynamicAnchor` is filed under: the resource that declares it and
+' its name. The resource is length-prefixed, so no two pairs share a key.
+PUBLIC FUNC dynamicAnchorKey(resource AS String, name AS String) AS String
+  RETURN toString(len(resource)) & ":" & resource & "#" & name
+END FUNC
+
+' ---------------------------------------------------------------------------
 ' Budgets.
 ' ---------------------------------------------------------------------------
 
@@ -422,8 +505,9 @@ END FUNC
 
 ' The scalar index of the first `needle` in `value`, or -1 when there is none.
 PUBLIC FUNC indexOf(value AS String, needle AS String) AS Integer
-  LET at AS Integer = strings::find(value, needle) TRAP
-    RECOVER -1
+  LET at AS Integer = strings::find(value, needle) TRAP(problem)
+    IF problem.code = ERR_NOT_FOUND THEN RECOVER -1
+    PROPAGATE
   END TRAP
   RETURN at
 END FUNC

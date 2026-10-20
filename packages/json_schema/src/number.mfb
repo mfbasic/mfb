@@ -1,0 +1,142 @@
+' ---------------------------------------------------------------------------
+' json_schema/number.mfb -- exact `multipleOf`.
+'
+' A JSON number is decimal text, and `multipleOf` asks a question about decimal
+' arithmetic: is 0.3 a whole multiple of 0.1? As binary64 it is not --
+' 0.3 / 0.1 is 2.9999999999999996 -- and a validator that divides in Float
+' rejects a value the schema author plainly meant to accept. The model used
+' here is the one `json::stringify` renders in: a number is the shortest decimal
+' that reads back as the same Float (`mfb man json`). For any number written
+' with at most 17 significant digits -- every number a person writes -- that is
+' exactly the decimal the author wrote, so the division below is exact on the
+' author's numbers, not on their binary approximations.
+'
+' The arithmetic is done on integers, so it cannot overflow or round:
+' a value is digits * 10^exponent with at most 17 digits, and each step keeps
+' every intermediate under 10^18, inside Integer.
+' ---------------------------------------------------------------------------
+
+IMPORT json
+IMPORT collections
+IMPORT strings
+
+' A decimal: digits * 10^exponent. Trailing zeros are stripped, so `digits` is
+' zero only for the value zero, and otherwise carries no factor of ten.
+PRIVATE TYPE Decimal
+  digits AS Integer
+  exponent AS Integer
+END TYPE
+
+' The decimal a Float reads back as, read from its shortest JSON rendering.
+PRIVATE FUNC decimalOf(value AS Float) AS Decimal
+  MUT magnitude AS Float = value
+  IF magnitude < 0.0 THEN magnitude = -magnitude
+  IF magnitude = 0.0 THEN RETURN Decimal[digits := 0, exponent := 0]
+
+  LET text AS String = json::stringify(json::JsonNum[magnitude])
+  LET scalars AS List OF Scalar = strings::toScalars(text)
+  MUT mantissa AS String = ""
+  MUT exponentText AS String = ""
+  MUT inExponent AS Boolean = FALSE
+  MUT i AS Integer = 0
+  WHILE i < len(scalars)
+    LET code AS Integer = toInt(collections::get(scalars, i))
+    IF code = 101 THEN
+      inExponent = TRUE
+    ELSEIF inExponent THEN
+      exponentText = exponentText & strings::mid(text, i, 1)
+    ELSE
+      mantissa = mantissa & strings::mid(text, i, 1)
+    END IF
+    i = i + 1
+  END WHILE
+
+  ' The mantissa is digits with at most one ".", whose position fixes the
+  ' exponent: every digit after the point lowers it by one.
+  MUT digitText AS String = ""
+  MUT exponent AS Integer = parseSigned(exponentText)
+  MUT seenPoint AS Boolean = FALSE
+  MUT j AS Integer = 0
+  WHILE j < len(mantissa)
+    LET ch AS String = strings::mid(mantissa, j, 1)
+    IF ch = "." THEN
+      seenPoint = TRUE
+    ELSE
+      digitText = digitText & ch
+      IF seenPoint THEN exponent = exponent - 1
+    END IF
+    j = j + 1
+  END WHILE
+
+  ' Leading zeros carry no value; trailing zeros are a power of ten.
+  MUT start AS Integer = 0
+  WHILE start < len(digitText) AND strings::mid(digitText, start, 1) = "0"
+    start = start + 1
+  END WHILE
+  MUT stop AS Integer = len(digitText)
+  WHILE stop > start AND strings::mid(digitText, stop - 1, 1) = "0"
+    stop = stop - 1
+    exponent = exponent + 1
+  END WHILE
+  RETURN Decimal[digits := parseDigits(strings::mid(digitText, start, stop - start)), exponent := exponent]
+END FUNC
+
+' An optionally signed run of decimal digits, read as an Integer. Exponents in
+' a Float's rendering are small (|e| <= 324), so the accumulation cannot overflow.
+PRIVATE FUNC parseSigned(text AS String) AS Integer
+  IF text = "" THEN RETURN 0
+  MUT sign AS Integer = 1
+  MUT start AS Integer = 0
+  IF strings::mid(text, 0, 1) = "-" THEN
+    sign = -1
+    start = 1
+  ELSEIF strings::mid(text, 0, 1) = "+" THEN
+    start = 1
+  END IF
+  RETURN sign * parseDigits(strings::mid(text, start, len(text) - start))
+END FUNC
+
+' A run of decimal digits as an Integer. Callers pass only digits, and at most
+' 17 of them for the mantissa, so the value fits.
+PRIVATE FUNC parseDigits(text AS String) AS Integer
+  MUT total AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < len(text)
+    total = total * 10 + (toInt(toScalar(strings::mid(text, i, 1))) - 48)
+    i = i + 1
+  END WHILE
+  RETURN total
+END FUNC
+
+' TRUE when `value` is a whole-number multiple of `factor`, exactly, on the
+' decimal readings of both. `factor` must be positive, which compile enforces.
+PUBLIC FUNC decimalMultiple(value AS Float, factor AS Float) AS Boolean
+  LET a AS Decimal = decimalOf(value)
+  LET b AS Decimal = decimalOf(factor)
+  IF a.digits = 0 THEN RETURN TRUE
+
+  ' value / factor = (a.digits * 10^(a.exponent - b.exponent)) / b.digits when
+  ' the exponents are ordered the first way round.
+  IF a.exponent >= b.exponent THEN
+    MUT remainder AS Integer = a.digits MOD b.digits
+    MUT shift AS Integer = a.exponent - b.exponent
+    WHILE shift > 0 AND remainder <> 0
+      ' remainder < b.digits <= 10^17, so remainder * 10 < 10^18 fits.
+      remainder = (remainder * 10) MOD b.digits
+      shift = shift - 1
+    END WHILE
+    RETURN remainder = 0
+  END IF
+
+  ' Otherwise the divisor carries the extra powers of ten, and the quotient is
+  ' a.digits / (b.digits * 10^k). Once the divisor passes a.digits it cannot
+  ' divide it (a.digits is positive), so the loop stops within 18 steps.
+  MUT divisor AS Integer = b.digits
+  MUT k AS Integer = b.exponent - a.exponent
+  WHILE k > 0
+    IF divisor > a.digits THEN RETURN FALSE
+    divisor = divisor * 10
+    k = k - 1
+  END WHILE
+  RETURN a.digits MOD divisor = 0
+END FUNC

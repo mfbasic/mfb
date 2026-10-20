@@ -24,7 +24,7 @@ DOC
   DESC any number of instances against it and returns a
   DESC `List OF json_schema::ValidationError`, one entry per reason the
   DESC instance was rejected, each carrying a JSON Pointer into the instance
-  DESC and a JSON Pointer into the schema.
+  DESC and where the rejecting keyword lives in the schema.
   EXAMPLE
     IMPORT json_schema
     IMPORT json
@@ -44,16 +44,16 @@ DOC
   DESC
   DESC Everything that can be wrong with a schema on its own is found once, by
   DESC `compile`, before any instance is seen: a keyword holding the wrong JSON
-  DESC type, a `$ref` that names nothing, a `pattern` that is not a valid
-  DESC regular expression, a construct outside the supported subset. `compile`
-  DESC fails for those. `validate` never fails at all for a schema reason --
-  DESC every outcome it has is a list of validation errors, empty when the
-  DESC instance is valid.
+  DESC type, a `$ref` that names nothing, a `pattern` the regular-expression
+  DESC engine cannot compile, a construct outside the supported subset. `compile`
+  DESC fails for those. `validate` never fails for a schema reason -- every
+  DESC outcome it has is a list of validation errors, empty when the instance is
+  DESC valid.
   DESC
   DESC What it implements
   DESC
-  DESC The Core and Validation vocabularies of Draft 2020-12, together with the
-  DESC applicator, unevaluated, and content vocabularies' assertion behaviour:
+  DESC The Draft 2020-12 Core, Validation, Applicator, Unevaluated and Content
+  DESC vocabularies, with `$ref`, `$dynamicRef` and identifiers:
   INFO Applicators: `allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/`else`,
   INFO `dependentSchemas`, `properties`, `patternProperties`,
   INFO `additionalProperties`, `propertyNames`, `prefixItems`, `items`,
@@ -63,44 +63,65 @@ DOC
   INFO `minLength`, `pattern`, `maxItems`, `minItems`, `uniqueItems`,
   INFO `maxContains`, `minContains`, `maxProperties`, `minProperties`,
   INFO `required` and `dependentRequired`.
-  INFO Identifiers and references: `$id`, `$anchor`, `$defs`, `$ref` and
-  INFO `$schema`, with full RFC 3986 URI-reference resolution, so a relative
-  INFO `$id` rebases every reference beneath it.
+  INFO References: `$ref`, `$dynamicRef` with `$dynamicAnchor`, `$anchor`,
+  INFO `$id`, and `$defs`, with RFC 3986 URI-reference resolution, so a
+  INFO relative `$id` rebases every reference beneath it.
   INFO Annotations, which are read for shape and otherwise ignored: `title`,
   INFO `description`, `default`, `examples`, `deprecated`, `readOnly`,
   INFO `writeOnly`, `$comment`, `format`, `contentEncoding`,
   INFO `contentMediaType` and `contentSchema`.
+  INFO The Draft 2020-12 metaschemas are built in: a `$ref` to
+  INFO `https://json-schema.org/draft/2020-12/schema` or one of its vocabularies
+  INFO resolves to the bundled copy, without retrieval.
+  DESC
+  DESC Documents this package does not retrieve
+  DESC
+  DESC Nothing is fetched. A `$ref` names a location in the document being
+  DESC compiled, in a document registered with `json_schema::compileWithResources`,
+  DESC or in a built-in metaschema. Fetching a URL that untrusted input names is
+  DESC a server-side request forgery, so the caller composes the documents it
+  DESC needs and says what they are.
   DESC
   DESC Deliberate limits
   DESC
   DESC Each of these fails `compile` rather than being approximated, so a
   DESC schema is never validated against something other than what it says:
-  INFO Nothing is retrieved. A `$ref` must resolve inside the document being
-  INFO compiled; one naming an external resource fails with
-  INFO `errorCode::ErrNotFound`. Fetching a URL named by untrusted input is a
-  INFO server-side request forgery, so this package never does it. Compose
-  INFO documents yourself and compile the result.
-  INFO `$dynamicRef`, `$dynamicAnchor`, `$recursiveRef` and `$recursiveAnchor`
-  INFO fail with `errorCode::ErrUnsupported`.
+  INFO A `$ref` naming a document that is neither compiled nor registered fails
+  INFO with `errorCode::ErrNotFound`.
+  INFO `$recursiveRef` and `$recursiveAnchor`, which are Draft 2019-09, fail
+  INFO with `errorCode::ErrUnsupported`. So do `$schema` values naming another
+  INFO dialect, and the keywords of Draft 7 and earlier that 2020-12 renamed --
+  INFO `dependencies`, `additionalItems`, `definitions` and `id` -- because a
+  INFO 2020-12 validator would ignore them without a word.
+  INFO An unknown keyword is an annotation, as the specification says it is.
   INFO `format` is an annotation, not an assertion. That is the Draft 2020-12
   INFO default, and it is what every other validator does unless a format
   INFO vocabulary is switched on.
   INFO A `pattern` is translated from ECMA-262 into the `regex` package's
-  INFO dialect, exactly, or refused. `\d`, `\w`, `\s` and `.` are rewritten so
-  INFO they mean what ECMA-262 says rather than what the `regex` dialect says,
-  INFO `\uHHHH` and `\cX` become `\x{...}`, an empty class becomes an explicit
-  INFO one, and a `\p{...}` naming a general category or a script is rewritten
-  INFO to that name's `regex` spelling. Lookarounds, backreferences,
-  INFO `Script_Extensions`, a binary property the engine does not implement,
-  INFO and a negated shorthand inside a class are refused with
-  INFO `errorCode::ErrUnsupported`. `\b` and `\B` are the one carried
-  INFO construct: their word-character test is Unicode-aware here and
-  INFO ASCII-only in ECMA-262.
-  INFO Numbers are `Float`, because `json::JsonNum` is (`mfb man json`). An
-  INFO integer beyond 2^53 and a decimal with more digits than binary64 holds
-  INFO are rounded at parse time, so `const`, `enum`, `multipleOf` and
-  INFO `uniqueItems` compare the rounded values. This is JavaScript's model
-  INFO exactly, which is what the reference validators use.
+  INFO dialect, exactly, and the translation is compiled by the engine at
+  INFO `compile`, or it is refused. `\d`, `\w`, `\s` and `.` are rewritten so
+  INFO they mean what ECMA-262 says, `\uHHHH` and `\cX` become `\x{...}`, an
+  INFO empty class becomes an explicit one, and a `\p{...}` naming a general
+  INFO category or a script is rewritten to that name's `regex` spelling.
+  INFO Lookarounds, backreferences, `Script_Extensions`, a binary property the
+  INFO engine does not implement, a negated shorthand inside a class, and a
+  INFO class range with a class escape at either end are refused.
+  INFO `\b` and `\B` are the one carried construct: their word-character test
+  INFO is Unicode-aware here and ASCII-only in ECMA-262.
+  DESC
+  DESC Numbers
+  DESC
+  DESC A JSON number is held as a `Float` (`mfb man json`), so an integer beyond
+  DESC 2^53 and a decimal with more digits than binary64 holds are rounded at
+  DESC parse time, and `const`, `enum` and `uniqueItems` compare the rounded
+  DESC values. That is JavaScript's model, and the reference validators use it.
+  DESC
+  DESC `multipleOf` is the exception, because it is decimal arithmetic. Each
+  DESC number is read as the shortest decimal that reads back as its Float --
+  DESC the one `json::stringify` writes -- and the division is exact on those
+  DESC decimals. So `0.3` is a multiple of `0.1`, which binary64 division does not
+  DESC say (`0.3 / 0.1` is `2.9999999999999996`). A number written with at most
+  DESC 17 significant digits is read as the decimal its author wrote.
   DESC
   DESC Bounds
   DESC
@@ -112,7 +133,9 @@ DOC
   DESC -- ten nested two-branch `anyOf`s demand 2^10 evaluations from a few
   DESC hundred bytes -- cannot buy more work than the instance is worth. A
   DESC schema is untrusted input in exactly the way an instance is, and none of
-  DESC these bounds is reachable by a schema that terminates.
+  DESC these bounds is reachable by a schema that terminates. The checks that
+  DESC scale with the instance -- `uniqueItems`, and the collection of errors --
+  DESC are linear in it, not quadratic.
   DESC
   DESC Package error codes
   DESC
@@ -151,14 +174,15 @@ DOC
   DESC
   DESC Compiling walks the whole document twice: once to record every `$id` and
   DESC `$anchor`, and once to resolve every `$ref` against them, check every
-  DESC keyword's shape, and translate every regular expression. A schema that
+  DESC keyword's shape, and compile every regular expression. A schema that
   DESC survives has no remaining way to fail for its own reasons, which is why
-  DESC `json_schema::validate` returns errors rather than raising them.
+  DESC `json_schema::validate` returns errors rather than raising them. A
+  DESC reference to a Draft 2020-12 metaschema resolves to the built-in copy.
   ARG document The schema, as a `json::Json` value. `TRUE` and `FALSE` are schemas: one accepts every instance and the other rejects every instance.
   RET The compiled schema. Compile once and validate many instances against it; nothing in the result depends on any instance.
-  ERROR 77050003 The document is not a valid Draft 2020-12 schema: a keyword holds the wrong JSON type, `type` names something that is not a JSON type, `multipleOf` is not positive, `$anchor` is not a valid anchor name, or a `pattern` is not a valid ECMA-262 regular expression.
-  ERROR 77050007 The document uses a construct outside the supported subset: `$dynamicRef`, `$dynamicAnchor`, `$recursiveRef`, `$recursiveAnchor`, a `$schema` naming another dialect, or a regular expression this validator cannot translate exactly -- a lookaround, a backreference, a `Script_Extensions` or binary property escape, or a negated shorthand inside a character class.
-  ERROR 77050004 A `$ref` resolves to nothing in this document. Nothing is retrieved, so a reference to an external resource reports this too.
+  ERROR 77050003 The document is not a valid Draft 2020-12 schema: a keyword holds the wrong JSON type, `type` names something that is not a JSON type, `multipleOf` is not positive, `$anchor` is not a valid anchor name, an identifier or reference is not a URI reference, a `$ref` names something that is not a schema, or a `pattern` is not a valid ECMA-262 regular expression.
+  ERROR 77050007 The document uses a construct outside the supported subset: `$recursiveRef`, `$recursiveAnchor`, a `$schema` naming another dialect, a Draft 7 keyword that Draft 2020-12 replaced (`dependencies`, `additionalItems`, `definitions`, `id`), or a regular expression this validator cannot translate exactly -- a lookaround, a backreference, a `Script_Extensions` or binary property escape, or a negated shorthand inside a character class.
+  ERROR 77050004 A `$ref` or `$dynamicRef` names nothing in this document, in a document registered with it, or in the built-in metaschemas. Nothing is retrieved, so a reference to an external resource reports this too.
   ERROR 77050024 The document nests more than 200 levels deep.
   ERROR 93120001 The document has more parts than the compiler will index.
   EXAMPLE
@@ -175,7 +199,8 @@ DOC
   END EXAMPLE
 END DOC
 EXPORT FUNC compile(document AS json::Json) AS Schema
-  RETURN compileSchema(document)
+  MUT none AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  RETURN compileSchema(document, none)
 END FUNC
 
 DOC
@@ -187,7 +212,7 @@ DOC
   RET The compiled schema.
   ERROR 77050003 The text is not valid JSON, or the document it holds is not a valid Draft 2020-12 schema.
   ERROR 77050007 The document uses a construct outside the supported subset.
-  ERROR 77050004 A `$ref` resolves to nothing in this document.
+  ERROR 77050004 A `$ref` or `$dynamicRef` names nothing in this document, a registered one, or the built-in metaschemas.
   ERROR 77050024 The text or the document nests too deep.
   ERROR 93120001 The document has more parts than the compiler will index.
   EXAMPLE
@@ -204,7 +229,48 @@ DOC
   END EXAMPLE
 END DOC
 EXPORT FUNC compileText(text AS String) AS Schema
-  RETURN compileSchema(json::parse(text))
+  MUT none AS Map OF String TO json::Json = Map OF String TO json::Json {}
+  RETURN compileSchema(json::parse(text), none)
+END FUNC
+
+DOC
+  FUNC compileWithResources
+  GROUP Compiling
+  DESC Compile a schema that refers to other schemas the caller already has,
+  DESC without this package fetching any of them.
+  DESC
+  DESC Each entry of `resources` is a schema document, keyed by the URI it is
+  DESC known by. A `$ref` may name a location in any of them, as well as in
+  DESC `document`, by its URI. A registered document with no `$id` is named by
+  DESC its key; one with an `$id` is named by that, resolved against the key, and
+  DESC the key is an alias for it. Nothing is retrieved: a `$ref` to a URI that
+  DESC is neither registered nor the main document fails `compile`.
+  ARG document The main schema, as a `json::Json` value.
+  ARG resources The other schemas, keyed by URI. Keys are URIs with no fragment. The map may be empty.
+  RET The compiled schema. Compile once and validate many instances against it.
+  ERROR 77050002 A key of `resources` is empty, is not a URI, or carries a fragment, or two registrations name the same URI.
+  ERROR 77050003 A document is not a valid Draft 2020-12 schema.
+  ERROR 77050007 A document uses a construct outside the supported subset.
+  ERROR 77050004 A `$ref` names a resource or location that is neither in a compiled document nor registered.
+  ERROR 77050024 A document nests more than 200 levels deep.
+  ERROR 93120001 A document has more parts than the compiler will index.
+  EXAMPLE
+    IMPORT json_schema
+    IMPORT json
+    IMPORT collections
+    IMPORT io
+
+    FUNC main() AS Integer
+      MUT known AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      known = collections::set(known, "https://example.test/money.json", json::parse("{\"$defs\":{\"cents\":{\"type\":\"integer\",\"minimum\":0}}}"))
+      LET schema AS json_schema::Schema = json_schema::compileWithResources(json::parse("{\"properties\":{\"price\":{\"$ref\":\"https://example.test/money.json#/$defs/cents\"}}}"), known)
+      io::print(toString(json_schema::isValid(schema, json::parse("{\"price\":12}"))))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC compileWithResources(document AS json::Json, resources AS Map OF String TO json::Json) AS Schema
+  RETURN compileSchema(document, resources)
 END FUNC
 
 DOC
@@ -216,8 +282,9 @@ DOC
   DESC An empty list means valid. The list is not truncated at the first
   DESC problem: a form with three bad fields reports three errors, so a caller
   DESC can show them all at once. Each entry carries the keyword that rejected
-  DESC the instance, a JSON Pointer into the instance, a JSON Pointer into the
-  DESC schema, and a sentence.
+  DESC the instance, a JSON Pointer into the instance, where the keyword lives
+  DESC in the schema -- a JSON Pointer into the main schema, or a registered
+  DESC schema's URI and a JSON Pointer -- and a sentence.
   ARG compiled The schema, from `json_schema::compile`.
   ARG instance The value to check. Any `json::Json` value is a legal instance, including `json::JsonNull`.
   RET One `json_schema::ValidationError` per reason the instance was rejected, empty when it is valid.

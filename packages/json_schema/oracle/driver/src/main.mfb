@@ -36,7 +36,7 @@ PRIVATE FUNC usage() AS String
   out = out & "with the reason on standard error.\n"
   out = out & "\n"
   out = out & "A job file is {\"cases\":[{\"id\":..,\"schema\":..,\"instance\":..}],\n"
-  out = out & "\"patterns\":[{\"id\":..,\"pattern\":..,\"text\":..}]}; either member may be absent."
+  out = out & "\"patterns\":[{\"id\":..,\"pattern\":..,\"text\":..}],\"resources\":{uri:schema}}; any member may be absent."
   RETURN out
 END FUNC
 
@@ -76,12 +76,12 @@ END FUNC
 
 ' Answer one case. Compiling and validating are attempted separately so that
 ' `compile-error` and `validate-error` stay distinguishable.
-PRIVATE FUNC answerCase(request AS json::Json) AS json::Json
+PRIVATE FUNC answerCase(request AS json::Json, known AS Map OF String TO json::Json) AS json::Json
   LET id AS String = caseId(request)
   LET schema AS json::Json = json::get(request, ["schema"])
   LET instance AS json::Json = json::getOr(request, ["instance"], json::JsonNull[NOTHING])
 
-  LET compiled AS json_schema::Schema = json_schema::compile(schema) TRAP(problem)
+  LET compiled AS json_schema::Schema = json_schema::compileWithResources(schema, known) TRAP(problem)
     RETURN raisedJson(id, "compile-error", problem)
   END TRAP
 
@@ -137,14 +137,14 @@ PRIVATE FUNC textMember(request AS json::Json, name AS String) AS String
   END MATCH
 END FUNC
 
-PRIVATE FUNC answerAll(job AS json::Json, member AS String, kind AS String) AS json::Json
+PRIVATE FUNC answerAll(job AS json::Json, member AS String, kind AS String, known AS Map OF String TO json::Json) AS json::Json
   LET requests AS json::Json = json::getOr(job, [member], json::JsonArr[[]])
   MUT answers AS List OF json::Json = []
   MATCH requests
     CASE json::JsonArr(list)
       FOR EACH request IN list.items
         IF kind = "case" THEN
-          answers = collections::append(answers, answerCase(request))
+          answers = collections::append(answers, answerCase(request, known))
         ELSE
           answers = collections::append(answers, answerPattern(request))
         END IF
@@ -155,11 +155,22 @@ PRIVATE FUNC answerAll(job AS json::Json, member AS String, kind AS String) AS j
   RETURN json::JsonArr[answers]
 END FUNC
 
+' The documents a job registers with every case, keyed by URI. They are
+' schemas the caller already has, so the package compiles them rather than
+' fetching them.
+PRIVATE FUNC registry(job AS json::Json) AS Map OF String TO json::Json
+  MATCH json::getOr(job, ["resources"], json::JsonObj[Map OF String TO json::Json {}])
+    CASE json::JsonObj(o) : RETURN o.fields
+    CASE ELSE : FAIL error(errorCode::ErrInvalidArgument, "jsvalidate: `resources` must be an object")
+  END MATCH
+END FUNC
+
 PRIVATE FUNC runBatch(path AS String) AS Integer
   LET job AS json::Json = json::parse(fs::readText(path))
+  LET known AS Map OF String TO json::Json = registry(job)
   MUT fields AS Map OF String TO json::Json = Map OF String TO json::Json {}
-  fields = put(fields, "cases", answerAll(job, "cases", "case"))
-  fields = put(fields, "patterns", answerAll(job, "patterns", "pattern"))
+  fields = put(fields, "cases", answerAll(job, "cases", "case", known))
+  fields = put(fields, "patterns", answerAll(job, "patterns", "pattern", known))
   io::print(json::stringify(json::JsonObj[fields]))
   RETURN 0
 END FUNC

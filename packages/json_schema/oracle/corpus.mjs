@@ -167,13 +167,19 @@ export const CORPUS = [
   // --- deep nesting --------------------------------------------------------
   { schema: { properties: { a: { properties: { b: { properties: { c: { type: "integer" } } } } } } }, instances: [{ a: { b: { c: 1 } } }, { a: { b: { c: "x" } } }] },
   { schema: { allOf: [{ anyOf: [{ oneOf: [{ not: { type: "string" } }] }] }] }, instances: [1, "x"] },
+
 ];
 
 // Cases where the two implementations are SUPPOSED to disagree, each with the
 // reason. Anything not listed here that disagrees is a failure.
 export const DIVERGENT = [
   {
-    key: "unsupported-dynamic",
+    key: "decimal-multipleof",
+    schema: { multipleOf: 0.1 },
+    instances: [0.3, 0.7, 0.35],
+  },
+  {
+    key: "ajv-dynamicref-root",
     schema: { $defs: { a: { $dynamicAnchor: "T", type: "integer" } }, $dynamicRef: "#T" },
     instances: [1, "x"],
   },

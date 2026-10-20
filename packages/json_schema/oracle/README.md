@@ -81,22 +81,37 @@ At the time of writing, on this package:
 
 | Mode | Compared | Agreed | Known divergences | Unexplained |
 | --- | --- | --- | --- | --- |
-| corpus | 367 | 357 | 10 | 0 |
+| corpus | 370 | 356 | 14 | 0 |
 | pattern | 5934 | 5564 | 370 | 0 |
-| fuzz (6 seeds, 300 schemas each) | 10800 | 10796 | 4 | 0 |
-| suite | 1301 | 1213 | 88 | 0 |
+| fuzz (seeds 1–6, 400 schemas each) | 14400 | 14388 | 12 | 0 |
+| suite | 1302 | 1297 | 5 | 0 |
 
-The suite line is the one to read: **1213 of 1301 official Draft 2020-12 cases
-pass, and not one of the remaining 88 is a wrong verdict.** Every one is a
-refusal in a documented out-of-subset area — `$dynamicRef`/`$dynamicAnchor`
-(48), a `$ref` naming a resource this package will not retrieve (35), and a
-`$schema` naming another dialect (5).
+The suite line is the one to read: **1297 of 1302 official Draft 2020-12 cases
+agree with their stated verdicts, and the five that do not are the
+`vocabulary.json` cases, which name a custom dialect.** This package refuses every
+dialect but Draft 2020-12, by design, so those five are refusals rather than wrong
+verdicts. The suite mode registers the suite's own `remotes/` documents with the
+package's registry, as the suite's runner does, so the cases that refer to them
+are checked too.
 
 Reproduce the table with `./run.sh` and `node oracle.mjs fuzz --seed N`.
 
 ## What the oracle found
 
 Running it is not a formality; it found real bugs on both sides.
+
+In this package, while preparing 1.0:
+
+* A `$ref` that names a location inside a schema resource, without entering that
+  resource's root, left the resource out of the dynamic scope, so a
+  `$dynamicRef` inside it was redirected to the wrong anchor. The official
+  `dynamicRef.json` case "avoids the root of each schema" found it. Every
+  reference now enters the resource that contains its target.
+* The official `format-assertion` remote documents refer to the 2020-12
+  metaschemas, which the package had not bundled. They are built in now. The
+  format-assertion vocabulary itself is not, and its two remote documents are
+  left out of the oracle's registry, because an eagerly checked registry refuses
+  every case over them.
 
 In this package, before it shipped:
 
@@ -113,6 +128,10 @@ In this package, before it shipped:
 In ajv, each proven against the specification or the official suite rather than
 asserted:
 
+* A root-level `$dynamicRef` whose `$dynamicAnchor` sits in `$defs` overflows
+  ajv's stack. The static target is that subschema, and the official suite's
+  `dynamicRef.json` cases agree with this package.
+
 * `multipleOf` is tested with `division !== parseInt(division)`, and `parseInt`
   reads a quotient in exponent notation as its leading digits. `parseInt(5e299)`
   is `5`, so ajv calls `1e300` not a multiple of `2` when exact arithmetic says
@@ -128,10 +147,15 @@ asserted:
 * `{enum: []}` is refused at compile time, though the 2020-12 metaschema types
   `enum` as `{type: "array", items: true}` with no minimum length.
 
-## The one divergence that is neither side's bug
+## The divergences that are decisions, not bugs
 
 `\b` and `\B`. ECMA-262 defines a word character as `[A-Za-z0-9_]`; the `regex`
 package's word test is Unicode-aware, and a word boundary cannot be written
 without lookaround. The two agree on any text whose word characters are ASCII
 and differ where they are not. Everything else in the pattern grammar is either
 translated exactly or refused — see `src/ecma.mfb`.
+
+`multipleOf` on decimals. The package reads each number as its shortest decimal
+and divides exactly, so `0.3` is a multiple of `0.1`. ajv divides in binary64 and
+says it is not. The package's own tests pin the decimal reading, and the corpus
+records the disagreement as `decimal-multipleof`.

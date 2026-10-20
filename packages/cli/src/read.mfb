@@ -1,0 +1,437 @@
+IMPORT collections
+IMPORT errorCode
+IMPORT strings
+
+' A mistake in how the program reads its arguments, raised whatever the user
+' typed.
+PRIVATE FUNC misuse(detail AS String) AS Error
+  RETURN error(errorCode::ErrInvalidArgument, "cli: " & detail)
+END FUNC
+
+PRIVATE FUNC kindName(kind AS OptionKind) AS String
+  IF kind = OptionKind.Integer THEN RETURN "Integer"
+  IF kind = OptionKind.Float THEN RETURN "Float"
+  IF kind = OptionKind.Bool THEN RETURN "Bool"
+  IF kind = OptionKind.Flag THEN RETURN "Flag"
+  RETURN "String"
+END FUNC
+
+' The declared option `name`, refusing an `Args` that did not parse, a name
+' the command does not declare, and an option of another kind.
+PRIVATE FUNC declared(args AS Args, name AS String) AS Option
+  IF args.status <> ParseStatus.Ok THEN FAIL misuse("cannot read option '" & name & "' from arguments that did not parse; check status first")
+  FOR EACH choice IN args.command.options
+    IF choice.name = name THEN RETURN choice
+  NEXT
+  FAIL misuse("the command declares no option '" & name & "'")
+END FUNC
+
+PRIVATE FUNC single(args AS Args, name AS String, kind AS OptionKind, accessor AS String) AS String
+  LET choice AS Option = declared(args, name)
+  IF choice.kind <> kind THEN FAIL misuse(accessor & " cannot read option '" & name & "', which is a " & kindName(choice.kind))
+  IF choice.repeatable THEN FAIL misuse(accessor & " cannot read repeatable option '" & name & "'; read its values as a list")
+  IF collections::hasKey(args.values, name) THEN RETURN collections::get(collections::get(args.values, name), 0)
+  RETURN choice.defaultValue
+END FUNC
+
+PRIVATE FUNC many(args AS Args, name AS String, kind AS OptionKind, accessor AS String) AS List OF String
+  LET choice AS Option = declared(args, name)
+  IF choice.kind <> kind THEN FAIL misuse(accessor & " cannot read option '" & name & "', which is a " & kindName(choice.kind))
+  IF NOT choice.repeatable THEN FAIL misuse(accessor & " cannot read option '" & name & "', which is not repeatable")
+  IF collections::hasKey(args.values, name) THEN RETURN collections::get(args.values, name)
+  RETURN []
+END FUNC
+
+DOC
+  FUNC getString
+  GROUP Reading values
+  DESC Read a `String` option.
+  DESC
+  DESC An option the command line gave an empty value — `--title=` or
+  DESC `-t ""` — reads back as `""`, not as the default; use `cli::has` to
+  DESC tell that apart from an absent option with no default.
+  ARG args The parsed arguments.
+  ARG name The option's `name`, without dashes.
+  RET The value given on the command line, else the option's `defaultValue`, else `""`.
+  ERROR 77050002 `args` did not parse, the command declares no option `name`, or `name` is not a `String` option, or it is `repeatable` (read it with `cli::getStrings`).
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "title", alias := "t", defaultValue := "untitled"]]]
+      io::print(cli::getString(cli::tryParse(command, ["-t", "Report"]), "title"))
+      io::print(cli::getString(cli::tryParse(command, []), "title"))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC getString(args AS Args, name AS String) AS String
+  RETURN single(args, name, OptionKind.String, "getString")
+END FUNC
+
+DOC
+  FUNC getInteger
+  GROUP Reading values
+  DESC Read an `Integer` option.
+  DESC
+  DESC The value was checked when the command line was parsed, so this never
+  DESC fails on what the user typed.
+  ARG args The parsed arguments.
+  ARG name The option's `name`, without dashes.
+  RET The value given on the command line, else the option's `defaultValue`, else `0`.
+  ERROR 77050002 `args` did not parse, the command declares no option `name`, or `name` is not an `Integer` option, or it is `repeatable` (read it with `cli::getIntegers`).
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "offset", kind := cli::OptionKind.Integer, defaultValue := "0"]]]
+      io::print(toString(cli::getInteger(cli::tryParse(command, ["--offset", "-3"]), "offset")))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC getInteger(args AS Args, name AS String) AS Integer
+  LET text AS String = single(args, name, OptionKind.Integer, "getInteger")
+  IF text = "" THEN RETURN 0
+  RETURN toInt(text)
+END FUNC
+
+DOC
+  FUNC getFloat
+  GROUP Reading values
+  DESC Read a `Float` option.
+  DESC
+  DESC The value was checked when the command line was parsed, so this never
+  DESC fails on what the user typed.
+  ARG args The parsed arguments.
+  ARG name The option's `name`, without dashes.
+  RET The value given on the command line, else the option's `defaultValue`, else `0.0`.
+  ERROR 77050002 `args` did not parse, the command declares no option `name`, or `name` is not a `Float` option, or it is `repeatable` (read it with `cli::getFloats`).
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "scale", kind := cli::OptionKind.Float, defaultValue := "1.0"]]]
+      io::print(toString(cli::getFloat(cli::tryParse(command, ["--scale=2.5"]), "scale")))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC getFloat(args AS Args, name AS String) AS Float
+  LET text AS String = single(args, name, OptionKind.Float, "getFloat")
+  IF text = "" THEN RETURN 0.0
+  RETURN toFloat(text)
+END FUNC
+
+DOC
+  FUNC getBool
+  GROUP Reading values
+  DESC Read a `Bool` option.
+  DESC
+  DESC Unlike a `Flag`, a `Bool` takes a value, so the command line can turn a
+  DESC setting off as well as on: `--cache=false`. The accepted spellings are
+  DESC listed under `cli::OptionKind`.
+  ARG args The parsed arguments.
+  ARG name The option's `name`, without dashes.
+  RET The value given on the command line, else the option's `defaultValue`, else `FALSE`.
+  ERROR 77050002 `args` did not parse, the command declares no option `name`, or `name` is not a `Bool` option, or it is `repeatable`.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "cache", kind := cli::OptionKind.Bool, defaultValue := "true"]]]
+      io::print(toString(cli::getBool(cli::tryParse(command, ["--cache", "off"]), "cache")))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC getBool(args AS Args, name AS String) AS Boolean
+  LET text AS String = single(args, name, OptionKind.Bool, "getBool")
+  IF text = "" THEN RETURN FALSE
+  RETURN boolFromText(text)
+END FUNC
+
+DOC
+  FUNC getFlag
+  GROUP Reading values
+  DESC Read a `Flag` option: whether the command line gave it.
+  DESC
+  DESC A `repeatable` flag reads as `TRUE` when it was given at least once;
+  DESC `cli::count` says how many times.
+  ARG args The parsed arguments.
+  ARG name The option's `name`, without dashes.
+  RET `TRUE` when the flag was given, otherwise `FALSE`.
+  ERROR 77050002 `args` did not parse, the command declares no option `name`, or `name` is not a `Flag`.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "verbose", alias := "v", kind := cli::OptionKind.Flag]]]
+      IF cli::getFlag(cli::tryParse(command, ["-v"]), "verbose") THEN io::print("verbose")
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC getFlag(args AS Args, name AS String) AS Boolean
+  LET choice AS Option = declared(args, name)
+  IF choice.kind <> OptionKind.Flag THEN FAIL misuse("getFlag cannot read option '" & name & "', which is a " & kindName(choice.kind))
+  RETURN collections::hasKey(args.values, name)
+END FUNC
+
+DOC
+  FUNC getStrings
+  GROUP Reading values
+  DESC Read every value of a `repeatable` `String` option, in the order the
+  DESC command line gave them.
+  ARG args The parsed arguments.
+  ARG name The option's `name`, without dashes.
+  RET The values. Empty when the option was not given.
+  ERROR 77050002 `args` did not parse, the command declares no option `name`, or `name` is not a `String` option, or it is not `repeatable`.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "include", alias := "I", repeatable := TRUE]]]
+      FOR EACH dir IN cli::getStrings(cli::tryParse(command, ["-I", "src", "--include=lib"]), "include")
+        io::print(dir)
+      NEXT
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC getStrings(args AS Args, name AS String) AS List OF String
+  RETURN many(args, name, OptionKind.String, "getStrings")
+END FUNC
+
+DOC
+  FUNC getIntegers
+  GROUP Reading values
+  DESC Read every value of a `repeatable` `Integer` option, in the order the
+  DESC command line gave them.
+  ARG args The parsed arguments.
+  ARG name The option's `name`, without dashes.
+  RET The values. Empty when the option was not given.
+  ERROR 77050002 `args` did not parse, the command declares no option `name`, or `name` is not an `Integer` option, or it is not `repeatable`.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "port", alias := "p", kind := cli::OptionKind.Integer, repeatable := TRUE]]]
+      FOR EACH port IN cli::getIntegers(cli::tryParse(command, ["-p", "80", "-p", "443"]), "port")
+        io::print(toString(port))
+      NEXT
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC getIntegers(args AS Args, name AS String) AS List OF Integer
+  MUT numbers AS List OF Integer = []
+  FOR EACH text IN many(args, name, OptionKind.Integer, "getIntegers")
+    numbers = collections::append(numbers, toInt(text))
+  NEXT
+  RETURN numbers
+END FUNC
+
+DOC
+  FUNC getFloats
+  GROUP Reading values
+  DESC Read every value of a `repeatable` `Float` option, in the order the
+  DESC command line gave them.
+  ARG args The parsed arguments.
+  ARG name The option's `name`, without dashes.
+  RET The values. Empty when the option was not given.
+  ERROR 77050002 `args` did not parse, the command declares no option `name`, or `name` is not a `Float` option, or it is not `repeatable`.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "weight", alias := "w", kind := cli::OptionKind.Float, repeatable := TRUE]]]
+      FOR EACH weight IN cli::getFloats(cli::tryParse(command, ["-w", "0.5", "-w", "1.5"]), "weight")
+        io::print(toString(weight))
+      NEXT
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC getFloats(args AS Args, name AS String) AS List OF Float
+  MUT numbers AS List OF Float = []
+  FOR EACH text IN many(args, name, OptionKind.Float, "getFloats")
+    numbers = collections::append(numbers, toFloat(text))
+  NEXT
+  RETURN numbers
+END FUNC
+
+DOC
+  FUNC has
+  GROUP Reading values
+  DESC Whether the command line gave option `name` at all.
+  DESC
+  DESC This is how a program tells an option the user left out from one the
+  DESC user set to its default value, or to `""`. It works for every kind.
+  ARG args The parsed arguments.
+  ARG name The option's `name`, without dashes.
+  RET `TRUE` when the option appeared on the command line, otherwise `FALSE`, even when it has a `defaultValue`.
+  ERROR 77050002 `args` did not parse, or the command declares no option `name`.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "color", choices := ["auto", "always", "never"], defaultValue := "auto"]]]
+      LET args AS cli::Args = cli::tryParse(command, [])
+      io::print(cli::getString(args, "color") & " " & toString(cli::has(args, "color")))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC has(args AS Args, name AS String) AS Boolean
+  declared(args, name)
+  RETURN collections::hasKey(args.values, name)
+END FUNC
+
+DOC
+  FUNC count
+  GROUP Reading values
+  DESC How many times the command line gave option `name`.
+  DESC
+  DESC The usual use is a `repeatable` `Flag` counted for verbosity, where
+  DESC `-vvv` gives `3`. It works for every kind; an option that is not
+  DESC `repeatable` counts `0` or `1`.
+  ARG args The parsed arguments.
+  ARG name The option's `name`, without dashes.
+  RET The number of occurrences. `0` when the option was not given, whatever its default.
+  ERROR 77050002 `args` did not parse, or the command declares no option `name`.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[options := [cli::Option[name := "verbose", alias := "v", kind := cli::OptionKind.Flag, repeatable := TRUE]]]
+      io::print(toString(cli::count(cli::tryParse(command, ["-vvv"]), "verbose")))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC count(args AS Args, name AS String) AS Integer
+  declared(args, name)
+  IF NOT collections::hasKey(args.values, name) THEN RETURN 0
+  RETURN len(collections::get(args.values, name))
+END FUNC
+
+DOC
+  FUNC operands
+  GROUP Reading values
+  DESC The operands: the arguments that are not options or option values, in
+  DESC the order they were written.
+  DESC
+  DESC An operand may appear anywhere among the options (unless the command
+  DESC sets `optionsFirst`), and everything after a bare `--` is an operand,
+  DESC whatever it looks like. That is how a file named `-v` survives a strict
+  DESC parser: `prog -- -v`.
+  ARG args The parsed arguments.
+  RET The operands. Empty when there were none.
+  ERROR 77050002 `args` did not parse.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[operands := "<file>...", options := [cli::Option[name := "verbose", alias := "v", kind := cli::OptionKind.Flag]]]
+      FOR EACH file IN cli::operands(cli::tryParse(command, ["a.txt", "-v", "--", "-b.txt"]))
+        io::print(file)
+      NEXT
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC operands(args AS Args) AS List OF String
+  IF args.status <> ParseStatus.Ok THEN FAIL misuse("cannot read operands from arguments that did not parse; check status first")
+  RETURN args.operandList
+END FUNC
+
+TESTING
+  TGROUP "getters"
+    TCASE "typed values, defaults, and zero values"
+      LET command AS Command = Command[options := [Option[name := "port", kind := OptionKind.Integer, defaultValue := "8080"], Option[name := "offset", kind := OptionKind.Integer], Option[name := "ratio", kind := OptionKind.Float, defaultValue := "0.5"], Option[name := "scale", kind := OptionKind.Float], Option[name := "cache", kind := OptionKind.Bool, defaultValue := "yes"], Option[name := "strict", kind := OptionKind.Bool], Option[name := "title", defaultValue := "untitled"], Option[name := "note"], Option[name := "verbose", kind := OptionKind.Flag]]]
+      LET absent AS Args = tryParse(command, [])
+      expectInteger(getInteger(absent, "port"), 8080)
+      expectInteger(getInteger(absent, "offset"), 0)
+      expectEqual(getFloat(absent, "ratio"), 0.5)
+      expectEqual(getFloat(absent, "scale"), 0.0)
+      expectEqual(getBool(absent, "cache"), TRUE)
+      expectEqual(getBool(absent, "strict"), FALSE)
+      expectString(getString(absent, "title"), "untitled")
+      expectString(getString(absent, "note"), "")
+      expectEqual(getFlag(absent, "verbose"), FALSE)
+      LET given AS Args = tryParse(command, ["--port=1", "--offset", "-3", "--ratio=1e3", "--scale=-2.5", "--cache=off", "--strict=TRUE", "--title=", "--note", "hi", "--verbose"])
+      expectEqual(given.status = ParseStatus.Ok, TRUE)
+      expectInteger(getInteger(given, "port"), 1)
+      expectInteger(getInteger(given, "offset"), -3)
+      expectEqual(getFloat(given, "ratio"), 1000.0)
+      expectEqual(getFloat(given, "scale"), -2.5)
+      expectEqual(getBool(given, "cache"), FALSE)
+      expectEqual(getBool(given, "strict"), TRUE)
+      expectString(getString(given, "title"), "")
+      expectString(getString(given, "note"), "hi")
+      expectEqual(getFlag(given, "verbose"), TRUE)
+    END TCASE
+    TCASE "has and count tell supplied from defaulted"
+      LET command AS Command = Command[options := [Option[name := "title", defaultValue := "x"], Option[name := "verbose", alias := "v", kind := OptionKind.Flag, repeatable := TRUE]]]
+      LET absent AS Args = tryParse(command, [])
+      expectEqual(has(absent, "title"), FALSE)
+      expectInteger(count(absent, "verbose"), 0)
+      LET given AS Args = tryParse(command, ["--title=x", "-vv", "--verbose"])
+      expectEqual(has(given, "title"), TRUE)
+      expectInteger(count(given, "title"), 1)
+      expectInteger(count(given, "verbose"), 3)
+      expectEqual(getFlag(given, "verbose"), TRUE)
+    END TCASE
+    TCASE "repeatable values read back in order"
+      LET command AS Command = Command[options := [Option[name := "include", alias := "I", repeatable := TRUE], Option[name := "port", alias := "p", kind := OptionKind.Integer, repeatable := TRUE], Option[name := "weight", kind := OptionKind.Float, repeatable := TRUE]]]
+      LET args AS Args = tryParse(command, ["-I", "a", "-p", "80", "-Ib", "--port=-1", "--weight=0.5"])
+      expectString(strings::join(getStrings(args, "include"), "|"), "a|b")
+      expectInteger(len(getIntegers(args, "port")), 2)
+      expectInteger(collections::get(getIntegers(args, "port"), 0), 80)
+      expectInteger(collections::get(getIntegers(args, "port"), 1), -1)
+      expectInteger(len(getFloats(args, "weight")), 1)
+      expectEqual(collections::get(getFloats(args, "weight"), 0), 0.5)
+      expectEqual(len(getStrings(tryParse(command, []), "include")), 0)
+    END TCASE
+    TCASE "the wrong accessor is refused"
+      LET command AS Command = Command[options := [Option[name := "title"], Option[name := "include", repeatable := TRUE], Option[name := "verbose", kind := OptionKind.Flag]]]
+      LET args AS Args = tryParse(command, ["--title", "hello"])
+      expectTrap(getInteger(args, "title"), 77050002)
+      expectTrap(getFloat(args, "title"), 77050002)
+      expectTrap(getBool(args, "title"), 77050002)
+      expectTrap(getFlag(args, "title"), 77050002)
+      expectTrap(getStrings(args, "title"), 77050002)
+      expectTrap(getString(args, "include"), 77050002)
+      expectTrap(getString(args, "verbose"), 77050002)
+      expectTrap(getString(args, "nope"), 77050002)
+      expectTrap(has(args, "nope"), 77050002)
+      expectTrap(count(args, "nope"), 77050002)
+      expectString(getString(args, "title"), "hello")
+    END TCASE
+    TCASE "arguments that did not parse cannot be read"
+      LET command AS Command = Command[options := [Option[name := "title"]]]
+      LET bad AS Args = tryParse(command, ["--nope"])
+      expectEqual(bad.status = ParseStatus.Invalid, TRUE)
+      expectTrap(getString(bad, "title"), 77050002)
+      expectTrap(operands(bad), 77050002)
+      expectTrap(has(tryParse(command, ["--help"]), "title"), 77050002)
+    END TCASE
+    TCASE "operands read back in order"
+      LET command AS Command = Command[operands := "<file>..."]
+      expectString(strings::join(operands(tryParse(command, ["a", "--", "-b"])), "|"), "a|-b")
+      expectEqual(len(operands(tryParse(command, []))), 0)
+    END TCASE
+  END TGROUP
+END TESTING

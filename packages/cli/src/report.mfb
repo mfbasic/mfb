@@ -1,0 +1,162 @@
+IMPORT collections
+IMPORT strings
+
+' The widest left column the option table aligns to. A longer spelling puts its
+' description on the next line, indented to this column, so one unusually long
+' option does not push every description to the right.
+PRIVATE LET helpColumn AS Integer = 28
+
+PRIVATE FUNC spellingColumn(alias AS String, long AS String) AS String
+  IF alias <> "" THEN RETURN "  -" & alias & ", " & long
+  RETURN "      " & long
+END FUNC
+
+PRIVATE FUNC optionSpelling(choice AS Option) AS String
+  MUT long AS String = longSpelling(choice)
+  IF choice.kind <> OptionKind.Flag THEN
+    MUT placeholder AS String = choice.valueName
+    IF placeholder = "" THEN placeholder = choice.name
+    long = long & " <" & placeholder & ">"
+  END IF
+  IF choice.repeatable THEN long = long & "..."
+  RETURN spellingColumn(choice.alias, long)
+END FUNC
+
+PRIVATE FUNC optionDescription(choice AS Option) AS String
+  MUT notes AS List OF String = []
+  IF choice.help <> "" THEN notes = collections::append(notes, choice.help)
+  IF len(choice.choices) > 0 THEN notes = collections::append(notes, "[possible values: " & strings::join(choice.choices, ", ") & "]")
+  IF choice.defaultValue <> "" THEN notes = collections::append(notes, "[default: " & choice.defaultValue & "]")
+  IF choice.required THEN notes = collections::append(notes, "[required]")
+  RETURN strings::join(notes, " ")
+END FUNC
+
+' Alignment is in terminal columns, so a wide character such as `日` in a
+' spelling still lines its description up with the others.
+' `padRightToWidth` returns its input unchanged once it is at least that many
+' columns wide, which is how a spelling that leaves no two-column gap is found.
+PRIVATE FUNC tableRows(left AS String, right AS String) AS List OF String
+  IF right = "" THEN RETURN [left]
+  IF strings::padRightToWidth(left, helpColumn - 1) = left THEN RETURN [left, strings::repeat(" ", helpColumn) & right]
+  RETURN [strings::padRightToWidth(left, helpColumn) & right]
+END FUNC
+
+DOC
+  FUNC helpText
+  GROUP Reporting
+  DESC The help text `--help` prints for `command`.
+  DESC
+  DESC The text is the command's `summary`, a `Usage:` line, an `Options:`
+  DESC table, and its `footer`, separated by blank lines and without a
+  DESC trailing newline. Each option is listed in declaration order, followed
+  DESC by `--help` and, when the command has a version, `--version`:
+  DESC
+  INFO `  -p, --port <port>           Port to listen on [default: 8080]`
+  DESC
+  DESC A value-taking option shows its `valueName` (or its `name`) as the
+  DESC placeholder, and a `repeatable` one is followed by `...`. The
+  DESC description is the option's `help` followed by its possible values,
+  DESC its default, and `[required]` when each applies. Descriptions line up
+  DESC in one column; an option whose spelling is too long for it has its
+  DESC description on the next line. Lines are not wrapped.
+  ARG command The command to describe.
+  RET The help text.
+  ERROR 77050002 `command` is malformed — see `cli::Option` and `cli::Command` for what each field allows.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      LET command AS cli::Command = cli::Command[name := "serve", summary := "Serve a directory over HTTP.", operands := "[dir]", maxOperands := 1, options := [cli::Option[name := "port", alias := "p", kind := cli::OptionKind.Integer, defaultValue := "8080", help := "Port to listen on"], cli::Option[name := "quiet", alias := "q", kind := cli::OptionKind.Flag, help := "Log nothing"]], footer := "Report bugs at https://example.com/issues"]
+      io::print(cli::helpText(command))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC helpText(command AS Command) AS String
+  validateCommand(command)
+  MUT lines AS List OF String = []
+  IF command.summary <> "" THEN
+    lines = collections::append(lines, command.summary)
+    lines = collections::append(lines, "")
+  END IF
+  MUT usage AS String = "Usage: " & programName(command) & " [options]"
+  IF command.operands <> "" THEN usage = usage & " " & command.operands
+  lines = collections::append(lines, usage)
+  lines = collections::append(lines, "")
+  lines = collections::append(lines, "Options:")
+  FOR EACH choice IN command.options
+    FOR EACH row IN tableRows(optionSpelling(choice), optionDescription(choice))
+      lines = collections::append(lines, row)
+    NEXT
+  NEXT
+  MUT helpAlias AS String = "h"
+  IF aliasTaken(command, "h") THEN helpAlias = ""
+  FOR EACH row IN tableRows(spellingColumn(helpAlias, "--help"), "Print help")
+    lines = collections::append(lines, row)
+  NEXT
+  IF command.version <> "" THEN
+    MUT versionAlias AS String = "V"
+    IF aliasTaken(command, "V") THEN versionAlias = ""
+    FOR EACH row IN tableRows(spellingColumn(versionAlias, "--version"), "Print version")
+      lines = collections::append(lines, row)
+    NEXT
+  END IF
+  IF command.footer <> "" THEN
+    lines = collections::append(lines, "")
+    lines = collections::append(lines, command.footer)
+  END IF
+  RETURN strings::join(lines, "\n")
+END FUNC
+
+DOC
+  FUNC versionText
+  GROUP Reporting
+  DESC The line `--version` prints: the program name, a space, and the
+  DESC command's `version`, as in `serve 1.4.0`.
+  ARG command The command to describe. Its `version` should be set; when it is `""` the line is the program name alone.
+  RET The version line, without a trailing newline.
+  EXAMPLE
+    IMPORT cli
+    IMPORT io
+
+    FUNC main() AS Integer
+      io::print(cli::versionText(cli::Command[name := "serve", version := "1.4.0"]))
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC versionText(command AS Command) AS String
+  IF command.version = "" THEN RETURN programName(command)
+  RETURN programName(command) & " " & command.version
+END FUNC
+
+TESTING
+  TGROUP "help"
+    TCASE "summary, usage, every column shape, automatic options, footer"
+      LET options AS List OF Option = [Option[name := "port", alias := "p", kind := OptionKind.Integer, defaultValue := "8080", help := "Port to listen on"], Option[name := "token", required := TRUE, valueName := "secret"], Option[name := "mode", alias := "m", choices := ["fast", "slow"]], Option[name := "include", alias := "I", repeatable := TRUE, help := "Add a directory"], Option[name := "verbose", alias := "v", kind := OptionKind.Flag]]
+      LET text AS String = helpText(Command[name := "serve", summary := "Serve files.", version := "1.0", operands := "<dir>", options := options, footer := "Bye."])
+      LET want AS List OF String = ["Serve files.", "", "Usage: serve [options] <dir>", "", "Options:", "  -p, --port <port>         Port to listen on [default: 8080]", "      --token <secret>      [required]", "  -m, --mode <mode>         [possible values: fast, slow]", "  -I, --include <include>...", "                            Add a directory", "  -v, --verbose", "  -h, --help                Print help", "  -V, --version             Print version", "", "Bye."]
+      expectString(strings::join(strings::split(text, "\n"), "|"), strings::join(want, "|"))
+    END TCASE
+    TCASE "the smallest command still documents --help"
+      expectString(strings::join(strings::split(helpText(Command[name := "x"]), "\n"), "|"), "Usage: x [options]||Options:|  -h, --help                Print help")
+    END TCASE
+    TCASE "a claimed letter drops the automatic short spelling"
+      LET text AS String = helpText(Command[name := "x", version := "2", options := [Option[name := "host", alias := "h"], Option[name := "verify", alias := "V", kind := OptionKind.Flag]]])
+      expectString(strings::join(strings::split(text, "\n"), "|"), "Usage: x [options]||Options:|  -h, --host <host>|  -V, --verify|      --help                Print help|      --version             Print version")
+    END TCASE
+    TCASE "descriptions align by terminal column, not by character"
+      LET text AS String = helpText(Command[name := "x", options := [Option[name := "wide", alias := "日", kind := OptionKind.Flag, help := "W"]]])
+      expectString(collections::get(strings::split(text, "\n"), 3), "  -日, --wide               W")
+      expectString(collections::get(strings::split(text, "\n"), 4), "  -h, --help                Print help")
+    END TCASE
+    TCASE "a malformed command is refused before anything renders"
+      expectTrap(helpText(Command[options := [Option[name := ""]]]), 77050002)
+    END TCASE
+    TCASE "the version line"
+      expectString(versionText(Command[name := "serve", version := "1.4.0"]), "serve 1.4.0")
+      expectString(versionText(Command[name := "serve"]), "serve")
+    END TCASE
+  END TGROUP
+END TESTING

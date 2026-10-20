@@ -10,7 +10,7 @@ IMPORT strings
 
 ' "valid", or the keywords that rejected the instance, in the order found.
 PRIVATE FUNC verdict(schemaText AS String, instanceText AS String) AS String
-  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  LET compiled AS Schema = compileSchema(json::parse(schemaText), Map OF String TO json::Json {})
   LET problems AS List OF ValidationError = runValidation(compiled, json::parse(instanceText))
   IF len(problems) = 0 THEN RETURN "valid"
   MUT keywords AS List OF String = []
@@ -237,13 +237,48 @@ TESTING
     END TCASE
 
     TCASE "an error points at the instance and at the schema"
-      LET compiled AS Schema = compileSchema(json::parse("{\"properties\":{\"a\":{\"minLength\":2}}}"))
+      LET compiled AS Schema = compileSchema(json::parse("{\"properties\":{\"a\":{\"minLength\":2}}}"), Map OF String TO json::Json {})
       LET problems AS List OF ValidationError = runValidation(compiled, json::parse("{\"a\":\"x\"}"))
       expectInteger(len(problems), 1)
       LET problem AS ValidationError = collections::get(problems, 0)
       expectString(problem.keyword, "minLength")
       expectString(problem.instancePath, "/a")
       expectString(problem.schemaPath, "/properties/a/minLength")
+    END TCASE
+
+    TCASE "multipleOf reads each number as its shortest decimal, so 0.3 is a multiple of 0.1"
+      expectString(verdict("{\"multipleOf\":0.1}", "0.3"), "valid")
+      expectString(verdict("{\"multipleOf\":0.0001}", "0.0075"), "valid")
+      expectString(verdict("{\"multipleOf\":0.0001}", "0.00751"), "multipleOf")
+      expectString(verdict("{\"multipleOf\":0.01}", "4.35"), "valid")
+      expectString(verdict("{\"multipleOf\":0.01}", "4.355"), "multipleOf")
+    END TCASE
+
+    TCASE "multipleOf is exact for a magnitude far beyond the factor"
+      expectString(verdict("{\"multipleOf\":5}", "1e21"), "valid")
+      expectString(verdict("{\"multipleOf\":3}", "1e21"), "multipleOf")
+      expectString(verdict("{\"multipleOf\":0.5}", "1e21"), "valid")
+    END TCASE
+
+    TCASE "uniqueItems compares structure, and reports the first duplicate pair"
+      expectString(verdict("{\"uniqueItems\":true}", "[1,1.0]"), "uniqueItems")
+      expectString(verdict("{\"uniqueItems\":true}", "[{\"a\":1,\"b\":2},{\"b\":2,\"a\":1}]"), "uniqueItems")
+      expectString(verdict("{\"uniqueItems\":true}", "[[1],[1.0]]"), "uniqueItems")
+      expectString(verdict("{\"uniqueItems\":true}", "[0,-0.0]"), "uniqueItems")
+      expectString(verdict("{\"uniqueItems\":true}", "[\"1\",1,\"2\",\"1\"]"), "uniqueItems")
+      expectString(verdict("{\"uniqueItems\":true}", "[1,\"1\",[1],{\"1\":1}]"), "valid")
+    END TCASE
+
+    TCASE "one error per item is reported in full, even for a long array"
+      MUT parts AS List OF String = []
+      MUT n AS Integer = 0
+      WHILE n < 20000
+        parts = collections::append(parts, "1")
+        n = n + 1
+      END WHILE
+      LET items AS String = "[" & strings::join(parts, ",") & "]"
+      LET compiled AS Schema = compileSchema(json::parse("{\"items\":{\"type\":\"string\"}}"), Map OF String TO json::Json {})
+      expectEqual(len(runValidation(compiled, json::parse(items))), 20000)
     END TCASE
   END TGROUP
 END TESTING
