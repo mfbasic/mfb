@@ -832,12 +832,24 @@ fn distinct_keys_still_register_link_tokenize_and_rotate() {
 /// the thing it recognises are two lists, and they drift.
 #[test]
 fn key_insertion_has_exactly_one_writer() {
-    let source = include_str!("../../store.rs");
     // The needle is the statement's full column list, not the bare table
     // name: a recogniser that matches its own diagnostic text counts itself
     // and is wrong by one before it has read a line of production code.
     let needle = concat!("INSERT INTO keys ", "(owner_id, role, public_key");
-    let writers = source.matches(needle).count();
+    // Every top-level file of the store (plan-176-L split it into parts), so a
+    // new part is read without editing this test. `read_dir` is not recursive:
+    // `store/tests/` is not read.
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src/store");
+    let mut writers = 0;
+    for entry in std::fs::read_dir(dir).expect("read repository/src/store") {
+        let path = entry.expect("store dir entry").path();
+        if path.extension().is_some_and(|e| e == "rs") {
+            writers += std::fs::read_to_string(&path)
+                .expect("read store part")
+                .matches(needle)
+                .count();
+        }
+    }
     assert_eq!(
         writers, 1,
         "every `keys` row must be created by `insert_key_tx`, which enforces \

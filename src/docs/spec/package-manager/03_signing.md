@@ -16,13 +16,13 @@ Publisher signing uses these Ed25519 roles:
 The server verifies that auth and ident public keys remain distinct when
 registering, linking, or rotating. It stores publisher public keys, not their
 plaintext private keys; the machine-link relay holds encrypted ident material.
-[[repository/src/store.rs:register_owner]][[repository/src/store.rs:take_pairing_blob]][[repository/src/store.rs:rotate_ident]]
+[[repository/src/store/accounts.rs:register_owner]][[repository/src/store/accounts.rs:take_pairing_blob]][[repository/src/store/accounts.rs:rotate_ident]]
 
 The optional signed-metadata layer adds an offline root key plus online snapshot
 and timestamp keypairs. The operator receives the root private key during the
 ceremony; the database persists the online private keys and signed root
 metadata, not the root private key.
-[[repository/src/store.rs:init_registry_root]][[repository/src/store.rs:renew_registry_root]]
+[[repository/src/store/transparency.rs:init_registry_root]][[repository/src/store/transparency.rs:renew_registry_root]]
 
 A machine auth credential can obtain attestations but cannot make an ident
 proof. The ident key can make proofs but does not itself grant an authenticated

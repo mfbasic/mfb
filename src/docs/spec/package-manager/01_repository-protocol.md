@@ -71,7 +71,7 @@ for S3-compatible stores (MinIO/R2/Ceph) and is only valid with an `s3://` data
 path. The metadata database always stays on local disk. On first run it
 generates its own Ed25519 **server keypair**; its private half never appears in
 an HTTP response. Root initialization additionally stores online snapshot and
-timestamp private keys. Publisher private keys are not stored in plaintext. [[repository/src/main.rs:parse_args]][[repository/src/server/mod.rs:serve]][[repository/src/store.rs:open_repository]][[repository/src/blobstore.rs:BlobBackend]]
+timestamp private keys. Publisher private keys are not stored in plaintext. [[repository/src/main.rs:parse_args]][[repository/src/server/mod.rs:serve]][[repository/src/store/mod.rs:open_repository]][[repository/src/blobstore.rs:BlobBackend]]
 
 ### Encoding
 
@@ -234,13 +234,13 @@ Independent of the protocol, the reference server applies several operational
 safeguards:
 
 - **SQLite WAL + busy timeout** — SQLite uses WAL and a five-second busy timeout. Within one server,
-  store operations still serialize through `Arc<Mutex<Connection>>`.[[repository/src/store.rs:open_repository]][[repository/src/store.rs:Store]]
+  store operations still serialize through `Arc<Mutex<Connection>>`.[[repository/src/store/mod.rs:open_repository]][[repository/src/store/mod.rs:Store]]
 - **Background reaping** — a timer sweeps expired challenges, expired sessions,
   and expired pairing blobs, and prunes the rate-limiter map, so stale rows
   are periodically removed. `pairing_blobs` are machine-pairing auth ephemera, **not**
   package content: nothing automatic ever deletes a package blob. Reclaiming
   those is the operator-triggered
-  [`mfb-repo gc`](#blob-garbage-collection--mfb-repo-gc-operator-action).[[repository/src/store.rs:reap_expired]]
+  [`mfb-repo gc`](#blob-garbage-collection--mfb-repo-gc-operator-action).[[repository/src/store/mod.rs:reap_expired]]
 - **Rate limiting** — an in-memory sliding-window limiter caps abusive bursts
   on `register`/`challenge`/`login`/`signing` (a `429` when exceeded), keeping
   the transparency log spam-free.[[repository/src/server/limits.rs:RateLimiter]]
@@ -248,7 +248,7 @@ safeguards:
   framing and base64 overhead; raw blob PUTs use the same cap.[[repository/src/server/limits.rs:MAX_BODY_BYTES]]
 - **Typosquat warning** — `POST /publish` returns warn-only `warnings` naming
   existing idents within edit distance 1 of the published one; it never blocks
-  the publish.[[repository/src/store.rs:typosquat_candidates]]
+  the publish.[[repository/src/store/browse.rs:typosquat_candidates]]
 
 ## Owner Registration — `/accounts/register`
 
@@ -336,7 +336,7 @@ auth key per linked machine, so auth-key resolution is always
 fingerprint-scoped; no current key with that fingerprint yields `400
 mismatched local key fingerprint` (which is also what a **revoked** machine
 sees). The nonce is 32 random bytes and the challenge expires **300 seconds**
-after issue.[[repository/src/server/accounts.rs:challenge]][[repository/src/store.rs:create_auth_challenge]]
+after issue.[[repository/src/server/accounts.rs:challenge]][[repository/src/store/accounts.rs:create_auth_challenge]]
 
 ### Step 2 — `/auth/login`
 
@@ -366,7 +366,7 @@ message). A replayed/already-consumed challenge yields `409` (message contains
 `reused challenge`); an unknown challenge id yields `400 unknown challenge` and
 a lapsed one `400 expired challenge`. Completion is single-use: the challenge
 row is marked used in the same transaction that accepts the
-signature.[[repository/src/server/accounts.rs:login]][[repository/src/server/mod.rs:conflict_or_bad_request]][[repository/src/store.rs:complete_challenge]]
+signature.[[repository/src/server/accounts.rs:login]][[repository/src/server/mod.rs:conflict_or_bad_request]][[repository/src/store/accounts.rs:complete_challenge]]
 The CLI prints `Authenticated owner <owner> until <expiresAt>`.[[src/cli/repo.rs:run_repo_command]]
 
 ### Session Token (JWT)
@@ -432,7 +432,7 @@ session requesting attestations always leaves a trace; the transparency log
  builds on this. The attestation JSON and signature domain are
 specified in *signing*. Scoped publish tokens must also be unexpired,
 unrevoked, and permit the requested ident. The signature is made with the server's own keypair —
-the key served by `GET /ident`.[[repository/src/server/accounts.rs:signing]][[repository/src/store.rs:record_signing_request]]
+the key served by `GET /ident`.[[repository/src/server/accounts.rs:signing]][[repository/src/store/accounts.rs:record_signing_request]]
 
 The client verifies the returned signature against its pinned `server.pub`
 before using the attestation, and refuses an attestation that does not pin the
@@ -467,7 +467,7 @@ one** entry, inside the same transaction as the state change):
 | `release-state` | release-state change |
 | `root-init` / `root-renew` / `root-reanchor` | root metadata operator ceremonies |
 
-[[repository/src/store.rs:append_log_tx]]
+[[repository/src/store/transparency.rs:append_log_tx]]
 
 Hashing is RFC 6962: leaf hash `SHA-256(0x00 || payload)`, node hash
 `SHA-256(0x01 || left || right)`; the empty tree hashes to `SHA-256("")`.
@@ -532,7 +532,7 @@ the new ident as `current`, and records the signed chain link. Response:
 `{"owner", "identFingerprint"}` (the new fingerprint). Subsequent
 attestations name the new ident; an attestation issued before the rotation
 names a `past` ident and is refused by the publish validation below — the client
-refetches and rebuilds.[[repository/src/store.rs:rotate_ident]]
+refetches and rebuilds.[[repository/src/store/accounts.rs:rotate_ident]]
 
 The client writes `keys/<owner>.ident.next.{pub,prv}` before posting the
 rotation, and promotes the staged files on success. The staged private key is
@@ -603,7 +603,7 @@ the name to a fresh ident with **no chain link**, using the server binary
 directly (`mfb-repo reanchor --dbpath <db> --datapath <data> --owner <owner>
 --ident-key <base64url>`); there is intentionally no HTTP route. Consumers
 holding the old pin fail hard with the re-anchor warning above until they
-re-verify and re-add.[[repository/src/store.rs:reanchor_ident]][[repository/src/main.rs:parse_reanchor_args]]
+re-verify and re-add.[[repository/src/store/accounts.rs:reanchor_ident]][[repository/src/main.rs:parse_reanchor_args]]
 
 ## Machine Link — `/machines/link` + `/machines/link/fetch`
 
@@ -634,7 +634,7 @@ seconds**, is deleted on first fetch, and expired rows are swept on insert. A
 pending pairing with the same lookup yields `400` (`already pending`; only
 `already in use` and `reused challenge` are elevated to `409`). The
 `lookup` is a one-way hash of the code, so the relaying server can neither
-read the blob nor derive its key.[[repository/src/store.rs:store_pairing_blob]]
+read the blob nor derive its key.[[repository/src/store/accounts.rs:store_pairing_blob]]
 
 The row also carries the **approval key**: the public half of an Ed25519
 keypair whose seed is `argon2id("mfb-pairing-approval-v1\0" || code,
@@ -683,7 +683,7 @@ the account, and returns
 `{"owner", "blob", "salt", "authFingerprint"}`. The client decrypts with the
 typed code (a wrong code fails the AEAD tag), cross-checks the ident keypair,
 and writes all four key files. An unknown, used, or expired lookup yields
-`400 unknown, used, or expired pairing code`.[[repository/src/client/identity.rs:link_fetch]][[repository/src/store.rs:take_pairing_blob]]
+`400 unknown, used, or expired pairing code`.[[repository/src/client/identity.rs:link_fetch]][[repository/src/store/accounts.rs:take_pairing_blob]]
 
 After a link the new machine is an equal: it opens its own sessions and runs
 the full build/sign/publish path with no involvement from the old machine.
@@ -697,7 +697,7 @@ lapsed session must not block a revocation). Two round trips:
 
 1. `POST /machines/revoke/challenge` `{"owner": "alice"}` → a standard
    `ChallengeResponse` issued against the owner's **ident**
-   key.[[repository/src/store.rs:create_ident_challenge]]
+   key.[[repository/src/store/accounts.rs:create_ident_challenge]]
 2. `POST /machines/revoke`:[[repository/src/server/accounts.rs:revoke_machine]]
 
 ```json
@@ -723,7 +723,7 @@ with it is closed** in the same transaction: the revoked machine can no longer
 log in (`mismatched local key fingerprint` at challenge time), and its
 existing session tokens fail with `unknown session token`. Response:
 `{"owner", "authFingerprint", "revoked": true}`. A fingerprint that names no
-current auth key yields `400`.[[repository/src/store.rs:revoke_auth_key]]
+current auth key yields `400`.[[repository/src/store/accounts.rs:revoke_auth_key]]
 
 ## Install Path — `/index` and `/blob`
 
@@ -791,7 +791,7 @@ the top-level `owner` when `transfers` is empty).
 Each version carries `publisher` (the owner who published it; its
 `identFingerprint` is `null` for a release published before the registry
 recorded publisher keys) and `epoch`, the number of accepted transfers before it
-was published.[[repository/src/store.rs:list_package_versions]] All three fields are
+was published.[[repository/src/store/versions.rs:list_package_versions]] All three fields are
 additive: a response from an older registry omits them, which reads as no
 transfers, publisher unknown, epoch `0` — what such a registry's data means. A
 client that ignores them keeps verifying untransferred packages and pre-transfer
@@ -1009,7 +1009,7 @@ Package artifacts and vendor blobs are both protected, including references
 from yanked versions. `--grace-hours` must be positive and convertible to
 seconds without overflow. The grace period is age-based, not a lock or lease
 against concurrent publishers.
-[[repository/src/gc.rs:run]][[repository/src/gc.rs:grace_seconds]][[repository/src/store.rs:unreachable_blobs]]
+[[repository/src/gc.rs:run]][[repository/src/gc.rs:grace_seconds]][[repository/src/store/blobs.rs:unreachable_blobs]]
 
 Deletion removes the backing object before the database row. A failure between
 those operations leaves a row that a later run can collect again. Collection
@@ -1041,7 +1041,7 @@ only where missing, with separate `docs_filled` and `docs_unparseable` counts.
 An absent description or documentation section is normal. A header/MANIFEST
 author or URL disagreement is counted as a mismatch and leaves that version
 untouched.
-[[repository/src/store.rs:replace_version_metadata]][[repository/src/backfill.rs:BackfillReport]]
+[[repository/src/store/versions.rs:replace_version_metadata]][[repository/src/backfill.rs:BackfillReport]]
 
 Missing or unparseable artifacts are counted and skipped. Malformed documentation
 is reported separately. Any skips make the command exit nonzero. Backend and
@@ -1114,7 +1114,7 @@ A token can never
 bypass the ident-proof requirement (the CI box still needs the org/owner ident
 to sign the package proof). `POST /tokens/revoke` revokes it and closes its
 sessions. Issue, use (via the log), and revoke are all
-logged.[[repository/src/server/governance.rs:issue_token]][[repository/src/store.rs:publish_token_for_key]]
+logged.[[repository/src/server/governance.rs:issue_token]][[repository/src/store/governance.rs:publish_token_for_key]]
 
 **Ownership transfer.** Two-sided, and both halves sign the same **terms**:
 `(ident, sequence, fromOwner, fromIdentFingerprint, toOwner, releaseDigest)`.
@@ -1140,7 +1140,7 @@ covers `versions[]`, and the current owner and key come from the last link's
 `toBinding` (or the top-level binding).[[repository/src/client/governance.rs:transfer_offer]]
 
 The registry recomputes the terms and verifies each signature inside the writing
-transaction.[[repository/src/store.rs:create_transfer_offer]][[repository/src/store.rs:accept_transfer]]
+transaction.[[repository/src/store/governance.rs:create_transfer_offer]][[repository/src/store/governance.rs:accept_transfer]]
 
 - An offer or accept whose terms no longer match — another transfer or a
   release landed in between, or the offerer rotated their ident — is refused
@@ -1155,13 +1155,13 @@ re-binds the package to the recipient, and logs the acceptance with its
 `sequence`. The history is append-only: the database aborts any `UPDATE` or
 `DELETE` of it. Each published version records its publisher, the publisher's
 ident key, and its epoch (the history length at publish time).
-[[repository/src/store.rs:migrate]][[repository/src/store.rs:publish_package_version]]
+[[repository/src/store/schema.rs:migrate]][[repository/src/store/versions.rs:publish_package_version]]
 Transfers accepted before signed transfers existed are replayed into the history
 from the transparency log when the registry database is migrated, as unsigned
 legacy links with their real positions and owners, and each release's epoch is
 recovered the same way. A log that does not end at the package's stored owner
 stops the migration with `transfer log for <ident> ends at <owner> but the
-package is owned by <owner>`.[[repository/src/store.rs:backfill_legacy_transfers]]
+package is owned by <owner>`.[[repository/src/store/schema.rs:backfill_legacy_transfers]]
 
 A transfer's recipient publishes subsequent versions under the unchanged
 package ident: `/signing`, `/release-state`, `/validate` and `/publish`
@@ -1170,7 +1170,7 @@ whatever owner its prefix names, and clients accept the recipient's releases
 only through the signed transfer chain (Install Path). Releases published before
 the transfer keep verifying under their original publisher keys, and no package
 bytes or signatures change.
-[[repository/src/server/auth.rs:require_package_owner]][[repository/src/server/publish.rs:validate_package_request]][[repository/src/server/browse.rs:package_index]][[src/cli/build/signing.rs:signing_ident]][[repository/src/store.rs:accept_transfer]]
+[[repository/src/server/auth.rs:require_package_owner]][[repository/src/server/publish.rs:validate_package_request]][[repository/src/server/browse.rs:package_index]][[src/cli/build/signing.rs:signing_ident]][[repository/src/store/governance.rs:accept_transfer]]
 
 ## Signed Metadata — `/root.json`, `/snapshot.json`, `/timestamp.json`
 
@@ -1194,7 +1194,7 @@ persisted in the registry database:
 `mfb-repo init-root --dbpath <db> --datapath <data> --registry-id <id>
 [--expires-days <n>]` generates the root + online keys, signs `root.json`, and
 prints the root private key for the operator to store offline. The stored `server.pub` pin must equal the root-delegated server key; root
-verification does not silently replace it.[[repository/src/store.rs:init_registry_root]][[repository/src/main.rs:parse_init_root_args]]
+verification does not silently replace it.[[repository/src/store/transparency.rs:init_registry_root]][[repository/src/main.rs:parse_init_root_args]]
 
 **Root lifecycle.** `init-root` is *one-time*: it refuses to run against a
 registry that already has a root of trust, because overwriting it would swap the
@@ -1213,7 +1213,7 @@ and both append a transparency-log entry (`root-init`, `root-renew`,
   client verifies the renewed chain with no out-of-band step. A key that is not
   the configured root, or a registry id that is not the configured one, is
   refused without touching any stored
-  field.[[repository/src/store.rs:renew_registry_root]] The client pins the
+  field.[[repository/src/store/transparency.rs:renew_registry_root]] The client pins the
   highest `root.json` version it has verified (`root-version`, beside
   `snapshot-version`) and refuses a lower one, so a retired root — still signed
   by the pinned key and not yet expired — cannot be replayed to resurrect the
@@ -1225,7 +1225,7 @@ and both append a transparency-log entry (`root-init`, `root-renew`,
   selected mode rather than something a repeated `init-root` does silently.
   Rotating to a new root key **while the old one is still available** is not
   supported — there is no old-root-signed successor document in this protocol
-  version.[[repository/src/store.rs:reanchor_registry_root]]
+  version.[[repository/src/store/transparency.rs:reanchor_registry_root]]
 
 `snapshot.json` expires seven days after generation. It is snapshot-signed, `mfb-repo-snapshot-v1`: `{type, registryId,
 version, expires, indexHash, checkpoint:{size, rootHash}}`, where `indexHash` is
@@ -1353,7 +1353,7 @@ Returns `PublishPackageResponse`:[[repository/src/server/wire.rs:PublishPackageR
 ```
 
 `state` is the constant `available` — the state recorded on the new
-`package_versions` row.[[repository/src/store.rs:publish_package_version]]
+`package_versions` row.[[repository/src/store/versions.rs:publish_package_version]]
 
 `/publish` re-runs the **full validation** internally first; if `valid` is false
 it returns `400 package validation failed: <diagnostics joined by "; ">`. On

@@ -881,15 +881,25 @@ Acceptance: the registry client and server behave identically.
   `cli_repo_publish` → `ok. 6 passed`, `cli_repo_auth` → `ok. 4 passed` (fast tier); G2 → `spec_citations_resolve`
   in the unit run (4998 passed) + `citedef.py` clean; G3 → 8, 8, 7 + 1 ignored; census → client 30/261/390/343/
   276/181, server 158/60/645/149/484/108/591/88/284/155/364; G5 → both workspaces exit 0.
-Commit: —
+Commit: fbda3384a
 
 ### Phase 6 — Repository store (largest blast radius)
 
-- [ ] Split `repository/src/store.rs` per §4.3 (eight `impl Store` blocks).
-- [ ] Rewrite `key_insertion_has_exactly_one_writer`'s source read in
+- [x] Split `repository/src/store.rs` per §4.3 (eight `impl Store` blocks).
+      Done: `items.py split` with method-level entries → mod keeps 8 methods; schema 1 + 4 items, accounts 24 + 2,
+      versions 13 + 2, browse 4 + 9, blobs 6 + 2, governance 14 + 6, transparency 10 + 5; `pub(super)` from the
+      compiler's privacy errors (`autovis.py`) → exactly §4.3's 8 (no field needed it: `PendingOfferRow`,
+      `RootCeremony` and `LegacyLogEvent` are each used only in their own part); `schema`/`accounts` hold no `pub`
+      item, so they are glob-imported privately; `motion.py` → only the wiring, the seven new `impl Store {`/`}` pairs
+      and the 8 `pub(super)`.
+- [x] Rewrite `key_insertion_has_exactly_one_writer`'s source read in
       its `repository/src/store/tests/*.rs` part per §4.3 (justification in §4.3).
-- [ ] Sweep the 39 citations.
-- [ ] G4.
+      Done: `store/tests/accounts.rs` reads every top-level `src/store/*.rs` with `read_dir`; the needle, the
+      assertion and its message are unchanged.
+- [x] Sweep the 39 citations.
+      Done: `citesweep.py` → 39; `citedef.py` → 39 cites, 0 not defined where cited; 0 old-path cites.
+- [x] G4.
+      Done: → 1 STALE `code` row (store 3431); tighten drops it; re-run → 0.
 
 Acceptance: the store behaves identically and the single-writer invariant is still enforced.
   Check: G1; `cargo test -p mfb_repository` → 0 failed; the writer test still bites: add a
@@ -897,6 +907,14 @@ Acceptance: the store behaves identically and the single-writer invariant is sti
   `cargo test -p mfb_repository key_insertion_has_exactly_one_writer` → FAILED with "found 2
   insertion sites", remove it, rerun → passes; `cargo test --test cli_repo_install --test cli_repo_governance`
   → pass; G2; G3; G5 (est. 12 min).
+  Verified 2026-10-19: G1 → 5017 = 5017, leaves SAME, check warnings 0, clippy 37065 = G0, repo list 474;
+  `cargo test -p mfb_repository` → 450 + 24 passed, 0 failed; the writer test with a planted second needle in
+  `store/governance.rs` → FAILED, "found 2 insertion sites"; restored → `ok. 1 passed`; `cli_repo_install` →
+  `ok. 10 passed`, `cli_repo_governance` → `ok. 9 passed` (fast tier); G2 → `spec_citations_resolve` in the unit
+  run (4998 passed) + `citedef.py` clean; G3 → 8, 8, 7 + 1 ignored; census → store mod 304/6, schema 491, accounts
+  803, versions 381/56, browse 381, blobs 118, governance 627, transparency 368; G5 → both workspaces exit 0.
+  Final gate (Validation Plan): G1, G2, G3 as above; `cargo test --test file_size_budget` → 0 rows; `grep` of the
+  ceiling file for any L path (old or new) → no row.
 Commit: —
 
 ## Validation Plan

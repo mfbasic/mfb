@@ -78,7 +78,7 @@ form are stored separately. Registration inserts both `owner_display` and
 enforced on the folded column. The practical consequence: `Alice` and `alice`
 are the *same* owner — whichever is registered first wins, and a later attempt to
 register the other case fails with `owner name '<owner>' is already in use`.
-[[repository/src/store.rs:register_owner]] [[repository/src/store.rs:owner_with_auth_key]]
+[[repository/src/store/accounts.rs:register_owner]] [[repository/src/store/accounts.rs:owner_with_auth_key]]
 
 At a package's first publish the owner segment parsed out of the package ident
 (`<owner>#<package>`) is folded and compared against the folded session subject;
@@ -115,12 +115,12 @@ lookups fold the owner. [[repository/src/local.rs:auth_public_key_path]]
 | `store::register_owner` | server-side insert of the owner + auth key |
 | `store::create_challenge` | server-side challenge issuance |
 
-[[repository/src/client/identity.rs:register]] [[repository/src/client/identity.rs:auth]] [[repository/src/client/identity.rs:request_attestation]] [[repository/src/client/packages.rs:validate_package]] [[repository/src/client/packages.rs:publish_package]] [[repository/src/store.rs:register_owner]] [[repository/src/store.rs:create_challenge]]
+[[repository/src/client/identity.rs:register]] [[repository/src/client/identity.rs:auth]] [[repository/src/client/identity.rs:request_attestation]] [[repository/src/client/packages.rs:validate_package]] [[repository/src/client/packages.rs:publish_package]] [[repository/src/store/accounts.rs:register_owner]] [[repository/src/store/accounts.rs:create_challenge]]
 
 The owner name is also baked into the proof-of-possession message signed at
 registration, so the name a client validated is cryptographically bound to the
 key it registers; the server recomputes the same message before accepting the
-proof. [[repository/src/crypto.rs:registration_message]] [[repository/src/store.rs:register_owner]]
+proof. [[repository/src/crypto.rs:registration_message]] [[repository/src/store/accounts.rs:register_owner]]
 
 ## See Also
 
