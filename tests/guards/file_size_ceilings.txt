@@ -76,6 +76,5 @@ ceiling code 1502 src/codegen/term/grid/term_grid.rs
 ceiling code 1448 src/ir/binary.rs
 ceiling code 5222 src/ir/lower.rs
 ceiling code 2950 src/ir/shape.rs
-ceiling code 1203 src/ir/verify/mod.rs
 ceiling code 1153 src/ir/verify/resources.rs
 ceiling code 1037 src/os/linux/link/elf.rs

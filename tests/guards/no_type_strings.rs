@@ -475,6 +475,11 @@ const TYPE_KEYED_TABLES: &[(&str, &str)] = &[
     // A union's variant SET — a membership test over type names, the same
     // operation (and the same shape) as codegen's `union_names`.
     ("src/ir/verify/mod.rs", "variants"),
+    ("src/ir/verify/env.rs", "enums"),
+    ("src/ir/verify/env.rs", "field_types"),
+    ("src/ir/verify/env.rs", "record_field_lists"),
+    ("src/ir/verify/env.rs", "private_fields"),
+    ("src/ir/verify/env.rs", "type_decl_info"),
     // Monomorphization's template and instantiation tables.
     // `FunctionContext::record_fields` used to be a fourth entry here. plan-117
     // Phase 2 deleted that map: monomorph now reads a record's fields live off

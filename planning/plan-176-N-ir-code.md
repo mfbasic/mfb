@@ -38,9 +38,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-M is archived | `ls planning/plan-176-M-* planning/completed/plan-176-M-*` → only the `planning/completed/` path | NOT MET (2026-10-14) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-14; lands in plan-176-A) |
-| N's files have no uncommitted changes | `git status --porcelain -- src/ir/lower.rs src/ir/shape.rs src/ir/binary.rs src/ir/verify/mod.rs src/ir/verify/resources.rs tests/guards/no_type_strings.rs tests/guards/no_operator_strings.rs .ai src/docs/spec` → empty | NOT MET (2026-10-14: ` M src/ir/verify/resources.rs`) |
+| plan-176-M is archived | `ls planning/plan-176-M-* planning/completed/plan-176-M-*` → only the `planning/completed/` path | MET (2026-10-19) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19) |
+| N's files have no uncommitted changes | `git status --porcelain -- src/ir/lower.rs src/ir/shape.rs src/ir/binary.rs src/ir/verify/mod.rs src/ir/verify/resources.rs tests/guards/no_type_strings.rs tests/guards/no_operator_strings.rs .ai src/docs/spec` → empty | MET (2026-10-19: 0 lines) |
 
 Everything below is written against the world where these hold. plan-176-G (an earlier letter)
 has already moved the inline test modules this letter's files carried over the 250 inline
@@ -532,24 +532,27 @@ Hazards:
 
 Before Phase 1, once: record the baselines the phases compare against.
 
-- [ ] `cargo test -p mfb --bin mfb -- --list 2>/dev/null | grep -c ': test$'` → write the number
-      into this task line as the N baseline (est. 4 min, first test build).
-- [ ] `cp target/release/mfb /tmp/mfb-before-N` after `cargo build --release` at the pre-N
-      commit (used only for diagnosing a diff; est. 4 min).
+- [x] `cargo test -p mfb --bin mfb -- --list 2>/dev/null | grep -c ': test$'` → write the number
+      into this task line as the N baseline (est. 4 min, first test build). Baseline: 5017 (`ir::verify` 493).
+- [x] `cp target/release/mfb /tmp/mfb-before-N` after `cargo build --release` at the pre-N
+      commit (used only for diagnosing a diff; est. 4 min). Done: `target/p176/mfb-before-N` (release of
+      `000497dc9`; `/tmp` is wiped on restart here).
 
 ### Phase 1 — `verify/mod.rs` → `verify/env.rs`
 
 The smallest split: one part, zero visibility edits.
 
-- [ ] Create `src/ir/verify/env.rs` (`use super::*;` + old 878-1334: `POISONING_RULES` and the
+- [x] Create `src/ir/verify/env.rs` (`use super::*;` + old 878-1334: `POISONING_RULES` and the
       whole `impl TypeEnv` block); delete those lines from `verify/mod.rs`; add `mod env;` beside
       `mod calls;` (§4.4).
-- [ ] `src/docs/spec/architecture/22_type-inference.md:16`: `[[src/ir/verify/mod.rs:infer_type]]`
+      Done: `items.py split` → env 2 items; `mod env;` placed after `mod compat;` (alphabetical); 0 visibility
+      edits; `motion.py` → only `mod env;`.
+- [x] `src/docs/spec/architecture/22_type-inference.md:16`: `[[src/ir/verify/mod.rs:infer_type]]`
       → `[[src/ir/verify/env.rs:infer_type]]`.
-- [ ] `tests/guards/no_type_strings.rs`: add the 5 `("src/ir/verify/env.rs", …)` rows of §4.4
+- [x] `tests/guards/no_type_strings.rs`: add the 5 `("src/ir/verify/env.rs", …)` rows of §4.4
       after the `("src/ir/verify/mod.rs", "variants")` row, with the §4.4 justification in the
       commit message.
-- [ ] Tighten: `MFB_LOC_TIGHTEN=1 cargo test --test file_size_budget`; commit
+- [x] Tighten: `MFB_LOC_TIGHTEN=1 cargo test --test file_size_budget`; commit
       `tests/guards/file_size_ceilings.txt`.
 
 Acceptance: `verify` behaves identically and the file is within budget.
@@ -564,6 +567,11 @@ Acceptance: `verify` behaves identically and the file is within budget.
   `cargo test --test file_size_budget 2>&1 | grep 'src/ir/verify'` → exactly one row,
   `TIGHTEN … src/ir/verify/mod.rs`; after it, `grep 'src/ir/verify/mod.rs' tests/guards/file_size_ceilings.txt`
   → no `ceiling code` row (est. 2 min).
+  Verified 2026-10-19: `ir::verify` → `ok. 493 passed` (= before); `test-accept.sh … '*-invalid'` →
+  `acceptance tests passed (208 test(s) ran)`; `bash scripts/artifact-gate.sh … general` (bash, as M recorded) →
+  0 diffs; check warnings 0; `spec_citations_resolve` ok; `no_type_strings` → 7 + 1 ignored; budget before the
+  tighten → one row `TIGHTEN code 849 (ceiling 1203) src/ir/verify/mod.rs`; after → no row; census → mod 849/2,
+  env 356.
 Commit: —
 
 ### Phase 2 — `verify/resources.rs` → `verify/resources/`

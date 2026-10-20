@@ -13,7 +13,7 @@ everything else synthesizes types **bottom-up**. There is no general unification
 no type variables, and no least-upper-bound; the only "widening" steps are
 literal coercion (asymmetric, literal-shapes only) and union-variant subsumption.
 [[src/ir/lower.rs:lower_expression_with_expected]] [[src/ir/shape.rs:type_of]]
-[[src/ir/verify/mod.rs:infer_type]]
+[[src/ir/verify/env.rs:infer_type]]
 
 The per-type rules, literal range checks, and the *defaultable* predicate are
 canonical in `./mfb spec language types`; this page owns how those types are
