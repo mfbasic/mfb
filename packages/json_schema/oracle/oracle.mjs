@@ -51,8 +51,12 @@ const DRIVER = process.env.JSVALIDATE ?? defaultDriver();
 // Inputs the two implementations are SUPPOSED to disagree about, each with the
 // reason. Anything not in here that disagrees is a failure.
 const KNOWN_DIVERGENCES = {
+  "decimal-multipleof":
+    "multipleOf reads each number as its shortest decimal, so 0.3 is a multiple of 0.1 here, as a person writing the schema means it. ajv divides in binary64, where 0.3 / 0.1 is 2.9999999999999996, and calls 0.3 not a multiple. The package's own tests pin the decimal reading",
+  "ajv-dynamicref-root":
+    "ajv overflows its stack on a root-level $dynamicRef whose $dynamicAnchor sits in $defs. The static target is the anchored subschema, the dynamic scope holds no other $dynamicAnchor of that name, so the answer is that subschema's; the official suite's dynamicRef.json cases, which this package passes, say the same",
   "unsupported-dynamic":
-    "$dynamicRef/$dynamicAnchor/$recursiveRef/$recursiveAnchor are outside the documented subset and are refused at compile time",
+    "$recursiveRef and $recursiveAnchor are Draft 2019-09 keywords, outside Draft 2020-12, and are refused at compile time",
   "unsupported-regex":
     "a lookaround, a backreference, a Script_Extensions or binary property the engine does not implement, or a negated shorthand inside a character class cannot be translated into the regex dialect exactly, so it is refused rather than approximated",
   "regex-word-boundary":
@@ -686,14 +690,44 @@ function modeFuzz(options) {
 // reason. A case in one of these is allowed to end in a REFUSAL; a wrong
 // verdict is still a failure.
 const SUITE_EXPECTED = {
-  "dynamicRef.json": "unsupported-dynamic",
-  "unevaluatedItems.json": "unsupported-dynamic",
-  "unevaluatedProperties.json": "unsupported-dynamic",
-  "refRemote.json": "no-retrieval",
-  "ref.json": "no-retrieval",
-  "defs.json": "no-retrieval",
   "vocabulary.json": "custom-dialect",
 };
+
+// The suite's `remotes/` directory holds the documents its tests refer to by
+// `http://localhost:1234/...`. The suite's own runner registers them before it
+// validates anything; this does the same, through the package's registry, which
+// retrieves nothing itself. Only the Draft 2020-12 documents are registered: the
+// older drafts' documents use keywords 2020-12 refuses, and an eagerly checked
+// registry would refuse every case because of them.
+const SUITE_REMOTE_ROOT = "http://localhost:1234/";
+const SUITE_REMOTE_SKIP = new Set(["draft3", "draft4", "draft6", "draft7", "draft2019-09", "v1"]);
+
+function suiteRemotes(root) {
+  const base = path.join(root, "remotes");
+  const resources = {};
+  if (!fs.existsSync(base)) return resources;
+  const walk = (dir) => {
+    for (const name of fs.readdirSync(dir).sort()) {
+      const full = path.join(dir, name);
+      const rel = path.relative(base, full).split(path.sep).join("/");
+      if (fs.statSync(full).isDirectory()) {
+        if (dir === base && SUITE_REMOTE_SKIP.has(name)) continue;
+        walk(full);
+      } else if (name.endsWith(".json")) {
+        // The format-assertion documents refer to the format-assertion
+        // metaschema, which this package does not bundle: it implements
+        // `format` as an annotation. An eagerly checked registry would refuse
+        // every case over them, so they are left out, and the tests that use
+        // them (optional/format-assertion) are outside the top-level files the
+        // oracle reads.
+        if (rel.includes("format-assertion")) continue;
+        resources[SUITE_REMOTE_ROOT + rel] = JSON.parse(fs.readFileSync(full, "utf8"));
+      }
+    }
+  };
+  walk(base);
+  return resources;
+}
 
 function findSuite(explicit) {
   const candidates = [
@@ -741,7 +775,7 @@ function modeSuite(options) {
     }
   }
 
-  const answers = runDriver({ cases });
+  const answers = runDriver({ cases, resources: suiteRemotes(root) });
   const byId = new Map(answers.cases.map((answer) => [answer.id, answer]));
 
   for (const [id, question] of meta) {
