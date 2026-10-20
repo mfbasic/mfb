@@ -789,7 +789,7 @@ preference — reach for the cheapest one that can actually see the property:
 path of every compile the user ever runs. Two predicates in this tree are
 disqualified by that and must stay debug-only: `regalloc/mod.rs`'s uncolored-vreg
 sweep renders EVERY field of EVERY instruction to a `String` and parses it
-(O(instructions × fields), one allocation each), and `riscv64/v128.rs`'s slot
+(O(instructions × fields), one allocation each), and `riscv64/v128/mod.rs`'s slot
 overlap check is O(n²). Measure before promoting anything that touches the
 instruction stream — interleave the runs, because a loaded box makes a 1% change
 look like 20%.

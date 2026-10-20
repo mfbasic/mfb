@@ -15,7 +15,7 @@ populate is `./mfb spec architecture native`.
 All integer data ops are **64-bit (X-register)** forms; the loads/stores carry
 an explicit access width in the mnemonic, and the floating-point ops are
 **double-precision (D-register)**. The encoder writes each word with
-`emit_word` (`u32::to_le_bytes`). [[src/arch/aarch64/encode/emitter.rs:emit_instruction]]
+`emit_word` (`u32::to_le_bytes`). [[src/arch/aarch64/encode/emitter/mod.rs:emit_instruction]]
 
 ## Instruction model
 
@@ -38,8 +38,8 @@ Operands are decoded by small helpers:
   `31`; `d0..d31` map to `0..31`. The encoder accepts `x18` and `x29`; platform reservation is an ABI/allocation
   policy, not an encoding restriction. [[src/arch/aarch64/encode/operand.rs:reg]]
 - `immediate` parses a `u64`, also accepting `"true"`→1 / `"false"`→0.
-  [[src/arch/aarch64/encode/operand.rs:immediate]]
-- `shift` parses a 0–63 shift amount. [[src/arch/aarch64/encode/operand.rs:shift]]
+  [[src/arch/encode_operand.rs:immediate]]
+- `shift` parses a 0–63 shift amount. [[src/arch/encode_operand.rs:shift]]
 
 Most ops encode to exactly one word; the variable-length ops are covered under
 *Multi-word lowerings* below. `instruction_size` computes the byte length ahead
@@ -51,7 +51,7 @@ of emission so label and symbol offsets are known before patching.
 Each row gives the op's mnemonic, its required fields, and the base 32-bit word
 the encoder ORs operand bits into. Field placement is `Rd = bits[4:0]`,
 `Rn = bits[9:5]`, `Rm = bits[20:16]` unless noted. Every op has a dedicated
-encoder. [[src/arch/aarch64/encode/emitter.rs:emit_instruction]]
+encoder. [[src/arch/aarch64/encode/emitter/mod.rs:emit_instruction]]
 
 | Op | Mnemonic | Fields | Base word | Notes |
 |----|----------|--------|-----------|-------|
@@ -136,7 +136,7 @@ Notes on the float ops: the `fmov`/`fcvt`/`scvtf` family places the operand
 register in `bits[9:5]` (`src`) and the destination in `bits[4:0]` (`dst`), the
 same `(src<<5)|dst` pattern the integer single-source ops use, even though one
 side is a D-register and the other an X-register.
-[[src/arch/aarch64/encode/emitter.rs:emit_scvtf_d_from_x]] The double-precision set is:
+[[src/arch/aarch64/encode/emitter/scalar.rs:emit_scvtf_d_from_x]] The double-precision set is:
 `fadd_d`, `fsub_d`, `fmul_d`, `fdiv_d`, `fneg_d`, `fabs_d`, `fsqrt_d`, `fcmp_d`,
 `fcmp_zero_d`, `fmov_x_from_d`, `fmov_d_from_x`, `fmov_d_from_d`, `scvtf_d_from_x`,
 `fcvtzs_x_from_d`, `fcvtms_x_from_d`, `fcvtps_x_from_d`, `fcvtas_x_from_d`, and the
@@ -155,7 +155,7 @@ registers — only the register number is decoded); the lane arrangement is fixe
 `.2d` (two i64/f64 lanes) for every numeric op, `.16b` for the bitwise/select
 ops `and_v`/`orr_v`/`eor_v`/`bsl_v`/`bit_v`. Field placement matches the scalar
 ops: `Vd=bits[4:0]`, `Vn=bits[9:5]`, `Vm=bits[20:16]`.
-[[src/arch/aarch64/encode/emitter.rs:emit_v_three_same]]
+[[src/arch/aarch64/encode/emitter/vector.rs:emit_v_three_same]]
 
 | Op | Mnemonic | Fields | Base word | Notes |
 |----|----------|--------|-----------|-------|
@@ -238,7 +238,7 @@ asserts against the system assembler (`as -arch arm64`) output.[[src/arch/aarch6
 `movk` (`0xF2800000`) for each of the three higher 16-bit lanes that is nonzero;
 a value of `0` emits the single `movz`. The lane index `hw` (0..3) goes in
 `bits[22:21]` of the `movk`, the 16-bit chunk in `bits[20:5]`, `Rd` in
-`bits[4:0]`. [[src/arch/aarch64/encode/emitter.rs:emit_mov_imm]]
+`bits[4:0]`. [[src/arch/aarch64/encode/emitter/scalar.rs:emit_mov_imm]]
 
 ```text
 mov_imm x0, #0x1234_0000_5678          ; value = 0x0000_1234_0000_5678
@@ -258,7 +258,7 @@ emission. [[src/arch/aarch64/encode/sizing.rs:instruction_size]]
 
 A symbol's absolute address is materialized in two instructions, each emitting
 its own relocation rather than a finished immediate; the linker fills the page
-and page-offset bits. [[src/arch/aarch64/encode/emitter.rs:emit_symbol_ref]]
+and page-offset bits. [[src/arch/aarch64/encode/emitter/memory.rs:emit_symbol_ref]]
 
 ```text
 adrp x1, _sym            -> 0x90000000 | 1            = 0x90000001
@@ -293,33 +293,33 @@ exact. [[src/arch/aarch64/encode/sizing.rs:instruction_size]]
   immediate (optionally `<<12`) is one word; otherwise the encoder emits a chain
   of `add`/`sub` chunks accumulating the full value, chaining `Rd` as the source
   of each subsequent chunk. `encode_add_sub_imm` decides the single-word case;
-  `next_add_sub_chunk` drives the chain. [[src/arch/aarch64/encode/emitter.rs:emit_add_imm]]
+  `next_add_sub_chunk` drives the chain. [[src/arch/aarch64/encode/emitter/scalar.rs:emit_add_imm]]
 - **`cmp_imm`.** A 12-bit immediate encodes directly as
   `subs xzr,Rn,#imm`; otherwise the value is loaded with `mov_imm` into a
   scratch register (`scratch_excluding`) and compared register-to-register.
-  [[src/arch/aarch64/encode/emitter.rs:emit_cmp_imm]]
+  [[src/arch/aarch64/encode/emitter/scalar.rs:emit_cmp_imm]]
 - **Loads/stores.** Each requires its offset to be a multiple of the access
   width (else an encode error) and, when scaled, ≤ 4095. A larger offset is
   materialized by `add_imm` into a scratch base register, then the access uses
-  that base at offset 0. [[src/arch/aarch64/encode/emitter.rs:emit_ldr_u64]]
+  that base at offset 0. [[src/arch/aarch64/encode/emitter/memory.rs:emit_ldr_u64]]
 - **`mov_imm`.** The `movz`/`movk` chain above.
 
 ## Labels, branches, and relocations
 
 `Label` instructions are zero-width markers; the encoder records each label's
-byte offset within its function. [[src/arch/aarch64/encode/emitter.rs:emit_instruction]]
+byte offset within its function. [[src/arch/aarch64/encode/emitter/mod.rs:emit_instruction]]
 Conditional branches and the local unconditional `b` are emitted as a
 placeholder `0` word plus a deferred `LabelPatch`; after a function's body is
 laid out, `patch_labels` computes the PC-relative displacement and rewrites the
 word in place — `imm26` (`branch_imm26`) for `b`, `imm19<<5` (`branch_imm19`)
-for the conditional set. [[src/arch/aarch64/encode/emitter.rs:patch_labels]] These
+for the conditional set. [[src/arch/aarch64/encode/emitter/mod.rs:patch_labels]] These
 intra-function branches never produce relocations.
 
 `bl` is different: it targets a **symbol**, not a label. The encoder emits the
 bare `0x94000000` and a `branch26` relocation — `internal` binding if the target
 is a function symbol in this image, `external` (with the import library) if it
 is an imported symbol; an unresolved target is an encode error.
-[[src/arch/aarch64/encode/emitter.rs:emit_bl]] `blr` (indirect call), `ret`, `svc`, and
+[[src/arch/aarch64/encode/emitter/memory.rs:emit_bl]] `blr` (indirect call), `ret`, `svc`, and
 `branch_self` carry no relocation and no label.
 
 ## See Also

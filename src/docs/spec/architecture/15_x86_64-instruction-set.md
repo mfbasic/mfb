@@ -21,7 +21,7 @@ is one neutral op set for both ISAs; the x86 encoder dispatches on
 are the branch variants `X86Jae`, `X86Jp`, `X86Jnp`, `X86Ja`, `X86Jb`, `X86Jbe`,
 `X86Je`, `X86Jne` (never emitted for AArch64 — see *Float branches* below).
 [[src/arch/x86_64/select.rs:1]] [[src/arch/ops.rs:CodeOp]] The encoder
-rejects any op it cannot yet encode with a clear `Err`. [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
+rejects any op it cannot yet encode with a clear `Err`. [[src/arch/x86_64/encode/emitter/instruction.rs:encode_instruction]]
 
 The backend is organized into a backend singleton, instruction selection, the
 register model, relocation-intent mapping, and the machine-code
@@ -79,9 +79,9 @@ do not flow as `Raw` strings.
 Bytes are produced by `encode_instruction` — the single source of truth for both
 the emitted bytes and the reported size, so `emit_instruction` and
 `instruction_size` cannot drift. Every encoding is fixed-size and
-distance-independent (rel32, imm32/imm64, disp32). [[src/arch/x86_64/encode/emitter.rs:encode_instruction]] [[src/arch/x86_64/encode/sizing.rs:instruction_size]]
+distance-independent (rel32, imm32/imm64, disp32). [[src/arch/x86_64/encode/emitter/instruction.rs:encode_instruction]] [[src/arch/x86_64/encode/sizing.rs:instruction_size]]
 
-Encoding primitives: [[src/arch/x86_64/encode/emitter.rs:rex]]
+Encoding primitives: [[src/arch/x86_64/encode/emitter/mod.rs:rex]]
 
 - `rex(w,r,x,b)` — `0x40 | w<<3 | r<<2 | x<<1 | b`.
 - `modrm(md,reg,rm)` and `sib(scale,index,base)`.
@@ -135,8 +135,10 @@ spilled vector's high lane). [[src/arch/x86_64/regmodel.rs:FP_REGS]] [[src/arch/
 Arguments in `rdi rsi rdx rcx r8 r9`; return in `rax`; `syscall` (`0F 05`) with
 the number in `rax` and arguments in `rdi rsi rdx r10 r8 r9`. The internal
 `CALL_ARGS` table extends the six arg registers with `rax` (7th) and `rbp` (8th)
-for internal 8-parameter MFBASIC calls only. The error-`Result` convention returns
-its four fields in `RETS = [rax, rdx, rcx, rsi]`. [[src/arch/x86_64/select.rs:CALL_ARGS]] [[src/arch/x86_64/select.rs:RETS]]
+for internal 8-parameter MFBASIC calls only. An MFB result — the error-`Result`'s
+fields included — is drawn from the same call-argument bank as the arguments (`rdi rsi rdx rcx …`), so a
+result reused as an argument is the same register; a C call returns in `rax:rdx` (`C_RETS`).
+[[src/arch/x86_64/select.rs:CALL_ARGS]] [[src/arch/x86_64/select.rs:realize_abi_operand]] [[src/arch/x86_64/select.rs:C_RETS]]
 
 **16-byte stack alignment is the key ABI difference from AArch64.**
 `frame_call_padding()` returns 8 for x86-64 (AArch64 returns 0). The `call`
@@ -151,7 +153,7 @@ enters a C callee with `rsp ≡ 8 (mod 16)`. [[src/arch/x86_64/backend.rs:frame_
 `call rel32` — the System V variadic ABI's "number of vector registers used"
 marker (8 is a safe superset). An internal `_mfb_*` call must **not** emit it
 (internal functions may pass a 7th argument in `rax`, which the marker would
-clobber). The choice is `target.starts_with("_mfb_")`. [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
+clobber). The choice is `target.starts_with("_mfb_")`. [[src/arch/x86_64/encode/emitter/instruction.rs:encode_instruction]]
 
 Program entry reuses the shared `lower_program_entry` (Result-tag error reporting,
 signal setup, RNG-seed, global init), with `select_x86` mapping neutral registers
@@ -171,20 +173,20 @@ applies to **app (GTK) mode only**, not console mode. [[src/target/linux_common/
   `lower_to_mir`, so the stream is a fixed point on re-lowering. Integer `b.cc`
   map to `jcc` directly. [[src/arch/x86_64/select.rs:x86_float_branch]]
 - **Flags are implicit.** x86 `add`/`sub` always set EFLAGS, so the flag-setting
-  `adds`/`subs` share the same encoding as `add`/`sub`. [[src/arch/x86_64/encode/emitter.rs:alu3]]
+  `adds`/`subs` share the same encoding as `add`/`sub`. [[src/arch/x86_64/encode/emitter/integer.rs:alu3]]
 - **Three-operand → two-operand.** The neutral `CodeOp` set is three-operand
   (`dst,lhs,rhs`); x86 ALU is two-operand (`dst OP= src`). `alu3` synthesizes the
   three-operand form with `dst==lhs` in place, `dst==rhs` by commutative swap (or,
   for `sub`, negate-then-add), else a `mov dst,lhs` first. It also handles a
   zero-token `lhs` (AArch64 freely sources `xzr`). `dst==src1` aliasing hazards are
   handled per op (mul/imul commutativity, `msub` minuend capture, SSE staging in
-  `xmm15`, div staging the divisor when it aliases rax/rdx). [[src/arch/x86_64/encode/emitter.rs:alu3]]
+  `xmm15`, div staging the divisor when it aliases rax/rdx). [[src/arch/x86_64/encode/emitter/integer.rs:alu3]]
 - **Synthesized instructions with no single-op x86 form:** `rbit` (bit-reverse via
   stride swaps + `bswap`), `clz` (`lzcnt`, ABM / x86-64-v2), `rev_w`/`rev_x`
   (`bswap`), variable shifts/rotate through CL, `mulhi` (`mul`/`imul` → rdx),
   `div`/`idiv` (rax/rdx + `cqo` / `xor rdx,rdx`). Explicit-carry `add_carry`/
   `sub_borrow` set CF from the carry-in (`add carry_in,-1`), then `adc`/`sbb`, then
-  `setc`+`movzx` for the carry-out. [[src/arch/x86_64/encode/emitter.rs:enc_add_carry]]
+  `setc`+`movzx` for the carry-out. [[src/arch/x86_64/encode/emitter/integer.rs:enc_add_carry]]
 
 ## Floating point and SIMD → xmm
 
@@ -198,12 +200,12 @@ applies to **app (GTK) mode only**, not console mode. [[src/target/linux_common/
   use `minsd`/`maxsd` — order-preserving `min/max(lhs, rhs)`, correct for the finite
   operands MFBASIC produces; they differ from AArch64 `fminnm`/`fmaxnm` only on a NaN
   input or a ±0 tie (neither reachable through `math::min`/`max`).
-  [[src/arch/x86_64/encode/emitter.rs:sse_arith]]
+  [[src/arch/x86_64/encode/emitter/sse.rs:sse_arith]]
 - **v128 SIMD (SSE2 / SSE4.1 / SSE4.2).** 128-bit load/store is `movups`. Packed
   f64×2 arithmetic uses the `66 0F` forms (`addpd`/`subpd`/`mulpd`/`divpd`/`minpd`/
   `maxpd`), packed i64×2 uses `paddq`/`psubq`, bitwise uses `pand`/`por`/`pxor`,
   plus `sqrtpd`, `roundpd`, and NaN-correct `cmppd`/`pcmpgtq`/`pcmpeqq`. Lane
-  extract is `movq`/`pextrq`; broadcast is `movq`+`punpcklqdq`. [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
+  extract is `movq`/`pextrq`; broadcast is `movq`+`punpcklqdq`. [[src/arch/x86_64/encode/emitter/instruction.rs:encode_instruction]]
 - **FMA3.** `fmla_v`/`fmls_v` use `vfmadd231pd`/`vfnmadd231pd` (3-byte VEX,
   x86-64-v3) for single-rounding parity with AArch64 `fmla`/`fmls`. The four scalar
   fused ops `fmadd_d`/`fmsub_d`/`fnmsub_d`/`fnmadd_d` use the matching 231-form
@@ -211,7 +213,7 @@ applies to **app (GTK) mode only**, not console mode. [[src/target/linux_common/
   `vfnmsub231sd` BF) — same VEX prefix as the packed form, opcode LSB odd. The
   `addend` is staged in the reserved `xmm15` so `dst` need not alias a source; as
   on AArch64 the neutral mnemonic names the result, so `fnmsub_d`→`vfnmadd231sd`
-  and `fnmadd_d`→`vfnmsub231sd`. [[src/arch/x86_64/encode/emitter.rs:enc_vfma231sd]]
+  and `fnmadd_d`→`vfnmsub231sd`. [[src/arch/x86_64/encode/emitter/sse.rs:enc_vfma231sd]]
 - **Emulated where SSE has no form:** packed i64↔f64 conversions (`fcvtzs_v`/
   `scvtf_v`) run lane-serial through rax/rdx + `xmm15` (`pshufd 0xEE` brings lane 1
   to lane 0); `sshr_v` (arithmetic i64 lane shift-right) uses `psrlq` plus a
@@ -219,13 +221,13 @@ applies to **app (GTK) mode only**, not console mode. [[src/target/linux_common/
   kept unshifted and `psrlq dst, 64` zeroes the lane, so the `por` yields the sign
   fill; `shl_v`/`ushr_v` take the same boundary as the zero an x86 count > 63
   already produces. A lane shift above 64 is rejected.
-  [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
+  [[src/arch/x86_64/encode/emitter/instruction.rs:encode_instruction]]
 
 ## Unsupported ops on x86-64
 
 The encoder rejects ops it does not encode with an explicit `Err`
 (`x86 encode: unsupported op {op}`) rather than miscompiling.
-[[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
+[[src/arch/x86_64/encode/emitter/instruction.rs:encode_instruction]]
 
 - **Unsupported SIMD ops:** `fcvtas_v` (nearest ties-away vector), `sshl_v`,
   `ushl_v` (per-lane variable shifts). The `sshl_v` rejection is pinned by the
@@ -234,7 +236,7 @@ The encoder rejects ops it does not encode with an explicit `Err`
   narrowing the integer allocatable set accordingly.
 
 `str_u16` is a supported shared op; the encoder emits a 16-bit memory store.
-[[src/arch/ops.rs:StrU16]] [[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
+[[src/arch/ops.rs:StrU16]] [[src/arch/x86_64/encode/emitter/instruction.rs:encode_instruction]]
 
 ## See Also
 

@@ -645,23 +645,37 @@ decodes identically.
   file-name rule alone → 751; the planning-time 754/747 predate letters E–N); `arch::aarch64::decode debugger::`
   → 190 passed + 1 ignored (= the G0 list's 191); check warnings 0; list 5018 (baseline + 1, the engine predicate
   test); budget → one `STALE code (ceiling 1202) …decode/vector.rs` before, none after; census → 855, 350.
-Commit: —
+Commit: 23e8dfcaa
 
 ### Phase 2 — Encoders: aarch64 emitter, x86-64 emitter, riscv64 `v128`
 
-- [ ] §4.2: split `src/arch/aarch64/encode/emitter.rs` into `emitter/{mod,vector,scalar,memory}.rs`;
+- [x] §4.2: split `src/arch/aarch64/encode/emitter.rs` into `emitter/{mod,vector,scalar,memory}.rs`;
       80 `pub(super)` edits; rewrite the 12 citations.
-- [ ] §4.2: decoder test `include_str!("../encode/emitter.rs")` →
+      Done: `items.py split` by §4.2's ranges → 8, 61, 14 methods; `pub(super)` from the compiler's errors → exactly
+      80 (scalar keeps `emit_rrr`, `emit_add_imm_chunk`, `emit_sub_imm_chunk` private); `motion.py` → only the
+      wiring, three impl blocks and the 80; `citesweep.py` → 12.
+- [x] §4.2: decoder test `include_str!("../encode/emitter.rs")` →
       `include_str!("../encode/emitter/mod.rs")` (4-point justification in the commit message).
-- [ ] §4.4: split `src/arch/x86_64/encode/emitter.rs` into `emitter/{mod,instruction,integer,sse}.rs`;
+- [x] §4.4: split `src/arch/x86_64/encode/emitter.rs` into `emitter/{mod,instruction,integer,sse}.rs`;
       widen `encode_instruction`; the re-export and two private globs; 37 `pub(super)` edits;
       rewrite the 15 citations.
-- [ ] §4.3: split `src/arch/riscv64/v128.rs` into `v128/{mod,scalarize,rvv}.rs`; the re-exports,
+      Done: `codesplit.py` → 1, 19, 22 items; `pub(super)` → exactly 37 (16 + 21); `motion.py` → only the
+      wiring, the two globs, the re-export and the visibility edits; `citesweep.py` → 15.
+- [x] §4.3: split `src/arch/riscv64/v128.rs` into `v128/{mod,scalarize,rvv}.rs`; the re-exports,
       `rvv_arm` → `pub(super)` + `#[cfg(test)] use rvv::rvv_arm;`; rewrite the 5 citations.
-- [ ] §4.3: `tests/guards/no_operator_strings.rs`: both `v128.rs` entries →
+      Done: `codesplit.py` → scalarize 1, rvv 7 items; only `rvv_arm` widened; `citesweep.py` → 5.
+- [x] §4.3: `tests/guards/no_operator_strings.rs`: both `v128.rs` entries →
       `src/arch/riscv64/v128/scalarize.rs` (justification in the commit message);
       `.ai/testing-gates.md:774`.
-- [ ] Tighten and commit the ceiling file.
+      Done: before the edit `no_operator_strings` → 4 FAILED; after → 8 passed; `.ai/testing-gates.md` (now :792).
+- [x] Fix five pre-existing arch citations the phase's `citedef.py` check surfaced (added task):
+      `[[src/arch/x86_64/select.rs:RETS]]` named a constant removed by `8e317bd5e` (plan-85), and its sentence
+      ("the error-`Result` convention returns its four fields in `RETS = [rax, rdx, rcx, rsi]`") is stale — MFB
+      results come from the call-argument bank (`realize_abi_operand`, `(AbiConvention::Mfb, _) => call_args`), C
+      returns from `C_RETS`; rewritten to say so with those cites. The four `[[src/arch/{aarch64,riscv64}/encode/
+      operand.rs:{field,shift,immediate}]]` cites named a re-export → `[[src/arch/encode_operand.rs:…]]`, the
+      definition. `citedef.py src/arch/` → 142 cites, 0 not defined.
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: every target's machine code is byte-identical.
   Check: `cargo test -p mfb --bin mfb -- arch::aarch64 arch::x86_64::encode arch::riscv64` → pass,
@@ -671,6 +685,10 @@ Acceptance: every target's machine code is byte-identical.
   `cargo check --all-targets` → no new warning; `cargo test -p mfb --bin mfb spec_citations_resolve`
   → pass. `cargo test --test file_size_budget 2>&1 | grep -E 'encode/emitter|riscv64/v128'` → one
   `STALE` code row per old file before the tighten, none after (est. 2 min).
+  Verified 2026-10-19: `arch::aarch64 arch::x86_64::encode arch::riscv64` → 324 passed + 1 ignored (= G0's 325);
+  G2 general, vector → 0 diffs; `no_operator_strings` → 8 passed; check warnings 0; `spec_citations_resolve` ok;
+  budget → three `STALE` code rows (1133, 1155, 1837) before, none after; census → aarch64 emitter 529/148/322/170,
+  x86 emitter 258/4 + 805/559/226, v128 230/4 + 393/538.
 Commit: —
 
 ### Phase 3 — `.mfp` codec: `binary_repr` reader, sections, writer

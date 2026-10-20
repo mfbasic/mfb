@@ -39,7 +39,7 @@ read their rendered spelling or typed value.
 plus a handful of RISC-V-specific ops (below); the encoder rejects any op it does
 not encode with an explicit error rather than miscompiling.
 [[src/arch/riscv64/encode/emitter.rs:emit_instruction]]
-[[src/arch/riscv64/encode/operand.rs:field]]
+[[src/arch/encode_operand.rs:field]]
 
 Encoding is a **two-pass** walk, identical in shape to the AArch64 encoder. The
 first pass assigns each text symbol its byte offset using a sizing function; the
@@ -75,7 +75,7 @@ ABI roles (`zero`, `ra`, `sp`, `gp`, `tp`, `t0`–`t6`, `s0`/`fp`, `s1`–`s11`,
 `fa0`–`fa7`), each decoded to its 0–31 number; immediates parse a `u64` (also
 accepting `"true"`→1 / `"false"`→0); a shift immediate is validated into 0–63.
 [[src/arch/riscv64/encode/operand.rs:reg]] [[src/arch/riscv64/encode/operand.rs:freg]]
-[[src/arch/riscv64/encode/operand.rs:shift]]
+[[src/arch/encode_operand.rs:shift]]
 
 ## Register model
 
@@ -332,8 +332,8 @@ are **per-thread** (addressed off the pinned `s11`), so concurrent threads runni
 vector kernels have separate scratch regions; they are non-reentrant within a
 thread, which holds because the kernels are inlined straight-line leaf code.
 Correctness is preserved and the native `D`-extension FMA keeps the ≤1-ULP kernel
-contract. [[src/arch/riscv64/v128.rs:scalarize_v128]]
-[[src/arch/riscv64/v128.rs:build_slot_map]] [[src/arch/riscv64/v128.rs:SLOT_COUNT]]
+contract. [[src/arch/riscv64/v128/scalarize.rs:scalarize_v128]]
+[[src/arch/riscv64/v128/mod.rs:build_slot_map]] [[src/arch/riscv64/v128/mod.rs:SLOT_COUNT]]
 
 ### Runtime-selected RVV — one binary for both V and non-V chips
 
@@ -358,7 +358,7 @@ is materialized into the all-ones/all-zeros lane vector the scalar arm produces
 A function whose peak concurrent `v128` pressure exceeds the 30-register pool
 (`v0` is the mask, `v31` scratch) simply emits the **scalar arm only** — still one
 correct binary, just without the vector speedup for that function.
-[[src/arch/riscv64/v128.rs:lower_v128_run]] [[src/arch/riscv64/v128.rs:build_vreg_map]]
+[[src/arch/riscv64/v128/rvv.rs:lower_v128_run]] [[src/arch/riscv64/v128/mod.rs:build_vreg_map]]
 [[src/codegen/error/constants/error_constants.rs:HAS_RVV_GLOBAL_SYMBOL]]
 
 ## Calls, labels, and relocations

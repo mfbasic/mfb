@@ -300,7 +300,7 @@ instructions directly; there is no non-FMA software path or unfused substitute
 for older x86 CPUs. The RISC-V emitter uses the double-precision fused
 instructions. Running the emitted instructions requires the corresponding
 hardware support.
-[[src/arch/x86_64/encode/emitter.rs:encode_instruction]]
+[[src/arch/x86_64/encode/emitter/instruction.rs:encode_instruction]]
 [[src/arch/riscv64/encode/emitter.rs:emit_instruction]]
 
 On AArch64, an FP value live across a call may use callee-saved `d8`–`d15`.

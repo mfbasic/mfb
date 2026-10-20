@@ -118,7 +118,7 @@ const OPERATOR_SHAPED_NON_OPERATORS: &[(&str, &str)] = &[
         "`CodeOp::from_mnemonic` — machine mnemonic",
     ),
     (
-        "src/arch/riscv64/v128.rs",
+        "src/arch/riscv64/v128/scalarize.rs",
         "RVV mnemonic suffix, not a language operator",
     ),
     (
@@ -620,7 +620,7 @@ fn operator_shaped_exemptions_are_closed() {
             "src/ir/link.rs",
             // `CodeOp` mnemonics — a different, already-enumerated vocabulary
             "src/arch/ops.rs",
-            "src/arch/riscv64/v128.rs",
+            "src/arch/riscv64/v128/scalarize.rs",
             "src/target/shared/abi.rs",
             "src/codegen/engine/builder/code_impl.rs",
             // builtin-member / operation names that happen to be called `op`

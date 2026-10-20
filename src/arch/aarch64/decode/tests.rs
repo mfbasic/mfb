@@ -755,7 +755,7 @@ fn decodes_a_corpus_as_lldb_does() {
 /// for the label branches and `bl`, in `branches_decode_their_targets`).
 #[test]
 fn the_table_covers_every_form_the_encoder_emits() {
-    let source = include_str!("../encode/emitter.rs");
+    let source = include_str!("../encode/emitter/mod.rs");
     let body = &source[source.find("match instruction.op.mnemonic()").unwrap()..];
     let body = &body[..body.find("other => Err(").unwrap()];
     let mut emitted = Vec::new();
