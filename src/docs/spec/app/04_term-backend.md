@@ -14,7 +14,7 @@ the handle still runs after `term::off`. That was the Windows shape until
 bug-541; the memDC test remains, but as the "was a surface ever built" guard it
 always was, with the mode gate in front of it. `term::off` is itself gated on
 every backend, so a redundant `term::off` schedules nothing.
-[[src/codegen/term/core/term.rs:emit_gate_inactive]]
+[[src/codegen/term/core/term/mod.rs:emit_gate_inactive]]
 [[src/target/macos_aarch64/app/app_io.rs:emit_term_active_gate]]
 [[src/target/linux_gtk/app_io.rs:emit_gtk_term_active_gate]]
 [[src/target/win_x86_64/app/mod.rs:emit_win_term_active_gate]] Per-function semantics (`term::on`,
@@ -91,7 +91,7 @@ sets the raw-active flag; a later `term::on` finds the flag set and skips the sa
 and the raw configuration, so `term::off` always restores the discipline from
 before the *first* `term::on`. Before bug-728 the second call saved the raw
 discipline over the cooked one, and the program exited with the user's terminal in
-single-key, no-echo mode. [[src/codegen/term/core/term.rs:emit_on]]
+single-key, no-echo mode. [[src/codegen/term/core/term/screen_mode.rs:emit_on]]
 
 `term::setForeground`/`setBackground` take a `color::Color` and
 `term::getForeground`/`getBackground` return one. **The term-state slot itself is
@@ -131,7 +131,7 @@ The two line members share one emitter parameterised by orientation, so each
 backend selects the fixed coordinate's register from that flag: `ARG[1]` for the
 horizontal form, `ARG[2]` for the vertical one. Span endpoints and corner points
 may be given in either order — the emitters normalise them.
-[[src/codegen/term/core/term.rs:emit_draw_line]] [[src/target/macos_aarch64/app/app_io.rs:emit_app_draw_line]] [[src/target/win_x86_64/app/mod.rs:emit_term_draw_line]]
+[[src/codegen/term/core/term/draw.rs:emit_draw_line]] [[src/target/macos_aarch64/app/app_io.rs:emit_app_draw_line]] [[src/target/win_x86_64/app/mod.rs:emit_term_draw_line]]
 
 Out-of-range coordinates never raise: `term::moveTo` **clamps** both coordinates
 at both ends; `drawHLine`/`drawVLine`/`drawBox`/`fillRect` **clamp the span or
@@ -178,7 +178,7 @@ global) rather than the arena term-state, each app backend implements its own
 slot-56 flag above. In every case the read clears the flag so it latches until
 observed. On Windows, where the resize is recorded on the UI thread and read on
 the worker, the "flag" is a counter pair with one writer each (below), and the
-read records what it reported. [[src/codegen/term/core/term.rs:emit_did_resize]]
+read records what it reported. [[src/codegen/term/core/term/mod.rs:emit_did_resize]]
 [[src/target/win_x86_64/app/mod.rs:emit_term_did_resize]]
 
 `store_term_state` is the one-line writer; on macOS AArch64 it renders as
@@ -234,7 +234,7 @@ three different questions: 1000 turns reporting on, 1002 adds motion while a
 button is held (without it a drag reports only its press and release), and
 **1006 is required** — the default encoding biases each coordinate by 32 into one
 byte and so cannot express a column past 223, let alone a pixel.
-[[src/codegen/term/core/term.rs:emit_enable_mouse]]
+[[src/codegen/term/core/term/mouse.rs:emit_enable_mouse]]
 
 The decoder sits at `emit_stdin_byte_read`, the single function every `io::` read
 helper takes its bytes through, and *above* the app-vs-console split — so one
@@ -333,7 +333,7 @@ existing `ErrInvalidContext` trap on an unsubscribed read is unchanged.
   withdrawn before the restore and re-established after the raw termios returns.
   Mouse events are lost for the duration, which is correct: a program asking for a
   typed line is not tracking the mouse.
-  [[src/codegen/term/core/term.rs:emit_mouse_tracking_window]]
+  [[src/codegen/term/core/term/mouse.rs:emit_mouse_tracking_window]]
 
 ### App mode
 
@@ -481,7 +481,7 @@ emits (bug-313 raised it from 64, which was the exact worst case with zero margi
 and only for coordinates below 1000). The trailing 64 bytes are reserved past the
 exact `rows*cols*72` so the fixed trailing reset/CUP/cursor sequence still has
 headroom on a near-saturating repaint.
-[[src/codegen/term/grid/term_grid.rs:OUTBUF_PER_CELL]] [[src/codegen/term/grid/term_grid.rs:TRAILER_SLACK]]
+[[src/codegen/term/grid/term_grid/mod.rs:OUTBUF_PER_CELL]] [[src/codegen/term/grid/term_grid/mod.rs:TRAILER_SLACK]]
 
 Plan-70-B added a per-cell **EGC pool** (`POOL_BYTES_PER_CELL` = 64) as an
 additional region in the arena block (past back/front/out-buffer; slot =
@@ -489,14 +489,14 @@ additional region in the arena block (past back/front/out-buffer; slot =
 pooled cell. The out buffer grew to `OUTBUF_PER_CELL` = 136 bytes/cell (was 72)
 to carry the multi-byte UTF-8 of wide/pooled clusters in the escape stream. The
 cell stays 16 bytes with a width byte at offset 14 (`C_WIDTH`).
-[[src/codegen/term/grid/term_grid.rs:POOL_BYTES_PER_CELL]]
+[[src/codegen/term/grid/term_grid/mod.rs:POOL_BYTES_PER_CELL]]
 
 `term::off` runs the final present, frees the block, and zeroes slot 48;
 `_mfb_shutdown` frees it if `off` was skipped. A `term::on` while TUI mode is
 already on allocates the new block (sized to the terminal as it is now) first and
 then frees the one slot 48 held, so a failed allocation leaves the running grid in
 place and N `on` calls followed by one `off` leave no grid behind.
-[[src/codegen/term/grid/term_grid.rs:emit_grid_free_previous]] On a terminal resize between frames
+[[src/codegen/term/grid/term_grid/mod.rs:emit_grid_free_previous]] On a terminal resize between frames
 the present reallocs the block, latches the slot-56 `didResize` flag (for
 `term::didResize`), and forces a full repaint (`life` re-queries the
 size each loop). Slot 56 stays reserved. The console grid writer + diff presenter
@@ -1003,7 +1003,7 @@ did not end its line on the grid.
 [[src/target/win_x86_64/app/mod.rs:emit_win_wide_width]]
 [[src/target/win_x86_64/app/mod.rs:emit_term_scroll]]
 [[src/target/win_x86_64/app/mod.rs:emit_win_grid_newline]]
-[[src/codegen/term/grid/term_grid.rs:emit_scroll_back]]
+[[src/codegen/term/grid/term_grid/mod.rs:emit_scroll_back]]
 
 The six positioned draw helpers (`drawHLine`/`drawVLine`/`drawBox`/`fillRect`/
 `drawText`/`drawGlyph`) — previously `ErrUnsupported` stubs — stamp the

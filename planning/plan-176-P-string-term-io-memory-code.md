@@ -552,22 +552,29 @@ Acceptance: string and Unicode lowering emit identical code, and the 2 overflow 
   ignored (= G0's 31); G2 strings, regex, money, term → 0 diffs; check warnings 0; `spec_citations_resolve` ok;
   old-path grep → 0; budget → two STALE rows (1533, 2018) before, none after; census → unicode_props 520/354/249/426,
   builder_strings 179/766/466/619.
-Commit: —
+Commit: edb204d8a
 
 ### Phase 3 — Terminal: `term/core/term.rs`, `term/grid/term_grid.rs`
 
-- [ ] §4.9: split `term.rs` into `term/{mod,screen_mode,kitty,mouse,attributes,draw,text}.rs`;
+- [x] §4.9: split `term.rs` into `term/{mod,screen_mode,kitty,mouse,attributes,draw,text}.rs`;
       the 5-item re-export and six private globs; 21 `pub(super)` edits; rewrite the 12 citations;
       `.ai/resources-packages.md:419`.
-- [ ] §4.10: split `term_grid.rs` into `term_grid/{mod,present,write,resize}.rs`; the three
+      Done: `codesplit.py` → 2, 5, 6, 5, 11, 3 items; exactly the 21 `pub(super)`; `citesweep.py` → 12; plus four
+      unlisted comments (`free_mirrors.rs:10`, `term/mod.rs:83`, `term_grid/mod.rs:55`, `win_x86_64/app/mod.rs`,
+      `tests/canvas/rt_canvas_hit.rs:14`) repointed.
+- [x] §4.10: split `term_grid.rs` into `term_grid/{mod,present,write,resize}.rs`; the three
       `pub(crate) use` lines; rewrite the 5 citations.
-- [ ] Tighten and commit the ceiling file.
+      Done: `codesplit.py` → 6, 1, 1 items; 0 visibility edits; `citesweep.py` → 5.
+- [x] Tighten and commit the ceiling file.
 
 Acceptance: the terminal backend and grid emit identical code on every target.
   Check: `cargo build --release && cargo test -p mfb --bin mfb codegen::term` → pass (incl. the 2
   grid tests), count before == after (est. 6 min). `sh scripts/artifact-gate.sh target/release/mfb term`
   and `… io` → 0 diffs each (est. 1 min each). The app-mode `.app.ncode` goldens outside
   `tests/byte-identity` are swept by the letter-end `all` run.
+  Verified 2026-10-19: `codegen::term` → `ok. 6 passed` (= G0's 6, incl. the 2 grid tests); G2 term, io → 0 diffs;
+  check warnings 0; `spec_citations_resolve` ok; old-path grep → 0; budget → two STALE rows (2824, 1502) before, none
+  after; census → term 544 + 234/297/296/165/727/582, term_grid 326/60 + 525/407/253.
 Commit: —
 
 ### Phase 4 — Memory values: `data_objects.rs`, `builder_value_semantics.rs`

@@ -56,5 +56,3 @@ ceiling code 2272 src/codegen/runtime/canvas/mod.rs
 ceiling code 7309 src/codegen/runtime/canvas/vulkan.rs
 ceiling code 1848 src/codegen/runtime/canvas/vulkan_present.rs
 ceiling code 1362 src/codegen/runtime/thread/runtime_helpers_thread.rs
-ceiling code 2824 src/codegen/term/core/term.rs
-ceiling code 1502 src/codegen/term/grid/term_grid.rs

@@ -58,7 +58,7 @@ the mode check precedes the active-surface check, so Canvas/None raises
 The `term::` backends lay one grapheme per cell at the same width.
 `term::drawText` reserves a trailing cell for a wide grapheme and clips the run
 if that grapheme would cross the right edge; it does not wrap.
-[[src/codegen/term/core/term.rs:emit_draw_text]]
+[[src/codegen/term/core/term/text.rs:emit_draw_text]]
 [[src/codegen/string/unicode_props/properties.rs:emit_unicode_property_charwidth]]
 
 `strings::padLeft`/`padRight` target a scalar count. `padLeftToWidth` and

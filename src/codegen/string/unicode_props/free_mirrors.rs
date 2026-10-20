@@ -7,7 +7,7 @@ use super::*;
 // ---------------------------------------------------------------------------
 // Free-function Unicode primitives for the neutral console codegen (plan-70-B/C).
 //
-// `term_grid.rs`/`term.rs` build their writer/present/stamp loops as free
+// `term_grid/`/`term/` build their writer/present/stamp loops as free
 // functions that push raw `abi::` instructions into a `Vec<CodeInstruction>` and
 // their relocations into a `Vec<CodeRelocation>` — they are NOT `CodeBuilder`
 // methods, so they cannot call the `emit_unicode_*` helpers above (those go

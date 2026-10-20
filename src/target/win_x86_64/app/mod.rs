@@ -3220,7 +3220,7 @@ fn emit_win_term_cluster_walk(
         ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
         ins.push(abi::branch_lt(&after_stamp));
     } else {
-        // The console grid writer's order (`term_grid.rs`, the cluster stamp), so
+        // The console grid writer's order (`term_grid/write.rs`, the cluster stamp), so
         // the cursor lands where it does there: wrap LAZILY — a cursor parked past
         // the right edge wraps when the next cluster arrives, not when the last one
         // is stamped — then wrap a width-2 cluster that would straddle the edge, then

@@ -155,7 +155,7 @@ A compiled program reads four environment variables in every build:
 build because `tools/canvas-bench` measures release builds with them (`sweep --release`
 and `hit`), and a `--debug` build's instrumentation would change the timings.
 [[src/codegen/builtins/canvas/helper_render.rs:ENSURE_GRAPHICS]]
-[[src/codegen/term/core/term.rs:emit_mouse_inject]]
+[[src/codegen/term/core/term/mouse.rs:emit_mouse_inject]]
 
 Every other `MFB_` variable a program reads is read only by a `--debug` build: the
 variable name and the code that reads it are both absent from a normal build's binary,

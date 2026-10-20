@@ -11,7 +11,7 @@
 //! centre, so a press at `(x, y)` tests `(x + 0.5, y + 0.5)`; the scenes below put
 //! their edges where that half pixel cannot decide a case.
 //!
-//! `MFB_MOUSE_INJECT` is POSIX-only (`src/codegen/term/core/term.rs:emit_mouse_inject`),
+//! `MFB_MOUSE_INJECT` is POSIX-only (`src/codegen/term/core/term/mouse.rs:emit_mouse_inject`),
 //! so this file is too. The Windows proof of `overID` is plan-172-M's, on a real box.
 #![cfg(unix)]
 

@@ -190,10 +190,10 @@ protocol (<https://sw.kovidgoyal.net/kitty/keyboard-protocol/>) to it:
 calls `term::off`, so an uncaught error or a SIGINT/SIGTERM leaves the terminal
 clean. `readLine`/`input` under `term::on` pop the flags before the cooked line
 read and push them after single-key mode is re-applied.
-[[src/codegen/term/core/term.rs:emit_kitty_enable]]
-[[src/codegen/term/core/term.rs:emit_kitty_disable]]
-[[src/codegen/term/core/term.rs:emit_kitty_line_window]]
-[[src/codegen/term/core/term.rs:KITTY_PROBE_MS]]
+[[src/codegen/term/core/term/kitty.rs:emit_kitty_enable]]
+[[src/codegen/term/core/term/kitty.rs:emit_kitty_disable]]
+[[src/codegen/term/core/term/kitty.rs:emit_kitty_line_window]]
+[[src/codegen/term/core/term/mod.rs:KITTY_PROBE_MS]]
 [[src/codegen/builtins/io/gen_read_key_family.rs:INPUT_EVENTS_SYMBOL]]
 
 Under the protocol a terminal sends Ctrl+C as a key (`CSI 99 ; 5 u`) instead of
