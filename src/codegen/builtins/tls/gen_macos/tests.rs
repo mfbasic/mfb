@@ -562,7 +562,7 @@ fn accept_stores_zero_queue_slot() {
 /// (offset `CTX_SEM`) until the terminal `cancelled` state is observed at
 /// `CTX_STATE`, so no queued state-changed handler can dereference the freed
 /// arena ctx after the exit returns and the program tears the arena down.
-/// Mirrors the connect-path drain (bug-380, `client.rs`). Detected
+/// Mirrors the connect-path drain (bug-380, `client/connect.rs`). Detected
 /// structurally within `win`: the loop's back-edge label, an
 /// `ldr_u32 [ctx+CTX_STATE]`, a `cmp_imm <cancelled_state>`, and a
 /// `b.ne <drain_label>` that closes the loop.
@@ -731,7 +731,7 @@ fn listen_zeroes_its_cleanup_slots_before_any_failure_exit() {
     let (ins, _rel, _slots) = lower_tls_listen_macos("t_listen", &imports, &TlsReadTestPlatform)
         .expect("lower macos tls::listen");
 
-    // The frame offsets the cert_fail exit releases (server.rs DATA/ITEMS/
+    // The frame offsets the cert_fail exit releases (server/listen.rs DATA/ITEMS/
     // CERTREF/KEYREF). Hardcoded on purpose: this test exists to notice if a slot
     // is added to that release list without being zeroed here.
     const CLEANUP_SLOTS: [&str; 4] = ["168", "176", "184", "192"];

@@ -1,5 +1,6 @@
-//! plan-176-T: the Windows `net.ping` backend (`IcmpSendEcho2`) — its status codes, reply layout, frame
-//! and `lower_ping_windows`. The shared result helpers live in `builtins/net/gen_ping/mod.rs`.
+//! plan-176-T: the Windows `net.ping` backend (`IcmpSendEcho2`) — its status codes, reply
+//! layout, frame and `lower_ping_windows`. The shared result helpers live in
+//! `builtins/net/gen_ping/mod.rs`.
 
 use super::*;
 

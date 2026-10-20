@@ -1,8 +1,6 @@
 # tests/guards/file_size_ceilings.txt — plan-176. Limits (non-comment, non-blank LOC):
 #   code 1000, inline 250 (inline tests in a code file), test 1000 (test-only file).
 # ceiling <code|inline|test> <n> <path>  an over-limit file may not grow past n; MFB_LOC_TIGHTEN=1 lowers n.
-ceiling code 2034 src/codegen/builtins/tls/gen_macos/client.rs
-ceiling code 2050 src/codegen/builtins/tls/gen_macos/server.rs
 ceiling code 1373 src/codegen/engine/analysis/borrow_get.rs
 ceiling code 1124 src/codegen/engine/analysis/module_analysis.rs
 ceiling code 3105 src/codegen/engine/builder/mod.rs

@@ -1,5 +1,5 @@
-//! plan-176-T: the OpenSSL `tls::close` and `tls::closeListener` lowerings. The shared imports live in
-//! `builtins/tls/gen_openssl/mod.rs`.
+//! plan-176-T: the OpenSSL `tls::close` and `tls::closeListener` lowerings. The shared imports
+//! live in `builtins/tls/gen_openssl/mod.rs`.
 
 use super::*;
 

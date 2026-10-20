@@ -1,6 +1,6 @@
-//! plan-176-T: the shared arithmetic primitives — lane select, error-free products and sums, Horner
-//! evaluation, the math pool base and constant broadcasts. The consts, the math const pool and the kernel enums live in
-//! `builtins/vector/builder_simd_float_math/mod.rs`.
+//! plan-176-T: the shared arithmetic primitives — lane select, error-free products and sums,
+//! Horner evaluation, the math pool base and constant broadcasts. The consts, the math const
+//! pool and the kernel enums live in `builtins/vector/builder_simd_float_math/mod.rs`.
 
 use super::*;
 

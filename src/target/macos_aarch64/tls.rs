@@ -140,7 +140,7 @@ fn state_invoke_function() -> CodeFunction {
     // stored with a store-release (`stlr`), which becomes visible only after
     // every program-order-prior store, `CTX_EDOM` included. The reader's side
     // of the contract is a load-acquire on the gate
-    // (`gen_macos/client.rs:lower_tls_write_macos`). The state and error ride
+    // (`gen_macos/client/write.rs:lower_tls_write_macos`). The state and error ride
     // in the frame's two spare slots across the call.
     let instructions: Vec<CodeInstruction> = vec![
         abi::label("entry"),

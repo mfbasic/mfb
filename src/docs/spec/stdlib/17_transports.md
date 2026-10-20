@@ -112,7 +112,7 @@ recognises them:
 [[src/codegen/builtins/tls/gen_openssl/io.rs:lower_tls_read_openssl]]
 [[src/codegen/builtins/tls/gen_schannel.rs:SEC_I_CONTEXT_EXPIRED]]
 [[src/codegen/builtins/tls/gen_schannel_read_close.rs:lower_tls_read]]
-[[src/codegen/builtins/tls/gen_macos/client.rs:lower_tls_read_macos]]
+[[src/codegen/builtins/tls/gen_macos/client/read.rs:lower_tls_read_macos]]
 
 A `tls` read that has raised `ErrConnectionClosed` leaves the socket finished in
 both directions. Every later `read` raises it again without touching the transport
@@ -133,7 +133,7 @@ and checked first in `write`:
 [[src/codegen/builtins/tls/gen_macos/mod.rs:CTX_RXEOF]]
 [[src/codegen/builtins/tls/gen_openssl/io.rs:lower_tls_write_openssl]]
 [[src/codegen/builtins/tls/gen_schannel_io.rs:lower_tls_write]]
-[[src/codegen/builtins/tls/gen_macos/client.rs:lower_tls_write_macos]]
+[[src/codegen/builtins/tls/gen_macos/client/write.rs:lower_tls_write_macos]]
 
 Without the flag the three backends would all accept such a write: a half-closed
 peer (TLS 1.3 permits one) is still reading, so the bytes are delivered. The rule
@@ -231,8 +231,8 @@ plus a handshake and a peer identity.
   connection wait and the handshake wait are each a `dispatch_semaphore_wait`
   against an absolute deadline, and the handshake deadline is computed afresh
   when the connection is popped from the listener's ring.
-  [[src/codegen/builtins/tls/gen_macos/server.rs:emit_accept_deadline]]
-  [[src/codegen/builtins/tls/gen_macos/server.rs:lower_tls_accept_macos]]
+  [[src/codegen/builtins/tls/gen_macos/server/accept.rs:emit_accept_deadline]]
+  [[src/codegen/builtins/tls/gen_macos/server/accept.rs:lower_tls_accept_macos]]
   On Linux the connection wait is `poll` with `timeoutMs`; a bounded handshake
   then runs with the accepted fd non-blocking, calling `SSL_accept` and, on
   `WANT_READ`/`WANT_WRITE`, polling for the time left before a

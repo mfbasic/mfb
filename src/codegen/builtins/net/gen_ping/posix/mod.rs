@@ -1,5 +1,6 @@
-//! plan-176-T: the POSIX (macOS and Linux) `net.ping` backend — its frame layout and `lower_ping_posix`.
-//! The shared result helpers live in `builtins/net/gen_ping/mod.rs`; the socket helpers in `socket.rs`.
+//! plan-176-T: the POSIX (macOS and Linux) `net.ping` backend — its frame layout and
+//! `lower_ping_posix`. The shared result helpers live in `builtins/net/gen_ping/mod.rs`; the
+//! socket helpers in `socket.rs`.
 
 use super::*;
 

@@ -1,5 +1,5 @@
-//! plan-176-T: the `sin`/`cos`/`tan` kernels. The consts, the math const pool and the kernel enums live in
-//! `builtins/vector/builder_simd_float_math/mod.rs`.
+//! plan-176-T: the `sin`/`cos`/`tan` kernels. The consts, the math const pool and the kernel
+//! enums live in `builtins/vector/builder_simd_float_math/mod.rs`.
 
 use super::*;
 

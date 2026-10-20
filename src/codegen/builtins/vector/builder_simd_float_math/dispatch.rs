@@ -1,6 +1,6 @@
-//! plan-176-T: the kernel dispatchers — unary, scalar and binary entry points, kernel setup/body selection and the
-//! error reduction. The consts, the math const pool and the kernel enums live in
-//! `builtins/vector/builder_simd_float_math/mod.rs`.
+//! plan-176-T: the kernel dispatchers — unary, scalar and binary entry points, kernel
+//! setup/body selection and the error reduction. The consts, the math const pool and the kernel
+//! enums live in `builtins/vector/builder_simd_float_math/mod.rs`.
 
 use super::*;
 

@@ -749,15 +749,15 @@ byte-identical code; the 9 error-path tests still run under their old names.
   row and `TIGHTEN code 541 (ceiling 1006)`, none after the tighten; census → gen_openssl mod 24 + 3 test / connect
   980 / listen 509 / accept 542 / io 687 / close 271, gen_schannel_server 541, gen_schannel_accept 465; sweep → only
   lines naming the kept `gen_schannel_server.rs`.
-Commit: —
+Commit: 8457ae1c6
 
 ### Phase 4 — macOS TLS client and server (pure motion)
 
-- [ ] `tls/gen_macos/client.rs` → `tls/gen_macos/client/{mod,connect,read,write,poll,close}.rs` per §4.8.
-- [ ] `tls/gen_macos/server.rs` → `tls/gen_macos/server/{mod,identity,listen,accept,close_listener}.rs`
+- [x] `tls/gen_macos/client.rs` → `tls/gen_macos/client/{mod,connect,read,write,poll,close}.rs` per §4.8.
+- [x] `tls/gen_macos/server.rs` → `tls/gen_macos/server/{mod,identity,listen,accept,close_listener}.rs`
       per §4.8; the 3 identity `pub(super)` edits; `lower_tls_listen_macos` moves whole into `listen.rs`.
-- [ ] Repoint the 4 citations (§4.8).
-- [ ] The sweep items of §4.9 marked Phase 4, incl. the **pre-existing stale** line citations in
+- [x] Repoint the 4 citations (§4.8).
+- [x] The sweep items of §4.9 marked Phase 4, incl. the **pre-existing stale** line citations in
       `tls/mod.rs:226-228` (evidence §2), written with `gen_macos/server/listen.rs` for listen.
 
 Acceptance: every macOS TLS lowering emits byte-identical code on `macos-aarch64`.
@@ -767,6 +767,18 @@ Acceptance: every macOS TLS lowering emits byte-identical code on `macos-aarch64
   `tls/gen_macos/client.rs` and `tls/gen_macos/server.rs`, gone after tighten, and the one
   interim `NEW code 1008 > 1000 src/codegen/builtins/tls/gen_macos/server/listen.rs` (§3), which
   stays until Phase 5 (est. 25 min total, guess).
+- [x] Repoint `gen_macos/tests.rs:734` "(server.rs DATA/ITEMS/CERTREF/KEYREF)" → `server/listen.rs` (the listen
+      frame consts; not in §4.9's list, found by the Phase 4 sweep).
+- [x] Rewrap every plan-176-T part header to 96 columns (`hdrwrap.py`): 23 were over 100 columns as generated.
+  Done: `codesplit.py` split both files by name (`t4-client.json`, `t4-server.json`); `t4wire.py` wrote the 5 + 3
+  re-exports and listen's identity import; `autovis.py` added exactly the 3 identity `pub(super)`s.
+  Verified 2026-10-20: `motion.py` → only wiring and the 3 `pub(super)` differ; N = 5018, W = 0;
+  `spec_citations_resolve` + `gen_macos` → 24 passed, `gen_macos` → 23; guards → 9, 8, 7 + 1 ignored;
+  `cli_tls_listen_accept_build` → 3, `codegen_helper_scratch_release` → 12 passed; artifact gate `tls` → 0 diffs;
+  budget → the two STALE rows and `NEW code 1018 > 1000 …/server/listen.rs` (the §3 interim row, 1018 not ≈1008),
+  STALE rows gone after the tighten; census → client mod 15 / connect 846 / read 385 / write 294 / poll 327 / close
+  182; server mod 35 / identity 299 / listen 1018 / accept 482 / close_listener 228; sweep → only the repository
+  crate's `server.rs` (`.ai/testing-gates.md:850`, `:868`).
 Commit: —
 
 ### Phase 5 — Extract `lower_tls_listen_macos` phases (largest blast radius last)

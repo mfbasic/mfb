@@ -1,5 +1,5 @@
-//! plan-176-T: the OpenSSL `tls::listen` lowering (`lower_tls_listen_openssl`). The shared imports live in
-//! `builtins/tls/gen_openssl/mod.rs`.
+//! plan-176-T: the OpenSSL `tls::listen` lowering (`lower_tls_listen_openssl`). The shared
+//! imports live in `builtins/tls/gen_openssl/mod.rs`.
 
 use super::*;
 

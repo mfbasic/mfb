@@ -1,5 +1,5 @@
-//! plan-176-T: the OpenSSL `tls::connect` lowering (`lower_tls_connect_openssl`). The shared imports live in
-//! `builtins/tls/gen_openssl/mod.rs`.
+//! plan-176-T: the OpenSSL `tls::connect` lowering (`lower_tls_connect_openssl`). The shared
+//! imports live in `builtins/tls/gen_openssl/mod.rs`.
 
 use super::*;
 

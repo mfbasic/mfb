@@ -1,5 +1,5 @@
-//! plan-176-T: the OpenSSL `tls::accept` lowering (`lower_tls_accept_openssl`) and its monotonic clock. The shared imports live in
-//! `builtins/tls/gen_openssl/mod.rs`.
+//! plan-176-T: the OpenSSL `tls::accept` lowering (`lower_tls_accept_openssl`) and its
+//! monotonic clock. The shared imports live in `builtins/tls/gen_openssl/mod.rs`.
 
 use super::*;
 

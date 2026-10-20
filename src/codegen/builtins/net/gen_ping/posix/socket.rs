@@ -1,5 +1,5 @@
-//! plan-176-T: the POSIX `net.ping` socket helpers — socket options, the monotonic clock and the ICMP
-//! checksum. They read the frame offsets in `builtins/net/gen_ping/posix/mod.rs`.
+//! plan-176-T: the POSIX `net.ping` socket helpers — socket options, the monotonic clock and
+//! the ICMP checksum. They read the frame offsets in `builtins/net/gen_ping/posix/mod.rs`.
 
 use super::*;
 

@@ -1,4 +1,5 @@
-//! plan-176-T: the inverse-trig kernels — `asin`/`acos` and the `atan` core. The consts, the math const pool and the kernel enums live in
+//! plan-176-T: the inverse-trig kernels — `asin`/`acos` and the `atan` core. The consts, the
+//! math const pool and the kernel enums live in
 //! `builtins/vector/builder_simd_float_math/mod.rs`.
 
 use super::*;

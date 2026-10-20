@@ -1,5 +1,5 @@
-//! plan-176-T: the OpenSSL `tls::read`, `tls::poll` and `tls::write` lowerings. The shared imports live in
-//! `builtins/tls/gen_openssl/mod.rs`.
+//! plan-176-T: the OpenSSL `tls::read`, `tls::poll` and `tls::write` lowerings. The shared
+//! imports live in `builtins/tls/gen_openssl/mod.rs`.
 
 use super::*;
 
@@ -248,7 +248,7 @@ pub(crate) fn lower_tls_read_openssl(
         // header. Writing 40-byte entry descriptors here put an entry-flags
         // byte (COLLECTION_ENTRY_FLAG_USED == 1) where element 0's payload
         // belongs, so `tls::read` handed back a list whose first byte was
-        // always 1. Mirrors the guard in `gen_macos/client.rs`.
+        // always 1. Mirrors the guard in `gen_macos/client/read.rs`.
     ]);
     if byte_list_entry_stride() != 0 {
         instructions.extend([
