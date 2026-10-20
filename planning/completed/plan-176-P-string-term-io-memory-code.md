@@ -635,7 +635,7 @@ Acceptance: every program's allocator and every cross-arena copy emit identical 
   rows (1614, 1569) before, none after; census → arena 273/80 + 800/547, transfer 63/81 + 441/585/491.
   Letter end: `bash scripts/artifact-gate.sh target/release/mfb all` → `artifact-gate [all]: 1703 tests, 1882 build(s), 2362 golden(s) checked, 0 diff(s)`; budget pattern → no row; ceiling
   file → no P row.
-Commit: —
+Commit: 8ecbbac13
 
 ## Validation Plan
 
