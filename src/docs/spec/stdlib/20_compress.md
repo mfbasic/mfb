@@ -28,7 +28,7 @@ reads and in-place appends to function-local lists).
 Each helper is gated `HelperGate::WhenUsed` on the member names that need it. The gate
 opens only when the program imports `compress` **and** references one of those members, so
 a program pays only for the members it calls.
-[[src/codegen/registry/mod.rs:HelperGate]] [[src/codegen/registry/mod.rs:references_any]]
+[[src/codegen/registry/descriptors.rs:HelperGate]] [[src/codegen/registry/late_pass.rs:references_any]]
 
 A `WhenUsed` helper is injected as its own source file, not into the package's shared
 companion. Each helper body therefore opens with its own `IMPORT compress`,

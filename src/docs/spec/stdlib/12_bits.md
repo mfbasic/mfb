@@ -18,7 +18,7 @@ them.
 Every `bits::` op takes and returns `Integer` and nothing else — never Float,
 `Byte`, `String`, or a collection. A call whose argument is not `Integer` does
 not resolve, so a mistyped operand is a compile-time error rather than a coercion.
-[[src/codegen/builtins/mod.rs:resolve_call_return_type]] [[src/codegen/registry/mod.rs:call_return_type]]
+[[src/codegen/builtins/mod.rs:resolve_call_return_type]] [[src/codegen/registry/lookup.rs:call_return_type_typed]]
 
 Each operand and result is a **raw two's-complement 64-bit bit pattern**. The
 ops do not interpret sign — with one deliberate exception, the arithmetic right
@@ -118,7 +118,7 @@ Every `bits::` op lowers to one (or a few) native machine instructions **inline*
 libm/source routine. `band` is a single `AND`, `clz` a single count-leading-zeros,
 `bswap64` a single byte-reverse, and so on; only `popCount` (the SWAR fold) and
 the derived left-rotate/`ctz`/`bswap16` forms expand to a short fixed instruction
-sequence, and none of these branch on data. [[src/codegen/registry/mod.rs:abi_inline_lower]]
+sequence, and none of these branch on data. [[src/codegen/registry/lookup.rs:abi_inline_lower]]
 
 The consequences are determinism and portability. Because the operations are
 plain integer-ALU work over a two's-complement bit pattern — with no floating

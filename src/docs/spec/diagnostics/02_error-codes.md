@@ -5,7 +5,7 @@ runtime error registry. A reference such as `errorCode::ErrNotFound` types as `I
 and folds to an integer literal through the shared package-constant lowering path;
 reading a constant requires no runtime lookup or helper call. Constants are keyed
 package-qualified (`"errorCode.<Name>"`) and resolved by exact match against the
-registered constants. [[src/codegen/registry/mod.rs:constant_value]]
+registered constants. [[src/codegen/registry/lookup.rs:constant_value]]
 [[src/ir/lower.rs:lower_expression_with_expected]]
 
 These integers are exactly the values runtime code stamps into `Error.code` when a
@@ -132,8 +132,8 @@ Constant resolution answers three questions about a package-qualified name — w
 is a known constant, its declared type (`Integer` for every `errorCode` member), and the
 folded integer literal it becomes. Resolution splits the qualified name at the first
 dot, resolves the package, and matches the constant member exactly. Unqualified or
-unknown names have no constant value. [[src/codegen/registry/mod.rs:find_constant]]
-[[src/codegen/registry/mod.rs:constant_value]]
+unknown names have no constant value. [[src/codegen/registry/lookup.rs:find_constant]]
+[[src/codegen/registry/lookup.rs:constant_value]]
 
 ## Drift Guard
 

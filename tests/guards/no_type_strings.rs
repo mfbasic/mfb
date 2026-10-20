@@ -929,7 +929,7 @@ const BUDGETS: &[(&str, &str, usize)] = &[
     //        structural `split_state` is pinned by
     //        `split_state_matches_the_name_domain_helpers`, and deleting them
     //        would delete that check, not just the adapters.
-    //      registry/mod.rs `RegistryConstant::type_name`, `RegistryOverride::arg_type`
+    //      registry/descriptors.rs `RegistryConstant::type_name`, `RegistryOverride::arg_type`
     //        `&'static str` fields of `const` descriptor tables. `ParameterType`
     //        carries an interned `Symbol` and a `Box`; it is not
     //        const-constructible. A language constraint, not a preference.

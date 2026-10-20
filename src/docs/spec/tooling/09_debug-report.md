@@ -207,7 +207,7 @@ display-rate override or frame hold. The `MFB_CANVAS_RESIZE_*` and
 The canvas variables live in the canvas package's source, which carries a normal and
 a `--debug` body for each reading helper (`RegistryHelper::debug_split`); the build
 injects the body matching its flag.
-[[src/codegen/registry/mod.rs:debug_split]]
+[[src/codegen/registry/descriptors.rs:debug_split]]
 [[src/codegen/builtins/canvas/helper_render.rs:TEST_SWITCHES_DEBUG]]
 [[src/codegen/builtins/canvas/helper_damage.rs:DAMAGE_SWITCH_DEBUG]]
 [[src/codegen/builtins/canvas/helper_glyph_cache.rs:GLYPH_BUDGET_DEBUG]]

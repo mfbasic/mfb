@@ -116,7 +116,7 @@ they are reduced and how each renderer draws them is *Curves*, below.
 `INCLUDES` is not subtyping: a `Shape` value is not a `DrawItem`, but each member record
 is a member of every union that reaches it, which is why `canvas::Rectangle[...]` is
 accepted where either is expected.
-[[src/codegen/registry/mod.rs:union_has_member]]
+[[src/codegen/registry/unify.rs:union_has_member]]
 
 Nothing may depend on a tag's number. The native walks that branch on a variant ask the
 type model for its tag by name, and each keeps a list of the variants it handles and the
@@ -1415,7 +1415,7 @@ constructed as `AutoPaint`'s gate is: every field of the curve records has a def
 `MUT c AS canvas::PolyCurve` followed by `WITH` holds a curve no constructor expression
 made. On macOS AArch64 a canvas program with no curve carries 21,652 more bytes of
 `__text` than it did before the two shapes existed; ungated it was 288,896.
-[[src/codegen/registry/mod.rs:HelperGate]]
+[[src/codegen/registry/descriptors.rs:HelperGate]]
 
 ### On the GPUs
 

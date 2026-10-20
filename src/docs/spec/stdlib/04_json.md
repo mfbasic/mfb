@@ -62,7 +62,7 @@ argument types and yields its return type, and the selected implementation names
 `__json_*` source FUNC the call is rewritten onto. The six `Json*` records and the
 `Json` union are registered as package types, and a bare variant record is accepted
 wherever a `Json` argument is expected — `json::stringify(json::JsonStr["hi"])` builds
-and prints `"hi"`. [[src/codegen/registry/mod.rs:resolve_call]]
+and prints `"hi"`. [[src/codegen/registry/unify.rs:resolve_call]]
 [[src/codegen/builtins/json/mod.rs:register]]
 
 ### File input: `parse(File)` (bug-815)

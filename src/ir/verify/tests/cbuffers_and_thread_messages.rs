@@ -679,7 +679,7 @@ fn cause_walk_accepts_a_sendable_bare_resource_but_rejects_an_unsendable_one() {
     //
     // Both spellings are package-qualified because that is the only form the
     // resource tables answer to: `registry().resolve_type` splits on the `.`
-    // (src/codegen/registry/mod.rs:1372), so a bare `Process` resolves to
+    // (`Registry::resolve_type`, src/codegen/registry/mod.rs), so a bare `Process` resolves to
     // nothing and reads as an unknown name — which is vacuously sendable.
     assert_eq!(cause_for(vec![], "fs.File"), None, "fs.File is sendable");
     assert_eq!(

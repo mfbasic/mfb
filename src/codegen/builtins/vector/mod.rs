@@ -546,7 +546,7 @@ fn add_overrides(pkg: &mut RegistryPackage) {
 // ---- exact per-argument-type dispatch --------------------------------------------
 //
 // The registry's generic overload matcher (`RegistryFunction::select` / `unify` /
-// `leaf_matches` in `codegen/registry/mod.rs`) is deliberately COARSE on value
+// `leaf_matches` in `codegen/registry/unify.rs`) is deliberately COARSE on value
 // nominals: two distinct non-resource `Named` types unify (so a union parameter
 // accepts a widening variant — `json::stringify(JsonNull)`), in BOTH the strict and
 // lenient modes. Vector members dispatch by EXACT record type (`Float2` ≠ `Integer2`)

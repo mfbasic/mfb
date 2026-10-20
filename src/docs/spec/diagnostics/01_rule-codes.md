@@ -297,7 +297,7 @@ is what the advisory's text asserts. Every other occurrence reports — includin
 `crypto::hash`, a `MATCH` literal, a bare expression, and a value bound to a local
 before being passed on. Suppression requires seeing the sound consumer at the occurrence
 itself; it is not a dataflow analysis, and the ambiguous cases warn.
-[[src/codegen/registry/mod.rs:EnumAdvisory]]
+[[src/codegen/registry/descriptors.rs:EnumAdvisory]]
 [[src/ir/verify/values.rs:check_enum_member_advisory]]
 [[src/ir/verify/values.rs:hash_selector_use_is_sound]] [[src/rules/table/mod.rs:rules]]
 

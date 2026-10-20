@@ -1721,7 +1721,7 @@ impl CodeBuilder<'_> {
             // the parent's, not the worker's.
             //
             // bug-479: this used to hand back that parameter verbatim, i.e. a
-            // `ThreadWorker`. `registry/mod.rs` states the two never interchange
+            // `ThreadWorker`. `registry/unify.rs` (`unify_at`) states the two never interchange
             // ("kind (parent `Thread` vs worker `ThreadWorker`) must match"), and
             // the descriptor agrees — `th(false, …)`. The wrong kind was invisible
             // for a plain call, because both spellings denote the same one-pointer

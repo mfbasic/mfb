@@ -121,7 +121,7 @@ The chain has two stages:
    - canvas's PNG decoder calls `compress::zlibDecode`, so `compress` comes last.
 
    A late pass injects the package's companion plus the gated helpers its own view opens, and skips a file
-   the project already has, so nothing is injected twice. [[src/codegen/registry/mod.rs:late_pass_files]]
+   the project already has, so nothing is injected twice. [[src/codegen/registry/late_pass.rs:late_pass_files]]
 
 Each pass takes the previous one's output, so the AST elaborated for resolution is the cumulative result.
 The `collections` package is injected earlier, during `parse_project`, because the monomorphizer needs its

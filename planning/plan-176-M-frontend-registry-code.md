@@ -837,22 +837,41 @@ Acceptance: instantiation and overload selection are byte-identical.
   Verified 2026-10-19: G1 → 0 / 37065 / 5017; `monomorph::` → `ok. 71 passed`; G2 collections, general, thread
   → 0 diffs; G3 → ok + `wordcheck.py` 0 missing; G4 → 8, 8, 7 + 1 ignored; census → 457/2, 464, 493, 745, 381;
   G6 → exit 0.
-Commit: —
+Commit: 3978f5c57
 
 ### Phase 5 — Builtin registry (largest blast radius)
 
-- [ ] Split `src/codegen/registry/mod.rs` into `mod.rs` + the 8 parts per §4.7 (the H-left
+- [x] Split `src/codegen/registry/mod.rs` into `mod.rs` + the 8 parts per §4.7 (the H-left
       cfg(test) helpers go to `unify.rs`).
-- [ ] Repoint the 27 moved-symbol citations and the dangling `call_return_type` cite.
-- [ ] Prose/comments per §4.7 (`.ai/codegen-invariants.md:836` registry half,
+      Done: `codesplit.py` by §4.7's line ranges → descriptors 30, package 2, qualify 3, lookup 44, unify 26
+      (incl. the 7 cfg(test) helpers), late_pass 7, ast_scan 9, hir_scan 7 items, none left unlisted; `pub(super)`
+      from the compiler's errors → exactly §4.7's 21 + six `RegistryPackage` fields (`import_name`, `records`,
+      `unions`, `enums`, `functions`, `source_types`; read by `Registry`'s impl and the tests); qualify, ast_scan
+      and hir_scan hold no `pub(crate)` item, so their globs are private; `motion.py` → only the wiring and the
+      visibility edits.
+- [x] Repoint the 27 moved-symbol citations and the dangling `call_return_type` cite.
+      Done: `citesweep.py` → 32 rewritten (the 27 moved plus 5 that resolve to `mod.rs` again); the dangling cite →
+      `[[src/codegen/registry/lookup.rs:call_return_type_typed]]`; `wordcheck.py` → 27 distinct, 0 missing.
+- [x] Prose/comments per §4.7 (`.ai/codegen-invariants.md:836` registry half,
       `src/cli/man.rs:666`, `src/codegen/builtins/vector/mod.rs:549`, the `src/ir` test comment,
       `builder_value_semantics.rs:1711`, `no_type_strings.rs:929`).
-- [ ] G5.
+      Done: all six. The `src/ir` test comment (`cbuffers_and_thread_messages.rs:682`) is about
+      `registry().resolve_type` splitting on `.`; §4.7's target (`get_mfb_for`, what old line 1372 held) was
+      wrong, so it now names `Registry::resolve_type` in `mod.rs` (Corrections).
+- [x] G5.
+      Done: → 0 rows (`registry/mod.rs` had no ceiling row; tighten made no change).
 
 Acceptance: every builtin call resolves and lowers byte-identically.
   Check: G1; `cargo test -p mfb --bin mfb codegen::registry` → 0 failed (H's 62 tests, the
   `qualification_tests` and the unify helpers); G2 for `collections`, `general`, `thread`,
   `crypto`, `vector`; G3; G4; G6 (est. 18 min).
+  Verified 2026-10-19: G1 → 0 / 37065 / 5017; `codegen::registry` → `ok. 64 passed`; G2 collections, general,
+  thread, crypto, vector → 0 diffs; G3 → ok + `wordcheck.py` 0 missing; G4 → 8, 8, 7 + 1 ignored; census → mod
+  433/84, descriptors 428, package 240, qualify 104, lookup 625, unify 483/117, late_pass 143, ast_scan 360,
+  hir_scan 330; G6 → exit 0.
+  Final gate (Validation Plan): `bash scripts/artifact-gate.sh target/release/mfb all` → `artifact-gate [all]: 1703 tests, 1882 build(s), 2362 golden(s) checked, 0 diff(s)`;
+  `test-accept.sh … '*invalid*'` → `acceptance tests passed (611 test(s) ran)`, no golden changed; G1, G3, G4 as above; `file_size_budget` → 0 rows; no ceiling row names
+  an M file (old or new path).
 Commit: —
 
 ## Validation Plan
@@ -933,6 +952,9 @@ Commit: —
   scripts/artifact-gate.sh` fails on macOS with `syntax error near unexpected token '<'` before checking anything.
   Every G2 and final-gate run uses `bash scripts/artifact-gate.sh`. At the starting commit `211227cb9` it reported
   0 diffs for general, strings, collections, money, thread, crypto and vector.
+- 2026-10-19 — §4.7 mapped the `src/ir` comment citing `registry/mod.rs:1372` to `get_mfb_for` (what that line
+  held). The comment's claim is `registry().resolve_type` splitting on `.`, which is `Registry::resolve_type`
+  (`mod.rs`); the old line number was already stale. It now names `Registry::resolve_type`.
 
 ## Summary
 

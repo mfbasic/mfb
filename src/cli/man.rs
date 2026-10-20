@@ -663,7 +663,7 @@ fn render_declaration(pkg: &str, name: &str, implementation: &Implementation) ->
     // their members bare and never needs the prefix; on their own pages the package name
     // is the documentation grouping. `testing::expectEqual` / `general::len` here is
     // intended: bug-607 reported it as a defect and was closed as NOT A BUG. See
-    // `RegistryPackage::unqualified_global` (`src/codegen/registry/mod.rs`).
+    // `RegistryPackage::unqualified_global` (`src/codegen/registry/package.rs`).
     format!(
         "`{pkg}::{name}({params}) AS {}`",
         resolved_return_type(implementation).display()

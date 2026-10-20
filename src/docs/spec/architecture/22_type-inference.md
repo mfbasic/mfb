@@ -120,7 +120,7 @@ item `T`), `Element` when it is a `List` element or `Map` value type at any dept
 argument, a thread slot). It asks the caller's declared-type oracle
 (`TypeKinds::union_accepts`) for union membership, the same membership lowering
 wraps by.
-[[src/codegen/registry/mod.rs:unify_with_kinds]] [[src/codegen/registry/mod.rs:VarPosition]] [[src/codegen/builtins/mod.rs:TypeKinds]]
+[[src/codegen/registry/unify.rs:unify_with_kinds]] [[src/codegen/registry/unify.rs:VarPosition]] [[src/codegen/builtins/mod.rs:TypeKinds]]
 
 - **A union bucket accepts a member.** A variable bound to a union form accepts
   its variant form at a `Value` or `Element` position and stays bound to the
@@ -148,7 +148,7 @@ wraps by.
 is decided, and consults the call's expected type only to break a tie or fill an
 unresolved variable. Seeding first would let a declared union form re-type an
 argument that the call's type still describes by its variant form.
-[[src/codegen/registry/mod.rs:resolved_parameter_type]]
+[[src/codegen/registry/lookup.rs:resolved_parameter_type]]
 
 A list **literal** needs no rule of its own: `[Square[2.0], Circle[3.0]]` types
 bottom-up as `List OF Square`, is accepted at `append`'s `List OF T` by the first

@@ -156,7 +156,7 @@ the `Res` wrapper and `ParameterType::without_state` / `state` peel the clause,
 both plain matches on the variant. Element insertion compares the element and
 item by their underlying resource type via the registry matcher's
 `resource_base_eq`, including when only one side carries a STATE clause.
-[[src/codegen/registry/mod.rs:resource_base_eq]]
+[[src/codegen/registry/unify.rs:resource_base_eq]]
 
 The thread resource plane is structurally distinct: it is an **infix** ` RES `
 clause between message and `" TO "`, not a leading prefix — see threads below.

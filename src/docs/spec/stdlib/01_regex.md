@@ -23,7 +23,7 @@ Eight built-in calls are recognized and rewritten to internal entry points durin
 front end. Their signatures and return types are fixed (resolved by exact arg-type
 match); `find`/`findAll`/`findMatch`/`findAllMatches`/`count` take an optional `start`
 that is
-padded to `0` during IR lowering.[[src/codegen/registry/mod.rs:resolve_call]][[src/codegen/registry/mod.rs:default_argument_padding]]
+padded to `0` during IR lowering.[[src/codegen/registry/unify.rs:resolve_call]][[src/codegen/registry/lookup.rs:default_argument_padding]]
 
 | Call | Internal | Returns | Args |
 |------|----------|---------|------|
