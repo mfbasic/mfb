@@ -5,7 +5,7 @@
 //! spawned `mfb`. That gate is slow, it is off the unit-test path entirely, and
 //! — because `mfb` is a binary-only package — none of it is observable from this
 //! process, so the shared codegen it exercises (`ir/lower/`,
-//! `engine/value/builder_values.rs`, `collection/list/list_mutate/`,
+//! `engine/value/builder_values/`, `collection/list/list_mutate/`,
 //! `link/thunk/link_thunk/`, …) has no in-process coverage at all beyond
 //! whatever a hand-written unit test happens to reach.
 //!

@@ -129,7 +129,7 @@ A promotion-generated error receives the binary expression's source location,
 not a location selected from the converted operand. An error while evaluating
 an operand retains that operand expression's location. Lowering saves and
 restores the enclosing location around recursive operand evaluation.
-[[src/codegen/engine/value/builder_values.rs:lower_value]]
+[[src/codegen/engine/value/builder_values/pending_temps.rs:lower_value]]
 
 Numeric equality compares converted values, not exact mathematical values of
 the original operands. For example, an Integer `9007199254740993` compares equal

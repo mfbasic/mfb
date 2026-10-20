@@ -655,7 +655,7 @@ its callers, which multiplies renders while the gate count goes down.
 To hook anything at the **call site** of a `Body::abi_function` builtin — a cleanup
 deactivation, an analysis, a rewrite — the arm to touch is
 **`NirValue::RuntimeCall { helper, target, args, .. }`** in
-`src/codegen/engine/value/builder_values.rs`.
+`src/codegen/engine/value/builder_values/lower_inner.rs`.
 
 Three plausible places are all wrong, and each looks right until it is traced
 (measured, plan-116-J, hooking `canvas::setGroup`):

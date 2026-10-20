@@ -61,7 +61,7 @@ The source API has only four channel verbs — `thread::send`, `thread::receive`
 `thread::transfer`, `thread::accept` (plus `thread::poll`) — but each lowers to a
 *different* helper depending on whether the handle is a parent `Thread` or a
 worker `ThreadWorker`, because the two ends use different queues. The split is
-applied when the runtime call is lowered: [[src/codegen/engine/value/builder_values.rs:lower_runtime_helper_call]]
+applied when the runtime call is lowered: [[src/codegen/engine/value/builder_values/inline_calls.rs:lower_runtime_helper_call]]
 
 | Source op                 | On a parent `Thread`      | On a worker `ThreadWorker` |
 | ------------------------- | ------------------------- | -------------------------- |
@@ -77,7 +77,7 @@ picks its own behavior from the running context, so it needs no handle and takes
 direction split. (`thread::transfer`/`thread::accept` first
 lower to the internal `thread.transferResource`/`thread.acceptResource` targets
 during IR lowering, then the value builder applies the worker-direction split to
-`emitResource`/`readResource`.) [[src/ir/lower/mod.rs]] [[src/codegen/engine/value/builder_values.rs]]
+`emitResource`/`readResource`.) [[src/ir/lower/mod.rs]] [[src/codegen/engine/value/builder_values/inline_calls.rs]]
 
 ## `thread::start`
 

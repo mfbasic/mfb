@@ -388,7 +388,7 @@ fn blank_corruptible(value: &NirValue) -> bool {
 /// The value family above breaks what a builder READS. This breaks where it
 /// WRITES, which is a different set of lookups and a different set of
 /// refusals - `native code assignment unknown local 'x'` comes from
-/// `engine/control/builder_control.rs`'s assignment path and no corrupted value
+/// `engine/control/builder_control/statement_dispatch.rs`'s assignment path and no corrupted value
 /// can reach it, because the destination of an `Assign` is not a `NirValue` at
 /// all.
 fn corrupt_op(op: &mut NirOp) -> bool {
@@ -426,7 +426,7 @@ fn corrupt_op(op: &mut NirOp) -> bool {
 /// is a third set of lookups entirely. A builder reads its arguments
 /// positionally — `helper_args.first().ok_or_else(…)`, `args.get(2)`,
 /// `args[1]` — and each of those reads is a decision about what to do when the
-/// argument is not there. `builder_values.rs` alone has eight `ok_or_else`
+/// argument is not there. `builder_values/inline_calls.rs` alone has eight `ok_or_else`
 /// closures on `helper_args.first()` (the `thread.send`/`receive`/
 /// `transferResource`/`acceptResource` handle-direction split), and every one of
 /// them is a refusal nothing had ever taken.

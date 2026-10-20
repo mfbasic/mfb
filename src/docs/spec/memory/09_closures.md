@@ -19,7 +19,7 @@ the null sentinel `0` (a bare function reference).
 `Closure` is `arena_alloc(16, 8)`-ed from the constructing scope's arena. A
 non-capturing `FunctionRef` allocates **nothing**: there is one **static
 descriptor per function**, in BSS, populated once at startup, and evaluating the
-reference loads its address. [[src/codegen/engine/value/builder_values.rs:NirValue::FunctionRef]] [[src/codegen/error/constants/error_constants.rs:closure_descriptor_symbol]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_OBJECT_SIZE]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_OFFSET_CODE]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_OFFSET_ENV]]
+reference loads its address. [[src/codegen/engine/value/builder_values/lower_inner.rs:NirValue::FunctionRef]] [[src/codegen/error/constants/error_constants.rs:closure_descriptor_symbol]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_OBJECT_SIZE]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_OFFSET_CODE]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_OFFSET_ENV]]
 
 ## Function Reference vs Closure
 
@@ -35,7 +35,7 @@ non-empty captures allocates an environment:
   with `code = <symbol>` and `env = <env pointer>`. A `Closure` with an empty
   capture list (the front end never builds one; it lowers a capture-less lambda to
   a `FunctionRef`) is lowered exactly as a `FunctionRef`, to the static descriptor,
-  so `env = 0` marks exactly the function values that own no memory. [[src/target/shared/nir/mod.rs:NirValue]] [[src/codegen/engine/value/builder_values.rs:lower_value]] [[src/codegen/engine/analysis/module_analysis/mod.rs:collect_function_value_refs]]
+  so `env = 0` marks exactly the function values that own no memory. [[src/target/shared/nir/mod.rs:NirValue]] [[src/codegen/engine/value/builder_values/pending_temps.rs:lower_value]] [[src/codegen/engine/analysis/module_analysis/mod.rs:collect_function_value_refs]]
 
 Both forms share the identical 16-byte object layout, so a call site dispatches the
 same way regardless of which producer made the value.
@@ -50,7 +50,7 @@ follow the capture slots when needed, in this order: the address of the
 creator's self-update scratch slot, one capacity-shadow slot address per
 shared mutable String capture, and the address of the creator's
 `os::appResourcePath` base-cache slot. The allocation size is eight times
-one more than the total number of capture and auxiliary words. [[src/codegen/engine/value/builder_values.rs:lower_value]] [[src/codegen/error/constants/error_constants.rs:closure_env_word_offset]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_ENV_OFFSET_OPS]]
+one more than the total number of capture and auxiliary words. [[src/codegen/engine/value/builder_values/pending_temps.rs:lower_value]] [[src/codegen/error/constants/error_constants.rs:closure_env_word_offset]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_ENV_OFFSET_OPS]]
 
 ```text
 Environment (arena-allocated, (1 + totalWords) * 8 bytes)
@@ -74,12 +74,12 @@ A slot's word holds one of two things, set by the capture's `by_ref` flag:
 - **By-ref capture (`by_ref = true`).** The slot stores a **pointer to the parent
   binding's slot** rather than a value. The capturing body binds a *reference*
   local that dereferences through this pointer on every read and write, so the
-  callback observes and mutates the live parent binding (a by-reference `MUT` slot capture). [[src/target/shared/nir/mod.rs:NirValue]] [[src/codegen/engine/value/builder_values.rs:lower_value]]
+  callback observes and mutates the live parent binding (a by-reference `MUT` slot capture). [[src/target/shared/nir/mod.rs:NirValue]] [[src/codegen/engine/value/builder_values/pending_temps.rs:lower_value]]
 
 A `Capture` read inside the body loads the raw slot word from the active
 environment at `(index + 1) * 8`. For a by-value capture that word is the value/block
 pointer directly; for a by-ref capture it is the parent-slot pointer that the
-reference local derefs. [[src/codegen/engine/value/builder_values.rs:lower_value]]
+reference local derefs. [[src/codegen/engine/value/builder_values/pending_temps.rs:lower_value]]
 
 ## The Environment Register
 
@@ -132,7 +132,7 @@ holders share one, so no reference counting is needed and none is done.
   `LAMBDA` just evaluated, a call's result) is taken over by its first owner. A
   value that holds function values — a record or union with a `FUNC` field, a
   collection of them, a `Result` of one — is copied by the same deep-copy walker as
-  a value whose type reaches a cycle, which copies each function value it meets. [[src/codegen/memory/arena/closure_ops.rs:lower_closure_copy]] [[src/codegen/engine/value/builder_values.rs:needs_graph_copy]] [[src/codegen/memory/arena/builder_arena_transfer/transfer.rs:emit_thread_copy_real]]
+  a value whose type reaches a cycle, which copies each function value it meets. [[src/codegen/memory/arena/closure_ops.rs:lower_closure_copy]] [[src/codegen/engine/value/builder_values/ownership.rs:needs_graph_copy]] [[src/codegen/memory/arena/builder_arena_transfer/transfer.rs:emit_thread_copy_real]]
 - **Drop.** Dropping a holder frees its closure: `_mfb_rt_closure_drop` runs the
   environment's routine to drop it, then frees the 16-byte object. A binding drops
   at its scope's exits, a reassignment drops the old value, and a record, union,
@@ -142,7 +142,7 @@ holders share one, so no reference counting is needed and none is done.
   a callee that keeps a lent function argument (stores it in a record, returns it,
   appends it) stores its own copy. So a closure written as an argument is its
   statement's temporary, freed when the statement ends — on every error exit too —
-  at every call position, and no caller has to know whether a callee retains it. [[src/codegen/engine/value/builder_values.rs:pending_temp_is_freeable]]
+  at every call position, and no caller has to know whether a callee retains it. [[src/codegen/engine/value/builder_values/pending_temps.rs:pending_temp_is_freeable]]
 - **Static descriptors are shared.** A `FunctionRef` (`env = 0`) owns no memory:
   copying it returns the same pointer, dropping it does nothing, and it is never a
   statement temporary. A null function value (the default an inline `TRAP` binds
@@ -184,7 +184,7 @@ memory heap-values`, "Union"), so the
 environment holds its own copy of the box — copied at capture and with the
 environment, freed with it, and never closed through. A `LAMBDA` created at
 several sites must have one layout at all of them; the compiler reports an
-internal error otherwise. [[src/codegen/engine/value/builder_values.rs:closure_env_word]] [[src/codegen/engine/value/builder_values.rs:record_closure_env_layout]] [[src/codegen/engine/builder/mod.rs:ClosureEnvWord]]
+internal error otherwise. [[src/codegen/engine/value/builder_values/ownership.rs:closure_env_word]] [[src/codegen/engine/value/builder_values/ownership.rs:record_closure_env_layout]] [[src/codegen/engine/builder/mod.rs:ClosureEnvWord]]
 
 ### Resource operations
 

@@ -22,7 +22,7 @@ are two code forms: the `List OF Byte` one lowers as `fs.openDataBytes`, selecte
 by the value's static type exactly as `tcp::write` selects its byte or text form,
 and both share one body that branches on the form.
 [[src/codegen/builtins/fs/func_open_data.rs:OPEN_DATA_BYTES]]
-[[src/codegen/engine/value/builder_values.rs:net_write_payload_form]]
+[[src/codegen/engine/value/builder_values/inline_calls.rs:net_write_payload_form]]
 
 ### Backing per OS
 

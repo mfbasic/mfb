@@ -223,7 +223,7 @@ one owner, which frees it exactly once:
 - A box made inside a **statement** that no binding takes — a variant passed to a
   union parameter, a variant written as a collection element or a record field, an
   unbound call that returns a resource union — is the statement's, and is freed
-  at its end, on its error and early-exit paths as well. [[src/codegen/engine/value/builder_values.rs:register_union_box_temp]]
+  at its end, on its error and early-exit paths as well. [[src/codegen/engine/value/builder_values/pending_temps.rs:register_union_box_temp]]
 - A **`RETURN`** hands the caller a box nothing else holds: it moves out the box a
   local binding owns, and copies the value otherwise (a parameter, a field, an
   element). [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:returned_resource_union_owns_box]]

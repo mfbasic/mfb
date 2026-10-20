@@ -124,7 +124,7 @@ fn adoptable_error_tag() -> &'static str {
 pub(crate) enum TrappedErrorSource {
     /// The callee's own origin, arriving in `RESULT_ERROR_SOURCE_REGISTER` and
     /// preserved verbatim: the direct user/`.mfb` callee and the indirect
-    /// `FUNC`-value callee (`builder_values.rs`, `NirValue::CallResult`).
+    /// `FUNC`-value callee (`builder_values/lower_inner.rs`, `NirValue::CallResult`).
     CalleeRegister,
     /// A fresh `ErrorLoc` for the current inline expression: an inline builtin or
     /// a runtime helper trapped here, which has no MFB-level origin of its own.

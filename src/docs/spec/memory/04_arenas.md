@@ -420,7 +420,7 @@ AS fs::File STATE Cur = a`) records the state type on that owner's cleanup. The
 inline-`TRAP` form depends on it — `RES v AS fs::File STATE Cur = open() TRAP …`
 binds `v` from a delivery temporary typed by the producer, with no `STATE`, and the
 temporary's cleanup is the one that runs. A resource union's binding does the same.
-[[src/codegen/engine/control/builder_control.rs:live_resource_aliases]]
+[[src/codegen/engine/control/builder_control/statement_dispatch.rs:live_resource_aliases]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_alias_root]]
 The temporary an inline `TRAP` delivers a resource through is bound to a closed
 default record of its own (`./mfb spec architecture ir`), and the delivery stores
@@ -476,8 +476,8 @@ statement still owns is closed and its buffers, `STATE` and record freed; a reco
 a taker raised no longer holds the statement's token and is skipped. The result's
 own block is an ordinary flat temporary with its own free. Which expression the
 call is written in is not consulted.
-[[src/codegen/engine/value/builder_values.rs:adopt_statement_temp]]
-[[src/codegen/engine/value/builder_values.rs:emit_statement_temp_drop]]
+[[src/codegen/engine/value/builder_values/pending_temps.rs:adopt_statement_temp]]
+[[src/codegen/engine/value/builder_values/pending_temps.rs:emit_statement_temp_drop]]
 [[src/codegen/engine/builder/mod.rs:StatementTemps]]
 
 **The scope that closes a resource frees its record.** That is the one rule for a
@@ -594,15 +594,15 @@ must not be freed through the caller's arena. However, `thread::waitFor`,
 into the calling thread's arena at the call site: those copies are owned and
 dropped there. A runtime-managed value that has not been copied remains excluded
 from ordinary scope-drop frees.
-[[src/codegen/engine/value/builder_values.rs:value_is_runtime_managed]]
-[[src/codegen/engine/value/builder_values.rs:runtime_call_result_is_copied_at_call_site]]
+[[src/codegen/engine/value/builder_values/ownership.rs:value_is_runtime_managed]]
+[[src/codegen/engine/value/builder_values/ownership.rs:runtime_call_result_is_copied_at_call_site]]
 
 **Pointer graphs whose type holds a resource** are also excluded from ordinary
 owned-value frees. A recursive or cycle-reaching value is not `type_is_memcpy_copyable`, so the
 flat `arena_free` path never claims it. Instead its owner frees it through
 `_mfb_rt_graph_drop` when the type has a graph-drop kind, which every resource-free type in
 or reaching a cycle does. A resource-bearing type never gets a kind: it is move-only and
-closed by its own op. [[src/codegen/engine/value/builder_values.rs:owns_graph]] [[src/codegen/memory/arena/graph_drop.rs:graph_drop_kind]] Builtins that could otherwise return
+closed by its own op. [[src/codegen/engine/value/builder_values/ownership.rs:owns_graph]] [[src/codegen/memory/arena/graph_drop.rs:graph_drop_kind]] Builtins that could otherwise return
 an interior pointer into an argument return an owned block instead (`collections::get`/`getOr`
 materialize the element; `strings::replace`'s no-op path returns a fresh copy), so a
 call result is always safe for the caller to own and free.

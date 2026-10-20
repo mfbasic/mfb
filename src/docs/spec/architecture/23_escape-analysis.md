@@ -61,7 +61,7 @@ that hands back a reference to a resource another scope already owns —
 `collections::get`/`getOr` of a `RES` element, or a `tcp`/`udp`/`tls::poll`
 borrow — is no producer and is never named: a named temporary would float the
 borrowed handle into the container, whose scope would then close the owner's
-handle. [[src/codegen/engine/value/builder_values.rs:target_returns_borrowed_resource]]
+handle. [[src/codegen/engine/value/builder_values/ownership.rs:target_returns_borrowed_resource]]
 
 The rewrite never reorders evaluation: a statement's element positions are
 visited in evaluation order, and hoisting stops at the first earlier expression

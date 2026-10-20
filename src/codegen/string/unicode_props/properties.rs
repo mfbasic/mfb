@@ -51,7 +51,7 @@ impl CodeBuilder<'_> {
     ///
     /// `output` is a rodata pointer, not an allocation: the callers compare the
     /// returned category/script and drop it, and a bare `String` temp is never
-    /// freed (`builder_values.rs::register_pending_temp`), so nothing tries to
+    /// freed (`builder_values/pending_temps.rs::register_pending_temp`), so nothing tries to
     /// return this pointer to the arena.
     pub(crate) fn emit_unicode_range_lookup(
         &mut self,

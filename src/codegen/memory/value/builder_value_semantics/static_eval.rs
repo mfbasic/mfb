@@ -210,7 +210,7 @@ impl CodeBuilder<'_> {
     /// This query is **not** the one the in-place gates ask — since bug-681 they
     /// ask [`Self::static_operand_type`], which widens it once more. Keep this
     /// one's answers exactly as they are: its other consumer is
-    /// `nir_call_is_infallible_builtin` (`engine/control/builder_control.rs`),
+    /// `nir_call_is_infallible_builtin` (`engine/control/builder_control/value_effects.rs`),
     /// which types a builtin's arguments to decide whether the call can fail, so
     /// answering here for an expression it used to give up on changes which
     /// failure paths the optimizer may elide — in programs that contain no

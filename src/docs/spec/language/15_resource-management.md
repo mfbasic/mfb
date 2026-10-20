@@ -79,7 +79,7 @@ resources another scope owns) hands the statement nothing: its resources already
 have a cleanup scope further out, and nothing moves or closes them. An inline
 `TRAP` over a call that hands out resources (`LET xs = mkList() TRAP … END TRAP`)
 adopts them into the binding's scope exactly as the plain call does.
-[[src/codegen/engine/value/builder_values.rs:register_resource_temp]] [[src/codegen/engine/value/builder_values.rs:adopt_statement_temp]] [[src/codegen/resource/owner.rs:emit_resource_temp_close]] [[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:value_may_carry_statement_resources]] [[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:emit_assigned_container_float]] [[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:trap_call_result_locals]]
+[[src/codegen/engine/value/builder_values/pending_temps.rs:register_resource_temp]] [[src/codegen/engine/value/builder_values/pending_temps.rs:adopt_statement_temp]] [[src/codegen/resource/owner.rs:emit_resource_temp_close]] [[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:value_may_carry_statement_resources]] [[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:emit_assigned_container_float]] [[src/codegen/cleanup/owned/builder_owned_cleanup/mod.rs:trap_call_result_locals]]
 
 The owner is a word on the resource record (`./mfb spec memory heap-values`, "The
 owner word"): the token of the owning scope, or `0` for a record no scope has
@@ -151,8 +151,8 @@ Native lowering classifies local and member reads and the named extraction calls
 as aliases. A direct-name move therefore changes static name validity without
 necessarily relocating runtime cleanup. Resource-union wrapping has separate
 variant cleanup bookkeeping; it is not the concrete-close-op test above.
-[[src/codegen/engine/value/builder_values.rs:value_aliases_live_resource]]
-[[src/codegen/engine/control/builder_control.rs:lower_ops_inner]]
+[[src/codegen/engine/value/builder_values/ownership.rs:value_aliases_live_resource]]
+[[src/codegen/engine/control/builder_control/statement_dispatch.rs:lower_ops_inner]]
 
 Closing ends the resource's open state. `RETURN` hands a resource value to the
 caller; when a scope of the returning function owns it, the return releases it and

@@ -662,7 +662,7 @@ or a record of `Float`s):
   record (`vector::Float3[…]`) field by field, with no block of its own — and
   the arm copies the region into the container. A failing update value writes
   nothing, and `e` may be the element being replaced.
-  [[src/codegen/engine/control/builder_control.rs:lower_with_update_in_record_temp]]
+  [[src/codegen/engine/control/builder_control/field_with.rs:lower_with_update_in_record_temp]]
 
 A region is rewritten only by the next evaluation of its own site, after which
 nothing reads the previous value; a recursive call or a callback has a block of
@@ -753,14 +753,14 @@ read `byteLength` bytes and hand on the tight form.
 - **Snapshots stay snapshots.** A `FOR EACH` over `x` whose body writes `x` walks
   the value `x` held when the loop began (a copy made once at entry); a call
   handed `x` while a callee or callback can write it receives the value at the
-  call. [[src/codegen/engine/control/builder_control.rs:lower_for_each]]
+  call. [[src/codegen/engine/control/builder_control/for_each.rs:lower_for_each]]
   A value the loop cannot copy (a type that reaches a type cycle) is walked in
   `x`'s own block. A reassignment of `x` in the body does not free that block,
   which the loop still reads: it hands it to the loop, which frees it once it is
   done, on every exit (`EXIT FOR`, `RETURN`, an error, an outer loop's `EXIT FOR`
   or `CONTINUE FOR`). Every other block a reassignment replaces is freed at the
   reassignment, so the loop leaks nothing.
-  [[src/codegen/engine/control/builder_control.rs:emit_defer_walked_block]]
+  [[src/codegen/engine/control/builder_control/for_each.rs:emit_defer_walked_block]]
 - **No per-statement allocation.** State an operation needs per element lives in a
   per-function scratch block, grown geometrically; a lambda borrows the scratch of
   the function that created it. A global `String`'s spare capacity is kept in a
@@ -838,14 +838,14 @@ A **field** of a record or of a `RES … STATE` payload is a site too:
 through a module-level record, a nested record field (`o.inner.f`), a `FOR EACH`
 over the field, or a record captured by reference. The field is updated where it
 lies in its owner's block; the owner is not rebuilt.
-[[src/codegen/engine/control/builder_control.rs:field_self_update_site]]
+[[src/codegen/engine/control/builder_control/field_with.rs:field_self_update_site]]
 
 - **Scalar and fixed-size fields are stored.** A `WITH` whose every update is a
   scalar field, a pointer field (a `json::Json`) or a record of compile-time fixed
   size (`vector::Float3`, `color::Color`, the `datetime` types) evaluates every new
   value first, in source order, then writes each into its slot or over its
   sub-block. A failing value therefore leaves the owner unchanged.
-  [[src/codegen/engine/control/builder_control.rs:try_inplace_scalar_fields]]
+  [[src/codegen/engine/control/builder_control/field_with.rs:try_inplace_scalar_fields]]
 - **A nested `WITH` of scalars is stored too.** An update
   `inner := WITH r.inner { … }` of an inlined record field whose every update is
   a scalar field of `inner`, beside any of the fields above, stores those
@@ -853,7 +853,7 @@ lies in its owner's block; the owner is not rebuilt.
   so the sub-block keeps its size and no other field moves; this holds at any
   inlined position and over any owner. Its values are evaluated with the others,
   in source order, before the first store.
-  [[src/codegen/engine/control/builder_control.rs:nested_scalar_with]]
+  [[src/codegen/engine/control/builder_control/field_with.rs:nested_scalar_with]]
 - **One collection field beside scalars.** A `WITH` updating one collection field
   with a self-update and other fields with scalars runs the collection's
   operation in place and stores the scalars. `WITH` evaluates its updates in source
@@ -861,7 +861,7 @@ lies in its owner's block; the owner is not rebuilt.
   anything, and a scalar written after the operation in source order is moved
   ahead only when it has no effect and neither it nor the operation can fail with
   a different error; otherwise the whole `WITH` is rebuilt.
-  [[src/codegen/engine/control/builder_control.rs:try_inplace_mixed_with]]
+  [[src/codegen/engine/control/builder_control/field_replace.rs:try_inplace_mixed_with]]
 - **Growth needs the last field.** An operation that can reallocate the
   collection (a growing insert, a repack) grows the owner's block, so it runs in
   place only when the field — and every record on a nested path — is its owner's
@@ -895,13 +895,13 @@ lies in its owner's block; the owner is not rebuilt.
   walked size, the old one freed at its own walked size. A `RES … STATE`
   payload, a nested path, an `Error`, and an owner a live `FOR EACH` walks are
   always rebuilt; an element-bound owner follows the list-element rule below.
-  [[src/codegen/engine/control/builder_control.rs:replace_field_admitted]]
-  [[src/codegen/engine/control/builder_control.rs:emit_field_replace_or_rebuild]]
+  [[src/codegen/engine/control/builder_control/field_with.rs:replace_field_admitted]]
+  [[src/codegen/engine/control/builder_control/field_replace.rs:emit_field_replace_or_rebuild]]
 - **Rebuilt by design.** Any other field whose size depends on its value — a
   `String` or variable-size record that is not the last inlined field, a
   collection updated by an operation with no in-place form, a data union — is
   rebuilt: its new value's size is known only after it is built.
-  [[src/codegen/engine/control/builder_control.rs:record_field_is_inlined_fixed]]
+  [[src/codegen/engine/control/builder_control/field_replace.rs:record_field_is_inlined_fixed]]
 - **A copy of the field feeds the same site at the default level.**
   `LET cur = r.f` followed by `r = WITH r { f := op(cur, …) }` (or
   `h.state.f = op(cur, …)`, or through a module-level record) reaches the site as
@@ -941,7 +941,7 @@ not an allocation. Every growing field route asks
 route serves — a growing field, a second collection field — is lowered as
 `xs = collections::set(xs, i, WITH p { … })`: the `WITH` builds a new record
 from the element and `set` replaces it, resizing the payload when it must.
-[[src/codegen/engine/control/builder_control.rs:lower_element_update]]
+[[src/codegen/engine/control/builder_control/element_update.rs:lower_element_update]]
 [[src/codegen/collection/assign/inplace_dest.rs:field_is_last_inlined]]
 
 A `WITH` that replaces one `String` or variable-size record field of the element
@@ -955,8 +955,8 @@ allocates nothing, and neither does `inner := step(p.inner, …)` while `inner`'
 size is unchanged: `step`'s destination variant writes the result into
 `p.inner`'s bytes (`./mfb spec memory native-calling-convention`, *Destination
 variants*).
-[[src/codegen/engine/control/builder_control.rs:element_replace_admitted]]
-[[src/codegen/engine/control/builder_control.rs:emit_element_replace_or_write_back]]
+[[src/codegen/engine/control/builder_control/element_update.rs:element_replace_admitted]]
+[[src/codegen/engine/control/builder_control/element_update.rs:emit_element_replace_or_write_back]]
 
 ### `append`
 

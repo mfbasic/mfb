@@ -1119,22 +1119,22 @@ the program entry on every target the scoped gates build.
   / operator_lowering 420 / comparison 349 / binary_emit 317 / numeric_kernels 506; function_lowering mod 479 /
   local_analysis 147 / trap_analysis 226 / promotion_analysis 377 / helper_lowering 495; entry mod 518 /
   process_setup 143 / entry_args 166 / cleanup_audit 201; sweep → no old-path mention left.
-Commit: —
+Commit: c69245a94
 
 ### Phase 3 — Statement and value lowering (pure motion)
 
-- [ ] `value/builder_values.rs` → `value/builder_values/{mod,pending_temps,ownership,lower_inner,inline_calls}.rs`
+- [x] `value/builder_values.rs` → `value/builder_values/{mod,pending_temps,ownership,lower_inner,inline_calls}.rs`
       per §4.3; the 9 `pub(super)` edits; `use super::flatten_concat_spine;` in `lower_inner.rs`;
       the 3680–3699 doc comment goes with `lower_checked_value`.
-- [ ] Repoint the 28 `builder_values.rs` citations (§4.3) and the Phase-3 rows of §4.13
+- [x] Repoint the 28 `builder_values.rs` citations (§4.3) and the Phase-3 rows of §4.13
       (`.ai/collections.md:556,585` — 585 is **pre-existing**; `.ai/resources-packages.md:103,178,181,384,420`;
       `.ai/codegen-invariants.md:658`; `unicode_props.rs:355`, `corpus.rs:8`, `nir_fault.rs:429`,
       `gen_flow.rs:96`, `builder_arena_transfer.rs:123,540,549` and `builder_emit_helpers.rs:652`
       → `lower_inner.rs`; `scripts/spec-census.sh:110`).
-- [ ] `control/builder_control.rs` → `control/builder_control/{mod,store_global,field_with,element_update,field_replace,value_effects,statement_dispatch,loops,string_shadow,for_each}.rs`
+- [x] `control/builder_control.rs` → `control/builder_control/{mod,store_global,field_with,element_update,field_replace,value_effects,statement_dispatch,loops,string_shadow,for_each}.rs`
       per §4.1; the 22 `pub(super)` edits; the two `include_str!` paths in
       `transfer_temp_classification_tests`.
-- [ ] Repoint the 19 `builder_control.rs` citations (§4.1) and the Phase-3 rows of §4.13
+- [x] Repoint the 19 `builder_control.rs` citations (§4.1) and the Phase-3 rows of §4.13
       (`.ai/collections.md:34,540` — 540 is **pre-existing**; `.ai/resources-packages.md:28,45`;
       `builder_value_semantics.rs:1265`; `nir_fault.rs:391`).
 
@@ -1149,6 +1149,29 @@ files pass in their new homes.
   `NEW code <n> > 1000 src/codegen/engine/control/builder_control/statement_dispatch.rs` and
   `NEW code <n> > 1000 src/codegen/engine/value/builder_values/lower_inner.rs`
   (removed in Phases 5 and 6) (est. 30 min).
+- [x] `emit_defer_walked_block` (bug-1036, added after planning; `NirOp::Assign` defers a walked block to the live
+      `FOR EACH`) goes to `for_each.rs` beside `lower_for_each`; its cite (memory/05_collections:763) follows.
+- [x] `.ai/resources-packages.md:135` (**pre-existing**, 0 hits for `try_inplace_state_collection_assign`) →
+      `try_inplace_self_update` called from `lower_ops_inner`'s StateAssign arm with an `InPlaceDest::StateField`
+      site (`statement_dispatch.rs`); Phase 5 repoints it to `assign_op.rs`. `.ai/resources-packages.md:179`
+      (resource-typed bind gate) and `ownership.rs`'s `builder_control.rs:697-699` cite (**pre-existing**) →
+      `lower_ops_inner`'s Bind arm; Phase 5 repoints them to `bind_op.rs`. `.ai/collections.md:541`
+      (`try_inplace_self_update` in `builder_control.rs`, not in §4.13's table) → the three part files that call it.
+  Done: `items.py` split both files' `impl CodeBuilder<'_>` by method (`u3-values.json`, `u3-control.json`;
+  the values anchor became `use crate::target::shared::runtime;`, the `ParameterType` line also appears in a test
+  module, and the `mod` lines were moved below the import block). The emptied values shell was removed.
+  `autovis.py` → exactly the 9 §4.3 `pub(super)`s and 21 of §4.1's 22: `replace_field_admitted` is only called
+  inside `field_with.rs` (its `field_replace.rs` hits are doc comments). `lower_inner.rs` needed no
+  `use super::flatten_concat_spine;` (the glob imports it). Both `include_str!` paths re-based.
+  Verified 2026-10-20: `motion.py` → only wiring, the 30 `pub(super)`s, their rustfmt re-wraps and the two
+  `include_str!` paths differ; N = 5018, W = 0; `transfer_temp_classification_tests` 3, `concat_spine_tests` 4,
+  `borrowed_resource_tests` 2 passed; `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; cites → 26 + 2
+  by hand (values), 19 + 1 by hand (control); artifact gates `collections`, `strings`, `general`, `json`, `thread`,
+  `resource-xfer-slots`, `vector` → 0 diffs each; budget after tighten → exactly `NEW code 1319 > 1000
+  …/statement_dispatch.rs` and `NEW code 1227 > 1000 …/lower_inner.rs`; census → values mod 68 + 63 test /
+  pending_temps 631 / ownership 495 + 48 test / lower_inner 1227 / inline_calls 653; control mod 243 + 103 test /
+  store_global 149 / field_with 707 / element_update 574 / field_replace 422 / value_effects 94 /
+  statement_dispatch 1319 / loops 434 / string_shadow 95 / for_each 480; sweep → 0 hits.
 Commit: —
 
 ### Phase 4 — Module lowering (pure motion)
@@ -1300,6 +1323,9 @@ Commit: —
   — owner rule (AGENTS.md "never leave a bug"), applied by the author.
 
 ## Corrections
+
+- 2026-10-20 — §4.1: 21 `pub(super)` edits, not 22 — `replace_field_admitted` stays private (only `field_with.rs`
+  calls it). `emit_defer_walked_block` (bug-1036) did not exist at planning; it moves to `for_each.rs`.
 
 - 2026-10-20 — §4.5: `entry.rs` no longer has `emit_write_integer_to_stderr`, only
   `emit_write_integer_to_stderr_with_labels` (`python3 -I target/p176/items.py list` → 12 items), and neither it nor

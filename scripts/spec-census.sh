@@ -107,7 +107,7 @@ mode_fill() {
 #   * otherwise         -> symbol citation; grep -F the symbol in the cited file.
 #
 # FIRST, not last: a Rust symbol legitimately contains '::'
-# ([[src/codegen/engine/value/builder_values.rs:NirValue::FunctionRef]]), and a
+# ([[src/codegen/engine/value/builder_values/lower_inner.rs:NirValue::FunctionRef]]), and a
 # last-colon split shreds it into a nonexistent path plus a bare `FunctionRef`,
 # reporting MISS-PATH on a citation that is perfectly fine. No path anywhere in
 # this tree contains ':', so the first colon is always the path/suffix seam.

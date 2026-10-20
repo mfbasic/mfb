@@ -84,7 +84,7 @@ worker completes or closes its outbound queue, so it never waits forever —
 indefinitely on exactly that value and rejects every other negative timeout.
 The helper receives no argument-presence flag, so an explicitly supplied
 `i64::MIN` also takes the indefinite path.)
-[[src/codegen/engine/value/builder_values.rs:lower_runtime_helper_call]]
+[[src/codegen/engine/value/builder_values/inline_calls.rs:lower_runtime_helper_call]]
 [[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_read_helper]]
 [[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
 
@@ -173,7 +173,7 @@ is copied at the call site out of the block arena into the calling thread's
 arena. That copy follows ordinary value/resource cleanup; the caller never frees
 the block-arena original. Resource cleanup closes the handle and frees its owned
 record and state, except for the runtime-owned embedded worker view.
-[[src/codegen/engine/value/builder_values.rs:runtime_call_result_is_copied_at_call_site]]
+[[src/codegen/engine/value/builder_values/ownership.rs:runtime_call_result_is_copied_at_call_site]]
 [[src/codegen/resource/cleanup/builder_resource_cleanup.rs:resource_record_freed_at_drop]]
 
 When the worker completes:

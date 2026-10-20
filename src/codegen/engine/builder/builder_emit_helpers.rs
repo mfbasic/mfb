@@ -649,7 +649,7 @@ impl CodeBuilder<'_> {
         // plan-120-E: the error-tag check is UNCONDITIONAL here, unlike
         // [`Self::emit_call`], where `return_type: Some(..)` doubles as "raw result
         // — the caller stores tag/value/message/source itself and handles the tag"
-        // (`builder_values.rs`'s inline-TRAP machinery is its only `Some` caller).
+        // (`builder_values/lower_inner.rs`'s inline-TRAP machinery is its only `Some` caller).
         //
         // This function is the ORDINARY indirect-call path; the raw one is the
         // separate [`Self::emit_function_value_call_raw`]. But both of its callers

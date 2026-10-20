@@ -93,7 +93,7 @@ impl CodeBuilder<'_> {
         // wherever a plain callback parameter is declared (the owner rule: "an
         // ISOLATED FUNC is a FUNC"), so this native-lowering guard must accept
         // either isolation — isolated or not, it is the same capture-free code
-        // pointer/closure-struct shape (bug-822, `builder_values.rs`), and
+        // pointer/closure-struct shape (bug-822, `builder_values/`), and
         // `emit_direct_callable_branch` below does not distinguish them.
         if !matches!(action.type_, ParameterType::Func(_, _, _)) {
             return Err(format!(

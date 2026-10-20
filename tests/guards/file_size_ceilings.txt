@@ -2,8 +2,6 @@
 #   code 1000, inline 250 (inline tests in a code file), test 1000 (test-only file).
 # ceiling <code|inline|test> <n> <path>  an over-limit file may not grow past n; MFB_LOC_TIGHTEN=1 lowers n.
 ceiling code 3105 src/codegen/engine/builder/mod.rs
-ceiling code 4466 src/codegen/engine/control/builder_control.rs
-ceiling code 3060 src/codegen/engine/value/builder_values.rs
 ceiling code 2272 src/codegen/runtime/canvas/mod.rs
 ceiling code 7309 src/codegen/runtime/canvas/vulkan.rs
 ceiling code 1848 src/codegen/runtime/canvas/vulkan_present.rs

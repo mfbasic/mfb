@@ -139,7 +139,7 @@ update reads neither the destination field, the owner whole, the container nor
 any binding that may alias the element, and calls only infallible built-ins; and
 if a later update can fail, there is no `TRAP` to observe the half-done update
 and the container is an owned local of the calling function.
-[[src/codegen/engine/control/builder_control.rs:element_into_call]]
+[[src/codegen/engine/control/builder_control/element_update.rs:element_into_call]]
 Like an owned variant, a destination variant is an additional internal symbol
 reached only from such a direct call; the base contract is unchanged.
 
