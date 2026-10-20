@@ -182,7 +182,7 @@ easy to get wrong:
 
   Relocating a payload is safe only while nothing refers into it, and for a
   **recursive** element type something used to. `type_participates_in_cycle`
-  (`collection/layout/builder_collection_layout.rs`) marks that class:
+  (`collection/layout/builder_collection_layout/type_predicates.rs`) marks that class:
   such a value is a *pointer-linked graph* that inline copy codegen cannot
   reproduce, so it needs a per-type runtime copy function. Until bug-538 an
   ordinary `collections::get` of one was therefore **not** the independent deep
@@ -244,7 +244,7 @@ easy to get wrong:
   (`json::Json`, `__regex_Node`). Every other fixture byte-identical.
 * **Every collection ALLOCATION must reserve the bucket region, and only one
   function knows the formula.** `emit_inlined_block_size_from_ptr_slot`
-  (`collection/layout/builder_collection_layout.rs`) is the single authority for
+  (`collection/layout/builder_collection_layout/records.rs`) is the single authority for
   "how big is this block": `HEADER + capacity*entryStride + dataCapacity`, plus
   `capacity << 4` **for a `Map` or a `Set`**. Every allocator either calls it or
   calls `emit_reserve_map_buckets` (`map_mutate`, `gen_mutate`, `func_merge`,
@@ -271,7 +271,7 @@ easy to get wrong:
   on what the bucket words happen to contain.
 * **A fixed-width list is entry-FREE, and the two are the same predicate.**
   `list_entry_stride` returns 0 for exactly `list_element_is_fixed_width`
-  (`collection/layout/builder_collection_layout.rs`), so inside any
+  (`collection/layout/builder_collection_layout/mod.rs`), so inside any
   `if let Some(payload) = list_element_is_fixed_width(..)` branch, **every
   `if entry_stride != 0` is dead**. Element `i` is found at `i * payload` by
   arithmetic; there is no 40-byte entry record to maintain, shift or rebuild.
@@ -544,7 +544,7 @@ Facts for native map-mutation lowerings (`src/codegen/collection/map/map_mutate/
 
 ## Map copy-then-bulk-insert pays grows: presize instead
 
-`copy_collection_tight` (`builder_collection_layout.rs`) always sizes the copy **tight**: `capacity == count`, `dataCapacity == dataLength`, buckets sized for `count`. So a builtin that copies a map and then bulk-inserts NEW keys (the `merge` shape: `MUT result = a; FOR EACH e IN b: result = set(result, e.key, e.value)`) forces a geometric grow (entry+data realloc + bucket re-reserve) on the first inserted new key — even though the total size is known up front.
+`copy_collection_tight` (`builder_collection_layout/payload_copy.rs`) always sizes the copy **tight**: `capacity == count`, `dataCapacity == dataLength`, buckets sized for `count`. So a builtin that copies a map and then bulk-inserts NEW keys (the `merge` shape: `MUT result = a; FOR EACH e IN b: result = set(result, e.key, e.value)`) forces a geometric grow (entry+data realloc + bucket re-reserve) on the first inserted new key — even though the total size is known up front.
 
 Measured cost (`mapchurn iterate`, 1000-entry map + 10 new keys): the tight copy is ~2µs but the 10 inserts add ~5µs (~500ns each) — dominated by the grow/rehash, NOT the inserts themselves. `x = set(x, k, v)` on a from-scratch map (built by repeated `set`) IS cheap/in-place; the cost is specific to inserting into a **copy** of a populated map.
 
@@ -626,7 +626,7 @@ changes for collection-layout work:
   (`TYPE Integer` compiles). `named` makes the record `Integer` and the scalar
   `Integer` two different keys; the string tables merged them, so `named` is a
   silent behavior change, not a refactor. `union_is_data` and
-  `inline_collection_payload_size` in `builder_collection_layout.rs` are the
+  `inline_collection_payload_size` in `builder_collection_layout/type_predicates.rs` and `payload_copy.rs` are the
   collection-side sites.
 - **The STATE clause is still peeled before a union lookup.** A transferred
   stateful union arrives as `Stateful { base: Stream, state: Cursor }` and the

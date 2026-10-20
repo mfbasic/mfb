@@ -1665,7 +1665,7 @@ It has no `id`, no `paint` and no `transform`. `canvas::EmissionMode` is `Contin
 `item` is a `canvas::AutoShape`: one of the ten shapes, or an `AutoPaint` around one. It
 is not a `canvas::DrawItem`, and cannot be. A `DrawItem` variant holding a `DrawItem`
 is a type cycle, and a type that reaches a cycle is not laid out as one flat block
-[[src/codegen/collection/layout/builder_collection_layout.rs:flatness_walk]] — for
+[[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:flatness_walk]] — for
 every value of the type, in every program. A scene is one flat block by construction:
 `present` copies it with one block copy, compares it to the installed scene by content,
 and the native walks step through it by offset (*A published scene points at nothing

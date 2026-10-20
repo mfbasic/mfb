@@ -3,7 +3,7 @@
 A collection owns a contiguous block with a header and data region.
 Variable-width lists, maps and sets also carry lookup entries; fixed-width
 lists omit them. Maps and sets reserve a hash-bucket region.
-[[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
+[[src/codegen/collection/layout/builder_collection_layout/payload_copy.rs:copy_collection_tight]]
 
 ## Collection String Payloads
 
@@ -86,7 +86,7 @@ The layouts differ only in the entry array:
 
 A tight `List OF Byte` with `N` elements occupies `40 + N` bytes before
 arena granule rounding.
-[[src/codegen/collection/layout/builder_collection_layout.rs:list_element_is_fixed_width]]
+[[src/codegen/collection/layout/builder_collection_layout/mod.rs:list_element_is_fixed_width]]
 
 Two constraints on any implementation:
 
@@ -163,7 +163,7 @@ exactly as for a map; nested whole-block copies follow the rules below.
 
 `keyType` and `valueType` are compact runtime type identifiers. The **payload
 size and alignment** columns are what a decoder strides by; they are not implied
-by the identifier's value. [[src/codegen/error/constants/error_constants.rs:COLLECTION_TYPE_SCALAR]] [[src/codegen/collection/layout/builder_collection_layout.rs:collection_payload_alignment]]
+by the identifier's value. [[src/codegen/error/constants/error_constants.rs:COLLECTION_TYPE_SCALAR]] [[src/codegen/collection/layout/builder_collection_layout/payload_copy.rs:collection_payload_alignment]]
 
 | Type                | ID | Payload            | Align |
 |---------------------|----|--------------------|-------|
@@ -185,7 +185,7 @@ The object identifier does not distinguish an inlined block from a scalar
 or pointer payload. The statically known element/key/value type supplies that
 classification and alignment.
 [[src/codegen/engine/types/type_utils.rs:collection_type_code]]
-[[src/codegen/collection/layout/builder_collection_layout.rs:collection_payload_alignment]]
+[[src/codegen/collection/layout/builder_collection_layout/payload_copy.rs:collection_payload_alignment]]
 
 > **A `Nothing` payload is the constant byte `0`.** The unit type has one value, so every
 > stored payload is identical. A store writes `0` whatever register the value arrived in,
@@ -343,7 +343,7 @@ holds the pointer to the one resource record (a resource union's holds its
 `{tag, record}` box inline), so a collection of them is a flat block within its
 thread. It is copied by `memcpy` at every hand-off to a longer-lived owner and
 freed by its one owner like a `List OF Integer`; copying or freeing it closes
-nothing. It is never relocated into another thread's arena. [[src/codegen/collection/layout/builder_collection_layout.rs:is_pointer_collection_payload_type]]
+nothing. It is never relocated into another thread's arena. [[src/codegen/collection/layout/builder_collection_layout/payload_copy.rs:is_pointer_collection_payload_type]]
 
 A **function value** (`FUNC(...) AS T`, list element or map value) is packed as a
 single **8-byte pointer** to the closure object the collection owns (`./mfb spec
@@ -354,7 +354,7 @@ function values is not a flat block. An owning insert stores a closure the colle
 owns (a fresh one, or a copy of an aliased one), `get` hands back a copy, copying the
 collection copies every closure in it, and dropping it frees them
 (`_mfb_rt_closure_drop`). A record **field** of function type is likewise a pointer edge
-of its record. [[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]] [[src/codegen/memory/arena/builder_arena_transfer/collection_transfer.rs:payload_edge_shape]] [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_pointer]] [[src/codegen/collection/layout/builder_collection_layout.rs:emit_payload_length_to_stack]]
+of its record. [[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:type_is_memcpy_copyable]] [[src/codegen/memory/arena/builder_arena_transfer/collection_transfer.rs:payload_edge_shape]] [[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:record_field_is_pointer]] [[src/codegen/collection/layout/builder_collection_layout/construct.rs:emit_payload_length_to_stack]]
 
 ### Capacity Headroom and Growth
 
@@ -414,15 +414,15 @@ value copies tighten the destination:
   produced. Any other statement after the bind (the append under an `IF`, an
   intervening read, a bulk append) keeps the tight copy.
   [[src/codegen/engine/analysis/append_headroom.rs:collect_append_headroom_binds]]
-  [[src/codegen/collection/layout/builder_collection_layout.rs:copy_list_with_append_headroom]]
+  [[src/codegen/collection/layout/builder_collection_layout/payload_copy.rs:copy_list_with_append_headroom]]
 
 Shrink-to-fit applies to the collection being copied, not recursively to every
 collection inside it. A whole-block copy of a record, union or `Result`, or
 verbatim copying of nested collection payload bytes, preserves those embedded
 headers and capacities. Likewise, embedding an existing block sizes it using
 its stored capacities. Such copies remain independent, but need not be tight.
-[[src/codegen/collection/layout/builder_collection_layout.rs:copy_flat_block]]
-[[src/codegen/collection/layout/builder_collection_layout.rs:emit_inlined_block_size_from_ptr_slot]]
+[[src/codegen/collection/layout/builder_collection_layout/payload_copy.rs:copy_flat_block]]
+[[src/codegen/collection/layout/builder_collection_layout/records.rs:emit_inlined_block_size_from_ptr_slot]]
 
 ### Payload Order
 
@@ -476,7 +476,7 @@ range-index `slice` do.
 
 An alignment of 1 requires no alignment padding; it guarantees neither
 index order nor the absence of dead bytes from prior mutations.
-[[src/codegen/collection/layout/builder_collection_layout.rs:list_element_is_fixed_width]]
+[[src/codegen/collection/layout/builder_collection_layout/mod.rs:list_element_is_fixed_width]]
 
 ## List Examples
 
@@ -558,7 +558,7 @@ leaving five unobservable padding bytes at offsets `3` through `7`.
 ### Copy
 
 A collection copy is **shrink-to-fit**: `copy_flat_block` routes a collection to
-`copy_collection_tight`, which allocates exactly [[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
+`copy_collection_tight`, which allocates exactly [[src/codegen/collection/layout/builder_collection_layout/payload_copy.rs:copy_collection_tight]]
 
 ```text
 List kind 0: CollectionHeader + LookupEntry[count] + Data[dataLength]
@@ -573,7 +573,7 @@ passes, deriving the source data base from source capacity and the destination
 base from count. Maps and sets start with `bucketsReady = 0`; bucket contents
 are not copied. Dead data bytes and payload permutations are preserved. For
 recursive element types, owning copies additionally copy their graph edges.
-[[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
+[[src/codegen/collection/layout/builder_collection_layout/payload_copy.rs:copy_collection_tight]]
 [[src/codegen/memory/arena/builder_arena_transfer/collection_transfer.rs:own_collection_payload_edges]]
 
 ### `get`
@@ -1221,7 +1221,7 @@ not shrink `dataCapacity`, so a map grow that follows it cannot cycle.
 A plain value copy (`copy_collection_tight`) copies `dataLength` bytes verbatim,
 so it carries whatever dead bytes its source holds at that moment; it does not
 repack, and it does not grow.
-[[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
+[[src/codegen/collection/layout/builder_collection_layout/payload_copy.rs:copy_collection_tight]]
 
 `dataCapacity`/`capacity` slack comes from growing working buffers and
 builders that reserve an upper bound (see *Capacity Headroom and Growth*).

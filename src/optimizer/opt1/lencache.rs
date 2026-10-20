@@ -6,7 +6,7 @@
 //! *byte* length is an O(1) header read, but `len()` is defined as the
 //! **codepoint** count, and `lower_len` lowers it to an inline loop that walks
 //! every byte of the string masking off UTF-8 continuation bytes
-//! (`builder_collection_layout.rs`). Two `len(s)` in one statement sequence
+//! (`builder_collection_layout/construct.rs`). Two `len(s)` in one statement sequence
 //! therefore scan the whole string twice, and the classic
 //! `FOR i = 0 TO len(s) - 1` shape re-scans it on a schedule the loop rows
 //! cannot fix.

@@ -516,7 +516,7 @@ relocated into another thread's arena". The memcpy half failed the build loudly
 is silent and is the dangerous one, because that predicate is the gate on
 relocating a block across a per-thread arena boundary.
 
-Use the model-aware pair instead, both in `builder_collection_layout.rs` and also
+Use the model-aware pair instead, both in `builder_collection_layout/type_predicates.rs` and also
 available as `CodeBuilder` methods:
 
     is_resource_nominal(model, t)           // builtin ∪ model.resource_names

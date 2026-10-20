@@ -10,8 +10,8 @@ Records inline eligible fields by block-relative offset. Collections have a
 header and data region; variable-width lists, maps and sets also have lookup
 entries, and maps and sets reserve hash buckets. Recursive values can own
 separate child blocks. Copy and drop follow those layouts and ownership edges.
-[[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_inlined]]
-[[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
+[[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:record_field_is_inlined]]
+[[src/codegen/collection/layout/builder_collection_layout/payload_copy.rs:copy_collection_tight]]
 [[src/codegen/memory/arena/graph_drop.rs:lower_graph_drop_walker]]
 
 ## Reading order

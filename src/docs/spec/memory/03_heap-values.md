@@ -34,7 +34,7 @@ The trailing NUL byte is a native helper convenience and is not part of the
 logical string length. A tight `String` block's logical size is therefore
 `byteLength + 9` (the 8-byte length word plus the bytes plus the NUL); this same
 `+9` formula sizes a `String` block inlined into a record or `Result`
-(`emit_inlined_block_size_from_ptr_slot`). [[src/codegen/collection/layout/builder_collection_layout.rs:emit_inlined_block_size_from_ptr_slot]]
+(`emit_inlined_block_size_from_ptr_slot`). [[src/codegen/collection/layout/builder_collection_layout/records.rs:emit_inlined_block_size_from_ptr_slot]]
 
 A `MUT` binding's own block can retain capacity, and only while it is bound: an
 in-place self-update (`mfb spec memory collections`, *Self-updates*) may leave the
@@ -70,7 +70,7 @@ stores, by field type:
   flat records `Error`/`ErrorLoc`: inlined recursively as a `U64` block-relative
   offset into the data region, exactly like a `String`. The field read recovers
   `recordBase + offset`. Each nested block preserves its own internal relative
-  addressing, so a whole-block `memcpy` relocates the inlined tree. A field is inlined into the data region iff it is a `String`, a flat composite, or a `RES` resource union. [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_inlined]]
+  addressing, so a whole-block `memcpy` relocates the inlined tree. A field is inlined into the data region iff it is a `String`, a flat composite, or a `RES` resource union. [[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:record_field_is_inlined]]
 - **resource** (`RES T`, `T` a concrete resource): an 8-byte pointer to the
   resource record, copied with the record. The record does not own the resource
   record.
@@ -80,10 +80,10 @@ stores, by field type:
   box's address as `recordBase + offset`. The record holds its own copy of the two
   words, so a whole-block `memcpy` copies the field and the record's one block
   free releases it; the record never holds the address of a box something else
-  frees. [[src/codegen/collection/layout/builder_collection_layout.rs:field_is_inlined_union_box]]
+  frees. [[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:field_is_inlined_union_box]]
 - **function value** — an 8-byte pointer to the closure object the record owns
   (`./mfb spec memory closures`): copying the record copies the closure, dropping
-  it frees the closure, so a record with a `FUNC` field is not flat. [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_pointer]]
+  it frees the closure, so a record with a `FUNC` field is not flat. [[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:record_field_is_pointer]]
 - **non-flat composite** — a non-flat `List`/`Map`/`Set`,
   a non-flat `Result`, or a nested record that is
   not (or cannot be) flat (e.g. one on a type cycle): an 8-byte **pointer** to a
@@ -130,7 +130,7 @@ The generic **size** walk honors the same sentinel: it reads each inlined field'
 own offset word and skips the field when that word is 0, rather than assuming
 every inlined sub-block is present at the running offset. An origin-less `Error`
 has the fixed three-slot prefix, an inlined message, and a zero source offset;
-the size walk ends at the message rather than reading an absent `ErrorLoc`. [[src/codegen/collection/layout/builder_collection_layout.rs:emit_record_block_size_to_slot]]
+the size walk ends at the message rather than reading an absent `ErrorLoc`. [[src/codegen/collection/layout/builder_collection_layout/records.rs:emit_record_block_size_to_slot]]
 
 ## `Result`
 
@@ -156,7 +156,7 @@ The result is memcpy-copyable only when its success type is: recursive and
 function payloads require graph copying, and resource/thread payloads follow their
 ownership and transfer rules.
 [[src/codegen/memory/value/builder_value_semantics/mod.rs:result_payload_is_block]]
-[[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]]
+[[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:type_is_memcpy_copyable]]
 
 An inline `TRAP`'s own `Result` temporaries usually have no block at all. A
 temporary whose every use is a tag test, a value read, or an error read in an

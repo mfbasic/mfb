@@ -361,7 +361,7 @@ from there into the receiver's arena (`./mfb spec threading control-block`).
 Beyond the bulk `arena_destroy`, individual owned values are freed deterministically
 at **scope-drop**. A flat, pointer-free value is
 freed by a single `arena_free(ptr, size)` of its block, the size recomputed from the
-static type at the drop point (`emit_inlined_block_size_from_ptr_slot`). [[src/codegen/collection/layout/builder_collection_layout.rs:emit_inlined_block_size_from_ptr_slot]]
+static type at the drop point (`emit_inlined_block_size_from_ptr_slot`). [[src/codegen/collection/layout/builder_collection_layout/records.rs:emit_inlined_block_size_from_ptr_slot]]
 A value of a recursive type (one whose declaration reaches itself) is a graph of
 separately allocated blocks. Its owner frees it through the module's one drop walker,
 `_mfb_rt_graph_drop`, which frees one block at a time and keeps the pending edges on an
@@ -370,7 +370,7 @@ overflowing it. [[src/codegen/memory/arena/graph_drop.rs:lower_graph_drop_walker
 A function value owns its closure the same way (bug-781): a bare function value is freed
 by `_mfb_rt_closure_drop`, and a value that holds function values (a record or union with
 a `FUNC` field, a collection or `Result` of them) is a graph-owning value whose walker
-frees each closure it meets (`./mfb spec memory closures`). [[src/codegen/collection/layout/builder_collection_layout.rs:type_contains_func]]
+frees each closure it meets (`./mfb spec memory closures`). [[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:type_contains_func]]
 Both walkers allocate that stack at their first push, and `_mfb_rt_graph_stack_grow`
 doubles it from there, so walking a value with no cyclic edge to push (a leaf) allocates
 and frees no stack. [[src/codegen/memory/arena/graph_copy.rs:emit_graph_copy_push]]
@@ -586,7 +586,7 @@ output and read buffers, then the `STATE` block, then the record, then the box.
 A list of such collections (`List OF List OF RES T`) is a nested flat list: each
 inner list is inlined in the outer block's data region, so one copy copies the
 whole value and one free releases it.
-[[src/codegen/collection/layout/builder_collection_layout.rs:type_is_memcpy_copyable]]
+[[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:type_is_memcpy_copyable]]
 
 Raw thread-helper results belong to the thread runtime's block arena and
 must not be freed through the caller's arena. However, `thread::waitFor`,

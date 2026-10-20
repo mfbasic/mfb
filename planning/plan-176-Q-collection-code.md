@@ -677,18 +677,22 @@ source-reading harness test pass.
   which also matches `string_self_update::tests`); `scratch_arms_match_the_compiler` → 1 passed; `codegen::collection`
   → 58; check warnings 0; `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → 0; budget → one STALE
   row (1059) before, none after; census → 422/2 + 63/450/138.
-Commit: —
+Commit: 24c85ece5
 
 ### Phase 5: collection layout
 
-- [ ] `src/codegen/collection/layout/builder_collection_layout.rs` → `builder_collection_layout/{mod,payload_copy,records,construct,access,type_predicates}.rs`
+- [x] `src/codegen/collection/layout/builder_collection_layout.rs` → `builder_collection_layout/{mod,payload_copy,records,construct,access,type_predicates}.rs`
       per §4.8, with `pub(crate) use type_predicates::*;` and the 1 `pub(super)` edit. J's
       `#[cfg(test)] mod tests;` declaration stays in mod.rs.
-- [ ] Repoint the 30 spec citations.
-- [ ] Prose sweep per §4.8: `.ai/codegen-invariants.md:116` reworded, the 5 `.ai/collections.md` lines,
+      Done: `items.py split` → 14, 9, 12, 10 methods + type_predicates 6 wrappers and 24 free items; every method left
+      the impl, so its empty shell in `mod.rs` was removed; exactly the 1 `pub(super)`; `motion.py` → wiring only.
+- [x] Repoint the 30 spec citations.
+      Done: `citesweep.py` → 30; `citedef.py` → 0 not defined.
+- [x] Prose sweep per §4.8: `.ai/codegen-invariants.md:116` reworded, the 5 `.ai/collections.md` lines,
       `.ai/resources-packages.md:519`, `lencache.rs:9`, `park_error_helper.rs:379`,
       `codegen_inplace_remove_at_insert.rs:438`, the three `list_mutate.rs` comments, and the stale
       line-number comment in `payload_copy.rs`.
+      Done: every listed site (`.ai/collections.md` now :185, :247, :274, :547, :629).
 
 Acceptance: the module is split with byte-identical codegen. Its 19 J-moved tests pass at the
 same paths.
@@ -696,6 +700,9 @@ same paths.
   Sweep grep: `grep -rn "builder_collection_layout\.rs" src tests scripts .ai AGENTS.md tools` →
   only `tests/rt-behavior/collections/enum-elements-rt/src/main.mfb`. File-size grep path:
   `builder_collection_layout` (est. 20 min).
+  Verified 2026-10-20: G2 collections, strings → 0 diffs; `builder_collection_layout::` → 19 passed; `codegen::collection`
+  → 58; check warnings 0; `spec_citations_resolve` ok; guards → 9, 3, 8, 7 + 1 ignored; sweep → only the fixture; budget
+  → one STALE row (2592) before, none after; census → 187/2 + 585/414/770/260/395.
 Commit: —
 
 ### Phase 6: list mutate

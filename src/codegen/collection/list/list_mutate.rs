@@ -73,7 +73,7 @@ impl CodeBuilder<'_> {
         // bug-175 E: a variable-length element payload (a record with an inline
         // String, a data union, or a flat nested collection) must start on an
         // aligned offset, exactly as the literal writer pads it
-        // (builder_collection_layout.rs). `list_element_padding_alignment` returns
+        // (builder_collection_layout/). `list_element_padding_alignment` returns
         // 1 for every fixed-size / byte-addressed payload, so every guarded
         // `emit_align_offset_*` below is elided and primitive lists stay
         // byte-identical.
@@ -300,7 +300,7 @@ impl CodeBuilder<'_> {
 
             // No lookup table to write: this branch is `list_element_is_fixed_width`,
             // and `list_entry_stride` returns 0 for exactly that predicate
-            // (`builder_collection_layout.rs`), so the result list is entry-FREE.
+            // (`builder_collection_layout/`), so the result list is entry-FREE.
             // Element `k` is found at `k * payload` by arithmetic, which is what lets a
             // linear reader be correct — not an entry record.
             //
@@ -3395,7 +3395,7 @@ impl CodeBuilder<'_> {
 
             // No lookup table to write: this branch is `list_element_is_fixed_width`,
             // and `list_entry_stride` returns 0 for exactly that predicate
-            // (`builder_collection_layout.rs`), so a fixed-width list is entry-FREE —
+            // (`builder_collection_layout/`), so a fixed-width list is entry-FREE —
             // element `i` lives at `i * payload` and is found by arithmetic, not by a
             // 40-byte entry record.
             //

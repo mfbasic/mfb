@@ -376,7 +376,7 @@ fn lower_drop_owned_string_body<'a>(
 /// at every exit.
 ///
 /// The flat size formula
-/// (`builder_collection_layout.rs::emit_flat_block_size`) varies on exactly two
+/// (`builder_collection_layout/payload_copy.rs::emit_flat_block_size`) varies on exactly two
 /// things: the entry stride, and whether the block carries a hash-bucket region
 /// (`Map`/`Set` do, `List` does not). Both are compile-time constants at the
 /// site, so they become arguments and the twelve-instruction drop becomes four.

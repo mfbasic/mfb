@@ -151,7 +151,7 @@ holders share one, so no reference counting is needed and none is done.
 Because a function value owns its closure, a `FUNC` field makes its record (and
 anything that holds that record) non-flat: its slot is a pointer edge, and the
 record is copied by the walker rather than by one `memcpy`
-(`./mfb spec memory heap-values`). [[src/codegen/collection/layout/builder_collection_layout.rs:type_contains_func]] [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_pointer]]
+(`./mfb spec memory heap-values`). [[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:type_contains_func]] [[src/codegen/collection/layout/builder_collection_layout/type_predicates.rs:record_field_is_pointer]]
 
 **Why copying is sound.** A created closure cannot change: by-value captures are
 `LET` values copied into the environment at creation, and the only by-reference

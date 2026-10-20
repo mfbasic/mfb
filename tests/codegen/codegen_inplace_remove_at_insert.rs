@@ -435,7 +435,7 @@ fn remove_at_still_fires_for_a_non_recursive_union_element() {
 
 /// A fixed-width list is **entry-free**: `list_entry_stride` returns 0 for
 /// exactly the `list_element_is_fixed_width` predicate
-/// (`builder_collection_layout.rs`), so element `i` is found at `i * payload` by
+/// (`builder_collection_layout/`), so element `i` is found at `i * payload` by
 /// arithmetic and there is no 40-byte entry record to maintain.
 ///
 /// An "identity mapping over entries 0..count" loop used to be emitted anyway, in
