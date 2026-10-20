@@ -87,6 +87,11 @@ pub(super) struct LowerContext<'a> {
     /// implicitly wrap a `RETURN`ed member constructor into its union (so the
     /// wrap is explicit in the IR rather than re-derived during codegen).
     pub(super) current_return_type: Option<ParameterType>,
+    /// The `FOR`/`FOR EACH` loops enclosing the statement being lowered, innermost last:
+    /// (source variable, IR loop name). A named EXIT/CONTINUE resolves its variable here.
+    /// Taken and restored at every function and lambda boundary, so a loop never
+    /// targets an exit outside its own function.
+    pub(super) loop_targets: Vec<(String, String)>,
     /// Stack of inline-`TRAP` recover destinations (innermost last). Each entry
     /// is the local slot a `RECOVER` value should be stored into and its type,
     /// or `None` when the trapped value is discarded (bare-statement form).
@@ -447,6 +452,7 @@ impl LowerFacts {
             field_defaults: HashMap::new(),
             next_temp_id: 0,
             current_return_type: None,
+            loop_targets: Vec::new(),
             recover_targets: Vec::new(),
             mutable_locals: HashSet::new(),
             nonescaping_callback: false,

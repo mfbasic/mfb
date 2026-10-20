@@ -27,7 +27,7 @@
         "line": 24,
         "body": [
         { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 25 },
-        { "kind": "exit", "target": "while", "code": null, "line": 26 }
+        { "kind": "exit", "target": "while", "line": 26 }
         ]
       },
       { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 28 }

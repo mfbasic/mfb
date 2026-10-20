@@ -17,7 +17,7 @@ Required `magic`:
 M  F  B  R
 ```
 
-The Binary Representation `version` is **`7`**. The decoder requires `MFBR` magic and exactly this version, independently of MFPC major version `2`. Version 7 spells the internal fallible result `#Result OF T` in every inline type string (a v6 `Result OF T` would read as a user template, so v6 is refused). [[src/ir/binary/mod.rs:BINARY_REPR_VERSION]] [[src/ir/binary/mod.rs:decode_binary_repr]]
+The Binary Representation `version` is **`8`**. The decoder requires `MFBR` magic and exactly this version, independently of MFPC major version `2`. Version 8 adds an optional loop `target` name to `ExitLoop` and `ContinueLoop` (tags 11/12), written after the loop kind as a presence byte and, when set, the name; a v7 payload would read those tags without it, so v7 is refused. Version 7 spelled the internal fallible result `#Result OF T` in every inline type string (a v6 `Result OF T` would read as a user template, so v6 is refused). [[src/ir/binary/mod.rs:BINARY_REPR_VERSION]] [[src/ir/binary/mod.rs:decode_binary_repr]]
 
 Statements, case arms, and declarations carry source locations as `u32` line and column. A binding encodes its location, declaring `file`, then `explicit_type`; a type declaration encodes its location then `file`. A `Bind` statement writes `explicit_type` immediately before its trailing location. `explicit_type` distinguishes a source annotation from an inferred type. [[src/ir/binary/mod.rs:encode_binding]] [[src/ir/binary/mod.rs:encode_type]] [[src/ir/binary/op_codec.rs:encode_op]]
 
@@ -59,7 +59,7 @@ MATCH   <scrutinee-expr> CASE <pattern> [<guard>] <ops...> ... [ELSE <ops...>] E
 TRAP    <binding> <ops...> END
 ```
 
-Structured exit out of these regions is itself encoded as leaf ops rather than jumps: `ExitLoop` (`EXIT FOR/DO/WHILE`), `ContinueLoop` (`CONTINUE FOR/DO/WHILE`), and `ExitProgram` (`EXIT PROGRAM`). There are no `JMP`, `JMP_FALSE`, label, or program-counter concepts in the format. A reader walks the tree; structure is read, never reconstructed.
+Structured exit out of these regions is itself encoded as leaf ops rather than jumps: `ExitLoop` (`EXIT FOR/DO/WHILE`), `ContinueLoop` (`CONTINUE FOR/DO/WHILE`), and `ExitProgram` (`os::exit`). There are no `JMP`, `JMP_FALSE`, label, or program-counter concepts in the format. A reader walks the tree; structure is read, never reconstructed.
 
 ## Statements / ops
 

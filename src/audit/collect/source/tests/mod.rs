@@ -752,7 +752,7 @@ fn walk_visits_diverse_expression_and_statement_forms() {
         "  LET m AS Integer = p.x\n",
         "  a = fs::read(\"u\")\n",
         "  io::print(toString(n))\n",
-        "  EXIT PROGRAM n\n",
+        "  os::exit(n)\n",
         "  RETURN 0\n",
         "END FUNC\n",
     );

@@ -173,9 +173,10 @@ fn native_exit_program_runs_caller_resource_cleanup() {
         format!(
             r#"
 IMPORT fs
+IMPORT os
 
 FUNC leave AS Nothing
-  EXIT PROGRAM 7
+  os::exit(7)
 END FUNC
 
 FUNC main AS Integer
@@ -209,7 +210,7 @@ END FUNC
     let marker_text = fs::read_to_string(&marker).expect("read marker");
     assert!(
         marker_text.contains("fail\n"),
-        "caller resource cleanup did not call close before EXIT PROGRAM; marker: {marker_text:?}"
+        "caller resource cleanup did not call close before os::exit; marker: {marker_text:?}"
     );
 }
 

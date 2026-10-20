@@ -194,7 +194,6 @@ fn keyword_lookup_and_lexeme_round_trip_for_all_keywords() {
         "enum",
         "export",
         "public",
-        "program",
         "private",
         "propagate",
         "recover",

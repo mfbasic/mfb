@@ -308,12 +308,7 @@ fn walk_statements(
                     walk_expression(expr, *line, in_trap, visit);
                 }
             }
-            Statement::Exit { code, line, .. } => {
-                if let Some(expr) = code {
-                    walk_expression(expr, *line, in_trap, visit);
-                }
-            }
-            Statement::Continue { .. } => {}
+            Statement::Exit { .. } | Statement::Continue { .. } => {}
             Statement::Fail { error, line } => walk_expression(error, *line, in_trap, visit),
             Statement::Propagate { .. } => {}
             Statement::Recover { value, line } => {

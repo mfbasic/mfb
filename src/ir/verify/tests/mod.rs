@@ -11,6 +11,7 @@ mod literals_bindings_and_loops;
 mod match_coverage_moves_and_annotations;
 mod matches_with_updates_and_money;
 mod members_captures_unions_and_operators;
+mod named_loop_exits;
 mod state_bindings_and_native_links;
 mod traps_diagnostics_and_capture_positions;
 use crate::ir::{

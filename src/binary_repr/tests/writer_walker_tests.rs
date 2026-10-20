@@ -165,10 +165,12 @@ fn every_op_body() -> Vec<IrOp> {
             loc: IrSourceLoc::default(),
         },
         IrOp::ExitLoop {
+            target: None,
             kind: LoopKind::While,
             loc: IrSourceLoc::default(),
         },
         IrOp::ContinueLoop {
+            target: None,
             kind: LoopKind::While,
             loc: IrSourceLoc::default(),
         },
@@ -423,10 +425,12 @@ fn every_plain_op_body() -> Vec<IrOp> {
             loc: IrSourceLoc::default(),
         },
         IrOp::ExitLoop {
+            target: None,
             kind: LoopKind::While,
             loc: IrSourceLoc::default(),
         },
         IrOp::ContinueLoop {
+            target: None,
             kind: LoopKind::While,
             loc: IrSourceLoc::default(),
         },

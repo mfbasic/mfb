@@ -1,0 +1,10 @@
+IMPORT os
+
+FUNC main AS Integer
+  IF TRUE THEN
+    os::exit("bad")
+  ELSE
+    os::exit(300)
+  END IF
+  RETURN 0
+END FUNC

@@ -135,7 +135,7 @@
           "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } },
           "line": 69,
           "then": [
-          { "kind": "exit", "target": "while", "code": null, "line": 70 }
+          { "kind": "exit", "target": "while", "line": 70 }
           ],
           "else": [
           ]

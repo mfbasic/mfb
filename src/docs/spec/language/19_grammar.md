@@ -206,8 +206,7 @@ doStmt         = "DO" block "LOOP" "UNTIL" expr
 failStmt       = "FAIL" expr ;
 propagateStmt  = "PROPAGATE" ;
 returnStmt     = "RETURN" [ expr ] ;
-exitStmt       = "EXIT" loopKind | "EXIT" "FUNC"
-               | "EXIT" "PROGRAM" expr ;
+exitStmt       = "EXIT" loopKind ;
 continueStmt   = "CONTINUE" loopKind ;
 loopKind       = "FOR" | "DO" | "WHILE" ;
 exprStmt       = expr ;

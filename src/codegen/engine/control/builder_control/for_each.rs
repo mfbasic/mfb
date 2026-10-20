@@ -490,6 +490,7 @@ impl CodeBuilder<'_> {
         }
         self.loop_stack.push(LoopLabels {
             kind: crate::ast::LoopKind::For,
+            name: Some(name.to_string()),
             continue_label: loop_label.clone(),
             exit_label: end_label.clone(),
             // Captured BEFORE the item drops were pushed, so `EXIT FOR` and

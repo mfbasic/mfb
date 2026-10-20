@@ -38,6 +38,11 @@ increment; `CONTINUE FOR` does not.
 `EXIT FOR` leaves the innermost enclosing `FOR` loop and `CONTINUE FOR` skips to
 its next iteration.
 
+`EXIT FOR i` and `CONTINUE FOR i` name the loop by its variable instead. They act
+on the `FOR` or `FOR EACH` loop whose variable is `i`, even when inner loops sit
+between the exit and that loop. A name no enclosing `FOR` loop has is a compile
+error, `UNKNOWN_FOR_IDENTIFIER`.
+
 ## Errors
 
 Evaluating or converting the start, end, or step can raise a numeric error.
@@ -65,6 +70,23 @@ IMPORT io
 
 FUNC main() AS Nothing
   FOR down = 5 TO 1 STEP -2 : io::print(toString(down)) : NEXT
+END FUNC
+```
+
+Leave the outer loop from inside an inner loop by naming the outer variable:
+
+```
+IMPORT io
+
+FUNC main() AS Nothing
+  FOR i = 1 TO 3
+    FOR j = 1 TO 3
+      IF i = 2 AND j = 2 THEN
+        EXIT FOR i
+      END IF
+      io::print(toString(i) & "," & toString(j))
+    NEXT
+  NEXT
 END FUNC
 ```
 

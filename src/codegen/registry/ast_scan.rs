@@ -75,9 +75,7 @@ fn stmt_types(stmt: &crate::ast::Statement, out: &mut std::collections::HashSet<
                 expr_types(value, out);
             }
         }
-        Statement::Return { value, .. }
-        | Statement::Recover { value, .. }
-        | Statement::Exit { code: value, .. } => {
+        Statement::Return { value, .. } | Statement::Recover { value, .. } => {
             if let Some(value) = value {
                 expr_types(value, out);
             }
@@ -136,7 +134,7 @@ fn stmt_types(stmt: &crate::ast::Statement, out: &mut std::collections::HashSet<
             expr_types(condition, out);
             body.iter().for_each(|s| stmt_types(s, out));
         }
-        Statement::Continue { .. } | Statement::Propagate { .. } => {}
+        Statement::Exit { .. } | Statement::Continue { .. } | Statement::Propagate { .. } => {}
     }
 }
 
@@ -246,8 +244,7 @@ fn stmt_callees(
     match stmt {
         Statement::Let { value, .. }
         | Statement::Return { value, .. }
-        | Statement::Recover { value, .. }
-        | Statement::Exit { code: value, .. } => {
+        | Statement::Recover { value, .. } => {
             if let Some(value) = value {
                 expr_callees(value, out, made);
             }
@@ -302,7 +299,7 @@ fn stmt_callees(
             expr_callees(condition, out, made);
             body.iter().for_each(|s| stmt_callees(s, out, made));
         }
-        Statement::Continue { .. } | Statement::Propagate { .. } => {}
+        Statement::Exit { .. } | Statement::Continue { .. } | Statement::Propagate { .. } => {}
     }
 }
 

@@ -1011,6 +1011,9 @@ pub(crate) struct TrapState {
 #[derive(Clone)]
 pub(crate) struct LoopLabels {
     pub(crate) kind: crate::ast::LoopKind,
+    /// The IR loop name of a `FOR`/`FOR EACH` (`None` for `DO`/`WHILE`). A named
+    /// EXIT/CONTINUE carries this name as its target and finds the loop by it.
+    pub(crate) name: Option<String>,
     pub(crate) continue_label: String,
     pub(crate) exit_label: String,
     pub(crate) cleanup_depth: usize,
@@ -1018,6 +1021,17 @@ pub(crate) struct LoopLabels {
     /// statement-end drop of every statement it leaves inside the body — an `IF` whose
     /// condition made a temp — so it frees the pending temps above this depth (bug-620).
     pub(crate) temp_depth: usize,
+}
+
+impl LoopLabels {
+    /// Whether an EXIT/CONTINUE with this `kind` and `target` acts on this loop: a
+    /// named one matches the loop with that IR name, a bare one the loop of its kind.
+    pub(crate) fn resolves(&self, kind: crate::ast::LoopKind, target: &Option<String>) -> bool {
+        match target {
+            Some(name) => self.name.as_deref() == Some(name.as_str()),
+            None => self.kind == kind,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]

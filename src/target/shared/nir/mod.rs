@@ -197,9 +197,11 @@ pub(crate) enum NirOp {
     },
     ExitLoop {
         kind: LoopKind,
+        target: Option<String>,
     },
     ContinueLoop {
         kind: LoopKind,
+        target: Option<String>,
     },
     ExitProgram {
         code: NirValue,

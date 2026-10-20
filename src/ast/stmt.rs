@@ -9,6 +9,41 @@ use super::*;
 const MAX_STMT_DEPTH: usize = 256;
 
 impl<'a> FileParser<'a> {
+    /// plan-180-B: the loop kind that must follow `EXIT` or `CONTINUE` (`FOR`,
+    /// `DO`, or `WHILE`). Any other follower is one diagnostic — `rule` — reported
+    /// at the token after the keyword, and the statement fails to parse.
+    fn parse_loop_kind_after(&mut self, keyword: &str, rule: &str) -> Option<LoopKind> {
+        if self.match_keyword(Keyword::For) {
+            Some(LoopKind::For)
+        } else if self.match_keyword(Keyword::Do) {
+            Some(LoopKind::Do)
+        } else if self.match_keyword(Keyword::While) {
+            Some(LoopKind::While)
+        } else {
+            let unexpected = self.peek().clone();
+            self.report(
+                rule,
+                &format!("{keyword} must be followed by FOR, DO, or WHILE."),
+                &unexpected,
+            );
+            None
+        }
+    }
+
+    /// The optional loop variable after `EXIT FOR` / `CONTINUE FOR`. Only a `FOR` takes
+    /// one: after `DO`/`WHILE` an identifier is left for the end-of-statement check to
+    /// reject, so `EXIT DO x` keeps its existing error.
+    fn parse_loop_target(&mut self, kind: LoopKind) -> Option<String> {
+        if kind != LoopKind::For {
+            return None;
+        }
+        if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+            self.advance();
+            return Some(name);
+        }
+        None
+    }
+
     pub(super) fn parse_statement(&mut self) -> Option<Statement> {
         if self.check_keyword(Keyword::If) {
             return self.parse_if_statement();
@@ -116,64 +151,30 @@ impl<'a> FileParser<'a> {
 
         if self.match_keyword(Keyword::Exit) {
             let token = self.previous().clone();
-            let target = if self.match_keyword(Keyword::For) {
-                ExitTarget::For
-            } else if self.match_keyword(Keyword::Do) {
-                ExitTarget::Do
-            } else if self.match_keyword(Keyword::While) {
-                ExitTarget::While
-            } else if self.match_keyword(Keyword::Func) {
-                ExitTarget::Func
-            } else if self.match_keyword(Keyword::Program) {
-                ExitTarget::Program
-            } else {
-                let unexpected = self.peek().clone();
-                self.report(
-                    "MFB_PARSE_UNEXPECTED_TOKEN",
-                    "EXIT must be followed by FOR, DO, WHILE, FUNC, or PROGRAM.",
-                    &unexpected,
-                );
-                return None;
-            };
-            let code = if matches!(target, ExitTarget::Program) {
-                Some(self.parse_expression()?)
-            } else {
-                None
-            };
+            let kind = self.parse_loop_kind_after("EXIT", "EXIT_UNKNOWN")?;
+            let target = self.parse_loop_target(kind);
             self.consume_simple_statement_end(
                 "Expected end of statement after EXIT.",
                 allow_else_terminator,
             );
             return Some(Statement::Exit {
+                kind,
                 target,
-                code,
                 line: token.line,
             });
         }
 
         if self.match_keyword(Keyword::Continue) {
             let token = self.previous().clone();
-            let kind = if self.match_keyword(Keyword::For) {
-                LoopKind::For
-            } else if self.match_keyword(Keyword::Do) {
-                LoopKind::Do
-            } else if self.match_keyword(Keyword::While) {
-                LoopKind::While
-            } else {
-                let unexpected = self.peek().clone();
-                self.report(
-                    "MFB_PARSE_UNEXPECTED_TOKEN",
-                    "CONTINUE must be followed by FOR, DO, or WHILE.",
-                    &unexpected,
-                );
-                return None;
-            };
+            let kind = self.parse_loop_kind_after("CONTINUE", "CONTINUE_UNKNOWN")?;
+            let target = self.parse_loop_target(kind);
             self.consume_simple_statement_end(
                 "Expected end of statement after CONTINUE.",
                 allow_else_terminator,
             );
             return Some(Statement::Continue {
                 kind,
+                target,
                 line: token.line,
             });
         }

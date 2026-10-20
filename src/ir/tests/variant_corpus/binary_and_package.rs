@@ -232,7 +232,11 @@ fn binary_round_trip_while_op_with_non_while_loop_kind() {
             vec![IrOp::While {
                 kind,
                 condition: c("Boolean", "true"),
-                body: vec![IrOp::ExitLoop { kind, loc: loc() }],
+                body: vec![IrOp::ExitLoop {
+                    target: None,
+                    kind,
+                    loc: loc(),
+                }],
                 loc: loc(),
             }],
         )];

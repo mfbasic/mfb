@@ -1,0 +1,10 @@
+FUNC doTarget AS Integer
+  DO
+    EXIT DO x
+  LOOP UNTIL TRUE
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

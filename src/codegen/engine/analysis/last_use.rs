@@ -214,6 +214,8 @@ pub(crate) fn read_count(reads: &[Place], place: &Place) -> usize {
 
 struct LoopFrame {
     kind: LoopKind,
+    /// The IR name of a `FOR`/`FOR EACH` (`None` for `DO`/`WHILE`); a named exit finds it.
+    name: Option<String>,
     exit: Places,
     continue_: Places,
 }
@@ -242,8 +244,14 @@ impl<'f> Liveness<'f> {
         live
     }
 
-    fn loop_target(&self, kind: LoopKind, exit: bool) -> Places {
-        match self.loops.iter().rev().find(|frame| frame.kind == kind) {
+    /// The live set an EXIT (`exit`) or CONTINUE reaches: the frame a named target
+    /// names, else the innermost frame of the bare kind.
+    fn loop_target(&self, kind: LoopKind, target: &Option<String>, exit: bool) -> Places {
+        let frame = self.loops.iter().rev().find(|frame| match target {
+            Some(name) => frame.name.as_deref() == Some(name.as_str()),
+            None => frame.kind == kind,
+        });
+        match frame {
             Some(frame) if exit => frame.exit.clone(),
             Some(frame) => frame.continue_.clone(),
             None => self.universe.clone(),
@@ -254,6 +262,7 @@ impl<'f> Liveness<'f> {
     fn fixed_point(
         &mut self,
         kind: LoopKind,
+        name: Option<String>,
         exit: &Places,
         seed: Places,
         mut step: impl FnMut(&mut Self, &Places) -> Places,
@@ -262,6 +271,7 @@ impl<'f> Liveness<'f> {
         loop {
             self.loops.push(LoopFrame {
                 kind,
+                name: name.clone(),
                 exit: exit.clone(),
                 continue_: header.clone(),
             });
@@ -311,8 +321,8 @@ impl<'f> Liveness<'f> {
                 }
                 live
             }
-            NirOp::ExitLoop { kind } => self.loop_target(*kind, true),
-            NirOp::ContinueLoop { kind } => self.loop_target(*kind, false),
+            NirOp::ExitLoop { kind, target } => self.loop_target(*kind, target, true),
+            NirOp::ContinueLoop { kind, target } => self.loop_target(*kind, target, false),
             NirOp::ExitProgram { code } => self.canon.reads(code).into_iter().collect(),
             NirOp::Fail { error } => {
                 let mut live = self.trap_live.clone();
@@ -368,7 +378,7 @@ impl<'f> Liveness<'f> {
                 // Condition first; the body falls back to it.
                 let mut seed = out.clone();
                 self.canon.add(&mut seed, condition);
-                self.fixed_point(*kind, &out, seed, |this, header| {
+                self.fixed_point(*kind, None, &out, seed, |this, header| {
                     let mut next = out.clone();
                     this.canon.add(&mut next, condition);
                     next.extend(this.ops_in(body, header.clone()));
@@ -381,7 +391,7 @@ impl<'f> Liveness<'f> {
                 // against it is the statement's.
                 let mut seed = out.clone();
                 self.canon.add(&mut seed, condition);
-                let check = self.fixed_point(LoopKind::Do, &out, seed, |this, check| {
+                let check = self.fixed_point(LoopKind::Do, None, &out, seed, |this, check| {
                     let mut next = out.clone();
                     this.canon.add(&mut next, condition);
                     next.extend(this.ops_in(body, check.clone()));
@@ -389,6 +399,7 @@ impl<'f> Liveness<'f> {
                 });
                 self.loops.push(LoopFrame {
                     kind: LoopKind::Do,
+                    name: None,
                     exit: out.clone(),
                     continue_: check.clone(),
                 });
@@ -410,11 +421,17 @@ impl<'f> Liveness<'f> {
                 self.canon.add(&mut seed, end);
                 self.canon.add(&mut seed, step);
                 seed.insert(Place::Local(name.clone()));
-                let header = self.fixed_point(LoopKind::For, &out, seed.clone(), |this, header| {
-                    let mut next = seed.clone();
-                    next.extend(this.ops_in(body, header.clone()));
-                    next
-                });
+                let header = self.fixed_point(
+                    LoopKind::For,
+                    Some(name.clone()),
+                    &out,
+                    seed.clone(),
+                    |this, header| {
+                        let mut next = seed.clone();
+                        next.extend(this.ops_in(body, header.clone()));
+                        next
+                    },
+                );
                 let mut live = header;
                 kill(&mut live, name);
                 self.canon.add(&mut live, start);
@@ -432,11 +449,17 @@ impl<'f> Liveness<'f> {
                 // through the body.
                 let mut seed = out.clone();
                 self.canon.add(&mut seed, iterable);
-                let header = self.fixed_point(LoopKind::For, &out, seed.clone(), |this, header| {
-                    let mut next = seed.clone();
-                    next.extend(this.ops_in(body, header.clone()));
-                    next
-                });
+                let header = self.fixed_point(
+                    LoopKind::For,
+                    Some(name.clone()),
+                    &out,
+                    seed.clone(),
+                    |this, header| {
+                        let mut next = seed.clone();
+                        next.extend(this.ops_in(body, header.clone()));
+                        next
+                    },
+                );
                 let mut live = header;
                 kill(&mut live, name);
                 self.canon.add(&mut live, iterable);

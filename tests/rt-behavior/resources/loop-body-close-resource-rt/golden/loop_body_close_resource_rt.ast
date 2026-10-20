@@ -64,7 +64,7 @@
           "line": 25,
           "then": [
           { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 26 },
-          { "kind": "exit", "target": "for", "code": null, "line": 27 }
+          { "kind": "exit", "target": "for", "line": 27 }
           ],
           "else": [
           ]
@@ -145,7 +145,7 @@
             "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "2" } },
             "line": 56,
             "then": [
-            { "kind": "exit", "target": "for", "code": null, "line": 57 }
+            { "kind": "exit", "target": "for", "line": 57 }
             ],
             "else": [
             ]

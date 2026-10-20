@@ -317,20 +317,22 @@ impl ToJson for IrOp {
                     pad, loc.line, value
                 )
             }
-            IrOp::ExitLoop { kind, loc } => {
+            IrOp::ExitLoop { kind, loc, target } => {
                 format!(
-                    "\n{}{{ \"op\": \"exitLoop\", \"line\": {}, \"loop\": {} }}",
+                    "\n{}{{ \"op\": \"exitLoop\", \"line\": {}, \"loop\": {}{} }}",
                     pad,
                     loc.line,
-                    json_string(kind.name())
+                    json_string(kind.name()),
+                    loop_target_json(target)
                 )
             }
-            IrOp::ContinueLoop { kind, loc } => {
+            IrOp::ContinueLoop { kind, loc, target } => {
                 format!(
-                    "\n{}{{ \"op\": \"continueLoop\", \"line\": {}, \"loop\": {} }}",
+                    "\n{}{{ \"op\": \"continueLoop\", \"line\": {}, \"loop\": {}{} }}",
                     pad,
                     loc.line,
-                    json_string(kind.name())
+                    json_string(kind.name()),
+                    loop_target_json(target)
                 )
             }
             IrOp::ExitProgram { code, loc } => {
@@ -908,6 +910,15 @@ impl ToJson for IrRecordUpdate {
             json_string(&self.field),
             self.value.to_json(0)
         )
+    }
+}
+
+/// plan-180-C: the optional `"target"` member of an exit or continue op. It is
+/// written only when the op names a loop, so an unnamed exit's JSON is unchanged.
+fn loop_target_json(target: &Option<String>) -> String {
+    match target {
+        Some(name) => format!(", \"target\": {}", json_string(name)),
+        None => String::new(),
     }
 }
 

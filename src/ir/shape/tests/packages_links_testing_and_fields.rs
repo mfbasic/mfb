@@ -509,39 +509,6 @@ fn expect_trap_requires_a_call_to_guard() {
 // ---- control-flow shapes lowering erases -------------------------------
 
 #[test]
-fn exit_func_is_forbidden_and_ends_the_path() {
-    // plan-159-D: the half of this test that pinned the retired value-less
-    // callable's RETURN/EXIT rules is gone. `EXIT FUNC` is still rejected and
-    // still ends the path, so the statement after it is unreachable.
-    let codes = shape_codes("FUNC main AS Integer\n  EXIT FUNC\n  RETURN 0\nEND FUNC\n");
-    assert_eq!(codes, ["EXIT_FUNC_FORBIDDEN", "UNREACHABLE_AFTER_EXIT"]);
-}
-
-#[test]
-fn unreachable_after_exit_func_names_each_following_statement() {
-    let diagnostics = collect_diagnostics(
-        Path::new("/proj"),
-        &hir_from("FUNC main AS Integer\n  EXIT FUNC\n  LET a = 1\n  RETURN a\nEND FUNC\n"),
-        &[],
-        &[],
-        &HashMap::new(),
-        &[],
-    );
-    let lines: Vec<_> = diagnostics
-        .iter()
-        .map(|d| (d.rule.as_str(), d.line))
-        .collect();
-    assert_eq!(
-        lines,
-        [
-            ("EXIT_FUNC_FORBIDDEN", 2),
-            ("UNREACHABLE_AFTER_EXIT", 3),
-            ("UNREACHABLE_AFTER_EXIT", 4),
-        ]
-    );
-}
-
-#[test]
 fn loop_exit_tail_inside_a_handler_is_shapes() {
     // `treeify_handler` truncates the handler after `EXIT FOR`, so the
     // RECOVER/PROPAGATE behind it never reach the IR.

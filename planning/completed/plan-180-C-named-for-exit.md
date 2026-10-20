@@ -1,0 +1,409 @@
+# plan-180-C: `EXIT FOR <var>` / `CONTINUE FOR <var>`
+
+Last updated: 2026-10-19
+Effort: large (3h–1d)
+Depends on: plan-180-B (prerequisites are stated in plan-180-A)
+
+`EXIT FOR i` leaves, and `CONTINUE FOR i` continues, the enclosing `FOR i` or
+`FOR EACH i` loop — whichever loop owns the variable `i` — through any number of inner
+loops of any kind, including inner `FOR` loops. Bare `EXIT FOR` / `CONTINUE FOR` keep their
+meaning (innermost `FOR`). `DO` and `WHILE` take no variable. A variable that is not an
+enclosing `FOR`/`FOR EACH` loop's variable is `UNKNOWN_FOR_IDENTIFIER`, for both `EXIT` and
+`CONTINUE`.
+
+Observable outcome: in `FOR i … FOR j … EXIT FOR i … NEXT … NEXT`, the `EXIT FOR i` ends
+the outer loop and runs every cleanup the inner loop's exit would, then continues after the
+outer `NEXT` — on every native target and every optimization level.
+
+References:
+
+- `./mfb spec language control-flow` (`10_control-flow.md`, the `EXIT`/`CONTINUE` paragraph);
+  `./mfb spec language bindings-and-scope` (`05_bindings-and-scope.md`, "No shadowing of an
+  in-scope local" — why a variable names exactly one loop).
+- `./mfb spec package ir-section` (`08_ir-section.md`, op table + `version`);
+  `./mfb spec architecture ir` (`04_ir.md`).
+- `.ai/compiler.md`, `.ai/codegen-invariants.md`, `.ai/testing-gates.md`.
+- `plan-180-A-os-exit.md` (prerequisites), `plan-180-B-exit-continue-unknown.md`.
+
+## Prerequisites
+
+| Must be true | Command | Status |
+|---|---|---|
+| plan-180-B complete | `grep -c "Commit: —" planning/completed/plan-180-B-exit-continue-unknown.md` → 0 (archived) | MET (2026-10-20: archived; its one stale Commit line filled with 0db5cd302) |
+| `ExitTarget` is gone (AST `Exit` carries `LoopKind`) | `grep -rn "ExitTarget" src` → no matches | MET (2026-10-20: 0 matches) |
+
+If plan-180-B is not complete, this plan cannot start, full stop.
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run every
+> command before you continue, and again before you decide to stop. If you stop, report the
+> status of *all* prerequisites.
+
+## 1. Goal
+
+- `EXIT FOR <ident>` and `CONTINUE FOR <ident>` parse, check and run as described above.
+- Programs without a named exit compile to byte-identical IR, NIR and machine code.
+
+### Non-goals (explicit constraints)
+
+- Bare `EXIT`/`CONTINUE <kind>` semantics, including reaching past inner loops of other
+  kinds, are unchanged (owner, 2026-10-19).
+- `DO`/`WHILE` loops get no names or labels (owner, 2026-10-19, option 3a).
+- No change to any `.ir`/`.nir`/`.nplan` JSON or text for a bare exit: the new field is
+  written only when present.
+- No back-compat reader for Binary Representation 7.
+
+## 2. Current State
+
+- AST/HIR (after plan-180-B): `Exit { kind: LoopKind, line }`, `Continue { kind, line }`.
+- Lowering: `src/ir/lower.rs` lowers `HirStatement::For` to an `IrOp::For` whose `name` is a
+  **temporary** (`make_temp_local_name(context, "for_iter")` → `$for_iterN`), and binds the
+  user variable inside the body; `HirStatement::ForEach` lowers to `IrOp::ForEach` whose
+  `name` **is** the user variable. `$` is not allowed in user identifiers, so `$for_iterN`
+  never equals a source name. Per-function lowering state is saved/restored where
+  `context.current_return_type` is (`take()`/restore around `lower_function_body`, and
+  around the computed-default function).
+- IR/NIR ops: `ExitLoop { kind, loc }` / `ContinueLoop { kind, loc }` (`src/ir/op.rs`),
+  `NirOp::ExitLoop { kind }` / `ContinueLoop { kind }` (`src/target/shared/nir/mod.rs`).
+  Binary tags 11/12 = `put_loop_kind` + loc (`src/ir/binary.rs`);
+  `BINARY_REPR_VERSION = 7`, decoder requires exactly that.
+- Every place that **resolves** a loop exit by kind (`grep -rnE "(Ir|Nir)Op::(ExitLoop|ContinueLoop) \{ kind" src --include='*.rs'` → 22 sites in 13 files, read):
+  - `src/ir/verify/ops.rs`: `loop_stack: Vec<LoopKind>` (pushed by While, For, DoUntil,
+    ForEach arms); `EXIT_NO_MATCHING_LOOP` / `CONTINUE_NO_MATCHING_LOOP`.
+  - `src/ir/verify/resources.rs:leaves_scanned_loop`: `back_edge_scan = (own kind, nested
+    kinds)` — an exit leaves the scanned loop unless a nested loop has its kind.
+  - `src/codegen/engine/control/builder_control.rs`: `loop_stack: Vec<LoopLabels>`
+    (`src/codegen/engine/builder/mod.rs:LoopLabels { kind, continue_label, exit_label,
+    cleanup_depth, temp_depth }`), searched innermost-first by kind; four push sites
+    (While, DoUntil, For, ForEach).
+  - `src/codegen/engine/analysis/last_use.rs`: `LoopFrame { kind, exit, continue_ }`,
+    `loop_target(kind, exit)`, frames pushed by `fixed_point(kind, …)`.
+  - `src/optimizer/opt1/plans/loops.rs:captures_loop_control` (used by `peel.rs`,
+    `rotate.rs`) — whether a transform's newly introduced loop would capture an exit.
+  - Serializers: `src/ir/json.rs`, `src/target/shared/nir/json.rs`, `src/ir/binary.rs`,
+    `src/target/shared/plan/function_builder.rs` (`.nplan` text "exit for").
+  - `src/target/shared/nir/lower.rs` (IR→NIR copy); `src/ir/tests.rs`,
+    `src/ir/variant_corpus_tests.rs` (construct ops).
+- Loop-duplicating optimizer passes rename declared names in the copy:
+  `src/optimizer/opt1/plans/loops.rs:freshened_clone` (`declared_names` includes `For` and
+  `ForEach` names; `rename_op` skips `ExitLoop`/`ContinueLoop`), verified by
+  `plans/reads.rs:NameUses::census` (does not count exit ops). Users: `peel.rs`,
+  `unswitch.rs` (copies a whole `For` loop), `fission.rs`. Fission/fusion only move
+  `pure_statement`s, which excludes exit ops (`pure_statement`'s `_ => false`).
+- Other walkers match `ExitLoop { .. }` / `ContinueLoop { .. }` and need no change
+  (`grep -rnE "(Ir|Nir)Op::(ExitLoop|ContinueLoop) \{ \.\. \}" src --include='*.rs' | wc -l` → 73).
+- Committed `.mfp` files that embed Binary Representation: 163
+  (`git ls-files | grep -c '\.mfp$'`). Precedent for a version bump: `44288aae1` (v6→7)
+  followed by `cfd159f10` "packages: rebuild committed .mfp for BINARY_REPR 7", whose
+  message lists the procedure (sync script for 149 copies, five crafted security vectors via
+  `tools/security-package-sources/pkg-0{2,2b,2c,3,7}/generate.py`, vendored libsnd and
+  sqlite3 rebuilt with their original manifests).
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| Kind-resolving exit sites | 22 in 13 files | `grep -rnE "(Ir\|Nir)Op::(ExitLoop\|ContinueLoop) \{ kind" src --include='*.rs' \| wc -l` |
+| Wildcard exit sites (unchanged) | 73 | as above with `\{ \.\. \}` |
+| `.ir` goldens with an exit/continue op (must not move) | 94 | `grep -rlE '"op": "(exitLoop\|continueLoop)"' tests --include='*.ir' \| wc -l` |
+| Committed `.mfp` | 163 | `git ls-files \| grep -c '\.mfp$'` |
+
+### Verified properties
+
+- **A variable names one loop.** `05_bindings-and-scope.md` forbids re-declaring an
+  in-scope name, so `FOR i` cannot enclose another `FOR i`/`FOR EACH i`; the innermost
+  match is the only match in source.
+- **Resolved targets never collide after optimization.** A clone made by `freshened_clone`
+  renames its loop names; with exit targets renamed too (Phase 2), every target in the copy
+  names the copy's loop. Uncloned siblings (`unswitch`'s then-copy) keep the original name,
+  but are siblings, not nested, so innermost-first lookup is still exact.
+- **No transform introduces a `For`/`ForEach`.** `rotate` introduces `DoUntil`, `peel`
+  copies a `While` body out of its loop, `unswitch` duplicates an existing loop; a named
+  target only ever matches a `For`/`ForEach` by name, so `captures_loop_control` is `false`
+  for it.
+
+## 3. Design Overview
+
+- **Source.** `Statement::Exit { kind, target: Option<String>, line }`, same on `Continue`
+  and the HIR. The parser accepts an identifier after `EXIT FOR` / `CONTINUE FOR` only;
+  after `DO`/`WHILE` an identifier hits the existing "Expected end of statement after
+  EXIT/CONTINUE." error. AST JSON writes `"var": "<name>"` only when present.
+- **Resolution at lowering.** `LowerContext` gains `loop_targets: Vec<(String, String)>`
+  — (source variable, IR loop name) — pushed around `For` (`(name, $for_iterN)`) and
+  `ForEach` (`(name, name)`) body lowering, taken/restored with `current_return_type` so it
+  never crosses a function or lambda boundary. A named exit lowers to
+  `ExitLoop { kind: For, target: Some(ir_name) }` using the innermost match; when no entry
+  matches, `target: Some(source_name)` — a name no enclosing loop carries.
+- **Check.** `ir::verify` `loop_stack` becomes `Vec<(LoopKind, Option<String>)>` (For and
+  ForEach push their op `name`). A named exit with no stack entry of that name emits
+  `UNKNOWN_FOR_IDENTIFIER` (`2-203-0148`): "`<x>` is not the variable of an enclosing FOR
+  loop." — the unresolved target still holds the source name, so the message names it.
+- **IR/NIR/binary.** `target: Option<String>` on both ops in IR and NIR; JSON writes
+  `"target"` only when `Some`; binary tags 11/12 append `put_opt_str`;
+  `BINARY_REPR_VERSION` 7 → 8.
+- **Every resolver** matches `target: Some(t)` by loop name (innermost entry whose name is
+  `t`) and `None` by kind exactly as today: verify `loop_stack`, `leaves_scanned_loop`
+  (scan state carries the scanned loop's name and the nested loops' names), codegen
+  `LoopLabels` (new `name: Option<String>`, `Some` at the For/ForEach pushes),
+  `last_use` `LoopFrame` (same field, passed through `fixed_point`), `captures_loop_control`
+  (named → `false`), `.nplan` text (`exit for $for_iter3` when named).
+- **Optimizer renames.** `NameUses::visit_op` counts an exit's target; `rename_op` renames
+  it. A missed rename is then caught by `freshened_clone`'s own census check (it refuses
+  the clone) instead of producing a dangling target.
+
+Correctness risk concentrates in codegen's cleanup on a named exit (it must use the
+*target* loop's `cleanup_depth`/`temp_depth`, which `emit_cleanup_branch_to_depth` already
+takes from the found `LoopLabels`) and in `last_use` liveness (the exit's live set is the
+target frame's `exit`, not the innermost frame's). Both are covered by Phase 4 runtime tests
+with a resource-owning inner loop. Gate class: programs without a named exit must be
+**byte-identical** in IR/NIR/`.ncode`; the only expected diffs are the Binary Representation
+version byte in `.br` dumps and rebuilt `.mfp` files (and package-id-derived symbols in
+fixtures that import a rebuilt `.mfp`, as in `cfd159f10`).
+
+Rejected alternatives:
+- *Depth counts* (`skip: n` same-kind loops) — any transform that adds, removes or wraps a
+  same-kind loop silently retargets the exit; names are stable under every existing pass.
+- *Matching the source variable at codegen* — counted `FOR` loops are keyed by
+  `$for_iterN`, not the variable; resolving once at lowering keeps every later layer
+  name-only.
+- *Labels on all loops* — owner chose `FOR`-only (3a).
+- *New op tags instead of a version bump* — the format rule is one version per format; the
+  `.mfp` rebuild has a script and a precedent.
+
+## Phases
+
+> **NOTE — keep the checkboxes current as you go.** Tick in the same commit as the work;
+> `- [~]` for partial; strike through moot tasks with evidence. **An unticked box means NOT
+> DONE.**
+
+### Phase 1 — carry the target through IR, NIR and the package format
+
+Representation only; nothing creates a target yet, so all output is byte-identical except
+the version.
+
+- [x] `src/ir/op.rs`, `src/target/shared/nir/mod.rs`: `target: Option<String>` on
+      `ExitLoop`/`ContinueLoop`; every constructor passes `None`
+      (`src/ir/lower.rs`, `src/ir/tests.rs`, `src/ir/variant_corpus_tests.rs`, optimizer
+      tests in `peel.rs`/`rotate.rs`/`unswitch.rs`/`uce.rs`).
+- [x] `src/target/shared/nir/lower.rs`: copy `target`.
+- [x] `src/ir/json.rs`, `src/target/shared/nir/json.rs`: write `"target"` only when `Some`.
+- [x] `src/ir/binary.rs`: tags 11/12 encode/decode `put_opt_str`/`opt_string` after the
+      kind; `BINARY_REPR_VERSION = 8`; round-trip unit test with `Some("$for_iter1")`.
+- [x] `src/docs/spec/package/08_ir-section.md`: version **8**, what v8 adds, why v7 is
+      refused; `src/docs/spec/architecture/04_ir.md`: `ExitLoop`/`ContinueLoop` carry an
+      optional target.
+
+Acceptance: every IR/NIR golden unchanged; the binary round-trips a target.
+  Check: `cargo test --bin mfb ir::binary` → pass; `bash scripts/artifact-gate.sh
+  target/release/mfb collections` → only `.br` version diffs (est. 2 min).
+Commit: f00885721
+
+### Phase 2 — resolve by name everywhere a loop exit is resolved
+
+- [x] `src/ir/verify/ops.rs`: `loop_stack: Vec<(LoopKind, Option<String>)>`; named lookup;
+      `UNKNOWN_FOR_IDENTIFIER` (add `2-203-0148` to `src/rules/table.rs` and
+      `01_rule-codes.md`).
+- [x] `src/ir/verify/resources.rs`: `back_edge_scan` carries own name + nested names;
+      `leaves_scanned_loop` resolves named exits/continues by name.
+- [x] `src/codegen/engine/builder/mod.rs:LoopLabels` + the four pushes in
+      `builder_control.rs`; the `ExitLoop`/`ContinueLoop` arms look up by name when
+      `target` is `Some`.
+- [x] `src/codegen/engine/analysis/last_use.rs`: `LoopFrame.name`, `fixed_point` takes it,
+      `loop_target(kind, target, exit)`.
+- [x] `src/optimizer/opt1/plans/loops.rs`: `captures_loop_control` returns `false` for a
+      named exit; `rename_op` renames `target`. `plans/reads.rs:NameUses::visit_op` bumps it.
+- [x] `src/target/shared/plan/function_builder.rs`: `exit for <target>` /
+      `continue for <target>` when named.
+- [x] Unit tests: verify (named hit, named miss → `UNKNOWN_FOR_IDENTIFIER`, named through an
+      inner `FOR`); `captures_loop_control` named → false; `freshened_clone` renames a target
+      inside a cloned `For`; `leaves_scanned_loop` named exit past a nested `For`.
+
+Acceptance: hand-built NIR/IR with named targets verifies, plans and survives cloning.
+  Check: `cargo test --bin mfb ir::verify` and `cargo test --bin mfb optimizer::opt1::plans` → pass (est. 2 min).
+Commit: 817f7d262
+
+### Phase 3 — source syntax and lowering
+
+- [x] `src/ast/types.rs`, `src/hir/mod.rs`, `src/monomorph/lower.rs`: `target` on
+      `Exit`/`Continue` (monomorph copies it unchanged — it does not rename locals).
+- [x] `src/ast/stmt.rs`: optional identifier after `EXIT FOR` / `CONTINUE FOR`.
+      `src/ast/serialize.rs`: `"var"` when present.
+- [x] `src/ir/lower.rs`: `LowerContext.loop_targets` (pushed in the `For`/`ForEach` arms,
+      taken/restored at every `current_return_type` save site); named exits resolve per §3.
+- [x] `src/fmt.rs`: unit test that `EXIT FOR i` / `CONTINUE FOR i` format unchanged inside
+      nested loops.
+- [x] Syntax fixture `tests/syntax/control-flow/exit-for-unknown-identifier-invalid`:
+      `EXIT FOR k` and `CONTINUE FOR k` where `k` is a plain local, a `DO`-loop's counter,
+      and an outer function's loop variable seen from a lambda → each
+      `UNKNOWN_FOR_IDENTIFIER`; `EXIT DO x` → the existing end-of-statement parse error.
+
+Acceptance: named exits parse, resolve and report.
+  Check: `bash scripts/test-accept.sh target/release/mfb /tmp/acc-180c
+  'exit-for-unknown-identifier-invalid'` → pass (est. 1 min).
+Commit: f6d51bc3d
+
+### Phase 4 — runtime behaviour (largest blast radius)
+
+- [x] `tests/rt-behavior/control-flow/exit-for-named-rt/` with `.run` golden: `EXIT FOR i`
+      from inside `FOR j`, from inside `WHILE` inside `FOR j`, from a `FOR EACH`, and
+      `CONTINUE FOR i` from inside `FOR j` (inner loop restarts, outer increments once);
+      prints the visited `(i, j)` pairs. Plus a case whose inner loop owns a `RES` and a
+      `List` temp, exited by `EXIT FOR i`, run under the leak checker the rt-behavior
+      harness uses (`tests/runtime/rt_scope_drop_leaks.rs` pattern) → no leak.
+- [x] Run it at every optimization level and on the remote targets per
+      `.ai/remote_systems.md` (native aarch64 box 2223 for Linux; x86_64/riscv64 cross
+      builds' `.run` via the standard harness).
+- [x] `src/docs/spec/language/10_control-flow.md`: the named form, its resolution rule,
+      `UNKNOWN_FOR_IDENTIFIER`; `mfb man flow` guide topic gets one example
+      (`src/docs/man/flow/`).
+- [x] Rebuild the committed `.mfp` files per the `cfd159f10` procedure
+      (`bash scripts/sync-package-mfp.sh target/release/mfb`, then the five crafted security
+      vectors and the vendored libsnd/sqlite3 copies with their original manifests), in its
+      own commit.
+
+Acceptance: the named-exit program prints the expected pairs and leaks nothing on every
+target and level.
+  Check: `bash scripts/test-accept.sh target/release/mfb /tmp/acc-180c 'exit-for-named-rt'`
+  → pass; the leak test binary → pass (est. 5 min host; remote per box).
+Commit: ff9bf0875 (fixture, leak test, man), db6a86d34 (`.mfp` rebuild; tool fix 2926aaca1)
+
+## Validation Plan
+
+- Tests: Phase 2 unit tests; Phase 3 syntax fixture; Phase 4 rt fixture + leak check.
+- Coverage check: `grep -rn "EXIT FOR [a-z]\|CONTINUE FOR [a-z]" tests` hits a `FOR`
+  target, a `FOR EACH` target, an inner `FOR`, an inner `WHILE`, a resource-owning inner
+  loop and every miss case.
+- Runtime proof: the Phase 4 program on macos-aarch64, linux-aarch64 (box 2223),
+  linux-x86_64, linux-riscv64, windows-x86_64.
+- Doc sync: `10_control-flow.md`, `04_ir.md`, `08_ir-section.md`, `01_rule-codes.md`,
+  `src/docs/man/flow/`.
+- Final gate (once): `bash scripts/test-fast.sh`; the optimizer sweep
+  `cargo test --bin mfb builtins_codegen::optimizer::` (named exits meet every loop
+  transform); `bash scripts/artifact-gate.sh target/release/mfb all` (15–20 min — the only
+  proof that no program without a named exit moved) and a full `bash
+  scripts/test-accept.sh target/release/mfb /tmp/acc-180c-full`. Expected diffs: `.br`
+  version bytes, rebuilt `.mfp`, package-id-derived symbols in fixtures importing them.
+
+## Decisions
+
+- `EXIT FOR <var>` / `CONTINUE FOR <var>` target the `FOR` or `FOR EACH` loop that owns
+  `<var>`; `DO`/`WHILE` take no variable — owner, 2026-10-19 (option 3a).
+- Bare `EXIT`/`CONTINUE <kind>` stay, innermost-of-kind, still reaching past inner loops of
+  other kinds — owner, 2026-10-19.
+- An unknown loop variable is `UNKNOWN_FOR_IDENTIFIER` for both `EXIT` and `CONTINUE` —
+  owner, 2026-10-19.
+- Targets are resolved once in IR lowering to the IR loop's name — author (counted `FOR`
+  loops are keyed by a temporary).
+- Binary Representation bumps to 8 — author (one version per format, precedent `44288aae1`).
+
+## Corrections
+
+- **Phase 1 `.br` prediction was wrong (measured).** The plan expected `.br` version-byte diffs
+  from `artifact-gate.sh collections`. `git ls-files | grep -c '\.br$'` → 0 and
+  `grep -n '\.br\b' scripts/artifact-gate.sh` → no match, so no `.br` file is in any golden
+  and the gate has nothing to diff. Phase 1 result: `bash scripts/artifact-gate.sh
+  target/release/mfb collections` → `1 tests, 6 build(s), 7 golden(s) checked, 0 diff(s)`.
+  The version byte is still exercised by `cargo test --bin mfb ir::binary` (4 passed) and
+  `named_loop_exit_round_trips_its_target` (1 passed).
+- **Phase 1 expected package breakage (measured, owned by Phase 4).** `git ls-files | grep -c
+  '\.mfp$'` → 163 committed packages still embed `BINARY_REPR` 7, which the v8 decoder refuses.
+  Phase 1 does not import them, so its acceptance is unaffected. Phase 4's rebuild restores
+  them; the plan's `44288aae1` → `cfd159f10` precedent accepts the same intermediate state.
+- **Phase 1 site count (measured).** The new `target` field needed a value at every constructor
+  and pattern site that `cargo check --workspace --all-targets` reported (constructors get
+  `target: None`, patterns get `target: _`). No behaviour change: every op is `None` until
+  Phase 2 creates a target.
+
+- **Phase 2 paths corrected (measured).** `src/rules/table.rs` does not exist; the rule is in
+  `src/rules/table/type_check.rs` (`2-203-0148` `UNKNOWN_FOR_IDENTIFIER`, next free after
+  `2-203-0147`). `src/ir/verify/resources.rs` is `src/ir/verify/resources/mod.rs`; the binary codec
+  is `src/ir/binary/mod.rs` + `src/ir/binary/op_codec.rs` (`git ls-files src/ir/binary`).
+- **Phase 2 tests placed where the code lives.** Verifier resolution: `src/ir/verify/tests/named_loop_exits.rs`
+  (8 tests, `cargo test --bin mfb named` → pass). `leaves_scanned_loop`: `src/ir/verify/resources/tests.rs`,
+  calling the private method through `TypeEnv::build` (2 tests, pass). `captures_loop_control` and
+  `freshened_clone`: `#[cfg(test)] mod tests` at the end of `src/optimizer/opt1/plans/loops.rs`
+  (2 tests, pass). The plan named no file for these, so the placement is a choice, not a deviation.
+- **Phase 2 acceptance measured.** `cargo test --bin mfb ir::verify` → 500 passed;
+  `cargo test --bin mfb optimizer::opt1::plans` → 6 passed; `cargo test --bin mfb rules` → 23 passed;
+  `cargo check --workspace --all-targets` → exit 0, 0 warnings.
+- **Phase 2 `.nplan` text.** Bare exits print exactly as before (`exit for`, unchanged); a named
+  exit prints ` for <target>` (`loop_target_text` in `src/target/shared/plan/function_builder.rs`).
+
+- **Phase 3 lambda case cannot be written; replaced by the boundary guard.** The plan's fixture case
+  "an outer function's loop variable seen from a lambda" is not expressible: `LAMBDA(...) -> <expr>`
+  takes only an expression body (`grep -rn "LAMBDA(.*)$" tests --include='*.mfb'` shows every
+  block-less form), and `EXIT`/`CONTINUE` are statements. The lowering still resets
+  `LowerContext.loop_targets` around the lambda body (`src/ir/lower/expression.rs`, `Lambda` arm),
+  as the function-body and computed-default sites do, so no outer loop name can reach a lifted
+  function. That reset is defensive: it cannot be hit from source today.
+- **Phase 3 fixture split (measured).** `EXIT DO x` is a parse error (`MFB_PARSE_UNEXPECTED_TOKEN`),
+  and a parse error stops the build before the verifier runs: `mfb build /tmp/p180/doexit` printed only
+  that error. In one fixture it would hide both `UNKNOWN_FOR_IDENTIFIER` cases, so the parse case is its
+  own fixture, `tests/syntax/control-flow/exit-do-target-invalid`. The main fixture
+  `exit-for-unknown-identifier-invalid` holds the plain-local and DO-loop cases.
+- **Phase 3 path corrections (measured).** `src/ir/lower.rs` is `src/ir/lower/{mod,statement,decls,expression}.rs`;
+  `src/ast/serialize.rs` is `src/ast/serialize/{mod,body}.rs`; `src/fmt.rs` tests are in `src/fmt/tests/mod.rs`.
+- **Counted FOR resolution keeps temp numbering.** `FOR EACH` lowers its iterable before its body, as the
+  struct literal did, so temporaries keep their names and output stays byte-identical.
+- **Phase 3 acceptance measured.** `bash scripts/test-accept.sh target/release/mfb <dir>
+  'exit-for-unknown-identifier-invalid' 'exit-do-target-invalid'` → `acceptance tests passed (2 test(s) ran)`;
+  `cargo test --bin mfb fmt` → 70 passed (includes `named_exit_and_continue_targets_do_not_open_blocks`).
+- **Spec updated in this phase.** `src/docs/spec/language/10_control-flow.md` gained the named-form
+  paragraph here, because the syntax is observable; the Phase 4 doc item covers only `mfb man flow`.
+
+- **Phase 4 remote targets are unreachable from this environment (measured).**
+  `ssh -p 2223 -o BatchMode=yes test@127.0.0.1 "uname -m"` → `Connection refused` (exit 255); the same
+  for 2227 and 2229. The plan's remote items (`.ai/remote_systems.md`: 2223 Linux aarch64, plus
+  x86_64/riscv64) therefore have no run. The host proof is done: `MFB_OPT=0`/`MFB_OPT=3`
+  harness runs pass, and the program's stdout matches the golden at `-O0` and `-O3` (diffed,
+  19 lines each). The `MFB_OPT=0` harness run skips level-variant golden comparison
+  (`level_variant_skip_for`, `scripts/test-accept.sh`), so the diff is the proof, not the harness pass.
+- **Phase 4 leak test is a separate module.** The plan put the leak run in the rt-behavior fixture; the
+  leak harness is peak-RSS (`assert_flat`, `tests/runtime/rt_scope_drop_leaks.rs`), so the two cases live in
+  `tests/runtime/rt_scope_drop_leaks/named_loop_exits.rs`. `cargo test --test rt_scope_drop_leaks a_named_` →
+  2 passed (87.5 s). This pins that the outer loop is flat, not that the leak check would catch a
+  missing cleanup; no negative control was run.
+- **Phase 4 `.run` is a marker.** `golden/<pkg>.run` is only the "execute" marker (`scripts/test-accept.sh`
+  note at the `<pkg>.run` marker); the program's output is compared through `golden/build.log`.
+- **Phase 4 man topic.** `src/docs/man/flow/for.md` gained the named form and one example. The example was
+  built and run from `/tmp/p180/manex`: output `1,1 1,2 1,3 2,1`.
+
+- **Phase 4 `.mfp` rebuild: the procedure needed two steps the sync script does not do (measured).**
+  `scripts/sync-package-mfp.sh target/release/mfb` → `updated 148, unchanged 0, frozen 1
+  (build-failed/skipped 9, no committed copy 21)`. Its 9 build-failed fixtures hold no committed `.mfp`
+  (`git ls-files | grep "\.mfp$"` against their paths → nothing). Not covered by the sync, done by hand:
+  the five crafted vectors (`python3 tools/security-package-sources/<pkg>/generate.py`); the three
+  libsnd copies and the sqlite3 copy, built from `packages/` with the manifest each copy was last built
+  from (libsnd 1.5.0 from `git show b4114b039^:packages/libsnd/project.json`, sqlite3 from
+  `git show f8eb67b0b^:packages/sqlite3/project.json`), with `config` renamed `options` (the compiler's
+  `PROJECT_JSON_CONFIG_MOVED_OPTION` names exactly that rename).
+- **The security generators did not run: `mfp_craft.py` read `src/ir/binary.rs`** (`FileNotFoundError`,
+  stale since the file-size split made it `src/ir/binary/mod.rs`). Fixed in `2926aaca1`, its own commit.
+- **Not regenerated: `pkg-01`, `pkg-04`, `pkg-05`, `pkg-06`, `pkg-08`.** The precedent named only the five
+  hand-encoded vectors. `pkg-01`'s generator also re-derives an `identKey` that the consumer `project.json`
+  pins, so regenerating it can change a pin, not just bytes. Their committed copies still pass their
+  goldens: `scripts/test-accept.sh target/release/mfb <dir> 'pkg-0*' 'allocator-04*'
+  'native-link-import-sqlite*' 'libsnd-*'` → `acceptance tests passed (16 test(s) ran)`.
+- **Repository pin.** `cargo test --manifest-path repository/Cargo.toml a_real_compiler_produced_package_still_parses`
+  → ok. The pin asserts seven vendor locators, which is the 1.5.0 manifest's count; the rebuilt copy keeps it.
+
+- **Validation Plan results (measured).** `scripts/test-fast.sh` → `test-fast: ok`, `exit=0`.
+  `cargo test --bin mfb builtins_codegen::optimizer::` → `3 passed`.
+  `scripts/artifact-gate.sh target/release/mfb all` → first run `12 diff(s)`: 10 `.ncodesum`
+  (`resource-xfer-slots`, `thread`; each normalises to zero diff after the package-id prefix is removed, all
+  five targets, `/tmp/p180/ncode_compare.sh`) and 2 `.hex` (one byte, the version 7→8 byte). Re-baselined in
+  `c6063f396`; rerun → `1708 tests, 1887 build(s), 2366 golden(s) checked, 0 diff(s)`.
+  `scripts/test-accept.sh target/release/mfb <dir>` (full) → first run `12 mismatch(es)`, all package
+  `.info` goldens whose only difference is `package binary hash` / `content hash` lines (checked per file with
+  `grep -v hash:`). Re-baselined; rerun → `acceptance tests passed (1742 test(s) ran)`.
+  The first full acceptance run had been killed (exit 137) when the previous session ended; it was rerun in full.
+- **Remote targets run (measured).** The first probe found 2223, 2227 and 2229 refusing connections;
+  the owner then reported them online. Re-probed and run with `FILTER=exit-for-named-rt
+  scripts/linux-runtime-proof.sh target/release/mfb <port> <target> <flavor>`:
+  2223 linux-aarch64 glibc → `1 passed, 0 failed`; 2227 linux-x86_64 musl → `1 passed, 0 failed`;
+  2229 linux-riscv64 musl → `1 passed, 0 failed`.
+
+## Summary
+
+Risk is in codegen cleanup depth and liveness for an exit that crosses inner loops; both
+reuse the found loop's recorded depths and are pinned by the Phase 4 leak test. Programs
+without named exits must not change.

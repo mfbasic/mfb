@@ -230,7 +230,7 @@ FUNC f AS Integer
   CONTINUE FOR
   FAIL \"boom\"
   PROPAGATE
-  EXIT PROGRAM 1
+  os::exit(1)
   RETURN total
 END FUNC
 ";

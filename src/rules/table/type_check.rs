@@ -529,6 +529,18 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "a map literal names the same constant key twice",
     },
+    Rule {
+        code: "2-203-0147",
+        name: "CONTINUE_UNKNOWN",
+        severity: Severity::Error,
+        message: "CONTINUE must be followed by FOR, DO, or WHILE",
+    },
+    Rule {
+        code: "2-203-0148",
+        name: "UNKNOWN_FOR_IDENTIFIER",
+        severity: Severity::Error,
+        message: "is not the variable of an enclosing FOR loop",
+    },
     // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
     // inline-lowered builtin is now trappable (raw-supported or infallible), so an
     // inline TRAP is legal on all of them. The code is now reused for
@@ -745,21 +757,21 @@ pub(super) const RULES: &[Rule] = &[
     },
     Rule {
         code: "2-203-0078",
-        name: "EXIT_FUNC_FORBIDDEN",
+        name: "EXIT_UNKNOWN",
         severity: Severity::Error,
-        message: "EXIT FUNC is forbidden; functions must RETURN a value",
+        message: "EXIT must be followed by FOR, DO, or WHILE",
     },
     Rule {
         code: "2-203-0079",
         name: "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
         severity: Severity::Error,
-        message: "EXIT PROGRAM requires an Integer exit code",
+        message: "reserved: retired by plan-180-A (os::exit takes an ordinary Integer argument)",
     },
     Rule {
         code: "2-203-0080",
-        name: "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
+        name: "OS_EXIT_CODE_OUT_OF_RANGE",
         severity: Severity::Error,
-        message: "EXIT PROGRAM constant exit code is outside the host range",
+        message: "os::exit constant exit code is outside the host range",
     },
     Rule {
         code: "2-203-0081",

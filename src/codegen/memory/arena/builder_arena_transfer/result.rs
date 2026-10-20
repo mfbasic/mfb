@@ -136,7 +136,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             source_raw_slot,
         ));
-        // bug-841: `EXIT PROGRAM` (a HOF callback's, a worker's) is not the
+        // bug-841: `os::exit` (a HOF callback's, a worker's) is not the
         // handler's to catch.
         self.emit_inline_trap_program_exit_passthrough(tag_slot, value_slot)?;
         // `OwnedByThisFrame`: the producer handed back the only pointer to a block
@@ -200,7 +200,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             source_raw_slot,
         ));
-        // bug-841: `EXIT PROGRAM` (a HOF callback's, a worker's) is not the
+        // bug-841: `os::exit` (a HOF callback's, a worker's) is not the
         // handler's to catch — checked before the worker remap below folds every
         // non-`Ok` tag into `RESULT_ERR_TAG`.
         self.emit_inline_trap_program_exit_passthrough(tag_slot, value_slot)?;

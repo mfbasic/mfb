@@ -442,6 +442,7 @@ fn register_publishes_the_whole_os_surface() {
         "uptime",
         "isAdmin",
         "sleep",
+        "exit",
     ];
     for member in expected {
         assert!(

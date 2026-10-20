@@ -10,7 +10,7 @@
 //! -1). A resource stored into one — produced here, or arriving through a
 //! parameter from a scope that exits first — is owned by the module instance and
 //! closed exactly once at instance teardown: program exit (normal, error, or
-//! `EXIT PROGRAM`) for the main instance, thread exit for a worker's own
+//! `os::exit`) for the main instance, thread exit for a worker's own
 //! instance. Removing the last global view does not close it; an explicit close
 //! still does, and the teardown close is then a no-op.
 //!
@@ -348,7 +348,7 @@ END FUNC
     assert_eq!(run.file("closed.txt"), "flushed");
 }
 
-/// `EXIT PROGRAM` from a nested call is an instance teardown too.
+/// `os::exit` from a nested call is an instance teardown too.
 #[test]
 fn exit_program_closes_global_resources() {
     let run = build_and_run(
@@ -361,7 +361,7 @@ FUNC put() AS Nothing
 END FUNC
 
 FUNC quit() AS Nothing
-  EXIT PROGRAM 3
+  os::exit(3)
 END FUNC
 
 FUNC main() AS Nothing

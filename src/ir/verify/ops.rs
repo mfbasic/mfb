@@ -1,6 +1,19 @@
 use super::*;
 
 impl TypeEnv {
+    /// Whether an EXIT/CONTINUE has an enclosing loop to act on. A named exit
+    /// (`target` is the IR loop name) matches the enclosing loop carrying that
+    /// name; a bare one matches the innermost enclosing loop of its kind.
+    fn loop_exit_resolves(&self, kind: crate::ast::LoopKind, target: &Option<String>) -> bool {
+        let stack = self.loop_stack.borrow();
+        match target {
+            Some(name) => stack
+                .iter()
+                .any(|(_, loop_name)| loop_name.as_deref() == Some(name)),
+            None => stack.iter().any(|(loop_kind, _)| *loop_kind == kind),
+        }
+    }
+
     // 2. `check_ops` — per-op structural + type checks (one large dispatch)
     // ===========================================================================
 
@@ -433,25 +446,6 @@ impl TypeEnv {
                 IrOp::ExitProgram { code: value, .. } => {
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
-                    // The exit code must be an Integer, and a constant code
-                    // must fit the host's 0..255 exit-status range.
-                    if let Some(actual) = self.infer_type(value, locals) {
-                        if !self.assignable(&ParameterType::Integer, &actual, value) {
-                            self.emit(
-                                "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
-                                format!("EXIT PROGRAM code has type {actual}, expected Integer."),
-                            );
-                        }
-                    }
-                    if let Some(code) = integer_constant_value(value) {
-                        if !(0..=255).contains(&code) {
-                            self.emit(
-                                "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
-                                "EXIT PROGRAM constant exit code must be in the host range 0..255."
-                                    .to_string(),
-                            );
-                        }
-                    }
                 }
                 IrOp::Fail { error: value, .. } => {
                     self.check_value_captures(value, closure_slots);
@@ -515,23 +509,35 @@ impl TypeEnv {
                         self.check_literal_range(&ret, value);
                     }
                 }
-                IrOp::ExitLoop { kind, .. } => {
-                    if !self.loop_stack.borrow().iter().any(|k| k == kind) {
-                        self.emit(
-                            "EXIT_NO_MATCHING_LOOP",
-                            format!("EXIT {} has no matching enclosing loop.", kind.keyword()),
-                        );
+                IrOp::ExitLoop { kind, target, .. } => {
+                    if !self.loop_exit_resolves(*kind, target) {
+                        match target {
+                            Some(name) => self.emit(
+                                "UNKNOWN_FOR_IDENTIFIER",
+                                format!("{name} is not the variable of an enclosing FOR loop."),
+                            ),
+                            None => self.emit(
+                                "EXIT_NO_MATCHING_LOOP",
+                                format!("EXIT {} has no matching enclosing loop.", kind.keyword()),
+                            ),
+                        }
                     }
                 }
-                IrOp::ContinueLoop { kind, .. } => {
-                    if !self.loop_stack.borrow().iter().any(|k| k == kind) {
-                        self.emit(
-                            "CONTINUE_NO_MATCHING_LOOP",
-                            format!(
-                                "CONTINUE {} has no matching enclosing loop.",
-                                kind.keyword()
+                IrOp::ContinueLoop { kind, target, .. } => {
+                    if !self.loop_exit_resolves(*kind, target) {
+                        match target {
+                            Some(name) => self.emit(
+                                "UNKNOWN_FOR_IDENTIFIER",
+                                format!("{name} is not the variable of an enclosing FOR loop."),
                             ),
-                        );
+                            None => self.emit(
+                                "CONTINUE_NO_MATCHING_LOOP",
+                                format!(
+                                    "CONTINUE {} has no matching enclosing loop.",
+                                    kind.keyword()
+                                ),
+                            ),
+                        }
                     }
                 }
                 IrOp::If {
@@ -624,7 +630,7 @@ impl TypeEnv {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
                     self.check_condition_boolean("WHILE condition", condition, locals);
-                    self.loop_stack.borrow_mut().push(*kind);
+                    self.loop_stack.borrow_mut().push((*kind, None));
                     self.check_ops_in_branch(body, locals, muts, closure_slots, depth);
                     self.loop_stack.borrow_mut().pop();
                 }
@@ -700,7 +706,9 @@ impl TypeEnv {
                     // The loop counter is immutable inside the body (the former source checker
                     // registers it `mutable: false`).
                     branch_muts.insert(name.clone(), false);
-                    self.loop_stack.borrow_mut().push(crate::ast::LoopKind::For);
+                    self.loop_stack
+                        .borrow_mut()
+                        .push((crate::ast::LoopKind::For, Some(name.clone())));
                     self.check_ops(
                         body,
                         &mut branch,
@@ -715,7 +723,9 @@ impl TypeEnv {
                 } => {
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
-                    self.loop_stack.borrow_mut().push(crate::ast::LoopKind::Do);
+                    self.loop_stack
+                        .borrow_mut()
+                        .push((crate::ast::LoopKind::Do, None));
                     self.check_ops(
                         body,
                         &mut branch,
@@ -766,7 +776,9 @@ impl TypeEnv {
                     branch.insert(name.clone(), type_.clone());
                     // The element binding is an immutable, non-owning view.
                     branch_muts.insert(name.clone(), false);
-                    self.loop_stack.borrow_mut().push(crate::ast::LoopKind::For);
+                    self.loop_stack
+                        .borrow_mut()
+                        .push((crate::ast::LoopKind::For, Some(name.clone())));
                     self.check_ops(
                         body,
                         &mut branch,

@@ -145,31 +145,16 @@ fn lower_statement_inner(
             }),
             loc,
         }],
-        HirStatement::Exit { target, code, .. } => match target {
-            ExitTarget::For => vec![IrOp::ExitLoop {
-                kind: LoopKind::For,
-                loc,
-            }],
-            ExitTarget::Do => vec![IrOp::ExitLoop {
-                kind: LoopKind::Do,
-                loc,
-            }],
-            ExitTarget::While => vec![IrOp::ExitLoop {
-                kind: LoopKind::While,
-                loc,
-            }],
-            ExitTarget::Func => Vec::new(),
-            ExitTarget::Program => vec![IrOp::ExitProgram {
-                code: lower_expression(
-                    code.as_ref()
-                        .expect("parser requires EXIT PROGRAM to include a code expression"),
-                    locals,
-                    context,
-                ),
-                loc,
-            }],
-        },
-        HirStatement::Continue { kind, .. } => vec![IrOp::ContinueLoop { kind: *kind, loc }],
+        HirStatement::Exit { kind, target, .. } => vec![IrOp::ExitLoop {
+            target: resolve_loop_target(target, context),
+            kind: *kind,
+            loc,
+        }],
+        HirStatement::Continue { kind, target, .. } => vec![IrOp::ContinueLoop {
+            target: resolve_loop_target(target, context),
+            kind: *kind,
+            loc,
+        }],
         HirStatement::Fail { error, .. } => vec![IrOp::Fail {
             error: lower_expression(error, locals, context),
             loc,
@@ -390,6 +375,15 @@ fn lower_statement_inner(
                     return lower_statement_block(&expanded, locals, context, trap_name);
                 }
             }
+            // plan-180-A: a bare `os::exit(code)` statement is the program-exit op
+            // (what `os::exit` lowered to). Every other position stays an
+            // ordinary call and reaches the `os::exit` rewrite helper.
+            if let Some(code) = os_exit_statement_code(expression, context) {
+                return vec![IrOp::ExitProgram {
+                    code: lower_expression(code, locals, context),
+                    loc,
+                }];
+            }
             if let HirExpression::Trapped {
                 expression: inner,
                 binding,
@@ -546,7 +540,9 @@ fn lower_statement_inner(
                 loc,
                 explicit_type: false,
             }];
+            context.loop_targets.push((name.clone(), iter_name.clone()));
             loop_body.extend(lower_statement_block(body, &nested, context, trap_name));
+            context.loop_targets.pop();
 
             vec![
                 IrOp::Bind {
@@ -591,11 +587,17 @@ fn lower_statement_inner(
                 collection_iteration_type(&iterable_type).unwrap_or(ParameterType::Unknown);
             let mut nested = locals.clone();
             nested.insert(name.clone(), element_type.clone());
+            // The iterable is lowered before the body, as the struct literal did, so the
+            // temporaries it allocates keep their names.
+            let iterable_value = lower_expression(iterable, locals, context);
+            context.loop_targets.push((name.clone(), name.clone()));
+            let body_ops = lower_statement_block(body, &nested, context, trap_name);
+            context.loop_targets.pop();
             vec![IrOp::ForEach {
                 name: name.clone(),
                 type_: element_type.clone(),
-                iterable: lower_expression(iterable, locals, context),
-                body: lower_statement_block(body, &nested, context, trap_name),
+                iterable: iterable_value,
+                body: body_ops,
                 loc,
             }]
         }
@@ -625,6 +627,21 @@ fn lower_statement_inner(
             }]
         }
     }
+}
+
+/// The IR loop name a named `EXIT FOR <var>` / `CONTINUE FOR <var>` targets: the
+/// innermost enclosing loop whose variable is `<var>`. A variable no enclosing loop
+/// carries keeps its source name, which no enclosing IR loop has (a `$for_iterN` never
+/// equals a source name), so the verifier reports `UNKNOWN_FOR_IDENTIFIER` naming it.
+fn resolve_loop_target(target: &Option<String>, context: &LowerContext<'_>) -> Option<String> {
+    let name = target.as_ref()?;
+    let ir_name = context
+        .loop_targets
+        .iter()
+        .rev()
+        .find(|(source, _)| source == name)
+        .map_or_else(|| name.clone(), |(_, ir_name)| ir_name.clone());
+    Some(ir_name)
 }
 
 pub(super) fn lower_statement_block(
@@ -663,6 +680,29 @@ pub(in crate::ir) fn collection_iteration_type(type_: &ParameterType) -> Option<
 
 /// A collection element with its `RES ` ownership marker removed, if it carries
 /// one — the structural form of the `strip_prefix("RES ")` this replaced.
+/// plan-180-A: the `code` argument of a bare `os::exit(code)` call statement
+/// (positional or `code :=`), or `None` for any other expression. Only a plain
+/// `Call` matches: a `TRAP`'d call is a `Trapped` expression and keeps its trap.
+fn os_exit_statement_code<'a>(
+    expression: &'a HirExpression,
+    context: &LowerContext<'_>,
+) -> Option<&'a HirExpression> {
+    let HirExpression::Call {
+        callee, arguments, ..
+    } = expression
+    else {
+        return None;
+    };
+    if canonical_import_name(callee, context) != "os.exit" {
+        return None;
+    }
+    match arguments.as_slice() {
+        [HirCallArg::Positional(code)] => Some(code),
+        [HirCallArg::Named { name, value, .. }] if name == "code" => Some(value),
+        _ => None,
+    }
+}
+
 fn strip_res(type_: &ParameterType) -> ParameterType {
     match type_ {
         ParameterType::Res(inner) => (**inner).clone(),

@@ -1,0 +1,23 @@
+FUNC continueFunc AS Integer
+  CONTINUE FUNC
+  RETURN 0
+END FUNC
+
+FUNC continueProgram AS Integer
+  CONTINUE PROGRAM 1
+  RETURN 0
+END FUNC
+
+FUNC continueAlone AS Integer
+  CONTINUE
+  RETURN 0
+END FUNC
+
+FUNC continueName AS Integer
+  CONTINUE foo
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

@@ -67,7 +67,12 @@ fn xml_package_audit_reports_no_errors() {
 fn xml_doc_examples_build_and_run() {
     let mfb = common::mfb_exe();
     let out = Command::new("bash")
-        .arg(root().join("packages").join("xml").join("check-doc-examples.sh"))
+        .arg(
+            root()
+                .join("packages")
+                .join("xml")
+                .join("check-doc-examples.sh"),
+        )
         .arg(&mfb)
         .current_dir(root())
         .output()

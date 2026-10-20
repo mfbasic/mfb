@@ -1,0 +1,25 @@
+$ mfb build -ast -ir tests/syntax/control-flow/continue-unknown-invalid
+   1 | FUNC continueFunc AS Integer
+   2 |   CONTINUE FUNC
+     |            ^^^^
+tests/syntax/control-flow/continue-unknown-invalid/src/main.mfb:2 error[2-203-0147 CONTINUE_UNKNOWN]: CONTINUE must be followed by FOR, DO, or WHILE
+               CONTINUE must be followed by FOR, DO, or WHILE.
+   5 | 
+   6 | FUNC continueProgram AS Integer
+   7 |   CONTINUE PROGRAM 1
+     |            ^^^^^^^
+tests/syntax/control-flow/continue-unknown-invalid/src/main.mfb:7 error[2-203-0147 CONTINUE_UNKNOWN]: CONTINUE must be followed by FOR, DO, or WHILE
+               CONTINUE must be followed by FOR, DO, or WHILE.
+  10 | 
+  11 | FUNC continueAlone AS Integer
+  12 |   CONTINUE
+     |           ^
+tests/syntax/control-flow/continue-unknown-invalid/src/main.mfb:12 error[2-203-0147 CONTINUE_UNKNOWN]: CONTINUE must be followed by FOR, DO, or WHILE
+               CONTINUE must be followed by FOR, DO, or WHILE.
+  15 | 
+  16 | FUNC continueName AS Integer
+  17 |   CONTINUE foo
+     |            ^^^
+tests/syntax/control-flow/continue-unknown-invalid/src/main.mfb:17 error[2-203-0147 CONTINUE_UNKNOWN]: CONTINUE must be followed by FOR, DO, or WHILE
+               CONTINUE must be followed by FOR, DO, or WHILE.
+[exit 1]

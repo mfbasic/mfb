@@ -138,10 +138,14 @@ pub(crate) fn invariant(value: &NirValue, defined: &HashSet<String>) -> bool {
 /// *newly introduced* enclosing loop of that kind (i.e., one not already
 /// shielded by an inner loop pushing `kind` onto the loop stack — `While`
 /// pushes its own kind, `For`/`ForEach` push `For`, `DoUntil` pushes `Do`,
-/// mirroring `builder_control`'s loop-stack discipline exactly).
+/// mirroring `builder_control`'s loop-stack discipline exactly). A named exit
+/// (`target` is `Some`) names an existing `FOR`, and no transform introduces a
+/// `FOR`, so it is never captured by a newly introduced loop.
 pub(crate) fn captures_loop_control(ops: &[NirOp], kind: LoopKind) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::ExitLoop { kind: k } | NirOp::ContinueLoop { kind: k } => *k == kind,
+        NirOp::ExitLoop { kind: k, target } | NirOp::ContinueLoop { kind: k, target } => {
+            target.is_none() && *k == kind
+        }
         NirOp::While { kind: k, body, .. } => *k != kind && captures_loop_control(body, kind),
         NirOp::For { body, .. } | NirOp::ForEach { body, .. } => {
             kind != LoopKind::For && captures_loop_control(body, kind)
@@ -406,7 +410,11 @@ fn rename_op(op: &mut NirOp, renames: &std::collections::HashMap<String, String>
                 rename_value(value, renames);
             }
         }
-        NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+        NirOp::ExitLoop { target, .. } | NirOp::ContinueLoop { target, .. } => {
+            if let Some(target) = target {
+                rename(target, renames);
+            }
+        }
         NirOp::ExitProgram { code } => rename_value(code, renames),
         NirOp::Fail { error } => rename_value(error, renames),
         NirOp::Eval { value } => rename_value(value, renames),
@@ -542,5 +550,63 @@ fn rename_value(value: &mut NirValue, renames: &std::collections::HashMap<String
             rename_value(right, renames);
         }
         NirValue::Unary { operand, .. } => rename_value(operand, renames),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::target::shared::nir::NirSourceLoc;
+
+    fn counted_for(name: &str, body: Vec<NirOp>) -> NirOp {
+        NirOp::For {
+            name: name.to_string(),
+            type_: crate::types::ParameterType::Integer,
+            start: NirValue::Local("lo".to_string()),
+            end: NirValue::Local("hi".to_string()),
+            step: NirValue::Local("st".to_string()),
+            body,
+            loc: NirSourceLoc::default(),
+        }
+    }
+
+    /// A named exit is never captured by a newly introduced loop: it names an existing
+    /// `FOR`, and no transform creates one. A bare exit of the same kind still is.
+    #[test]
+    fn named_exit_is_not_captured_by_a_new_loop() {
+        let named = vec![NirOp::ExitLoop {
+            kind: LoopKind::For,
+            target: Some("$for_iter1".to_string()),
+        }];
+        assert!(!captures_loop_control(&named, LoopKind::For));
+        let bare = vec![NirOp::ExitLoop {
+            kind: LoopKind::For,
+            target: None,
+        }];
+        assert!(captures_loop_control(&bare, LoopKind::For));
+    }
+
+    /// Freshening a cloned loop renames the loop and the named exit that targets it, so
+    /// the copy's exit still names the copy's loop.
+    #[test]
+    fn freshened_clone_renames_a_named_exit_target() {
+        let ops = vec![counted_for(
+            "$for_iter1",
+            vec![NirOp::ExitLoop {
+                kind: LoopKind::For,
+                target: Some("$for_iter1".to_string()),
+            }],
+        )];
+        let census = super::super::reads::NameUses::census(&ops);
+        let mut salt = 0;
+        let copy = freshened_clone(&ops, &census, &mut salt).expect("clone is freshened");
+        let NirOp::For { name, body, .. } = &copy[0] else {
+            panic!("the copy keeps its For");
+        };
+        assert_ne!(name, "$for_iter1", "the copy's loop is renamed");
+        let NirOp::ExitLoop { target, .. } = &body[0] else {
+            panic!("the copy keeps its exit");
+        };
+        assert_eq!(target.as_deref(), Some(name.as_str()));
     }
 }

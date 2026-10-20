@@ -194,6 +194,7 @@ mod tests {
     fn loop_control_blocks_unless_shielded() {
         let exposed = run(
             vec![small_while(vec![NirOp::ExitLoop {
+                target: None,
                 kind: crate::ast::LoopKind::While,
             }])],
             3,
@@ -202,6 +203,7 @@ mod tests {
 
         let shielded = run(
             vec![small_while(vec![small_while(vec![NirOp::ExitLoop {
+                target: None,
                 kind: crate::ast::LoopKind::While,
             }])])],
             3,

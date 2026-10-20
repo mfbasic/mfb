@@ -28,7 +28,7 @@
 //! a concrete type — no generic-variable classification happens here (that is a
 //! later plan). Name resolution beyond the structural copy is likewise deferred.
 
-use crate::ast::{ExitTarget, LoopKind, TypeDeclKind, Visibility};
+use crate::ast::{LoopKind, TypeDeclKind, Visibility};
 use crate::operators::{BinaryOp, UnaryOp};
 use crate::types::ParameterType;
 
@@ -366,15 +366,14 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
                 .map(|__v| elaborate_expression(__v, type_params)),
             line: *line,
         },
-        Statement::Exit { target, code, line } => HirStatement::Exit {
-            target: *target,
-            code: code
-                .as_ref()
-                .map(|__v| elaborate_expression(__v, type_params)),
+        Statement::Exit { kind, target, line } => HirStatement::Exit {
+            kind: *kind,
+            target: target.clone(),
             line: *line,
         },
-        Statement::Continue { kind, line } => HirStatement::Continue {
+        Statement::Continue { kind, target, line } => HirStatement::Continue {
             kind: *kind,
+            target: target.clone(),
             line: *line,
         },
         Statement::Fail { error, line } => HirStatement::Fail {

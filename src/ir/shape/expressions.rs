@@ -89,6 +89,9 @@ impl<'a> Walker<'a> {
                 {
                     self.check_config_call_literals(arguments, *line);
                 }
+                if !self.current_file_internal && self.canonical_callee(callee) == "os.exit" {
+                    self.check_exit_code_literal(arguments, *line);
+                }
                 self.call_verdicts.insert(
                     expression as *const HirExpression as usize,
                     self.call_typed_unknown,

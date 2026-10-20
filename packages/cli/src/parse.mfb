@@ -234,12 +234,12 @@ EXPORT FUNC parse(command AS Command) AS Args
   IF args.status = ParseStatus.Help THEN
     io::print(helpText(command))
     io::flush()
-    EXIT PROGRAM 0
+    os::exit(0)
   END IF
   IF args.status = ParseStatus.Version THEN
     io::print(versionText(command))
     io::flush()
-    EXIT PROGRAM 0
+    os::exit(0)
   END IF
   IF args.status = ParseStatus.Invalid THEN usageError(command, args.message)
   RETURN args
@@ -360,7 +360,7 @@ EXPORT FUNC usageError(command AS Command, message AS String) AS Nothing
   io::flush()
   io::printError(prog & ": " & message)
   io::printError("Try '" & prog & " --help' for more information.")
-  EXIT PROGRAM 2
+  os::exit(2)
 END FUNC
 
 TESTING

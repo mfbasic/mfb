@@ -100,7 +100,7 @@ No two live mutable bindings may refer to the same collection buffer. A collecti
 At normal scope exit, `RETURN`, `EXIT FOR`/`EXIT DO`/`EXIT WHILE`,
 `CONTINUE FOR`/`CONTINUE DO`/`CONTINUE WHILE`, `FAIL`, `PROPAGATE`, or
 auto-propagated errors, live bindings are dropped in reverse declaration order
-within each scope. `EXIT PROGRAM` is a stack-wide drop edge that unwinds every
+within each scope. `os::exit` is a stack-wide drop edge that unwinds every
 live scope up to the entry point before process termination. Nested scopes drop
 before enclosing scopes continue. Record fields drop in declaration order. Union
 member values drop according to the active member's record layout. List elements
@@ -110,7 +110,7 @@ storage order; programs must not depend on map drop order.
 Module-level bindings belong to no function scope: they live as long as their
 module instance. A resource stored into one is closed at **instance teardown** —
 after every scope of the entry point has dropped, on every program exit (normal
-return, `EXIT PROGRAM`, or an untrapped error), or when a worker thread's entry
+return, `os::exit`, or an untrapped error), or when a worker thread's entry
 function returns for that worker's own instance — and not when the storing
 function's scope exits (§15.6, "A module-level binding is the outermost scope").
 [[src/codegen/resource/module_owner.rs:lower_module_resource_drain]]
@@ -167,7 +167,7 @@ bodies — the arm runs against a *clone* of the set entering the construct (nev
 the set a sibling arm has already merged into, so a close in `THEN` does not
 reach `ELSE`), and the new moves
 it accumulates are unioned back into the outer set only if the arm *falls
-through*. An arm that diverges (a top-level `RETURN`/`FAIL`/`EXIT PROGRAM`)
+through*. An arm that diverges (a top-level `RETURN`/`FAIL`/`os::exit`)
 cannot reach the code after the branch, so its moves are dropped from the merge
 — close-then-return in one branch does not taint the join. Only moves of
 bindings the outer scope knows propagate; branch-local resources die with the
@@ -180,7 +180,7 @@ outer names it leaves moved on a path that reaches that edge — falling off the
 of the body, or a `CONTINUE` of this loop — and the check then runs the body
 against the entering set plus those names. So `fs::close(f)` of a resource declared
 outside the loop, on a path that goes round again, is a use-after-move on the
-next pass. A path that leaves the loop — `RETURN`, `FAIL`, `EXIT PROGRAM`, an
+next pass. A path that leaves the loop — `RETURN`, `FAIL`, `os::exit`, an
 `EXIT` that targets this loop or an outer one, a `CONTINUE` of an outer loop —
 does not reach the back edge; an `EXIT` or `CONTINUE` of a loop nested inside the
 body does. Only a close, a `RETURN` and a `RES` rebind are carried round; placing

@@ -60,6 +60,13 @@ impl NirVisitor for NameUses {
             NirOp::For { name, .. } => self.bump(name),
             NirOp::ForEach { name, .. } => self.bump(name),
             NirOp::Trap { name, .. } => self.bump(name),
+            // A named EXIT/CONTINUE reads its `FOR`'s name, so it is an occurrence.
+            NirOp::ExitLoop {
+                target: Some(name), ..
+            }
+            | NirOp::ContinueLoop {
+                target: Some(name), ..
+            } => self.bump(name),
             _ => {}
         }
         walk_op(self, op);

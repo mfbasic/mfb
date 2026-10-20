@@ -65,12 +65,7 @@ impl Resolver<'_> {
                     self.resolve_expression(file, value, *line, imports, locals);
                 }
             }
-            HirStatement::Exit { code, line, .. } => {
-                if let Some(code) = code {
-                    self.resolve_expression(file, code, *line, imports, locals);
-                }
-            }
-            HirStatement::Continue { .. } => {}
+            HirStatement::Exit { .. } | HirStatement::Continue { .. } => {}
             HirStatement::Fail { error, line } => {
                 self.resolve_expression(file, error, *line, imports, locals);
             }

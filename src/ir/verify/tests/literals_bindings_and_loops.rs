@@ -522,30 +522,9 @@ fn accepts_a_nothing_call_in_statement_position() {
 
 // --- exit program ----------------------------------------------------------
 
-#[test]
-fn rejects_exit_program_non_integer() {
-    let body = vec![IrOp::ExitProgram {
-        code: const_of("String", "x"),
-        loc: IrSourceLoc::default(),
-    }];
-    expect_rule(
-        &project(vec![func_returns("run", "Nothing", vec![], body)], vec![]),
-        "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
-    );
-}
-
-#[test]
-fn rejects_exit_program_out_of_range() {
-    let body = vec![IrOp::ExitProgram {
-        code: int_const("300"),
-        loc: IrSourceLoc::default(),
-    }];
-    expect_rule(
-        &project(vec![func_returns("run", "Nothing", vec![], body)], vec![]),
-        "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
-    );
-}
-
+// The exit code's type and host-range checks are source-level now (the
+// `os::exit` signature and `OS_EXIT_CODE_OUT_OF_RANGE` in `ir::shape`), so the
+// verifier has no rule left to reject an out-of-range or non-Integer code.
 #[test]
 fn accepts_exit_program_in_range() {
     let body = vec![IrOp::ExitProgram {
@@ -556,25 +535,6 @@ fn accepts_exit_program_in_range() {
         vec![func_returns("run", "Nothing", vec![], body)],
         vec![],
     ));
-}
-
-#[test]
-fn rejects_exit_program_i128_min_without_panic() {
-    // `Unary("-", Const{Integer, i128::MIN})` parses to i128::MIN and the
-    // verifier's negation of it must not overflow-panic (debug build); it is
-    // out of the 0..255 host range, so it must be reported as such.
-    let body = vec![IrOp::ExitProgram {
-        code: unary(
-            UnaryOp::Negate,
-            const_of("Integer", "-170141183460469231731687303715884105728"),
-            "Integer",
-        ),
-        loc: IrSourceLoc::default(),
-    }];
-    expect_rule(
-        &project(vec![func_returns("run", "Nothing", vec![], body)], vec![]),
-        "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
-    );
 }
 
 // --- fail / propagate ------------------------------------------------------
@@ -608,6 +568,7 @@ fn rejects_fail_non_error() {
 #[test]
 fn rejects_exit_without_loop() {
     let body = vec![IrOp::ExitLoop {
+        target: None,
         kind: crate::ast::LoopKind::For,
         loc: IrSourceLoc::default(),
     }];
@@ -620,6 +581,7 @@ fn rejects_exit_without_loop() {
 #[test]
 fn rejects_continue_without_loop() {
     let body = vec![IrOp::ContinueLoop {
+        target: None,
         kind: crate::ast::LoopKind::While,
         loc: IrSourceLoc::default(),
     }];
@@ -635,6 +597,7 @@ fn accepts_exit_inside_matching_loop() {
         kind: crate::ast::LoopKind::While,
         condition: const_of("Boolean", "true"),
         body: vec![IrOp::ExitLoop {
+            target: None,
             kind: crate::ast::LoopKind::While,
             loc: IrSourceLoc::default(),
         }],
@@ -653,6 +616,7 @@ fn rejects_unreachable_after_exit() {
         condition: const_of("Boolean", "true"),
         body: vec![
             IrOp::ExitLoop {
+                target: None,
                 kind: crate::ast::LoopKind::While,
                 loc: IrSourceLoc::default(),
             },
@@ -794,6 +758,7 @@ fn rejects_do_until_condition_non_boolean() {
 fn accepts_do_until_valid() {
     let body = vec![IrOp::DoUntil {
         body: vec![IrOp::ContinueLoop {
+            target: None,
             kind: crate::ast::LoopKind::Do,
             loc: IrSourceLoc::default(),
         }],
@@ -851,6 +816,7 @@ fn accepts_valid_for() {
         end: int_const("10"),
         step: int_const("1"),
         body: vec![IrOp::ExitLoop {
+            target: None,
             kind: crate::ast::LoopKind::For,
             loc: IrSourceLoc::default(),
         }],
@@ -921,6 +887,7 @@ fn accepts_for_each_list() {
             type_: ParameterType::Integer,
             iterable: IrValue::Local("xs".to_string()),
             body: vec![IrOp::ContinueLoop {
+                target: None,
                 kind: crate::ast::LoopKind::For,
                 loc: IrSourceLoc::default(),
             }],

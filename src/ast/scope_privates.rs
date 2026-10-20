@@ -393,11 +393,6 @@ fn rewrite_stmt(
                 rewrite_expr(value, rename, types, scope);
             }
         }
-        Statement::Exit { code, .. } => {
-            if let Some(code) = code.as_mut() {
-                rewrite_expr(code, rename, types, scope);
-            }
-        }
         Statement::Fail { error, .. } => rewrite_expr(error, rename, types, scope),
         Statement::Expression { expression, .. } => rewrite_expr(expression, rename, types, scope),
         Statement::If {
@@ -475,7 +470,7 @@ fn rewrite_stmt(
             rewrite_block(body, rename, types, scope);
             rewrite_expr(condition, rename, types, scope);
         }
-        Statement::Continue { .. } | Statement::Propagate { .. } => {}
+        Statement::Exit { .. } | Statement::Continue { .. } | Statement::Propagate { .. } => {}
     }
 }
 

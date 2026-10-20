@@ -57,9 +57,7 @@ fn hir_stmt_types(stmt: &crate::hir::HirStatement, out: &mut std::collections::H
                 hir_expr_types(value, out);
             }
         }
-        HirStatement::Return { value, .. }
-        | HirStatement::Recover { value, .. }
-        | HirStatement::Exit { code: value, .. } => {
+        HirStatement::Return { value, .. } | HirStatement::Recover { value, .. } => {
             if let Some(value) = value {
                 hir_expr_types(value, out);
             }
@@ -117,7 +115,9 @@ fn hir_stmt_types(stmt: &crate::hir::HirStatement, out: &mut std::collections::H
             hir_expr_types(condition, out);
             body.iter().for_each(|s| hir_stmt_types(s, out));
         }
-        HirStatement::Continue { .. } | HirStatement::Propagate { .. } => {}
+        HirStatement::Exit { .. }
+        | HirStatement::Continue { .. }
+        | HirStatement::Propagate { .. } => {}
     }
 }
 
@@ -208,8 +208,7 @@ fn hir_stmt_callees(
     match stmt {
         HirStatement::Let { value, .. }
         | HirStatement::Return { value, .. }
-        | HirStatement::Recover { value, .. }
-        | HirStatement::Exit { code: value, .. } => {
+        | HirStatement::Recover { value, .. } => {
             if let Some(value) = value {
                 hir_expr_callees(value, out, made);
             }
@@ -270,7 +269,9 @@ fn hir_stmt_callees(
             hir_expr_callees(condition, out, made);
             body.iter().for_each(|s| hir_stmt_callees(s, out, made));
         }
-        HirStatement::Continue { .. } | HirStatement::Propagate { .. } => {}
+        HirStatement::Exit { .. }
+        | HirStatement::Continue { .. }
+        | HirStatement::Propagate { .. } => {}
     }
 }
 

@@ -546,12 +546,15 @@ pub enum Statement {
         line: usize,
     },
     Exit {
-        target: ExitTarget,
-        code: Option<Expression>,
+        kind: LoopKind,
+        /// The loop variable of `EXIT FOR <var>`; `None` for a bare exit.
+        target: Option<String>,
         line: usize,
     },
     Continue {
         kind: LoopKind,
+        /// The loop variable of `CONTINUE FOR <var>`; `None` for a bare continue.
+        target: Option<String>,
         line: usize,
     },
     Fail {
@@ -619,15 +622,6 @@ pub enum Statement {
         condition: Expression,
         line: usize,
     },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExitTarget {
-    For,
-    Do,
-    While,
-    Func,
-    Program,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

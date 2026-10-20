@@ -127,6 +127,17 @@ fn exit_and_continue_targets_do_not_open_blocks() {
 }
 
 #[test]
+fn named_exit_and_continue_targets_do_not_open_blocks() {
+    // `FOR` after `EXIT`/`CONTINUE` is a target, and the variable after it is an
+    // identifier: neither opens a block nor shifts the nested loops' indentation.
+    let input =
+        "FOR i = 1 TO 3\nFOR j = 1 TO 3\nEXIT FOR i\nCONTINUE FOR i\nNEXT\nNEXT\nLET done = 1\n";
+    let expected =
+        "FOR i = 1 TO 3\n  FOR j = 1 TO 3\n    EXIT FOR i\n    CONTINUE FOR i\n  NEXT\nNEXT\nLET done = 1\n";
+    assert_eq!(fmt(input), expected);
+}
+
+#[test]
 fn doc_block_reindents_body_preserving_text() {
     // The body indents one level under DOC; internal spacing and casing of
     // the free-form text are preserved (it is prose, not code).

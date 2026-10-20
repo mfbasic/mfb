@@ -453,9 +453,10 @@ fn trap_handler_global_assign_arm_without_error_read() {
 fn trap_handler_exit_program_arm() {
     // ExitProgram arm of `ops_read_local`: a diverging handler.
     let ir = lower_src(
-        "FUNC parse(s AS String) AS Integer\n\
+        "IMPORT os\n\
+               FUNC parse(s AS String) AS Integer\n\
                LET n AS Integer = toInt(s) TRAP(e)\n\
-                 EXIT PROGRAM 3\n\
+                 os::exit(3)\n\
                END TRAP\n\
                RETURN n\n\
              END FUNC\n\

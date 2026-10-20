@@ -289,6 +289,15 @@ fn visibility_prefix(visibility: Visibility) -> &'static str {
 /// JSON fragment appended to a binding/parameter/return for `RES` declarations.
 /// Empty for non-resource declarations so ordinary `LET`/`MUT` output (and its
 /// goldens) is unchanged.
+/// The `"var"` field of a named `EXIT FOR` / `CONTINUE FOR`, written only when present so
+/// a bare exit serializes exactly as before.
+fn loop_var_json(target: &Option<String>) -> String {
+    match target {
+        Some(name) => format!(", \"var\": {}", json_string(name)),
+        None => String::new(),
+    }
+}
+
 fn resource_json_suffix(resource: bool, state_type: &Option<String>) -> String {
     if !resource {
         return String::new();
@@ -298,16 +307,6 @@ fn resource_json_suffix(resource: bool, state_type: &Option<String>) -> String {
         .map(|value| json_string(value))
         .unwrap_or_else(|| "null".to_string());
     format!(", \"resource\": true, \"state\": {state}")
-}
-
-fn exit_target_name(target: ExitTarget) -> &'static str {
-    match target {
-        ExitTarget::For => "for",
-        ExitTarget::Do => "do",
-        ExitTarget::While => "while",
-        ExitTarget::Func => "func",
-        ExitTarget::Program => "program",
-    }
 }
 
 fn template_params_json(params: &[String], indent: usize) -> String {

@@ -127,12 +127,12 @@ impl CodeBuilder<'_> {
                         // still reachable — before the `ret`, not after it.
                         self.emit_return_exit(value.as_ref(), Some(temp_watermark))?;
                     }
-                    NirOp::ExitLoop { kind } => {
+                    NirOp::ExitLoop { kind, target } => {
                         let target = self
                             .loop_stack
                             .iter()
                             .rev()
-                            .find(|labels| labels.kind == *kind)
+                            .find(|labels| labels.resolves(*kind, target))
                             .cloned()
                             .ok_or_else(|| "native code EXIT has no matching loop".to_string())?;
                         self.emit_cleanup_branch_to_depth(
@@ -141,12 +141,12 @@ impl CodeBuilder<'_> {
                             target.temp_depth,
                         )?;
                     }
-                    NirOp::ContinueLoop { kind } => {
+                    NirOp::ContinueLoop { kind, target } => {
                         let target = self
                             .loop_stack
                             .iter()
                             .rev()
-                            .find(|labels| labels.kind == *kind)
+                            .find(|labels| labels.resolves(*kind, target))
                             .cloned()
                             .ok_or_else(|| {
                                 "native code CONTINUE has no matching loop".to_string()
@@ -329,6 +329,7 @@ impl CodeBuilder<'_> {
                         self.emit_branch_unless(&condition, &end_label, None);
                         self.loop_stack.push(LoopLabels {
                             kind: *kind,
+                            name: None,
                             continue_label: loop_label.clone(),
                             exit_label: end_label.clone(),
                             cleanup_depth: self.active_cleanups.len(),
@@ -370,6 +371,7 @@ impl CodeBuilder<'_> {
                         self.clear_local_constants();
                         self.loop_stack.push(LoopLabels {
                             kind: crate::ast::LoopKind::Do,
+                            name: None,
                             continue_label: condition_label.clone(),
                             exit_label: end_label.clone(),
                             cleanup_depth: self.active_cleanups.len(),

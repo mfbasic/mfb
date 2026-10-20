@@ -407,12 +407,13 @@ pub(crate) enum HirStatement {
         line: usize,
     },
     Exit {
-        target: ExitTarget,
-        code: Option<HirExpression>,
+        kind: LoopKind,
+        target: Option<String>,
         line: usize,
     },
     Continue {
         kind: LoopKind,
+        target: Option<String>,
         line: usize,
     },
     Fail {

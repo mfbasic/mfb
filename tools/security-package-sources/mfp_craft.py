@@ -23,7 +23,7 @@ import os
 import re
 import struct
 
-# `BINARY_REPR_VERSION`, READ FROM src/ir/binary.rs rather than restated here.
+# `BINARY_REPR_VERSION`, READ FROM src/ir/binary/mod.rs rather than restated here.
 #
 # The hand-encoded MFBR bodies below reproduce that format byte for byte, so this
 # must move with it — a stale value makes every crafted fixture fail on the
@@ -41,13 +41,13 @@ import struct
 def _binary_repr_version() -> int:
     source = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
-        "..", "..", "src", "ir", "binary.rs",
+        "..", "..", "src", "ir", "binary", "mod.rs",
     )
     with open(source, "r", encoding="utf-8") as handle:
         match = re.search(r"BINARY_REPR_VERSION: u16 = (\d+);", handle.read())
     if not match:
         raise SystemExit(
-            "could not read BINARY_REPR_VERSION from src/ir/binary.rs — "
+            "could not read BINARY_REPR_VERSION from src/ir/binary/mod.rs — "
             "if the constant was renamed, update this reader rather than "
             "hardcoding a value"
         )
@@ -443,7 +443,7 @@ def mutate_type_confusion(data: bytes) -> bytes:
     lowering. The IR semantic verifier must reject it before codegen turns the
     member access into an out-of-bounds field load in the victim's binary.
 
-    The body is hand-encoded to mirror `src/ir/binary.rs` (MFBR version 4):
+    The body is hand-encoded to mirror `src/ir/binary/mod.rs` (MFBR version 4):
     `MFBR` + u16(BINARY_REPR_VERSION) + project{name, entry=None, bindings=[], types=[],
     functions=[run]}` where `run`'s single op is
     `Return(MemberAccess(target=Const Integer "0", member="x"))`. Format v3
@@ -484,7 +484,7 @@ def mutate_type_confusion(data: bytes) -> bytes:
 
     body = bytearray()
     body += b"MFBR"
-    body += _u16(BINARY_REPR_VERSION)  # mirrors src/ir/binary.rs
+    body += _u16(BINARY_REPR_VERSION)  # mirrors src/ir/binary/mod.rs
     body += put_str(b"sec_confused")  # project name
     body += bytes([0])  # entry: None
     body += _u32(0)  # bindings: none
@@ -550,7 +550,7 @@ def mutate_type_confusion_computed(data: bytes) -> bytes:
 
     body = bytearray()
     body += b"MFBR"
-    body += _u16(BINARY_REPR_VERSION)  # mirrors src/ir/binary.rs
+    body += _u16(BINARY_REPR_VERSION)  # mirrors src/ir/binary/mod.rs
     body += put_str(b"sec_confused_computed")  # project name
     body += bytes([0])  # entry: None
     body += _u32(0)  # bindings: none
@@ -631,7 +631,7 @@ def mutate_deep_body(data: bytes, depth: int = 300) -> bytes:
     body = bytearray()
     body += MFPC_MAGIC[:0]  # no-op to keep bytearray typed
     body += b"MFBR"
-    body += _u16(BINARY_REPR_VERSION)  # mirrors src/ir/binary.rs
+    body += _u16(BINARY_REPR_VERSION)  # mirrors src/ir/binary/mod.rs
     body += put_str(b"x")  # project name
     body += bytes([0])  # entry: None
     body += _u32(1)  # bindings: one

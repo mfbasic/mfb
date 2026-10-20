@@ -477,10 +477,7 @@ fn statement_escapes(statement: &HirStatement, scope: &mut EscapeScope<'_, '_>) 
         HirStatement::Return { value, .. } | HirStatement::Recover { value, .. } => {
             value.as_ref().is_some_and(|v| expression_escapes(v, scope))
         }
-        HirStatement::Exit { code, .. } => {
-            code.as_ref().is_some_and(|v| expression_escapes(v, scope))
-        }
-        HirStatement::Continue { .. } => false,
+        HirStatement::Continue { .. } | HirStatement::Exit { .. } => false,
         HirStatement::Assign { value, .. }
         | HirStatement::StateAssign { value, .. }
         | HirStatement::Expression {

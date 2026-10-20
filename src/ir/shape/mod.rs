@@ -22,7 +22,7 @@
 
 use super::lower::{self, LowerContext, LowerFacts};
 use super::{ExternalSignature, ImportedTypeDef};
-use crate::ast::{ExitTarget, Visibility};
+use crate::ast::Visibility;
 use crate::codegen::builtins;
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchCase,

@@ -37,7 +37,7 @@
 //! still owned by the instance (an explicit close or a transfer already happened
 //! leaves the closed/moved flag, and the close is then the defined no-op). It
 //! reclaims nothing: the instance's arena is released with the instance. The
-//! program entry calls it on its one exit path (normal return, `EXIT PROGRAM`
+//! program entry calls it on its one exit path (normal return, `os::exit`
 //! and an untrapped error all converge there); a worker's trampoline calls it
 //! after the worker body returns; the canvas graphics thread after its render
 //! loop.

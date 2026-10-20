@@ -703,6 +703,10 @@ enum StateTypeFault {
     NotDefaultable,
 }
 
+/// An enclosing loop as the verifier tracks it: its kind, and its IR name when it
+/// is a `FOR`/`FOR EACH` (the name a named EXIT/CONTINUE targets; `None` for `DO`/`WHILE`).
+type LoopEntry = (crate::ast::LoopKind, Option<String>);
+
 struct RecordInfo {
     fields: Vec<String>,
     includes: Vec<String>,
@@ -794,9 +798,11 @@ struct TypeEnv {
     /// round its back edge — the loop's own kind, and the kinds of the loops nested
     /// inside the body on the path being scanned, innermost last. A branch counts as
     /// reaching the back edge unless it leaves the loop (`RETURN`, `FAIL`,
-    /// `EXIT PROGRAM`, or an `EXIT`/`CONTINUE` that targets this loop's kind past
+    /// `os::exit`, or an `EXIT`/`CONTINUE` that targets this loop's kind past
     /// every nested loop, or an outer one). Nested loops scan once in this mode.
-    back_edge_scan: RefCell<Option<(crate::ast::LoopKind, Vec<crate::ast::LoopKind>)>>,
+    /// Each loop carries its kind and its IR name (`Some` for `FOR`/`FOR EACH`), so
+    /// a named EXIT/CONTINUE resolves to the loop that owns that name.
+    back_edge_scan: RefCell<Option<(LoopEntry, Vec<LoopEntry>)>>,
     /// bug-804: an inline-`TRAP` check chain's failure flag (`$trap_failedN`) →
     /// the resources a transfer inside the chain moves on success. The chain's
     /// handler runs behind that flag only when no transfer succeeded, so it sees
@@ -842,9 +848,11 @@ struct TypeEnv {
     /// `s.state`. Suppresses the `.state`-read rule there so the assign path's more
     /// precise diagnostic is the only one reported for the statement (plan-52-C).
     checking_state_assign: Cell<bool>,
-    /// The enclosing loop kinds, innermost last — an EXIT/CONTINUE must name a
-    /// kind present here. Checking is sequential, so a RefCell stack suffices.
-    loop_stack: RefCell<Vec<crate::ast::LoopKind>>,
+    /// The enclosing loops, innermost last: each kind with the loop's IR name
+    /// (`Some` for `FOR`/`FOR EACH`, `None` for `DO`/`WHILE`). A bare EXIT/CONTINUE
+    /// must name a kind present here; a named one must name a present loop.
+    /// Checking is sequential, so a RefCell stack suffices.
+    loop_stack: RefCell<Vec<LoopEntry>>,
     /// bug-517: set for exactly one recursion — the hash-selector argument of a
     /// call whose use of SHA-1 is sound — and consumed by the `MemberAccess` arm,
     /// which is what suppresses `CRYPTO_SHA1_INSECURE` there.
@@ -1020,30 +1028,6 @@ fn fold_match_coverage(
         }
     }
     (covered, has_unguarded_else)
-}
-
-/// The integer value of a constant expression (possibly negated) — mirrors
-/// the former source checker's `helpers::integer_constant_value` on the IR shape.
-fn integer_constant_value(value: &IrValue) -> Option<i128> {
-    match value {
-        IrValue::Const { type_, value }
-            if matches!(
-                type_,
-                crate::types::ParameterType::Integer | crate::types::ParameterType::Byte
-            ) =>
-        {
-            value.parse::<i128>().ok()
-        }
-        IrValue::Unary { op, operand, .. } if *op == UnaryOp::Negate => {
-            // `wrapping_neg` so a negated `i128::MIN` operand does not
-            // overflow-panic in debug. Wrapping preserves the release-build
-            // behavior exactly (`-i128::MIN` wraps back to `i128::MIN`), which
-            // is still out of the 0..255 exit-code range and thus reported as
-            // `EXIT_PROGRAM_CODE_OUT_OF_RANGE` rather than silently accepted.
-            integer_constant_value(operand).map(|n| n.wrapping_neg())
-        }
-        _ => None,
-    }
 }
 
 /// Whether an IR value is a `collections.get`/`getOr` call — a *pointer* to a

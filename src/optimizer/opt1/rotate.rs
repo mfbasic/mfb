@@ -165,6 +165,7 @@ mod tests {
     fn loop_control_hazards_block_rotation() {
         let own = run(
             vec![while_loop(vec![NirOp::ExitLoop {
+                target: None,
                 kind: crate::ast::LoopKind::While,
             }])],
             3,
@@ -173,6 +174,7 @@ mod tests {
 
         let capture = run(
             vec![while_loop(vec![NirOp::ContinueLoop {
+                target: None,
                 kind: crate::ast::LoopKind::Do,
             }])],
             3,
