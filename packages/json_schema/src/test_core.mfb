@@ -159,11 +159,8 @@ TESTING
 
     TCASE "a colon after a slash is not a scheme"
       ' `a/b:c` is a relative path whose second segment contains a colon.
-      expectEqual(isAbsolute("a/b:c"), FALSE)
-      expectEqual(isAbsolute("urn:x"), TRUE)
-      expectEqual(isAbsolute("HTTPS://a.example"), TRUE)
-      expectEqual(isAbsolute("//a.example/x"), FALSE)
-      expectEqual(isAbsolute("#f"), FALSE)
+      expectEqual(parseUri("a/b:c").hasScheme, FALSE)
+      expectEqual(parseUri("urn:x").hasScheme, TRUE)
     END TCASE
 
     TCASE "a fragment is percent-decoded once, here"

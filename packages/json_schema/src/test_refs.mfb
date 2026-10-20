@@ -8,7 +8,7 @@ IMPORT collections
 IMPORT strings
 
 PRIVATE FUNC verdict(schemaText AS String, instanceText AS String) AS String
-  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  LET compiled AS Schema = compileSchema(json::parse(schemaText), Map OF String TO json::Json {})
   LET problems AS List OF ValidationError = runValidation(compiled, json::parse(instanceText))
   IF len(problems) = 0 THEN RETURN "valid"
   MUT keywords AS List OF String = []
@@ -22,8 +22,13 @@ PRIVATE FUNC ok(schemaText AS String, instanceText AS String) AS Boolean
   RETURN verdict(schemaText, instanceText) = "valid"
 END FUNC
 
+PRIVATE FUNC compileWithRegistry(schemaText AS String, known AS Map OF String TO json::Json) AS String
+  LET compiled AS Schema = compileSchema(json::parse(schemaText), known)
+  RETURN ""
+END FUNC
+
 PRIVATE FUNC compileOnly(schemaText AS String) AS String
-  LET compiled AS Schema = compileSchema(json::parse(schemaText))
+  LET compiled AS Schema = compileSchema(json::parse(schemaText), Map OF String TO json::Json {})
   RETURN compiled.id
 END FUNC
 
@@ -117,7 +122,13 @@ TESTING
 
     TCASE "nothing is retrieved, so an external reference is refused"
       expectTrap(compileOnly("{\"$ref\":\"https://example.com/elsewhere\"}"), ERR_REF)
-      expectTrap(compileOnly("{\"$ref\":\"https://json-schema.org/draft/2020-12/schema\"}"), ERR_REF)
+      expectTrap(compileOnly("{\"$ref\":\"https://example.com/elsewhere\"}"), ERR_REF)
+    END TCASE
+
+    TCASE "the Draft 2020-12 metaschema is built in, so a schema can refer to it"
+      ' A bundled metaschema, not a retrieved one: it checks a schema document.
+      expectString(verdict("{\"$ref\":\"https://json-schema.org/draft/2020-12/schema\"}", "{\"type\":\"string\",\"minLength\":1}"), "valid")
+      expectString(verdict("{\"$ref\":\"https://json-schema.org/draft/2020-12/schema\"}", "{\"type\":5}"), "enum,type,anyOf")
     END TCASE
 
     TCASE "a $defs beside a $ref does not make the reference local"
@@ -131,11 +142,109 @@ TESTING
       expectTrap(ok(schema, "1"), ErrorReferenceCycle)
     END TCASE
 
-    TCASE "an unsupported reference form is refused by name"
-      expectTrap(compileOnly("{\"$dynamicRef\":\"#t\"}"), ERR_UNSUPPORTED)
-      expectTrap(compileOnly("{\"$dynamicAnchor\":\"t\"}"), ERR_UNSUPPORTED)
+    TCASE "a 2019-09 recursive reference is refused by name"
       expectTrap(compileOnly("{\"$recursiveRef\":\"#\"}"), ERR_UNSUPPORTED)
       expectTrap(compileOnly("{\"$recursiveAnchor\":true}"), ERR_UNSUPPORTED)
+    END TCASE
+
+    TCASE "a dynamic reference names an anchor in the document, or it is refused"
+      expectTrap(compileOnly("{\"$dynamicRef\":\"#missing\"}"), ERR_REF)
+      expectTrap(compileOnly("{\"$dynamicAnchor\":\"bad name\"}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "a dynamic reference with no dynamic anchor behaves as a plain reference"
+      LET schema AS String = "{\"$defs\":{\"a\":{\"$anchor\":\"t\",\"type\":\"string\"}},\"$dynamicRef\":\"#t\"}"
+      expectString(verdict(schema, "\"ok\""), "valid")
+      expectString(verdict(schema, "5"), "type")
+    END TCASE
+
+    TCASE "a dynamic reference is redirected to the outermost dynamic anchor in scope"
+      ' The inner resource's `$dynamicRef` would reach the inner root, but the
+      ' outer resource declares the same dynamic anchor and is outermost, so the
+      ' recursion is validated against the outer root, which requires `id`.
+      LET schema AS String = "{\"$id\":\"https://ex.test/outer\",\"$dynamicAnchor\":\"meta\",\"required\":[\"id\"],\"$defs\":{\"inner\":{\"$id\":\"https://ex.test/inner\",\"$dynamicAnchor\":\"meta\",\"type\":\"object\",\"properties\":{\"v\":{\"$dynamicRef\":\"#meta\"}}}},\"properties\":{\"w\":{\"$ref\":\"#/$defs/inner\"}}}"
+      expectString(verdict(schema, "{\"id\":0,\"w\":{\"v\":{}}}"), "required")
+      expectString(verdict(schema, "{\"id\":0,\"w\":{\"v\":{\"id\":1}}}"), "valid")
+    END TCASE
+
+    TCASE "a reference may name a registered document, and nothing else is retrieved"
+      MUT known AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      known = collections::set(known, "https://ex.test/money.json", json::parse("{\"$defs\":{\"c\":{\"type\":\"integer\"}}}"))
+      LET compiled AS Schema = compileSchema(json::parse("{\"$ref\":\"https://ex.test/money.json#/$defs/c\"}"), known)
+      expectEqual(len(runValidation(compiled, json::parse("1"))), 0)
+      expectEqual(len(runValidation(compiled, json::parse("\"x\""))), 1)
+      expectTrap(compileOnly("{\"$ref\":\"https://ex.test/money.json\"}"), ERR_REF)
+    END TCASE
+
+    TCASE "a registered document is checked as a schema even if nothing refers to it"
+      MUT known AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      known = collections::set(known, "https://ex.test/unused.json", json::parse("{\"type\":5}"))
+      expectTrap(compileWithRegistry("{}", known), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "a registration key must be a URI with no fragment"
+      MUT empty AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      MUT bad AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      bad = collections::set(bad, "", json::parse("true"))
+      expectTrap(compileWithRegistry("{}", bad), ERR_ARGUMENT)
+      MUT fragment AS Map OF String TO json::Json = Map OF String TO json::Json {}
+      fragment = collections::set(fragment, "https://ex.test/a#b", json::parse("true"))
+      expectTrap(compileWithRegistry("{}", fragment), ERR_ARGUMENT)
+      expectString(compileWithRegistry("{}", empty), "")
+    END TCASE
+
+    TCASE "a reference may name a subschema under a keyword this package does not read"
+      LET schema AS String = "{\"x-defs\":{\"a\":{\"type\":\"string\"}},\"$ref\":\"#/x-defs/a\"}"
+      expectString(verdict(schema, "\"ok\""), "valid")
+      expectString(verdict(schema, "5"), "type")
+    END TCASE
+
+    TCASE "an anchor under a keyword this package does not read is addressable"
+      LET schema AS String = "{\"x-defs\":{\"a\":{\"$anchor\":\"named\",\"type\":\"string\"}},\"$ref\":\"#named\"}"
+      expectString(verdict(schema, "5"), "type")
+    END TCASE
+
+    TCASE "a reference into an unread region compiles that region's patterns"
+      expectTrap(compileOnly("{\"x-p\":{\"pattern\":\"(\"},\"$ref\":\"#/x-p\"}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "a reference to something that is not a schema is refused at compile time"
+      expectTrap(compileOnly("{\"properties\":{\"a\":{\"type\":\"string\"}},\"$ref\":\"#/properties/a/type\"}"), ERR_SCHEMA)
+      expectTrap(compileOnly("{\"$defs\":{\"a\":{\"minLength\":3}},\"$ref\":\"#/$defs/a/minLength\"}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "a relative root $id is resolved once, against nothing"
+      expectString(verdict("{\"$id\":\"sub/x.json\",\"properties\":{\"p\":{\"$ref\":\"x.json#/$defs/a\"}},\"$defs\":{\"a\":{\"type\":\"integer\"}}}", "{\"p\":1}"), "valid")
+      expectString(verdict("{\"$id\":\"sub/x.json\",\"properties\":{\"p\":{\"$ref\":\"x.json#/$defs/a\"}},\"$defs\":{\"a\":{\"type\":\"integer\"}}}", "{\"p\":\"a\"}"), "type")
+      ' "../x.json" from "sub/x.json" is "x.json", which no resource here declares.
+      expectTrap(compileOnly("{\"$id\":\"sub/x.json\",\"properties\":{\"p\":{\"$ref\":\"../x.json#/$defs/a\"}},\"$defs\":{\"a\":{\"type\":\"integer\"}}}"), ERR_REF)
+    END TCASE
+
+    TCASE "an $id under a keyword this package does not read is a schema resource"
+      LET schema AS String = "{\"x-r\":{\"$id\":\"http://e.test/r.json\",\"$defs\":{\"a\":{\"type\":\"integer\"}}},\"$ref\":\"http://e.test/r.json#/$defs/a\"}"
+      expectString(verdict(schema, "1"), "valid")
+      expectString(verdict(schema, "\"x\""), "type")
+    END TCASE
+
+    TCASE "an identifier is never declared twice, even under an unread keyword"
+      expectTrap(compileOnly("{\"x-a\":{\"$id\":\"http://e.test/s.json\"},\"x-b\":{\"$id\":\"http://e.test/s.json\"}}"), ERR_SCHEMA)
+    END TCASE
+
+    TCASE "a schema with a thousand and more references compiles and validates"
+      MUT defs AS List OF String = []
+      MUT props AS List OF String = []
+      MUT i AS Integer = 0
+      WHILE i < 1500
+        defs = collections::append(defs, "\"d" & toString(i) & "\":{\"type\":\"integer\"}")
+        props = collections::append(props, "\"p" & toString(i) & "\":{\"$ref\":\"#/$defs/d" & toString(i) & "\"}")
+        i = i + 1
+      END WHILE
+      LET schema AS String = "{\"$defs\":{" & strings::join(defs, ",") & "},\"properties\":{" & strings::join(props, ",") & "}}"
+      LET compiled AS Schema = compileSchema(json::parse(schema), Map OF String TO json::Json {})
+      expectEqual(len(runValidation(compiled, json::parse("{\"p7\":7,\"p1499\":1499}"))), 0)
+      LET problems AS List OF ValidationError = runValidation(compiled, json::parse("{\"p1499\":\"x\"}"))
+      expectEqual(len(problems), 1)
+      expectString(collections::get(problems, 0).keyword, "type")
     END TCASE
   END TGROUP
 END TESTING

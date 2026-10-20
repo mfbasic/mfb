@@ -254,10 +254,51 @@ PUBLIC FUNC fragmentOf(uri AS String) AS String
   RETURN decoded
 END FUNC
 
-' TRUE when `uri` carries a scheme, i.e. is an absolute-URI rather than a
-' relative reference. A `$id` that is not absolute is legal and resolves
-' against its parent, but only an absolute one can be the base of a document
-' that has no parent.
-PUBLIC FUNC isAbsolute(uri AS String) AS Boolean
-  RETURN schemeLength(uri) > 0
+
+' TRUE when `code` is a hexadecimal digit, in either case.
+PRIVATE FUNC isHexCode(code AS Integer) AS Boolean
+  IF code >= 48 AND code <= 57 THEN RETURN TRUE
+  IF code >= 65 AND code <= 70 THEN RETURN TRUE
+  RETURN code >= 97 AND code <= 102
+END FUNC
+
+' TRUE when `code` may appear in a URI outside a percent escape: ALPHA, DIGIT,
+' and the RFC 3986 gen-delims and sub-delims, plus "-", ".", "_", "~".
+PRIVATE FUNC isUriCode(code AS Integer) AS Boolean
+  IF isAlpha(code) THEN RETURN TRUE
+  IF code >= 48 AND code <= 57 THEN RETURN TRUE
+  IF code = 45 OR code = 46 OR code = 95 OR code = 126 THEN RETURN TRUE
+  IF code = 58 OR code = 47 OR code = 63 OR code = 35 THEN RETURN TRUE
+  IF code = 91 OR code = 93 OR code = 64 THEN RETURN TRUE
+  IF code = 33 OR code = 36 OR code = 38 OR code = 39 OR code = 40 OR code = 41 THEN RETURN TRUE
+  IF code = 42 OR code = 43 OR code = 44 OR code = 59 OR code = 61 THEN RETURN TRUE
+  RETURN FALSE
+END FUNC
+
+' TRUE when `text` is an RFC 3986 URI-reference: ASCII only, every "%" opens a
+' pair of hexadecimal digits, and there is at most one "#". A `$id` or `$ref`
+' is a URI-reference (JSON Schema 2020-12 §8.2.1, §8.2.3), so anything else --
+' a space, a control character, a non-ASCII character -- is not one.
+PUBLIC FUNC isUriReference(text AS String) AS Boolean
+  LET scalars AS List OF Scalar = strings::toScalars(text)
+  LET n AS Integer = len(scalars)
+  MUT hashes AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET code AS Integer = toInt(collections::get(scalars, i))
+    IF code = 37 THEN
+      IF i + 2 >= n THEN RETURN FALSE
+      IF NOT isHexCode(toInt(collections::get(scalars, i + 1))) THEN RETURN FALSE
+      IF NOT isHexCode(toInt(collections::get(scalars, i + 2))) THEN RETURN FALSE
+      i = i + 3
+    ELSE
+      IF code = 35 THEN
+        hashes = hashes + 1
+        IF hashes > 1 THEN RETURN FALSE
+      END IF
+      IF NOT isUriCode(code) THEN RETURN FALSE
+      i = i + 1
+    END IF
+  END WHILE
+  RETURN TRUE
 END FUNC
