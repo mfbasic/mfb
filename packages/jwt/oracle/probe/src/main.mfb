@@ -59,7 +59,10 @@ END FUNC
 ' Answer one case. Every failure inside is a RESULT, so the only thing that
 ' escapes is a malformed job.
 PRIVATE FUNC runCase(entry AS json::Json) AS json::Json
-  LET id AS String = textOf(entry, "id", "")
+  ' Declared before anything can fail, so the TRAP below can report the case's
+  ' id even when reading the id itself is what failed.
+  MUT id AS String = ""
+  id = textOf(entry, "id", "")
   LET operation AS String = textOf(entry, "op", "")
   MUT out AS Map OF String TO json::Json = Map OF String TO json::Json {}
   out = collections::set(out, "id", jstr(id))
