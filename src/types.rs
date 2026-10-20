@@ -649,7 +649,7 @@ impl ParameterType {
     /// ownership marker is stripped (a collection element stores the bare type).
     pub(crate) fn parse(name: &str) -> ParameterType {
         // A grouped type name (`(T)`) is the source-level parenthesization the
-        // parser emits verbatim (`ast/expr.rs`). Peel it HERE, so it is peeled at
+        // parser emits verbatim (`ast/expr/type_names.rs`). Peel it HERE, so it is peeled at
         // every level of the grammar — that is what makes
         // `List OF (Map OF String TO Integer)` decompose into
         // `ListOf(MapOf(String, Integer))` (bug-105) instead of falling to a junk

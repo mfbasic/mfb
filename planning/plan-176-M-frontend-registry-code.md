@@ -49,9 +49,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-L is complete and archived | `ls planning/plan-176-L-* planning/completed/plan-176-L-*` → only `planning/completed/…` | NOT MET (2026-10-18) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-18): `tests/guards/file_size_budget.rs` absent |
-| M's files have no uncommitted changes | `git status --porcelain -- src/ast src/hir src/monomorph src/resolver src/rules src/lexer.rs src/codegen/registry tests/guards tools/loc-census src/docs/spec .ai/resources-packages.md src/manifest/config.rs` → empty | MET (2026-10-18) |
+| plan-176-L is complete and archived | `ls planning/plan-176-L-* planning/completed/plan-176-L-*` → only `planning/completed/…` | MET (2026-10-19) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-19): `ok. 35 passed` |
+| M's files have no uncommitted changes | `git status --porcelain -- src/ast src/hir src/monomorph src/resolver src/rules src/lexer.rs src/codegen/registry tests/guards tools/loc-census src/docs/spec .ai/resources-packages.md src/manifest/config.rs` → empty | MET (2026-10-19) |
 
 Everything below is written against the world where these hold.
 
@@ -704,18 +704,34 @@ Common gate:
 
 ### Phase 1 — AST and HIR
 
-- [ ] Split `src/hir/mod.rs` → `mod.rs` + `nodes.rs` per §4.3; repoint 2 citations.
-- [ ] Split `src/ast/serialize.rs` per §4.2; repoint the 3 comments.
-- [ ] Split `src/ast/expr.rs` per §4.1 (9 widenings); repoint 13 citations,
+- [x] Split `src/hir/mod.rs` → `mod.rs` + `nodes.rs` per §4.3; repoint 2 citations.
+      Done: `codesplit.py` → nodes 28 items, none left unlisted, 0 `pub(super)`; `grep -c ParameterType::parse
+      src/hir/nodes.rs` → 0; `motion.py` → only the wiring; `citesweep.py` → 2.
+- [x] Split `src/ast/serialize.rs` per §4.2; repoint the 3 comments.
+      Done: `codesplit.py` → link 13, decls 12, body 7 items, none left unlisted, 0 `pub(super)`, no re-export;
+      `motion.py` → only the `mod` lines; `src/operators.rs:24`, `src/operators/tests/mod.rs:210` →
+      `serialize/body.rs`, `src/ast/tests/mod.rs:838` → `serialize/`, and `.ai/codegen-invariants.md:87`'s
+      `ast/serialize.rs` (not in §4.2's list) → `ast/serialize/`.
+- [x] Split `src/ast/expr.rs` per §4.1 (9 widenings); repoint 13 citations,
       `.ai/codegen-invariants.md:85,836` (the `ast/expr` half), the comments in
       `src/operators.rs`, `src/types.rs`, `src/ast/tests/`.
-- [ ] G5.
+      Done: `items.py split` (method-level) → type_names 17 methods; the 9 `pub(super)` there are exactly §3's
+      list and became `pub(in crate::ast)` (16 E0624s before, 0 after); `motion.py` → only the wiring and the
+      9 visibility edits; `citesweep.py` → 13; `.ai/codegen-invariants.md:85,836`, `src/operators.rs:4,33`,
+      `src/types.rs` (the grouped-type comment is at :652, not :594) and `src/ast/tests/mod.rs:150` repointed.
+- [x] G5.
+      Done: → 3 STALE `code` rows (expr 1083, serialize 1570, hir/mod 1002); tighten drops them; re-run → 0.
 
 Acceptance: parsing, AST JSON and HIR are byte-identical.
   Check: G1; `cargo test -p mfb --bin mfb ast:: hir::` → 0 failed; G2 for `general`,
   `strings`, `collections` (their `.ast`/`.ir` goldens exercise the serializer and the
   expression and type-name parser); `cargo test --test no_type_strings` → passes with
   `src/hir/mod.rs` still the boundary; G3; G4; G6 (est. 15 min).
+  Verified 2026-10-19: G1 → check 0, clippy 37065, tests 5017 (= G0, `target/p176/m0/`); `ast:: hir::` →
+  `ok. 241 passed`; G2 (`bash`, Corrections) general, strings, collections → 7 goldens, 0 diffs each; G3 →
+  `spec_citations_resolve` ok + `citedef.py` → 18 cites, 0 not defined where cited; G4 → 8, 8, 7 + 1 ignored
+  (`no_type_strings` with `src/hir/mod.rs` still the boundary); census → hir 624/192 + 381, expr 732/155 + 355,
+  serialize 302/51 + 343/338/593; G6 → exit 0.
 Commit: —
 
 ### Phase 2 — Lexer and the rules table
@@ -869,6 +885,11 @@ Commit: —
   `lookup.rs`), `resolution.rs` 1496 (`report_result_not_user_visible` was deleted upstream;
   the dangling `resolve_type_name` cite is already gone). The registry's H test declarations follow H's revised layout
   (`#[path = "tests/raw_result_block_ownership.rs"]`).
+
+- 2026-10-19 — `scripts/artifact-gate.sh` is a bash script (process substitution at line 191); `sh
+  scripts/artifact-gate.sh` fails on macOS with `syntax error near unexpected token '<'` before checking anything.
+  Every G2 and final-gate run uses `bash scripts/artifact-gate.sh`. At the starting commit `211227cb9` it reported
+  0 diffs for general, strings, collections, money, thread, crypto and vector.
 
 ## Summary
 

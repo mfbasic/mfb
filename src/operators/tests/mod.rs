@@ -207,7 +207,7 @@ fn golden_corpus_spellings_all_round_trip() {
     // (`bind`, `if`, `while`, `forEach`, …). So the extraction anchors on
     // the node instead of the key — every binary/unary node is rendered
     // `{ "kind": "binary", "type": …, "op": … }` (`src/ir/json.rs`) or
-    // `{ "kind": "binary", "operator": …, … }` (`src/ast/serialize.rs`),
+    // `{ "kind": "binary", "operator": …, … }` (`src/ast/serialize/body.rs`),
     // with the operator always preceding the child operands. Taking the
     // first operator-bearing key after the kind marker is therefore exact,
     // not heuristic.

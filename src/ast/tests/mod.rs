@@ -147,7 +147,7 @@ fn symlinked_source_paths_must_stay_inside_project() {
 }
 
 // ---------------------------------------------------------------------------
-// Expression-parser coverage (src/ast/expr.rs): primary/operator/lambda/with
+// Expression-parser coverage (src/ast/expr/): primary/operator/lambda/with
 // forms, parse_type_name variants, and remaining argument/edge/error paths.
 // ---------------------------------------------------------------------------
 
@@ -835,7 +835,7 @@ fn symlink_cycle_within_project_is_skipped() {
 }
 
 // ---------------------------------------------------------------------------
-// plan-12 coverage: source-driven parse + serialize (src/ast/serialize.rs).
+// plan-12 coverage: source-driven parse + serialize (src/ast/serialize/).
 // One rich fixture over every AST node kind, signature_line + placeholder
 // helpers, and the null/None default branches of each renderer.
 // ---------------------------------------------------------------------------

@@ -203,7 +203,7 @@ unless the file already imports that package — a package-qualified type resolv
 through any binding of its package. `HirFile::own_imports` is never widened.
 The mangled symbol of an instantiation and a package's export table do not
 depend on where the instantiation is emitted.
-[[src/monomorph/lower.rs:into_project]] [[src/hir/mod.rs:HirFile]]
+[[src/monomorph/lower.rs:into_project]] [[src/hir/nodes.rs:HirFile]]
 
 ## `unify_type`: structural matching with an `Unknown` wildcard
 
@@ -495,7 +495,7 @@ spells it (`registry::public_member_for_rewrite` maps `#collections_sort` back t
 `collections::sort`). A later call that reuses the cached instantiation appends its
 own site, and an instantiation made from inside such a body inherits the outermost
 user call, so a nested helper is attributed to it too.
-[[src/monomorph/lower.rs:user_instantiation_site]] [[src/hir/mod.rs:InstantiationSite]]
+[[src/monomorph/lower.rs:user_instantiation_site]] [[src/hir/nodes.rs:InstantiationSite]]
 
 The three passes that can report inside the body relocate to those sites: the
 monomorphizer's own `report` (to the current site), `ir::shape`'s `emit`, and

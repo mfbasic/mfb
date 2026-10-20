@@ -25,7 +25,7 @@ language types); the stage that specializes their typed forms is
 ## Canonical grammar
 
 A type name is produced by `parse_type_name`, which is recursive: every nested
-type is itself a canonical type name. [[src/ast/expr.rs:parse_type_name]]
+type is itself a canonical type name. [[src/ast/expr/type_names.rs:parse_type_name]]
 
 ```
 Type        := FuncType | "(" Type ")" | BaseName [" OF " Args]
@@ -65,7 +65,7 @@ inside the quoted forms are significant:
 - `") AS "` — function parameter list from return type.
 - `", "` — successive template / function-parameter arguments
   (`args.join(", ")`). The reader splits commas at parenthesis depth zero and trims whitespace.
-  [[src/ast/expr.rs:parse_type_name]]
+  [[src/ast/expr/type_names.rs:parse_type_name]]
 - `"RES "` — the leading resource-transfer prefix on a collection element/value
   or thread plane (see below).
 
@@ -84,7 +84,7 @@ qualification, and normalizes the name through the package registry. Built-in
 types retain package-qualified identities: `net::Url` becomes `net.Url`, not
 bare `Url`. The package and type must match; an unrelated qualifier does not
 make the type available. User/dependency types also retain their qualifier.
-[[src/ast/expr.rs:parse_type_base_name]]
+[[src/ast/expr/type_names.rs:parse_type_base_name]]
 [[src/codegen/builtins/mod.rs:qualified_builtin_type]]
 
 ## Dotted names: `pkg::Ident` and `EnumType.Member`
@@ -94,7 +94,7 @@ separator**. Two distinct surface syntaxes collapse onto it at parse time:
 
 - A `::`-qualified reference `pkg::Ident` is rewritten to dotted `pkg.Ident`
   by `finish_qualified_name`. Exactly two parts are allowed; a third `::`
-  segment is a parse error. [[src/ast/expr.rs:finish_qualified_name]]
+  segment is a parse error. [[src/ast/expr/type_names.rs:finish_qualified_name]]
 - A member access `EnumType.Member` is already written with `.`, so an
   enum-member reference and a (non-built-in) package-qualified name share one
   flat spelling. The resolver routes any name containing `.` to
@@ -120,7 +120,7 @@ scope-ownership transfers across a function boundary.
 template base does *not* consume `RES`, so `Box OF RES fs::File` is a parse error
 (`MFB_PARSE_INVALID_IDENTIFIER`), consistent with the table above. Post-elaboration consumers peel the `ParameterType::Res` wrapper before
 resolving the underlying type.
-[[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type]]
+[[src/ast/expr/type_names.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type]]
 
 ### Trailing ` STATE T` on a `RES` collection element
 
@@ -134,7 +134,7 @@ mirrors the thread resource plane, whose `RES` element folds the same clause
 STATE rides the *element* (not the binding), so an extracted element reads
 `.state` against `T`. A `STATE` clause is a parse error after a **non-`RES`**
 element (a `STATE` is only meaningful on a resource).
-[[src/ast/expr.rs:parse_optional_element_state]]
+[[src/ast/expr/type_names.rs:parse_optional_element_state]]
 
 In the type model this clause is a variant: `ParameterType::parse` builds a
 `Stateful { base, state }` for a resource's own top-level ` STATE T`, so
@@ -186,7 +186,7 @@ See [language native-libraries](./mfb spec language native-libraries).
 `parse_thread_type_name` handles `Thread`/`ThreadWorker` bodies after `<kind> OF`.
 The base token's case is canonicalized to exactly `Thread` or `ThreadWorker`. The
 body has three shapes, and a resource-only thread defaults its message to
-`Nothing`: [[src/ast/expr.rs:parse_thread_type_name]]
+`Nothing`: [[src/ast/expr/type_names.rs:parse_thread_type_name]]
 
 ```
 Thread OF Msg TO Out               ' data-only

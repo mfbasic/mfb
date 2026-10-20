@@ -1,7 +1,7 @@
 //! The compiler's operator vocabulary.
 //!
 //! [`BinaryOp`] and [`UnaryOp`] are the *only* representation of a language
-//! operator anywhere after `src/ast/expr.rs` mints one. Every stage — HIR, IR,
+//! operator anywhere after `src/ast/expr/mod.rs` mints one. Every stage — HIR, IR,
 //! NIR, the optimizer, codegen — carries the enum and `match`es it
 //! exhaustively, so rustc, not a runtime `format!("unknown operator …")`, is
 //! what proves the set is covered.
@@ -21,7 +21,7 @@
 //!
 //! [`BinaryOp::name`]/[`UnaryOp::name`] are not cosmetic. They are rendered
 //! verbatim into three committed sinks — the `.ast` JSON
-//! (`src/ast/serialize.rs`), the `.ir` JSON (`src/ir/json.rs`), and the
+//! (`src/ast/serialize/body.rs`), the `.ir` JSON (`src/ir/json.rs`), and the
 //! length-prefixed operator string in the IR binary package format
 //! (`src/ir/binary.rs`) — and pinned by the `tests/**` golden corpus. Changing
 //! a returned string is a format break, not a rename.
@@ -30,7 +30,7 @@ use crate::lexer::{Keyword, TokenKind};
 
 /// A binary (two-operand) language operator.
 ///
-/// The 17 spellings the parser can mint, from `src/ast/expr.rs`'s precedence
+/// The 17 spellings the parser can mint, from `src/ast/expr/mod.rs`'s precedence
 /// ladder: `parse_or` (`OR`, `XOR`), `parse_and` (`AND`), `parse_comparison`
 /// (`=`, `<>`, `<`, `<=`, `>`, `>=`), `parse_concat` (`&`), `parse_addition`
 /// (`+`, `-`), `parse_multiplication` (`*`, `/`, `MOD`, `DIV`) and

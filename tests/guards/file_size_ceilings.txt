@@ -5,8 +5,6 @@ ceiling code 1202 src/arch/aarch64/decode/vector.rs
 ceiling code 1133 src/arch/aarch64/encode/emitter.rs
 ceiling code 1155 src/arch/riscv64/v128.rs
 ceiling code 1837 src/arch/x86_64/encode/emitter.rs
-ceiling code 1083 src/ast/expr.rs
-ceiling code 1570 src/ast/serialize.rs
 ceiling code 1180 src/binary_repr/reader.rs
 ceiling code 1161 src/binary_repr/sections.rs
 ceiling code 1111 src/binary_repr/writer.rs
@@ -76,7 +74,6 @@ ceiling code 2018 src/codegen/string/repr/builder_strings.rs
 ceiling code 1533 src/codegen/string/unicode_props.rs
 ceiling code 2824 src/codegen/term/core/term.rs
 ceiling code 1502 src/codegen/term/grid/term_grid.rs
-ceiling code 1002 src/hir/mod.rs
 ceiling code 1448 src/ir/binary.rs
 ceiling code 5222 src/ir/lower.rs
 ceiling code 2950 src/ir/shape.rs
