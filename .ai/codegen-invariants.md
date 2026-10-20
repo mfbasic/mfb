@@ -51,7 +51,7 @@ gate. **Budget an `artifact-gate all` run for any variant addition.**
 
 ## `tests/guards/no_type_strings.rs` is a hard floor with two named remainders (plan-111)
 
-It scans `src/` (minus `src/ast`, `src/lexer.rs`, `src/docs` — the string domain) for **eight** ways a type SPELLING reaches a decision: `ParameterType::parse` outside the boundary files, `ParameterType::declared` (class 1b — where a declared NAME crosses into the type domain), a type-named `&str` parameter, a `match` arm or `==` on a spelling, a hand-rolled grammar op, a `format!`-built spelling, and a `String`-keyed type map.
+It scans `src/` (minus `src/ast`, `src/lexer/`, `src/docs` — the string domain) for **eight** ways a type SPELLING reaches a decision: `ParameterType::parse` outside the boundary files, `ParameterType::declared` (class 1b — where a declared NAME crosses into the type domain), a type-named `&str` parameter, a `match` arm or `==` on a spelling, a hand-rolled grammar op, a `format!`-built spelling, and a `String`-keyed type map.
 
 Since plan-111-G it is a **floor, not a ratchet**: six of the eight classes are 0 tree-wide, and `BUDGETS` is down to two classes whose remainder is enumerated site-by-site in the table's own comment. Two exemptions carry the rest, each pinned by its own test:
 

@@ -162,7 +162,7 @@ impl ConfigValue {
 /// One rejected part of a `config` section.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ConfigDiagnostic {
-    /// The `src/rules/table.rs` rule name.
+    /// The rule name (`src/rules/table/`).
     pub(crate) rule: &'static str,
     pub(crate) detail: String,
     /// The file at fault, and the 1-based line of the key at fault in it.

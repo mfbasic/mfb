@@ -32,6 +32,9 @@ Two classes of defect in `mfb spec diagnostics rule-codes` (and its package page
 
 1. "All 252 `RULES` entries are listed" — the table has **255** entries (and the spec's own table
    lists 255 rows).
+   **Fixed 2026-10-19 (plan-176-M Phase 2):** the sentence now reads "All 270 registry entries are listed"
+   (`cat src/rules/table/*.rs | grep -c '^    Rule {'` → 270; the page's table has 271 code rows including
+   the synthetic `0-000-0000`). Items 2–5 and Part B are still open.
 2. Subsystem population table: `2-203` "138" — actual **139**.
 3. "Allocations are sparse: `2-203-0047`, `2-203-0057`, and `2-203-0134` have no registry entries" —
    `2-203-0141` and `2-203-0142` are also unallocated (codes run to `0144`).

@@ -5,7 +5,7 @@ A map of the compiler's source modules and their responsibilities.
 | Module | Responsibility |
 | --- | --- |
 | CLI / orchestration[[src/main.rs]] | CLI, manifest validation, project orchestration, package commands. |
-| Lexer[[src/lexer.rs]] | Source tokenization. |
+| Lexer[[src/lexer/]] | Source tokenization. |
 | Parser & AST[[src/ast/]] | Parser, AST model, source discovery, AST JSON output. |
 | HIR[[src/hir/]] | Typed elaboration of AST annotations into `ParameterType` trees. |
 | Name resolver[[src/resolver/]] | Name resolution and import/package symbol checks. |

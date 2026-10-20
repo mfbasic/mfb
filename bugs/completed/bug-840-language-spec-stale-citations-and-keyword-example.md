@@ -1,17 +1,28 @@
 # bug-840: language spec §4/§8 cite drifted `table.rs` line numbers and a deleted `resolve_type_name`; the §4.2 `Node` example uses the keyword `next` as a field name
 
-Last updated: 2026-10-05
+Last updated: 2026-10-19
 Effort: small (<1h)
 Severity: LOW
 Class: Other (spec/doc accuracy)
 
-Status: Open
+Status: Fixed (2026-10-19, plan-176-M Phase 2)
 Regression Test: none (doc-only; `mfb spec` citation sweep)
 
 **Update (2026-10-05):** **Re-checked at HEAD 846aa55fd after plan-165/167.** The five line citations
 (`table.rs:642`, `:480`, `:486`, `:312`, `:318`) are still in `04_types.md` / `08_error-model.md`.
 They now land on bare `},` / `Rule {` lines and name no rule at all. The `next` keyword example
 is unchanged. The bug stands. Use the symbol citation `[[src/rules/table.rs:RULES]]`.
+
+**Fixed (2026-10-19, plan-176-M Phase 2).** Item 1: plan-176-M split `src/rules/table.rs` into
+`src/rules/table/`, and the five line cites now name the rules they back —
+`[[src/rules/table/type_check.rs:TYPE_PROPAGATE_REQUIRES_TRAP]]`, `…:TYPE_FAIL_REQUIRES_ERROR]]`
+(`08_error-model.md`), `…:TYPE_READ_ONLY_RECORD_CONSTRUCTOR]]`, `…:TYPE_READ_ONLY_RECORD_UPDATE]]` and
+`…:TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION]]` (`04_types.md`); `grep -rn 'table.rs:[0-9]' src/docs/spec`
+→ 0. Item 2 was already fixed by bug-945 (`44288aae1`): §8.5b cites
+`[[src/resolver/resolution.rs:resolve_type]]`. Item 3: the §4.2 example's field is now `child AS Node`;
+the corrected example built with the release `mfb` reports
+`error[2-203-0065 TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION]` (the `next` spelling reports
+`error[1-102-0003 MFB_PARSE_INVALID_IDENTIFIER]`).
 
 There are three spec defects in the `language` topics. All three are SPEC bugs; the code
 is correct.

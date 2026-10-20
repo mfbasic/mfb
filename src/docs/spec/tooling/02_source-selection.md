@@ -187,7 +187,7 @@ toolchain-declared templates). [[src/ast/manifest.rs:parse_project]]
 ## Diagnostics
 
 All five are errors that abort selection; codes are the `rules` table entries.
-[[src/rules/table.rs:RULES]]
+[[src/rules/table/mod.rs:rules]]
 
 | Name                         | Code        | Raised when                                                          |
 | ---------------------------- | ----------- | ------------------------------------------------------------------- |

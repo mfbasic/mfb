@@ -322,7 +322,6 @@ pub struct Rule {
 }
 
 mod table;
-use table::RULES;
 
 pub fn show_diagnostic(
     rule_name: &str,
@@ -415,7 +414,7 @@ pub fn is_error(rule_name: &str) -> bool {
 
 /// Resolve a rule name to its `(code, name)` identity as rendered in a
 /// diagnostic header. Returns the `0-000-0000 UNKNOWN_RULE` sentinel when the
-/// name is not defined in `RULES` (and, in debug builds, asserts). Used by tests
+/// name is not in the rule table (and, in debug builds, asserts). Used by tests
 /// to prove an emit site references a defined rule.
 #[cfg(test)]
 pub(crate) fn code_and_name(rule_name: &str) -> (&'static str, &'static str) {
@@ -424,16 +423,16 @@ pub(crate) fn code_and_name(rule_name: &str) -> (&'static str, &'static str) {
 }
 
 fn rule_for(rule_name: &str) -> &'static Rule {
-    match RULES.iter().find(|rule| rule.name == rule_name) {
+    match table::rules().find(|rule| rule.name == rule_name) {
         Some(rule) => rule,
         None => {
-            // An emit site referenced a rule name absent from `RULES`: the emit
+            // An emit site referenced a rule name absent from the rule table: the emit
             // site and the table have drifted (see bug-40). Fail loudly in debug
             // builds so the mismatch is caught by tests rather than silently
             // degraded to the `0-000-0000 UNKNOWN_RULE` sentinel at runtime.
             debug_assert!(
                 false,
-                "diagnostic rule `{rule_name}` is not defined in RULES (src/rules/table.rs)"
+                "diagnostic rule `{rule_name}` is not defined in RULES (src/rules/table/)"
             );
             &Rule {
                 code: "0-000-0000",

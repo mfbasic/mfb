@@ -1,15 +1,16 @@
 # Compiler Diagnostics
 
-Structured compiler diagnostics use a static `Rule` drawn from the `RULES` registry. A
+Structured compiler diagnostics use a static `Rule` drawn from the rule registry. A
 rule binds four immutable fields — a numeric `code`, a SCREAMING_SNAKE_CASE symbolic
 `name`, a `Severity`, and a fixed `message` template — so that call sites name a rule by
 its symbolic name only, and the code, severity, and human message are looked up
-centrally and rendered uniformly. [[src/rules/mod.rs:Rule]] [[src/rules/table.rs:RULES]]
+centrally and rendered uniformly. [[src/rules/mod.rs:Rule]] [[src/rules/table/mod.rs:rules]]
 
 ## The Rule Record
 
-A `Rule` is four `&'static str`/enum fields; the registry `RULES` is a flat
-`&[Rule]` slice. [[src/rules/mod.rs:Rule]] [[src/rules/table.rs:RULES]]
+A `Rule` is four `&'static str`/enum fields; the registry is three `&[Rule]` slices,
+one per category file under `src/rules/table/`, which `table::rules()` walks in a fixed
+order; lookup is by name. [[src/rules/mod.rs:Rule]] [[src/rules/table/mod.rs:rules]]
 
 | field | type | role |
 | --- | --- | --- |
@@ -52,14 +53,14 @@ Each code is three dash-separated numeric fields: **`G-SSS-EEEE`** — a one-dig
 hierarchically: the group is the broad compiler phase/concern, the subsystem is
 the specific component within that group, and the error number is the rule's
 ordinal within its subsystem. The values below are the partition **as it actually
-appears in `RULES`** (verified against every entry); they are the live namespace,
-not an aspirational allocation. [[src/rules/table.rs:RULES]]
+appears in the registry** (verified against every entry); they are the live namespace,
+not an aspirational allocation. [[src/rules/table/mod.rs:rules]]
 
 ### Groups (`G`)
 
 | G | group | subsystems present |
 | --- | --- | --- |
-| `0` | fallback (synthetic, not in `RULES`) | `000` |
+| `0` | fallback (synthetic, not in the registry) | `000` |
 | `1` | front-end: source intake, lex, parse, DOC syntax | `100`, `101`, `102`, `103` |
 | `2` | semantics: project/import/symbol/type/DOC-semantics/package/testing | `200`, `201`, `203`, `205`, `208` |
 | `3` | backend: verification & target/codegen | `302`, `304` |
@@ -70,7 +71,7 @@ Groups `4` and `7+` are unused in the current registry; `SSS` slots within a
 group are likewise sparse (group 2 jumps `200, 201, 203, 205, 208` —
 `202`/`204`/`206`/`207` are unallocated). The scheme leaves room; it does not
 densely fill it.
-[[src/rules/table.rs:RULES]]
+[[src/rules/table/mod.rs:rules]]
 
 ### Subsystems (`SSS`) and their populations
 
@@ -95,7 +96,7 @@ densely fill it.
 `EEEE` is an opaque identifier within a subsystem, not a count or a traversal order.
 Allocations are sparse: `2-203-0047`, `2-203-0057`, and `2-203-0134` have no registry
 entries. The `2-200` subsystem contains `0001`–`0027` and `0100`–`0101`.
-[[src/rules/table.rs:RULES]]
+[[src/rules/table/mod.rs:rules]]
 
 ### Code Uniqueness
 
@@ -103,8 +104,8 @@ Every rule has its own code, including a rule with no live emitter; a code is
 never reused for a second rule. `rules::tests::rule_codes_are_unique` enforces it
 over the whole registry, with no allowlist. A new rule takes an unused code in
 its range, checked against the table and against codes a plan has reserved.
-[[src/rules/table.rs:RULES]]
-[[src/rules/mod.rs:rule_for]] [[src/rules/table.rs:RULES]]
+[[src/rules/table/mod.rs:rules]]
+[[src/rules/mod.rs:rule_for]] [[src/rules/table/mod.rs:rules]]
 
 ## Diagnostic Rendering
 
@@ -219,11 +220,11 @@ caller. [[src/rules/mod.rs:show_diagnostic]] [[src/rules/mod.rs:show_general_dia
 
 ## The Rule Registry
 
-The complete registry follows, grouped by subsystem. All 252 `RULES` entries are listed;
-none are omitted, and the synthetic `0-000-0000` fallback (not a `RULES` member) is
+The complete registry follows, grouped by subsystem. All 270 registry entries are listed;
+none are omitted, and the synthetic `0-000-0000` fallback (not in the registry) is
 appended at the end. Each row is `code | NAME | severity | message`, matching the table
 except that reserved entries describe their non-emission status instead of reproducing
-their unused message text. [[src/rules/table.rs:RULES]] Unless noted, severity is
+their unused message text. [[src/rules/table/mod.rs:rules]] Unless noted, severity is
 `error`.
 
 ### `1-100` — MFBASIC source intake
@@ -298,7 +299,7 @@ before being passed on. Suppression requires seeing the sound consumer at the oc
 itself; it is not a dataflow analysis, and the ambiguous cases warn.
 [[src/codegen/registry/mod.rs:EnumAdvisory]]
 [[src/ir/verify/values.rs:check_enum_member_advisory]]
-[[src/ir/verify/values.rs:hash_selector_use_is_sound]] [[src/rules/table.rs:RULES]]
+[[src/ir/verify/values.rs:hash_selector_use_is_sound]] [[src/rules/table/mod.rs:rules]]
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
@@ -362,7 +363,7 @@ itself; it is not a dataflow analysis, and the ambiguous cases warn.
 This subsystem covers typing, declaration validation, control flow, resource ownership,
 thread boundaries, generic instantiation, native ABI validation, and enum-value
 advisories. Reserved entries remain lookupable but have no production emitter.
-[[src/rules/table.rs:RULES]]
+[[src/rules/table/mod.rs:rules]]
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
@@ -613,7 +614,7 @@ bytes gets its own code, emitted by the build gate after the
 
 ### `0-000` — Fallback (synthetic)
 
-Not a member of `RULES`; constructed inline by the lookup when a call site
+Not in the registry; constructed inline by the lookup when a call site
 names a rule that is not in the registry. [[src/rules/mod.rs:rule_for]]
 
 | code | NAME | severity | message |

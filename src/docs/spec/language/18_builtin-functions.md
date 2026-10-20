@@ -38,7 +38,7 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 >
 > The conversion name is `toInt` (not `toInteger`). String concatenation `&` is a
 > binary **operator**, not a built-in
-> function — it is not in this set. [[src/lexer.rs:TokenKind]]
+> function — it is not in this set. [[src/lexer/mod.rs:TokenKind]]
 >
 > The `is*` predicates are lowered **inline** at a direct call site and **out of
 > line** where one is named as a function value, [[src/codegen/builtins/general/mod.rs:builtin_function_id]] so they may be passed as a

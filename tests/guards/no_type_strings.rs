@@ -74,11 +74,11 @@ mod self_checks;
 ///   parser and the input to `hir::elaborate`; a type there is a source token
 ///   that has not been given a meaning yet. plan-111's whole statement is
 ///   "after the AST", so banning spellings inside it would ban the thing.
-/// - `src/lexer.rs` — likewise: it produces the tokens `src/ast` consumes.
+/// - `src/lexer/` — likewise: it produces the tokens `src/ast` consumes.
 /// - `src/docs/` — the embedded `mfb spec` / `mfb man` corpus. Its type
 ///   spellings are prose and examples shown to the user, not decisions.
 fn is_excluded_from_scan(rel: &str) -> bool {
-    rel.starts_with("src/ast/") || rel == "src/lexer.rs" || rel.starts_with("src/docs/")
+    rel.starts_with("src/ast/") || rel.starts_with("src/lexer/") || rel.starts_with("src/docs/")
 }
 
 /// Test-only files: fixture corpora, round-trip needle lists and scan helpers

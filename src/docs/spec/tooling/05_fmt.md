@@ -84,7 +84,7 @@ used later for structure decisions. The `Sig` variants are: [[src/fmt.rs:Sig]]
 ### Casing rules
 
 A bare word is uppercased iff it is a recognized keyword **and** none
-of the suppression rules below apply.[[src/lexer.rs:lookup_keyword]] The match is case-insensitive, so already
+of the suppression rules below apply.[[src/lexer/keywords.rs:lookup_keyword]] The match is case-insensitive, so already
 upper or mixed-case keywords are normalized. [[src/fmt.rs:scan_line]]
 
 - **Suppression after `.` and `::`.** A `.` or `::` token sets a `suppress` flag
@@ -391,7 +391,7 @@ a permission error. [[src/cli/fmt.rs:replace_contents]]
 In `--check` mode, when one or more files would change, the formatter emits the
 general diagnostic **`FMT_CHECK_FAILED`** (code `2-200-0101`, severity Error,
 "one or more source files are not formatted (mfb fmt --check)") before exiting
-non-zero. [[src/rules/table.rs:FMT_CHECK_FAILED]] [[src/cli/fmt.rs:format_path]]
+non-zero. [[src/rules/table/tooling.rs:FMT_CHECK_FAILED]] [[src/cli/fmt.rs:format_path]]
 
 ## See Also
 

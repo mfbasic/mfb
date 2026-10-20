@@ -79,8 +79,6 @@ ceiling code 5222 src/ir/lower.rs
 ceiling code 2950 src/ir/shape.rs
 ceiling code 1203 src/ir/verify/mod.rs
 ceiling code 1153 src/ir/verify/resources.rs
-ceiling code 1199 src/lexer.rs
 ceiling code 2521 src/monomorph/lower.rs
 ceiling code 1037 src/os/linux/link/elf.rs
 ceiling code 1496 src/resolver/resolution.rs
-ceiling code 1623 src/rules/table.rs

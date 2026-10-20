@@ -4,7 +4,7 @@ This package specifies the compiler diagnostic rule registry, diagnostic renderi
 the runtime error-code registry. Compiler rule names identify structured build
 diagnostics; runtime error codes are integers carried in `Error.code`. A diagnostic's
 numeric display code is not necessarily unique. [[src/rules/mod.rs:Rule]]
-[[src/rules/table.rs:RULES]] [[src/codegen/builtins/errorcode/mod.rs:register]]
+[[src/rules/table/mod.rs:rules]] [[src/codegen/builtins/errorcode/mod.rs:register]]
 
 The source-level `FAIL`/`TRAP`/`PROPAGATE` model is specified by `./mfb spec language
 error-model`; the runtime `Error` representation is specified by `./mfb spec memory

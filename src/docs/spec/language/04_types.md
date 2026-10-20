@@ -29,7 +29,7 @@ below it converts to zero rather than failing.
 
 The name `Fixed` is retained for deterministic binary fixed-point arithmetic. For exact base-10 financial arithmetic, use `Money` (see below), whose decimal scale, rounding, and overflow rules are specified separately.
 
-Numeric literals are initially untyped. Integer-looking literals default to `Integer` when there is no expected type. Decimal-looking literals default to `Float` when there is no expected type. When the expected type is `Fixed`, a decimal literal is rounded exactly to the nearest representable `Fixed` value, ties away from zero (§4.12 range-checks the rounded value). [[src/numeric.rs:fixed_raw_from_decimal]] The suffix `F` makes a literal intrinsically `Fixed` (`1.25F`); lowercase `f` selects `Float`. An `f`-suffixed literal stays a `Float` even when the expected type is `Fixed`; it is then converted as `toFixed(Float)` converts (below), so `0.1f` stores the `Fixed` nearest the binary64 `0.1`, not the one nearest the decimal `0.1`. [[src/numeric.rs:fixed_constant_from_float_literal]] An annotation or conversion also supplies the type. [[src/lexer.rs:lex_number]]
+Numeric literals are initially untyped. Integer-looking literals default to `Integer` when there is no expected type. Decimal-looking literals default to `Float` when there is no expected type. When the expected type is `Fixed`, a decimal literal is rounded exactly to the nearest representable `Fixed` value, ties away from zero (§4.12 range-checks the rounded value). [[src/numeric.rs:fixed_raw_from_decimal]] The suffix `F` makes a literal intrinsically `Fixed` (`1.25F`); lowercase `f` selects `Float`. An `f`-suffixed literal stays a `Float` even when the expected type is `Fixed`; it is then converted as `toFixed(Float)` converts (below), so `0.1f` stores the `Fixed` nearest the binary64 `0.1`, not the one nearest the decimal `0.1`. [[src/numeric.rs:fixed_constant_from_float_literal]] An annotation or conversion also supplies the type. [[src/lexer/literals.rs:lex_number]]
 
 ```basic
 LET x = 1.25             ' inferred Float
@@ -218,14 +218,14 @@ List literals use bare square brackets, such as `[1, 2, 3]`, and are parsed sepa
 
 A constructor's `[ … ]` and a `WITH` update's `{ … }` may span lines, with a trailing comma before the closer, like every bracketed list (`./mfb spec language lexical-structure` §2.6).
 
-`WITH` is the only way to update a record field. There is no field-assignment statement: `value.field = expr` in statement position is rejected with `MFB_PARSE_RECORD_FIELD_ASSIGNMENT`. Because `=` spells both assignment and equality, such a statement would otherwise parse as an equality comparison whose Boolean result is discarded, silently losing the write. The one exception is a `RES` binding's `STATE` payload — `resource.state = value` and `resource.state.field = value` — described in §15. A comparison in expression position, such as `IF value.field = expr THEN`, is unaffected. [[src/rules/table.rs:RULES]]
+`WITH` is the only way to update a record field. There is no field-assignment statement: `value.field = expr` in statement position is rejected with `MFB_PARSE_RECORD_FIELD_ASSIGNMENT`. Because `=` spells both assignment and equality, such a statement would otherwise parse as an equality comparison whose Boolean result is discarded, silently losing the write. The one exception is a `RES` binding's `STATE` payload — `resource.state = value` and `resource.state.field = value` — described in §15. A comparison in expression position, such as `IF value.field = expr THEN`, is unaffected. [[src/rules/table/mod.rs:rules]]
 
-A record type may not contain itself, directly or transitively, except through a `List`, `Map`, or `UNION`. A field is a mandatory owned value with no null or absent form, so a record whose field cycles back to the same record only through other plain records has no base case and can never be constructed. Such a declaration is rejected with `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`: [[src/rules/table.rs:642]]
+A record type may not contain itself, directly or transitively, except through a `List`, `Map`, or `UNION`. A field is a mandatory owned value with no null or absent form, so a record whose field cycles back to the same record only through other plain records has no base case and can never be constructed. Such a declaration is rejected with `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`: [[src/rules/table/type_check.rs:TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION]]
 
 ```basic
-TYPE Node          ' rejected: `next` always demands another Node
+TYPE Node          ' rejected: `child` always demands another Node
   value AS Integer
-  next  AS Node
+  child AS Node
 END TYPE
 ```
 
@@ -427,7 +427,7 @@ END TYPE
 
 Both are compiler/runtime-generated **read-only** record shapes. A program may
 read their fields, but may **not** construct them with `[...]`, update them with
-`WITH`, or assign to their fields. [[src/rules/table.rs:480]] [[src/rules/table.rs:486]] User-authored errors are created with the
+`WITH`, or assign to their fields. [[src/rules/table/type_check.rs:TYPE_READ_ONLY_RECORD_CONSTRUCTOR]] [[src/rules/table/type_check.rs:TYPE_READ_ONLY_RECORD_UPDATE]] User-authored errors are created with the
 `error` built-in function:
 
 ```basic
@@ -633,7 +633,7 @@ Numeric **literals** are range-checked statically, as a separate phase from the 
 
 **Money.** A literal stored into a `Money` is converted with the **exact** base-10 converter (no `f64` bound — `Money` is exact decimal), sign applied, and checked against the i64 raw range: a positive magnitude outside `92233720368547.75807` is `TYPE_MONEY_LITERAL_OVERFLOW`; a negated magnitude past `-92233720368547.75808` is `TYPE_MONEY_LITERAL_UNDERFLOW` (the most-negative `Money` has no positive-magnitude literal and is folded from `-92233720368547.75808`). A literal with more than 5 fractional digits whose extra digits change the stored value additionally warns `TYPE_MONEY_LITERAL_PRECISION` (the value is rounded half-away-from-zero); trailing zeros and exactly-representable literals are silent. A scientific exponent too extreme to expand is decided without expanding it: a negative one (`1e-1000000000`) is a nonzero magnitude that rounds to `0` with the precision warning, a positive one is out of range. [[src/ir/verify/values.rs:check_const_literal]] [[src/numeric.rs:money_conversion_from_decimal]]
 
-**Scalar.** A backtick scalar literal `` `x` `` is validated at **lex** time: it must contain exactly one Unicode scalar. An empty literal is `TYPE_SCALAR_LITERAL_EMPTY`, more than one scalar is `TYPE_SCALAR_LITERAL_TOO_MANY`, and an unterminated literal or an invalid escape is `TYPE_SCALAR_LITERAL_INVALID`; a `\u{...}` escape naming a surrogate or a value above `U+10FFFF` reuses the shared `MFB_LEX_INVALID_UNICODE_ESCAPE`. For source programs the lexer is the sole rejecter. A merged package decoded from a `.mfp`, however, never passes through the lexer, so `verify_semantics` independently range-checks every `Scalar` const: a value that fails to parse, exceeds `U+10FFFF`, or is a UTF-16 surrogate (`0xD800..=0xDFFF`) is `TYPE_SCALAR_LITERAL_INVALID`, mirroring the `Byte`/`Money` literal-range checks. [[src/lexer.rs:lex_scalar]] [[src/ir/verify/values.rs:check_const_literal]]
+**Scalar.** A backtick scalar literal `` `x` `` is validated at **lex** time: it must contain exactly one Unicode scalar. An empty literal is `TYPE_SCALAR_LITERAL_EMPTY`, more than one scalar is `TYPE_SCALAR_LITERAL_TOO_MANY`, and an unterminated literal or an invalid escape is `TYPE_SCALAR_LITERAL_INVALID`; a `\u{...}` escape naming a surrogate or a value above `U+10FFFF` reuses the shared `MFB_LEX_INVALID_UNICODE_ESCAPE`. For source programs the lexer is the sole rejecter. A merged package decoded from a `.mfp`, however, never passes through the lexer, so `verify_semantics` independently range-checks every `Scalar` const: a value that fails to parse, exceeds `U+10FFFF`, or is a UTF-16 surrogate (`0xD800..=0xDFFF`) is `TYPE_SCALAR_LITERAL_INVALID`, mirroring the `Byte`/`Money` literal-range checks. [[src/lexer/literals.rs:lex_scalar]] [[src/ir/verify/values.rs:check_const_literal]]
 
 ## See Also
 

@@ -14,7 +14,7 @@ The character is deliberately one the lexer **never accepts inside a user
 identifier**: in normal mode `#` falls through to the catch-all arm and is
 reported as `MFB_LEX_UNEXPECTED_CHARACTER`, so no user program can produce a token
 containing it. A name carrying `#` therefore could only have been minted by the
-compiler. [[src/internal_name.rs:INTERNAL_SIGIL]] [[src/lexer.rs:262]]
+compiler. [[src/internal_name.rs:INTERNAL_SIGIL]] [[src/lexer/mod.rs:lex_identifier_or_keyword]]
 
 ```text
 INTERNAL_SIGIL = '#'
@@ -47,7 +47,7 @@ built-in files are lexed with it set (`AstFile::internal`). When the flag is set
 each identifier whose value begins with `__` is passed through `internalize`,
 which strips the `__` prefix and prepends the sigil. The rewrite happens after
 keyword classification (keywords never carry a `__` prefix) and `DOC`/`REM`
-handling, so it only ever affects names. [[src/lexer.rs:lex_with]] [[src/lexer.rs:752]]
+handling, so it only ever affects names. [[src/lexer/mod.rs:lex_with]] [[src/lexer/mod.rs:lex_identifier_or_keyword]]
 
 ```text
 internalize("__json_parse")        -> "#json_parse"

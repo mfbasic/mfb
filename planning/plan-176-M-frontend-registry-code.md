@@ -41,7 +41,7 @@ References:
   (`grep -rlE "\[\[src/codegen/registry/mod.rs" src/docs/spec`).
 - Guard: `tests/guards/no_type_strings.rs` (`is_excluded_from_scan` and `BOUNDARY_FILES` stay in the root
   file; plan-176-E moves `boundary_list_is_closed` to `tests/guards/no_type_strings/self_checks.rs`).
-- Open bugs this plan closes items of: `bugs/bug-840-language-spec-stale-citations-and-keyword-example.md`
+- Open bugs this plan closes items of: `bugs/completed/bug-840-language-spec-stale-citations-and-keyword-example.md`
   (the five `table.rs` line cites), `bugs/bug-883-rule-codes-spec-drift-and-unemitted-rules.md`
   (the "All 252 `RULES` entries" count, on a line §4.8 rewrites anyway).
 
@@ -732,27 +732,46 @@ Acceptance: parsing, AST JSON and HIR are byte-identical.
   `spec_citations_resolve` ok + `citedef.py` → 18 cites, 0 not defined where cited; G4 → 8, 8, 7 + 1 ignored
   (`no_type_strings` with `src/hir/mod.rs` still the boundary); census → hir 624/192 + 381, expr 732/155 + 355,
   serialize 302/51 + 343/338/593; G6 → exit 0.
-Commit: —
+Commit: 5a5cd0cd7
 
 ### Phase 2 — Lexer and the rules table
 
-- [ ] Split `src/lexer.rs` per §4.4; repoint 15 citations including the file cite and the two
+- [x] Split `src/lexer.rs` per §4.4; repoint 15 citations including the file cite and the two
       stale line cites.
-- [ ] `tests/guards/no_type_strings.rs` `is_excluded_from_scan` + its doc bullet (§4.4,
+      Done: `items.py split` → literals 11 methods, keywords 6 items (incl. `is_identifier_continue`, which
+      §4.4 did not list; it sits in 1255-1453 and is called from `mod.rs`); `pub(super)` from the compiler's
+      errors → §4.4's 4 + `is_identifier_continue`; `motion.py` → only the wiring and the 5; `citesweep.py` → 12,
+      plus `[[src/lexer.rs]]` → `[[src/lexer/]]` and the two line cites → `lex_identifier_or_keyword` (it holds
+      the `internalize` call, `grep -n internalize src/lexer/*.rs`).
+- [x] `tests/guards/no_type_strings.rs` `is_excluded_from_scan` + its doc bullet (§4.4,
       justification there); `.ai/codegen-invariants.md:54`.
-- [ ] Before the table edit: `target/release/mfb spec diagnostics rule-codes > /tmp/m_spec_before.txt`
+      Done: both edited. §2 predicted the scan would flag the moved lexer; it did not (`no_type_strings` → `7
+      passed` before the edit too), so the edit keeps the exemption's intent rather than fixing a failure.
+- [x] Before the table edit: `target/release/mfb spec diagnostics rule-codes > /tmp/m_spec_before.txt`
       and `target/release/mfb man > /tmp/m_man_before.txt` (release build of the phase's
       starting commit).
-- [ ] Split `src/rules/table.rs` → `src/rules/table/{mod,front_end,type_check,tooling}.rs` per
+      Done: from the release binary of `5a5cd0cd7`, into `target/p176/m_{spec,man}_before.txt` (1269 / 94 lines).
+- [x] Split `src/rules/table.rs` → `src/rules/table/{mod,front_end,type_check,tooling}.rs` per
       §4.8; run the order check → no output.
-- [ ] `src/rules/mod.rs`: drop `use table::RULES;`, `rule_for` → `table::rules()`, the
+      Done: `m2-table.py` writes each part as `use super::*;`, blank, `pub(super) const RULES: &[Rule] = &[`, the
+      old lines, `];`, and `mod.rs` exactly as §4.8; order check → no output; `grep -c '^    Rule {'` → 52 / 143 / 75.
+- [x] `src/rules/mod.rs`: drop `use table::RULES;`, `rule_for` → `table::rules()`, the
       comments and the `debug_assert!` path (§4.8); the six tests in K's `src/rules/tests/`
       → `table::rules()`; `src/manifest/config.rs:165`.
-- [ ] Repoint the 30 `src/rules/table.rs` citations (13 `RULES`, 12 rule-name, 5 stale line)
+      Done: as §4.8, every assertion and message unchanged (the `debug_assert!` keeps the word `RULES`).
+- [x] Repoint the 30 `src/rules/table.rs` citations (13 `RULES`, 12 rule-name, 5 stale line)
       and the `diagnostics/01_rule-codes.md` prose (§4.8); record bug-840 item 1 and bug-883
       §A item 1 in their bug files.
-- [ ] `.ai/resources-packages.md:11` (§4.8).
-- [ ] G5.
+      Done: `m2cites.py` → 13 `RULES` + 12 rule-name + 5 line = 30; `wordcheck.py` (the §4 sweep check) → 0
+      missing; the six prose sites rewritten (`mfb spec` diff below). bug-840: items 2 (already fixed by bug-945)
+      and 3 (the `next` field, a parse error, reproduced) were also open; item 3 fixed (`child AS Node` →
+      `error[2-203-0065 …]` with the release `mfb`), so bug-840 is Fixed and moved to `bugs/completed/`. bug-883
+      A1 recorded; its A2–A5 and Part B stay open there.
+- [x] `.ai/resources-packages.md:11` (§4.8).
+      Done: the claims re-checked first (`grep -i borrow 15_resource-management.md` → 0; 2-203-0086 is the reserved
+      `TYPE_RESOURCE_INVALIDATE_NOT_OWNER`).
+- [x] G5.
+      Done: → 2 STALE `code` rows (lexer 1199, rules/table 1623); tighten drops them; re-run → 0.
 
 Acceptance: tokens are byte-identical, the lexer is still outside the type-string scan, and
 every diagnostic resolves to the same rule.
@@ -767,6 +786,12 @@ every diagnostic resolves to the same rule.
   `python3 -I tools/loc-census/census.py --file src/rules/table/type_check.rs` → `861 0`;
   `cargo test --test file_size_budget 2>&1 | grep 'src/rules/table'` → no row; G3; G4; G6
   (est. 25 min).
+  Verified 2026-10-19: G1 → 0 / 37065 / 5017; `lexer:: rules::` → `ok. 55 passed` (`rules::` alone → 20); G2 general,
+  strings, money → 0 diffs; `test-accept.sh … '*invalid*'` → `acceptance tests passed (611 test(s) ran)`, no
+  file under `tests/` changed; `mfb man` → identical; `mfb spec diagnostics rule-codes` → only the six §4.8
+  prose lines; `[[src/lexer.rs` / `[[src/rules/table.rs` cites → 0; `type_check.rs` → `861 0`; `file_size_budget`
+  rows for `src/rules/table` → 0; G3 → ok + `wordcheck.py` 0 missing; G4 → 8, 8, 7 + 1 ignored; census → lexer
+  543/2 + 482 + 181, table 8 + 316/861/453; G6 → exit 0.
 Commit: —
 
 ### Phase 3 — Resolver

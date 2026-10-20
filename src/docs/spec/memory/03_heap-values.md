@@ -194,7 +194,7 @@ stores each union block inline by its runtime `size`.
 
 A **resource** union (all variants are resource handles; a union is all-data or
 all-resource, never mixed — rule `TYPE_MIXED_RESOURCE_UNION`) is
-**not** reshaped [[src/rules/table.rs:TYPE_MIXED_RESOURCE_UNION]] — it keeps the fixed
+**not** reshaped [[src/rules/table/type_check.rs:TYPE_MIXED_RESOURCE_UNION]] — it keeps the fixed
 `{U64 activeMemberTag@0, resource-handle-ptr@8}` layout, and the handle is moved
 (never deep-copied) so the resource is closed exactly once.
 

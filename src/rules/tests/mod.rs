@@ -15,9 +15,7 @@ fn dead_import_missing_package_name_is_gone() {
     // The old dead rule name was renamed onto slot 2-201-0001; nothing should
     // reference it any longer.
     assert!(
-        !RULES
-            .iter()
-            .any(|rule| rule.name == "IMPORT_MISSING_PACKAGE"),
+        !table::rules().any(|rule| rule.name == "IMPORT_MISSING_PACKAGE"),
         "IMPORT_MISSING_PACKAGE was renamed to IMPORT_PACKAGE_INVALID (bug-40)"
     );
 }
@@ -67,7 +65,7 @@ fn unknown_rule_name_trips_the_debug_assert() {
 #[test]
 fn rule_names_are_unique() {
     // `rule_for` resolves by name, so a duplicate name would shadow a rule.
-    let mut names: Vec<&str> = RULES.iter().map(|rule| rule.name).collect();
+    let mut names: Vec<&str> = table::rules().map(|rule| rule.name).collect();
     names.sort_unstable();
     assert!(
         names.windows(2).all(|w| w[0] != w[1]),
@@ -81,7 +79,7 @@ fn rule_names_are_unique() {
 #[test]
 fn rule_codes_are_unique() {
     let mut by_code: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
-    for rule in RULES {
+    for rule in table::rules() {
         by_code.entry(rule.code).or_default().push(rule.name);
     }
     let mut shared: Vec<String> = by_code
@@ -96,7 +94,7 @@ fn rule_codes_are_unique() {
     );
 }
 
-/// Every rule in `RULES` must appear in the embedded `mfb spec diagnostics
+/// Every rule in the table must appear in the embedded `mfb spec diagnostics
 /// rule-codes` table.
 ///
 /// `.ai/compiler.md` requires the embedded spec to stay current with every
@@ -111,8 +109,7 @@ fn every_rule_is_documented_in_the_spec() {
         env!("CARGO_MANIFEST_DIR"),
         "/src/docs/spec/diagnostics/01_rule-codes.md"
     ));
-    let missing: Vec<&str> = RULES
-        .iter()
+    let missing: Vec<&str> = table::rules()
         .filter(|rule| {
             // The table renders one row per rule as `| `<code>` | `<NAME>` | ...`.
             !spec.contains(&format!("`{}`", rule.code)) || !spec.contains(rule.name)
@@ -252,7 +249,7 @@ fn show_diagnostic_rewrites_mangled_generic_names_to_template_spellings() {
 #[test]
 fn code_and_name_resolves_representative_rules() {
     // Every entry in the table resolves to its own identity (not the sentinel).
-    for rule in RULES {
+    for rule in table::rules() {
         let (code, name) = code_and_name(rule.name);
         assert_eq!(name, rule.name, "name round-trip for {}", rule.name);
         assert_eq!(code, rule.code, "code round-trip for {}", rule.name);
@@ -263,7 +260,7 @@ fn code_and_name_resolves_representative_rules() {
 fn is_error_partitions_the_whole_table_by_severity() {
     // Exercise `is_error` across every defined rule so both the Error and the
     // non-Error (Warn/Info) arms are hit for real table entries.
-    for rule in RULES {
+    for rule in table::rules() {
         let expected = matches!(rule.severity, Severity::Error);
         assert_eq!(is_error(rule.name), expected, "is_error for {}", rule.name);
     }
