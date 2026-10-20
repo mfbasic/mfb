@@ -689,7 +689,7 @@ pub(crate) const SELF_UPDATE_TABLE: &[SelfUpdateRow] = &[
         function: "fs::readText",
         kind: SelfUpdate::Exempt {
             reason: NOT_DERIVED_REASON,
-            proof: "`lower_fs_read_text_path_helper` (`builtins/fs/gen_atomic_write.rs`) hands `open` a pointer into the caller's block (`path + 8`, already NUL-terminated) and fills the result `String` from `read`; the only walk of `path` is `emit_cstring_nul_scan` (`builtins/fs/gen_shared.rs`), which reads bytes and stores none. plan-146-F replaced the `len + 1` arena copy this used to marshal (finding F4).",
+            proof: "`lower_fs_read_text_path_helper` (`builtins/fs/gen_atomic_write/read_path.rs`) hands `open` a pointer into the caller's block (`path + 8`, already NUL-terminated) and fills the result `String` from `read`; the only walk of `path` is `emit_cstring_nul_scan` (`builtins/fs/gen_shared.rs`), which reads bytes and stores none. plan-146-F replaced the `len + 1` arena copy this used to marshal (finding F4).",
         },
         probes: &[str_probe(FS, PATH, "fs::readText(x)")],
     },

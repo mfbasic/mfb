@@ -81,14 +81,14 @@ absolute move needs no rewind. A negative `position` raises `ErrInvalidArgument`
 before anything is touched; a failed drain raises `ErrWriteFailed` and does not
 move; a host refusal to move (a non-seekable handle) raises `ErrReadFailed`, as
 `fs::size` and `fs::eof` do. A position past the end is allowed.
-[[src/codegen/builtins/fs/gen_read_write.rs:lower_fs_seek_helper]]
+[[src/codegen/builtins/fs/gen_read_write/position.rs:lower_fs_seek_helper]]
 
 ## The line readers
 
 `fs::readLine` and `fs::readLineRaw` are one emitter with a `keep_terminator`
 switch, serving lines out of the per-`File` block read buffer (`READ_PTR`,
 `FILE_READ_BUFFER_CAPACITY`) and refilling it with one host read when it runs out.
-[[src/codegen/builtins/fs/gen_read_write.rs:lower_fs_read_line_helper]]
+[[src/codegen/builtins/fs/gen_read_write/line.rs:lower_fs_read_line_helper]]
 
 - A line found whole in the buffer is copied straight from it into the result —
   one allocation. Only a line that spans a refill goes through the growing

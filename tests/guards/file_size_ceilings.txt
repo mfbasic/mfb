@@ -6,9 +6,6 @@ ceiling code 2371 src/codegen/builtins/canvas/mod.rs
 ceiling code 1897 src/codegen/builtins/crypto/func_generate.rs
 ceiling code 1635 src/codegen/builtins/crypto/func_sign.rs
 ceiling code 1487 src/codegen/builtins/crypto/func_verify.rs
-ceiling code 1197 src/codegen/builtins/fs/gen_atomic_write.rs
-ceiling code 1028 src/codegen/builtins/fs/gen_directory.rs
-ceiling code 1657 src/codegen/builtins/fs/gen_read_write.rs
 ceiling code 1136 src/codegen/builtins/math/gen_math.rs
 ceiling code 1414 src/codegen/builtins/money/gen_fixed_math.rs
 ceiling code 1567 src/codegen/builtins/net/gen_ping.rs

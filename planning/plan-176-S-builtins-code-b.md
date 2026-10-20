@@ -44,9 +44,9 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-176-R complete and archived | `ls planning/plan-176-R-* planning/completed/plan-176-R-*` → only `planning/completed/…` | NOT MET (2026-10-17) |
-| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | NOT MET (2026-10-17; `ls tests/guards/file_size_budget.rs` → no such file; lands in plan-176-A) |
-| S's files have no uncommitted changes | `git status --porcelain -- src/codegen/builtins/canvas src/codegen/builtins/crypto src/codegen/builtins/fs src/codegen/builtins/math src/codegen/builtins/money src/codegen/builtins/audio/func_render.rs src/codegen/builtins/tests src/codegen/collection/assign src/codegen/runtime/canvas/mod.rs src/codegen/string/format/float_parse_table.rs src/codegen/engine/tests src/docs/spec/app/06_canvas.md src/docs/spec/tooling/09_debug-report.md src/docs/spec/stdlib/21_fs-host-errors.md src/docs/spec/stdlib/23_fs-memory-files.md src/docs/spec/architecture/18_math-kernels.md src/docs/spec/stdlib/07_math-rng.md .ai/canvas-threading.md tests/runtime/rt_debug_soak.rs tests/canvas/rt_canvas_pointer.rs tests/guards/file_size_ceilings.txt` → empty | NOT MET (2026-10-17: ` M src/docs/spec/app/06_canvas.md`) |
+| plan-176-R complete and archived | `ls planning/plan-176-R-* planning/completed/plan-176-R-*` → only `planning/completed/…` | MET (2026-10-20) |
+| The file-size guard exists and passes | `cargo test --test file_size_budget` → passes | MET (2026-10-20) |
+| S's files have no uncommitted changes | `git status --porcelain -- src/codegen/builtins/canvas src/codegen/builtins/crypto src/codegen/builtins/fs src/codegen/builtins/math src/codegen/builtins/money src/codegen/builtins/audio/func_render.rs src/codegen/builtins/tests src/codegen/collection/assign src/codegen/runtime/canvas/mod.rs src/codegen/string/format/float_parse_table.rs src/codegen/engine/tests src/docs/spec/app/06_canvas.md src/docs/spec/tooling/09_debug-report.md src/docs/spec/stdlib/21_fs-host-errors.md src/docs/spec/stdlib/23_fs-memory-files.md src/docs/spec/architecture/18_math-kernels.md src/docs/spec/stdlib/07_math-rng.md .ai/canvas-threading.md tests/runtime/rt_debug_soak.rs tests/canvas/rt_canvas_pointer.rs tests/guards/file_size_ceilings.txt` → empty | MET (2026-10-20: 0 lines) |
 
 Everything below is written against the world where these hold.
 
@@ -585,15 +585,19 @@ Each phase ends with a sweep command proving no live mention remains:
 
 Three files with no visibility surprises and three citations; lowest risk.
 
-- [ ] `fs/gen_atomic_write.rs` → `fs/gen_atomic_write/{mod,atomic,read_path}.rs` per §4.5
+- [x] `fs/gen_atomic_write.rs` → `fs/gen_atomic_write/{mod,atomic,read_path}.rs` per §4.5
       (`git mv` to `gen_atomic_write/mod.rs` first); the 2 re-export lines.
-- [ ] `fs/gen_directory.rs` → `fs/gen_directory/{mod,create,list}.rs` per §4.6; the 2 re-exports.
-- [ ] `fs/gen_read_write.rs` → `fs/gen_read_write/{mod,position,line}.rs` per §4.7; the 2
+- [x] `fs/gen_directory.rs` → `fs/gen_directory/{mod,create,list}.rs` per §4.6; the 2 re-exports.
+- [x] `fs/gen_read_write.rs` → `fs/gen_read_write/{mod,position,line}.rs` per §4.7; the 2
       re-export lines; `emit_reconcile_read_buffer` → `pub(super)`.
-- [ ] Repoint the 3 citations: `stdlib/21_fs-host-errors.md` `lower_fs_read_text_path_helper` →
+      Done (all three): `codesplit.py` per §4.5–4.7; the only visibility edit is `emit_reconcile_read_buffer`, which
+      `mod.rs` reaches through `use line::emit_reconcile_read_buffer;` (a free fn needs the import); `motion.py` →
+      wiring only.
+- [x] Repoint the 3 citations: `stdlib/21_fs-host-errors.md` `lower_fs_read_text_path_helper` →
       `fs/gen_atomic_write/read_path.rs`; `stdlib/23_fs-memory-files.md` `lower_fs_seek_helper` →
       `fs/gen_read_write/position.rs`, `lower_fs_read_line_helper` → `fs/gen_read_write/line.rs`.
-- [ ] The `SELF_UPDATE_TABLE` proof string → `builtins/fs/gen_atomic_write/read_path.rs` (§4.5, §4.11).
+- [x] The `SELF_UPDATE_TABLE` proof string → `builtins/fs/gen_atomic_write/read_path.rs` (§4.5, §4.11).
+      Done: in `self_update/tests/census/self_update_table.rs:692`; `self_update::tests` still 11 passed.
 
 Acceptance: the three fs carriers compile from their new layout with no caller changed, and the
 fs code they emit is byte-identical on every target.
@@ -601,6 +605,10 @@ fs code they emit is byte-identical on every target.
   `cargo test --test rt_hand_built_record_validation` → passes (it reaches `fs::seek`, which no
   golden calls); step 8 rows: `STALE` for `fs/gen_atomic_write.rs`, `fs/gen_directory.rs`,
   `fs/gen_read_write.rs` only, gone after tighten (est. 20 min total, guess).
+  Verified 2026-10-20: `bash scripts/artifact-gate.sh … fs` → 0 diffs; `rt_hand_built_record_validation` → 2 passed;
+  `codegen::builtins::fs self_update::tests` → 11 (= G0's 11); list 5018 (= N); check warnings 0 (= W);
+  `spec_citations_resolve` ok; guards → 9, 8, 7 + 1 ignored; sweep → 0; budget → the three STALE rows (1197, 1028, 1657)
+  before, none after; census → atomic_write 260/457/486, directory 361/321/352, read_write 683/553/430.
 Commit: —
 
 ### Phase 2 — crypto EC lowerings (pure motion)
@@ -742,6 +750,8 @@ Commit: —
   applied by the author.
 
 ## Corrections
+
+- 2026-10-20 — Every `sh scripts/artifact-gate.sh` runs as `bash` (the script needs bash).
 
 - 2026-10-18: Rule revised by the owner (code ≤ 1000, inline ≤ 250, test-only file ≤ 1000, no exemptions); file list and split design unchanged; rule restated in intro, common step 9 and Decisions; H's canvas tests are one `canvas/tests/mod.rs`, `helper_render/tests/mod.rs` (308) and `tests/declared_errors_all.rs` (797) are no longer moved or split by H.
 

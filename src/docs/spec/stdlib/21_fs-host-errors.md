@@ -57,7 +57,7 @@ nearest existing ancestor is not a directory), or *other*.
   instead (the read fails `EISDIR`, or on Linux ext4 the `lseek(SEEK_END)` size is
   one no allocation can satisfy).
 [[src/codegen/builtins/fs/gen_open.rs:emit_posix_directory_open_refusal]]
-[[src/codegen/builtins/fs/gen_atomic_write.rs:lower_fs_read_text_path_helper]]
+[[src/codegen/builtins/fs/gen_atomic_write/read_path.rs:lower_fs_read_text_path_helper]]
 
 The helper is emitted once per program, when a member that calls it is used.
 [[src/codegen/builtins/fs/gen_classify.rs:CLASSIFYING_MEMBERS]]
