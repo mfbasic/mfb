@@ -537,7 +537,7 @@ are exercised.
   the file's header comment line, no `ceiling` row; clippy: no pre-Phase-1 count was recorded, so the check is per file —
   `cargo clippy --all-targets 2>&1 | grep -E -- '--> tests/(cli/cli_dbg|cli/cli_repo_install|codegen/app_special_keys|guards/no_type_strings|common/(mod|process))(\.rs|/)'`
   → 0 (the tree-wide total, 37065, is pre-existing and names none of E's files).
-Commit: —
+Commit: b023b0a4d
 
 ## Validation Plan
 
