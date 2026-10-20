@@ -21,7 +21,7 @@ DOC
   DESC Named IANA time zones, such as `America/New_York` or `Europe/London`,
   DESC answered from a tzdb release committed with the package.
   DESC
-  DESC The rules are IANA tzdb 2026d, vendored unmodified and compiled by the
+  DESC The rules are IANA tzdb 2026e, vendored unmodified and compiled by the
   DESC release's own `zic`. The package never reads the host's zone database,
   DESC the `TZ` variable, or a platform time zone API, so every host and every
   DESC target returns the same answer for the same question.
@@ -262,4 +262,51 @@ DOC
 END DOC
 EXPORT FUNC parseIso(text AS String) AS ZonedDateTime
   RETURN zonedParseIso(text)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' The release and the names it covers
+' ---------------------------------------------------------------------------
+
+DOC
+  FUNC tzdbVersion
+  GROUP Release
+  DESC The IANA tzdb release every answer in this package comes from, such as
+  DESC `2026e`. Record it next to any result that must be reproduced later: the
+  DESC same zone can answer differently in another release.
+  RET The release name, as published by IANA.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT io
+
+    FUNC main() AS Nothing
+      io::print(timezones::tzdbVersion())
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC tzdbVersion() AS String
+  RETURN tzdbRelease()
+END FUNC
+
+DOC
+  FUNC zoneNames
+  GROUP Release
+  DESC Every zone name `offsetAt`, `toZone`, `civil` and `parseIso` accept, in
+  DESC tzdb spelling and sorted by code point. A link such as `US/Eastern` is
+  DESC listed beside its target, as the tzdb lists it. Names are listed as they
+  DESC are spelled; the lookups themselves ignore case.
+  RET The zone names in the tzdb release this package carries.
+  EXAMPLE
+    IMPORT timezones
+    IMPORT io
+
+    FUNC main() AS Nothing
+      LET names AS List OF String = timezones::zoneNames()
+      io::print(toString(len(names)))
+      io::print(names[0])
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC zoneNames() AS List OF String
+  RETURN allZoneNames()
 END FUNC

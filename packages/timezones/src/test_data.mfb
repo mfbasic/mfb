@@ -56,8 +56,8 @@ TESTING
       expectInteger(malformed, 0)
     END TCASE
 
-    TCASE "the table is release 2026d"
-      expectString(tzdbVersion(), "2026d")
+    TCASE "the table is release 2026e"
+      expectString(tzdbVersion(), "2026e")
     END TCASE
   END TGROUP
 END TESTING

@@ -2,7 +2,7 @@
 ' Tests: civil, a wall-clock reading in a named zone.
 '
 ' Every expected value comes from Python zoneinfo with fold=0, never from this
-' package, run in the oracle venv (tzdata==2026.4, IANA 2026d) with the host
+' package, run in the oracle venv (tzdata==2026.5, IANA 2026e) with the host
 ' search path disabled:
 '
 '   packages/timezones/oracle/.venv/bin/python -c 'import zoneinfo; zoneinfo.reset_tzpath([]);

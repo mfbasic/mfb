@@ -2,7 +2,7 @@
 ' Tests: the footer evaluator (posix.mfb), alone.
 '
 ' Every expected value comes from Python zoneinfo, never from this package.
-' The oracle venv holds tzdata==2026.4 (IANA 2026d), with the host search path
+' The oracle venv holds tzdata==2026.5 (IANA 2026e), with the host search path
 ' disabled. Each case's comment gives the zone whose footer it feeds, and the
 ' one-liner's answers:
 '

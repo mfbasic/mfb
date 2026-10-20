@@ -15,7 +15,8 @@ generator or the vendored release, then regenerate.
 - **Pipeline.**
   1. Check both tarballs against `SHA256SUMS`.
   2. Unpack both into one temporary directory and run `make zic` there.
-  3. Compile the release's default source set with `zic -b slim`. That set is
+  3. Compile the release's default source set with `zic -b slim`, and again with
+     `zic -b fat` for the footer transitions. That set is
      `africa antarctica asia australasia europe northamerica southamerica etcetera
      backward factory`, so no `backzone`.
   4. Parse every compiled file as RFC 8536 TZif.
@@ -30,14 +31,19 @@ generator or the vendored release, then regenerate.
   - every `|utoff| < 172800`;
   - a zone's consecutive transitions are more than 345,600 s apart;
   - no name holds `"` or `\`;
-  - no two names are equal ignoring case.
+  - no two names are equal ignoring case;
+  - no two transitions in the `fat` build are `345,600` s or less apart. The `slim`
+    build leaves out the footer's own transitions, so this is the only check that sees
+    a stored transition close to a footer-derived one. It covers the fat build's
+    horizon, 2037. Past that, only the footer rules decide the transitions, and they
+    are the same `Mm.w.d` rules checked above.
 
   `timezones`' footer evaluator and its `civil` window rely on exactly these premises.
   A release that breaks one fails here, not in a caller's program.
-- **Output.** `data.mfb` goes to stdout. One statistics line goes to stderr. For 2026d
+- **Output.** `data.mfb` goes to stdout. One statistics line goes to stderr. For 2026e
   it is:
 
-      names 598 distinct 345 transitions 17018 types 1598 footers 94
+      names 598 distinct 345 transitions 17057 types 1599 footers 94
 
   Each zone string is `types|transitions|footer` (see the file's header comment).
   `zoneData` and `canonicalName` dispatch on the lower-cased first letter and then
@@ -56,6 +62,6 @@ generator or the vendored release, then regenerate.
 5. Regenerate `packages/timezones/src/data.mfb`. Explain the statistics line's changes
    in the commit.
 6. Bump `packages/timezones/oracle/requirements.txt` to the matching `tzdata` wheel.
-   The wheel's minor number is the release letter's ordinal, so 2026d is `2026.4`.
+   The wheel's minor number is the release letter's ordinal, so 2026e is `2026.5`.
 7. Run `packages/timezones/oracle/run.sh` and `target/release/mfb test packages/timezones`.
 8. Bump `version` in `packages/timezones/project.json`.
