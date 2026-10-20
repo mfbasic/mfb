@@ -730,7 +730,7 @@ Acceptance: lowering produces byte-identical IR for every builtin family.
   Letter end (Validation Plan): `bash scripts/artifact-gate.sh target/release/mfb all` → `artifact-gate [all]: 1703 tests, 1882 build(s), 2362 golden(s) checked, 0 diff(s)`; `test-accept.sh …
   '*-invalid' 'package-*' 'native-library-*' 'native-resource-*' 'roundtrip-package'` → `acceptance tests passed (236 test(s) ran)`; budget → no
   `src/ir/(lower|shape|binary|verify)` row; no ceiling row names any N path.
-Commit: —
+Commit: d95fc94b0
 
 ## Validation Plan
 
